@@ -7,7 +7,7 @@
 // });
 
 const nextConfig = {
-  reactStrictMode: true,
+  reactStrictMode: false, // Disabled temporarily to debug hydration issues
   images: {
     unoptimized: true,
   },
