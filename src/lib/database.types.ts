@@ -133,6 +133,8 @@ export type Database = {
           venue_id: string
           name: string
           date: string
+          start_time: string
+          end_time: string
           status: Database["public"]["Enums"]["event_status"]
           landing_slug: string | null
           landing_active: boolean
@@ -147,6 +149,8 @@ export type Database = {
           venue_id: string
           name: string
           date: string
+          start_time: string
+          end_time: string
           status?: Database["public"]["Enums"]["event_status"]
           landing_slug?: string | null
           landing_active?: boolean
@@ -161,6 +165,8 @@ export type Database = {
           venue_id?: string
           name?: string
           date?: string
+          start_time?: string
+          end_time?: string
           status?: Database["public"]["Enums"]["event_status"]
           landing_slug?: string | null
           landing_active?: boolean
