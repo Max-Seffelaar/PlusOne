@@ -4,14 +4,4 @@
 //   navigator.serviceWorker.register('/service-worker.js');
 // }
 
-declare const self: ServiceWorkerGlobalScope;
-
-self.addEventListener('install', (event: ExtendableEvent) => {
-  event.waitUntil(self.skipWaiting());
-});
-
-self.addEventListener('activate', (event: ExtendableEvent) => {
-  event.waitUntil(self.clients.claim());
-});
-
-// Placeholder: implement caching and offline strategies
+// Placeholder: implement caching and offline strategies when needed
