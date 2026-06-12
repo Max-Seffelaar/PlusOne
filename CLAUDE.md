@@ -2,7 +2,7 @@
 
 Multi-tenant guest list SaaS for venues (clubs, event spaces). Hundreds of venues, dozens of events/month each, 50–150 guests per event. Core values: **fraud resistance** (everything audited), **door speed** (offline-tolerant check-in), **quota enforcement** (staff get limited guest list slots).
 
-The full functional spec lives in `docs/spec.md`. Decision numbers referenced below (#1–#30) point to the decision table in that spec. When in doubt, the spec wins. If code and spec conflict, flag it — never silently deviate.
+The full functional spec lives in `gastenlijst-app-spec.md` (repo root). Decision numbers referenced below (#1–#39) point to the decision table in that spec. When in doubt, the spec wins. If code and spec conflict, flag it — never silently deviate.
 
 ## Stack (fixed — do not substitute)
 
@@ -45,7 +45,7 @@ The full functional spec lives in `docs/spec.md`. Decision numbers referenced be
 
 ## Design (decision #38)
 
-The visual source of truth is the **PLUSONE design bundle** in `docs/design/` (Claude Design handoff) and the token/behaviour summary in `docs/design-system.md`. Read both before building any UI. Rules: recreate the prototype's visual output in our stack (Tailwind theme from the exact tokens — near-black `#0B0B0D`, one lavender accent `#B5A6FF`, Bricolage Grotesque display + Hanken Grotesk body); never copy the prototype's internal code structure; where prototype and spec conflict, the spec wins (documented in design-system.md). Entrance animations animate `translateY` only, opacity always 1, behind `prefers-reduced-motion`.
+The visual source of truth is the token/behaviour summary in `design-system.md` (repo root). The PLUSONE design bundle (Claude Design handoff) is not in the repo yet — when it lands it goes in `docs/design/`. Read the summary before building any UI. Rules: recreate the prototype's visual output in our stack (Tailwind theme from the exact tokens — near-black `#0B0B0D`, one lavender accent `#B5A6FF`, Bricolage Grotesque display + Hanken Grotesk body); never copy the prototype's internal code structure; where prototype and spec conflict, the spec wins (documented in design-system.md). Entrance animations animate `translateY` only, opacity always 1, behind `prefers-reduced-motion`.
 
 ## Security checklist — EVERY route, server action, and Edge Function
 
