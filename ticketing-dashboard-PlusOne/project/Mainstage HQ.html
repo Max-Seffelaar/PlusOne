@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Mainstage HQ — Ticketing Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0c0c12;
+    --rail: #101019;
+    --surface: #15151f;
+    --line: rgba(255,255,255,0.075);
+    --topbar: rgba(12,12,18,0.78);
+    --pop: #181822;
+    --nav-on: rgba(255,255,255,0.06);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: #fff;
+    font-family: 'Hanken Grotesk', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  #root { min-height: 100vh; }
+  .app { display: flex; min-height: 100vh; position: relative; }
+  .app::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: 0;
+    transition: opacity .4s ease;
+  }
+  .app.glow::before {
+    opacity: 1;
+    background:
+      radial-gradient(820px 520px at 78% -8%, color-mix(in srgb, var(--a1) 13%, transparent), transparent 70%),
+      radial-gradient(720px 480px at 6% 4%, color-mix(in srgb, var(--a3) 11%, transparent), transparent 70%),
+      radial-gradient(900px 600px at 50% 118%, color-mix(in srgb, var(--a4) 9%, transparent), transparent 72%);
+  }
+  main, aside { position: relative; z-index: 1; }
+  .content { padding: 24px 28px 40px; max-width: 1540px; width: 100%; margin: 0 auto; }
+
+  h1,h2,h3 { text-wrap: balance; }
+  button { font-family: inherit; }
+
+  /* hover states */
+  .navbtn:hover { background: rgba(255,255,255,0.05); color: #fff; }
+  .evcard { transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease; }
+  .evcard:hover { transform: translateY(-3px); border-color: rgba(255,255,255,0.18); box-shadow: 0 18px 40px rgba(0,0,0,0.42); }
+  .iconbtn:hover { color: #fff; border-color: rgba(255,255,255,0.2); }
+  .evsel:hover { border-color: rgba(255,255,255,0.2); }
+  .evrow:hover { background: rgba(255,255,255,0.05) !important; }
+  .kpi { transition: border-color .16s ease, transform .16s ease; }
+  .kpi:hover { border-color: rgba(255,255,255,0.16); }
+  .grow:hover { background: rgba(255,255,255,0.025); }
+  input::placeholder { color: rgba(255,255,255,0.32); }
+
+  /* live ping */
+  .ping { animation: ping 1.9s cubic-bezier(0,0,0.2,1) infinite; }
+  @keyframes ping { 75%,100% { transform: scale(2.4); opacity: 0; } }
+
+  /* scrollbars */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 6px; border: 2px solid var(--bg); }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+
+  /* entrance — transform only; content is always opacity:1 so it can never be hidden if rAF is throttled at load */
+  @media (prefers-reduced-motion: no-preference) {
+    .content > * { animation: rise .4s ease both; }
+  }
+  @keyframes rise { from { transform: translateY(8px); } to { transform: none; } }
+
+  @media (max-width: 900px) {
+    aside { display: none; }
+    .content { padding: 18px 16px 32px; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script src="data.js"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="charts.jsx"></script>
+<script type="text/babel" src="ui.jsx"></script>
+<script type="text/babel" src="views-main.jsx"></script>
+<script type="text/babel" src="views-detail.jsx"></script>
+<script type="text/babel" src="app.jsx"></script>
+</body>
+</html>

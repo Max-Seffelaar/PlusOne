@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  color-scheme: dark;
+}
+
+@layer base {
+  body {
+    @apply bg-bg text-text;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-acc text-on-acc font-display font-bold rounded-btn px-4 py-2 transition-all hover:brightness-110 active:scale-95 disabled:opacity-50;
+  }
+
+  .btn-dark {
+    @apply bg-elev2 text-text font-display font-bold rounded-btn px-4 py-2 transition-all hover:brightness-110 active:scale-95 disabled:opacity-50;
+  }
+
+  .btn-ghost {
+    @apply text-dim font-display font-bold rounded-btn px-4 py-2 transition-all hover:brightness-110 active:scale-95 disabled:opacity-50;
+  }
+
+  .field {
+    @apply bg-elev border border-line rounded-field px-3 py-2 text-text placeholder-faint transition-colors hover:border-line2 focus:border-acc focus:outline-none;
+  }
+
+  .card {
+    @apply bg-elev border border-line rounded-card p-4 transition-colors hover:bg-elev2;
+  }
+
+  .label {
+    @apply text-label text-faint uppercase tracking-wider;
+  }
+}

@@ -1,0 +1,82 @@
+# Supabase configuration — see https://supabase.com/docs/guides/local-development/cli/config
+
+[project]
+project_id = "plusone-dev"
+account_id = ""
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+max_rows = 1000
+
+[auth]
+enabled = true
+port = 54329
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000/auth/callback"]
+jwt_secret = "super-secret-jwt-token-with-at-least-32-characters-long"
+jwt_exp = 3600
+jwt_aud = "authenticated"
+enable_signup = false
+enable_anonymous_signup = false
+min_password_length = 6
+email_max_freq = "3:1h"
+sms_max_freq = "3:15m"
+other_providers_password_enabled_by_default = false
+
+[auth.email]
+enabled = true
+port = 54324
+provider = "mock"
+autoconfirm = false
+max_freq = "3:1h"
+sender_name = "noreply"
+
+[auth.sms]
+enabled = true
+provider = "twilio"
+twilio_account_sid = ""
+twilio_auth_token = ""
+twilio_message_service_sid = ""
+
+[database]
+port = 54322
+max_connections = 20
+shadow_port = 54320
+major_version = 16
+
+[realtime]
+enabled = true
+max_bytes_per_second = 1000000
+max_connections = 5000
+max_events_per_second = 1000
+max_joins_per_second = 100
+max_presence_messages_per_second = 100
+max_presence_sync_interval_in_milliseconds = 100
+max_reconnect_delay = 30000
+secure_key = "your-realtime-key"
+
+[storage]
+enabled = true
+file_size_limit = 52428800
+s3_host = "localhost"
+s3_region = "local"
+s3_access_key = "625729a08b95bf1b7ff351a663f3a23e"
+s3_secret_key = "850181e4652dd023b7445351044552e63f074eeed8002502e2af4a21480ff978"
+s3_bucket = "stub"
+
+[storage.cors]
+allowed_origins = ["*"]
+allowed_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+allowed_headers = ["*"]
+max_age = 86400
+
+[functions."hello-world"]
+verify_jwt = false
+
+[analytics]
+enabled = false
+
+[vector]
+enabled = false

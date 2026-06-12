@@ -1,0 +1,37 @@
+{
+  "buildCommand": "pnpm build",
+  "devCommand": "pnpm dev",
+  "installCommand": "pnpm install",
+  "framework": "nextjs",
+  "regions": ["fra1"],
+  "env": [
+    {
+      "key": "NEXT_PUBLIC_SUPABASE_URL_STAGING",
+      "value": "@supabase-url-staging"
+    },
+    {
+      "key": "NEXT_PUBLIC_SUPABASE_ANON_KEY_STAGING",
+      "value": "@supabase-anon-key-staging"
+    },
+    {
+      "key": "SUPABASE_SERVICE_ROLE_KEY_STAGING",
+      "value": "@supabase-service-key-staging"
+    },
+    {
+      "key": "NEXT_PUBLIC_SUPABASE_URL_PROD",
+      "value": "@supabase-url-prod"
+    },
+    {
+      "key": "NEXT_PUBLIC_SUPABASE_ANON_KEY_PROD",
+      "value": "@supabase-anon-key-prod"
+    },
+    {
+      "key": "SUPABASE_SERVICE_ROLE_KEY_PROD",
+      "value": "@supabase-service-key-prod"
+    },
+    {
+      "key": "NEXT_PUBLIC_ENV",
+      "value": "staging"
+    }
+  ]
+}
