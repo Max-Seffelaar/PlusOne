@@ -1,0 +1,61 @@
+{
+  "name": "PLUSONE Guest List",
+  "short_name": "PLUSONE",
+  "description": "Multi-tenant guest list management for venues",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0B0B0D",
+  "theme_color": "#0B0B0D",
+  "categories": ["business", "productivity"],
+  "screenshots": [
+    {
+      "src": "/icons/screenshot-narrow.png",
+      "sizes": "540x720",
+      "type": "image/png",
+      "form_factor": "narrow"
+    }
+  ],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Check-in",
+      "short_name": "Check-in",
+      "description": "Quick check-in door app",
+      "url": "/app/door",
+      "icons": [
+        {
+          "src": "/icons/door-96.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
+}

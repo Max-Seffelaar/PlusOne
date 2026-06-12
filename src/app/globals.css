@@ -1,0 +1,52 @@
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700;800&family=Hanken+Grotesk:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-line;
+  }
+
+  body {
+    @apply bg-bg text-text;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply rounded-btn bg-acc text-on-acc font-bricolage font-bold px-6 py-3 hover:brightness-hover active:scale-active transition-all duration-200;
+  }
+
+  .btn-secondary {
+    @apply rounded-btn bg-elev2 text-text font-bricolage font-bold px-6 py-3 border border-line hover:brightness-hover active:scale-active transition-all duration-200;
+  }
+
+  .btn-ghost {
+    @apply rounded-btn text-dim font-bricolage font-bold px-6 py-3 hover:text-text active:scale-active transition-all duration-200;
+  }
+
+  .label {
+    @apply text-label text-faint uppercase;
+  }
+
+  .card {
+    @apply rounded-card bg-elev border border-line p-4;
+  }
+
+  .field {
+    @apply rounded-field bg-elev2 border border-line px-4 py-3 text-text placeholder:text-ghost focus:outline-none focus:ring-2 focus:ring-acc;
+  }
+}
+
+/* Reduce motion for animations */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

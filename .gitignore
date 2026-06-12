@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+.pnpm-debug.log*
+pnpm-lock.yaml
+
+# Next.js
+.next/
+out/
+build/
+
+# Environment
+.env
+.env.local
+.env.*.local
+.env.production.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.iml
+
+# Testing
+.nyc_output/
+coverage/
+.vitest/
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# Supabase
+supabase/.branches/
+supabase/migrations/
+.supabase/
+supabase/.types/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# Cache
+.eslintcache
+.turbo
+dist
