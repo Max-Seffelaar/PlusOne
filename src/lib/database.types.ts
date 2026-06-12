@@ -745,6 +745,25 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      can_check_in: { Args: { p_event_id: string }; Returns: boolean }
+      can_view_profile: { Args: { p_profile_id: string }; Returns: boolean }
+      can_write_guests: { Args: { p_event_id: string }; Returns: boolean }
+      event_venue: { Args: { p_event_id: string }; Returns: string }
+      guest_event: { Args: { p_guest_id: string }; Returns: string }
+      has_venue_role: {
+        Args: {
+          p_roles: Database["public"]["Enums"]["venue_role"][]
+          p_venue_id: string
+        }
+        Returns: boolean
+      }
+      is_aal2: { Args: never; Returns: boolean }
+      is_event_organizer: { Args: { p_event_id: string }; Returns: boolean }
+      is_venue_member: { Args: { p_venue_id: string }; Returns: boolean }
+      organizes_event_at_venue: {
+        Args: { p_venue_id: string }
+        Returns: boolean
+      }
       uuid_generate_v7: { Args: never; Returns: string }
     }
     Enums: {
