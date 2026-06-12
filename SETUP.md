@@ -56,13 +56,13 @@ This enforces passwordless-first as per CLAUDE.md decision #20.
 If you want to test migrations and RLS locally without hitting the cloud:
 
 ```bash
-# Install Supabase CLI (if not already)
+# Install Supabase CLI globally (one-time)
 npm install -g @supabase/cli
 
 # Link to your project (one-time)
 supabase link --project-id <your-project-id>
 
-# Start local Postgres (Docker required)
+# Start local Postgres (requires Docker)
 supabase start
 
 # Apply migrations to local DB
@@ -72,7 +72,7 @@ supabase db reset
 supabase test db
 ```
 
-For quick testing, you can skip this and just push migrations to Supabase Dashboard.
+**Note:** The Supabase CLI is installed globally, not in this project. For quick testing without local Docker, you can skip this and push migrations directly via Supabase Dashboard's SQL Editor.
 
 ### 6. Start Development Server
 

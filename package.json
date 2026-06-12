@@ -66,8 +66,6 @@
     "@testing-library/react": "^16.0.1",
     "@testing-library/jest-dom": "^6.6.3",
     "playwright": "^1.48.0",
-    "supabase": "^1.188.4",
-    "@supabase/cli": "^1.188.4",
     "server-only": "^0.0.1"
   },
   "engines": {
