@@ -14,6 +14,9 @@ export type Database = {
           id: string
           email: string
           display_name: string | null
+          requires_mfa: boolean
+          mfa_enrolled_at: string | null
+          last_login_at: string | null
           created_at: string
           updated_at: string
         }
@@ -21,6 +24,9 @@ export type Database = {
           id: string
           email: string
           display_name?: string | null
+          requires_mfa?: boolean
+          mfa_enrolled_at?: string | null
+          last_login_at?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -28,6 +34,9 @@ export type Database = {
           id?: string
           email?: string
           display_name?: string | null
+          requires_mfa?: boolean
+          mfa_enrolled_at?: string | null
+          last_login_at?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -774,6 +783,57 @@ export type Database = {
             columns: ["venue_id"]
             isOneToOne: true
             referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pending_invites: {
+        Row: {
+          id: string
+          venue_id: string
+          email: string
+          roles: Database["public"]["Enums"]["venue_role"][]
+          invited_by: string
+          created_at: string
+          expires_at: string
+          accepted_at: string | null
+          used_count: number
+        }
+        Insert: {
+          id?: string
+          venue_id: string
+          email: string
+          roles?: Database["public"]["Enums"]["venue_role"][]
+          invited_by: string
+          created_at?: string
+          expires_at?: string
+          accepted_at?: string | null
+          used_count?: number
+        }
+        Update: {
+          id?: string
+          venue_id?: string
+          email?: string
+          roles?: Database["public"]["Enums"]["venue_role"][]
+          invited_by?: string
+          created_at?: string
+          expires_at?: string
+          accepted_at?: string | null
+          used_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pending_invites_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pending_invites_invited_by_fkey"
+            columns: ["invited_by"]
+            isOneToOne: false
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]

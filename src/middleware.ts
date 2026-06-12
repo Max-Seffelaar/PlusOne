@@ -32,13 +32,13 @@ export async function middleware(request: NextRequest) {
     {
       cookies: {
         getAll() {
-          return request.cookies.getSetCookie().map((cookie) => {
-            const [name, ...rest] = cookie.split('=');
-            return { name, value: rest.join('=') };
-          });
+          return Object.entries(request.cookies.getAll()).map(([name, cookie]) => ({
+            name,
+            value: (cookie as any).value,
+          }));
         },
-        setAll(cookies) {
-          cookies.forEach(({ name, value, options }) => {
+        setAll(cookiesToSet: Array<{ name: string; value: string }>) {
+          cookiesToSet.forEach(({ name, value }: { name: string; value: string }) => {
             request.cookies.set(name, value);
           });
         },

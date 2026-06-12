@@ -14,7 +14,7 @@ export async function inviteUser(input: unknown) {
       return { success: false, error: 'Niet ingelogd' };
     }
 
-    const { allowed, error } = await checkVenueMembership(parsed.venue_id, ['admin', 'user_manager']);
+    const { allowed } = await checkVenueMembership(parsed.venue_id, ['admin', 'user_manager']);
     if (!allowed) {
       return { success: false, error: 'Onvoldoende machtigingen' };
     }
@@ -22,8 +22,8 @@ export async function inviteUser(input: unknown) {
     const supabase = await getServerSupabaseClient();
 
     // Create or update pending invite
-    const { data, error: dbError } = await supabase
-      .from('pending_invites')
+    const { data, error: dbError } = await (supabase
+      .from('pending_invites') as any)
       .upsert(
         {
           venue_id: parsed.venue_id,
@@ -63,8 +63,8 @@ export async function acceptInvite(input: unknown) {
     const supabase = await getServerSupabaseClient();
 
     // Fetch pending invite
-    const { data: invite, error: inviteError } = await supabase
-      .from('pending_invites')
+    const { data: invite, error: inviteError } = await (supabase
+      .from('pending_invites') as any)
       .select('*')
       .eq('id', parsed.token)
       .single();
@@ -114,8 +114,8 @@ export async function updateUserProfile(input: unknown) {
 
     // Update display_name if provided
     if (parsed.display_name) {
-      const { error: updateError } = await supabase
-        .from('users')
+      const { error: updateError } = await (supabase
+        .from('users') as any)
         .update({ display_name: parsed.display_name, updated_at: new Date().toISOString() })
         .eq('id', user.id);
 

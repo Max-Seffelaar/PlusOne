@@ -57,8 +57,15 @@ export async function checkVenueMembership(venueId: string, requiredRoles?: stri
     return { allowed: false, membership: null, error: 'no_membership' };
   }
 
+  const memberRoles = (membership as any).roles || [];
+
+  // Super admin has all permissions everywhere
+  if (memberRoles.includes('super_admin')) {
+    return { allowed: true, membership, error: null };
+  }
+
   if (requiredRoles && requiredRoles.length > 0) {
-    const hasRequiredRole = requiredRoles.some(role => membership.roles.includes(role as never));
+    const hasRequiredRole = requiredRoles.some(role => memberRoles.includes(role));
     if (!hasRequiredRole) {
       return { allowed: false, membership, error: 'insufficient_role' };
     }

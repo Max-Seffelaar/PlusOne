@@ -1,6 +1,12 @@
 # Supabase local development configuration
 [db]
-port = 54322
+port = 55432
+
+[studio]
+port = 55323
+
+[api]
+port = 55321
 
 [realtime]
 enabled = true

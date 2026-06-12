@@ -31,9 +31,10 @@ export default async function VenueAdminPage({ params }: PageProps) {
     notFound();
   }
 
-  const isAdmin = userMembership.roles.includes('admin' as never);
-  const isUserManager = userMembership.roles.includes('user_manager' as never);
-  const isFinance = userMembership.roles.includes('finance' as never);
+  const memberRoles = userMembership.roles as any || [];
+  const isAdmin = memberRoles.includes('admin') || memberRoles.includes('super_admin');
+  const isUserManager = memberRoles.includes('user_manager') || memberRoles.includes('super_admin');
+  const isFinance = memberRoles.includes('finance') || memberRoles.includes('super_admin');
   const canViewAdmin = isAdmin || isUserManager || isFinance;
 
   if (!canViewAdmin) {
@@ -114,9 +115,13 @@ export default async function VenueAdminPage({ params }: PageProps) {
               {isAdmin && (
                 <div className="p-4 rounded-lg bg-accent/10 border border-accent/20">
                   <p className="text-xs font-medium text-accent mb-2">Je rol:</p>
-                  <p className="text-sm font-medium text-text">Admin</p>
+                  <p className="text-sm font-medium text-text">
+                    {memberRoles.includes('super_admin') ? 'Super Admin' : 'Admin'}
+                  </p>
                   <p className="text-xs text-dim mt-1">
-                    Je hebt volledige controle over deze locatie.
+                    {memberRoles.includes('super_admin')
+                      ? 'Je hebt volledige controle over álle locaties.'
+                      : 'Je hebt volledige controle over deze locatie.'}
                   </p>
                 </div>
               )}

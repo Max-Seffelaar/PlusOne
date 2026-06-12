@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { createBrowserClient } from '@supabase/ssr';
 
 export default function AcceptInvitePage() {
   const params = useParams();
@@ -60,12 +59,6 @@ export default function AcceptInvitePage() {
           {error && (
             <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm mb-4">
               {error}
-            </div>
-          )}
-
-          {success && (
-            <div className="p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm mb-4">
-              Welkom! U kunt nu inloggen.
             </div>
           )}
 
