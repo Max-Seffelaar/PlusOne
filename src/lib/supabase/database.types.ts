@@ -1,9 +1,9 @@
 export type Database = {
   public: {
-    Tables: {};
-    Views: {};
-    Functions: {};
-    Enums: {};
-    CompositeTypes: {};
+    Tables: Record<string, unknown>;
+    Views: Record<string, unknown>;
+    Functions: Record<string, unknown>;
+    Enums: Record<string, unknown>;
+    CompositeTypes: Record<string, unknown>;
   };
 };
