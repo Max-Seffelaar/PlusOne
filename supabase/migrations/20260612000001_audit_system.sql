@@ -183,30 +183,33 @@ create trigger events_audit
 revoke insert, update, delete on audit_log from authenticated;
 revoke insert, update, delete on audit_log from service_role;
 
--- Allow service role to insert via trigger (implicit via function)
--- But explicitly prevent direct writes
+-- Drop the overly-restrictive default deny policy and replace with selective read-only policies
+drop policy if exists audit_log_default_deny on audit_log;
+
+-- Allow Admin role to read audit log for their venue
 create policy audit_log_select_if_admin on audit_log
   for select using (
-    exists (
-      select 1 from venue_memberships vm
-      join auth.users au on au.id = vm.user_id
-      where vm.venue_id = audit_log.venue_id
-        and 'admin'::venue_role = any(vm.roles)
-        and au.id = auth.uid()
-    )
-    or (
-      auth.jwt()->>'role' = 'service_role'
+    auth.uid() is not null and (
+      exists (
+        select 1 from venue_memberships vm
+        where vm.venue_id = audit_log.venue_id
+          and vm.user_id = auth.uid()
+          and 'admin'::venue_role = any(vm.roles)
+      )
+      or (
+        auth.jwt()->>'role' = 'service_role'
+      )
     )
   );
 
--- Allow Finance role to see audit log too
+-- Allow Finance role to read audit log for their venue (read-only)
 create policy audit_log_select_if_finance on audit_log
   for select using (
+    auth.uid() is not null and
     exists (
       select 1 from venue_memberships vm
-      join auth.users au on au.id = vm.user_id
       where vm.venue_id = audit_log.venue_id
+        and vm.user_id = auth.uid()
         and 'finance'::venue_role = any(vm.roles)
-        and au.id = auth.uid()
     )
   );
