@@ -68,6 +68,7 @@
     "@testing-library/jest-dom": "^6.6.3",
     "playwright": "^1.48.0",
     "@vitejs/plugin-react": "^4.3.0",
+    "jsdom": "^24.0.0",
     "server-only": "^0.0.1"
   },
   "engines": {
