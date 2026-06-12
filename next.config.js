@@ -1,9 +1,10 @@
 /** @type {import('next').NextConfig} */
-const withPWA = require('next-pwa')({
-  dest: 'public',
-  register: true,
-  skipWaiting: true,
-});
+// PWA disabled for now — will re-enable in fase 9 (door app)
+// const withPWA = require('next-pwa')({
+//   dest: 'public',
+//   register: true,
+//   skipWaiting: true,
+// });
 
 const nextConfig = {
   reactStrictMode: true,
@@ -41,4 +42,5 @@ const nextConfig = {
   },
 };
 
-module.exports = withPWA(nextConfig);
+module.exports = nextConfig;
+// Re-enable PWA in fase 9: module.exports = withPWA(nextConfig);
