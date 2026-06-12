@@ -158,7 +158,7 @@ Niet in applicatiecode, maar via **Postgres-triggers** op `guests`, `quotas`, `e
 |---|---|---|
 | Frontend | **Next.js 15 (App Router) als PWA** | Eén codebase voor admin-dashboard én deur-app; installeerbaar op homescreen; geen app-store-frictie voor honderden venues. |
 | Hosting | **Vercel, regio fra1 (Frankfurt)** | EU-hosting, edge-snelheid, jouw bekende workflow. |
-| Database + Auth + Realtime | **Supabase (eu-central-1, Frankfurt)** | Postgres met Row Level Security voor multi-tenancy, triggers voor audit log, Realtime-subscriptions voor live check-in-status, EU + verwerkersovereenkomst standaard. |
+| Database + Auth + Realtime | **Supabase (eu-west-1, Ierland)** | Postgres met Row Level Security voor multi-tenancy, triggers voor audit log, Realtime-subscriptions voor live check-in-status, EU + verwerkersovereenkomst standaard. *(Oorspronkelijk eu-central-1 Frankfurt; bestaand project in eu-west-1 akkoord bevonden 13-06-2026 — beide EU/AVG-conform.)* |
 | Offline/cache | **TanStack Query + IndexedDB-persist** | Lijst lokaal beschikbaar, mutaties in een outbox-queue. |
 | Realtime sync | **Supabase Realtime** op `guests` en `check_ins` per event | Meerdere doorhosts zien elkaars check-ins binnen ~1 sec. |
 

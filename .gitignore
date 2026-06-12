@@ -53,3 +53,4 @@ Thumbs.db
 dist
 build
 *.tsbuildinfo
+supabase/.temp

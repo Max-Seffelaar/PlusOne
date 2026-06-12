@@ -7,7 +7,7 @@ The full functional spec lives in `gastenlijst-app-spec.md` (repo root). Decisio
 ## Stack (fixed — do not substitute)
 
 - **Next.js 15, App Router, TypeScript strict** — PWA. Hosted on **Vercel, region `fra1` only**.
-- **Supabase** (project region `eu-central-1`, Frankfurt): Postgres, Auth, Realtime, Edge Functions.
+- **Supabase** (project region `eu-west-1`, Ireland — EU region approved by Max 2026-06-13, ref `tolxwgqhppdcvnogdpel`): Postgres, Auth, Realtime, Edge Functions.
 - **Tailwind + shadcn/ui** for UI. **TanStack Query** with IndexedDB persistence for offline.
 - **Zod** for all input validation. **Vitest** for unit tests, **Playwright** for e2e, **pgTAP** (via supabase test) for RLS/trigger tests.
 - Package manager: **pnpm**.
