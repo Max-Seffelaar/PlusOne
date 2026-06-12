@@ -1,8 +1,11 @@
 # Supabase local development configuration
+project_id = "PlusOne_Guestlist"
 
+# NOTE: default Supabase ports (54320–54324) fall inside a Windows excluded port
+# range (54258–54357, Hyper-V/WSL reservation) on this machine — moved to 553xx.
 [api]
 enabled = true
-port = 54321
+port = 55321
 schemas = ["public", "graphql_public"]
 
 [auth]
@@ -11,8 +14,16 @@ site_url = "http://localhost:3000"
 additional_redirect_urls = ["http://localhost:3000/auth/callback"]
 
 [db]
-port = 54322
-shadow_port = 54320
+port = 55322
+shadow_port = 55320
+
+[studio]
+enabled = true
+port = 55323
+
+[inbucket]
+enabled = true
+port = 55324
 
 [realtime]
 enabled = true
