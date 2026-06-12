@@ -36,7 +36,6 @@ playwright/.cache/
 
 # Supabase
 supabase/.branches/
-supabase/migrations/
 .supabase/
 supabase/.types/
 
