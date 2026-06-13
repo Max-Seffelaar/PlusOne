@@ -45,7 +45,15 @@ The full functional spec lives in `gastenlijst-app-spec.md` (repo root). Decisio
 
 ## Design (decision #38)
 
-The visual source of truth is the token/behaviour summary in `design-system.md` (repo root). The PLUSONE design bundle (Claude Design handoff) is not in the repo yet — when it lands it goes in `docs/design/`. Read the summary before building any UI. Rules: recreate the prototype's visual output in our stack (Tailwind theme from the exact tokens — near-black `#0B0B0D`, one lavender accent `#B5A6FF`, Bricolage Grotesque display + Hanken Grotesk body); never copy the prototype's internal code structure; where prototype and spec conflict, the spec wins (documented in design-system.md). Entrance animations animate `translateY` only, opacity always 1, behind `prefers-reduced-motion`.
+**The UI layer is already implemented in `src/` and is the source of truth for the UI — reuse and extend it, never regenerate a screen.** ~26 mobile screens live as React/TS components with in-memory mock data:
+
+- `src/components/po/` — design-system kit (`kit.tsx`, `icon.tsx`, `shell.tsx`), app shell + nav stack (`app.tsx`, `context.tsx`), and all screens under `src/components/po/screens/` (`auth`, `events`, `guests`, `door`, `approvals`, `settings`).
+- `src/lib/po/` — typed mock data (`data.ts`, `types.ts`), the deterministic quick-add parser (`parse.ts`, decision #33), and raw token helpers (`theme.ts`).
+- Mounted at the `/app` route (`src/app/app/page.tsx`). Design tokens + the two fonts live in `tailwind.config.ts`.
+
+Per Werkwijze v2 (`bouwplan-claude-code.md`): a UI phase now means **building the backend under an existing screen and replacing its mock data with real Supabase data while preserving the component API** — not rebuilding the screen.
+
+The token/behaviour reference is `design-system.md` (repo root). The original Claude Design handoff is not committed — `src/` is the recreation and supersedes it. Rules unchanged: tokens are near-black `#0B0B0D`, one lavender accent `#B5A6FF`, Bricolage Grotesque display + Hanken Grotesk body; recreate visual output, never copy the prototype's internal code structure; where prototype and spec conflict, the spec wins; entrance animations animate `translateY` only, opacity always 1, behind `prefers-reduced-motion`.
 
 ## Security checklist — EVERY route, server action, and Edge Function
 
@@ -77,7 +85,7 @@ Run through this list for each new or modified path. No exceptions, including "i
 3. RLS tests (pgTAP) for every new table/policy: prove both **allowed** and **denied** cases per role.
 4. Unit tests for quota math, lock behaviour, and any non-trivial logic.
 5. Migration applies cleanly on a fresh database (`supabase db reset` passes).
-6. Update `docs/spec.md` if a decision was refined; add the change to the decision table.
+6. Update `gastenlijst-app-spec.md` (repo root) if a decision was refined; add the change to the decision table.
 7. Short summary of what was built + open questions, so it can be pasted into the ClickUp task.
 
 ## What NOT to do
