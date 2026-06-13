@@ -11,6 +11,7 @@ The full functional spec lives in `gastenlijst-app-spec.md` (repo root). Decisio
 - **Tailwind + shadcn/ui** for UI. **TanStack Query** with IndexedDB persistence for offline.
 - **Zod** for all input validation. **Vitest** for unit tests, **Playwright** for e2e, **pgTAP** (via supabase test) for RLS/trigger tests.
 - Package manager: **pnpm**.
+- Keep `@supabase/ssr` aligned with `@supabase/supabase-js` (≥`0.12` for js `2.108`). A stale `ssr` pin makes the typed client resolve every `.from()`/`.rpc()` to `never` — it compiles to nonsense and `tsc` fails wholesale.
 
 ## Non-negotiable architecture decisions
 
