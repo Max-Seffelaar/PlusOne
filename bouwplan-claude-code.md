@@ -3,10 +3,20 @@
 ## Werkwijze v2 (herzien)
 
 - **Eén fase = één ClickUp-taak = één (of enkele) Claude Code-sessie(s).** Plak de prompt, review tegen de Definition of Done, vink de test-subtaak af, plak Claude's eindsamenvatting als comment.
-- **Altijd live:** elke merge naar main deployt automatisch naar staging (echte Vercel + echte Supabase Frankfurt, identiek aan productie). **Een fase is pas klaar als hij op staging draait en op een telefoon is aangeklikt.** Productie blijft leeg tot de pilotvenue.
-- **Fases 1–3 zijn backend-only** (schema, RLS, audit) — geen schermen, zichtbaarheid via pgTAP. Dit fundament wordt nooit "per scherm" gebouwd; security achteraf toevoegen is hoe lekken ontstaan.
-- **Fases 4–10 zijn verticale plakken, scherm-eerst:** (1) bouw eerst het scherm uit het PLUSONE-design (of design-sprint-output; ontbreekt een ontwerp, dan design-system.md als enige bron), met tijdelijke mock-data; (2) bouw de backend eronder; (3) koppel en verwijder de mocks; (4) deploy naar staging en klik het na. Zo is er elke fase iets zichtbaars en testbaar.
-- Niet door naar de volgende fase zolang de tests van de vorige niet groen zijn én de staging-deploy niet werkt.
+- **Geen staging-omgeving (besloten 13-06-2026):** er is géén aparte staging-database. Verificatie is volledig lokaal: `pnpm lint && pnpm test`, `supabase db reset && supabase test db`, en de fase naklikken in `pnpm dev` op een telefoon-viewport. **Een fase is pas klaar als die tests groen zijn en het scherm lokaal is nageklikt.** Er is één Supabase-project (**prod**, ref `tolxwgqhppdcvnogdpel`); na een merge naar `main` gaat het schema er via `supabase db push` naartoe. Prod blijft leeg van echte venue-data tot de pilot.
+- **Fases 1–3 (schema, RLS, audit) zijn klaar en gemerged** — backend-only, zichtbaarheid via pgTAP. Dit fundament wordt nooit "per scherm" gebouwd; security achteraf toevoegen is hoe lekken ontstaan.
+- **Fases 4–10 zijn verticale plakken, scherm-eerst — en de schermen bestaan nu al in `src/` met mock-data.** Per fase dus: (1) bouw de backend eronder; (2) vervang de mock-data door echte Supabase-data **met behoud van de component-API** — schermen worden niet opnieuw gebouwd; (3) klik het lokaal na (`pnpm dev`, telefoon-viewport).
+- Niet door naar de volgende fase zolang de tests van de vorige niet groen zijn (lint, unit, pgTAP, e2e waar van toepassing).
+
+### Verplichte checks per resterende fase (beslissing #40 + no-staging)
+
+Begin elke fase-prompt met: *"Lees CLAUDE.md, `gastenlijst-app-spec.md` (incl. #40) en Werkwijze v2 hierboven. Het scherm bestaat al in `src/components/po/` — bouw de backend eronder en vervang de mock-data **met behoud van de component-API**; herbouw het scherm niet."* Loop daarna deze raakvlakken na:
+
+- **Schema (nieuwe migratie — bewerk nooit een toegepaste, #40):** platform super-admin als globale vlag (`profiles.is_platform_admin`) met RLS die volledige cross-venue-toegang geeft (nooit via de service-role, wél volledig in het audit log); `subscriptions` krijgt een initiële **onboarding-status**-waarde; self-service venue-creatie ondersteund.
+- **Fase 4 (auth):** een super-admin kan een invite markeren → de uitgenodigde belandt na de eerste OTP-login direct in de venue-aanmaakflow (#40b). AAL2-regels ongemoeid.
+- **Fase 5 (venue-/userbeheer):** self-service venue-creatie — elke geauthenticeerde user maakt zelf een nieuwe venue aan en wordt Admin; elke venue krijgt een eigen `subscriptions`-record (onboarding-status, per venue gegevens achterlaten). Super-admin-beheer toevoegen.
+- **Fase 8 (landing):** het MVP stuurt **géén** bevestiging aan goedgekeurde aanvragers (#30/#40d) — alleen de on-page "aanvraag binnen". Bevestiging (link/e-mail) én first-run/intro-schermen staan in de ClickUp-backlog.
+- **No staging:** lokaal verifiëren (`pnpm lint && pnpm test`, `supabase db reset && supabase test db`, naklikken in `pnpm dev`) → merge → `supabase db push` naar prod.
 
 ---
 
@@ -79,7 +89,7 @@ Bouw het audit-systeem:
 
 ## Fase 4 — Auth: OTP, invite-only, MFA, sessiebeheer
 
-> **Werkwijze v2:** scherm eerst (uit design/design-system.md, met mock-data) → backend eronder → koppelen, mocks weg → deploy naar staging → live aanklikken op telefoon. Voeg aan de prompt toe: "Werk scherm-eerst volgens Werkwijze v2 bovenaan dit document en eindig met een werkende staging-deploy."
+> **Werkwijze v2:** het scherm bestaat al in `src/` (mock-data) → bouw de backend eronder → vervang de mock-data met behoud van de component-API → klik lokaal na op telefoon-viewport (`pnpm dev`). Géén staging; eindig met groene tests.
 
 ```
 Lees CLAUDE.md §Auth en beslissing #20/#24 in docs/spec.md.
@@ -99,7 +109,7 @@ Pas de security-checklist uit CLAUDE.md toe op elk pad. Playwright-tests voor: l
 
 ## Fase 5 — Venue- & userbeheer
 
-> **Werkwijze v2:** scherm eerst (uit design/design-system.md, met mock-data) → backend eronder → koppelen, mocks weg → deploy naar staging → live aanklikken op telefoon. Voeg aan de prompt toe: "Werk scherm-eerst volgens Werkwijze v2 bovenaan dit document en eindig met een werkende staging-deploy."
+> **Werkwijze v2:** het scherm bestaat al in `src/` (mock-data) → bouw de backend eronder → vervang de mock-data met behoud van de component-API → klik lokaal na op telefoon-viewport (`pnpm dev`). Géén staging; eindig met groene tests.
 
 ```
 Lees CLAUDE.md en docs/spec.md §2 (rollenmatrix), beslissing #24.
@@ -118,7 +128,7 @@ Server Components + Server Actions, Zod op elke mutatie, security-checklist op e
 
 ## Fase 6 — Events, tiers & lijst-lock
 
-> **Werkwijze v2:** scherm eerst (uit design/design-system.md, met mock-data) → backend eronder → koppelen, mocks weg → deploy naar staging → live aanklikken op telefoon. Voeg aan de prompt toe: "Werk scherm-eerst volgens Werkwijze v2 bovenaan dit document en eindig met een werkende staging-deploy."
+> **Werkwijze v2:** het scherm bestaat al in `src/` (mock-data) → bouw de backend eronder → vervang de mock-data met behoud van de component-API → klik lokaal na op telefoon-viewport (`pnpm dev`). Géén staging; eindig met groene tests.
 
 ```
 Lees docs/spec.md §3 en beslissingen #8, #23, #26.
@@ -137,7 +147,7 @@ Tests: statusovergangen, lock-gedrag per rol (e2e), tier-max.
 
 ## Fase 7 — Gastenlijst, quota-engine & verzoekflow
 
-> **Werkwijze v2:** scherm eerst (uit design/design-system.md, met mock-data) → backend eronder → koppelen, mocks weg → deploy naar staging → live aanklikken op telefoon. Voeg aan de prompt toe: "Werk scherm-eerst volgens Werkwijze v2 bovenaan dit document en eindig met een werkende staging-deploy."
+> **Werkwijze v2:** het scherm bestaat al in `src/` (mock-data) → bouw de backend eronder → vervang de mock-data met behoud van de component-API → klik lokaal na op telefoon-viewport (`pnpm dev`). Géén staging; eindig met groene tests.
 
 ```
 Lees docs/spec.md beslissingen #4, #5, #9, #21, #22 en de quota-paragraaf in §3.
@@ -162,7 +172,7 @@ pgTAP voor alle quota-randgevallen (+N, removal vóór/na live, override, tier-m
 
 ## Fase 8 — Landingpage & goedkeuringsflow
 
-> **Werkwijze v2:** scherm eerst (uit design/design-system.md, met mock-data) → backend eronder → koppelen, mocks weg → deploy naar staging → live aanklikken op telefoon. Voeg aan de prompt toe: "Werk scherm-eerst volgens Werkwijze v2 bovenaan dit document en eindig met een werkende staging-deploy."
+> **Werkwijze v2:** het scherm bestaat al in `src/` (mock-data) → bouw de backend eronder → vervang de mock-data met behoud van de component-API → klik lokaal na op telefoon-viewport (`pnpm dev`). Géén staging; eindig met groene tests.
 
 ```
 Lees docs/spec.md beslissingen #12, #28 en §6 (landingpage).
@@ -180,7 +190,7 @@ Security-checklist: dit is je enige publieke schrijfpad — behandel het als vij
 
 ## Fase 9 — Deur-app (PWA, offline, sync)
 
-> **Werkwijze v2:** scherm eerst (uit design/design-system.md, met mock-data) → backend eronder → koppelen, mocks weg → deploy naar staging → live aanklikken op telefoon. Voeg aan de prompt toe: "Werk scherm-eerst volgens Werkwijze v2 bovenaan dit document en eindig met een werkende staging-deploy."
+> **Werkwijze v2:** het scherm bestaat al in `src/` (mock-data) → bouw de backend eronder → vervang de mock-data met behoud van de component-API → klik lokaal na op telefoon-viewport (`pnpm dev`). Géén staging; eindig met groene tests.
 
 ```
 Lees docs/spec.md §4 (sync-gedrag, Eventix-model) en beslissingen #10, #11, #25, #27.
@@ -200,7 +210,7 @@ Playwright met network-throttling/offline-emulatie: offline inchecken → reconn
 
 ## Fase 10 — Audit-log-weergave & statistieken
 
-> **Werkwijze v2:** scherm eerst (uit design/design-system.md, met mock-data) → backend eronder → koppelen, mocks weg → deploy naar staging → live aanklikken op telefoon. Voeg aan de prompt toe: "Werk scherm-eerst volgens Werkwijze v2 bovenaan dit document en eindig met een werkende staging-deploy."
+> **Werkwijze v2:** het scherm bestaat al in `src/` (mock-data) → bouw de backend eronder → vervang de mock-data met behoud van de component-API → klik lokaal na op telefoon-viewport (`pnpm dev`). Géén staging; eindig met groene tests.
 
 ```
 Lees docs/spec.md beslissingen #15, #17, #26 en §6 (statistieken).

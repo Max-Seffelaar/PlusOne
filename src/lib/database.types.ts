@@ -214,6 +214,7 @@ export type Database = {
           status: Database["public"]["Enums"]["event_status"]
           updated_at: string
           venue_id: string
+          went_live_at: string | null
         }
         Insert: {
           created_at?: string
@@ -229,6 +230,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["event_status"]
           updated_at?: string
           venue_id: string
+          went_live_at?: string | null
         }
         Update: {
           created_at?: string
@@ -244,6 +246,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["event_status"]
           updated_at?: string
           venue_id?: string
+          went_live_at?: string | null
         }
         Relationships: [
           {
@@ -378,6 +381,7 @@ export type Database = {
           note_priority: Database["public"]["Enums"]["note_priority"]
           phone: string | null
           plus_ones: number
+          removed_at: string | null
           source: Database["public"]["Enums"]["guest_source"]
           status: Database["public"]["Enums"]["guest_status"]
           tier_id: string
@@ -397,6 +401,7 @@ export type Database = {
           note_priority?: Database["public"]["Enums"]["note_priority"]
           phone?: string | null
           plus_ones?: number
+          removed_at?: string | null
           source?: Database["public"]["Enums"]["guest_source"]
           status?: Database["public"]["Enums"]["guest_status"]
           tier_id: string
@@ -416,6 +421,7 @@ export type Database = {
           note_priority?: Database["public"]["Enums"]["note_priority"]
           phone?: string | null
           plus_ones?: number
+          removed_at?: string | null
           source?: Database["public"]["Enums"]["guest_source"]
           status?: Database["public"]["Enums"]["guest_status"]
           tier_id?: string
@@ -518,6 +524,7 @@ export type Database = {
           decision_reason: string | null
           event_id: string
           id: string
+          motivation: string | null
           requested_extra: number
           status: Database["public"]["Enums"]["request_status"]
           user_id: string
@@ -529,6 +536,7 @@ export type Database = {
           decision_reason?: string | null
           event_id: string
           id?: string
+          motivation?: string | null
           requested_extra: number
           status?: Database["public"]["Enums"]["request_status"]
           user_id: string
@@ -540,6 +548,7 @@ export type Database = {
           decision_reason?: string | null
           event_id?: string
           id?: string
+          motivation?: string | null
           requested_extra?: number
           status?: Database["public"]["Enums"]["request_status"]
           user_id?: string
@@ -817,13 +826,37 @@ export type Database = {
         }[]
       }
       admin_revoke_session: { Args: { p_session_id: string }; Returns: boolean }
+      approve_quota_request: {
+        Args: { p_request_id: string }
+        Returns: undefined
+      }
       audit_changed: { Args: { p_new: Json; p_old: Json }; Returns: Json }
       can_check_in: { Args: { p_event_id: string }; Returns: boolean }
       can_view_profile: { Args: { p_profile_id: string }; Returns: boolean }
       can_write_guests: { Args: { p_event_id: string }; Returns: boolean }
       current_user_requires_mfa: { Args: never; Returns: boolean }
+      event_quota_status: {
+        Args: { p_event_id: string }
+        Returns: {
+          consumed: number
+          exempt: boolean
+          quota: number
+          remaining: number
+        }[]
+      }
       event_venue: { Args: { p_event_id: string }; Returns: string }
       guest_event: { Args: { p_guest_id: string }; Returns: string }
+      guest_personal_contribution: {
+        Args: {
+          g: Database["public"]["Tables"]["guests"]["Row"]
+          p_went_live_at: string
+        }
+        Returns: number
+      }
+      guest_tier_contribution: {
+        Args: { g: Database["public"]["Tables"]["guests"]["Row"] }
+        Returns: number
+      }
       has_venue_role: {
         Args: {
           p_roles: Database["public"]["Enums"]["venue_role"][]
@@ -853,6 +886,19 @@ export type Database = {
       }
       request_device_id: { Args: never; Returns: string }
       revoke_own_session: { Args: { p_session_id: string }; Returns: boolean }
+      tier_consumption: { Args: { p_tier_id: string }; Returns: number }
+      user_event_consumption: {
+        Args: { p_event_id: string; p_user_id: string }
+        Returns: number
+      }
+      user_event_quota: {
+        Args: { p_event_id: string; p_user_id: string }
+        Returns: number
+      }
+      user_is_quota_exempt: {
+        Args: { p_event_id: string; p_user_id: string }
+        Returns: boolean
+      }
       uuid_generate_v7: { Args: never; Returns: string }
     }
     Enums: {

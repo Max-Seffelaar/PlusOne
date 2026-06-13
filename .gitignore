@@ -29,6 +29,9 @@ supabase/.branches
 .env.local
 .env.*.local
 
+# Claude Code local settings (machine-specific; launch.json is shared)
+.claude/settings.local.json
+
 # IDEs
 .vscode
 .idea

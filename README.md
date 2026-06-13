@@ -56,8 +56,8 @@ supabase db push --linked
 
 ## Documentation
 
-- [`docs/spec.md`](docs/spec.md) — Functional & technical spec (source of truth)
-- [`docs/design-system.md`](docs/design-system.md) — UI tokens & design rules
+- [`gastenlijst-app-spec.md`](gastenlijst-app-spec.md) — Functional & technical spec (source of truth)
+- [`design-system.md`](design-system.md) — UI tokens & design rules
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Architecture overview
 - [`bouwplan-claude-code.md`](bouwplan-claude-code.md) — Phase-by-phase build plan
 - [`CLAUDE.md`](CLAUDE.md) — Project rules for Claude Code
@@ -66,14 +66,14 @@ supabase db push --linked
 
 See `bouwplan-claude-code.md` for detailed breakdown:
 
-1. **Fase 0:** Scaffold & infrastructure ← **You are here**
-2. **Fase 1:** Database schema (migratie 1)
-3. **Fase 2:** RLS policies + tests
-4. **Fase 3:** Audit triggers
+1. **Fase 0:** Scaffold & infrastructure ✅
+2. **Fase 1:** Database schema (migratie 1) ✅
+3. **Fase 2:** RLS policies + tests ✅
+4. **Fase 3:** Audit triggers ✅
 5. **Fase 4:** Auth (OTP, invite-only, MFA)
 6. **Fase 5:** Venue & user management
 7. **Fase 6:** Events, tiers & list lock
-8. **Fase 7:** Guest list, quota engine & request flow
+8. **Fase 7:** Guest list, quota engine & request flow — DB + parser ✅ (PR #3); UI awaits the Fase 4–6 shell
 9. **Fase 8:** Landing page & approval flow
 10. **Fase 9:** Door app (PWA, offline, sync)
 11. **Fase 10:** Audit log view & statistics
@@ -118,4 +118,4 @@ All phases are built incrementally — no rewriting prior work.
 
 ---
 
-**Status:** Fase 0 (Scaffold) complete. Ready for Fase 1: Database schema.
+**Status:** Backend foundation (Fases 0–3) complete on `main`. Fase 7 (quota-engine + quick-add parser + verzoekflow) lands the fraud-critical core via PR #3 — DB + parser fully verified (pgTAP 190, Vitest 40); its server actions + UI await integration with the auth shell.

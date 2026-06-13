@@ -1,10 +1,19 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter } from 'next/font/google';
+import { Bricolage_Grotesque, Hanken_Grotesk } from 'next/font/google';
 import './globals.css';
 
-const font = Inter({
+// Display: Bricolage Grotesque (600/700/800), body/UI: Hanken Grotesk (400–700).
+// Exposed as CSS variables consumed by the Tailwind `font-display` / `font-body` utilities.
+const display = Bricolage_Grotesque({
   subsets: ['latin'],
   display: 'swap',
+  variable: '--font-display',
+});
+
+const body = Hanken_Grotesk({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-body',
 });
 
 export const metadata: Metadata = {
@@ -31,14 +40,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }): JSX.Element {
   return (
-    <html lang="nl" suppressHydrationWarning>
+    <html lang="nl" className={`${display.variable} ${body.variable}`} suppressHydrationWarning>
       <head>
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="PLUSONE" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       </head>
-      <body className={`${font.className} bg-bg text-text`}>{children}</body>
+      <body className="bg-bg text-text font-body antialiased">{children}</body>
     </html>
   );
 }

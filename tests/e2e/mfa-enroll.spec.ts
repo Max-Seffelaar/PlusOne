@@ -17,7 +17,7 @@ test.afterEach(async () => {
 test('admin is forced to enroll TOTP and then reaches the app at AAL2', async ({ page }) => {
   await otpLogin(page, ADMIN);
 
-  await page.waitForURL('**/mfa/enroll', { timeout: 20_000 });
+  await page.waitForURL(/\/mfa\/enroll/, { timeout: 20_000 });
 
   const secret = (await page.getByTestId('totp-secret').textContent())?.trim();
   expect(secret, 'enrollment secret should be shown').toBeTruthy();
@@ -25,6 +25,7 @@ test('admin is forced to enroll TOTP and then reaches the app at AAL2', async ({
   await page.getByLabel('Code uit je app').fill(totp(secret!));
   await page.getByRole('button', { name: /Activeer MFA/i }).click();
 
+  // AAL2 reached → the middleware MFA gate now lets the protected route through.
   await page.waitForURL('**/dashboard', { timeout: 20_000 });
-  await expect(page.getByText('Club Vesper')).toBeVisible();
+  await expect(page).toHaveURL(/\/dashboard/);
 });

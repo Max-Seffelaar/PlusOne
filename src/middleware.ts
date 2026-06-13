@@ -2,8 +2,9 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { updateSession } from '@/lib/supabase/middleware';
 
 // Middleware protects EVERY route by default; public exceptions are listed
-// explicitly here (bouwplan Fase 4 §6). Anything not public requires a
-// verified session — role/MFA gating happens in the authenticated layout.
+// explicitly here (bouwplan Fase 4 §6). Anything not public requires a verified
+// session, and protected routes additionally enforce the MFA policy here — so
+// it covers every surface (dashboard, app, events), not only the (app) shell.
 const PUBLIC_PATHS = new Set<string>(['/', '/login']);
 // Auth callback/confirm routes and the public per-event landing pages (#12).
 const PUBLIC_PREFIXES = ['/auth/', '/e/'];
@@ -22,8 +23,13 @@ function redirectWithCookies(url: URL, source: NextResponse): NextResponse {
 }
 
 export async function middleware(request: NextRequest): Promise<NextResponse> {
-  const { response, user } = await updateSession(request);
   const { pathname } = request.nextUrl;
+  const onMfaRoute = pathname.startsWith('/mfa/');
+  const publicRoute = isPublic(pathname);
+
+  const { response, user, gate } = await updateSession(request, {
+    checkMfa: !publicRoute && !onMfaRoute,
+  });
 
   // A signed-in user has no business on the login screen.
   if (user && pathname === '/login') {
@@ -34,9 +40,19 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   }
 
   // Unauthenticated access to a protected route → login, remembering the target.
-  if (!user && !isPublic(pathname)) {
+  if (!user && !publicRoute) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
+    url.search = '';
+    url.searchParams.set('next', pathname);
+    return redirectWithCookies(url, response);
+  }
+
+  // MFA gate on protected routes (not /mfa/* itself, to avoid a loop). Mandatory
+  // for admin/finance (CLAUDE.md §Auth); anyone with a factor must step up.
+  if (user && !publicRoute && !onMfaRoute && !gate.isAal2 && (gate.requiresMfa || gate.hasFactor)) {
+    const url = request.nextUrl.clone();
+    url.pathname = gate.requiresMfa && !gate.hasFactor ? '/mfa/enroll' : '/mfa/verify';
     url.search = '';
     url.searchParams.set('next', pathname);
     return redirectWithCookies(url, response);

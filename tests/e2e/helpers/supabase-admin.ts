@@ -60,6 +60,20 @@ export async function ensureInvite(
   });
 }
 
+/** Roles on a user's membership at a venue (DB truth, independent of UI). */
+export async function getMembershipRoles(email: string, venueId: string): Promise<string[]> {
+  const a = adminClient();
+  const userId = await getUserIdByEmail(email);
+  if (!userId) return [];
+  const { data } = await a
+    .from('venue_memberships')
+    .select('roles')
+    .eq('user_id', userId)
+    .eq('venue_id', venueId)
+    .maybeSingle();
+  return (data?.roles as string[] | undefined) ?? [];
+}
+
 /**
  * Reset an invitee so the test can re-run: drop the membership + pending
  * invites. The auth user, profile and audit history are intentionally LEFT

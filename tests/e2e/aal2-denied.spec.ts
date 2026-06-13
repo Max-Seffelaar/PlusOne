@@ -16,7 +16,7 @@ test.afterEach(async () => {
 // rather than ever rendering the sensitive page.
 test('a sensitive admin route is unreachable without completing MFA (no AAL2)', async ({ page }) => {
   await otpLogin(page, ADMIN);
-  await page.waitForURL('**/mfa/enroll', { timeout: 20_000 });
+  await page.waitForURL(/\/mfa\/enroll/, { timeout: 20_000 });
 
   // Try to jump straight to the AAL2-only sessions screen.
   await page.goto('/admin/sessions');

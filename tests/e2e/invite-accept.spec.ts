@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { otpLogin } from './helpers/login';
-import { ensureInvite, resetInvitee } from './helpers/supabase-admin';
+import { ensureInvite, resetInvitee, getMembershipRoles } from './helpers/supabase-admin';
 
 const INVITEE = 'e2e-invitee@plusone.test';
 const CLUB_VESPER = 'aa000000-0000-7000-8000-000000000001';
@@ -19,7 +19,11 @@ test.afterEach(async () => {
 test('first OTP login accepts the pending invite and grants venue access', async ({ page }) => {
   await otpLogin(page, INVITEE);
 
+  // Reaching a protected route (not bounced to /login) means the session is up.
   await page.waitForURL('**/dashboard', { timeout: 20_000 });
-  await expect(page.getByText('Club Vesper')).toBeVisible();
-  await expect(page.getByText('Personeel')).toBeVisible();
+
+  // Acceptance provisioned the membership (DB truth — the dashboard UI is still
+  // design mock data, so we assert on the database, not the page).
+  const roles = await getMembershipRoles(INVITEE, CLUB_VESPER);
+  expect(roles).toContain('staff');
 });
