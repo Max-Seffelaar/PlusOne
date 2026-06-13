@@ -140,6 +140,15 @@ ticket_matches        — [later] fuzzy match gast ↔ ticketkoper: guest_id,
 
 **Quota-handhaving (beslissing #22):** verbruik = som van (1 + plus_ones) over alle niet-`removed`/niet-`denied` gasten van die user voor dat event. Een verwijdering verlaagt het verbruik alleen zolang `events.status ≠ live` — daarna blijft de plek geteld, zodat toevoegen→binnenlaten→verwijderen→hergebruiken onmogelijk is.
 
+*Implementatie (fase 7, migratie `20260613180000_quota_engine.sql`):*
+- **Wie telt mee:** handhaving geldt alleen voor **staff** en **doorhost**. Admin (venue) en organisator (event) voegen toe zonder persoonlijke limiet — de rollenmatrix §2 geeft hun gast-schrijfrechten zonder "binnen quotum"-kwalificatie. Zij zijn *quota-exempt* en worden niet opgeteld.
+- **Landingpage-gasten (#31):** `source = 'landing'` telt **niet** op het persoonlijke quotum (een goedkeuring belast de goedkeurder niet), **wel** op tier-max.
+- **Live-regel deterministisch:** twee nieuwe kolommen — `events.went_live_at` (eenmalig gezet bij de eerste overgang naar `live`, nooit gewist) en `guests.removed_at` (gezet bij soft-delete). Een `removed` gast telt mee als `removed_at >= went_live_at`. Beide gebruiken `clock_timestamp()` (echte wandklok), zodat verwijderingen en go-live ook binnen één transactie correct geordend zijn.
+- **Tier-max (#8):** `guest_tiers.max_guests` begrenst het aantal **gast-entries** in een tier (geen plekken/slots — kolomnaam is *guests*; tiers gedragen zich als tickettypes). `removed`/`denied` tellen niet mee; de live-regel geldt hier niet (tier-max is een lijst-capaciteitsgrens, geen anti-fraude-regel).
+- **Afdwinging:** een `AFTER ROW`-trigger op `guests` blokkeert alleen een *netto verhoging* (insert, plus_ones omhoog, un-remove, tier-wissel naar een vollere tier). Verlagen/verwijderen mag altijd, ook als de user al over zijn limiet zit. Fouten: SQLSTATE `45001` (quotum vol), `45002` (tier vol).
+- **Verzoekflow (#4/#5):** `quota_requests` krijgt een `motivation`-kolom. Goedkeuren loopt via `approve_quota_request(request_id)` (SECURITY DEFINER, her-checkt admin + AAL2): zet de `event_quotas`-override atomically op *huidig effectief quotum + gevraagde extra* en markeert het verzoek `approved`. Afwijzen = directe RLS-update met reden. Dubbele goedkeuring faalt met SQLSTATE `45003`.
+- **UI-teller (#17):** `event_quota_status(event_id)` (caller-scoped RPC) levert quota/consumed/remaining/exempt voor "8 van 10 over".
+
 **Lijst-lock (beslissing #23):** bij `list_locked = true` weigert RLS alle mutaties op `guests` door users met alleen de staff-rol. Admin, organisator en doorhost (ter plekke, binnen quotum) behouden schrijfrechten. Lock/unlock is een eigen audit-actie.
 
 **Anonimisering (beslissing #29):** een geplande job vervangt na de venue-bewaartermijn naam/e-mail/telefoon door `Gast #<volgnr>` en zet `anonymized_at`. Audit-log-entries blijven staan; de diffs van geanonimiseerde gasten worden mee-geschoond (namen eruit, structuur intact).
