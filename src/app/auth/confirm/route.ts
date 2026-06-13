@@ -1,0 +1,30 @@
+import { NextResponse, type NextRequest } from 'next/server';
+import type { EmailOtpType } from '@supabase/supabase-js';
+import { createClient } from '@/lib/supabase/server';
+import { safeNextPath } from '@/features/auth/next-path';
+
+// Handles link-based verification (token_hash), used for the confirmed e-mail
+// change flow (decision #24) and any magic-link fallback. On success the
+// session cookies are (re)established and we redirect to the target.
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  const url = new URL(request.url);
+  const tokenHash = url.searchParams.get('token_hash');
+  const type = url.searchParams.get('type') as EmailOtpType | null;
+  const next = safeNextPath(url.searchParams.get('next'), '/settings/profile');
+
+  if (!tokenHash || !type) {
+    return NextResponse.redirect(new URL('/login', request.url));
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
+
+  if (error) {
+    return NextResponse.redirect(new URL('/login?error=link', request.url));
+  }
+
+  // Pick up any invites that became acceptable on this verified session.
+  await supabase.rpc('accept_pending_invites');
+
+  return NextResponse.redirect(new URL(next, request.url));
+}

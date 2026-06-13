@@ -17,9 +17,11 @@ select tables_are(
     'user_profiles', 'venues', 'venue_memberships', 'events',
     'event_organizers', 'guest_tiers', 'guests', 'guest_requests',
     'quotas', 'event_quotas', 'quota_requests', 'check_ins', 'refusals',
-    'audit_log', 'subscriptions'
+    'audit_log', 'subscriptions',
+    -- Fase 4 (auth layer): invite-only account provisioning.
+    'invites'
   ],
-  'public schema contains exactly the Fase 1 tables'
+  'public schema contains exactly the MVP tables (Fase 1 + invites)'
 );
 
 -- RLS: on for every table, no exceptions (default-deny without policies) ----

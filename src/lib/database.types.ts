@@ -458,6 +458,64 @@ export type Database = {
           },
         ]
       }
+      invites: {
+        Row: {
+          accepted_at: string | null
+          accepted_by: string | null
+          created_at: string
+          email: string
+          expires_at: string
+          id: string
+          invited_by: string
+          roles: Database["public"]["Enums"]["venue_role"][]
+          venue_id: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          created_at?: string
+          email: string
+          expires_at: string
+          id?: string
+          invited_by: string
+          roles: Database["public"]["Enums"]["venue_role"][]
+          venue_id: string
+        }
+        Update: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          created_at?: string
+          email?: string
+          expires_at?: string
+          id?: string
+          invited_by?: string
+          roles?: Database["public"]["Enums"]["venue_role"][]
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invites_accepted_by_fkey"
+            columns: ["accepted_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invites_invited_by_fkey"
+            columns: ["invited_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invites_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       quota_requests: {
         Row: {
           created_at: string
@@ -754,6 +812,20 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      accept_pending_invites: { Args: never; Returns: number }
+      admin_list_user_sessions: {
+        Args: { p_target: string }
+        Returns: {
+          aal: string
+          created_at: string
+          ip: string
+          not_after: string
+          session_id: string
+          updated_at: string
+          user_agent: string
+        }[]
+      }
+      admin_revoke_session: { Args: { p_session_id: string }; Returns: boolean }
       approve_quota_request: {
         Args: { p_request_id: string }
         Returns: undefined
@@ -762,6 +834,7 @@ export type Database = {
       can_check_in: { Args: { p_event_id: string }; Returns: boolean }
       can_view_profile: { Args: { p_profile_id: string }; Returns: boolean }
       can_write_guests: { Args: { p_event_id: string }; Returns: boolean }
+      current_user_requires_mfa: { Args: never; Returns: boolean }
       event_quota_status: {
         Args: { p_event_id: string }
         Returns: {
@@ -794,11 +867,25 @@ export type Database = {
       is_aal2: { Args: never; Returns: boolean }
       is_event_organizer: { Args: { p_event_id: string }; Returns: boolean }
       is_venue_member: { Args: { p_venue_id: string }; Returns: boolean }
+      list_own_sessions: {
+        Args: never
+        Returns: {
+          aal: string
+          created_at: string
+          ip: string
+          is_current: boolean
+          not_after: string
+          session_id: string
+          updated_at: string
+          user_agent: string
+        }[]
+      }
       organizes_event_at_venue: {
         Args: { p_venue_id: string }
         Returns: boolean
       }
       request_device_id: { Args: never; Returns: string }
+      revoke_own_session: { Args: { p_session_id: string }; Returns: boolean }
       tier_consumption: { Args: { p_tier_id: string }; Returns: number }
       user_event_consumption: {
         Args: { p_event_id: string; p_user_id: string }
