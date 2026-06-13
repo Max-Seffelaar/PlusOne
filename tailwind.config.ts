@@ -27,9 +27,9 @@ const config = {
         'on-acc': '#16132B',
       },
       fontFamily: {
-        display: ['Bricolage Grotesque', ...defaultTheme.fontFamily.sans],
-        body: ['Hanken Grotesk', ...defaultTheme.fontFamily.sans],
-        sans: ['Hanken Grotesk', ...defaultTheme.fontFamily.sans],
+        display: ['var(--font-display)', 'Bricolage Grotesque', ...defaultTheme.fontFamily.sans],
+        body: ['var(--font-body)', 'Hanken Grotesk', ...defaultTheme.fontFamily.sans],
+        sans: ['var(--font-body)', 'Hanken Grotesk', ...defaultTheme.fontFamily.sans],
       },
       fontSize: {
         label: ['12px', { lineHeight: '1.4', fontWeight: '700', letterSpacing: '0.04em' }],
