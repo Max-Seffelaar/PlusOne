@@ -62,14 +62,17 @@ select is(
 
 -- ---------------------------------------------------------------------------
 -- B. guests INSERT — create entry with actor + scope + after-snapshot
+-- The audit lifecycle (B–D) runs as admin Max: since fase 7 the quota engine
+-- blocks pushing a staff member over quota, and raising plus_ones in section C
+-- would trip it. Admin is quota-exempt, so the audit behaviour stays the focus.
 -- ---------------------------------------------------------------------------
 
-select pg_temp.login('55555555-5555-4555-8555-555555555555');
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
 insert into public.guests (id, event_id, tier_id, full_name, added_by)
 values ('cc000000-0000-7000-8000-000000000101',
         'ee000000-0000-7000-8000-000000000001',
         'dd000000-0000-7000-8000-000000000001',
-        'Audit Gast', '55555555-5555-4555-8555-555555555555');
+        'Audit Gast', '11111111-1111-4111-8111-111111111111');
 reset role;
 
 select is(
@@ -78,7 +81,7 @@ select is(
 
 select is(
   (pg_temp.audit_row('cc000000-0000-7000-8000-000000000101', 'create')).actor_id,
-  '55555555-5555-4555-8555-555555555555'::uuid,
+  '11111111-1111-4111-8111-111111111111'::uuid,
   'B2 actor is the authenticated user (auth.uid())');
 
 select ok(
@@ -99,7 +102,7 @@ select ok(
 -- C. guests UPDATE — minimal diff; a no-op replay logs nothing (#25)
 -- ---------------------------------------------------------------------------
 
-select pg_temp.login('55555555-5555-4555-8555-555555555555');
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
 update public.guests set plus_ones = 2
 where id = 'cc000000-0000-7000-8000-000000000101';
 reset role;
@@ -113,7 +116,7 @@ select is(
   '{"before": {"plus_ones": 0}, "after": {"plus_ones": 2}}'::jsonb,
   'C2 diff contains ONLY the changed field (updated_at excluded)');
 
-select pg_temp.login('55555555-5555-4555-8555-555555555555');
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
 update public.guests set plus_ones = 2
 where id = 'cc000000-0000-7000-8000-000000000101';
 reset role;
