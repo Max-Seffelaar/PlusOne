@@ -745,6 +745,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      audit_changed: { Args: { p_new: Json; p_old: Json }; Returns: Json }
       can_check_in: { Args: { p_event_id: string }; Returns: boolean }
       can_view_profile: { Args: { p_profile_id: string }; Returns: boolean }
       can_write_guests: { Args: { p_event_id: string }; Returns: boolean }
@@ -764,6 +765,7 @@ export type Database = {
         Args: { p_venue_id: string }
         Returns: boolean
       }
+      request_device_id: { Args: never; Returns: string }
       uuid_generate_v7: { Args: never; Returns: string }
     }
     Enums: {

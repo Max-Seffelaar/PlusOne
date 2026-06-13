@@ -404,12 +404,14 @@ select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal1');
 select is((select count(*)::int from public.audit_log), 0,
   'K1 audit log hidden without AAL2, even for admin');
 
+-- Since fase 3 the seed itself produces trigger-written entries, so K2/K3
+-- pin the hand-inserted row instead of counting the whole table.
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2');
-select is((select count(*)::int from public.audit_log), 1,
+select is((select count(*)::int from public.audit_log where action = 'test_entry'), 1,
   'K2 admin with AAL2 reads the audit log');
 
 select pg_temp.login('33333333-3333-4333-8333-333333333333', 'aal2');
-select is((select count(*)::int from public.audit_log), 1,
+select is((select count(*)::int from public.audit_log where action = 'test_entry'), 1,
   'K3 finance with AAL2 reads the audit log');
 
 select pg_temp.login('66666666-6666-4666-8666-666666666666', 'aal2');
