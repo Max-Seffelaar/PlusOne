@@ -23,8 +23,8 @@
     "supabase:gen:offline": "node scripts/gen-types.mjs"
   },
   "dependencies": {
-    "@supabase/ssr": "^0.3.0",
-    "@supabase/supabase-js": "^2.45.0",
+    "@supabase/ssr": "^0.12.0",
+    "@supabase/supabase-js": "^2.108.1",
     "@tanstack/react-query": "^5.56.0",
     "@tanstack/react-query-persist-client": "^5.56.0",
     "class-variance-authority": "^0.7.0",
@@ -39,6 +39,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@playwright/test": "1.60.0",
     "@shadcn/ui": "latest",
     "@testing-library/jest-dom": "^6.4.0",
     "@testing-library/react": "^16.0.0",

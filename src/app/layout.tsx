@@ -13,7 +13,6 @@ export const metadata: Metadata = {
   generator: 'Next.js',
   applicationName: 'PLUSONE',
   referrer: 'strict-origin-when-cross-origin',
-  themeColor: '#0B0B0D',
   manifest: '/manifest.json',
 };
 
@@ -23,6 +22,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   colorScheme: 'dark',
+  themeColor: '#0B0B0D',
 };
 
 export default function RootLayout({
