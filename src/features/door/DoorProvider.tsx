@@ -247,7 +247,7 @@ export function DoorProvider({
         ...s,
         refusals: [
           ...s.refusals,
-          { id, guest_id: guestId, refused_by: meId ?? '', reason, refused_at: ts, client_timestamp: ts, device_id: getDeviceId(), created_at: ts },
+          { id, guest_id: guestId, refused_by: meId ?? '', reason, refused_at: ts, client_timestamp: ts, device_id: getDeviceId(), created_at: ts, anonymized_at: null },
         ],
       }));
       const g = viewRef.current?.guests.find((x) => x.id === guestId);
