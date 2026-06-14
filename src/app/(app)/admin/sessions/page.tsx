@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { requireAppAccess } from '@/lib/auth/guards';
 import { getMyMemberships, getVenueMembers } from '@/lib/auth/memberships';
+import { resolveActiveVenueId } from '@/lib/auth/active-venue';
 import { adminListSessions } from '@/lib/auth/sessions';
 import { SessionList } from '@/features/auth/components/SessionList';
 
@@ -46,7 +47,9 @@ export default async function AdminSessionsPage({
     );
   }
 
-  const activeVenue = adminVenues.find((m) => m.venueId === venueParam) ?? adminVenues[0];
+  // Venue follows the shared nav switcher (cookie); ?venue= is a deep-link override.
+  const activeId = await resolveActiveVenueId(adminVenues, venueParam);
+  const activeVenue = adminVenues.find((m) => m.venueId === activeId) ?? adminVenues[0];
   const members = await getVenueMembers(activeVenue.venueId);
   const selectedUser = members.find((m) => m.userId === userParam);
   const sessions = selectedUser ? await adminListSessions(selectedUser.userId) : [];
@@ -60,24 +63,6 @@ export default async function AdminSessionsPage({
           <span className="text-text">{activeVenue.venueName}</span>.
         </p>
       </header>
-
-      {adminVenues.length > 1 && (
-        <nav className="flex flex-wrap gap-2" aria-label="Venue kiezen">
-          {adminVenues.map((m) => (
-            <Link
-              key={m.venueId}
-              href={`/admin/sessions?venue=${m.venueId}`}
-              className={`rounded-btn border px-3 py-1.5 text-sm transition-colors ${
-                m.venueId === activeVenue.venueId
-                  ? 'border-acc bg-acc-dim text-text'
-                  : 'border-line text-dim hover:border-acc'
-              }`}
-            >
-              {m.venueName}
-            </Link>
-          ))}
-        </nav>
-      )}
 
       <section className="flex flex-col gap-3">
         <h2 className="label">Teamlid kiezen</h2>
