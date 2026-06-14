@@ -115,3 +115,53 @@ After setting the above on a fresh project:
 3. Invite → first OTP login provisions the membership (see `tests/e2e/invite-accept.spec.ts`).
 4. Admin login → forced to `/mfa/enroll`; AAL2-only screens refuse until verified
    (`tests/e2e/mfa-enroll.spec.ts`, `tests/e2e/aal2-denied.spec.ts`).
+
+## 9. Local fast login (development only)
+
+Local dev has a near-zero-friction admin login so you don't read the Inbucket
+inbox or pair a phone authenticator on every `supabase db reset`. The real OTP +
+MFA flow is left fully intact — nothing in the app, routes, or RLS is weakened.
+Two **local-only** helpers do the work:
+
+- **`pnpm dev:code`** ([`scripts/dev-code.mjs`](../scripts/dev-code.mjs)) mints a
+  fresh, single-use e-mail OTP for an existing seed account via the local GoTrue
+  **admin `generate_link`** API, and prints the current MFA/TOTP code. It reads
+  the local service-role key from `supabase status` — the same server-side admin
+  pattern as `tests/e2e/helpers/supabase-admin.ts`, never bundled to the browser.
+  The OTP it prints verifies through the exact `verifyOtp({ type: 'email' })` path
+  the login form already uses.
+- **Pre-verified TOTP factor** — `supabase/seed.sql` seeds a `verified` TOTP
+  factor (fixed dev secret) for the two MFA-mandatory roles (`admin`, `finance`),
+  so they skip the `/mfa/enroll` wall and only step up at `/mfa/verify`. The
+  secret is plaintext base32 (local GoTrue has no encryption key) and is
+  meaningless against a real project. Seeded only on local `supabase db reset`.
+
+**Log in as a full-rights admin:**
+
+```
+pnpm dev:code            # admin@plusone.test  → prints e-mail code + MFA code
+pnpm dev:code finance    # finance@plusone.test
+pnpm dev:code staff      # staff@plusone.test  (no MFA)
+```
+
+1. Run `pnpm dev:code`.
+2. At `/login`, enter `admin@plusone.test`, then the printed **e-mail code**.
+3. At `/mfa/verify`, enter the printed **MFA code** → AAL2 with full admin rights
+   at both seed venues.
+
+Other roles (`manager`, `staff`, `door`, `organizer`) don't require MFA, so step
+3 is skipped — the e-mail code alone logs them in. The classic fallback also
+still works: read the 6-digit code from the Inbucket/Mailpit URL in
+`supabase status`. Re-run `pnpm db:reset` if the seed accounts are missing.
+
+> 🔒 These are development conveniences for the **local** stack only. The dev
+> script uses the local service-role key and the seed factor lives in `seed.sql`
+> (never in a migration, never pushed). No fixed code, secret, or bypass route
+> exists in the application — production keeps the full passwordless-OTP + TOTP
+> flow. Never replicate the seed factor to a shared, staging, or production DB.
+
+> 🚨 **Before go-live**, work through the removal/verification checklist in
+> [`docs/launch.md`](launch.md). The guard test
+> `tests/unit/no-dev-backdoor.test.ts` keeps this backdoor out of migrations and
+> the app bundle, but the operational checks (no dev factor in the real DB) are
+> on you.

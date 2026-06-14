@@ -218,3 +218,32 @@ insert into public.guest_requests
 values
   ('ee000000-0000-7000-8000-000000000001', 'Kevin de Lange', 'denied',
    '11111111-1111-4111-8111-111111111111', now(), 'Lijst zit vol voor deze avond');
+
+-- ---------------------------------------------------------------------------
+-- LOCAL-ONLY MFA fast-path (development convenience — NOT a security feature).
+-- ===========================================================================
+-- 🚨 DEV BACKDOOR — verify absent / remove before go-live. Checklist:
+--    docs/launch.md → "Remove / verify-absent: the local dev fast-login".
+--    Guarded by tests/unit/no-dev-backdoor.test.ts (blocks it from migrations).
+-- ===========================================================================
+-- admin & finance must reach AAL2 (decision #20). Without a verified factor the
+-- app pins them at /mfa/enroll on every reset. Here we pre-seed a *verified*
+-- TOTP factor with a FIXED, well-known dev secret so they skip enrollment and
+-- only step up at /mfa/verify.
+--
+-- `pnpm dev:code` prints both a fresh e-mail OTP (minted via the local GoTrue
+-- admin API) and the current MFA code (this secret), so local login needs
+-- neither Inbucket nor a phone authenticator.
+--
+-- This runs ONLY on local `supabase db reset`. The secret is plaintext base32
+-- (local GoTrue has no encryption key) and is meaningless against a real
+-- project. NEVER replicate this factor to staging/production. The other four
+-- roles need no MFA, so the e-mail code alone logs them in.
+insert into auth.mfa_factors
+  (id, user_id, friendly_name, factor_type, status, created_at, updated_at, secret)
+values
+  ('ff000000-0000-7000-8000-000000000001', '11111111-1111-4111-8111-111111111111',
+   'Local Dev', 'totp', 'verified', now(), now(), 'PLUSONELOCALADMINDEVSECRET234567'),
+  ('ff000000-0000-7000-8000-000000000002', '33333333-3333-4333-8333-333333333333',
+   'Local Dev', 'totp', 'verified', now(), now(), 'PLUSONELOCALADMINDEVSECRET234567')
+on conflict (id) do nothing;

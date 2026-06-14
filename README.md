@@ -78,7 +78,7 @@ See `bouwplan-claude-code.md` for detailed breakdown:
 10. **Fase 9:** Door app (PWA, offline, sync)
 11. **Fase 10:** Audit log view & statistics
 12. **Fase 11:** GDPR: anonymization & retention
-13. **Fase 12:** Security audit, e2e & launch checklist
+13. **Fase 12:** Security audit, e2e & launch checklist ([`docs/launch.md`](docs/launch.md))
 14. **Fase 13:** Stripe Billing (optional, after MVP)
 
 ## Manual Setup (Max)
