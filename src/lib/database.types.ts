@@ -882,22 +882,31 @@ export type Database = {
         Row: {
           created_at: string
           email: string
+          first_name: string | null
           full_name: string
           id: string
+          last_name: string | null
+          phone: string | null
           updated_at: string
         }
         Insert: {
           created_at?: string
           email: string
+          first_name?: string | null
           full_name: string
           id: string
+          last_name?: string | null
+          phone?: string | null
           updated_at?: string
         }
         Update: {
           created_at?: string
           email?: string
+          first_name?: string | null
           full_name?: string
           id?: string
+          last_name?: string | null
+          phone?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -906,6 +915,7 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          job_title: string | null
           roles: Database["public"]["Enums"]["venue_role"][]
           updated_at: string
           user_id: string
@@ -914,6 +924,7 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          job_title?: string | null
           roles: Database["public"]["Enums"]["venue_role"][]
           updated_at?: string
           user_id: string
@@ -922,6 +933,7 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          job_title?: string | null
           roles?: Database["public"]["Enums"]["venue_role"][]
           updated_at?: string
           user_id?: string
@@ -946,31 +958,58 @@ export type Database = {
       }
       venues: {
         Row: {
+          address_line: string | null
+          city: string | null
+          company_name: string | null
+          country: string
           created_at: string
+          default_personal_quota: number
+          finance_email: string | null
           id: string
+          kvk_number: string | null
           name: string
+          postal_code: string | null
           retention_months: number
           settings: Json
           slug: string
           updated_at: string
+          vat_number: string | null
         }
         Insert: {
+          address_line?: string | null
+          city?: string | null
+          company_name?: string | null
+          country?: string
           created_at?: string
+          default_personal_quota?: number
+          finance_email?: string | null
           id?: string
+          kvk_number?: string | null
           name: string
+          postal_code?: string | null
           retention_months?: number
           settings?: Json
           slug: string
           updated_at?: string
+          vat_number?: string | null
         }
         Update: {
+          address_line?: string | null
+          city?: string | null
+          company_name?: string | null
+          country?: string
           created_at?: string
+          default_personal_quota?: number
+          finance_email?: string | null
           id?: string
+          kvk_number?: string | null
           name?: string
+          postal_code?: string | null
           retention_months?: number
           settings?: Json
           slug?: string
           updated_at?: string
+          vat_number?: string | null
         }
         Relationships: []
       }
@@ -1489,3 +1528,4 @@ export const Constants = {
     },
   },
 } as const
+

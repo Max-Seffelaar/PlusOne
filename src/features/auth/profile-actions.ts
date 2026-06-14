@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { getSessionUser } from '@/lib/auth/context';
-import { profileNameSchema, emailChangeSchema } from './schemas';
+import { profileSchema, emailChangeSchema } from './schemas';
 import { describeAuthError } from './errors';
 
 export interface ActionState {
@@ -12,28 +12,43 @@ export interface ActionState {
   message?: string;
 }
 
-/** Update your own display name (RLS: user_profiles_update_self). */
-export async function updateNameAction(
+/**
+ * Update your own profile: first/last name + phone (RLS: user_profiles_update_self,
+ * decision #24 — only the user edits their own profile). full_name is kept in
+ * sync as a display mirror so existing reads (nav, member lists) stay correct.
+ */
+export async function updateProfileAction(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
   const user = await getSessionUser();
   if (!user) return { ok: false, error: 'Je bent niet ingelogd.' };
 
-  const parsed = profileNameSchema.safeParse({ fullName: formData.get('fullName') });
+  const parsed = profileSchema.safeParse({
+    firstName: formData.get('firstName'),
+    lastName: formData.get('lastName'),
+    phone: formData.get('phone'),
+  });
   if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Ongeldige naam.' };
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Controleer de invoer.' };
   }
+  const { firstName, lastName, phone } = parsed.data;
 
   const supabase = await createClient();
   const { error } = await supabase
     .from('user_profiles')
-    .update({ full_name: parsed.data.fullName })
+    .update({
+      first_name: firstName,
+      last_name: lastName,
+      phone,
+      full_name: `${firstName} ${lastName}`.trim(),
+    })
     .eq('id', user.id);
-  if (error) return { ok: false, error: 'Kon je naam niet opslaan.' };
+  if (error) return { ok: false, error: 'Kon je profiel niet opslaan.' };
 
   revalidatePath('/settings/profile');
-  return { ok: true, message: 'Naam opgeslagen.' };
+  revalidatePath('/', 'layout'); // nav shows the name
+  return { ok: true, message: 'Profiel opgeslagen.' };
 }
 
 /**
