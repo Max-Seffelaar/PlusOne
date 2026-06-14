@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
@@ -10,6 +11,7 @@ import {
   QuotaRequestsInbox,
   type PendingRequest,
 } from '@/features/quotas/components/QuotaRequestsInbox';
+import { ListLockBanner } from '@/features/events/components/ListLockBanner';
 
 // Fase 7 vertical slice: the staff/organizer guest-list screen. It fetches
 // everything through the USER-scoped client, so RLS decides what is visible
@@ -73,6 +75,9 @@ export default async function GuestsPage({ params }: { params: Promise<{ eventId
     isAdmin || isOrganizer || roles.includes('staff') || roles.includes('doorhost');
   const exempt = quota?.exempt ?? false;
   const remaining = quota?.remaining ?? null;
+  // Locked + viewer can't write through the lock (#23): staff-only, no door role.
+  const staffBlocked =
+    event.list_locked && !isAdmin && !isOrganizer && !roles.includes('doorhost');
 
   // Admin inbox: open quota requests + requester names (two queries to avoid
   // ambiguous-FK embedding; RLS lets the admin read both).
@@ -105,11 +110,13 @@ export default async function GuestsPage({ params }: { params: Promise<{ eventId
         <p className="text-sm text-dim">Gastenlijst · status {event.status}</p>
       </header>
 
-      {event.list_locked && (
-        <div className="rounded-card border border-acc bg-acc-dim p-3 text-sm">
-          De lijst is vergrendeld. Alleen admin, organisator en doorhost kunnen nog wijzigen.
-        </div>
-      )}
+      <ListLockBanner locked={event.list_locked} youAreBlocked={staffBlocked} />
+
+      <p className="text-faint -mt-2 text-xs">
+        <Link href={`/events/${eventId}`} className="hover:text-dim underline">
+          ← Naar eventbeheer
+        </Link>
+      </p>
 
       {!exempt && quota && (
         <QuotaCounter

@@ -30,6 +30,9 @@ export default async function AppLayout({
             <Link href="/dashboard" className="text-dim hover:text-text transition-colors">
               Dashboard
             </Link>
+            <Link href="/events" className="text-dim hover:text-text transition-colors">
+              Events
+            </Link>
             {canManageTeam && (
               <Link href="/admin/team" className="text-dim hover:text-text transition-colors">
                 Team

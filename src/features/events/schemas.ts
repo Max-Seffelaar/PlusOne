@@ -1,0 +1,161 @@
+// Zod schemas for every event-management input (CLAUDE.md security checklist:
+// all input through Zod, no raw formData passthrough). Shared by the server
+// actions and the client forms so the rules live in exactly one place.
+
+import { z } from 'zod';
+import { EVENT_STATUSES } from './status';
+import { isValidCustomSlug } from './slug';
+
+const uuid = z.string().uuid('Ongeldige id');
+
+// Client sends an ISO instant (new Date(datetime-local).toISOString()), so an
+// event that runs 23:00→05:00 is two full timestamps and crosses midnight by
+// construction (#26). Default .datetime() accepts the trailing 'Z'.
+const isoDateTime = z.string().datetime('Ongeldige datum/tijd');
+
+const eventName = z.string().trim().min(1, 'Vul een naam in').max(160, 'Naam is te lang');
+
+// Single lavender-family palette is the design intent, but we only validate the
+// shape (#RRGGBB); the picker constrains the choices.
+const hexColor = z
+  .string()
+  .trim()
+  .regex(/^#[0-9a-fA-F]{6}$/, 'Kies een geldige kleur');
+
+const eventStatus = z.enum(EVENT_STATUSES as unknown as [string, ...string[]]);
+
+const optionalText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .transform((v) => (v === '' ? null : v))
+    .nullable()
+    .optional();
+
+// ── Event CRUD ──────────────────────────────────────────────────────────────
+
+export const createEventSchema = z
+  .object({
+    venueId: uuid,
+    name: eventName,
+    startsAt: isoDateTime,
+    endsAt: isoDateTime.nullable().optional(),
+    landingActive: z.boolean().default(false),
+  })
+  .refine((v) => !v.endsAt || v.endsAt > v.startsAt, {
+    message: 'Het einde moet ná de start liggen',
+    path: ['endsAt'],
+  });
+export type CreateEventInput = z.input<typeof createEventSchema>;
+
+export const updateEventSchema = z
+  .object({
+    eventId: uuid,
+    name: eventName.optional(),
+    startsAt: isoDateTime.optional(),
+    endsAt: isoDateTime.nullable().optional(),
+  })
+  .refine((v) => v.endsAt == null || v.startsAt == null || v.endsAt > v.startsAt, {
+    message: 'Het einde moet ná de start liggen',
+    path: ['endsAt'],
+  });
+export type UpdateEventInput = z.input<typeof updateEventSchema>;
+
+export const changeStatusSchema = z.object({
+  eventId: uuid,
+  status: eventStatus,
+});
+export type ChangeStatusInput = z.input<typeof changeStatusSchema>;
+
+// ── Landing page (#28) ────────────────────────────────────────────────────────
+
+export const setLandingActiveSchema = z.object({
+  eventId: uuid,
+  active: z.boolean(),
+});
+export type SetLandingActiveInput = z.input<typeof setLandingActiveSchema>;
+
+export const updateLandingSlugSchema = z.object({
+  eventId: uuid,
+  slug: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .refine(isValidCustomSlug, 'Gebruik 3–80 tekens: kleine letters, cijfers en koppeltekens'),
+});
+export type UpdateLandingSlugInput = z.input<typeof updateLandingSlugSchema>;
+
+// ── List lock (#23) ────────────────────────────────────────────────────────────
+
+export const setLockSchema = z.object({
+  eventId: uuid,
+  locked: z.boolean(),
+});
+export type SetLockInput = z.input<typeof setLockSchema>;
+
+// ── Tiers (#8) ─────────────────────────────────────────────────────────────────
+
+// Aliases feed the quick-add parser (#33): lowercased, trimmed, de-duped.
+const aliases = z
+  .array(z.string().trim().toLowerCase().min(1).max(40))
+  .max(20, 'Maximaal 20 aliassen')
+  .default([])
+  .transform((arr) => [...new Set(arr.filter(Boolean))]);
+
+const maxGuests = z
+  .number()
+  .int()
+  .positive('Maximum moet groter dan 0 zijn')
+  .max(100000)
+  .nullable()
+  .optional();
+
+export const createTierSchema = z.object({
+  eventId: uuid,
+  name: z.string().trim().min(1, 'Vul een naam in').max(80, 'Naam is te lang'),
+  description: optionalText(280),
+  color: hexColor.nullable().optional(),
+  maxGuests,
+  aliases,
+});
+export type CreateTierInput = z.input<typeof createTierSchema>;
+
+export const updateTierSchema = z.object({
+  tierId: uuid,
+  name: z.string().trim().min(1, 'Vul een naam in').max(80).optional(),
+  description: optionalText(280),
+  color: hexColor.nullable().optional(),
+  maxGuests,
+  aliases: aliases.optional(),
+});
+export type UpdateTierInput = z.input<typeof updateTierSchema>;
+
+export const deleteTierSchema = z.object({ tierId: uuid });
+export type DeleteTierInput = z.input<typeof deleteTierSchema>;
+
+// ── Organizers (#6/#24) ──────────────────────────────────────────────────────
+
+export const assignOrganizerSchema = z.object({
+  eventId: uuid,
+  userId: uuid,
+});
+export type AssignOrganizerInput = z.input<typeof assignOrganizerSchema>;
+
+export const inviteOrganizerSchema = z.object({
+  eventId: uuid,
+  email: z
+    .string()
+    .trim()
+    .min(1, 'Vul een e-mailadres in')
+    .max(254)
+    .email('Ongeldig e-mailadres')
+    .transform((v) => v.toLowerCase()),
+});
+export type InviteOrganizerInput = z.input<typeof inviteOrganizerSchema>;
+
+export const removeOrganizerSchema = z.object({
+  eventId: uuid,
+  userId: uuid,
+});
+export type RemoveOrganizerInput = z.input<typeof removeOrganizerSchema>;
