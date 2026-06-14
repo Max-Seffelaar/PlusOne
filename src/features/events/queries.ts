@@ -21,6 +21,8 @@ export interface ManageableEvent {
   landingActive: boolean;
   landingSlug: string;
   listLocked: boolean;
+  /** Scheduled auto-lock instant (#23), or null. */
+  autoLockAt: string | null;
   /** The caller is admin of this event's venue. */
   isAdmin: boolean;
   /** The caller is an organizer scoped to this event. */
@@ -92,7 +94,7 @@ export async function getManageableEvents(): Promise<ManageableEvent[]> {
   const { data } = await supabase
     .from('events')
     .select(
-      'id, venue_id, name, starts_at, ends_at, status, landing_active, landing_slug, list_locked, venues(name)'
+      'id, venue_id, name, starts_at, ends_at, status, landing_active, landing_slug, list_locked, auto_lock_at, venues(name)'
     )
     .order('starts_at', { ascending: false });
 
@@ -108,6 +110,7 @@ export async function getManageableEvents(): Promise<ManageableEvent[]> {
       landingActive: e.landing_active,
       landingSlug: e.landing_slug,
       listLocked: e.list_locked,
+      autoLockAt: e.auto_lock_at,
       isAdmin: scope.adminVenueIds.has(e.venue_id),
       isOrganizer: scope.organizerEventIds.has(e.id),
     }))
@@ -139,7 +142,7 @@ export async function getManageableEvent(eventId: string): Promise<ManageableEve
   const { data: e } = await supabase
     .from('events')
     .select(
-      'id, venue_id, name, starts_at, ends_at, status, landing_active, landing_slug, list_locked, venues(name)'
+      'id, venue_id, name, starts_at, ends_at, status, landing_active, landing_slug, list_locked, auto_lock_at, venues(name)'
     )
     .eq('id', eventId)
     .maybeSingle();
@@ -156,6 +159,7 @@ export async function getManageableEvent(eventId: string): Promise<ManageableEve
     landingActive: e.landing_active,
     landingSlug: e.landing_slug,
     listLocked: e.list_locked,
+    autoLockAt: e.auto_lock_at,
     isAdmin: scope.adminVenueIds.has(e.venue_id),
     isOrganizer: scope.organizerEventIds.has(e.id),
   };

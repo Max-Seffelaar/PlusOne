@@ -25,15 +25,16 @@ function ColorPicker({
   onChange: (c: string) => void;
 }): JSX.Element {
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap gap-2.5">
       {PALETTE.map((c) => (
         <button
           key={c}
           type="button"
           aria-label={`Kleur ${c}`}
           onClick={() => onChange(c)}
-          className="h-7 w-7 rounded-full transition-[filter] hover:brightness-110"
-          style={{ background: c, border: `2px solid ${value === c ? '#FFFFFF' : 'transparent'}` }}
+          className="h-10 w-10 rounded-full transition-transform hover:scale-110"
+          // Dark gap + white ring reads clearly on any surface.
+          style={{ background: c, boxShadow: value === c ? '0 0 0 2px #0B0B0D, 0 0 0 4px #FFFFFF' : 'none' }}
         />
       ))}
     </div>
@@ -264,7 +265,7 @@ function AddTierForm({ eventId }: { eventId: string }): JSX.Element {
 
   if (!open) {
     return (
-      <button type="button" className="btn-dark w-full text-sm" onClick={() => setOpen(true)}>
+      <button type="button" className="btn-secondary w-full text-sm" onClick={() => setOpen(true)}>
         + Tier toevoegen
       </button>
     );

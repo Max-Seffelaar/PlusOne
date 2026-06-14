@@ -25,14 +25,10 @@ export function randomSlugSuffix(length = 4): string {
 /**
  * Build a landing slug from an event name plus a random suffix for uniqueness.
  * Falls back to "event" when the name has no usable characters. The suffix is
- * injectable so the unit test is deterministic.
+ * injectable so the unit test is deterministic. The slug is generated once at
+ * creation and never editable afterwards — a shared link must not break.
  */
 export function buildEventSlug(name: string, suffix: string = randomSlugSuffix()): string {
   const base = slugify(name) || 'event';
   return `${base}-${suffix}`;
-}
-
-/** Validates a user-provided custom slug (edit form). */
-export function isValidCustomSlug(slug: string): boolean {
-  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) && slug.length >= 3 && slug.length <= 80;
 }

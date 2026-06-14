@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { requireAppAccess } from '@/lib/auth/guards';
 import { getManageableEvents, getAdminVenues, type ManageableEvent } from '@/features/events/queries';
 import { formatEventRange } from '@/features/events/format';
+import { isEffectivelyLocked } from '@/features/events/lock';
 import { StatusBadge } from '@/features/events/components/StatusBadge';
 import { EventsTopbar } from '@/features/events/components/EventsTopbar';
 
@@ -57,23 +58,26 @@ export default async function EventsPage(): Promise<JSX.Element> {
                   <li key={e.id}>
                     <Link
                       href={`/events/${e.id}`}
-                      className="card flex items-center justify-between gap-3 hover:border-acc"
+                      className="card hover:border-acc flex items-center justify-between gap-3"
                     >
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-display truncate font-bold">{e.name}</p>
-                          {e.listLocked && (
-                            <span className="text-faint text-xs" title="Lijst vergrendeld">
-                              🔒
-                            </span>
-                          )}
-                        </div>
+                        <p className="font-display truncate font-bold">{e.name}</p>
                         <p className="text-faint mt-0.5 truncate text-sm">
                           {formatEventRange(e.startsAt, e.endsAt)}
                           {e.landingActive ? ' · aanvraaglink aan' : ''}
                         </p>
+                        <div className="mt-2 flex items-center gap-2">
+                          <StatusBadge status={e.status} />
+                          {isEffectivelyLocked(e.listLocked, e.autoLockAt) && (
+                            <span className="border-line text-faint rounded-full border px-2.5 py-0.5 text-xs">
+                              Vergrendeld
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <StatusBadge status={e.status} />
+                      <span className="btn-secondary hidden shrink-0 px-3 py-1.5 text-xs sm:inline-block">
+                        Beheren →
+                      </span>
                     </Link>
                   </li>
                 ))}

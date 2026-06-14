@@ -12,6 +12,7 @@ import {
   type PendingRequest,
 } from '@/features/quotas/components/QuotaRequestsInbox';
 import { ListLockBanner } from '@/features/events/components/ListLockBanner';
+import { isEffectivelyLocked } from '@/features/events/lock';
 
 // Fase 7 vertical slice: the staff/organizer guest-list screen. It fetches
 // everything through the USER-scoped client, so RLS decides what is visible
@@ -38,7 +39,7 @@ export default async function GuestsPage({ params }: { params: Promise<{ eventId
 
   const { data: event } = await supabase
     .from('events')
-    .select('id, name, venue_id, status, list_locked')
+    .select('id, name, venue_id, status, list_locked, auto_lock_at')
     .eq('id', eventId)
     .maybeSingle();
   if (!event) notFound();
@@ -75,9 +76,11 @@ export default async function GuestsPage({ params }: { params: Promise<{ eventId
     isAdmin || isOrganizer || roles.includes('staff') || roles.includes('doorhost');
   const exempt = quota?.exempt ?? false;
   const remaining = quota?.remaining ?? null;
-  // Locked + viewer can't write through the lock (#23): staff-only, no door role.
+  // Effective lock = manual OR a passed auto-lock (#23), mirrors can_write_guests.
+  const effectiveLocked = isEffectivelyLocked(event.list_locked, event.auto_lock_at);
+  // Locked + viewer can't write through the lock: staff-only, no door role.
   const staffBlocked =
-    event.list_locked && !isAdmin && !isOrganizer && !roles.includes('doorhost');
+    effectiveLocked && !isAdmin && !isOrganizer && !roles.includes('doorhost');
 
   // Admin inbox: open quota requests + requester names (two queries to avoid
   // ambiguous-FK embedding; RLS lets the admin read both).
@@ -110,7 +113,7 @@ export default async function GuestsPage({ params }: { params: Promise<{ eventId
         <p className="text-sm text-dim">Gastenlijst · status {event.status}</p>
       </header>
 
-      <ListLockBanner locked={event.list_locked} youAreBlocked={staffBlocked} />
+      <ListLockBanner locked={effectiveLocked} youAreBlocked={staffBlocked} />
 
       <p className="text-faint -mt-2 text-xs">
         <Link href={`/events/${eventId}`} className="hover:text-dim underline">

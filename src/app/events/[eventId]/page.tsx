@@ -42,7 +42,7 @@ export default async function EventManagePage({
           <h1 className="font-display text-2xl font-bold">{event.name}</h1>
           <div className="card">
             <p className="text-dim">Je hebt geen beheerrechten voor dit event.</p>
-            <Link href={`/events/${eventId}/guests`} className="text-acc-soft mt-2 inline-block text-sm underline">
+            <Link href={`/events/${eventId}/guests`} className="btn-primary mt-3 inline-block w-fit text-sm">
               Naar de gastenlijst →
             </Link>
           </div>
@@ -69,7 +69,7 @@ export default async function EventManagePage({
           <p className="text-dim text-sm">
             {event.venueName} · {formatEventRange(event.startsAt, event.endsAt)}
           </p>
-          <Link href={`/events/${eventId}/guests`} className="text-acc-soft text-sm underline">
+          <Link href={`/events/${eventId}/guests`} className="btn-primary mt-1 inline-block w-fit text-sm">
             Naar de gastenlijst →
           </Link>
         </header>
@@ -91,7 +91,7 @@ export default async function EventManagePage({
 
         <LandingControl eventId={eventId} landingActive={event.landingActive} slug={event.landingSlug} />
 
-        <LockControl eventId={eventId} locked={event.listLocked} />
+        <LockControl eventId={eventId} locked={event.listLocked} autoLockAt={event.autoLockAt} />
 
         <TierManager eventId={eventId} tiers={tiers} canManage={canManage} />
 

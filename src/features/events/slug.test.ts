@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { slugify, buildEventSlug, isValidCustomSlug, randomSlugSuffix } from './slug';
+import { slugify, buildEventSlug, randomSlugSuffix } from './slug';
 
 describe('slugify (mirrors SQL public.slugify)', () => {
   it('lowercases and dashes non-alphanumerics', () => {
@@ -41,23 +41,5 @@ describe('randomSlugSuffix', () => {
   it('produces a lowercase alphanumeric string of the requested length', () => {
     expect(randomSlugSuffix(4)).toMatch(/^[a-z0-9]{4}$/);
     expect(randomSlugSuffix(8)).toMatch(/^[a-z0-9]{8}$/);
-  });
-});
-
-describe('isValidCustomSlug', () => {
-  it('accepts clean lowercase-dash slugs of a sane length', () => {
-    expect(isValidCustomSlug('summer-rave')).toBe(true);
-    expect(isValidCustomSlug('frenzy')).toBe(true);
-    expect(isValidCustomSlug('a-b-c-123')).toBe(true);
-  });
-
-  it('rejects bad shapes', () => {
-    expect(isValidCustomSlug('Summer-Rave')).toBe(false); // uppercase
-    expect(isValidCustomSlug('-leading')).toBe(false);
-    expect(isValidCustomSlug('trailing-')).toBe(false);
-    expect(isValidCustomSlug('double--dash')).toBe(false);
-    expect(isValidCustomSlug('with space')).toBe(false);
-    expect(isValidCustomSlug('ab')).toBe(false); // too short
-    expect(isValidCustomSlug('x'.repeat(81))).toBe(false); // too long
   });
 });

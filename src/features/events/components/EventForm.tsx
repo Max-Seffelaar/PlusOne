@@ -4,21 +4,8 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createEvent, updateEvent } from '../actions';
 import type { AdminVenue } from '../queries';
-
-// datetime-local <-> ISO. The input is wall-clock in the admin's browser TZ
-// (Europe/Amsterdam for NL venues); an event 23:00→05:00 becomes two full
-// instants and crosses midnight by construction (#26).
-function isoToLocalInput(iso: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-function localInputToIso(local: string): string | null {
-  if (!local) return null;
-  const d = new Date(local);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
-}
+import { DateTimeField } from './DateTimeField';
+import { isoToLocalInput, localInputToIso } from '../datetime';
 
 type Props =
   | { mode: 'create'; venues: AdminVenue[] }
@@ -108,32 +95,23 @@ export function EventForm(props: Props): JSX.Element {
         <input
           className="field"
           value={name}
+          autoComplete="off"
           placeholder="bv. PLUSONE Launch Night"
           onChange={(e) => setName(e.target.value)}
         />
       </label>
 
-      <div className="flex flex-wrap gap-3">
-        <label className="flex flex-1 flex-col gap-1 text-sm">
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <div className="flex flex-1 flex-col gap-1 text-sm">
           <span className="label">Start (deur open)</span>
-          <input
-            type="datetime-local"
-            className="field"
-            value={startsAt}
-            onChange={(e) => setStartsAt(e.target.value)}
-          />
-        </label>
-        <label className="flex flex-1 flex-col gap-1 text-sm">
+          <DateTimeField value={startsAt} onChange={setStartsAt} placeholder="Kies start" />
+        </div>
+        <div className="flex flex-1 flex-col gap-1 text-sm">
           <span className="label">
             Einde <span className="text-faint normal-case">(optioneel)</span>
           </span>
-          <input
-            type="datetime-local"
-            className="field"
-            value={endsAt}
-            onChange={(e) => setEndsAt(e.target.value)}
-          />
-        </label>
+          <DateTimeField value={endsAt} onChange={setEndsAt} placeholder="Kies einde" allowClear />
+        </div>
       </div>
       <p className="text-faint text-xs">
         Loopt het event over middernacht? Vul gewoon de echte eindtijd in — alles hangt aan het

@@ -159,7 +159,7 @@ export function OrganizerManager({
               />
               <button
                 type="button"
-                className="btn-dark text-sm disabled:opacity-50"
+                className="btn-secondary text-sm disabled:opacity-50"
                 disabled={pending || !email}
                 onClick={invite}
               >

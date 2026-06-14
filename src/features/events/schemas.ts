@@ -4,7 +4,6 @@
 
 import { z } from 'zod';
 import { EVENT_STATUSES } from './status';
-import { isValidCustomSlug } from './slug';
 
 const uuid = z.string().uuid('Ongeldige id');
 
@@ -76,15 +75,8 @@ export const setLandingActiveSchema = z.object({
 });
 export type SetLandingActiveInput = z.input<typeof setLandingActiveSchema>;
 
-export const updateLandingSlugSchema = z.object({
-  eventId: uuid,
-  slug: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .refine(isValidCustomSlug, 'Gebruik 3–80 tekens: kleine letters, cijfers en koppeltekens'),
-});
-export type UpdateLandingSlugInput = z.input<typeof updateLandingSlugSchema>;
+// The slug is auto-generated from the name and intentionally NOT editable: a
+// shared landing link must never break (feedback 2026-06-14).
 
 // ── List lock (#23) ────────────────────────────────────────────────────────────
 
@@ -93,6 +85,14 @@ export const setLockSchema = z.object({
   locked: z.boolean(),
 });
 export type SetLockInput = z.input<typeof setLockSchema>;
+
+// Scheduled auto-lock: a single instant after which staff can no longer mutate
+// the list (DB-enforced in can_write_guests). null clears it.
+export const setAutoLockSchema = z.object({
+  eventId: uuid,
+  autoLockAt: isoDateTime.nullable(),
+});
+export type SetAutoLockInput = z.input<typeof setAutoLockSchema>;
 
 // ── Tiers (#8) ─────────────────────────────────────────────────────────────────
 

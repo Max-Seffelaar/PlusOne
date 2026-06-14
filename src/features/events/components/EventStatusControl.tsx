@@ -61,7 +61,7 @@ export function EventStatusControl({
               type="button"
               disabled={pending}
               onClick={() => onClick(t)}
-              className={`${t.requiresAdmin ? 'btn-dark' : 'btn-primary'} text-sm disabled:opacity-50`}
+              className={`${t.requiresAdmin ? 'btn-secondary' : 'btn-primary'} text-sm disabled:opacity-50`}
             >
               {t.label}
             </button>

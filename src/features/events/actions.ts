@@ -12,8 +12,8 @@ import {
   updateEventSchema,
   changeStatusSchema,
   setLandingActiveSchema,
-  updateLandingSlugSchema,
   setLockSchema,
+  setAutoLockSchema,
   createTierSchema,
   updateTierSchema,
   deleteTierSchema,
@@ -24,8 +24,8 @@ import {
   type UpdateEventInput,
   type ChangeStatusInput,
   type SetLandingActiveInput,
-  type UpdateLandingSlugInput,
   type SetLockInput,
+  type SetAutoLockInput,
   type CreateTierInput,
   type UpdateTierInput,
   type DeleteTierInput,
@@ -171,27 +171,6 @@ export async function setLandingActive(input: SetLandingActiveInput): Promise<Ac
   return { ok: true };
 }
 
-/** Set a custom landing slug. Uniqueness is the unique index (23505). */
-export async function updateLandingSlug(input: UpdateLandingSlugInput): Promise<ActionResult> {
-  const parsed = updateLandingSlugSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { eventId, slug } = parsed.data;
-
-  const supabase = await createClient();
-  const ctx = await getAuthContext();
-  if (!ctx) return unauthorized();
-
-  const { error } = await supabase.from('events').update({ landing_slug: slug }).eq('id', eventId);
-  if (error) {
-    if (error.code === '23505') {
-      return { ok: false, code: '23505', message: 'Deze link is al in gebruik. Kies een andere.' };
-    }
-    return mapMutationError(error);
-  }
-  revalidateEvent(eventId);
-  return { ok: true };
-}
-
 // ── List lock (#23) ────────────────────────────────────────────────────────────
 
 /**
@@ -213,6 +192,26 @@ export async function setListLock(input: SetLockInput): Promise<ActionResult> {
     : { list_locked: false, locked_by: null, locked_at: null };
 
   const { error } = await supabase.from('events').update(patch).eq('id', eventId);
+  if (error) return mapMutationError(error);
+  revalidateEvent(eventId);
+  return { ok: true };
+}
+
+/**
+ * Schedule (or clear) an automatic lock (#23). Once auto_lock_at passes, staff
+ * lose guest mutations — enforced in the database by can_write_guests, so a
+ * direct API call after the time is rejected too. null clears the schedule.
+ */
+export async function setAutoLock(input: SetAutoLockInput): Promise<ActionResult> {
+  const parsed = setAutoLockSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  const { eventId, autoLockAt } = parsed.data;
+
+  const supabase = await createClient();
+  const ctx = await getAuthContext();
+  if (!ctx) return unauthorized();
+
+  const { error } = await supabase.from('events').update({ auto_lock_at: autoLockAt }).eq('id', eventId);
   if (error) return mapMutationError(error);
   revalidateEvent(eventId);
   return { ok: true };
