@@ -4,10 +4,13 @@
  *  Real flow: request form → "aanvraag in behandeling". Per #40(d) the MVP sends
  *  NO notification, so there is no approval state here — the requester's page
  *  ends at the confirmation. Submission goes through the rate-limited,
- *  honeypot-protected submit action; a filled honeypot still shows success. */
+ *  honeypot-protected submit action; a filled honeypot still shows success.
+ *  Phone is collected WITH a country code (E.164); e-mail + phone get inline
+ *  validation; a marketing opt-in box records AVG consent. */
 import { useState, useTransition, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import type { SubmitGuestRequestInput } from '@/features/requests/schemas';
+import { toE164, isValidEmail, DIAL_CODES, DEFAULT_DIAL_CODE } from '@/features/requests/phone';
 import { Icon, type IconName } from './icon';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.985]';
@@ -26,6 +29,15 @@ export interface LandingEvent {
 export type SubmitResult = { ok: true } | { ok: false; code: string; message: string };
 export type SubmitAction = (input: SubmitGuestRequestInput) => Promise<SubmitResult>;
 
+function FieldError({ text }: { text: string }): JSX.Element {
+  return (
+    <div className="mt-[6px] flex items-center gap-[6px] pl-1">
+      <Icon name="warn" size={12} stroke="#B5A6FF" />
+      <span className="text-[11.5px] leading-[1.35] text-acc-soft">{text}</span>
+    </div>
+  );
+}
+
 function LField({
   icon,
   label,
@@ -36,6 +48,7 @@ function LField({
   inputMode,
   optional,
   area,
+  error,
 }: {
   icon: IconName;
   label: string;
@@ -46,6 +59,7 @@ function LField({
   inputMode?: 'text' | 'tel' | 'email';
   optional?: boolean;
   area?: boolean;
+  error?: string | null;
 }): JSX.Element {
   return (
     <div className="mb-[14px]">
@@ -53,7 +67,7 @@ function LField({
         <span className="text-[12px] font-bold uppercase tracking-[0.04em] text-faint">{label}</span>
         {optional && <span className="text-[11.5px] text-ghost">optioneel</span>}
       </div>
-      <div className={cn('flex gap-[11px] rounded-[14px] border border-line bg-elev px-[15px] transition-colors focus-within:border-acc', area ? 'items-start py-[13px]' : 'items-center py-[14px]')}>
+      <div className={cn('flex gap-[11px] rounded-[14px] border bg-elev px-[15px] transition-colors focus-within:border-acc', error ? 'border-acc' : 'border-line', area ? 'items-start py-[13px]' : 'items-center py-[14px]')}>
         <span className={cn('text-faint', area && 'mt-0.5')}>
           <Icon name={icon} size={19} />
         </span>
@@ -63,6 +77,58 @@ function LField({
           <input value={value} onChange={(e) => set(e.target.value)} placeholder={placeholder} type={type} inputMode={inputMode} className="min-w-0 flex-1 border-none bg-transparent text-[16px] text-text outline-none placeholder:text-faint" />
         )}
       </div>
+      {error && <FieldError text={error} />}
+    </div>
+  );
+}
+
+function PhoneField({
+  dial,
+  setDial,
+  value,
+  set,
+  error,
+}: {
+  dial: string;
+  setDial: (v: string) => void;
+  value: string;
+  set: (v: string) => void;
+  error?: string | null;
+}): JSX.Element {
+  return (
+    <div className="mb-[14px]">
+      <div className="mb-[7px] flex items-center justify-between">
+        <span className="text-[12px] font-bold uppercase tracking-[0.04em] text-faint">Telefoon</span>
+        <span className="text-[11.5px] text-ghost">optioneel</span>
+      </div>
+      <div className={cn('flex items-center gap-[9px] rounded-[14px] border bg-elev px-[15px] py-[14px] transition-colors focus-within:border-acc', error ? 'border-acc' : 'border-line')}>
+        <span className="text-faint">
+          <Icon name="phone" size={19} />
+        </span>
+        <select
+          value={dial}
+          onChange={(e) => setDial(e.target.value)}
+          aria-label="Landcode"
+          className="shrink-0 cursor-pointer border-none bg-transparent text-[15px] font-semibold text-text outline-none"
+        >
+          {DIAL_CODES.map((d) => (
+            <option key={d.code} value={d.code} className="bg-elev text-text">
+              {d.label}
+            </option>
+          ))}
+        </select>
+        <span className="h-5 w-px shrink-0 bg-line" />
+        <input
+          value={value}
+          onChange={(e) => set(e.target.value)}
+          placeholder="6 12 34 56 78"
+          type="tel"
+          inputMode="tel"
+          aria-label="Telefoonnummer"
+          className="min-w-0 flex-1 border-none bg-transparent text-[16px] text-text outline-none placeholder:text-faint"
+        />
+      </div>
+      {error && <FieldError text={error} />}
     </div>
   );
 }
@@ -115,10 +181,14 @@ export function LandingForm({
   const [name, setName] = useState('');
   const [plus, setPlus] = useState(0);
   const [email, setEmail] = useState('');
+  const [dial, setDial] = useState(DEFAULT_DIAL_CODE);
   const [phone, setPhone] = useState('');
   const [motiv, setMotiv] = useState('');
+  const [marketing, setMarketing] = useState(false);
   // Honeypot — must stay empty; bots that fill it get a fake success.
   const [company, setCompany] = useState('');
+  const [emailErr, setEmailErr] = useState<string | null>(null);
+  const [phoneErr, setPhoneErr] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -129,14 +199,27 @@ export function LandingForm({
   function submit(): void {
     if (!ok || pending) return;
     setError(null);
+
+    // Inline validation: e-mail (if given) and phone (must include a country
+    // code → normalise to E.164). Blocks submit and shows the field error.
+    const eErr = email.trim() && !isValidEmail(email) ? 'Vul een geldig e-mailadres in.' : null;
+    const phoneRes = toE164(dial, phone);
+    const pErr = phoneRes.ok ? null : phoneRes.reason;
+    setEmailErr(eErr);
+    setPhoneErr(pErr);
+    if (eErr || pErr) return;
+
+    const e164 = phoneRes.ok && !phoneRes.empty ? phoneRes.e164 : undefined;
+
     startTransition(async () => {
       const res = await action({
         slug,
         fullName: name.trim(),
         email: email.trim() || undefined,
-        phone: phone.trim() || undefined,
+        phone: e164,
         plusOnes: plus,
         motivation: motiv.trim() || undefined,
+        marketingOptIn: marketing,
         company,
       });
       if (res.ok) setSent(true);
@@ -149,9 +232,13 @@ export function LandingForm({
     setName('');
     setPlus(0);
     setEmail('');
+    setDial(DEFAULT_DIAL_CODE);
     setPhone('');
     setMotiv('');
+    setMarketing(false);
     setCompany('');
+    setEmailErr(null);
+    setPhoneErr(null);
     setError(null);
   }
 
@@ -245,9 +332,49 @@ export function LandingForm({
           </div>
         </div>
 
-        <LField icon="mail" label="E-mail" value={email} set={setEmail} placeholder="jij@voorbeeld.nl" type="email" inputMode="email" optional />
-        <LField icon="phone" label="Telefoon" value={phone} set={setPhone} placeholder="06 ········" type="tel" inputMode="tel" optional />
+        <LField
+          icon="mail"
+          label="E-mail"
+          value={email}
+          set={(v) => {
+            setEmail(v);
+            if (emailErr) setEmailErr(null);
+          }}
+          placeholder="jij@voorbeeld.nl"
+          type="email"
+          inputMode="email"
+          optional
+          error={emailErr}
+        />
+        <PhoneField
+          dial={dial}
+          setDial={(v) => {
+            setDial(v);
+            if (phoneErr) setPhoneErr(null);
+          }}
+          value={phone}
+          set={(v) => {
+            setPhone(v);
+            if (phoneErr) setPhoneErr(null);
+          }}
+          error={phoneErr}
+        />
         <LField icon="note" label="Bericht" value={motiv} set={setMotiv} placeholder="bv. vriend van de DJ, verjaardag…" optional area />
+
+        <button
+          type="button"
+          onClick={() => setMarketing(!marketing)}
+          aria-pressed={marketing}
+          className={cn('mb-[16px] flex w-full items-start gap-[11px] rounded-[14px] border bg-elev px-[14px] py-[13px] text-left', marketing ? 'border-acc' : 'border-line', press)}
+        >
+          <span className={cn('mt-px flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-[6px] border-2', marketing ? 'border-acc bg-acc' : 'border-ghost bg-transparent')}>
+            {marketing && <Icon name="check" size={12} stroke="#16132B" sw={3} />}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block font-display text-[13.5px] font-bold text-text">Houd me op de hoogte</span>
+            <span className="mt-px block text-[11.5px] leading-[1.4] text-faint">Ja, de organisatie mag mijn gegevens gebruiken om me te informeren over komende events.</span>
+          </span>
+        </button>
 
         {/* Honeypot: off-screen, never seen or tabbed-to by a human. */}
         <div aria-hidden className="pointer-events-none absolute left-[-9999px] h-0 w-0 overflow-hidden">

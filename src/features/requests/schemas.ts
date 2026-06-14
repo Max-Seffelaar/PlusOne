@@ -34,9 +34,19 @@ export const submitGuestRequestSchema = z.object({
     .optional()
     .or(z.literal(''))
     .transform((v) => (v && v.length > 0 ? v : undefined)),
-  phone: optionalText(40),
+  // Phone arrives already normalised to E.164 by the form (dial code + number);
+  // it must carry a country code or it is useless to the venue.
+  phone: z
+    .string()
+    .trim()
+    .regex(/^\+[1-9]\d{6,14}$/, 'Ongeldig telefoonnummer')
+    .optional()
+    .or(z.literal(''))
+    .transform((v) => (v && v.length > 0 ? v : undefined)),
   plusOnes: z.coerce.number().int().min(0).max(20).default(0),
   motivation: optionalText(1000),
+  // Marketing consent (AVG) — opt-in, defaults to false.
+  marketingOptIn: z.boolean().optional().default(false),
   // Honeypot — must stay empty. Anything here means "bot".
   company: z.string().max(200).optional(),
 });

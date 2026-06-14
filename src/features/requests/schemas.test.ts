@@ -59,6 +59,24 @@ describe('submitGuestRequestSchema', () => {
     });
     expect(r.success && r.data.company).toBe('Acme BV');
   });
+
+  it('requires the phone to be E.164 (with country code) when given', () => {
+    const ok = submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos', phone: '+31612345678' });
+    expect(ok.success && ok.data.phone).toBe('+31612345678');
+    const empty = submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos', phone: '' });
+    expect(empty.success && empty.data.phone).toBeUndefined();
+    // A bare national number (no country code) is rejected.
+    expect(
+      submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos', phone: '0612345678' }).success
+    ).toBe(false);
+  });
+
+  it('defaults marketingOptIn to false and accepts an explicit true', () => {
+    const def = submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos' });
+    expect(def.success && def.data.marketingOptIn).toBe(false);
+    const on = submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos', marketingOptIn: true });
+    expect(on.success && on.data.marketingOptIn).toBe(true);
+  });
 });
 
 describe('approveGuestRequestSchema', () => {

@@ -276,6 +276,7 @@ export type Database = {
           event_id: string
           full_name: string
           id: string
+          marketing_opt_in: boolean
           motivation: string | null
           phone: string | null
           plus_ones: number
@@ -291,6 +292,7 @@ export type Database = {
           event_id: string
           full_name: string
           id?: string
+          marketing_opt_in?: boolean
           motivation?: string | null
           phone?: string | null
           plus_ones?: number
@@ -306,6 +308,7 @@ export type Database = {
           event_id?: string
           full_name?: string
           id?: string
+          marketing_opt_in?: boolean
           motivation?: string | null
           phone?: string | null
           plus_ones?: number
@@ -922,6 +925,7 @@ export type Database = {
           p_email: string
           p_full_name: string
           p_ip_hash: string
+          p_marketing_opt_in: boolean
           p_motivation: string
           p_phone: string
           p_plus_ones: number

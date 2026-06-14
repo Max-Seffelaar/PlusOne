@@ -100,7 +100,7 @@ select ok(
 -- Fase 8: anon may submit a request; only authenticated may approve one (#12).
 select ok(
   has_function_privilege('anon',
-    'public.submit_guest_request(text,text,text,text,integer,text,text)', 'EXECUTE')
+    'public.submit_guest_request(text,text,text,text,integer,text,text,boolean)', 'EXECUTE')
   and has_function_privilege('authenticated',
     'public.approve_guest_request(uuid,uuid)', 'EXECUTE')
   and not has_function_privilege('anon',

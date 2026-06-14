@@ -42,6 +42,9 @@ test.describe('Landing-page aanvraagflow', () => {
 
     await page.getByPlaceholder('Voor- en achternaam').fill(guestName);
     await page.getByRole('button', { name: 'Meer' }).click(); // +1 → 2 personen
+    await page.getByLabel('Landcode').selectOption('+31'); // NL country code
+    await page.getByLabel('Telefoonnummer').fill('06 12 34 56 78');
+    await page.getByRole('button', { name: /Houd me op de hoogte/ }).click(); // marketing consent
     await page.getByRole('button', { name: 'Verstuur aanvraag' }).click();
 
     await expect(
@@ -68,5 +71,24 @@ test.describe('Landing-page aanvraagflow', () => {
     const guestRow = page.locator('summary', { hasText: guestName });
     await expect(guestRow).toBeVisible();
     await expect(guestRow).toContainText('+1');
+
+    // 5. The phone was stored as E.164 (with country code), and the marketing
+    //    consent was recorded on the request (AVG).
+    const a = adminClient();
+    const { data: guest } = await a
+      .from('guests')
+      .select('phone, source')
+      .eq('full_name', guestName)
+      .maybeSingle();
+    expect(guest?.source).toBe('landing');
+    expect(guest?.phone).toBe('+31612345678');
+
+    const { data: req } = await a
+      .from('guest_requests')
+      .select('marketing_opt_in, phone')
+      .eq('full_name', guestName)
+      .maybeSingle();
+    expect(req?.marketing_opt_in).toBe(true);
+    expect(req?.phone).toBe('+31612345678');
   });
 });
