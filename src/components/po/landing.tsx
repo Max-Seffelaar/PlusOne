@@ -8,13 +8,12 @@
  *  Phone is collected WITH a country code (E.164); e-mail + phone get inline
  *  validation; a marketing opt-in box records AVG consent. */
 import { useState, useTransition, type ReactNode } from 'react';
-import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input';
-import flags from 'react-phone-number-input/flags';
-import 'react-phone-number-input/style.css';
-import './landing-phone.css';
+import PhoneInput from 'react-phone-number-input/input';
+import { isValidPhoneNumber } from 'react-phone-number-input';
 import { cn } from '@/lib/utils';
 import type { SubmitGuestRequestInput } from '@/features/requests/schemas';
 import { isValidEmail } from '@/features/requests/validation';
+import { CountrySelect, type CountryCode } from './country-select';
 import { Icon, type IconName } from './icon';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.985]';
@@ -134,8 +133,9 @@ export function LandingForm({
   const [name, setName] = useState('');
   const [plus, setPlus] = useState(0);
   const [email, setEmail] = useState('');
-  // react-phone-number-input gives us an E.164 string (e.g. +31612345678) or
-  // undefined when empty.
+  // The country is chosen via the custom dropdown; the input formats for it and
+  // emits an E.164 string (e.g. +31612345678) or undefined when empty.
+  const [country, setCountry] = useState<CountryCode>('NL');
   const [phone, setPhone] = useState<string | undefined>(undefined);
   const [motiv, setMotiv] = useState('');
   const [marketing, setMarketing] = useState(false);
@@ -185,6 +185,7 @@ export function LandingForm({
     setName('');
     setPlus(0);
     setEmail('');
+    setCountry('NL');
     setPhone(undefined);
     setMotiv('');
     setMarketing(false);
@@ -303,17 +304,28 @@ export function LandingForm({
             <span className="text-[12px] font-bold uppercase tracking-[0.04em] text-faint">Telefoon</span>
             <span className="text-[11.5px] text-ghost">optioneel</span>
           </div>
-          <div className={cn('po-tel flex items-center rounded-[14px] border bg-elev px-[15px] py-[13px] transition-colors focus-within:border-acc', phoneErr ? 'border-acc' : 'border-line')}>
+          <div className={cn('flex items-center gap-[8px] rounded-[14px] border bg-elev py-[10px] pl-[9px] pr-[15px] transition-colors focus-within:border-acc', phoneErr ? 'border-acc' : 'border-line')}>
+            <CountrySelect
+              value={country}
+              onChange={(c) => {
+                if (c !== country) {
+                  setCountry(c);
+                  setPhone(undefined); // re-type the number for the new country
+                }
+                if (phoneErr) setPhoneErr(null);
+              }}
+            />
+            <span className="h-5 w-px shrink-0 bg-line" />
             <PhoneInput
-              international
-              defaultCountry="NL"
-              flags={flags}
+              country={country}
               value={phone}
               onChange={(v) => {
                 setPhone(v);
                 if (phoneErr) setPhoneErr(null);
               }}
-              numberInputProps={{ 'aria-label': 'Telefoonnummer', placeholder: '6 12 34 56 78' }}
+              aria-label="Telefoonnummer"
+              placeholder="6 12 34 56 78"
+              className="min-w-0 flex-1 border-none bg-transparent text-[16px] text-text outline-none placeholder:text-faint"
             />
           </div>
           {phoneErr && <FieldError text={phoneErr} />}

@@ -42,9 +42,8 @@ test.describe('Landing-page aanvraagflow', () => {
 
     await page.getByPlaceholder('Voor- en achternaam').fill(guestName);
     await page.getByRole('button', { name: 'Meer' }).click(); // +1 → 2 personen
-    // react-phone-number-input: typing the full international number sets the
-    // country (NL) and the E.164 value.
-    await page.getByLabel('Telefoonnummer').fill('+31612345678');
+    // National number for the default country (NL) → stored as E.164 (+31…).
+    await page.getByLabel('Telefoonnummer').fill('0612345678');
     await page.getByRole('button', { name: /Houd me op de hoogte/ }).click(); // marketing consent
     await page.getByRole('button', { name: 'Verstuur aanvraag' }).click();
 
