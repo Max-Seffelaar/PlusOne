@@ -1,6 +1,6 @@
 -- Fase 8b — Landingpage: marketing-toestemming + telefoon mét landcode.
 --
--- Refinements on the fase-8 aanvraagflow (20260614000000):
+-- Refinements on the fase-8 aanvraagflow (20260614100000_landing_request_flow):
 --   1. guest_requests.marketing_opt_in — expliciete AVG-toestemming om de
 --      contactgegevens voor marketing te gebruiken ("houd me op de hoogte").
 --      Default false (opt-in, nooit aangevinkt vooraf).
