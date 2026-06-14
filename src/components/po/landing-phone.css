@@ -1,0 +1,51 @@
+/* Dark-theme overrides for react-phone-number-input, scoped to .po-tel so they
+   never touch the unrelated .po-phone desktop bezel. Tokens mirror
+   tailwind.config.ts (text #fff, faint 40%, line 10%, acc #B5A6FF). SVG flags
+   (passed via the bundled `flags` prop) render identically on every OS — no
+   emoji-flag fallback, which is what produced the "NL" text on Windows. */
+
+.po-tel {
+  /* library CSS variables */
+  --PhoneInputCountryFlag-height: 1.15em;
+  --PhoneInputCountryFlag-borderColor: rgba(255, 255, 255, 0.1);
+  --PhoneInputCountryFlag-borderColor--focus: #b5a6ff;
+  --PhoneInputCountrySelectArrow-color: rgba(255, 255, 255, 0.4);
+  --PhoneInputCountrySelectArrow-color--focus: #b5a6ff;
+  --PhoneInputCountrySelectArrow-opacity: 1;
+  --PhoneInput-color--focus: #b5a6ff;
+
+  width: 100%;
+}
+
+.po-tel .PhoneInputCountry {
+  margin-right: 12px;
+}
+
+.po-tel .PhoneInputCountryIcon--border {
+  /* soften the default white box-shadow on the flag */
+  box-shadow: 0 0 0 1px var(--PhoneInputCountryFlag-borderColor);
+  background-color: transparent;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.po-tel .PhoneInputCountrySelectArrow {
+  margin-left: 8px;
+  width: 0.4em;
+  height: 0.4em;
+}
+
+.po-tel .PhoneInputInput {
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.po-tel .PhoneInputInput::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}

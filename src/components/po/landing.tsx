@@ -8,9 +8,13 @@
  *  Phone is collected WITH a country code (E.164); e-mail + phone get inline
  *  validation; a marketing opt-in box records AVG consent. */
 import { useState, useTransition, type ReactNode } from 'react';
+import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input';
+import flags from 'react-phone-number-input/flags';
+import 'react-phone-number-input/style.css';
+import './landing-phone.css';
 import { cn } from '@/lib/utils';
 import type { SubmitGuestRequestInput } from '@/features/requests/schemas';
-import { toE164, isValidEmail, DIAL_CODES, DEFAULT_DIAL_CODE } from '@/features/requests/phone';
+import { isValidEmail } from '@/features/requests/validation';
 import { Icon, type IconName } from './icon';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.985]';
@@ -82,57 +86,6 @@ function LField({
   );
 }
 
-function PhoneField({
-  dial,
-  setDial,
-  value,
-  set,
-  error,
-}: {
-  dial: string;
-  setDial: (v: string) => void;
-  value: string;
-  set: (v: string) => void;
-  error?: string | null;
-}): JSX.Element {
-  return (
-    <div className="mb-[14px]">
-      <div className="mb-[7px] flex items-center justify-between">
-        <span className="text-[12px] font-bold uppercase tracking-[0.04em] text-faint">Telefoon</span>
-        <span className="text-[11.5px] text-ghost">optioneel</span>
-      </div>
-      <div className={cn('flex items-center gap-[9px] rounded-[14px] border bg-elev px-[15px] py-[14px] transition-colors focus-within:border-acc', error ? 'border-acc' : 'border-line')}>
-        <span className="text-faint">
-          <Icon name="phone" size={19} />
-        </span>
-        <select
-          value={dial}
-          onChange={(e) => setDial(e.target.value)}
-          aria-label="Landcode"
-          className="shrink-0 cursor-pointer border-none bg-transparent text-[15px] font-semibold text-text outline-none"
-        >
-          {DIAL_CODES.map((d) => (
-            <option key={d.code} value={d.code} className="bg-elev text-text">
-              {d.label}
-            </option>
-          ))}
-        </select>
-        <span className="h-5 w-px shrink-0 bg-line" />
-        <input
-          value={value}
-          onChange={(e) => set(e.target.value)}
-          placeholder="6 12 34 56 78"
-          type="tel"
-          inputMode="tel"
-          aria-label="Telefoonnummer"
-          className="min-w-0 flex-1 border-none bg-transparent text-[16px] text-text outline-none placeholder:text-faint"
-        />
-      </div>
-      {error && <FieldError text={error} />}
-    </div>
-  );
-}
-
 function Footer(): JSX.Element {
   return (
     <div className="mt-[22px] flex items-center justify-center gap-[7px] text-center text-[12px] text-ghost">
@@ -181,8 +134,9 @@ export function LandingForm({
   const [name, setName] = useState('');
   const [plus, setPlus] = useState(0);
   const [email, setEmail] = useState('');
-  const [dial, setDial] = useState(DEFAULT_DIAL_CODE);
-  const [phone, setPhone] = useState('');
+  // react-phone-number-input gives us an E.164 string (e.g. +31612345678) or
+  // undefined when empty.
+  const [phone, setPhone] = useState<string | undefined>(undefined);
   const [motiv, setMotiv] = useState('');
   const [marketing, setMarketing] = useState(false);
   // Honeypot — must stay empty; bots that fill it get a fake success.
@@ -200,23 +154,22 @@ export function LandingForm({
     if (!ok || pending) return;
     setError(null);
 
-    // Inline validation: e-mail (if given) and phone (must include a country
-    // code → normalise to E.164). Blocks submit and shows the field error.
+    // Inline validation: e-mail (if given) and phone. libphonenumber validates
+    // the number per the selected country (E.164); a wrong/incomplete one is
+    // caught here before submit.
     const eErr = email.trim() && !isValidEmail(email) ? 'Vul een geldig e-mailadres in.' : null;
-    const phoneRes = toE164(dial, phone);
-    const pErr = phoneRes.ok ? null : phoneRes.reason;
+    const pErr =
+      phone && !isValidPhoneNumber(phone) ? 'Controleer je telefoonnummer (incl. landcode).' : null;
     setEmailErr(eErr);
     setPhoneErr(pErr);
     if (eErr || pErr) return;
-
-    const e164 = phoneRes.ok && !phoneRes.empty ? phoneRes.e164 : undefined;
 
     startTransition(async () => {
       const res = await action({
         slug,
         fullName: name.trim(),
         email: email.trim() || undefined,
-        phone: e164,
+        phone: phone || undefined,
         plusOnes: plus,
         motivation: motiv.trim() || undefined,
         marketingOptIn: marketing,
@@ -232,8 +185,7 @@ export function LandingForm({
     setName('');
     setPlus(0);
     setEmail('');
-    setDial(DEFAULT_DIAL_CODE);
-    setPhone('');
+    setPhone(undefined);
     setMotiv('');
     setMarketing(false);
     setCompany('');
@@ -346,19 +298,26 @@ export function LandingForm({
           optional
           error={emailErr}
         />
-        <PhoneField
-          dial={dial}
-          setDial={(v) => {
-            setDial(v);
-            if (phoneErr) setPhoneErr(null);
-          }}
-          value={phone}
-          set={(v) => {
-            setPhone(v);
-            if (phoneErr) setPhoneErr(null);
-          }}
-          error={phoneErr}
-        />
+        <div className="mb-[14px]">
+          <div className="mb-[7px] flex items-center justify-between">
+            <span className="text-[12px] font-bold uppercase tracking-[0.04em] text-faint">Telefoon</span>
+            <span className="text-[11.5px] text-ghost">optioneel</span>
+          </div>
+          <div className={cn('po-tel flex items-center rounded-[14px] border bg-elev px-[15px] py-[13px] transition-colors focus-within:border-acc', phoneErr ? 'border-acc' : 'border-line')}>
+            <PhoneInput
+              international
+              defaultCountry="NL"
+              flags={flags}
+              value={phone}
+              onChange={(v) => {
+                setPhone(v);
+                if (phoneErr) setPhoneErr(null);
+              }}
+              numberInputProps={{ 'aria-label': 'Telefoonnummer', placeholder: '6 12 34 56 78' }}
+            />
+          </div>
+          {phoneErr && <FieldError text={phoneErr} />}
+        </div>
         <LField icon="note" label="Bericht" value={motiv} set={setMotiv} placeholder="bv. vriend van de DJ, verjaardag…" optional area />
 
         <button

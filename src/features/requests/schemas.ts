@@ -34,12 +34,13 @@ export const submitGuestRequestSchema = z.object({
     .optional()
     .or(z.literal(''))
     .transform((v) => (v && v.length > 0 ? v : undefined)),
-  // Phone arrives already normalised to E.164 by the form (dial code + number);
-  // it must carry a country code or it is useless to the venue.
+  // Phone arrives already normalised to E.164 by the form (libphonenumber); it
+  // must carry a country code or it is useless to the venue. Canonical E.164
+  // shape (+ then up to 15 digits) so no valid international number is rejected.
   phone: z
     .string()
     .trim()
-    .regex(/^\+[1-9]\d{6,14}$/, 'Ongeldig telefoonnummer')
+    .regex(/^\+[1-9]\d{1,14}$/, 'Ongeldig telefoonnummer')
     .optional()
     .or(z.literal(''))
     .transform((v) => (v && v.length > 0 ? v : undefined)),
