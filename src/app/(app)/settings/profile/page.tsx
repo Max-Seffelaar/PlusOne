@@ -13,7 +13,7 @@ export default async function ProfilePage(): Promise<JSX.Element> {
   const supabase = await createClient();
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('full_name, email')
+    .select('first_name, last_name, phone, email')
     .eq('id', ctx.user.id)
     .maybeSingle();
 
@@ -27,7 +27,9 @@ export default async function ProfilePage(): Promise<JSX.Element> {
       </header>
 
       <ProfileForm
-        currentName={profile?.full_name ?? ''}
+        currentFirstName={profile?.first_name ?? ''}
+        currentLastName={profile?.last_name ?? ''}
+        currentPhone={profile?.phone ?? ''}
         currentEmail={profile?.email ?? ctx.user.email ?? ''}
       />
 

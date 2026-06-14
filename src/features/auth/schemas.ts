@@ -59,6 +59,19 @@ export const profileNameSchema = z.object({
     .max(120, 'Naam is te lang'),
 });
 
+// Profile is global to the user (decision #24): first/last name + phone. full_name
+// is kept as a display mirror, maintained by the action from first + last.
+export const profileSchema = z.object({
+  firstName: z.string().trim().min(1, 'Vul je voornaam in').max(80, 'Te lang'),
+  lastName: z.string().trim().min(1, 'Vul je achternaam in').max(120, 'Te lang'),
+  phone: z
+    .string()
+    .trim()
+    .max(40, 'Te lang')
+    .transform((v) => (v === '' ? null : v))
+    .refine((v) => v === null || /^[+0-9 ()-]{6,40}$/.test(v), 'Ongeldig telefoonnummer'),
+});
+
 export const emailChangeSchema = z.object({
   email: emailSchema,
 });

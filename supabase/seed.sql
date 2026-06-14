@@ -48,8 +48,14 @@ where u.email like '%@plusone.test';
 -- Profiles
 -- ---------------------------------------------------------------------------
 
-insert into public.user_profiles (id, full_name, email)
-select u.id, u.raw_user_meta_data ->> 'full_name', u.email
+insert into public.user_profiles (id, full_name, email, first_name, last_name, phone)
+select
+  u.id,
+  u.raw_user_meta_data ->> 'full_name',
+  u.email,
+  nullif(split_part(u.raw_user_meta_data ->> 'full_name', ' ', 1), ''),
+  nullif(regexp_replace(u.raw_user_meta_data ->> 'full_name', '^\S+\s*', ''), ''),
+  '+316' || lpad((row_number() over (order by u.email))::text, 8, '0')
 from auth.users as u
 where u.email like '%@plusone.test';
 
@@ -57,9 +63,16 @@ where u.email like '%@plusone.test';
 -- Venues + subscriptions (decision #32: access is read from subscriptions)
 -- ---------------------------------------------------------------------------
 
-insert into public.venues (id, name, slug, retention_months) values
-  ('aa000000-0000-7000-8000-000000000001', 'Club Vesper',  'club-vesper',  12),
-  ('aa000000-0000-7000-8000-000000000002', 'De Marktzaal', 'de-marktzaal', 12);
+insert into public.venues
+  (id, name, slug, retention_months, company_name, kvk_number, vat_number,
+   finance_email, address_line, postal_code, city, country, default_personal_quota)
+values
+  ('aa000000-0000-7000-8000-000000000001', 'Club Vesper', 'club-vesper', 12,
+   'Vesper Nightlife B.V.', '34567890', 'NL823456789B01', 'finance@clubvesper.nl',
+   'Wibautstraat 150', '1091 GR', 'Amsterdam', 'NL', 5),
+  ('aa000000-0000-7000-8000-000000000002', 'De Marktzaal', 'de-marktzaal', 12,
+   'Marktzaal Events B.V.', '09876543', 'NL898765432B01', 'administratie@demarktzaal.nl',
+   'Grote Gracht 76', '6211 SZ', 'Maastricht', 'NL', 4);
 
 insert into public.subscriptions (venue_id, status, plan_id, current_period_end) values
   ('aa000000-0000-7000-8000-000000000001', 'comped',   'pilot', null),
@@ -71,13 +84,13 @@ insert into public.subscriptions (venue_id, status, plan_id, current_period_end)
 -- scope (decisions #6/#24).
 -- ---------------------------------------------------------------------------
 
-insert into public.venue_memberships (venue_id, user_id, roles) values
-  ('aa000000-0000-7000-8000-000000000001', '11111111-1111-4111-8111-111111111111', '{admin}'),
-  ('aa000000-0000-7000-8000-000000000001', '22222222-2222-4222-8222-222222222222', '{user_manager}'),
-  ('aa000000-0000-7000-8000-000000000001', '33333333-3333-4333-8333-333333333333', '{finance}'),
-  ('aa000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555', '{staff}'),
-  ('aa000000-0000-7000-8000-000000000001', '66666666-6666-4666-8666-666666666666', '{doorhost,staff}'),
-  ('aa000000-0000-7000-8000-000000000002', '11111111-1111-4111-8111-111111111111', '{admin}');
+insert into public.venue_memberships (venue_id, user_id, roles, job_title) values
+  ('aa000000-0000-7000-8000-000000000001', '11111111-1111-4111-8111-111111111111', '{admin}', 'Eigenaar'),
+  ('aa000000-0000-7000-8000-000000000001', '22222222-2222-4222-8222-222222222222', '{user_manager}', 'Office manager'),
+  ('aa000000-0000-7000-8000-000000000001', '33333333-3333-4333-8333-333333333333', '{finance}', 'Financieel manager'),
+  ('aa000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555', '{staff}', 'Barman'),
+  ('aa000000-0000-7000-8000-000000000001', '66666666-6666-4666-8666-666666666666', '{doorhost,staff}', 'Deurhost'),
+  ('aa000000-0000-7000-8000-000000000002', '11111111-1111-4111-8111-111111111111', '{admin}', 'Eigenaar');
 
 -- ---------------------------------------------------------------------------
 -- Event (crosses midnight — decision #26) + tiers (decision #8/#33)

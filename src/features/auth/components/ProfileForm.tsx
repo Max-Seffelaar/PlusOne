@@ -1,7 +1,7 @@
 'use client';
 
 import { useActionState } from 'react';
-import { updateNameAction, updateEmailAction, type ActionState } from '../profile-actions';
+import { updateProfileAction, updateEmailAction, type ActionState } from '../profile-actions';
 
 const INITIAL: ActionState = { ok: false };
 
@@ -22,36 +22,55 @@ function Result({ state }: { state: ActionState }): JSX.Element | null {
 }
 
 export function ProfileForm({
-  currentName,
+  currentFirstName,
+  currentLastName,
+  currentPhone,
   currentEmail,
 }: {
-  currentName: string;
+  currentFirstName: string;
+  currentLastName: string;
+  currentPhone: string;
   currentEmail: string;
 }): JSX.Element {
-  const [nameState, nameAction, namePending] = useActionState(updateNameAction, INITIAL);
+  const [profileState, profileAction, profilePending] = useActionState(updateProfileAction, INITIAL);
   const [emailState, emailAction, emailPending] = useActionState(updateEmailAction, INITIAL);
 
   return (
     <div className="flex flex-col gap-6">
-      <form action={nameAction} className="card flex flex-col gap-4">
+      <form action={profileAction} className="card flex flex-col gap-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-2">
+            <label htmlFor="firstName" className="label">
+              Voornaam
+            </label>
+            <input id="firstName" name="firstName" type="text" defaultValue={currentFirstName} required maxLength={80} className="field" />
+          </div>
+          <div className="flex flex-col gap-2">
+            <label htmlFor="lastName" className="label">
+              Achternaam
+            </label>
+            <input id="lastName" name="lastName" type="text" defaultValue={currentLastName} required maxLength={120} className="field" />
+          </div>
+        </div>
         <div className="flex flex-col gap-2">
-          <label htmlFor="fullName" className="label">
-            Naam
+          <label htmlFor="phone" className="label">
+            Telefoonnummer
           </label>
           <input
-            id="fullName"
-            name="fullName"
-            type="text"
-            defaultValue={currentName}
-            required
-            maxLength={120}
+            id="phone"
+            name="phone"
+            type="tel"
+            inputMode="tel"
+            defaultValue={currentPhone}
+            placeholder="+31 6 12345678"
+            maxLength={40}
             className="field"
           />
         </div>
-        <button type="submit" className="btn-primary self-start" disabled={namePending}>
-          {namePending ? 'Bezig…' : 'Naam opslaan'}
+        <button type="submit" className="btn-primary self-start" disabled={profilePending}>
+          {profilePending ? 'Bezig…' : 'Profiel opslaan'}
         </button>
-        <Result state={nameState} />
+        <Result state={profileState} />
       </form>
 
       <form action={emailAction} className="card flex flex-col gap-4">

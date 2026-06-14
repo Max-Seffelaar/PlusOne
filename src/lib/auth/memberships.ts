@@ -15,6 +15,8 @@ export interface VenueMember {
   fullName: string;
   email: string;
   roles: VenueRole[];
+  /** Per-venue job title (functie), null when not set. */
+  jobTitle: string | null;
 }
 
 export interface PendingInvite {
@@ -50,7 +52,7 @@ export async function getVenueMembers(venueId: string): Promise<VenueMember[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from('venue_memberships')
-    .select('user_id, roles, user_profiles(full_name, email)')
+    .select('user_id, roles, job_title, user_profiles(full_name, email)')
     .eq('venue_id', venueId);
 
   return (data ?? []).map((row) => ({
@@ -58,6 +60,7 @@ export async function getVenueMembers(venueId: string): Promise<VenueMember[]> {
     fullName: row.user_profiles?.full_name ?? '—',
     email: row.user_profiles?.email ?? '—',
     roles: row.roles,
+    jobTitle: row.job_title ?? null,
   }));
 }
 
