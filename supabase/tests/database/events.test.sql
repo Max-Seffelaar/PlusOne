@@ -46,7 +46,7 @@ insert into public.guest_tiers (id, event_id, name, max_guests)
 values ('dd000000-0000-7000-8000-0000000000f1',
         'ee000000-0000-7000-8000-000000000001', 'MaxOne', 1);
 
-select plan(41);
+select plan(46);
 
 -- ---------------------------------------------------------------------------
 -- A. Pure state machine (graph + admin matrix) — mirrors status.ts
@@ -304,6 +304,81 @@ select is((select count(*)::int from public.user_profiles
            where id = '44444444-4444-4444-8444-444444444444'),
   1, 'E5 the removed organizer''s account still exists (#24)');
 rollback to savepoint e4;
+
+-- ---------------------------------------------------------------------------
+-- F. Auto-lock op tijd (#23) — effective lock once auto_lock_at <= now().
+--    Same role split as the manual lock: staff blocked, door roles keep writing.
+-- ---------------------------------------------------------------------------
+
+-- F1: auto-lock in the PAST -> staff can no longer add (RLS can_write_guests).
+savepoint f1;
+update public.events set auto_lock_at = now() - interval '1 hour'
+  where id = 'ee000000-0000-7000-8000-000000000001';
+select pg_temp.login('55555555-5555-4555-8555-555555555555');
+select throws_ok($$
+  insert into public.guests (event_id, tier_id, full_name, added_by)
+  values ('ee000000-0000-7000-8000-000000000001',
+          'dd000000-0000-7000-8000-000000000001', 'Auto-lock Staff',
+          '55555555-5555-4555-8555-555555555555')
+$$, '42501', null, 'F1 auto-lock passed: staff cannot add');
+reset role;
+rollback to savepoint f1;
+
+-- F2: doorhost still adds at the door after the auto-lock.
+savepoint f2;
+update public.events set auto_lock_at = now() - interval '1 hour'
+  where id = 'ee000000-0000-7000-8000-000000000001';
+select pg_temp.login('66666666-6666-4666-8666-666666666666');
+select lives_ok($$
+  insert into public.guests (event_id, tier_id, full_name, added_by, source)
+  values ('ee000000-0000-7000-8000-000000000001',
+          'dd000000-0000-7000-8000-000000000001', 'Auto-lock Deur',
+          '66666666-6666-4666-8666-666666666666', 'door')
+$$, 'F2 auto-lock passed: doorhost still adds at the door');
+reset role;
+rollback to savepoint f2;
+
+-- F3: organizer keeps write access after the auto-lock.
+savepoint f3;
+update public.events set auto_lock_at = now() - interval '1 hour'
+  where id = 'ee000000-0000-7000-8000-000000000001';
+select pg_temp.login('44444444-4444-4444-8444-444444444444');
+select lives_ok($$
+  insert into public.guests (event_id, tier_id, full_name, added_by)
+  values ('ee000000-0000-7000-8000-000000000001',
+          'dd000000-0000-7000-8000-000000000001', 'Auto-lock Organizer',
+          '44444444-4444-4444-8444-444444444444')
+$$, 'F3 auto-lock passed: organizer keeps write access');
+reset role;
+rollback to savepoint f3;
+
+-- F4: auto-lock in the FUTURE -> staff can still add (not locked yet).
+savepoint f4;
+update public.events set auto_lock_at = now() + interval '1 hour'
+  where id = 'ee000000-0000-7000-8000-000000000001';
+select pg_temp.login('55555555-5555-4555-8555-555555555555');
+select lives_ok($$
+  insert into public.guests (event_id, tier_id, full_name, added_by)
+  values ('ee000000-0000-7000-8000-000000000001',
+          'dd000000-0000-7000-8000-000000000001', 'Pre-lock Staff',
+          '55555555-5555-4555-8555-555555555555')
+$$, 'F4 auto-lock not yet reached: staff can still add');
+reset role;
+rollback to savepoint f4;
+
+-- F5: admin always keeps write access.
+savepoint f5;
+update public.events set auto_lock_at = now() - interval '1 hour'
+  where id = 'ee000000-0000-7000-8000-000000000001';
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select lives_ok($$
+  insert into public.guests (event_id, tier_id, full_name, added_by)
+  values ('ee000000-0000-7000-8000-000000000001',
+          'dd000000-0000-7000-8000-000000000001', 'Auto-lock Admin',
+          '11111111-1111-4111-8111-111111111111')
+$$, 'F5 auto-lock passed: admin keeps write access');
+reset role;
+rollback to savepoint f5;
 
 select * from finish();
 

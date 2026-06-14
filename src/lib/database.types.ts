@@ -201,6 +201,7 @@ export type Database = {
       }
       events: {
         Row: {
+          auto_lock_at: string | null
           created_at: string
           ends_at: string | null
           id: string
@@ -217,6 +218,7 @@ export type Database = {
           went_live_at: string | null
         }
         Insert: {
+          auto_lock_at?: string | null
           created_at?: string
           ends_at?: string | null
           id?: string
@@ -233,6 +235,7 @@ export type Database = {
           went_live_at?: string | null
         }
         Update: {
+          auto_lock_at?: string | null
           created_at?: string
           ends_at?: string | null
           id?: string
@@ -844,6 +847,13 @@ export type Database = {
           remaining: number
         }[]
       }
+      event_transition_requires_admin: {
+        Args: {
+          p_from: Database["public"]["Enums"]["event_status"]
+          p_to: Database["public"]["Enums"]["event_status"]
+        }
+        Returns: boolean
+      }
       event_venue: { Args: { p_event_id: string }; Returns: string }
       guest_event: { Args: { p_guest_id: string }; Returns: string }
       guest_personal_contribution: {
@@ -866,6 +876,13 @@ export type Database = {
       }
       is_aal2: { Args: never; Returns: boolean }
       is_event_organizer: { Args: { p_event_id: string }; Returns: boolean }
+      is_valid_event_status_transition: {
+        Args: {
+          p_from: Database["public"]["Enums"]["event_status"]
+          p_to: Database["public"]["Enums"]["event_status"]
+        }
+        Returns: boolean
+      }
       is_venue_member: { Args: { p_venue_id: string }; Returns: boolean }
       list_own_sessions: {
         Args: never
@@ -886,6 +903,7 @@ export type Database = {
       }
       request_device_id: { Args: never; Returns: string }
       revoke_own_session: { Args: { p_session_id: string }; Returns: boolean }
+      slugify: { Args: { p_text: string }; Returns: string }
       tier_consumption: { Args: { p_tier_id: string }; Returns: number }
       user_event_consumption: {
         Args: { p_event_id: string; p_user_id: string }
@@ -1070,3 +1088,4 @@ export const Constants = {
     },
   },
 } as const
+
