@@ -10,19 +10,6 @@ jobs:
   lint-and-test:
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_PASSWORD: postgres
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
     steps:
       - uses: actions/checkout@v4
 
@@ -35,7 +22,7 @@ jobs:
           node-version: 20
           cache: 'pnpm'
 
-      - run: pnpm install
+      - run: pnpm install --frozen-lockfile
 
       - run: pnpm lint
 
@@ -43,23 +30,31 @@ jobs:
 
       - run: pnpm test
 
-      - name: Setup Supabase
-        run: |
-          npm install -g supabase
-          supabase init
+      # pgTAP RLS/trigger tests run against a real local Postgres started by the
+      # Supabase CLI (migrations applied from supabase/migrations + seed).
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
 
-      - name: Run database tests
+      - name: Start local database
+        run: supabase db start
+
+      - name: Run database tests (pgTAP)
         run: supabase test db
-        env:
-          SUPABASE_DB_PASSWORD: postgres
 
       - name: Build
         run: pnpm build
+        env:
+          # Build-time placeholders only — the clients read these at request time,
+          # so static analysis just needs them present. Real values come from the
+          # hosting env (Vercel) for actual deploys.
+          NEXT_PUBLIC_SUPABASE_URL: http://localhost:55321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results
-          path: |
-            coverage/
-            .next/
+          name: build-output
+          path: .next/
+          if-no-files-found: ignore
