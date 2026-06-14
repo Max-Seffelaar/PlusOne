@@ -1,0 +1,118 @@
+/**
+ * Door snapshot fetch (spec §4 point 1): on opening an event the whole list +
+ * tiers + check-in status is downloaded in one go and cached to IndexedDB. One
+ * query key (`['door', eventId]`) holds the entire offline snapshot, so realtime
+ * patches and optimistic writes are simple `setQueryData` edits.
+ *
+ * Everything goes through the caller's USER-scoped client, so RLS decides what
+ * is visible (a doorhost sees the venue's guests; check_ins/refusals are scoped
+ * to those guests). Client-agnostic so the server page can prefetch with the
+ * server client and hand it to the provider as initialData.
+ */
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
+
+export type GuestRow = Database['public']['Tables']['guests']['Row'];
+export type TierRow = Database['public']['Tables']['guest_tiers']['Row'];
+export type CheckInRow = Database['public']['Tables']['check_ins']['Row'];
+export type RefusalRow = Database['public']['Tables']['refusals']['Row'];
+export type EventStatus = Database['public']['Enums']['event_status'];
+
+export interface DoorEventMeta {
+  id: string;
+  name: string;
+  venueName: string;
+  status: EventStatus;
+  listLocked: boolean;
+}
+
+export interface DoorSnapshot {
+  event: DoorEventMeta;
+  guests: GuestRow[];
+  tiers: TierRow[];
+  checkIns: CheckInRow[];
+  refusals: RefusalRow[];
+  /** user_id → full_name, for "toegevoegd door" / "ingecheckt door". */
+  profiles: Record<string, string>;
+  fetchedAt: string;
+}
+
+export interface QuotaStatus {
+  quota: number;
+  consumed: number;
+  remaining: number;
+  exempt: boolean;
+}
+
+export function doorSnapshotKey(eventId: string): readonly ['door', string] {
+  return ['door', eventId] as const;
+}
+
+type Client = SupabaseClient<Database>;
+
+export async function fetchDoorSnapshot(client: Client, eventId: string): Promise<DoorSnapshot> {
+  const { data: event, error: eventError } = await client
+    .from('events')
+    .select('id, name, status, list_locked, venue_id')
+    .eq('id', eventId)
+    .single();
+  if (eventError || !event) throw new Error(eventError?.message ?? 'Event niet gevonden');
+
+  const [{ data: venue }, { data: guests }, { data: tiers }] = await Promise.all([
+    client.from('venues').select('name').eq('id', event.venue_id).maybeSingle(),
+    client
+      .from('guests')
+      .select('*')
+      .eq('event_id', eventId)
+      .in('status', ['approved', 'checked_in'])
+      .order('full_name'),
+    client.from('guest_tiers').select('*').eq('event_id', eventId).order('name'),
+  ]);
+
+  const guestRows = guests ?? [];
+  const guestIds = guestRows.map((g) => g.id);
+
+  const [checkIns, refusals] = guestIds.length
+    ? await Promise.all([
+        client.from('check_ins').select('*').in('guest_id', guestIds).then((r) => r.data ?? []),
+        client.from('refusals').select('*').in('guest_id', guestIds).then((r) => r.data ?? []),
+      ])
+    : [[] as CheckInRow[], [] as RefusalRow[]];
+
+  // Names needed for the logboek + the current user (for optimistic check-ins).
+  const ids = new Set<string>();
+  for (const g of guestRows) {
+    ids.add(g.added_by);
+    if (g.note_acknowledged_by) ids.add(g.note_acknowledged_by);
+  }
+  for (const c of checkIns) ids.add(c.checked_by);
+  const {
+    data: { user },
+  } = await client.auth.getUser();
+  if (user) ids.add(user.id);
+
+  const profileRows = ids.size
+    ? (await client.from('user_profiles').select('id, full_name').in('id', [...ids])).data ?? []
+    : [];
+
+  return {
+    event: {
+      id: event.id,
+      name: event.name,
+      venueName: venue?.name ?? '',
+      status: event.status,
+      listLocked: event.list_locked,
+    },
+    guests: guestRows,
+    tiers: tiers ?? [],
+    checkIns,
+    refusals,
+    profiles: Object.fromEntries(profileRows.map((p) => [p.id, p.full_name])),
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
+export async function fetchEventQuota(client: Client, eventId: string): Promise<QuotaStatus | null> {
+  const { data } = await client.rpc('event_quota_status', { p_event_id: eventId }).maybeSingle();
+  return data ?? null;
+}
