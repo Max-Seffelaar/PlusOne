@@ -208,13 +208,15 @@ insert into public.refusals (guest_id, refused_by, reason, refused_at, device_id
 -- Landing-page requests (decision #12/#28): two open, one decided
 -- ---------------------------------------------------------------------------
 
-insert into public.guest_requests (event_id, full_name, email, phone, motivation) values
-  ('ee000000-0000-7000-8000-000000000001', 'Robin Castelijns', 'robin@example.test', null,
-   'Vrienden van de DJ'),
-  ('ee000000-0000-7000-8000-000000000001', 'Sofia Marin', null, '+31611122233', null);
+insert into public.guest_requests (id, event_id, full_name, email, phone, plus_ones, motivation) values
+  ('bb000000-0000-7000-8000-000000000001', 'ee000000-0000-7000-8000-000000000001',
+   'Robin Castelijns', 'robin@example.test', null, 1, 'Vrienden van de DJ'),
+  ('bb000000-0000-7000-8000-000000000002', 'ee000000-0000-7000-8000-000000000001',
+   'Sofia Marin', null, '+31611122233', 0, null);
 
 insert into public.guest_requests
-  (event_id, full_name, status, decided_by, decided_at, decision_reason)
+  (id, event_id, full_name, status, decided_by, decided_at, decision_reason)
 values
-  ('ee000000-0000-7000-8000-000000000001', 'Kevin de Lange', 'denied',
+  ('bb000000-0000-7000-8000-000000000003', 'ee000000-0000-7000-8000-000000000001',
+   'Kevin de Lange', 'denied',
    '11111111-1111-4111-8111-111111111111', now(), 'Lijst zit vol voor deze avond');

@@ -271,12 +271,15 @@ export type Database = {
           decided_at: string | null
           decided_by: string | null
           decision_reason: string | null
+          dedupe_key: string | null
           email: string | null
           event_id: string
           full_name: string
           id: string
+          marketing_opt_in: boolean
           motivation: string | null
           phone: string | null
+          plus_ones: number
           status: Database["public"]["Enums"]["request_status"]
         }
         Insert: {
@@ -284,12 +287,15 @@ export type Database = {
           decided_at?: string | null
           decided_by?: string | null
           decision_reason?: string | null
+          dedupe_key?: string | null
           email?: string | null
           event_id: string
           full_name: string
           id?: string
+          marketing_opt_in?: boolean
           motivation?: string | null
           phone?: string | null
+          plus_ones?: number
           status?: Database["public"]["Enums"]["request_status"]
         }
         Update: {
@@ -297,12 +303,15 @@ export type Database = {
           decided_at?: string | null
           decided_by?: string | null
           decision_reason?: string | null
+          dedupe_key?: string | null
           email?: string | null
           event_id?: string
           full_name?: string
           id?: string
+          marketing_opt_in?: boolean
           motivation?: string | null
           phone?: string | null
+          plus_ones?: number
           status?: Database["public"]["Enums"]["request_status"]
         }
         Relationships: [
@@ -515,6 +524,27 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      landing_request_throttle: {
+        Row: {
+          ip_hash: string
+          request_count: number
+          updated_at: string
+          window_started_at: string
+        }
+        Insert: {
+          ip_hash: string
+          request_count?: number
+          updated_at?: string
+          window_started_at?: string
+        }
+        Update: {
+          ip_hash?: string
+          request_count?: number
+          updated_at?: string
+          window_started_at?: string
+        }
+        Relationships: []
       }
       quota_requests: {
         Row: {
@@ -826,6 +856,10 @@ export type Database = {
         }[]
       }
       admin_revoke_session: { Args: { p_session_id: string }; Returns: boolean }
+      approve_guest_request: {
+        Args: { p_request_id: string; p_tier_id: string }
+        Returns: string
+      }
       approve_quota_request: {
         Args: { p_request_id: string }
         Returns: undefined
@@ -886,6 +920,19 @@ export type Database = {
       }
       request_device_id: { Args: never; Returns: string }
       revoke_own_session: { Args: { p_session_id: string }; Returns: boolean }
+      submit_guest_request: {
+        Args: {
+          p_email: string
+          p_full_name: string
+          p_ip_hash: string
+          p_marketing_opt_in: boolean
+          p_motivation: string
+          p_phone: string
+          p_plus_ones: number
+          p_slug: string
+        }
+        Returns: string
+      }
       tier_consumption: { Args: { p_tier_id: string }; Returns: number }
       user_event_consumption: {
         Args: { p_event_id: string; p_user_id: string }
