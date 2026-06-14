@@ -7,7 +7,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(19);
+select plan(21);
 
 -- Schema -------------------------------------------------------------------
 
@@ -19,9 +19,11 @@ select tables_are(
     'quotas', 'event_quotas', 'quota_requests', 'check_ins', 'refusals',
     'audit_log', 'subscriptions',
     -- Fase 4 (auth layer): invite-only account provisioning.
-    'invites'
+    'invites',
+    -- Fase 8 (public aanvraagflow): per-IP rate-limit state (#28).
+    'landing_request_throttle'
   ],
-  'public schema contains exactly the MVP tables (Fase 1 + invites)'
+  'public schema contains exactly the MVP tables (Fase 1 + invites + landing)'
 );
 
 -- RLS: on for every table, no exceptions (default-deny without policies) ----
@@ -83,6 +85,27 @@ select ok(
   has_table_privilege('anon', 'public.guest_requests', 'INSERT')
   and not has_table_privilege('anon', 'public.guests', 'SELECT'),
   'anon may only file landing requests, never read guests'
+);
+
+-- Fase 8: the throttle table is reachable ONLY through the SECURITY DEFINER
+-- submit RPC — app roles have no direct grip on it (#28).
+select ok(
+  not has_table_privilege('anon', 'public.landing_request_throttle', 'SELECT')
+  and not has_table_privilege('anon', 'public.landing_request_throttle', 'INSERT')
+  and not has_table_privilege('authenticated', 'public.landing_request_throttle', 'SELECT')
+  and not has_table_privilege('authenticated', 'public.landing_request_throttle', 'INSERT'),
+  'landing_request_throttle is server-only: no anon/authenticated access'
+);
+
+-- Fase 8: anon may submit a request; only authenticated may approve one (#12).
+select ok(
+  has_function_privilege('anon',
+    'public.submit_guest_request(text,text,text,text,integer,text,text)', 'EXECUTE')
+  and has_function_privilege('authenticated',
+    'public.approve_guest_request(uuid,uuid)', 'EXECUTE')
+  and not has_function_privilege('anon',
+    'public.approve_guest_request(uuid,uuid)', 'EXECUTE'),
+  'anon may submit_guest_request; approve_guest_request is authenticated-only'
 );
 
 -- Constraints & indexes ------------------------------------------------------
