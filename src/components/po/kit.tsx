@@ -196,11 +196,13 @@ export function Field({
 }
 
 // ── Stepper ─────────────────────────────────────────────────────────────────
-export function Stepper({ value, onChange, max }: { value: number; onChange: (v: number) => void; max?: number }): JSX.Element {
+export function Stepper({ value, onChange, min = 0, max }: { value: number; onChange: (v: number) => void; min?: number; max?: number }): JSX.Element {
   const btn = cn('flex h-[52px] w-[52px] items-center justify-center rounded-[16px] border border-line bg-elev2 text-text', press);
+  const atMin = value <= min;
+  const atMax = max != null && value >= max;
   return (
     <div className="flex items-center justify-between gap-[14px] rounded-[20px] bg-acc-dim p-[10px]">
-      <button type="button" className={btn} onClick={() => onChange(Math.max(0, value - 1))} aria-label="Minder">
+      <button type="button" disabled={atMin} className={cn(btn, atMin && 'opacity-40')} onClick={() => onChange(Math.max(min, value - 1))} aria-label="Minder">
         <Icon name="minus" size={22} sw={2.4} />
       </button>
       <div className="text-center">
@@ -210,7 +212,7 @@ export function Stepper({ value, onChange, max }: { value: number; onChange: (v:
         </div>
         <div className="mt-[3px] font-body text-[11px] text-dim">personen</div>
       </div>
-      <button type="button" className={btn} onClick={() => onChange(value + 1)} aria-label="Meer">
+      <button type="button" disabled={atMax} className={cn(btn, atMax && 'opacity-40')} onClick={() => onChange(max != null ? Math.min(max, value + 1) : value + 1)} aria-label="Meer">
         <Icon name="plus" size={22} sw={2.4} stroke="#B5A6FF" />
       </button>
     </div>

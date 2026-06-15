@@ -262,7 +262,9 @@ function GuestDetail({ g: gx, eventId }: { g: GuestT; eventId?: string }): JSX.E
           <>
             <Label className="mb-[9px]">Hoeveel komen er binnen?</Label>
             <div className="mb-4">
-              <Stepper value={plus + 1} onChange={(v) => setPlus(Math.max(0, v - 1))} />
+              {/* Capped at the guest's allotment (1 + plus_ones): you can't check in
+                  more than they were given — edit the order to change that (#22). */}
+              <Stepper value={plus + 1} min={1} max={gx.plus + 1} onChange={(v) => setPlus(Math.max(0, v - 1))} />
             </div>
           </>
         )}
