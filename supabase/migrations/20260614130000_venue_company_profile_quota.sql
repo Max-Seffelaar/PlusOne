@@ -1,6 +1,16 @@
 -- Fase 5.1 — Venue company data, profile name/phone, per-venue job title,
 -- venue-wide default quota. Feedback round 2026-06-14.
 --
+-- NOTE (2026-06-15): renamed from 20260614000000 -> 20260614130000 to clear two
+-- already-merged main migrations that own earlier 0614 slots: Fase 9's
+-- 20260614000000 (realtime_door) and Fase 10's 20260614120000 (admin_analytics).
+-- A colliding timestamp breaks db-reset ordering + schema_migrations tracking
+-- once both land in one tree. This file is now also written IDEMPOTENTLY
+-- (add column if not exists, guarded backfill, create or replace), so applying
+-- it on a DB that already received the earlier slot — or partially applied it —
+-- is a safe no-op. That keeps prod reconcilable regardless of what it recorded
+-- under 000000.
+--
 -- Drivers (from the live walkthrough):
 --   * Venue settings must capture company/legal/finance/address data (it already
 --     gets asked in the onboarding VenueCreate screen — the real settings lagged).
@@ -22,17 +32,17 @@
 -- ---------------------------------------------------------------------------
 
 alter table public.venues
-  add column company_name text,
-  add column kvk_number text,
-  add column vat_number text,
-  add column finance_email text,
-  add column address_line text,
-  add column postal_code text,
-  add column city text,
-  add column country text not null default 'NL',
+  add column if not exists company_name text,
+  add column if not exists kvk_number text,
+  add column if not exists vat_number text,
+  add column if not exists finance_email text,
+  add column if not exists address_line text,
+  add column if not exists postal_code text,
+  add column if not exists city text,
+  add column if not exists country text not null default 'NL',
   -- Fallback personal quota for members without a quotas row at this venue. The
   -- quota engine resolves event override -> per-user default_count -> this -> 0.
-  add column default_personal_quota integer not null default 0
+  add column if not exists default_personal_quota integer not null default 0
     check (default_personal_quota >= 0);
 
 comment on column public.venues.default_personal_quota is
@@ -44,9 +54,9 @@ comment on column public.venues.default_personal_quota is
 -- ---------------------------------------------------------------------------
 
 alter table public.user_profiles
-  add column first_name text,
-  add column last_name text,
-  add column phone text;
+  add column if not exists first_name text,
+  add column if not exists last_name text,
+  add column if not exists phone text;
 
 -- Best-effort backfill for profiles created before this migration: first word ->
 -- first_name, the remainder (incl. tussenvoegsels like "van den") -> last_name.
@@ -60,7 +70,7 @@ update public.user_profiles
 -- ---------------------------------------------------------------------------
 
 alter table public.venue_memberships
-  add column job_title text;
+  add column if not exists job_title text;
 
 -- ---------------------------------------------------------------------------
 -- Quota engine — fold the venue default into the resolution chain (#22)
