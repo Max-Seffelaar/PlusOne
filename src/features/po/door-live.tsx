@@ -83,6 +83,9 @@ export interface PoDoorState {
   toast: string | null;
   /** Check a guest in for `total` people (1 + plus-ones arrived). Idempotent. */
   checkIn: (guestId: string, total: number) => void;
+  /** Raise an already-inside guest's arrival count to `total` people (incremental
+   *  "nog inchecken"). Capped at the allotment + kept monotonic server-side. */
+  setArrival: (guestId: string, total: number) => void;
   /** Toggle a note opdracht acknowledged (same field as the door "Let op!" popup). */
   ackTask: (guestId: string, done: boolean) => void;
   /** True for a guest whose note opdracht is acknowledged. */
@@ -125,6 +128,7 @@ export function toPoGuest(g: DoorGuest): Guest {
     status: g.inside ? 'in' : 'wait',
     at: g.inAt,
     inBy: g.inByName,
+    arrived: g.arrived,
   };
 }
 
@@ -270,6 +274,36 @@ export function usePoDoor(eventId: string | undefined): PoDoorState {
     [eventId, meId, patchSnapshot, showToast, maybeFlush],
   );
 
+  // ── Raise arrivals for an already-inside guest (incremental "nog inchecken").
+  // Sets a target cumulative count; the DB trigger caps + keeps it monotonic, so
+  // the optimistic patch + any replay can never exceed the allotment (#22/#25).
+  const setArrival = useCallback(
+    (guestId: string, total: number) => {
+      if (!eventId) return;
+      const guest = viewRef.current?.guests.find((x) => x.id === guestId);
+      const cap = guest ? guest.plus : Math.max(0, total - 1);
+      const target = Math.min(Math.max(0, total - 1), cap);
+      outbox.enqueue({
+        clientId: uuidv7(),
+        eventId,
+        kind: 'set_arrival',
+        status: 'pending',
+        attempts: 0,
+        createdAt: new Date().toISOString(),
+        payload: { guestId, plusOnesArrived: target },
+      });
+      patchSnapshot((s) => ({
+        ...s,
+        checkIns: s.checkIns.map((c) =>
+          c.guest_id === guestId ? { ...c, plus_ones_arrived: Math.max(c.plus_ones_arrived, target) } : c,
+        ),
+      }));
+      showToast(`${guest?.name ?? 'Gast'} · ${target + 1} binnen ✓`);
+      maybeFlush();
+    },
+    [eventId, patchSnapshot, showToast, maybeFlush],
+  );
+
   // ── Ack note opdracht (same note_acknowledged_* field as the door popup).
   const ackTask = useCallback(
     (guestId: string, done: boolean) => {
@@ -375,6 +409,7 @@ export function usePoDoor(eventId: string | undefined): PoDoorState {
     isEmpty: !view,
     toast,
     checkIn,
+    setArrival,
     ackTask,
     taskDone,
   };

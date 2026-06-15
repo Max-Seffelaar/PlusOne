@@ -22,7 +22,7 @@ function checkInEntry(over: Partial<OutboxEntry> = {}): OutboxEntry {
 /** A gateway that returns a fixed error for every method. */
 function gatewayReturning(error: DbError | null): DoorGateway {
   const r = async () => ({ error });
-  return { insertCheckIn: r, insertRefusal: r, insertGuest: r, ackNote: r };
+  return { insertCheckIn: r, insertRefusal: r, insertGuest: r, ackNote: r, updateArrival: r };
 }
 
 const UNIQUE_GUEST: DbError = { code: '23505', details: 'Key (guest_id)=(g1) already exists.' };
@@ -83,6 +83,23 @@ describe('replayEntry', () => {
   it('check-in duplicate surfaces as duplicate', async () => {
     const result = await replayEntry(gatewayReturning(UNIQUE_GUEST), checkInEntry(), UID, DEVICE);
     expect(result.status).toBe('duplicate');
+  });
+
+  it('set_arrival raises the count via updateArrival (incremental check-in)', async () => {
+    const updateArrival = vi.fn(async () => ({ error: null }));
+    const gw: DoorGateway = { ...gatewayReturning(null), updateArrival };
+    const entry: OutboxEntry = {
+      clientId: 'sa1',
+      eventId: 'ev1',
+      kind: 'set_arrival',
+      status: 'pending',
+      attempts: 0,
+      createdAt: '2026-06-20T22:30:00.000Z',
+      payload: { guestId: 'g1', plusOnesArrived: 3 },
+    };
+    const result = await replayEntry(gw, entry, UID, DEVICE);
+    expect(result.status).toBe('synced');
+    expect(updateArrival).toHaveBeenCalledWith('g1', 3);
   });
 
   it('add_guest carries source=door and the event id, and maps quota to error', async () => {

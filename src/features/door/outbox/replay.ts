@@ -93,6 +93,11 @@ export async function replayEntry(
       const { error } = await gw.ackNote(p.guestId, p.ack, uid);
       return classifyError(error);
     }
+    case 'set_arrival': {
+      const p = entry.payload;
+      const { error } = await gw.updateArrival(p.guestId, p.plusOnesArrived);
+      return classifyError(error);
+    }
   }
 }
 

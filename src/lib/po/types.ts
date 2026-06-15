@@ -51,6 +51,9 @@ export interface Guest {
   status: GuestStatus;
   at?: string;
   inBy?: string;
+  /** plus_ones_arrived when inside — how many of the +N have actually arrived so
+   *  far. Drives the "X/N binnen" + "nog inchecken" incremental check-in. */
+  arrived?: number;
 }
 
 export interface Contact {

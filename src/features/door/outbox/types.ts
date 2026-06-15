@@ -5,7 +5,7 @@
  * survives a reload.
  */
 
-export type OutboxKind = 'check_in' | 'refusal' | 'add_guest' | 'ack_note';
+export type OutboxKind = 'check_in' | 'refusal' | 'add_guest' | 'ack_note' | 'set_arrival';
 
 /**
  * pending  — queued, not yet sent (or a transient failure to retry)
@@ -46,6 +46,15 @@ export interface AckNotePayload {
   ack: boolean;
 }
 
+/** Raise how many of a guest's party have arrived (incremental check-in, "nog
+ *  inchecken"). Sets a TARGET cumulative value; the DB trigger caps it at the
+ *  allotment and keeps it monotonic, so replays are idempotent. */
+export interface SetArrivalPayload {
+  guestId: string;
+  /** plus_ones_arrived = total people now inside − 1. */
+  plusOnesArrived: number;
+}
+
 interface OutboxBase {
   /** Unique per outbox entry. */
   clientId: string;
@@ -61,7 +70,8 @@ export type OutboxEntry =
   | (OutboxBase & { kind: 'check_in'; payload: CheckInPayload })
   | (OutboxBase & { kind: 'refusal'; payload: RefusalPayload })
   | (OutboxBase & { kind: 'add_guest'; payload: AddGuestPayload })
-  | (OutboxBase & { kind: 'ack_note'; payload: AckNotePayload });
+  | (OutboxBase & { kind: 'ack_note'; payload: AckNotePayload })
+  | (OutboxBase & { kind: 'set_arrival'; payload: SetArrivalPayload });
 
 /** Entries the automatic drainer attempts (transient failures fall back to 'pending'). */
 export function isPending(e: OutboxEntry): boolean {

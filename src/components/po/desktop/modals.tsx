@@ -690,8 +690,7 @@ function DesktopGuestDetail({ g, door, onBack }: { g: Guest; door: PoDoorState; 
   const isIn = door.inside.has(g.id);
   const at = door.log[g.id]?.at;
   const done = door.taskDone(g.id);
-  const max = 1 + g.plus;
-  const [count, setCount] = useState(max);
+  const [count, setCount] = useState(1 + g.plus);
   const stepBtn = 'flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line bg-elev2 text-text disabled:opacity-40';
 
   return (
@@ -731,41 +730,62 @@ function DesktopGuestDetail({ g, door, onBack }: { g: Guest; door: PoDoorState; 
         </div>
       )}
 
-      {isIn ? (
-        <div className="flex items-center gap-2 rounded-[14px] border border-line2 bg-elev2 px-[14px] py-[13px] text-[14px] font-bold text-acc">
-          <Icon name="check2" size={16} stroke="#B5A6FF" sw={2.4} />
-          Binnen{at ? ` · ${at}` : ''}
-        </div>
-      ) : (
-        <div>
-          {g.plus > 0 && (
-            <>
-              <DFieldLabel>Hoeveel komen er binnen?</DFieldLabel>
-              <div className="mb-4 flex items-center gap-3">
-                <button type="button" disabled={count <= 1} onClick={() => setCount((c) => Math.max(1, c - 1))} className={cn(stepBtn, press)} aria-label="Minder">
-                  <Icon name="minus" size={17} sw={2.4} />
-                </button>
-                <div className="font-display text-[20px] font-extrabold tabular-nums text-text">
-                  {count}
-                  <span className="text-faint">/{max}</span>
-                </div>
-                <button type="button" disabled={count >= max} onClick={() => setCount((c) => Math.min(max, c + 1))} className={cn(stepBtn, press, 'text-acc')} aria-label="Meer">
-                  <Icon name="plus" size={17} sw={2.4} stroke="#B5A6FF" />
-                </button>
+      {(() => {
+        const arrived = isIn ? g.arrived ?? 0 : 0;
+        const headsIn = 1 + arrived;
+        const headsTotal = 1 + g.plus;
+        // Fully in: everyone of the party arrived — nothing left to check in.
+        if (isIn && arrived >= g.plus) {
+          return (
+            <div className="flex items-center gap-2 rounded-[14px] border border-line2 bg-elev2 px-[14px] py-[13px] text-[14px] font-bold text-acc">
+              <Icon name="check2" size={16} stroke="#B5A6FF" sw={2.4} />
+              Helemaal binnen{g.plus > 0 ? ` · ${headsTotal} personen` : ''}{at ? ` · ${at}` : ''}
+            </div>
+          );
+        }
+        // Onderweg (first check-in) or partially in (incremental "nog inchecken").
+        // The slider sets the new TOTAL inside; you can never go below who's in.
+        const stepMin = isIn ? headsIn + 1 : 1;
+        const cnt = Math.min(Math.max(count, stepMin), headsTotal);
+        const showStepper = headsTotal > stepMin;
+        return (
+          <div>
+            {isIn && (
+              <div className="mb-3 flex items-center gap-2 rounded-[14px] border border-line2 bg-elev2 px-[14px] py-[11px] text-[13.5px] font-bold text-acc">
+                <Icon name="check2" size={15} stroke="#B5A6FF" sw={2.4} />
+                {headsIn}/{headsTotal} binnen{at ? ` · ${at}` : ''}
               </div>
-            </>
-          )}
-          <DBtn
-            icon="check"
-            onClick={() => {
-              door.checkIn(g.id, count);
-              onBack();
-            }}
-          >
-            Inchecken · {count} {count === 1 ? 'persoon' : 'personen'}
-          </DBtn>
-        </div>
-      )}
+            )}
+            {showStepper && (
+              <>
+                <DFieldLabel>{isIn ? 'Nog inchecken — totaal binnen' : 'Hoeveel komen er binnen?'}</DFieldLabel>
+                <div className="mb-4 flex items-center gap-3">
+                  <button type="button" disabled={cnt <= stepMin} onClick={() => setCount(Math.max(stepMin, cnt - 1))} className={cn(stepBtn, press)} aria-label="Minder">
+                    <Icon name="minus" size={17} sw={2.4} />
+                  </button>
+                  <div className="font-display text-[20px] font-extrabold tabular-nums text-text">
+                    {cnt}
+                    <span className="text-faint">/{headsTotal}</span>
+                  </div>
+                  <button type="button" disabled={cnt >= headsTotal} onClick={() => setCount(Math.min(headsTotal, cnt + 1))} className={cn(stepBtn, press, 'text-acc')} aria-label="Meer">
+                    <Icon name="plus" size={17} sw={2.4} stroke="#B5A6FF" />
+                  </button>
+                </div>
+              </>
+            )}
+            <DBtn
+              icon="check"
+              onClick={() => {
+                if (isIn) door.setArrival(g.id, cnt);
+                else door.checkIn(g.id, cnt);
+                onBack();
+              }}
+            >
+              {isIn ? 'Nog inchecken' : 'Inchecken'} · {cnt} {cnt === 1 ? 'persoon' : 'personen'}
+            </DBtn>
+          </div>
+        );
+      })()}
     </div>
   );
 }

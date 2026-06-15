@@ -106,6 +106,7 @@ export function toPoGuest(
     status: isIn ? 'in' : 'wait',
     at: checkIn ? fmtTime(checkIn.checked_at) : undefined,
     inBy: checkIn ? profiles[checkIn.checked_by] ?? 'Deur' : undefined,
+    arrived: checkIn?.plus_ones_arrived,
   };
 }
 

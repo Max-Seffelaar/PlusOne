@@ -24,6 +24,9 @@ export interface DoorGateway {
   insertRefusal(row: RefusalRow): Promise<{ error: DbError | null }>;
   insertGuest(row: GuestRow): Promise<{ error: DbError | null }>;
   ackNote(guestId: string, ack: boolean, uid: string): Promise<{ error: DbError | null }>;
+  /** Raise plus_ones_arrived for a guest's existing check-in (RLS: own device; the
+   *  DB trigger caps it at the allotment + keeps it monotonic). Incremental check-in. */
+  updateArrival(guestId: string, plusOnesArrived: number): Promise<{ error: DbError | null }>;
 }
 
 export function supabaseGateway(client: SupabaseClient<Database>): DoorGateway {
@@ -47,5 +50,8 @@ export function supabaseGateway(client: SupabaseClient<Database>): DoorGateway {
         .eq('id', guestId);
       return { error };
     },
+    updateArrival: async (guestId, plusOnesArrived) => ({
+      error: (await client.from('check_ins').update({ plus_ones_arrived: plusOnesArrived }).eq('guest_id', guestId)).error,
+    }),
   };
 }
