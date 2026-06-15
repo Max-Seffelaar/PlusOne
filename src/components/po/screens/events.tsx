@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { events, guests, recap, stats, tiers } from '@/lib/po/data';
 import type { PoEvent } from '@/lib/po/types';
+import { usePoEvents } from '@/features/po/PoLiveProvider';
 import { useNav, usePo } from '../context';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Btn, Field, IconBtn, Label, MiniChip, Note, RoleChip, Scroll, ToggleRow, Top } from '../kit';
@@ -45,8 +46,9 @@ function Alert({ icon, title, body }: { icon: IconName; title: string; body: str
 // ── EVENTS (tab) ──────────────────────────────────────────────────────────────
 export function Events(): JSX.Element {
   const nav = useNav();
+  const { events: liveEvents, isLoading } = usePoEvents();
   const [when, setWhen] = useState<'upcoming' | 'past'>('upcoming');
-  const evs = events.filter((e) => e.when === when);
+  const evs = liveEvents.filter((e) => e.when === when);
   const months = [...new Set(evs.map((e) => e.month))];
   return (
     <div className={col}>
@@ -75,6 +77,14 @@ export function Events(): JSX.Element {
         </Btn>
       </div>
       <Scroll bottom={100}>
+        {isLoading && evs.length === 0 && (
+          <p className="px-1 py-6 text-[13px] text-dim">Laden…</p>
+        )}
+        {!isLoading && evs.length === 0 && (
+          <p className="px-1 py-6 text-[13px] text-dim">
+            Geen {when === 'past' ? 'afgelopen' : 'komende'} events.
+          </p>
+        )}
         {months.map((m) => (
           <div key={m} className="mb-2">
             <Label className="mx-0.5 mb-[10px] mt-3">{m}</Label>

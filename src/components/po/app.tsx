@@ -9,8 +9,10 @@
 import { useState, type ReactNode } from 'react';
 import { contacts, events, guests, venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
+import { PoLiveProvider } from '@/features/po/PoLiveProvider';
 import { PoProvider, type AuthNav, type AuthView, type CheckInEntry, type Nav, type PoApp, type ScreenName, type StackEntry } from './context';
 import { PhoneFrame, StatusBar, TabBar, Toast, type TabKey } from './shell';
+import { ComingSoonBadge } from './coming-soon';
 import { Invite, Login, Mfa, Otp, Welcome } from './screens/auth';
 import { EventBeheer, EventEdit, EventView, Events, PastEvent, Tiers } from './screens/events';
 import { BulkPaste, Contacten, Guest, Lijst, QuickAdd, Vaste } from './screens/guests';
@@ -21,12 +23,20 @@ import { VenueCreate } from './screens/onboarding';
 
 const DOOR_USER = 'Joris';
 
+// Screens/tabs already wired to live Supabase data. Anything NOT listed here is
+// still mock and gets the "Binnenkort" badge. Add entries as screens are wired.
+const WIRED_TABS = new Set<TabKey>(['events']);
+const WIRED_SCREENS = new Set<ScreenName>();
+
 function nowTime(): string {
   return new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
 }
 
 export function PlusOneApp(): JSX.Element {
-  const [started, setStarted] = useState(false);
+  // The /app route is auth-protected by middleware and the real OTP flow lives
+  // at /login, so by the time this renders the user is signed in — start in the
+  // authenticated tab view rather than the prototype's mock welcome/login.
+  const [started, setStarted] = useState(true);
   const [authView, setAuthView] = useState<AuthView>('welcome');
   const [authProps, setAuthProps] = useState<{ email?: string }>({});
   const [tab, setTabState] = useState<TabKey>('events');
@@ -122,6 +132,8 @@ export function PlusOneApp(): JSX.Element {
 
   const top = stack[stack.length - 1];
   const tabRoot = started && stack.length === 0;
+  // A screen is "coming soon" until it is wired to live data (see WIRED_* above).
+  const comingSoon = started && (top ? !WIRED_SCREENS.has(top.name) : !WIRED_TABS.has(tab));
 
   let screen: ReactNode;
   if (!started) {
@@ -208,15 +220,18 @@ export function PlusOneApp(): JSX.Element {
   const takenBadge = guests.filter((g) => g.note && !tasksDone.has(g.id)).length;
 
   return (
-    <PoProvider value={po}>
-      <PhoneFrame>
-        {started && <StatusBar />}
-        <div key={key} className="po-screen-anim flex min-h-0 flex-1 flex-col">
-          {screen}
-        </div>
-        {tabRoot && <TabBar tab={tab} setTab={nav.setTab} badges={{ taken: takenBadge }} />}
-        {toast && <Toast>{toast}</Toast>}
-      </PhoneFrame>
-    </PoProvider>
+    <PoLiveProvider>
+      <PoProvider value={po}>
+        <PhoneFrame>
+          {started && <StatusBar />}
+          {comingSoon && <ComingSoonBadge />}
+          <div key={key} className="po-screen-anim flex min-h-0 flex-1 flex-col">
+            {screen}
+          </div>
+          {tabRoot && <TabBar tab={tab} setTab={nav.setTab} badges={{ taken: takenBadge }} />}
+          {toast && <Toast>{toast}</Toast>}
+        </PhoneFrame>
+      </PoProvider>
+    </PoLiveProvider>
   );
 }

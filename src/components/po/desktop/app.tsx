@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { invites, team } from '@/lib/po/data';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Label } from '../kit';
+import { ComingSoonPill } from '../coming-soon';
 import { DBtn } from './kit';
 import { Audit, Events, Home, Stats, Users } from './views';
 
@@ -75,7 +76,11 @@ function Topbar({ title, sub, right }: { title: string; sub?: string; right?: Re
   return (
     <div className="flex shrink-0 items-center gap-[18px] border-b border-line2 px-[34px] py-[22px]">
       <div className="min-w-0 flex-1">
-        <h1 className="m-0 font-display text-[26px] font-extrabold tracking-[-0.02em] text-text">{title}</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="m-0 font-display text-[26px] font-extrabold tracking-[-0.02em] text-text">{title}</h1>
+          {/* Whole desktop dashboard is still mock — drop this per-view once wired. */}
+          <ComingSoonPill />
+        </div>
         {sub && <div className="mt-[3px] text-[13.5px] text-faint">{sub}</div>}
       </div>
       {right}
