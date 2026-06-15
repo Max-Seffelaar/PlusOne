@@ -2,11 +2,28 @@
 
 /** Guest list, guest detail (+logboek, Let-op popup, stepper check-in),
  *  quick-add (#33), bulk-paste, adresboek, permanente gasten. */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { contacts, events, guests, tiers } from '@/lib/po/data';
+import { contacts, events, tiers } from '@/lib/po/data';
 import { parseBulk, parseQuickAdd } from '@/lib/po/parse';
+import {
+  parseQuickAdd as parseQuickAddLive,
+  parseBulk as parseBulkLive,
+  resolveAmbiguity,
+  type ParseResult,
+} from '@/features/guests/quick-add-parser';
+import { resolveDefaultTierId } from '@/features/guests/tiers';
 import type { Guest as GuestT, PoEvent, Tier } from '@/lib/po/types';
+import {
+  useEventGuest,
+  useEventGuests,
+  useEventQuota,
+  useEventTiers,
+  useGuestLog,
+  useGuestMutations,
+} from '@/features/po/guests-live';
+import { usePoEvents } from '@/features/po/PoLiveProvider';
+import { usePoDoor } from '@/features/po/door-live';
 import { useNav, usePo } from '../context';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Btn, Field, IconBtn, Label, MiniChip, PayChip, RoleChip, Scroll, StatusDot, Stepper, Top } from '../kit';
@@ -33,18 +50,24 @@ function FilterChip({ on, onClick, children, grow }: { on: boolean; onClick: () 
 }
 
 // ── GUEST LIST (pushed) ──────────────────────────────────────────────────────
-export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
+export function Lijst({ ev, eventId }: { ev: PoEvent; eventId?: string }): JSX.Element {
   const nav = useNav();
   const { inside } = usePo();
+  const evId = eventId ?? ev.id;
+  const { guests: liveGuests, isLoading } = useEventGuests(evId);
   const [q, setQ] = useState('');
   const [f, setF] = useState<'all' | 'wait' | 'in' | 'vip'>('all');
-  let gs = guests.filter(
-    (g) => f === 'all' || (f === 'in' && inside.has(g.id)) || (f === 'wait' && !inside.has(g.id)) || (f === 'vip' && g.role === 'VIP'),
+
+  // "Binnen" is the door-local toggle (usePo) OR the server check-in status.
+  const isInside = (g: GuestT): boolean => inside.has(g.id) || g.status === 'in';
+  const total = liveGuests.length;
+  let gs = liveGuests.filter(
+    (g) => f === 'all' || (f === 'in' && isInside(g)) || (f === 'wait' && !isInside(g)) || (f === 'vip' && g.role === 'VIP'),
   );
   if (q) gs = gs.filter((g) => g.name.toLowerCase().includes(q.toLowerCase()));
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Gastenlijst" sub={`${ev.name} · ${gs.length} getoond van 148`} right={<IconBtn name="plus" onClick={() => nav.push('quickadd')} />} />
+      <Top onBack={nav.back} title="Gastenlijst" sub={`${ev.name} · ${gs.length} getoond van ${total}`} right={<IconBtn name="plus" onClick={() => nav.push('quickadd', { id: evId })} />} />
       <div className="flex-none px-4 pb-[10px]">
         <Field icon="search" placeholder="Zoek gast…" value={q} onChange={setQ} />
       </div>
@@ -56,10 +79,10 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
         ))}
       </div>
       <div className="flex flex-none gap-2 px-4 pb-3">
-        <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd')}>
+        <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd', { id: evId })}>
           Snel toevoegen
         </Btn>
-        <Btn sm kind="quiet" icon="paste" onClick={() => nav.push('bulk')}>
+        <Btn sm kind="quiet" icon="paste" onClick={() => nav.push('bulk', { id: evId })}>
           Plak namen
         </Btn>
         <Btn sm kind="quiet" icon="contact" onClick={() => nav.push('contacten')}>
@@ -67,9 +90,11 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
         </Btn>
       </div>
       <Scroll pad={16} bottom={24}>
+        {isLoading && gs.length === 0 && <p className="px-1 py-6 text-[13px] text-dim">Laden…</p>}
+        {!isLoading && total === 0 && <p className="px-1 py-6 text-[13px] text-dim">Nog geen gasten op deze lijst.</p>}
         <div className="flex flex-col gap-[9px]">
           {gs.map((g) => (
-            <button key={g.id} type="button" onClick={() => nav.push('guest', { id: String(g.id) })} className={cn('flex items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[12px] text-left', cardPress)}>
+            <button key={g.id} type="button" onClick={() => nav.push('guest', { id: g.id, eventId: evId })} className={cn('flex items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[12px] text-left', cardPress)}>
               <Avatar name={g.name} size={42} accent={g.role === 'VIP'} />
               <div className="min-w-0 flex-1">
                 <div className="font-display text-[15.5px] font-bold text-text">
@@ -86,7 +111,7 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
                   )}
                 </div>
               </div>
-              <StatusDot status={inside.has(g.id) ? 'in' : 'wait'} label={false} />
+              <StatusDot status={isInside(g) ? 'in' : 'wait'} label={false} />
             </button>
           ))}
         </div>
@@ -111,16 +136,35 @@ function LogRow({ icon, label, who, when, accent, last }: { icon: IconName; labe
   );
 }
 
-export function Guest({ g }: { g: GuestT }): JSX.Element {
+export function Guest({ g, eventId }: { g: GuestT; eventId?: string }): JSX.Element {
   const nav = useNav();
-  const { inside, checkIn, uncheck, log, taskDone, ackTask } = usePo();
-  const isIn = inside.has(g.id);
-  const [plus, setPlus] = useState(g.plus);
-  const hasTask = !!g.note;
-  const done = taskDone(g.id);
-  const [alertOpen, setAlertOpen] = useState(g.flag === 'high' && !done);
-  const entry = log[g.id];
+  // Check-in state: in an event context (door/list) it comes from the
+  // outbox-backed door hook so it actually PERSISTS (#25/#11); otherwise the
+  // in-memory mock. Uncheck isn't an outbox op — it stays mock (rare door edge).
+  const mock = usePo();
+  const door = usePoDoor(eventId);
+  const live = Boolean(eventId);
+  const inside = live ? door.inside : mock.inside;
+  const checkIn = live ? door.checkIn : mock.checkIn;
+  const log = live ? door.log : mock.log;
+  const taskDone = live ? door.taskDone : mock.taskDone;
+  const ackTask = live ? door.ackTask : mock.ackTask;
+  const uncheck = mock.uncheck;
+  // Prefer the live row (from the cached event list) over the mock prop; the
+  // component API is unchanged — only the data source is.
+  const { guest: liveGuest } = useEventGuest(eventId, g.id);
+  const gx = liveGuest ?? g;
+  const { entries: auditLog } = useGuestLog(g.id);
+  const isIn = inside.has(gx.id) || gx.status === 'in';
+  const [plus, setPlus] = useState(gx.plus);
+  const hasTask = !!gx.note;
+  const done = taskDone(gx.id);
+  const [alertOpen, setAlertOpen] = useState(gx.flag === 'high' && !done);
+  const entry = log[gx.id];
   const total = 1 + plus;
+  // The curated summary rows already show "Toegevoegd" + the check-in; the audit
+  // trail adds everything else that happened to this guest (tier moves, edits…).
+  const extraLog = auditLog.filter((e) => e.action !== 'create' && e.action !== 'check_in');
 
   return (
     <div className={col}>
@@ -136,26 +180,26 @@ export function Guest({ g }: { g: GuestT }): JSX.Element {
       />
       <Scroll bottom={20}>
         <div className="flex flex-col items-center px-0 pb-[18px] pt-1.5 text-center">
-          <Avatar name={g.name} size={84} accent={g.role === 'VIP'} />
-          <h2 className="mb-0 mt-4 whitespace-nowrap font-display text-[28px] font-extrabold tracking-[-0.02em] text-text">{g.name}</h2>
+          <Avatar name={gx.name} size={84} accent={gx.role === 'VIP'} />
+          <h2 className="mb-0 mt-4 whitespace-nowrap font-display text-[28px] font-extrabold tracking-[-0.02em] text-text">{gx.name}</h2>
           <div className="mt-3 flex gap-[7px]">
-            <RoleChip role={g.role} />
-            {g.pay === 'pay' ? (
+            <RoleChip role={gx.role} />
+            {gx.pay === 'pay' ? (
               <PayChip pay="pay" />
             ) : (
-              <span className={cn('rounded-[7px] px-2 py-[3px] text-[11px] font-bold', g.pay === 'paid' ? 'border border-transparent bg-acc-dim text-acc' : 'border border-line2 text-faint')}>
-                {g.pay === 'paid' ? 'BETAALD' : 'GRATIS'}
+              <span className={cn('rounded-[7px] px-2 py-[3px] text-[11px] font-bold', gx.pay === 'paid' ? 'border border-transparent bg-acc-dim text-acc' : 'border border-line2 text-faint')}>
+                {gx.pay === 'paid' ? 'BETAALD' : 'GRATIS'}
               </span>
             )}
           </div>
         </div>
 
         {hasTask && (
-          <div className={cn('mb-[10px] rounded-[14px] p-[14px]', g.flag === 'high' && !done ? 'border border-transparent bg-acc-dim' : 'border border-line bg-elev')}>
+          <div className={cn('mb-[10px] rounded-[14px] p-[14px]', gx.flag === 'high' && !done ? 'border border-transparent bg-acc-dim' : 'border border-line bg-elev')}>
             <div className="mb-[7px] flex items-center justify-between">
               <span className="inline-flex items-center gap-[7px]">
-                <Icon name="flag" size={15} stroke={g.flag === 'high' ? '#B5A6FF' : 'rgba(255,255,255,0.40)'} fill={g.flag === 'high' ? '#B5A6FF' : 'none'} />
-                <Label className={g.flag === 'high' ? 'text-acc-soft' : 'text-faint'}>{g.flag === 'high' ? 'Belangrijke opdracht' : 'Opdracht'}</Label>
+                <Icon name="flag" size={15} stroke={gx.flag === 'high' ? '#B5A6FF' : 'rgba(255,255,255,0.40)'} fill={gx.flag === 'high' ? '#B5A6FF' : 'none'} />
+                <Label className={gx.flag === 'high' ? 'text-acc-soft' : 'text-faint'}>{gx.flag === 'high' ? 'Belangrijke opdracht' : 'Opdracht'}</Label>
               </span>
               {done ? (
                 <span className="inline-flex items-center gap-[5px] font-body text-[11.5px] font-bold text-acc">
@@ -166,14 +210,14 @@ export function Guest({ g }: { g: GuestT }): JSX.Element {
                 <span className="font-body text-[11px] font-bold text-faint">OPEN</span>
               )}
             </div>
-            <div className="mb-3 text-[15px] leading-[1.45] text-text">{g.note}</div>
-            <Btn sm full kind={done ? 'ghost' : 'primary'} icon={done ? 'history' : 'check2'} onClick={() => ackTask(g.id, !done)}>
+            <div className="mb-3 text-[15px] leading-[1.45] text-text">{gx.note}</div>
+            <Btn sm full kind={done ? 'ghost' : 'primary'} icon={done ? 'history' : 'check2'} onClick={() => ackTask(gx.id, !done)}>
               {done ? 'Heropenen' : 'Markeer als opgepakt'}
             </Btn>
           </div>
         )}
 
-        {g.pay === 'pay' && (
+        {gx.pay === 'pay' && (
           <div className="mb-[10px] flex items-center gap-[9px] rounded-[13px] border border-dashed border-line bg-elev px-[14px] py-[11px]">
             <Icon name="money" size={17} className="text-text" />
             <span className="text-[13.5px] font-semibold text-text">Betaalde gastenlijst — laat afrekenen aan de deur</span>
@@ -182,10 +226,14 @@ export function Guest({ g }: { g: GuestT }): JSX.Element {
 
         <Label className="mx-0.5 mb-[10px] mt-1.5">Logboek</Label>
         <div className="mb-4 rounded-[14px] border border-line bg-elev px-[14px] py-1">
-          <LogRow icon="user" label="Toegevoegd" who={g.by} when={g.addedAt} />
-          {g.plus > 0 && <LogRow icon="users" label="Meegenomen gasten" who={`+${g.plus} tickets`} />}
+          <LogRow icon="user" label="Toegevoegd" who={gx.by} when={gx.addedAt} />
+          {gx.plus > 0 && <LogRow icon="users" label="Meegenomen gasten" who={`+${gx.plus} tickets`} />}
+          {/* Live audit trail (#4): tier moves, edits, refusals — newest first. */}
+          {extraLog.map((e) => (
+            <LogRow key={e.id} icon="history" label={e.label} who={e.by} when={e.when} />
+          ))}
           {isIn ? (
-            <LogRow icon="check2" label="Ingecheckt" who={entry?.by ?? g.inBy ?? '—'} when={entry?.at ?? g.at} accent last />
+            <LogRow icon="check2" label="Ingecheckt" who={entry?.by ?? gx.inBy ?? '—'} when={entry?.at ?? gx.at} accent last />
           ) : (
             <LogRow icon="clock" label="Nog niet ingecheckt" who="onderweg" last />
           )}
@@ -202,7 +250,7 @@ export function Guest({ g }: { g: GuestT }): JSX.Element {
       </Scroll>
       <BottomBar>
         {isIn ? (
-          <Btn kind="ghost" full icon="back" onClick={() => uncheck(g.id)}>
+          <Btn kind="ghost" full icon="back" onClick={() => uncheck(gx.id)}>
             Uitchecken
           </Btn>
         ) : (
@@ -211,7 +259,7 @@ export function Guest({ g }: { g: GuestT }): JSX.Element {
             full
             icon="check"
             onClick={() => {
-              checkIn(g.id, total);
+              checkIn(gx.id, total);
               nav.back();
             }}
           >
@@ -226,14 +274,14 @@ export function Guest({ g }: { g: GuestT }): JSX.Element {
             <Icon name="warn" size={28} stroke="#16132B" sw={2.2} />
           </div>
           <div className="font-display text-[22px] font-extrabold tracking-[-0.01em] text-text">Let op!</div>
-          <div className="mb-[14px] mt-0.5 text-[13px] text-faint">Opdracht voor {g.name}</div>
-          <div className="mb-[18px] w-full rounded-[14px] border border-line bg-elev p-[14px] text-left text-[15.5px] leading-[1.45] text-text">{g.note}</div>
+          <div className="mb-[14px] mt-0.5 text-[13px] text-faint">Opdracht voor {gx.name}</div>
+          <div className="mb-[18px] w-full rounded-[14px] border border-line bg-elev p-[14px] text-left text-[15.5px] leading-[1.45] text-text">{gx.note}</div>
           <Btn
             full
             kind="primary"
             icon="check2"
             onClick={() => {
-              ackTask(g.id, true);
+              ackTask(gx.id, true);
               setAlertOpen(false);
             }}
           >
@@ -266,48 +314,148 @@ function PreviewChip({ icon, dot, label }: { icon?: IconName; dot?: string; labe
   );
 }
 
-export function QuickAdd(): JSX.Element {
+/** A mock-`ParsedGuest`-shaped view the QuickAdd/Bulk JSX already renders. The
+ *  live parser produces a richer result; this keeps the screen JSX untouched. */
+interface ParsedView {
+  name: string;
+  plus: number;
+  tier: Tier;
+  unknown: string[];
+  ambiguous: boolean;
+}
+
+/** Mock parser result → the uniform ParsedView (used before an event is wired). */
+function mockToView(p: ReturnType<typeof parseQuickAdd>): ParsedView | null {
+  if (!p) return null;
+  return { name: p.name, plus: p.plus, tier: p.tier, unknown: p.unknown, ambiguous: p.ambiguous };
+}
+
+/** Sentinel resolveTier value for the "Hoort bij de naam" choice (#33). */
+const NAME_CHOICE = '__name__';
+
+export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const nav = useNav();
-  const upcoming = events.filter((e) => e.when === 'upcoming');
+  const { events: liveEvents } = usePoEvents();
+  const upcoming = (liveEvents.length ? liveEvents : events).filter((e) => e.when === 'upcoming');
   const [val, setVal] = useState('');
   const [added, setAdded] = useState<AddedGuest[]>([]);
   const [resolveTier, setResolveTier] = useState<string | null>(null);
-  const [curEv, setCurEv] = useState<PoEvent>(upcoming[0]);
+  const initialEv = (eventId && upcoming.find((e) => e.id === eventId)) || upcoming[0];
+  const [curEv, setCurEv] = useState<PoEvent | undefined>(initialEv);
   const [evPick, setEvPick] = useState(false);
-  const parsed = val ? parseQuickAdd(val) : null;
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const evId = curEv?.id;
+  const { tiers: liveTiers } = useEventTiers(evId);
+  const { quota } = useEventQuota(evId);
+  const { add } = useGuestMutations(evId);
+
+  // Default tier for a bare name / the "Hoort bij de naam" chip (#33).
+  const defaultTierId = useMemo(
+    () => resolveDefaultTierId(liveTiers.map((t) => ({ id: t.id, name: t.name, aliases: t.aliases }))),
+    [liveTiers],
+  );
+
+  // Live parse, adapted to the shape the JSX expects. Falls back to the mock
+  // parser only when no event/tiers are resolvable yet (graceful pre-wire).
+  const live = useMemo<{ view: ParsedView; result: ParseResult } | null>(() => {
+    if (!val || !defaultTierId || liveTiers.length === 0) return null;
+    const result = parseQuickAddLive(
+      val,
+      liveTiers.map((t) => ({ id: t.id, name: t.name, aliases: t.aliases })),
+      defaultTierId,
+    );
+    const chosenId = resolveTier ?? result.tierId ?? defaultTierId;
+    const tier = liveTiers.find((t) => t.id === chosenId) ?? liveTiers.find((t) => t.id === defaultTierId) ?? liveTiers[0];
+    return {
+      result,
+      view: {
+        name: result.name,
+        plus: result.plusOnes,
+        tier,
+        unknown: result.ambiguous ? result.ambiguous.text.split(/\s+/).filter(Boolean) : [],
+        ambiguous: result.status === 'ambiguous',
+      },
+    };
+  }, [val, liveTiers, defaultTierId, resolveTier]);
+
+  const parsed: ParsedView | null = live ? live.view : val ? mockToView(parseQuickAdd(val)) : null;
   const usedSlots = added.reduce((a, g) => a + 1 + g.plus, 0);
-  const quotaLeft = 5 - usedSlots;
-  const effTier = parsed && resolveTier ? tiers.find((t) => t.id === resolveTier) ?? parsed.tier : parsed?.tier;
+  // Live: the quota engine is the source of truth (`remaining` already reflects
+  // guests added this session after each invalidate); exempt = no limit. Mock: 5.
+  const quotaTotal = quota ? quota.quota : 5;
+  const quotaLeft = quota?.exempt
+    ? Number.POSITIVE_INFINITY
+    : quota
+      ? quota.remaining
+      : 5 - usedSlots;
+  const effTier = parsed?.tier;
   const cost = parsed ? 1 + parsed.plus : 0;
   const needsAsk = !!(parsed && parsed.ambiguous && !resolveTier);
 
   useEffect(() => {
     setResolveTier(null);
+    setErr(null);
   }, [val]);
 
   const commit = (): void => {
-    if (!parsed || cost > quotaLeft || !effTier) return;
+    if (!parsed || cost > quotaLeft || !effTier || busy) return;
+    // Live path: persist through the server action (RLS + quota engine).
+    if (evId && live) {
+      // NAME_CHOICE folds the unknown words back into the name (#33); a real
+      // tierId picks that tier and drops the words.
+      const choice =
+        resolveTier === NAME_CHOICE
+          ? ({ kind: 'name' } as const)
+          : resolveTier
+            ? ({ kind: 'tier', tierId: resolveTier } as const)
+            : null;
+      const resolved = choice
+        ? resolveAmbiguity(live.result, choice, defaultTierId ?? effTier.id)
+        : { name: parsed.name, plusOnes: parsed.plus, tierId: effTier.id };
+      const snapshot: AddedGuest = { name: resolved.name, plus: resolved.plusOnes, tier: effTier, id: Date.now() };
+      setBusy(true);
+      setErr(null);
+      void add({ eventId: evId, tierId: resolved.tierId, fullName: resolved.name, plusOnes: resolved.plusOnes, source: 'app' }).then((res) => {
+        setBusy(false);
+        if (!res.ok) {
+          setErr(res.message);
+          return;
+        }
+        setAdded((a) => [snapshot, ...a]);
+        setVal('');
+        setResolveTier(null);
+      });
+      return;
+    }
+    // Mock fallback (no event wired yet): local-only preview.
     setAdded((a) => [{ name: parsed.name, plus: parsed.plus, tier: effTier, id: Date.now() }, ...a]);
     setVal('');
     setResolveTier(null);
   };
 
-  const askTiers = tiers.filter((t) => t.id === 'vip' || t.id === 'regular');
+  // Ambiguity chips: live suggestions (or the two mock chips before wiring).
+  const askTiers: Tier[] = live
+    ? (live.result.ambiguous?.suggestions ?? [])
+        .map((s) => liveTiers.find((t) => t.id === s.tierId))
+        .filter((t): t is Tier => Boolean(t))
+    : tiers.filter((t) => t.id === 'vip' || t.id === 'regular');
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Gast toevoegen" sub={`jouw quotum ${quotaLeft} van 5 over`} right={<IconBtn name="paste" onClick={() => nav.push('bulk')} />} />
+      <Top onBack={nav.back} title="Gast toevoegen" sub={Number.isFinite(quotaLeft) ? `jouw quotum ${Math.max(0, quotaLeft)} van ${quotaTotal} over` : 'geen quotumlimiet'} right={<IconBtn name="paste" onClick={() => nav.push('bulk', evId ? { id: evId } : undefined)} />} />
       <Scroll bottom={120}>
         <Label className="mb-2">Evenement</Label>
         <button type="button" onClick={() => setEvPick(true)} className={cn('mb-4 flex w-full items-center gap-[13px] rounded-[14px] border border-line bg-elev px-[14px] py-[13px] text-left', press)}>
           <span className="w-[40px] shrink-0 text-center">
-            <span className={cn('block font-display text-[18px] font-extrabold leading-none', curEv.accent ? 'text-acc' : 'text-text')}>{curEv.date}</span>
-            <span className="mt-0.5 block text-[9.5px] font-bold tracking-[0.05em] text-faint">{curEv.mon}</span>
+            <span className={cn('block font-display text-[18px] font-extrabold leading-none', curEv?.accent ? 'text-acc' : 'text-text')}>{curEv?.date ?? '—'}</span>
+            <span className="mt-0.5 block text-[9.5px] font-bold tracking-[0.05em] text-faint">{curEv?.mon ?? ''}</span>
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block font-display text-[15.5px] font-bold text-text">{curEv.name}</span>
+            <span className="block font-display text-[15.5px] font-bold text-text">{curEv?.name ?? 'Kies evenement'}</span>
             <span className="mt-px block text-[12.5px] text-faint">
-              deur {curEv.time} · {curEv.venue}
+              {curEv ? `deur ${curEv.time} · ${curEv.venue}` : 'tik om te kiezen'}
             </span>
           </span>
           <span className="text-acc">
@@ -349,7 +497,7 @@ export function QuickAdd(): JSX.Element {
                   <Icon name="chev" size={16} className="text-ghost" />
                 </button>
               ))}
-              <button type="button" onClick={() => setResolveTier('regular')} className={cn('flex items-center gap-[10px] rounded-[12px] border border-line bg-bg px-[13px] py-[12px] text-text', press)}>
+              <button type="button" onClick={() => setResolveTier(NAME_CHOICE)} className={cn('flex items-center gap-[10px] rounded-[12px] border border-line bg-bg px-[13px] py-[12px] text-text', press)}>
                 <Icon name="user" size={15} className="text-faint" />
                 <span className="flex-1 text-left font-display text-[14.5px] font-bold">Hoort bij de naam</span>
                 <Icon name="chev" size={16} className="text-ghost" />
@@ -362,7 +510,8 @@ export function QuickAdd(): JSX.Element {
           <div className={cn('mt-3 flex items-center gap-[9px] rounded-[13px] px-[14px] py-[11px]', cost > quotaLeft ? 'border border-acc bg-white/[0.04]' : 'border border-line bg-elev')}>
             <Icon name="ticket" size={17} stroke={cost > quotaLeft ? '#B5A6FF' : 'rgba(255,255,255,0.40)'} />
             <span className="flex-1 text-[13.5px] text-text">
-              Kost <b>{cost}</b> {cost === 1 ? 'plek' : 'plekken'} · {Math.max(0, quotaLeft - cost)} over na toevoegen
+              Kost <b>{cost}</b> {cost === 1 ? 'plek' : 'plekken'}
+              {Number.isFinite(quotaLeft) && ` · ${Math.max(0, quotaLeft - cost)} over na toevoegen`}
             </span>
             {cost > quotaLeft && <MiniChip className="border-acc text-acc">Quotum vol</MiniChip>}
           </div>
@@ -397,10 +546,12 @@ export function QuickAdd(): JSX.Element {
             </div>
           </>
         )}
+
+        {err && <p className="mt-3 text-[13px] text-acc-soft">{err}</p>}
       </Scroll>
       <BottomBar>
-        <Btn kind="primary" full icon="plus" onClick={commit} className={parsed && !needsAsk && cost <= quotaLeft ? '' : 'opacity-[0.45]'}>
-          {parsed ? `Voeg toe · ${parsed.name || 'gast'}${parsed.plus ? ' +' + parsed.plus : ''}` : 'Typ een naam'}
+        <Btn kind="primary" full icon="plus" onClick={commit} className={parsed && !needsAsk && cost <= quotaLeft && !busy ? '' : 'opacity-[0.45]'}>
+          {busy ? 'Bezig…' : parsed ? `Voeg toe · ${parsed.name || 'gast'}${parsed.plus ? ' +' + parsed.plus : ''}` : 'Typ een naam'}
         </Btn>
       </BottomBar>
 
@@ -410,7 +561,7 @@ export function QuickAdd(): JSX.Element {
           <div className="mb-4 text-[13px] text-faint">Aan welke gastenlijst voeg je toe?</div>
           <div className="flex flex-col gap-2">
             {upcoming.map((e) => {
-              const on = e.id === curEv.id;
+              const on = e.id === curEv?.id;
               return (
                 <button
                   key={e.id}
@@ -441,14 +592,93 @@ export function QuickAdd(): JSX.Element {
 }
 
 // ── BULK PASTE (#33) ─────────────────────────────────────────────────────────
-export function BulkPaste(): JSX.Element {
+/** Uniform per-line view the bulk JSX renders, plus the resolved tierId so a
+ *  confirmed/ready row can be submitted. */
+interface BulkView {
+  id: string;
+  name: string;
+  plus: number;
+  tier: Tier;
+  /** tierId the parser resolved to (default when ambiguous & unconfirmed). */
+  tierId: string;
+  unknown: string[];
+  ambiguous: boolean;
+}
+
+export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
   const nav = useNav();
+  const { tiers: liveTiers } = useEventTiers(eventId);
+  const { addBulk } = useGuestMutations(eventId);
   const sample = 'Juri Braakman +2 vip\nNoor de Wit\nSem Aaltink fles\nDJ Pelican artist\nFemke Bakker goldlounge\nLucas van Os +1';
   const [text, setText] = useState(sample);
   const [confirmed, setConfirmed] = useState<Record<string, string>>({});
-  const rows = parseBulk(text);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const defaultTierId = useMemo(
+    () => resolveDefaultTierId(liveTiers.map((t) => ({ id: t.id, name: t.name, aliases: t.aliases }))),
+    [liveTiers],
+  );
+  const live = Boolean(eventId && liveTiers.length && defaultTierId);
+
+  // Live: parse each line with the deterministic parser against the event's
+  // tiers. Mock: the prototype parser (graceful fallback before wiring).
+  const rows = useMemo<BulkView[]>(() => {
+    if (live && defaultTierId) {
+      const qaTiers = liveTiers.map((t) => ({ id: t.id, name: t.name, aliases: t.aliases }));
+      return parseBulkLive(text, qaTiers, defaultTierId).map((r, i): BulkView => {
+        const tierId = r.tierId ?? defaultTierId;
+        const tier = liveTiers.find((t) => t.id === tierId) ?? liveTiers[0];
+        return {
+          id: 'bulk' + i,
+          name: r.name,
+          plus: r.plusOnes,
+          tier,
+          tierId,
+          unknown: r.ambiguous ? r.ambiguous.text.split(/\s+/).filter(Boolean) : [],
+          ambiguous: r.status === 'ambiguous',
+        };
+      });
+    }
+    return parseBulk(text).map((r): BulkView => ({
+      id: r.id,
+      name: r.name,
+      plus: r.plus,
+      tier: r.tier,
+      tierId: r.tier.id,
+      unknown: r.unknown,
+      ambiguous: r.ambiguous,
+    }));
+  }, [text, live, liveTiers, defaultTierId]);
+
   const doubtful = rows.filter((r) => r.ambiguous && !confirmed[r.id]);
   const ready = rows.length - doubtful.length;
+
+  // The chips the JSX offers for an ambiguous line (live tiers, or mock pair).
+  const askTiers: Tier[] = live ? liveTiers : tiers.filter((t) => t.id === 'vip' || t.id === 'regular');
+
+  const submit = (): void => {
+    if (ready <= 0 || busy) return;
+    if (live && eventId && defaultTierId) {
+      // Only the resolved lines go in; ambiguous-unconfirmed are left behind (#33).
+      const payload = rows
+        .filter((r) => !(r.ambiguous && !confirmed[r.id]) && r.name.trim().length > 0)
+        .map((r) => ({ tierId: confirmed[r.id] ?? r.tierId ?? defaultTierId, fullName: r.name, plusOnes: r.plus }));
+      if (payload.length === 0) return;
+      setBusy(true);
+      setErr(null);
+      void addBulk({ eventId, guests: payload, source: 'app' }).then((res) => {
+        setBusy(false);
+        if (!res.ok) {
+          setErr(res.message);
+          return;
+        }
+        nav.back();
+      });
+      return;
+    }
+    nav.back(); // mock fallback
+  };
 
   return (
     <div className={col}>
@@ -467,11 +697,11 @@ export function BulkPaste(): JSX.Element {
         <div className="flex flex-col gap-2">
           {rows.map((r) => {
             const ask = r.ambiguous && !confirmed[r.id];
-            const tier = confirmed[r.id] ? tiers.find((t) => t.id === confirmed[r.id]) ?? r.tier : r.tier;
+            const tier = confirmed[r.id] ? liveTiers.find((t) => t.id === confirmed[r.id]) ?? tiers.find((t) => t.id === confirmed[r.id]) ?? r.tier : r.tier;
             return (
               <div key={r.id} className={cn('rounded-[14px] border bg-elev p-[12px]', ask ? 'border-acc' : 'border-line')}>
                 <div className="flex items-center gap-[11px]">
-                  <Avatar name={r.name} size={34} accent={tier.id === 'vip'} />
+                  <Avatar name={r.name} size={34} accent={tier.role === 'VIP'} />
                   <div className="min-w-0 flex-1">
                     <div className="font-display text-[14.5px] font-bold text-text">
                       {r.name}
@@ -486,29 +716,29 @@ export function BulkPaste(): JSX.Element {
                   )}
                 </div>
                 {ask && (
-                  <div className="mt-[11px] flex gap-[7px]">
-                    {tiers
-                      .filter((t) => t.id === 'vip' || t.id === 'regular')
-                      .map((t) => (
-                        <button
-                          key={t.id}
-                          type="button"
-                          onClick={() => setConfirmed((c) => ({ ...c, [r.id]: t.id }))}
-                          className={cn('flex-1 rounded-[10px] border border-line bg-elev2 py-[9px] font-display text-[12.5px] font-bold text-text', press)}
-                        >
-                          {t.short}
-                        </button>
-                      ))}
+                  <div className="mt-[11px] flex flex-wrap gap-[7px]">
+                    {askTiers.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setConfirmed((c) => ({ ...c, [r.id]: t.id }))}
+                        className={cn('flex-1 rounded-[10px] border border-line bg-elev2 py-[9px] font-display text-[12.5px] font-bold text-text', press)}
+                      >
+                        {t.short}
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
             );
           })}
         </div>
+
+        {err && <p className="mt-3 text-[13px] text-acc-soft">{err}</p>}
       </Scroll>
       <BottomBar>
-        <Btn kind="primary" full icon="check" onClick={() => nav.back()} className={ready > 0 ? '' : 'opacity-[0.45]'}>
-          {doubtful.length > 0 ? `Voeg ${ready} toe · ${doubtful.length} open` : `Voeg ${ready} gasten toe`}
+        <Btn kind="primary" full icon="check" onClick={submit} className={ready > 0 && !busy ? '' : 'opacity-[0.45]'}>
+          {busy ? 'Bezig…' : doubtful.length > 0 ? `Voeg ${ready} toe · ${doubtful.length} open` : `Voeg ${ready} gasten toe`}
         </Btn>
       </BottomBar>
     </div>

@@ -37,18 +37,18 @@ export const events: PoEvent[] = [
 ];
 
 export const guests: Guest[] = [
-  { id: 1, name: 'Lieke Hofman', role: 'VIP', pay: 'paid', plus: 2, note: 'Tafel 4 reserveren — staat op naam', flag: 'high', by: 'Max', addedAt: '28 nov', status: 'in', at: '23:42', inBy: 'Joris' },
-  { id: 2, name: 'Daan Verhoeven', role: 'Artist', pay: 'free', plus: 3, note: 'Backstage — crew haalt op bij de deur', flag: 'high', by: 'Sanne', addedAt: '26 nov', status: 'wait' },
-  { id: 3, name: 'Noor van Dijk', role: 'All Access', pay: 'free', plus: 1, note: 'Partner komt later — +1 apart inchecken', flag: 'low', by: 'Max', addedAt: '1 dec', status: 'wait' },
-  { id: 4, name: 'Bram Jansen', role: 'Gast', pay: 'pay', plus: 0, note: 'Rekent €25 p.p. af aan de deur', flag: 'low', by: 'Joris', addedAt: '2 dec', status: 'wait' },
-  { id: 5, name: 'Femke Bakker', role: 'VIP', pay: 'paid', plus: 0, note: '', flag: null, by: 'Max', addedAt: '27 nov', status: 'in', at: '23:10', inBy: 'Joris' },
-  { id: 6, name: 'Sven Mulder', role: 'Pers', pay: 'free', plus: 1, note: 'Fotograaf — geen flits bij main stage', flag: 'low', by: 'Sanne', addedAt: '29 nov', status: 'wait' },
-  { id: 7, name: 'Iris Peters', role: 'Gast', pay: 'pay', plus: 0, note: '', flag: null, by: 'Joris', addedAt: '3 dec', status: 'in', at: '00:01', inBy: 'Eva' },
-  { id: 8, name: 'Anouk Smit', role: 'VIP', pay: 'paid', plus: 2, note: 'Verjaardag — fles champagne bij tafel 7', flag: 'high', by: 'Max', addedAt: '24 nov', status: 'wait' },
-  { id: 9, name: 'Ruben Maas', role: 'Gast', pay: 'free', plus: 0, note: '', flag: null, by: 'Joris', addedAt: '2 dec', status: 'wait' },
-  { id: 10, name: 'Julia Kok', role: 'All Access', pay: 'free', plus: 0, note: '', flag: null, by: 'Sanne', addedAt: '30 nov', status: 'in', at: '23:55', inBy: 'Joris' },
-  { id: 11, name: 'Stijn Bos', role: 'Gast', pay: 'pay', plus: 1, note: '', flag: null, by: 'Joris', addedAt: '4 dec', status: 'wait' },
-  { id: 12, name: 'Tim de Groot', role: 'Crew', pay: 'free', plus: 0, note: 'Op-/afbouw — hele avond in/uit', flag: 'low', by: 'Systeem', addedAt: '20 nov', status: 'in', at: '21:30', inBy: 'Systeem' },
+  { id: '1', name: 'Lieke Hofman', role: 'VIP', pay: 'paid', plus: 2, note: 'Tafel 4 reserveren — staat op naam', flag: 'high', by: 'Max', addedAt: '28 nov', status: 'in', at: '23:42', inBy: 'Joris' },
+  { id: '2', name: 'Daan Verhoeven', role: 'Artist', pay: 'free', plus: 3, note: 'Backstage — crew haalt op bij de deur', flag: 'high', by: 'Sanne', addedAt: '26 nov', status: 'wait' },
+  { id: '3', name: 'Noor van Dijk', role: 'All Access', pay: 'free', plus: 1, note: 'Partner komt later — +1 apart inchecken', flag: 'low', by: 'Max', addedAt: '1 dec', status: 'wait' },
+  { id: '4', name: 'Bram Jansen', role: 'Gast', pay: 'pay', plus: 0, note: 'Rekent €25 p.p. af aan de deur', flag: 'low', by: 'Joris', addedAt: '2 dec', status: 'wait' },
+  { id: '5', name: 'Femke Bakker', role: 'VIP', pay: 'paid', plus: 0, note: '', flag: null, by: 'Max', addedAt: '27 nov', status: 'in', at: '23:10', inBy: 'Joris' },
+  { id: '6', name: 'Sven Mulder', role: 'Pers', pay: 'free', plus: 1, note: 'Fotograaf — geen flits bij main stage', flag: 'low', by: 'Sanne', addedAt: '29 nov', status: 'wait' },
+  { id: '7', name: 'Iris Peters', role: 'Gast', pay: 'pay', plus: 0, note: '', flag: null, by: 'Joris', addedAt: '3 dec', status: 'in', at: '00:01', inBy: 'Eva' },
+  { id: '8', name: 'Anouk Smit', role: 'VIP', pay: 'paid', plus: 2, note: 'Verjaardag — fles champagne bij tafel 7', flag: 'high', by: 'Max', addedAt: '24 nov', status: 'wait' },
+  { id: '9', name: 'Ruben Maas', role: 'Gast', pay: 'free', plus: 0, note: '', flag: null, by: 'Joris', addedAt: '2 dec', status: 'wait' },
+  { id: '10', name: 'Julia Kok', role: 'All Access', pay: 'free', plus: 0, note: '', flag: null, by: 'Sanne', addedAt: '30 nov', status: 'in', at: '23:55', inBy: 'Joris' },
+  { id: '11', name: 'Stijn Bos', role: 'Gast', pay: 'pay', plus: 1, note: '', flag: null, by: 'Joris', addedAt: '4 dec', status: 'wait' },
+  { id: '12', name: 'Tim de Groot', role: 'Crew', pay: 'free', plus: 0, note: 'Op-/afbouw — hele avond in/uit', flag: 'low', by: 'Systeem', addedAt: '20 nov', status: 'in', at: '21:30', inBy: 'Systeem' },
 ];
 
 export const contacts: Contact[] = [

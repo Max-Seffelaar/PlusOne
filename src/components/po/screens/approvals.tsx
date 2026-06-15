@@ -4,8 +4,16 @@
  *  with a tier-assign sheet that shows door-payment + notifies the guest (#34). */
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
-import { guestRequests, quotaRequests, tiers } from '@/lib/po/data';
 import type { GuestRequest, Tier } from '@/lib/po/types';
+import { usePoTiers } from '@/features/po/PoLiveProvider';
+import {
+  useApproveGuestRequest,
+  useApproveQuotaRequest,
+  useDenyGuestRequest,
+  useDenyQuotaRequest,
+  useGuestRequests,
+  useQuotaRequests,
+} from '@/features/po/approvals-live';
 import { useNav } from '../context';
 import { Icon } from '../icon';
 import { Avatar, Btn, Empty, Label, Note, Top } from '../kit';
@@ -16,16 +24,61 @@ const col = 'flex h-full flex-col';
 
 type Verdict = 'ok' | 'no';
 
-export function Aanvragen(): JSX.Element {
+// One-tap deny on this screen has no free-text field, but the audited deny
+// actions require a reason — record an honest default so the layout is untouched.
+const DEFAULT_DENY_REASON = 'Afgewezen door beoordelaar';
+
+export function Aanvragen({ eventId }: { eventId?: string }): JSX.Element {
   const nav = useNav();
   const [tab, setTab] = useState<'quota' | 'landing'>('quota');
   const [done, setDone] = useState<Record<string, Verdict>>({});
   const [granted, setGranted] = useState<Record<string, Tier>>({});
   const [assign, setAssign] = useState<GuestRequest | null>(null);
-  const qReqs = quotaRequests;
-  const gReqs = guestRequests;
+  const [err, setErr] = useState<string | null>(null);
+
+  const { requests: qReqs } = useQuotaRequests(eventId);
+  const { requests: gReqs } = useGuestRequests(eventId);
+  const approveQuota = useApproveQuotaRequest(eventId);
+  const denyQuota = useDenyQuotaRequest(eventId);
+  const approveGuest = useApproveGuestRequest(eventId);
+  const denyGuest = useDenyGuestRequest(eventId);
+
   const openQ = qReqs.filter((r) => !done[r.id]).length;
   const openG = gReqs.filter((r) => !done[r.id]).length;
+
+  // Re-open a card by dropping its optimistic verdict (mutate a copy, #app.tsx).
+  function reopen(id: string): void {
+    setDone((d) => {
+      const next = { ...d };
+      delete next[id];
+      return next;
+    });
+  }
+
+  // Optimistically record the verdict, fire the audited action, and roll the
+  // local state back (re-opening the card) with a Dutch error if it is rejected.
+  async function decideQuota(id: string, verdict: Verdict): Promise<void> {
+    setErr(null);
+    setDone((d) => ({ ...d, [id]: verdict }));
+    const res =
+      verdict === 'ok'
+        ? await approveQuota.approve(id)
+        : await denyQuota.deny(id, DEFAULT_DENY_REASON);
+    if (!res.ok) {
+      reopen(id);
+      setErr(res.message);
+    }
+  }
+
+  async function denyGuestReq(id: string): Promise<void> {
+    setErr(null);
+    setDone((d) => ({ ...d, [id]: 'no' }));
+    const res = await denyGuest.deny(id, DEFAULT_DENY_REASON);
+    if (!res.ok) {
+      reopen(id);
+      setErr(res.message);
+    }
+  }
 
   return (
     <div className={col}>
@@ -49,6 +102,11 @@ export function Aanvragen(): JSX.Element {
         ))}
       </div>
       <div className="po-scroll min-h-0 flex-1 overflow-y-auto px-5 pb-[28px]">
+        {err && (
+          <div className="mb-[11px] rounded-[12px] border border-acc-soft/40 bg-acc-dim px-[13px] py-[10px] text-[13px] font-semibold text-acc-soft">
+            {err}
+          </div>
+        )}
         {tab === 'quota' ? (
           <div className="flex flex-col gap-[11px]">
             {qReqs.map((r) => {
@@ -78,10 +136,10 @@ export function Aanvragen(): JSX.Element {
                     </span>
                   ) : (
                     <div className="flex gap-2">
-                      <Btn sm kind="dark" full icon="close" onClick={() => setDone((d) => ({ ...d, [r.id]: 'no' }))}>
+                      <Btn sm kind="dark" full icon="close" onClick={() => void decideQuota(r.id, 'no')}>
                         Afwijzen
                       </Btn>
-                      <Btn sm kind="primary" full icon="check2" onClick={() => setDone((d) => ({ ...d, [r.id]: 'ok' }))}>
+                      <Btn sm kind="primary" full icon="check2" onClick={() => void decideQuota(r.id, 'ok')}>
                         Keur {r.want} goed
                       </Btn>
                     </div>
@@ -134,7 +192,7 @@ export function Aanvragen(): JSX.Element {
                     </span>
                   ) : (
                     <div className="flex gap-2">
-                      <Btn sm kind="dark" full icon="close" onClick={() => setDone((d) => ({ ...d, [r.id]: 'no' }))}>
+                      <Btn sm kind="dark" full icon="close" onClick={() => void denyGuestReq(r.id)}>
                         Afwijzen
                       </Btn>
                       <Btn sm kind="primary" full icon="check2" onClick={() => setAssign(r)}>
@@ -152,8 +210,15 @@ export function Aanvragen(): JSX.Element {
       {assign && (
         <AssignSheet
           req={assign}
+          eventId={eventId}
           onClose={() => setAssign(null)}
-          onConfirm={(tier) => {
+          onConfirm={async (tier) => {
+            setErr(null);
+            const res = await approveGuest.approve(assign.id, tier.id);
+            if (!res.ok) {
+              setErr(res.message);
+              return;
+            }
             setGranted((g) => ({ ...g, [assign.id]: tier }));
             setDone((d) => ({ ...d, [assign.id]: 'ok' }));
             setAssign(null);
@@ -164,11 +229,36 @@ export function Aanvragen(): JSX.Element {
   );
 }
 
-function AssignSheet({ req, onClose, onConfirm }: { req: GuestRequest; onClose: () => void; onConfirm: (tier: Tier) => void }): JSX.Element {
-  const [tierId, setTierId] = useState('regular');
-  const tier = tiers.find((t) => t.id === tierId) ?? tiers[tiers.length - 1];
+function AssignSheet({
+  req,
+  eventId,
+  onClose,
+  onConfirm,
+}: {
+  req: GuestRequest;
+  eventId?: string;
+  onConfirm: (tier: Tier) => Promise<void> | void;
+  onClose: () => void;
+}): JSX.Element {
+  const { tiers, isLoading } = usePoTiers(eventId);
+  const [tierId, setTierId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  // Default to the event's default tier (or the first) once tiers load.
+  const selected =
+    tiers.find((t) => t.id === tierId) ?? tiers.find((t) => t.isDefault) ?? tiers[0] ?? null;
   const heads = 1 + req.plus;
-  const pay = tier.doorPrice > 0;
+  const pay = (selected?.doorPrice ?? 0) > 0;
+
+  async function confirm(): Promise<void> {
+    if (!selected || busy) return;
+    setBusy(true);
+    try {
+      await onConfirm(selected);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Sheet onClose={onClose} center={false}>
       <div className="mb-4 flex items-center gap-[12px]">
@@ -185,8 +275,18 @@ function AssignSheet({ req, onClose, onConfirm }: { req: GuestRequest; onClose: 
       </div>
       <Label className="mb-[10px]">Wat krijgt deze gast?</Label>
       <div className="mb-[14px] flex flex-col gap-[7px]">
+        {isLoading && tiers.length === 0 && (
+          <div className="rounded-[12px] border border-line bg-elev px-[13px] py-[12px] text-[13px] text-faint">
+            Tiers laden…
+          </div>
+        )}
+        {!isLoading && tiers.length === 0 && (
+          <div className="rounded-[12px] border border-line bg-elev px-[13px] py-[12px] text-[13px] text-faint">
+            Geen tiers voor dit event — maak er eerst één aan.
+          </div>
+        )}
         {tiers.map((t) => {
-          const on = t.id === tierId;
+          const on = t.id === (selected?.id ?? null);
           return (
             <button key={t.id} type="button" onClick={() => setTierId(t.id)} className={cn('flex items-center gap-[11px] rounded-[12px] border px-[13px] py-[12px] text-left', on ? 'border-transparent bg-acc-dim' : 'border-line bg-elev', press)}>
               <span className="h-[12px] w-[12px] shrink-0 rounded-full" style={{ background: t.color }} />
@@ -204,15 +304,15 @@ function AssignSheet({ req, onClose, onConfirm }: { req: GuestRequest; onClose: 
         <span className="text-[13.5px] leading-[1.4] text-text">
           {pay ? (
             <span>
-              Moet <b>€{tier.doorPrice} p.p.</b> afrekenen aan de deur ({heads}×)
+              Moet <b>€{selected?.doorPrice} p.p.</b> afrekenen aan de deur ({heads}×)
             </span>
           ) : (
             <span>Gratis toegang — niets te betalen</span>
           )}
         </span>
       </div>
-      <Btn kind="primary" full icon="check" onClick={() => onConfirm(tier)}>
-        Toevoegen &amp; gast informeren
+      <Btn kind="primary" full icon="check" disabled={!selected || busy} onClick={() => void confirm()}>
+        {busy ? 'Bezig…' : 'Toevoegen & gast informeren'}
       </Btn>
       <div className="mt-3 flex items-start gap-[7px]">
         <Icon name="bell" size={13} className="text-ghost" />

@@ -1,10 +1,12 @@
 'use client';
 
 /** Desktop dashboard shell (from `dash.jsx`): sidebar + topbar + view switch.
- *  Desktop surface for Admin/Finance (#6). Mounted at /dashboard. */
+ *  Desktop surface for Admin/Finance (#6). Mounted at /dashboard.
+ *  Wrapped in PoLiveProvider so the sidebar + views read live Supabase data
+ *  (session, venue, events, audit, team). */
 import { useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
-import { invites, team } from '@/lib/po/data';
+import { PoLiveProvider, useSession } from '@/features/po/PoLiveProvider';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Label } from '../kit';
 import { ComingSoonPill } from '../coming-soon';
@@ -13,6 +15,11 @@ import { Audit, Events, Home, Stats, Users } from './views';
 
 type View = 'home' | 'events' | 'stats' | 'audit' | 'users';
 const press = 'transition-[filter,transform,background,border-color,color] hover:brightness-[1.08] active:scale-[0.985]';
+
+// Views still backed by mock data show the "Binnenkort" pill in the topbar.
+// Statistieken has no aggregation backend yet (per-kwartier / per-tier) — it
+// stays mock; everything else is live.
+const MOCK_VIEWS = new Set<View>(['stats']);
 
 const NAV: [View, string, IconName][] = [
   ['home', 'Dashboard', 'grid'],
@@ -23,6 +30,13 @@ const NAV: [View, string, IconName][] = [
 ];
 
 function Sidebar({ view, setView }: { view: View; setView: (v: View) => void }): JSX.Element {
+  const { session, currentVenue } = useSession();
+  const profile = session?.profile ?? null;
+  // Admin/Finance get MFA (CLAUDE.md Auth) — reflect it in the footer badge.
+  const venueRoles = currentVenue?.roles ?? [];
+  const hasMfaRole = venueRoles.some((r) => r === 'Admin' || r === 'Finance');
+  const roleLine = venueRoles[0] ?? 'Lid';
+
   return (
     <div className="flex h-full w-[250px] shrink-0 flex-col border-r border-line2 bg-bg px-4 py-[22px]">
       <div className="flex items-center gap-[11px] px-2 pb-[22px]">
@@ -30,10 +44,10 @@ function Sidebar({ view, setView }: { view: View; setView: (v: View) => void }):
         <div className="font-display text-[19px] font-extrabold tracking-[-0.02em] text-text">plusone</div>
       </div>
       <button type="button" className={cn('mb-[18px] flex w-full items-center gap-[10px] rounded-[12px] border border-line bg-elev p-[10px] text-left text-text', press)}>
-        <Avatar name="LOFI" size={30} accent />
+        <Avatar name={currentVenue?.name ?? '—'} size={30} accent />
         <div className="min-w-0 flex-1">
-          <div className="font-display text-[14px] font-bold">LOFI</div>
-          <div className="text-[11px] text-faint">Premium · 3 venues</div>
+          <div className="overflow-hidden text-ellipsis whitespace-nowrap font-display text-[14px] font-bold">{currentVenue?.name ?? 'Geen venue'}</div>
+          <div className="text-[11px] text-faint">{currentVenue ? currentVenue.plan : '—'}</div>
         </div>
         <Icon name="chevD" size={16} className="text-ghost" />
       </button>
@@ -56,12 +70,18 @@ function Sidebar({ view, setView }: { view: View; setView: (v: View) => void }):
       </div>
       <div className="flex-1" />
       <div className="flex items-center gap-[11px] rounded-[12px] border border-line bg-elev p-[10px]">
-        <Avatar name="Max Seffelaar" size={34} />
+        <Avatar name={profile?.name ?? '—'} size={34} />
         <div className="min-w-0 flex-1">
-          <div className="overflow-hidden text-ellipsis whitespace-nowrap font-display text-[13.5px] font-bold">Max Seffelaar</div>
+          <div className="overflow-hidden text-ellipsis whitespace-nowrap font-display text-[13.5px] font-bold">{profile?.name ?? 'Niet ingelogd'}</div>
           <div className="flex items-center gap-1 text-[11px] text-faint">
-            <Icon name="shield" size={11} stroke="#B5A6FF" />
-            Admin · MFA
+            {hasMfaRole ? (
+              <>
+                <Icon name="shield" size={11} stroke="#B5A6FF" />
+                {roleLine} · MFA
+              </>
+            ) : (
+              roleLine
+            )}
           </div>
         </div>
         <button type="button" className={cn('flex h-[30px] w-[30px] items-center justify-center rounded-[9px] border border-line bg-transparent text-faint', press)}>
@@ -72,29 +92,19 @@ function Sidebar({ view, setView }: { view: View; setView: (v: View) => void }):
   );
 }
 
-function Topbar({ title, sub, right }: { title: string; sub?: string; right?: ReactNode }): JSX.Element {
+function Topbar({ title, sub, right, mock }: { title: string; sub?: string; right?: ReactNode; mock?: boolean }): JSX.Element {
   return (
     <div className="flex shrink-0 items-center gap-[18px] border-b border-line2 px-[34px] py-[22px]">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-3">
           <h1 className="m-0 font-display text-[26px] font-extrabold tracking-[-0.02em] text-text">{title}</h1>
-          {/* Whole desktop dashboard is still mock — drop this per-view once wired. */}
-          <ComingSoonPill />
+          {/* Only views still backed by mock data carry the pill. */}
+          {mock && <ComingSoonPill />}
         </div>
         {sub && <div className="mt-[3px] text-[13.5px] text-faint">{sub}</div>}
       </div>
       {right}
     </div>
-  );
-}
-
-function EventPick(): JSX.Element {
-  return (
-    <button type="button" className={cn('inline-flex items-center gap-[9px] rounded-[12px] border border-line bg-elev px-[14px] py-[10px] font-display text-[14px] font-bold text-text', press)}>
-      <span className="h-2 w-2 rounded-full bg-acc" />
-      FRENZY · vanavond
-      <Icon name="chevD" size={15} className="text-ghost" />
-    </button>
   );
 }
 
@@ -105,15 +115,17 @@ interface ViewMeta {
   Body: () => JSX.Element;
 }
 
-export function DesktopApp(): JSX.Element {
+function DesktopAppInner(): JSX.Element {
   const [view, setView] = useState<View>('home');
+  const { currentVenue } = useSession();
+  const venueName = currentVenue?.name ?? 'venue';
+
   const meta: Record<View, ViewMeta> = {
     home: {
       title: 'Dashboard',
-      sub: 'LOFI · overzicht van vanavond en deze maand',
+      sub: `${venueName} · overzicht van deze maand`,
       right: (
         <div className="flex gap-[10px]">
-          <EventPick />
           <DBtn kind="ghost" icon="plus">
             Nieuwe gast
           </DBtn>
@@ -123,9 +135,9 @@ export function DesktopApp(): JSX.Element {
       Body: Home,
     },
     events: { title: 'Events', sub: 'Beheer events, tiers en landingpages', right: <DBtn icon="plus">Nieuw event</DBtn>, Body: Events },
-    stats: { title: 'Statistieken', sub: 'FRENZY · 14 dec 2024', right: <EventPick />, Body: Stats },
+    stats: { title: 'Statistieken', sub: `${venueName} · voorbeeldcijfers`, right: <span />, Body: Stats },
     audit: { title: 'Audit log', sub: 'Onveranderlijk logboek — wie deed wat, wanneer', right: <DBtn kind="ghost" icon="dl">Export</DBtn>, Body: Audit },
-    users: { title: 'Gebruikers', sub: `${team.length} teamleden · ${invites.length} uitnodigingen open`, right: <DBtn icon="plus">Uitnodigen</DBtn>, Body: Users },
+    users: { title: 'Gebruikers', sub: 'Team en uitnodigingen van deze venue', right: <DBtn icon="plus">Uitnodigen</DBtn>, Body: Users },
   };
   const m = meta[view];
   const Body = m.Body;
@@ -133,11 +145,19 @@ export function DesktopApp(): JSX.Element {
     <div className="flex h-[100dvh] overflow-hidden">
       <Sidebar view={view} setView={setView} />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <Topbar title={m.title} sub={m.sub} right={m.right} />
+        <Topbar title={m.title} sub={m.sub} right={m.right} mock={MOCK_VIEWS.has(view)} />
         <div key={view} className="po-screen-anim min-h-0 flex-1 overflow-y-auto">
           <Body />
         </div>
       </div>
     </div>
+  );
+}
+
+export function DesktopApp(): JSX.Element {
+  return (
+    <PoLiveProvider>
+      <DesktopAppInner />
+    </PoLiveProvider>
   );
 }

@@ -36,6 +36,8 @@ export type ScreenName =
 export interface ScreenProps {
   id?: string;
   isNew?: boolean;
+  /** Event scope carried into guest screens (Lijst/Guest/QuickAdd/BulkPaste). */
+  eventId?: string;
 }
 
 export interface StackEntry {
@@ -62,12 +64,12 @@ export interface CheckInEntry {
 }
 
 export interface PoApp {
-  inside: Set<number>;
-  log: Record<number, CheckInEntry>;
-  checkIn: (id: number, total: number) => void;
-  uncheck: (id: number) => void;
-  taskDone: (id: number) => boolean;
-  ackTask: (id: number, val: boolean) => void;
+  inside: Set<string>;
+  log: Record<string, CheckInEntry>;
+  checkIn: (id: string, total: number) => void;
+  uncheck: (id: string) => void;
+  taskDone: (id: string) => boolean;
+  ackTask: (id: string, val: boolean) => void;
   vast: Set<string>;
   toggleVast: (n: string) => void;
   venue: Venue;

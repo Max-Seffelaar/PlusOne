@@ -25,8 +25,18 @@ const DOOR_USER = 'Joris';
 
 // Screens/tabs already wired to live Supabase data. Anything NOT listed here is
 // still mock and gets the "Binnenkort" badge. Add entries as screens are wired.
-const WIRED_TABS = new Set<TabKey>(['events']);
-const WIRED_SCREENS = new Set<ScreenName>(['eventedit', 'tiers']);
+// Still mock (kept OUT on purpose): 'contacten' + 'vaste' (no MVP backend for the
+// adresboek / permanente gasten), plus every settings/onboarding screen.
+const WIRED_TABS = new Set<TabKey>(['events', 'deur', 'taken']);
+const WIRED_SCREENS = new Set<ScreenName>([
+  'eventedit',
+  'tiers',
+  'lijst',
+  'guest',
+  'quickadd',
+  'bulk',
+  'aanvragen',
+]);
 
 function nowTime(): string {
   return new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
@@ -43,15 +53,15 @@ function PlusOneAppInner(): JSX.Element {
   const [authProps, setAuthProps] = useState<{ email?: string }>({});
   const [tab, setTabState] = useState<TabKey>('events');
   const [stack, setStack] = useState<StackEntry[]>([]);
-  const [inside, setInside] = useState<Set<number>>(() => new Set(guests.filter((g) => g.status === 'in').map((g) => g.id)));
-  const [log, setLog] = useState<Record<number, CheckInEntry>>(() => {
-    const o: Record<number, CheckInEntry> = {};
+  const [inside, setInside] = useState<Set<string>>(() => new Set(guests.filter((g) => g.status === 'in').map((g) => g.id)));
+  const [log, setLog] = useState<Record<string, CheckInEntry>>(() => {
+    const o: Record<string, CheckInEntry> = {};
     guests.filter((g) => g.status === 'in').forEach((g) => {
       o[g.id] = { at: g.at ?? '', by: g.inBy ?? DOOR_USER };
     });
     return o;
   });
-  const [tasksDone, setTasksDone] = useState<Set<number>>(() => new Set());
+  const [tasksDone, setTasksDone] = useState<Set<string>>(() => new Set());
   const [vast, setVast] = useState<Set<string>>(() => new Set(contacts.filter((c) => c.vast).map((c) => c.name)));
   const [venue, setVenueState] = useState<Venue>(() => venues.find((v) => v.current) ?? venues[0]);
   const [toast, setToast] = useState<string | null>(null);
@@ -87,14 +97,14 @@ function PlusOneAppInner(): JSX.Element {
     },
   };
 
-  const checkIn = (id: number, total: number): void => {
+  const checkIn = (id: string, total: number): void => {
     const g = guests.find((x) => x.id === id);
     setInside((s) => new Set(s).add(id));
     setLog((l) => ({ ...l, [id]: { at: nowTime(), by: DOOR_USER } }));
     setToast((g ? g.name : 'Gast') + (total > 1 ? ' +' + (total - 1) : '') + ' · binnen ✓');
     setTimeout(() => setToast(null), 2400);
   };
-  const uncheck = (id: number): void => {
+  const uncheck = (id: string): void => {
     setInside((s) => {
       const x = new Set(s);
       x.delete(id);
@@ -107,8 +117,8 @@ function PlusOneAppInner(): JSX.Element {
     });
     nav.back();
   };
-  const taskDone = (id: number): boolean => tasksDone.has(id);
-  const ackTask = (id: number, val: boolean): void =>
+  const taskDone = (id: string): boolean => tasksDone.has(id);
+  const ackTask = (id: string, val: boolean): void =>
     setTasksDone((s) => {
       const x = new Set(s);
       if (val) x.add(id);
@@ -130,7 +140,14 @@ function PlusOneAppInner(): JSX.Element {
   };
 
   const ev = (id?: string): PoEvent => liveEvents.find((e) => e.id === id) ?? liveEvents[0] ?? events[0];
-  const guest = (id?: string) => guests.find((g) => String(g.id) === id) ?? guests[0];
+  const guest = (id?: string) => guests.find((g) => g.id === id) ?? guests[0];
+
+  // The door/taken tabs operate on a single focused event: prefer the one that is
+  // live right now (accent = status 'live'), else the next upcoming, else the
+  // first known event. `undefined` only when the venue has no events at all, in
+  // which case the door screens fall back to their mock/empty state.
+  const doorEventId: string | undefined =
+    liveEvents.find((e) => e.accent)?.id ?? liveEvents.find((e) => e.when === 'upcoming')?.id ?? liveEvents[0]?.id;
 
   const top = stack[stack.length - 1];
   const tabRoot = started && stack.length === 0;
@@ -151,10 +168,10 @@ function PlusOneAppInner(): JSX.Element {
         screen = <EventView ev={ev(p.id)} />;
         break;
       case 'lijst':
-        screen = <Lijst ev={ev(p.id)} />;
+        screen = <Lijst ev={ev(p.id)} eventId={p.id} />;
         break;
       case 'guest':
-        screen = <Guest g={guest(p.id)} />;
+        screen = <Guest g={guest(p.id)} eventId={p.eventId} />;
         break;
       case 'contacten':
         screen = <Contacten />;
@@ -169,13 +186,13 @@ function PlusOneAppInner(): JSX.Element {
         screen = <Import />;
         break;
       case 'quickadd':
-        screen = <QuickAdd />;
+        screen = <QuickAdd eventId={p.id} />;
         break;
       case 'bulk':
-        screen = <BulkPaste />;
+        screen = <BulkPaste eventId={p.id} />;
         break;
       case 'aanvragen':
-        screen = <Aanvragen />;
+        screen = <Aanvragen eventId={p.id ?? doorEventId} />;
         break;
       case 'eventedit':
         screen = <EventEdit ev={p.id ? ev(p.id) : undefined} isNew={p.isNew} />;
@@ -214,8 +231,8 @@ function PlusOneAppInner(): JSX.Element {
         screen = null;
     }
   } else if (tab === 'events') screen = <Events />;
-  else if (tab === 'deur') screen = <Deur />;
-  else if (tab === 'taken') screen = <Taken />;
+  else if (tab === 'deur') screen = <Deur eventId={doorEventId} />;
+  else if (tab === 'taken') screen = <Taken eventId={doorEventId} />;
   else screen = <Meer />;
 
   const po: PoApp = { inside, log, checkIn, uncheck, taskDone, ackTask, vast, toggleVast, venue, switchVenue, nav };

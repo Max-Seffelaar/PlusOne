@@ -1,11 +1,18 @@
 'use client';
 
 /** Door mode: check-in list with Beide/Onderweg/Ingecheckt toggle + AL BINNEN
- *  divider; and the Taken tab (per-guest opdrachten, BELANGRIJK first). */
+ *  divider; and the Taken tab (per-guest opdrachten, BELANGRIJK first).
+ *
+ *  Live when an `eventId` is supplied (the /app shell passes the focused event):
+ *  data comes from the door snapshot via `usePoDoor`, and check-in / opdracht
+ *  acks go through the offline outbox (idempotent, decision #25). Without an
+ *  eventId the screens fall back to the in-memory mock so the prototype still
+ *  renders end-to-end. Search + filter stay LOCAL (no server state). */
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
-import { guests } from '@/lib/po/data';
-import type { Guest } from '@/lib/po/types';
+import { guests as mockGuests } from '@/lib/po/data';
+import type { Guest, Priority } from '@/lib/po/types';
+import { usePoDoor } from '@/features/po/door-live';
 import { useNav, usePo } from '../context';
 import { Icon } from '../icon';
 import { Avatar, Label, PayChip, RoleChip, Scroll, StatusDot, Top } from '../kit';
@@ -35,12 +42,19 @@ function Seg<T extends string>({ items, value, onChange }: { items: readonly (re
 }
 
 // ── DEUR (tab) ───────────────────────────────────────────────────────────────
-export function Deur(): JSX.Element {
+export function Deur({ eventId }: { eventId?: string }): JSX.Element {
   const nav = useNav();
-  const { inside } = usePo();
+  const po = usePo();
+  const live = usePoDoor(eventId);
+  const isLive = Boolean(eventId);
+  // Live: snapshot guests + outbox-backed check-in. Mock: shared app state.
+  const gs = isLive ? live.guests : mockGuests;
+  const inside = isLive ? live.inside : po.inside;
+  const sub = isLive
+    ? `${live.eventName}${live.venueName ? ` · ${live.venueName}` : ''}`
+    : 'FRENZY · De Marktkantine';
   const [q, setQ] = useState('');
   const [f, setF] = useState<'both' | 'wait' | 'in'>('both');
-  const gs = guests;
   const inn = gs.filter((g) => inside.has(g.id)).length;
 
   const base = q ? gs.filter((g) => g.name.toLowerCase().includes(q.toLowerCase())) : gs;
@@ -55,7 +69,7 @@ export function Deur(): JSX.Element {
       <button
         key={g.id}
         type="button"
-        onClick={() => nav.push('guest', { id: String(g.id) })}
+        onClick={() => nav.push('guest', { id: String(g.id), eventId })}
         className={cn('flex items-center gap-[13px] rounded-[16px] border p-[13px] text-left', cardPress, isIn ? 'border-line2 bg-transparent opacity-[0.55]' : 'border-line bg-elev')}
       >
         <Avatar name={g.name} size={46} accent={!isIn && g.role === 'VIP'} />
@@ -82,7 +96,7 @@ export function Deur(): JSX.Element {
 
   return (
     <div className={col}>
-      <Top big title="Check-in" sub="FRENZY · De Marktkantine" />
+      <Top big title="Check-in" sub={sub} />
       <div className="flex flex-none gap-[10px] px-5 pb-[14px]">
         <div className="flex-1 rounded-[14px] border border-line bg-elev px-[14px] py-[12px]">
           <div className="font-display text-[26px] font-extrabold text-text">{gs.length - inn}</div>
@@ -128,19 +142,39 @@ export function Deur(): JSX.Element {
 }
 
 // ── TAKEN (tab) ──────────────────────────────────────────────────────────────
-export function Taken(): JSX.Element {
+export function Taken({ eventId }: { eventId?: string }): JSX.Element {
   const nav = useNav();
-  const { inside, taskDone, ackTask } = usePo();
+  const po = usePo();
+  const live = usePoDoor(eventId);
+  const isLive = Boolean(eventId);
   const [f, setF] = useState<'open' | 'done' | 'all'>('open');
-  const all = guests.filter((g) => g.note).map((g) => ({ g, prio: g.flag ?? 'low', done: taskDone(g.id) }));
+  // Live: note opdrachten from the snapshot (acknowledged = done). Mock: app state.
+  const inside = isLive ? live.inside : po.inside;
+  const ackTask = isLive ? live.ackTask : po.ackTask;
+  const all: { g: Guest; prio: Priority; done: boolean }[] = isLive
+    ? live.tasks
+    : mockGuests
+        .filter((g) => g.note)
+        .map((g) => ({ g, prio: (g.flag ?? 'low') as Priority, done: po.taskDone(g.id) }));
   const openCount = all.filter((t) => !t.done).length;
   const highOpen = all.filter((t) => !t.done && t.prio === 'high').length;
   const list = all.filter((t) => (f === 'open' ? !t.done : f === 'done' ? t.done : true));
-  list.sort((a, b) => Number(a.done) - Number(b.done) || (b.prio === 'high' ? 1 : 0) - (a.prio === 'high' ? 1 : 0) || a.g.id - b.g.id);
+  // Stable tiebreak by guest id. Ids are strings now (UUIDs live, numeric-string
+  // mock); numeric collation keeps the mock order (e.g. '2' before '10').
+  list.sort(
+    (a, b) =>
+      Number(a.done) - Number(b.done) ||
+      (b.prio === 'high' ? 1 : 0) - (a.prio === 'high' ? 1 : 0) ||
+      a.g.id.localeCompare(b.g.id, undefined, { numeric: true }),
+  );
+
+  const sub = isLive
+    ? `${live.eventName} · openstaande opdrachten aan de deur`
+    : 'FRENZY · openstaande opdrachten aan de deur';
 
   return (
     <div className={col}>
-      <Top big title="Taken" sub="FRENZY · openstaande opdrachten aan de deur" />
+      <Top big title="Taken" sub={sub} />
       <div className="flex flex-none gap-[10px] px-5 pb-[14px]">
         <div className="flex-1 rounded-[14px] bg-acc-dim px-[14px] py-[12px]">
           <div className="font-display text-[26px] font-extrabold text-acc">{openCount}</div>
@@ -177,7 +211,7 @@ export function Taken(): JSX.Element {
                 >
                   {done && <Icon name="check" size={15} stroke="#16132B" sw={3} />}
                 </button>
-                <button type="button" onClick={() => nav.push('guest', { id: String(g.id) })} className="min-w-0 flex-1 cursor-pointer border-none bg-transparent p-0 text-left">
+                <button type="button" onClick={() => nav.push('guest', { id: String(g.id), eventId })} className="min-w-0 flex-1 cursor-pointer border-none bg-transparent p-0 text-left">
                   <div className="mb-[5px] flex items-center gap-2">
                     {prio === 'high' && (
                       <span className="inline-flex items-center gap-1 rounded-[6px] bg-acc-dim px-[7px] py-0.5 font-body text-[10px] font-extrabold tracking-[0.04em] text-acc">

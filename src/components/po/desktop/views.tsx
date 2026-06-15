@@ -1,31 +1,55 @@
 'use client';
 
 /** Desktop views: Dashboard-home, Statistieken, Audit log, Events, Gebruikers.
- *  Recreated from `dash.jsx` (PLUSONE tokens). Reads the shared mock data. */
-import { useState } from 'react';
+ *  Recreated from `dash.jsx` (PLUSONE tokens). Home/Events/Audit/Users read LIVE
+ *  Supabase data via the desktop hooks; Statistieken stays mock until an
+ *  aggregation backend exists (honest "Binnenkort" placeholder). */
+import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { audit, events, guestRequests, invites, quotaRequests, stats, team } from '@/lib/po/data';
+import { stats } from '@/lib/po/data';
+import { usePoEvents } from '@/features/po/PoLiveProvider';
+import { usePoAudit, usePoTeam } from '@/features/po/desktop-live';
+import type { PoEvent } from '@/lib/po/types';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Label } from '../kit';
-import { ActionChip, DBtn, DCard, MiniIconBtn, Tag } from './kit';
+import { ActionChip, DBtn, DCard, Tag } from './kit';
 
 const pad = 'px-[34px] pb-10';
 
+// Is this event's start in the current venue-local month? (KPI "deze maand").
+function inCurrentMonth(e: PoEvent, now: Date): boolean {
+  if (!e.startsAtISO) return false;
+  const d = new Date(e.startsAtISO);
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+}
+
 // ── DASHBOARD HOME ────────────────────────────────────────────────────────────
 export function Home(): JSX.Element {
+  const { events, isLoading } = usePoEvents();
+  const { entries: auditEntries } = usePoAudit();
+
+  const now = new Date();
+  const monthEvents = events.filter((e) => inCurrentMonth(e, now));
+  const liveEvent = events.find((e) => e.accent) ?? null;
+  // Aggregate the (RLS-scoped) guest/inside counts across this month's events.
+  const totalGuests = monthEvents.reduce((a, e) => a + e.guests, 0);
+  const totalInside = monthEvents.reduce((a, e) => a + e.inside, 0);
+
   const kpis: { v: string; l: string; s: string; ic: IconName; acc?: boolean; warn?: boolean }[] = [
-    { v: '4', l: 'Events deze maand', s: '1 live vanavond', ic: 'cal' },
-    { v: '415', l: 'Gasten op de lijst', s: '+38 vandaag', ic: 'users', acc: true },
-    { v: '125', l: 'Binnen vanavond', s: 'van 415 verwacht', ic: 'check' },
-    { v: '7', l: 'Open verzoeken', s: '3 quotum · 4 aanvragen', ic: 'bell', warn: true },
+    { v: String(monthEvents.length), l: 'Events deze maand', s: liveEvent ? '1 live nu' : 'geen live event', ic: 'cal' },
+    { v: String(totalGuests), l: 'Gasten op de lijst', s: 'deze maand', ic: 'users', acc: true },
+    { v: String(totalInside), l: 'Binnen nu', s: liveEvent ? `op ${liveEvent.name}` : '—', ic: 'check' },
   ];
-  const ev = events[0];
-  const inn = 125;
-  const total = 415;
-  const pct = inn / total;
+
+  // Headline event for the live card: the live one, else the next upcoming.
+  const headline = liveEvent ?? events.find((e) => e.when === 'upcoming') ?? null;
+  const inn = headline?.inside ?? 0;
+  const total = headline?.guests ?? 0;
+  const pct = total > 0 ? inn / total : 0;
+
   return (
     <div className={cn('flex flex-col gap-[22px] pt-7', pad)}>
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         {kpis.map((k) => (
           <DCard key={k.l} className="p-5">
             <div className="flex items-start justify-between">
@@ -42,82 +66,63 @@ export function Home(): JSX.Element {
 
       <div className="grid grid-cols-[1.55fr_1fr] gap-4">
         <DCard className="p-6">
-          <div className="mb-5 flex items-center gap-3">
-            <span className="inline-flex items-center gap-[7px] rounded-full bg-acc-dim px-[11px] py-[5px] font-body text-[12px] font-bold text-acc">
-              <span className="h-[7px] w-[7px] rounded-full bg-acc" />
-              LIVE
-            </span>
-            <div className="flex-1">
-              <div className="font-display text-[22px] font-extrabold tracking-[-0.02em] text-text">{ev.name}</div>
-              <div className="text-[13px] text-faint">
-                {ev.venue} · deur {ev.time}
+          {headline ? (
+            <>
+              <div className="mb-5 flex items-center gap-3">
+                {headline.accent ? (
+                  <span className="inline-flex items-center gap-[7px] rounded-full bg-acc-dim px-[11px] py-[5px] font-body text-[12px] font-bold text-acc">
+                    <span className="h-[7px] w-[7px] rounded-full bg-acc" />
+                    LIVE
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-[7px] rounded-full border border-line px-[11px] py-[5px] font-body text-[12px] font-bold text-dim">
+                    Eerstvolgend
+                  </span>
+                )}
+                <div className="flex-1">
+                  <div className="font-display text-[22px] font-extrabold tracking-[-0.02em] text-text">{headline.name}</div>
+                  <div className="text-[13px] text-faint">
+                    {headline.venue} · deur {headline.time}
+                  </div>
+                </div>
               </div>
+              <div className="mb-[9px] flex justify-between">
+                <Label>Opkomst</Label>
+                <span className="font-display font-bold text-acc">
+                  {inn} / {total} · {Math.round(pct * 100)}%
+                </span>
+              </div>
+              <div className="mb-[22px] h-3 overflow-hidden rounded-[7px] bg-elev2">
+                <div className="h-full rounded-[7px] bg-acc" style={{ width: pct * 100 + '%' }} />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                {([[String(Math.max(0, total - inn)), 'Onderweg', false], [String(inn), 'Binnen', true], ['—', 'Geweigerd', false]] as const).map(([v, l, a]) => (
+                  <div key={l} className={cn('rounded-[14px] border px-4 py-[14px]', a ? 'border-transparent bg-acc-dim' : 'border-line bg-elev2')}>
+                    <div className={cn('font-display text-[24px] font-extrabold', a ? 'text-acc' : 'text-text')}>{v}</div>
+                    <div className={cn('mt-0.5 text-[12.5px]', a ? 'text-dim' : 'text-faint')}>{l}</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="flex min-h-[180px] items-center justify-center text-[13.5px] text-faint">
+              {isLoading ? 'Laden…' : 'Geen events gepland'}
             </div>
-            <span className="inline-flex items-center gap-1.5 rounded-[10px] border border-line px-3 py-1.5 font-body text-[12.5px] font-bold text-dim">
-              <Icon name="lock" size={14} stroke="#B5A6FF" />
-              Lijst vergrendeld
-            </span>
-          </div>
-          <div className="mb-[9px] flex justify-between">
-            <Label>Opkomst</Label>
-            <span className="font-display font-bold text-acc">
-              {inn} / {total} · {Math.round(pct * 100)}%
-            </span>
-          </div>
-          <div className="mb-[22px] h-3 overflow-hidden rounded-[7px] bg-elev2">
-            <div className="h-full rounded-[7px] bg-acc" style={{ width: pct * 100 + '%' }} />
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            {([['290', 'Onderweg', false], ['125', 'Binnen', true], ['6', 'Geweigerd', false]] as const).map(([v, l, a]) => (
-              <div key={l} className={cn('rounded-[14px] border px-4 py-[14px]', a ? 'border-transparent bg-acc-dim' : 'border-line bg-elev2')}>
-                <div className={cn('font-display text-[24px] font-extrabold', a ? 'text-acc' : 'text-text')}>{v}</div>
-                <div className={cn('mt-0.5 text-[12.5px]', a ? 'text-dim' : 'text-faint')}>{l}</div>
-              </div>
-            ))}
-          </div>
+          )}
         </DCard>
 
         <DCard className="flex flex-col p-6">
           <div className="mb-4 flex items-center justify-between">
             <div className="font-display text-[17px] font-bold text-text">Wacht op jou</div>
-            <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-acc px-[7px] font-display text-[13px] font-extrabold text-on-acc">7</span>
           </div>
-          <div className="flex flex-1 flex-col gap-[10px]">
-            {quotaRequests.slice(0, 2).map((r) => (
-              <div key={r.id} className="flex items-center gap-[11px]">
-                <Avatar name={r.who} size={34} />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13.5px] font-semibold text-text">{r.who}</div>
-                  <div className="text-[11.5px] text-faint">
-                    quotum {r.current}→{r.want}
-                  </div>
-                </div>
-                <div className="flex gap-1.5">
-                  <MiniIconBtn name="check" accent />
-                  <MiniIconBtn name="close" />
-                </div>
-              </div>
-            ))}
-            {guestRequests.slice(0, 2).map((r) => (
-              <div key={r.id} className="flex items-center gap-[11px]">
-                <Avatar name={r.name} size={34} />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13.5px] font-semibold text-text">
-                    {r.name}
-                    {r.plus > 0 && <span className="text-faint"> +{r.plus}</span>}
-                  </div>
-                  <div className="text-[11.5px] text-faint">landingpage-aanvraag</div>
-                </div>
-                <div className="flex gap-1.5">
-                  <MiniIconBtn name="check" accent />
-                  <MiniIconBtn name="close" />
-                </div>
-              </div>
-            ))}
+          {/* TODO: approvals-aggregatie (quota- + landingpage-verzoeken) heeft nog
+              geen desktop-hook — bewust geen verzonnen lijst. */}
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 py-6 text-center">
+            <span className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-line bg-elev2 text-faint">
+              <Icon name="bell" size={18} />
+            </span>
+            <div className="text-[13px] text-faint">Verzoeken verschijnen hier zodra de approvals-module live is.</div>
           </div>
-          <DBtn kind="ghost" className="mt-4 w-full justify-center">
-            Alle verzoeken
-          </DBtn>
         </DCard>
       </div>
 
@@ -128,7 +133,10 @@ export function Home(): JSX.Element {
             Volledig audit log
           </DBtn>
         </div>
-        {audit.slice(0, 5).map((a) => (
+        {auditEntries.length === 0 && (
+          <div className="border-t border-line2 py-[13px] text-[13px] text-faint">Nog geen activiteit — of geen inzage (Admin/Finance + MFA vereist).</div>
+        )}
+        {auditEntries.slice(0, 5).map((a) => (
           <div key={a.id} className="-mx-2 flex items-center gap-[14px] border-t border-line2 px-2 py-[13px] transition-colors hover:bg-white/[0.025]">
             <Avatar name={a.actor} size={32} />
             <ActionChip action={a.action} />
@@ -144,12 +152,18 @@ export function Home(): JSX.Element {
 }
 
 // ── STATISTIEKEN ──────────────────────────────────────────────────────────────
+// NB: no aggregation backend exists yet (per-kwartier instroom, per-tier
+// opkomst). This view stays on mock data behind the topbar "Binnenkort" pill —
+// numbers are illustrative, NOT live. Wiring needs a stats RPC first.
 export function Stats(): JSX.Element {
   const s = stats;
   const maxK = Math.max(...s.perKwartier.map((x) => x.n));
   const maxT = Math.max(...s.perTier.map((x) => x.aangemeld));
   return (
     <div className={cn('flex flex-col gap-[22px] pt-7', pad)}>
+      <div className="rounded-[14px] border border-acc/40 bg-acc-dim px-[18px] py-[13px] text-[13px] text-acc-soft">
+        Voorbeeldcijfers — de statistiek-aggregatie is nog niet aangesloten op live data.
+      </div>
       <div className="grid grid-cols-4 gap-4">
         {([['72%', 'Gem. opkomst', '+6% vs vorige'], ['23:00', 'Piek instroom', '38 in 15 min'], ['6', 'Weigeringen', '1,4% van check-ins'], ['28%', 'No-show', '117 niet verschenen']] as const).map(([v, l, sub]) => (
           <DCard key={l} className="p-5">
@@ -226,7 +240,9 @@ export function Stats(): JSX.Element {
 // ── AUDIT LOG ─────────────────────────────────────────────────────────────────
 const AUDIT_GRID = 'grid-cols-[150px_130px_1fr_130px_110px]';
 export function Audit(): JSX.Element {
+  const { entries, isLoading, isError } = usePoAudit();
   const [f, setF] = useState('all');
+  const [q, setQ] = useState('');
   const acts: [string, string][] = [
     ['all', 'Alle'],
     ['check_in', 'Check-ins'],
@@ -235,7 +251,14 @@ export function Audit(): JSX.Element {
     ['approve', 'Goedkeuringen'],
     ['lock', 'Lock'],
   ];
-  const rows = f === 'all' ? audit : audit.filter((r) => r.action === f);
+  const rows = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    return entries.filter((r) => {
+      if (f !== 'all' && r.action !== f) return false;
+      if (term && !(`${r.actor} ${r.text} ${r.entity}`.toLowerCase().includes(term))) return false;
+      return true;
+    });
+  }, [entries, f, q]);
   return (
     <div className={cn('pt-6', pad)}>
       <div className="mb-[18px] flex flex-wrap items-center gap-2">
@@ -247,7 +270,7 @@ export function Audit(): JSX.Element {
         <div className="flex-1" />
         <div className="inline-flex min-w-[220px] items-center gap-2 rounded-[11px] border border-line bg-elev px-[13px] py-[9px] text-faint">
           <Icon name="search" size={16} />
-          <input placeholder="Zoek op gast, gebruiker…" className="flex-1 border-none bg-transparent text-[13.5px] text-text outline-none placeholder:text-faint" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Zoek op gast, gebruiker…" className="flex-1 border-none bg-transparent text-[13.5px] text-text outline-none placeholder:text-faint" />
         </div>
       </div>
       <DCard className="overflow-hidden p-0">
@@ -256,6 +279,17 @@ export function Audit(): JSX.Element {
             <Label key={h}>{h}</Label>
           ))}
         </div>
+        {isLoading && rows.length === 0 && (
+          <div className="px-[22px] py-[18px] text-[13.5px] text-faint">Laden…</div>
+        )}
+        {!isLoading && isError && (
+          <div className="px-[22px] py-[18px] text-[13.5px] text-acc-soft">Kon het audit log niet laden.</div>
+        )}
+        {!isLoading && !isError && rows.length === 0 && (
+          <div className="px-[22px] py-[18px] text-[13.5px] text-faint">
+            Geen audit-regels. Inzage vereist Admin/Finance + MFA (AAL2).
+          </div>
+        )}
         {rows.map((a, i) => (
           <div key={a.id} className={cn('grid items-center px-[22px] py-[14px] transition-colors hover:bg-white/[0.025]', AUDIT_GRID, i < rows.length - 1 && 'border-b border-line2')}>
             <div className="flex items-center gap-[10px]">
@@ -285,6 +319,7 @@ export function Audit(): JSX.Element {
 // ── EVENTS ────────────────────────────────────────────────────────────────────
 const EVENT_GRID = 'grid-cols-[1.5fr_1fr_110px_130px_120px_40px]';
 export function Events(): JSX.Element {
+  const { events, isLoading } = usePoEvents();
   return (
     <div className={cn('pt-6', pad)}>
       <DCard className="overflow-hidden p-0">
@@ -293,6 +328,12 @@ export function Events(): JSX.Element {
             <Label key={i}>{h}</Label>
           ))}
         </div>
+        {isLoading && events.length === 0 && (
+          <div className="px-[22px] py-[18px] text-[13.5px] text-faint">Laden…</div>
+        )}
+        {!isLoading && events.length === 0 && (
+          <div className="px-[22px] py-[18px] text-[13.5px] text-faint">Nog geen events voor deze venue.</div>
+        )}
         {events.map((e, i) => (
           <div key={e.id} className={cn('grid cursor-pointer items-center px-[22px] py-4 transition-colors hover:bg-white/[0.025]', EVENT_GRID, i < events.length - 1 && 'border-b border-line2')}>
             <div className="flex items-center gap-[14px]">
@@ -330,13 +371,8 @@ export function Events(): JSX.Element {
 
 // ── GEBRUIKERS ────────────────────────────────────────────────────────────────
 const USER_GRID = 'grid-cols-[1.4fr_1.4fr_130px_110px_40px]';
-const ROLE_MAP: Record<string, string[]> = {
-  Eigenaar: ['Admin', 'Finance'],
-  Manager: ['User manager', 'Organisator'],
-  Host: ['Doorhost', 'Staff'],
-  Promotor: ['Staff'],
-};
 export function Users(): JSX.Element {
+  const { team, invites, isLoading } = usePoTeam();
   return (
     <div className={cn('flex flex-col gap-[22px] pt-6', pad)}>
       <DCard className="overflow-hidden p-0">
@@ -345,6 +381,12 @@ export function Users(): JSX.Element {
             <Label key={i}>{h}</Label>
           ))}
         </div>
+        {isLoading && team.length === 0 && (
+          <div className="px-[22px] py-[18px] text-[13.5px] text-faint">Laden…</div>
+        )}
+        {!isLoading && team.length === 0 && (
+          <div className="px-[22px] py-[18px] text-[13.5px] text-faint">Nog geen teamleden voor deze venue.</div>
+        )}
         {team.map((t, i) => (
           <div key={t.name} className={cn('grid items-center px-[22px] py-[15px] transition-colors hover:bg-white/[0.025]', USER_GRID, i < team.length - 1 && 'border-b border-line2')}>
             <div className="flex items-center gap-3">
@@ -355,18 +397,15 @@ export function Users(): JSX.Element {
               </div>
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {(ROLE_MAP[t.role] ?? ['Staff']).map((r) => (
+              {(t.roleChips.length ? t.roleChips : ['Staff']).map((r) => (
                 <span key={r} className="whitespace-nowrap rounded-[7px] border border-line bg-elev2 px-[9px] py-1 font-body text-[11.5px] font-bold text-dim">
                   {r}
                 </span>
               ))}
             </div>
-            <div className="text-[13.5px] text-dim">
-              {t.allow}
-              {t.max ? ' · ' + t.used + ' gebruikt' : ''}
-            </div>
+            <div className="text-[13.5px] text-dim">{t.allow}</div>
             <div>
-              {t.role === 'Eigenaar' ? (
+              {t.mfa ? (
                 <span className="inline-flex items-center gap-[5px] font-body text-[12px] font-bold text-acc">
                   <Icon name="shield" size={13} stroke="#B5A6FF" />
                   MFA aan
@@ -383,25 +422,31 @@ export function Users(): JSX.Element {
       </DCard>
       <div>
         <Label className="mb-3">Openstaande uitnodigingen</Label>
-        <div className="flex flex-col gap-[10px]">
-          {invites.map((iv) => (
-            <DCard key={iv.email} className="flex items-center gap-[14px] border-dashed px-[18px] py-[14px]">
-              <span className="flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line bg-elev2 text-faint">
-                <Icon name="user" size={18} />
-              </span>
-              <div className="flex-1">
-                <div className="text-[14px] font-semibold text-text">{iv.email}</div>
-                <div className="text-[12px] text-faint">
-                  {iv.roles.join(', ')} · verstuurd {iv.at}
+        {invites.length === 0 ? (
+          <div className="rounded-[16px] border border-dashed border-line bg-elev px-[18px] py-[14px] text-[13px] text-faint">
+            Geen openstaande uitnodigingen.
+          </div>
+        ) : (
+          <div className="flex flex-col gap-[10px]">
+            {invites.map((iv) => (
+              <DCard key={iv.email} className="flex items-center gap-[14px] border-dashed px-[18px] py-[14px]">
+                <span className="flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line bg-elev2 text-faint">
+                  <Icon name="user" size={18} />
+                </span>
+                <div className="flex-1">
+                  <div className="text-[14px] font-semibold text-text">{iv.email}</div>
+                  <div className="text-[12px] text-faint">
+                    {iv.roles.join(', ')} · verstuurd {iv.at}
+                  </div>
                 </div>
-              </div>
-              <span className="whitespace-nowrap rounded-[8px] border border-line px-[11px] py-[5px] text-[11.5px] font-bold text-faint">Wacht op acceptatie</span>
-              <DBtn sm kind="ghost">
-                Opnieuw sturen
-              </DBtn>
-            </DCard>
-          ))}
-        </div>
+                <span className="whitespace-nowrap rounded-[8px] border border-line px-[11px] py-[5px] text-[11.5px] font-bold text-faint">Wacht op acceptatie</span>
+                <DBtn sm kind="ghost">
+                  Opnieuw sturen
+                </DBtn>
+              </DCard>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

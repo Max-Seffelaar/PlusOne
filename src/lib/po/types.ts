@@ -36,7 +36,8 @@ export interface PoEvent {
 }
 
 export interface Guest {
-  id: number;
+  /** UUID string for live guests; numeric-looking string for legacy mock rows. */
+  id: string;
   name: string;
   role: Role;
   pay: PayStatus;
