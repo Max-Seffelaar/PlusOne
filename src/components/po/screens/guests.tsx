@@ -136,11 +136,34 @@ function LogRow({ icon, label, who, when, accent, last }: { icon: IconName; labe
   );
 }
 
-export function Guest({ g, eventId }: { g: GuestT; eventId?: string }): JSX.Element {
+export function Guest({ g, eventId, id }: { g: GuestT; eventId?: string; id?: string }): JSX.Element {
   const nav = useNav();
-  // Check-in state: in an event context (door/list) it comes from the
-  // outbox-backed door hook so it actually PERSISTS (#25/#11); otherwise the
-  // in-memory mock. Uncheck isn't an outbox op — it stays mock (rare door edge).
+  // The nav stack only carries the guest id + eventId; `g` is the mock fallback.
+  // In a live event we must resolve the REAL guest by the clicked id and wait for
+  // it — otherwise every live guest rendered mock `guests[0]` (the detail looked
+  // up the wrong id, so check-in feedback was for the wrong person).
+  const { guest: liveGuest, isLoading } = useEventGuest(eventId, id ?? g.id);
+  if (!eventId) return <GuestDetail g={g} />;
+  if (!liveGuest) {
+    return (
+      <div className={col}>
+        <Top onBack={nav.back} title="Gast" />
+        <div className="flex flex-1 items-center justify-center px-6 text-center text-[13.5px] text-faint">
+          {isLoading ? 'Laden…' : 'Deze gast staat niet (meer) op de lijst.'}
+        </div>
+      </div>
+    );
+  }
+  return <GuestDetail g={liveGuest} eventId={eventId} />;
+}
+
+/** The guest detail itself, mounted once the guest is resolved so the +gasten
+ *  stepper and task state init from the right person. */
+function GuestDetail({ g: gx, eventId }: { g: GuestT; eventId?: string }): JSX.Element {
+  const nav = useNav();
+  // Check-in state: in an event context it comes from the outbox-backed door hook
+  // so it actually PERSISTS (#25/#11); otherwise the in-memory mock. Uncheck isn't
+  // an outbox op — it stays mock (rare door edge).
   const mock = usePo();
   const door = usePoDoor(eventId);
   const live = Boolean(eventId);
@@ -150,11 +173,7 @@ export function Guest({ g, eventId }: { g: GuestT; eventId?: string }): JSX.Elem
   const taskDone = live ? door.taskDone : mock.taskDone;
   const ackTask = live ? door.ackTask : mock.ackTask;
   const uncheck = mock.uncheck;
-  // Prefer the live row (from the cached event list) over the mock prop; the
-  // component API is unchanged — only the data source is.
-  const { guest: liveGuest } = useEventGuest(eventId, g.id);
-  const gx = liveGuest ?? g;
-  const { entries: auditLog } = useGuestLog(g.id);
+  const { entries: auditLog } = useGuestLog(gx.id);
   const isIn = inside.has(gx.id) || gx.status === 'in';
   const [plus, setPlus] = useState(gx.plus);
   const hasTask = !!gx.note;

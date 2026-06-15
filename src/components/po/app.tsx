@@ -176,7 +176,7 @@ function PlusOneAppInner(): JSX.Element {
         screen = <Lijst ev={ev(p.id)} eventId={p.id} />;
         break;
       case 'guest':
-        screen = <Guest g={guest(p.id)} eventId={p.eventId} />;
+        screen = <Guest g={guest(p.id)} eventId={p.eventId} id={p.id} />;
         break;
       case 'contacten':
         screen = <Contacten />;
