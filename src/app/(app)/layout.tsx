@@ -75,6 +75,11 @@ export default async function AppLayout({
                 Sessies
               </Link>
             )}
+            {isAdminSomewhere && (
+              <Link href="/admin/venue" className="text-dim hover:text-text transition-colors">
+                Venue
+              </Link>
+            )}
             <Link href="/settings/profile" className="text-dim hover:text-text transition-colors">
               Profiel
             </Link>

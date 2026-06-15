@@ -270,6 +270,7 @@ export type Database = {
       }
       guest_requests: {
         Row: {
+          anonymized_at: string | null
           created_at: string
           decided_at: string | null
           decided_by: string | null
@@ -286,6 +287,7 @@ export type Database = {
           status: Database["public"]["Enums"]["request_status"]
         }
         Insert: {
+          anonymized_at?: string | null
           created_at?: string
           decided_at?: string | null
           decided_by?: string | null
@@ -302,6 +304,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["request_status"]
         }
         Update: {
+          anonymized_at?: string | null
           created_at?: string
           decided_at?: string | null
           decided_by?: string | null
@@ -654,6 +657,7 @@ export type Database = {
       }
       refusals: {
         Row: {
+          anonymized_at: string | null
           client_timestamp: string | null
           created_at: string
           device_id: string | null
@@ -664,6 +668,7 @@ export type Database = {
           refused_by: string
         }
         Insert: {
+          anonymized_at?: string | null
           client_timestamp?: string | null
           created_at?: string
           device_id?: string | null
@@ -674,6 +679,7 @@ export type Database = {
           refused_by: string
         }
         Update: {
+          anonymized_at?: string | null
           client_timestamp?: string | null
           created_at?: string
           device_id?: string | null
@@ -1032,8 +1038,29 @@ export type Database = {
         Args: { p_venue_id: string }
         Returns: boolean
       }
+      redact_anonymized_audit_pii: {
+        Args: { p_guest_ids: string[] }
+        Returns: number
+      }
+      redact_audit_diff: {
+        Args: { p_diff: Json; p_redaction: Json }
+        Returns: Json
+      }
+      redact_jsonb_obj: {
+        Args: { p_obj: Json; p_redaction: Json }
+        Returns: Json
+      }
       request_device_id: { Args: never; Returns: string }
       revoke_own_session: { Args: { p_session_id: string }; Returns: boolean }
+      run_privacy_retention: {
+        Args: never
+        Returns: {
+          audit_rows_redacted: number
+          guests_anonymized: number
+          refusals_redacted: number
+          requests_anonymized: number
+        }[]
+      }
       slugify: { Args: { p_text: string }; Returns: string }
       submit_guest_request: {
         Args: {

@@ -66,6 +66,7 @@ function refusal(over: Partial<RefusalRow> = {}): RefusalRow {
     client_timestamp: null,
     device_id: null,
     created_at: '2026-06-21T00:03:00Z',
+    anonymized_at: null,
     ...over,
   };
 }
