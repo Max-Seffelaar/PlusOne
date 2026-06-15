@@ -15,7 +15,7 @@ const col = 'flex h-full flex-col';
 export function VenueCreate(): JSX.Element {
   const nav = useNav();
   const [name, setName] = useState('');
-  const [city, setCity] = useState('');
+  const [location, setLocation] = useState('');
   const [kvk, setKvk] = useState('');
   const [retention, setRetention] = useState('12');
   const [billingEmail, setBillingEmail] = useState('');
@@ -31,8 +31,8 @@ export function VenueCreate(): JSX.Element {
 
         <Label className="mb-2">Bedrijfsnaam</Label>
         <Field icon="building" placeholder="bv. LOFI" value={name} onChange={setName} autoFocus className="mb-[14px]" />
-        <Label className="mb-2">Stad</Label>
-        <Field icon="pin" placeholder="Amsterdam" value={city} onChange={setCity} className="mb-[14px]" />
+        <Label className="mb-2">Locatie (adres)</Label>
+        <Field icon="pin" placeholder="Straat + nr, postcode, plaats" value={location} onChange={setLocation} className="mb-[14px]" />
         <Label className="mb-2">KVK / BTW (optioneel)</Label>
         <Field icon="note" placeholder="NL••• ••• B••" value={kvk} onChange={setKvk} className="mb-[18px]" />
 

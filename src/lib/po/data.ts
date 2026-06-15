@@ -146,7 +146,7 @@ export const venues: Venue[] = [
 ];
 
 // Profile + active sessions (#20 §5 — sessiebeheer + remote logout).
-export const profile: Profile = { name: 'Max Seffelaar', email: 'max@lofi.amsterdam', phone: '06 24 88 19 03', role: 'Eigenaar · Admin + Finance', mfa: true };
+export const profile: Profile = { name: 'Max Seffelaar', email: 'max@lofi.amsterdam', phone: '+31624881903', role: 'Eigenaar · Admin + Finance', mfa: true };
 
 export const sessions: Session[] = [
   { id: 's1', device: 'iPhone 15 — PLUSONE PWA', where: 'Amsterdam · NL', last: 'Nu actief', current: true },

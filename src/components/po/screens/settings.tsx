@@ -10,6 +10,7 @@ import { useNav, usePo } from '../context';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Btn, Field, IconBtn, Label, MiniChip, Note, Row, Scroll, ToggleRow, Top } from '../kit';
 import { BottomBar } from '../shell';
+import { PhoneField } from '../phone-field';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
@@ -360,8 +361,8 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
       <Scroll bottom={120}>
         <Label className="mb-2">Naam</Label>
         <Field icon="building" value={name} onChange={setName} className="mb-[14px]" />
-        <Label className="mb-2">Stad</Label>
-        <Field icon="pin" value="Amsterdam" placeholder="Stad" className="mb-[14px]" />
+        <Label className="mb-2">Locatie (adres)</Label>
+        <Field icon="pin" value="Wibautstraat 150, 1091 GR Amsterdam" placeholder="Straat + nr, postcode, plaats" className="mb-[14px]" />
         <Label className="mb-2">Landingpage-basis</Label>
         <Field icon="link" value="plus.one/lofi" className="mb-[18px]" />
 
@@ -422,7 +423,7 @@ export function Profile(): JSX.Element {
   const nav = useNav();
   const p = profile;
   const [email, setEmail] = useState(p.email);
-  const [phone, setPhone] = useState(p.phone);
+  const [phone, setPhone] = useState<string | undefined>(p.phone);
   const sessionIcon = (device: string): IconName => (device.includes('deur') ? 'ticket' : device.includes('Mac') ? 'grid' : 'user');
   return (
     <div className={col}>
@@ -440,7 +441,7 @@ export function Profile(): JSX.Element {
         <Field icon="mail" value={email} onChange={setEmail} inputMode="email" className="mb-1.5" />
         <div className="mb-[14px] pl-0.5 text-[12px] leading-[1.4] text-faint">Alleen jij kunt je e-mailadres wijzigen — nooit een venue-admin.</div>
         <Label className="mb-2">Telefoon</Label>
-        <Field icon="phone" value={phone} onChange={setPhone} inputMode="tel" className="mb-[18px]" />
+        <PhoneField value={phone} onChange={setPhone} className="mb-[18px]" />
 
         <Label className="mb-[10px]">Beveiliging</Label>
         <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-4 py-1">
