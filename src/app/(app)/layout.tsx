@@ -3,13 +3,14 @@ import { requireAppAccess } from '@/lib/auth/guards';
 import { getMyMemberships } from '@/lib/auth/memberships';
 import { resolveActiveVenueId } from '@/lib/auth/active-venue';
 import { hasDashboardAccess, venueCapabilities } from '@/features/venues/access';
+import { isManager } from '@/features/auth/roles';
 import { PendingInvitesBanner } from '@/features/auth/components/PendingInvitesBanner';
 import { SignOutButton } from '@/features/auth/components/SignOutButton';
 import { VenueSwitcher } from '@/features/venues/components/VenueSwitcher';
 
 // Authenticated app shell. requireAppAccess enforces the MFA policy before any
 // child renders; the nav adapts to the user's roles and lets multi-venue users
-// switch the active venue (decision #1).
+// switch the active venue (decision #1). Fase 10 added the reports/audit nav.
 export default async function AppLayout({
   children,
 }: {
@@ -21,9 +22,13 @@ export default async function AppLayout({
   const dashboardVenues = memberships.filter((m) => hasDashboardAccess(m.roles));
   const activeVenueId = await resolveActiveVenueId(dashboardVenues);
 
-  const canSeeTeam = dashboardVenues.length > 0; // admin/user_manager/finance
+  const canManageTeam = memberships.some((m) => isManager(m.roles));
   const canSeeVenue = memberships.some((m) => venueCapabilities(m.roles).viewSettings); // admin/finance
   const isAdminSomewhere = memberships.some((m) => m.roles.includes('admin'));
+  // Admin + the read-only Finance role get reports & the audit log (spec §2).
+  const canSeeReports = memberships.some(
+    (m) => m.roles.includes('admin') || m.roles.includes('finance')
+  );
 
   const displayName =
     (ctx.user.user_metadata?.full_name as string | undefined) ?? ctx.user.email ?? 'Account';
@@ -39,12 +44,25 @@ export default async function AppLayout({
             <Link href="/dashboard" className="text-dim hover:text-text transition-colors">
               Dashboard
             </Link>
+            {canSeeReports && (
+              <>
+                <Link href="/admin/stats" className="text-dim hover:text-text transition-colors">
+                  Statistieken
+                </Link>
+                <Link href="/admin/overview" className="text-dim hover:text-text transition-colors">
+                  Overzicht
+                </Link>
+                <Link href="/admin/audit" className="text-dim hover:text-text transition-colors">
+                  Audit log
+                </Link>
+              </>
+            )}
             {canSeeVenue && (
               <Link href="/admin/venue" className="text-dim hover:text-text transition-colors">
                 Venue
               </Link>
             )}
-            {canSeeTeam && (
+            {canManageTeam && (
               <Link href="/admin/team" className="text-dim hover:text-text transition-colors">
                 Team
               </Link>
