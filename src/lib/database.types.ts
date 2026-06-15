@@ -201,6 +201,7 @@ export type Database = {
       }
       events: {
         Row: {
+          auto_lock_at: string | null
           created_at: string
           ends_at: string | null
           id: string
@@ -217,6 +218,7 @@ export type Database = {
           went_live_at: string | null
         }
         Insert: {
+          auto_lock_at?: string | null
           created_at?: string
           ends_at?: string | null
           id?: string
@@ -233,6 +235,7 @@ export type Database = {
           went_live_at?: string | null
         }
         Update: {
+          auto_lock_at?: string | null
           created_at?: string
           ends_at?: string | null
           id?: string
@@ -965,6 +968,13 @@ export type Database = {
           tier_name: string
         }[]
       }
+      event_transition_requires_admin: {
+        Args: {
+          p_from: Database["public"]["Enums"]["event_status"]
+          p_to: Database["public"]["Enums"]["event_status"]
+        }
+        Returns: boolean
+      }
       event_user_additions: {
         Args: { p_event_id: string }
         Returns: {
@@ -997,6 +1007,13 @@ export type Database = {
       }
       is_aal2: { Args: never; Returns: boolean }
       is_event_organizer: { Args: { p_event_id: string }; Returns: boolean }
+      is_valid_event_status_transition: {
+        Args: {
+          p_from: Database["public"]["Enums"]["event_status"]
+          p_to: Database["public"]["Enums"]["event_status"]
+        }
+        Returns: boolean
+      }
       is_venue_member: { Args: { p_venue_id: string }; Returns: boolean }
       list_own_sessions: {
         Args: never
@@ -1017,6 +1034,7 @@ export type Database = {
       }
       request_device_id: { Args: never; Returns: string }
       revoke_own_session: { Args: { p_session_id: string }; Returns: boolean }
+      slugify: { Args: { p_text: string }; Returns: string }
       submit_guest_request: {
         Args: {
           p_email: string
@@ -1259,3 +1277,4 @@ export const Constants = {
     },
   },
 } as const
+
