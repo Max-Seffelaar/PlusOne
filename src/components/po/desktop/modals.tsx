@@ -11,10 +11,11 @@
  * data. The desktop is a single-page client dashboard — these are local-state
  * overlays, no router.
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { usePoEvents, usePoTiers, useSession } from '@/features/po/PoLiveProvider';
+import { usePoDoor, type PoDoorState } from '@/features/po/door-live';
 import {
   createEvent,
   createTier,
@@ -30,7 +31,7 @@ import {
   type ParseResult,
 } from '@/features/guests/quick-add-parser';
 import type { PoEvent, Tier } from '@/lib/po/types';
-import { Icon } from '../icon';
+import { Icon, type IconName } from '../icon';
 import { Avatar } from '../kit';
 import { DBtn, DCard, DDateTime, DFieldLabel, DInput, DModal, Tag } from './kit';
 
@@ -375,10 +376,155 @@ function PreviewChip({ icon, dot, label }: { icon?: 'user' | 'users'; dot?: stri
   );
 }
 
-// ── EVENT DETAIL / EDIT (panel) ───────────────────────────────────────────────
-/** Edit an event's basics + manage its tiers, all in a desktop modal (no router).
- *  Mirrors the mobile EventEdit + Tiers screens. */
+// ── EVENT DETAIL (panel) ──────────────────────────────────────────────────────
+type DetailTab = 'door' | 'edit';
+
+/** Event detail = the event-day command centre (#3): a live KPI band + a "Deur"
+ *  tab (search + real quick check-in via the offline outbox) + a "Bewerken" tab
+ *  (basics + tiers). Mirrors the mobile EventView + EventEdit, tabbed for desktop.
+ *  Check-in is real; "uitchecken" (void) isn't in the live model yet — we never
+ *  fake it (see backlog). */
 export function EventDetailModal({ event, onClose }: { event: PoEvent; onClose: () => void }): JSX.Element {
+  const door = usePoDoor(event.id);
+  // Land on the live-ops tab unless there's nothing to run yet (draft/past).
+  const [tab, setTab] = useState<DetailTab>(
+    event.when === 'past' || event.status === 'draft' ? 'edit' : 'door',
+  );
+
+  const listed = door.guests.length;
+  const inside = door.inside.size;
+  const onderweg = Math.max(0, listed - inside);
+  const heads = (scope: 'all' | 'in'): number =>
+    door.guests.reduce(
+      (n, g) => (scope === 'in' && !door.inside.has(g.id) ? n : n + 1 + g.plus),
+      0,
+    );
+
+  return (
+    <DModal
+      title={event.name}
+      sub={`${event.venue} · ${event.date} ${event.mon}${event.time ? ` · deur ${event.time}` : ''}`}
+      onClose={onClose}
+      width={680}
+      footer={
+        <DBtn kind="ghost" icon="close" onClick={onClose}>
+          Sluiten
+        </DBtn>
+      }
+    >
+      {/* Live KPI band — always visible: the numbers Max wants in his face on the night. */}
+      <div className="mb-5 grid grid-cols-3 gap-3">
+        <KpiCell label="Onderweg" value={onderweg} />
+        <KpiCell label="Binnen" value={inside} sub={`${heads('in')} koppen`} accent />
+        <KpiCell label="Op lijst" value={listed} sub={`${heads('all')} koppen`} />
+      </div>
+
+      <div className="mb-4 flex gap-1.5 rounded-[12px] border border-line bg-elev2 p-1">
+        <TabBtn on={tab === 'door'} onClick={() => setTab('door')} icon="ticket">
+          Deur
+        </TabBtn>
+        <TabBtn on={tab === 'edit'} onClick={() => setTab('edit')} icon="note">
+          Bewerken
+        </TabBtn>
+      </div>
+
+      {tab === 'door' ? <DoorRoster door={door} /> : <EventEditFields event={event} onClose={onClose} />}
+    </DModal>
+  );
+}
+
+function KpiCell({ label, value, sub, accent }: { label: string; value: number; sub?: string; accent?: boolean }): JSX.Element {
+  return (
+    <div className={cn('rounded-[14px] border px-[15px] py-[13px]', accent ? 'border-transparent bg-acc-dim' : 'border-line bg-elev2')}>
+      <div className={cn('font-display text-[26px] font-extrabold leading-none tracking-[-0.02em]', accent ? 'text-acc' : 'text-text')}>{value}</div>
+      <div className="mt-[6px] text-[12px] font-bold uppercase tracking-[0.04em] text-faint">{label}</div>
+      {sub && <div className="mt-0.5 text-[11.5px] text-faint">{sub}</div>}
+    </div>
+  );
+}
+
+function TabBtn({ on, onClick, icon, children }: { on: boolean; onClick: () => void; icon: IconName; children: ReactNode }): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn('flex flex-1 items-center justify-center gap-2 rounded-[9px] px-3 py-[9px] font-display text-[14px] font-bold', press, on ? 'bg-acc-dim text-acc' : 'bg-transparent text-dim hover:text-text')}
+    >
+      <Icon name={icon} size={16} sw={on ? 2.2 : 1.9} />
+      {children}
+    </button>
+  );
+}
+
+/** Live door roster: local search + per-guest quick check-in. Check-in routes
+ *  through the shared `usePoDoor` outbox (idempotent UUIDv7 upsert, #25), exactly
+ *  like the mobile Deur screen — colleague check-ins land via realtime. */
+function DoorRoster({ door }: { door: PoDoorState }): JSX.Element {
+  const [q, setQ] = useState('');
+  const needle = q.trim().toLowerCase();
+  const rows = door.guests
+    .filter((g) => !needle || g.name.toLowerCase().includes(needle))
+    .slice()
+    .sort((a, b) => {
+      const ai = door.inside.has(a.id) ? 1 : 0;
+      const bi = door.inside.has(b.id) ? 1 : 0;
+      if (ai !== bi) return ai - bi; // onderweg first (actionable), binnen sinks down
+      return a.name.localeCompare(b.name, 'nl');
+    });
+
+  return (
+    <div>
+      <DInput value={q} onChange={setQ} placeholder="Zoek gast…" className="mb-3" />
+
+      {door.isLoading && door.guests.length === 0 && <p className="py-3 text-[13px] text-faint">Laden…</p>}
+      {!door.isLoading && door.guests.length === 0 && (
+        <p className="py-6 text-center text-[13px] text-faint">Nog geen gasten op deze lijst.</p>
+      )}
+
+      <div className="flex max-h-[44dvh] flex-col gap-2 overflow-y-auto pr-1">
+        {rows.map((g) => {
+          const isIn = door.inside.has(g.id);
+          const at = door.log[g.id]?.at;
+          return (
+            <div key={g.id} className={cn('flex items-center gap-[12px] rounded-[14px] border p-[11px]', isIn ? 'border-line2 bg-transparent' : 'border-line bg-elev2')}>
+              <Avatar name={g.name} size={36} />
+              <div className="min-w-0 flex-1">
+                <div className="font-display text-[14.5px] font-bold text-text">
+                  {g.name}
+                  {g.plus > 0 && <span className="text-faint"> +{g.plus}</span>}
+                </div>
+                <div className="mt-0.5 truncate text-[11.5px] text-faint">
+                  {g.role}
+                  {g.note ? ` · ${g.note}` : ''}
+                </div>
+              </div>
+              {isIn ? (
+                <span className="inline-flex items-center gap-[6px] whitespace-nowrap font-body text-[12px] font-bold text-acc">
+                  <Icon name="check2" size={14} stroke="#B5A6FF" sw={2.4} />
+                  binnen{at ? ` · ${at}` : ''}
+                </span>
+              ) : (
+                <DBtn sm icon="check" onClick={() => door.checkIn(g.id, 1 + g.plus)}>
+                  Inchecken
+                </DBtn>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {door.toast && (
+        <div className="mt-3 rounded-[12px] border border-line bg-elev2 px-[14px] py-[10px] text-center text-[13px] font-bold text-acc">
+          {door.toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The event-basics edit form (name + door/end times) with an inline save,
+ *  followed by the tier manager. Same actions as the mobile EventEdit + Tiers. */
+function EventEditFields({ event, onClose }: { event: PoEvent; onClose: () => void }): JSX.Element {
   const qc = useQueryClient();
   const [name, setName] = useState(event.name);
   const [startsAt, setStartsAt] = useState(toLocalInput(event.startsAtISO));
@@ -408,22 +554,7 @@ export function EventDetailModal({ event, onClose }: { event: PoEvent; onClose: 
   }
 
   return (
-    <DModal
-      title="Event bewerken"
-      sub={`${event.venue} · ${event.date} ${event.mon}`}
-      onClose={onClose}
-      width={620}
-      footer={
-        <>
-          <DBtn kind="ghost" onClick={onClose}>
-            Annuleren
-          </DBtn>
-          <DBtn icon="check" onClick={save} className={canSave ? '' : 'opacity-50'}>
-            {busy ? 'Bezig…' : 'Opslaan'}
-          </DBtn>
-        </>
-      }
-    >
+    <div>
       <DFieldLabel>Naam</DFieldLabel>
       <DInput value={name} onChange={setName} placeholder="bv. FRENZY" className="mb-[14px]" />
 
@@ -440,10 +571,14 @@ export function EventDetailModal({ event, onClose }: { event: PoEvent; onClose: 
 
       {err && <p className="mb-2 text-[13px] text-acc-soft">{err}</p>}
 
-      <div className="mt-2 border-t border-line2 pt-5">
+      <DBtn icon="check" onClick={save} className={canSave ? '' : 'opacity-50'}>
+        {busy ? 'Bezig…' : 'Opslaan'}
+      </DBtn>
+
+      <div className="mt-5 border-t border-line2 pt-5">
         <TierManager eventId={event.id} />
       </div>
-    </DModal>
+    </div>
   );
 }
 
