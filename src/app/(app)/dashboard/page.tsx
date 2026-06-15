@@ -41,9 +41,13 @@ export default async function DashboardHome(): Promise<JSX.Element> {
     { v: String(dashboardVenues.length), l: dashboardVenues.length === 1 ? 'Venue' : 'Venues', icon: 'building' as IconName },
   ];
 
+  const canSeeReports = active.roles.includes('admin') || active.roles.includes('finance');
   const links: { href: string; title: string; sub: string; icon: IconName; show: boolean }[] = [
+    { href: '/events', title: 'Events', sub: 'Gastenlijsten, deur & lijst-lock', icon: 'cal', show: true },
     { href: '/admin/team', title: 'Gebruikers', sub: 'Leden, rollen & uitnodigingen', icon: 'users', show: caps.viewTeam },
     { href: '/admin/venue', title: 'Venue-instellingen', sub: 'Bedrijfsgegevens, bewaartermijn & toelages', icon: 'building', show: caps.viewSettings },
+    { href: '/admin/stats', title: 'Statistieken', sub: 'Opkomst & instroom per event', icon: 'spark', show: canSeeReports },
+    { href: '/admin/audit', title: 'Audit log', sub: 'Wie deed wat, wanneer', icon: 'history', show: canSeeReports },
     { href: '/admin/sessions', title: 'Sessies', sub: 'Actieve apparaten & remote logout', icon: 'lock', show: active.roles.includes('admin') },
   ];
 
@@ -91,9 +95,6 @@ export default async function DashboardHome(): Promise<JSX.Element> {
         </div>
       </div>
 
-      <p className="text-faint text-[12.5px]">
-        Events, statistieken en het audit log komen in een volgende fase.
-      </p>
     </div>
   );
 }
