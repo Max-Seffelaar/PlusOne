@@ -173,6 +173,7 @@ function GuestDetail({ g: gx, eventId }: { g: GuestT; eventId?: string }): JSX.E
   const taskDone = live ? door.taskDone : mock.taskDone;
   const ackTask = live ? door.ackTask : mock.ackTask;
   const uncheck = mock.uncheck;
+  const setArrival = live ? door.setArrival : () => undefined;
   const { entries: auditLog } = useGuestLog(gx.id);
   const isIn = inside.has(gx.id) || gx.status === 'in';
   const [plus, setPlus] = useState(gx.plus);
@@ -180,7 +181,14 @@ function GuestDetail({ g: gx, eventId }: { g: GuestT; eventId?: string }): JSX.E
   const done = taskDone(gx.id);
   const [alertOpen, setAlertOpen] = useState(gx.flag === 'high' && !done);
   const entry = log[gx.id];
-  const total = 1 + plus;
+  // Incremental check-in: arrivals come from the door snapshot (optimistically
+  // patched) so "nog inchecken" reflects immediately; gx is the fallback.
+  const arrived = isIn ? door.guests.find((x) => x.id === gx.id)?.arrived ?? gx.arrived ?? 0 : 0;
+  const headsTotal = 1 + gx.plus;
+  const headsIn = 1 + arrived;
+  const partial = isIn && arrived < gx.plus;
+  const stepMin = isIn ? headsIn + 1 : 1;
+  const cnt = Math.min(Math.max(plus + 1, stepMin), headsTotal);
   // The curated summary rows already show "Toegevoegd" + the check-in; the audit
   // trail adds everything else that happened to this guest (tier moves, edits…).
   const extraLog = auditLog.filter((e) => e.action !== 'create' && e.action !== 'check_in');
@@ -258,33 +266,45 @@ function GuestDetail({ g: gx, eventId }: { g: GuestT; eventId?: string }): JSX.E
           )}
         </div>
 
-        {!isIn && (
+        {(partial || (!isIn && gx.plus > 0)) && (
           <>
-            <Label className="mb-[9px]">Hoeveel komen er binnen?</Label>
+            <Label className="mb-[9px]">{isIn ? `Nog inchecken — ${headsIn}/${headsTotal} binnen` : 'Hoeveel komen er binnen?'}</Label>
             <div className="mb-4">
-              {/* Capped at the guest's allotment (1 + plus_ones): you can't check in
-                  more than they were given — edit the order to change that (#22). */}
-              <Stepper value={plus + 1} min={1} max={gx.plus + 1} onChange={(v) => setPlus(Math.max(0, v - 1))} />
+              {/* Capped at the allotment (1 + plus_ones); when partly inside you can
+                  only RAISE the total — incremental check-in (#22/#25). */}
+              <Stepper value={cnt} min={stepMin} max={headsTotal} onChange={(v) => setPlus(Math.max(0, v - 1))} />
             </div>
           </>
         )}
       </Scroll>
       <BottomBar>
-        {isIn ? (
-          <Btn kind="ghost" full icon="back" onClick={() => uncheck(gx.id)}>
-            Uitchecken
-          </Btn>
-        ) : (
+        {!isIn ? (
           <Btn
             kind="primary"
             full
             icon="check"
             onClick={() => {
-              checkIn(gx.id, total);
+              checkIn(gx.id, cnt);
               nav.back();
             }}
           >
-            Check in · {total} {total === 1 ? 'persoon' : 'personen'}
+            Check in · {cnt} {cnt === 1 ? 'persoon' : 'personen'}
+          </Btn>
+        ) : partial ? (
+          <Btn
+            kind="primary"
+            full
+            icon="check"
+            onClick={() => {
+              setArrival(gx.id, cnt);
+              nav.back();
+            }}
+          >
+            Nog inchecken · {cnt} {cnt === 1 ? 'persoon' : 'personen'}
+          </Btn>
+        ) : (
+          <Btn kind="ghost" full icon="back" onClick={() => uncheck(gx.id)}>
+            Uitchecken
           </Btn>
         )}
       </BottomBar>
