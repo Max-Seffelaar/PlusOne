@@ -35,6 +35,22 @@ The full functional spec lives in `gastenlijst-app-spec.md` (repo root). Decisio
 - Short-lived access tokens, refresh rotation on. Admin screen for per-user session list + remote logout.
 - The `service_role` key only ever appears in server-side code (Edge Functions / Route Handlers running on the server). If you ever find it referenced in client-bundled code, stop and fix immediately.
 
+## Local dev & test login
+
+One-click local sign-in (no e-mail OTP round-trip):
+
+1. `pnpm supabase:start`, then `pnpm dev` — Next dev server on **http://localhost:3000** (the Claude preview tool may serve on a different port; use whatever the running server prints).
+2. Create `.env.local` from `supabase status -o env`, plus `DEV_AUTH_SKIP_MFA=true` and `LANDING_IP_SALT=local-dev-plusone-salt`. Env changes need a dev-server restart.
+3. Open the **dev-login** route (dev-only — guarded by `NODE_ENV !== 'production'`), which mints a session and redirects:
+
+   `http://localhost:3000/auth/dev-login?email=<seed>@plusone.test&next=<route>`
+
+   - **Seed users** (`@plusone.test`): `admin`, `finance`, `staff`, `organizer`, `doorhost`.
+   - **Routes:** `/dashboard` (desktop admin) · `/app` (mobile PWA) · `/door/<eventId>` (door).
+   - Ready-made — desktop: `…/auth/dev-login?email=admin@plusone.test&next=/dashboard` · app: `…&next=/app`.
+
+`DEV_AUTH_SKIP_MFA=true` signs admin/finance in at **AAL1** (skips the MFA gate) — convenient, but AAL2-gated features (audit-log view, quota grants, role/invite changes) are RLS-denied at AAL1. To test those, set `DEV_AUTH_SKIP_MFA=false` so dev-login steps up to AAL2 (server-side TOTP enroll + verify). `pnpm db:reset` reseeds a clean database.
+
 ## Billing (decision #32 — optional for MVP, schema is not)
 
 - **Stripe Billing** for subscriptions; payment methods **SEPA Direct Debit + iDEAL only** (no card as default — cheaper and stickier for Dutch B2B).
