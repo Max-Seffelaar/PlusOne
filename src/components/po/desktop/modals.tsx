@@ -101,7 +101,7 @@ function EventPicker({ events, value, onChange }: { events: PoEvent[]; value: st
       </button>
 
       {open && (
-        <div role="listbox" className="po-screen-anim absolute left-0 right-0 top-[calc(100%+6px)] z-50 overflow-hidden rounded-[14px] border border-line bg-elev2 shadow-2xl">
+        <div role="listbox" className="po-screen-anim mt-2 overflow-hidden rounded-[14px] border border-line bg-elev2">
           <div className="flex items-center gap-[9px] border-b border-line px-[13px] py-[10px]">
             <Icon name="search" size={16} className="text-faint" />
             <input
@@ -113,7 +113,7 @@ function EventPicker({ events, value, onChange }: { events: PoEvent[]; value: st
               className="min-w-0 flex-1 border-none bg-transparent text-[14px] text-text outline-none placeholder:text-faint"
             />
           </div>
-          <div className="max-h-[260px] overflow-y-auto py-1">
+          <div className="max-h-[44vh] overflow-y-auto py-1">
             {filtered.map((e) => {
               const on = e.id === value;
               return (
