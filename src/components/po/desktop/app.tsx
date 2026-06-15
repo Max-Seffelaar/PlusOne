@@ -8,7 +8,8 @@ import { invites, team } from '@/lib/po/data';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Label } from '../kit';
 import { DBtn } from './kit';
-import { Audit, Events, Home, Stats, Users } from './views';
+import { Audit, Events, Home, Users } from './views';
+import { EventSelect, Stats, type StatsBootstrap } from './stats-view';
 
 type View = 'home' | 'events' | 'stats' | 'audit' | 'users';
 const press = 'transition-[filter,transform,background,border-color,color] hover:brightness-[1.08] active:scale-[0.985]';
@@ -100,8 +101,9 @@ interface ViewMeta {
   Body: () => JSX.Element;
 }
 
-export function DesktopApp(): JSX.Element {
+export function DesktopApp({ statsBootstrap = null }: { statsBootstrap?: StatsBootstrap | null }): JSX.Element {
   const [view, setView] = useState<View>('home');
+  const [statsEventId, setStatsEventId] = useState<string | null>(statsBootstrap?.selectedEventId ?? null);
   const meta: Record<View, ViewMeta> = {
     home: {
       title: 'Dashboard',
@@ -118,7 +120,15 @@ export function DesktopApp(): JSX.Element {
       Body: Home,
     },
     events: { title: 'Events', sub: 'Beheer events, tiers en landingpages', right: <DBtn icon="plus">Nieuw event</DBtn>, Body: Events },
-    stats: { title: 'Statistieken', sub: 'FRENZY · 14 dec 2024', right: <EventPick />, Body: Stats },
+    stats: {
+      title: 'Statistieken',
+      sub: statsBootstrap ? statsBootstrap.venueName : 'Statistieken',
+      right:
+        statsBootstrap && statsBootstrap.events.length > 0 ? (
+          <EventSelect events={statsBootstrap.events} value={statsEventId} onChange={setStatsEventId} />
+        ) : undefined,
+      Body: () => <Stats bootstrap={statsBootstrap} eventId={statsEventId} />,
+    },
     audit: { title: 'Audit log', sub: 'Onveranderlijk logboek — wie deed wat, wanneer', right: <DBtn kind="ghost" icon="dl">Export</DBtn>, Body: Audit },
     users: { title: 'Gebruikers', sub: `${team.length} teamleden · ${invites.length} uitnodigingen open`, right: <DBtn icon="plus">Uitnodigen</DBtn>, Body: Users },
   };

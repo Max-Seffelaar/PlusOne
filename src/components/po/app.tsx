@@ -18,6 +18,7 @@ import { Deur, Taken } from './screens/door';
 import { Aanvragen } from './screens/approvals';
 import { Allowance, Billing, Gebruikers, Import, Meer, Profile, Rollen, VenueSettings, VenueSwitch } from './screens/settings';
 import { VenueCreate } from './screens/onboarding';
+import { Stats } from './screens/stats';
 
 const DOOR_USER = 'Joris';
 
@@ -25,7 +26,11 @@ function nowTime(): string {
   return new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
 }
 
-export function PlusOneApp(): JSX.Element {
+export function PlusOneApp({
+  statsAccess,
+}: {
+  statsAccess?: { venues: { venueId: string; venueName: string }[] };
+}): JSX.Element {
   const [started, setStarted] = useState(false);
   const [authView, setAuthView] = useState<AuthView>('welcome');
   const [authProps, setAuthProps] = useState<{ email?: string }>({});
@@ -196,6 +201,9 @@ export function PlusOneApp(): JSX.Element {
       case 'eventbeheer':
         screen = <EventBeheer />;
         break;
+      case 'stats':
+        screen = <Stats />;
+        break;
       default:
         screen = null;
     }
@@ -204,7 +212,7 @@ export function PlusOneApp(): JSX.Element {
   else if (tab === 'taken') screen = <Taken />;
   else screen = <Meer />;
 
-  const po: PoApp = { inside, log, checkIn, uncheck, taskDone, ackTask, vast, toggleVast, venue, switchVenue, nav };
+  const po: PoApp = { inside, log, checkIn, uncheck, taskDone, ackTask, vast, toggleVast, venue, switchVenue, statsVenues: statsAccess?.venues ?? [], nav };
   const takenBadge = guests.filter((g) => g.note && !tasksDone.has(g.id)).length;
 
   return (

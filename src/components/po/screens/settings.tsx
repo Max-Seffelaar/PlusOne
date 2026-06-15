@@ -19,7 +19,7 @@ const iconSm = 'flex h-[34px] w-[34px] shrink-0 items-center justify-center roun
 // ── MEER (settings tab) ──────────────────────────────────────────────────────
 export function Meer(): JSX.Element {
   const nav = useNav();
-  const { venue } = usePo();
+  const { venue, statsVenues } = usePo();
   const v = venue;
   return (
     <div className={col}>
@@ -39,6 +39,15 @@ export function Meer(): JSX.Element {
           </span>
         </button>
         <Label className="mb-1">Jouw bedrijf</Label>
+        {statsVenues.length > 0 && (
+          <Row
+            icon="spark"
+            title="Statistieken"
+            sub="Opkomst, instroom & toevoegingen"
+            onClick={() => nav.push('stats')}
+            accent
+          />
+        )}
         <Row
           icon="bell"
           title="Aanvragen & verzoeken"

@@ -4,7 +4,7 @@
  *  Recreated from `dash.jsx` (PLUSONE tokens). Reads the shared mock data. */
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
-import { audit, events, guestRequests, invites, quotaRequests, stats, team } from '@/lib/po/data';
+import { audit, events, guestRequests, invites, quotaRequests, team } from '@/lib/po/data';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Label } from '../kit';
 import { ActionChip, DBtn, DCard, MiniIconBtn, Tag } from './kit';
@@ -139,86 +139,6 @@ export function Home(): JSX.Element {
           </div>
         ))}
       </DCard>
-    </div>
-  );
-}
-
-// ── STATISTIEKEN ──────────────────────────────────────────────────────────────
-export function Stats(): JSX.Element {
-  const s = stats;
-  const maxK = Math.max(...s.perKwartier.map((x) => x.n));
-  const maxT = Math.max(...s.perTier.map((x) => x.aangemeld));
-  return (
-    <div className={cn('flex flex-col gap-[22px] pt-7', pad)}>
-      <div className="grid grid-cols-4 gap-4">
-        {([['72%', 'Gem. opkomst', '+6% vs vorige'], ['23:00', 'Piek instroom', '38 in 15 min'], ['6', 'Weigeringen', '1,4% van check-ins'], ['28%', 'No-show', '117 niet verschenen']] as const).map(([v, l, sub]) => (
-          <DCard key={l} className="p-5">
-            <div className="font-display text-[32px] font-extrabold tracking-[-0.02em] text-text">{v}</div>
-            <div className="mt-[10px] text-[14px] font-semibold text-text">{l}</div>
-            <div className="mt-0.5 text-[12.5px] text-faint">{sub}</div>
-          </DCard>
-        ))}
-      </div>
-
-      <DCard className="p-6">
-        <div className="mb-[22px] flex items-center justify-between">
-          <div>
-            <div className="font-display text-[17px] font-bold text-text">Instroom per kwartier</div>
-            <div className="mt-0.5 text-[12.5px] text-faint">Check-ins aan de deur · FRENZY</div>
-          </div>
-          <DBtn sm kind="ghost" icon="dl">
-            Export CSV
-          </DBtn>
-        </div>
-        <div className="flex h-[180px] items-end gap-[10px]">
-          {s.perKwartier.map((b) => (
-            <div key={b.t} className="flex flex-1 flex-col items-center gap-2">
-              <div className="font-display text-[11px] font-bold text-dim">{b.n}</div>
-              <div className={cn('w-full max-w-[38px] rounded-[7px] border', b.n === maxK ? 'border-transparent bg-acc' : 'border-line bg-elev2')} style={{ height: (b.n / maxK) * 130 }} />
-              <div className="font-display text-[10.5px] text-faint">{b.t}</div>
-            </div>
-          ))}
-        </div>
-      </DCard>
-
-      <div className="grid grid-cols-[1.3fr_1fr] gap-4">
-        <DCard className="p-6">
-          <div className="mb-5 font-display text-[17px] font-bold text-text">Aanwezig vs. aangemeld per tier</div>
-          <div className="flex flex-col gap-4">
-            {s.perTier.map((t) => (
-              <div key={t.tier}>
-                <div className="mb-[7px] flex justify-between">
-                  <span className="text-[13.5px] font-semibold text-text">{t.tier}</span>
-                  <span className="font-display text-[12.5px] text-faint">
-                    <b className="text-acc">{t.binnen}</b> / {t.aangemeld}
-                  </span>
-                </div>
-                <div className="relative h-[10px] overflow-hidden rounded-[6px] bg-elev2">
-                  <div className="absolute inset-0 rounded-[6px] bg-white/[0.08]" style={{ width: (t.aangemeld / maxT) * 100 + '%' }} />
-                  <div className="absolute inset-0 rounded-[6px] bg-acc" style={{ width: (t.binnen / maxT) * 100 + '%' }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </DCard>
-        <DCard className="p-6">
-          <div className="mb-4 font-display text-[17px] font-bold text-text">Toevoegingen per gebruiker</div>
-          <div className="flex flex-col">
-            {s.perUser.map((u, i) => (
-              <div key={u.who} className={cn('flex items-center gap-3 py-3', i < s.perUser.length - 1 && 'border-b border-line2')}>
-                <Avatar name={u.who} size={34} />
-                <div className="flex-1">
-                  <div className="text-[13.5px] font-semibold text-text">{u.who}</div>
-                  <div className="text-[11.5px] text-faint">
-                    {u.in} binnen van {u.added}
-                  </div>
-                </div>
-                <div className="font-display text-[20px] font-extrabold text-text">{u.added}</div>
-              </div>
-            ))}
-          </div>
-        </DCard>
-      </div>
     </div>
   );
 }

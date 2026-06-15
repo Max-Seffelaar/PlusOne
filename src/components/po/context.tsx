@@ -31,7 +31,8 @@ export type ScreenName =
   | 'profile'
   | 'billing'
   | 'allowance'
-  | 'eventbeheer';
+  | 'eventbeheer'
+  | 'stats';
 
 export interface ScreenProps {
   id?: string;
@@ -72,6 +73,7 @@ export interface PoApp {
   toggleVast: (n: string) => void;
   venue: Venue;
   switchVenue: (v: Venue) => void;
+  statsVenues: { venueId: string; venueName: string }[];
   nav: Nav;
 }
 
