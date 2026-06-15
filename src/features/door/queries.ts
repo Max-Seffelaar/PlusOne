@@ -86,10 +86,13 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
     if (g.note_acknowledged_by) ids.add(g.note_acknowledged_by);
   }
   for (const c of checkIns) ids.add(c.checked_by);
+  // getSession() reads the session from local storage (no network), so a flaky
+  // /auth/v1/user round-trip can't fail the whole snapshot — the user id is only
+  // used here to prefetch the actor's own name. RLS still secures every row read.
   const {
-    data: { user },
-  } = await client.auth.getUser();
-  if (user) ids.add(user.id);
+    data: { session },
+  } = await client.auth.getSession();
+  if (session?.user) ids.add(session.user.id);
 
   const profileRows = ids.size
     ? (await client.from('user_profiles').select('id, full_name').in('id', [...ids])).data ?? []

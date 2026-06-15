@@ -96,8 +96,8 @@ export function DoorProvider({
 
   useEffect(() => {
     getDoorClient()
-      .auth.getUser()
-      .then(({ data }) => setMeId(data.user?.id ?? null));
+      .auth.getSession()
+      .then(({ data }) => setMeId(data.session?.user?.id ?? null));
   }, []);
 
   const snapshotQuery = useQuery({
@@ -157,9 +157,12 @@ export function DoorProvider({
     if (flushPromise.current) return flushPromise.current;
     const run = (async () => {
       const client = getDoorClient();
+      // Local session read (no network) — see queries.ts / door-live.tsx: only the
+      // uid is needed for outbox attribution; RLS authorises the actual write.
       const {
-        data: { user },
-      } = await client.auth.getUser();
+        data: { session },
+      } = await client.auth.getSession();
+      const user = session?.user;
       if (user) {
         const summary = await drainOutbox({
           list: () => [...outbox.getSnapshot()],

@@ -53,6 +53,13 @@ describe('classifyError', () => {
   it('treats unknown/network errors as transient (retry)', () => {
     expect(classifyError(NETWORK).status).toBe('pending');
   });
+
+  it('treats permanent data errors (invalid UUID 22P02, constraint 23xxx) as terminal', () => {
+    // A poison entry (e.g. a stale mock guest id) must not retry forever.
+    expect(classifyError({ code: '22P02', message: 'invalid input syntax for type uuid' }).status).toBe('error');
+    expect(classifyError({ code: '23502' }).status).toBe('error'); // not-null violation
+    expect(classifyError({ code: '23503' }).status).toBe('error'); // FK violation
+  });
 });
 
 describe('replayEntry', () => {
@@ -166,5 +173,38 @@ describe('drainOutbox', () => {
     expect(summary).toMatchObject({ processed: 2, duplicates: 1, synced: 1, interrupted: false });
     expect(store.entries[0].status).toBe('duplicate');
     expect(store.entries[1].status).toBe('synced');
+  });
+
+  it('dead-letters a poison entry after MAX_ATTEMPTS so it cannot block the queue', async () => {
+    // Entry "a" has already used its retries; a transient-looking error must now
+    // dead-letter (error) instead of breaking the drain, so "b" still syncs.
+    const store = fakeStore([
+      checkInEntry({ clientId: 'a', attempts: 5, payload: { id: 'a', guestId: 'g1', plusOnesArrived: 0, clientTimestamp: 't' } }),
+      checkInEntry({ clientId: 'b', payload: { id: 'b', guestId: 'g2', plusOnesArrived: 0, clientTimestamp: 't' } }),
+    ]);
+    const gw: DoorGateway = {
+      ...gatewayReturning(null),
+      insertCheckIn: async (row) => ({ error: row.guest_id === 'g1' ? NETWORK : null }),
+    };
+    const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
+    expect(store.entries[0].status).toBe('error');
+    expect(store.entries[1].status).toBe('synced');
+    expect(summary.interrupted).toBe(false);
+  });
+
+  it('a permanent (poison) error does not block the entries behind it', async () => {
+    // The real bug: a stale ack_note for a mock guest id (invalid UUID, 22P02) at
+    // the head of the queue used to break every drain. It must skip and let the
+    // check-in behind it sync.
+    const BAD_UUID: DbError = { code: '22P02', message: 'invalid input syntax for type uuid: "1"' };
+    const store = fakeStore([
+      { clientId: 'a', eventId: 'ev1', kind: 'ack_note', status: 'pending', attempts: 0, createdAt: 't', payload: { guestId: '1', ack: true } } as OutboxEntry,
+      checkInEntry({ clientId: 'b', payload: { id: 'b', guestId: 'g2', plusOnesArrived: 0, clientTimestamp: 't' } }),
+    ]);
+    const gw: DoorGateway = { ...gatewayReturning(null), ackNote: async () => ({ error: BAD_UUID }) };
+    const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
+    expect(store.entries[0].status).toBe('error');
+    expect(store.entries[1].status).toBe('synced');
+    expect(summary.interrupted).toBe(false);
   });
 });

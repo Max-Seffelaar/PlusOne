@@ -33,6 +33,12 @@ export function classifyError(error: DbError | null): ReplayResult {
   }
   if (code === '45001') return { status: 'error', message: error.message ?? 'Quotum vol voor dit event.' };
   if (code === '45002') return { status: 'error', message: error.message ?? 'Dit tier zit vol.' };
+  // Permanent data/constraint errors (invalid UUID 22P02, not-null/FK/check 23xxx —
+  // 23505 is handled above) can never succeed on retry. Dead-letter them so a
+  // malformed entry never blocks the FIFO queue behind it (head-of-line blocking).
+  if (/^22/.test(code) || /^23/.test(code)) {
+    return { status: 'error', message: error.message ?? 'Ongeldige invoer — overgeslagen.' };
+  }
   // Network / server / transient RLS hiccup → retry on the next drain.
   return { status: 'pending', message: error.message ?? 'Verbinding mislukt — opnieuw proberen.' };
 }
@@ -112,6 +118,10 @@ export interface DrainSummary {
  * (the entry stays `pending`) so we don't hammer a dead connection; the next
  * online/visibility event resumes it.
  */
+/** A still-pending entry that has failed this many times is treated as poison and
+ *  dead-lettered, so a single bad row can never block the queue behind it. */
+const MAX_ATTEMPTS = 6;
+
 export async function drainOutbox(deps: DrainDeps): Promise<DrainSummary> {
   const summary: DrainSummary = { processed: 0, synced: 0, duplicates: 0, errors: 0, interrupted: false };
   for (const entry of deps.list().filter(isPending)) {
@@ -122,16 +132,22 @@ export async function drainOutbox(deps: DrainDeps): Promise<DrainSummary> {
     } catch (e) {
       result = { status: 'pending', message: e instanceof Error ? e.message : 'Onbekende fout' };
     }
+    const attempts = entry.attempts + 1;
+    // A still-pending entry that has exhausted its retries is poison (or a row the
+    // server will never accept): dead-letter it as `error` and keep draining so it
+    // can't block the entries queued behind it (head-of-line blocking).
+    const deadLettered = result.status === 'pending' && attempts >= MAX_ATTEMPTS;
+    const status: OutboxStatus = deadLettered ? 'error' : result.status;
     deps.update(entry.clientId, {
-      status: result.status,
-      message: result.message,
-      attempts: entry.attempts + 1,
+      status,
+      message: deadLettered ? result.message ?? 'Te vaak mislukt — overgeslagen.' : result.message,
+      attempts,
     });
     summary.processed++;
-    if (result.status === 'synced') summary.synced++;
-    if (result.status === 'duplicate') summary.duplicates++;
-    if (result.status === 'error') summary.errors++;
-    if (result.status === 'pending') {
+    if (status === 'synced') summary.synced++;
+    if (status === 'duplicate') summary.duplicates++;
+    if (status === 'error') summary.errors++;
+    if (status === 'pending') {
       summary.interrupted = true;
       break;
     }

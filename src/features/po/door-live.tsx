@@ -150,9 +150,9 @@ export function usePoDoor(eventId: string | undefined): PoDoorState {
   useEffect(() => {
     let active = true;
     getDoorClient()
-      .auth.getUser()
+      .auth.getSession()
       .then(({ data }) => {
-        if (active) setMeId(data.user?.id ?? null);
+        if (active) setMeId(data.session?.user?.id ?? null);
       });
     return () => {
       active = false;
@@ -196,9 +196,12 @@ export function usePoDoor(eventId: string | undefined): PoDoorState {
     if (flushPromise.current) return flushPromise.current;
     const run = (async () => {
       const client = getDoorClient();
+      // Local session read (no network) — only the uid is needed to attribute the
+      // outbox replay; the check_in INSERT is still authorised by RLS server-side.
       const {
-        data: { user },
-      } = await client.auth.getUser();
+        data: { session },
+      } = await client.auth.getSession();
+      const user = session?.user;
       if (user) {
         const summary = await drainOutbox({
           list: () => [...outbox.getSnapshot()],
