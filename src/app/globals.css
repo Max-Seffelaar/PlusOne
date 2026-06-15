@@ -21,6 +21,17 @@ html {
       scroll-behavior: auto !important;
     }
   }
+
+  /* Keep autofilled fields on-brand: browsers otherwise paint them light grey. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    -webkit-text-fill-color: #ffffff;
+    -webkit-box-shadow: 0 0 0 1000px #1e1e21 inset;
+    caret-color: #ffffff;
+  }
 }
 
 /* ── PLUSONE prototype: phone-frame stage, screen + sheet/toast motion ──────
@@ -137,12 +148,19 @@ html {
     @apply bg-elev2 text-text font-display font-bold rounded-btn px-4 py-2 transition-all hover:brightness-110 active:scale-95 disabled:opacity-50;
   }
 
+  /* Secondary action in the accent family: purple outline (e.g. corrective
+     reversals, toggle-off, "uitnodigen"). Keeps the surface purple-consistent
+     without competing with the solid primary. */
+  .btn-secondary {
+    @apply border-acc text-acc-soft hover:bg-acc-dim font-display rounded-btn border bg-transparent px-4 py-2 font-bold transition-all active:scale-95 disabled:opacity-50;
+  }
+
   .btn-ghost {
     @apply text-dim font-display font-bold rounded-btn px-4 py-2 transition-all hover:brightness-110 active:scale-95 disabled:opacity-50;
   }
 
   .field {
-    @apply bg-elev border border-line rounded-field px-3 py-2 text-text placeholder-faint transition-colors hover:border-line2 focus:border-acc focus:outline-none;
+    @apply bg-elev2 border border-line rounded-field px-3 py-2 text-text placeholder-faint transition-colors hover:border-line2 focus:border-acc focus:outline-none;
   }
 
   .card {

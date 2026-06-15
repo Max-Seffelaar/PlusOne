@@ -1,16 +1,15 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { requireAppAccess } from '@/lib/auth/guards';
-import { getMyMemberships } from '@/lib/auth/memberships';
 import { createClient } from '@/lib/supabase/server';
-import { RetentionForm } from '@/features/venues/components/RetentionForm';
+import { getDashboardVenues, resolveActiveVenueId } from '@/lib/auth/active-venue';
+import { getVenueMembers } from '@/lib/auth/memberships';
+import { venueCapabilities } from '@/features/venues/access';
+import { VenueSettingsForm } from '@/features/venues/components/VenueSettingsForm';
+import { RoleBadges } from '@/features/auth/components/RoleBadges';
+import { DefaultQuotaForm } from '@/features/quotas/components/DefaultQuotaForm';
 
 export const metadata: Metadata = { title: 'Venue — PLUSONE' };
 
-// Real admin surface for the "AVG & bewaartermijn" section of the mock
-// VenueSettings screen (decision #38: mirror the mock with real data, do not
-// rebuild it). Wired to venues.retention_months (#16/#29); the daily
-// run_privacy_retention() job acts on this value.
 export default async function VenueSettingsPage({
   searchParams,
 }: {
@@ -19,19 +18,32 @@ export default async function VenueSettingsPage({
   await requireAppAccess('/admin/venue');
   const { venue: venueParam } = await searchParams;
 
-  const memberships = await getMyMemberships();
-  const adminVenues = memberships.filter((m) => m.roles.includes('admin'));
-
-  if (adminVenues.length === 0) {
+  const dashboardVenues = await getDashboardVenues();
+  if (dashboardVenues.length === 0) {
     return (
       <div className="card mx-auto max-w-3xl">
         <h1 className="font-display text-2xl font-bold">Venue</h1>
-        <p className="text-dim mt-2">Alleen een venue-admin kan venue-instellingen beheren.</p>
+        <p className="text-dim mt-2">Je hebt geen toegang tot een venue-dashboard.</p>
       </div>
     );
   }
 
-  const active = adminVenues.find((m) => m.venueId === venueParam) ?? adminVenues[0];
+  const activeId = await resolveActiveVenueId(dashboardVenues, venueParam);
+  const active = dashboardVenues.find((m) => m.venueId === activeId) ?? dashboardVenues[0];
+  const caps = venueCapabilities(active.roles);
+
+  if (!caps.viewSettings) {
+    return (
+      <div className="card mx-auto max-w-3xl">
+        <h1 className="font-display text-2xl font-bold">Venue-instellingen</h1>
+        <p className="text-dim mt-2">
+          Voor <span className="text-text">{active.venueName}</span> heb je geen toegang tot de
+          instellingen — alleen beheerders en financiën zien dit. Wissel eventueel van venue in de
+          bovenbalk.
+        </p>
+      </div>
+    );
+  }
 
   const supabase = await createClient();
   const { data: venue } = await supabase
@@ -40,46 +52,75 @@ export default async function VenueSettingsPage({
     .eq('id', active.venueId)
     .maybeSingle();
 
-  const retention = venue?.retention_months ?? 12;
+  const [members, { data: quotaRows }] = await Promise.all([
+    getVenueMembers(active.venueId),
+    supabase.from('quotas').select('user_id, default_count').eq('venue_id', active.venueId),
+  ]);
+  const quotaByUser = new Map((quotaRows ?? []).map((q) => [q.user_id, q.default_count]));
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+    <div className="mx-auto flex max-w-3xl flex-col gap-8">
       <header>
-        <h1 className="font-display text-2xl font-bold">Venue</h1>
+        <h1 className="font-display text-2xl font-bold">Venue-instellingen</h1>
         <p className="text-dim mt-1 text-sm">
-          Instellingen voor <span className="text-text">{active.venueName}</span>.
+          Naam, bewaartermijn en toelages voor <span className="text-text">{active.venueName}</span>
+          {!caps.editSettings && <span className="text-faint"> · alleen-lezen</span>}.
         </p>
       </header>
 
-      {adminVenues.length > 1 && (
-        <nav className="flex flex-wrap gap-2" aria-label="Venue kiezen">
-          {adminVenues.map((m) => (
-            <Link
-              key={m.venueId}
-              href={`/admin/venue?venue=${m.venueId}`}
-              className={`rounded-btn border px-3 py-1.5 text-sm transition-colors ${
-                m.venueId === active.venueId
-                  ? 'border-acc bg-acc-dim text-text'
-                  : 'border-line text-dim hover:border-acc'
-              }`}
-            >
-              {m.venueName}
-            </Link>
-          ))}
-        </nav>
-      )}
-
-      <section className="card flex flex-col gap-3">
-        <div>
-          <h2 className="font-display text-lg font-semibold">AVG &amp; bewaartermijn</h2>
-          <p className="text-dim mt-1 text-sm">
-            Gastdata wordt na deze termijn automatisch geanonimiseerd tot “Gast #X” — naam, e-mail en
-            telefoon verdwijnen. Het audit log blijft intact. Een dagelijkse job voert dit per event
-            uit, gerekend vanaf de eventdatum.
-          </p>
-        </div>
-        <RetentionForm venueId={active.venueId} current={retention} />
+      <section className="flex flex-col gap-3">
+        <h2 className="label">Instellingen</h2>
+        <VenueSettingsForm
+          venueId={active.venueId}
+          name={venue?.name ?? active.venueName}
+          retentionMonths={venue?.retention_months ?? 12}
+          canEdit={caps.editSettings}
+        />
       </section>
+
+      {caps.viewQuota && (
+        <section className="flex flex-col gap-3">
+          <h2 className="label">Standaard-toelages ({members.length})</h2>
+          <p className="text-faint text-sm">
+            Het standaard aantal gastenlijstplekken per persoon voor deze venue. Per event kan dit
+            worden overschreven. Beheerders en organisatoren zijn uitgezonderd van een persoonlijk
+            quotum.
+          </p>
+          <ul className="flex flex-col gap-2">
+            {members.map((member) => {
+              const exempt = member.roles.includes('admin');
+              const count = quotaByUser.get(member.userId) ?? 0;
+              return (
+                <li
+                  key={member.userId}
+                  className="card flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div>
+                    <p className="font-semibold">{member.fullName}</p>
+                    <p className="text-faint text-sm">{member.email}</p>
+                    <div className="mt-1.5">
+                      <RoleBadges roles={member.roles} />
+                    </div>
+                  </div>
+                  {exempt ? (
+                    <span className="text-faint text-xs">Uitgezonderd van quotum</span>
+                  ) : caps.editQuota ? (
+                    <DefaultQuotaForm
+                      venueId={active.venueId}
+                      userId={member.userId}
+                      defaultCount={count}
+                    />
+                  ) : (
+                    <span className="text-dim text-sm">
+                      <span className="font-display text-text text-lg font-bold">{count}</span> plekken
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }

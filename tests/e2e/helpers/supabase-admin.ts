@@ -60,6 +60,42 @@ export async function ensureInvite(
   });
 }
 
+/** Overwrite a user's roles at a venue (setup/teardown for role-change tests). */
+export async function setMembershipRoles(
+  email: string,
+  venueId: string,
+  roles: string[]
+): Promise<void> {
+  const a = adminClient();
+  const userId = await getUserIdByEmail(email);
+  if (!userId) return;
+  await a.from('venue_memberships').update({ roles }).eq('user_id', userId).eq('venue_id', venueId);
+}
+
+/** A user's default quota at a venue (DB truth) — null when no row exists yet. */
+export async function getDefaultQuota(email: string, venueId: string): Promise<number | null> {
+  const a = adminClient();
+  const userId = await getUserIdByEmail(email);
+  if (!userId) return null;
+  const { data } = await a
+    .from('quotas')
+    .select('default_count')
+    .eq('user_id', userId)
+    .eq('venue_id', venueId)
+    .maybeSingle();
+  return (data?.default_count as number | undefined) ?? null;
+}
+
+/** Force a user's default quota at a venue (teardown for quota tests). */
+export async function setDefaultQuota(email: string, venueId: string, count: number): Promise<void> {
+  const a = adminClient();
+  const userId = await getUserIdByEmail(email);
+  if (!userId) return;
+  await a
+    .from('quotas')
+    .upsert({ venue_id: venueId, user_id: userId, default_count: count }, { onConflict: 'venue_id,user_id' });
+}
+
 /** Roles on a user's membership at a venue (DB truth, independent of UI). */
 export async function getMembershipRoles(email: string, venueId: string): Promise<string[]> {
   const a = adminClient();

@@ -22,6 +22,7 @@ interface PostgrestLikeError {
 const QUOTA_EXCEEDED = '45001';
 const TIER_FULL = '45002';
 const REQUEST_DECIDED = '45003';
+const INVALID_TRANSITION = '45004';
 const INSUFFICIENT_PRIVILEGE = '42501';
 const UNIQUE_VIOLATION = '23505';
 const NOT_NULL_VIOLATION = '23502';
@@ -34,6 +35,7 @@ export function mapMutationError(error: PostgrestLikeError | null | undefined): 
     case QUOTA_EXCEEDED:
     case TIER_FULL:
     case REQUEST_DECIDED:
+    case INVALID_TRANSITION:
       // These DB messages are crafted Dutch UI copy with safe numbers only.
       return { ok: false, code, message: error?.message ?? 'Niet toegestaan.' };
     case INSUFFICIENT_PRIVILEGE:
