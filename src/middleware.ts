@@ -26,6 +26,10 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
   const onMfaRoute = pathname.startsWith('/mfa/');
   const publicRoute = isPublic(pathname);
+  // DEV-ONLY escape hatch: skip the MFA gate locally so admin/finance testing
+  // "just works" without the OTP/TOTP dance. Never honoured in production.
+  const devSkipMfa =
+    process.env.NODE_ENV !== 'production' && process.env.DEV_AUTH_SKIP_MFA === 'true';
 
   const { response, user, gate } = await updateSession(request, {
     checkMfa: !publicRoute && !onMfaRoute,
@@ -50,7 +54,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
   // MFA gate on protected routes (not /mfa/* itself, to avoid a loop). Mandatory
   // for admin/finance (CLAUDE.md §Auth); anyone with a factor must step up.
-  if (user && !publicRoute && !onMfaRoute && !gate.isAal2 && (gate.requiresMfa || gate.hasFactor)) {
+  if (!devSkipMfa && user && !publicRoute && !onMfaRoute && !gate.isAal2 && (gate.requiresMfa || gate.hasFactor)) {
     const url = request.nextUrl.clone();
     url.pathname = gate.requiresMfa && !gate.hasFactor ? '/mfa/enroll' : '/mfa/verify';
     url.search = '';

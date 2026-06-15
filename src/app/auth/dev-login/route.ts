@@ -47,18 +47,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // Provision profile + memberships from any pending invites (idempotent).
   await supabase.rpc('accept_pending_invites');
 
-  // Step up to AAL2 for roles that require MFA (admin/finance).
-  await devStepUpMfa(supabase);
+  // Step up to AAL2 for roles that require MFA (admin/finance) — unless the dev
+  // MFA gate is skipped, in which case there is nothing to step up to and we
+  // avoid the enroll/verify churn entirely (keeps the session clean + stable).
+  if (process.env.DEV_AUTH_SKIP_MFA !== 'true') {
+    await devStepUpMfa(supabase);
+  }
 
   return NextResponse.redirect(new URL(next, request.url));
 }
 
 /**
  * Brings the current dev session to AAL2 when the user's roles require MFA.
- * Enrolls a FRESH TOTP factor each time (so we always hold its secret), verifies
- * it with a computed code, then removes any older factors now that we're AAL2.
- * Best-effort: on any error we log and leave the session at AAL1 (the gate will
- * then redirect to /mfa/enroll, which is at least not a crash).
+ * First clears any existing factors with the SERVICE client (enrolling an
+ * ADDITIONAL factor needs AAL2, so we always start from zero and enroll a fresh
+ * FIRST factor at AAL1), then enrolls TOTP and verifies it with a computed code.
+ * Best-effort: on any error we log and leave the session at AAL1 (the gate then
+ * redirects to /mfa/enroll, which is at least not a crash).
  */
 async function devStepUpMfa(supabase: SupabaseClient<Database>): Promise<void> {
   try {
@@ -67,6 +72,19 @@ async function devStepUpMfa(supabase: SupabaseClient<Database>): Promise<void> {
 
     const { data: requiresMfa } = await supabase.rpc('current_user_requires_mfa');
     if (!requiresMfa) return;
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    // Clear existing factors (service privileges) so the enroll below is always
+    // a fresh first factor — allowed at AAL1, unlike adding a second factor.
+    const svc = createServiceClient();
+    const { data: existing } = await svc.auth.admin.mfa.listFactors({ userId: user.id });
+    for (const f of existing?.factors ?? []) {
+      await svc.auth.admin.mfa.deleteFactor({ id: f.id, userId: user.id });
+    }
 
     const { data: enroll, error: enrollErr } = await supabase.auth.mfa.enroll({
       factorType: 'totp',
@@ -84,12 +102,6 @@ async function devStepUpMfa(supabase: SupabaseClient<Database>): Promise<void> {
       code: generateTotp(enroll.totp.secret),
     });
     if (vErr) throw vErr;
-
-    // Now AAL2: drop older factors so they don't accumulate across dev logins.
-    const { data: factors } = await supabase.auth.mfa.listFactors();
-    for (const f of factors?.totp ?? []) {
-      if (f.id !== factorId) await supabase.auth.mfa.unenroll({ factorId: f.id });
-    }
   } catch (e) {
     console.error('[dev-login] MFA step-up failed:', e);
   }
