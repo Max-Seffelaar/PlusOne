@@ -6,8 +6,9 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
-import type { PoEvent, Venue } from '@/lib/po/types';
-import { aggregateGuestCounts, toPoEvent } from './live-map';
+import type { PoEvent, Tier, Venue } from '@/lib/po/types';
+import { resolveDefaultTierId } from '@/features/guests/tiers';
+import { aggregateGuestCounts, toPoEvent, toPoTier } from './live-map';
 
 type Client = SupabaseClient<Database>;
 type VenueRole = Database['public']['Enums']['venue_role'];
@@ -120,4 +121,24 @@ export async function fetchPoEvents(client: Client, venueId: string): Promise<Po
   const now = new Date();
   const venueName = venue?.name ?? '';
   return rows.map((e) => toPoEvent(e, venueName, counts.get(e.id), now));
+}
+
+/** Tiers for an event, with per-tier consumed heads, as the prototype Tier[]. */
+export async function fetchPoTiers(client: Client, eventId: string): Promise<Tier[]> {
+  const [{ data: tierRows }, { data: guestRows }] = await Promise.all([
+    client.from('guest_tiers').select('*').eq('event_id', eventId).order('created_at'),
+    client.from('guests').select('tier_id, status, plus_ones').eq('event_id', eventId),
+  ]);
+
+  const used = new Map<string, number>();
+  for (const g of guestRows ?? []) {
+    if (g.status === 'removed') continue; // soft-deleted frees the slot (#21/#22)
+    used.set(g.tier_id, (used.get(g.tier_id) ?? 0) + 1 + g.plus_ones);
+  }
+
+  const rows = tierRows ?? [];
+  const defaultId = resolveDefaultTierId(
+    rows.map((t) => ({ id: t.id, name: t.name, aliases: t.aliases ?? [] })),
+  );
+  return rows.map((t) => toPoTier(t, used.get(t.id) ?? 0, t.id === defaultId));
 }

@@ -4,10 +4,10 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
-import { events, guests, recap, stats, tiers } from '@/lib/po/data';
+import { events, guests, recap, stats } from '@/lib/po/data';
 import type { PoEvent } from '@/lib/po/types';
-import { usePoEvents, useSession } from '@/features/po/PoLiveProvider';
-import { createEvent, updateEvent } from '@/features/events/actions';
+import { usePoEvents, usePoTiers, useSession } from '@/features/po/PoLiveProvider';
+import { createEvent, createTier, updateEvent } from '@/features/events/actions';
 import { useNav, usePo } from '../context';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Btn, Field, IconBtn, Label, MiniChip, Note, RoleChip, Scroll, ToggleRow, Top } from '../kit';
@@ -322,18 +322,51 @@ export function EventEdit({ ev, isNew }: { ev?: PoEvent; isNew?: boolean }): JSX
 }
 
 // ── TIERS & aliases (pushed) ─────────────────────────────────────────────────────
-export function Tiers(): JSX.Element {
+export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
   const nav = useNav();
+  const qc = useQueryClient();
+  const { tiers: liveTiers, isLoading } = usePoTiers(eventId);
   const [adding, setAdding] = useState(false);
   const [nm, setNm] = useState('');
   const [color, setColor] = useState('#9DE0C0');
   const [max, setMax] = useState('');
   const [price, setPrice] = useState('');
   const [aliasText, setAliasText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
   const colors = ['#B5A6FF', '#9DE0C0', '#E8C98A', '#9FB8E8', '#E89AC0', '#8E8E93'];
+
+  async function createNewTier(): Promise<void> {
+    if (!eventId || !nm.trim() || busy) return;
+    setBusy(true);
+    setErr(null);
+    const aliases = aliasText
+      .split(',')
+      .map((a) => a.trim())
+      .filter(Boolean);
+    const res = await createTier({
+      eventId,
+      name: nm,
+      color,
+      maxGuests: max.trim() ? Number(max) : null,
+      aliases,
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setErr(res.message);
+      return;
+    }
+    await qc.invalidateQueries({ queryKey: ['po', 'tiers', eventId] });
+    setNm('');
+    setMax('');
+    setPrice('');
+    setAliasText('');
+    setAdding(false);
+  }
+
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Tiers & aliassen" sub="FRENZY" right={<IconBtn name={adding ? 'close' : 'plus'} onClick={() => setAdding((a) => !a)} />} />
+      <Top onBack={nav.back} title="Tiers & aliassen" sub={`${liveTiers.length} tiers`} right={<IconBtn name={adding ? 'close' : 'plus'} onClick={() => setAdding((a) => !a)} />} />
       <Scroll bottom={adding ? 120 : 24}>
         {adding && (
           <div className="mb-[14px] rounded-[18px] border border-acc bg-elev p-4">
@@ -377,11 +410,18 @@ export function Tiers(): JSX.Element {
                   ))}
               </div>
             )}
+            {err && <p className="mt-3 text-[13px] text-acc-soft">{err}</p>}
           </div>
         )}
         <Note icon="spark">Aliassen bepalen wat de quick-add herkent. “fles” of “champagne” → VIP. Onbekende woorden vraagt de app na — nooit stil naar Regular.</Note>
+        {isLoading && liveTiers.length === 0 && (
+          <p className="px-1 py-4 text-[13px] text-dim">Laden…</p>
+        )}
+        {!isLoading && liveTiers.length === 0 && !adding && (
+          <p className="px-1 py-4 text-[13px] text-dim">Nog geen tiers — tik op + om er een toe te voegen.</p>
+        )}
         <div className="flex flex-col gap-[11px]">
-          {tiers.map((t) => (
+          {liveTiers.map((t) => (
             <div key={t.id} className="rounded-[18px] border border-line bg-elev p-[15px]">
               <div className="mb-3 flex items-center gap-[11px]">
                 <span className="h-[14px] w-[14px] shrink-0 rounded-full" style={{ background: t.color }} />
@@ -424,8 +464,8 @@ export function Tiers(): JSX.Element {
       </Scroll>
       {adding && (
         <BottomBar>
-          <Btn kind="primary" full icon="check" onClick={() => setAdding(false)} className={nm.trim() ? '' : 'opacity-50'}>
-            Tier aanmaken
+          <Btn kind="primary" full icon="check" onClick={createNewTier} className={nm.trim() && !busy ? '' : 'opacity-50'}>
+            {busy ? 'Bezig…' : 'Tier aanmaken'}
           </Btn>
         </BottomBar>
       )}

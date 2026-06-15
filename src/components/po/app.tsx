@@ -8,8 +8,8 @@
  */
 import { useState, type ReactNode } from 'react';
 import { contacts, events, guests, venues } from '@/lib/po/data';
-import type { Venue } from '@/lib/po/types';
-import { PoLiveProvider } from '@/features/po/PoLiveProvider';
+import type { PoEvent, Venue } from '@/lib/po/types';
+import { PoLiveProvider, usePoEvents } from '@/features/po/PoLiveProvider';
 import { PoProvider, type AuthNav, type AuthView, type CheckInEntry, type Nav, type PoApp, type ScreenName, type StackEntry } from './context';
 import { PhoneFrame, StatusBar, TabBar, Toast, type TabKey } from './shell';
 import { ComingSoonBadge } from './coming-soon';
@@ -26,13 +26,15 @@ const DOOR_USER = 'Joris';
 // Screens/tabs already wired to live Supabase data. Anything NOT listed here is
 // still mock and gets the "Binnenkort" badge. Add entries as screens are wired.
 const WIRED_TABS = new Set<TabKey>(['events']);
-const WIRED_SCREENS = new Set<ScreenName>(['eventedit']);
+const WIRED_SCREENS = new Set<ScreenName>(['eventedit', 'tiers']);
 
 function nowTime(): string {
   return new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
 }
 
-export function PlusOneApp(): JSX.Element {
+function PlusOneAppInner(): JSX.Element {
+  // Rendered inside PoLiveProvider, so the nav stack can resolve live events.
+  const { events: liveEvents } = usePoEvents();
   // The /app route is auth-protected by middleware and the real OTP flow lives
   // at /login, so by the time this renders the user is signed in — start in the
   // authenticated tab view rather than the prototype's mock welcome/login.
@@ -127,7 +129,7 @@ export function PlusOneApp(): JSX.Element {
     nav.back();
   };
 
-  const ev = (id?: string) => events.find((e) => e.id === id) ?? events[0];
+  const ev = (id?: string): PoEvent => liveEvents.find((e) => e.id === id) ?? liveEvents[0] ?? events[0];
   const guest = (id?: string) => guests.find((g) => String(g.id) === id) ?? guests[0];
 
   const top = stack[stack.length - 1];
@@ -179,7 +181,7 @@ export function PlusOneApp(): JSX.Element {
         screen = <EventEdit ev={p.id ? ev(p.id) : undefined} isNew={p.isNew} />;
         break;
       case 'tiers':
-        screen = <Tiers />;
+        screen = <Tiers eventId={p.id} />;
         break;
       case 'gebruikers':
         screen = <Gebruikers />;
@@ -220,18 +222,24 @@ export function PlusOneApp(): JSX.Element {
   const takenBadge = guests.filter((g) => g.note && !tasksDone.has(g.id)).length;
 
   return (
+    <PoProvider value={po}>
+      <PhoneFrame>
+        {started && <StatusBar />}
+        {comingSoon && <ComingSoonBadge />}
+        <div key={key} className="po-screen-anim flex min-h-0 flex-1 flex-col">
+          {screen}
+        </div>
+        {tabRoot && <TabBar tab={tab} setTab={nav.setTab} badges={{ taken: takenBadge }} />}
+        {toast && <Toast>{toast}</Toast>}
+      </PhoneFrame>
+    </PoProvider>
+  );
+}
+
+export function PlusOneApp(): JSX.Element {
+  return (
     <PoLiveProvider>
-      <PoProvider value={po}>
-        <PhoneFrame>
-          {started && <StatusBar />}
-          {comingSoon && <ComingSoonBadge />}
-          <div key={key} className="po-screen-anim flex min-h-0 flex-1 flex-col">
-            {screen}
-          </div>
-          {tabRoot && <TabBar tab={tab} setTab={nav.setTab} badges={{ taken: takenBadge }} />}
-          {toast && <Toast>{toast}</Toast>}
-        </PhoneFrame>
-      </PoProvider>
+      <PlusOneAppInner />
     </PoLiveProvider>
   );
 }

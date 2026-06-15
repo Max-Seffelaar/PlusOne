@@ -16,8 +16,8 @@ import {
 } from 'react';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
-import type { PoEvent, Venue } from '@/lib/po/types';
-import { fetchPoEvents, fetchPoSession, type PoSession } from './live-queries';
+import type { PoEvent, Tier, Venue } from '@/lib/po/types';
+import { fetchPoEvents, fetchPoSession, fetchPoTiers, type PoSession } from './live-queries';
 
 interface SessionCtx {
   session: PoSession | null;
@@ -89,4 +89,15 @@ export function usePoEvents(): { events: PoEvent[]; isLoading: boolean } {
     enabled: Boolean(venueId),
   });
   return { events, isLoading };
+}
+
+/** Tiers for an event, mapped to Tier[]. */
+export function usePoTiers(eventId: string | undefined): { tiers: Tier[]; isLoading: boolean } {
+  const client = useBrowserClient();
+  const { data: tiers = [], isLoading } = useQuery({
+    queryKey: ['po', 'tiers', eventId],
+    queryFn: () => (eventId ? fetchPoTiers(client, eventId) : Promise.resolve([])),
+    enabled: Boolean(eventId),
+  });
+  return { tiers, isLoading };
 }
