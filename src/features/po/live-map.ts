@@ -76,6 +76,8 @@ export function toPoEvent(
     inside: counts?.inside ?? 0,
     accent: e.status === 'live',
     when: endRef.getTime() < now.getTime() ? 'past' : 'upcoming',
+    startsAtISO: e.starts_at,
+    endsAtISO: e.ends_at,
   };
 }
 

@@ -30,6 +30,9 @@ export interface PoEvent {
   inside: number;
   accent?: boolean;
   when: EventWhen;
+  /** Raw timestamps when sourced from live data — used to pre-fill edit forms. */
+  startsAtISO?: string;
+  endsAtISO?: string | null;
 }
 
 export interface Guest {

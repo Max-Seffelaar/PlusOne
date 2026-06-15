@@ -2,10 +2,12 @@
 
 /** Events tab + event detail, event CRUD, tier/alias beheer, past-event recap. */
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { events, guests, recap, stats, tiers } from '@/lib/po/data';
 import type { PoEvent } from '@/lib/po/types';
-import { usePoEvents } from '@/features/po/PoLiveProvider';
+import { usePoEvents, useSession } from '@/features/po/PoLiveProvider';
+import { createEvent, updateEvent } from '@/features/events/actions';
 import { useNav, usePo } from '../context';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Btn, Field, IconBtn, Label, MiniChip, Note, RoleChip, Scroll, ToggleRow, Top } from '../kit';
@@ -18,6 +20,17 @@ const col = 'flex h-full flex-col';
 function heads(arr: { plus: number }[]): number {
   return arr.reduce((a, g) => a + 1 + g.plus, 0);
 }
+
+// ISO timestamp -> value for <input type="datetime-local"> (local wall-clock).
+function toLocalInput(iso?: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const p = (n: number): string => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+const dtField =
+  'w-full rounded-[14px] border border-line bg-elev2 px-[14px] py-3 text-[15px] text-text [color-scheme:dark] outline-none focus:border-acc';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function Stat({ v, l, acc, big }: { v: number; l: string; acc?: boolean; big?: boolean }): JSX.Element {
@@ -208,11 +221,42 @@ export function EventView({ ev }: { ev: PoEvent }): JSX.Element {
 // ── EVENT edit / create (pushed) ─────────────────────────────────────────────────
 export function EventEdit({ ev, isNew }: { ev?: PoEvent; isNew?: boolean }): JSX.Element {
   const nav = useNav();
+  const qc = useQueryClient();
+  const { currentVenue } = useSession();
   const [name, setName] = useState(isNew ? '' : ev?.name ?? '');
-  const [venue, setVenue] = useState(isNew ? '' : ev?.venue ?? '');
-  const [landing, setLanding] = useState(true);
-  const [closeOn, setCloseOn] = useState(true);
+  const [startsAt, setStartsAt] = useState(toLocalInput(ev?.startsAtISO));
+  const [endsAt, setEndsAt] = useState(toLocalInput(ev?.endsAtISO));
+  const [landing, setLanding] = useState(false);
   const [locked, setLocked] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const canSave = name.trim().length > 0 && startsAt.length > 0 && Boolean(currentVenue);
+
+  async function save(): Promise<void> {
+    if (!canSave || busy) return;
+    setBusy(true);
+    setErr(null);
+    const start = new Date(startsAt);
+    const end = endsAt ? new Date(endsAt) : null;
+    const res = isNew
+      ? await createEvent({
+          venueId: currentVenue!.id,
+          name,
+          startsAt: start,
+          endsAt: end,
+          landingActive: landing,
+        })
+      : await updateEvent({ eventId: ev!.id, name, startsAt: start, endsAt: end });
+    setBusy(false);
+    if (!res.ok) {
+      setErr(res.message);
+      return;
+    }
+    await qc.invalidateQueries({ queryKey: ['po', 'events'] });
+    nav.back();
+  }
+
   return (
     <div className={col}>
       <Top onBack={nav.back} title={isNew ? 'Nieuw event' : 'Event bewerken'} />
@@ -220,76 +264,57 @@ export function EventEdit({ ev, isNew }: { ev?: PoEvent; isNew?: boolean }): JSX
         <Label className="mb-2">Naam</Label>
         <Field placeholder="bv. FRENZY" value={name} onChange={setName} className="mb-[14px]" />
         <Label className="mb-2">Venue</Label>
-        <Field icon="building" placeholder="De Marktkantine" value={venue} onChange={setVenue} className="mb-[14px]" />
-        <div className="mb-[14px] flex gap-[10px]">
-          <div className="flex-1">
-            <Label className="mb-2">Datum</Label>
-            <Field icon="cal" value="14 dec 2024" />
-          </div>
-          <div className="flex-1">
-            <Label className="mb-2">Deur open</Label>
-            <Field icon="clock" value="23:00" />
-          </div>
+        <div className="mb-[14px] flex items-center gap-[10px] rounded-[14px] border border-line bg-elev px-[14px] py-3 text-[15px] text-dim">
+          <Icon name="building" size={17} className="text-faint" />
+          {currentVenue?.name ?? 'Geen venue geselecteerd'}
         </div>
+        <Label className="mb-2">Deur open</Label>
+        <input
+          type="datetime-local"
+          className={cn(dtField, 'mb-[14px]')}
+          value={startsAt}
+          onChange={(e) => setStartsAt(e.target.value)}
+        />
+        <Label className="mb-2">Einde (optioneel)</Label>
+        <input
+          type="datetime-local"
+          className={cn(dtField, 'mb-[18px]')}
+          value={endsAt}
+          onChange={(e) => setEndsAt(e.target.value)}
+        />
         <button
           type="button"
-          onClick={() => nav.push('tiers', { id: ev?.id ?? 'frenzy' })}
-          className="mb-[18px] flex w-full items-center gap-[13px] rounded-[14px] border border-line bg-elev px-[14px] py-[15px] text-left transition-colors hover:bg-white/[0.03]"
+          onClick={() => ev?.id && nav.push('tiers', { id: ev.id })}
+          disabled={isNew}
+          className="mb-[18px] flex w-full items-center gap-[13px] rounded-[14px] border border-line bg-elev px-[14px] py-[15px] text-left transition-colors hover:bg-white/[0.03] disabled:opacity-50"
         >
           <span className="flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line bg-elev2 text-acc">
             <Icon name="ticket" size={18} />
           </span>
           <span className="flex-1">
             <span className="block font-body text-[15px] font-semibold text-text">Tiers & aliassen</span>
-            <span className="mt-px block text-[12.5px] text-faint">6 tiers · voeden de quick-add</span>
+            <span className="mt-px block text-[12.5px] text-faint">
+              {isNew ? 'Bewaar het event eerst' : 'Voeden de quick-add'}
+            </span>
           </span>
           <Icon name="chev" size={18} className="text-ghost" />
         </button>
 
         <Label className="mb-[10px]">Landingpage</Label>
         <div className="mb-[18px] rounded-[16px] border border-line bg-elev px-[14px] py-1">
-          <ToggleRow title="Aanvraaglink actief" sub="Gasten kunnen zich aanmelden via de link" on={landing} set={setLanding} />
-          {landing && (
-            <div className="flex items-center gap-[9px] border-t border-line2 pb-[14px] pt-3">
-              <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[12.5px] text-dim">plus.one/frenzy-x4k9</span>
-              <button type="button" className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] border border-line text-faint transition-[filter] hover:brightness-[1.2]">
-                <Icon name="share" size={16} />
-              </button>
-            </div>
-          )}
-          {landing && (
-            <div className="border-t border-line2">
-              <ToggleRow
-                title="Sluit aanmelden automatisch"
-                sub={closeOn ? 'Na dit moment kan niemand zich meer aanmelden' : 'Link blijft open tot je hem handmatig sluit'}
-                on={closeOn}
-                set={setCloseOn}
-                last={!closeOn}
-              />
-              {closeOn && (
-                <div className="flex gap-[10px] pb-[14px]">
-                  <div className="flex-1">
-                    <Label className="mb-2">Sluit op</Label>
-                    <Field icon="cal" value="14 dec 2024" />
-                  </div>
-                  <div className="flex-1">
-                    <Label className="mb-2">Om</Label>
-                    <Field icon="clock" value="22:00" />
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+          <ToggleRow title="Aanvraaglink actief" sub="Gasten kunnen zich aanmelden via de link" on={landing} set={setLanding} last />
         </div>
 
         <Label className="mb-[10px]">Aan de deur</Label>
         <div className="rounded-[16px] border border-line bg-elev px-[14px] py-1">
           <ToggleRow title="Lijst vergrendelen" sub={locked ? 'Staff kan niet meer muteren — admin/host/deur wel' : 'Typisch bij deuropening'} on={locked} set={setLocked} last />
         </div>
+
+        {err && <p className="mt-3 text-[13px] text-acc-soft">{err}</p>}
       </Scroll>
       <BottomBar>
-        <Btn kind="primary" full icon="check" onClick={() => nav.back()}>
-          {isNew ? 'Event aanmaken' : 'Opslaan'}
+        <Btn kind="primary" full icon="check" onClick={save} className={canSave && !busy ? '' : 'opacity-50'}>
+          {busy ? 'Bezig…' : isNew ? 'Event aanmaken' : 'Opslaan'}
         </Btn>
       </BottomBar>
     </div>

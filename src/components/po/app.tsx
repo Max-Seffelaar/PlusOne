@@ -26,7 +26,7 @@ const DOOR_USER = 'Joris';
 // Screens/tabs already wired to live Supabase data. Anything NOT listed here is
 // still mock and gets the "Binnenkort" badge. Add entries as screens are wired.
 const WIRED_TABS = new Set<TabKey>(['events']);
-const WIRED_SCREENS = new Set<ScreenName>();
+const WIRED_SCREENS = new Set<ScreenName>(['eventedit']);
 
 function nowTime(): string {
   return new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
