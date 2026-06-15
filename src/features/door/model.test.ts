@@ -1,0 +1,171 @@
+import { describe, expect, it } from 'vitest';
+import { buildDoorView, buildTasks, indexCheckIns, lastFour, tierRole } from './model';
+import type { CheckInRow, DoorSnapshot, GuestRow, RefusalRow, TierRow } from './queries';
+
+function tier(over: Partial<TierRow> = {}): TierRow {
+  return {
+    id: 't-reg',
+    event_id: 'ev1',
+    name: 'Regular',
+    description: null,
+    color: '#8A8A93',
+    max_guests: null,
+    aliases: [],
+    created_at: '2026-06-01T00:00:00Z',
+    updated_at: '2026-06-01T00:00:00Z',
+    ...over,
+  };
+}
+
+function guest(over: Partial<GuestRow> = {}): GuestRow {
+  return {
+    id: 'g1',
+    event_id: 'ev1',
+    tier_id: 't-reg',
+    full_name: 'Tess Bakker',
+    email: null,
+    phone: null,
+    plus_ones: 0,
+    note: null,
+    note_priority: 'none',
+    note_acknowledged_by: null,
+    note_acknowledged_at: null,
+    added_by: 'u-max',
+    source: 'app',
+    status: 'approved',
+    anonymized_at: null,
+    removed_at: null,
+    created_at: '2026-06-10T12:00:00Z',
+    updated_at: '2026-06-10T12:00:00Z',
+    ...over,
+  };
+}
+
+function checkIn(over: Partial<CheckInRow> = {}): CheckInRow {
+  return {
+    id: 'ci1',
+    guest_id: 'g1',
+    checked_by: 'u-lisa',
+    checked_at: '2026-06-20T23:41:00Z',
+    client_timestamp: null,
+    device_id: null,
+    plus_ones_arrived: 0,
+    offline_synced: false,
+    created_at: '2026-06-20T23:41:00Z',
+    ...over,
+  };
+}
+
+function refusal(over: Partial<RefusalRow> = {}): RefusalRow {
+  return {
+    id: 'r1',
+    guest_id: 'g1',
+    refused_by: 'u-lisa',
+    reason: 'Niet op de lijst',
+    refused_at: '2026-06-21T00:03:00Z',
+    client_timestamp: null,
+    device_id: null,
+    created_at: '2026-06-21T00:03:00Z',
+    anonymized_at: null,
+    ...over,
+  };
+}
+
+function snapshot(over: Partial<DoorSnapshot> = {}): DoorSnapshot {
+  return {
+    event: { id: 'ev1', name: 'FRENZY', venueName: 'De Marktkantine', status: 'open', listLocked: false },
+    guests: [],
+    tiers: [tier(), tier({ id: 't-vip', name: 'VIP — fles op tafel', color: '#B5A6FF' })],
+    checkIns: [],
+    refusals: [],
+    profiles: { 'u-max': 'Max', 'u-lisa': 'Lisa' },
+    fetchedAt: '2026-06-20T22:00:00Z',
+    ...over,
+  };
+}
+
+describe('lastFour (#27)', () => {
+  it('returns the last four digits, ignoring formatting', () => {
+    expect(lastFour('+31 6 12 34 56 78')).toBe('5678');
+    expect(lastFour('06-1234')).toBe('1234');
+  });
+  it('handles missing or short numbers', () => {
+    expect(lastFour(null)).toBeNull();
+    expect(lastFour('12')).toBe('12');
+  });
+});
+
+describe('tierRole', () => {
+  it('maps known tiers to a glyph + short label', () => {
+    expect(tierRole('VIP — fles op tafel')).toEqual({ label: 'VIP', icon: 'crown' });
+    expect(tierRole('All Access')).toEqual({ label: 'All Access', icon: 'shield' });
+    expect(tierRole('Crew & productie')).toEqual({ label: 'Crew', icon: 'users' });
+  });
+  it('keeps a short free-form name as-is', () => {
+    expect(tierRole('Regular')).toEqual({ label: 'Regular', icon: 'user' });
+  });
+});
+
+describe('indexCheckIns (#11 first wins)', () => {
+  it('keeps the earliest check-in per guest', () => {
+    const map = indexCheckIns([
+      checkIn({ id: 'late', checked_at: '2026-06-20T23:50:00Z' }),
+      checkIn({ id: 'early', checked_at: '2026-06-20T23:40:00Z' }),
+    ]);
+    expect(map.get('g1')?.id).toBe('early');
+  });
+});
+
+describe('buildDoorView', () => {
+  it('derives inside from a check-in row and fills the logboek fields', () => {
+    const view = buildDoorView(
+      snapshot({
+        guests: [guest({ id: 'g1', phone: '+31612345678', plus_ones: 2 })],
+        checkIns: [checkIn({ guest_id: 'g1', checked_by: 'u-lisa', plus_ones_arrived: 2 })],
+      }),
+    );
+    expect(view.guests).toHaveLength(1);
+    const g = view.guests[0];
+    expect(g.inside).toBe(true);
+    expect(g.inByName).toBe('Lisa');
+    expect(g.arrived).toBe(2);
+    expect(g.addedByName).toBe('Max');
+    expect(g.last4).toBe('5678');
+    expect(view.insideCount).toBe(1);
+    expect(view.waitingCount).toBe(0);
+  });
+
+  it('excludes refused guests from the list (no double audit, append-only)', () => {
+    const view = buildDoorView(
+      snapshot({
+        guests: [guest({ id: 'g1' }), guest({ id: 'g2', full_name: 'Bram de Groot' })],
+        refusals: [refusal({ guest_id: 'g2' })],
+      }),
+    );
+    expect(view.guests.map((g) => g.id)).toEqual(['g1']);
+  });
+
+  it('applies the tier colour from guest_tiers', () => {
+    const view = buildDoorView(snapshot({ guests: [guest({ tier_id: 't-vip' })] }));
+    expect(view.guests[0].tierColor).toBe('#B5A6FF');
+    expect(view.guests[0].tierName).toBe('VIP');
+  });
+});
+
+describe('buildTasks (#39)', () => {
+  it('lists guests with a note, high priority flagged, acknowledged = done', () => {
+    const view = buildDoorView(
+      snapshot({
+        guests: [
+          guest({ id: 'g1', note: 'Tafel reserveren', note_priority: 'high' }),
+          guest({ id: 'g2', note: 'Komt later', note_priority: 'low', note_acknowledged_at: '2026-06-20T23:00:00Z', note_acknowledged_by: 'u-lisa' }),
+          guest({ id: 'g3', note: null }),
+        ],
+      }),
+    );
+    const tasks = buildTasks(view);
+    expect(tasks.map((t) => t.guest.id)).toEqual(['g1', 'g2']);
+    expect(tasks.find((t) => t.guest.id === 'g1')).toMatchObject({ high: true, done: false });
+    expect(tasks.find((t) => t.guest.id === 'g2')).toMatchObject({ high: false, done: true });
+  });
+});

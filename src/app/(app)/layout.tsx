@@ -24,16 +24,25 @@ export default async function AppLayout({
   const canSeeTeam = dashboardVenues.length > 0; // admin/user_manager/finance
   const canSeeVenue = memberships.some((m) => venueCapabilities(m.roles).viewSettings); // admin/finance
   const isAdminSomewhere = memberships.some((m) => m.roles.includes('admin'));
+  // Admin + the read-only Finance role get reports & the audit log (spec §2, fase 10).
+  const canSeeReports = memberships.some(
+    (m) => m.roles.includes('admin') || m.roles.includes('finance')
+  );
 
-  // Real pages first, then the not-yet-built sections (fase 6/10) as "binnenkort".
+  // Fase 6 (events) and fase 10 (reports/audit) are live now — real links, no stubs.
   const navItems: ShellNavItem[] = [
     { href: '/dashboard', label: 'Dashboard', icon: 'grid' },
+    { href: '/events', label: 'Events', icon: 'cal' },
+    ...(canSeeReports
+      ? [
+          { href: '/admin/stats', label: 'Statistieken', icon: 'spark' as const },
+          { href: '/admin/overview', label: 'Overzicht', icon: 'note' as const },
+          { href: '/admin/audit', label: 'Audit log', icon: 'history' as const },
+        ]
+      : []),
     ...(canSeeTeam ? [{ href: '/admin/team', label: 'Gebruikers', icon: 'users' as const }] : []),
     ...(canSeeVenue ? [{ href: '/admin/venue', label: 'Venue', icon: 'building' as const }] : []),
     ...(isAdminSomewhere ? [{ href: '/admin/sessions', label: 'Sessies', icon: 'lock' as const }] : []),
-    { href: '#', label: 'Events', icon: 'cal', soon: true },
-    { href: '#', label: 'Statistieken', icon: 'spark', soon: true },
-    { href: '#', label: 'Audit log', icon: 'history', soon: true },
   ];
 
   const displayName =
