@@ -22,3 +22,15 @@ export const decideQuotaRequestSchema = z
     path: ['reason'],
   });
 export type DecideQuotaRequestInput = z.input<typeof decideQuotaRequestSchema>;
+
+/** Admin sets a team member's quota override FOR ONE EVENT (#5, opt-in per event). */
+export const setEventQuotaSchema = z.object({
+  eventId: uuid,
+  userId: uuid,
+  quotaOverride: z.coerce.number().int().min(0, 'Quotum kan niet negatief zijn').max(1000),
+});
+export type SetEventQuotaInput = z.input<typeof setEventQuotaSchema>;
+
+/** Admin removes a per-event override so the member reverts to their venue default. */
+export const clearEventQuotaSchema = z.object({ eventId: uuid, userId: uuid });
+export type ClearEventQuotaInput = z.input<typeof clearEventQuotaSchema>;

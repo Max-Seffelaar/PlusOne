@@ -3,7 +3,16 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
-import { quotaRequestSchema, decideQuotaRequestSchema, type QuotaRequestInput, type DecideQuotaRequestInput } from './schemas';
+import {
+  quotaRequestSchema,
+  decideQuotaRequestSchema,
+  setEventQuotaSchema,
+  clearEventQuotaSchema,
+  type QuotaRequestInput,
+  type DecideQuotaRequestInput,
+  type SetEventQuotaInput,
+  type ClearEventQuotaInput,
+} from './schemas';
 
 export type ActionResult = { ok: true } | MutationError;
 
@@ -75,5 +84,49 @@ export async function decideQuotaRequest(
     revalidatePath(`/events/${input.eventId}/guests`);
     revalidatePath(`/events/${input.eventId}/quota-requests`);
   }
+  return { ok: true };
+}
+
+/**
+ * Admin opt-in: set a team member's quota override FOR ONE EVENT (#5). The member
+ * keeps their venue default everywhere else. Upserts on (event_id, user_id);
+ * admin + AAL2 is enforced by event_quotas RLS, and the audit trigger logs it.
+ */
+export async function setEventQuota(input: SetEventQuotaInput): Promise<ActionResult> {
+  const parsed = setEventQuotaSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  const { eventId, userId, quotaOverride } = parsed.data;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return unauthorized();
+
+  const { error } = await supabase
+    .from('event_quotas')
+    .upsert({ event_id: eventId, user_id: userId, quota_override: quotaOverride }, { onConflict: 'event_id,user_id' });
+  if (error) return mapMutationError(error);
+
+  revalidatePath(`/events/${eventId}/guests`);
+  return { ok: true };
+}
+
+/** Admin removes a per-event override so the member reverts to their venue default (#5). */
+export async function clearEventQuota(input: ClearEventQuotaInput): Promise<ActionResult> {
+  const parsed = clearEventQuotaSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  const { eventId, userId } = parsed.data;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return unauthorized();
+
+  const { error } = await supabase.from('event_quotas').delete().eq('event_id', eventId).eq('user_id', userId);
+  if (error) return mapMutationError(error);
+
+  revalidatePath(`/events/${eventId}/guests`);
   return { ok: true };
 }
