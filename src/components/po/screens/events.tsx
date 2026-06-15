@@ -4,22 +4,19 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
-import { events, guests, recap, stats } from '@/lib/po/data';
+import { events, recap, stats } from '@/lib/po/data';
 import type { PoEvent, Tier } from '@/lib/po/types';
 import { usePoEvents, usePoTiers, useSession } from '@/features/po/PoLiveProvider';
+import { usePoDoor } from '@/features/po/door-live';
 import { createEvent, createTier, deleteTier, updateEvent, updateTier } from '@/features/events/actions';
-import { useNav, usePo } from '../context';
-import { Icon, type IconName } from '../icon';
+import { useNav } from '../context';
+import { Icon } from '../icon';
 import { Avatar, Btn, Field, IconBtn, Label, MiniChip, Note, RoleChip, Scroll, ToggleRow, Top } from '../kit';
 import { BottomBar } from '../shell';
 
 const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 const col = 'flex h-full flex-col';
-
-function heads(arr: { plus: number }[]): number {
-  return arr.reduce((a, g) => a + 1 + g.plus, 0);
-}
 
 // ISO timestamp -> value for <input type="datetime-local"> (local wall-clock).
 function toLocalInput(iso?: string | null): string {
@@ -42,19 +39,6 @@ function Stat({ v, l, acc, big }: { v: number; l: string; acc?: boolean; big?: b
   );
 }
 
-function Alert({ icon, title, body }: { icon: IconName; title: string; body: string }): JSX.Element {
-  return (
-    <div className="flex gap-[12px] rounded-[14px] border border-line bg-elev p-[13px]">
-      <span className="mt-px text-acc-soft">
-        <Icon name={icon} size={19} />
-      </span>
-      <div>
-        <div className="font-body text-[14px] font-bold text-text">{title}</div>
-        <div className="mt-0.5 text-[12.5px] leading-[1.4] text-faint">{body}</div>
-      </div>
-    </div>
-  );
-}
 
 // ── EVENTS (tab) ──────────────────────────────────────────────────────────────
 export function Events(): JSX.Element {
@@ -140,22 +124,25 @@ export function Events(): JSX.Element {
 // ── EVENT detail (pushed) ───────────────────────────────────────────────────────
 export function EventView({ ev }: { ev: PoEvent }): JSX.Element {
   const nav = useNav();
-  const { inside } = usePo();
-  const gs = guests;
-  const inn = gs.filter((g) => inside.has(g.id));
-  const total = heads(gs) + 130;
-  const inH = heads(inn) + 96;
-  const pct = inH / total;
-  const recent = inn
-    .slice()
-    .sort((a, b) => ((a.at ?? '') < (b.at ?? '') ? 1 : -1))
+  // Live counts come straight off the event row (RLS-scoped): a brand-new event
+  // shows 0/0, not the old mock "fully populated" numbers. Recent check-ins come
+  // from the door snapshot for this event.
+  const door = usePoDoor(ev.id);
+  const total = ev.guests;
+  const inH = ev.inside;
+  const onderweg = Math.max(0, total - inH);
+  const pct = total > 0 ? inH / total : 0;
+  const recent = door.guests
+    .filter((g) => door.inside.has(g.id))
+    .map((g) => ({ g, at: door.log[g.id]?.at ?? '' }))
+    .sort((a, b) => (a.at < b.at ? 1 : -1))
     .slice(0, 3);
   return (
     <div className={col}>
       <Top onBack={nav.back} title={ev.name} sub={`${ev.venue} · ${ev.date} ${ev.mon}`} right={<IconBtn name="dots" onClick={() => nav.push('eventedit', { id: ev.id })} />} />
       <Scroll bottom={28}>
         <div className="mb-3 grid grid-cols-2 gap-[10px]">
-          <Stat big v={total - inH} l="Onderweg" />
+          <Stat big v={onderweg} l="Onderweg" />
           <Stat big v={inH} l="Binnen" acc />
         </div>
         <div className="mb-3 rounded-[18px] border border-line bg-elev p-4">
@@ -166,7 +153,7 @@ export function EventView({ ev }: { ev: PoEvent }): JSX.Element {
           <div className="h-[10px] overflow-hidden rounded-[6px] bg-elev2">
             <div className="h-full rounded-[6px] bg-acc" style={{ width: pct * 100 + '%' }} />
           </div>
-          <div className="mt-[9px] text-[12.5px] text-faint">{total} koppen op de lijst · incl. meegenomen gasten</div>
+          <div className="mt-[9px] text-[12.5px] text-faint">{total} {total === 1 ? 'gast' : 'gasten'} op de lijst</div>
         </div>
         <div className="mb-4 flex gap-[10px]">
           <Btn kind="primary" full icon="user" onClick={() => nav.setTab('deur')}>
@@ -177,42 +164,42 @@ export function EventView({ ev }: { ev: PoEvent }): JSX.Element {
           </Btn>
         </div>
         <Label className="mb-[10px]">Aandacht nodig</Label>
-        <div className="mb-[18px] flex flex-col gap-[9px]">
-          <button
-            type="button"
-            onClick={() => nav.push('aanvragen')}
-            className={cn('flex w-full gap-[12px] rounded-[14px] border bg-elev p-[13px] text-left', cardPress)}
-            style={{ borderColor: 'rgba(181,166,255,0.4)' }}
-          >
-            <span className="mt-px text-acc-soft">
-              <Icon name="bell" size={19} />
-            </span>
-            <div className="flex-1">
-              <div className="font-body text-[14px] font-bold text-text">3 quotum-verzoeken + 4 aanvragen</div>
-              <div className="mt-0.5 text-[12.5px] leading-[1.4] text-faint">Wachten op jouw goedkeuring — tik om af te handelen</div>
-            </div>
-            <span className="self-center text-acc">
-              <Icon name="chev" size={20} />
-            </span>
-          </button>
-          <Alert icon="crown" title="VIP onderweg" body="Anouk Smit +2 — host wordt gewaarschuwd aan de deur" />
-          <Alert icon="money" title="3 gasten moeten betalen" body="Betaalde gastenlijst — afrekenen bij binnenkomst" />
-        </div>
-        <Label className="mb-[10px]">Laatst binnen</Label>
-        <div className="flex flex-col">
-          {recent.map((g) => (
-            <div key={g.id} className="flex items-center gap-[12px] border-b border-line2 py-[10px]">
-              <Avatar name={g.name} size={38} />
-              <div className="flex-1">
-                <div className="text-[14.5px] font-semibold text-text">
-                  {g.name}
-                  {g.plus > 0 && <span className="text-faint"> +{g.plus}</span>}
+        <button
+          type="button"
+          onClick={() => nav.push('aanvragen', { id: ev.id })}
+          className={cn('mb-[18px] flex w-full gap-[12px] rounded-[14px] border bg-elev p-[13px] text-left', cardPress)}
+          style={{ borderColor: 'rgba(181,166,255,0.4)' }}
+        >
+          <span className="mt-px text-acc-soft">
+            <Icon name="bell" size={19} />
+          </span>
+          <div className="flex-1">
+            <div className="font-body text-[14px] font-bold text-text">Aanvragen & quotum-verzoeken</div>
+            <div className="mt-0.5 text-[12.5px] leading-[1.4] text-faint">Tik om openstaande verzoeken te bekijken</div>
+          </div>
+          <span className="self-center text-acc">
+            <Icon name="chev" size={20} />
+          </span>
+        </button>
+        {recent.length > 0 && (
+          <>
+            <Label className="mb-[10px]">Laatst binnen</Label>
+            <div className="flex flex-col">
+              {recent.map(({ g, at }) => (
+                <div key={g.id} className="flex items-center gap-[12px] border-b border-line2 py-[10px]">
+                  <Avatar name={g.name} size={38} />
+                  <div className="flex-1">
+                    <div className="text-[14.5px] font-semibold text-text">
+                      {g.name}
+                      {g.plus > 0 && <span className="text-faint"> +{g.plus}</span>}
+                    </div>
+                  </div>
+                  <span className="font-display text-[13px] font-bold text-acc">{at}</span>
                 </div>
-              </div>
-              <span className="font-display text-[13px] font-bold text-acc">{g.at}</span>
+              ))}
             </div>
-          ))}
-        </div>
+          </>
+        )}
       </Scroll>
     </div>
   );

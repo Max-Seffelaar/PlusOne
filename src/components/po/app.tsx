@@ -29,6 +29,7 @@ const DOOR_USER = 'Joris';
 // adresboek / permanente gasten), plus every settings/onboarding screen.
 const WIRED_TABS = new Set<TabKey>(['events', 'deur', 'taken']);
 const WIRED_SCREENS = new Set<ScreenName>([
+  'event',
   'eventedit',
   'tiers',
   'lijst',
