@@ -318,7 +318,7 @@ export function Audit(): JSX.Element {
 
 // ── EVENTS ────────────────────────────────────────────────────────────────────
 const EVENT_GRID = 'grid-cols-[1.5fr_1fr_110px_130px_120px_40px]';
-export function Events(): JSX.Element {
+export function Events({ onSelect }: { onSelect?: (eventId: string) => void }): JSX.Element {
   const { events, isLoading } = usePoEvents();
   return (
     <div className={cn('pt-6', pad)}>
@@ -335,7 +335,12 @@ export function Events(): JSX.Element {
           <div className="px-[22px] py-[18px] text-[13.5px] text-faint">Nog geen events voor deze venue.</div>
         )}
         {events.map((e, i) => (
-          <div key={e.id} className={cn('grid cursor-pointer items-center px-[22px] py-4 transition-colors hover:bg-white/[0.025]', EVENT_GRID, i < events.length - 1 && 'border-b border-line2')}>
+          <button
+            type="button"
+            key={e.id}
+            onClick={() => onSelect?.(e.id)}
+            className={cn('grid w-full cursor-pointer items-center px-[22px] py-4 text-left transition-colors hover:bg-white/[0.025]', EVENT_GRID, i < events.length - 1 && 'border-b border-line2')}
+          >
             <div className="flex items-center gap-[14px]">
               <div className="w-[46px] shrink-0 text-center">
                 <div className={cn('font-display text-[20px] font-extrabold leading-none', e.accent ? 'text-acc' : 'text-text')}>{e.date}</div>
@@ -362,7 +367,7 @@ export function Events(): JSX.Element {
             <div className="text-ghost">
               <Icon name="chev" size={18} />
             </div>
-          </div>
+          </button>
         ))}
       </DCard>
     </div>

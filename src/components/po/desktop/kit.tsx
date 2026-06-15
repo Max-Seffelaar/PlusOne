@@ -2,7 +2,7 @@
 
 /** Desktop-only primitives (from `dash.jsx`). Reuses Icon/Avatar/Label from the
  *  shared kit; desktop Btn/Card/chips differ slightly in radius + sizing. */
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { Icon, type IconName } from '../icon';
 
@@ -66,5 +66,126 @@ export function MiniIconBtn({ name, accent, stroke }: { name: IconName; accent?:
     <button type="button" className={cn('flex h-[30px] w-[30px] items-center justify-center rounded-[9px] border', press, accent ? 'border-transparent bg-acc' : 'border-line bg-transparent')}>
       <Icon name={name} size={accent ? 15 : 14} sw={accent ? 2.4 : 1.9} stroke={stroke ?? (accent ? '#16132B' : 'rgba(255,255,255,0.40)')} />
     </button>
+  );
+}
+
+// ── Modal (centered overlay) ──────────────────────────────────────────────────
+/** Dark centered modal for desktop panels (new event / new guest / event edit).
+ *  Closes on backdrop click and Escape; the body is the polished elev surface. */
+export function DModal({
+  title,
+  sub,
+  onClose,
+  children,
+  footer,
+  width = 520,
+}: {
+  title: string;
+  sub?: string;
+  onClose: () => void;
+  children: ReactNode;
+  footer?: ReactNode;
+  width?: number;
+}): JSX.Element {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-6 po-screen-anim"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        className="flex max-h-[88dvh] w-full flex-col overflow-hidden rounded-[20px] border border-line bg-elev shadow-2xl"
+        style={{ maxWidth: width }}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
+        <div className="flex items-start gap-3 border-b border-line2 px-6 py-5">
+          <div className="min-w-0 flex-1">
+            <div className="font-display text-[20px] font-extrabold tracking-[-0.02em] text-text">{title}</div>
+            {sub && <div className="mt-0.5 text-[13px] text-faint">{sub}</div>}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Sluiten"
+            className={cn('flex h-[34px] w-[34px] items-center justify-center rounded-[10px] border border-line bg-transparent text-faint', press)}
+          >
+            <Icon name="close" size={16} />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
+        {footer && <div className="flex items-center justify-end gap-[10px] border-t border-line2 px-6 py-4">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+// ── Form field labels + inputs (dark) ──────────────────────────────────────────
+/** Uppercase field label, matching the prototype's `Label` but local to forms. */
+export function DFieldLabel({ children, className }: { children: ReactNode; className?: string }): JSX.Element {
+  return <div className={cn('mb-2 font-body text-[12px] font-bold uppercase tracking-[0.04em] text-faint', className)}>{children}</div>;
+}
+
+const inputBase =
+  'w-full rounded-[12px] border border-line bg-elev2 px-[14px] py-[11px] text-[14.5px] text-text outline-none transition-colors placeholder:text-faint focus:border-acc';
+
+/** Text input in the dark desktop style. */
+export function DInput({
+  value,
+  onChange,
+  placeholder,
+  autoFocus,
+  inputMode,
+  onEnter,
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  autoFocus?: boolean;
+  inputMode?: 'text' | 'numeric' | 'email' | 'tel';
+  onEnter?: () => void;
+  className?: string;
+}): JSX.Element {
+  return (
+    <input
+      value={value}
+      autoFocus={autoFocus}
+      inputMode={inputMode}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={onEnter ? (e) => e.key === 'Enter' && onEnter() : undefined}
+      placeholder={placeholder}
+      className={cn(inputBase, className)}
+    />
+  );
+}
+
+/** datetime-local input in the dark desktop style (dark color-scheme). */
+export function DDateTime({
+  value,
+  onChange,
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  className?: string;
+}): JSX.Element {
+  return (
+    <input
+      type="datetime-local"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={cn(inputBase, '[color-scheme:dark]', className)}
+    />
   );
 }

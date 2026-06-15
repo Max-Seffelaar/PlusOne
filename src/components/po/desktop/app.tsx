@@ -4,16 +4,19 @@
  *  Desktop surface for Admin/Finance (#6). Mounted at /dashboard.
  *  Wrapped in PoLiveProvider so the sidebar + views read live Supabase data
  *  (session, venue, events, audit, team). */
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
-import { PoLiveProvider, useSession } from '@/features/po/PoLiveProvider';
+import { PoLiveProvider, usePoEvents, useSession } from '@/features/po/PoLiveProvider';
+import type { PoEvent } from '@/lib/po/types';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Label } from '../kit';
 import { ComingSoonPill } from '../coming-soon';
 import { DBtn } from './kit';
+import { EventDetailModal, NewEventModal, NewGuestModal } from './modals';
 import { Audit, Events, Home, Stats, Users } from './views';
 
 type View = 'home' | 'events' | 'stats' | 'audit' | 'users';
+type Overlay = 'newEvent' | 'newGuest' | null;
 const press = 'transition-[filter,transform,background,border-color,color] hover:brightness-[1.08] active:scale-[0.985]';
 
 // Views still backed by mock data show the "Binnenkort" pill in the topbar.
@@ -29,6 +32,87 @@ const NAV: [View, string, IconName][] = [
   ['users', 'Gebruikers', 'users'],
 ];
 
+/** Venue switcher: dropdown over session.venues; selecting re-scopes the whole
+ *  dashboard via setCurrentVenueId (every view keys off currentVenue). */
+function VenueSwitcher(): JSX.Element {
+  const { session, currentVenue, setCurrentVenueId } = useSession();
+  const venues = session?.venues ?? [];
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on outside click / Escape (no router; this is a local popover).
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const multi = venues.length > 1;
+
+  return (
+    <div ref={ref} className="relative mb-[18px]">
+      <button
+        type="button"
+        onClick={() => multi && setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className={cn(
+          'flex w-full items-center gap-[10px] rounded-[12px] border border-line bg-elev p-[10px] text-left text-text',
+          multi ? press : 'cursor-default',
+        )}
+      >
+        <Avatar name={currentVenue?.name ?? '—'} size={30} accent />
+        <div className="min-w-0 flex-1">
+          <div className="overflow-hidden text-ellipsis whitespace-nowrap font-display text-[14px] font-bold">{currentVenue?.name ?? 'Geen venue'}</div>
+          <div className="text-[11px] text-faint">{currentVenue ? currentVenue.plan : '—'}</div>
+        </div>
+        {multi && <Icon name="chevD" size={16} className={cn('text-ghost transition-transform', open && 'rotate-180')} />}
+      </button>
+
+      {open && multi && (
+        <div role="listbox" className="po-screen-anim absolute left-0 right-0 top-[calc(100%+6px)] z-40 overflow-hidden rounded-[12px] border border-line bg-elev2 p-1 shadow-2xl">
+          {venues.map((v) => {
+            const on = v.id === currentVenue?.id;
+            return (
+              <button
+                key={v.id}
+                type="button"
+                role="option"
+                aria-selected={on}
+                onClick={() => {
+                  setCurrentVenueId(v.id);
+                  setOpen(false);
+                }}
+                className={cn('flex w-full items-center gap-[10px] rounded-[9px] px-[9px] py-[8px] text-left', on ? 'bg-acc-dim' : 'hover:bg-white/[0.04]')}
+              >
+                <Avatar name={v.name} size={28} accent={on} />
+                <div className="min-w-0 flex-1">
+                  <div className={cn('overflow-hidden text-ellipsis whitespace-nowrap font-display text-[13.5px] font-bold', on ? 'text-acc' : 'text-text')}>{v.name}</div>
+                  <div className="text-[11px] text-faint">
+                    {v.plan}
+                    {v.roles[0] ? ` · ${v.roles[0]}` : ''}
+                  </div>
+                </div>
+                {on && <Icon name="check2" size={16} stroke="#B5A6FF" sw={2.4} />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Sidebar({ view, setView }: { view: View; setView: (v: View) => void }): JSX.Element {
   const { session, currentVenue } = useSession();
   const profile = session?.profile ?? null;
@@ -43,14 +127,7 @@ function Sidebar({ view, setView }: { view: View; setView: (v: View) => void }):
         <div className="flex h-9 w-9 items-center justify-center rounded-[11px] bg-acc font-display text-[17px] font-extrabold tracking-[-0.03em] text-on-acc">+1</div>
         <div className="font-display text-[19px] font-extrabold tracking-[-0.02em] text-text">plusone</div>
       </div>
-      <button type="button" className={cn('mb-[18px] flex w-full items-center gap-[10px] rounded-[12px] border border-line bg-elev p-[10px] text-left text-text', press)}>
-        <Avatar name={currentVenue?.name ?? '—'} size={30} accent />
-        <div className="min-w-0 flex-1">
-          <div className="overflow-hidden text-ellipsis whitespace-nowrap font-display text-[14px] font-bold">{currentVenue?.name ?? 'Geen venue'}</div>
-          <div className="text-[11px] text-faint">{currentVenue ? currentVenue.plan : '—'}</div>
-        </div>
-        <Icon name="chevD" size={16} className="text-ghost" />
-      </button>
+      <VenueSwitcher />
       <Label className="px-[10px] pb-2">Venue</Label>
       <div className="flex flex-col gap-[3px]">
         {NAV.map(([k, l, ic]) => {
@@ -115,10 +192,32 @@ interface ViewMeta {
   Body: () => JSX.Element;
 }
 
+/** Resolves the clicked event id (from the Events view) to the live PoEvent so
+ *  the detail modal always edits fresh data, then drops it if the row vanishes. */
+function EventDetailHost({ eventId, onClose }: { eventId: string; onClose: () => void }): JSX.Element | null {
+  const { events } = usePoEvents();
+  const event: PoEvent | undefined = events.find((e) => e.id === eventId);
+  if (!event) return null;
+  return <EventDetailModal event={event} onClose={onClose} />;
+}
+
 function DesktopAppInner(): JSX.Element {
   const [view, setView] = useState<View>('home');
+  const [overlay, setOverlay] = useState<Overlay>(null);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const { currentVenue } = useSession();
   const venueName = currentVenue?.name ?? 'venue';
+
+  const newGuestBtn = (kind: 'ghost' | 'primary' = 'ghost'): JSX.Element => (
+    <DBtn kind={kind} icon="plus" onClick={() => setOverlay('newGuest')}>
+      Nieuwe gast
+    </DBtn>
+  );
+  const newEventBtn = (icon: IconName = 'cal'): JSX.Element => (
+    <DBtn icon={icon} onClick={() => setOverlay('newEvent')}>
+      Nieuw event
+    </DBtn>
+  );
 
   const meta: Record<View, ViewMeta> = {
     home: {
@@ -126,15 +225,18 @@ function DesktopAppInner(): JSX.Element {
       sub: `${venueName} · overzicht van deze maand`,
       right: (
         <div className="flex gap-[10px]">
-          <DBtn kind="ghost" icon="plus">
-            Nieuwe gast
-          </DBtn>
-          <DBtn icon="cal">Nieuw event</DBtn>
+          {newGuestBtn('ghost')}
+          {newEventBtn('cal')}
         </div>
       ),
-      Body: Home,
+      Body: () => <Home />,
     },
-    events: { title: 'Events', sub: 'Beheer events, tiers en landingpages', right: <DBtn icon="plus">Nieuw event</DBtn>, Body: Events },
+    events: {
+      title: 'Events',
+      sub: 'Beheer events, tiers en landingpages',
+      right: newEventBtn('plus'),
+      Body: () => <Events onSelect={setSelectedEventId} />,
+    },
     stats: { title: 'Statistieken', sub: `${venueName} · voorbeeldcijfers`, right: <span />, Body: Stats },
     audit: { title: 'Audit log', sub: 'Onveranderlijk logboek — wie deed wat, wanneer', right: <DBtn kind="ghost" icon="dl">Export</DBtn>, Body: Audit },
     users: { title: 'Gebruikers', sub: 'Team en uitnodigingen van deze venue', right: <DBtn icon="plus">Uitnodigen</DBtn>, Body: Users },
@@ -150,6 +252,10 @@ function DesktopAppInner(): JSX.Element {
           <Body />
         </div>
       </div>
+
+      {overlay === 'newEvent' && <NewEventModal onClose={() => setOverlay(null)} />}
+      {overlay === 'newGuest' && <NewGuestModal onClose={() => setOverlay(null)} />}
+      {selectedEventId && <EventDetailHost eventId={selectedEventId} onClose={() => setSelectedEventId(null)} />}
     </div>
   );
 }
