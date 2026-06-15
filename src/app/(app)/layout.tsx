@@ -16,6 +16,10 @@ export default async function AppLayout({
   const memberships = await getMyMemberships();
   const canManageTeam = memberships.some((m) => isManager(m.roles));
   const isAdminSomewhere = memberships.some((m) => m.roles.includes('admin'));
+  // Admin + the read-only Finance role get reports & the audit log (spec §2).
+  const canSeeReports = memberships.some(
+    (m) => m.roles.includes('admin') || m.roles.includes('finance')
+  );
   const displayName =
     (ctx.user.user_metadata?.full_name as string | undefined) ?? ctx.user.email ?? 'Account';
 
@@ -30,6 +34,19 @@ export default async function AppLayout({
             <Link href="/dashboard" className="text-dim hover:text-text transition-colors">
               Dashboard
             </Link>
+            {canSeeReports && (
+              <>
+                <Link href="/admin/stats" className="text-dim hover:text-text transition-colors">
+                  Statistieken
+                </Link>
+                <Link href="/admin/overview" className="text-dim hover:text-text transition-colors">
+                  Overzicht
+                </Link>
+                <Link href="/admin/audit" className="text-dim hover:text-text transition-colors">
+                  Audit log
+                </Link>
+              </>
+            )}
             {canManageTeam && (
               <Link href="/admin/team" className="text-dim hover:text-text transition-colors">
                 Team
