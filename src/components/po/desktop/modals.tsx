@@ -30,7 +30,7 @@ import {
   resolveAmbiguity,
   type ParseResult,
 } from '@/features/guests/quick-add-parser';
-import type { PoEvent, Tier } from '@/lib/po/types';
+import type { Guest, PoEvent, Tier } from '@/lib/po/types';
 import { Icon, type IconName } from '../icon';
 import { Avatar } from '../kit';
 import { DBtn, DCard, DDateTime, DFieldLabel, DInput, DModal, Tag } from './kit';
@@ -540,6 +540,13 @@ function TabBtn({ on, onClick, icon, children }: { on: boolean; onClick: () => v
  *  like the mobile Deur screen — colleague check-ins land via realtime. */
 function DoorRoster({ door }: { door: PoDoorState }): JSX.Element {
   const [q, setQ] = useState('');
+  const [detailId, setDetailId] = useState<string | null>(null);
+
+  // Clicking a row opens the guest detail (view + capped check-in + task ack),
+  // replacing the list within the same modal until you go back.
+  const detailGuest = detailId ? door.guests.find((g) => g.id === detailId) : null;
+  if (detailGuest) return <DesktopGuestDetail g={detailGuest} door={door} onBack={() => setDetailId(null)} />;
+
   const needle = q.trim().toLowerCase();
   const rows = door.guests
     .filter((g) => !needle || g.name.toLowerCase().includes(needle))
@@ -566,17 +573,20 @@ function DoorRoster({ door }: { door: PoDoorState }): JSX.Element {
           const at = door.log[g.id]?.at;
           return (
             <div key={g.id} className={cn('flex items-center gap-[12px] rounded-[14px] border p-[11px]', isIn ? 'border-line2 bg-transparent' : 'border-line bg-elev2')}>
-              <Avatar name={g.name} size={36} />
-              <div className="min-w-0 flex-1">
-                <div className="font-display text-[14.5px] font-bold text-text">
-                  {g.name}
-                  {g.plus > 0 && <span className="text-faint"> +{g.plus}</span>}
+              <button type="button" onClick={() => setDetailId(g.id)} className={cn('flex min-w-0 flex-1 items-center gap-[12px] text-left', press)}>
+                <Avatar name={g.name} size={36} />
+                <div className="min-w-0 flex-1">
+                  <div className="font-display text-[14.5px] font-bold text-text">
+                    {g.name}
+                    {g.plus > 0 && <span className="text-faint"> +{g.plus}</span>}
+                  </div>
+                  <div className="mt-0.5 truncate text-[11.5px] text-faint">
+                    {g.flag === 'high' ? '⚑ ' : ''}
+                    {g.role}
+                    {g.note ? ` · ${g.note}` : ''}
+                  </div>
                 </div>
-                <div className="mt-0.5 truncate text-[11.5px] text-faint">
-                  {g.role}
-                  {g.note ? ` · ${g.note}` : ''}
-                </div>
-              </div>
+              </button>
               {isIn ? (
                 <span className="inline-flex items-center gap-[6px] whitespace-nowrap font-body text-[12px] font-bold text-acc">
                   <Icon name="check2" size={14} stroke="#B5A6FF" sw={2.4} />
@@ -595,6 +605,94 @@ function DoorRoster({ door }: { door: PoDoorState }): JSX.Element {
       {door.toast && (
         <div className="mt-3 rounded-[12px] border border-line bg-elev2 px-[14px] py-[10px] text-center text-[13px] font-bold text-acc">
           {door.toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Desktop guest detail (click a roster row): info + note/task ack + a quantity-
+ *  capped check-in — the desktop counterpart of the mobile Guest screen. The
+ *  count caps at 1 + plus_ones (edit the order to change that). "Uitchecken"/void
+ *  is not in the live model and is intentionally absent. */
+function DesktopGuestDetail({ g, door, onBack }: { g: Guest; door: PoDoorState; onBack: () => void }): JSX.Element {
+  const isIn = door.inside.has(g.id);
+  const at = door.log[g.id]?.at;
+  const done = door.taskDone(g.id);
+  const max = 1 + g.plus;
+  const [count, setCount] = useState(max);
+  const stepBtn = 'flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line bg-elev2 text-text disabled:opacity-40';
+
+  return (
+    <div>
+      <button type="button" onClick={onBack} className={cn('mb-4 inline-flex items-center gap-1.5 text-[13px] font-bold text-faint hover:text-text', press)}>
+        <Icon name="chev" size={15} className="rotate-180" />
+        Terug naar lijst
+      </button>
+
+      <div className="mb-4 flex items-center gap-3">
+        <Avatar name={g.name} size={46} accent={g.role === 'VIP'} />
+        <div className="min-w-0">
+          <div className="font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">
+            {g.name}
+            {g.plus > 0 && <span className="text-faint"> +{g.plus}</span>}
+          </div>
+          <div className="mt-0.5 text-[12.5px] text-faint">
+            {g.role}
+            {g.by ? ` · toegevoegd door ${g.by}` : ''}
+          </div>
+        </div>
+      </div>
+
+      {g.note && (
+        <div className={cn('mb-4 rounded-[14px] border p-[14px]', g.flag === 'high' && !done ? 'border-transparent bg-acc-dim' : 'border-line bg-elev2')}>
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="inline-flex items-center gap-1.5 text-[12px] font-bold uppercase tracking-[0.04em] text-faint">
+              <Icon name="flag" size={13} stroke={g.flag === 'high' ? '#B5A6FF' : 'rgba(255,255,255,0.4)'} fill={g.flag === 'high' ? '#B5A6FF' : 'none'} />
+              {g.flag === 'high' ? 'Belangrijke opdracht' : 'Opdracht'}
+            </span>
+            <span className={cn('text-[11.5px] font-bold', done ? 'text-acc' : 'text-faint')}>{done ? 'OPGEPAKT' : 'OPEN'}</span>
+          </div>
+          <div className="mb-3 text-[14px] leading-[1.45] text-text">{g.note}</div>
+          <DBtn sm kind={done ? 'ghost' : 'primary'} icon={done ? 'history' : 'check2'} onClick={() => door.ackTask(g.id, !done)}>
+            {done ? 'Heropenen' : 'Markeer als opgepakt'}
+          </DBtn>
+        </div>
+      )}
+
+      {isIn ? (
+        <div className="flex items-center gap-2 rounded-[14px] border border-line2 bg-elev2 px-[14px] py-[13px] text-[14px] font-bold text-acc">
+          <Icon name="check2" size={16} stroke="#B5A6FF" sw={2.4} />
+          Binnen{at ? ` · ${at}` : ''}
+        </div>
+      ) : (
+        <div>
+          {g.plus > 0 && (
+            <>
+              <DFieldLabel>Hoeveel komen er binnen?</DFieldLabel>
+              <div className="mb-4 flex items-center gap-3">
+                <button type="button" disabled={count <= 1} onClick={() => setCount((c) => Math.max(1, c - 1))} className={cn(stepBtn, press)} aria-label="Minder">
+                  <Icon name="minus" size={17} sw={2.4} />
+                </button>
+                <div className="font-display text-[20px] font-extrabold tabular-nums text-text">
+                  {count}
+                  <span className="text-faint">/{max}</span>
+                </div>
+                <button type="button" disabled={count >= max} onClick={() => setCount((c) => Math.min(max, c + 1))} className={cn(stepBtn, press, 'text-acc')} aria-label="Meer">
+                  <Icon name="plus" size={17} sw={2.4} stroke="#B5A6FF" />
+                </button>
+              </div>
+            </>
+          )}
+          <DBtn
+            icon="check"
+            onClick={() => {
+              door.checkIn(g.id, count);
+              onBack();
+            }}
+          >
+            Inchecken · {count} {count === 1 ? 'persoon' : 'personen'}
+          </DBtn>
         </div>
       )}
     </div>
