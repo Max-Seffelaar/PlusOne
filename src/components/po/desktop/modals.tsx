@@ -11,7 +11,7 @@
  * data. The desktop is a single-page client dashboard — these are local-state
  * overlays, no router.
  */
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { usePoEvents, usePoTiers, useSession } from '@/features/po/PoLiveProvider';
@@ -52,9 +52,104 @@ function guessAlias(name: string): string {
   return name.toLowerCase().split(/[^a-z0-9]+/i).filter(Boolean)[0] ?? '';
 }
 
+/** Searchable event dropdown — scales to a venue with dozens of events where the
+ *  old tile row didn't (test feedback). Shows the date chip + name, filters by
+ *  name as you type. */
+function EventPicker({ events, value, onChange }: { events: PoEvent[]; value: string | undefined; onChange: (id: string) => void }): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = events.find((e) => e.id === value);
+  const needle = q.trim().toLowerCase();
+  const filtered = needle ? events.filter((e) => e.name.toLowerCase().includes(needle)) : events;
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative mb-[14px]">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className={cn('flex w-full items-center gap-[11px] rounded-[12px] border border-line bg-elev2 px-[13px] py-[10px] text-left', press)}
+      >
+        {selected ? (
+          <span className="w-[34px] shrink-0 text-center">
+            <span className="block font-display text-[15px] font-extrabold leading-none text-text">{selected.date}</span>
+            <span className="block text-[9px] font-bold tracking-[0.05em] text-faint">{selected.mon}</span>
+          </span>
+        ) : null}
+        <span className={cn('min-w-0 flex-1 truncate font-display text-[14px] font-bold', selected ? 'text-text' : 'font-body text-faint')}>
+          {selected ? selected.name : 'Kies een evenement…'}
+        </span>
+        <Icon name="chevD" size={16} className={cn('shrink-0 text-ghost transition-transform', open && 'rotate-180')} />
+      </button>
+
+      {open && (
+        <div role="listbox" className="po-screen-anim absolute left-0 right-0 top-[calc(100%+6px)] z-50 overflow-hidden rounded-[14px] border border-line bg-elev2 shadow-2xl">
+          <div className="flex items-center gap-[9px] border-b border-line px-[13px] py-[10px]">
+            <Icon name="search" size={16} className="text-faint" />
+            <input
+              autoFocus
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Zoek evenement…"
+              aria-label="Zoek evenement"
+              className="min-w-0 flex-1 border-none bg-transparent text-[14px] text-text outline-none placeholder:text-faint"
+            />
+          </div>
+          <div className="max-h-[260px] overflow-y-auto py-1">
+            {filtered.map((e) => {
+              const on = e.id === value;
+              return (
+                <button
+                  key={e.id}
+                  type="button"
+                  role="option"
+                  aria-selected={on}
+                  onClick={() => {
+                    onChange(e.id);
+                    setOpen(false);
+                    setQ('');
+                  }}
+                  className={cn('flex w-full items-center gap-[11px] px-[13px] py-[9px] text-left', on ? 'bg-acc-dim' : 'hover:bg-white/[0.04]')}
+                >
+                  <span className="w-[34px] shrink-0 text-center">
+                    <span className={cn('block font-display text-[14px] font-extrabold leading-none', on ? 'text-acc' : 'text-text')}>{e.date}</span>
+                    <span className="block text-[9px] font-bold tracking-[0.05em] text-faint">{e.mon}</span>
+                  </span>
+                  <span className={cn('min-w-0 flex-1 truncate font-display text-[13.5px] font-bold', on ? 'text-acc' : 'text-text')}>{e.name}</span>
+                  {e.venue ? <span className="shrink-0 truncate text-[11.5px] text-faint">{e.venue}</span> : null}
+                  {on && <Icon name="check2" size={15} stroke="#B5A6FF" sw={2.4} />}
+                </button>
+              );
+            })}
+            {filtered.length === 0 && <div className="px-[13px] py-[14px] text-center text-[13px] text-faint">Geen evenement gevonden</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── NEW EVENT ───────────────────────────────────────────────────────────────
 /** Create an event scoped to the current venue (mirrors EventEdit's create path). */
-export function NewEventModal({ onClose }: { onClose: () => void }): JSX.Element {
+export function NewEventModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }): JSX.Element {
   const qc = useQueryClient();
   const { currentVenue } = useSession();
   const [name, setName] = useState('');
@@ -81,7 +176,9 @@ export function NewEventModal({ onClose }: { onClose: () => void }): JSX.Element
       return;
     }
     await qc.invalidateQueries({ queryKey: ['po', 'events'] });
-    onClose();
+    // Open the fresh event straight away (test feedback): you land in its detail
+    // to edit, add tiers and see the (empty) guest list — not a silent close.
+    onCreated(res.id);
   }
 
   return (
@@ -248,32 +345,14 @@ export function NewGuestModal({ onClose }: { onClose: () => void }): JSX.Element
       }
     >
       <DFieldLabel>Evenement</DFieldLabel>
-      <div className="mb-[14px] flex flex-wrap gap-2">
-        {pickable.map((e) => {
-          const on = e.id === eventId;
-          return (
-            <button
-              key={e.id}
-              type="button"
-              onClick={() => {
-                setEventId(e.id);
-                setResolveTier(null);
-              }}
-              className={cn(
-                'flex items-center gap-[9px] rounded-[12px] border px-[12px] py-[9px] text-left',
-                press,
-                on ? 'border-transparent bg-acc-dim text-acc' : 'border-line bg-elev2 text-dim',
-              )}
-            >
-              <span className="text-center">
-                <span className={cn('block font-display text-[15px] font-extrabold leading-none', on ? 'text-acc' : 'text-text')}>{e.date}</span>
-                <span className="block text-[9px] font-bold tracking-[0.05em] text-faint">{e.mon}</span>
-              </span>
-              <span className="font-display text-[13.5px] font-bold">{e.name}</span>
-            </button>
-          );
-        })}
-      </div>
+      <EventPicker
+        events={pickable}
+        value={eventId}
+        onChange={(id) => {
+          setEventId(id);
+          setResolveTier(null);
+        }}
+      />
 
       <DFieldLabel>Naam, +gasten, tier</DFieldLabel>
       <input

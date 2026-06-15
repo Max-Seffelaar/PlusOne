@@ -253,7 +253,15 @@ function DesktopAppInner(): JSX.Element {
         </div>
       </div>
 
-      {overlay === 'newEvent' && <NewEventModal onClose={() => setOverlay(null)} />}
+      {overlay === 'newEvent' && (
+        <NewEventModal
+          onClose={() => setOverlay(null)}
+          onCreated={(id) => {
+            setOverlay(null);
+            setSelectedEventId(id);
+          }}
+        />
+      )}
       {overlay === 'newGuest' && <NewGuestModal onClose={() => setOverlay(null)} />}
       {selectedEventId && <EventDetailHost eventId={selectedEventId} onClose={() => setSelectedEventId(null)} />}
     </div>
