@@ -1,6 +1,7 @@
 # Dependencies
 node_modules
 .pnpm-store
+# pnpm-lock.yaml is committed (reproducible installs + setup-node pnpm cache in CI)
 
 # Next.js
 .next
