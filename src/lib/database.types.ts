@@ -274,12 +274,15 @@ export type Database = {
           decided_at: string | null
           decided_by: string | null
           decision_reason: string | null
+          dedupe_key: string | null
           email: string | null
           event_id: string
           full_name: string
           id: string
+          marketing_opt_in: boolean
           motivation: string | null
           phone: string | null
+          plus_ones: number
           status: Database["public"]["Enums"]["request_status"]
         }
         Insert: {
@@ -287,12 +290,15 @@ export type Database = {
           decided_at?: string | null
           decided_by?: string | null
           decision_reason?: string | null
+          dedupe_key?: string | null
           email?: string | null
           event_id: string
           full_name: string
           id?: string
+          marketing_opt_in?: boolean
           motivation?: string | null
           phone?: string | null
+          plus_ones?: number
           status?: Database["public"]["Enums"]["request_status"]
         }
         Update: {
@@ -300,12 +306,15 @@ export type Database = {
           decided_at?: string | null
           decided_by?: string | null
           decision_reason?: string | null
+          dedupe_key?: string | null
           email?: string | null
           event_id?: string
           full_name?: string
           id?: string
+          marketing_opt_in?: boolean
           motivation?: string | null
           phone?: string | null
+          plus_ones?: number
           status?: Database["public"]["Enums"]["request_status"]
         }
         Relationships: [
@@ -518,6 +527,27 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      landing_request_throttle: {
+        Row: {
+          ip_hash: string
+          request_count: number
+          updated_at: string
+          window_started_at: string
+        }
+        Insert: {
+          ip_hash: string
+          request_count?: number
+          updated_at?: string
+          window_started_at?: string
+        }
+        Update: {
+          ip_hash?: string
+          request_count?: number
+          updated_at?: string
+          window_started_at?: string
+        }
+        Relationships: []
       }
       quota_requests: {
         Row: {
@@ -812,7 +842,51 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      audit_feed: {
+        Row: {
+          action: string | null
+          actor_id: string | null
+          actor_name: string | null
+          created_at: string | null
+          device_id: string | null
+          diff: Json | null
+          entity_id: string | null
+          entity_type: string | null
+          event_id: string | null
+          event_name: string | null
+          guest_id: string | null
+          guest_name: string | null
+          id: string | null
+          new_tier_name: string | null
+          old_tier_name: string | null
+          subject_name: string | null
+          subject_user_id: string | null
+          venue_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_log_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audit_log_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audit_log_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       accept_pending_invites: { Args: never; Returns: number }
@@ -829,15 +903,29 @@ export type Database = {
         }[]
       }
       admin_revoke_session: { Args: { p_session_id: string }; Returns: boolean }
+      approve_guest_request: {
+        Args: { p_request_id: string; p_tier_id: string }
+        Returns: string
+      }
       approve_quota_request: {
         Args: { p_request_id: string }
         Returns: undefined
       }
       audit_changed: { Args: { p_new: Json; p_old: Json }; Returns: Json }
       can_check_in: { Args: { p_event_id: string }; Returns: boolean }
+      can_read_event_stats: { Args: { p_event_id: string }; Returns: boolean }
+      can_read_venue_stats: { Args: { p_venue_id: string }; Returns: boolean }
       can_view_profile: { Args: { p_profile_id: string }; Returns: boolean }
       can_write_guests: { Args: { p_event_id: string }; Returns: boolean }
       current_user_requires_mfa: { Args: never; Returns: boolean }
+      event_checkins_per_quarter: {
+        Args: { p_event_id: string }
+        Returns: {
+          bucket: string
+          checkins: number
+          headcount: number
+        }[]
+      }
       event_quota_status: {
         Args: { p_event_id: string }
         Returns: {
@@ -847,12 +935,55 @@ export type Database = {
           remaining: number
         }[]
       }
+      event_refusal_reasons: {
+        Args: { p_event_id: string }
+        Returns: {
+          n: number
+          reason: string
+        }[]
+      }
+      event_stats_summary: {
+        Args: { p_event_id: string }
+        Returns: {
+          attendance_pct: number
+          no_shows: number
+          peak_bucket: string
+          peak_count: number
+          present: number
+          present_headcount: number
+          refused: number
+          registered: number
+          registered_headcount: number
+        }[]
+      }
+      event_tier_stats: {
+        Args: { p_event_id: string }
+        Returns: {
+          color: string
+          present: number
+          present_headcount: number
+          registered: number
+          registered_headcount: number
+          tier_id: string
+          tier_name: string
+        }[]
+      }
       event_transition_requires_admin: {
         Args: {
           p_from: Database["public"]["Enums"]["event_status"]
           p_to: Database["public"]["Enums"]["event_status"]
         }
         Returns: boolean
+      }
+      event_user_additions: {
+        Args: { p_event_id: string }
+        Returns: {
+          added: number
+          added_headcount: number
+          full_name: string
+          present: number
+          user_id: string
+        }[]
       }
       event_venue: { Args: { p_event_id: string }; Returns: string }
       guest_event: { Args: { p_guest_id: string }; Returns: string }
@@ -904,6 +1035,19 @@ export type Database = {
       request_device_id: { Args: never; Returns: string }
       revoke_own_session: { Args: { p_session_id: string }; Returns: boolean }
       slugify: { Args: { p_text: string }; Returns: string }
+      submit_guest_request: {
+        Args: {
+          p_email: string
+          p_full_name: string
+          p_ip_hash: string
+          p_marketing_opt_in: boolean
+          p_motivation: string
+          p_phone: string
+          p_plus_ones: number
+          p_slug: string
+        }
+        Returns: string
+      }
       tier_consumption: { Args: { p_tier_id: string }; Returns: number }
       user_event_consumption: {
         Args: { p_event_id: string; p_user_id: string }
@@ -918,6 +1062,51 @@ export type Database = {
         Returns: boolean
       }
       uuid_generate_v7: { Args: never; Returns: string }
+      venue_event_rollup: {
+        Args: { p_from?: string; p_to?: string; p_venue_id: string }
+        Returns: {
+          attendance_pct: number
+          event_id: string
+          name: string
+          present: number
+          present_headcount: number
+          refused: number
+          registered: number
+          registered_headcount: number
+          starts_at: string
+          status: Database["public"]["Enums"]["event_status"]
+        }[]
+      }
+      venue_refusal_reasons: {
+        Args: { p_from?: string; p_to?: string; p_venue_id: string }
+        Returns: {
+          n: number
+          reason: string
+        }[]
+      }
+      venue_stats_summary: {
+        Args: { p_from?: string; p_to?: string; p_venue_id: string }
+        Returns: {
+          attendance_pct: number
+          events: number
+          no_shows: number
+          present: number
+          present_headcount: number
+          refused: number
+          registered: number
+          registered_headcount: number
+        }[]
+      }
+      venue_user_additions: {
+        Args: { p_from?: string; p_to?: string; p_venue_id: string }
+        Returns: {
+          added: number
+          added_headcount: number
+          full_name: string
+          present: number
+          user_id: string
+        }[]
+      }
     }
     Enums: {
       event_status: "draft" | "open" | "live" | "closed"
