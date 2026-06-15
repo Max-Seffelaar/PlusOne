@@ -45,6 +45,14 @@ export async function getMyMemberships(): Promise<Membership[]> {
   }));
 }
 
+// Venues where the caller may see reports & the audit log: admin or finance
+// (spec §2 — "Statistieken & rapportages", "Audit log inzien"). Drives the
+// admin analytics screens and their venue switcher; Finance is read-only.
+export async function getReportingVenues(): Promise<Membership[]> {
+  const mine = await getMyMemberships();
+  return mine.filter((m) => m.roles.includes('admin') || m.roles.includes('finance'));
+}
+
 // Members of a venue (RLS: admin/user_manager/finance may read these).
 export async function getVenueMembers(venueId: string): Promise<VenueMember[]> {
   const supabase = await createClient();
