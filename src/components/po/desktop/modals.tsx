@@ -16,6 +16,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { usePoEvents, usePoTiers, useSession } from '@/features/po/PoLiveProvider';
 import { usePoDoor, type PoDoorState } from '@/features/po/door-live';
+import { doorSnapshotKey } from '@/features/door/queries';
 import {
   createEvent,
   createTier,
@@ -507,7 +508,7 @@ export function EventDetailModal({ event, onClose }: { event: PoEvent; onClose: 
         </TabBtn>
       </div>
 
-      {tab === 'door' ? <DoorRoster door={door} /> : <EventEditFields event={event} onClose={onClose} />}
+      {tab === 'door' ? <DoorRoster door={door} eventId={event.id} /> : <EventEditFields event={event} onClose={onClose} />}
     </DModal>
   );
 }
@@ -535,10 +536,79 @@ function TabBtn({ on, onClick, icon, children }: { on: boolean; onClick: () => v
   );
 }
 
+/** Inline quick-add inside the event detail: add a guest straight to THIS event
+ *  (no event picker). Reuses the same #33 parser + addGuest action as the New
+ *  Guest modal; an ambiguous tier word is auto-folded into the name here. */
+function InlineAddGuest({ eventId }: { eventId: string }): JSX.Element {
+  const qc = useQueryClient();
+  const { tiers } = usePoTiers(eventId);
+  const [val, setVal] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [added, setAdded] = useState<string[]>([]);
+
+  const tierList = useMemo(() => tiers.map((t) => ({ id: t.id, name: t.name, aliases: t.aliases })), [tiers]);
+  const defaultTierId = useMemo(() => resolveDefaultTierId(tierList), [tierList]);
+  const parsed = useMemo<ParseResult | null>(() => {
+    if (!val.trim() || !defaultTierId || tierList.length === 0) return null;
+    return parseQuickAddLive(val, tierList, defaultTierId);
+  }, [val, tierList, defaultTierId]);
+  const canAdd = Boolean(parsed && defaultTierId) && !busy;
+
+  async function commit(): Promise<void> {
+    if (!parsed || !defaultTierId || busy) return;
+    setBusy(true);
+    setErr(null);
+    const resolved =
+      parsed.status === 'ambiguous'
+        ? resolveAmbiguity(parsed, { kind: 'name' } as const, defaultTierId)
+        : { name: parsed.name, plusOnes: parsed.plusOnes, tierId: parsed.tierId ?? defaultTierId };
+    const res = await addGuest({ eventId, tierId: resolved.tierId, fullName: resolved.name, plusOnes: resolved.plusOnes, source: 'app' });
+    setBusy(false);
+    if (!res.ok) {
+      setErr(res.message);
+      return;
+    }
+    setAdded((a) => [resolved.name, ...a].slice(0, 4));
+    setVal('');
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ['po', 'events'] }),
+      qc.invalidateQueries({ queryKey: doorSnapshotKey(eventId) }),
+      qc.invalidateQueries({ queryKey: ['po', 'tiers', eventId] }),
+    ]);
+  }
+
+  return (
+    <div className="mb-3 rounded-[14px] border border-line bg-elev2 p-3">
+      <DFieldLabel>Gast toevoegen</DFieldLabel>
+      {tierList.length === 0 ? (
+        <p className="text-[12.5px] text-faint">Maak eerst een tier aan (tab Bewerken) om gasten te kunnen toevoegen.</p>
+      ) : (
+        <>
+          <div className="flex items-center gap-2">
+            <DInput value={val} onChange={(v) => { setVal(v); setErr(null); }} onEnter={commit} placeholder={'bv. "Juri Braakman +2 vip"'} className="flex-1" />
+            <DBtn sm icon="plus" onClick={commit} className={canAdd ? '' : 'opacity-50'}>
+              {busy ? '…' : 'Toevoegen'}
+            </DBtn>
+          </div>
+          {parsed && (
+            <div className="mt-1.5 text-[12px] text-faint">
+              → {parsed.name || '—'}
+              {parsed.plusOnes > 0 ? ` +${parsed.plusOnes}` : ''}
+            </div>
+          )}
+          {err && <p className="mt-1.5 text-[12.5px] text-acc-soft">{err}</p>}
+          {added.length > 0 && <div className="mt-1.5 text-[12px] font-bold text-acc">Toegevoegd: {added.join(', ')}</div>}
+        </>
+      )}
+    </div>
+  );
+}
+
 /** Live door roster: local search + per-guest quick check-in. Check-in routes
  *  through the shared `usePoDoor` outbox (idempotent UUIDv7 upsert, #25), exactly
  *  like the mobile Deur screen — colleague check-ins land via realtime. */
-function DoorRoster({ door }: { door: PoDoorState }): JSX.Element {
+function DoorRoster({ door, eventId }: { door: PoDoorState; eventId: string }): JSX.Element {
   const [q, setQ] = useState('');
   const [detailId, setDetailId] = useState<string | null>(null);
 
@@ -560,6 +630,7 @@ function DoorRoster({ door }: { door: PoDoorState }): JSX.Element {
 
   return (
     <div>
+      <InlineAddGuest eventId={eventId} />
       <DInput value={q} onChange={setQ} placeholder="Zoek gast…" className="mb-3" />
 
       {door.isLoading && door.guests.length === 0 && <p className="py-3 text-[13px] text-faint">Laden…</p>}
