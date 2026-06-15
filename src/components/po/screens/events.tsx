@@ -5,9 +5,9 @@ import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { events, guests, recap, stats } from '@/lib/po/data';
-import type { PoEvent } from '@/lib/po/types';
+import type { PoEvent, Tier } from '@/lib/po/types';
 import { usePoEvents, usePoTiers, useSession } from '@/features/po/PoLiveProvider';
-import { createEvent, createTier, updateEvent } from '@/features/events/actions';
+import { createEvent, createTier, deleteTier, updateEvent, updateTier } from '@/features/events/actions';
 import { useNav, usePo } from '../context';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Btn, Field, IconBtn, Label, MiniChip, Note, RoleChip, Scroll, ToggleRow, Top } from '../kit';
@@ -327,51 +327,112 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
   const qc = useQueryClient();
   const { tiers: liveTiers, isLoading } = usePoTiers(eventId);
   const [adding, setAdding] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
   const [nm, setNm] = useState('');
   const [color, setColor] = useState('#9DE0C0');
   const [max, setMax] = useState('');
-  const [price, setPrice] = useState('');
   const [aliasText, setAliasText] = useState('');
+  const [aliasAuto, setAliasAuto] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const colors = ['#B5A6FF', '#9DE0C0', '#E8C98A', '#9FB8E8', '#E89AC0', '#8E8E93'];
 
-  async function createNewTier(): Promise<void> {
+  const open = adding || editId !== null;
+
+  // "Best guess" alias from the name (first word) so a new tier is immediately
+  // matchable by the quick-add — auto-filled until the user edits aliases.
+  const guessAlias = (name: string): string =>
+    name.toLowerCase().split(/[^a-z0-9]+/i).filter(Boolean)[0] ?? '';
+  const onName = (v: string): void => {
+    setNm(v);
+    if (aliasAuto) setAliasText(guessAlias(v));
+  };
+  const onAlias = (v: string): void => {
+    setAliasText(v);
+    setAliasAuto(false);
+  };
+
+  function reset(): void {
+    setNm('');
+    setColor('#9DE0C0');
+    setMax('');
+    setAliasText('');
+    setAliasAuto(true);
+    setErr(null);
+  }
+  function startNew(): void {
+    reset();
+    setEditId(null);
+    setAdding(true);
+  }
+  function startEdit(t: Tier): void {
+    setNm(t.name);
+    setColor(t.color);
+    setMax(t.max != null ? String(t.max) : '');
+    setAliasText(t.aliases.join(', '));
+    setAliasAuto(false);
+    setErr(null);
+    setAdding(false);
+    setEditId(t.id);
+  }
+  function closeForm(): void {
+    setAdding(false);
+    setEditId(null);
+    reset();
+  }
+
+  async function saveTier(): Promise<void> {
     if (!eventId || !nm.trim() || busy) return;
     setBusy(true);
     setErr(null);
-    const aliases = aliasText
+    let aliases = aliasText
       .split(',')
       .map((a) => a.trim())
       .filter(Boolean);
-    const res = await createTier({
-      eventId,
-      name: nm,
-      color,
-      maxGuests: max.trim() ? Number(max) : null,
-      aliases,
-    });
+    if (aliases.length === 0) {
+      const g = guessAlias(nm);
+      if (g) aliases = [g];
+    }
+    const maxGuests = max.trim() ? Number(max) : null;
+    const res = editId
+      ? await updateTier({ tierId: editId, name: nm, color, maxGuests, aliases })
+      : await createTier({ eventId, name: nm, color, maxGuests, aliases });
     setBusy(false);
     if (!res.ok) {
       setErr(res.message);
       return;
     }
     await qc.invalidateQueries({ queryKey: ['po', 'tiers', eventId] });
-    setNm('');
-    setMax('');
-    setPrice('');
-    setAliasText('');
-    setAdding(false);
+    closeForm();
+  }
+
+  async function removeTier(): Promise<void> {
+    if (!editId || busy) return;
+    setBusy(true);
+    setErr(null);
+    const res = await deleteTier(editId);
+    setBusy(false);
+    if (!res.ok) {
+      setErr(res.message);
+      return;
+    }
+    await qc.invalidateQueries({ queryKey: ['po', 'tiers', eventId] });
+    closeForm();
   }
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Tiers & aliassen" sub={`${liveTiers.length} tiers`} right={<IconBtn name={adding ? 'close' : 'plus'} onClick={() => setAdding((a) => !a)} />} />
-      <Scroll bottom={adding ? 120 : 24}>
-        {adding && (
+      <Top
+        onBack={nav.back}
+        title="Tiers & aliassen"
+        sub={`${liveTiers.length} tiers`}
+        right={<IconBtn name={open ? 'close' : 'plus'} onClick={() => (open ? closeForm() : startNew())} />}
+      />
+      <Scroll bottom={open ? 150 : 24}>
+        {open && (
           <div className="mb-[14px] rounded-[18px] border border-acc bg-elev p-4">
-            <Label className="mb-[10px]">Nieuwe tier</Label>
-            <Field placeholder="Naam, bv. “Backstage”" value={nm} onChange={setNm} autoFocus className="mb-3" />
+            <Label className="mb-[10px]">{editId ? 'Tier bewerken' : 'Nieuwe tier'}</Label>
+            <Field placeholder="Naam, bv. “Backstage”" value={nm} onChange={onName} autoFocus className="mb-3" />
             <Label className="mb-2">Kleur</Label>
             <div className="mb-[14px] flex gap-[9px]">
               {colors.map((c) => (
@@ -385,18 +446,10 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
                 />
               ))}
             </div>
-            <div className="mb-[14px] flex gap-[10px]">
-              <div className="flex-1">
-                <Label className="mb-2">Max (optioneel)</Label>
-                <Field placeholder="∞" value={max} onChange={setMax} inputMode="numeric" />
-              </div>
-              <div className="flex-1">
-                <Label className="mb-2">Deurprijs €</Label>
-                <Field placeholder="0" value={price} onChange={setPrice} inputMode="numeric" />
-              </div>
-            </div>
+            <Label className="mb-2">Max gasten (optioneel)</Label>
+            <Field placeholder="∞" value={max} onChange={setMax} inputMode="numeric" className="mb-[14px]" />
             <Label className="mb-2">Aliassen · voeden de quick-add</Label>
-            <Field icon="spark" placeholder="backstage, bs, prod…" value={aliasText} onChange={setAliasText} />
+            <Field icon="spark" placeholder="backstage, bs, prod…" value={aliasText} onChange={onAlias} />
             {aliasText.trim() && (
               <div className="mt-[10px] flex flex-wrap gap-1.5">
                 {aliasText
@@ -411,28 +464,39 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
               </div>
             )}
             {err && <p className="mt-3 text-[13px] text-acc-soft">{err}</p>}
+            {editId && (
+              <button
+                type="button"
+                onClick={removeTier}
+                disabled={busy}
+                className="mt-[14px] w-full rounded-[12px] border border-line bg-transparent py-[11px] font-body text-[13.5px] font-bold text-faint transition-colors hover:text-acc-soft disabled:opacity-50"
+              >
+                Tier verwijderen
+              </button>
+            )}
           </div>
         )}
         <Note icon="spark">Aliassen bepalen wat de quick-add herkent. “fles” of “champagne” → VIP. Onbekende woorden vraagt de app na — nooit stil naar Regular.</Note>
-        {isLoading && liveTiers.length === 0 && (
-          <p className="px-1 py-4 text-[13px] text-dim">Laden…</p>
-        )}
-        {!isLoading && liveTiers.length === 0 && !adding && (
+        {isLoading && liveTiers.length === 0 && <p className="px-1 py-4 text-[13px] text-dim">Laden…</p>}
+        {!isLoading && liveTiers.length === 0 && !open && (
           <p className="px-1 py-4 text-[13px] text-dim">Nog geen tiers — tik op + om er een toe te voegen.</p>
         )}
         <div className="flex flex-col gap-[11px]">
           {liveTiers.map((t) => (
-            <div key={t.id} className="rounded-[18px] border border-line bg-elev p-[15px]">
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => startEdit(t)}
+              className={cn('rounded-[18px] border bg-elev p-[15px] text-left', editId === t.id ? 'border-acc' : 'border-line', cardPress)}
+            >
               <div className="mb-3 flex items-center gap-[11px]">
                 <span className="h-[14px] w-[14px] shrink-0 rounded-full" style={{ background: t.color }} />
                 <div className="min-w-0 flex-1">
                   <div className="font-display text-[15.5px] font-bold text-text">{t.name}</div>
-                  <div className="mt-px text-[12px] text-faint">
-                    {t.max ? `${t.used} / ${t.max} gebruikt` : `${t.used} · geen max`}
-                    {t.doorPrice > 0 && ` · € ${t.doorPrice} aan de deur`}
-                  </div>
+                  <div className="mt-px text-[12px] text-faint">{t.max ? `${t.used} / ${t.max} gebruikt` : `${t.used} · geen max`}</div>
                 </div>
                 {t.isDefault && <MiniChip>STANDAARD</MiniChip>}
+                <Icon name="chev" size={16} className="text-ghost" />
               </div>
               {t.max && (
                 <div className="mb-3 h-[6px] overflow-hidden rounded-[4px] bg-elev2">
@@ -441,31 +505,21 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
               )}
               <Label className="mb-2">Aliassen</Label>
               <div className="flex flex-wrap gap-1.5">
+                {t.aliases.length === 0 && <span className="text-[12px] text-faint">— nog geen alias</span>}
                 {t.aliases.map((a) => (
                   <span key={a} className="inline-flex items-center gap-[5px] rounded-[8px] border border-line bg-elev2 px-[9px] py-[5px] font-mono text-[12px] text-dim">
                     {a}
                   </span>
                 ))}
-                <button type="button" className="inline-flex items-center gap-1 rounded-[8px] border border-dashed border-line bg-transparent px-[9px] py-[5px] font-body text-[12px] text-faint">
-                  <Icon name="plus" size={12} sw={2.4} />
-                  alias
-                </button>
               </div>
-              {t.doorPrice > 0 && (
-                <div className="mt-3 flex items-center gap-2 border-t border-line2 pt-3">
-                  <Icon name="money" size={16} className="text-faint" />
-                  <span className="flex-1 text-[13px] text-dim">Deurprijs</span>
-                  <span className="font-display font-bold text-text">€ {t.doorPrice}</span>
-                </div>
-              )}
-            </div>
+            </button>
           ))}
         </div>
       </Scroll>
-      {adding && (
+      {open && (
         <BottomBar>
-          <Btn kind="primary" full icon="check" onClick={createNewTier} className={nm.trim() && !busy ? '' : 'opacity-50'}>
-            {busy ? 'Bezig…' : 'Tier aanmaken'}
+          <Btn kind="primary" full icon="check" onClick={saveTier} className={nm.trim() && !busy ? '' : 'opacity-50'}>
+            {busy ? 'Bezig…' : editId ? 'Opslaan' : 'Tier aanmaken'}
           </Btn>
         </BottomBar>
       )}

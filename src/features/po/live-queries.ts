@@ -70,7 +70,7 @@ export async function fetchPoSession(client: Client): Promise<PoSession | null> 
   const planByVenue = new Map((subs ?? []).map((s) => [s.venue_id, s.status]));
 
   const venues: Venue[] = (memberships ?? [])
-    .map((m, i): Venue | null => {
+    .map((m): Venue | null => {
       const v = m.venue as { id: string; name: string } | null;
       if (!v) return null;
       const status = planByVenue.get(v.id) ?? '';
@@ -81,10 +81,13 @@ export async function fetchPoSession(client: Client): Promise<PoSession | null> 
         plan: PLAN_LABEL[status] ?? '—',
         roles: (m.roles ?? []).map((r) => ROLE_LABEL[r] ?? r),
         events: 0,
-        current: i === 0,
+        current: false,
       };
     })
-    .filter((v): v is Venue => v !== null);
+    .filter((v): v is Venue => v !== null)
+    // Deterministic order so the default venue is stable across logins.
+    .sort((a, b) => a.name.localeCompare(b.name, 'nl'));
+  if (venues[0]) venues[0].current = true;
 
   const profile: PoProfile = {
     id: user.id,
