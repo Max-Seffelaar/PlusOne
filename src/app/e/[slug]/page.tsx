@@ -1,20 +1,55 @@
 import type { Metadata } from 'next';
-import { events } from '@/lib/po/data';
-import { DEMO_EVENT, LandingForm, type LandingEvent } from '@/components/po/landing';
+import { createClient } from '@/lib/supabase/server';
+import { submitGuestRequest } from '@/features/requests/actions';
+import { LandingForm, LandingClosed, type LandingEvent } from '@/components/po/landing';
 
 export const metadata: Metadata = {
   title: 'Zet jezelf op de lijst · PLUSONE',
-  robots: { index: false },
+  // Per-event request links are private; never index them.
+  robots: { index: false, follow: false },
 };
 
-/** Mock resolver: map a landing slug (e.g. `frenzy-x4k9`) to an event. */
-function resolveEvent(slug: string): LandingEvent {
-  const id = slug.split('-')[0];
-  const e = events.find((ev) => ev.id === id);
-  return e ? { ...DEMO_EVENT, name: e.name, venue: e.venue, time: e.time } : DEMO_EVENT;
-}
+const dateFmt = new Intl.DateTimeFormat('nl-NL', {
+  weekday: 'short',
+  day: 'numeric',
+  month: 'short',
+  timeZone: 'Europe/Amsterdam',
+});
+const timeFmt = new Intl.DateTimeFormat('nl-NL', {
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZone: 'Europe/Amsterdam',
+});
 
-export default async function LandingPage({ params }: { params: Promise<{ slug: string }> }): Promise<JSX.Element> {
+/**
+ * Public per-event landing page (#12/#28). Resolves the event through the anon
+ * RLS boundary: events_select_landing only returns it while landing_active and
+ * status<>'closed'. A null result therefore covers "unknown slug" and
+ * "deactivated link" identically → the closed page leaks nothing (no
+ * enumeration). The form posts to the rate-limited submit_guest_request action.
+ */
+export default async function LandingPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<JSX.Element> {
   const { slug } = await params;
-  return <LandingForm event={resolveEvent(slug)} />;
+  const supabase = await createClient();
+
+  const { data: event } = await supabase
+    .from('events')
+    .select('id, name, starts_at')
+    .eq('landing_slug', slug)
+    .maybeSingle();
+
+  if (!event) return <LandingClosed />;
+
+  const starts = new Date(event.starts_at);
+  const display: LandingEvent = {
+    name: event.name,
+    date: dateFmt.format(starts),
+    time: timeFmt.format(starts),
+  };
+
+  return <LandingForm event={display} slug={slug} action={submitGuestRequest} />;
 }

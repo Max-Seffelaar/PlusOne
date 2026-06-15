@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
@@ -101,7 +102,17 @@ export default async function GuestsPage({ params }: { params: Promise<{ eventId
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-6 p-4 sm:p-6">
       <header className="flex flex-col gap-1">
-        <h1 className="font-display text-2xl font-bold">{event.name}</h1>
+        <div className="flex items-center justify-between gap-2">
+          <h1 className="font-display text-2xl font-bold">{event.name}</h1>
+          {(isAdmin || isOrganizer) && (
+            <Link
+              href={`/events/${eventId}/requests`}
+              className="text-dim hover:text-text text-sm transition-colors"
+            >
+              Aanvragen →
+            </Link>
+          )}
+        </div>
         <p className="text-sm text-dim">Gastenlijst · status {event.status}</p>
       </header>
 

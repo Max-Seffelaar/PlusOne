@@ -1,0 +1,19 @@
+/* Sizing for the bundled react-phone-number-input SVG flags. They carry only a
+   viewBox, so we size + clip them via the .po-flag wrapper. SVG (not emoji)
+   renders identically on every OS — the emoji-flag fallback is what showed bare
+   "NL" text on Windows. */
+.po-flag {
+  display: inline-flex;
+  height: 14px;
+  width: 19px;
+  flex: none;
+  overflow: hidden;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+.po-flag svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
