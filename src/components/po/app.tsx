@@ -146,8 +146,12 @@ function PlusOneAppInner(): JSX.Element {
   // live right now (accent = status 'live'), else the next upcoming, else the
   // first known event. `undefined` only when the venue has no events at all, in
   // which case the door screens fall back to their mock/empty state.
+  const doorOpen = liveEvents.filter((e) => e.status !== 'draft');
   const doorEventId: string | undefined =
-    liveEvents.find((e) => e.accent)?.id ?? liveEvents.find((e) => e.when === 'upcoming')?.id ?? liveEvents[0]?.id;
+    doorOpen.find((e) => e.accent)?.id ??
+    doorOpen.find((e) => e.when === 'upcoming')?.id ??
+    doorOpen[0]?.id ??
+    liveEvents[0]?.id;
 
   const top = stack[stack.length - 1];
   const tabRoot = started && stack.length === 0;

@@ -33,6 +33,8 @@ export interface PoEvent {
   /** Raw timestamps when sourced from live data — used to pre-fill edit forms. */
   startsAtISO?: string;
   endsAtISO?: string | null;
+  /** Raw event_status when live ('draft'|'open'|'live'|'closed') — for door targeting. */
+  status?: string;
 }
 
 export interface Guest {

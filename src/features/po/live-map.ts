@@ -78,6 +78,7 @@ export function toPoEvent(
     when: endRef.getTime() < now.getTime() ? 'past' : 'upcoming',
     startsAtISO: e.starts_at,
     endsAtISO: e.ends_at,
+    status: e.status,
   };
 }
 
