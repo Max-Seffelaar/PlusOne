@@ -133,6 +133,27 @@ describe('describeAuditEntry', () => {
     expect(line.text).toBe('wijzigde de rollen van Lisa (staff → staff, doorhost)');
   });
 
+  it('describes a landing-page request decision (#12)', () => {
+    const approve = describeAuditEntry(
+      row({
+        entity_type: 'guest_requests',
+        action: 'approve',
+        guest_name: null,
+        diff: { before: { status: 'pending', full_name: 'Mara Visser' }, after: { status: 'approved', full_name: 'Mara Visser' } },
+      })
+    );
+    expect(approve.text).toBe('keurde de landingpage-aanvraag van Mara Visser goed');
+    const deny = describeAuditEntry(
+      row({
+        entity_type: 'guest_requests',
+        action: 'deny',
+        guest_name: null,
+        diff: { before: { full_name: 'Mara Visser' }, after: { full_name: 'Mara Visser', decision_reason: 'Vol' } },
+      })
+    );
+    expect(deny.text).toBe('wees de landingpage-aanvraag van Mara Visser af — Vol');
+  });
+
   it('describes lock / unlock', () => {
     expect(describeAuditEntry(row({ entity_type: 'events', action: 'lock', guest_name: null })).text).toBe(
       'vergrendelde de gastenlijst'

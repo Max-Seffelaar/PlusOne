@@ -150,6 +150,25 @@ function phrase(row: AuditFeedRow): { text: string; entity: string } {
       }
     }
 
+    case 'guest_requests': {
+      // Landing-page request decisions (#12). The requester is free-text on the
+      // request, not a user_profile, so read the name straight from the diff.
+      const name = str(after?.full_name) ?? str(before?.full_name) ?? 'een aanvraag';
+      switch (action) {
+        case 'approve':
+          return { text: `keurde de landingpage-aanvraag van ${name} goed`, entity: name };
+        case 'deny': {
+          const reason = str(after?.decision_reason);
+          return {
+            text: `wees de landingpage-aanvraag van ${name} af${reason ? ` — ${reason}` : ''}`,
+            entity: name,
+          };
+        }
+        default:
+          return { text: `wijzigde de landingpage-aanvraag van ${name}`, entity: name };
+      }
+    }
+
     case 'venue_memberships': {
       const roles = roleList(after?.roles);
       const oldRoles = roleList(before?.roles);
