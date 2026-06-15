@@ -47,8 +47,8 @@ select is(public.user_event_consumption(
   'ee000000-0000-7000-8000-000000000001', '66666666-6666-4666-8666-666666666666'), 2,
   '1.4 Lisa consumes 2 (door-add Joep +1)');
 select is(public.user_event_quota(
-  'ee000000-0000-7000-8000-000000000001', '22222222-2222-4222-8222-222222222222'), 0,
-  '1.5 user with no quota row at all resolves to 0');
+  'ee000000-0000-7000-8000-000000000001', '22222222-2222-4222-8222-222222222222'), 5,
+  '1.5 no per-user quota row -> venue default_personal_quota (Club Vesper 5, #22)');
 select is(public.user_is_quota_exempt(
   'ee000000-0000-7000-8000-000000000001', '11111111-1111-4111-8111-111111111111'), true,
   '1.6 admin is quota-exempt');
