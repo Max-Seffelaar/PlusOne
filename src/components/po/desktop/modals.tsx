@@ -21,6 +21,7 @@ import {
   createEvent,
   createTier,
   deleteTier,
+  duplicateEvent,
   updateEvent,
   updateTier,
 } from '@/features/events/actions';
@@ -589,12 +590,15 @@ type DetailTab = 'door' | 'edit' | 'quota';
  *  (basics + tiers). Mirrors the mobile EventView + EventEdit, tabbed for desktop.
  *  Check-in is real; "uitchecken" (void) isn't in the live model yet — we never
  *  fake it (see backlog). */
-export function EventDetailModal({ event, onClose }: { event: PoEvent; onClose: () => void }): JSX.Element {
+export function EventDetailModal({ event, onClose, onDuplicated }: { event: PoEvent; onClose: () => void; onDuplicated?: (newId: string) => void }): JSX.Element {
+  const qc = useQueryClient();
   const door = usePoDoor(event.id);
   // Land on the live-ops tab unless there's nothing to run yet (draft/past).
   const [tab, setTab] = useState<DetailTab>(
     event.when === 'past' || event.status === 'draft' ? 'edit' : 'door',
   );
+  const [dupBusy, setDupBusy] = useState(false);
+  const [dupErr, setDupErr] = useState<string | null>(null);
 
   const listed = door.guests.length;
   const inside = door.inside.size;
@@ -605,6 +609,24 @@ export function EventDetailModal({ event, onClose }: { event: PoEvent; onClose: 
       0,
     );
 
+  // Duplicate this event as a fresh draft (basics + tiers, no guests) and jump
+  // straight into the copy's detail — same create→detail flow as a new event.
+  async function duplicate(): Promise<void> {
+    if (dupBusy) return;
+    setDupBusy(true);
+    setDupErr(null);
+    const res = await duplicateEvent(event.id);
+    if (!res.ok) {
+      setDupBusy(false);
+      setDupErr(res.message);
+      return;
+    }
+    await qc.invalidateQueries({ queryKey: ['po', 'events'] });
+    setDupBusy(false);
+    if (onDuplicated) onDuplicated(res.id);
+    else onClose();
+  }
+
   return (
     <DModal
       title={event.name}
@@ -612,11 +634,18 @@ export function EventDetailModal({ event, onClose }: { event: PoEvent; onClose: 
       onClose={onClose}
       width={680}
       footer={
-        <DBtn kind="ghost" icon="close" onClick={onClose}>
-          Sluiten
-        </DBtn>
+        <>
+          <DBtn kind="ghost" icon="paste" onClick={duplicate} className={dupBusy ? 'pointer-events-none opacity-50' : ''}>
+            {dupBusy ? 'Bezig…' : 'Dupliceer'}
+          </DBtn>
+          <DBtn kind="ghost" icon="close" onClick={onClose}>
+            Sluiten
+          </DBtn>
+        </>
       }
     >
+      {dupErr && <p className="mb-3 text-[12.5px] text-acc-soft">{dupErr}</p>}
+
       {/* Live KPI band — always visible: the numbers Max wants in his face on the night. */}
       <div className="mb-5 grid grid-cols-3 gap-3">
         <KpiCell label="Onderweg" value={onderweg} />

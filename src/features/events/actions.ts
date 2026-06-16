@@ -71,6 +71,70 @@ export async function createEvent(input: CreateEventInput): Promise<CreateResult
   return { ok: true, id: data.id };
 }
 
+/**
+ * Duplicate an event as a fresh draft (event-template, #recurring nights). Copies
+ * the basics + the whole tier setup (names/aliases/caps — the reusable part) but
+ * NEVER the guests or check-ins. The copy lands as a draft with the landing page
+ * off and a new slug; lock/live state is reset. All reads + writes go through the
+ * user-scoped client so RLS (admin/organizer at the venue, #6/#24) gates it, and
+ * the audit triggers record the new event + tiers.
+ */
+export async function duplicateEvent(eventId: string): Promise<CreateResult> {
+  if (!uuidRe.test(eventId)) return invalidInput();
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return unauthorized();
+
+  // Source basics (RLS: the caller can only read events in their own venues).
+  const { data: src, error: srcErr } = await supabase
+    .from('events')
+    .select('venue_id, name, starts_at, ends_at')
+    .eq('id', eventId)
+    .single();
+  if (srcErr || !src) return mapMutationError(srcErr);
+
+  const copyName = `${src.name} (kopie)`;
+  const { data: created, error: createErr } = await supabase
+    .from('events')
+    .insert({
+      venue_id: src.venue_id,
+      name: copyName,
+      starts_at: src.starts_at,
+      ends_at: src.ends_at,
+      landing_slug: landingSlug(copyName),
+      landing_active: false,
+    })
+    .select('id')
+    .single();
+  if (createErr || !created) return mapMutationError(createErr);
+
+  // Clone the tier setup. Best-effort: if this fails the draft event still
+  // exists (tiers can be re-added by hand), so we don't fail the whole copy —
+  // unique (event_id, name) can't collide since the new event has no tiers yet.
+  const { data: tiers } = await supabase
+    .from('guest_tiers')
+    .select('name, description, color, max_guests, aliases')
+    .eq('event_id', eventId);
+  if (tiers && tiers.length > 0) {
+    await supabase.from('guest_tiers').insert(
+      tiers.map((t) => ({
+        event_id: created.id,
+        name: t.name,
+        description: t.description,
+        color: t.color,
+        max_guests: t.max_guests,
+        aliases: t.aliases ?? [],
+      }))
+    );
+  }
+
+  revalidatePath('/dashboard');
+  return { ok: true, id: created.id };
+}
+
 /** Edit event basics. List-lock has its own action (audited separately, #23). */
 export async function updateEvent(input: UpdateEventInput): Promise<ActionResult> {
   const parsed = updateEventSchema.safeParse(input);

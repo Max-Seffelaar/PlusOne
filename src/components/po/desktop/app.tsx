@@ -194,11 +194,11 @@ interface ViewMeta {
 
 /** Resolves the clicked event id (from the Events view) to the live PoEvent so
  *  the detail modal always edits fresh data, then drops it if the row vanishes. */
-function EventDetailHost({ eventId, onClose }: { eventId: string; onClose: () => void }): JSX.Element | null {
+function EventDetailHost({ eventId, onClose, onOpen }: { eventId: string; onClose: () => void; onOpen: (id: string) => void }): JSX.Element | null {
   const { events } = usePoEvents();
   const event: PoEvent | undefined = events.find((e) => e.id === eventId);
   if (!event) return null;
-  return <EventDetailModal event={event} onClose={onClose} />;
+  return <EventDetailModal event={event} onClose={onClose} onDuplicated={onOpen} />;
 }
 
 function DesktopAppInner(): JSX.Element {
@@ -264,7 +264,7 @@ function DesktopAppInner(): JSX.Element {
       )}
       {overlay === 'newGuest' && <NewGuestModal onClose={() => setOverlay(null)} />}
       {overlay === 'newUser' && <NewUserModal onClose={() => setOverlay(null)} />}
-      {selectedEventId && <EventDetailHost eventId={selectedEventId} onClose={() => setSelectedEventId(null)} />}
+      {selectedEventId && <EventDetailHost eventId={selectedEventId} onClose={() => setSelectedEventId(null)} onOpen={setSelectedEventId} />}
     </div>
   );
 }
