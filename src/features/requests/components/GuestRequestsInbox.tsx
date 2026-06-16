@@ -10,6 +10,7 @@ export interface PendingGuestRequest {
   phone: string | null;
   plusOnes: number;
   motivation: string | null;
+  birthdate: string | null;
   createdAt: string;
 }
 
@@ -110,6 +111,11 @@ function RequestRow({
         </span>
       </div>
       {contact && <p className="text-sm text-dim">{contact}</p>}
+      {request.birthdate && (
+        <p className="text-sm text-faint">
+          Geb. {new Date(request.birthdate).toLocaleDateString('nl-NL')}
+        </p>
+      )}
       {request.motivation && <p className="text-sm text-dim">“{request.motivation}”</p>}
 
       {denying ? (
