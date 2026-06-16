@@ -5,7 +5,7 @@
  * survives a reload.
  */
 
-export type OutboxKind = 'check_in' | 'refusal' | 'add_guest' | 'ack_note' | 'set_arrival';
+export type OutboxKind = 'check_in' | 'refusal' | 'add_guest' | 'ack_note' | 'set_arrival' | 'void_check_in';
 
 /**
  * pending  — queued, not yet sent (or a transient failure to retry)
@@ -55,6 +55,14 @@ export interface SetArrivalPayload {
   plusOnesArrived: number;
 }
 
+/** Undo a mistaken check-in (correctie aan de deur). Deletes the guest's
+ *  check_ins row so they return to "onderweg"; idempotent (a re-replay deletes
+ *  nothing). Always allowed for door staff, audited as a 'delete' (decision: Max,
+ *  16 jun). */
+export interface VoidCheckInPayload {
+  guestId: string;
+}
+
 interface OutboxBase {
   /** Unique per outbox entry. */
   clientId: string;
@@ -71,7 +79,8 @@ export type OutboxEntry =
   | (OutboxBase & { kind: 'refusal'; payload: RefusalPayload })
   | (OutboxBase & { kind: 'add_guest'; payload: AddGuestPayload })
   | (OutboxBase & { kind: 'ack_note'; payload: AckNotePayload })
-  | (OutboxBase & { kind: 'set_arrival'; payload: SetArrivalPayload });
+  | (OutboxBase & { kind: 'set_arrival'; payload: SetArrivalPayload })
+  | (OutboxBase & { kind: 'void_check_in'; payload: VoidCheckInPayload });
 
 /** Entries the automatic drainer attempts (transient failures fall back to 'pending'). */
 export function isPending(e: OutboxEntry): boolean {

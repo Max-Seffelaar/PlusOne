@@ -98,6 +98,11 @@ export async function replayEntry(
       const { error } = await gw.updateArrival(p.guestId, p.plusOnesArrived);
       return classifyError(error);
     }
+    case 'void_check_in': {
+      const p = entry.payload;
+      const { error } = await gw.voidCheckIn(p.guestId);
+      return classifyError(error);
+    }
   }
 }
 

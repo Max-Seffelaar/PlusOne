@@ -693,8 +693,7 @@ type DetailTab = 'door' | 'edit' | 'quota';
 /** Event detail = the event-day command centre (#3): a live KPI band + a "Deur"
  *  tab (search + real quick check-in via the offline outbox) + a "Bewerken" tab
  *  (basics + tiers). Mirrors the mobile EventView + EventEdit, tabbed for desktop.
- *  Check-in is real; "uitchecken" (void) isn't in the live model yet — we never
- *  fake it (see backlog). */
+ *  Check-in and "uitchecken" (void, in the guest detail) are both real outbox ops. */
 export function EventDetailModal({ event, onClose, onDuplicated }: { event: PoEvent; onClose: () => void; onDuplicated?: (newId: string) => void }): JSX.Element {
   const qc = useQueryClient();
   const door = usePoDoor(event.id);
@@ -1060,8 +1059,9 @@ function DoorRoster({ door, eventId }: { door: PoDoorState; eventId: string }): 
 
 /** Desktop guest detail (click a roster row): info + note/task ack + a quantity-
  *  capped check-in — the desktop counterpart of the mobile Guest screen. The
- *  count caps at 1 + plus_ones (edit the order to change that). "Uitchecken"/void
- *  is not in the live model and is intentionally absent. */
+ *  count caps at 1 + plus_ones (edit the order to change that). "Uitchecken"
+ *  (void) drops the check-in via the outbox — always allowed for door staff,
+ *  audited. */
 function DesktopGuestDetail({ g, door, onBack }: { g: Guest; door: PoDoorState; onBack: () => void }): JSX.Element {
   const isIn = door.inside.has(g.id);
   const at = door.log[g.id]?.at;
@@ -1162,6 +1162,18 @@ function DesktopGuestDetail({ g, door, onBack }: { g: Guest; door: PoDoorState; 
           </div>
         );
       })()}
+
+      {/* Correctie aan de deur: undo a mistaken check-in (always allowed, audited). */}
+      {isIn && (
+        <button
+          type="button"
+          onClick={() => { door.voidCheckIn(g.id); onBack(); }}
+          className={cn('mt-3 flex w-full items-center justify-center gap-2 rounded-[12px] border border-line bg-transparent py-[11px] font-display text-[13.5px] font-bold text-faint hover:text-text', press)}
+        >
+          <Icon name="back" size={15} />
+          Check-in terugdraaien
+        </button>
+      )}
     </div>
   );
 }

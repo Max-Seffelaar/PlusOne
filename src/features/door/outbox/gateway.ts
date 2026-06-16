@@ -27,6 +27,9 @@ export interface DoorGateway {
   /** Raise plus_ones_arrived for a guest's existing check-in (RLS: own device; the
    *  DB trigger caps it at the allotment + keeps it monotonic). Incremental check-in. */
   updateArrival(guestId: string, plusOnesArrived: number): Promise<{ error: DbError | null }>;
+  /** Undo a check-in by deleting the guest's check_ins row (RLS: door staff at the
+   *  event; audited as a delete). Idempotent — deleting a missing row is a no-op. */
+  voidCheckIn(guestId: string): Promise<{ error: DbError | null }>;
 }
 
 export function supabaseGateway(client: SupabaseClient<Database>): DoorGateway {
@@ -52,6 +55,9 @@ export function supabaseGateway(client: SupabaseClient<Database>): DoorGateway {
     },
     updateArrival: async (guestId, plusOnesArrived) => ({
       error: (await client.from('check_ins').update({ plus_ones_arrived: plusOnesArrived }).eq('guest_id', guestId)).error,
+    }),
+    voidCheckIn: async (guestId) => ({
+      error: (await client.from('check_ins').delete().eq('guest_id', guestId)).error,
     }),
   };
 }

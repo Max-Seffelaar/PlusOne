@@ -162,8 +162,8 @@ export function Guest({ g, eventId, id }: { g: GuestT; eventId?: string; id?: st
 function GuestDetail({ g: gx, eventId }: { g: GuestT; eventId?: string }): JSX.Element {
   const nav = useNav();
   // Check-in state: in an event context it comes from the outbox-backed door hook
-  // so it actually PERSISTS (#25/#11); otherwise the in-memory mock. Uncheck isn't
-  // an outbox op — it stays mock (rare door edge).
+  // so it actually PERSISTS (#25/#11); otherwise the in-memory mock. Uncheck is now
+  // a real outbox op too (void_check_in → DELETE the check_ins row, audited).
   const mock = usePo();
   const door = usePoDoor(eventId);
   const live = Boolean(eventId);
@@ -172,7 +172,7 @@ function GuestDetail({ g: gx, eventId }: { g: GuestT; eventId?: string }): JSX.E
   const log = live ? door.log : mock.log;
   const taskDone = live ? door.taskDone : mock.taskDone;
   const ackTask = live ? door.ackTask : mock.ackTask;
-  const uncheck = mock.uncheck;
+  const uncheck = live ? door.voidCheckIn : mock.uncheck;
   const setArrival = live ? door.setArrival : () => undefined;
   const { entries: auditLog } = useGuestLog(gx.id);
   const isIn = inside.has(gx.id) || gx.status === 'in';

@@ -22,7 +22,7 @@ function checkInEntry(over: Partial<OutboxEntry> = {}): OutboxEntry {
 /** A gateway that returns a fixed error for every method. */
 function gatewayReturning(error: DbError | null): DoorGateway {
   const r = async () => ({ error });
-  return { insertCheckIn: r, insertRefusal: r, insertGuest: r, ackNote: r, updateArrival: r };
+  return { insertCheckIn: r, insertRefusal: r, insertGuest: r, ackNote: r, updateArrival: r, voidCheckIn: r };
 }
 
 const UNIQUE_GUEST: DbError = { code: '23505', details: 'Key (guest_id)=(g1) already exists.' };
@@ -100,6 +100,23 @@ describe('replayEntry', () => {
     const result = await replayEntry(gw, entry, UID, DEVICE);
     expect(result.status).toBe('synced');
     expect(updateArrival).toHaveBeenCalledWith('g1', 3);
+  });
+
+  it('void_check_in deletes the guest check-in via voidCheckIn (correctie aan de deur)', async () => {
+    const voidCheckIn = vi.fn(async () => ({ error: null }));
+    const gw: DoorGateway = { ...gatewayReturning(null), voidCheckIn };
+    const entry: OutboxEntry = {
+      clientId: 'v1',
+      eventId: 'ev1',
+      kind: 'void_check_in',
+      status: 'pending',
+      attempts: 0,
+      createdAt: '2026-06-20T22:45:00.000Z',
+      payload: { guestId: 'g1' },
+    };
+    const result = await replayEntry(gw, entry, UID, DEVICE);
+    expect(result.status).toBe('synced');
+    expect(voidCheckIn).toHaveBeenCalledWith('g1');
   });
 
   it('add_guest carries source=door and the event id, and maps quota to error', async () => {

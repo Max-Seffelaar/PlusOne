@@ -86,6 +86,9 @@ export interface PoDoorState {
   /** Raise an already-inside guest's arrival count to `total` people (incremental
    *  "nog inchecken"). Capped at the allotment + kept monotonic server-side. */
   setArrival: (guestId: string, total: number) => void;
+  /** Undo a mistaken check-in: the guest returns to "onderweg". Always allowed for
+   *  door staff, audited (decision: Max, 16 jun). Offline-tolerant via the outbox. */
+  voidCheckIn: (guestId: string) => void;
   /** Toggle a note opdracht acknowledged (same field as the door "Let op!" popup). */
   ackTask: (guestId: string, done: boolean) => void;
   /** True for a guest whose note opdracht is acknowledged. */
@@ -304,6 +307,32 @@ export function usePoDoor(eventId: string | undefined): PoDoorState {
     [eventId, patchSnapshot, showToast, maybeFlush],
   );
 
+  // ── Void a check-in (correctie aan de deur): drop the guest's check_ins row so
+  // they go back to "onderweg". Optimistic snapshot patch + outbox delete (#25);
+  // the DB DELETE is RLS-gated (door staff) + audited as a 'delete'.
+  const voidCheckIn = useCallback(
+    (guestId: string) => {
+      if (!eventId) return;
+      outbox.enqueue({
+        clientId: uuidv7(),
+        eventId,
+        kind: 'void_check_in',
+        status: 'pending',
+        attempts: 0,
+        createdAt: new Date().toISOString(),
+        payload: { guestId },
+      });
+      patchSnapshot((s) => ({
+        ...s,
+        checkIns: s.checkIns.filter((c) => c.guest_id !== guestId),
+      }));
+      const g = viewRef.current?.guests.find((x) => x.id === guestId);
+      showToast(`${g?.name ?? 'Gast'} · uitgecheckt`);
+      maybeFlush();
+    },
+    [eventId, patchSnapshot, showToast, maybeFlush],
+  );
+
   // ── Ack note opdracht (same note_acknowledged_* field as the door popup).
   const ackTask = useCallback(
     (guestId: string, done: boolean) => {
@@ -410,6 +439,7 @@ export function usePoDoor(eventId: string | undefined): PoDoorState {
     toast,
     checkIn,
     setArrival,
+    voidCheckIn,
     ackTask,
     taskDone,
   };

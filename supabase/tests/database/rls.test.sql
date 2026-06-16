@@ -40,7 +40,7 @@ begin
 end;
 $fn$;
 
-select plan(74);
+select plan(78);
 
 -- ---------------------------------------------------------------------------
 -- A. guests SELECT — venue-wide vs own-only vs nothing (§2)
@@ -267,6 +267,27 @@ select is((select count(*)::int from public.check_ins), 0,
 select pg_temp.login('33333333-3333-4333-8333-333333333333');
 select is((select count(*)::int from public.check_ins), 4,
   'G6 finance sees all check-ins (3 seed + 1 new)');
+
+-- Void / "uitchecken aan de deur" (check_ins_delete): door staff may always undo
+-- a check-in (mits gelogd); a non-door role cannot. The delete is RLS-filtered,
+-- so a denied void is a silent no-op (0 rows), not an error.
+select pg_temp.login('55555555-5555-4555-8555-555555555555');
+select lives_ok(
+  $$ delete from public.check_ins where guest_id = 'cc000000-0000-7000-8000-000000000008' $$,
+  'G7 staff void runs without error...');
+reset role;
+select is((select count(*)::int from public.check_ins
+           where guest_id = 'cc000000-0000-7000-8000-000000000008'),
+          1, 'G7b ...but deletes nothing — staff cannot void a check-in');
+
+select pg_temp.login('66666666-6666-4666-8666-666666666666');
+select lives_ok(
+  $$ delete from public.check_ins where guest_id = 'cc000000-0000-7000-8000-000000000008' $$,
+  'G8 doorhost voids a check-in (always allowed)');
+reset role;
+select is((select count(*)::int from public.check_ins
+           where guest_id = 'cc000000-0000-7000-8000-000000000008'),
+          0, 'G8b the check-in is gone after the door void');
 
 reset role;
 
