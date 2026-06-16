@@ -49,6 +49,17 @@ export const inviteSchema = z.object({
     .array(venueRoleSchema)
     .min(1, 'Kies minstens één rol')
     .refine((r) => new Set(r).size === r.length, 'Dubbele rol'),
+  // Optional guest quota seeded as the new member's venue default on acceptance
+  // (#4). An empty field means "no quota" — coerce '' to undefined, not 0.
+  defaultQuota: z.preprocess(
+    (v) => (v === '' || v === null || v === undefined ? undefined : v),
+    z.coerce
+      .number()
+      .int('Quotum moet een heel getal zijn')
+      .min(0, 'Quotum kan niet negatief zijn')
+      .max(1000, 'Quotum is te hoog')
+      .optional()
+  ),
 });
 
 export const profileNameSchema = z.object({

@@ -290,12 +290,14 @@ function toInvite(row: {
   email: string;
   roles: VenueRole[];
   created_at: string;
+  default_quota: number | null;
 }, now: Date): Invite {
   return {
     email: row.email,
     roles: row.roles.map((r) => ROLE_CHIP[r] ?? r),
     status: 'pending',
     at: relativeWhen(row.created_at, now),
+    quota: row.default_quota,
   };
 }
 
@@ -313,7 +315,7 @@ async function fetchTeam(client: Client, venueId: string): Promise<DesktopTeam> 
     // Only invites that are still outstanding (not yet accepted).
     client
       .from('invites')
-      .select('email, roles, created_at')
+      .select('email, roles, created_at, default_quota')
       .eq('venue_id', venueId)
       .is('accepted_at', null)
       .order('created_at', { ascending: false }),

@@ -239,6 +239,7 @@ export function NewUserModal({ onClose }: { onClose: () => void }): JSX.Element 
   const { currentVenue } = useSession();
   const [email, setEmail] = useState('');
   const [roles, setRoles] = useState<string[]>([]);
+  const [quota, setQuota] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
@@ -246,6 +247,9 @@ export function NewUserModal({ onClose }: { onClose: () => void }): JSX.Element 
   const validEmail = /.+@.+\..+/.test(email);
   const canSend = validEmail && roles.length > 0 && Boolean(currentVenue) && !busy;
   const sensitive = roles.includes('admin') || roles.includes('finance');
+  // Quota only matters for the roles that add guests under a personal limit
+  // (#5/#22); admin/organizer are exempt and finance/user_manager don't add.
+  const showQuota = roles.includes('staff') || roles.includes('doorhost');
 
   function toggleRole(r: string): void {
     setRoles((rs) => (rs.includes(r) ? rs.filter((x) => x !== r) : [...rs, r]));
@@ -261,6 +265,8 @@ export function NewUserModal({ onClose }: { onClose: () => void }): JSX.Element 
     fd.set('venueId', currentVenue.id);
     fd.set('email', email);
     roles.forEach((r) => fd.append('roles', r));
+    // Only send a quota when a guest-adding role is selected; '' = none.
+    fd.set('defaultQuota', showQuota ? quota : '');
     const res = await inviteUserAction({ ok: false }, fd);
     setBusy(false);
     if (!res.ok) {
@@ -270,6 +276,7 @@ export function NewUserModal({ onClose }: { onClose: () => void }): JSX.Element 
     setOkMsg(res.message ?? 'Uitnodiging klaargezet.');
     setEmail('');
     setRoles([]);
+    setQuota('');
     await qc.invalidateQueries({ queryKey: ['po', 'team'] });
   }
 
@@ -308,6 +315,22 @@ export function NewUserModal({ onClose }: { onClose: () => void }): JSX.Element 
           );
         })}
       </div>
+
+      {showQuota && (
+        <div className="mb-1 mt-[14px]">
+          <DFieldLabel>Gastenquotum (optioneel)</DFieldLabel>
+          <DInput
+            value={quota}
+            onChange={(v) => { setQuota(v.replace(/[^0-9]/g, '')); setErr(null); }}
+            placeholder="bijv. 10"
+            inputMode="numeric"
+            className="max-w-[160px]"
+          />
+          <p className="mt-1.5 text-[12px] leading-[1.45] text-faint">
+            Hoeveel gasten dit teamlid op de lijst mag zetten. Wordt hun vaste quotum zodra ze de uitnodiging accepteren; per event kun je het later bijstellen via de Quota-tab.
+          </p>
+        </div>
+      )}
 
       {sensitive && (
         <p className="mb-1 text-[12.5px] leading-[1.45] text-faint">

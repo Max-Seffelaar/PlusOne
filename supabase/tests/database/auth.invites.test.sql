@@ -42,7 +42,7 @@ $fn$;
 -- v1 = aa000000-0000-7000-8000-000000000001, v2 = ...0002
 -- Max=1111…, Noor=2222…, Femke=3333…, Yusuf=4444…, Tom=5555…, Lisa=6666…
 
-select plan(37);
+select plan(41);
 
 -- ---------------------------------------------------------------------------
 -- A. invites INSERT — who may invite, AAL2, escalation guard, forge, x-venue
@@ -175,6 +175,30 @@ select is((select count(*)::int from public.venue_memberships
            where user_id = '44444444-4444-4444-8444-444444444444'
              and venue_id = 'aa000000-0000-7000-8000-000000000002'),
           0, 'D8 expired invite created no membership');
+
+-- D9-D12: a quota carried on the invite is seeded as the member's venue default
+-- on acceptance (#4), and a later quota-bearing invite never clobbers it.
+insert into public.invites (venue_id, email, roles, invited_by, expires_at, default_quota)
+values ('aa000000-0000-7000-8000-000000000001', 'organizer@plusone.test', '{staff}',
+        '11111111-1111-4111-8111-111111111111', now() + interval '7 days', 15);
+select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@plusone.test');
+select is(public.accept_pending_invites(), 1, 'D9 a quota-bearing invite is accepted');
+reset role;
+select is((select default_count from public.quotas
+           where user_id = '44444444-4444-4444-8444-444444444444'
+             and venue_id = 'aa000000-0000-7000-8000-000000000001'),
+          15, 'D10 acceptance seeded the venue quota (default_count = 15)');
+
+insert into public.invites (venue_id, email, roles, invited_by, expires_at, default_quota)
+values ('aa000000-0000-7000-8000-000000000001', 'organizer@plusone.test', '{staff}',
+        '11111111-1111-4111-8111-111111111111', now() + interval '7 days', 99);
+select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@plusone.test');
+select is(public.accept_pending_invites(), 1, 'D11 a second quota-bearing invite is accepted');
+reset role;
+select is((select default_count from public.quotas
+           where user_id = '44444444-4444-4444-8444-444444444444'
+             and venue_id = 'aa000000-0000-7000-8000-000000000001'),
+          15, 'D12 an existing quota is preserved, not clobbered to 99 (do-nothing)');
 
 -- ---------------------------------------------------------------------------
 -- C. invites DELETE — revoke a pending invite; accepted invites are immutable

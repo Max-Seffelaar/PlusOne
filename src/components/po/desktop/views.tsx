@@ -476,7 +476,8 @@ export function Users(): JSX.Element {
                 <div className="flex-1">
                   <div className="text-[14px] font-semibold text-text">{iv.email}</div>
                   <div className="text-[12px] text-faint">
-                    {iv.roles.join(', ')} · verstuurd {iv.at}
+                    {iv.roles.join(', ')}
+                    {iv.quota != null ? ` · quotum ${iv.quota}` : ''} · verstuurd {iv.at}
                   </div>
                 </div>
                 <span className="whitespace-nowrap rounded-[8px] border border-line px-[11px] py-[5px] text-[11.5px] font-bold text-faint">Wacht op acceptatie</span>

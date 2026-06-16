@@ -135,6 +135,8 @@ export interface Invite {
   roles: string[];
   status: string;
   at: string;
+  /** Guest quota seeded as the member's venue default on acceptance (#4); null = none. */
+  quota?: number | null;
 }
 
 export interface Venue {
