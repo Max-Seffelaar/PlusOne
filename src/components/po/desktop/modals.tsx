@@ -26,6 +26,8 @@ import {
 } from '@/features/events/actions';
 import { addGuest } from '@/features/guests/actions';
 import { inviteUserAction } from '@/features/auth/invite-actions';
+import { setEventQuota, clearEventQuota } from '@/features/quotas/actions';
+import { usePoEventQuotas, type EventQuotaRow } from '@/features/po/desktop-live';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
 import {
   parseQuickAdd as parseQuickAddLive,
@@ -557,7 +559,7 @@ function PreviewChip({ icon, dot, label }: { icon?: 'user' | 'users'; dot?: stri
 }
 
 // ── EVENT DETAIL (panel) ──────────────────────────────────────────────────────
-type DetailTab = 'door' | 'edit';
+type DetailTab = 'door' | 'edit' | 'quota';
 
 /** Event detail = the event-day command centre (#3): a live KPI band + a "Deur"
  *  tab (search + real quick check-in via the offline outbox) + a "Bewerken" tab
@@ -603,12 +605,17 @@ export function EventDetailModal({ event, onClose }: { event: PoEvent; onClose: 
         <TabBtn on={tab === 'door'} onClick={() => setTab('door')} icon="ticket">
           Deur
         </TabBtn>
+        <TabBtn on={tab === 'quota'} onClick={() => setTab('quota')} icon="users">
+          Quota
+        </TabBtn>
         <TabBtn on={tab === 'edit'} onClick={() => setTab('edit')} icon="note">
           Bewerken
         </TabBtn>
       </div>
 
-      {tab === 'door' ? <DoorRoster door={door} eventId={event.id} /> : <EventEditFields event={event} onClose={onClose} />}
+      {tab === 'door' && <DoorRoster door={door} eventId={event.id} />}
+      {tab === 'quota' && <EventQuotaPanel eventId={event.id} />}
+      {tab === 'edit' && <EventEditFields event={event} onClose={onClose} />}
     </DModal>
   );
 }
@@ -633,6 +640,118 @@ function TabBtn({ on, onClick, icon, children }: { on: boolean; onClick: () => v
       <Icon name={icon} size={16} sw={on ? 2.2 : 1.9} />
       {children}
     </button>
+  );
+}
+
+/** Per-event quota tab (#5): set a team member's allotment FOR THIS EVENT. Every
+ *  member shows their standing ("vast") quotum + an optional per-event override;
+ *  writes go through setEventQuota/clearEventQuota (AAL2-gated server-side). */
+function EventQuotaPanel({ eventId }: { eventId: string }): JSX.Element {
+  const qc = useQueryClient();
+  const { rows, venueId, isLoading } = usePoEventQuotas(eventId);
+  const refresh = (): void => {
+    void qc.invalidateQueries({ queryKey: ['po', 'event-quotas', venueId, eventId] });
+  };
+
+  return (
+    <div>
+      <p className="mb-3 text-[12.5px] leading-[1.5] text-faint">
+        Geef een teamlid een afwijkend aantal plekken voor dít event. Zonder override geldt hun vaste
+        quotum. Aanpassen vereist MFA (admin).
+      </p>
+
+      {isLoading && rows.length === 0 && <p className="py-3 text-[13px] text-faint">Laden…</p>}
+      {!isLoading && rows.length === 0 && (
+        <p className="py-6 text-center text-[13px] text-faint">Nog geen teamleden voor deze venue.</p>
+      )}
+
+      <div className="flex max-h-[46dvh] flex-col gap-2 overflow-y-auto pr-1">
+        {rows.map((r) => (
+          <QuotaRow key={r.userId} row={r} eventId={eventId} onChanged={refresh} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** One member row: a clamped 0–1000 stepper + Opslaan (when changed) / Reset
+ *  (when an override is active). Each row owns its draft + busy/err state so a
+ *  failed save (e.g. the AAL2 gate at AAL1) is shown locally, not globally. */
+function QuotaRow({ row, eventId, onChanged }: { row: EventQuotaRow; eventId: string; onChanged: () => void }): JSX.Element {
+  const effective = row.override ?? row.venueDefault;
+  const hasOverride = row.override !== null;
+  const [val, setVal] = useState(effective);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Re-sync the draft when the underlying row refreshes after a save/clear.
+  useEffect(() => {
+    setVal(row.override ?? row.venueDefault);
+  }, [row.override, row.venueDefault]);
+
+  const dirty = val !== effective;
+  const clamp = (n: number): number => Math.max(0, Math.min(1000, n));
+  const step = 'flex h-[32px] w-[32px] items-center justify-center rounded-[9px] border border-line bg-elev2 text-text disabled:opacity-40';
+
+  const save = async (): Promise<void> => {
+    setBusy(true);
+    setErr(null);
+    const res = await setEventQuota({ eventId, userId: row.userId, quotaOverride: val });
+    setBusy(false);
+    if (!res.ok) {
+      setErr(res.message);
+      return;
+    }
+    onChanged();
+  };
+  const reset = async (): Promise<void> => {
+    setBusy(true);
+    setErr(null);
+    const res = await clearEventQuota({ eventId, userId: row.userId });
+    setBusy(false);
+    if (!res.ok) {
+      setErr(res.message);
+      return;
+    }
+    onChanged();
+  };
+
+  return (
+    <div className="rounded-[14px] border border-line bg-elev2 p-[11px]">
+      <div className="flex items-center gap-3">
+        <Avatar name={row.name} size={36} />
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-display text-[14.5px] font-bold text-text">{row.name}</div>
+          <div className="mt-0.5 truncate text-[11.5px] text-faint">
+            {row.role} · vast quotum {row.venueDefault}
+            {hasOverride && <span className="font-bold text-acc"> · override {row.override}</span>}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <button type="button" aria-label="Min" disabled={busy || val <= 0} onClick={() => setVal((v) => clamp(v - 1))} className={cn(step, press)}>
+            <Icon name="minus" size={15} />
+          </button>
+          <span className="w-[34px] text-center font-display text-[16px] font-extrabold tabular-nums text-text">{val}</span>
+          <button type="button" aria-label="Plus" disabled={busy || val >= 1000} onClick={() => setVal((v) => clamp(v + 1))} className={cn(step, press)}>
+            <Icon name="plus" size={15} />
+          </button>
+        </div>
+
+        {dirty ? (
+          <DBtn sm icon="check" onClick={save}>
+            {busy ? '…' : 'Opslaan'}
+          </DBtn>
+        ) : hasOverride ? (
+          <DBtn sm kind="ghost" onClick={reset}>
+            {busy ? '…' : 'Reset'}
+          </DBtn>
+        ) : (
+          <span className="w-[64px]" />
+        )}
+      </div>
+      {err && <p className="mt-2 pl-[48px] text-[12.5px] text-acc-soft">{err}</p>}
+    </div>
   );
 }
 

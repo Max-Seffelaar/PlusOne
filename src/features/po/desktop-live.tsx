@@ -347,3 +347,76 @@ export function usePoTeam(): { team: DesktopTeamMember[]; invites: Invite[]; isL
   });
   return { team: data?.team ?? [], invites: data?.invites ?? [], isLoading };
 }
+
+// ── PER-EVENT QUOTA (#5) ────────────────────────────────────────────────────────
+
+/**
+ * One team member's quota standing FOR A SPECIFIC EVENT. `venueDefault` is the
+ * member's standing allotment (`quotas.default_count`); `override` is the
+ * per-event opt-in (`event_quotas.quota_override`) or null when they fall back
+ * to the default. Effective = override ?? venueDefault.
+ */
+export interface EventQuotaRow {
+  userId: string;
+  name: string;
+  role: string;
+  venueDefault: number;
+  override: number | null;
+}
+
+async function fetchEventQuotas(client: Client, venueId: string, eventId: string): Promise<EventQuotaRow[]> {
+  // Memberships drive the row set; the two quota tables only annotate it. Reading
+  // quotas/event_quotas is RLS-gated — a non-AAL2 caller may get zero rows, in
+  // which case every member shows their default with no override (honest, not an
+  // error). The override WRITE is AAL2-gated server-side (setEventQuota).
+  const [memRes, qRes, eqRes] = await Promise.all([
+    client
+      .from('venue_memberships')
+      .select('user_id, roles, user:user_profiles!venue_memberships_user_id_fkey(full_name, email)')
+      .eq('venue_id', venueId),
+    client.from('quotas').select('user_id, default_count').eq('venue_id', venueId),
+    client.from('event_quotas').select('user_id, quota_override').eq('event_id', eventId),
+  ]);
+  if (memRes.error) throw memRes.error;
+  if (qRes.error) throw qRes.error;
+  if (eqRes.error) throw eqRes.error;
+
+  const defaults = new Map((qRes.data ?? []).map((q) => [q.user_id, q.default_count]));
+  const overrides = new Map((eqRes.data ?? []).map((e) => [e.user_id, e.quota_override]));
+
+  return (memRes.data ?? [])
+    .map((m): EventQuotaRow => {
+      const u = m.user as { full_name: string | null; email: string | null } | null;
+      return {
+        userId: m.user_id,
+        name: u?.full_name ?? u?.email ?? 'Onbekend',
+        role: headlineRole(m.roles ?? []),
+        venueDefault: defaults.get(m.user_id) ?? 0,
+        override: overrides.has(m.user_id) ? (overrides.get(m.user_id) ?? null) : null,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, 'nl'));
+}
+
+/**
+ * Per-event quota table for the event-detail "Quota" tab (#5). Lists every team
+ * member with their venue default + any per-event override. The query key is
+ * scoped to the event so a save can invalidate exactly this list.
+ */
+export function usePoEventQuotas(eventId: string): {
+  rows: EventQuotaRow[];
+  venueId: string | null;
+  isLoading: boolean;
+  isError: boolean;
+} {
+  const client = useBrowserClient();
+  const { currentVenue } = useSession();
+  const venueId = currentVenue?.id ?? null;
+  const { data = [], isLoading, isError } = useQuery({
+    queryKey: ['po', 'event-quotas', venueId, eventId],
+    queryFn: () =>
+      venueId ? fetchEventQuotas(client, venueId, eventId) : Promise.resolve([] as EventQuotaRow[]),
+    enabled: Boolean(venueId && eventId),
+  });
+  return { rows: data, venueId, isLoading, isError };
+}
