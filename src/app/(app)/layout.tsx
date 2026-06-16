@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { requireAppAccess } from '@/lib/auth/guards';
 import { getMyMemberships } from '@/lib/auth/memberships';
@@ -7,12 +6,12 @@ import { resolveActiveVenueId } from '@/lib/auth/active-venue';
 import { hasDashboardAccess, venueCapabilities } from '@/features/venues/access';
 import { isManager } from '@/features/auth/roles';
 import { PendingInvitesBanner } from '@/features/auth/components/PendingInvitesBanner';
-import { SignOutButton } from '@/features/auth/components/SignOutButton';
-import { VenueSwitcher } from '@/features/venues/components/VenueSwitcher';
+import { DashSidebar, type SidebarNavItem } from '@/components/po/desktop/DashSidebar';
 
-// Authenticated app shell. requireAppAccess enforces the MFA policy before any
-// child renders; the nav adapts to the user's roles and lets multi-venue users
-// switch the active venue (decision #1). Fase 10 added the reports/audit nav.
+// Authenticated app shell — one sidebar for dashboard, events and the admin
+// pages (no more shell-switch between them). requireAppAccess enforces the MFA
+// policy before any child renders; the nav adapts to the user's roles and lets
+// multi-venue users switch the active venue (decision #1).
 export default async function AppLayout({
   children,
 }: {
@@ -32,79 +31,45 @@ export default async function AppLayout({
   const canManageTeam = memberships.some((m) => isManager(m.roles));
   const canSeeVenue = memberships.some((m) => venueCapabilities(m.roles).viewSettings); // admin/finance
   const isAdminSomewhere = memberships.some((m) => m.roles.includes('admin'));
-  // Admin + the read-only Finance role get reports & the audit log (spec §2).
   const canSeeReports = memberships.some(
     (m) => m.roles.includes('admin') || m.roles.includes('finance')
   );
 
   const displayName =
     (ctx.user.user_metadata?.full_name as string | undefined) ?? ctx.user.email ?? 'Account';
+  const activeVenue = dashboardVenues.find((m) => m.venueId === activeVenueId) ?? dashboardVenues[0];
+  const venueName = activeVenue?.venueName ?? memberships[0]?.venueName ?? 'Venue';
+
+  const nav: SidebarNavItem[] = [
+    { href: '/dashboard', label: 'Dashboard', icon: 'grid' },
+    { href: '/events', label: 'Events', icon: 'cal' },
+  ];
+  if (canSeeReports) {
+    nav.push(
+      { href: '/admin/stats', label: 'Statistieken', icon: 'spark' },
+      { href: '/admin/overview', label: 'Overzicht', icon: 'note' },
+      { href: '/admin/audit', label: 'Audit log', icon: 'history' }
+    );
+  }
+  if (canManageTeam) nav.push({ href: '/admin/team', label: 'Gebruikers', icon: 'users' });
+  if (canSeeVenue) nav.push({ href: '/admin/venue', label: 'Venue', icon: 'cog' });
+  if (isAdminSomewhere) nav.push({ href: '/admin/sessions', label: 'Sessies', icon: 'lock' });
+  nav.push({ href: '/settings/profile', label: 'Profiel', icon: 'user' });
 
   return (
-    <div className="min-h-screen">
-      <header className="border-line bg-bg/80 sticky top-0 z-10 border-b backdrop-blur">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-3">
-          <nav className="flex items-center gap-4 text-sm">
-            <Link href="/dashboard" className="font-display text-lg font-extrabold tracking-tight">
-              PLUSONE
-            </Link>
-            <Link href="/dashboard" className="text-dim hover:text-text transition-colors">
-              Dashboard
-            </Link>
-            <Link href="/events" className="text-dim hover:text-text transition-colors">
-              Events
-            </Link>
-            {canSeeReports && (
-              <>
-                <Link href="/admin/stats" className="text-dim hover:text-text transition-colors">
-                  Statistieken
-                </Link>
-                <Link href="/admin/overview" className="text-dim hover:text-text transition-colors">
-                  Overzicht
-                </Link>
-                <Link href="/admin/audit" className="text-dim hover:text-text transition-colors">
-                  Audit log
-                </Link>
-              </>
-            )}
-            {canSeeVenue && (
-              <Link href="/admin/venue" className="text-dim hover:text-text transition-colors">
-                Venue
-              </Link>
-            )}
-            {canManageTeam && (
-              <Link href="/admin/team" className="text-dim hover:text-text transition-colors">
-                Team
-              </Link>
-            )}
-            {isAdminSomewhere && (
-              <Link href="/admin/sessions" className="text-dim hover:text-text transition-colors">
-                Sessies
-              </Link>
-            )}
-            {isAdminSomewhere && (
-              <Link href="/admin/venue" className="text-dim hover:text-text transition-colors">
-                Venue
-              </Link>
-            )}
-            <Link href="/settings/profile" className="text-dim hover:text-text transition-colors">
-              Profiel
-            </Link>
-          </nav>
-          <div className="flex items-center gap-3">
-            <VenueSwitcher
-              venues={dashboardVenues.map((m) => ({ venueId: m.venueId, venueName: m.venueName }))}
-              activeVenueId={activeVenueId}
-            />
-            <span className="text-faint hidden text-sm sm:inline">{displayName}</span>
-            <SignOutButton />
-          </div>
+    <div className="flex h-[100dvh] overflow-hidden">
+      <DashSidebar
+        venueName={venueName}
+        userName={displayName}
+        nav={nav}
+        venues={dashboardVenues.map((m) => ({ venueId: m.venueId, venueName: m.venueName }))}
+        activeVenueId={activeVenueId}
+      />
+      <main className="min-w-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-5xl px-8 py-7">
+          <PendingInvitesBanner />
+          {children}
         </div>
-      </header>
-
-      <main className="mx-auto max-w-4xl px-4 py-6">
-        <PendingInvitesBanner />
-        {children}
       </main>
     </div>
   );
