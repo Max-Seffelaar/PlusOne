@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 import { stats } from '@/lib/po/data';
 import { usePoEvents } from '@/features/po/PoLiveProvider';
 import { usePoAudit, usePoTeam } from '@/features/po/desktop-live';
-import type { PoEvent } from '@/lib/po/types';
+import type { AuditEntry, PoEvent } from '@/lib/po/types';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Label } from '../kit';
 import { ActionChip, DBtn, DCard, Tag } from './kit';
@@ -239,6 +239,31 @@ export function Stats(): JSX.Element {
 
 // ── AUDIT LOG ─────────────────────────────────────────────────────────────────
 const AUDIT_GRID = 'grid-cols-[150px_130px_1fr_130px_110px]';
+
+/** Serialise the (filtered) audit rows to RFC-4180 CSV. Every field is quoted +
+ *  double-quote-escaped so commas/quotes in the text never break a column. */
+function auditToCsv(rows: AuditEntry[]): string {
+  const esc = (v: string): string => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const head = ['Wanneer', 'Wie', 'Actie', 'Wat', 'Event', 'Device'];
+  const body = rows.map((r) => [r.when, r.actor, r.action, r.text, r.event, r.device].map(esc).join(','));
+  return [head.map(esc).join(','), ...body].join('\r\n');
+}
+
+/** Download a CSV via a Blob + object URL. Works in the web PWA and inside the
+ *  native webview (anchor download); a real native share sheet can swap in later
+ *  behind the same call. Prefixed with a BOM so Excel reads UTF-8 cleanly. */
+function downloadCsv(filename: string, csv: string): void {
+  const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function Audit(): JSX.Element {
   const { entries, isLoading, isError } = usePoAudit();
   const [f, setF] = useState('all');
@@ -259,6 +284,13 @@ export function Audit(): JSX.Element {
       return true;
     });
   }, [entries, f, q]);
+
+  // Export what's on screen (the active filter/search), not the raw fetch.
+  const exportCsv = (): void => {
+    if (rows.length === 0) return;
+    downloadCsv('audit-log.csv', auditToCsv(rows));
+  };
+
   return (
     <div className={cn('pt-6', pad)}>
       <div className="mb-[18px] flex flex-wrap items-center gap-2">
@@ -272,6 +304,9 @@ export function Audit(): JSX.Element {
           <Icon name="search" size={16} />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Zoek op gast, gebruiker…" className="flex-1 border-none bg-transparent text-[13.5px] text-text outline-none placeholder:text-faint" />
         </div>
+        <DBtn kind="ghost" icon="dl" onClick={exportCsv} className={rows.length === 0 ? 'pointer-events-none opacity-50' : ''}>
+          Export CSV
+        </DBtn>
       </div>
       <DCard className="overflow-hidden p-0">
         <div className={cn('grid border-b border-line bg-bg px-[22px] py-[13px]', AUDIT_GRID)}>

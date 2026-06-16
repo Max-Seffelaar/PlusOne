@@ -238,7 +238,7 @@ function DesktopAppInner(): JSX.Element {
       Body: () => <Events onSelect={setSelectedEventId} />,
     },
     stats: { title: 'Statistieken', sub: `${venueName} · voorbeeldcijfers`, right: <span />, Body: Stats },
-    audit: { title: 'Audit log', sub: 'Onveranderlijk logboek — wie deed wat, wanneer', right: <DBtn kind="ghost" icon="dl">Export</DBtn>, Body: Audit },
+    audit: { title: 'Audit log', sub: 'Onveranderlijk logboek — wie deed wat, wanneer', right: <span />, Body: Audit },
     users: { title: 'Gebruikers', sub: 'Team en uitnodigingen van deze venue', right: <DBtn icon="plus" onClick={() => setOverlay('newUser')}>Uitnodigen</DBtn>, Body: Users },
   };
   const m = meta[view];
