@@ -25,6 +25,7 @@ function guest(over: Partial<GuestRow> = {}): GuestRow {
     full_name: 'Tess Bakker',
     email: null,
     phone: null,
+    contact_id: null,
     plus_ones: 0,
     note: null,
     note_priority: 'none',

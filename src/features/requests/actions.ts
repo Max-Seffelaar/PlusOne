@@ -44,7 +44,7 @@ async function clientIpHash(): Promise<string> {
 export async function submitGuestRequest(input: SubmitGuestRequestInput): Promise<ActionResult> {
   const parsed = submitGuestRequestSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { slug, fullName, email, phone, plusOnes, motivation, marketingOptIn, company } =
+  const { slug, fullName, email, phone, plusOnes, motivation, birthdate, marketingOptIn, company } =
     parsed.data;
 
   // Honeypot tripped → behave exactly like a success, but touch nothing.
@@ -64,6 +64,7 @@ export async function submitGuestRequest(input: SubmitGuestRequestInput): Promis
     p_motivation: motivation ?? '',
     p_ip_hash: ipHash,
     p_marketing_opt_in: marketingOptIn,
+    ...(birthdate ? { p_birthdate: birthdate } : {}),
   });
   if (error) {
     console.error('[submitGuestRequest] rpc error:', error.message);
