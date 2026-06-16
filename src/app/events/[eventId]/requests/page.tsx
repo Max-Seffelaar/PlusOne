@@ -73,7 +73,7 @@ export default async function RequestsPage({
   const [{ data: reqs }, { data: tierRows }] = await Promise.all([
     supabase
       .from('guest_requests')
-      .select('id, full_name, email, phone, plus_ones, motivation, created_at')
+      .select('id, full_name, email, phone, plus_ones, motivation, birthdate, created_at')
       .eq('event_id', eventId)
       .eq('status', 'pending')
       .order('created_at'),
@@ -87,6 +87,7 @@ export default async function RequestsPage({
     phone: r.phone,
     plusOnes: r.plus_ones,
     motivation: r.motivation,
+    birthdate: r.birthdate,
     createdAt: r.created_at,
   }));
   const tiers = (tierRows ?? []).map((t) => ({ id: t.id, name: t.name }));

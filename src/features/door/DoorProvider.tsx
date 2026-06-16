@@ -278,6 +278,7 @@ export function DoorProvider({
           full_name: name,
           email: null,
           phone: null,
+          contact_id: null,
           plus_ones: plusOnes,
           note: null,
           note_priority: 'none',

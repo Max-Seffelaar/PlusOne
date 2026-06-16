@@ -21,9 +21,12 @@ select tables_are(
     -- Fase 4 (auth layer): invite-only account provisioning.
     'invites',
     -- Fase 8 (public aanvraagflow): per-IP rate-limit state (#28).
-    'landing_request_throttle'
+    'landing_request_throttle',
+    -- Sessie C (Gasten & adresboek): venue address book + permanent-guest
+    -- exclusion ledger (#8/#10/#11).
+    'contacts', 'contact_event_exclusions'
   ],
-  'public schema contains exactly the MVP tables (Fase 1 + invites + landing)'
+  'public schema contains exactly the MVP tables (Fase 1 + invites + landing + adresboek)'
 );
 
 -- RLS: on for every table, no exceptions (default-deny without policies) ----
@@ -100,7 +103,7 @@ select ok(
 -- Fase 8: anon may submit a request; only authenticated may approve one (#12).
 select ok(
   has_function_privilege('anon',
-    'public.submit_guest_request(text,text,text,text,integer,text,text,boolean)', 'EXECUTE')
+    'public.submit_guest_request(text,text,text,text,integer,text,text,boolean,date)', 'EXECUTE')
   and has_function_privilege('authenticated',
     'public.approve_guest_request(uuid,uuid)', 'EXECUTE')
   and not has_function_privilege('anon',

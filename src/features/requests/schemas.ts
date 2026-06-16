@@ -46,6 +46,14 @@ export const submitGuestRequestSchema = z.object({
     .transform((v) => (v && v.length > 0 ? v : undefined)),
   plusOnes: z.coerce.number().int().min(0).max(20).default(0),
   motivation: optionalText(1000),
+  // Optional birthdate (#8) — captured into the venue address book. ISO date.
+  birthdate: z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Ongeldige geboortedatum')
+    .optional()
+    .or(z.literal(''))
+    .transform((v) => (v && v.length > 0 ? v : undefined)),
   // Marketing consent (AVG) — opt-in, defaults to false.
   marketingOptIn: z.boolean().optional().default(false),
   // Honeypot — must stay empty. Anything here means "bot".
