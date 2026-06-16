@@ -20,6 +20,33 @@ export const venueSettingsSchema = z.object({
     .max(60, 'Maximaal 60 maanden'),
 });
 
+// Venue type shown to guests at check-in / on landing pages. Constrained here
+// in Zod, not the DB — it is stored in venues.settings (no column). Mirrors the
+// onboarding "Type venue" choice.
+export const VENUE_TYPES = ['club', 'festival', 'bar', 'concertzaal'] as const;
+export type VenueType = (typeof VENUE_TYPES)[number];
+
+// Self-service venue creation (#40a). Retention bounds match the DB check
+// (1..60); address is optional display data. The plan is picked in a later
+// onboarding step (set_venue_plan), so it is intentionally NOT collected here.
+export const createVenueSchema = z.object({
+  name: z.string().trim().min(1, 'Vul een venuenaam in').max(120, 'Naam is te lang'),
+  address: z
+    .string()
+    .trim()
+    .max(200, 'Adres is te lang')
+    .optional()
+    .transform((v) => v ?? ''),
+  venueType: z.enum(VENUE_TYPES as unknown as [string, ...string[]]),
+  retentionMonths: z.coerce
+    .number()
+    .int('Vul een geheel aantal maanden in')
+    .min(1, 'Minimaal 1 maand')
+    .max(60, 'Maximaal 60 maanden')
+    .default(12),
+});
+export type CreateVenueInput = z.input<typeof createVenueSchema>;
+
 // Change a member's roles (AAL2 — role grant is sensitive). Deduped into
 // canonical order so the stored array is stable and the escalation guard sees a
 // clean set.
