@@ -12,11 +12,11 @@ import { Icon, type IconName } from '../icon';
 import { Avatar, Label } from '../kit';
 import { ComingSoonPill } from '../coming-soon';
 import { DBtn } from './kit';
-import { EventDetailModal, NewEventModal, NewGuestModal, NewUserModal } from './modals';
+import { EventDetailModal, NewEventModal, NewGuestModal, NewUserModal, VenueSettingsModal } from './modals';
 import { Audit, Events, Home, Stats, Users } from './views';
 
 type View = 'home' | 'events' | 'stats' | 'audit' | 'users';
-type Overlay = 'newEvent' | 'newGuest' | 'newUser' | null;
+type Overlay = 'newEvent' | 'newGuest' | 'newUser' | 'venueSettings' | null;
 const press = 'transition-[filter,transform,background,border-color,color] hover:brightness-[1.08] active:scale-[0.985]';
 
 // Views still backed by mock data show the "Binnenkort" pill in the topbar.
@@ -113,7 +113,7 @@ function VenueSwitcher(): JSX.Element {
   );
 }
 
-function Sidebar({ view, setView }: { view: View; setView: (v: View) => void }): JSX.Element {
+function Sidebar({ view, setView, onVenueSettings }: { view: View; setView: (v: View) => void; onVenueSettings: () => void }): JSX.Element {
   const { session, currentVenue } = useSession();
   const profile = session?.profile ?? null;
   // Admin/Finance get MFA (CLAUDE.md Auth) — reflect it in the footer badge.
@@ -161,6 +161,9 @@ function Sidebar({ view, setView }: { view: View; setView: (v: View) => void }):
             )}
           </div>
         </div>
+        <button type="button" onClick={onVenueSettings} aria-label="Venue instellingen" className={cn('flex h-[30px] w-[30px] items-center justify-center rounded-[9px] border border-line bg-transparent text-faint', press)}>
+          <Icon name="cog" size={15} />
+        </button>
         <button type="button" className={cn('flex h-[30px] w-[30px] items-center justify-center rounded-[9px] border border-line bg-transparent text-faint', press)}>
           <Icon name="logout" size={15} />
         </button>
@@ -245,7 +248,7 @@ function DesktopAppInner(): JSX.Element {
   const Body = m.Body;
   return (
     <div className="flex h-[100dvh] overflow-hidden">
-      <Sidebar view={view} setView={setView} />
+      <Sidebar view={view} setView={setView} onVenueSettings={() => setOverlay('venueSettings')} />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Topbar title={m.title} sub={m.sub} right={m.right} mock={MOCK_VIEWS.has(view)} />
         <div key={view} className="po-screen-anim min-h-0 flex-1 overflow-y-auto">
@@ -264,6 +267,7 @@ function DesktopAppInner(): JSX.Element {
       )}
       {overlay === 'newGuest' && <NewGuestModal onClose={() => setOverlay(null)} />}
       {overlay === 'newUser' && <NewUserModal onClose={() => setOverlay(null)} />}
+      {overlay === 'venueSettings' && <VenueSettingsModal onClose={() => setOverlay(null)} />}
       {selectedEventId && <EventDetailHost eventId={selectedEventId} onClose={() => setSelectedEventId(null)} onOpen={setSelectedEventId} />}
     </div>
   );

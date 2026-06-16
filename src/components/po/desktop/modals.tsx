@@ -28,7 +28,8 @@ import {
 import { addGuest } from '@/features/guests/actions';
 import { inviteUserAction } from '@/features/auth/invite-actions';
 import { setEventQuota, clearEventQuota } from '@/features/quotas/actions';
-import { usePoEventQuotas, type EventQuotaRow } from '@/features/po/desktop-live';
+import { updateVenue } from '@/features/venues/actions';
+import { usePoEventQuotas, usePoVenueSettings, type EventQuotaRow } from '@/features/po/desktop-live';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
 import {
   parseQuickAdd as parseQuickAddLive,
@@ -340,6 +341,110 @@ export function NewUserModal({ onClose }: { onClose: () => void }): JSX.Element 
       )}
       {err && <p className="mt-2 text-[13px] text-acc-soft">{err}</p>}
       {okMsg && <p className="mt-2 text-[13px] font-bold text-acc">{okMsg}</p>}
+    </DModal>
+  );
+}
+
+// ── VENUE SETTINGS ────────────────────────────────────────────────────────────
+const RETENTION_OPTIONS = ['6', '12', '24'];
+
+/** Edit the current venue: name, **Locatie-adres** (feeds guest comms), AVG
+ *  retention. Reads via usePoVenueSettings; saves through updateVenue (admin-only
+ *  by RLS, audited). Mirrors the mobile VenueSettings but live. */
+export function VenueSettingsModal({ onClose }: { onClose: () => void }): JSX.Element {
+  const qc = useQueryClient();
+  const { currentVenue } = useSession();
+  const venueId = currentVenue?.id ?? null;
+  const { settings, isLoading } = usePoVenueSettings(venueId);
+
+  const [name, setName] = useState('');
+  const [address, setAddress] = useState('');
+  const [retention, setRetention] = useState('12');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
+
+  // Hydrate the form once the live values arrive (and on venue switch).
+  useEffect(() => {
+    if (settings) {
+      setName(settings.name);
+      setAddress(settings.address);
+      setRetention(String(settings.retentionMonths));
+    }
+  }, [settings]);
+
+  const canSave = name.trim().length > 0 && Boolean(venueId) && !busy;
+
+  async function save(): Promise<void> {
+    if (!canSave || !venueId) return;
+    setBusy(true);
+    setErr(null);
+    setOkMsg(null);
+    const res = await updateVenue({
+      venueId,
+      name: name.trim(),
+      address: address.trim(),
+      retentionMonths: Number(retention),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setErr(res.message);
+      return;
+    }
+    setOkMsg('Opgeslagen.');
+    await qc.invalidateQueries({ queryKey: ['po', 'venue-settings', venueId] });
+    await qc.invalidateQueries({ queryKey: ['po', 'session'] }); // venue name in the switcher
+  }
+
+  return (
+    <DModal
+      title="Venue instellingen"
+      sub={currentVenue?.name ?? 'Geen venue'}
+      onClose={onClose}
+      footer={
+        <>
+          <DBtn kind="ghost" onClick={onClose}>
+            Klaar
+          </DBtn>
+          <DBtn icon="check" onClick={save} className={canSave ? '' : 'opacity-50'}>
+            {busy ? 'Bezig…' : 'Opslaan'}
+          </DBtn>
+        </>
+      }
+    >
+      {isLoading && !settings ? (
+        <p className="py-3 text-[13px] text-faint">Laden…</p>
+      ) : (
+        <>
+          <DFieldLabel>Naam</DFieldLabel>
+          <DInput value={name} onChange={(v) => { setName(v); setErr(null); setOkMsg(null); }} placeholder="Venue-naam" className="mb-[14px]" />
+
+          <DFieldLabel>Locatie (adres)</DFieldLabel>
+          <DInput value={address} onChange={(v) => { setAddress(v); setErr(null); setOkMsg(null); }} placeholder="Straat + nr, postcode, plaats" className="mb-1" />
+          <p className="mb-[14px] text-[12px] leading-[1.45] text-faint">Het volledige adres van de locatie — komt later in de gastcommunicatie te staan.</p>
+
+          <DFieldLabel>AVG-bewaartermijn</DFieldLabel>
+          <div className="mb-2 flex gap-2">
+            {RETENTION_OPTIONS.map((m) => {
+              const on = retention === m;
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => { setRetention(m); setOkMsg(null); }}
+                  className={cn('flex-1 rounded-[11px] border py-[10px] font-display text-[14px] font-bold', press, on ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev2 text-dim')}
+                >
+                  {m} mnd
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[12px] leading-[1.45] text-faint">Gastdata wordt na deze termijn automatisch geanonimiseerd tot “Gast #X”. Het audit log blijft intact.</p>
+
+          {err && <p className="mt-3 text-[13px] text-acc-soft">{err}</p>}
+          {okMsg && <p className="mt-3 text-[13px] font-bold text-acc">{okMsg}</p>}
+        </>
+      )}
     </DModal>
   );
 }

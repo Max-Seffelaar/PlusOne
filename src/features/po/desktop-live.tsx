@@ -422,3 +422,40 @@ export function usePoEventQuotas(eventId: string): {
   });
   return { rows: data, venueId, isLoading, isError };
 }
+
+// ── VENUE SETTINGS (name / address / AVG retention) ─────────────────────────────
+
+export interface VenueSettingsData {
+  name: string;
+  /** Single free-text location line; '' when unset. */
+  address: string;
+  retentionMonths: number;
+}
+
+async function fetchVenueSettings(client: Client, venueId: string): Promise<VenueSettingsData> {
+  const { data, error } = await client
+    .from('venues')
+    .select('name, address, retention_months')
+    .eq('id', venueId)
+    .single();
+  if (error) throw error;
+  return {
+    name: data.name,
+    address: data.address ?? '',
+    retentionMonths: data.retention_months,
+  };
+}
+
+/** Editable settings for the current venue (admin edits via updateVenue). */
+export function usePoVenueSettings(venueId: string | null): {
+  settings: VenueSettingsData | null;
+  isLoading: boolean;
+} {
+  const client = useBrowserClient();
+  const { data = null, isLoading } = useQuery({
+    queryKey: ['po', 'venue-settings', venueId],
+    queryFn: () => (venueId ? fetchVenueSettings(client, venueId) : Promise.resolve(null)),
+    enabled: Boolean(venueId),
+  });
+  return { settings: data, isLoading };
+}
