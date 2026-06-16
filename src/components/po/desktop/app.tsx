@@ -12,11 +12,11 @@ import { Icon, type IconName } from '../icon';
 import { Avatar, Label } from '../kit';
 import { ComingSoonPill } from '../coming-soon';
 import { DBtn } from './kit';
-import { EventDetailModal, NewEventModal, NewGuestModal } from './modals';
+import { EventDetailModal, NewEventModal, NewGuestModal, NewUserModal } from './modals';
 import { Audit, Events, Home, Stats, Users } from './views';
 
 type View = 'home' | 'events' | 'stats' | 'audit' | 'users';
-type Overlay = 'newEvent' | 'newGuest' | null;
+type Overlay = 'newEvent' | 'newGuest' | 'newUser' | null;
 const press = 'transition-[filter,transform,background,border-color,color] hover:brightness-[1.08] active:scale-[0.985]';
 
 // Views still backed by mock data show the "Binnenkort" pill in the topbar.
@@ -239,7 +239,7 @@ function DesktopAppInner(): JSX.Element {
     },
     stats: { title: 'Statistieken', sub: `${venueName} · voorbeeldcijfers`, right: <span />, Body: Stats },
     audit: { title: 'Audit log', sub: 'Onveranderlijk logboek — wie deed wat, wanneer', right: <DBtn kind="ghost" icon="dl">Export</DBtn>, Body: Audit },
-    users: { title: 'Gebruikers', sub: 'Team en uitnodigingen van deze venue', right: <DBtn icon="plus">Uitnodigen</DBtn>, Body: Users },
+    users: { title: 'Gebruikers', sub: 'Team en uitnodigingen van deze venue', right: <DBtn icon="plus" onClick={() => setOverlay('newUser')}>Uitnodigen</DBtn>, Body: Users },
   };
   const m = meta[view];
   const Body = m.Body;
@@ -263,6 +263,7 @@ function DesktopAppInner(): JSX.Element {
         />
       )}
       {overlay === 'newGuest' && <NewGuestModal onClose={() => setOverlay(null)} />}
+      {overlay === 'newUser' && <NewUserModal onClose={() => setOverlay(null)} />}
       {selectedEventId && <EventDetailHost eventId={selectedEventId} onClose={() => setSelectedEventId(null)} />}
     </div>
   );

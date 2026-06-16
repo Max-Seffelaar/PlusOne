@@ -25,6 +25,7 @@ import {
   updateTier,
 } from '@/features/events/actions';
 import { addGuest } from '@/features/guests/actions';
+import { inviteUserAction } from '@/features/auth/invite-actions';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
 import {
   parseQuickAdd as parseQuickAddLive,
@@ -214,6 +215,105 @@ export function NewEventModal({ onClose, onCreated }: { onClose: () => void; onC
       <DDateTime value={endsAt} onChange={setEndsAt} />
 
       {err && <p className="mt-3 text-[13px] text-acc-soft">{err}</p>}
+    </DModal>
+  );
+}
+
+// ── NEW USER (invite, #4/#20/#24) ─────────────────────────────────────────────
+const VENUE_ROLES: { value: string; label: string }[] = [
+  { value: 'staff', label: 'Staff' },
+  { value: 'doorhost', label: 'Deurhost' },
+  { value: 'user_manager', label: 'Gebruikersbeheer' },
+  { value: 'finance', label: 'Finance' },
+  { value: 'admin', label: 'Admin' },
+];
+
+/** Invite a user to the current venue with roles. Sends through the existing
+ *  inviteUserAction (server-side: AAL2 + caller-role + escalation guard + RLS on
+ *  the invite insert). At AAL1 the action returns the "MFA vereist" message, which
+ *  we surface as-is — proof the AAL2 gate works. */
+export function NewUserModal({ onClose }: { onClose: () => void }): JSX.Element {
+  const qc = useQueryClient();
+  const { currentVenue } = useSession();
+  const [email, setEmail] = useState('');
+  const [roles, setRoles] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
+
+  const validEmail = /.+@.+\..+/.test(email);
+  const canSend = validEmail && roles.length > 0 && Boolean(currentVenue) && !busy;
+  const sensitive = roles.includes('admin') || roles.includes('finance');
+
+  function toggleRole(r: string): void {
+    setRoles((rs) => (rs.includes(r) ? rs.filter((x) => x !== r) : [...rs, r]));
+    setErr(null);
+  }
+
+  async function send(): Promise<void> {
+    if (!canSend || !currentVenue) return;
+    setBusy(true);
+    setErr(null);
+    setOkMsg(null);
+    const fd = new FormData();
+    fd.set('venueId', currentVenue.id);
+    fd.set('email', email);
+    roles.forEach((r) => fd.append('roles', r));
+    const res = await inviteUserAction({ ok: false }, fd);
+    setBusy(false);
+    if (!res.ok) {
+      setErr(res.error ?? 'Kon de uitnodiging niet versturen.');
+      return;
+    }
+    setOkMsg(res.message ?? 'Uitnodiging klaargezet.');
+    setEmail('');
+    setRoles([]);
+    await qc.invalidateQueries({ queryKey: ['po', 'team'] });
+  }
+
+  return (
+    <DModal
+      title="Gebruiker uitnodigen"
+      sub={currentVenue ? currentVenue.name : 'Geen venue geselecteerd'}
+      onClose={onClose}
+      footer={
+        <>
+          <DBtn kind="ghost" onClick={onClose}>
+            Klaar
+          </DBtn>
+          <DBtn icon="arrowR" onClick={send} className={canSend ? '' : 'opacity-50'}>
+            {busy ? 'Bezig…' : 'Verstuur uitnodiging'}
+          </DBtn>
+        </>
+      }
+    >
+      <DFieldLabel>E-mailadres</DFieldLabel>
+      <DInput value={email} onChange={(v) => { setEmail(v); setErr(null); }} placeholder="naam@venue.nl" inputMode="email" autoFocus className="mb-[14px]" />
+
+      <DFieldLabel>Rollen</DFieldLabel>
+      <div className="mb-2 flex flex-wrap gap-2">
+        {VENUE_ROLES.map((r) => {
+          const on = roles.includes(r.value);
+          return (
+            <button
+              key={r.value}
+              type="button"
+              onClick={() => toggleRole(r.value)}
+              className={cn('rounded-[11px] border px-[13px] py-[8px] font-display text-[13.5px] font-bold', press, on ? 'border-transparent bg-acc-dim text-acc' : 'border-line bg-elev2 text-dim')}
+            >
+              {r.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {sensitive && (
+        <p className="mb-1 text-[12.5px] leading-[1.45] text-faint">
+          Admin en Finance krijgen <b>verplichte MFA</b> bij eerste login. Deze uitnodiging zelf vereist ook AAL2.
+        </p>
+      )}
+      {err && <p className="mt-2 text-[13px] text-acc-soft">{err}</p>}
+      {okMsg && <p className="mt-2 text-[13px] font-bold text-acc">{okMsg}</p>}
     </DModal>
   );
 }
