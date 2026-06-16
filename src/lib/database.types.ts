@@ -1055,6 +1055,17 @@ export type Database = {
       can_read_venue_stats: { Args: { p_venue_id: string }; Returns: boolean }
       can_view_profile: { Args: { p_profile_id: string }; Returns: boolean }
       can_write_guests: { Args: { p_event_id: string }; Returns: boolean }
+      create_venue_with_owner: {
+        Args: {
+          p_address: string
+          p_comped?: boolean
+          p_name: string
+          p_plan_id?: string
+          p_retention_months: number
+          p_venue_type: string
+        }
+        Returns: string
+      }
       current_user_requires_mfa: { Args: never; Returns: boolean }
       event_checkins_per_quarter: {
         Args: { p_event_id: string }
@@ -1166,6 +1177,10 @@ export type Database = {
           user_agent: string
         }[]
       }
+      mark_onboarding_complete: {
+        Args: { p_venue_id: string }
+        Returns: undefined
+      }
       organizes_event_at_venue: {
         Args: { p_venue_id: string }
         Returns: boolean
@@ -1213,6 +1228,10 @@ export type Database = {
           preferred_role: Database["public"]["Enums"]["contact_role"]
         }[]
       }
+      set_venue_plan: {
+        Args: { p_comped?: boolean; p_plan_id: string; p_venue_id: string }
+        Returns: undefined
+      }
       slugify: { Args: { p_text: string }; Returns: string }
       submit_guest_request: {
         Args: {
@@ -1233,6 +1252,7 @@ export type Database = {
         Returns: number
       }
       tier_consumption: { Args: { p_tier_id: string }; Returns: number }
+      unique_venue_slug: { Args: { p_name: string }; Returns: string }
       upsert_contacts: {
         Args: { p_rows: Json; p_venue_id: string }
         Returns: Json
@@ -1469,4 +1489,3 @@ export const Constants = {
     },
   },
 } as const
-
