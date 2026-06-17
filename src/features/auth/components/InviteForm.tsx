@@ -71,6 +71,25 @@ export function InviteForm({
         )}
       </fieldset>
 
+      <div className="flex flex-col gap-2">
+        <label htmlFor="invite-quota" className="label">
+          Quotum per event <span className="text-faint">(optioneel)</span>
+        </label>
+        <input
+          id="invite-quota"
+          name="defaultQuota"
+          type="number"
+          min={0}
+          max={9999}
+          inputMode="numeric"
+          placeholder="bijv. 10"
+          className="field"
+        />
+        <p className="text-faint text-xs">
+          Aantal gastenplekken dat dit teamlid per event mag vullen. Leeg laten = de standaard van de venue.
+        </p>
+      </div>
+
       <button type="submit" className="btn-primary w-full" disabled={pending}>
         {pending ? 'Bezig…' : 'Uitnodiging versturen'}
       </button>

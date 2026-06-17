@@ -606,6 +606,7 @@ export type Database = {
           accepted_at: string | null
           accepted_by: string | null
           created_at: string
+          default_quota: number | null
           email: string
           expires_at: string
           id: string
@@ -617,6 +618,7 @@ export type Database = {
           accepted_at?: string | null
           accepted_by?: string | null
           created_at?: string
+          default_quota?: number | null
           email: string
           expires_at: string
           id?: string
@@ -628,6 +630,7 @@ export type Database = {
           accepted_at?: string | null
           accepted_by?: string | null
           created_at?: string
+          default_quota?: number | null
           email?: string
           expires_at?: string
           id?: string

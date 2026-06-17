@@ -42,7 +42,7 @@ $fn$;
 -- v1 = aa000000-0000-7000-8000-000000000001, v2 = ...0002
 -- Max=1111…, Noor=2222…, Femke=3333…, Yusuf=4444…, Tom=5555…, Lisa=6666…
 
-select plan(37);
+select plan(41);
 
 -- ---------------------------------------------------------------------------
 -- A. invites INSERT — who may invite, AAL2, escalation guard, forge, x-venue
@@ -175,6 +175,37 @@ select is((select count(*)::int from public.venue_memberships
            where user_id = '44444444-4444-4444-8444-444444444444'
              and venue_id = 'aa000000-0000-7000-8000-000000000002'),
           0, 'D8 expired invite created no membership');
+
+-- D9–D12: quota-at-invite (#4). Accepting an invite that carries default_quota
+-- seeds quotas.default_count once; a later invite never clobbers a quota an admin
+-- has since adjusted (insert ... on conflict do nothing). Tom (staff) has no
+-- venue-2 membership or quota yet, and no other pending venue-2 invite, so it is
+-- the clean subject (organizer@ still has the expired venue-2 invite from D7).
+insert into public.invites (venue_id, email, roles, invited_by, expires_at, default_quota)
+values ('aa000000-0000-7000-8000-000000000002', 'staff@plusone.test', '{staff}',
+        '11111111-1111-4111-8111-111111111111', now() + interval '7 days', 9);
+select pg_temp.login('55555555-5555-4555-8555-555555555555', 'aal1', 'staff@plusone.test');
+select is(public.accept_pending_invites(), 1, 'D9 an invite carrying a quota is accepted');
+reset role;
+select is((select default_count from public.quotas
+           where user_id = '55555555-5555-4555-8555-555555555555'
+             and venue_id = 'aa000000-0000-7000-8000-000000000002'),
+          9, 'D10 acceptance seeded quotas.default_count (9) from the invite');
+
+-- Admin later lowers the quota; a fresh invite (99) must NOT overwrite it.
+update public.quotas set default_count = 3
+  where user_id = '55555555-5555-4555-8555-555555555555'
+    and venue_id = 'aa000000-0000-7000-8000-000000000002';
+insert into public.invites (venue_id, email, roles, invited_by, expires_at, default_quota)
+values ('aa000000-0000-7000-8000-000000000002', 'staff@plusone.test', '{staff}',
+        '11111111-1111-4111-8111-111111111111', now() + interval '7 days', 99);
+select pg_temp.login('55555555-5555-4555-8555-555555555555', 'aal1', 'staff@plusone.test');
+select is(public.accept_pending_invites(), 1, 'D11 a follow-up invite is accepted');
+reset role;
+select is((select default_count from public.quotas
+           where user_id = '55555555-5555-4555-8555-555555555555'
+             and venue_id = 'aa000000-0000-7000-8000-000000000002'),
+          3, 'D12 re-accepting never overwrites an adjusted quota (DO NOTHING)');
 
 -- ---------------------------------------------------------------------------
 -- C. invites DELETE — revoke a pending invite; accepted invites are immutable

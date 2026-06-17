@@ -59,11 +59,12 @@ export async function inviteUserAction(
     venueId: formData.get('venueId'),
     email: formData.get('email'),
     roles: formData.getAll('roles'),
+    defaultQuota: formData.get('defaultQuota'),
   });
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? 'Controleer de invoer.' };
   }
-  const { venueId, email, roles } = parsed.data;
+  const { venueId, email, roles, defaultQuota } = parsed.data;
   const typedRoles = roles as VenueRole[];
 
   try {
@@ -111,6 +112,8 @@ export async function inviteUserAction(
     roles: typedRoles,
     invited_by: user.id,
     expires_at: expiresAt,
+    // Seeded as the member's venue default quota on acceptance (#4); null = none.
+    default_quota: defaultQuota ?? null,
   });
 
   if (inviteError) {

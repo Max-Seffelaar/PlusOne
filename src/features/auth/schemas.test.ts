@@ -48,6 +48,25 @@ describe('inviteSchema', () => {
       false
     );
   });
+  it('coerces a numeric quota and treats a blank one as undefined (#4)', () => {
+    const withQuota = inviteSchema.safeParse({
+      venueId: VENUE_ID, email: 'a@b.nl', roles: ['staff'], defaultQuota: '10',
+    });
+    expect(withQuota.success).toBe(true);
+    if (withQuota.success) expect(withQuota.data.defaultQuota).toBe(10);
+
+    const blank = inviteSchema.safeParse({
+      venueId: VENUE_ID, email: 'a@b.nl', roles: ['staff'], defaultQuota: '',
+    });
+    expect(blank.success).toBe(true);
+    if (blank.success) expect(blank.data.defaultQuota).toBeUndefined();
+  });
+  it('rejects a negative quota', () => {
+    expect(
+      inviteSchema.safeParse({ venueId: VENUE_ID, email: 'a@b.nl', roles: ['staff'], defaultQuota: '-1' })
+        .success
+    ).toBe(false);
+  });
 });
 
 describe('profileNameSchema', () => {
