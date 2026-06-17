@@ -5,7 +5,7 @@
  * survives a reload.
  */
 
-export type OutboxKind = 'check_in' | 'refusal' | 'add_guest' | 'ack_note';
+export type OutboxKind = 'check_in' | 'check_in_topup' | 'refusal' | 'add_guest' | 'ack_note';
 
 /**
  * pending  — queued, not yet sent (or a transient failure to retry)
@@ -21,6 +21,18 @@ export interface CheckInPayload {
   id: string;
   guestId: string;
   /** plus_ones_arrived = total people - 1. */
+  plusOnesArrived: number;
+  clientTimestamp: string;
+}
+
+export interface CheckInTopUpPayload {
+  guestId: string;
+  /**
+   * The NEW absolute plus_ones_arrived target (total people - 1), not a delta.
+   * Absolute + the cap_check_in_arrivals trigger (monotonic, capped at the
+   * allotment) makes a replay idempotent and safe to reorder: re-applying the
+   * same target is a no-op and a stale lower target can never lower the count.
+   */
   plusOnesArrived: number;
   clientTimestamp: string;
 }
@@ -59,6 +71,7 @@ interface OutboxBase {
 
 export type OutboxEntry =
   | (OutboxBase & { kind: 'check_in'; payload: CheckInPayload })
+  | (OutboxBase & { kind: 'check_in_topup'; payload: CheckInTopUpPayload })
   | (OutboxBase & { kind: 'refusal'; payload: RefusalPayload })
   | (OutboxBase & { kind: 'add_guest'; payload: AddGuestPayload })
   | (OutboxBase & { kind: 'ack_note'; payload: AckNotePayload });

@@ -5,7 +5,8 @@
  * hoe laat/door wie — built from guests/check_ins, never audit_log), stepper
  * check-in "Check in · N personen", refuse flow with a mandatory reason (#10),
  * and the "Let op!" popup for high-priority notes. Recreated from the prototype
- * `Guest` screen. Check-ins are append-only, so there is no "uitchecken".
+ * `Guest` screen. A guest already inside can be topped up ("nog inchecken") when
+ * not all of their +N have arrived yet; plus_ones_arrived only ever rises.
  */
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -47,15 +48,19 @@ function LogRow({
 }
 
 export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () => void }): JSX.Element | null {
-  const { guestById, checkIn, refuse, ackNote } = useDoor();
+  const { guestById, checkIn, topUp, refuse, ackNote } = useDoor();
   const g = guestById(guestId);
   const [plus, setPlus] = useState(g?.plus ?? 0);
+  const [addNow, setAddNow] = useState(1);
   const [alertOpen, setAlertOpen] = useState(g?.notePriority === 'high' && !g?.acknowledged);
   const [refuseOpen, setRefuseOpen] = useState(false);
   const [reason, setReason] = useState('');
 
   if (!g) return null;
   const total = 1 + plus;
+  // Already inside but not all of their +N have arrived → offer "nog inchecken".
+  const remaining = g.inside ? Math.max(0, g.plus - (g.arrived ?? 0)) : 0;
+  const addClamped = Math.min(remaining, Math.max(1, addNow));
   const hasTask = !!g.note;
   const done = g.acknowledged;
 
@@ -121,6 +126,30 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
             <LogRow icon="clock" label="Nog niet ingecheckt" who="onderweg" last />
           )}
         </div>
+
+        {g.inside && remaining > 0 && (
+          <>
+            <Label className="mb-[9px]">Nog niet iedereen binnen</Label>
+            <div className="mb-3 rounded-[14px] border border-line bg-elev p-[14px]">
+              <div className="mb-3 text-[13.5px] text-faint">
+                <span className="font-semibold text-text">{1 + (g.arrived ?? 0)}</span> van {1 + g.plus} binnen ·
+                nog {remaining} onderweg
+              </div>
+              <Stepper value={addClamped} onChange={(v) => setAddNow(Math.min(remaining, Math.max(1, v)))} />
+            </div>
+            <Btn
+              kind="primary"
+              full
+              icon="check"
+              onClick={() => {
+                topUp(g.id, addClamped);
+                onBack();
+              }}
+            >
+              Nog {addClamped} inchecken
+            </Btn>
+          </>
+        )}
 
         {!g.inside && (
           <>
