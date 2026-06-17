@@ -6,7 +6,8 @@
  * check-in "Check in · N personen", refuse flow with a mandatory reason (#10),
  * and the "Let op!" popup for high-priority notes. Recreated from the prototype
  * `Guest` screen. A guest already inside can be topped up ("nog inchecken") when
- * not all of their +N have arrived yet; plus_ones_arrived only ever rises.
+ * not all of their +N have arrived yet (plus_ones_arrived only rises), or have
+ * their check-in undone ("terugdraaien", soft void #3) and later re-checked in.
  */
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -48,7 +49,7 @@ function LogRow({
 }
 
 export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () => void }): JSX.Element | null {
-  const { guestById, checkIn, topUp, refuse, ackNote } = useDoor();
+  const { guestById, checkIn, topUp, voidCheckIn, reviveCheckIn, refuse, ackNote } = useDoor();
   const g = guestById(guestId);
   const [plus, setPlus] = useState(g?.plus ?? 0);
   const [addNow, setAddNow] = useState(1);
@@ -122,6 +123,8 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
           {g.plus > 0 && <LogRow icon="users" label="Meegenomen gasten" who={`+${g.plus} tickets`} />}
           {g.inside ? (
             <LogRow icon="check2" label={g.arrived && g.arrived > 0 ? `Ingecheckt · +${g.arrived}` : 'Ingecheckt'} who={g.inByName ?? 'Deur'} when={g.inAt} accent last />
+          ) : g.voided ? (
+            <LogRow icon="history" label="Check-in teruggedraaid" who="onderweg" last />
           ) : (
             <LogRow icon="clock" label="Nog niet ingecheckt" who="onderweg" last />
           )}
@@ -151,9 +154,23 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
           </>
         )}
 
+        {g.inside && (
+          <Btn
+            kind="ghost"
+            full
+            icon="history"
+            onClick={() => {
+              voidCheckIn(g.id);
+              onBack();
+            }}
+          >
+            Check-in terugdraaien
+          </Btn>
+        )}
+
         {!g.inside && (
           <>
-            <Label className="mb-[9px]">Hoeveel komen er binnen?</Label>
+            <Label className="mb-[9px]">{g.voided ? 'Opnieuw inchecken?' : 'Hoeveel komen er binnen?'}</Label>
             <div className="mb-4">
               <Stepper value={plus + 1} onChange={(v) => setPlus(Math.max(0, v - 1))} />
             </div>
@@ -177,11 +194,12 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
             full
             icon="check"
             onClick={() => {
-              checkIn(g.id, total);
+              if (g.voided) reviveCheckIn(g.id, total);
+              else checkIn(g.id, total);
               onBack();
             }}
           >
-            Check in · {total} {total === 1 ? 'persoon' : 'personen'}
+            {g.voided ? 'Opnieuw inchecken' : 'Check in'} · {total} {total === 1 ? 'persoon' : 'personen'}
           </Btn>
         )}
       </BottomBar>

@@ -27,6 +27,8 @@ export interface DoorGuest {
   acknowledged: boolean;
   ackByName?: string;
   inside: boolean;
+  /** Had a check-in that was undone at the door (soft void) → back to "onderweg". */
+  voided: boolean;
   /** Door payment required — inert until guest_tiers.door_price lands (#34). */
   pay: boolean;
   inAt?: string;
@@ -96,6 +98,8 @@ function toDoorGuest(
   const tier = tierById.get(g.tier_id);
   const role = tierRole(tier?.name ?? '');
   const ci = checkInByGuest.get(g.id);
+  // A voided check-in does not count as present — the guest is "onderweg" again.
+  const active = ci != null && ci.voided_at == null;
   return {
     id: g.id,
     name: g.full_name,
@@ -111,11 +115,12 @@ function toDoorGuest(
     notePriority: g.note_priority,
     acknowledged: g.note_acknowledged_at != null,
     ackByName: g.note_acknowledged_by ? profiles[g.note_acknowledged_by] : undefined,
-    inside: ci != null,
+    inside: active,
+    voided: ci != null && ci.voided_at != null,
     pay: false,
-    inAt: ci ? formatTime(ci.checked_at) : undefined,
-    inByName: ci ? profiles[ci.checked_by] ?? 'Deur' : undefined,
-    arrived: ci?.plus_ones_arrived,
+    inAt: active ? formatTime(ci.checked_at) : undefined,
+    inByName: active ? profiles[ci.checked_by] ?? 'Deur' : undefined,
+    arrived: active ? ci.plus_ones_arrived : undefined,
   };
 }
 

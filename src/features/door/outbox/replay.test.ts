@@ -22,7 +22,7 @@ function checkInEntry(over: Partial<OutboxEntry> = {}): OutboxEntry {
 /** A gateway that returns a fixed error for every method. */
 function gatewayReturning(error: DbError | null): DoorGateway {
   const r = async () => ({ error });
-  return { insertCheckIn: r, topUpCheckIn: r, insertRefusal: r, insertGuest: r, ackNote: r };
+  return { insertCheckIn: r, topUpCheckIn: r, voidCheckIn: r, reviveCheckIn: r, insertRefusal: r, insertGuest: r, ackNote: r };
 }
 
 const UNIQUE_GUEST: DbError = { code: '23505', details: 'Key (guest_id)=(g1) already exists.' };
@@ -107,6 +107,38 @@ describe('replayEntry', () => {
       payload: { guestId: 'gX', plusOnesArrived: 2, clientTimestamp: '2026-06-20T23:31:00.000Z' },
     }, UID, DEVICE);
     expect(result.status).toBe('synced');
+  });
+
+  it('check_in_void voids by guest_id, pinning voided_by to the session user', async () => {
+    const voidCheckIn = vi.fn(async () => ({ error: null }));
+    const gw: DoorGateway = { ...gatewayReturning(null), voidCheckIn };
+    const result = await replayEntry(gw, {
+      clientId: 'c5',
+      eventId: 'ev1',
+      kind: 'check_in_void',
+      status: 'pending',
+      attempts: 0,
+      createdAt: '2026-06-20T23:40:00.000Z',
+      payload: { guestId: 'g1', clientTimestamp: '2026-06-20T23:40:00.000Z' },
+    }, UID, DEVICE);
+    expect(result.status).toBe('synced');
+    expect(voidCheckIn).toHaveBeenCalledWith('g1', UID);
+  });
+
+  it('check_in_revive re-checks-in with fresh arrivals and the session user', async () => {
+    const reviveCheckIn = vi.fn(async () => ({ error: null }));
+    const gw: DoorGateway = { ...gatewayReturning(null), reviveCheckIn };
+    const result = await replayEntry(gw, {
+      clientId: 'c6',
+      eventId: 'ev1',
+      kind: 'check_in_revive',
+      status: 'pending',
+      attempts: 0,
+      createdAt: '2026-06-20T23:50:00.000Z',
+      payload: { guestId: 'g1', plusOnesArrived: 1, clientTimestamp: '2026-06-20T23:50:00.000Z' },
+    }, UID, DEVICE);
+    expect(result.status).toBe('synced');
+    expect(reviveCheckIn).toHaveBeenCalledWith('g1', 1, UID);
   });
 
   it('add_guest carries source=door and the event id, and maps quota to error', async () => {

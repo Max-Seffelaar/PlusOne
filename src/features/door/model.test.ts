@@ -53,6 +53,8 @@ function checkIn(over: Partial<CheckInRow> = {}): CheckInRow {
     plus_ones_arrived: 0,
     offline_synced: false,
     created_at: '2026-06-20T23:41:00Z',
+    voided_at: null,
+    voided_by: null,
     ...over,
   };
 }
@@ -134,6 +136,21 @@ describe('buildDoorView', () => {
     expect(g.last4).toBe('5678');
     expect(view.insideCount).toBe(1);
     expect(view.waitingCount).toBe(0);
+  });
+
+  it('treats a voided check-in as not inside — back to onderweg (soft void #3)', () => {
+    const view = buildDoorView(
+      snapshot({
+        guests: [guest({ id: 'g1', plus_ones: 2 })],
+        checkIns: [checkIn({ guest_id: 'g1', plus_ones_arrived: 2, voided_at: '2026-06-20T23:55:00Z', voided_by: 'u-lisa' })],
+      }),
+    );
+    const g = view.guests[0];
+    expect(g.inside).toBe(false);
+    expect(g.voided).toBe(true);
+    expect(g.arrived).toBeUndefined();
+    expect(view.insideCount).toBe(0);
+    expect(view.waitingCount).toBe(1);
   });
 
   it('excludes refused guests from the list (no double audit, append-only)', () => {
