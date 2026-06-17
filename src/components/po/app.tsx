@@ -10,7 +10,8 @@ import { useState, type ReactNode } from 'react';
 import { contacts, events, guests, venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
 import { PoProvider, type AuthNav, type AuthView, type CheckInEntry, type Nav, type PoApp, type ScreenName, type StackEntry } from './context';
-import { PhoneFrame, StatusBar, TabBar, Toast, type TabKey } from './shell';
+import { PhoneFrame, Toast, type TabKey } from './shell';
+import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
 import { Invite, Login, Mfa, Otp, Welcome } from './screens/auth';
 import { EventBeheer, EventEdit, EventView, Events, PastEvent, Tiers } from './screens/events';
 import { BulkPaste, Contacten, Guest, Lijst, QuickAdd, Vaste } from './screens/guests';
@@ -28,8 +29,14 @@ function nowTime(): string {
 
 export function PlusOneApp({
   statsAccess,
+  serverHint = false,
+  liveVenueName,
 }: {
   statsAccess?: { venues: { venueId: string; venueName: string }[] };
+  /** Server UA hint for the first-paint viewport switch (corrected by matchMedia). */
+  serverHint?: boolean;
+  /** Live active-venue name from the session (shell display); mock fallback otherwise. */
+  liveVenueName?: string;
 }): JSX.Element {
   const [started, setStarted] = useState(false);
   const [authView, setAuthView] = useState<AuthView>('welcome');
@@ -215,16 +222,53 @@ export function PlusOneApp({
   const po: PoApp = { inside, log, checkIn, uncheck, taskDone, ackTask, vast, toggleVast, venue, switchVenue, statsVenues: statsAccess?.venues ?? [], nav };
   const takenBadge = guests.filter((g) => g.note && !tasksDone.has(g.id)).length;
 
+  const body = (
+    <>
+      <div key={key} className="po-screen-anim flex min-h-0 flex-1 flex-col">
+        {screen}
+      </div>
+      {toast && <Toast>{toast}</Toast>}
+    </>
+  );
+
+  // Auth flow (pre-login): keep the centered phone frame.
+  if (!started) {
+    return (
+      <PoProvider value={po}>
+        <PhoneFrame>{body}</PhoneFrame>
+      </PoProvider>
+    );
+  }
+
+  // Signed-in: responsive shell — desktop sidebar ≥1024px, mobile tabs below it
+  // (S0 nav-shell). Screens are unchanged for now; wired live per S1+.
+  const currentKey =
+    top?.name === 'stats' ? 'stats' : top?.name === 'gebruikers' ? 'gebruikers' : tab;
+  const navItems: ShellNavItem[] = [
+    { key: 'events', label: 'Events', icon: 'cal', active: currentKey === 'events', onClick: () => nav.setTab('events') },
+    { key: 'deur', label: 'Check-in', icon: 'door', active: currentKey === 'deur', onClick: () => nav.setTab('deur') },
+    { key: 'taken', label: 'Taken', icon: 'flag', active: currentKey === 'taken', onClick: () => nav.setTab('taken') },
+    { key: 'stats', label: 'Statistieken', icon: 'spark', active: currentKey === 'stats', onClick: () => nav.push('stats') },
+    { key: 'gebruikers', label: 'Gebruikers', icon: 'users', active: currentKey === 'gebruikers', onClick: () => nav.push('gebruikers') },
+    { key: 'meer', label: 'Meer', icon: 'dots', active: currentKey === 'meer', onClick: () => nav.setTab('meer') },
+  ];
+
   return (
     <PoProvider value={po}>
-      <PhoneFrame>
-        {started && <StatusBar />}
-        <div key={key} className="po-screen-anim flex min-h-0 flex-1 flex-col">
-          {screen}
-        </div>
-        {tabRoot && <TabBar tab={tab} setTab={nav.setTab} badges={{ taken: takenBadge }} />}
-        {toast && <Toast>{toast}</Toast>}
-      </PhoneFrame>
+      <ResponsiveShell
+        serverHint={serverHint}
+        isTabRoot={tabRoot}
+        mobileTab={tab}
+        setMobileTab={nav.setTab}
+        mobileBadges={{ taken: takenBadge }}
+        navItems={navItems}
+        venueName={liveVenueName ?? venue.name}
+        onOpenVenue={() => nav.push('venueswitch')}
+        userName="Beheerder"
+        userSub="Admin · MFA"
+      >
+        {body}
+      </ResponsiveShell>
     </PoProvider>
   );
 }
