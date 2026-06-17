@@ -57,6 +57,13 @@ export async function replayEntry(
       });
       return classifyError(error);
     }
+    case 'check_in_topup': {
+      const p = entry.payload;
+      // Absolute target; the trigger keeps it monotonic + capped, so a re-send or
+      // a row owned by another checker (0 rows) is a harmless no-op = synced.
+      const { error } = await gw.topUpCheckIn(p.guestId, p.plusOnesArrived);
+      return classifyError(error);
+    }
     case 'refusal': {
       const p = entry.payload;
       const { error } = await gw.insertRefusal({

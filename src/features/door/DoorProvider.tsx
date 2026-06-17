@@ -61,6 +61,8 @@ interface DoorContextValue {
   outboxByGuest: Map<string, OutboxEntry[]>;
   guestById: (id: string) => DoorGuest | undefined;
   checkIn: (guestId: string, totalPeople: number) => void;
+  /** Raise an already-checked-in guest's arrivals by `addArrived` ("nog inchecken"). */
+  topUp: (guestId: string, addArrived: number) => void;
   refuse: (guestId: string, reason: string) => void;
   addOnSpot: (input: AddOnSpotInput) => void;
   ackNote: (guestId: string, ack: boolean) => void;
@@ -230,6 +232,38 @@ export function DoorProvider({
     [eventId, meId, patchSnapshot, showToast, maybeFlush],
   );
 
+  // "Nog inchecken": raise plus_ones_arrived for a guest already inside. We read
+  // the current arrivals + allotment from the live view and send the NEW absolute
+  // target (capped client-side; the trigger caps + keeps it monotonic server-side).
+  const topUp = useCallback(
+    (guestId: string, addArrived: number) => {
+      const g = viewRef.current?.guests.find((x) => x.id === guestId);
+      if (!g || !g.inside) return;
+      const current = g.arrived ?? 0;
+      const target = Math.min(g.plus, current + Math.max(0, addArrived));
+      if (target <= current) return;
+      const ts = new Date().toISOString();
+      outbox.enqueue({
+        clientId: uuidv7(),
+        eventId,
+        kind: 'check_in_topup',
+        status: 'pending',
+        attempts: 0,
+        createdAt: ts,
+        payload: { guestId, plusOnesArrived: target, clientTimestamp: ts },
+      });
+      patchSnapshot((s) => ({
+        ...s,
+        checkIns: s.checkIns.map((c) =>
+          c.guest_id === guestId ? { ...c, plus_ones_arrived: Math.max(c.plus_ones_arrived, target) } : c,
+        ),
+      }));
+      showToast(`${g.name} · nu ${1 + target} binnen`);
+      maybeFlush();
+    },
+    [eventId, patchSnapshot, showToast, maybeFlush],
+  );
+
   const refuse = useCallback(
     (guestId: string, reason: string) => {
       const id = uuidv7();
@@ -363,11 +397,12 @@ export function DoorProvider({
       outboxByGuest,
       guestById,
       checkIn,
+      topUp,
       refuse,
       addOnSpot,
       ackNote,
     }),
-    [eventId, view, tasks, quotaQuery.data, defaultTierId, sync, toast, pendingCount, outboxByGuest, guestById, checkIn, refuse, addOnSpot, ackNote],
+    [eventId, view, tasks, quotaQuery.data, defaultTierId, sync, toast, pendingCount, outboxByGuest, guestById, checkIn, topUp, refuse, addOnSpot, ackNote],
   );
 
   return <DoorContext.Provider value={value}>{children}</DoorContext.Provider>;

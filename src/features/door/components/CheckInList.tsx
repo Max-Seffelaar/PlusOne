@@ -59,6 +59,9 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
 
   const row = (g: DoorGuest): JSX.Element => {
     const isDuplicate = (outboxByGuest.get(g.id) ?? []).some((e) => e.status === 'duplicate');
+    // Inside but not all of their +N arrived yet → flag "nog N" so the doorhost
+    // knows to re-open and top up (incremental check-in).
+    const remaining = g.inside ? Math.max(0, g.plus - (g.arrived ?? 0)) : 0;
     return (
       <button
         key={g.id}
@@ -91,7 +94,13 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
           </div>
         </div>
         {g.inside ? (
-          <StatusDot status="in" label={false} />
+          remaining > 0 ? (
+            <span className="shrink-0 rounded-[8px] bg-acc-dim px-[9px] py-[5px] font-display text-[12px] font-bold text-acc">
+              nog {remaining}
+            </span>
+          ) : (
+            <StatusDot status="in" label={false} />
+          )
         ) : (
           <span className="text-acc">
             <Icon name="chev" size={24} />

@@ -22,7 +22,7 @@ function checkInEntry(over: Partial<OutboxEntry> = {}): OutboxEntry {
 /** A gateway that returns a fixed error for every method. */
 function gatewayReturning(error: DbError | null): DoorGateway {
   const r = async () => ({ error });
-  return { insertCheckIn: r, insertRefusal: r, insertGuest: r, ackNote: r };
+  return { insertCheckIn: r, topUpCheckIn: r, insertRefusal: r, insertGuest: r, ackNote: r };
 }
 
 const UNIQUE_GUEST: DbError = { code: '23505', details: 'Key (guest_id)=(g1) already exists.' };
@@ -76,6 +76,37 @@ describe('replayEntry', () => {
   it('check-in duplicate surfaces as duplicate', async () => {
     const result = await replayEntry(gatewayReturning(UNIQUE_GUEST), checkInEntry(), UID, DEVICE);
     expect(result.status).toBe('duplicate');
+  });
+
+  it('check_in_topup updates by guest_id with the absolute target and syncs', async () => {
+    const topUpCheckIn = vi.fn(async () => ({ error: null }));
+    const gw: DoorGateway = { ...gatewayReturning(null), topUpCheckIn };
+    const entry: OutboxEntry = {
+      clientId: 'c3',
+      eventId: 'ev1',
+      kind: 'check_in_topup',
+      status: 'pending',
+      attempts: 0,
+      createdAt: '2026-06-20T23:30:00.000Z',
+      payload: { guestId: 'g1', plusOnesArrived: 4, clientTimestamp: '2026-06-20T23:30:00.000Z' },
+    };
+    const result = await replayEntry(gw, entry, UID, DEVICE);
+    expect(result.status).toBe('synced');
+    expect(topUpCheckIn).toHaveBeenCalledWith('g1', 4);
+  });
+
+  it('check_in_topup matching no row (another checker / not yet synced) is a harmless no-op', async () => {
+    // An UPDATE that affects zero rows returns no error → synced, never duplicate.
+    const result = await replayEntry(gatewayReturning(null), {
+      clientId: 'c4',
+      eventId: 'ev1',
+      kind: 'check_in_topup',
+      status: 'pending',
+      attempts: 0,
+      createdAt: '2026-06-20T23:31:00.000Z',
+      payload: { guestId: 'gX', plusOnesArrived: 2, clientTimestamp: '2026-06-20T23:31:00.000Z' },
+    }, UID, DEVICE);
+    expect(result.status).toBe('synced');
   });
 
   it('add_guest carries source=door and the event id, and maps quota to error', async () => {

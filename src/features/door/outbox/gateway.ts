@@ -21,6 +21,8 @@ export interface DbError {
 
 export interface DoorGateway {
   insertCheckIn(row: CheckInRow): Promise<{ error: DbError | null }>;
+  /** Raise plus_ones_arrived on a guest's existing check-in ("nog inchecken"). */
+  topUpCheckIn(guestId: string, plusOnesArrived: number): Promise<{ error: DbError | null }>;
   insertRefusal(row: RefusalRow): Promise<{ error: DbError | null }>;
   insertGuest(row: GuestRow): Promise<{ error: DbError | null }>;
   ackNote(guestId: string, ack: boolean, uid: string): Promise<{ error: DbError | null }>;
@@ -29,6 +31,12 @@ export interface DoorGateway {
 export function supabaseGateway(client: SupabaseClient<Database>): DoorGateway {
   return {
     insertCheckIn: async (row) => ({ error: (await client.from('check_ins').insert(row)).error }),
+    // Update by guest_id; the check_ins_update_own_device RLS policy scopes it to
+    // the caller's own check-in, and cap_check_in_arrivals clamps + keeps it
+    // monotonic. A row owned by another checker simply matches nothing (no error).
+    topUpCheckIn: async (guestId, plusOnesArrived) => ({
+      error: (await client.from('check_ins').update({ plus_ones_arrived: plusOnesArrived }).eq('guest_id', guestId)).error,
+    }),
     insertRefusal: async (row) => ({ error: (await client.from('refusals').insert(row)).error }),
     insertGuest: async (row) => ({ error: (await client.from('guests').insert(row)).error }),
     ackNote: async (guestId, ack, uid) => {
