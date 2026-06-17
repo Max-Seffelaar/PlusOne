@@ -1,5 +1,7 @@
+import { redirect } from 'next/navigation';
 import { requireAppAccess } from '@/lib/auth/guards';
 import { getMyMemberships } from '@/lib/auth/memberships';
+import { getOnboardingState } from '@/lib/auth/onboarding';
 import { resolveActiveVenueId } from '@/lib/auth/active-venue';
 import { hasDashboardAccess, venueCapabilities } from '@/features/venues/access';
 import { ROLE_LABELS } from '@/features/auth/roles';
@@ -15,8 +17,13 @@ export default async function AppLayout({
   children: React.ReactNode;
 }): Promise<JSX.Element> {
   const ctx = await requireAppAccess();
-  const memberships = await getMyMemberships();
 
+  // A user with no venue yet (and no event-organizer scope) belongs in the
+  // self-service onboarding flow (#40a), not the empty app shell.
+  const onboarding = await getOnboardingState();
+  if (onboarding.step !== 'done') redirect('/onboarding');
+
+  const memberships = await getMyMemberships();
   const dashboardVenues = memberships.filter((m) => hasDashboardAccess(m.roles));
   const activeVenueId = await resolveActiveVenueId(dashboardVenues);
   const activeMembership = dashboardVenues.find((m) => m.venueId === activeVenueId);

@@ -25,10 +25,15 @@ function redirectWithCookies(url: URL, source: NextResponse): NextResponse {
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
   const onMfaRoute = pathname.startsWith('/mfa/');
+  // Onboarding is reachable before MFA: a fresh owner becomes admin the moment
+  // they create their venue (#40a), which would otherwise trip the mandatory-MFA
+  // gate mid-flow. MFA enrollment happens naturally on the first /dashboard hit
+  // once onboarding is complete (the Team step's invites stay AAL2-gated).
+  const onOnboarding = pathname === '/onboarding';
   const publicRoute = isPublic(pathname);
 
   const { response, user, gate } = await updateSession(request, {
-    checkMfa: !publicRoute && !onMfaRoute,
+    checkMfa: !publicRoute && !onMfaRoute && !onOnboarding,
   });
 
   // A signed-in user has no business on the login screen.
@@ -48,9 +53,17 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     return redirectWithCookies(url, response);
   }
 
-  // MFA gate on protected routes (not /mfa/* itself, to avoid a loop). Mandatory
-  // for admin/finance (CLAUDE.md §Auth); anyone with a factor must step up.
-  if (user && !publicRoute && !onMfaRoute && !gate.isAal2 && (gate.requiresMfa || gate.hasFactor)) {
+  // MFA gate on protected routes (not /mfa/* or /onboarding, to avoid bouncing a
+  // new owner mid-flow). Mandatory for admin/finance (CLAUDE.md §Auth); anyone
+  // with a factor must step up.
+  if (
+    user &&
+    !publicRoute &&
+    !onMfaRoute &&
+    !onOnboarding &&
+    !gate.isAal2 &&
+    (gate.requiresMfa || gate.hasFactor)
+  ) {
     const url = request.nextUrl.clone();
     url.pathname = gate.requiresMfa && !gate.hasFactor ? '/mfa/enroll' : '/mfa/verify';
     url.search = '';

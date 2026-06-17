@@ -121,6 +121,121 @@ export type Database = {
           },
         ]
       }
+      contact_event_exclusions: {
+        Row: {
+          contact_id: string
+          event_id: string
+          excluded_at: string
+          excluded_by: string | null
+        }
+        Insert: {
+          contact_id: string
+          event_id: string
+          excluded_at?: string
+          excluded_by?: string | null
+        }
+        Update: {
+          contact_id?: string
+          event_id?: string
+          excluded_at?: string
+          excluded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contact_event_exclusions_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contact_event_exclusions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contact_event_exclusions_excluded_by_fkey"
+            columns: ["excluded_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      contacts: {
+        Row: {
+          anonymized_at: string | null
+          birthdate: string | null
+          created_at: string
+          created_by: string | null
+          email: string | null
+          email_norm: string | null
+          full_name: string
+          id: string
+          is_permanent: boolean
+          note: string | null
+          phone: string | null
+          phone_norm: string | null
+          preferred_role: Database["public"]["Enums"]["contact_role"] | null
+          source: Database["public"]["Enums"]["contact_source"]
+          updated_at: string
+          venue_id: string
+        }
+        Insert: {
+          anonymized_at?: string | null
+          birthdate?: string | null
+          created_at?: string
+          created_by?: string | null
+          email?: string | null
+          email_norm?: string | null
+          full_name: string
+          id?: string
+          is_permanent?: boolean
+          note?: string | null
+          phone?: string | null
+          phone_norm?: string | null
+          preferred_role?: Database["public"]["Enums"]["contact_role"] | null
+          source?: Database["public"]["Enums"]["contact_source"]
+          updated_at?: string
+          venue_id: string
+        }
+        Update: {
+          anonymized_at?: string | null
+          birthdate?: string | null
+          created_at?: string
+          created_by?: string | null
+          email?: string | null
+          email_norm?: string | null
+          full_name?: string
+          id?: string
+          is_permanent?: boolean
+          note?: string | null
+          phone?: string | null
+          phone_norm?: string | null
+          preferred_role?: Database["public"]["Enums"]["contact_role"] | null
+          source?: Database["public"]["Enums"]["contact_source"]
+          updated_at?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contacts_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contacts_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_organizers: {
         Row: {
           created_at: string
@@ -271,6 +386,7 @@ export type Database = {
       guest_requests: {
         Row: {
           anonymized_at: string | null
+          birthdate: string | null
           created_at: string
           decided_at: string | null
           decided_by: string | null
@@ -288,6 +404,7 @@ export type Database = {
         }
         Insert: {
           anonymized_at?: string | null
+          birthdate?: string | null
           created_at?: string
           decided_at?: string | null
           decided_by?: string | null
@@ -305,6 +422,7 @@ export type Database = {
         }
         Update: {
           anonymized_at?: string | null
+          birthdate?: string | null
           created_at?: string
           decided_at?: string | null
           decided_by?: string | null
@@ -385,6 +503,7 @@ export type Database = {
         Row: {
           added_by: string
           anonymized_at: string | null
+          contact_id: string | null
           created_at: string
           email: string | null
           event_id: string
@@ -405,6 +524,7 @@ export type Database = {
         Insert: {
           added_by: string
           anonymized_at?: string | null
+          contact_id?: string | null
           created_at?: string
           email?: string | null
           event_id: string
@@ -425,6 +545,7 @@ export type Database = {
         Update: {
           added_by?: string
           anonymized_at?: string | null
+          contact_id?: string | null
           created_at?: string
           email?: string | null
           event_id?: string
@@ -448,6 +569,13 @@ export type Database = {
             columns: ["added_by"]
             isOneToOne: false
             referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "guests_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
             referencedColumns: ["id"]
           },
           {
@@ -935,6 +1063,10 @@ export type Database = {
     }
     Functions: {
       accept_pending_invites: { Args: never; Returns: number }
+      add_contact_to_event: {
+        Args: { p_contact_id: string; p_event_id: string; p_tier_id?: string }
+        Returns: string
+      }
       admin_list_user_sessions: {
         Args: { p_target: string }
         Returns: {
@@ -962,6 +1094,17 @@ export type Database = {
       can_read_venue_stats: { Args: { p_venue_id: string }; Returns: boolean }
       can_view_profile: { Args: { p_profile_id: string }; Returns: boolean }
       can_write_guests: { Args: { p_event_id: string }; Returns: boolean }
+      create_venue_with_owner: {
+        Args: {
+          p_address: string
+          p_comped?: boolean
+          p_name: string
+          p_plan_id?: string
+          p_retention_months: number
+          p_venue_type: string
+        }
+        Returns: string
+      }
       current_user_requires_mfa: { Args: never; Returns: boolean }
       event_checkins_per_quarter: {
         Args: { p_event_id: string }
@@ -1073,12 +1216,20 @@ export type Database = {
           user_agent: string
         }[]
       }
+      mark_onboarding_complete: {
+        Args: { p_venue_id: string }
+        Returns: undefined
+      }
       organizes_event_at_venue: {
         Args: { p_venue_id: string }
         Returns: boolean
       }
       redact_anonymized_audit_pii: {
         Args: { p_guest_ids: string[] }
+        Returns: number
+      }
+      redact_anonymized_contact_audit_pii: {
+        Args: { p_contact_ids: string[] }
         Returns: number
       }
       redact_audit_diff: {
@@ -1090,6 +1241,13 @@ export type Database = {
         Returns: Json
       }
       request_device_id: { Args: never; Returns: string }
+      resolve_tier_for_contact: {
+        Args: {
+          p_event_id: string
+          p_role: Database["public"]["Enums"]["contact_role"]
+        }
+        Returns: string
+      }
       revoke_own_session: { Args: { p_session_id: string }; Returns: boolean }
       run_privacy_retention: {
         Args: never
@@ -1100,9 +1258,23 @@ export type Database = {
           requests_anonymized: number
         }[]
       }
+      search_contacts_for_reuse: {
+        Args: { p_query?: string; p_venue_id: string }
+        Returns: {
+          event_count: number
+          full_name: string
+          id: string
+          preferred_role: Database["public"]["Enums"]["contact_role"]
+        }[]
+      }
+      set_venue_plan: {
+        Args: { p_comped?: boolean; p_plan_id: string; p_venue_id: string }
+        Returns: undefined
+      }
       slugify: { Args: { p_text: string }; Returns: string }
       submit_guest_request: {
         Args: {
+          p_birthdate?: string
           p_email: string
           p_full_name: string
           p_ip_hash: string
@@ -1114,7 +1286,16 @@ export type Database = {
         }
         Returns: string
       }
+      sync_permanent_guests_into_event: {
+        Args: { p_event_id: string }
+        Returns: number
+      }
       tier_consumption: { Args: { p_tier_id: string }; Returns: number }
+      unique_venue_slug: { Args: { p_name: string }; Returns: string }
+      upsert_contacts: {
+        Args: { p_rows: Json; p_venue_id: string }
+        Returns: Json
+      }
       user_event_consumption: {
         Args: { p_event_id: string; p_user_id: string }
         Returns: number
@@ -1175,8 +1356,10 @@ export type Database = {
       }
     }
     Enums: {
+      contact_role: "vip" | "all_access" | "artist" | "press" | "crew" | "guest"
+      contact_source: "manual" | "import" | "guest_request"
       event_status: "draft" | "open" | "live" | "closed"
-      guest_source: "app" | "landing" | "door"
+      guest_source: "app" | "landing" | "door" | "permanent"
       guest_status:
         | "pending"
         | "approved"
@@ -1320,8 +1503,10 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      contact_role: ["vip", "all_access", "artist", "press", "crew", "guest"],
+      contact_source: ["manual", "import", "guest_request"],
       event_status: ["draft", "open", "live", "closed"],
-      guest_source: ["app", "landing", "door"],
+      guest_source: ["app", "landing", "door", "permanent"],
       guest_status: [
         "pending",
         "approved",

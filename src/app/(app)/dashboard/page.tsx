@@ -6,6 +6,8 @@ import { getDashboardVenues, resolveActiveVenueId } from '@/lib/auth/active-venu
 import { venueCapabilities } from '@/features/venues/access';
 import { DCard } from '@/components/po/desktop/kit';
 import { Icon, type IconName } from '@/components/po/icon';
+import { getManageableEvents } from '@/features/events/queries';
+import { FirstEventEmpty } from '@/features/onboarding/components/FirstEventEmpty';
 
 export const metadata: Metadata = { title: 'Dashboard — PLUSONE' };
 
@@ -29,6 +31,14 @@ export default async function DashboardHome(): Promise<JSX.Element> {
   const activeId = await resolveActiveVenueId(dashboardVenues);
   const active = dashboardVenues.find((m) => m.venueId === activeId) ?? dashboardVenues[0];
   const caps = venueCapabilities(active.roles);
+
+  // Fresh venue with no events yet → the #19/#40 "maak je eerste event" empty
+  // state, rendered inside this unified sidebar shell (replaces the standalone
+  // DashboardEmptyShell that #19 used while the sidebar lived outside (app)).
+  const events = await getManageableEvents();
+  if (events.length === 0) {
+    return <FirstEventEmpty venueName={active.venueName} />;
+  }
 
   const [members, invites] = await Promise.all([
     getVenueMembers(active.venueId),

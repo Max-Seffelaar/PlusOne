@@ -3,16 +3,19 @@
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
-import { getSessionUser } from '@/lib/auth/context';
+import { getSessionUser, getAuthContext } from '@/lib/auth/context';
 import { getMyMemberships } from '@/lib/auth/memberships';
 import { assertAal2, AuthorizationError } from '@/lib/auth/guards';
 import { ACTIVE_VENUE_COOKIE } from '@/lib/auth/active-venue';
 import { canGrantRoles, type VenueRole } from '@/features/auth/roles';
+import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
 import {
   venueSettingsSchema,
+  createVenueSchema,
   memberRolesSchema,
   removeMemberSchema,
   setActiveVenueSchema,
+  type CreateVenueInput,
 } from './schemas';
 import { removalWouldOrphanVenue, roleChangeWouldOrphanVenue } from './access';
 
@@ -284,4 +287,42 @@ export async function removeMemberAction(
 
   revalidatePath('/admin/team');
   return { ok: true, message: 'Toegang tot deze venue ingetrokken.' };
+}
+
+// ── Self-service venue creation (#40a) ───────────────────────────────────────
+
+export type CreateVenueResult = { ok: true; venueId: string } | MutationError;
+
+/**
+ * Create a venue and make the caller its Admin (#40a). Runs through the
+ * SECURITY DEFINER RPC create_venue_with_owner on the USER-scoped client: it
+ * executes as the logged-in user (auth.uid()), so the venue + the owner's Admin
+ * membership + a trialing subscription are written atomically and the audit
+ * trigger attributes the ownership grant to the real actor — impossible with a
+ * raw service-role connection (no auth.uid()). No AAL2 gate: a brand-new owner
+ * has not enrolled MFA yet, and creating your own venue is not a sensitive
+ * cross-tenant grant. Idempotent — a retried submit returns the owner's existing
+ * in-onboarding venue instead of a duplicate.
+ */
+export async function createVenueAction(input: CreateVenueInput): Promise<CreateVenueResult> {
+  const parsed = createVenueSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  const { name, address, venueType, retentionMonths } = parsed.data;
+
+  const supabase = await createClient();
+  const ctx = await getAuthContext();
+  if (!ctx) return unauthorized();
+
+  const { data, error } = await supabase.rpc('create_venue_with_owner', {
+    p_name: name,
+    p_address: address,
+    p_venue_type: venueType,
+    p_retention_months: retentionMonths,
+  });
+  if (error || !data) return mapMutationError(error);
+
+  // A new membership changes the nav + onboarding gate everywhere.
+  revalidatePath('/', 'layout');
+  revalidatePath('/dashboard');
+  return { ok: true, venueId: data };
 }
