@@ -367,7 +367,15 @@ reset role;
 rollback to savepoint f4;
 
 -- F5: admin always keeps write access.
-savepoint f5;
+-- This is the LAST assertion in the file and is deliberately NOT savepoint-wrapped.
+-- pgTAP's test counter (curr_test, which finish() reports) lives in a temp table and
+-- is transactional, while the printed `ok N` numbering comes from a non-transactional
+-- sequence. `rollback to savepoint` reverts the counter but not the numbering, so a
+-- trailing savepoint-isolated section desyncs finish() from the plan (it under-reports
+-- the tests run). The earlier savepoint sections (B, E, F1–F4) stay correct only because
+-- committed assertions run after them; this final assertion must commit so curr_test
+-- reaches 46. The outer `rollback` still discards its writes. Any section added below
+-- MUST keep a committed (non-rolled-back) assertion last.
 update public.events set auto_lock_at = now() - interval '1 hour'
   where id = 'ee000000-0000-7000-8000-000000000001';
 select pg_temp.login('11111111-1111-4111-8111-111111111111');
@@ -378,7 +386,6 @@ select lives_ok($$
           '11111111-1111-4111-8111-111111111111')
 $$, 'F5 auto-lock passed: admin keeps write access');
 reset role;
-rollback to savepoint f5;
 
 select * from finish();
 
