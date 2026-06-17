@@ -64,6 +64,16 @@ export async function replayEntry(
       const { error } = await gw.topUpCheckIn(p.guestId, p.plusOnesArrived);
       return classifyError(error);
     }
+    case 'check_in_void': {
+      // Idempotent: re-voiding (or a row already voided) matches 0 rows = synced.
+      const { error } = await gw.voidCheckIn(entry.payload.guestId, uid);
+      return classifyError(error);
+    }
+    case 'check_in_revive': {
+      const p = entry.payload;
+      const { error } = await gw.reviveCheckIn(p.guestId, p.plusOnesArrived, uid);
+      return classifyError(error);
+    }
     case 'refusal': {
       const p = entry.payload;
       const { error } = await gw.insertRefusal({

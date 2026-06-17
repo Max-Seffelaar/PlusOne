@@ -81,6 +81,8 @@ export type Database = {
           id: string
           offline_synced: boolean
           plus_ones_arrived: number
+          voided_at: string | null
+          voided_by: string | null
         }
         Insert: {
           checked_at?: string
@@ -92,6 +94,8 @@ export type Database = {
           id?: string
           offline_synced?: boolean
           plus_ones_arrived?: number
+          voided_at?: string | null
+          voided_by?: string | null
         }
         Update: {
           checked_at?: string
@@ -103,6 +107,8 @@ export type Database = {
           id?: string
           offline_synced?: boolean
           plus_ones_arrived?: number
+          voided_at?: string | null
+          voided_by?: string | null
         }
         Relationships: [
           {
@@ -117,6 +123,13 @@ export type Database = {
             columns: ["guest_id"]
             isOneToOne: true
             referencedRelation: "guests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "check_ins_voided_by_fkey"
+            columns: ["voided_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
             referencedColumns: ["id"]
           },
         ]

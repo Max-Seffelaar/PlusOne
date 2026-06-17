@@ -5,7 +5,14 @@
  * survives a reload.
  */
 
-export type OutboxKind = 'check_in' | 'check_in_topup' | 'refusal' | 'add_guest' | 'ack_note';
+export type OutboxKind =
+  | 'check_in'
+  | 'check_in_topup'
+  | 'check_in_void'
+  | 'check_in_revive'
+  | 'refusal'
+  | 'add_guest'
+  | 'ack_note';
 
 /**
  * pending  — queued, not yet sent (or a transient failure to retry)
@@ -33,6 +40,19 @@ export interface CheckInTopUpPayload {
    * allotment) makes a replay idempotent and safe to reorder: re-applying the
    * same target is a no-op and a stale lower target can never lower the count.
    */
+  plusOnesArrived: number;
+  clientTimestamp: string;
+}
+
+export interface CheckInVoidPayload {
+  guestId: string;
+  clientTimestamp: string;
+}
+
+export interface CheckInRevivePayload {
+  guestId: string;
+  /** Fresh arrivals on re-checkin (total people - 1); the revive-aware trigger
+   *  re-sets rather than holds it monotonic. */
   plusOnesArrived: number;
   clientTimestamp: string;
 }
@@ -72,6 +92,8 @@ interface OutboxBase {
 export type OutboxEntry =
   | (OutboxBase & { kind: 'check_in'; payload: CheckInPayload })
   | (OutboxBase & { kind: 'check_in_topup'; payload: CheckInTopUpPayload })
+  | (OutboxBase & { kind: 'check_in_void'; payload: CheckInVoidPayload })
+  | (OutboxBase & { kind: 'check_in_revive'; payload: CheckInRevivePayload })
   | (OutboxBase & { kind: 'refusal'; payload: RefusalPayload })
   | (OutboxBase & { kind: 'add_guest'; payload: AddGuestPayload })
   | (OutboxBase & { kind: 'ack_note'; payload: AckNotePayload });

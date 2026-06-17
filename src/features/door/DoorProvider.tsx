@@ -63,6 +63,10 @@ interface DoorContextValue {
   checkIn: (guestId: string, totalPeople: number) => void;
   /** Raise an already-checked-in guest's arrivals by `addArrived` ("nog inchecken"). */
   topUp: (guestId: string, addArrived: number) => void;
+  /** Soft-void a mistaken check-in — the guest returns to "onderweg" (#3). */
+  voidCheckIn: (guestId: string) => void;
+  /** Re-checkin a previously voided guest (clears the void, re-sets arrivals). */
+  reviveCheckIn: (guestId: string, totalPeople: number) => void;
   refuse: (guestId: string, reason: string) => void;
   addOnSpot: (input: AddOnSpotInput) => void;
   ackNote: (guestId: string, ack: boolean) => void;
@@ -222,6 +226,8 @@ export function DoorProvider({
           plus_ones_arrived: plusArrived,
           offline_synced: false,
           created_at: ts,
+          voided_at: null,
+          voided_by: null,
         };
         return { ...s, checkIns: [...s.checkIns, row] };
       });
@@ -262,6 +268,67 @@ export function DoorProvider({
       maybeFlush();
     },
     [eventId, patchSnapshot, showToast, maybeFlush],
+  );
+
+  // "Check-in terugdraaien": soft-void a mistaken check-in (#3 — never deleted).
+  // The guest returns to "onderweg"; the row is flagged voided_at and excluded
+  // from "aanwezig" everywhere. Any door-scoped colleague may do this (RLS).
+  const voidCheckIn = useCallback(
+    (guestId: string) => {
+      const g = viewRef.current?.guests.find((x) => x.id === guestId);
+      if (!g || !g.inside) return;
+      const ts = new Date().toISOString();
+      outbox.enqueue({
+        clientId: uuidv7(),
+        eventId,
+        kind: 'check_in_void',
+        status: 'pending',
+        attempts: 0,
+        createdAt: ts,
+        payload: { guestId, clientTimestamp: ts },
+      });
+      patchSnapshot((s) => ({
+        ...s,
+        checkIns: s.checkIns.map((c) =>
+          c.guest_id === guestId ? { ...c, voided_at: ts, voided_by: meId ?? '' } : c,
+        ),
+      }));
+      showToast(`${g.name} · check-in teruggedraaid`);
+      maybeFlush();
+    },
+    [eventId, meId, patchSnapshot, showToast, maybeFlush],
+  );
+
+  // "Opnieuw inchecken": revive a voided check-in (clears voided_at, re-sets
+  // arrivals fresh — the cap trigger is revive-aware so it does not hold the old
+  // count). Reuses the one row per guest (#11), so no new INSERT/duplicate.
+  const reviveCheckIn = useCallback(
+    (guestId: string, totalPeople: number) => {
+      const g = viewRef.current?.guests.find((x) => x.id === guestId);
+      if (!g || !g.voided) return;
+      const plusArrived = Math.min(g.plus, Math.max(0, totalPeople - 1));
+      const ts = new Date().toISOString();
+      outbox.enqueue({
+        clientId: uuidv7(),
+        eventId,
+        kind: 'check_in_revive',
+        status: 'pending',
+        attempts: 0,
+        createdAt: ts,
+        payload: { guestId, plusOnesArrived: plusArrived, clientTimestamp: ts },
+      });
+      patchSnapshot((s) => ({
+        ...s,
+        checkIns: s.checkIns.map((c) =>
+          c.guest_id === guestId
+            ? { ...c, voided_at: null, voided_by: null, checked_by: meId ?? '', checked_at: ts, plus_ones_arrived: plusArrived }
+            : c,
+        ),
+      }));
+      showToast(`${g.name}${plusArrived > 0 ? ` +${plusArrived}` : ''} · weer binnen ✓`);
+      maybeFlush();
+    },
+    [eventId, meId, patchSnapshot, showToast, maybeFlush],
   );
 
   const refuse = useCallback(
@@ -398,11 +465,13 @@ export function DoorProvider({
       guestById,
       checkIn,
       topUp,
+      voidCheckIn,
+      reviveCheckIn,
       refuse,
       addOnSpot,
       ackNote,
     }),
-    [eventId, view, tasks, quotaQuery.data, defaultTierId, sync, toast, pendingCount, outboxByGuest, guestById, checkIn, topUp, refuse, addOnSpot, ackNote],
+    [eventId, view, tasks, quotaQuery.data, defaultTierId, sync, toast, pendingCount, outboxByGuest, guestById, checkIn, topUp, voidCheckIn, reviveCheckIn, refuse, addOnSpot, ackNote],
   );
 
   return <DoorContext.Provider value={value}>{children}</DoorContext.Provider>;
