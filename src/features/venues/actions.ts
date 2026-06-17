@@ -123,11 +123,20 @@ export async function updateVenueSettingsAction(
     venueId: formData.get('venueId'),
     name: formData.get('name'),
     retentionMonths: formData.get('retentionMonths'),
+    companyName: formData.get('companyName'),
+    kvkNumber: formData.get('kvkNumber'),
+    vatNumber: formData.get('vatNumber'),
+    financeEmail: formData.get('financeEmail'),
+    addressLine: formData.get('addressLine'),
+    postalCode: formData.get('postalCode'),
+    city: formData.get('city'),
+    country: formData.get('country'),
+    defaultPersonalQuota: formData.get('defaultPersonalQuota'),
   });
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? 'Controleer de invoer.' };
   }
-  const { venueId, name, retentionMonths } = parsed.data;
+  const { venueId, ...fields } = parsed.data;
 
   const callerRoles = await callerRolesAt(venueId, user.id);
   if (!callerRoles.includes('admin')) {
@@ -137,7 +146,22 @@ export async function updateVenueSettingsAction(
   const supabase = await createClient();
   const { error, count } = await supabase
     .from('venues')
-    .update({ name, retention_months: retentionMonths }, { count: 'exact' })
+    .update(
+      {
+        name: fields.name,
+        retention_months: fields.retentionMonths,
+        company_name: fields.companyName,
+        kvk_number: fields.kvkNumber,
+        vat_number: fields.vatNumber,
+        finance_email: fields.financeEmail,
+        address_line: fields.addressLine,
+        postal_code: fields.postalCode,
+        city: fields.city,
+        country: fields.country,
+        default_personal_quota: fields.defaultPersonalQuota,
+      },
+      { count: 'exact' }
+    )
     .eq('id', venueId);
 
   if (error || !count) {

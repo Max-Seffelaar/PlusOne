@@ -48,9 +48,12 @@ export default async function VenueSettingsPage({
   const supabase = await createClient();
   const { data: venue } = await supabase
     .from('venues')
-    .select('id, name, retention_months')
+    .select(
+      'id, name, retention_months, company_name, kvk_number, vat_number, finance_email, address_line, postal_code, city, country, default_personal_quota'
+    )
     .eq('id', active.venueId)
     .maybeSingle();
+  const venueDefaultQuota = venue?.default_personal_quota ?? 0;
 
   const [members, { data: quotaRows }] = await Promise.all([
     getVenueMembers(active.venueId),
@@ -63,33 +66,44 @@ export default async function VenueSettingsPage({
       <header>
         <h1 className="font-display text-2xl font-bold">Venue-instellingen</h1>
         <p className="text-dim mt-1 text-sm">
-          Naam, bewaartermijn en toelages voor <span className="text-text">{active.venueName}</span>
+          Bedrijfsgegevens, bewaartermijn en toelages voor{' '}
+          <span className="text-text">{active.venueName}</span>
           {!caps.editSettings && <span className="text-faint"> · alleen-lezen</span>}.
         </p>
       </header>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="label">Instellingen</h2>
-        <VenueSettingsForm
-          venueId={active.venueId}
-          name={venue?.name ?? active.venueName}
-          retentionMonths={venue?.retention_months ?? 12}
-          canEdit={caps.editSettings}
-        />
-      </section>
+      <VenueSettingsForm
+        venueId={active.venueId}
+        canEdit={caps.editSettings}
+        values={{
+          name: venue?.name ?? active.venueName,
+          retentionMonths: venue?.retention_months ?? 12,
+          companyName: venue?.company_name ?? null,
+          kvkNumber: venue?.kvk_number ?? null,
+          vatNumber: venue?.vat_number ?? null,
+          financeEmail: venue?.finance_email ?? null,
+          addressLine: venue?.address_line ?? null,
+          postalCode: venue?.postal_code ?? null,
+          city: venue?.city ?? null,
+          country: venue?.country ?? 'NL',
+          defaultPersonalQuota: venueDefaultQuota,
+        }}
+      />
 
       {caps.viewQuota && (
         <section className="flex flex-col gap-3">
-          <h2 className="label">Standaard-toelages ({members.length})</h2>
+          <h2 className="label">Toelages per lid ({members.length})</h2>
           <p className="text-faint text-sm">
-            Het standaard aantal gastenlijstplekken per persoon voor deze venue. Per event kan dit
-            worden overschreven. Beheerders en organisatoren zijn uitgezonderd van een persoonlijk
-            quotum.
+            Standaard krijgt elk lid <span className="text-text">{venueDefaultQuota}</span>{' '}
+            gastenlijstplekken (in te stellen hierboven). Hieronder overschrijf je dat per persoon;
+            per event kan het ook nog worden aangepast. Beheerders en organisatoren zijn uitgezonderd
+            van een persoonlijk quotum.
           </p>
           <ul className="flex flex-col gap-2">
             {members.map((member) => {
               const exempt = member.roles.includes('admin');
-              const count = quotaByUser.get(member.userId) ?? 0;
+              const hasOverride = quotaByUser.has(member.userId);
+              const effective = quotaByUser.get(member.userId) ?? venueDefaultQuota;
               return (
                 <li
                   key={member.userId}
@@ -97,7 +111,10 @@ export default async function VenueSettingsPage({
                 >
                   <div>
                     <p className="font-semibold">{member.fullName}</p>
-                    <p className="text-faint text-sm">{member.email}</p>
+                    <p className="text-faint text-sm">
+                      {member.jobTitle ? `${member.jobTitle} · ` : ''}
+                      {member.email}
+                    </p>
                     <div className="mt-1.5">
                       <RoleBadges roles={member.roles} />
                     </div>
@@ -105,14 +122,20 @@ export default async function VenueSettingsPage({
                   {exempt ? (
                     <span className="text-faint text-xs">Uitgezonderd van quotum</span>
                   ) : caps.editQuota ? (
-                    <DefaultQuotaForm
-                      venueId={active.venueId}
-                      userId={member.userId}
-                      defaultCount={count}
-                    />
+                    <div className="flex flex-col items-end gap-1">
+                      <DefaultQuotaForm
+                        venueId={active.venueId}
+                        userId={member.userId}
+                        defaultCount={effective}
+                      />
+                      {!hasOverride && (
+                        <span className="text-faint text-xs">erft venue-standaard ({venueDefaultQuota})</span>
+                      )}
+                    </div>
                   ) : (
                     <span className="text-dim text-sm">
-                      <span className="font-display text-text text-lg font-bold">{count}</span> plekken
+                      <span className="font-display text-text text-lg font-bold">{effective}</span>{' '}
+                      plekken{!hasOverride && <span className="text-faint"> · venue-standaard</span>}
                     </span>
                   )}
                 </li>

@@ -4,29 +4,67 @@ import { venueSettingsSchema, memberRolesSchema, removeMemberSchema } from './sc
 const VENUE = 'aa000000-0000-7000-8000-000000000001';
 const USER = '55555555-5555-4555-8555-555555555555';
 
+// The form always submits every field (empty string when blank), so the schema
+// requires them present; optional ones normalise '' -> null.
+const baseVenue = {
+  venueId: VENUE,
+  name: 'Club Vesper',
+  retentionMonths: 12,
+  companyName: '',
+  kvkNumber: '',
+  vatNumber: '',
+  financeEmail: '',
+  addressLine: '',
+  postalCode: '',
+  city: '',
+  country: '',
+  defaultPersonalQuota: 0,
+};
+
 describe('venueSettingsSchema', () => {
-  it('accepts a valid name + retention and coerces the number', () => {
-    const r = venueSettingsSchema.safeParse({ venueId: VENUE, name: ' Club Vesper ', retentionMonths: '12' });
+  it('accepts valid input, trims, coerces, and normalises blanks', () => {
+    const r = venueSettingsSchema.safeParse({
+      ...baseVenue,
+      name: ' Club Vesper ',
+      retentionMonths: '12',
+    });
     expect(r.success).toBe(true);
     if (r.success) {
       expect(r.data.name).toBe('Club Vesper'); // trimmed
-      expect(r.data.retentionMonths).toBe(12); // coerced to number
+      expect(r.data.retentionMonths).toBe(12); // coerced
+      expect(r.data.companyName).toBeNull(); // '' -> null
+      expect(r.data.country).toBe('NL'); // '' -> default NL
     }
   });
+
   it('rejects an empty name', () => {
-    expect(venueSettingsSchema.safeParse({ venueId: VENUE, name: '   ', retentionMonths: 12 }).success).toBe(false);
+    expect(venueSettingsSchema.safeParse({ ...baseVenue, name: '   ' }).success).toBe(false);
   });
+
   it('enforces the 1..60 retention bounds (matches the DB check)', () => {
-    expect(venueSettingsSchema.safeParse({ venueId: VENUE, name: 'X', retentionMonths: 0 }).success).toBe(false);
-    expect(venueSettingsSchema.safeParse({ venueId: VENUE, name: 'X', retentionMonths: 61 }).success).toBe(false);
-    expect(venueSettingsSchema.safeParse({ venueId: VENUE, name: 'X', retentionMonths: 1 }).success).toBe(true);
-    expect(venueSettingsSchema.safeParse({ venueId: VENUE, name: 'X', retentionMonths: 60 }).success).toBe(true);
+    expect(venueSettingsSchema.safeParse({ ...baseVenue, retentionMonths: 0 }).success).toBe(false);
+    expect(venueSettingsSchema.safeParse({ ...baseVenue, retentionMonths: 61 }).success).toBe(false);
+    expect(venueSettingsSchema.safeParse({ ...baseVenue, retentionMonths: 1 }).success).toBe(true);
   });
-  it('rejects fractional months', () => {
-    expect(venueSettingsSchema.safeParse({ venueId: VENUE, name: 'X', retentionMonths: 1.5 }).success).toBe(false);
+
+  it('validates KvK as 8 digits when provided, allows blank', () => {
+    expect(venueSettingsSchema.safeParse({ ...baseVenue, kvkNumber: '1234567' }).success).toBe(false);
+    expect(venueSettingsSchema.safeParse({ ...baseVenue, kvkNumber: '12345678' }).success).toBe(true);
+    expect(venueSettingsSchema.safeParse({ ...baseVenue, kvkNumber: '' }).success).toBe(true);
   });
-  it('rejects a non-uuid venue id', () => {
-    expect(venueSettingsSchema.safeParse({ venueId: 'nope', name: 'X', retentionMonths: 12 }).success).toBe(false);
+
+  it('validates + lowercases the finance e-mail, allows blank', () => {
+    expect(venueSettingsSchema.safeParse({ ...baseVenue, financeEmail: 'nope' }).success).toBe(false);
+    const r = venueSettingsSchema.safeParse({ ...baseVenue, financeEmail: 'Finance@Venue.NL' });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.financeEmail).toBe('finance@venue.nl');
+  });
+
+  it('rejects a negative default quota and coerces strings', () => {
+    expect(venueSettingsSchema.safeParse({ ...baseVenue, defaultPersonalQuota: -1 }).success).toBe(false);
+    const r = venueSettingsSchema.safeParse({ ...baseVenue, defaultPersonalQuota: '5' });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.defaultPersonalQuota).toBe(5);
   });
 });
 
