@@ -136,7 +136,7 @@ export function Taken(): JSX.Element {
   const openCount = all.filter((t) => !t.done).length;
   const highOpen = all.filter((t) => !t.done && t.prio === 'high').length;
   const list = all.filter((t) => (f === 'open' ? !t.done : f === 'done' ? t.done : true));
-  list.sort((a, b) => Number(a.done) - Number(b.done) || (b.prio === 'high' ? 1 : 0) - (a.prio === 'high' ? 1 : 0) || a.g.id - b.g.id);
+  list.sort((a, b) => Number(a.done) - Number(b.done) || (b.prio === 'high' ? 1 : 0) - (a.prio === 'high' ? 1 : 0) || a.g.id.localeCompare(b.g.id));
 
   return (
     <div className={col}>

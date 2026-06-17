@@ -36,15 +36,15 @@ export function PlusOneApp({
   const [authProps, setAuthProps] = useState<{ email?: string }>({});
   const [tab, setTabState] = useState<TabKey>('events');
   const [stack, setStack] = useState<StackEntry[]>([]);
-  const [inside, setInside] = useState<Set<number>>(() => new Set(guests.filter((g) => g.status === 'in').map((g) => g.id)));
-  const [log, setLog] = useState<Record<number, CheckInEntry>>(() => {
-    const o: Record<number, CheckInEntry> = {};
+  const [inside, setInside] = useState<Set<string>>(() => new Set(guests.filter((g) => g.status === 'in').map((g) => g.id)));
+  const [log, setLog] = useState<Record<string, CheckInEntry>>(() => {
+    const o: Record<string, CheckInEntry> = {};
     guests.filter((g) => g.status === 'in').forEach((g) => {
       o[g.id] = { at: g.at ?? '', by: g.inBy ?? DOOR_USER };
     });
     return o;
   });
-  const [tasksDone, setTasksDone] = useState<Set<number>>(() => new Set());
+  const [tasksDone, setTasksDone] = useState<Set<string>>(() => new Set());
   const [vast, setVast] = useState<Set<string>>(() => new Set(contacts.filter((c) => c.vast).map((c) => c.name)));
   const [venue, setVenueState] = useState<Venue>(() => venues.find((v) => v.current) ?? venues[0]);
   const [toast, setToast] = useState<string | null>(null);
@@ -80,14 +80,14 @@ export function PlusOneApp({
     },
   };
 
-  const checkIn = (id: number, total: number): void => {
+  const checkIn = (id: string, total: number): void => {
     const g = guests.find((x) => x.id === id);
     setInside((s) => new Set(s).add(id));
     setLog((l) => ({ ...l, [id]: { at: nowTime(), by: DOOR_USER } }));
     setToast((g ? g.name : 'Gast') + (total > 1 ? ' +' + (total - 1) : '') + ' · binnen ✓');
     setTimeout(() => setToast(null), 2400);
   };
-  const uncheck = (id: number): void => {
+  const uncheck = (id: string): void => {
     setInside((s) => {
       const x = new Set(s);
       x.delete(id);
@@ -100,8 +100,8 @@ export function PlusOneApp({
     });
     nav.back();
   };
-  const taskDone = (id: number): boolean => tasksDone.has(id);
-  const ackTask = (id: number, val: boolean): void =>
+  const taskDone = (id: string): boolean => tasksDone.has(id);
+  const ackTask = (id: string, val: boolean): void =>
     setTasksDone((s) => {
       const x = new Set(s);
       if (val) x.add(id);
