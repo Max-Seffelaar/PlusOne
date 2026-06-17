@@ -1,6 +1,7 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import type { Database } from '../database.types';
+import { AUTH_COOKIE_MAX_AGE } from './cookie-options';
 
 export const createClient = async () => {
   const cookieStore = await cookies();
@@ -9,6 +10,8 @@ export const createClient = async () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      // Persist the session across browser restarts (ClickUp "30 dagen onthouden").
+      cookieOptions: { maxAge: AUTH_COOKIE_MAX_AGE },
       cookies: {
         getAll() {
           return cookieStore.getAll();

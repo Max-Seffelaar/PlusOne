@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import type { User } from '@supabase/supabase-js';
 import type { Database } from '../database.types';
+import { AUTH_COOKIE_MAX_AGE } from './cookie-options';
 
 export interface MfaGate {
   isAal2: boolean;
@@ -33,6 +34,8 @@ export async function updateSession(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      // Persist the session across browser restarts (ClickUp "30 dagen onthouden").
+      cookieOptions: { maxAge: AUTH_COOKIE_MAX_AGE },
       cookies: {
         getAll() {
           return request.cookies.getAll();
