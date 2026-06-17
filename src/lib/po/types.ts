@@ -33,7 +33,7 @@ export interface PoEvent {
 }
 
 export interface Guest {
-  id: number;
+  id: string;
   name: string;
   role: Role;
   pay: PayStatus;
