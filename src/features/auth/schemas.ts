@@ -49,6 +49,17 @@ export const inviteSchema = z.object({
     .array(venueRoleSchema)
     .min(1, 'Kies minstens één rol')
     .refine((r) => new Set(r).size === r.length, 'Dubbele rol'),
+  // Optional guest quota seeded as the new member's venue default on acceptance
+  // (#4). Blank → undefined → nothing seeded. The form sends a string, so coerce.
+  defaultQuota: z.preprocess(
+    (v) => (v === '' || v == null ? undefined : v),
+    z.coerce
+      .number({ invalid_type_error: 'Quotum moet een getal zijn' })
+      .int('Quotum moet een heel getal zijn')
+      .min(0, 'Quotum mag niet negatief zijn')
+      .max(9999, 'Quotum is te hoog')
+      .optional()
+  ),
 });
 
 export const profileNameSchema = z.object({
