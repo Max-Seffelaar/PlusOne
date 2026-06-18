@@ -38,7 +38,9 @@ export function PlusOneApp({
   /** Live active-venue name from the session (shell display); mock fallback otherwise. */
   liveVenueName?: string;
 }): JSX.Element {
-  const [started, setStarted] = useState(false);
+  // /app is gated by real middleware auth, so skip the prototype's mock
+  // welcome/login flow and start straight in the authenticated shell.
+  const [started, setStarted] = useState(true);
   const [authView, setAuthView] = useState<AuthView>('welcome');
   const [authProps, setAuthProps] = useState<{ email?: string }>({});
   const [tab, setTabState] = useState<TabKey>('events');
