@@ -64,6 +64,23 @@ The full launch plan — STAP 0 status report, screen inventory (stable IDs S0�
 
 **Env (no staging).** One Supabase project — prod, ref `tolxwgqhppdcvnogdpel`; there is no staging DB. The app reads **plain** env names: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and server-only `SUPABASE_SERVICE_ROLE_KEY` — **not** the `_STAGING`/`_PROD`-suffixed names still shown in `.env.example` (stale). Local dev/tests run against the local Supabase stack; after a merge the schema is pushed to prod with `supabase db push`.
 
+## Local dev & testing (frictionless login — ALWAYS use these links)
+
+Run locally against the **local Supabase stack**, never prod — prod enforces admin/finance MFA, so no-MFA login is a local-only affordance. Setup once: `supabase start` (loads the seed — 2 venues, 6 users covering all roles, 1 event + 30 guests) → write `.env.local` from `supabase status -o env` (plain names: `NEXT_PUBLIC_SUPABASE_URL`/`_ANON_KEY` + server-only `SUPABASE_SERVICE_ROLE_KEY`) → `pnpm dev`. **The dev server is pinned to port 7000** (`next dev -p 7000`) so it's distinct from other local projects.
+
+**To log in for testing, always use the dev-login route** — stable, reusable, no OTP/MFA:
+
+```
+http://localhost:7000/auth/dev-login?email=manager@plusone.test&next=/app
+http://localhost:7000/auth/dev-login?email=staff@plusone.test&next=/app
+http://localhost:7000/auth/dev-login?email=door@plusone.test&next=/app
+```
+
+- `src/app/auth/dev-login/route.ts` mints + verifies a magic-link server-side. **Hard-gated**: only runs when `NODE_ENV !== 'production'` AND the Supabase URL is localhost — it 404s in prod and does NOT bypass MFA (the session is AAL1).
+- The three seed users above (`manager`/`staff`/`door@plusone.test`) need **no MFA** → instant, reusable login. **Admin** (`admin@plusone.test`) + finance require MFA: run `pnpm dev:mfa` (stamps the fixed TOTP secret `PLUSONELOCALADMINDEVSECRET234567` — add once to your authenticator), then log in.
+- OTP fallback (any seed user): `/login` → code from **Mailpit** `http://127.0.0.1:55324`. Studio (DB UI): `http://127.0.0.1:55323`.
+- `/app` starts in the authenticated shell (the prototype's mock welcome/login is skipped — real auth is the middleware + `/login`).
+
 ## Security checklist — EVERY route, server action, and Edge Function
 
 Run through this list for each new or modified path. No exceptions, including "internal" or "temporary" endpoints:
