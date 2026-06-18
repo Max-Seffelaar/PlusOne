@@ -30,6 +30,7 @@ export const ICONS = {
   building: 'M5 21V4h9v17M14 9h5v12M8 8h2M8 12h2M8 16h2M18 13h0M18 17h0',
   arrowR: 'M5 12h14M13 6l6 6-6 6',
   grid: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
+  door: 'M6 21V4a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v17M4 21h14M13 12h.01',
   flag: 'M5 21V4M5 4c3-2 6 2 9 0s5-1 5-1v9s-2 1-5 1-6-2-9 0',
   check2: 'M4 12l5 5L20 6',
   warn: 'M12 3l9 16H3zM12 9v5M12 17h0',
