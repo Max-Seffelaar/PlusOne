@@ -51,6 +51,10 @@ export interface ParseResult {
   ambiguous?: AmbiguousTier;
   /** The trimmed original line. */
   raw: string;
+  /** An e-mail found anywhere in the line, stripped from the name (#9). */
+  email?: string | null;
+  /** A phone number found anywhere in the line, stripped from the name (#9). */
+  phone?: string | null;
 }
 
 const NUMBER_WORDS: Record<string, number> = {
@@ -246,23 +250,50 @@ function findPlusOnes(normTokens: string[]): PlusOnes {
  * (there is no is_default column — typically the tier named "Regular" or the
  * first tier). Returns status 'needs_name' when no name remains.
  */
+// E-mail / phone embedded in a line ("Max Jansen max@x.nl 0612345678 +2 vip").
+// Pulled out BEFORE +N parsing so a phone's digits are never read as plus-ones,
+// and stripped from the name. Permissive on purpose — this is capture, not
+// validation (the schema bounds length; #9 keeps the fields optional).
+const EMAIL_RE = /[^\s@]+@[^\s@]+\.[^\s@]+/;
+const PHONE_RE = /(?:\+|00)?[0-9][0-9\s().-]{7,}[0-9]/;
+
+function extractContact(raw: string): { cleaned: string; email: string | null; phone: string | null } {
+  let cleaned = raw;
+  const emailMatch = cleaned.match(EMAIL_RE);
+  const email = emailMatch ? emailMatch[0] : null;
+  if (email) cleaned = cleaned.replace(email, ' ');
+  let phone: string | null = null;
+  const phoneMatch = cleaned.match(PHONE_RE);
+  if (phoneMatch) {
+    const digits = phoneMatch[0].replace(/\D/g, '');
+    if (digits.length >= 9 && digits.length <= 15) {
+      phone = phoneMatch[0].trim();
+      cleaned = cleaned.replace(phoneMatch[0], ' ');
+    }
+  }
+  return { cleaned: cleaned.replace(/\s+/g, ' ').trim(), email, phone };
+}
+
 export function parseQuickAdd(
   input: string,
   tiers: QuickAddTier[],
   defaultTierId: string
 ): ParseResult {
   const raw = input.trim();
+  // Strip any e-mail/phone first so they don't pollute the name or the +N count.
+  const { cleaned, email, phone } = extractContact(raw);
   const defaultTier = tiers.find((t) => t.id === defaultTierId);
   const defaultTierName = defaultTier?.name ?? '';
 
-  // Tokenize, keeping original casing for the name and a normalized parallel
-  // for matching. Split "+" off neighbouring words so "Jan+2" works.
-  const originalTokens = raw.replace(/\+/g, ' +').split(/\s+/).filter(Boolean);
+  // Tokenize the contact-stripped line, keeping original casing for the name and
+  // a normalized parallel for matching. Split "+" off neighbouring words so
+  // "Jan+2" works.
+  const originalTokens = cleaned.replace(/\+/g, ' +').split(/\s+/).filter(Boolean);
   const normTokens = originalTokens.map(normalize);
 
   const base = (over: Partial<ParseResult>): ParseResult => {
     const plusOnes = over.plusOnes ?? 0;
-    return { name: '', plusOnes, slots: 1 + plusOnes, status: 'ok', raw, ...over };
+    return { name: '', plusOnes, slots: 1 + plusOnes, status: 'ok', raw, email, phone, ...over };
   };
 
   if (originalTokens.length === 0) {

@@ -228,3 +228,57 @@ describe('parseBulk + totalSlots', () => {
     expect(totalSlots(results)).toBe(3 + 1 + 2); // (1+2) + 1 + (1+1)
   });
 });
+
+describe('e-mail + phone capture (#9)', () => {
+  it('pulls an e-mail out of the line and keeps name/tier/+N', () => {
+    const r = parse('Max Jansen max@host.nl +2 vip');
+    expect(r.email).toBe('max@host.nl');
+    expect(r.name).toBe('Max Jansen');
+    expect(r.plusOnes).toBe(2);
+    expect(r.tierId).toBe('vip');
+    expect(r.phone).toBeNull();
+  });
+
+  it('pulls a NL mobile number out of the line', () => {
+    const r = parse('Noor 0612345678');
+    expect(r.phone).toBe('0612345678');
+    expect(r.name).toBe('Noor');
+    expect(r.plusOnes).toBe(0);
+  });
+
+  it('captures an international number with spaces and keeps the tier', () => {
+    const r = parse('Sam +31 6 1234 5678 vip');
+    expect(r.phone).toBe('+31 6 1234 5678');
+    expect(r.name).toBe('Sam');
+    expect(r.tierId).toBe('vip');
+  });
+
+  it('never reads a phone number as +N plus-ones', () => {
+    const r = parse('Jan 0612345678');
+    expect(r.plusOnes).toBe(0);
+    expect(r.phone).toBe('0612345678');
+    // a real +N still parses, with no phone
+    expect(parse('Jan +2').plusOnes).toBe(2);
+    expect(parse('Jan +2').phone).toBeNull();
+  });
+
+  it('captures both e-mail and phone together', () => {
+    const r = parse('Eva eva@host.com 0612345678 fles');
+    expect(r.email).toBe('eva@host.com');
+    expect(r.phone).toBe('0612345678');
+    expect(r.name).toBe('Eva');
+    expect(r.tierId).toBe('fles');
+  });
+
+  it('leaves email/phone null when absent', () => {
+    const r = parse('Juri +2');
+    expect(r.email).toBeNull();
+    expect(r.phone).toBeNull();
+  });
+
+  it('carries contact fields through parseBulk', () => {
+    const [a, b] = parseBulk('Max max@x.nl +1\nNoor 0612345678 vip', TIERS, DEFAULT);
+    expect(a).toMatchObject({ name: 'Max', email: 'max@x.nl', plusOnes: 1 });
+    expect(b).toMatchObject({ name: 'Noor', phone: '0612345678', tierId: 'vip' });
+  });
+});

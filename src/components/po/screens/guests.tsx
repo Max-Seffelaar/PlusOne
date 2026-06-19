@@ -340,7 +340,16 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
     const id = uuidv7();
     const snapshot: JustAdded = { id, name: effName, plus: effPlus, tierShort: effTier.short, vip: effTier.role === 'VIP' };
     add.mutate(
-      { id, eventId: evId, tierId: effTierId, fullName: effName, plusOnes: effPlus, source: 'app' },
+      {
+        id,
+        eventId: evId,
+        tierId: effTierId,
+        fullName: effName,
+        plusOnes: effPlus,
+        email: parsed?.email ?? undefined,
+        phone: parsed?.phone ?? undefined,
+        source: 'app',
+      },
       {
         onSuccess: () => {
           setAdded((a) => [snapshot, ...a]);
@@ -596,7 +605,14 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
       {
         eventId: evId,
         source: 'app',
-        guests: resolvedRows.map((r) => ({ id: uuidv7(), fullName: r.name, plusOnes: r.plusOnes, tierId: r.tierId })),
+        guests: resolvedRows.map((r, i) => ({
+          id: uuidv7(),
+          fullName: r.name,
+          plusOnes: r.plusOnes,
+          tierId: r.tierId,
+          email: rows[i]?.email ?? undefined,
+          phone: rows[i]?.phone ?? undefined,
+        })),
       },
       {
         onSuccess: () => {
