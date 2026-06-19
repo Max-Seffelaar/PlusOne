@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 7000",
+    "dev": "node scripts/dev-env.mjs && next dev -p 7000",
+    "dev:env": "node scripts/dev-env.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

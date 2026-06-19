@@ -148,7 +148,7 @@ export function PlusOneApp({
     const p = top.props;
     switch (top.name) {
       case 'event':
-        screen = <EventView ev={ev(p.id)} />;
+        screen = <EventView id={p.id} />;
         break;
       case 'lijst':
         screen = <Lijst ev={ev(p.id)} />;
@@ -178,16 +178,16 @@ export function PlusOneApp({
         screen = <Aanvragen />;
         break;
       case 'eventedit':
-        screen = <EventEdit ev={p.id ? ev(p.id) : undefined} isNew={p.isNew} />;
+        screen = <EventEdit id={p.id} isNew={p.isNew} />;
         break;
       case 'tiers':
-        screen = <Tiers />;
+        screen = <Tiers eventId={p.id} />;
         break;
       case 'gebruikers':
         screen = <Gebruikers />;
         break;
       case 'pastevent':
-        screen = <PastEvent ev={ev(p.id)} />;
+        screen = <PastEvent id={p.id} />;
         break;
       case 'venueswitch':
         screen = <VenueSwitch />;
