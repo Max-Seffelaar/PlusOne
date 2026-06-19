@@ -7,7 +7,7 @@
  * App Router and the door state for TanStack Query + the offline outbox.
  */
 import { useState, type ReactNode } from 'react';
-import { contacts, guests, venues } from '@/lib/po/data';
+import { guests, venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
 import { usePoEvents, usePoGuests } from '@/features/po/hooks';
 import { PoProvider, type AuthNav, type AuthView, type CheckInEntry, type Nav, type PoApp, type ScreenName, type StackEntry } from './context';
@@ -72,7 +72,6 @@ export function PlusOneApp({
     return o;
   });
   const [tasksDone, setTasksDone] = useState<Set<string>>(() => new Set());
-  const [vast, setVast] = useState<Set<string>>(() => new Set(contacts.filter((c) => c.vast).map((c) => c.name)));
   const [venue, setVenueState] = useState<Venue>(() => venues.find((v) => v.current) ?? venues[0]);
   const [toast, setToast] = useState<string | null>(null);
   const [key, setKey] = useState(0);
@@ -153,13 +152,6 @@ export function PlusOneApp({
       else x.delete(id);
       return x;
     });
-  const toggleVast = (n: string): void =>
-    setVast((s) => {
-      const x = new Set(s);
-      if (x.has(n)) x.delete(n);
-      else x.add(n);
-      return x;
-    });
   const switchVenue = (v: Venue): void => {
     setVenueState(v);
     setToast('Gewisseld naar ' + v.name);
@@ -196,7 +188,7 @@ export function PlusOneApp({
         break;
       }
       case 'contacten':
-        screen = <Contacten />;
+        screen = <Contacten eventId={p.id} />;
         break;
       case 'vaste':
         screen = <Vaste />;
@@ -260,7 +252,7 @@ export function PlusOneApp({
   else if (tab === 'taken') screen = <Taken />;
   else screen = <Meer />;
 
-  const po: PoApp = { inside, log, checkIn, uncheck, taskDone, ackTask, vast, toggleVast, venue, switchVenue, statsVenues: statsAccess?.venues ?? [], nav };
+  const po: PoApp = { inside, log, checkIn, uncheck, taskDone, ackTask, venue, switchVenue, statsVenues: statsAccess?.venues ?? [], nav };
   const takenBadge = guests.filter((g) => g.note && !tasksDone.has(g.id)).length;
 
   const body = (

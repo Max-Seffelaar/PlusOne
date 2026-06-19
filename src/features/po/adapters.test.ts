@@ -8,6 +8,8 @@ import {
   toPoEvent,
   toPoGuest,
   toPoTier,
+  toPoContact,
+  contactRoleToPo,
   toRecap,
   toRecapGuest,
   rolesLabel,
@@ -24,6 +26,7 @@ import type {
   PoEventRow,
   PoGuestRow,
   PoTierRow,
+  PoContactRow,
   RecapGuestRow,
   PoMemberRow,
   PoInviteRow,
@@ -309,6 +312,55 @@ describe('optimisticGuest', () => {
     expect(g.role).toBe('Gast');
     expect(g.plus).toBe(0);
     expect(g.id).toBe('optimistic-Noor de Wit');
+  });
+});
+
+describe('contactRoleToPo', () => {
+  it('maps each contact_role to its po badge and null to Gast', () => {
+    expect(contactRoleToPo('vip')).toBe('VIP');
+    expect(contactRoleToPo('all_access')).toBe('All Access');
+    expect(contactRoleToPo('artist')).toBe('Artist');
+    expect(contactRoleToPo('press')).toBe('Pers');
+    expect(contactRoleToPo('crew')).toBe('Crew');
+    expect(contactRoleToPo('guest')).toBe('Gast');
+    expect(contactRoleToPo(null)).toBe('Gast');
+  });
+});
+
+describe('toPoContact', () => {
+  const base: PoContactRow = {
+    id: 'c1',
+    full_name: 'Anouk Smit',
+    email: 'anouk@mail.nl',
+    phone: '+31612345678',
+    birthdate: '1996-04-12',
+    preferred_role: 'vip',
+    note: 'Vaste klant',
+    is_permanent: true,
+    eventCount: 21,
+  };
+  it('maps the row, keeps only the last 4 phone digits, and carries the raw edit fields', () => {
+    expect(toPoContact(base)).toEqual({
+      id: 'c1',
+      name: 'Anouk Smit',
+      role: 'VIP',
+      events: 21,
+      vast: true,
+      phoneLast4: '5678',
+      email: 'anouk@mail.nl',
+      phone: '+31612345678',
+      birthdate: '1996-04-12',
+      note: 'Vaste klant',
+      preferredRole: 'vip',
+    });
+  });
+  it('yields null phoneLast4 when there is no usable phone and Gast for a null role', () => {
+    const c = toPoContact({ ...base, phone: null, preferred_role: null, is_permanent: false, eventCount: 0 });
+    expect(c).toMatchObject({ role: 'Gast', vast: false, events: 0, phoneLast4: null, preferredRole: null });
+  });
+  it('strips non-digits before taking the last 4', () => {
+    expect(toPoContact({ ...base, phone: '06 12 34 56 78' }).phoneLast4).toBe('5678');
+    expect(toPoContact({ ...base, phone: '123' }).phoneLast4).toBeNull();
   });
 });
 

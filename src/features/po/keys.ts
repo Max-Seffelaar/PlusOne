@@ -13,6 +13,11 @@ export const poKeys = {
   quota: (eventId: string) => [...poKeys.all, 'quota', eventId] as const,
   requests: (eventId: string) => [...poKeys.all, 'requests', eventId] as const,
   quotaRequests: (eventId: string) => [...poKeys.all, 'quota-requests', eventId] as const,
+  // Address book (S3) — contacts scope to a venue; the optional search term keys
+  // distinct cached lists, so invalidating the ['po','contacts',venueId] prefix
+  // refreshes every variant after a star/import/add write.
+  contacts: (venueId: string, search = '') => [...poKeys.all, 'contacts', venueId, search] as const,
+  contactKeys: (venueId: string) => [...poKeys.all, 'contact-keys', venueId] as const,
   // Settings cluster — team/quota + invites scope to a venue, sessions/profile to
   // the caller, venue-settings + subscription to a venue.
   team: (venueId: string) => [...poKeys.all, 'team', venueId] as const,

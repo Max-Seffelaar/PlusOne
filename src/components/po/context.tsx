@@ -71,8 +71,6 @@ export interface PoApp {
   uncheck: (id: string) => void;
   taskDone: (id: string) => boolean;
   ackTask: (id: string, val: boolean) => void;
-  vast: Set<string>;
-  toggleVast: (n: string) => void;
   venue: Venue;
   switchVenue: (v: Venue) => void;
   statsVenues: { venueId: string; venueName: string }[];

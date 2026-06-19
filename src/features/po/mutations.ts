@@ -28,6 +28,22 @@ import type {
 import { decideQuotaRequest, requestExtraSlots } from '@/features/quotas/actions';
 import type { DecideQuotaRequestInput, QuotaRequestInput } from '@/features/quotas/schemas';
 import {
+  importContacts,
+  addContactToEvent,
+  syncPermanentGuests,
+  toggleContactPermanent,
+  upsertContact,
+  type ImportResult,
+  type SyncResult,
+} from '@/features/contacts/actions';
+import type {
+  ImportContactsInput,
+  AddContactToEventInput,
+  SyncPermanentInput,
+  TogglePermanentInput,
+  UpsertContactInput,
+} from '@/features/contacts/schemas';
+import {
   changeEventStatus,
   createEvent,
   createTier,
@@ -215,6 +231,81 @@ export function usePoRequestExtraSlots(eventId: string) {
       void qc.invalidateQueries({ queryKey: poKeys.quota(eventId) });
       void qc.invalidateQueries({ queryKey: poKeys.quotaRequests(eventId) });
     },
+  });
+}
+
+// ── Address book writes (S3 Adresboek + Import, STAP 3.4/3.8) ──────────────
+// All wrap the EXISTING contacts server actions, so RLS (manager-only) + the
+// quota engine + the "respect the removal" exclusion logic stay server-side. The
+// add/sync paths invalidate the affected event subtree (guests/tiers/quota) just
+// like a normal guest add; the star/import paths invalidate the contacts caches.
+
+/** Invalidate every cached contacts list + the import dedup-key set for a venue. */
+function invalidateContacts(qc: QueryClient, venueId: string | null): void {
+  if (!venueId) return;
+  void qc.invalidateQueries({ queryKey: [...poKeys.all, 'contacts', venueId] });
+  void qc.invalidateQueries({ queryKey: poKeys.contactKeys(venueId) });
+}
+
+/** Create or edit a single address-book contact (manager-only via RLS). */
+export function usePoUpsertContact() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: UpsertContactInput) => throwOnError(await upsertContact(input)),
+    onSuccess: () => invalidateContacts(qc, venueId),
+  });
+}
+
+/** Star/unstar a contact as a permanent guest (#11) — admin/organizer via RLS. */
+export function usePoToggleContactPermanent() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: TogglePermanentInput) =>
+      throwOnError(await toggleContactPermanent(input)),
+    onSuccess: () => invalidateContacts(qc, venueId),
+  });
+}
+
+/**
+ * Add one address-book contact to an event (Adresboek "+"). The eventId travels in
+ * the input (the screen may pick it), so invalidation keys off the input. A
+ * deliberate add clears any "respect the removal" exclusion server-side (the RPC);
+ * the quota engine charges the actor exactly as for a source=app add.
+ */
+export function usePoAddContactToEvent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: AddContactToEventInput) =>
+      throwOnError(await addContactToEvent(input)),
+    onSuccess: (_res, input) => invalidateAfterAdd(qc, input.eventId),
+  });
+}
+
+/**
+ * Sync the venue's permanent contacts onto an event (#11). Idempotent; the RPC
+ * skips contacts manually removed from this event ("respect the removal") and
+ * self-guards admin/organizer + list-lock. Returns how many were added.
+ */
+export function usePoSyncPermanent() {
+  const qc = useQueryClient();
+  return useMutation<SyncResult, Error, SyncPermanentInput>({
+    mutationFn: async (input) => throwOnError(await syncPermanentGuests(input)),
+    onSuccess: (_res, input) => invalidateAfterAdd(qc, input.eventId),
+  });
+}
+
+/**
+ * Bulk-import contacts into the address book (#10): paste / CSV. Idempotent +
+ * deduped in the RPC; returns {inserted, updated, skipped} for the result toast.
+ */
+export function usePoImportContacts() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation<ImportResult, Error, ImportContactsInput>({
+    mutationFn: async (input) => throwOnError(await importContacts(input)),
+    onSuccess: () => invalidateContacts(qc, venueId),
   });
 }
 

@@ -4,7 +4,10 @@ import {
   mapRole,
   normalizeEmail,
   normalizePhoneToDigits,
+  normalizeImportPhone,
+  normalizeImportBirthdate,
   parseCsv,
+  csvFirstRowIsHeader,
   parseDate,
   parsePastedList,
   type ParsedContact,
@@ -43,6 +46,66 @@ describe('parseDate', () => {
     expect(parseDate('not a date')).toBeUndefined();
     expect(parseDate('')).toBeUndefined();
     expect(parseDate('1996')).toBeUndefined();
+  });
+});
+
+describe('normalizeImportPhone', () => {
+  it('keeps a valid E.164 number as-is', () => {
+    expect(normalizeImportPhone('+31612345678')).toBe('+31612345678');
+    expect(normalizeImportPhone('+14155550123')).toBe('+14155550123');
+  });
+  it('coerces NL local / international formats to E.164', () => {
+    expect(normalizeImportPhone('0612345678')).toBe('+31612345678');
+    expect(normalizeImportPhone('06 12 34 56 78')).toBe('+31612345678');
+    expect(normalizeImportPhone('0031612345678')).toBe('+31612345678');
+    expect(normalizeImportPhone('31612345678')).toBe('+31612345678');
+  });
+  it('coercion matches the stored E.164 under the DB phone_norm', () => {
+    // The whole point: a pasted "06…" must dedupe against a stored "+31…".
+    expect(normalizePhoneToDigits(normalizeImportPhone('0612345678'))).toBe(
+      normalizePhoneToDigits('+31612345678'),
+    );
+  });
+  it('drops anything that cannot form a valid E.164 (the contact still imports)', () => {
+    expect(normalizeImportPhone('00')).toBeUndefined(); // strips to a bare "+"
+    expect(normalizeImportPhone('')).toBeUndefined();
+    expect(normalizeImportPhone(undefined)).toBeUndefined();
+    expect(normalizeImportPhone('geen nummer')).toBeUndefined();
+  });
+});
+
+describe('normalizeImportBirthdate', () => {
+  it('keeps a plausible ISO birthday', () => {
+    expect(normalizeImportBirthdate('1996-04-12')).toBe('1996-04-12');
+  });
+  it('drops non-ISO, future, and implausibly-old dates', () => {
+    expect(normalizeImportBirthdate('12-04-1996')).toBeUndefined(); // not ISO (parseDate runs first)
+    expect(normalizeImportBirthdate('2999-01-01')).toBeUndefined(); // future
+    expect(normalizeImportBirthdate('1800-01-01')).toBeUndefined(); // > 120y
+    expect(normalizeImportBirthdate('')).toBeUndefined();
+    expect(normalizeImportBirthdate(undefined)).toBeUndefined();
+  });
+});
+
+describe('csvFirstRowIsHeader / parseCsv header override', () => {
+  it('detects a recognised header row', () => {
+    expect(csvFirstRowIsHeader('Naam,E-mail\nAnouk,anouk@x.test')).toBe(true);
+    // First row that is plainly data (a name + e-mail) is not a header.
+    expect(csvFirstRowIsHeader('Anouk Smit,anouk@x.test\nPim,pim@x.test')).toBe(false);
+    expect(csvFirstRowIsHeader('')).toBe(false);
+  });
+  it('keeps the first data row when firstRowIsHeader=false', () => {
+    const rows = parseCsv('Anouk Smit,anouk@x.test\nPim Scholten,pim@x.test', { firstRowIsHeader: false });
+    expect(rows).toHaveLength(2);
+    expect(rows[0].fullName).toBe('Anouk Smit');
+  });
+  it('skips the first row when firstRowIsHeader=true, even with unrecognised column names', () => {
+    const rows = parseCsv('voornaam achternaam;mailtje\nAnouk Smit;anouk@x.test\nPim;pim@x.test', {
+      firstRowIsHeader: true,
+    });
+    // Header skipped; remaining two rows parsed positionally (name + e-mail).
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.fullName)).toEqual(['Anouk Smit', 'Pim']);
   });
 });
 
