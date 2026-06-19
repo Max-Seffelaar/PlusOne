@@ -1,25 +1,32 @@
-// Auto-provision .env.local for LOCAL development.
+// Auto-provision .env.local AND launch the dev server on a per-worktree port.
 //
 // Every git worktree is a separate checkout with its own node_modules and its own
 // dev server, but they all share ONE local Supabase stack (fixed 553xx ports,
-// keyed by supabase/config.toml). The only thing a fresh worktree was missing to
-// "just work" was .env.local — so `pnpm dev` runs this first to write it from the
-// running stack. Result: a new session only ever rebuilds CODE, never the env.
+// keyed by supabase/config.toml). Two things used to bite a fresh/parallel session:
+//   1. a missing .env.local — fixed by auto-writing it from the running stack;
+//   2. port-7000 collisions — when a second worktree ran `pnpm dev`, Next silently
+//      fell back to 7001, but the dev-login links all say :7000, so you'd land on
+//      the wrong branch's server (the "one had mock data, one didn't" trap). Now
+//      each worktree claims a STABLE port (7000 if free, else a deterministic 70xx)
+//      and prints its OWN dev-login links — never a silent collision.
 //
-// Rules:
-//   - If .env.local already exists, do nothing (respect an explicit/prod env —
-//     e.g. the main checkout that points at prod for `supabase db push`).
-//   - Otherwise read the live keys from `supabase status -o env` and remap them
-//     to the plain NEXT_PUBLIC_* names the app uses.
-//   - NEVER block `next dev`: any problem just prints guidance and exits 0.
+// Modes:
+//   node scripts/dev-env.mjs           → provision .env.local only (used by `dev:env`)
+//   node scripts/dev-env.mjs --serve   → provision, pick a port, print links, run next dev
+//   PORT=7005 node scripts/dev-env.mjs --serve → force a specific port
+//
+// Never blocks: any env problem prints guidance and continues (next dev still runs).
 import { existsSync, writeFileSync } from 'node:fs';
-import { execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
+import { createServer } from 'node:net';
 import { resolve } from 'node:path';
 
-const envPath = resolve(process.cwd(), '.env.local');
+const cwd = process.cwd();
+const envPath = resolve(cwd, '.env.local');
+const SEED_USERS = ['manager', 'staff', 'door']; // the no-MFA seed users
 
-function main() {
-  if (existsSync(envPath)) return; // respect an existing env file
+function provisionEnv() {
+  if (existsSync(envPath)) return; // respect an existing env file (e.g. main → prod)
 
   let raw;
   try {
@@ -27,7 +34,7 @@ function main() {
   } catch {
     console.warn(
       '\n[dev-env] No running local Supabase stack found.\n' +
-        '          Start the shared stack once with `pnpm supabase:start`, then re-run `pnpm dev`.\n'
+        '          Start the shared stack once with `pnpm supabase:start` (or `pnpm db:fresh`), then re-run.\n'
     );
     return;
   }
@@ -57,9 +64,61 @@ function main() {
   console.log(`[dev-env] Wrote .env.local -> ${url} (shared local Supabase).`);
 }
 
-try {
-  main();
-} catch (e) {
-  console.warn('[dev-env] Unexpected error; continuing without writing .env.local:', e?.message ?? e);
+/** True if nothing is listening on `port` (probe a short-lived 127.0.0.1 bind). */
+function isPortFree(port) {
+  return new Promise((res) => {
+    const srv = createServer();
+    srv.once('error', () => res(false));
+    srv.once('listening', () => srv.close(() => res(true)));
+    srv.listen(port, '127.0.0.1');
+  });
 }
-process.exit(0);
+
+// Stable per-worktree port in 7001..7099, derived from the checkout path so the
+// same worktree always lands on the same port (no surprise reshuffling).
+function worktreePort() {
+  let h = 0;
+  for (let i = 0; i < cwd.length; i++) h = (h * 31 + cwd.charCodeAt(i)) >>> 0;
+  return 7001 + (h % 99);
+}
+
+async function choosePort() {
+  if (process.env.PORT) return Number(process.env.PORT);
+  if (await isPortFree(7000)) return 7000; // canonical owner when free (test worktree)
+  const start = worktreePort();
+  for (let i = 0; i < 99; i++) {
+    const p = 7001 + ((start - 7001 + i) % 99);
+    if (await isPortFree(p)) return p;
+  }
+  return 7000; // give up; next will report the conflict itself
+}
+
+function printBanner(port) {
+  const links = SEED_USERS.map(
+    (u) => `    http://localhost:${port}/auth/dev-login?email=${u}@plusone.test&next=/app`
+  ).join('\n');
+  const note =
+    port === 7000
+      ? ''
+      : '  (port 7000 is busy — another session owns it; this worktree has its own stable port)';
+  console.log(
+    `\n[dev-env] Serving this worktree on http://localhost:${port}${note}\n` +
+      `[dev-env] Dev-login (no MFA — manager/staff/door):\n${links}\n`
+  );
+}
+
+try {
+  provisionEnv();
+} catch (e) {
+  console.warn('[dev-env] Unexpected env error; continuing:', e?.message ?? e);
+}
+
+if (process.argv.includes('--serve')) {
+  const port = await choosePort();
+  printBanner(port);
+  const nextBin = resolve(cwd, 'node_modules', 'next', 'dist', 'bin', 'next');
+  const child = spawn(process.execPath, [nextBin, 'dev', '-p', String(port)], { stdio: 'inherit' });
+  child.on('exit', (code) => process.exit(code ?? 0));
+} else {
+  process.exit(0);
+}
