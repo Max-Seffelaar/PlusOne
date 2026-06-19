@@ -51,7 +51,12 @@ function LogRow({
 export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () => void }): JSX.Element | null {
   const { guestById, checkIn, topUp, voidCheckIn, reviveCheckIn, refuse, ackNote } = useDoor();
   const g = guestById(guestId);
-  const [plus, setPlus] = useState(g?.plus ?? 0);
+  // Start the door check-in at just the named guest (1 person), NOT the whole
+  // party: arrivals are staggered (#25), so the host bumps the stepper for any
+  // +N actually present now and tops up the rest later via "nog inchecken".
+  // Defaulting to the full party silently checked everyone in, leaving late
+  // arrivals un-addable (only "uitchecken" remained) — the reported bug.
+  const [plus, setPlus] = useState(0);
   const [addNow, setAddNow] = useState(1);
   const [alertOpen, setAlertOpen] = useState(g?.notePriority === 'high' && !g?.acknowledged);
   const [refuseOpen, setRefuseOpen] = useState(false);
