@@ -28,7 +28,7 @@ export type PoEventRow = {
 
 export type PoGuestRow = Pick<
   Tables['guests']['Row'],
-  'id' | 'full_name' | 'plus_ones' | 'status' | 'tier_id' | 'note' | 'note_priority' | 'created_at'
+  'id' | 'full_name' | 'plus_ones' | 'status' | 'tier_id' | 'note' | 'note_priority' | 'created_at' | 'contact_id'
 >;
 
 export type PoTierRow = Pick<
@@ -70,7 +70,7 @@ export async function fetchEvents(client: Client, venueId: string): Promise<PoEv
 export async function fetchPoGuests(client: Client, eventId: string): Promise<PoGuestRow[]> {
   const { data } = await client
     .from('guests')
-    .select('id, full_name, plus_ones, status, tier_id, note, note_priority, created_at')
+    .select('id, full_name, plus_ones, status, tier_id, note, note_priority, created_at, contact_id')
     .eq('event_id', eventId)
     .neq('status', 'removed')
     .order('created_at', { ascending: true });

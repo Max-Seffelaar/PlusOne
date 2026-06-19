@@ -45,6 +45,8 @@ export interface Guest {
   status: GuestStatus;
   at?: string;
   inBy?: string;
+  /** Linked address-book contact (live data); absent in the mock. */
+  contactId?: string | null;
 }
 
 export interface Contact {

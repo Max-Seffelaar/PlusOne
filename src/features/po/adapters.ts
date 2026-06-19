@@ -108,6 +108,7 @@ export function toPoGuest(row: PoGuestRow, extras: GuestExtras): Guest {
     by: extras.addedBy ?? '',
     addedAt: fmt(row.created_at, { day: 'numeric', month: 'short' }).replace('.', ''),
     status: guestStatusToPo(row.status),
+    contactId: row.contact_id,
     // at/inBy come from check_ins (DoorProvider), not the guests row.
   };
 }

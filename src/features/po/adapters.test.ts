@@ -115,6 +115,7 @@ describe('toPoGuest', () => {
     note: 'Tafel 4 reserveren',
     note_priority: 'high',
     created_at: '2024-11-28T12:00:00Z',
+    contact_id: 'c1',
   };
 
   it('maps a guest row + extras to the po Guest shape', () => {
@@ -129,6 +130,7 @@ describe('toPoGuest', () => {
       flag: 'high',
       by: 'Max',
       status: 'in',
+      contactId: 'c1',
     });
     expect(g.addedAt).toBe('28 nov');
   });

@@ -2,12 +2,13 @@
 
 /** Guest list, guest detail (+logboek, Let-op popup, stepper check-in),
  *  quick-add (#33), bulk-paste, adresboek, permanente gasten. */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { v7 as uuidv7 } from 'uuid';
 import { cn } from '@/lib/utils';
 import type { Guest as GuestT, PoEvent } from '@/lib/po/types';
 import { normalizeImportPhone } from '@/features/contacts/import/parse';
 import type { ContactRole } from '@/features/contacts/schemas';
+import { indexGuestsByName, suspectedDuplicates, planBulkAdd, type DupeMode, type BulkRowInput } from '@/features/guests/bulk-dedupe';
 import {
   parseQuickAdd,
   parseBulk,
@@ -27,6 +28,7 @@ import {
   usePoAddContactToEvent,
   usePoSyncPermanent,
   usePoUpsertContact,
+  usePoUpdateGuest,
 } from '@/features/po/mutations';
 import type { PoContact } from '@/features/po/adapters';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
@@ -52,6 +54,25 @@ function FilterChip({ on, onClick, children, grow }: { on: boolean; onClick: () 
       )}
     >
       {children}
+    </button>
+  );
+}
+
+/** Radio-style option row for the "already on the list" choice (bulk add). */
+function DupeOption({ on, onClick, title, sub }: { on: boolean; onClick: () => void; title: string; sub: string }): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn('flex items-center gap-[11px] rounded-[12px] border px-[13px] py-[10px] text-left', press, on ? 'border-transparent bg-bg' : 'border-line bg-transparent')}
+    >
+      <span className={cn('flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full border-2', on ? 'border-acc' : 'border-ghost')}>
+        {on && <span className="h-[10px] w-[10px] rounded-full bg-acc" />}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-display text-[13.5px] font-bold text-text">{title}</span>
+        <span className="block text-[11.5px] text-faint">{sub}</span>
+      </span>
     </button>
   );
 }
@@ -660,13 +681,20 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
 
   const { data: tiers = [] } = usePoTiers(evId);
   const { data: quota } = usePoQuota(evId);
+  const { data: evGuests = [] } = usePoGuests(evId);
   const addBulk = usePoAddGuestsBulk(evId);
+  const update = usePoUpdateGuest(evId);
 
   const qaTiers: QuickAddTier[] = tiers.map((t) => ({ id: t.id, name: t.name, aliases: t.aliases }));
   const defaultTierId = resolveDefaultTierId(qaTiers);
 
   const [text, setText] = useState('');
   const [choices, setChoices] = useState<Record<number, AmbiguityChoice>>({});
+  // What to do with people already on this list: add on top, give a new total, or
+  // add them again as a separate row (best-effort name match — they confirm).
+  const [dupeMode, setDupeMode] = useState<DupeMode>('add');
+  const [busy, setBusy] = useState(false);
+  const [orchErr, setOrchErr] = useState<string | null>(null);
 
   const rows = defaultTierId ? parseBulk(text, qaTiers, defaultTierId) : [];
   const resolvedRows = rows.map((r, i) => resolveRow(r, choices[i], defaultTierId ?? ''));
@@ -674,36 +702,47 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
   const doubtful = resolvedRows.filter((r) => r.needsChoice || r.name === '').length;
   const ready = rows.length - doubtful;
 
+  // Match resolved rows against people already on the list (by normalized name).
+  const byName = useMemo(
+    () => indexGuestsByName(evGuests.map((g) => ({ id: g.id, name: g.name, plusOnes: g.plus }))),
+    [evGuests],
+  );
+  const plannable: BulkRowInput[] = resolvedRows
+    .map((r, i) => ({ name: r.name, plusOnes: r.plusOnes, tierId: r.tierId, email: rows[i]?.email ?? undefined, phone: rows[i]?.phone ?? undefined }))
+    .filter((r) => r.name !== '');
+  const dupNames = suspectedDuplicates(plannable, byName);
+
   const exempt = quota?.exempt ?? false;
   const remaining = exempt ? null : quota?.remaining ?? null;
   const overQuota = remaining !== null && total > remaining;
-  const canConfirm = !addBulk.isPending && rows.length > 0 && doubtful === 0 && !overQuota && !!defaultTierId && !!evId;
+  const canConfirm = !busy && rows.length > 0 && doubtful === 0 && !overQuota && !!defaultTierId && !!evId;
 
-  const confirm = (): void => {
+  const confirm = async (): Promise<void> => {
     if (!canConfirm) return;
-    // One UUIDv7 per row (#25) — the optimistic rows match the inserted rows. The
-    // DB enforces the batch atomically (quota overage rolls the whole batch back).
-    addBulk.mutate(
-      {
-        eventId: evId,
-        source: 'app',
-        guests: resolvedRows.map((r, i) => ({
-          id: uuidv7(),
-          fullName: r.name,
-          plusOnes: r.plusOnes,
-          tierId: r.tierId,
-          email: rows[i]?.email ?? undefined,
-          phone: rows[i]?.phone ?? undefined,
-        })),
-      },
-      {
-        onSuccess: () => {
-          setText('');
-          setChoices({});
-          nav.back();
-        },
-      },
-    );
+    setOrchErr(null);
+    setBusy(true);
+    // Split into fresh inserts + plus-ones updates per the chosen duplicate mode.
+    const plan = planBulkAdd(plannable, byName, dupeMode);
+    try {
+      if (plan.inserts.length > 0) {
+        // One UUIDv7 per row (#25); the DB enforces the insert batch atomically.
+        await addBulk.mutateAsync({
+          eventId: evId,
+          source: 'app',
+          guests: plan.inserts.map((r) => ({ id: uuidv7(), fullName: r.name, plusOnes: r.plusOnes, tierId: r.tierId, email: r.email, phone: r.phone })),
+        });
+      }
+      for (const u of plan.updates) {
+        await update.mutateAsync({ guestId: u.guestId, plusOnes: u.plusOnes });
+      }
+      setText('');
+      setChoices({});
+      nav.back();
+    } catch (e) {
+      setOrchErr(e instanceof Error ? e.message : 'Toevoegen mislukt.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -752,11 +791,14 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
                               {ask ? `“${r.ambiguous?.text ?? ''}” onbekend` : tier?.short ?? '—'}
                             </div>
                           </div>
-                          {!ask && (
-                            <span className="text-acc">
-                              <Icon name="check2" size={17} stroke="#B5A6FF" sw={2.2} />
-                            </span>
-                          )}
+                          {!ask &&
+                            (byName.has(res.name.trim().toLowerCase()) ? (
+                              <MiniChip className="border-acc text-acc">AL OP LIJST</MiniChip>
+                            ) : (
+                              <span className="text-acc">
+                                <Icon name="check2" size={17} stroke="#B5A6FF" sw={2.2} />
+                              </span>
+                            ))}
                         </div>
                         {ask && r.ambiguous && (
                           <div className="mt-[11px] flex flex-wrap gap-[7px]">
@@ -790,16 +832,42 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
                     );
                   })}
                 </div>
+                {dupNames.length > 0 && (
+                  <div className="mt-4 rounded-[16px] border border-acc bg-acc-dim p-[14px]">
+                    <div className="mb-1 flex items-center gap-2">
+                      <Icon name="warn" size={16} stroke="#B5A6FF" />
+                      <Label className="text-acc-soft">
+                        {dupNames.length} {dupNames.length === 1 ? 'staat' : 'staan'} er volgens ons al op
+                      </Label>
+                    </div>
+                    <div className="mb-3 flex flex-wrap gap-1.5">
+                      {dupNames.slice(0, 12).map((n) => (
+                        <MiniChip key={n} className="border-transparent bg-bg text-text">
+                          {n}
+                        </MiniChip>
+                      ))}
+                      {dupNames.length > 12 && (
+                        <MiniChip className="border-transparent bg-bg text-faint">+{dupNames.length - 12}</MiniChip>
+                      )}
+                    </div>
+                    <div className="mb-2 text-[12.5px] font-semibold text-text">Wat wil je met deze mensen doen?</div>
+                    <div className="flex flex-col gap-1.5">
+                      <DupeOption on={dupeMode === 'add'} onClick={() => setDupeMode('add')} title="Tickets erbij optellen" sub="Nieuwe plekken bovenop hun huidige aantal" />
+                      <DupeOption on={dupeMode === 'replace'} onClick={() => setDupeMode('replace')} title="Nieuw aantal geven" sub="Vervang hun plekken door wat je nu invult" />
+                      <DupeOption on={dupeMode === 'again'} onClick={() => setDupeMode('again')} title="Toch opnieuw toevoegen" sub="Als losse, nieuwe regel (andere persoon)" />
+                    </div>
+                  </div>
+                )}
                 {!exempt && remaining !== null && (
                   <div className={cn('mt-3 text-[12.5px]', overQuota ? 'text-acc-soft' : 'text-faint')}>
                     {total} {total === 1 ? 'plek' : 'plekken'} · {remaining} over in je quotum
                     {overQuota && ' — de hele batch wordt geblokkeerd'}
                   </div>
                 )}
-                {addBulk.isError && (
+                {(addBulk.isError || orchErr) && (
                   <div className="mt-3 flex items-center gap-[9px] rounded-[13px] border border-acc bg-acc-dim px-[14px] py-[11px] text-[13px] text-text">
                     <Icon name="warn" size={16} stroke="#B5A6FF" />
-                    <span className="flex-1">{addBulk.error?.message}</span>
+                    <span className="flex-1">{orchErr ?? addBulk.error?.message}</span>
                   </div>
                 )}
               </>
@@ -808,12 +876,14 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
         )}
       </Scroll>
       <BottomBar>
-        <Btn kind="primary" full icon="check" onClick={confirm} className={canConfirm ? '' : 'opacity-[0.45]'}>
-          {addBulk.isPending
+        <Btn kind="primary" full icon="check" onClick={() => void confirm()} className={canConfirm ? '' : 'opacity-[0.45]'}>
+          {busy
             ? 'Bezig…'
             : doubtful > 0
               ? `Voeg ${ready} toe · ${doubtful} open`
-              : `Voeg ${ready} ${ready === 1 ? 'gast' : 'gasten'} toe`}
+              : dupNames.length > 0
+                ? `Verwerk ${ready} ${ready === 1 ? 'regel' : 'regels'}`
+                : `Voeg ${ready} ${ready === 1 ? 'gast' : 'gasten'} toe`}
         </Btn>
       </BottomBar>
     </div>
@@ -1071,8 +1141,17 @@ function AddToEventSheet({
   const add = usePoAddContactToEvent();
   const [evId, setEvId] = useState<string>(eventId && upcoming.some((e) => e.id === eventId) ? eventId : upcoming[0]?.id ?? '');
   const { data: tiers = [], isLoading: tiersLoading } = usePoTiers(evId);
+  // Is this contact already a live (non-removed) guest on the selected event? We
+  // reuse the event's guest list (RLS-scoped) rather than a separate query, so the
+  // existing add/update invalidations keep it fresh.
+  const { data: evGuests = [], isLoading: guestsLoading } = usePoGuests(evId);
+  const onList = evGuests.find((g) => g.contactId === contact.id) ?? null;
+  const update = usePoUpdateGuest(evId);
+
   const [tierId, setTierId] = useState<string>('');
-  const [plus, setPlus] = useState(0);
+  const [plus, setPlus] = useState(0); // new guest: extra plekken (total = 1 + plus)
+  const [mode, setMode] = useState<'add' | 'set'>('add'); // already-on-list choice
+  const [amount, setAmount] = useState(1); // already-on-list: the number for the chosen mode
   const [err, setErr] = useState<string | null>(null);
 
   // Default the ticket to the event's default (or first) whenever the tiers load.
@@ -1088,19 +1167,40 @@ function AddToEventSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tiers]);
 
-  const submit = (): void => {
+  const busy = add.isPending || update.isPending;
+  const finishOk = (): void => onAdded(contact.id);
+
+  // New guest on this event: ticket + plus-ones via add_contact_to_event.
+  const submitNew = (): void => {
     setErr(null);
     if (!evId) return setErr('Kies een event.');
     add.mutate(
       { contactId: contact.id, eventId: evId, tierId: tierId || undefined, plusOnes: plus || undefined },
-      { onSuccess: () => onAdded(contact.id), onError: (e) => setErr(e instanceof Error ? e.message : 'Toevoegen mislukt.') },
+      { onSuccess: finishOk, onError: (e) => setErr(e instanceof Error ? e.message : 'Toevoegen mislukt.') },
     );
+  };
+
+  // Already on this event: never silently no-op — set a new plus-ones total or add
+  // to the existing count (the user's choice), via a plain guest update.
+  const finalPlus = onList ? (mode === 'add' ? onList.plus + amount : amount) : 0;
+  const submitAdjust = (): void => {
+    if (!onList) return;
+    setErr(null);
+    update.mutate(
+      { guestId: onList.id, plusOnes: finalPlus },
+      { onSuccess: finishOk, onError: (e) => setErr(e instanceof Error ? e.message : 'Opslaan mislukt.') },
+    );
+  };
+
+  const switchMode = (m: 'add' | 'set'): void => {
+    setMode(m);
+    setAmount(m === 'set' ? onList?.plus ?? 0 : 1);
   };
 
   return (
     <Sheet onClose={onClose} center={false}>
       <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{contact.name} toevoegen</div>
-      <div className="mb-4 text-[13px] text-faint">Kies het event en het ticket.</div>
+      <div className="mb-4 text-[13px] text-faint">Kies het event{onList ? '' : ' en het ticket'}.</div>
 
       {upcoming.length === 0 ? (
         <Empty text="Geen komend event om aan toe te voegen." />
@@ -1131,46 +1231,98 @@ function AddToEventSheet({
             })}
           </div>
 
-          <Label className="mb-2">Ticket / tier</Label>
-          {tiersLoading ? (
-            <div className="mb-3 text-[12.5px] text-faint">Tickets laden…</div>
-          ) : tiers.length === 0 ? (
-            <Note icon="ticket">Dit event heeft nog geen tiers. Voeg er eerst een toe via eventbeheer.</Note>
+          {guestsLoading ? (
+            <div className="mb-3 text-[12.5px] text-faint">Lijst controleren…</div>
+          ) : onList ? (
+            // Already on this event — choose: add to, or replace, the plus-ones.
+            <>
+              <Note icon="user">
+                <b>{contact.name}</b> staat al op deze lijst
+                {onList.plus > 0 ? (
+                  <>
+                    {' '}
+                    met <b>+{onList.plus}</b> {onList.plus === 1 ? 'plek' : 'plekken'}
+                  </>
+                ) : (
+                  ' zonder extra plekken'
+                )}
+                .
+              </Note>
+              <Label className="mb-2">Wat wil je doen?</Label>
+              <div className="mb-3 flex gap-2">
+                <RolePill label="Erbij optellen" on={mode === 'add'} onClick={() => switchMode('add')} />
+                <RolePill label="Nieuw totaal" on={mode === 'set'} onClick={() => switchMode('set')} />
+              </div>
+              <div className="mb-1 flex items-center justify-between gap-[14px] rounded-[16px] bg-acc-dim p-[10px]">
+                <button type="button" onClick={() => setAmount((a) => Math.max(0, a - 1))} aria-label="Minder" className={cn('flex h-[46px] w-[46px] items-center justify-center rounded-[14px] border border-line bg-elev2 text-text', press)}>
+                  <Icon name="minus" size={20} sw={2.4} />
+                </button>
+                <div className="text-center">
+                  <div className="font-display text-[28px] font-extrabold leading-none text-text">{amount}</div>
+                  <div className="mt-0.5 text-[11px] text-dim">{mode === 'add' ? 'erbij' : 'totaal'}</div>
+                </div>
+                <button type="button" onClick={() => setAmount((a) => a + 1)} aria-label="Meer" className={cn('flex h-[46px] w-[46px] items-center justify-center rounded-[14px] border border-line bg-elev2 text-text', press)}>
+                  <Icon name="plus" size={20} sw={2.4} stroke="#B5A6FF" />
+                </button>
+              </div>
+              <div className="mb-3 px-1 text-[12px] text-faint">
+                Wordt <b className="text-text">+{finalPlus}</b> {finalPlus === 1 ? 'plek' : 'plekken'} in totaal
+                {mode === 'add' && amount > 0 ? ` (was +${onList.plus})` : ''}.
+              </div>
+              {err && (
+                <p className="mt-1 text-[12.5px] text-red-300" role="alert">
+                  {err}
+                </p>
+              )}
+              <Btn kind="primary" full icon="check" className="mt-2" disabled={busy} onClick={submitAdjust}>
+                {update.isPending ? 'Opslaan…' : `Opslaan · +${finalPlus}`}
+              </Btn>
+            </>
           ) : (
-            <div className="mb-3 flex flex-wrap gap-2">
-              {tiers.map((t) => {
-                const on = t.id === tierId;
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => setTierId(t.id)}
-                    className={cn('inline-flex items-center gap-[7px] rounded-[11px] border px-[12px] py-[9px] font-display text-[13px] font-bold', press, on ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev text-text')}
-                  >
-                    <span className="h-[9px] w-[9px] rounded-full" style={{ background: t.color }} />
-                    {t.short}
-                  </button>
-                );
-              })}
-            </div>
-          )}
+            // New on this event — pick a ticket + how many people.
+            <>
+              <Label className="mb-2">Ticket / tier</Label>
+              {tiersLoading ? (
+                <div className="mb-3 text-[12.5px] text-faint">Tickets laden…</div>
+              ) : tiers.length === 0 ? (
+                <Note icon="ticket">Dit event heeft nog geen tiers. Voeg er eerst een toe via eventbeheer.</Note>
+              ) : (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {tiers.map((t) => {
+                    const on = t.id === tierId;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setTierId(t.id)}
+                        className={cn('inline-flex items-center gap-[7px] rounded-[11px] border px-[12px] py-[9px] font-display text-[13px] font-bold', press, on ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev text-text')}
+                      >
+                        <span className="h-[9px] w-[9px] rounded-full" style={{ background: t.color }} />
+                        {t.short}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
-          <Label className="mb-2">Aantal personen</Label>
-          <div className="mb-1">
-            <Stepper value={1 + plus} onChange={(v) => setPlus(Math.max(0, v - 1))} />
-          </div>
-          <div className="mb-3 px-1 text-[12px] text-faint">
-            {plus === 0 ? 'Alleen deze gast.' : `${contact.name} + ${plus} extra ${plus === 1 ? 'plek' : 'plekken'} (${1 + plus} totaal).`}
-          </div>
+              <Label className="mb-2">Aantal personen</Label>
+              <div className="mb-1">
+                <Stepper value={1 + plus} onChange={(v) => setPlus(Math.max(0, v - 1))} />
+              </div>
+              <div className="mb-3 px-1 text-[12px] text-faint">
+                {plus === 0 ? 'Alleen deze gast.' : `${contact.name} + ${plus} extra ${plus === 1 ? 'plek' : 'plekken'} (${1 + plus} totaal).`}
+              </div>
 
-          {err && (
-            <p className="mt-1 text-[12.5px] text-red-300" role="alert">
-              {err}
-            </p>
+              {err && (
+                <p className="mt-1 text-[12.5px] text-red-300" role="alert">
+                  {err}
+                </p>
+              )}
+              <Btn kind="primary" full icon="plus" className="mt-2" disabled={busy || !evId || tiers.length === 0} onClick={submitNew}>
+                {add.isPending ? 'Toevoegen…' : plus > 0 ? `Voeg toe · ${1 + plus} personen` : 'Voeg toe aan gastenlijst'}
+              </Btn>
+            </>
           )}
-          <Btn kind="primary" full icon="plus" className="mt-2" disabled={add.isPending || !evId || tiers.length === 0} onClick={submit}>
-            {add.isPending ? 'Toevoegen…' : plus > 0 ? `Voeg toe · ${1 + plus} personen` : 'Voeg toe aan gastenlijst'}
-          </Btn>
         </>
       )}
     </Sheet>
