@@ -50,6 +50,18 @@ export function isManager(roles: readonly VenueRole[]): boolean {
   return roles.some((r) => MANAGER_ROLES.includes(r));
 }
 
+// Venue roles that may create guests — mirrors RLS `can_write_guests`: admin
+// always, staff/doorhost at the door. (An event organizer is event-scoped, not a
+// venue role, and is allowed via the quota `exempt` flag, not here.) A pure
+// user_manager or finance may NOT add guests, so the UI hides the quick-add for
+// them instead of letting the insert fail with a confusing "geen rechten" error.
+export const GUEST_WRITE_ROLES: readonly VenueRole[] = ['admin', 'staff', 'doorhost'] as const;
+
+/** True when any held role may create guests (UI convenience; RLS still decides). */
+export function canManageGuests(roles: readonly VenueRole[]): boolean {
+  return roles.some((r) => GUEST_WRITE_ROLES.includes(r));
+}
+
 /**
  * Escalation guard — mirrors RLS `invites_insert` / `venue_memberships_insert`:
  * a caller may grant a set of roles only if they manage the venue, and only an

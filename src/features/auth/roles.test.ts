@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { requiresMfa, canGrantRoles, mergeRoles, isManager, hasRole } from './roles';
+import { requiresMfa, canGrantRoles, mergeRoles, isManager, hasRole, canManageGuests } from './roles';
 
 describe('requiresMfa', () => {
   it('is true for admin and finance', () => {
@@ -12,6 +12,21 @@ describe('requiresMfa', () => {
     expect(requiresMfa(['doorhost', 'staff'])).toBe(false);
     expect(requiresMfa(['user_manager'])).toBe(false);
     expect(requiresMfa([])).toBe(false);
+  });
+});
+
+describe('canManageGuests (mirrors RLS can_write_guests)', () => {
+  it('is true for admin, staff, doorhost', () => {
+    expect(canManageGuests(['admin'])).toBe(true);
+    expect(canManageGuests(['staff'])).toBe(true);
+    expect(canManageGuests(['doorhost'])).toBe(true);
+    expect(canManageGuests(['user_manager', 'staff'])).toBe(true);
+  });
+  it('is false for a pure user_manager or finance (no guest rights)', () => {
+    expect(canManageGuests(['user_manager'])).toBe(false);
+    expect(canManageGuests(['finance'])).toBe(false);
+    expect(canManageGuests(['user_manager', 'finance'])).toBe(false);
+    expect(canManageGuests([])).toBe(false);
   });
 });
 

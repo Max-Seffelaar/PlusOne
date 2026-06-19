@@ -19,6 +19,8 @@ import {
 import { resolveDefaultTierId } from '@/features/guests/tiers';
 import { usePoEvents, usePoGuests, usePoTiers, usePoQuota } from '@/features/po/hooks';
 import { usePoAddGuest, usePoAddGuestsBulk } from '@/features/po/mutations';
+import { usePoIdentity } from '@/features/po/PoLiveProvider';
+import { canManageGuests } from '@/features/auth/roles';
 import { useNav, usePo } from '../context';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, PayChip, RoleChip, Scroll, StatusDot, Stepper, Top } from '../kit';
@@ -300,6 +302,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const { data: tiers = [] } = usePoTiers(evId);
   const { data: quota } = usePoQuota(evId);
   const add = usePoAddGuest(evId);
+  const { roles } = usePoIdentity();
 
   const [val, setVal] = useState('');
   const [choice, setChoice] = useState<AmbiguityChoice | null>(null);
@@ -325,6 +328,10 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const exempt = quota?.exempt ?? false;
   const remaining = exempt ? null : quota?.remaining ?? null;
   const overQuota = remaining !== null && cost > remaining;
+  // Hide the quick-add for roles that can't create guests (user_manager/finance):
+  // RLS would reject the insert with a confusing 42501, so gate the UI instead.
+  // admin/staff/doorhost qualify via role; an event organizer via the exempt flag.
+  const canAdd = exempt || canManageGuests(roles);
   const needsAsk = !!isAmbiguous && !choice;
   const canSubmit = !add.isPending && !!defaultTierId && !!evId && effName !== '' && !needsAsk && !overQuota;
 
@@ -395,13 +402,19 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
           </div>
         )}
 
-        {curEv && !defaultTierId && (
+        {curEv && !canAdd && (
+          <div className="rounded-[16px] border border-line bg-elev p-[14px] text-[13.5px] leading-[1.45] text-faint">
+            Je hebt op dit event geen rechten om gasten toe te voegen. Vraag een beheerder of organisator om toegang.
+          </div>
+        )}
+
+        {curEv && canAdd && !defaultTierId && (
           <div className="rounded-[16px] border border-line bg-elev p-[14px] text-[13.5px] leading-[1.45] text-faint">
             Dit event heeft nog geen tiers. Voeg eerst een tier toe via eventbeheer voordat je gasten toevoegt.
           </div>
         )}
 
-        {curEv && defaultTierId && (
+        {curEv && canAdd && defaultTierId && (
           <>
             <Label className="mb-2">Typ vrij — naam, +gasten, tier</Label>
             <div className={cn('rounded-[16px] border bg-elev px-[15px] py-[14px] transition-colors', parsed ? 'border-acc' : 'border-line')}>
