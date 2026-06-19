@@ -246,11 +246,30 @@ describe('e-mail + phone capture (#9)', () => {
     expect(r.plusOnes).toBe(0);
   });
 
-  it('captures an international number with spaces and keeps the tier', () => {
-    const r = parse('Sam +31 6 1234 5678 vip');
-    expect(r.phone).toBe('+31 6 1234 5678');
+  it('captures a contiguous international number and keeps the tier', () => {
+    const r = parse('Sam +31612345678 vip');
+    expect(r.phone).toBe('+31612345678');
     expect(r.name).toBe('Sam');
     expect(r.tierId).toBe('vip');
+  });
+
+  it('reads a trailing bare number as +N (name tier phone email N)', () => {
+    const r = parse('piet hoi VIP 31646003664 hoi@hoi.nl 2');
+    expect(r.name).toBe('piet hoi');
+    expect(r.tierId).toBe('vip');
+    expect(r.plusOnes).toBe(2);
+    expect(r.phone).toBe('31646003664');
+    expect(r.email).toBe('hoi@hoi.nl');
+  });
+
+  it('handles the full pasted format across lines', () => {
+    const [a, b] = parseBulk(
+      'jan dsadsa Regular 31646003600 Henk@henk.nl 1\nfreek VIP 31646003699 peit@piet.nl 5',
+      TIERS,
+      DEFAULT,
+    );
+    expect(a).toMatchObject({ name: 'jan dsadsa', tierId: 'regular', plusOnes: 1, phone: '31646003600', email: 'Henk@henk.nl' });
+    expect(b).toMatchObject({ name: 'freek', tierId: 'vip', plusOnes: 5, phone: '31646003699', email: 'peit@piet.nl' });
   });
 
   it('never reads a phone number as +N plus-ones', () => {

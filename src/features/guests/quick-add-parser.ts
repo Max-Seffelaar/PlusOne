@@ -241,6 +241,14 @@ function findPlusOnes(normTokens: string[]): PlusOnes {
       }
     }
   }
+  // Fallback: a trailing bare number is the guest count ("Naam 2" → +2). Phones
+  // are already stripped (≥8 digits), so a lone trailing integer is a small count,
+  // not a phone. Explicit +N above always wins.
+  const last = normTokens.length - 1;
+  if (last >= 0 && /^\d+$/.test(normTokens[last])) {
+    consumed.add(last);
+    return { count: parseInt(normTokens[last], 10), consumed };
+  }
   return { count: null, consumed };
 }
 
@@ -250,28 +258,40 @@ function findPlusOnes(normTokens: string[]): PlusOnes {
  * (there is no is_default column — typically the tier named "Regular" or the
  * first tier). Returns status 'needs_name' when no name remains.
  */
-// E-mail / phone embedded in a line ("Max Jansen max@x.nl 0612345678 +2 vip").
-// Pulled out BEFORE +N parsing so a phone's digits are never read as plus-ones,
-// and stripped from the name. Permissive on purpose — this is capture, not
-// validation (the schema bounds length; #9 keeps the fields optional).
-const EMAIL_RE = /[^\s@]+@[^\s@]+\.[^\s@]+/;
-const PHONE_RE = /(?:\+|00)?[0-9][0-9\s().-]{7,}[0-9]/;
+// E-mail / phone embedded in a line ("Max max@x.nl 0612345678 +2 vip") are pulled
+// out as whole TOKENS — a token with "@" is the e-mail; a mostly-digit token with
+// ≥8 digits is the phone — BEFORE +N/tier parsing. That way a phone's digits are
+// never read as plus-ones and never land in the name. Permissive on purpose:
+// capture, not validation (the schema bounds length; #9 keeps the fields optional).
+// (Phone numbers written with spaces between groups are not auto-captured; paste
+// them contiguous, e.g. "+31612345678".)
+const EMAIL_TOKEN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_TOKEN = /^\+?[\d().-]*\d[\d().-]*$/;
 
-function extractContact(raw: string): { cleaned: string; email: string | null; phone: string | null } {
-  let cleaned = raw;
-  const emailMatch = cleaned.match(EMAIL_RE);
-  const email = emailMatch ? emailMatch[0] : null;
-  if (email) cleaned = cleaned.replace(email, ' ');
+function digitCount(token: string): number {
+  return token.replace(/\D/g, '').length;
+}
+
+function extractContactTokens(tokens: string[]): {
+  kept: string[];
+  email: string | null;
+  phone: string | null;
+} {
+  let email: string | null = null;
   let phone: string | null = null;
-  const phoneMatch = cleaned.match(PHONE_RE);
-  if (phoneMatch) {
-    const digits = phoneMatch[0].replace(/\D/g, '');
-    if (digits.length >= 9 && digits.length <= 15) {
-      phone = phoneMatch[0].trim();
-      cleaned = cleaned.replace(phoneMatch[0], ' ');
+  const kept: string[] = [];
+  for (const t of tokens) {
+    if (!email && EMAIL_TOKEN.test(t)) {
+      email = t;
+      continue;
     }
+    if (!phone && PHONE_TOKEN.test(t) && digitCount(t) >= 8 && digitCount(t) <= 15) {
+      phone = t;
+      continue;
+    }
+    kept.push(t);
   }
-  return { cleaned: cleaned.replace(/\s+/g, ' ').trim(), email, phone };
+  return { kept, email, phone };
 }
 
 export function parseQuickAdd(
@@ -280,15 +300,13 @@ export function parseQuickAdd(
   defaultTierId: string
 ): ParseResult {
   const raw = input.trim();
-  // Strip any e-mail/phone first so they don't pollute the name or the +N count.
-  const { cleaned, email, phone } = extractContact(raw);
   const defaultTier = tiers.find((t) => t.id === defaultTierId);
   const defaultTierName = defaultTier?.name ?? '';
 
-  // Tokenize the contact-stripped line, keeping original casing for the name and
-  // a normalized parallel for matching. Split "+" off neighbouring words so
-  // "Jan+2" works.
-  const originalTokens = cleaned.replace(/\+/g, ' +').split(/\s+/).filter(Boolean);
+  // Tokenize (split "+" off neighbours so "Jan+2" works), then pull the e-mail
+  // and phone tokens out before +N/tier parsing.
+  const rawTokens = raw.replace(/\+/g, ' +').split(/\s+/).filter(Boolean);
+  const { kept: originalTokens, email, phone } = extractContactTokens(rawTokens);
   const normTokens = originalTokens.map(normalize);
 
   const base = (over: Partial<ParseResult>): ParseResult => {
