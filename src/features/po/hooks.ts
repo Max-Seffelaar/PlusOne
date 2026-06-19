@@ -10,6 +10,7 @@ import type { Guest, PoEvent, Tier } from '@/lib/po/types';
 import { poKeys } from './keys';
 import {
   fetchEvents,
+  fetchEventForEdit,
   fetchEventHeadcounts,
   fetchGuests,
   fetchOpenRequestCount,
@@ -17,6 +18,8 @@ import {
   fetchRecapGuests,
   fetchRecentCheckins,
   fetchTiers,
+  fetchTiersWithUsage,
+  type EventEditRow,
   type RecentCheckinRow,
 } from './queries';
 import { toPoEvent, toPoGuest, toPoTier, toRecap, tierRole, type PoRecap } from './adapters';
@@ -93,17 +96,32 @@ export function usePoEventRecap(eventId: string) {
   });
 }
 
-/** Tiers for an event. */
+/** Tiers for an event, with live occupancy ("used" = entries not removed/denied). */
 export function usePoTiers(eventId: string) {
   return useQuery<Tier[]>({
     queryKey: poKeys.tiers(eventId),
     enabled: !!eventId,
     queryFn: async () => {
-      const rows = await fetchTiers(createClient(), eventId);
-      // Used-slot counts are aggregated when the Gastenlijst wires up (STAP 3.4).
-      return rows.map((r) => toPoTier(r, 0));
+      const rows = await fetchTiersWithUsage(createClient(), eventId);
+      return rows.map((r) => toPoTier(r, r.used));
     },
   });
+}
+
+/**
+ * A single event's editable fields + whether the caller may manage it (admin of
+ * the venue, or organizer of the event). RLS is still the boundary — this only
+ * decides which write affordances the form shows.
+ */
+export function usePoEventForEdit(eventId: string) {
+  const { userId, roles } = usePoIdentity();
+  const query = useQuery<EventEditRow | null>({
+    queryKey: poKeys.event(eventId),
+    enabled: !!eventId,
+    queryFn: () => fetchEventForEdit(createClient(), eventId, userId),
+  });
+  const isAdmin = roles.includes('admin');
+  return { ...query, isAdmin, canManage: isAdmin || !!query.data?.isOrganizer };
 }
 
 /** Guests for an event, with each role badge resolved from its tier. */

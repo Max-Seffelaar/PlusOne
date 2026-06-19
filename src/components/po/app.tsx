@@ -178,10 +178,10 @@ export function PlusOneApp({
         screen = <Aanvragen />;
         break;
       case 'eventedit':
-        screen = <EventEdit ev={p.id ? ev(p.id) : undefined} isNew={p.isNew} />;
+        screen = <EventEdit id={p.id} isNew={p.isNew} />;
         break;
       case 'tiers':
-        screen = <Tiers />;
+        screen = <Tiers eventId={p.id} />;
         break;
       case 'gebruikers':
         screen = <Gebruikers />;

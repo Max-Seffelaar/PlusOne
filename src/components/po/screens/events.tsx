@@ -1,11 +1,30 @@
 'use client';
 
 /** Events tab + event detail, event CRUD, tier/alias beheer, past-event recap. */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { events, tiers } from '@/lib/po/data';
 import type { PoEvent } from '@/lib/po/types';
-import { usePoEvent, usePoEventDetail, usePoEventRecap, usePoEvents } from '@/features/po/hooks';
+import {
+  usePoEvent,
+  usePoEventDetail,
+  usePoEventForEdit,
+  usePoEventRecap,
+  usePoEvents,
+  usePoTiers,
+} from '@/features/po/hooks';
+import {
+  usePoChangeStatus,
+  usePoCreateEvent,
+  usePoCreateTier,
+  usePoSetAutoLock,
+  usePoSetLandingActive,
+  usePoSetListLock,
+  usePoUpdateEvent,
+  usePoUpdateTier,
+} from '@/features/po/mutations';
+import { usePoIdentity } from '@/features/po/PoLiveProvider';
+import { allowedTransitions, STATUS_DESCRIPTIONS, STATUS_LABELS, type EventStatus } from '@/features/events/status';
+import { isoToLocalInput, localInputToIso } from '@/features/events/datetime';
 import { formatClock } from '@/features/stats/format';
 import { useNav } from '../context';
 import { Icon } from '../icon';
@@ -213,75 +232,245 @@ export function EventView({ id }: { id?: string }): JSX.Element {
 }
 
 // ── EVENT edit / create (pushed) ─────────────────────────────────────────────────
-export function EventEdit({ ev, isNew }: { ev?: PoEvent; isNew?: boolean }): JSX.Element {
+/** ISO instant → [date, time] local strings for the date/time inputs. */
+function splitLocal(iso: string | null): [string, string] {
+  const [d = '', t = ''] = isoToLocalInput(iso).split('T');
+  return [d, t];
+}
+
+export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.Element {
   const nav = useNav();
-  const [name, setName] = useState(isNew ? '' : ev?.name ?? '');
-  const [venue, setVenue] = useState(isNew ? '' : ev?.venue ?? '');
-  const [landing, setLanding] = useState(true);
-  const [closeOn, setCloseOn] = useState(true);
+  const { venueId, venueName, roles } = usePoIdentity();
+  const isAdmin = roles.includes('admin');
+  const editId = isNew ? '' : id ?? '';
+  const { data: ev, isLoading, isError, canManage } = usePoEventForEdit(editId);
+
+  const createEvent = usePoCreateEvent();
+  const updateEvent = usePoUpdateEvent(editId);
+  const changeStatus = usePoChangeStatus(editId);
+  const setLandingActive = usePoSetLandingActive(editId);
+  const setListLock = usePoSetListLock(editId);
+  const setAutoLock = usePoSetAutoLock(editId);
+
+  const [name, setName] = useState('');
+  const [dateStr, setDateStr] = useState('');
+  const [timeStr, setTimeStr] = useState('');
+  const [landingOn, setLandingOn] = useState(false);
+  const [autoOn, setAutoOn] = useState(false);
+  const [autoDate, setAutoDate] = useState('');
+  const [autoTime, setAutoTime] = useState('');
   const [locked, setLocked] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  // Hydrate the form once the event identity loads / changes (edit mode only).
+  useEffect(() => {
+    if (!ev) return;
+    setName(ev.name);
+    const [d, t] = splitLocal(ev.startsAt);
+    setDateStr(d);
+    setTimeStr(t);
+    setLandingOn(ev.landingActive);
+    setLocked(ev.listLocked);
+    const [ad, at] = splitLocal(ev.autoLockAt);
+    setAutoOn(!!ev.autoLockAt);
+    setAutoDate(ad);
+    setAutoTime(at);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ev?.id]);
+
+  if (!isNew && isLoading) return <ScreenState onBack={nav.back} title="Event bewerken" text="Laden…" />;
+  if (!isNew && (isError || !ev)) {
+    return <ScreenState onBack={nav.back} title="Event bewerken" text="Dit event is niet (meer) beschikbaar." />;
+  }
+
+  const writable = isNew ? isAdmin : canManage;
+  const venueLabel = isNew ? venueName ?? '' : ev?.venueName ?? '';
+  const saving = createEvent.isPending || updateEvent.isPending;
+
+  // Name + start (+ landing/auto-lock as config) commit together on save; list-lock
+  // and status are immediate operational controls (mirrors the desktop split).
+  const save = async (): Promise<void> => {
+    setErr(null);
+    const startsAt = localInputToIso(`${dateStr}T${timeStr}`);
+    if (!name.trim() || !startsAt) {
+      setErr('Vul een naam, datum en tijd in.');
+      return;
+    }
+    const autoIso = autoOn ? localInputToIso(`${autoDate}T${autoTime}`) : null;
+    if (autoOn && !autoIso) {
+      setErr('Vul de sluitdatum en -tijd in (of zet automatisch sluiten uit).');
+      return;
+    }
+    try {
+      if (isNew) {
+        if (!venueId) {
+          setErr('Geen actieve venue gevonden.');
+          return;
+        }
+        await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, landingActive: landingOn });
+      } else {
+        await updateEvent.mutateAsync({ eventId: editId, name: name.trim(), startsAt });
+        if (ev && landingOn !== ev.landingActive) {
+          await setLandingActive.mutateAsync({ eventId: editId, active: landingOn });
+        }
+        if (autoIso !== (ev?.autoLockAt ?? null)) {
+          await setAutoLock.mutateAsync({ eventId: editId, autoLockAt: autoIso });
+        }
+      }
+      nav.back();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Opslaan is mislukt. Probeer het opnieuw.');
+    }
+  };
+
+  const toggleLock = async (v: boolean): Promise<void> => {
+    setLocked(v);
+    setErr(null);
+    try {
+      await setListLock.mutateAsync({ eventId: editId, locked: v });
+    } catch (e) {
+      setLocked(!v);
+      setErr(e instanceof Error ? e.message : 'Kon de lijst niet (ont)grendelen.');
+    }
+  };
+
+  const doStatus = async (to: EventStatus): Promise<void> => {
+    setErr(null);
+    try {
+      await changeStatus.mutateAsync({ eventId: editId, status: to });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Kon de status niet wijzigen.');
+    }
+  };
+
+  const copyLink = async (): Promise<void> => {
+    if (!ev?.landingSlug) return;
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/e/${ev.landingSlug}`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // Clipboard blocked (rare in webviews) — silently ignore; the slug is visible.
+    }
+  };
+
   return (
     <div className={col}>
-      <Top onBack={nav.back} title={isNew ? 'Nieuw event' : 'Event bewerken'} />
+      <Top onBack={nav.back} title={isNew ? 'Nieuw event' : 'Event bewerken'} sub={isNew ? undefined : ev?.name} />
       <Scroll bottom={120}>
+        {err && <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{err}</div>}
+        {!writable && (
+          <Note icon="shield">
+            {isNew
+              ? 'Alleen beheerders kunnen events aanmaken.'
+              : 'Je kunt dit event alleen bekijken — wijzigen vereist beheerder- of organisator-rechten.'}
+          </Note>
+        )}
+
         <Label className="mb-2">Naam</Label>
-        <Field placeholder="bv. FRENZY" value={name} onChange={setName} className="mb-[14px]" />
+        <Field placeholder="bv. FRENZY" value={name} onChange={writable ? setName : undefined} className="mb-[14px]" />
+
         <Label className="mb-2">Venue</Label>
-        <Field icon="building" placeholder="De Marktkantine" value={venue} onChange={setVenue} className="mb-[14px]" />
+        <Field icon="building" value={venueLabel} placeholder="Onbekende venue" className="mb-[14px]" />
+
         <div className="mb-[14px] flex gap-[10px]">
           <div className="flex-1">
             <Label className="mb-2">Datum</Label>
-            <Field icon="cal" value="14 dec 2024" />
+            <Field icon="cal" type="date" value={dateStr} onChange={writable ? setDateStr : undefined} />
           </div>
           <div className="flex-1">
             <Label className="mb-2">Deur open</Label>
-            <Field icon="clock" value="23:00" />
+            <Field icon="clock" type="time" value={timeStr} onChange={writable ? setTimeStr : undefined} />
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => nav.push('tiers', { id: ev?.id ?? 'frenzy' })}
-          className="mb-[18px] flex w-full items-center gap-[13px] rounded-[14px] border border-line bg-elev px-[14px] py-[15px] text-left transition-colors hover:bg-white/[0.03]"
-        >
-          <span className="flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line bg-elev2 text-acc">
-            <Icon name="ticket" size={18} />
-          </span>
-          <span className="flex-1">
-            <span className="block font-body text-[15px] font-semibold text-text">Tiers & aliassen</span>
-            <span className="mt-px block text-[12.5px] text-faint">6 tiers · voeden de quick-add</span>
-          </span>
-          <Icon name="chev" size={18} className="text-ghost" />
-        </button>
+
+        {!isNew && (
+          <button
+            type="button"
+            onClick={() => nav.push('tiers', { id: editId })}
+            className="mb-[18px] flex w-full items-center gap-[13px] rounded-[14px] border border-line bg-elev px-[14px] py-[15px] text-left transition-colors hover:bg-white/[0.03]"
+          >
+            <span className="flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line bg-elev2 text-acc">
+              <Icon name="ticket" size={18} />
+            </span>
+            <span className="flex-1">
+              <span className="block font-body text-[15px] font-semibold text-text">Tiers & aliassen</span>
+              <span className="mt-px block text-[12.5px] text-faint">Voeden de quick-add</span>
+            </span>
+            <Icon name="chev" size={18} className="text-ghost" />
+          </button>
+        )}
+
+        {!isNew && ev && (
+          <>
+            <Label className="mb-[10px]">Status</Label>
+            <div className="mb-[18px] rounded-[16px] border border-line bg-elev p-[14px]">
+              <div className="font-display text-[15px] font-bold text-text">{STATUS_LABELS[ev.status]}</div>
+              <div className="mt-0.5 text-[12.5px] leading-[1.4] text-faint">{STATUS_DESCRIPTIONS[ev.status]}</div>
+              {writable && allowedTransitions(ev.status, { isAdmin }).length > 0 && (
+                <div className="mt-3 flex flex-col gap-2.5">
+                  {allowedTransitions(ev.status, { isAdmin }).map((tr) => (
+                    <div key={tr.to}>
+                      {tr.warning && <div className="mb-1.5 text-[12px] leading-[1.4] text-faint">{tr.warning}</div>}
+                      <Btn
+                        kind={tr.to === 'closed' ? 'dark' : 'primary'}
+                        sm
+                        full
+                        icon="check"
+                        onClick={() => void doStatus(tr.to)}
+                        disabled={changeStatus.isPending}
+                      >
+                        {tr.label}
+                      </Btn>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
 
         <Label className="mb-[10px]">Landingpage</Label>
         <div className="mb-[18px] rounded-[16px] border border-line bg-elev px-[14px] py-1">
-          <ToggleRow title="Aanvraaglink actief" sub="Gasten kunnen zich aanmelden via de link" on={landing} set={setLanding} />
-          {landing && (
+          <ToggleRow
+            title="Aanvraaglink actief"
+            sub="Gasten kunnen zich aanmelden via de link"
+            on={landingOn}
+            set={(v) => writable && setLandingOn(v)}
+            last={!landingOn || isNew}
+          />
+          {!isNew && landingOn && ev?.landingSlug && (
             <div className="flex items-center gap-[9px] border-t border-line2 pb-[14px] pt-3">
-              <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[12.5px] text-dim">plus.one/frenzy-x4k9</span>
-              <button type="button" className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] border border-line text-faint transition-[filter] hover:brightness-[1.2]">
-                <Icon name="share" size={16} />
+              <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[12.5px] text-dim">/e/{ev.landingSlug}</span>
+              <button
+                type="button"
+                onClick={() => void copyLink()}
+                aria-label="Kopieer aanmeldlink"
+                className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] border border-line text-faint transition-[filter] hover:brightness-[1.2]"
+              >
+                <Icon name={copied ? 'check' : 'share'} size={16} />
               </button>
             </div>
           )}
-          {landing && (
+          {!isNew && landingOn && (
             <div className="border-t border-line2">
               <ToggleRow
                 title="Sluit aanmelden automatisch"
-                sub={closeOn ? 'Na dit moment kan niemand zich meer aanmelden' : 'Link blijft open tot je hem handmatig sluit'}
-                on={closeOn}
-                set={setCloseOn}
-                last={!closeOn}
+                sub={autoOn ? 'Na dit moment kan niemand zich meer aanmelden' : 'Link blijft open tot je hem handmatig sluit'}
+                on={autoOn}
+                set={(v) => writable && setAutoOn(v)}
+                last={!autoOn}
               />
-              {closeOn && (
+              {autoOn && (
                 <div className="flex gap-[10px] pb-[14px]">
                   <div className="flex-1">
                     <Label className="mb-2">Sluit op</Label>
-                    <Field icon="cal" value="14 dec 2024" />
+                    <Field icon="cal" type="date" value={autoDate} onChange={writable ? setAutoDate : undefined} />
                   </div>
                   <div className="flex-1">
                     <Label className="mb-2">Om</Label>
-                    <Field icon="clock" value="22:00" />
+                    <Field icon="clock" type="time" value={autoTime} onChange={writable ? setAutoTime : undefined} />
                   </div>
                 </div>
               )}
@@ -289,14 +478,31 @@ export function EventEdit({ ev, isNew }: { ev?: PoEvent; isNew?: boolean }): JSX
           )}
         </div>
 
-        <Label className="mb-[10px]">Aan de deur</Label>
-        <div className="rounded-[16px] border border-line bg-elev px-[14px] py-1">
-          <ToggleRow title="Lijst vergrendelen" sub={locked ? 'Staff kan niet meer muteren — admin/host/deur wel' : 'Typisch bij deuropening'} on={locked} set={setLocked} last />
-        </div>
+        {!isNew && (
+          <>
+            <Label className="mb-[10px]">Aan de deur</Label>
+            <div className="rounded-[16px] border border-line bg-elev px-[14px] py-1">
+              <ToggleRow
+                title="Lijst vergrendelen"
+                sub={locked ? 'Staff kan niet meer muteren — admin/host/deur wel' : 'Typisch bij deuropening'}
+                on={locked}
+                set={(v) => writable && void toggleLock(v)}
+                last
+              />
+            </div>
+          </>
+        )}
       </Scroll>
       <BottomBar>
-        <Btn kind="primary" full icon="check" onClick={() => nav.back()}>
-          {isNew ? 'Event aanmaken' : 'Opslaan'}
+        <Btn
+          kind="primary"
+          full
+          icon="check"
+          onClick={() => void save()}
+          disabled={!writable || saving}
+          className={!writable || saving ? 'opacity-50' : ''}
+        >
+          {saving ? 'Bezig…' : isNew ? 'Event aanmaken' : 'Opslaan'}
         </Btn>
       </BottomBar>
     </div>
@@ -304,26 +510,81 @@ export function EventEdit({ ev, isNew }: { ev?: PoEvent; isNew?: boolean }): JSX
 }
 
 // ── TIERS & aliases (pushed) ─────────────────────────────────────────────────────
-export function Tiers(): JSX.Element {
+const TIER_COLORS = ['#B5A6FF', '#9DE0C0', '#E8C98A', '#9FB8E8', '#E89AC0', '#8E8E93'];
+
+export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
   const nav = useNav();
+  const id = eventId ?? '';
+  const { event } = usePoEvent(id);
+  const { data: tierList, isLoading, isError } = usePoTiers(id);
+  const createTier = usePoCreateTier(id);
+  const updateTier = usePoUpdateTier(id);
+
   const [adding, setAdding] = useState(false);
   const [nm, setNm] = useState('');
-  const [color, setColor] = useState('#9DE0C0');
+  const [color, setColor] = useState('#B5A6FF');
   const [max, setMax] = useState('');
-  const [price, setPrice] = useState('');
   const [aliasText, setAliasText] = useState('');
-  const colors = ['#B5A6FF', '#9DE0C0', '#E8C98A', '#9FB8E8', '#E89AC0', '#8E8E93'];
+  const [err, setErr] = useState<string | null>(null);
+  const [aliasFor, setAliasFor] = useState<string | null>(null);
+  const [newAlias, setNewAlias] = useState('');
+
+  const resetForm = (): void => {
+    setNm('');
+    setColor('#B5A6FF');
+    setMax('');
+    setAliasText('');
+  };
+
+  const submit = async (): Promise<void> => {
+    if (!nm.trim() || createTier.isPending) return;
+    setErr(null);
+    const maxNum = Number.parseInt(max, 10);
+    try {
+      await createTier.mutateAsync({
+        eventId: id,
+        name: nm.trim(),
+        color,
+        maxGuests: Number.isFinite(maxNum) && maxNum > 0 ? maxNum : null,
+        aliases: aliasText.split(',').map((a) => a.trim()).filter(Boolean),
+      });
+      resetForm();
+      setAdding(false);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Kon de tier niet aanmaken.');
+    }
+  };
+
+  const commitAlias = async (tierId: string, current: string[]): Promise<void> => {
+    const a = newAlias.trim().toLowerCase();
+    setAliasFor(null);
+    setNewAlias('');
+    if (!a || current.includes(a)) return;
+    setErr(null);
+    try {
+      await updateTier.mutateAsync({ tierId, aliases: [...current, a] });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Kon de alias niet opslaan.');
+    }
+  };
+
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Tiers & aliassen" sub="FRENZY" right={<IconBtn name={adding ? 'close' : 'plus'} onClick={() => setAdding((a) => !a)} />} />
+      <Top
+        onBack={nav.back}
+        title="Tiers & aliassen"
+        sub={event?.name}
+        right={<IconBtn name={adding ? 'close' : 'plus'} onClick={() => setAdding((a) => !a)} />}
+      />
       <Scroll bottom={adding ? 120 : 24}>
+        {err && <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{err}</div>}
         {adding && (
           <div className="mb-[14px] rounded-[18px] border border-acc bg-elev p-4">
             <Label className="mb-[10px]">Nieuwe tier</Label>
             <Field placeholder="Naam, bv. “Backstage”" value={nm} onChange={setNm} autoFocus className="mb-3" />
             <Label className="mb-2">Kleur</Label>
             <div className="mb-[14px] flex gap-[9px]">
-              {colors.map((c) => (
+              {TIER_COLORS.map((c) => (
                 <button
                   key={c}
                   type="button"
@@ -334,16 +595,8 @@ export function Tiers(): JSX.Element {
                 />
               ))}
             </div>
-            <div className="mb-[14px] flex gap-[10px]">
-              <div className="flex-1">
-                <Label className="mb-2">Max (optioneel)</Label>
-                <Field placeholder="∞" value={max} onChange={setMax} inputMode="numeric" />
-              </div>
-              <div className="flex-1">
-                <Label className="mb-2">Deurprijs €</Label>
-                <Field placeholder="0" value={price} onChange={setPrice} inputMode="numeric" />
-              </div>
-            </div>
+            <Label className="mb-2">Max (optioneel)</Label>
+            <Field placeholder="∞ — geen maximum" value={max} onChange={setMax} inputMode="numeric" className="mb-[14px]" />
             <Label className="mb-2">Aliassen · voeden de quick-add</Label>
             <Field icon="spark" placeholder="backstage, bs, prod…" value={aliasText} onChange={setAliasText} />
             {aliasText.trim() && (
@@ -362,52 +615,78 @@ export function Tiers(): JSX.Element {
           </div>
         )}
         <Note icon="spark">Aliassen bepalen wat de quick-add herkent. “fles” of “champagne” → VIP. Onbekende woorden vraagt de app na — nooit stil naar Regular.</Note>
-        <div className="flex flex-col gap-[11px]">
-          {tiers.map((t) => (
-            <div key={t.id} className="rounded-[18px] border border-line bg-elev p-[15px]">
-              <div className="mb-3 flex items-center gap-[11px]">
-                <span className="h-[14px] w-[14px] shrink-0 rounded-full" style={{ background: t.color }} />
-                <div className="min-w-0 flex-1">
-                  <div className="font-display text-[15.5px] font-bold text-text">{t.name}</div>
-                  <div className="mt-px text-[12px] text-faint">
-                    {t.max ? `${t.used} / ${t.max} gebruikt` : `${t.used} · geen max`}
-                    {t.doorPrice > 0 && ` · € ${t.doorPrice} aan de deur`}
+        {isLoading ? (
+          <Empty text="Tiers laden…" />
+        ) : isError ? (
+          <Empty text="Kon de tiers niet laden. Probeer het later opnieuw." />
+        ) : (tierList ?? []).length === 0 ? (
+          <Empty text="Nog geen tiers — voeg er één toe met +." />
+        ) : (
+          <div className="flex flex-col gap-[11px]">
+            {(tierList ?? []).map((t) => (
+              <div key={t.id} className="rounded-[18px] border border-line bg-elev p-[15px]">
+                <div className="mb-3 flex items-center gap-[11px]">
+                  <span className="h-[14px] w-[14px] shrink-0 rounded-full" style={{ background: t.color }} />
+                  <div className="min-w-0 flex-1">
+                    <div className="font-display text-[15.5px] font-bold text-text">{t.name}</div>
+                    <div className="mt-px text-[12px] text-faint">{t.max ? `${t.used} / ${t.max} gebruikt` : `${t.used} · geen max`}</div>
                   </div>
+                  {t.isDefault && <MiniChip>STANDAARD</MiniChip>}
                 </div>
-                {t.isDefault && <MiniChip>STANDAARD</MiniChip>}
+                {t.max && (
+                  <div className="mb-3 h-[6px] overflow-hidden rounded-[4px] bg-elev2">
+                    <div className="h-full rounded-[4px]" style={{ width: Math.min(100, (t.used / t.max) * 100) + '%', background: t.color }} />
+                  </div>
+                )}
+                <Label className="mb-2">Aliassen</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {t.aliases.map((a) => (
+                    <span key={a} className="inline-flex items-center gap-[5px] rounded-[8px] border border-line bg-elev2 px-[9px] py-[5px] font-mono text-[12px] text-dim">
+                      {a}
+                    </span>
+                  ))}
+                  {aliasFor === t.id ? (
+                    <input
+                      autoFocus
+                      value={newAlias}
+                      onChange={(e) => setNewAlias(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void commitAlias(t.id, t.aliases);
+                        if (e.key === 'Escape') {
+                          setAliasFor(null);
+                          setNewAlias('');
+                        }
+                      }}
+                      onBlur={() => {
+                        setAliasFor(null);
+                        setNewAlias('');
+                      }}
+                      placeholder="alias…"
+                      className="w-[120px] rounded-[8px] border border-acc bg-elev2 px-[9px] py-[5px] font-mono text-[12px] text-text outline-none placeholder:text-faint"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAliasFor(t.id);
+                        setNewAlias('');
+                      }}
+                      className="inline-flex items-center gap-1 rounded-[8px] border border-dashed border-line bg-transparent px-[9px] py-[5px] font-body text-[12px] text-faint transition-[filter] hover:brightness-[1.2]"
+                    >
+                      <Icon name="plus" size={12} sw={2.4} />
+                      alias
+                    </button>
+                  )}
+                </div>
               </div>
-              {t.max && (
-                <div className="mb-3 h-[6px] overflow-hidden rounded-[4px] bg-elev2">
-                  <div className="h-full rounded-[4px]" style={{ width: Math.min(100, (t.used / t.max) * 100) + '%', background: t.color }} />
-                </div>
-              )}
-              <Label className="mb-2">Aliassen</Label>
-              <div className="flex flex-wrap gap-1.5">
-                {t.aliases.map((a) => (
-                  <span key={a} className="inline-flex items-center gap-[5px] rounded-[8px] border border-line bg-elev2 px-[9px] py-[5px] font-mono text-[12px] text-dim">
-                    {a}
-                  </span>
-                ))}
-                <button type="button" className="inline-flex items-center gap-1 rounded-[8px] border border-dashed border-line bg-transparent px-[9px] py-[5px] font-body text-[12px] text-faint">
-                  <Icon name="plus" size={12} sw={2.4} />
-                  alias
-                </button>
-              </div>
-              {t.doorPrice > 0 && (
-                <div className="mt-3 flex items-center gap-2 border-t border-line2 pt-3">
-                  <Icon name="money" size={16} className="text-faint" />
-                  <span className="flex-1 text-[13px] text-dim">Deurprijs</span>
-                  <span className="font-display font-bold text-text">€ {t.doorPrice}</span>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </Scroll>
       {adding && (
         <BottomBar>
-          <Btn kind="primary" full icon="check" onClick={() => setAdding(false)} className={nm.trim() ? '' : 'opacity-50'}>
-            Tier aanmaken
+          <Btn kind="primary" full icon="check" onClick={() => void submit()} disabled={!nm.trim() || createTier.isPending} className={nm.trim() && !createTier.isPending ? '' : 'opacity-50'}>
+            {createTier.isPending ? 'Bezig…' : 'Tier aanmaken'}
           </Btn>
         </BottomBar>
       )}
@@ -583,8 +862,9 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
 // ── EVENTS & TIERS hub (pushed) ──────────────────────────────────────────────────
 export function EventBeheer(): JSX.Element {
   const nav = useNav();
-  const upcoming = events.filter((e) => e.when === 'upcoming');
-  const past = events.filter((e) => e.when === 'past');
+  const { data, isLoading, isError } = usePoEvents();
+  const upcoming = (data ?? []).filter((e) => e.when === 'upcoming');
+  const past = (data ?? []).filter((e) => e.when === 'past');
   const evRow = (e: PoEvent, dim: boolean): JSX.Element => (
     <button
       key={e.id}
@@ -622,10 +902,28 @@ export function EventBeheer(): JSX.Element {
             <Icon name="arrowR" size={20} />
           </span>
         </button>
-        <Label className="mb-[10px]">Komende events · {upcoming.length}</Label>
-        <div className="mb-5 flex flex-col gap-[9px]">{upcoming.map((e) => evRow(e, false))}</div>
-        <Label className="mb-[10px]">Afgelopen</Label>
-        <div className="flex flex-col gap-[9px]">{past.map((e) => evRow(e, true))}</div>
+        {isLoading ? (
+          <Empty text="Events laden…" />
+        ) : isError ? (
+          <Empty text="Kon de events niet laden. Probeer het later opnieuw." />
+        ) : (
+          <>
+            <Label className="mb-[10px]">Komende events · {upcoming.length}</Label>
+            {upcoming.length === 0 ? (
+              <div className="mb-5">
+                <Empty text="Nog geen komende events." />
+              </div>
+            ) : (
+              <div className="mb-5 flex flex-col gap-[9px]">{upcoming.map((e) => evRow(e, false))}</div>
+            )}
+            <Label className="mb-[10px]">Afgelopen</Label>
+            {past.length === 0 ? (
+              <Empty text="Nog geen afgelopen events." />
+            ) : (
+              <div className="flex flex-col gap-[9px]">{past.map((e) => evRow(e, true))}</div>
+            )}
+          </>
+        )}
       </Scroll>
     </div>
   );

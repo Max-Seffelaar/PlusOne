@@ -220,3 +220,81 @@ export async function fetchPastEventStats(
   ]);
   return { summary: summary.data ?? null, tiers: tiers.data ?? [] };
 }
+
+export interface EventEditRow {
+  id: string;
+  name: string;
+  startsAt: string;
+  endsAt: string | null;
+  status: Database['public']['Enums']['event_status'];
+  landingActive: boolean;
+  landingSlug: string;
+  listLocked: boolean;
+  autoLockAt: string | null;
+  venueName: string;
+  /** The caller is an organizer scoped to this event (admin is derived from roles). */
+  isOrganizer: boolean;
+}
+
+/** A single event with the editable fields + the caller's organizer scope (EventEdit). */
+export async function fetchEventForEdit(
+  client: Client,
+  eventId: string,
+  userId: string
+): Promise<EventEditRow | null> {
+  const [{ data: e }, { data: org }] = await Promise.all([
+    client
+      .from('events')
+      .select(
+        'id, name, starts_at, ends_at, status, landing_active, landing_slug, list_locked, auto_lock_at, venues(name)'
+      )
+      .eq('id', eventId)
+      .maybeSingle(),
+    client
+      .from('event_organizers')
+      .select('user_id')
+      .eq('event_id', eventId)
+      .eq('user_id', userId)
+      .maybeSingle(),
+  ]);
+  if (!e) return null;
+
+  return {
+    id: e.id,
+    name: e.name,
+    startsAt: e.starts_at,
+    endsAt: e.ends_at,
+    status: e.status,
+    landingActive: e.landing_active,
+    landingSlug: e.landing_slug,
+    listLocked: e.list_locked,
+    autoLockAt: e.auto_lock_at,
+    venueName: e.venues?.name ?? '',
+    isOrganizer: !!org,
+  };
+}
+
+export type TierWithUsage = PoTierRow & { used: number };
+
+/**
+ * Tiers of an event with current occupancy — mirrors getEventTiers: "used" counts
+ * entries that aren't removed/denied (matches guest_tier_contribution), as people
+ * (not headcount), for the tier-max bar.
+ */
+export async function fetchTiersWithUsage(
+  client: Client,
+  eventId: string
+): Promise<TierWithUsage[]> {
+  const [{ data: tiers }, { data: guests }] = await Promise.all([
+    client.from('guest_tiers').select('id, name, color, max_guests, aliases').eq('event_id', eventId).order('name'),
+    client.from('guests').select('tier_id, status').eq('event_id', eventId),
+  ]);
+
+  const used = new Map<string, number>();
+  for (const g of guests ?? []) {
+    if (g.status === 'removed' || g.status === 'denied') continue;
+    used.set(g.tier_id, (used.get(g.tier_id) ?? 0) + 1);
+  }
+
+  return (tiers ?? []).map((t) => ({ ...t, used: used.get(t.id) ?? 0 }));
+}
