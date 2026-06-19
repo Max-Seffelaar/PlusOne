@@ -25,8 +25,8 @@ import type {
   ApproveGuestRequestInput,
   DenyGuestRequestInput,
 } from '@/features/requests/schemas';
-import { decideQuotaRequest } from '@/features/quotas/actions';
-import type { DecideQuotaRequestInput } from '@/features/quotas/schemas';
+import { decideQuotaRequest, requestExtraSlots } from '@/features/quotas/actions';
+import type { DecideQuotaRequestInput, QuotaRequestInput } from '@/features/quotas/schemas';
 import {
   changeEventStatus,
   createEvent,
@@ -203,6 +203,18 @@ export function usePoDecideQuota(eventId: string) {
     mutationFn: async (input: DecideQuotaRequestInput) =>
       throwOnError(await decideQuotaRequest(input)),
     onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.quotaRequests(eventId) }),
+  });
+}
+
+/** Staff requests extra personal slots for an event (#5) — straight from quick-add. */
+export function usePoRequestExtraSlots(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: QuotaRequestInput) => throwOnError(await requestExtraSlots(input)),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: poKeys.quota(eventId) });
+      void qc.invalidateQueries({ queryKey: poKeys.quotaRequests(eventId) });
+    },
   });
 }
 

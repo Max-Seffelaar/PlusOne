@@ -18,7 +18,7 @@ import {
 } from '@/features/guests/quick-add-parser';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
 import { usePoEvents, usePoGuests, usePoTiers, usePoQuota } from '@/features/po/hooks';
-import { usePoAddGuest, usePoAddGuestsBulk } from '@/features/po/mutations';
+import { usePoAddGuest, usePoAddGuestsBulk, usePoRequestExtraSlots } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canManageGuests } from '@/features/auth/roles';
 import { useNav, usePo } from '../context';
@@ -302,12 +302,15 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const { data: tiers = [] } = usePoTiers(evId);
   const { data: quota } = usePoQuota(evId);
   const add = usePoAddGuest(evId);
+  const reqExtra = usePoRequestExtraSlots(evId);
   const { roles } = usePoIdentity();
 
   const [val, setVal] = useState('');
   const [choice, setChoice] = useState<AmbiguityChoice | null>(null);
   const [added, setAdded] = useState<JustAdded[]>([]);
   const [evPick, setEvPick] = useState(false);
+  const [reqOpen, setReqOpen] = useState(false);
+  const [reqMotiv, setReqMotiv] = useState('');
 
   const qaTiers: QuickAddTier[] = tiers.map((t) => ({ id: t.id, name: t.name, aliases: t.aliases }));
   const defaultTierId = resolveDefaultTierId(qaTiers);
@@ -332,12 +335,15 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   // RLS would reject the insert with a confusing 42501, so gate the UI instead.
   // admin/staff/doorhost qualify via role; an event organizer via the exempt flag.
   const canAdd = exempt || canManageGuests(roles);
+  const reqShortfall = remaining !== null ? Math.max(1, cost - remaining) : 1;
   const needsAsk = !!isAmbiguous && !choice;
   const canSubmit = !add.isPending && !!defaultTierId && !!evId && effName !== '' && !needsAsk && !overQuota;
 
   const onInput = (v: string): void => {
     setVal(v);
     setChoice(null);
+    setReqOpen(false);
+    reqExtra.reset();
   };
 
   const commit = (): void => {
@@ -483,11 +489,64 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
               </div>
             )}
 
-            {overQuota && parsed && !needsAsk && (
-              <Btn kind="ghost" full icon="plus" className="mt-[10px]" onClick={() => nav.push('aanvragen')}>
-                Extra plekken aanvragen
-              </Btn>
-            )}
+            {overQuota && parsed && !needsAsk ? (
+              reqExtra.isSuccess ? (
+                <div className="mt-[10px] flex items-center gap-[9px] rounded-[13px] border border-acc bg-acc-dim px-[14px] py-[11px] text-[13px] text-text">
+                  <Icon name="check" size={16} stroke="#B5A6FF" />
+                  <span className="flex-1">Aanvraag verstuurd — een beheerder beslist erover.</span>
+                </div>
+              ) : reqOpen ? (
+                <div className="mt-[10px] flex flex-col gap-[10px] rounded-[16px] border border-line bg-elev p-[14px]">
+                  <Label>
+                    Vraag {reqShortfall} extra {reqShortfall === 1 ? 'plek' : 'plekken'} aan
+                  </Label>
+                  <textarea
+                    autoFocus
+                    value={reqMotiv}
+                    onChange={(e) => setReqMotiv(e.target.value)}
+                    maxLength={500}
+                    rows={2}
+                    placeholder="Waarom heb je deze plekken nodig?"
+                    className="w-full resize-none rounded-[12px] border border-line bg-bg px-[13px] py-[11px] text-[14px] text-text outline-none placeholder:text-faint focus:border-acc"
+                  />
+                  {reqExtra.isError && (
+                    <p className="text-[12.5px] text-acc" role="alert">
+                      {reqExtra.error?.message ?? 'Versturen mislukt.'}
+                    </p>
+                  )}
+                  <div className="flex gap-2">
+                    <Btn
+                      kind="primary"
+                      icon="check"
+                      className={cn((reqExtra.isPending || reqMotiv.trim() === '') && 'opacity-[0.45]')}
+                      disabled={reqExtra.isPending || reqMotiv.trim() === ''}
+                      onClick={() =>
+                        reqExtra.mutate({
+                          eventId: evId,
+                          requestedExtra: reqShortfall,
+                          motivation: reqMotiv.trim(),
+                        })
+                      }
+                    >
+                      {reqExtra.isPending ? 'Versturen…' : 'Versturen'}
+                    </Btn>
+                    <Btn
+                      kind="ghost"
+                      onClick={() => {
+                        setReqOpen(false);
+                        setReqMotiv('');
+                      }}
+                    >
+                      Annuleren
+                    </Btn>
+                  </div>
+                </div>
+              ) : (
+                <Btn kind="ghost" full icon="plus" className="mt-[10px]" onClick={() => setReqOpen(true)}>
+                  Extra plekken aanvragen
+                </Btn>
+              )
+            ) : null}
 
             {add.isError && (
               <div className="mt-3 flex items-center gap-[9px] rounded-[13px] border border-acc bg-acc-dim px-[14px] py-[11px] text-[13px] text-text">
