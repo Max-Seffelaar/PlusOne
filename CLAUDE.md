@@ -66,7 +66,9 @@ The full launch plan — STAP 0 status report, screen inventory (stable IDs S0�
 
 ## Local dev & testing (frictionless login — ALWAYS use these links)
 
-Run locally against the **local Supabase stack**, never prod — prod enforces admin/finance MFA, so no-MFA login is a local-only affordance. Setup once: `supabase start` (loads the seed — 2 venues, 6 users covering all roles, 1 event + 30 guests) → write `.env.local` from `supabase status -o env` (plain names: `NEXT_PUBLIC_SUPABASE_URL`/`_ANON_KEY` + server-only `SUPABASE_SERVICE_ROLE_KEY`) → `pnpm dev`. **The dev server is pinned to port 7000** (`next dev -p 7000`) so it's distinct from other local projects.
+Run locally against the **local Supabase stack**, never prod — prod enforces admin/finance MFA, so no-MFA login is a local-only affordance. Setup once per machine: `pnpm supabase:start` (loads the seed — 2 venues, 6 users covering all roles, 1 event + 30 guests). After that a fresh checkout only needs `pnpm install && pnpm dev` — **`pnpm dev` auto-writes `.env.local`** from the running stack via `scripts/dev-env.mjs` (plain names: `NEXT_PUBLIC_SUPABASE_URL`/`_ANON_KEY` + server-only `SUPABASE_SERVICE_ROLE_KEY`); it skips when an `.env.local` already exists, so the prod-pointing main checkout is left alone. Manual refresh: `pnpm dev:env`.
+
+**Multiple sessions / git worktrees:** they all share the ONE local Supabase stack (fixed 553xx ports, keyed by `supabase/config.toml`) — that never conflicts. The only thing that can collide is the **dev-server port** (one process per port): `pnpm dev` defaults to 7000, and the preview harness's `autoPort` hands each additional session its own free port (and reports the URL). So you rebuild CODE per worktree (its own `node_modules` + `.next`), never the environment.
 
 **To log in for testing, always use the dev-login route** — stable, reusable, no OTP/MFA:
 
