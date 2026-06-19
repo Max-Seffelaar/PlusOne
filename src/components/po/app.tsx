@@ -43,17 +43,18 @@ export function PlusOneApp({
   statsAccess,
   serverHint = false,
   liveVenueName,
-  userName,
-  userSub,
+  liveUserName,
+  liveUserSub,
 }: {
   statsAccess?: { venues: { venueId: string; venueName: string }[] };
   /** Server UA hint for the first-paint viewport switch (corrected by matchMedia). */
   serverHint?: boolean;
   /** Live active-venue name from the session (shell display); mock fallback otherwise. */
   liveVenueName?: string;
-  /** Signed-in user's display name + role label for the shell (live identity). */
-  userName?: string;
-  userSub?: string;
+  /** Live signed-in user's display name (shell footer). */
+  liveUserName?: string;
+  /** Live role label (+ MFA) for the shell footer. */
+  liveUserSub?: string;
 }): JSX.Element {
   // /app is gated by real middleware auth, so skip the prototype's mock
   // welcome/login flow and start straight in the authenticated shell.
@@ -304,8 +305,8 @@ export function PlusOneApp({
         navItems={navItems}
         venueName={liveVenueName ?? venue.name}
         onOpenVenue={() => nav.push('venueswitch')}
-        userName={userName ?? 'Beheerder'}
-        userSub={userSub ?? ''}
+        userName={liveUserName ?? 'Account'}
+        userSub={liveUserSub ?? ''}
       >
         {body}
       </ResponsiveShell>

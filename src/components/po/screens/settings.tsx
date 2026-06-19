@@ -2,37 +2,132 @@
 
 /** Settings cluster: Meer (hub), gebruikers/rollen, toelage, venue switch/beheer,
  *  persoonlijke gegevens + sessies, abonnement & facturen, importeren. */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { account, allowance as allowanceData, invites, invoices, profile, sessions, subscription, team, venues } from '@/lib/po/data';
+import { account, allowance as allowanceData, venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
+import { VENUE_ROLES, ROLE_LABELS, canGrantRoles, requiresMfa, type VenueRole } from '@/features/auth/roles';
+import { venueCapabilities } from '@/features/venues/access';
+import { usePoIdentity } from '@/features/po/PoLiveProvider';
+import {
+  usePoTeam,
+  usePoInvites,
+  usePoSessions,
+  usePoProfile,
+  usePoVenueSettings,
+  usePoSubscription,
+} from '@/features/po/hooks';
+import {
+  usePoInviteUser,
+  usePoRevokeInvite,
+  usePoUpdateMemberRoles,
+  usePoRemoveMember,
+  usePoSetDefaultQuota,
+  usePoUpdateProfile,
+  usePoUpdateEmail,
+  usePoRevokeOwnSession,
+  usePoUpdateVenueSettings,
+} from '@/features/po/mutations';
+import type { PoSubscription, PoTeamMember } from '@/features/po/adapters';
+import { useMfaGate, isAal2Error } from '../mfa-gate';
 import { useNav, usePo } from '../context';
 import { Icon, type IconName } from '../icon';
-import { Avatar, Btn, Field, IconBtn, Label, MiniChip, Note, Row, Scroll, ToggleRow, Top } from '../kit';
-import { BottomBar } from '../shell';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, Row, Scroll, Top } from '../kit';
+import { BottomBar, Sheet } from '../shell';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
 const col = 'flex h-full flex-col';
 const iconSm = 'flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border border-line text-faint';
 
+/** Inline action error, matching the desktop forms' `text-red-300` treatment. */
+function FormError({ error }: { error: unknown }): JSX.Element | null {
+  if (!error) return null;
+  const msg = error instanceof Error && error.message ? error.message : 'Er ging iets mis.';
+  return (
+    <p className="mt-3 text-[12.5px] leading-[1.45] text-red-300" role="alert">
+      {msg}
+    </p>
+  );
+}
+
+/** Role multi-select rows, shared by the invite form and the member sheet. Only
+ *  an admin may toggle the `admin` role (mirrors the escalation guard / RLS). */
+function RolePicker({
+  selected,
+  toggle,
+  callerIsAdmin,
+}: {
+  selected: VenueRole[];
+  toggle: (r: VenueRole) => void;
+  callerIsAdmin: boolean;
+}): JSX.Element {
+  return (
+    <div className="flex flex-col gap-2">
+      {VENUE_ROLES.map((k) => {
+        const on = selected.includes(k);
+        const blocked = k === 'admin' && !callerIsAdmin;
+        return (
+          <button
+            key={k}
+            type="button"
+            disabled={blocked}
+            onClick={() => toggle(k)}
+            className={cn(
+              'flex items-center gap-[12px] rounded-[13px] border px-[14px] py-[13px] text-left',
+              on ? 'border-transparent bg-acc-dim' : 'border-line bg-elev',
+              blocked && 'opacity-40',
+              !blocked && press,
+            )}
+          >
+            <span
+              className={cn(
+                'flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[7px] border-2',
+                on ? 'border-acc bg-acc' : 'border-ghost bg-transparent',
+              )}
+            >
+              {on && <Icon name="check" size={13} stroke="#16132B" sw={3} />}
+            </span>
+            <span className="flex-1 font-display text-[14.5px] font-bold text-text">{ROLE_LABELS[k]}</span>
+            {blocked && <span className="text-[11px] text-faint">alleen beheerder</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── MEER (settings tab) ──────────────────────────────────────────────────────
 export function Meer(): JSX.Element {
   const nav = useNav();
   const { venue, statsVenues } = usePo();
+  const { venueName } = usePoIdentity();
+  const profile = usePoProfile();
+  const subQ = usePoSubscription();
   const v = venue;
+  // Live active-venue name + plan for the header card (the switcher behind it is
+  // still mock — separate venue-switcher task).
+  const displayVenue = venueName ?? v.name;
+  const planLabel = subQ.data?.plan ?? null;
+  const billingSub = subQ.data
+    ? subQ.data.priceLabel.startsWith('€')
+      ? `${subQ.data.plan} · ${subQ.data.priceLabel}/${subQ.data.period}`
+      : subQ.data.plan
+    : 'Beheer je abonnement';
   return (
     <div className={col}>
       <Top big title="Instellingen" />
       <Scroll bottom={100}>
         <button type="button" onClick={() => nav.push('venueswitch')} className={cn('mb-5 flex w-full items-center gap-[14px] rounded-[18px] border border-line bg-elev p-4 text-left', cardPress)}>
-          <Avatar name={v.name} size={48} accent />
+          <Avatar name={displayVenue} size={48} accent />
           <div className="min-w-0 flex-1">
-            <div className="font-display text-[18px] font-bold text-text">{v.name}</div>
-            <div className="text-[12.5px] text-faint">{account.user} · wissel van venue</div>
+            <div className="font-display text-[18px] font-bold text-text">{displayVenue}</div>
+            <div className="text-[12.5px] text-faint">{profile.data?.name ?? account.user} · wissel van venue</div>
           </div>
           <span className="inline-flex items-center gap-[7px]">
-            <span className="rounded-full bg-acc px-[11px] py-[5px] font-display text-[11px] font-bold text-on-acc">{v.plan}</span>
+            {planLabel && (
+              <span className="rounded-full bg-acc px-[11px] py-[5px] font-display text-[11px] font-bold text-on-acc">{planLabel}</span>
+            )}
             <span className="text-ghost">
               <Icon name="swap" size={18} />
             </span>
@@ -66,180 +161,392 @@ export function Meer(): JSX.Element {
         <Row icon="contact" title="Adresboek" sub="1.284 opgeslagen contacten" onClick={() => nav.push('contacten')} accent />
         <Row icon="upload" title="Importeren" sub="Plak, CSV of telefooncontacten" onClick={() => nav.push('import')} />
         <Label className="mb-1 mt-[22px]">Abonnement</Label>
-        <Row icon="spark" title="Abonnement & facturen" sub="Premium · €49 / maand" onClick={() => nav.push('billing')} accent right={<Icon name="chev" size={18} className="text-ghost" />} />
+        <Row icon="spark" title="Abonnement & facturen" sub={billingSub} onClick={() => nav.push('billing')} accent right={<Icon name="chev" size={18} className="text-ghost" />} />
       </Scroll>
     </div>
   );
 }
 
-// ── GEBRUIKERS (pushed) ──────────────────────────────────────────────────────
+// ── GEBRUIKERS (pushed) — S6 Team-beheer, live ───────────────────────────────
 export function Gebruikers(): JSX.Element {
   const nav = useNav();
+  const { roles } = usePoIdentity();
+  const caps = venueCapabilities(roles);
+  const callerIsAdmin = roles.includes('admin');
+
+  const team = usePoTeam();
+  const invitesQ = usePoInvites();
+  const inviteUser = usePoInviteUser();
+  const revokeInvite = usePoRevokeInvite();
+  const mfa = useMfaGate();
+
   const [invite, setInvite] = useState(false);
   const [email, setEmail] = useState('');
-  const [roles, setRoles] = useState<string[]>(['staff']);
-  const [venueFlow, setVenueFlow] = useState(false);
-  const isPlatformAdmin = true; // mock: huidige user is platform super-admin (#40b)
-  const allRoles: [string, string][] = [
-    ['admin', 'Admin'],
-    ['user_manager', 'User manager'],
-    ['finance', 'Finance'],
-    ['organizer', 'Organisator'],
-    ['staff', 'Staff'],
-    ['doorhost', 'Doorhost'],
-  ];
-  const toggleRole = (r: string): void => setRoles((s) => (s.includes(r) ? s.filter((x) => x !== r) : [...s, r]));
-  const sensitive = roles.includes('admin') || roles.includes('finance');
+  const [inviteRoles, setInviteRoles] = useState<VenueRole[]>(['staff']);
+  const [quota, setQuota] = useState('');
+  const [sheetMember, setSheetMember] = useState<PoTeamMember | null>(null);
 
-  if (invite) {
+  const toggleInviteRole = (r: VenueRole): void =>
+    setInviteRoles((s) => (s.includes(r) ? s.filter((x) => x !== r) : [...s, r]));
+  const sensitive = requiresMfa(inviteRoles);
+  const canSubmit = /.+@.+\..+/.test(email) && inviteRoles.length > 0 && !inviteUser.isPending;
+
+  // A member without team-read rights (e.g. plain staff) gets a permission state.
+  if (!caps.viewTeam) {
     return (
       <div className={col}>
-        <Top onBack={() => setInvite(false)} title="Gebruiker uitnodigen" />
-        <Scroll bottom={120}>
-          <Label className="mb-2">E-mailadres</Label>
-          <Field icon="contact" placeholder="naam@venue.nl" value={email} onChange={setEmail} inputMode="email" autoFocus className="mb-[18px]" />
-          <Label className="mb-[10px]">Rollen · meerdere mogelijk</Label>
-          <div className="flex flex-col gap-2">
-            {allRoles.map(([k, l]) => {
-              const on = roles.includes(k);
-              return (
-                <button key={k} type="button" onClick={() => toggleRole(k)} className={cn('flex items-center gap-[12px] rounded-[13px] border px-[14px] py-[13px] text-left', on ? 'border-transparent bg-acc-dim' : 'border-line bg-elev', press)}>
-                  <span className={cn('flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[7px] border-2', on ? 'border-acc bg-acc' : 'border-ghost bg-transparent')}>{on && <Icon name="check" size={13} stroke="#16132B" sw={3} />}</span>
-                  <span className="flex-1 font-display text-[14.5px] font-bold text-text">{l}</span>
-                </button>
-              );
-            })}
-          </div>
-          {sensitive && (
-            <Note icon="shield">
-              Admin en Finance krijgen <b>verplichte MFA</b>. Bij eerste login stelt de gebruiker een authenticator-app in.
-            </Note>
-          )}
-          {isPlatformAdmin && (
-            <>
-              <Label className="mb-[10px] mt-[18px]">Platform (super-admin)</Label>
-              <div className="rounded-[18px] border border-line bg-elev px-4 py-1">
-                <ToggleRow title="Direct naar venue-aanmaak" sub="Na de eerste OTP-login belandt deze gebruiker meteen in de venue-aanmaakflow (#40b)" on={venueFlow} set={setVenueFlow} last />
-              </div>
-            </>
-          )}
+        <Top onBack={nav.back} title="Gebruikers" />
+        <Scroll bottom={24}>
+          <Empty text="Je hebt geen rechten om het team te beheren." />
         </Scroll>
-        <BottomBar>
-          <Btn kind="primary" full icon="arrowR" onClick={() => setInvite(false)} className={/.+@.+\..+/.test(email) && roles.length ? '' : 'opacity-[0.45]'}>
-            Verstuur uitnodiging
-          </Btn>
-        </BottomBar>
       </div>
     );
   }
 
+  // ── Invite sub-form ──
+  if (invite) {
+    const submit = (): void =>
+      inviteUser.mutate(
+        { email: email.trim(), roles: inviteRoles, defaultQuota: quota === '' ? undefined : Number(quota) },
+        {
+          onSuccess: () => {
+            setInvite(false);
+            setEmail('');
+            setInviteRoles(['staff']);
+            setQuota('');
+          },
+          // AAL1 user → open the MFA step-up sheet and retry the invite after.
+          onError: (e) => mfa.guard(e, submit),
+        },
+      );
+    return (
+      <div className={col}>
+        <Top onBack={() => setInvite(false)} title="Gebruiker uitnodigen" />
+        <Scroll bottom={130}>
+          <Label className="mb-2">E-mailadres</Label>
+          <Field icon="contact" placeholder="naam@venue.nl" value={email} onChange={setEmail} inputMode="email" autoFocus className="mb-[18px]" />
+          <Label className="mb-[10px]">Rollen · meerdere mogelijk</Label>
+          <RolePicker selected={inviteRoles} toggle={toggleInviteRole} callerIsAdmin={callerIsAdmin} />
+          {sensitive && (
+            <Note icon="shield">
+              Beheerder en Financiën krijgen <b>verplichte MFA</b>. Bij de eerste login stelt de gebruiker een authenticator-app in.
+            </Note>
+          )}
+          <Label className="mb-2 mt-[18px]">Standaardquotum · optioneel</Label>
+          <Field
+            icon="ticket"
+            placeholder="bv. 5 gasten per event"
+            value={quota}
+            onChange={(v) => setQuota(v.replace(/[^0-9]/g, '').slice(0, 4))}
+            inputMode="numeric"
+            className="mb-1.5"
+          />
+          <div className="pl-0.5 text-[12px] leading-[1.4] text-faint">
+            Wordt het standaardquotum zodra de uitnodiging is geaccepteerd. Leeg = de standaard van de venue.
+          </div>
+          <FormError error={inviteUser.isError && !isAal2Error(inviteUser.error) ? inviteUser.error : null} />
+        </Scroll>
+        <BottomBar>
+          <Btn kind="primary" full icon="arrowR" disabled={!canSubmit} onClick={submit} className={canSubmit ? '' : 'opacity-[0.45]'}>
+            {inviteUser.isPending ? 'Versturen…' : 'Verstuur uitnodiging'}
+          </Btn>
+        </BottomBar>
+        {mfa.sheet}
+      </div>
+    );
+  }
+
+  // ── List view ──
+  const teamCount = team.data?.length ?? 0;
+  const inviteCount = invitesQ.data?.length ?? 0;
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Gebruikers" sub={`${team.length} teamleden · ${invites.length} uitnodigingen open`} right={<IconBtn name="plus" onClick={() => setInvite(true)} />} />
+      <Top
+        onBack={nav.back}
+        title="Gebruikers"
+        sub={`${teamCount} ${teamCount === 1 ? 'teamlid' : 'teamleden'} · ${inviteCount} open`}
+        right={caps.manageTeam ? <IconBtn name="plus" onClick={() => setInvite(true)} /> : undefined}
+      />
       <Scroll bottom={24}>
-        <Btn kind="dark" full icon="plus" className="mb-[18px]" onClick={() => setInvite(true)}>
-          Gebruiker uitnodigen
-        </Btn>
+        {caps.manageTeam && (
+          <Btn kind="dark" full icon="plus" className="mb-3" onClick={() => setInvite(true)}>
+            Gebruiker uitnodigen
+          </Btn>
+        )}
+        {caps.viewQuota && (
+          <Btn kind="ghost" full icon="ticket" className="mb-[18px]" onClick={() => nav.push('rollen')}>
+            Standaardquota per teamlid
+          </Btn>
+        )}
         <Label className="mb-[10px]">Team</Label>
-        <div className="mb-5 flex flex-col gap-[9px]">
-          {team.map((t) => (
-            <div key={t.name} className="flex items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[13px]">
-              <Avatar name={t.name} size={42} />
-              <div className="min-w-0 flex-1">
-                <div className="font-display text-[15px] font-bold text-text">{t.name}</div>
-                <div className="mt-0.5 text-[12px] text-faint">
-                  {t.role} · quotum {t.allow}
+        {team.isLoading ? (
+          <Empty text="Laden…" />
+        ) : team.isError ? (
+          <Empty text="Kon het team niet laden." />
+        ) : teamCount === 0 ? (
+          <Empty text="Nog geen teamleden." />
+        ) : (
+          <div className="mb-5 flex flex-col gap-[9px]">
+            {(team.data ?? []).map((t) => {
+              const rowInner = (
+                <>
+                  <Avatar name={t.name} size={42} />
+                  <div className="min-w-0 flex-1">
+                    <div className="font-display text-[15px] font-bold text-text">{t.name}</div>
+                    <div className="mt-0.5 text-[12px] text-faint">
+                      {t.rolesLabel} · quotum {t.quota}
+                    </div>
+                  </div>
+                  {requiresMfa(t.roles) && (
+                    <MiniChip className="border-transparent bg-acc-dim text-acc">
+                      <Icon name="shield" size={11} stroke="#B5A6FF" />
+                      MFA
+                    </MiniChip>
+                  )}
+                  {caps.manageTeam && (
+                    <span className="inline-flex items-center gap-1 rounded-[9px] border border-line2 px-2 py-[5px] font-body text-[12px] font-semibold text-dim">
+                      Beheer
+                      <Icon name="chev" size={15} />
+                    </span>
+                  )}
+                </>
+              );
+              return caps.manageTeam ? (
+                <button
+                  key={t.userId}
+                  type="button"
+                  onClick={() => setSheetMember(t)}
+                  className={cn('flex items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[13px] text-left', cardPress)}
+                  aria-label={`Beheer ${t.name}`}
+                >
+                  {rowInner}
+                </button>
+              ) : (
+                <div key={t.userId} className="flex items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[13px]">
+                  {rowInner}
                 </div>
-              </div>
-              {t.role === 'Eigenaar' && (
-                <MiniChip className="border-transparent bg-acc-dim text-acc">
-                  <Icon name="shield" size={11} stroke="#B5A6FF" />
-                  MFA
-                </MiniChip>
-              )}
-              <button type="button" className={cn(iconSm, press)}>
-                <Icon name="dots" size={16} />
-              </button>
-            </div>
-          ))}
-        </div>
+              );
+            })}
+          </div>
+        )}
         <Label className="mb-[10px]">Openstaande uitnodigingen</Label>
-        <div className="flex flex-col gap-[9px]">
-          {invites.map((iv) => (
-            <div key={iv.email} className="flex items-center gap-[12px] rounded-[16px] border border-dashed border-line bg-elev p-[13px]">
-              <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[13px] border border-line bg-elev2 text-faint">
-                <Icon name="contact" size={18} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="overflow-hidden text-ellipsis whitespace-nowrap font-body text-[14px] font-semibold text-text">{iv.email}</div>
-                <div className="mt-0.5 text-[12px] text-faint">verstuurd {iv.at} · wacht op acceptatie</div>
+        {invitesQ.isLoading ? (
+          <Empty text="Laden…" />
+        ) : inviteCount === 0 ? (
+          <Empty text="Geen openstaande uitnodigingen." />
+        ) : (
+          <div className="flex flex-col gap-[9px]">
+            {(invitesQ.data ?? []).map((iv) => (
+              <div key={iv.id} className="flex items-center gap-[12px] rounded-[16px] border border-dashed border-line bg-elev p-[13px]">
+                <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[13px] border border-line bg-elev2 text-faint">
+                  <Icon name="contact" size={18} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="overflow-hidden text-ellipsis whitespace-nowrap font-body text-[14px] font-semibold text-text">{iv.email}</div>
+                  <div className="mt-0.5 text-[12px] text-faint">
+                    {iv.rolesLabel} · verstuurd {iv.sentAt}
+                  </div>
+                </div>
+                {caps.manageTeam && (
+                  <MiniChip onClick={() => revokeInvite.mutate(iv.id)}>
+                    {revokeInvite.isPending && revokeInvite.variables === iv.id ? '…' : 'Intrekken'}
+                  </MiniChip>
+                )}
               </div>
-              <MiniChip onClick={() => undefined}>Opnieuw</MiniChip>
-            </div>
-          ))}
+            ))}
+          </div>
+        )}
+        <FormError error={revokeInvite.isError ? revokeInvite.error : null} />
+      </Scroll>
+      {sheetMember && <MemberSheet member={sheetMember} callerRoles={roles} onClose={() => setSheetMember(null)} />}
+    </div>
+  );
+}
+
+// Member action sheet: edit roles or revoke venue access. Both writes go through
+// the AAL2 + escalation + last-admin guarded venues actions; the sheet only
+// offers controls the caller may use and surfaces the action's copy on refusal.
+function MemberSheet({
+  member,
+  callerRoles,
+  onClose,
+}: {
+  member: PoTeamMember;
+  callerRoles: VenueRole[];
+  onClose: () => void;
+}): JSX.Element {
+  const updateRoles = usePoUpdateMemberRoles();
+  const removeMember = usePoRemoveMember();
+  const mfa = useMfaGate();
+  const [roles, setRoles] = useState<VenueRole[]>(member.roles);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const callerIsAdmin = callerRoles.includes('admin');
+  const canManageThis = canGrantRoles(callerRoles, member.roles);
+  const toggle = (r: VenueRole): void => setRoles((s) => (s.includes(r) ? s.filter((x) => x !== r) : [...s, r]));
+  const busy = updateRoles.isPending || removeMember.isPending;
+  const saveRoles = (): void =>
+    updateRoles.mutate({ userId: member.userId, roles }, { onSuccess: onClose, onError: (e) => mfa.guard(e, saveRoles) });
+  const doRemove = (): void =>
+    removeMember.mutate(member.userId, { onSuccess: onClose, onError: (e) => mfa.guard(e, doRemove) });
+  const err =
+    updateRoles.isError && !isAal2Error(updateRoles.error)
+      ? updateRoles.error
+      : removeMember.isError && !isAal2Error(removeMember.error)
+        ? removeMember.error
+        : null;
+
+  return (
+    <Sheet onClose={onClose} center={false}>
+      <div className="mb-4 flex items-center gap-[12px]">
+        <Avatar name={member.name} size={44} />
+        <div className="min-w-0 flex-1">
+          <div className="font-display text-[16px] font-bold text-text">{member.name}</div>
+          <div className="truncate text-[12px] text-faint">{member.email}</div>
         </div>
+      </div>
+
+      {!canManageThis ? (
+        <Note icon="shield">Je mag dit lid niet beheren — alleen een beheerder kan een beheerder wijzigen of verwijderen.</Note>
+      ) : confirmRemove ? (
+        <>
+          <Note icon="warn">
+            <b>{member.name}</b> verliest toegang tot deze venue. Het account en toegang tot andere venues blijven intact (#24).
+          </Note>
+          <FormError error={err} />
+          <Btn kind="primary" full icon="warn" className="mt-2" disabled={busy} onClick={doRemove}>
+            {removeMember.isPending ? 'Intrekken…' : 'Ja, toegang intrekken'}
+          </Btn>
+          <Btn kind="ghost" full className="mt-2" onClick={() => setConfirmRemove(false)}>
+            Annuleren
+          </Btn>
+        </>
+      ) : (
+        <>
+          <Label className="mb-[10px]">Rollen</Label>
+          <RolePicker selected={roles} toggle={toggle} callerIsAdmin={callerIsAdmin} />
+          <FormError error={err} />
+          <Btn
+            kind="primary"
+            full
+            icon="check"
+            className={cn('mt-4', roles.length === 0 && 'opacity-[0.45]')}
+            disabled={roles.length === 0 || busy}
+            onClick={saveRoles}
+          >
+            {updateRoles.isPending ? 'Opslaan…' : 'Rollen opslaan'}
+          </Btn>
+          <button
+            type="button"
+            onClick={() => setConfirmRemove(true)}
+            className={cn('mt-3 w-full cursor-pointer border-none bg-transparent text-center font-body text-[13px] font-semibold text-faint', press)}
+          >
+            Toegang tot deze venue intrekken
+          </button>
+        </>
+      )}
+      {mfa.sheet}
+    </Sheet>
+  );
+}
+
+// ── GEBRUIKERS & TOELAGES (pushed) — S6 default-quota, live ───────────────────
+// Per-member DEFAULT quota (quotas.default_count, falling back to the venue
+// default). Per-event overrides (event_quotas) live on the "Toelage per event"
+// screen — out of scope here. Editing is admin-only + AAL2 (setDefaultQuota).
+export function Rollen(): JSX.Element {
+  const nav = useNav();
+  const { roles } = usePoIdentity();
+  const caps = venueCapabilities(roles);
+  const team = usePoTeam();
+
+  if (!caps.viewQuota) {
+    return (
+      <div className={col}>
+        <Top onBack={nav.back} title="Gebruikers & toelages" />
+        <Scroll bottom={24}>
+          <Empty text="Je hebt geen rechten om toelages te bekijken." />
+        </Scroll>
+      </div>
+    );
+  }
+
+  const members = team.data ?? [];
+  return (
+    <div className={col}>
+      <Top onBack={nav.back} title="Gebruikers & toelages" />
+      <Scroll bottom={28}>
+        <Note icon="ticket">
+          Elk teamlid mag standaard een aantal gasten per event toevoegen.{' '}
+          {caps.editQuota ? 'Elke wijziging komt in het audit log.' : 'Alleen een beheerder kan dit wijzigen.'}
+        </Note>
+        {team.isLoading ? (
+          <Empty text="Laden…" />
+        ) : team.isError ? (
+          <Empty text="Kon de toelages niet laden." />
+        ) : members.length === 0 ? (
+          <Empty text="Nog geen teamleden." />
+        ) : (
+          <div className="flex flex-col gap-[11px]">
+            {members.map((m) => (
+              <MemberQuotaRow key={m.userId} member={m} canEdit={caps.editQuota} />
+            ))}
+          </div>
+        )}
       </Scroll>
     </div>
   );
 }
 
-// ── ROLLEN & TOELAGES (pushed) ───────────────────────────────────────────────
-export function Rollen(): JSX.Element {
-  const nav = useNav();
+// One member's default-quota editor. Local stepper value re-syncs to the server
+// value after a save (the team query refetches); a "Opslaan" chip appears only
+// while the value differs. Read-only for finance.
+function MemberQuotaRow({ member, canEdit }: { member: PoTeamMember; canEdit: boolean }): JSX.Element {
+  const setQuota = usePoSetDefaultQuota();
+  const mfa = useMfaGate();
+  const [value, setValue] = useState(member.quota);
+  useEffect(() => {
+    setValue(member.quota);
+  }, [member.quota]);
+  const changed = value !== member.quota;
+  const save = (): void =>
+    setQuota.mutate({ userId: member.userId, defaultCount: value }, { onError: (e) => mfa.guard(e, save) });
+  const stepBtn = cn('flex h-[42px] w-[42px] items-center justify-center rounded-[13px] border border-line bg-elev2 text-text', press);
+
   return (
-    <div className={col}>
-      <Top onBack={nav.back} title="Gebruikers & toelages" />
-      <Scroll bottom={24}>
-        <div className="mb-4 text-[13.5px] leading-[1.5] text-faint">Elk teamlid mag standaard een aantal gasten per event toevoegen. Per event op te hogen.</div>
-        <div className="mb-[22px] flex flex-col gap-[11px]">
-          {team.map((t) => (
-            <div key={t.name} className="rounded-[16px] border border-line bg-elev p-[14px]">
-              <div className="mb-3 flex items-center gap-[12px]">
-                <Avatar name={t.name} size={40} />
-                <div className="flex-1">
-                  <div className="font-display text-[15.5px] font-bold text-text">{t.name}</div>
-                  <div className="text-[12px] text-faint">{t.role}</div>
-                </div>
-              </div>
-              <div className={cn('flex gap-1.5', t.max && 'mb-[11px]')}>
-                {['Unlimited', '10', '5'].map((o) => (
-                  <span key={o} className={cn('flex-1 rounded-[10px] border py-2 text-center font-display text-[13px] font-bold', t.allow === o ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev2 text-dim')}>
-                    {o}
-                  </span>
-                ))}
-              </div>
-              {t.max && (
-                <div>
-                  <div className="mb-[5px] flex justify-between">
-                    <span className="text-[11.5px] text-faint">gebruikt dit event</span>
-                    <span className={cn('text-[12px] font-bold', t.used >= t.max ? 'text-acc' : 'text-dim')}>
-                      {t.used}/{t.max}
-                    </span>
-                  </div>
-                  <div className="h-[6px] overflow-hidden rounded-[4px] bg-elev2">
-                    <div className="h-full rounded-[4px] bg-acc" style={{ width: (t.used / t.max) * 100 + '%' }} />
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
+    <div className="rounded-[16px] border border-line bg-elev p-[14px]">
+      <div className="mb-3 flex items-center gap-[12px]">
+        <Avatar name={member.name} size={40} />
+        <div className="min-w-0 flex-1">
+          <div className="font-display text-[15px] font-bold text-text">{member.name}</div>
+          <div className="truncate text-[12px] text-faint">{member.rolesLabel}</div>
         </div>
-        <div className="mb-[10px] flex items-center justify-between">
-          <Label>Extra plekken per event</Label>
-          <Btn sm kind="quiet" icon="plus">
-            Override
-          </Btn>
+        {canEdit && changed && (
+          <MiniChip onClick={save} className="border-transparent bg-acc text-on-acc">
+            {setQuota.isPending ? 'Opslaan…' : 'Opslaan'}
+          </MiniChip>
+        )}
+      </div>
+      {canEdit ? (
+        <div className="flex items-center justify-between gap-[14px] rounded-[16px] bg-acc-dim p-[9px]">
+          <button type="button" onClick={() => setValue((v) => Math.max(0, v - 1))} className={stepBtn} aria-label="Minder">
+            <Icon name="minus" size={20} sw={2.4} />
+          </button>
+          <div className="text-center">
+            <div className="font-display text-[26px] font-extrabold leading-none text-text">{value}</div>
+            <div className="mt-0.5 text-[11px] text-dim">gasten / event</div>
+          </div>
+          <button type="button" onClick={() => setValue((v) => v + 1)} className={stepBtn} aria-label="Meer">
+            <Icon name="plus" size={20} sw={2.4} stroke="#B5A6FF" />
+          </button>
         </div>
-        <div className="flex flex-col gap-2">
-          {([['FRENZY', 'Joris', '+15'], ['Hunée', 'Eva', '+5'], ['MINDSCAPE', 'Sanne', '∞']] as const).map(([e, w, x]) => (
-            <div key={e + w} className="flex items-center gap-[12px] rounded-[13px] border border-line bg-elev px-[14px] py-[12px]">
-              <span className="flex-1 text-[14px] font-semibold text-text">{e}</span>
-              <span className="text-[12.5px] text-faint">{w}</span>
-              <span className="font-display text-[12.5px] font-bold text-acc">{x} extra</span>
-            </div>
-          ))}
+      ) : (
+        <div className="rounded-[14px] bg-elev2 px-[14px] py-[12px] text-center">
+          <span className="font-display text-[18px] font-extrabold text-text">{member.quota}</span>
+          <span className="ml-1.5 text-[12px] text-faint">gasten / event</span>
         </div>
-      </Scroll>
+      )}
+      <FormError error={setQuota.isError && !isAal2Error(setQuota.error) ? setQuota.error : null} />
+      {mfa.sheet}
     </div>
   );
 }
@@ -356,112 +663,305 @@ export function VenueSwitch(): JSX.Element {
   );
 }
 
-// ── VENUE SETTINGS (pushed) ──────────────────────────────────────────────────
+// ── VENUE SETTINGS (pushed) — S8 Venue-instellingen, live ────────────────────
+// Name + AVG retention + venue-default quota + the company/legal/finance/address
+// profile (mirrors the desktop VenueSettingsForm). Admin edits; finance reads
+// (RLS venues_update_admin). The action re-checks admin server-side.
 export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
   const nav = useNav();
-  const [name, setName] = useState(venue.name);
-  const [retention, setRetention] = useState('12');
-  const [defaultQuota, setDefaultQuota] = useState(5);
-  const [landingBrand, setLandingBrand] = useState(true);
+  const { roles, venueName } = usePoIdentity();
+  const caps = venueCapabilities(roles);
+  const settingsQ = usePoVenueSettings();
+  const save = usePoUpdateVenueSettings();
+
+  const s = settingsQ.data ?? null;
+  const [form, setForm] = useState({
+    name: '',
+    retentionMonths: 12,
+    defaultPersonalQuota: 0,
+    companyName: '',
+    kvkNumber: '',
+    vatNumber: '',
+    financeEmail: '',
+    addressLine: '',
+    postalCode: '',
+    city: '',
+    country: 'NL',
+  });
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (s && !loaded) {
+      setForm({
+        name: s.name,
+        retentionMonths: s.retentionMonths,
+        defaultPersonalQuota: s.defaultPersonalQuota,
+        companyName: s.companyName,
+        kvkNumber: s.kvkNumber,
+        vatNumber: s.vatNumber,
+        financeEmail: s.financeEmail,
+        addressLine: s.addressLine,
+        postalCode: s.postalCode,
+        city: s.city,
+        country: s.country,
+      });
+      setLoaded(true);
+    }
+  }, [s, loaded]);
+
+  const canEdit = caps.editSettings;
+  type StrField = 'name' | 'companyName' | 'kvkNumber' | 'vatNumber' | 'financeEmail' | 'addressLine' | 'postalCode' | 'city' | 'country';
+  const editStr = (k: StrField, sanitize?: (v: string) => string) =>
+    canEdit ? (v: string) => setForm((f) => ({ ...f, [k]: sanitize ? sanitize(v) : v })) : undefined;
+
+  if (!caps.viewSettings) {
+    return (
+      <div className={col}>
+        <Top onBack={nav.back} title="Venue beheren" sub={venueName ?? venue.name} />
+        <Scroll bottom={24}>
+          <Empty text="Je hebt geen rechten om de venue-instellingen te bekijken." />
+        </Scroll>
+      </div>
+    );
+  }
+  if ((settingsQ.isLoading || !loaded) && !settingsQ.isError) {
+    return (
+      <div className={col}>
+        <Top onBack={nav.back} title="Venue beheren" sub={venueName ?? venue.name} />
+        <Scroll bottom={24}>
+          <Empty text="Laden…" />
+        </Scroll>
+      </div>
+    );
+  }
+  if (!s) {
+    return (
+      <div className={col}>
+        <Top onBack={nav.back} title="Venue beheren" sub={venueName ?? venue.name} />
+        <Scroll bottom={24}>
+          <Empty text="Kon de venue-instellingen niet laden." />
+        </Scroll>
+      </div>
+    );
+  }
+
+  const dirty =
+    form.name !== s.name ||
+    form.retentionMonths !== s.retentionMonths ||
+    form.defaultPersonalQuota !== s.defaultPersonalQuota ||
+    form.companyName !== s.companyName ||
+    form.kvkNumber !== s.kvkNumber ||
+    form.vatNumber !== s.vatNumber ||
+    form.financeEmail !== s.financeEmail ||
+    form.addressLine !== s.addressLine ||
+    form.postalCode !== s.postalCode ||
+    form.city !== s.city ||
+    form.country !== s.country;
+  const canSave = canEdit && dirty && form.name.trim() !== '' && !save.isPending;
+
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Venue beheren" sub={venue.name} />
-      <Scroll bottom={120}>
+      <Top onBack={nav.back} title="Venue beheren" sub={s.name} />
+      <Scroll bottom={canEdit ? 120 : 28}>
+        {!canEdit && <Note icon="shield">Je ziet de instellingen alleen-lezen. Alleen een beheerder kan ze wijzigen.</Note>}
+
         <Label className="mb-2">Naam</Label>
-        <Field icon="building" value={name} onChange={setName} className="mb-[14px]" />
-        <Label className="mb-2">Stad</Label>
-        <Field icon="pin" value="Amsterdam" placeholder="Stad" className="mb-[14px]" />
+        <Field icon="building" value={form.name} onChange={editStr('name')} className="mb-[14px]" />
         <Label className="mb-2">Landingpage-basis</Label>
-        <Field icon="link" value="plus.one/lofi" className="mb-[18px]" />
+        <Field icon="link" value={`plus.one/${s.slug}`} className="mb-[18px]" />
 
         <Label className="mb-[10px]">Gastenlijst-standaarden</Label>
         <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-4 py-1">
-          <div className="flex items-center gap-[12px] border-b border-line2 py-[14px]">
+          <div className="flex items-center gap-[12px] py-[14px]">
             <div className="flex-1">
               <div className="text-[14.5px] font-semibold text-text">Standaard quotum per teamlid</div>
               <div className="mt-0.5 text-[12px] text-faint">Gasten-per-event, per persoon te overschrijven</div>
             </div>
-            <div className="flex items-center gap-2">
-              <button type="button" onClick={() => setDefaultQuota((q) => Math.max(0, q - 1))} className={cn(iconSm, press)}>
-                <Icon name="minus" size={16} />
-              </button>
-              <span className="min-w-[22px] text-center font-display text-[18px] font-extrabold text-text">{defaultQuota}</span>
-              <button type="button" onClick={() => setDefaultQuota((q) => q + 1)} className={cn(iconSm, press, 'text-acc')}>
-                <Icon name="plus" size={16} />
-              </button>
-            </div>
+            {canEdit ? (
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setForm((f) => ({ ...f, defaultPersonalQuota: Math.max(0, f.defaultPersonalQuota - 1) }))} className={cn(iconSm, press)} aria-label="Minder">
+                  <Icon name="minus" size={16} />
+                </button>
+                <span className="min-w-[22px] text-center font-display text-[18px] font-extrabold text-text">{form.defaultPersonalQuota}</span>
+                <button type="button" onClick={() => setForm((f) => ({ ...f, defaultPersonalQuota: f.defaultPersonalQuota + 1 }))} className={cn(iconSm, press, 'text-acc')} aria-label="Meer">
+                  <Icon name="plus" size={16} />
+                </button>
+              </div>
+            ) : (
+              <span className="font-display text-[18px] font-extrabold text-text">{form.defaultPersonalQuota}</span>
+            )}
           </div>
-          <ToggleRow title="Venue-branding op landingpage" sub="Logo & kleuren op het aanvraagformulier" on={landingBrand} set={setLandingBrand} last />
         </div>
 
         <Label className="mb-[10px]">AVG & bewaartermijn</Label>
         <div className="mb-[18px] rounded-[18px] border border-line bg-elev p-4">
           <div className="mb-[14px] text-[13.5px] leading-[1.5] text-dim">Gastdata wordt na deze termijn automatisch geanonimiseerd tot “Gast #X”. Het audit log blijft intact.</div>
           <div className="flex gap-[7px]">
-            {['6', '12', '24'].map((m) => (
-              <button key={m} type="button" onClick={() => setRetention(m)} className={cn('flex-1 rounded-[11px] border py-[11px] font-display text-[14px] font-bold', press, retention === m ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev2 text-dim')}>
+            {[6, 12, 24].map((m) => (
+              <button
+                key={m}
+                type="button"
+                disabled={!canEdit}
+                onClick={() => setForm((f) => ({ ...f, retentionMonths: m }))}
+                className={cn(
+                  'flex-1 rounded-[11px] border py-[11px] font-display text-[14px] font-bold',
+                  canEdit && press,
+                  form.retentionMonths === m ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev2 text-dim',
+                )}
+              >
                 {m} mnd
               </button>
             ))}
           </div>
         </div>
 
-        <Label className="mb-[10px]">Gevarenzone</Label>
-        <button type="button" className="flex w-full items-center gap-[12px] rounded-[14px] border border-line bg-transparent px-4 py-[14px] text-left transition-colors hover:bg-white/[0.03]">
-          <span className="text-faint">
-            <Icon name="warn" size={18} />
-          </span>
-          <div className="flex-1">
-            <div className="text-[14.5px] font-semibold text-text">Venue deactiveren</div>
-            <div className="mt-0.5 text-[12px] text-faint">Data blijft bewaard · nooit hard verwijderd</div>
-          </div>
-        </button>
+        <Label className="mb-[10px]">Bedrijfsgegevens</Label>
+        <Field icon="building" value={form.companyName} onChange={editStr('companyName')} placeholder="Bedrijfsnaam" className="mb-[14px]" />
+        <div className="mb-[14px] flex gap-2">
+          <Field icon="grid" value={form.kvkNumber} onChange={editStr('kvkNumber', (v) => v.replace(/[^0-9]/g, '').slice(0, 8))} inputMode="numeric" placeholder="KvK (8 cijfers)" className="flex-1" />
+          <Field value={form.vatNumber} onChange={editStr('vatNumber')} placeholder="btw-nummer" className="flex-1" />
+        </div>
+        <Field icon="mail" value={form.financeEmail} onChange={editStr('financeEmail')} inputMode="email" placeholder="Factuur-e-mail" className="mb-[18px]" />
+
+        <Label className="mb-[10px]">Adres</Label>
+        <Field icon="pin" value={form.addressLine} onChange={editStr('addressLine')} placeholder="Straat en nummer" className="mb-[14px]" />
+        <div className="mb-[14px] flex gap-2">
+          <Field value={form.postalCode} onChange={editStr('postalCode')} placeholder="Postcode" className="flex-1" />
+          <Field value={form.city} onChange={editStr('city')} placeholder="Stad" className="flex-[1.4]" />
+        </div>
+        <Field value={form.country} onChange={editStr('country')} placeholder="Land" className="mb-1.5" />
+
+        <FormError error={save.isError ? save.error : null} />
+        {save.isSuccess && !dirty && <p className="mt-3 text-[12.5px] text-acc-soft">Instellingen opgeslagen.</p>}
       </Scroll>
-      <BottomBar>
-        <Btn kind="primary" full icon="check" onClick={() => nav.back()}>
-          Opslaan
-        </Btn>
-      </BottomBar>
+      {canEdit && (
+        <BottomBar>
+          <Btn
+            kind="primary"
+            full
+            icon="check"
+            disabled={!canSave}
+            className={canSave ? '' : 'opacity-[0.45]'}
+            onClick={() => save.mutate(form)}
+          >
+            {save.isPending ? 'Opslaan…' : 'Opslaan'}
+          </Btn>
+        </BottomBar>
+      )}
     </div>
   );
 }
 
-// ── PERSOONLIJKE GEGEVENS (pushed) ───────────────────────────────────────────
+// ── PERSOONLIJKE GEGEVENS (pushed) — S7 Profiel & Sessies, live ──────────────
 export function Profile(): JSX.Element {
   const nav = useNav();
-  const p = profile;
-  const [email, setEmail] = useState(p.email);
-  const [phone, setPhone] = useState(p.phone);
-  const sessionIcon = (device: string): IconName => (device.includes('deur') ? 'ticket' : device.includes('Mac') ? 'grid' : 'user');
+  const profileQ = usePoProfile();
+  const sessionsQ = usePoSessions();
+  const updateProfile = usePoUpdateProfile();
+  const updateEmail = usePoUpdateEmail();
+  const revokeSession = usePoRevokeOwnSession();
+
+  const p = profileQ.data ?? null;
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [loaded, setLoaded] = useState(false);
+  const [confirmLogoutAll, setConfirmLogoutAll] = useState(false);
+
+  // Prefill the editable fields once the profile arrives (and keep them in sync
+  // after a save re-fetches the row).
+  useEffect(() => {
+    if (!p) return;
+    if (!loaded) {
+      setFirstName(p.firstName);
+      setLastName(p.lastName);
+      setPhone(p.phone);
+      setEmail(p.email);
+      setLoaded(true);
+    }
+  }, [p, loaded]);
+
+  if (profileQ.isLoading || !loaded) {
+    return (
+      <div className={col}>
+        <Top onBack={nav.back} title="Persoonlijke gegevens" />
+        <Scroll bottom={24}>
+          <Empty text={profileQ.isError ? 'Kon je profiel niet laden.' : 'Laden…'} />
+        </Scroll>
+      </div>
+    );
+  }
+  if (!p) {
+    return (
+      <div className={col}>
+        <Top onBack={nav.back} title="Persoonlijke gegevens" />
+        <Scroll bottom={24}>
+          <Empty text="Kon je profiel niet laden." />
+        </Scroll>
+      </div>
+    );
+  }
+
+  const nameChanged = firstName !== p.firstName || lastName !== p.lastName || phone !== p.phone;
+  const profileValid = firstName.trim() !== '' && lastName.trim() !== '';
+  const emailChanged = email.trim().toLowerCase() !== p.email.toLowerCase();
+  const sessions = sessionsQ.data ?? [];
+  const others = sessions.filter((s) => !s.current);
+  const sessionIcon = (device: string): IconName =>
+    /mac|windows|linux/i.test(device) ? 'grid' : 'user';
+
   return (
     <div className={col}>
       <Top onBack={nav.back} title="Persoonlijke gegevens" />
-      <Scroll bottom={120}>
+      <Scroll bottom={130}>
         <div className="flex flex-col items-center px-0 pb-5 pt-1 text-center">
-          <Avatar name={p.name} size={84} accent />
-          <h2 className="mb-0 mt-4 font-display text-[26px] font-extrabold tracking-[-0.02em] text-text">{p.name}</h2>
-          <div className="mt-1 text-[13px] text-faint">{p.role}</div>
+          <Avatar name={p.name || p.email} size={84} accent />
+          <h2 className="mb-0 mt-4 font-display text-[26px] font-extrabold tracking-[-0.02em] text-text">{p.name || 'Naamloos'}</h2>
+          <div className="mt-1 text-[13px] text-faint">{p.roleLabel}</div>
         </div>
 
-        <Label className="mb-2">Naam</Label>
-        <Field icon="user" value={p.name} placeholder="Naam" className="mb-[14px]" />
-        <Label className="mb-2">E-mailadres</Label>
-        <Field icon="mail" value={email} onChange={setEmail} inputMode="email" className="mb-1.5" />
-        <div className="mb-[14px] pl-0.5 text-[12px] leading-[1.4] text-faint">Alleen jij kunt je e-mailadres wijzigen — nooit een venue-admin.</div>
+        <Label className="mb-2">Voornaam</Label>
+        <Field icon="user" value={firstName} onChange={setFirstName} placeholder="Voornaam" className="mb-[14px]" />
+        <Label className="mb-2">Achternaam</Label>
+        <Field icon="user" value={lastName} onChange={setLastName} placeholder="Achternaam" className="mb-[14px]" />
         <Label className="mb-2">Telefoon</Label>
-        <Field icon="phone" value={phone} onChange={setPhone} inputMode="tel" className="mb-[18px]" />
+        <Field icon="phone" value={phone} onChange={setPhone} inputMode="tel" placeholder="06 …" className="mb-1.5" />
+        <FormError error={updateProfile.isError ? updateProfile.error : null} />
+        {updateProfile.isSuccess && !nameChanged && (
+          <p className="mt-2 text-[12.5px] text-acc-soft">Profiel opgeslagen.</p>
+        )}
 
-        <Label className="mb-[10px]">Beveiliging</Label>
+        <Label className="mb-2 mt-[18px]">E-mailadres</Label>
+        <Field icon="mail" value={email} onChange={setEmail} inputMode="email" className="mb-1.5" />
+        <div className="pl-0.5 text-[12px] leading-[1.4] text-faint">
+          Alleen jij kunt je e-mailadres wijzigen — nooit een venue-admin. We sturen een bevestiging naar je oude én nieuwe adres.
+        </div>
+        {emailChanged && (
+          <Btn kind="dark" full icon="mail" className="mt-3" disabled={updateEmail.isPending} onClick={() => updateEmail.mutate(email.trim())}>
+            {updateEmail.isPending ? 'Versturen…' : 'Wijzig e-mailadres'}
+          </Btn>
+        )}
+        <FormError error={updateEmail.isError ? updateEmail.error : null} />
+        {updateEmail.isSuccess && (
+          <p className="mt-2 text-[12.5px] text-acc-soft">Bevestig de wijziging via de link die we naar je oude én nieuwe adres sturen.</p>
+        )}
+
+        <Label className="mb-[10px] mt-[18px]">Beveiliging</Label>
         <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-4 py-1">
           <div className="flex items-center gap-[12px] border-b border-line2 py-[14px]">
-            <span className="text-acc">
+            <span className={p.mfaRequired ? 'text-acc' : 'text-faint'}>
               <Icon name="shield" size={19} />
             </span>
             <div className="flex-1">
               <div className="text-[14.5px] font-semibold text-text">Tweestapsverificatie</div>
-              <div className="mt-0.5 text-[12px] text-faint">Verplicht voor jouw rol · authenticator-app</div>
+              <div className="mt-0.5 text-[12px] text-faint">
+                {p.mfaRequired ? 'Verplicht voor jouw rol · authenticator-app' : 'Optioneel voor jouw rol'}
+              </div>
             </div>
-            <MiniChip className="border-transparent bg-acc-dim text-acc">AAN</MiniChip>
+            <MiniChip className={cn('border-transparent', p.mfaRequired ? 'bg-acc-dim text-acc' : 'bg-elev2 text-faint')}>
+              {p.mfaRequired ? 'VERPLICHT' : 'OPTIONEEL'}
+            </MiniChip>
           </div>
           <div className="flex items-center gap-[12px] py-[14px]">
             <span className="text-faint">
@@ -475,115 +975,170 @@ export function Profile(): JSX.Element {
         </div>
 
         <Label className="mb-[10px]">Actieve sessies</Label>
-        <div className="mb-3 rounded-[18px] border border-line bg-elev px-4 py-0.5">
-          {sessions.map((se, i) => (
-            <div key={se.id} className={cn('flex items-center gap-[12px] py-[13px]', i < sessions.length - 1 && 'border-b border-line2')}>
-              <span className={cn('flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-[11px] border border-line bg-elev2', se.current ? 'text-acc' : 'text-faint')}>
-                <Icon name={sessionIcon(se.device)} size={17} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="text-[14px] font-semibold text-text">{se.device}</div>
-                <div className={cn('mt-0.5 text-[12px]', se.current ? 'text-acc' : 'text-faint')}>
-                  {se.where} · {se.last}
+        {sessionsQ.isLoading ? (
+          <Empty text="Laden…" />
+        ) : sessions.length === 0 ? (
+          <Empty text="Geen actieve sessies." />
+        ) : (
+          <div className="mb-3 rounded-[18px] border border-line bg-elev px-4 py-0.5">
+            {sessions.map((se, i) => (
+              <div key={se.id} className={cn('flex items-center gap-[12px] py-[13px]', i < sessions.length - 1 && 'border-b border-line2')}>
+                <span className={cn('flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-[11px] border border-line bg-elev2', se.current ? 'text-acc' : 'text-faint')}>
+                  <Icon name={sessionIcon(se.device)} size={17} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-semibold text-text">{se.device}</div>
+                  <div className={cn('mt-0.5 text-[12px]', se.current ? 'text-acc' : 'text-faint')}>
+                    {se.where} · {se.last}
+                  </div>
                 </div>
+                {!se.current && (
+                  <MiniChip onClick={() => revokeSession.mutate(se.id)}>
+                    {revokeSession.isPending && revokeSession.variables === se.id ? '…' : 'Uitloggen'}
+                  </MiniChip>
+                )}
               </div>
-              {!se.current && <MiniChip onClick={() => undefined}>Uitloggen</MiniChip>}
-            </div>
-          ))}
-        </div>
-        <Btn kind="ghost" full icon="logout" className="mb-[18px]">
-          Alle andere apparaten uitloggen
-        </Btn>
+            ))}
+          </div>
+        )}
+        {others.length > 0 && (
+          <Btn
+            kind="ghost"
+            full
+            icon="logout"
+            className="mb-[18px]"
+            disabled={revokeSession.isPending}
+            onClick={() => setConfirmLogoutAll(true)}
+          >
+            Alle andere apparaten uitloggen
+          </Btn>
+        )}
+        <FormError error={revokeSession.isError ? revokeSession.error : null} />
       </Scroll>
       <BottomBar>
-        <Btn kind="primary" full icon="check" onClick={() => nav.back()}>
-          Opslaan
+        <Btn
+          kind="primary"
+          full
+          icon="check"
+          disabled={!nameChanged || !profileValid || updateProfile.isPending}
+          className={!nameChanged || !profileValid ? 'opacity-[0.45]' : ''}
+          onClick={() => updateProfile.mutate({ firstName: firstName.trim(), lastName: lastName.trim(), phone: phone.trim() })}
+        >
+          {updateProfile.isPending ? 'Opslaan…' : 'Opslaan'}
         </Btn>
       </BottomBar>
+      {confirmLogoutAll && (
+        <Sheet onClose={() => setConfirmLogoutAll(false)} center={false}>
+          <Note icon="warn">
+            Je logt {others.length} {others.length === 1 ? 'ander apparaat' : 'andere apparaten'} uit. Op {others.length === 1 ? 'dat apparaat' : 'die apparaten'} moet daarna opnieuw worden ingelogd. Dit apparaat blijft ingelogd.
+          </Note>
+          <FormError error={revokeSession.isError ? revokeSession.error : null} />
+          <Btn
+            kind="primary"
+            full
+            icon="logout"
+            className="mt-2"
+            disabled={revokeSession.isPending}
+            onClick={() => {
+              others.forEach((s) => revokeSession.mutate(s.id));
+              setConfirmLogoutAll(false);
+            }}
+          >
+            {revokeSession.isPending ? 'Uitloggen…' : `Ja, log ${others.length} ${others.length === 1 ? 'apparaat' : 'apparaten'} uit`}
+          </Btn>
+          <Btn kind="ghost" full className="mt-2" onClick={() => setConfirmLogoutAll(false)}>
+            Annuleren
+          </Btn>
+        </Sheet>
+      )}
     </div>
   );
 }
 
-// ── ABONNEMENT & FACTUREN (pushed) ───────────────────────────────────────────
+// ── ABONNEMENT & FACTUREN (pushed) — Billing stub, live read-only ────────────
+// Reads the venue entitlement from features/billing (the subscriptions row) and
+// nothing else: no Stripe call, no checkout, no invoices yet (Fase 13, #32). Any
+// member may view (RLS subscriptions_select_member).
+const SUB_STATUS: Record<PoSubscription['status'], { label: string; chip: string }> = {
+  trialing: { label: 'PROEFPERIODE', chip: 'bg-acc-dim text-acc' },
+  active: { label: 'ACTIEF', chip: 'bg-acc-dim text-acc' },
+  comped: { label: 'GRATIS · PILOT', chip: 'bg-acc-dim text-acc' },
+  past_due: { label: 'BETALING MISLUKT', chip: 'bg-red-300/15 text-red-300' },
+  canceled: { label: 'OPGEZEGD', chip: 'bg-elev2 text-faint' },
+};
+
 export function Billing(): JSX.Element {
   const nav = useNav();
-  const sub = subscription;
+  const subQ = usePoSubscription();
+  const sub = subQ.data ?? null;
   return (
     <div className={col}>
       <Top onBack={nav.back} title="Abonnement & facturen" />
-      <Scroll bottom={24}>
-        <div className="mb-[14px] rounded-[18px] bg-acc-dim p-5">
-          <div className="mb-[14px] flex items-center justify-between">
-            <div className="flex items-center gap-[10px]">
-              <Icon name="spark" size={20} stroke="#B5A6FF" />
-              <span className="font-display text-[20px] font-extrabold text-text">{sub.plan}</span>
-            </div>
-            <MiniChip className="border-transparent bg-white/[0.12] text-acc">ACTIEF</MiniChip>
-          </div>
-          <div className="mb-4 flex items-end gap-1.5">
-            <span className="font-display text-[36px] font-extrabold leading-none text-text">{sub.price}</span>
-            <span className="pb-[5px] text-[14px] text-dim">/ {sub.period}</span>
-          </div>
-          <div className="grid grid-cols-2 gap-[10px]">
-            {([['Events', sub.events], ['Venues', sub.venues], ['Verlengt', sub.renews], ['Methode', sub.method]] as const).map(([k, val]) => (
-              <div key={k}>
-                <div className="text-[11.5px] text-dim">{k}</div>
-                <div className="mt-0.5 font-display text-[14px] font-bold text-text">{val}</div>
-              </div>
-            ))}
-          </div>
-        </div>
+      <Scroll bottom={28}>
+        {subQ.isLoading ? (
+          <Empty text="Laden…" />
+        ) : subQ.isError ? (
+          <Empty text="Kon het abonnement niet laden." />
+        ) : !sub ? (
+          <Empty text="Nog geen abonnement voor deze venue." />
+        ) : (
+          <BillingBody sub={sub} />
+        )}
+      </Scroll>
+    </div>
+  );
+}
 
-        <Label className="mb-[10px]">Betaalmethode</Label>
-        <div className="mb-2 flex items-center gap-[13px] rounded-[18px] border border-line bg-elev p-4">
-          <span className="flex h-[42px] w-[42px] items-center justify-center rounded-[12px] border border-line bg-elev2 text-acc">
-            <Icon name="card" size={20} />
-          </span>
-          <div className="flex-1">
-            <div className="text-[14.5px] font-semibold text-text">SEPA-incasso</div>
-            <div className="mt-0.5 font-mono text-[12.5px] text-faint">{sub.mandate}</div>
+function BillingBody({ sub }: { sub: PoSubscription }): JSX.Element {
+  const st = SUB_STATUS[sub.status] ?? { label: sub.status.toUpperCase(), chip: 'bg-elev2 text-faint' };
+  return (
+    <>
+      <div className="mb-[14px] rounded-[18px] bg-acc-dim p-5">
+        <div className="mb-[14px] flex items-center justify-between">
+          <div className="flex items-center gap-[10px]">
+            <Icon name="spark" size={20} stroke="#B5A6FF" />
+            <span className="font-display text-[20px] font-extrabold text-text">{sub.plan}</span>
           </div>
-          <MiniChip onClick={() => undefined}>Wijzig</MiniChip>
+          <MiniChip className={cn('border-transparent', st.chip)}>{st.label}</MiniChip>
         </div>
-        <div className="mb-[18px] flex items-start gap-[7px] pl-0.5 text-[12px] text-faint">
-          <Icon name="shield" size={13} className="text-ghost" />
-          <span className="leading-[1.45]">Betalingen via SEPA-incasso &amp; iDEAL. We bewaren nooit zelf je IBAN — dat regelt de betaalprovider.</span>
+        <div className="mb-4 flex items-end gap-1.5">
+          <span className="font-display text-[36px] font-extrabold leading-none text-text">{sub.priceLabel}</span>
+          {sub.priceLabel.startsWith('€') && <span className="pb-[5px] text-[14px] text-dim">/ {sub.period}</span>}
         </div>
-
-        <div className="mb-[10px] flex items-center justify-between">
-          <Label>Facturen</Label>
-          <MiniChip onClick={() => undefined}>Alles downloaden</MiniChip>
-        </div>
-        <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-4 py-0.5">
-          {invoices.map((inv, i) => (
-            <div key={inv.id} className={cn('flex items-center gap-[12px] py-[13px]', i < invoices.length - 1 && 'border-b border-line2')}>
-              <div className="min-w-0 flex-1">
-                <div className="font-display text-[14px] font-semibold text-text">{inv.amount}</div>
-                <div className="mt-0.5 text-[12px] text-faint">
-                  {inv.date} · {inv.method} · {inv.id}
-                </div>
-              </div>
-              <span className="inline-flex items-center gap-[5px] font-body text-[11.5px] font-bold text-acc">
-                <Icon name="check2" size={12} stroke="#B5A6FF" sw={2.4} />
-                Betaald
-              </span>
-              <button type="button" className={cn(iconSm, press)}>
-                <Icon name="dl" size={16} />
-              </button>
+        <div className="grid grid-cols-2 gap-[10px]">
+          {([['Events', sub.events], ['Venue', sub.venueLabel], ['Verlengt', sub.renews], ['Status', st.label]] as const).map(([k, val]) => (
+            <div key={k}>
+              <div className="text-[11.5px] text-dim">{k}</div>
+              <div className="mt-0.5 font-display text-[14px] font-bold text-text">{val}</div>
             </div>
           ))}
         </div>
+      </div>
 
-        <Btn kind="dark" full icon="link">
-          Beheer in betaalportaal
-        </Btn>
-        <div className="mt-3 text-center">
-          <button type="button" className={cn('cursor-pointer border-none bg-transparent font-body text-[13px] font-semibold text-faint', press)}>
-            Abonnement opzeggen
-          </button>
+      {sub.status === 'past_due' && (
+        <Note icon="warn">Je laatste betaling is mislukt. Werk je betaalmethode bij in het betaalportaal om onderbreking te voorkomen.</Note>
+      )}
+
+      <Label className="mb-[10px]">Betaalmethode</Label>
+      <div className="mb-2 flex items-center gap-[13px] rounded-[18px] border border-line bg-elev p-4">
+        <span className="flex h-[42px] w-[42px] items-center justify-center rounded-[12px] border border-line bg-elev2 text-acc">
+          <Icon name="card" size={20} />
+        </span>
+        <div className="flex-1">
+          <div className="text-[14.5px] font-semibold text-text">SEPA-incasso &amp; iDEAL</div>
+          <div className="mt-0.5 text-[12.5px] text-faint">Beheerd via de betaalprovider</div>
         </div>
-      </Scroll>
-    </div>
+      </div>
+      <div className="mb-[18px] flex items-start gap-[7px] pl-0.5 text-[12px] text-faint">
+        <Icon name="shield" size={13} className="text-ghost" />
+        <span className="leading-[1.45]">Betalingen via SEPA-incasso &amp; iDEAL. We bewaren nooit zelf je IBAN — dat regelt de betaalprovider.</span>
+      </div>
+
+      <Label className="mb-[10px]">Facturen</Label>
+      <div className="rounded-[18px] border border-dashed border-line bg-elev p-5 text-center">
+        <div className="text-[13.5px] leading-[1.5] text-faint">Facturen en het betaalportaal verschijnen hier zodra facturatie live gaat.</div>
+      </div>
+    </>
   );
 }
 

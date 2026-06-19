@@ -7,6 +7,8 @@ import { getOnboardingState } from '@/lib/auth/onboarding';
 import { getMyMemberships, getReportingVenues } from '@/lib/auth/memberships';
 import { getSessionUser } from '@/lib/auth/context';
 import { resolveActiveVenueId } from '@/lib/auth/active-venue';
+import { createClient } from '@/lib/supabase/server';
+import { ROLE_LABELS, VENUE_ROLES, requiresMfa } from '@/features/auth/roles';
 import { isMobileUA } from '@/lib/ua';
 
 export const metadata: Metadata = {
@@ -34,19 +36,19 @@ export default async function AppPage(): Promise<JSX.Element> {
     roles: active?.roles ?? [],
   };
 
-  // Real signed-in identity for the shell (replaces the prototype's hardcoded
-  // "Beheerder · Admin · MFA"), so the chrome reflects who is actually logged in.
-  const ROLE_LABELS: Record<string, string> = {
-    admin: 'Admin',
-    finance: 'Finance',
-    organizer: 'Organisator',
-    user_manager: 'User manager',
-    staff: 'Staff',
-    doorhost: 'Deur',
-  };
-  const displayName =
-    (user?.user_metadata?.full_name as string | undefined) ?? user?.email ?? 'Account';
-  const roleLabel = (active?.roles ?? []).map((r) => ROLE_LABELS[r] ?? r).join(' · ');
+  // Real display name + role label for the shell footer (RLS: own profile).
+  const supabase = await createClient();
+  const { data: profileRow } = user
+    ? await supabase.from('user_profiles').select('full_name').eq('id', user.id).maybeSingle()
+    : { data: null };
+  const userName = profileRow?.full_name || user?.email || 'Account';
+  const roleLabel =
+    active && active.roles.length > 0
+      ? VENUE_ROLES.filter((r) => active.roles.includes(r))
+          .map((r) => ROLE_LABELS[r])
+          .join(' · ')
+      : 'Lid';
+  const userSub = active && requiresMfa(active.roles) ? `${roleLabel} · MFA` : roleLabel;
 
   // First-paint viewport hint (corrected client-side by matchMedia) + the live
   // active-venue name for the S0 nav-shell header/sidebar.
@@ -58,8 +60,8 @@ export default async function AppPage(): Promise<JSX.Element> {
         statsAccess={{ venues: venues.map((v) => ({ venueId: v.venueId, venueName: v.venueName })) }}
         serverHint={serverHint}
         liveVenueName={active?.venueName ?? undefined}
-        userName={displayName}
-        userSub={roleLabel}
+        liveUserName={userName}
+        liveUserSub={userSub}
       />
     </PoLiveProvider>
   );
