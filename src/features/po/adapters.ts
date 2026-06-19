@@ -1,6 +1,18 @@
 import type { Guest, PoEvent, Tier, Role, GuestStatus, Priority, EventWhen } from '@/lib/po/types';
 import type { Database } from '@/lib/database.types';
-import type { PoEventRow, PoGuestRow, PoTierRow } from './queries';
+import { ROLE_LABELS, VENUE_ROLES, requiresMfa, type VenueRole } from '@/features/auth/roles';
+import { getPlan, isPlanId } from '@/features/billing/plans';
+import type {
+  PoEventRow,
+  PoGuestRow,
+  PoTierRow,
+  PoInviteRow,
+  PoMemberRow,
+  PoProfileRow,
+  PoSessionRow,
+  PoSubscriptionRow,
+  PoVenueSettingsRow,
+} from './queries';
 
 // Pure DB-row -> po-component-shape mappers (mirrors src/features/stats/po-adapter.ts).
 // No I/O, so they're unit-tested directly (adapters.test.ts). The po mock types
@@ -109,5 +121,206 @@ export function toPoTier(row: PoTierRow, used: number): Tier {
     // Door price isn't modelled in the core schema (#10) — UI default.
     doorPrice: 0,
     aliases: row.aliases ?? [],
+  };
+}
+
+// ── Settings adapters (S6 team/quota, S7 profile/sessions, S8 venue, billing) ──
+// These output dedicated Po* view types — richer than the prototype's mock types,
+// because the live action sheets need the ids + role arrays to drive invite /
+// role-change / quota / session writes straight from a rendered row.
+
+/** Roles → a human label in canonical order ("Beheerder · Financiën"). */
+export function rolesLabel(roles: readonly VenueRole[]): string {
+  const labels = VENUE_ROLES.filter((r) => roles.includes(r)).map((r) => ROLE_LABELS[r]);
+  return labels.length > 0 ? labels.join(' · ') : 'Geen rol';
+}
+
+export interface PoTeamMember {
+  userId: string;
+  name: string;
+  email: string;
+  roles: VenueRole[];
+  rolesLabel: string;
+  /** Effective default guest quota — the member's own override, else the venue default. */
+  quota: number;
+}
+
+export function toPoTeamMember(row: PoMemberRow, quota: number): PoTeamMember {
+  return {
+    userId: row.user_id,
+    name: row.full_name,
+    email: row.email,
+    roles: row.roles,
+    rolesLabel: rolesLabel(row.roles),
+    quota,
+  };
+}
+
+export interface PoInvite {
+  id: string;
+  email: string;
+  roles: VenueRole[];
+  rolesLabel: string;
+  /** Formatted invite date ("3 dec"). */
+  sentAt: string;
+}
+
+export function toPoInvite(row: PoInviteRow): PoInvite {
+  return {
+    id: row.id,
+    email: row.email,
+    roles: row.roles,
+    rolesLabel: rolesLabel(row.roles),
+    sentAt: fmt(row.created_at, { day: 'numeric', month: 'short' }).replace('.', ''),
+  };
+}
+
+/** Best-effort device label from a User-Agent ("Safari · iPhone"). */
+export function deviceLabel(ua: string | null): string {
+  if (!ua) return 'Onbekend apparaat';
+  const s = ua.toLowerCase();
+  const browser =
+    s.includes('edg') ? 'Edge'
+    : s.includes('firefox') || s.includes('fxios') ? 'Firefox'
+    : s.includes('chrome') || s.includes('crios') ? 'Chrome'
+    : s.includes('safari') ? 'Safari'
+    : 'Browser';
+  const os =
+    s.includes('iphone') ? 'iPhone'
+    : s.includes('ipad') ? 'iPad'
+    : s.includes('android') ? 'Android'
+    : s.includes('mac os') || s.includes('macintosh') ? 'Mac'
+    : s.includes('windows') ? 'Windows'
+    : s.includes('linux') ? 'Linux'
+    : '';
+  return os ? `${browser} · ${os}` : browser;
+}
+
+export interface PoSession {
+  id: string;
+  device: string;
+  where: string;
+  last: string;
+  current: boolean;
+}
+
+export function toPoSession(row: PoSessionRow): PoSession {
+  return {
+    id: row.session_id,
+    device: deviceLabel(row.user_agent),
+    where: row.ip ?? 'Onbekende locatie',
+    last: row.is_current
+      ? 'Nu actief'
+      : fmt(row.updated_at, {
+          day: 'numeric',
+          month: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        }).replace('.', ''),
+    current: row.is_current,
+  };
+}
+
+export interface PoProfile {
+  userId: string;
+  name: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  roleLabel: string;
+  /** MFA is mandatory for this caller's role (admin/finance) — #20. */
+  mfaRequired: boolean;
+}
+
+export function toPoProfile(row: PoProfileRow, roles: readonly VenueRole[]): PoProfile {
+  return {
+    userId: row.id,
+    name: row.full_name,
+    firstName: row.first_name ?? '',
+    lastName: row.last_name ?? '',
+    email: row.email,
+    phone: row.phone ?? '',
+    roleLabel: rolesLabel(roles),
+    mfaRequired: requiresMfa(roles),
+  };
+}
+
+export interface PoVenueSettings {
+  id: string;
+  name: string;
+  slug: string;
+  retentionMonths: number;
+  defaultPersonalQuota: number;
+  companyName: string;
+  kvkNumber: string;
+  vatNumber: string;
+  financeEmail: string;
+  addressLine: string;
+  postalCode: string;
+  city: string;
+  country: string;
+}
+
+export function toPoVenueSettings(row: PoVenueSettingsRow): PoVenueSettings {
+  return {
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    retentionMonths: row.retention_months,
+    defaultPersonalQuota: row.default_personal_quota,
+    companyName: row.company_name ?? '',
+    kvkNumber: row.kvk_number ?? '',
+    vatNumber: row.vat_number ?? '',
+    financeEmail: row.finance_email ?? '',
+    addressLine: row.address_line ?? '',
+    postalCode: row.postal_code ?? '',
+    city: row.city ?? '',
+    country: row.country ?? 'NL',
+  };
+}
+
+// Billing is read-only in the po surface (#32): map the entitlement row onto the
+// prototype's Subscription card. plan_id resolves through the shared PLANS
+// catalog; absent fields (IBAN mandate, invoices) stay honest placeholders until
+// the Stripe adapter ships (Fase 13).
+export interface PoSubscription {
+  plan: string;
+  priceLabel: string;
+  period: string;
+  status: Database['public']['Enums']['subscription_status'];
+  renews: string;
+  events: string;
+  venueLabel: string;
+}
+
+export function toPoSubscription(
+  row: PoSubscriptionRow | null,
+  venueName: string
+): PoSubscription | null {
+  if (!row) return null;
+  // plan_id resolves through the shared catalog (indie/premium/pro). A row may
+  // carry a plan id outside the catalog (e.g. a pilot/legacy id) — show that id
+  // humanised rather than "Geen abonnement", which is only for a truly null plan.
+  const plan = row.plan_id && isPlanId(row.plan_id) ? getPlan(row.plan_id) : null;
+  const priceLabel =
+    plan == null
+      ? '—'
+      : plan.priceEur == null
+        ? 'Op aanvraag'
+        : plan.priceEur === 0
+          ? 'Gratis'
+          : `€${plan.priceEur}`;
+  return {
+    plan: plan?.name ?? (row.plan_id ? capitalize(row.plan_id) : 'Geen abonnement'),
+    priceLabel,
+    period: 'maand',
+    status: row.status,
+    renews: row.current_period_end
+      ? fmt(row.current_period_end, { day: 'numeric', month: 'short', year: 'numeric' }).replace('.', '')
+      : '—',
+    events: plan?.id === 'indie' ? '1 actief event' : 'Onbeperkt',
+    venueLabel: venueName,
   };
 }

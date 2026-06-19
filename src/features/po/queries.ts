@@ -70,3 +70,160 @@ export async function fetchTiers(client: Client, eventId: string): Promise<PoTie
 
   return data ?? [];
 }
+
+// ── Settings cluster reads (S6 team/quota, S7 profile/sessions, S8 venue, billing) ──
+// Same client-agnostic shape: a Server Component can prefetch, a Client Component
+// reads with the browser client. RLS scopes every row — a staff member who can't
+// read the team list simply gets [], which the screen renders as an empty state.
+
+export type PoMemberRow = {
+  user_id: string;
+  full_name: string;
+  email: string;
+  roles: Database['public']['Enums']['venue_role'][];
+  job_title: string | null;
+};
+
+/** Members of a venue (RLS: admin/user_manager/finance may read these). */
+export async function fetchVenueMembers(client: Client, venueId: string): Promise<PoMemberRow[]> {
+  const { data } = await client
+    .from('venue_memberships')
+    .select('user_id, roles, job_title, user_profiles(full_name, email)')
+    .eq('venue_id', venueId)
+    .order('created_at', { ascending: true });
+
+  return (data ?? []).map((row) => ({
+    user_id: row.user_id,
+    full_name: row.user_profiles?.full_name ?? '—',
+    email: row.user_profiles?.email ?? '—',
+    roles: row.roles,
+    job_title: row.job_title ?? null,
+  }));
+}
+
+export type PoInviteRow = Pick<
+  Tables['invites']['Row'],
+  'id' | 'email' | 'roles' | 'expires_at' | 'created_at'
+>;
+
+/** Open (un-accepted) invites for a venue (RLS: managers + finance). */
+export async function fetchPendingInvites(client: Client, venueId: string): Promise<PoInviteRow[]> {
+  const { data } = await client
+    .from('invites')
+    .select('id, email, roles, expires_at, created_at')
+    .eq('venue_id', venueId)
+    .is('accepted_at', null)
+    .order('created_at', { ascending: false });
+
+  return data ?? [];
+}
+
+export type PoQuotaRow = Pick<Tables['quotas']['Row'], 'user_id' | 'default_count'>;
+
+/** Per-member default quotas at a venue (RLS quotas_select: own row, or all for
+ *  admin/finance). The caller maps these onto the member list; a missing row
+ *  means the member falls back to the venue default. */
+export async function fetchMemberQuotas(client: Client, venueId: string): Promise<PoQuotaRow[]> {
+  const { data } = await client
+    .from('quotas')
+    .select('user_id, default_count')
+    .eq('venue_id', venueId);
+
+  return data ?? [];
+}
+
+export type PoSessionRow = {
+  session_id: string;
+  created_at: string;
+  updated_at: string;
+  not_after: string | null;
+  user_agent: string | null;
+  ip: string | null;
+  aal: string | null;
+  is_current: boolean;
+};
+
+/** The caller's own active sessions (SECURITY DEFINER RPC reads auth.sessions for
+ *  auth.uid() — callable from the browser client, scoped to the caller). */
+export async function fetchOwnSessions(client: Client): Promise<PoSessionRow[]> {
+  const { data } = await client.rpc('list_own_sessions');
+  return (data ?? []).map((s) => ({
+    session_id: s.session_id,
+    created_at: s.created_at,
+    updated_at: s.updated_at,
+    not_after: s.not_after,
+    user_agent: s.user_agent,
+    ip: s.ip,
+    aal: s.aal,
+    is_current: s.is_current ?? false,
+  }));
+}
+
+export type PoProfileRow = Pick<
+  Tables['user_profiles']['Row'],
+  'id' | 'full_name' | 'first_name' | 'last_name' | 'email' | 'phone'
+>;
+
+/** The caller's own profile (RLS: a user always reads their own row, #24). */
+export async function fetchMyProfile(client: Client, userId: string): Promise<PoProfileRow | null> {
+  const { data } = await client
+    .from('user_profiles')
+    .select('id, full_name, first_name, last_name, email, phone')
+    .eq('id', userId)
+    .maybeSingle();
+
+  return data ?? null;
+}
+
+export type PoVenueSettingsRow = Pick<
+  Tables['venues']['Row'],
+  | 'id'
+  | 'name'
+  | 'slug'
+  | 'retention_months'
+  | 'default_personal_quota'
+  | 'company_name'
+  | 'kvk_number'
+  | 'vat_number'
+  | 'finance_email'
+  | 'address_line'
+  | 'postal_code'
+  | 'city'
+  | 'country'
+>;
+
+/** Venue settings (RLS venues_select: any member reads; only admin may update). */
+export async function fetchVenueSettings(
+  client: Client,
+  venueId: string
+): Promise<PoVenueSettingsRow | null> {
+  const { data } = await client
+    .from('venues')
+    .select(
+      'id, name, slug, retention_months, default_personal_quota, company_name, kvk_number, vat_number, finance_email, address_line, postal_code, city, country'
+    )
+    .eq('id', venueId)
+    .maybeSingle();
+
+  return data ?? null;
+}
+
+export type PoSubscriptionRow = Pick<
+  Tables['subscriptions']['Row'],
+  'status' | 'plan_id' | 'current_period_end'
+>;
+
+/** The venue's subscription entitlement (RLS subscriptions_select_member: any
+ *  member reads). Read-only — writes flow through Stripe webhooks only (#32). */
+export async function fetchSubscription(
+  client: Client,
+  venueId: string
+): Promise<PoSubscriptionRow | null> {
+  const { data } = await client
+    .from('subscriptions')
+    .select('status, plan_id, current_period_end')
+    .eq('venue_id', venueId)
+    .maybeSingle();
+
+  return data ?? null;
+}
