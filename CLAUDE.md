@@ -81,7 +81,7 @@ http://localhost:7000/auth/dev-login?email=door@plusone.test&next=/app
 ```
 
 - `src/app/auth/dev-login/route.ts` mints + verifies a magic-link server-side. **Hard-gated**: only runs when `NODE_ENV !== 'production'` AND the Supabase URL is localhost — it 404s in prod and does NOT bypass MFA (the session is AAL1).
-- The three seed users above (`manager`/`staff`/`door@plusone.test`) need **no MFA** → instant, reusable login. **Admin** (`admin@plusone.test`) + finance require MFA: run `pnpm dev:mfa` (stamps the fixed TOTP secret `PLUSONELOCALADMINDEVSECRET234567` — add once to your authenticator), then log in.
+- The three seed users above (`manager`/`staff`/`door@plusone.test`) need **no MFA** → instant, reusable login. **Admin** (`admin@plusone.test`) + finance are MFA-mandatory, but once their TOTP factor is stamped (`pnpm db:fresh` or `pnpm dev:mfa`, fixed secret `PLUSONELOCALADMINDEVSECRET234567`) the dev-login route **completes the MFA challenge server-side** → their links are **one-click too**, no authenticator app needed. Add `&aal1=1` to land at AAL1 and exercise the real `/mfa/verify` wall (then enter a code from an authenticator holding that secret). Once at AAL2 it **persists for the session (~30 days)** — you do NOT re-enter MFA per action; the in-app step-up only fires when the session is genuinely AAL1.
 - OTP fallback (any seed user): `/login` → code from **Mailpit** `http://127.0.0.1:55324`. Studio (DB UI): `http://127.0.0.1:55323`.
 - `/app` starts in the authenticated shell (the prototype's mock welcome/login is skipped — real auth is the middleware + `/login`).
 
