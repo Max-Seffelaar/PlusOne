@@ -2,12 +2,22 @@
 
 /** Settings cluster: Meer (hub), gebruikers/rollen, toelage, venue switch/beheer,
  *  persoonlijke gegevens + sessies, abonnement & facturen, importeren. */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { account, allowance as allowanceData, venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
 import { VENUE_ROLES, ROLE_LABELS, canGrantRoles, requiresMfa, type VenueRole } from '@/features/auth/roles';
 import { venueCapabilities } from '@/features/venues/access';
+import {
+  parseCsv,
+  parsePastedList,
+  dedupeWithin,
+  normalizeEmail,
+  normalizePhoneToDigits,
+  normalizeImportPhone,
+  normalizeImportBirthdate,
+  csvFirstRowIsHeader,
+} from '@/features/contacts/import/parse';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import {
   usePoTeam,
@@ -16,6 +26,7 @@ import {
   usePoProfile,
   usePoVenueSettings,
   usePoSubscription,
+  usePoContactKeys,
 } from '@/features/po/hooks';
 import {
   usePoInviteUser,
@@ -27,6 +38,7 @@ import {
   usePoUpdateEmail,
   usePoRevokeOwnSession,
   usePoUpdateVenueSettings,
+  usePoImportContacts,
 } from '@/features/po/mutations';
 import type { PoSubscription, PoTeamMember } from '@/features/po/adapters';
 import { useMfaGate, isAal2Error } from '../mfa-gate';
@@ -157,8 +169,8 @@ export function Meer(): JSX.Element {
         <Row icon="cog" title="Venue beheren" sub="Naam, AVG-bewaartermijn, standaarden" onClick={() => nav.push('venuesettings')} />
         <Row icon="users" title="Gebruikers" sub="Uitnodigen, rollen en MFA" onClick={() => nav.push('gebruikers')} accent />
         <Row icon="ticket" title="Toelage per event" sub="Gasten-per-event per teamlid" onClick={() => nav.push('allowance')} />
-        <Row icon="star" title="Permanente gasten" sub="12 gasten staan altijd op de lijst" onClick={() => nav.push('vaste')} accent />
-        <Row icon="contact" title="Adresboek" sub="1.284 opgeslagen contacten" onClick={() => nav.push('contacten')} accent />
+        <Row icon="star" title="Permanente gasten" sub="Staan automatisch op elke gastenlijst" onClick={() => nav.push('vaste')} accent />
+        <Row icon="contact" title="Adresboek" sub="Opgeslagen contacten herbruiken" onClick={() => nav.push('contacten')} accent />
         <Row icon="upload" title="Importeren" sub="Plak, CSV of telefooncontacten" onClick={() => nav.push('import')} />
         <Label className="mb-1 mt-[22px]">Abonnement</Label>
         <Row icon="spark" title="Abonnement & facturen" sub={billingSub} onClick={() => nav.push('billing')} accent right={<Icon name="chev" size={18} className="text-ghost" />} />
@@ -1142,55 +1154,231 @@ function BillingBody({ sub }: { sub: PoSubscription }): JSX.Element {
   );
 }
 
-// ── IMPORTEREN (pushed) ──────────────────────────────────────────────────────
+// ── IMPORTEREN (pushed) — S3 Import, live ────────────────────────────────────
+// Paste a list or a CSV → parse + coerce (phone to E.164, plausible birthdate) →
+// dedupe within the file → preview each row as NIEUW or BESTAAT AL against the
+// venue's existing contacts (same email-first-else-phone match as upsert_contacts)
+// → commit via the idempotent RPC. Manager-only (the action self-guards). Phone
+// contacts / "vorig event" sources come later.
+type ImportSource = 'paste' | 'csv';
+
 export function Import(): JSX.Element {
   const nav = useNav();
-  const rows: [string, 'dup' | 'new', string?][] = [
-    ['Anouk Smit', 'dup', '21×'],
-    ['Pim Scholten', 'new'],
-    ['Femke Bakker', 'dup', '17×'],
-    ['Teun Postma', 'new'],
-    ['Wout Dekker', 'new'],
-    ['Lieke Hofman', 'dup', '14×'],
+  const { venueId } = usePoIdentity();
+  const importMut = usePoImportContacts();
+  const keysQ = usePoContactKeys();
+
+  const [source, setSource] = useState<ImportSource>('paste');
+  const [text, setText] = useState('');
+  // CSV header handling (Q12): auto-detect a recognised header, but let the user
+  // override per file (null = follow auto-detect). Only relevant for CSV.
+  const [headerOverride, setHeaderOverride] = useState<boolean | null>(null);
+  const autoHeader = source === 'csv' && csvFirstRowIsHeader(text);
+  const firstRowIsHeader = headerOverride ?? autoHeader;
+
+  // Parse → coerce to what the import accepts (so the preview's dedup decision
+  // matches the real import) → dedupe within the file.
+  const { rows, intraSkipped } = useMemo(() => {
+    const parsed = source === 'csv' ? parseCsv(text, { firstRowIsHeader }) : parsePastedList(text);
+    const coerced = parsed.map((r) => ({
+      ...r,
+      phone: normalizeImportPhone(r.phone),
+      birthdate: normalizeImportBirthdate(r.birthdate),
+    }));
+    const { rows: deduped, skipped } = dedupeWithin(coerced);
+    return { rows: deduped, intraSkipped: skipped };
+  }, [text, source, firstRowIsHeader]);
+
+  // Classify against existing contacts exactly like the RPC: e-mail first, else
+  // phone digits. While the keys load, nothing is marked as a duplicate yet.
+  const emails = keysQ.data?.emails;
+  const phones = keysQ.data?.phones;
+  const classified = rows.map((r) => {
+    const e = normalizeEmail(r.email);
+    const p = normalizePhoneToDigits(r.phone);
+    const exists = (!!e && !!emails?.has(e)) || (!!p && !!phones?.has(p));
+    return { row: r, exists };
+  });
+  const total = classified.length;
+  const dupCount = classified.filter((c) => c.exists).length;
+  const newCount = total - dupCount;
+
+  const result = importMut.data && importMut.data.ok ? importMut.data : null;
+  const canImport = !!venueId && total > 0 && !importMut.isPending;
+
+  const onPickFile = (file: File | undefined): void => {
+    if (!file) return;
+    setSource('csv');
+    setHeaderOverride(null); // re-auto-detect for the new file
+    void file.text().then(setText);
+  };
+
+  const commit = (): void => {
+    if (!canImport || !venueId) return;
+    importMut.mutate({ venueId, rows });
+  };
+
+  // Success state — the per-row outcome from the RPC.
+  if (result) {
+    return (
+      <div className={col}>
+        <Top onBack={nav.back} title="Importeren" />
+        <Scroll bottom={100}>
+          <div className="mb-4 flex flex-col items-center gap-3 rounded-[18px] bg-acc-dim p-6 text-center">
+            <span className="flex h-[52px] w-[52px] items-center justify-center rounded-[16px] bg-acc">
+              <Icon name="check2" size={28} stroke="#16132B" sw={2.4} />
+            </span>
+            <div className="font-display text-[22px] font-extrabold text-text">Klaar!</div>
+            <div className="text-[13.5px] leading-[1.5] text-text">
+              {result.inserted} nieuw · {result.updated} bijgewerkt · {result.skipped} overgeslagen
+            </div>
+          </div>
+          <Note icon="contact">
+            Nieuwe en bijgewerkte contacten staan nu in je adresboek. Dubbele zijn samengevoegd — bestaande gegevens blijven behouden.
+          </Note>
+        </Scroll>
+        <BottomBar>
+          <Btn
+            kind="primary"
+            full
+            icon="contact"
+            onClick={() => {
+              importMut.reset();
+              nav.back();
+            }}
+          >
+            Naar adresboek
+          </Btn>
+        </BottomBar>
+      </div>
+    );
+  }
+
+  const sources: [ImportSource | 'soon', IconName, string][] = [
+    ['paste', 'paste', 'Plak lijst'],
+    ['csv', 'upload', 'CSV'],
+    ['soon', 'contact', 'Telefoon'],
+    ['soon', 'ticket', 'Vorig event'],
   ];
-  const sources: [IconName, string, boolean][] = [
-    ['paste', 'Plak lijst', true],
-    ['upload', 'CSV', false],
-    ['contact', 'Contacten', false],
-    ['ticket', 'Vorig event', false],
-  ];
+
   return (
     <div className={col}>
       <Top onBack={nav.back} title="Importeren" />
-      <Scroll bottom={100}>
-        <div className="mb-[14px] text-[13.5px] leading-[1.5] text-faint">Iedereen die ooit op een lijst stond in één keer in je adresboek.</div>
+      <Scroll bottom={total > 0 ? 110 : 40}>
+        <div className="mb-[14px] text-[13.5px] leading-[1.5] text-faint">
+          Iedereen die ooit op een lijst stond in één keer in je adresboek. Dubbele worden automatisch herkend en gekoppeld.
+        </div>
         <div className="po-scroll mb-4 flex gap-2 overflow-x-auto">
-          {sources.map(([ic, l, on]) => (
-            <span key={l} className={cn('inline-flex shrink-0 items-center gap-[7px] rounded-full border px-[14px] py-[9px] font-display text-[13px] font-bold', on ? 'border-transparent bg-acc text-on-acc' : 'border-line text-dim')}>
-              <Icon name={ic} size={15} sw={2.1} stroke={on ? '#16132B' : 'rgba(255,255,255,0.58)'} />
-              {l}
-            </span>
-          ))}
+          {sources.map(([key, ic, l]) => {
+            const on = key === source;
+            const soon = key === 'soon';
+            return (
+              <button
+                key={l}
+                type="button"
+                disabled={soon}
+                onClick={() => {
+                  if (soon) return;
+                  setSource(key as ImportSource);
+                  setHeaderOverride(null);
+                }}
+                className={cn(
+                  'inline-flex shrink-0 items-center gap-[7px] rounded-full border px-[14px] py-[9px] font-display text-[13px] font-bold',
+                  press,
+                  on ? 'border-transparent bg-acc text-on-acc' : 'border-line text-dim',
+                  soon && 'opacity-40',
+                )}
+              >
+                <Icon name={ic} size={15} sw={2.1} />
+                {l}
+                {soon && <span className="text-[10px] font-bold text-faint">binnenkort</span>}
+              </button>
+            );
+          })}
         </div>
-        <Label className="mb-[9px]">Herkend · dubbele worden gekoppeld</Label>
-        <div className="flex flex-col gap-2">
-          {rows.map(([n, s, m]) => (
-            <div key={n} className="flex items-center gap-[11px] rounded-[13px] border border-line bg-elev px-[12px] py-[10px]">
-              <Avatar name={n} size={34} accent={s === 'dup'} />
-              <div className="min-w-0 flex-1">
-                <div className="text-[14px] font-semibold text-text">{n}</div>
-                {m && <div className="text-[11.5px] text-faint">match · {m} op lijst</div>}
+
+        {source === 'csv' && (
+          <>
+            <label className={cn('mb-3 flex cursor-pointer items-center justify-center gap-2 rounded-[14px] border border-dashed border-line bg-elev py-[14px] font-display text-[14px] font-bold text-text', press)}>
+              <Icon name="upload" size={17} />
+              Kies een CSV-bestand
+              <input type="file" accept=".csv,text/csv,text/plain" className="hidden" onChange={(e) => onPickFile(e.target.files?.[0])} />
+            </label>
+            {text.trim() !== '' && (
+              <button
+                type="button"
+                onClick={() => setHeaderOverride(!firstRowIsHeader)}
+                className={cn('mb-3 flex w-full items-center gap-[11px] rounded-[13px] border border-line bg-elev px-[13px] py-[11px] text-left', press)}
+              >
+                <span className={cn('flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[7px] border-2', firstRowIsHeader ? 'border-acc bg-acc' : 'border-ghost bg-transparent')}>
+                  {firstRowIsHeader && <Icon name="check" size={13} stroke="#16132B" sw={3} />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-display text-[13.5px] font-bold text-text">Eerste regel is een koprij</span>
+                  <span className="block text-[11.5px] text-faint">Zet uit als je lijst meteen met een contact begint</span>
+                </span>
+              </button>
+            )}
+          </>
+        )}
+
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={5}
+          placeholder={
+            source === 'csv'
+              ? 'naam,email,telefoon,rol\nAnouk Smit,anouk@mail.nl,0612345678,vip'
+              : 'Anouk Smit, anouk@mail.nl\nPim Scholten\nFemke Bakker, +31612345678'
+          }
+          className="mb-4 w-full resize-y rounded-[14px] border border-line bg-elev p-[14px] font-body text-[14.5px] leading-[1.5] text-text outline-none placeholder:text-faint"
+        />
+
+        {total > 0 && (
+          <>
+            <div className="mb-[10px] flex items-center justify-between">
+              <Label>
+                Herkend · {total} {total === 1 ? 'contact' : 'contacten'}
+              </Label>
+              <div className="flex gap-1.5">
+                <MiniChip className="border-transparent bg-acc-dim text-acc">{newCount} nieuw</MiniChip>
+                {dupCount > 0 && <MiniChip>{dupCount} bestaat al</MiniChip>}
               </div>
-              <span className={cn('rounded-[7px] px-2 py-[3px] text-[10.5px] font-bold', s === 'dup' ? 'bg-acc-dim text-acc' : 'border border-line text-text')}>{s === 'dup' ? 'BESTAAT AL' : 'NIEUW'}</span>
             </div>
-          ))}
-        </div>
+            {keysQ.isLoading && <div className="mb-2 text-[12px] text-faint">Dubbele controleren…</div>}
+            <div className="flex flex-col gap-2">
+              {classified.slice(0, 50).map(({ row, exists }, i) => (
+                <div key={`${row.fullName}-${i}`} className="flex items-center gap-[11px] rounded-[13px] border border-line bg-elev px-[12px] py-[10px]">
+                  <Avatar name={row.fullName} size={34} accent={exists} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[14px] font-semibold text-text">{row.fullName}</div>
+                    {(row.email || row.phone) && <div className="truncate text-[11.5px] text-faint">{row.email ?? row.phone}</div>}
+                  </div>
+                  <span className={cn('shrink-0 rounded-[7px] px-2 py-[3px] text-[10.5px] font-bold', exists ? 'bg-acc-dim text-acc' : 'border border-line text-text')}>
+                    {exists ? 'BESTAAT AL' : 'NIEUW'}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {total > 50 && <div className="mt-2 text-center text-[12px] text-faint">+{total - 50} meer worden ook geïmporteerd</div>}
+            {intraSkipped > 0 && <div className="mt-2 text-[12px] text-faint">{intraSkipped} dubbele in je lijst overgeslagen.</div>}
+          </>
+        )}
+
+        {importMut.isError && (
+          <div className="mt-3 flex items-center gap-[9px] rounded-[13px] border border-acc bg-acc-dim px-[14px] py-[11px] text-[13px] text-text">
+            <Icon name="warn" size={16} stroke="#B5A6FF" />
+            <span className="flex-1">{importMut.error?.message ?? 'Importeren mislukt.'}</span>
+          </div>
+        )}
       </Scroll>
-      <BottomBar>
-        <Btn kind="primary" full icon="check" onClick={() => nav.back()}>
-          Importeer 142 gasten
-        </Btn>
-      </BottomBar>
+      {total > 0 && (
+        <BottomBar>
+          <Btn kind="primary" full icon="check" disabled={!canImport} className={canImport ? '' : 'opacity-[0.45]'} onClick={commit}>
+            {importMut.isPending ? 'Importeren…' : `Importeer ${total} ${total === 1 ? 'contact' : 'contacten'}`}
+          </Btn>
+        </BottomBar>
+      )}
     </div>
   );
 }

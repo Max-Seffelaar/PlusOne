@@ -2,11 +2,13 @@
 
 /** Guest list, guest detail (read-only logboek — check-in lives at the door,
  *  Deur tab), quick-add (#33), bulk-paste, adresboek, permanente gasten. */
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { v7 as uuidv7 } from 'uuid';
 import { cn } from '@/lib/utils';
-import { contacts } from '@/lib/po/data';
 import type { Guest as GuestT, PoEvent } from '@/lib/po/types';
+import { normalizeImportPhone } from '@/features/contacts/import/parse';
+import type { ContactRole } from '@/features/contacts/schemas';
+import { indexGuestsByName, suspectedDuplicates, planBulkAdd, type DupeMode, type BulkRowInput } from '@/features/guests/bulk-dedupe';
 import {
   parseQuickAdd,
   parseBulk,
@@ -17,13 +19,23 @@ import {
   type ParseResult,
 } from '@/features/guests/quick-add-parser';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
-import { usePoEvents, usePoGuests, usePoTiers, usePoQuota } from '@/features/po/hooks';
-import { usePoAddGuest, usePoAddGuestsBulk, usePoRequestExtraSlots } from '@/features/po/mutations';
+import { usePoEvents, usePoGuests, usePoTiers, usePoQuota, usePoContacts, usePoPermanentContacts } from '@/features/po/hooks';
+import {
+  usePoAddGuest,
+  usePoAddGuestsBulk,
+  usePoRequestExtraSlots,
+  usePoToggleContactPermanent,
+  usePoAddContactToEvent,
+  usePoSyncPermanent,
+  usePoUpsertContact,
+  usePoUpdateGuest,
+} from '@/features/po/mutations';
+import type { PoContact } from '@/features/po/adapters';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canManageGuests } from '@/features/auth/roles';
-import { useNav, usePo } from '../context';
+import { useNav } from '../context';
 import { Icon, type IconName } from '../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, PayChip, RoleChip, Scroll, StatusDot, Top } from '../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, PayChip, RoleChip, Scroll, StatusDot, Stepper, Top } from '../kit';
 import { BottomBar, Sheet } from '../shell';
 
 const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
@@ -42,6 +54,25 @@ function FilterChip({ on, onClick, children, grow }: { on: boolean; onClick: () 
       )}
     >
       {children}
+    </button>
+  );
+}
+
+/** Radio-style option row for the "already on the list" choice (bulk add). */
+function DupeOption({ on, onClick, title, sub }: { on: boolean; onClick: () => void; title: string; sub: string }): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn('flex items-center gap-[11px] rounded-[12px] border px-[13px] py-[10px] text-left', press, on ? 'border-transparent bg-bg' : 'border-line bg-transparent')}
+    >
+      <span className={cn('flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full border-2', on ? 'border-acc' : 'border-ghost')}>
+        {on && <span className="h-[10px] w-[10px] rounded-full bg-acc" />}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-display text-[13.5px] font-bold text-text">{title}</span>
+        <span className="block text-[11.5px] text-faint">{sub}</span>
+      </span>
     </button>
   );
 }
@@ -589,13 +620,20 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
 
   const { data: tiers = [] } = usePoTiers(evId);
   const { data: quota } = usePoQuota(evId);
+  const { data: evGuests = [] } = usePoGuests(evId);
   const addBulk = usePoAddGuestsBulk(evId);
+  const update = usePoUpdateGuest(evId);
 
   const qaTiers: QuickAddTier[] = tiers.map((t) => ({ id: t.id, name: t.name, aliases: t.aliases }));
   const defaultTierId = resolveDefaultTierId(qaTiers);
 
   const [text, setText] = useState('');
   const [choices, setChoices] = useState<Record<number, AmbiguityChoice>>({});
+  // What to do with people already on this list: add on top, give a new total, or
+  // add them again as a separate row (best-effort name match — they confirm).
+  const [dupeMode, setDupeMode] = useState<DupeMode>('add');
+  const [busy, setBusy] = useState(false);
+  const [orchErr, setOrchErr] = useState<string | null>(null);
 
   const rows = defaultTierId ? parseBulk(text, qaTiers, defaultTierId) : [];
   const resolvedRows = rows.map((r, i) => resolveRow(r, choices[i], defaultTierId ?? ''));
@@ -603,36 +641,47 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
   const doubtful = resolvedRows.filter((r) => r.needsChoice || r.name === '').length;
   const ready = rows.length - doubtful;
 
+  // Match resolved rows against people already on the list (by normalized name).
+  const byName = useMemo(
+    () => indexGuestsByName(evGuests.map((g) => ({ id: g.id, name: g.name, plusOnes: g.plus }))),
+    [evGuests],
+  );
+  const plannable: BulkRowInput[] = resolvedRows
+    .map((r, i) => ({ name: r.name, plusOnes: r.plusOnes, tierId: r.tierId, email: rows[i]?.email ?? undefined, phone: rows[i]?.phone ?? undefined }))
+    .filter((r) => r.name !== '');
+  const dupNames = suspectedDuplicates(plannable, byName);
+
   const exempt = quota?.exempt ?? false;
   const remaining = exempt ? null : quota?.remaining ?? null;
   const overQuota = remaining !== null && total > remaining;
-  const canConfirm = !addBulk.isPending && rows.length > 0 && doubtful === 0 && !overQuota && !!defaultTierId && !!evId;
+  const canConfirm = !busy && rows.length > 0 && doubtful === 0 && !overQuota && !!defaultTierId && !!evId;
 
-  const confirm = (): void => {
+  const confirm = async (): Promise<void> => {
     if (!canConfirm) return;
-    // One UUIDv7 per row (#25) — the optimistic rows match the inserted rows. The
-    // DB enforces the batch atomically (quota overage rolls the whole batch back).
-    addBulk.mutate(
-      {
-        eventId: evId,
-        source: 'app',
-        guests: resolvedRows.map((r, i) => ({
-          id: uuidv7(),
-          fullName: r.name,
-          plusOnes: r.plusOnes,
-          tierId: r.tierId,
-          email: rows[i]?.email ?? undefined,
-          phone: rows[i]?.phone ?? undefined,
-        })),
-      },
-      {
-        onSuccess: () => {
-          setText('');
-          setChoices({});
-          nav.back();
-        },
-      },
-    );
+    setOrchErr(null);
+    setBusy(true);
+    // Split into fresh inserts + plus-ones updates per the chosen duplicate mode.
+    const plan = planBulkAdd(plannable, byName, dupeMode);
+    try {
+      if (plan.inserts.length > 0) {
+        // One UUIDv7 per row (#25); the DB enforces the insert batch atomically.
+        await addBulk.mutateAsync({
+          eventId: evId,
+          source: 'app',
+          guests: plan.inserts.map((r) => ({ id: uuidv7(), fullName: r.name, plusOnes: r.plusOnes, tierId: r.tierId, email: r.email, phone: r.phone })),
+        });
+      }
+      for (const u of plan.updates) {
+        await update.mutateAsync({ guestId: u.guestId, plusOnes: u.plusOnes });
+      }
+      setText('');
+      setChoices({});
+      nav.back();
+    } catch (e) {
+      setOrchErr(e instanceof Error ? e.message : 'Toevoegen mislukt.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -681,11 +730,14 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
                               {ask ? `“${r.ambiguous?.text ?? ''}” onbekend` : tier?.short ?? '—'}
                             </div>
                           </div>
-                          {!ask && (
-                            <span className="text-acc">
-                              <Icon name="check2" size={17} stroke="#B5A6FF" sw={2.2} />
-                            </span>
-                          )}
+                          {!ask &&
+                            (byName.has(res.name.trim().toLowerCase()) ? (
+                              <MiniChip className="border-acc text-acc">AL OP LIJST</MiniChip>
+                            ) : (
+                              <span className="text-acc">
+                                <Icon name="check2" size={17} stroke="#B5A6FF" sw={2.2} />
+                              </span>
+                            ))}
                         </div>
                         {ask && r.ambiguous && (
                           <div className="mt-[11px] flex flex-wrap gap-[7px]">
@@ -719,16 +771,42 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
                     );
                   })}
                 </div>
+                {dupNames.length > 0 && (
+                  <div className="mt-4 rounded-[16px] border border-acc bg-acc-dim p-[14px]">
+                    <div className="mb-1 flex items-center gap-2">
+                      <Icon name="warn" size={16} stroke="#B5A6FF" />
+                      <Label className="text-acc-soft">
+                        {dupNames.length} {dupNames.length === 1 ? 'staat' : 'staan'} er volgens ons al op
+                      </Label>
+                    </div>
+                    <div className="mb-3 flex flex-wrap gap-1.5">
+                      {dupNames.slice(0, 12).map((n) => (
+                        <MiniChip key={n} className="border-transparent bg-bg text-text">
+                          {n}
+                        </MiniChip>
+                      ))}
+                      {dupNames.length > 12 && (
+                        <MiniChip className="border-transparent bg-bg text-faint">+{dupNames.length - 12}</MiniChip>
+                      )}
+                    </div>
+                    <div className="mb-2 text-[12.5px] font-semibold text-text">Wat wil je met deze mensen doen?</div>
+                    <div className="flex flex-col gap-1.5">
+                      <DupeOption on={dupeMode === 'add'} onClick={() => setDupeMode('add')} title="Tickets erbij optellen" sub="Nieuwe plekken bovenop hun huidige aantal" />
+                      <DupeOption on={dupeMode === 'replace'} onClick={() => setDupeMode('replace')} title="Nieuw aantal geven" sub="Vervang hun plekken door wat je nu invult" />
+                      <DupeOption on={dupeMode === 'again'} onClick={() => setDupeMode('again')} title="Toch opnieuw toevoegen" sub="Als losse, nieuwe regel (andere persoon)" />
+                    </div>
+                  </div>
+                )}
                 {!exempt && remaining !== null && (
                   <div className={cn('mt-3 text-[12.5px]', overQuota ? 'text-acc-soft' : 'text-faint')}>
                     {total} {total === 1 ? 'plek' : 'plekken'} · {remaining} over in je quotum
                     {overQuota && ' — de hele batch wordt geblokkeerd'}
                   </div>
                 )}
-                {addBulk.isError && (
+                {(addBulk.isError || orchErr) && (
                   <div className="mt-3 flex items-center gap-[9px] rounded-[13px] border border-acc bg-acc-dim px-[14px] py-[11px] text-[13px] text-text">
                     <Icon name="warn" size={16} stroke="#B5A6FF" />
-                    <span className="flex-1">{addBulk.error?.message}</span>
+                    <span className="flex-1">{orchErr ?? addBulk.error?.message}</span>
                   </div>
                 )}
               </>
@@ -737,12 +815,14 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
         )}
       </Scroll>
       <BottomBar>
-        <Btn kind="primary" full icon="check" onClick={confirm} className={canConfirm ? '' : 'opacity-[0.45]'}>
-          {addBulk.isPending
+        <Btn kind="primary" full icon="check" onClick={() => void confirm()} className={canConfirm ? '' : 'opacity-[0.45]'}>
+          {busy
             ? 'Bezig…'
             : doubtful > 0
               ? `Voeg ${ready} toe · ${doubtful} open`
-              : `Voeg ${ready} ${ready === 1 ? 'gast' : 'gasten'} toe`}
+              : dupNames.length > 0
+                ? `Verwerk ${ready} ${ready === 1 ? 'regel' : 'regels'}`
+                : `Voeg ${ready} ${ready === 1 ? 'gast' : 'gasten'} toe`}
         </Btn>
       </BottomBar>
     </div>
@@ -750,57 +830,488 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
 }
 
 // ── ADRESBOEK (pushed) ───────────────────────────────────────────────────────
-export function Contacten(): JSX.Element {
+// Live venue contacts (RLS: admin/finance/organizer). Tap a row to edit it; star
+// = is_permanent (#11, with a confirm); "+" opens an event+tier picker and adds
+// via add_contact_to_event (a deliberate add clears any "respect the removal"
+// exclusion). Staff/doorhost have no contacts access → an explicit permission note.
+const CONTACT_ROLE_OPTIONS: { value: ContactRole; label: string }[] = [
+  { value: 'vip', label: 'VIP' },
+  { value: 'all_access', label: 'All Access' },
+  { value: 'artist', label: 'Artiest' },
+  { value: 'press', label: 'Pers' },
+  { value: 'crew', label: 'Crew' },
+  { value: 'guest', label: 'Gast' },
+];
+
+export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
   const nav = useNav();
-  const { vast, toggleVast } = usePo();
+  const { roles } = usePoIdentity();
+  // We can't see event-organizer scope in the role array, so we only *positively*
+  // know admin/finance can view. A non-manager with an empty list is almost
+  // certainly RLS-blocked (staff/doorhost) — say so instead of "no contacts yet".
+  const canView = roles.includes('admin') || roles.includes('finance');
+  const { data: contacts = [], isLoading, isError } = usePoContacts();
+  const toggleVast = usePoToggleContactPermanent();
+  const { data: liveEvents = [] } = usePoEvents();
+  const upcoming = liveEvents.filter((e) => e.when === 'upcoming');
+
   const [q, setQ] = useState('');
-  let cs = contacts;
-  if (q) cs = cs.filter((c) => c.name.toLowerCase().includes(q.toLowerCase()));
+  const [editing, setEditing] = useState<PoContact | null>(null);
+  const [addingFor, setAddingFor] = useState<PoContact | null>(null);
+  const [confirmStar, setConfirmStar] = useState<PoContact | null>(null);
+  const [added, setAdded] = useState<Set<string>>(new Set());
+
+  const term = q.trim().toLowerCase();
+  const cs = term
+    ? contacts.filter((c) => c.name.toLowerCase().includes(term) || (c.phoneLast4 ?? '').includes(term))
+    : contacts;
+
+  const onStarClick = (c: PoContact): void => {
+    if (c.vast) toggleVast.mutate({ contactId: c.id, isPermanent: false });
+    else setConfirmStar(c);
+  };
+
+  const noRights = !isLoading && !isError && !canView && contacts.length === 0;
+
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Adresboek" sub="1.284 contacten · herbruik in één tik" right={<IconBtn name="upload" />} />
+      <Top
+        onBack={nav.back}
+        title="Adresboek"
+        sub={`${contacts.length} ${contacts.length === 1 ? 'contact' : 'contacten'} · herbruik in één tik`}
+        right={<IconBtn name="upload" onClick={() => nav.push('import')} />}
+      />
       <div className="flex-none px-4 pb-3">
-        <Field icon="search" placeholder="Zoek op naam of tag…" value={q} onChange={setQ} />
+        <Field icon="search" placeholder="Zoek op naam of laatste 4 cijfers…" value={q} onChange={setQ} inputMode="text" />
       </div>
       <Scroll pad={16} bottom={24}>
-        <div className="flex flex-col gap-[9px]">
-          {cs.map((c) => (
-            <div key={c.name} className="flex items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[12px]">
-              <Avatar name={c.name} size={42} accent={vast.has(c.name)} />
-              <div className="min-w-0 flex-1">
-                <div className="font-display text-[15.5px] font-bold text-text">{c.name}</div>
-                <div className="mt-1 flex items-center gap-2">
-                  <RoleChip role={c.role} />
-                  <span className="text-[11.5px] text-faint">{c.events}× op een lijst</span>
+        {isLoading ? (
+          <Empty text="Adresboek laden…" />
+        ) : noRights ? (
+          <Note icon="shield">
+            Je hebt geen rechten om het adresboek te bekijken. Alleen een beheerder, financiën of organisator ziet de opgeslagen contacten.
+          </Note>
+        ) : isError ? (
+          <Empty text="Kon het adresboek niet laden." />
+        ) : cs.length === 0 ? (
+          <Empty text={term ? 'Geen contacten gevonden.' : 'Nog geen opgeslagen contacten — importeer of voeg gasten toe.'} />
+        ) : (
+          <div className="flex flex-col gap-[9px]">
+            {cs.map((c) => {
+              const isAdded = added.has(c.id);
+              const starring = toggleVast.isPending && toggleVast.variables?.contactId === c.id;
+              return (
+                <div key={c.id} className="flex items-center gap-[10px] rounded-[16px] border border-line bg-elev p-[12px]">
+                  <Avatar name={c.name} size={42} accent={c.vast} />
+                  <button type="button" onClick={() => setEditing(c)} aria-label={`Bewerk ${c.name}`} className={cn('min-w-0 flex-1 text-left', press)}>
+                    <div className="font-display text-[15.5px] font-bold text-text">{c.name}</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <RoleChip role={c.role} />
+                      <span className="text-[11.5px] text-faint">
+                        {c.events}× op een lijst{c.phoneLast4 ? ` · ••${c.phoneLast4}` : ''}
+                      </span>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onStarClick(c)}
+                    disabled={starring}
+                    aria-pressed={c.vast}
+                    title={c.vast ? 'Niet meer altijd toevoegen' : 'Altijd toevoegen'}
+                    className={cn('flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[11px] border', press, c.vast ? 'border-transparent bg-acc-dim text-acc' : 'border-line text-ghost')}
+                  >
+                    <Icon name="star" size={17} fill={c.vast ? '#B5A6FF' : 'none'} stroke={c.vast ? '#B5A6FF' : 'rgba(255,255,255,0.26)'} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAddingFor(c)}
+                    aria-label={`Voeg ${c.name} toe aan een event`}
+                    className={cn('flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[11px] border-none', press, isAdded ? 'bg-acc-dim text-acc' : 'bg-text text-bg')}
+                  >
+                    <Icon name={isAdded ? 'check2' : 'plus'} size={18} sw={2.4} />
+                  </button>
                 </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => toggleVast(c.name)}
-                title="Altijd toevoegen"
-                className={cn('flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border', press, vast.has(c.name) ? 'border-transparent bg-acc-dim text-acc' : 'border-line text-ghost')}
-              >
-                <Icon name="star" size={17} fill={vast.has(c.name) ? '#B5A6FF' : 'none'} stroke={vast.has(c.name) ? '#B5A6FF' : 'rgba(255,255,255,0.26)'} />
-              </button>
-              <button type="button" className={cn('flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border-none bg-text text-bg', press)}>
-                <Icon name="plus" size={18} sw={2.4} />
-              </button>
-            </div>
-          ))}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </Scroll>
+
+      {editing && <ContactEditSheet contact={editing} onClose={() => setEditing(null)} />}
+      {confirmStar && <PermanentConfirmSheet contact={confirmStar} onClose={() => setConfirmStar(null)} />}
+      {addingFor && (
+        <AddToEventSheet
+          contact={addingFor}
+          eventId={eventId}
+          upcoming={upcoming}
+          onClose={() => setAddingFor(null)}
+          onAdded={(id) => {
+            setAdded((s) => new Set(s).add(id));
+            setAddingFor(null);
+          }}
+        />
+      )}
     </div>
   );
 }
 
+/** A pill toggle for the role picker in the edit sheet. */
+function RolePill({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn('rounded-[10px] border px-[13px] py-[8px] font-display text-[13px] font-bold', press, on ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev text-dim')}
+    >
+      {label}
+    </button>
+  );
+}
+
+/** Edit a contact's name / e-mail / phone / preferred tier by hand (#8). The
+ *  upsert is a full overwrite, so birthdate + note are carried through unchanged. */
+function ContactEditSheet({ contact, onClose }: { contact: PoContact; onClose: () => void }): JSX.Element {
+  const { venueId } = usePoIdentity();
+  const upsert = usePoUpsertContact();
+  const [name, setName] = useState(contact.name);
+  const [email, setEmail] = useState(contact.email ?? '');
+  const [phone, setPhone] = useState(contact.phone ?? '');
+  const [role, setRole] = useState<ContactRole | ''>(contact.preferredRole ?? '');
+  const [err, setErr] = useState<string | null>(null);
+
+  const save = (): void => {
+    setErr(null);
+    if (!venueId) return setErr('Geen actieve venue.');
+    if (name.trim() === '') return setErr('Naam is verplicht.');
+    let phoneVal: string | undefined;
+    const phoneTrim = phone.trim();
+    if (phoneTrim !== '') {
+      phoneVal = normalizeImportPhone(phoneTrim);
+      if (!phoneVal) return setErr('Controleer het telefoonnummer (bv. 06… of +31…).');
+    }
+    upsert.mutate(
+      {
+        id: contact.id,
+        venueId,
+        fullName: name.trim(),
+        email: email.trim() || undefined,
+        phone: phoneVal,
+        birthdate: contact.birthdate ?? undefined,
+        note: contact.note ?? undefined,
+        preferredRole: role || undefined,
+      },
+      { onSuccess: onClose, onError: (e) => setErr(e instanceof Error ? e.message : 'Opslaan mislukt.') },
+    );
+  };
+
+  return (
+    <Sheet onClose={onClose} center={false}>
+      <div className="mb-4 flex items-center gap-[12px]">
+        <Avatar name={name || contact.name} size={44} accent={contact.vast} />
+        <div className="min-w-0 flex-1">
+          <div className="font-display text-[17px] font-bold text-text">Contact bewerken</div>
+          <div className="text-[12px] text-faint">{contact.events}× op een lijst</div>
+        </div>
+      </div>
+      <Label className="mb-2">Naam</Label>
+      <Field icon="user" value={name} onChange={setName} placeholder="Volledige naam" className="mb-[14px]" />
+      <Label className="mb-2">E-mail</Label>
+      <Field icon="mail" value={email} onChange={setEmail} inputMode="email" placeholder="naam@mail.nl" className="mb-[14px]" />
+      <Label className="mb-2">Telefoon</Label>
+      <Field icon="phone" value={phone} onChange={setPhone} inputMode="tel" placeholder="06 … of +31 …" className="mb-[14px]" />
+      <Label className="mb-2">Voorkeur-tier</Label>
+      <div className="flex flex-wrap gap-2">
+        <RolePill label="Geen" on={role === ''} onClick={() => setRole('')} />
+        {CONTACT_ROLE_OPTIONS.map((o) => (
+          <RolePill key={o.value} label={o.label} on={role === o.value} onClick={() => setRole(o.value)} />
+        ))}
+      </div>
+      {err && (
+        <p className="mt-3 text-[12.5px] text-red-300" role="alert">
+          {err}
+        </p>
+      )}
+      <Btn kind="primary" full icon="check" className="mt-4" disabled={upsert.isPending || name.trim() === ''} onClick={save}>
+        {upsert.isPending ? 'Opslaan…' : 'Opslaan'}
+      </Btn>
+    </Sheet>
+  );
+}
+
+/** Confirm before marking a contact permanent — they land on every NEW list (#11). */
+function PermanentConfirmSheet({ contact, onClose }: { contact: PoContact; onClose: () => void }): JSX.Element {
+  const toggle = usePoToggleContactPermanent();
+  return (
+    <Sheet onClose={onClose} center={false}>
+      <div className="mb-3 flex items-center gap-[12px]">
+        <span className="flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-[13px] bg-acc-dim text-acc">
+          <Icon name="star" size={22} stroke="#B5A6FF" fill="#B5A6FF" />
+        </span>
+        <div className="font-display text-[18px] font-bold text-text">{contact.name} altijd toevoegen?</div>
+      </div>
+      <Note icon="star">
+        <b>{contact.name}</b> komt dan automatisch op élke <b>nieuwe</b> gastenlijst. Bestaande events vul je bij via “Nu toevoegen aan een event”. Je kunt dit altijd weer uitzetten.
+      </Note>
+      <Btn full kind="primary" icon="star" className="mt-1" disabled={toggle.isPending} onClick={() => toggle.mutate({ contactId: contact.id, isPermanent: true }, { onSuccess: onClose })}>
+        {toggle.isPending ? 'Bezig…' : 'Ja, altijd toevoegen'}
+      </Btn>
+      <Btn full kind="ghost" className="mt-2" onClick={onClose}>
+        Annuleren
+      </Btn>
+    </Sheet>
+  );
+}
+
+/** Pick an event + ticket (tier) and add the contact to that gastenlijst (Q9). The
+ *  in-context event is pre-selected; with a single event you just pick a ticket. */
+function AddToEventSheet({
+  contact,
+  eventId,
+  upcoming,
+  onClose,
+  onAdded,
+}: {
+  contact: PoContact;
+  eventId?: string;
+  upcoming: PoEvent[];
+  onClose: () => void;
+  onAdded: (id: string) => void;
+}): JSX.Element {
+  const add = usePoAddContactToEvent();
+  const [evId, setEvId] = useState<string>(eventId && upcoming.some((e) => e.id === eventId) ? eventId : upcoming[0]?.id ?? '');
+  const { data: tiers = [], isLoading: tiersLoading } = usePoTiers(evId);
+  // Is this contact already a live (non-removed) guest on the selected event? We
+  // reuse the event's guest list (RLS-scoped) rather than a separate query, so the
+  // existing add/update invalidations keep it fresh.
+  const { data: evGuests = [], isLoading: guestsLoading } = usePoGuests(evId);
+  const onList = evGuests.find((g) => g.contactId === contact.id) ?? null;
+  const update = usePoUpdateGuest(evId);
+
+  const [tierId, setTierId] = useState<string>('');
+  const [plus, setPlus] = useState(0); // new guest: extra plekken (total = 1 + plus)
+  const [mode, setMode] = useState<'add' | 'set'>('add'); // already-on-list choice
+  const [amount, setAmount] = useState(1); // already-on-list: the number for the chosen mode
+  const [err, setErr] = useState<string | null>(null);
+
+  // Default the ticket to the event's default (or first) whenever the tiers load.
+  useEffect(() => {
+    if (tiers.length === 0) {
+      setTierId('');
+      return;
+    }
+    if (!tiers.some((t) => t.id === tierId)) {
+      const def = resolveDefaultTierId(tiers.map((t) => ({ id: t.id, name: t.name, aliases: t.aliases })));
+      setTierId(def ?? tiers[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tiers]);
+
+  const busy = add.isPending || update.isPending;
+  const finishOk = (): void => onAdded(contact.id);
+
+  // New guest on this event: ticket + plus-ones via add_contact_to_event.
+  const submitNew = (): void => {
+    setErr(null);
+    if (!evId) return setErr('Kies een event.');
+    add.mutate(
+      { contactId: contact.id, eventId: evId, tierId: tierId || undefined, plusOnes: plus || undefined },
+      { onSuccess: finishOk, onError: (e) => setErr(e instanceof Error ? e.message : 'Toevoegen mislukt.') },
+    );
+  };
+
+  // Already on this event: never silently no-op — set a new plus-ones total or add
+  // to the existing count (the user's choice), via a plain guest update.
+  const finalPlus = onList ? (mode === 'add' ? onList.plus + amount : amount) : 0;
+  const submitAdjust = (): void => {
+    if (!onList) return;
+    setErr(null);
+    update.mutate(
+      { guestId: onList.id, plusOnes: finalPlus },
+      { onSuccess: finishOk, onError: (e) => setErr(e instanceof Error ? e.message : 'Opslaan mislukt.') },
+    );
+  };
+
+  const switchMode = (m: 'add' | 'set'): void => {
+    setMode(m);
+    setAmount(m === 'set' ? onList?.plus ?? 0 : 1);
+  };
+
+  return (
+    <Sheet onClose={onClose} center={false}>
+      <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{contact.name} toevoegen</div>
+      <div className="mb-4 text-[13px] text-faint">Kies het event{onList ? '' : ' en het ticket'}.</div>
+
+      {upcoming.length === 0 ? (
+        <Empty text="Geen komend event om aan toe te voegen." />
+      ) : (
+        <>
+          <Label className="mb-2">Event</Label>
+          <div className="mb-4 flex flex-col gap-2">
+            {upcoming.map((e) => {
+              const on = e.id === evId;
+              return (
+                <button
+                  key={e.id}
+                  type="button"
+                  onClick={() => setEvId(e.id)}
+                  className={cn('flex items-center gap-[12px] rounded-[12px] border px-[13px] py-[11px] text-left', press, on ? 'border-transparent bg-acc-dim' : 'border-line bg-elev')}
+                >
+                  <span className="w-[36px] shrink-0 text-center">
+                    <span className="block font-display text-[16px] font-extrabold leading-none text-text">{e.date}</span>
+                    <span className="block text-[9px] font-bold tracking-[0.05em] text-faint">{e.mon}</span>
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-display text-[14px] font-bold text-text">{e.name}</span>
+                    <span className="block text-[11px] text-faint">{e.venue}</span>
+                  </span>
+                  {on && <Icon name="check2" size={16} stroke="#B5A6FF" sw={2.4} />}
+                </button>
+              );
+            })}
+          </div>
+
+          {guestsLoading ? (
+            <div className="mb-3 text-[12.5px] text-faint">Lijst controleren…</div>
+          ) : onList ? (
+            // Already on this event — choose: add to, or replace, the plus-ones.
+            <>
+              <Note icon="user">
+                <b>{contact.name}</b> staat al op deze lijst
+                {onList.plus > 0 ? (
+                  <>
+                    {' '}
+                    met <b>+{onList.plus}</b> {onList.plus === 1 ? 'plek' : 'plekken'}
+                  </>
+                ) : (
+                  ' zonder extra plekken'
+                )}
+                .
+              </Note>
+              <Label className="mb-2">Wat wil je doen?</Label>
+              <div className="mb-3 flex gap-2">
+                <RolePill label="Erbij optellen" on={mode === 'add'} onClick={() => switchMode('add')} />
+                <RolePill label="Nieuw totaal" on={mode === 'set'} onClick={() => switchMode('set')} />
+              </div>
+              <div className="mb-1 flex items-center justify-between gap-[14px] rounded-[16px] bg-acc-dim p-[10px]">
+                <button type="button" onClick={() => setAmount((a) => Math.max(0, a - 1))} aria-label="Minder" className={cn('flex h-[46px] w-[46px] items-center justify-center rounded-[14px] border border-line bg-elev2 text-text', press)}>
+                  <Icon name="minus" size={20} sw={2.4} />
+                </button>
+                <div className="text-center">
+                  <div className="font-display text-[28px] font-extrabold leading-none text-text">{amount}</div>
+                  <div className="mt-0.5 text-[11px] text-dim">{mode === 'add' ? 'erbij' : 'totaal'}</div>
+                </div>
+                <button type="button" onClick={() => setAmount((a) => a + 1)} aria-label="Meer" className={cn('flex h-[46px] w-[46px] items-center justify-center rounded-[14px] border border-line bg-elev2 text-text', press)}>
+                  <Icon name="plus" size={20} sw={2.4} stroke="#B5A6FF" />
+                </button>
+              </div>
+              <div className="mb-3 px-1 text-[12px] text-faint">
+                Wordt <b className="text-text">+{finalPlus}</b> {finalPlus === 1 ? 'plek' : 'plekken'} in totaal
+                {mode === 'add' && amount > 0 ? ` (was +${onList.plus})` : ''}.
+              </div>
+              {err && (
+                <p className="mt-1 text-[12.5px] text-red-300" role="alert">
+                  {err}
+                </p>
+              )}
+              <Btn kind="primary" full icon="check" className="mt-2" disabled={busy} onClick={submitAdjust}>
+                {update.isPending ? 'Opslaan…' : `Opslaan · +${finalPlus}`}
+              </Btn>
+            </>
+          ) : (
+            // New on this event — pick a ticket + how many people.
+            <>
+              <Label className="mb-2">Ticket / tier</Label>
+              {tiersLoading ? (
+                <div className="mb-3 text-[12.5px] text-faint">Tickets laden…</div>
+              ) : tiers.length === 0 ? (
+                <Note icon="ticket">Dit event heeft nog geen tiers. Voeg er eerst een toe via eventbeheer.</Note>
+              ) : (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {tiers.map((t) => {
+                    const on = t.id === tierId;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setTierId(t.id)}
+                        className={cn('inline-flex items-center gap-[7px] rounded-[11px] border px-[12px] py-[9px] font-display text-[13px] font-bold', press, on ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev text-text')}
+                      >
+                        <span className="h-[9px] w-[9px] rounded-full" style={{ background: t.color }} />
+                        {t.short}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              <Label className="mb-2">Aantal personen</Label>
+              <div className="mb-1">
+                <Stepper value={1 + plus} onChange={(v) => setPlus(Math.max(0, v - 1))} />
+              </div>
+              <div className="mb-3 px-1 text-[12px] text-faint">
+                {plus === 0 ? 'Alleen deze gast.' : `${contact.name} + ${plus} extra ${plus === 1 ? 'plek' : 'plekken'} (${1 + plus} totaal).`}
+              </div>
+
+              {err && (
+                <p className="mt-1 text-[12.5px] text-red-300" role="alert">
+                  {err}
+                </p>
+              )}
+              <Btn kind="primary" full icon="plus" className="mt-2" disabled={busy || !evId || tiers.length === 0} onClick={submitNew}>
+                {add.isPending ? 'Toevoegen…' : plus > 0 ? `Voeg toe · ${1 + plus} personen` : 'Voeg toe aan gastenlijst'}
+              </Btn>
+            </>
+          )}
+        </>
+      )}
+    </Sheet>
+  );
+}
+
 // ── PERMANENTE GASTEN (pushed) ───────────────────────────────────────────────
+// The venue's permanent contacts (is_permanent). Unstar removes one; "Nu
+// toevoegen aan een event" runs sync_permanent_guests_into_event, which is
+// idempotent and SKIPS contacts manually removed from that event ("respect the
+// removal", #11). Add more via the address book (the "+" header).
 export function Vaste(): JSX.Element {
   const nav = useNav();
-  const { vast, toggleVast } = usePo();
-  const list = contacts.filter((c) => vast.has(c.name));
+  const { roles } = usePoIdentity();
+  const canView = roles.includes('admin') || roles.includes('finance');
+  const { data: list = [], isLoading, isError } = usePoPermanentContacts();
+  const toggleVast = usePoToggleContactPermanent();
+  const sync = usePoSyncPermanent();
+  const { data: liveEvents = [] } = usePoEvents();
+  const upcoming = liveEvents.filter((e) => e.when === 'upcoming');
+  const permanent = list ?? [];
+  const noRights = !isLoading && !isError && !canView && permanent.length === 0;
+
+  const [pick, setPick] = useState(false);
+  const [result, setResult] = useState<{ event: string; added: number } | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const runSync = (evId: string, evName: string): void => {
+    setErrorMsg(null);
+    setResult(null);
+    sync.mutate(
+      { eventId: evId },
+      {
+        onSuccess: (res) => {
+          setPick(false);
+          setResult({ event: evName, added: res.ok ? res.added : 0 });
+        },
+        onError: (e) => setErrorMsg(e instanceof Error ? e.message : 'Synchroniseren mislukt.'),
+      },
+    );
+  };
+
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Permanente gasten" right={<IconBtn name="plus" />} />
+      <Top
+        onBack={nav.back}
+        title="Permanente gasten"
+        sub={`${permanent.length} ${permanent.length === 1 ? 'gast' : 'gasten'}`}
+        right={<IconBtn name="plus" onClick={() => nav.push('contacten')} />}
+      />
       <Scroll bottom={24}>
         <div className="mb-4 flex gap-[12px] rounded-[16px] bg-acc-dim p-[15px]">
           <Icon name="star" size={20} stroke="#B5A6FF" fill="#B5A6FF" />
@@ -808,22 +1319,92 @@ export function Vaste(): JSX.Element {
             Deze gasten komen <b>automatisch</b> op élke nieuwe gastenlijst. Eén keer instellen — daarna niets meer doen.
           </div>
         </div>
-        <div className="flex flex-col gap-[9px]">
-          {list.map((c) => (
-            <div key={c.name} className="flex items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[12px]">
-              <Avatar name={c.name} size={42} accent />
-              <div className="flex-1">
-                <div className="font-display text-[15.5px] font-bold text-text">{c.name}</div>
-                <div className="mt-[3px] text-[12px] text-faint">auto · {c.role}</div>
-              </div>
-              <button type="button" onClick={() => toggleVast(c.name)} className={cn('flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line text-faint', press)}>
-                <Icon name="close" size={16} />
-              </button>
-            </div>
-          ))}
-          {list.length === 0 && <div className="py-[30px] text-center text-[14px] text-faint">Nog geen permanente gasten.</div>}
-        </div>
+
+        {result && (
+          <div className="mb-3 flex items-center gap-[9px] rounded-[13px] border border-acc bg-acc-dim px-[14px] py-[11px] text-[13px] text-text">
+            <Icon name="check" size={16} stroke="#B5A6FF" />
+            <span className="flex-1">
+              {result.added > 0
+                ? `${result.added} ${result.added === 1 ? 'gast' : 'gasten'} toegevoegd aan ${result.event}.`
+                : `Iedereen stond al op ${result.event} (of is daar handmatig verwijderd).`}
+            </span>
+          </div>
+        )}
+        {errorMsg && (
+          <div className="mb-3 flex items-center gap-[9px] rounded-[13px] border border-acc bg-acc-dim px-[14px] py-[11px] text-[13px] text-text">
+            <Icon name="warn" size={16} stroke="#B5A6FF" />
+            <span className="flex-1">{errorMsg}</span>
+          </div>
+        )}
+
+        {!isLoading && !isError && permanent.length > 0 && (
+          <Btn kind="dark" full icon="cal" className="mb-4" disabled={sync.isPending} onClick={() => setPick(true)}>
+            {sync.isPending ? 'Toevoegen…' : 'Nu toevoegen aan een event'}
+          </Btn>
+        )}
+
+        {isLoading ? (
+          <Empty text="Laden…" />
+        ) : noRights ? (
+          <Note icon="shield">
+            Je hebt geen rechten om permanente gasten te beheren. Alleen een beheerder, financiën of organisator ziet het adresboek.
+          </Note>
+        ) : isError ? (
+          <Empty text="Kon de permanente gasten niet laden." />
+        ) : permanent.length === 0 ? (
+          <Empty text="Nog geen permanente gasten — ster ze in het adresboek." />
+        ) : (
+          <div className="flex flex-col gap-[9px]">
+            {permanent.map((c) => {
+              const removing = toggleVast.isPending && toggleVast.variables?.contactId === c.id;
+              return (
+                <div key={c.id} className="flex items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[12px]">
+                  <Avatar name={c.name} size={42} accent />
+                  <div className="flex-1">
+                    <div className="font-display text-[15.5px] font-bold text-text">{c.name}</div>
+                    <div className="mt-[3px] text-[12px] text-faint">auto · {c.role}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => toggleVast.mutate({ contactId: c.id, isPermanent: false })}
+                    disabled={removing}
+                    title="Verwijder uit permanente gasten"
+                    className={cn('flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line text-faint', press)}
+                  >
+                    <Icon name="close" size={16} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </Scroll>
+
+      {pick && (
+        <Sheet onClose={() => setPick(false)} center={false}>
+          <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">Synchroniseer met event</div>
+          <div className="mb-4 text-[13px] text-faint">Voeg de permanente gasten toe aan een event. Handmatig verwijderde gasten blijven eruit.</div>
+          {upcoming.length === 0 ? (
+            <Empty text="Geen komend event." />
+          ) : (
+            <div className="flex flex-col gap-2">
+              {upcoming.map((e) => (
+                <button key={e.id} type="button" disabled={sync.isPending} onClick={() => runSync(e.id, e.name)} className={cn('flex items-center gap-[12px] rounded-[12px] border border-line bg-elev px-[13px] py-[12px] text-left', press)}>
+                  <span className="w-[38px] shrink-0 text-center">
+                    <span className="block font-display text-[16px] font-extrabold leading-none text-text">{e.date}</span>
+                    <span className="block text-[9px] font-bold tracking-[0.05em] text-faint">{e.mon}</span>
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-display text-[14.5px] font-bold text-text">{e.name}</span>
+                    <span className="block text-[11.5px] text-faint">{e.venue}</span>
+                  </span>
+                  <Icon name="chev" size={16} className="text-ghost" />
+                </button>
+              ))}
+            </div>
+          )}
+        </Sheet>
+      )}
     </div>
   );
 }

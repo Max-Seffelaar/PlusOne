@@ -1080,7 +1080,12 @@ export type Database = {
     Functions: {
       accept_pending_invites: { Args: never; Returns: number }
       add_contact_to_event: {
-        Args: { p_contact_id: string; p_event_id: string; p_tier_id?: string }
+        Args: {
+          p_contact_id: string
+          p_event_id: string
+          p_plus_ones?: number
+          p_tier_id?: string
+        }
         Returns: string
       }
       admin_list_user_sessions: {

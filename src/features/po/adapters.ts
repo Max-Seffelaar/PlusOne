@@ -4,6 +4,7 @@ import type {
   PoEventRow,
   PoGuestRow,
   PoTierRow,
+  PoContactRow,
   RecapGuestRow,
   PoInviteRow,
   PoMemberRow,
@@ -110,6 +111,7 @@ export function toPoGuest(row: PoGuestRow, extras: GuestExtras): Guest {
     by: extras.addedBy ?? '',
     addedAt: fmt(row.created_at, { day: 'numeric', month: 'short' }).replace('.', ''),
     status: guestStatusToPo(row.status),
+    contactId: row.contact_id,
     // at/inBy come from check_ins (DoorProvider), not the guests row.
   };
 }
@@ -210,6 +212,67 @@ export function toPoTier(row: PoTierRow, used: number): Tier {
     // Door price isn't modelled in the core schema (#10) — UI default.
     doorPrice: 0,
     aliases: row.aliases ?? [],
+  };
+}
+
+// ── Address book adapter (S3 Adresboek + Import) ──
+// A richer Po* view type (like the settings adapters): carries the contact id +
+// is_permanent so a rendered row can drive the star/add-to-event writes, and the
+// last 4 phone digits as a privacy-light identity hint (the brief: "naam, laatste
+// 4 cijfers, vast, voorkeur-tier"). Never the full e-mail/phone.
+
+type ContactRoleEnum = Database['public']['Enums']['contact_role'];
+
+const CONTACT_ROLE_TO_PO: Record<ContactRoleEnum, Role> = {
+  vip: 'VIP',
+  all_access: 'All Access',
+  artist: 'Artist',
+  press: 'Pers',
+  crew: 'Crew',
+  guest: 'Gast',
+};
+
+/** A contact's preferred_role → the po Role badge (null → "Gast"). */
+export function contactRoleToPo(role: ContactRoleEnum | null): Role {
+  return role ? CONTACT_ROLE_TO_PO[role] : 'Gast';
+}
+
+export interface PoContact {
+  id: string;
+  name: string;
+  /** Badge from preferred_role (display). */
+  role: Role;
+  /** "X× op een lijst". */
+  events: number;
+  /** is_permanent — the star state ("vast"). */
+  vast: boolean;
+  /** Last 4 phone digits, or null when no usable phone (list display). */
+  phoneLast4: string | null;
+  // Raw editable fields — NOT shown in the list, used to prefill the edit sheet
+  // (the manager is already authorised to read these via RLS). Carried so an edit
+  // never blanks a field the form doesn't surface (the upsert is a full overwrite).
+  email: string | null;
+  phone: string | null;
+  birthdate: string | null;
+  note: string | null;
+  /** Raw preferred_role enum for the edit role picker (null = no preference). */
+  preferredRole: ContactRoleEnum | null;
+}
+
+export function toPoContact(row: PoContactRow): PoContact {
+  const digits = (row.phone ?? '').replace(/[^0-9]/g, '');
+  return {
+    id: row.id,
+    name: row.full_name,
+    role: contactRoleToPo(row.preferred_role),
+    events: row.eventCount,
+    vast: row.is_permanent,
+    phoneLast4: digits.length >= 4 ? digits.slice(-4) : null,
+    email: row.email,
+    phone: row.phone,
+    birthdate: row.birthdate,
+    note: row.note,
+    preferredRole: row.preferred_role,
   };
 }
 

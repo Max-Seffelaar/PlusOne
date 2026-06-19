@@ -2,10 +2,9 @@
 
 /**
  * Navigation + shared app state for the po surface. Holds the in-memory nav stack
- * and a little cross-screen UI state (permanente gasten, active venue). The door
- * check-in state used to live here too; it now comes from the real DoorProvider
- * (TanStack Query + offline outbox + realtime) under the Deur/Taken tabs, so it
- * is no longer duplicated here (#25).
+ * and the active venue. The door check-in state used to live here too; it now
+ * comes from the real DoorProvider (TanStack Query + offline outbox + realtime)
+ * under the Deur/Taken tabs, so it is no longer duplicated here (#25).
  */
 import { createContext, useContext } from 'react';
 import type { TabKey } from './shell';
@@ -61,8 +60,6 @@ export interface AuthNav {
 }
 
 export interface PoApp {
-  vast: Set<string>;
-  toggleVast: (n: string) => void;
   venue: Venue;
   switchVenue: (v: Venue) => void;
   statsVenues: { venueId: string; venueName: string }[];

@@ -21,6 +21,8 @@ import {
   fetchTiersWithUsage,
   fetchPoGuests,
   fetchEventQuota,
+  fetchContacts,
+  fetchContactKeyRows,
   fetchVenueMembers,
   fetchMemberQuotas,
   fetchVenueSettings,
@@ -36,6 +38,7 @@ import {
   toPoEvent,
   toPoGuest,
   toPoTier,
+  toPoContact,
   toRecap,
   tierRole,
   toPoTeamMember,
@@ -44,6 +47,7 @@ import {
   toPoProfile,
   toPoVenueSettings,
   toPoSubscription,
+  type PoContact,
   type PoRecap,
   type PoTeamMember,
   type PoInvite,
@@ -52,7 +56,16 @@ import {
   type PoVenueSettings,
   type PoSubscription,
 } from './adapters';
+import { normalizeEmail, normalizePhoneToDigits } from '@/features/contacts/import/parse';
 import { usePoIdentity } from './PoLiveProvider';
+
+/** Existing-contact dedup keys for the import preview, mirroring the DB's
+ *  email-first-else-phone matching (upsert_contacts). Two sets so a parsed row can
+ *  hit on either, exactly like the RPC. */
+export interface ContactDedupeKeys {
+  emails: Set<string>;
+  phones: Set<string>;
+}
 
 /** All events for the caller's active venue, with on-list + present headcounts. */
 export function usePoEvents() {
@@ -195,6 +208,57 @@ export function usePoQuota(eventId: string) {
     queryKey: poKeys.quota(eventId),
     enabled: !!eventId,
     queryFn: () => fetchEventQuota(createClient(), eventId),
+  });
+}
+
+// ── Address book reads (S3 Adresboek + Import, STAP 3.4/3.8) ──
+// Scope to the active venue; RLS limits direct contacts reads to admin / finance /
+// organizer, so staff/doorhost get [] and the screen renders its empty state.
+
+/**
+ * The venue address book. The optional search is server-side (ilike on name); the
+ * screen also filters client-side on the last-4 phone hint. One cache per search
+ * term, all under the ['po','contacts',venueId] prefix so writes invalidate every
+ * variant at once.
+ */
+export function usePoContacts(search = '') {
+  const { venueId } = usePoIdentity();
+  return useQuery<PoContact[]>({
+    queryKey: poKeys.contacts(venueId ?? '', search),
+    enabled: !!venueId,
+    queryFn: async () => {
+      if (!venueId) return [];
+      const rows = await fetchContacts(createClient(), venueId, search);
+      return rows.map(toPoContact);
+    },
+  });
+}
+
+/** Permanent contacts only (the "Vaste" screen) — derived from the unsearched list. */
+export function usePoPermanentContacts() {
+  const query = usePoContacts('');
+  return { ...query, data: query.data?.filter((c) => c.vast) };
+}
+
+/** Existing-contact dedup keys (e-mail + phone digits) for the import preview. */
+export function usePoContactKeys() {
+  const { venueId } = usePoIdentity();
+  return useQuery<ContactDedupeKeys>({
+    queryKey: poKeys.contactKeys(venueId ?? ''),
+    enabled: !!venueId,
+    queryFn: async () => {
+      const emails = new Set<string>();
+      const phones = new Set<string>();
+      if (!venueId) return { emails, phones };
+      const rows = await fetchContactKeyRows(createClient(), venueId);
+      for (const r of rows) {
+        const e = normalizeEmail(r.email);
+        if (e) emails.add(e);
+        const p = normalizePhoneToDigits(r.phone);
+        if (p) phones.add(p);
+      }
+      return { emails, phones };
+    },
   });
 }
 

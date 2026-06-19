@@ -1,13 +1,13 @@
 'use client';
 
 /**
- * Prototype app shell — mirrors `po-app.jsx`: a single client tree with an
- * in-memory nav stack, auth flow, and shared door state, rendered inside the
- * phone frame. This is the navigable mock; later phases swap the stack for the
- * App Router and the door state for TanStack Query + the offline outbox.
+ * po app shell — a single client tree with an in-memory nav stack + auth flow,
+ * rendered through the responsive shell. Events / Gastenlijst / adresboek read
+ * live Supabase data; the Deur/Taken tabs mount the real DoorProvider (offline
+ * outbox + realtime), so there is no in-memory door state here anymore.
  */
 import { useState, type ReactNode } from 'react';
-import { contacts, venues } from '@/lib/po/data';
+import { venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
 import { usePoDoorEvent, usePoEvents, usePoGuests } from '@/features/po/hooks';
 import { DoorProvider } from '@/features/door/DoorProvider';
@@ -75,7 +75,6 @@ export function PlusOneApp({
   // behind a full-screen door detail (isTabRoot below); the door components that
   // read it render inside the provider, via <PoDoorTab>.
   const [doorOverlay, setDoorOverlay] = useState<DoorOverlay>(null);
-  const [vast, setVast] = useState<Set<string>>(() => new Set(contacts.filter((c) => c.vast).map((c) => c.name)));
   const [venue, setVenueState] = useState<Venue>(() => venues.find((v) => v.current) ?? venues[0]);
   const [toast, setToast] = useState<string | null>(null);
   const [key, setKey] = useState(0);
@@ -136,13 +135,6 @@ export function PlusOneApp({
   const openAdd = (): void => setDoorOverlay({ kind: 'add' });
   const closeOverlay = (): void => setDoorOverlay(null);
 
-  const toggleVast = (n: string): void =>
-    setVast((s) => {
-      const x = new Set(s);
-      if (x.has(n)) x.delete(n);
-      else x.add(n);
-      return x;
-    });
   const switchVenue = (v: Venue): void => {
     setVenueState(v);
     setToast('Gewisseld naar ' + v.name);
@@ -184,7 +176,7 @@ export function PlusOneApp({
         break;
       }
       case 'contacten':
-        screen = <Contacten />;
+        screen = <Contacten eventId={p.id} />;
         break;
       case 'vaste':
         screen = <Vaste />;
@@ -247,7 +239,7 @@ export function PlusOneApp({
   else if (tab === 'meer') screen = <Meer />;
   // 'deur' / 'taken' render via the door branch below (inside DoorProvider).
 
-  const po: PoApp = { vast, toggleVast, venue, switchVenue, statsVenues: statsAccess?.venues ?? [], nav };
+  const po: PoApp = { venue, switchVenue, statsVenues: statsAccess?.venues ?? [], nav };
 
   const body = (
     <>
