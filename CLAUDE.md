@@ -113,6 +113,27 @@ Run through this list for each new or modified path. No exceptions, including "i
 5. Migration applies cleanly on a fresh database (`supabase db reset` passes).
 6. Update `gastenlijst-app-spec.md` (repo root) if a decision was refined; add the change to the decision table.
 7. Short summary of what was built + open questions, so it can be pasted into the ClickUp task.
+8. **UI tasks:** end with the per-screen **test handoff** (direct dev-login link + 10–15 specific test questions) — see below.
+
+## Per-screen test handoff (UI tasks — ALWAYS end with this)
+
+When you finish building/wiring a screen, end with a **test handoff** so Max can verify it and give feedback per part. Two pieces:
+
+1. **A direct dev-login link to the screen** (see "Local dev & testing"):
+   - Real routes (`/door/[id]`, `/e/[slug]`, the desktop `(app)/*` pages): `http://localhost:7000/auth/dev-login?email=manager@plusone.test&next=<route>`.
+   - The in-memory `po` tabs (no per-screen URL): link to `…&next=/app` and name the tab to open (e.g. "open the **Deur** tab").
+   - Pick the seed user whose role actually exercises the screen (e.g. `door@plusone.test` for check-in, `staff@plusone.test` for own-guest quota).
+
+2. **10–15 concrete, numbered yes/no test questions**, specific to that screen (not generic). Cover this spread:
+   - **Core action(s)** — the screen's primary task works end-to-end?
+   - **Live data** — real data loads (not mock)? writes persist after a refresh?
+   - **Responsive** — clean at ≤390px (tabs) and ≥1280px (sidebar)? no horizontal scroll, tap-targets ≥44px?
+   - **States** — empty / loading / error handled gracefully?
+   - **Permissions** — actions hidden/locked for roles without rights (and the lock-popup shows)?
+   - **Edge cases** — 1–2 screen-specific ones (quota exceeded, list locked, +N math, offline outbox, …).
+   - **Visual** — matches the Claude Design (spacing, lavender accent, fonts)?
+
+Number them so Max can answer "1 ✅, 2 ❌ — …" and paste it straight back as feedback per component.
 
 ## What NOT to do
 
