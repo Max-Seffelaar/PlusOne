@@ -228,3 +228,76 @@ describe('parseBulk + totalSlots', () => {
     expect(totalSlots(results)).toBe(3 + 1 + 2); // (1+2) + 1 + (1+1)
   });
 });
+
+describe('e-mail + phone capture (#9)', () => {
+  it('pulls an e-mail out of the line and keeps name/tier/+N', () => {
+    const r = parse('Max Jansen max@host.nl +2 vip');
+    expect(r.email).toBe('max@host.nl');
+    expect(r.name).toBe('Max Jansen');
+    expect(r.plusOnes).toBe(2);
+    expect(r.tierId).toBe('vip');
+    expect(r.phone).toBeNull();
+  });
+
+  it('pulls a NL mobile number out of the line', () => {
+    const r = parse('Noor 0612345678');
+    expect(r.phone).toBe('0612345678');
+    expect(r.name).toBe('Noor');
+    expect(r.plusOnes).toBe(0);
+  });
+
+  it('captures a contiguous international number and keeps the tier', () => {
+    const r = parse('Sam +31612345678 vip');
+    expect(r.phone).toBe('+31612345678');
+    expect(r.name).toBe('Sam');
+    expect(r.tierId).toBe('vip');
+  });
+
+  it('reads a trailing bare number as +N (name tier phone email N)', () => {
+    const r = parse('piet hoi VIP 31646003664 hoi@hoi.nl 2');
+    expect(r.name).toBe('piet hoi');
+    expect(r.tierId).toBe('vip');
+    expect(r.plusOnes).toBe(2);
+    expect(r.phone).toBe('31646003664');
+    expect(r.email).toBe('hoi@hoi.nl');
+  });
+
+  it('handles the full pasted format across lines', () => {
+    const [a, b] = parseBulk(
+      'jan dsadsa Regular 31646003600 Henk@henk.nl 1\nfreek VIP 31646003699 peit@piet.nl 5',
+      TIERS,
+      DEFAULT,
+    );
+    expect(a).toMatchObject({ name: 'jan dsadsa', tierId: 'regular', plusOnes: 1, phone: '31646003600', email: 'Henk@henk.nl' });
+    expect(b).toMatchObject({ name: 'freek', tierId: 'vip', plusOnes: 5, phone: '31646003699', email: 'peit@piet.nl' });
+  });
+
+  it('never reads a phone number as +N plus-ones', () => {
+    const r = parse('Jan 0612345678');
+    expect(r.plusOnes).toBe(0);
+    expect(r.phone).toBe('0612345678');
+    // a real +N still parses, with no phone
+    expect(parse('Jan +2').plusOnes).toBe(2);
+    expect(parse('Jan +2').phone).toBeNull();
+  });
+
+  it('captures both e-mail and phone together', () => {
+    const r = parse('Eva eva@host.com 0612345678 fles');
+    expect(r.email).toBe('eva@host.com');
+    expect(r.phone).toBe('0612345678');
+    expect(r.name).toBe('Eva');
+    expect(r.tierId).toBe('fles');
+  });
+
+  it('leaves email/phone null when absent', () => {
+    const r = parse('Juri +2');
+    expect(r.email).toBeNull();
+    expect(r.phone).toBeNull();
+  });
+
+  it('carries contact fields through parseBulk', () => {
+    const [a, b] = parseBulk('Max max@x.nl +1\nNoor 0612345678 vip', TIERS, DEFAULT);
+    expect(a).toMatchObject({ name: 'Max', email: 'max@x.nl', plusOnes: 1 });
+    expect(b).toMatchObject({ name: 'Noor', phone: '0612345678', tierId: 'vip' });
+  });
+});

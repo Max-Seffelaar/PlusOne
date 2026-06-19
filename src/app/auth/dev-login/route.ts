@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { safeNextPath } from '@/features/auth/next-path';
+import { devTotpCode } from '@/features/auth/dev-totp';
 
 // LOCAL-ONLY one-hit dev login. Mints a magic-link token with the service role
 // and verifies it to set the session cookies — a STABLE, reusable URL so local
@@ -11,9 +12,15 @@ import { safeNextPath } from '@/features/auth/next-path';
 //
 // HARD-GATED — runs only in development AND against a localhost Supabase URL, so
 // it can never work in production (prod is NODE_ENV=production with a hosted URL).
-// It does NOT bypass MFA: the minted session is AAL1, so admin/finance still hit
-// the MFA gate afterwards. It only skips the OTP step for the no-MFA seed users
-// (manager/staff/door@plusone.test).
+//
+// MFA: for the seed admin/finance accounts (which carry the FIXED dev TOTP secret
+// stamped by scripts/dev-mfa.mjs) it completes the MFA challenge server-side, so
+// admin login is one click locally — no authenticator app. Pass ?aal1=1 to skip
+// that and land at AAL1 (to exercise the real /mfa/verify wall). This never
+// weakens prod: the route 404s there and the fixed secret only exists locally.
+
+// Mirrors scripts/dev-mfa.mjs — the local-only fixed TOTP secret.
+const DEV_MFA_SECRET = 'PLUSONELOCALADMINDEVSECRET234567';
 function devLoginEnabled(): boolean {
   const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
   const onLocalSupabase = /(?:localhost|127\.0\.0\.1)/.test(supaUrl);
@@ -45,6 +52,25 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const { error } = await supabase.auth.verifyOtp({ type: 'magiclink', token_hash: tokenHash });
   if (error) {
     return NextResponse.redirect(new URL('/login?error=devlogin', request.url));
+  }
+
+  // One-click AAL2: complete the MFA challenge for a seed account that has a
+  // verified TOTP factor on the fixed dev secret, so admin/finance land straight
+  // in the app. Best-effort — a self-enrolled factor with another secret just
+  // stays AAL1 and hits the normal MFA wall. Opt out with ?aal1=1.
+  if (url.searchParams.get('aal1') !== '1') {
+    try {
+      const { data: factors } = await supabase.auth.mfa.listFactors();
+      const totp = factors?.totp?.find((f) => f.status === 'verified');
+      if (totp) {
+        await supabase.auth.mfa.challengeAndVerify({
+          factorId: totp.id,
+          code: devTotpCode(DEV_MFA_SECRET, Date.now()),
+        });
+      }
+    } catch {
+      /* leave the session at AAL1; the MFA gate handles the step-up */
+    }
   }
 
   await supabase.rpc('accept_pending_invites');

@@ -174,14 +174,28 @@ async function main() {
   );
 
   const ids = targets.map((id) => `'${id}'`).join(', ');
+  // Stable, deterministic factor ids so the factor SURVIVES re-runs and is shared
+  // across git worktrees / dev servers. The old behaviour recreated the factor
+  // with gen_random_uuid() every run, so any already-loaded tab or other dev
+  // server kept challenging the now-deleted id → "404: Factor not found" (the
+  // real "MFA werkt niet cross sessions/servers" bug). A fixed id + upsert keeps
+  // the same factor in place; the fixed secret means the code never changes either.
+  const fixedFactorId = (uid) => `d0fac701-0000-4000-8000-${uid.slice(-12)}`;
   const rows = targets
-    .map((id) => `(gen_random_uuid(), '${id}', 'Dev Authenticator', 'totp', 'verified', now(), now(), '${FIXED_SECRET}')`)
+    .map((uid) => `('${fixedFactorId(uid)}', '${uid}', 'Dev Authenticator', 'totp', 'verified', now(), now(), '${FIXED_SECRET}')`)
     .join(',\n    ');
+  const keepIds = targets.map((uid) => `'${fixedFactorId(uid)}'`).join(', ');
   psql(`
-    delete from auth.mfa_factors where user_id in (${ids});
+    -- Remove only stray factors (e.g. a previous random-id run); keep our fixed one.
+    delete from auth.mfa_factors where user_id in (${ids}) and id not in (${keepIds});
     insert into auth.mfa_factors (id, user_id, friendly_name, factor_type, status, created_at, updated_at, secret)
     values
-    ${rows};
+    ${rows}
+    on conflict (id) do update
+      set secret = excluded.secret,
+          status = 'verified',
+          factor_type = 'totp',
+          updated_at = now();
   `);
 
   const res = await fetch(`${apiUrl}/auth/v1/admin/generate_link`, {

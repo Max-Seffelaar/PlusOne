@@ -76,6 +76,8 @@ export async function addGuestsBulk(input: BulkAddInput): Promise<ActionResult> 
     tier_id: g.tierId,
     full_name: g.fullName,
     plus_ones: g.plusOnes,
+    email: g.email ?? null,
+    phone: g.phone ?? null,
     source,
     added_by: user.id,
   }));

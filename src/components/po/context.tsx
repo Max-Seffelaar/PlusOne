@@ -36,6 +36,8 @@ export type ScreenName =
 
 export interface ScreenProps {
   id?: string;
+  /** Event scope for the guest detail (props.id there is the guest id). */
+  eventId?: string;
   isNew?: boolean;
 }
 

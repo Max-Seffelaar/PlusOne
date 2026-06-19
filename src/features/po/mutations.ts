@@ -5,13 +5,14 @@
 // hook throws on a MutationError so React Query surfaces it, then invalidates the
 // affected event subtree. Door writes are deliberately ABSENT — they flow through
 // the offline outbox (DoorProvider), never a plain server action (#25).
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import {
   addGuest,
   addGuestsBulk,
   updateGuest,
   changeGuestTier,
   removeGuest,
+  type ActionResult,
 } from '@/features/guests/actions';
 import type {
   AddGuestInput,
@@ -24,9 +25,40 @@ import type {
   ApproveGuestRequestInput,
   DenyGuestRequestInput,
 } from '@/features/requests/schemas';
-import { decideQuotaRequest } from '@/features/quotas/actions';
-import type { DecideQuotaRequestInput } from '@/features/quotas/schemas';
+import { decideQuotaRequest, requestExtraSlots } from '@/features/quotas/actions';
+import type { DecideQuotaRequestInput, QuotaRequestInput } from '@/features/quotas/schemas';
+import {
+  changeEventStatus,
+  createEvent,
+  createTier,
+  deleteTier,
+  setAutoLock,
+  setLandingActive,
+  setListLock,
+  updateEvent,
+  updateTier,
+} from '@/features/events/actions';
+import type {
+  ChangeStatusInput,
+  CreateEventInput,
+  CreateTierInput,
+  DeleteTierInput,
+  SetAutoLockInput,
+  SetLandingActiveInput,
+  SetLockInput,
+  UpdateEventInput,
+  UpdateTierInput,
+} from '@/features/events/schemas';
+import { inviteUserAction, revokeInviteAction } from '@/features/auth/invite-actions';
+import { updateProfileAction, updateEmailAction } from '@/features/auth/profile-actions';
+import { revokeOwnSessionAction } from '@/features/auth/session-actions';
+import { updateMemberRolesAction, removeMemberAction, updateVenueSettingsAction } from '@/features/venues/actions';
+import { setDefaultQuotaAction } from '@/features/quotas/default-quota-actions';
+import type { VenueRole } from '@/features/auth/roles';
+import type { Guest, Tier } from '@/lib/po/types';
 import { poKeys } from './keys';
+import { optimisticGuest, type OptimisticAddArgs } from './adapters';
+import { usePoIdentity } from './PoLiveProvider';
 
 interface ActionLike {
   ok: boolean;
@@ -39,25 +71,78 @@ function throwOnError<T extends ActionLike>(res: T): T {
   return res;
 }
 
+/**
+ * Optimistically append guests to the cached list; returns a rollback snapshot.
+ * The role badge comes from the tiers cache, so the optimistic rows are visually
+ * indistinguishable from the server rows that replace them on invalidation.
+ * Callers pass a client UUIDv7 `id` (#25), so the keyed list reconciles without
+ * a flash when the real row arrives.
+ */
+async function patchGuestsOptimistically(
+  qc: QueryClient,
+  eventId: string,
+  rows: OptimisticAddArgs[]
+): Promise<{ prev: Guest[] | undefined }> {
+  await qc.cancelQueries({ queryKey: poKeys.guests(eventId) });
+  const prev = qc.getQueryData<Guest[]>(poKeys.guests(eventId));
+  const tiers = qc.getQueryData<Tier[]>(poKeys.tiers(eventId)) ?? [];
+  const additions = rows.map((r) => optimisticGuest(r, tiers));
+  qc.setQueryData<Guest[]>(poKeys.guests(eventId), (old) => [...(old ?? []), ...additions]);
+  return { prev };
+}
+
+/** Invalidate the whole add-affected subtree: guest list, tier counts, quota. */
+function invalidateAfterAdd(qc: QueryClient, eventId: string): void {
+  void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+  void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
+  void qc.invalidateQueries({ queryKey: poKeys.quota(eventId) });
+}
+
+// The settings cluster reuses the EXISTING (prev, FormData) → ActionState server
+// actions (useActionState shape), so writes keep going through RLS + the audit
+// triggers + the AAL2 gates unchanged. We build the FormData here and surface the
+// action's `.error` (AAL2 / permission / validation copy) as a thrown error so
+// React Query's onError shows it. No new write paths, no service-role.
+interface ActionStateLike {
+  ok: boolean;
+  error?: string;
+  message?: string;
+}
+
+function throwOnActionError<T extends ActionStateLike>(res: T): T {
+  if (!res.ok) throw new Error(res.error ?? res.message ?? 'Er ging iets mis.');
+  return res;
+}
+
+const NO_PREV = { ok: false } as const;
+
 export function usePoAddGuest(eventId: string) {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: AddGuestInput) => throwOnError(await addGuest(input)),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
-      void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
+  return useMutation<ActionResult, Error, AddGuestInput, { prev: Guest[] | undefined }>({
+    mutationFn: async (input) => throwOnError(await addGuest(input)),
+    onMutate: (input) =>
+      patchGuestsOptimistically(qc, eventId, [
+        { id: input.id, tierId: input.tierId, fullName: input.fullName, plusOnes: input.plusOnes },
+      ]),
+    onError: (_err, _input, ctx) => {
+      if (ctx) qc.setQueryData(poKeys.guests(eventId), ctx.prev);
     },
+    // Reconcile with the server (real ids, role, audit) regardless of outcome —
+    // our own key-invalidation, never Next's revalidatePath (that won't touch
+    // the client React Query cache the po surface reads from).
+    onSettled: () => invalidateAfterAdd(qc, eventId),
   });
 }
 
 export function usePoAddGuestsBulk(eventId: string) {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: BulkAddInput) => throwOnError(await addGuestsBulk(input)),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
-      void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
+  return useMutation<ActionResult, Error, BulkAddInput, { prev: Guest[] | undefined }>({
+    mutationFn: async (input) => throwOnError(await addGuestsBulk(input)),
+    onMutate: (input) => patchGuestsOptimistically(qc, eventId, input.guests),
+    onError: (_err, _input, ctx) => {
+      if (ctx) qc.setQueryData(poKeys.guests(eventId), ctx.prev);
     },
+    onSettled: () => invalidateAfterAdd(qc, eventId),
   });
 }
 
@@ -118,5 +203,285 @@ export function usePoDecideQuota(eventId: string) {
     mutationFn: async (input: DecideQuotaRequestInput) =>
       throwOnError(await decideQuotaRequest(input)),
     onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.quotaRequests(eventId) }),
+  });
+}
+
+/** Staff requests extra personal slots for an event (#5) — straight from quick-add. */
+export function usePoRequestExtraSlots(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: QuotaRequestInput) => throwOnError(await requestExtraSlots(input)),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: poKeys.quota(eventId) });
+      void qc.invalidateQueries({ queryKey: poKeys.quotaRequests(eventId) });
+    },
+  });
+}
+
+// ── Events & tiers (STAP 3.8) ──────────────────────────────────────────────
+// Event field/status/lock/landing edits invalidate the single event AND the
+// venue list (its headcount/status card). Tier edits invalidate the event's tiers.
+
+/** Invalidate both the single-event cache and the venue's events list. */
+function useInvalidateEvent() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return (eventId: string) => {
+    void qc.invalidateQueries({ queryKey: poKeys.event(eventId) });
+    if (venueId) void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
+  };
+}
+
+export function usePoCreateEvent() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: CreateEventInput): Promise<string> => {
+      const res = await createEvent(input);
+      if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
+      return res.eventId;
+    },
+    onSuccess: () => {
+      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
+    },
+  });
+}
+
+export function usePoUpdateEvent(eventId: string) {
+  const invalidate = useInvalidateEvent();
+  return useMutation({
+    mutationFn: async (input: UpdateEventInput) => throwOnError(await updateEvent(input)),
+    onSuccess: () => invalidate(eventId),
+  });
+}
+
+export function usePoChangeStatus(eventId: string) {
+  const invalidate = useInvalidateEvent();
+  return useMutation({
+    mutationFn: async (input: ChangeStatusInput) => throwOnError(await changeEventStatus(input)),
+    onSuccess: () => invalidate(eventId),
+  });
+}
+
+export function usePoSetLandingActive(eventId: string) {
+  const invalidate = useInvalidateEvent();
+  return useMutation({
+    mutationFn: async (input: SetLandingActiveInput) => throwOnError(await setLandingActive(input)),
+    onSuccess: () => invalidate(eventId),
+  });
+}
+
+export function usePoSetListLock(eventId: string) {
+  const invalidate = useInvalidateEvent();
+  return useMutation({
+    mutationFn: async (input: SetLockInput) => throwOnError(await setListLock(input)),
+    onSuccess: () => invalidate(eventId),
+  });
+}
+
+export function usePoSetAutoLock(eventId: string) {
+  const invalidate = useInvalidateEvent();
+  return useMutation({
+    mutationFn: async (input: SetAutoLockInput) => throwOnError(await setAutoLock(input)),
+    onSuccess: () => invalidate(eventId),
+  });
+}
+
+export function usePoCreateTier(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CreateTierInput) => throwOnError(await createTier(input)),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) }),
+  });
+}
+
+export function usePoUpdateTier(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: UpdateTierInput) => throwOnError(await updateTier(input)),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) }),
+  });
+}
+
+export function usePoDeleteTier(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: DeleteTierInput) => throwOnError(await deleteTier(input)),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) }),
+  });
+}
+
+// ── Settings cluster writes (STAP 3.7/3.8) ──
+
+export interface PoInviteInput {
+  email: string;
+  roles: VenueRole[];
+  /** Optional default quota seeded on acceptance (#4); omit for none. */
+  defaultQuota?: number;
+}
+
+/** Invite a user to the active venue (AAL2 + escalation enforced by the action). */
+export function usePoInviteUser() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: PoInviteInput) => {
+      if (!venueId) throw new Error('Geen actieve venue geselecteerd.');
+      const fd = new FormData();
+      fd.set('venueId', venueId);
+      fd.set('email', input.email);
+      input.roles.forEach((r) => fd.append('roles', r));
+      if (input.defaultQuota != null) fd.set('defaultQuota', String(input.defaultQuota));
+      return throwOnActionError(await inviteUserAction(NO_PREV, fd));
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.invites(venueId ?? '') }),
+  });
+}
+
+/** Cancel a pending invite. */
+export function usePoRevokeInvite() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (inviteId: string) => {
+      const fd = new FormData();
+      fd.set('inviteId', inviteId);
+      return throwOnActionError(await revokeInviteAction(NO_PREV, fd));
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.invites(venueId ?? '') }),
+  });
+}
+
+/** Change a member's roles (AAL2 + escalation + last-admin guard in the action). */
+export function usePoUpdateMemberRoles() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: { userId: string; roles: VenueRole[] }) => {
+      if (!venueId) throw new Error('Geen actieve venue geselecteerd.');
+      const fd = new FormData();
+      fd.set('venueId', venueId);
+      fd.set('userId', input.userId);
+      input.roles.forEach((r) => fd.append('roles', r));
+      return throwOnActionError(await updateMemberRolesAction(NO_PREV, fd));
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.team(venueId ?? '') }),
+  });
+}
+
+/** Remove a member from the active venue (revokes access here only, #24). */
+export function usePoRemoveMember() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (userId: string) => {
+      if (!venueId) throw new Error('Geen actieve venue geselecteerd.');
+      const fd = new FormData();
+      fd.set('venueId', venueId);
+      fd.set('userId', userId);
+      return throwOnActionError(await removeMemberAction(NO_PREV, fd));
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.team(venueId ?? '') }),
+  });
+}
+
+/** Set a member's default guest quota (AAL2 + admin-only in the action). */
+export function usePoSetDefaultQuota() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: { userId: string; defaultCount: number }) => {
+      if (!venueId) throw new Error('Geen actieve venue geselecteerd.');
+      const fd = new FormData();
+      fd.set('venueId', venueId);
+      fd.set('userId', input.userId);
+      fd.set('defaultCount', String(input.defaultCount));
+      return throwOnActionError(await setDefaultQuotaAction(NO_PREV, fd));
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.team(venueId ?? '') }),
+  });
+}
+
+/** Update the caller's own name + phone. */
+export function usePoUpdateProfile() {
+  const qc = useQueryClient();
+  const { userId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: { firstName: string; lastName: string; phone: string }) => {
+      const fd = new FormData();
+      fd.set('firstName', input.firstName);
+      fd.set('lastName', input.lastName);
+      fd.set('phone', input.phone);
+      return throwOnActionError(await updateProfileAction(NO_PREV, fd));
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.profile(userId) }),
+  });
+}
+
+/** Change the caller's own e-mail (double opt-in; nothing to invalidate yet). */
+export function usePoUpdateEmail() {
+  return useMutation({
+    mutationFn: async (email: string) => {
+      const fd = new FormData();
+      fd.set('email', email);
+      return throwOnActionError(await updateEmailAction(NO_PREV, fd));
+    },
+  });
+}
+
+/** End one of the caller's own sessions. */
+export function usePoRevokeOwnSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const fd = new FormData();
+      fd.set('sessionId', sessionId);
+      return throwOnActionError(await revokeOwnSessionAction(NO_PREV, fd));
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.sessions() }),
+  });
+}
+
+export interface PoVenueSettingsInput {
+  name: string;
+  retentionMonths: number;
+  defaultPersonalQuota: number;
+  companyName: string;
+  kvkNumber: string;
+  vatNumber: string;
+  financeEmail: string;
+  addressLine: string;
+  postalCode: string;
+  city: string;
+  country: string;
+}
+
+/** Update the active venue's settings + company profile (admin-only in the action). */
+export function usePoUpdateVenueSettings() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: PoVenueSettingsInput) => {
+      if (!venueId) throw new Error('Geen actieve venue geselecteerd.');
+      const fd = new FormData();
+      fd.set('venueId', venueId);
+      fd.set('name', input.name);
+      fd.set('retentionMonths', String(input.retentionMonths));
+      fd.set('defaultPersonalQuota', String(input.defaultPersonalQuota));
+      fd.set('companyName', input.companyName);
+      fd.set('kvkNumber', input.kvkNumber);
+      fd.set('vatNumber', input.vatNumber);
+      fd.set('financeEmail', input.financeEmail);
+      fd.set('addressLine', input.addressLine);
+      fd.set('postalCode', input.postalCode);
+      fd.set('city', input.city);
+      fd.set('country', input.country);
+      return throwOnActionError(await updateVenueSettingsAction(NO_PREV, fd));
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: poKeys.venueSettings(venueId ?? '') });
+      // The venue default feeds each member's effective quota in the team view.
+      void qc.invalidateQueries({ queryKey: poKeys.team(venueId ?? '') });
+    },
   });
 }

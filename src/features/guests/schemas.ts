@@ -46,6 +46,8 @@ export const bulkAddSchema = z.object({
         tierId: uuid,
         fullName,
         plusOnes: plusOnes.default(0),
+        email: optionalText(320),
+        phone: optionalText(40),
       })
     )
     .min(1, 'Geen gasten om toe te voegen')
