@@ -7,6 +7,8 @@ import { getOnboardingState } from '@/lib/auth/onboarding';
 import { getMyMemberships, getReportingVenues } from '@/lib/auth/memberships';
 import { getSessionUser } from '@/lib/auth/context';
 import { resolveActiveVenueId } from '@/lib/auth/active-venue';
+import { createClient } from '@/lib/supabase/server';
+import { ROLE_LABELS, VENUE_ROLES, requiresMfa } from '@/features/auth/roles';
 import { isMobileUA } from '@/lib/ua';
 
 export const metadata: Metadata = {
@@ -34,6 +36,20 @@ export default async function AppPage(): Promise<JSX.Element> {
     roles: active?.roles ?? [],
   };
 
+  // Real display name + role label for the shell footer (RLS: own profile).
+  const supabase = await createClient();
+  const { data: profileRow } = user
+    ? await supabase.from('user_profiles').select('full_name').eq('id', user.id).maybeSingle()
+    : { data: null };
+  const userName = profileRow?.full_name || user?.email || 'Account';
+  const roleLabel =
+    active && active.roles.length > 0
+      ? VENUE_ROLES.filter((r) => active.roles.includes(r))
+          .map((r) => ROLE_LABELS[r])
+          .join(' · ')
+      : 'Lid';
+  const userSub = active && requiresMfa(active.roles) ? `${roleLabel} · MFA` : roleLabel;
+
   // First-paint viewport hint (corrected client-side by matchMedia) + the live
   // active-venue name for the S0 nav-shell header/sidebar.
   const serverHint = isMobileUA((await headers()).get('user-agent'));
@@ -44,6 +60,8 @@ export default async function AppPage(): Promise<JSX.Element> {
         statsAccess={{ venues: venues.map((v) => ({ venueId: v.venueId, venueName: v.venueName })) }}
         serverHint={serverHint}
         liveVenueName={active?.venueName ?? undefined}
+        liveUserName={userName}
+        liveUserSub={userSub}
       />
     </PoLiveProvider>
   );
