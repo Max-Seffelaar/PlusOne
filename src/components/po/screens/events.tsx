@@ -5,9 +5,10 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { events, guests, recap, stats, tiers } from '@/lib/po/data';
 import type { PoEvent } from '@/lib/po/types';
+import { usePoEvents } from '@/features/po/hooks';
 import { useNav, usePo } from '../context';
 import { Icon, type IconName } from '../icon';
-import { Avatar, Btn, Field, IconBtn, Label, MiniChip, Note, RoleChip, Scroll, ToggleRow, Top } from '../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, RoleChip, Scroll, ToggleRow, Top } from '../kit';
 import { BottomBar } from '../shell';
 
 const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
@@ -46,7 +47,8 @@ function Alert({ icon, title, body }: { icon: IconName; title: string; body: str
 export function Events(): JSX.Element {
   const nav = useNav();
   const [when, setWhen] = useState<'upcoming' | 'past'>('upcoming');
-  const evs = events.filter((e) => e.when === when);
+  const { data: liveEvents, isLoading } = usePoEvents();
+  const evs = (liveEvents ?? []).filter((e) => e.when === when);
   const months = [...new Set(evs.map((e) => e.month))];
   return (
     <div className={col}>
@@ -75,6 +77,10 @@ export function Events(): JSX.Element {
         </Btn>
       </div>
       <Scroll bottom={100}>
+        {isLoading && <Empty text="Events laden…" />}
+        {!isLoading && evs.length === 0 && (
+          <Empty text={when === 'upcoming' ? 'Nog geen komende events.' : 'Nog geen afgelopen events.'} />
+        )}
         {months.map((m) => (
           <div key={m} className="mb-2">
             <Label className="mx-0.5 mb-[10px] mt-3">{m}</Label>

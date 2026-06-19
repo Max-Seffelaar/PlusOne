@@ -3,6 +3,7 @@ import {
   eventWhen,
   guestStatusToPo,
   notePriorityToFlag,
+  optimisticGuest,
   tierRole,
   toPoEvent,
   toPoGuest,
@@ -10,6 +11,7 @@ import {
   type EventCounts,
 } from './adapters';
 import type { PoEventRow, PoGuestRow, PoTierRow } from './queries';
+import type { Tier } from '@/lib/po/types';
 
 describe('eventWhen', () => {
   it('maps closed to past, everything else to upcoming', () => {
@@ -143,5 +145,37 @@ describe('toPoTier', () => {
 
   it('falls back to the accent colour when the tier has none', () => {
     expect(toPoTier({ ...row, color: null }, 0).color).toBe('#B5A6FF');
+  });
+});
+
+describe('optimisticGuest', () => {
+  const tiers: Tier[] = [
+    { id: 'vip', name: 'VIP', short: 'VIP', role: 'VIP', color: '#B5A6FF', max: null, used: 0, doorPrice: 0, aliases: [] },
+    { id: 'reg', name: 'Regular', short: 'Gast', role: 'Gast', color: '#8E8E93', max: null, used: 0, doorPrice: 0, aliases: [] },
+  ];
+  const now = new Date('2024-12-14T12:00:00Z'); // 13:00 in Amsterdam (CET)
+
+  it('builds a wait-status row with the tier role, client id and "d mmm" date', () => {
+    expect(
+      optimisticGuest({ id: 'g-1', tierId: 'vip', fullName: 'Juri Braakman', plusOnes: 2 }, tiers, now)
+    ).toEqual({
+      id: 'g-1',
+      name: 'Juri Braakman',
+      role: 'VIP',
+      pay: 'free',
+      plus: 2,
+      note: '',
+      flag: null,
+      by: '',
+      addedAt: '14 dec',
+      status: 'wait',
+    });
+  });
+
+  it('defaults role to Gast for an unknown tier, plus to 0, and synthesises an id', () => {
+    const g = optimisticGuest({ tierId: 'nope', fullName: 'Noor de Wit' }, tiers, now);
+    expect(g.role).toBe('Gast');
+    expect(g.plus).toBe(0);
+    expect(g.id).toBe('optimistic-Noor de Wit');
   });
 });

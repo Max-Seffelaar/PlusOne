@@ -34,6 +34,20 @@ export default async function AppPage(): Promise<JSX.Element> {
     roles: active?.roles ?? [],
   };
 
+  // Real signed-in identity for the shell (replaces the prototype's hardcoded
+  // "Beheerder · Admin · MFA"), so the chrome reflects who is actually logged in.
+  const ROLE_LABELS: Record<string, string> = {
+    admin: 'Admin',
+    finance: 'Finance',
+    organizer: 'Organisator',
+    user_manager: 'User manager',
+    staff: 'Staff',
+    doorhost: 'Deur',
+  };
+  const displayName =
+    (user?.user_metadata?.full_name as string | undefined) ?? user?.email ?? 'Account';
+  const roleLabel = (active?.roles ?? []).map((r) => ROLE_LABELS[r] ?? r).join(' · ');
+
   // First-paint viewport hint (corrected client-side by matchMedia) + the live
   // active-venue name for the S0 nav-shell header/sidebar.
   const serverHint = isMobileUA((await headers()).get('user-agent'));
@@ -44,6 +58,8 @@ export default async function AppPage(): Promise<JSX.Element> {
         statsAccess={{ venues: venues.map((v) => ({ venueId: v.venueId, venueName: v.venueName })) }}
         serverHint={serverHint}
         liveVenueName={active?.venueName ?? undefined}
+        userName={displayName}
+        userSub={roleLabel}
       />
     </PoLiveProvider>
   );

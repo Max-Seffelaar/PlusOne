@@ -8,7 +8,13 @@ import { useQuery } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 import type { Guest, PoEvent, Tier } from '@/lib/po/types';
 import { poKeys } from './keys';
-import { fetchEvents, fetchGuests, fetchTiers } from './queries';
+import {
+  fetchEvents,
+  fetchPoGuests,
+  fetchTiers,
+  fetchEventQuota,
+  type PoQuotaStatus,
+} from './queries';
 import { toPoEvent, toPoGuest, toPoTier, tierRole } from './adapters';
 import { usePoIdentity } from './PoLiveProvider';
 
@@ -48,11 +54,20 @@ export function usePoGuests(eventId: string) {
     queryFn: async () => {
       const client = createClient();
       const [guests, tiers] = await Promise.all([
-        fetchGuests(client, eventId),
+        fetchPoGuests(client, eventId),
         fetchTiers(client, eventId),
       ]);
       const roleByTier = new Map(tiers.map((t) => [t.id, tierRole(t.name)]));
       return guests.map((g) => toPoGuest(g, { role: roleByTier.get(g.tier_id) ?? 'Gast' }));
     },
+  });
+}
+
+/** The caller's personal quota for an event (#22/#31) — drives the quick-add hint. */
+export function usePoQuota(eventId: string) {
+  return useQuery<PoQuotaStatus | null>({
+    queryKey: poKeys.quota(eventId),
+    enabled: !!eventId,
+    queryFn: () => fetchEventQuota(createClient(), eventId),
   });
 }
