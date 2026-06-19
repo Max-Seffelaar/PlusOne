@@ -3,20 +3,18 @@
 /** Events tab + event detail, event CRUD, tier/alias beheer, past-event recap. */
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
-import { events, guests, recap, stats, tiers } from '@/lib/po/data';
+import { events, tiers } from '@/lib/po/data';
 import type { PoEvent } from '@/lib/po/types';
-import { useNav, usePo } from '../context';
-import { Icon, type IconName } from '../icon';
-import { Avatar, Btn, Field, IconBtn, Label, MiniChip, Note, RoleChip, Scroll, ToggleRow, Top } from '../kit';
+import { usePoEvent, usePoEventDetail, usePoEventRecap, usePoEvents } from '@/features/po/hooks';
+import { formatClock } from '@/features/stats/format';
+import { useNav } from '../context';
+import { Icon } from '../icon';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, RoleChip, Scroll, ToggleRow, Top } from '../kit';
 import { BottomBar } from '../shell';
 
 const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 const col = 'flex h-full flex-col';
-
-function heads(arr: { plus: number }[]): number {
-  return arr.reduce((a, g) => a + 1 + g.plus, 0);
-}
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function Stat({ v, l, acc, big }: { v: number; l: string; acc?: boolean; big?: boolean }): JSX.Element {
@@ -28,16 +26,14 @@ function Stat({ v, l, acc, big }: { v: number; l: string; acc?: boolean; big?: b
   );
 }
 
-function Alert({ icon, title, body }: { icon: IconName; title: string; body: string }): JSX.Element {
+/** Full-screen loading / empty / error state with a back header (kit-only). */
+function ScreenState({ onBack, title, text }: { onBack: () => void; title: string; text: string }): JSX.Element {
   return (
-    <div className="flex gap-[12px] rounded-[14px] border border-line bg-elev p-[13px]">
-      <span className="mt-px text-acc-soft">
-        <Icon name={icon} size={19} />
-      </span>
-      <div>
-        <div className="font-body text-[14px] font-bold text-text">{title}</div>
-        <div className="mt-0.5 text-[12.5px] leading-[1.4] text-faint">{body}</div>
-      </div>
+    <div className={col}>
+      <Top onBack={onBack} title={title} />
+      <Scroll bottom={28}>
+        <Empty text={text} />
+      </Scroll>
     </div>
   );
 }
@@ -46,7 +42,8 @@ function Alert({ icon, title, body }: { icon: IconName; title: string; body: str
 export function Events(): JSX.Element {
   const nav = useNav();
   const [when, setWhen] = useState<'upcoming' | 'past'>('upcoming');
-  const evs = events.filter((e) => e.when === when);
+  const { data, isLoading, isError } = usePoEvents();
+  const evs = (data ?? []).filter((e) => e.when === when);
   const months = [...new Set(evs.map((e) => e.month))];
   return (
     <div className={col}>
@@ -75,65 +72,77 @@ export function Events(): JSX.Element {
         </Btn>
       </div>
       <Scroll bottom={100}>
-        {months.map((m) => (
-          <div key={m} className="mb-2">
-            <Label className="mx-0.5 mb-[10px] mt-3">{m}</Label>
-            <div className="flex flex-col gap-[10px]">
-              {evs
-                .filter((e) => e.month === m)
-                .map((e) => (
-                  <button
-                    key={e.id}
-                    type="button"
-                    onClick={() => nav.push(e.when === 'past' ? 'pastevent' : 'event', { id: e.id })}
-                    className={cn('flex items-center gap-[14px] rounded-[18px] border border-line bg-elev p-[14px] text-left', cardPress)}
-                  >
-                    <div className="w-[52px] shrink-0 text-center">
-                      <div className={cn('font-display text-[24px] font-extrabold leading-none', e.accent ? 'text-acc' : 'text-text')}>{e.date}</div>
-                      <div className="mt-0.5 text-[11px] font-bold tracking-[0.05em] text-faint">{e.mon}</div>
-                    </div>
-                    <div className="w-px self-stretch bg-line2" />
-                    <div className="min-w-0 flex-1">
-                      <div className="overflow-hidden text-ellipsis whitespace-nowrap font-display text-[17px] font-bold text-text">{e.name}</div>
-                      <div className="mt-[3px] flex items-center gap-1.5 text-[13px] text-faint">
-                        <Icon name="clock" size={13} stroke="rgba(255,255,255,0.40)" />
-                        Deur {e.time} · {e.venue}
+        {isLoading ? (
+          <Empty text="Events laden…" />
+        ) : isError ? (
+          <Empty text="Kon de events niet laden. Probeer het later opnieuw." />
+        ) : evs.length === 0 ? (
+          <Empty text={when === 'upcoming' ? 'Nog geen komende events.' : 'Nog geen afgelopen events.'} />
+        ) : (
+          months.map((m) => (
+            <div key={m} className="mb-2">
+              <Label className="mx-0.5 mb-[10px] mt-3">{m}</Label>
+              <div className="flex flex-col gap-[10px]">
+                {evs
+                  .filter((e) => e.month === m)
+                  .map((e) => (
+                    <button
+                      key={e.id}
+                      type="button"
+                      onClick={() => nav.push(e.when === 'past' ? 'pastevent' : 'event', { id: e.id })}
+                      className={cn('flex items-center gap-[14px] rounded-[18px] border border-line bg-elev p-[14px] text-left', cardPress)}
+                    >
+                      <div className="w-[52px] shrink-0 text-center">
+                        <div className={cn('font-display text-[24px] font-extrabold leading-none', e.accent ? 'text-acc' : 'text-text')}>{e.date}</div>
+                        <div className="mt-0.5 text-[11px] font-bold tracking-[0.05em] text-faint">{e.mon}</div>
                       </div>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <div className="font-display text-[16px] font-bold text-text">{e.guests}</div>
-                      <div className="text-[11px] text-faint">{when === 'past' ? Math.round((e.inside / e.guests) * 100) + '% op' : 'gasten'}</div>
-                    </div>
-                  </button>
-                ))}
+                      <div className="w-px self-stretch bg-line2" />
+                      <div className="min-w-0 flex-1">
+                        <div className="overflow-hidden text-ellipsis whitespace-nowrap font-display text-[17px] font-bold text-text">{e.name}</div>
+                        <div className="mt-[3px] flex items-center gap-1.5 text-[13px] text-faint">
+                          <Icon name="clock" size={13} stroke="rgba(255,255,255,0.40)" />
+                          Deur {e.time} · {e.venue}
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <div className="font-display text-[16px] font-bold text-text">{e.guests}</div>
+                        <div className="text-[11px] text-faint">{when === 'past' ? (e.guests > 0 ? Math.round((e.inside / e.guests) * 100) : 0) + '% op' : 'gasten'}</div>
+                      </div>
+                    </button>
+                  ))}
+              </div>
             </div>
-          </div>
-        ))}
+          ))
+        )}
       </Scroll>
     </div>
   );
 }
 
 // ── EVENT detail (pushed) ───────────────────────────────────────────────────────
-export function EventView({ ev }: { ev: PoEvent }): JSX.Element {
+export function EventView({ id }: { id?: string }): JSX.Element {
   const nav = useNav();
-  const { inside } = usePo();
-  const gs = guests;
-  const inn = gs.filter((g) => inside.has(g.id));
-  const total = heads(gs) + 130;
-  const inH = heads(inn) + 96;
-  const pct = inH / total;
-  const recent = inn
-    .slice()
-    .sort((a, b) => ((a.at ?? '') < (b.at ?? '') ? 1 : -1))
-    .slice(0, 3);
+  const { event, isLoading, isError, notFound } = usePoEvent(id ?? '');
+  const { data: detail } = usePoEventDetail(id ?? '');
+
+  if (isLoading) return <ScreenState onBack={nav.back} title="Event" text="Laden…" />;
+  if (isError || notFound || !event) {
+    return <ScreenState onBack={nav.back} title="Event" text="Dit event is niet (meer) beschikbaar." />;
+  }
+
+  const ev = event;
+  const onweg = Math.max(0, ev.guests - ev.inside);
+  const pct = ev.guests > 0 ? ev.inside / ev.guests : 0;
+  const recent = detail?.recent ?? [];
+  const openRequests = detail?.openRequests ?? 0;
+
   return (
     <div className={col}>
       <Top onBack={nav.back} title={ev.name} sub={`${ev.venue} · ${ev.date} ${ev.mon}`} right={<IconBtn name="dots" onClick={() => nav.push('eventedit', { id: ev.id })} />} />
       <Scroll bottom={28}>
         <div className="mb-3 grid grid-cols-2 gap-[10px]">
-          <Stat big v={total - inH} l="Onderweg" />
-          <Stat big v={inH} l="Binnen" acc />
+          <Stat big v={onweg} l="Onderweg" />
+          <Stat big v={ev.inside} l="Binnen" acc />
         </div>
         <div className="mb-3 rounded-[18px] border border-line bg-elev p-4">
           <div className="mb-[9px] flex justify-between">
@@ -143,7 +152,7 @@ export function EventView({ ev }: { ev: PoEvent }): JSX.Element {
           <div className="h-[10px] overflow-hidden rounded-[6px] bg-elev2">
             <div className="h-full rounded-[6px] bg-acc" style={{ width: pct * 100 + '%' }} />
           </div>
-          <div className="mt-[9px] text-[12.5px] text-faint">{total} koppen op de lijst · incl. meegenomen gasten</div>
+          <div className="mt-[9px] text-[12.5px] text-faint">{ev.guests} koppen op de lijst · incl. meegenomen gasten</div>
         </div>
         <div className="mb-4 flex gap-[10px]">
           <Btn kind="primary" full icon="user" onClick={() => nav.setTab('deur')}>
@@ -153,43 +162,51 @@ export function EventView({ ev }: { ev: PoEvent }): JSX.Element {
             Gastenlijst
           </Btn>
         </div>
-        <Label className="mb-[10px]">Aandacht nodig</Label>
-        <div className="mb-[18px] flex flex-col gap-[9px]">
-          <button
-            type="button"
-            onClick={() => nav.push('aanvragen')}
-            className={cn('flex w-full gap-[12px] rounded-[14px] border bg-elev p-[13px] text-left', cardPress)}
-            style={{ borderColor: 'rgba(181,166,255,0.4)' }}
-          >
-            <span className="mt-px text-acc-soft">
-              <Icon name="bell" size={19} />
-            </span>
-            <div className="flex-1">
-              <div className="font-body text-[14px] font-bold text-text">3 quotum-verzoeken + 4 aanvragen</div>
-              <div className="mt-0.5 text-[12.5px] leading-[1.4] text-faint">Wachten op jouw goedkeuring — tik om af te handelen</div>
-            </div>
-            <span className="self-center text-acc">
-              <Icon name="chev" size={20} />
-            </span>
-          </button>
-          <Alert icon="crown" title="VIP onderweg" body="Anouk Smit +2 — host wordt gewaarschuwd aan de deur" />
-          <Alert icon="money" title="3 gasten moeten betalen" body="Betaalde gastenlijst — afrekenen bij binnenkomst" />
-        </div>
-        <Label className="mb-[10px]">Laatst binnen</Label>
-        <div className="flex flex-col">
-          {recent.map((g) => (
-            <div key={g.id} className="flex items-center gap-[12px] border-b border-line2 py-[10px]">
-              <Avatar name={g.name} size={38} />
-              <div className="flex-1">
-                <div className="text-[14.5px] font-semibold text-text">
-                  {g.name}
-                  {g.plus > 0 && <span className="text-faint"> +{g.plus}</span>}
+        {openRequests > 0 && (
+          <>
+            <Label className="mb-[10px]">Aandacht nodig</Label>
+            <div className="mb-[18px] flex flex-col gap-[9px]">
+              <button
+                type="button"
+                onClick={() => nav.push('aanvragen')}
+                className={cn('flex w-full gap-[12px] rounded-[14px] border bg-elev p-[13px] text-left', cardPress)}
+                style={{ borderColor: 'rgba(181,166,255,0.4)' }}
+              >
+                <span className="mt-px text-acc-soft">
+                  <Icon name="bell" size={19} />
+                </span>
+                <div className="flex-1">
+                  <div className="font-body text-[14px] font-bold text-text">
+                    {openRequests} open {openRequests === 1 ? 'aanvraag' : 'aanvragen'}
+                  </div>
+                  <div className="mt-0.5 text-[12.5px] leading-[1.4] text-faint">Wachten op jouw goedkeuring — tik om af te handelen</div>
                 </div>
-              </div>
-              <span className="font-display text-[13px] font-bold text-acc">{g.at}</span>
+                <span className="self-center text-acc">
+                  <Icon name="chev" size={20} />
+                </span>
+              </button>
             </div>
-          ))}
-        </div>
+          </>
+        )}
+        <Label className="mb-[10px]">Laatst binnen</Label>
+        {recent.length === 0 ? (
+          <Empty text="Nog niemand ingecheckt." />
+        ) : (
+          <div className="flex flex-col">
+            {recent.map((g) => (
+              <div key={g.guestId} className="flex items-center gap-[12px] border-b border-line2 py-[10px]">
+                <Avatar name={g.name} size={38} />
+                <div className="flex-1">
+                  <div className="text-[14.5px] font-semibold text-text">
+                    {g.name}
+                    {g.plus > 0 && <span className="text-faint"> +{g.plus}</span>}
+                  </div>
+                </div>
+                <span className="font-display text-[13px] font-bold text-acc">{formatClock(g.at)}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </Scroll>
     </div>
   );
@@ -399,14 +416,29 @@ export function Tiers(): JSX.Element {
 }
 
 // ── PAST EVENT recap (pushed) ────────────────────────────────────────────────────
-export function PastEvent({ ev }: { ev?: PoEvent }): JSX.Element {
+const RECAP_CAP = 8;
+
+export function PastEvent({ id }: { id?: string }): JSX.Element {
   const nav = useNav();
-  const r = recap;
-  const pct = Math.round((r.arrived / r.listed) * 100);
-  const maxT = Math.max(...stats.perTier.map((x) => x.aangemeld));
+  const { event, isLoading: evLoading, isError: evError, notFound } = usePoEvent(id ?? '');
+  const { data: r, isLoading: rLoading, isError: rError } = usePoEventRecap(id ?? '');
+  const [showAllIn, setShowAllIn] = useState(false);
+  const [showAllNo, setShowAllNo] = useState(false);
+
+  if (evLoading || rLoading) return <ScreenState onBack={nav.back} title="Recap" text="Laden…" />;
+  if (evError || rError || notFound || !event || !r) {
+    return <ScreenState onBack={nav.back} title="Recap" text="Deze recap is niet beschikbaar." />;
+  }
+
+  const ev = event;
+  const pct = r.listed > 0 ? Math.round((r.arrived / r.listed) * 100) : 0;
+  const maxT = Math.max(1, ...r.perTier.map((x) => x.aangemeld));
+  const inList = showAllIn ? r.checkedIn : r.checkedIn.slice(0, RECAP_CAP);
+  const noList = showAllNo ? r.noShows : r.noShows.slice(0, RECAP_CAP);
+
   return (
     <div className={col}>
-      <Top onBack={nav.back} title={ev ? ev.name : r.event} sub={`${ev ? ev.venue : r.venue} · ${r.date}`} right={<IconBtn name="share" />} />
+      <Top onBack={nav.back} title={ev.name} sub={`${ev.venue} · ${ev.date} ${ev.mon}`} right={<IconBtn name="share" />} />
       <Scroll bottom={28}>
         <div className="mb-[14px] rounded-[18px] bg-acc-dim p-[18px]">
           <Label className="mb-[10px] text-acc-soft">Afgelopen event · samenvatting</Label>
@@ -435,67 +467,95 @@ export function PastEvent({ ev }: { ev?: PoEvent }): JSX.Element {
           </div>
         </div>
 
-        <Label className="mb-[10px]">Ingecheckt · {r.arrived}</Label>
-        <div className="mb-4 rounded-[18px] border border-line bg-elev px-[14px] py-0.5">
-          {r.checkedIn.map((g, i) => (
-            <div key={g.name} className={cn('flex items-center gap-[12px] py-[11px]', i < r.checkedIn.length - 1 && 'border-b border-line2')}>
-              <Avatar name={g.name} size={36} accent={g.role === 'VIP'} />
-              <div className="min-w-0 flex-1">
-                <div className="font-display text-[14.5px] font-bold text-text">
-                  {g.name}
-                  {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
+        <Label className="mb-[10px]">Ingecheckt · {r.checkedIn.length}</Label>
+        {r.checkedIn.length === 0 ? (
+          <div className="mb-4">
+            <Empty text="Niemand ingecheckt." />
+          </div>
+        ) : (
+          <div className="mb-4 rounded-[18px] border border-line bg-elev px-[14px] py-0.5">
+            {inList.map((g, i) => (
+              <div key={`${g.name}-${i}`} className={cn('flex items-center gap-[12px] py-[11px]', i < inList.length - 1 && 'border-b border-line2')}>
+                <Avatar name={g.name} size={36} accent={g.role === 'VIP'} />
+                <div className="min-w-0 flex-1">
+                  <div className="font-display text-[14.5px] font-bold text-text">
+                    {g.name}
+                    {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
+                  </div>
+                  <div className="mt-1">
+                    <RoleChip role={g.role} />
+                  </div>
                 </div>
-                <div className="mt-1">
-                  <RoleChip role={g.role} />
-                </div>
+                <span className="inline-flex items-center gap-1.5 font-display text-[13px] font-bold text-acc">
+                  <Icon name="check2" size={14} stroke="#B5A6FF" sw={2.4} />
+                  {g.at ?? '—'}
+                </span>
               </div>
-              <span className="inline-flex items-center gap-1.5 font-display text-[13px] font-bold text-acc">
-                <Icon name="check2" size={14} stroke="#B5A6FF" sw={2.4} />
-                {g.at}
-              </span>
-            </div>
-          ))}
-          <button type="button" className="w-full border-t border-line2 py-3 font-body text-[13.5px] font-bold text-dim transition-[filter] hover:brightness-[1.2]">
-            Toon alle {r.arrived} ingecheckt
-          </button>
-        </div>
+            ))}
+            {!showAllIn && r.checkedIn.length > RECAP_CAP && (
+              <button
+                type="button"
+                onClick={() => setShowAllIn(true)}
+                className="w-full border-t border-line2 py-3 font-body text-[13.5px] font-bold text-dim transition-[filter] hover:brightness-[1.2]"
+              >
+                Toon alle {r.checkedIn.length} ingecheckt
+              </button>
+            )}
+          </div>
+        )}
 
-        <Label className="mb-[10px]">Niet verschenen · {r.noShow}</Label>
-        <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-[14px] py-0.5">
-          {r.noShows.map((g, i) => (
-            <div key={g.name} className={cn('flex items-center gap-[12px] py-[11px] opacity-[0.72]', i < r.noShows.length - 1 && 'border-b border-line2')}>
-              <Avatar name={g.name} size={36} />
-              <div className="min-w-0 flex-1">
-                <div className="font-display text-[14.5px] font-bold text-dim">
-                  {g.name}
-                  {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
+        <Label className="mb-[10px]">Niet verschenen · {r.noShows.length}</Label>
+        {r.noShows.length === 0 ? (
+          <div className="mb-[18px]">
+            <Empty text="Iedereen kwam opdagen." />
+          </div>
+        ) : (
+          <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-[14px] py-0.5">
+            {noList.map((g, i) => (
+              <div key={`${g.name}-${i}`} className={cn('flex items-center gap-[12px] py-[11px] opacity-[0.72]', i < noList.length - 1 && 'border-b border-line2')}>
+                <Avatar name={g.name} size={36} />
+                <div className="min-w-0 flex-1">
+                  <div className="font-display text-[14.5px] font-bold text-dim">
+                    {g.name}
+                    {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
+                  </div>
+                  {g.by && <div className="mt-[3px] text-[12px] text-faint">toegevoegd door {g.by}</div>}
                 </div>
-                <div className="mt-[3px] text-[12px] text-faint">toegevoegd door {g.by}</div>
+                <span className="text-[12px] font-bold text-faint">no-show</span>
               </div>
-              <span className="text-[12px] font-bold text-faint">no-show</span>
-            </div>
-          ))}
-          <button type="button" className="w-full border-t border-line2 py-3 font-body text-[13.5px] font-bold text-dim transition-[filter] hover:brightness-[1.2]">
-            Toon alle {r.noShow} no-shows
-          </button>
-        </div>
+            ))}
+            {!showAllNo && r.noShows.length > RECAP_CAP && (
+              <button
+                type="button"
+                onClick={() => setShowAllNo(true)}
+                className="w-full border-t border-line2 py-3 font-body text-[13.5px] font-bold text-dim transition-[filter] hover:brightness-[1.2]"
+              >
+                Toon alle {r.noShows.length} no-shows
+              </button>
+            )}
+          </div>
+        )}
 
         <Label className="mb-[10px]">Opkomst per tier</Label>
         <div className="mb-[14px] rounded-[18px] border border-line bg-elev p-4">
-          {stats.perTier.map((t, i) => (
-            <div key={t.tier} className={i < stats.perTier.length - 1 ? 'mb-[13px]' : ''}>
-              <div className="mb-1.5 flex justify-between">
-                <span className="text-[13px] font-semibold text-text">{t.tier}</span>
-                <span className="font-display text-[12px] text-faint">
-                  <b className="text-acc">{t.binnen}</b>/{t.aangemeld}
-                </span>
+          {r.perTier.length === 0 ? (
+            <div className="py-[14px] text-center text-[13px] text-faint">Geen tierdata.</div>
+          ) : (
+            r.perTier.map((t, i) => (
+              <div key={t.tier} className={i < r.perTier.length - 1 ? 'mb-[13px]' : ''}>
+                <div className="mb-1.5 flex justify-between">
+                  <span className="text-[13px] font-semibold text-text">{t.tier}</span>
+                  <span className="font-display text-[12px] text-faint">
+                    <b className="text-acc">{t.binnen}</b>/{t.aangemeld}
+                  </span>
+                </div>
+                <div className="relative h-[8px] overflow-hidden rounded-[5px] bg-elev2">
+                  <div className="absolute inset-0 bg-white/[0.08]" style={{ width: (t.aangemeld / maxT) * 100 + '%' }} />
+                  <div className="absolute inset-0 rounded-[5px] bg-acc" style={{ width: (t.binnen / maxT) * 100 + '%' }} />
+                </div>
               </div>
-              <div className="relative h-[8px] overflow-hidden rounded-[5px] bg-elev2">
-                <div className="absolute inset-0 bg-white/[0.08]" style={{ width: (t.aangemeld / maxT) * 100 + '%' }} />
-                <div className="absolute inset-0 rounded-[5px] bg-acc" style={{ width: (t.binnen / maxT) * 100 + '%' }} />
-              </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
         <div className="mb-4 grid grid-cols-2 gap-[10px]">
           <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
@@ -508,7 +568,7 @@ export function PastEvent({ ev }: { ev?: PoEvent }): JSX.Element {
           </div>
         </div>
         <div className="flex gap-[10px]">
-          <Btn kind="dark" full icon="users" onClick={() => nav.push('lijst', { id: ev?.id ?? 'warehouse' })}>
+          <Btn kind="dark" full icon="users" onClick={() => nav.push('lijst', { id: ev.id })}>
             Gastenlijst
           </Btn>
           <Btn kind="quiet" full icon="dl">

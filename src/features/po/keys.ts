@@ -5,6 +5,8 @@ export const poKeys = {
   all: ['po'] as const,
   events: (venueId: string) => [...poKeys.all, 'events', venueId] as const,
   event: (eventId: string) => [...poKeys.all, 'event', eventId] as const,
+  eventDetail: (eventId: string) => [...poKeys.all, 'event-detail', eventId] as const,
+  eventRecap: (eventId: string) => [...poKeys.all, 'event-recap', eventId] as const,
   guests: (eventId: string) => [...poKeys.all, 'guests', eventId] as const,
   tiers: (eventId: string) => [...poKeys.all, 'tiers', eventId] as const,
   requests: (eventId: string) => [...poKeys.all, 'requests', eventId] as const,

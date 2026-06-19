@@ -8,11 +8,21 @@ import { useQuery } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 import type { Guest, PoEvent, Tier } from '@/lib/po/types';
 import { poKeys } from './keys';
-import { fetchEvents, fetchGuests, fetchTiers } from './queries';
-import { toPoEvent, toPoGuest, toPoTier, tierRole } from './adapters';
+import {
+  fetchEvents,
+  fetchEventHeadcounts,
+  fetchGuests,
+  fetchOpenRequestCount,
+  fetchPastEventStats,
+  fetchRecapGuests,
+  fetchRecentCheckins,
+  fetchTiers,
+  type RecentCheckinRow,
+} from './queries';
+import { toPoEvent, toPoGuest, toPoTier, toRecap, tierRole, type PoRecap } from './adapters';
 import { usePoIdentity } from './PoLiveProvider';
 
-/** All events for the caller's active venue. */
+/** All events for the caller's active venue, with on-list + present headcounts. */
 export function usePoEvents() {
   const { venueId } = usePoIdentity();
   return useQuery<PoEvent[]>({
@@ -20,9 +30,65 @@ export function usePoEvents() {
     enabled: !!venueId,
     queryFn: async () => {
       if (!venueId) return [];
-      const rows = await fetchEvents(createClient(), venueId);
-      // Headcounts are aggregated when the Events screen wires up (STAP 3.3).
-      return rows.map((r) => toPoEvent(r, { guests: 0, inside: 0 }));
+      const client = createClient();
+      const rows = await fetchEvents(client, venueId);
+      const heads = await fetchEventHeadcounts(client, rows.map((r) => r.id));
+      return rows.map((r) => {
+        const c = heads.get(r.id) ?? { registered: 0, present: 0 };
+        return toPoEvent(r, { guests: c.registered, inside: c.present });
+      });
+    },
+  });
+}
+
+/** A single event by id, read from the venue's events list (no extra round-trip). */
+export function usePoEvent(eventId: string) {
+  const { data, isLoading, isError, error } = usePoEvents();
+  return {
+    event: data?.find((e) => e.id === eventId) ?? null,
+    isLoading,
+    isError,
+    error,
+    /** List loaded but this id isn't visible (deleted / out of scope). */
+    notFound: !isLoading && !isError && !!data && !data.some((e) => e.id === eventId),
+  };
+}
+
+export interface PoEventDetail {
+  /** Most recent non-voided check-ins ("Laatst binnen"). */
+  recent: RecentCheckinRow[];
+  /** Open (pending) guest requests ("Aandacht nodig"). */
+  openRequests: number;
+}
+
+/** Live secondary data for the event-detail screen (recent check-ins + open requests). */
+export function usePoEventDetail(eventId: string) {
+  return useQuery<PoEventDetail>({
+    queryKey: poKeys.eventDetail(eventId),
+    enabled: !!eventId,
+    queryFn: async () => {
+      const client = createClient();
+      const [recent, openRequests] = await Promise.all([
+        fetchRecentCheckins(client, eventId, 3),
+        fetchOpenRequestCount(client, eventId),
+      ]);
+      return { recent, openRequests };
+    },
+  });
+}
+
+/** Past-event recap: summary + per-tier stats + on-list guest lists. */
+export function usePoEventRecap(eventId: string) {
+  return useQuery<PoRecap>({
+    queryKey: poKeys.eventRecap(eventId),
+    enabled: !!eventId,
+    queryFn: async () => {
+      const client = createClient();
+      const [{ summary, tiers }, guests] = await Promise.all([
+        fetchPastEventStats(client, eventId),
+        fetchRecapGuests(client, eventId),
+      ]);
+      return toRecap(summary, guests, tiers);
     },
   });
 }

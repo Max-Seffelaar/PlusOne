@@ -7,9 +7,12 @@ import {
   toPoEvent,
   toPoGuest,
   toPoTier,
+  toRecap,
+  toRecapGuest,
   type EventCounts,
 } from './adapters';
-import type { PoEventRow, PoGuestRow, PoTierRow } from './queries';
+import type { PoEventRow, PoGuestRow, PoTierRow, RecapGuestRow } from './queries';
+import type { EventSummary, TierStat } from '@/features/stats/data';
 
 describe('eventWhen', () => {
   it('maps closed to past, everything else to upcoming', () => {
@@ -143,5 +146,83 @@ describe('toPoTier', () => {
 
   it('falls back to the accent colour when the tier has none', () => {
     expect(toPoTier({ ...row, color: null }, 0).color).toBe('#B5A6FF');
+  });
+});
+
+describe('toRecapGuest', () => {
+  it('maps role from the tier, check-in time, and who-added', () => {
+    const g = toRecapGuest({
+      id: 'g1',
+      full_name: 'Anouk Smit',
+      plus_ones: 2,
+      status: 'checked_in',
+      tierName: 'VIP — fles op tafel',
+      addedByName: 'Max',
+      checkedAt: '2024-11-09T22:14:00Z',
+    });
+    expect(g).toEqual({ name: 'Anouk Smit', plus: 2, role: 'VIP', at: expect.any(String), by: 'Max' });
+  });
+
+  it('leaves time/by undefined and defaults the role to Gast when unknown', () => {
+    const g = toRecapGuest({
+      id: 'g2',
+      full_name: 'Bram Jansen',
+      plus_ones: 0,
+      status: 'approved',
+      tierName: null,
+      addedByName: null,
+      checkedAt: null,
+    });
+    expect(g.at).toBeUndefined();
+    expect(g.by).toBeUndefined();
+    expect(g.role).toBe('Gast');
+  });
+});
+
+describe('toRecap', () => {
+  const summary: EventSummary = {
+    attendance_pct: 71,
+    no_shows: 1,
+    peak_bucket: '2024-11-09T23:30:00Z',
+    peak_count: 5,
+    present: 2,
+    present_headcount: 5,
+    refused: 3,
+    registered: 3,
+    registered_headcount: 7,
+  };
+  const guests: RecapGuestRow[] = [
+    { id: 'a', full_name: 'Late Arrival', plus_ones: 1, status: 'checked_in', tierName: 'VIP', addedByName: 'Max', checkedAt: '2024-11-09T23:50:00Z' },
+    { id: 'b', full_name: 'Early Arrival', plus_ones: 0, status: 'checked_in', tierName: 'Crew', addedByName: 'Sanne', checkedAt: '2024-11-09T22:10:00Z' },
+    { id: 'c', full_name: 'No Show', plus_ones: 0, status: 'approved', tierName: 'Regular', addedByName: 'Joris', checkedAt: null },
+  ];
+  const tiers: TierStat[] = [
+    { color: '#B5A6FF', present: 2, present_headcount: 5, registered: 3, registered_headcount: 7, tier_id: 't1', tier_name: 'VIP' },
+  ];
+
+  it('pulls headcounts/refused/peak from the summary and splits the lists', () => {
+    const r = toRecap(summary, guests, tiers);
+    expect(r.listed).toBe(7);
+    expect(r.arrived).toBe(5);
+    expect(r.noShow).toBe(1);
+    expect(r.refused).toBe(3);
+    expect(r.peak).not.toBe('—');
+    // checked-in guests are ordered by arrival time (ascending).
+    expect(r.checkedIn.map((g) => g.name)).toEqual(['Early Arrival', 'Late Arrival']);
+    expect(r.noShows.map((g) => g.name)).toEqual(['No Show']);
+    expect(r.perTier).toEqual([{ tier: 'VIP', aangemeld: 7, binnen: 5 }]);
+  });
+
+  it('degrades to zeros and an em-dash peak when the summary is null', () => {
+    expect(toRecap(null, [], [])).toMatchObject({
+      listed: 0,
+      arrived: 0,
+      noShow: 0,
+      refused: 0,
+      peak: '—',
+      checkedIn: [],
+      noShows: [],
+      perTier: [],
+    });
   });
 });

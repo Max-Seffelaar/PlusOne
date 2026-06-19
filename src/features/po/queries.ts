@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
+import type { EventSummary, TierStat } from '@/features/stats/data';
 
 // Client-agnostic po reads (mirrors src/features/stats/data.ts): every function
 // takes the caller's Supabase client, so a Server Component can prefetch with the
@@ -8,6 +9,12 @@ import type { Database } from '@/lib/database.types';
 // into the client bundle. RLS is the boundary — an out-of-scope id yields [].
 type Client = SupabaseClient<Database>;
 type Tables = Database['public']['Tables'];
+type GuestRowStatus = Database['public']['Enums']['guest_status'];
+
+// "On the list" headcount = guests that occupy a slot (approved or already in);
+// pending (awaiting approval) and denied/removed/refused don't count. Mirrors the
+// confirmed-list notion the Events cards show. (#5 quota math: 1 + plus_ones.)
+const ON_LIST: GuestRowStatus[] = ['approved', 'checked_in'];
 
 export type PoEventRow = {
   id: string;
@@ -69,4 +76,147 @@ export async function fetchTiers(client: Client, eventId: string): Promise<PoTie
     .order('name', { ascending: true });
 
   return data ?? [];
+}
+
+export interface EventHeadcount {
+  /** On-list headcount (1 + plus-ones over approved/checked-in guests). */
+  registered: number;
+  /** Present headcount (1 + plus-ones over checked-in guests). */
+  present: number;
+}
+
+/**
+ * Registered + present headcounts for many events in ONE query — the Events /
+ * EventBeheer cards show these without an RPC per row. Aggregated client-side
+ * from the guests rows RLS already lets the caller read.
+ */
+export async function fetchEventHeadcounts(
+  client: Client,
+  eventIds: string[]
+): Promise<Map<string, EventHeadcount>> {
+  const counts = new Map<string, EventHeadcount>();
+  if (eventIds.length === 0) return counts;
+
+  const { data } = await client
+    .from('guests')
+    .select('event_id, plus_ones, status')
+    .in('event_id', eventIds)
+    .in('status', ON_LIST);
+
+  for (const g of data ?? []) {
+    const cur = counts.get(g.event_id) ?? { registered: 0, present: 0 };
+    const heads = 1 + g.plus_ones;
+    cur.registered += heads;
+    if (g.status === 'checked_in') cur.present += heads;
+    counts.set(g.event_id, cur);
+  }
+  return counts;
+}
+
+export interface RecentCheckinRow {
+  guestId: string;
+  name: string;
+  /** Plus-ones that actually arrived on this check-in. */
+  plus: number;
+  /** Check-in instant (ISO) for display. */
+  at: string;
+}
+
+/** Most recent (non-voided) check-ins for an event — drives "Laatst binnen". */
+export async function fetchRecentCheckins(
+  client: Client,
+  eventId: string,
+  limit = 3
+): Promise<RecentCheckinRow[]> {
+  const { data } = await client
+    .from('check_ins')
+    .select('checked_at, plus_ones_arrived, guests!inner(id, full_name, event_id)')
+    .eq('guests.event_id', eventId)
+    .is('voided_at', null)
+    .order('checked_at', { ascending: false })
+    .limit(limit);
+
+  return (data ?? []).map((r) => ({
+    guestId: r.guests.id,
+    name: r.guests.full_name,
+    plus: r.plus_ones_arrived,
+    at: r.checked_at,
+  }));
+}
+
+/** Count of open (pending) guest requests for an event — the "Aandacht nodig" nudge. */
+export async function fetchOpenRequestCount(client: Client, eventId: string): Promise<number> {
+  const { count } = await client
+    .from('guest_requests')
+    .select('id', { count: 'exact', head: true })
+    .eq('event_id', eventId)
+    .eq('status', 'pending');
+
+  return count ?? 0;
+}
+
+export interface RecapGuestRow {
+  id: string;
+  full_name: string;
+  plus_ones: number;
+  status: GuestRowStatus;
+  tierName: string | null;
+  addedByName: string | null;
+  /** Latest non-voided check-in instant (ISO), or null when never arrived. */
+  checkedAt: string | null;
+}
+
+/**
+ * Guests of a (past) event with their tier, who-added, and check-in time — the
+ * source for the recap's "ingecheckt" and "niet verschenen" lists. Only on-list
+ * statuses; the per-guest check-in time is the latest non-voided check_in.
+ */
+export async function fetchRecapGuests(client: Client, eventId: string): Promise<RecapGuestRow[]> {
+  const { data } = await client
+    .from('guests')
+    .select(
+      'id, full_name, plus_ones, status, guest_tiers(name), added_by_profile:user_profiles!guests_added_by_fkey(full_name), check_ins(checked_at, voided_at)'
+    )
+    .eq('event_id', eventId)
+    .in('status', ON_LIST);
+
+  return (data ?? []).map((g) => {
+    // The generated client can type the embed as to-one OR to-many; normalize to
+    // an array (and drop any nullish) before reading the latest non-voided time.
+    const checkins = [g.check_ins].flat().filter(Boolean) as Array<{
+      checked_at: string;
+      voided_at: string | null;
+    }>;
+    const checkedAt = checkins
+      .filter((c) => c.voided_at == null)
+      .map((c) => c.checked_at)
+      .sort()
+      .at(-1);
+    return {
+      id: g.id,
+      full_name: g.full_name,
+      plus_ones: g.plus_ones,
+      status: g.status,
+      tierName: g.guest_tiers?.name ?? null,
+      addedByName: g.added_by_profile?.full_name ?? null,
+      checkedAt: checkedAt ?? null,
+    };
+  });
+}
+
+export interface PastEventStats {
+  summary: EventSummary | null;
+  tiers: TierStat[];
+}
+
+/** The two analytics RPCs the past-event recap needs (refused + peak + per-tier). */
+export async function fetchPastEventStats(
+  client: Client,
+  eventId: string
+): Promise<PastEventStats> {
+  const [summary, tiers] = await Promise.all([
+    client.rpc('event_stats_summary', { p_event_id: eventId }).maybeSingle(),
+    client.rpc('event_tier_stats', { p_event_id: eventId }),
+  ]);
+  return { summary: summary.data ?? null, tiers: tiers.data ?? [] };
 }

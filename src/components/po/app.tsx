@@ -148,7 +148,7 @@ export function PlusOneApp({
     const p = top.props;
     switch (top.name) {
       case 'event':
-        screen = <EventView ev={ev(p.id)} />;
+        screen = <EventView id={p.id} />;
         break;
       case 'lijst':
         screen = <Lijst ev={ev(p.id)} />;
@@ -187,7 +187,7 @@ export function PlusOneApp({
         screen = <Gebruikers />;
         break;
       case 'pastevent':
-        screen = <PastEvent ev={ev(p.id)} />;
+        screen = <PastEvent id={p.id} />;
         break;
       case 'venueswitch':
         screen = <VenueSwitch />;

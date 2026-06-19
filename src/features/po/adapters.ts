@@ -1,6 +1,9 @@
-import type { Guest, PoEvent, Tier, Role, GuestStatus, Priority, EventWhen } from '@/lib/po/types';
+import type { Guest, PoEvent, Tier, Role, GuestStatus, Priority, EventWhen, RecapGuest } from '@/lib/po/types';
 import type { Database } from '@/lib/database.types';
-import type { PoEventRow, PoGuestRow, PoTierRow } from './queries';
+import type { PoEventRow, PoGuestRow, PoTierRow, RecapGuestRow } from './queries';
+import type { EventSummary, TierStat } from '@/features/stats/data';
+import { formatClock } from '@/features/stats/format';
+import { toPerTier, type PerTier } from '@/features/stats/po-adapter';
 
 // Pure DB-row -> po-component-shape mappers (mirrors src/features/stats/po-adapter.ts).
 // No I/O, so they're unit-tested directly (adapters.test.ts). The po mock types
@@ -92,6 +95,59 @@ export function toPoGuest(row: PoGuestRow, extras: GuestExtras): Guest {
     addedAt: fmt(row.created_at, { day: 'numeric', month: 'short' }).replace('.', ''),
     status: guestStatusToPo(row.status),
     // at/inBy come from check_ins (DoorProvider), not the guests row.
+  };
+}
+
+/** A recap guest row → the po RecapGuest shape (role from tier, time from check-in). */
+export function toRecapGuest(g: RecapGuestRow): RecapGuest {
+  return {
+    name: g.full_name,
+    plus: g.plus_ones,
+    role: tierRole(g.tierName ?? ''),
+    at: g.checkedAt ? formatClock(g.checkedAt) : undefined,
+    by: g.addedByName ?? undefined,
+  };
+}
+
+/** The numbers + lists a past-event recap renders (event/venue/date come from the PoEvent). */
+export interface PoRecap {
+  /** On-list headcount. */
+  listed: number;
+  /** Present headcount. */
+  arrived: number;
+  noShow: number;
+  refused: number;
+  /** Peak 15-min bucket as "23:30", or "—" before the first check-in. */
+  peak: string;
+  checkedIn: RecapGuest[];
+  noShows: RecapGuest[];
+  perTier: PerTier[];
+}
+
+/**
+ * Build the past-event recap from the summary RPC + on-list guests + per-tier
+ * stats. "Ingecheckt" = checked-in (arrival order); "niet verschenen" = on the
+ * list but never arrived (status approved). Pure → unit-tested.
+ */
+export function toRecap(
+  summary: EventSummary | null,
+  guests: RecapGuestRow[],
+  tiers: TierStat[]
+): PoRecap {
+  const checkedIn = guests
+    .filter((g) => g.status === 'checked_in')
+    .sort((a, b) => (a.checkedAt ?? '').localeCompare(b.checkedAt ?? ''))
+    .map(toRecapGuest);
+  const noShows = guests.filter((g) => g.status === 'approved').map(toRecapGuest);
+  return {
+    listed: summary?.registered_headcount ?? 0,
+    arrived: summary?.present_headcount ?? 0,
+    noShow: summary?.no_shows ?? 0,
+    refused: summary?.refused ?? 0,
+    peak: summary?.peak_bucket ? formatClock(summary.peak_bucket) : '—',
+    checkedIn,
+    noShows,
+    perTier: toPerTier(tiers),
   };
 }
 
