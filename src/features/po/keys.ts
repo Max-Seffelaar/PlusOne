@@ -9,6 +9,7 @@ export const poKeys = {
   eventRecap: (eventId: string) => [...poKeys.all, 'event-recap', eventId] as const,
   guests: (eventId: string) => [...poKeys.all, 'guests', eventId] as const,
   tiers: (eventId: string) => [...poKeys.all, 'tiers', eventId] as const,
+  quota: (eventId: string) => [...poKeys.all, 'quota', eventId] as const,
   requests: (eventId: string) => [...poKeys.all, 'requests', eventId] as const,
   quotaRequests: (eventId: string) => [...poKeys.all, 'quota-requests', eventId] as const,
 } as const;

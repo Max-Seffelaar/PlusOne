@@ -7,10 +7,12 @@
  * App Router and the door state for TanStack Query + the offline outbox.
  */
 import { useState, type ReactNode } from 'react';
-import { contacts, events, guests, venues } from '@/lib/po/data';
+import { contacts, guests, venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
+import { usePoEvents, usePoGuests } from '@/features/po/hooks';
 import { PoProvider, type AuthNav, type AuthView, type CheckInEntry, type Nav, type PoApp, type ScreenName, type StackEntry } from './context';
 import { PhoneFrame, Toast, type TabKey } from './shell';
+import { Top } from './kit';
 import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
 import { Invite, Login, Mfa, Otp, Welcome } from './screens/auth';
 import { EventBeheer, EventEdit, EventView, Events, PastEvent, Tiers } from './screens/events';
@@ -27,16 +29,31 @@ function nowTime(): string {
   return new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
 }
 
+/** Shown while a pushed event/guest screen waits for its live row to load. */
+function Loading({ onBack }: { onBack: () => void }): JSX.Element {
+  return (
+    <div className="flex h-full flex-col">
+      <Top onBack={onBack} title="Laden…" />
+      <div className="flex flex-1 items-center justify-center text-[14px] text-faint">Even laden…</div>
+    </div>
+  );
+}
+
 export function PlusOneApp({
   statsAccess,
   serverHint = false,
   liveVenueName,
+  userName,
+  userSub,
 }: {
   statsAccess?: { venues: { venueId: string; venueName: string }[] };
   /** Server UA hint for the first-paint viewport switch (corrected by matchMedia). */
   serverHint?: boolean;
   /** Live active-venue name from the session (shell display); mock fallback otherwise. */
   liveVenueName?: string;
+  /** Signed-in user's display name + role label for the shell (live identity). */
+  userName?: string;
+  userSub?: string;
 }): JSX.Element {
   // /app is gated by real middleware auth, so skip the prototype's mock
   // welcome/login flow and start straight in the authenticated shell.
@@ -60,6 +77,24 @@ export function PlusOneApp({
   const [key, setKey] = useState(0);
 
   const bump = (): void => setKey((k) => k + 1);
+
+  // Live data for the /app surface (STAP 3.4 + the events-live id-passing slice
+  // of 3.3): the Events tab, event detail, and Gastenlijst resolve real Supabase
+  // rows instead of the in-memory mock. The door/taken state below is still the
+  // prototype's mock — it moves to DoorProvider in STAP 3.5.
+  const top = stack[stack.length - 1];
+  const { data: liveEvents } = usePoEvents();
+  const events = liveEvents ?? [];
+  // The event in context carries its id (lijst/event/pastevent via `id`, the
+  // guest detail via `eventId`), so the detail resolves a real guest from the
+  // same cached list the Gastenlijst reads.
+  const eventIdInContext =
+    top?.name === 'guest'
+      ? top.props.eventId ?? ''
+      : top && (top.name === 'lijst' || top.name === 'event' || top.name === 'pastevent')
+        ? top.props.id ?? ''
+        : '';
+  const { data: liveGuests } = usePoGuests(eventIdInContext);
 
   const nav: Nav = {
     push: (name: ScreenName, props = {}) => {
@@ -131,10 +166,9 @@ export function PlusOneApp({
     nav.back();
   };
 
-  const ev = (id?: string) => events.find((e) => e.id === id) ?? events[0];
-  const guest = (id?: string) => guests.find((g) => String(g.id) === id) ?? guests[0];
+  const ev = (id?: string) => events.find((e) => e.id === id);
+  const guest = (id?: string) => (liveGuests ?? []).find((g) => g.id === id);
 
-  const top = stack[stack.length - 1];
   const tabRoot = started && stack.length === 0;
 
   let screen: ReactNode;
@@ -150,12 +184,16 @@ export function PlusOneApp({
       case 'event':
         screen = <EventView id={p.id} />;
         break;
-      case 'lijst':
-        screen = <Lijst ev={ev(p.id)} />;
+      case 'lijst': {
+        const e = ev(p.id);
+        screen = e ? <Lijst ev={e} /> : <Loading onBack={nav.back} />;
         break;
-      case 'guest':
-        screen = <Guest g={guest(p.id)} />;
+      }
+      case 'guest': {
+        const g = guest(p.id);
+        screen = g ? <Guest g={g} /> : <Loading onBack={nav.back} />;
         break;
+      }
       case 'contacten':
         screen = <Contacten />;
         break;
@@ -169,10 +207,10 @@ export function PlusOneApp({
         screen = <Import />;
         break;
       case 'quickadd':
-        screen = <QuickAdd />;
+        screen = <QuickAdd eventId={p.id} />;
         break;
       case 'bulk':
-        screen = <BulkPaste />;
+        screen = <BulkPaste eventId={p.id} />;
         break;
       case 'aanvragen':
         screen = <Aanvragen />;
@@ -266,8 +304,8 @@ export function PlusOneApp({
         navItems={navItems}
         venueName={liveVenueName ?? venue.name}
         onOpenVenue={() => nav.push('venueswitch')}
-        userName="Beheerder"
-        userSub="Admin · MFA"
+        userName={userName ?? 'Beheerder'}
+        userSub={userSub ?? ''}
       >
         {body}
       </ResponsiveShell>

@@ -2,14 +2,26 @@
 
 /** Guest list, guest detail (+logboek, Let-op popup, stepper check-in),
  *  quick-add (#33), bulk-paste, adresboek, permanente gasten. */
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { v7 as uuidv7 } from 'uuid';
 import { cn } from '@/lib/utils';
-import { contacts, events, guests, tiers } from '@/lib/po/data';
-import { parseBulk, parseQuickAdd } from '@/lib/po/parse';
-import type { Guest as GuestT, PoEvent, Tier } from '@/lib/po/types';
+import { contacts } from '@/lib/po/data';
+import type { Guest as GuestT, PoEvent } from '@/lib/po/types';
+import {
+  parseQuickAdd,
+  parseBulk,
+  resolveAmbiguity,
+  totalSlots,
+  type QuickAddTier,
+  type AmbiguityChoice,
+  type ParseResult,
+} from '@/features/guests/quick-add-parser';
+import { resolveDefaultTierId } from '@/features/guests/tiers';
+import { usePoEvents, usePoGuests, usePoTiers, usePoQuota } from '@/features/po/hooks';
+import { usePoAddGuest, usePoAddGuestsBulk } from '@/features/po/mutations';
 import { useNav, usePo } from '../context';
 import { Icon, type IconName } from '../icon';
-import { Avatar, Btn, Field, IconBtn, Label, MiniChip, PayChip, RoleChip, Scroll, StatusDot, Stepper, Top } from '../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, PayChip, RoleChip, Scroll, StatusDot, Stepper, Top } from '../kit';
 import { BottomBar, Sheet } from '../shell';
 
 const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
@@ -35,16 +47,18 @@ function FilterChip({ on, onClick, children, grow }: { on: boolean; onClick: () 
 // ── GUEST LIST (pushed) ──────────────────────────────────────────────────────
 export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
   const nav = useNav();
-  const { inside } = usePo();
+  const { data: guests = [], isLoading, isError } = usePoGuests(ev.id);
   const [q, setQ] = useState('');
   const [f, setF] = useState<'all' | 'wait' | 'in' | 'vip'>('all');
+  // Live data: a guest's own status (checked_in → 'in') drives in/wait, not the
+  // prototype's mock door set — the live door outbox arrives in STAP 3.5.
   let gs = guests.filter(
-    (g) => f === 'all' || (f === 'in' && inside.has(g.id)) || (f === 'wait' && !inside.has(g.id)) || (f === 'vip' && g.role === 'VIP'),
+    (g) => f === 'all' || (f === 'in' && g.status === 'in') || (f === 'wait' && g.status === 'wait') || (f === 'vip' && g.role === 'VIP'),
   );
   if (q) gs = gs.filter((g) => g.name.toLowerCase().includes(q.toLowerCase()));
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Gastenlijst" sub={`${ev.name} · ${gs.length} getoond van 148`} right={<IconBtn name="plus" onClick={() => nav.push('quickadd')} />} />
+      <Top onBack={nav.back} title="Gastenlijst" sub={`${ev.name} · ${gs.length} getoond van ${guests.length}`} right={<IconBtn name="plus" onClick={() => nav.push('quickadd', { id: ev.id })} />} />
       <div className="flex-none px-4 pb-[10px]">
         <Field icon="search" placeholder="Zoek gast…" value={q} onChange={setQ} />
       </div>
@@ -56,40 +70,48 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
         ))}
       </div>
       <div className="flex flex-none gap-2 px-4 pb-3">
-        <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd')}>
+        <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd', { id: ev.id })}>
           Snel toevoegen
         </Btn>
-        <Btn sm kind="quiet" icon="paste" onClick={() => nav.push('bulk')}>
+        <Btn sm kind="quiet" icon="paste" onClick={() => nav.push('bulk', { id: ev.id })}>
           Plak namen
         </Btn>
-        <Btn sm kind="quiet" icon="contact" onClick={() => nav.push('contacten')}>
+        <Btn sm kind="quiet" icon="contact" onClick={() => nav.push('contacten', { id: ev.id })}>
           Adresboek
         </Btn>
       </div>
       <Scroll pad={16} bottom={24}>
-        <div className="flex flex-col gap-[9px]">
-          {gs.map((g) => (
-            <button key={g.id} type="button" onClick={() => nav.push('guest', { id: String(g.id) })} className={cn('flex items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[12px] text-left', cardPress)}>
-              <Avatar name={g.name} size={42} accent={g.role === 'VIP'} />
-              <div className="min-w-0 flex-1">
-                <div className="font-display text-[15.5px] font-bold text-text">
-                  {g.name}
-                  {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
+        {isLoading ? (
+          <Empty text="Gasten laden…" />
+        ) : isError ? (
+          <Empty text="Kon de gastenlijst niet laden." />
+        ) : gs.length === 0 ? (
+          <Empty text={q || f !== 'all' ? 'Geen gasten gevonden.' : 'Nog geen gasten — voeg de eerste toe.'} />
+        ) : (
+          <div className="flex flex-col gap-[9px]">
+            {gs.map((g) => (
+              <button key={g.id} type="button" onClick={() => nav.push('guest', { id: g.id, eventId: ev.id })} className={cn('flex items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[12px] text-left', cardPress)}>
+                <Avatar name={g.name} size={42} accent={g.role === 'VIP'} />
+                <div className="min-w-0 flex-1">
+                  <div className="font-display text-[15.5px] font-bold text-text">
+                    {g.name}
+                    {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
+                  </div>
+                  <div className="mt-[5px] flex flex-wrap items-center gap-1.5">
+                    <RoleChip role={g.role} />
+                    {g.pay === 'pay' && <PayChip pay="pay" />}
+                    {g.note && (
+                      <span className="text-acc-soft">
+                        <Icon name="note" size={13} />
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="mt-[5px] flex flex-wrap items-center gap-1.5">
-                  <RoleChip role={g.role} />
-                  {g.pay === 'pay' && <PayChip pay="pay" />}
-                  {g.note && (
-                    <span className="text-acc-soft">
-                      <Icon name="note" size={13} />
-                    </span>
-                  )}
-                </div>
-              </div>
-              <StatusDot status={inside.has(g.id) ? 'in' : 'wait'} label={false} />
-            </button>
-          ))}
-        </div>
+                <StatusDot status={g.status} label={false} />
+              </button>
+            ))}
+          </div>
+        )}
       </Scroll>
     </div>
   );
@@ -249,11 +271,12 @@ export function Guest({ g }: { g: GuestT }): JSX.Element {
 }
 
 // ── QUICK-ADD (#33) ──────────────────────────────────────────────────────────
-interface AddedGuest {
+interface JustAdded {
+  id: string;
   name: string;
   plus: number;
-  tier: Tier;
-  id: number;
+  tierShort: string;
+  vip: boolean;
 }
 
 function PreviewChip({ icon, dot, label }: { icon?: IconName; dot?: string; label: string }): JSX.Element {
@@ -266,141 +289,220 @@ function PreviewChip({ icon, dot, label }: { icon?: IconName; dot?: string; labe
   );
 }
 
-export function QuickAdd(): JSX.Element {
+export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const nav = useNav();
-  const upcoming = events.filter((e) => e.when === 'upcoming');
+  const { data: liveEvents = [] } = usePoEvents();
+  const upcoming = liveEvents.filter((e) => e.when === 'upcoming');
+  const [curId, setCurId] = useState<string | undefined>(eventId);
+  const curEv = liveEvents.find((e) => e.id === curId) ?? upcoming[0] ?? liveEvents[0];
+  const evId = curEv?.id ?? '';
+
+  const { data: tiers = [] } = usePoTiers(evId);
+  const { data: quota } = usePoQuota(evId);
+  const add = usePoAddGuest(evId);
+
   const [val, setVal] = useState('');
-  const [added, setAdded] = useState<AddedGuest[]>([]);
-  const [resolveTier, setResolveTier] = useState<string | null>(null);
-  const [curEv, setCurEv] = useState<PoEvent>(upcoming[0]);
+  const [choice, setChoice] = useState<AmbiguityChoice | null>(null);
+  const [added, setAdded] = useState<JustAdded[]>([]);
   const [evPick, setEvPick] = useState(false);
-  const parsed = val ? parseQuickAdd(val) : null;
-  const usedSlots = added.reduce((a, g) => a + 1 + g.plus, 0);
-  const quotaLeft = 5 - usedSlots;
-  const effTier = parsed && resolveTier ? tiers.find((t) => t.id === resolveTier) ?? parsed.tier : parsed?.tier;
-  const cost = parsed ? 1 + parsed.plus : 0;
-  const needsAsk = !!(parsed && parsed.ambiguous && !resolveTier);
 
-  useEffect(() => {
-    setResolveTier(null);
-  }, [val]);
+  const qaTiers: QuickAddTier[] = tiers.map((t) => ({ id: t.id, name: t.name, aliases: t.aliases }));
+  const defaultTierId = resolveDefaultTierId(qaTiers);
 
-  const commit = (): void => {
-    if (!parsed || cost > quotaLeft || !effTier) return;
-    setAdded((a) => [{ name: parsed.name, plus: parsed.plus, tier: effTier, id: Date.now() }, ...a]);
-    setVal('');
-    setResolveTier(null);
+  // Parse against the LIVE tiers with the shared #33 parser (same one the desktop
+  // quick-add uses), so behaviour — fuzzy match, NL +N, ambiguity — is identical.
+  const parsed = defaultTierId && val.trim() ? parseQuickAdd(val, qaTiers, defaultTierId) : null;
+  const isAmbiguous = parsed?.status === 'ambiguous';
+  const resolved =
+    isAmbiguous && choice && parsed && defaultTierId ? resolveAmbiguity(parsed, choice, defaultTierId) : null;
+
+  const effName = (resolved ? resolved.name : parsed?.name ?? '').trim();
+  const effPlus = resolved ? resolved.plusOnes : parsed?.plusOnes ?? 0;
+  const effTierId = resolved?.tierId ?? parsed?.tierId ?? defaultTierId ?? '';
+  const effTier = tiers.find((t) => t.id === effTierId);
+  const cost = 1 + effPlus;
+
+  const exempt = quota?.exempt ?? false;
+  const remaining = exempt ? null : quota?.remaining ?? null;
+  const overQuota = remaining !== null && cost > remaining;
+  const needsAsk = !!isAmbiguous && !choice;
+  const canSubmit = !add.isPending && !!defaultTierId && !!evId && effName !== '' && !needsAsk && !overQuota;
+
+  const onInput = (v: string): void => {
+    setVal(v);
+    setChoice(null);
   };
 
-  const askTiers = tiers.filter((t) => t.id === 'vip' || t.id === 'regular');
+  const commit = (): void => {
+    if (!canSubmit || !effTier) return;
+    // Client UUIDv7 so the optimistic row and the inserted row share an id (#25)
+    // — the list reconciles without a flash when invalidation refetches.
+    const id = uuidv7();
+    const snapshot: JustAdded = { id, name: effName, plus: effPlus, tierShort: effTier.short, vip: effTier.role === 'VIP' };
+    add.mutate(
+      { id, eventId: evId, tierId: effTierId, fullName: effName, plusOnes: effPlus, source: 'app' },
+      {
+        onSuccess: () => {
+          setAdded((a) => [snapshot, ...a]);
+          setVal('');
+          setChoice(null);
+        },
+      },
+    );
+  };
+
+  const sub = !curEv
+    ? 'Geen event gekozen'
+    : exempt
+      ? 'onbeperkt quotum'
+      : remaining !== null && quota
+        ? `jouw quotum ${remaining} van ${quota.quota} over`
+        : 'gast toevoegen';
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Gast toevoegen" sub={`jouw quotum ${quotaLeft} van 5 over`} right={<IconBtn name="paste" onClick={() => nav.push('bulk')} />} />
+      <Top onBack={nav.back} title="Gast toevoegen" sub={sub} right={<IconBtn name="paste" onClick={() => nav.push('bulk', curEv ? { id: curEv.id } : {})} />} />
       <Scroll bottom={120}>
         <Label className="mb-2">Evenement</Label>
-        <button type="button" onClick={() => setEvPick(true)} className={cn('mb-4 flex w-full items-center gap-[13px] rounded-[14px] border border-line bg-elev px-[14px] py-[13px] text-left', press)}>
-          <span className="w-[40px] shrink-0 text-center">
-            <span className={cn('block font-display text-[18px] font-extrabold leading-none', curEv.accent ? 'text-acc' : 'text-text')}>{curEv.date}</span>
-            <span className="mt-0.5 block text-[9.5px] font-bold tracking-[0.05em] text-faint">{curEv.mon}</span>
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block font-display text-[15.5px] font-bold text-text">{curEv.name}</span>
-            <span className="mt-px block text-[12.5px] text-faint">
-              deur {curEv.time} · {curEv.venue}
+        {curEv ? (
+          <button type="button" onClick={() => setEvPick(true)} className={cn('mb-4 flex w-full items-center gap-[13px] rounded-[14px] border border-line bg-elev px-[14px] py-[13px] text-left', press)}>
+            <span className="w-[40px] shrink-0 text-center">
+              <span className="block font-display text-[18px] font-extrabold leading-none text-text">{curEv.date}</span>
+              <span className="mt-0.5 block text-[9.5px] font-bold tracking-[0.05em] text-faint">{curEv.mon}</span>
             </span>
-          </span>
-          <span className="text-acc">
-            <Icon name="chevD" size={18} />
-          </span>
-        </button>
-        <Label className="mb-2">Typ vrij — naam, +gasten, tier</Label>
-        <div className={cn('rounded-[16px] border bg-elev px-[15px] py-[14px] transition-colors', parsed ? 'border-acc' : 'border-line')}>
-          <input
-            autoFocus
-            value={val}
-            onChange={(e) => setVal(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !needsAsk) commit();
-            }}
-            placeholder={'bv. "Juri Braakman +2 vip"'}
-            className="w-full border-none bg-transparent font-display text-[18px] font-bold tracking-[-0.01em] text-text outline-none placeholder:text-faint"
-          />
-          {parsed && (
-            <div className="mt-[13px] flex flex-wrap gap-[7px]">
-              <PreviewChip icon="user" label={parsed.name || '—'} />
-              {parsed.plus > 0 && <PreviewChip icon="users" label={`+${parsed.plus}`} />}
-              {!needsAsk && effTier && <PreviewChip dot={effTier.color} label={effTier.short} />}
-              {needsAsk && parsed.unknown.map((w) => <MiniChip key={w} className="border-dashed border-acc text-text">“{w}” ?</MiniChip>)}
-            </div>
-          )}
-        </div>
-
-        {needsAsk && parsed && (
-          <div className="mt-3 rounded-[16px] bg-acc-dim p-[14px]">
-            <div className="mb-[11px] text-[13.5px] leading-[1.45] text-text">
-              <b>“{parsed.unknown.join(' ')}”</b> herken ik niet. Wat bedoel je?
-            </div>
-            <div className="flex flex-col gap-2">
-              {askTiers.map((t) => (
-                <button key={t.id} type="button" onClick={() => setResolveTier(t.id)} className={cn('flex items-center gap-[10px] rounded-[12px] border border-line bg-bg px-[13px] py-[12px] text-text', press)}>
-                  <span className="h-[10px] w-[10px] rounded-full" style={{ background: t.color }} />
-                  <span className="flex-1 text-left font-display text-[14.5px] font-bold">{t.short}</span>
-                  <Icon name="chev" size={16} className="text-ghost" />
-                </button>
-              ))}
-              <button type="button" onClick={() => setResolveTier('regular')} className={cn('flex items-center gap-[10px] rounded-[12px] border border-line bg-bg px-[13px] py-[12px] text-text', press)}>
-                <Icon name="user" size={15} className="text-faint" />
-                <span className="flex-1 text-left font-display text-[14.5px] font-bold">Hoort bij de naam</span>
-                <Icon name="chev" size={16} className="text-ghost" />
-              </button>
-            </div>
+            <span className="min-w-0 flex-1">
+              <span className="block font-display text-[15.5px] font-bold text-text">{curEv.name}</span>
+              <span className="mt-px block text-[12.5px] text-faint">
+                deur {curEv.time} · {curEv.venue}
+              </span>
+            </span>
+            <span className="text-acc">
+              <Icon name="chevD" size={18} />
+            </span>
+          </button>
+        ) : (
+          <div className="mb-4">
+            <Empty text="Nog geen komend event om aan toe te voegen." />
           </div>
         )}
 
-        {parsed && !needsAsk && (
-          <div className={cn('mt-3 flex items-center gap-[9px] rounded-[13px] px-[14px] py-[11px]', cost > quotaLeft ? 'border border-acc bg-white/[0.04]' : 'border border-line bg-elev')}>
-            <Icon name="ticket" size={17} stroke={cost > quotaLeft ? '#B5A6FF' : 'rgba(255,255,255,0.40)'} />
-            <span className="flex-1 text-[13.5px] text-text">
-              Kost <b>{cost}</b> {cost === 1 ? 'plek' : 'plekken'} · {Math.max(0, quotaLeft - cost)} over na toevoegen
-            </span>
-            {cost > quotaLeft && <MiniChip className="border-acc text-acc">Quotum vol</MiniChip>}
+        {curEv && !defaultTierId && (
+          <div className="rounded-[16px] border border-line bg-elev p-[14px] text-[13.5px] leading-[1.45] text-faint">
+            Dit event heeft nog geen tiers. Voeg eerst een tier toe via eventbeheer voordat je gasten toevoegt.
           </div>
         )}
 
-        {cost > quotaLeft && parsed && !needsAsk && (
-          <Btn kind="ghost" full icon="plus" className="mt-[10px]" onClick={() => nav.push('aanvragen')}>
-            Extra plekken aanvragen
-          </Btn>
-        )}
-
-        {added.length > 0 && (
+        {curEv && defaultTierId && (
           <>
-            <Label className="mx-0.5 mb-[10px] mt-[22px]">Net toegevoegd · {added.length}</Label>
-            <div className="flex flex-col gap-2">
-              {added.map((g) => (
-                <div key={g.id} className="flex items-center gap-[11px] rounded-[14px] border border-line bg-elev p-[11px]">
-                  <Avatar name={g.name} size={36} accent={g.tier.id === 'vip'} />
-                  <div className="min-w-0 flex-1">
-                    <div className="font-display text-[14.5px] font-bold text-text">
-                      {g.name}
-                      {g.plus > 0 && <span className="text-faint"> +{g.plus}</span>}
-                    </div>
-                    <div className="mt-0.5 text-[11.5px] text-faint">{g.tier.short}</div>
-                  </div>
-                  <span className="inline-flex items-center gap-[5px] font-body text-[11.5px] font-bold text-acc">
-                    <Icon name="check2" size={13} stroke="#B5A6FF" sw={2.4} />
-                    op lijst
-                  </span>
+            <Label className="mb-2">Typ vrij — naam, +gasten, tier</Label>
+            <div className={cn('rounded-[16px] border bg-elev px-[15px] py-[14px] transition-colors', parsed ? 'border-acc' : 'border-line')}>
+              <input
+                autoFocus
+                value={val}
+                onChange={(e) => onInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && canSubmit) commit();
+                }}
+                placeholder={'bv. "Juri Braakman +2 vip"'}
+                className="w-full border-none bg-transparent font-display text-[18px] font-bold tracking-[-0.01em] text-text outline-none placeholder:text-faint"
+              />
+              {parsed && (
+                <div className="mt-[13px] flex flex-wrap gap-[7px]">
+                  <PreviewChip icon="user" label={effName || '—'} />
+                  {effPlus > 0 && <PreviewChip icon="users" label={`+${effPlus}`} />}
+                  {!needsAsk && effTier && <PreviewChip dot={effTier.color} label={effTier.short} />}
+                  {needsAsk && parsed.ambiguous && (
+                    <MiniChip className="border-dashed border-acc text-text">“{parsed.ambiguous.text}” ?</MiniChip>
+                  )}
                 </div>
-              ))}
+              )}
             </div>
+
+            {needsAsk && parsed?.ambiguous && (
+              <div className="mt-3 rounded-[16px] bg-acc-dim p-[14px]">
+                <div className="mb-[11px] text-[13.5px] leading-[1.45] text-text">
+                  <b>“{parsed.ambiguous.text}”</b> herken ik niet. Wat bedoel je?
+                </div>
+                <div className="flex flex-col gap-2">
+                  {parsed.ambiguous.suggestions.map((s) => {
+                    const t = tiers.find((x) => x.id === s.tierId);
+                    return (
+                      <button key={s.tierId} type="button" onClick={() => setChoice({ kind: 'tier', tierId: s.tierId })} className={cn('flex items-center gap-[10px] rounded-[12px] border border-line bg-bg px-[13px] py-[12px] text-text', press)}>
+                        <span className="h-[10px] w-[10px] rounded-full" style={{ background: t?.color ?? '#B5A6FF' }} />
+                        <span className="flex-1 text-left font-display text-[14.5px] font-bold">{s.tierName}</span>
+                        <Icon name="chev" size={16} className="text-ghost" />
+                      </button>
+                    );
+                  })}
+                  <button type="button" onClick={() => setChoice({ kind: 'default' })} className={cn('flex items-center gap-[10px] rounded-[12px] border border-line bg-bg px-[13px] py-[12px] text-text', press)}>
+                    <Icon name="ticket" size={15} className="text-faint" />
+                    <span className="flex-1 text-left font-display text-[14.5px] font-bold">{tiers.find((t) => t.id === defaultTierId)?.short ?? 'Standaard'}</span>
+                    <Icon name="chev" size={16} className="text-ghost" />
+                  </button>
+                  <button type="button" onClick={() => setChoice({ kind: 'name' })} className={cn('flex items-center gap-[10px] rounded-[12px] border border-line bg-bg px-[13px] py-[12px] text-text', press)}>
+                    <Icon name="user" size={15} className="text-faint" />
+                    <span className="flex-1 text-left font-display text-[14.5px] font-bold">Hoort bij de naam</span>
+                    <Icon name="chev" size={16} className="text-ghost" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {parsed && !needsAsk && !exempt && remaining !== null && (
+              <div className={cn('mt-3 flex items-center gap-[9px] rounded-[13px] px-[14px] py-[11px]', overQuota ? 'border border-acc bg-white/[0.04]' : 'border border-line bg-elev')}>
+                <Icon name="ticket" size={17} stroke={overQuota ? '#B5A6FF' : 'rgba(255,255,255,0.40)'} />
+                <span className="flex-1 text-[13.5px] text-text">
+                  Kost <b>{cost}</b> {cost === 1 ? 'plek' : 'plekken'} ·{' '}
+                  {overQuota
+                    ? `${remaining} over · ${cost - remaining} te veel`
+                    : `${remaining - cost} over na toevoegen`}
+                </span>
+                {overQuota && <MiniChip className="border-acc text-acc">Quotum vol</MiniChip>}
+              </div>
+            )}
+
+            {overQuota && parsed && !needsAsk && (
+              <Btn kind="ghost" full icon="plus" className="mt-[10px]" onClick={() => nav.push('aanvragen')}>
+                Extra plekken aanvragen
+              </Btn>
+            )}
+
+            {add.isError && (
+              <div className="mt-3 flex items-center gap-[9px] rounded-[13px] border border-acc bg-acc-dim px-[14px] py-[11px] text-[13px] text-text">
+                <Icon name="warn" size={16} stroke="#B5A6FF" />
+                <span className="flex-1">{add.error?.message}</span>
+              </div>
+            )}
+
+            {added.length > 0 && (
+              <>
+                <Label className="mx-0.5 mb-[10px] mt-[22px]">Net toegevoegd · {added.length}</Label>
+                <div className="flex flex-col gap-2">
+                  {added.map((g) => (
+                    <div key={g.id} className="flex items-center gap-[11px] rounded-[14px] border border-line bg-elev p-[11px]">
+                      <Avatar name={g.name} size={36} accent={g.vip} />
+                      <div className="min-w-0 flex-1">
+                        <div className="font-display text-[14.5px] font-bold text-text">
+                          {g.name}
+                          {g.plus > 0 && <span className="text-faint"> +{g.plus}</span>}
+                        </div>
+                        <div className="mt-0.5 text-[11.5px] text-faint">{g.tierShort}</div>
+                      </div>
+                      <span className="inline-flex items-center gap-[5px] font-body text-[11.5px] font-bold text-acc">
+                        <Icon name="check2" size={13} stroke="#B5A6FF" sw={2.4} />
+                        op lijst
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </>
         )}
       </Scroll>
       <BottomBar>
-        <Btn kind="primary" full icon="plus" onClick={commit} className={parsed && !needsAsk && cost <= quotaLeft ? '' : 'opacity-[0.45]'}>
-          {parsed ? `Voeg toe · ${parsed.name || 'gast'}${parsed.plus ? ' +' + parsed.plus : ''}` : 'Typ een naam'}
+        <Btn kind="primary" full icon="plus" onClick={commit} className={canSubmit ? '' : 'opacity-[0.45]'}>
+          {add.isPending ? 'Bezig…' : parsed ? `Voeg toe · ${effName || 'gast'}${effPlus ? ' +' + effPlus : ''}` : 'Typ een naam'}
         </Btn>
       </BottomBar>
 
@@ -410,19 +512,19 @@ export function QuickAdd(): JSX.Element {
           <div className="mb-4 text-[13px] text-faint">Aan welke gastenlijst voeg je toe?</div>
           <div className="flex flex-col gap-2">
             {upcoming.map((e) => {
-              const on = e.id === curEv.id;
+              const on = e.id === curEv?.id;
               return (
                 <button
                   key={e.id}
                   type="button"
                   onClick={() => {
-                    setCurEv(e);
+                    setCurId(e.id);
                     setEvPick(false);
                   }}
                   className={cn('flex items-center gap-[12px] rounded-[12px] border px-[13px] py-[12px] text-left', on ? 'border-transparent bg-acc-dim' : 'border-line bg-elev', press)}
                 >
                   <span className="w-[38px] shrink-0 text-center">
-                    <span className={cn('block font-display text-[16px] font-extrabold leading-none', e.accent ? 'text-acc' : 'text-text')}>{e.date}</span>
+                    <span className="block font-display text-[16px] font-extrabold leading-none text-text">{e.date}</span>
                     <span className="block text-[9px] font-bold tracking-[0.05em] text-faint">{e.mon}</span>
                   </span>
                   <span className="min-w-0 flex-1">
@@ -441,74 +543,179 @@ export function QuickAdd(): JSX.Element {
 }
 
 // ── BULK PASTE (#33) ─────────────────────────────────────────────────────────
-export function BulkPaste(): JSX.Element {
+interface ResolvedRow {
+  name: string;
+  plusOnes: number;
+  tierId: string;
+  needsChoice: boolean;
+}
+
+/** Fold a parsed line + the user's chip choice into a final addable row. */
+function resolveRow(r: ParseResult, choice: AmbiguityChoice | undefined, defaultTierId: string): ResolvedRow {
+  if (r.status === 'ambiguous') {
+    if (!choice) return { name: r.name, plusOnes: r.plusOnes, tierId: defaultTierId, needsChoice: true };
+    const res = resolveAmbiguity(r, choice, defaultTierId);
+    return { name: res.name, plusOnes: res.plusOnes, tierId: res.tierId, needsChoice: false };
+  }
+  return { name: r.name, plusOnes: r.plusOnes, tierId: r.tierId ?? defaultTierId, needsChoice: false };
+}
+
+export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
   const nav = useNav();
-  const sample = 'Juri Braakman +2 vip\nNoor de Wit\nSem Aaltink fles\nDJ Pelican artist\nFemke Bakker goldlounge\nLucas van Os +1';
-  const [text, setText] = useState(sample);
-  const [confirmed, setConfirmed] = useState<Record<string, string>>({});
-  const rows = parseBulk(text);
-  const doubtful = rows.filter((r) => r.ambiguous && !confirmed[r.id]);
-  const ready = rows.length - doubtful.length;
+  const { data: liveEvents = [] } = usePoEvents();
+  const upcoming = liveEvents.filter((e) => e.when === 'upcoming');
+  const curEv = liveEvents.find((e) => e.id === eventId) ?? upcoming[0] ?? liveEvents[0];
+  const evId = curEv?.id ?? '';
+
+  const { data: tiers = [] } = usePoTiers(evId);
+  const { data: quota } = usePoQuota(evId);
+  const addBulk = usePoAddGuestsBulk(evId);
+
+  const qaTiers: QuickAddTier[] = tiers.map((t) => ({ id: t.id, name: t.name, aliases: t.aliases }));
+  const defaultTierId = resolveDefaultTierId(qaTiers);
+
+  const [text, setText] = useState('');
+  const [choices, setChoices] = useState<Record<number, AmbiguityChoice>>({});
+
+  const rows = defaultTierId ? parseBulk(text, qaTiers, defaultTierId) : [];
+  const resolvedRows = rows.map((r, i) => resolveRow(r, choices[i], defaultTierId ?? ''));
+  const total = totalSlots(resolvedRows.map((r) => ({ plusOnes: r.plusOnes })));
+  const doubtful = resolvedRows.filter((r) => r.needsChoice || r.name === '').length;
+  const ready = rows.length - doubtful;
+
+  const exempt = quota?.exempt ?? false;
+  const remaining = exempt ? null : quota?.remaining ?? null;
+  const overQuota = remaining !== null && total > remaining;
+  const canConfirm = !addBulk.isPending && rows.length > 0 && doubtful === 0 && !overQuota && !!defaultTierId && !!evId;
+
+  const confirm = (): void => {
+    if (!canConfirm) return;
+    // One UUIDv7 per row (#25) — the optimistic rows match the inserted rows. The
+    // DB enforces the batch atomically (quota overage rolls the whole batch back).
+    addBulk.mutate(
+      {
+        eventId: evId,
+        source: 'app',
+        guests: resolvedRows.map((r) => ({ id: uuidv7(), fullName: r.name, plusOnes: r.plusOnes, tierId: r.tierId })),
+      },
+      {
+        onSuccess: () => {
+          setText('');
+          setChoices({});
+          nav.back();
+        },
+      },
+    );
+  };
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Plak een lijst" sub="Eén gast per regel — uit WhatsApp, mail of Notes" />
+      <Top onBack={nav.back} title="Plak een lijst" sub={curEv ? `Naar ${curEv.name} · één gast per regel` : 'Eén gast per regel'} />
       <Scroll bottom={120}>
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          rows={5}
-          className="mb-4 w-full resize-y rounded-[14px] border border-line bg-elev p-[14px] font-body text-[14.5px] leading-[1.5] text-text outline-none"
-        />
-        <div className="mb-[10px] flex items-center justify-between">
-          <Label>Preview · {rows.length} regels</Label>
-          {doubtful.length > 0 && <MiniChip className="border-acc text-acc">{doubtful.length} te controleren</MiniChip>}
-        </div>
-        <div className="flex flex-col gap-2">
-          {rows.map((r) => {
-            const ask = r.ambiguous && !confirmed[r.id];
-            const tier = confirmed[r.id] ? tiers.find((t) => t.id === confirmed[r.id]) ?? r.tier : r.tier;
-            return (
-              <div key={r.id} className={cn('rounded-[14px] border bg-elev p-[12px]', ask ? 'border-acc' : 'border-line')}>
-                <div className="flex items-center gap-[11px]">
-                  <Avatar name={r.name} size={34} accent={tier.id === 'vip'} />
-                  <div className="min-w-0 flex-1">
-                    <div className="font-display text-[14.5px] font-bold text-text">
-                      {r.name}
-                      {r.plus > 0 && <span className="text-faint"> +{r.plus}</span>}
-                    </div>
-                    <div className={cn('mt-0.5 text-[11.5px]', ask ? 'text-acc' : 'text-faint')}>{ask ? `“${r.unknown.join(' ')}” onbekend` : tier.short}</div>
-                  </div>
-                  {!ask && (
-                    <span className="text-acc">
-                      <Icon name="check2" size={17} stroke="#B5A6FF" sw={2.2} />
-                    </span>
-                  )}
+        {!curEv ? (
+          <Empty text="Nog geen komend event om aan toe te voegen." />
+        ) : !defaultTierId ? (
+          <div className="rounded-[16px] border border-line bg-elev p-[14px] text-[13.5px] leading-[1.45] text-faint">
+            Dit event heeft nog geen tiers. Voeg eerst een tier toe via eventbeheer.
+          </div>
+        ) : (
+          <>
+            <textarea
+              value={text}
+              onChange={(e) => {
+                setText(e.target.value);
+                setChoices({});
+              }}
+              rows={5}
+              placeholder={'Juri Braakman +2 vip\nNoor de Wit\nSem Aaltink fles\nLucas van Os +1'}
+              className="mb-4 w-full resize-y rounded-[14px] border border-line bg-elev p-[14px] font-body text-[14.5px] leading-[1.5] text-text outline-none placeholder:text-faint"
+            />
+            {rows.length > 0 && (
+              <>
+                <div className="mb-[10px] flex items-center justify-between">
+                  <Label>Preview · {rows.length} regels</Label>
+                  {doubtful > 0 && <MiniChip className="border-acc text-acc">{doubtful} te controleren</MiniChip>}
                 </div>
-                {ask && (
-                  <div className="mt-[11px] flex gap-[7px]">
-                    {tiers
-                      .filter((t) => t.id === 'vip' || t.id === 'regular')
-                      .map((t) => (
-                        <button
-                          key={t.id}
-                          type="button"
-                          onClick={() => setConfirmed((c) => ({ ...c, [r.id]: t.id }))}
-                          className={cn('flex-1 rounded-[10px] border border-line bg-elev2 py-[9px] font-display text-[12.5px] font-bold text-text', press)}
-                        >
-                          {t.short}
-                        </button>
-                      ))}
+                <div className="flex flex-col gap-2">
+                  {rows.map((r, i) => {
+                    const res = resolvedRows[i];
+                    const ask = res.needsChoice;
+                    const tier = tiers.find((t) => t.id === res.tierId);
+                    return (
+                      <div key={i} className={cn('rounded-[14px] border bg-elev p-[12px]', ask ? 'border-acc' : 'border-line')}>
+                        <div className="flex items-center gap-[11px]">
+                          <Avatar name={res.name || r.raw} size={34} accent={tier?.role === 'VIP'} />
+                          <div className="min-w-0 flex-1">
+                            <div className="font-display text-[14.5px] font-bold text-text">
+                              {res.name || r.raw}
+                              {res.plusOnes > 0 && <span className="text-faint"> +{res.plusOnes}</span>}
+                            </div>
+                            <div className={cn('mt-0.5 text-[11.5px]', ask ? 'text-acc' : 'text-faint')}>
+                              {ask ? `“${r.ambiguous?.text ?? ''}” onbekend` : tier?.short ?? '—'}
+                            </div>
+                          </div>
+                          {!ask && (
+                            <span className="text-acc">
+                              <Icon name="check2" size={17} stroke="#B5A6FF" sw={2.2} />
+                            </span>
+                          )}
+                        </div>
+                        {ask && r.ambiguous && (
+                          <div className="mt-[11px] flex flex-wrap gap-[7px]">
+                            {r.ambiguous.suggestions.map((s) => (
+                              <button
+                                key={s.tierId}
+                                type="button"
+                                onClick={() => setChoices((c) => ({ ...c, [i]: { kind: 'tier', tierId: s.tierId } }))}
+                                className={cn('flex-1 rounded-[10px] border border-line bg-elev2 py-[9px] font-display text-[12.5px] font-bold text-text', press)}
+                              >
+                                {s.tierName}
+                              </button>
+                            ))}
+                            <button
+                              type="button"
+                              onClick={() => setChoices((c) => ({ ...c, [i]: { kind: 'default' } }))}
+                              className={cn('flex-1 rounded-[10px] border border-line bg-elev2 py-[9px] font-display text-[12.5px] font-bold text-text', press)}
+                            >
+                              {tiers.find((t) => t.id === defaultTierId)?.short ?? 'Standaard'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setChoices((c) => ({ ...c, [i]: { kind: 'name' } }))}
+                              className={cn('flex-1 rounded-[10px] border border-line bg-elev2 py-[9px] font-display text-[12.5px] font-bold text-text', press)}
+                            >
+                              Bij naam
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {!exempt && remaining !== null && (
+                  <div className={cn('mt-3 text-[12.5px]', overQuota ? 'text-acc-soft' : 'text-faint')}>
+                    {total} {total === 1 ? 'plek' : 'plekken'} · {remaining} over in je quotum
+                    {overQuota && ' — de hele batch wordt geblokkeerd'}
                   </div>
                 )}
-              </div>
-            );
-          })}
-        </div>
+                {addBulk.isError && (
+                  <div className="mt-3 flex items-center gap-[9px] rounded-[13px] border border-acc bg-acc-dim px-[14px] py-[11px] text-[13px] text-text">
+                    <Icon name="warn" size={16} stroke="#B5A6FF" />
+                    <span className="flex-1">{addBulk.error?.message}</span>
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        )}
       </Scroll>
       <BottomBar>
-        <Btn kind="primary" full icon="check" onClick={() => nav.back()} className={ready > 0 ? '' : 'opacity-[0.45]'}>
-          {doubtful.length > 0 ? `Voeg ${ready} toe · ${doubtful.length} open` : `Voeg ${ready} gasten toe`}
+        <Btn kind="primary" full icon="check" onClick={confirm} className={canConfirm ? '' : 'opacity-[0.45]'}>
+          {addBulk.isPending
+            ? 'Bezig…'
+            : doubtful > 0
+              ? `Voeg ${ready} toe · ${doubtful} open`
+              : `Voeg ${ready} ${ready === 1 ? 'gast' : 'gasten'} toe`}
         </Btn>
       </BottomBar>
     </div>

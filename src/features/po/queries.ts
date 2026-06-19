@@ -55,8 +55,19 @@ export async function fetchEvents(client: Client, venueId: string): Promise<PoEv
   }));
 }
 
-/** Active guests for an event (soft-deleted excluded), oldest first. */
-export async function fetchGuests(client: Client, eventId: string): Promise<PoGuestRow[]> {
+/**
+ * Active guests for an event (soft-deleted excluded), oldest first.
+ *
+ * This is the po surface's canonical guest read, lifted out of the desktop
+ * `(app)/events/[eventId]/guests/page.tsx` inline select so both the desktop
+ * Server Component and the mobile Client Components share one query shape
+ * (STAP 3.4). Both run through the USER-scoped client, so RLS stays the
+ * boundary — staff see only their own guests, an out-of-scope id yields [].
+ * The desktop page keeps its own richer select (email/phone/source for the
+ * edit form, removed rows shown struck-through); this lean projection is
+ * exactly what `toPoGuest` needs.
+ */
+export async function fetchPoGuests(client: Client, eventId: string): Promise<PoGuestRow[]> {
   const { data } = await client
     .from('guests')
     .select('id, full_name, plus_ones, status, tier_id, note, note_priority, created_at')
@@ -65,6 +76,39 @@ export async function fetchGuests(client: Client, eventId: string): Promise<PoGu
     .order('created_at', { ascending: true });
 
   return data ?? [];
+}
+
+export interface PoQuotaStatus {
+  /** Personal slot allowance for this event; -1 when exempt (admin/organizer). */
+  quota: number;
+  /** Slots already consumed by the caller (1 + plus-ones each). */
+  consumed: number;
+  /** Slots left, or null when exempt. */
+  remaining: number | null;
+  /** Admin/organizer: no personal limit. */
+  exempt: boolean;
+}
+
+/**
+ * The caller's personal quota for an event (#22/#31), via the same
+ * `event_quota_status` RPC the desktop guests page uses. Drives the quick-add
+ * "X van N over" hint and the pre-submit overage block. The DB is still the
+ * real enforcement boundary — this is early UI feedback only.
+ */
+export async function fetchEventQuota(
+  client: Client,
+  eventId: string
+): Promise<PoQuotaStatus | null> {
+  const { data } = await client
+    .rpc('event_quota_status', { p_event_id: eventId })
+    .maybeSingle();
+  if (!data) return null;
+  return {
+    quota: data.quota,
+    consumed: data.consumed,
+    remaining: data.exempt ? null : data.remaining,
+    exempt: data.exempt,
+  };
 }
 
 /** Tiers for an event (RLS: members read their venue's tiers). */

@@ -151,6 +151,35 @@ export function toRecap(
   };
 }
 
+export interface OptimisticAddArgs {
+  /** Client UUIDv7 (#25); falls back to a transient key when absent. */
+  id?: string;
+  tierId: string;
+  fullName: string;
+  plusOnes?: number;
+}
+
+/**
+ * A transient po Guest for an in-flight add (optimistic UI, STAP 3.4). It mirrors
+ * `toPoGuest`'s defaults — role from the tier, pay 'free', status 'wait' — so the
+ * optimistic row is visually identical to the server row that replaces it on
+ * invalidation. Pure (the clock is injectable) so it's unit-tested directly.
+ */
+export function optimisticGuest(args: OptimisticAddArgs, tiers: Tier[], now: Date = new Date()): Guest {
+  return {
+    id: args.id ?? `optimistic-${args.fullName}`,
+    name: args.fullName,
+    role: tiers.find((t) => t.id === args.tierId)?.role ?? 'Gast',
+    pay: 'free',
+    plus: args.plusOnes ?? 0,
+    note: '',
+    flag: null,
+    by: '',
+    addedAt: fmt(now.toISOString(), { day: 'numeric', month: 'short' }).replace('.', ''),
+    status: 'wait',
+  };
+}
+
 const DEFAULT_TIER_COLOR = '#B5A6FF';
 
 export function toPoTier(row: PoTierRow, used: number): Tier {
