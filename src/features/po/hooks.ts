@@ -8,6 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 import type { Guest, PoEvent, Tier } from '@/lib/po/types';
 import { poKeys } from './keys';
+import { pickDoorEvent, type PoDoorEvent } from './door-event';
 import {
   fetchEvents,
   fetchEventForEdit,
@@ -68,6 +69,25 @@ export function usePoEvents() {
         const c = heads.get(r.id) ?? { registered: 0, present: 0 };
         return toPoEvent(r, { guests: c.registered, inside: c.present });
       });
+    },
+  });
+}
+
+/**
+ * The event the mobile Deur/Taken tab works (live → soonest upcoming → most
+ * recent still-open). Lean read scoped to the active venue; the door's own
+ * snapshot/outbox (DoorProvider) loads once this resolves an id. Null when the
+ * caller has no venue or only closed events — the tab then shows an empty state.
+ */
+export function usePoDoorEvent() {
+  const { venueId } = usePoIdentity();
+  return useQuery<PoDoorEvent | null>({
+    queryKey: poKeys.doorEvent(venueId ?? ''),
+    enabled: !!venueId,
+    queryFn: async () => {
+      if (!venueId) return null;
+      const rows = await fetchEvents(createClient(), venueId);
+      return pickDoorEvent(rows, Date.now());
     },
   });
 }

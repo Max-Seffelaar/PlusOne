@@ -44,9 +44,12 @@ export function eventWhen(status: EventStatus): EventWhen {
   return status === 'closed' ? 'past' : 'upcoming';
 }
 
-/** A guest shows as "in" once checked in; everything else is still "wait". */
+/** Door state mirrored onto the guest row: checked_in → in, refused → refused,
+ *  everything else (pending/approved/denied/removed) → wait. */
 export function guestStatusToPo(status: GuestRowStatus): GuestStatus {
-  return status === 'checked_in' ? 'in' : 'wait';
+  if (status === 'checked_in') return 'in';
+  if (status === 'refused') return 'refused';
+  return 'wait';
 }
 
 /** note_priority -> the po flag ("none" collapses to no flag). */

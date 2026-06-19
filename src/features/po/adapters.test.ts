@@ -45,9 +45,10 @@ describe('eventWhen', () => {
 });
 
 describe('guestStatusToPo', () => {
-  it('maps checked_in to in, the rest to wait', () => {
+  it('maps checked_in to in, refused to refused, the rest to wait', () => {
     expect(guestStatusToPo('checked_in')).toBe('in');
-    for (const s of ['pending', 'approved', 'denied', 'refused', 'removed'] as const) {
+    expect(guestStatusToPo('refused')).toBe('refused');
+    for (const s of ['pending', 'approved', 'denied', 'removed'] as const) {
       expect(guestStatusToPo(s)).toBe('wait');
     }
   });

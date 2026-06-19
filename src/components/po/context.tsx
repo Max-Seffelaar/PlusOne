@@ -1,10 +1,11 @@
 'use client';
 
 /**
- * Navigation + shared door state for the prototype. Mirrors the in-memory nav
- * stack and check-in state from `po-app.jsx`, exposed through context so screens
- * don't prop-drill. When wired to Supabase later, `nav` becomes the App Router
- * and this door state moves to TanStack Query + the offline outbox.
+ * Navigation + shared app state for the po surface. Holds the in-memory nav stack
+ * and a little cross-screen UI state (permanente gasten, active venue). The door
+ * check-in state used to live here too; it now comes from the real DoorProvider
+ * (TanStack Query + offline outbox + realtime) under the Deur/Taken tabs, so it
+ * is no longer duplicated here (#25).
  */
 import { createContext, useContext } from 'react';
 import type { TabKey } from './shell';
@@ -59,18 +60,7 @@ export interface AuthNav {
   start: () => void;
 }
 
-export interface CheckInEntry {
-  at: string;
-  by: string;
-}
-
 export interface PoApp {
-  inside: Set<string>;
-  log: Record<string, CheckInEntry>;
-  checkIn: (id: string, total: number) => void;
-  uncheck: (id: string) => void;
-  taskDone: (id: string) => boolean;
-  ackTask: (id: string, val: boolean) => void;
   vast: Set<string>;
   toggleVast: (n: string) => void;
   venue: Venue;

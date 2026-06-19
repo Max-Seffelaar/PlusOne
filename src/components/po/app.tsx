@@ -7,27 +7,23 @@
  * App Router and the door state for TanStack Query + the offline outbox.
  */
 import { useState, type ReactNode } from 'react';
-import { contacts, guests, venues } from '@/lib/po/data';
+import { contacts, venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
-import { usePoEvents, usePoGuests } from '@/features/po/hooks';
-import { PoProvider, type AuthNav, type AuthView, type CheckInEntry, type Nav, type PoApp, type ScreenName, type StackEntry } from './context';
+import { usePoDoorEvent, usePoEvents, usePoGuests } from '@/features/po/hooks';
+import { DoorProvider } from '@/features/door/DoorProvider';
+import { DoorQueryProvider } from '@/features/door/DoorQueryProvider';
+import { PoProvider, type AuthNav, type AuthView, type Nav, type PoApp, type ScreenName, type StackEntry } from './context';
 import { PhoneFrame, Toast, type TabKey } from './shell';
 import { Top } from './kit';
 import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
 import { Invite, Login, Mfa, Otp, Welcome } from './screens/auth';
 import { EventBeheer, EventEdit, EventView, Events, PastEvent, Tiers } from './screens/events';
 import { BulkPaste, Contacten, Guest, Lijst, QuickAdd, Vaste } from './screens/guests';
-import { Deur, Taken } from './screens/door';
+import { PoDoorTab, type DoorOverlay } from './screens/door';
 import { Aanvragen } from './screens/approvals';
 import { Allowance, Billing, Gebruikers, Import, Meer, Profile, Rollen, VenueSettings, VenueSwitch } from './screens/settings';
 import { VenueCreate } from './screens/onboarding';
 import { Stats } from './screens/stats';
-
-const DOOR_USER = 'Joris';
-
-function nowTime(): string {
-  return new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
-}
 
 /** Shown while a pushed event/guest screen waits for its live row to load. */
 function Loading({ onBack }: { onBack: () => void }): JSX.Element {
@@ -35,6 +31,17 @@ function Loading({ onBack }: { onBack: () => void }): JSX.Element {
     <div className="flex h-full flex-col">
       <Top onBack={onBack} title="Laden…" />
       <div className="flex flex-1 items-center justify-center text-[14px] text-faint">Even laden…</div>
+    </div>
+  );
+}
+
+/** Door/Taken tab placeholder while the venue's door event resolves, or when
+ *  there is none (no upcoming/live event) so DoorProvider can't be mounted. */
+function DoorTabState({ title, text }: { title: string; text: string }): JSX.Element {
+  return (
+    <div className="flex h-full flex-col">
+      <Top big title={title} />
+      <div className="flex flex-1 items-center justify-center px-8 text-center text-[14px] text-faint">{text}</div>
     </div>
   );
 }
@@ -63,15 +70,11 @@ export function PlusOneApp({
   const [authProps, setAuthProps] = useState<{ email?: string }>({});
   const [tab, setTabState] = useState<TabKey>('events');
   const [stack, setStack] = useState<StackEntry[]>([]);
-  const [inside, setInside] = useState<Set<string>>(() => new Set(guests.filter((g) => g.status === 'in').map((g) => g.id)));
-  const [log, setLog] = useState<Record<string, CheckInEntry>>(() => {
-    const o: Record<string, CheckInEntry> = {};
-    guests.filter((g) => g.status === 'in').forEach((g) => {
-      o[g.id] = { at: g.at ?? '', by: g.inBy ?? DOOR_USER };
-    });
-    return o;
-  });
-  const [tasksDone, setTasksDone] = useState<Set<string>>(() => new Set());
+  // Door check-in overlay (guest detail / add-on-spot) for the Deur/Taken tabs.
+  // The state lives here (not inside DoorProvider) so the mobile tab bar can hide
+  // behind a full-screen door detail (isTabRoot below); the door components that
+  // read it render inside the provider, via <PoDoorTab>.
+  const [doorOverlay, setDoorOverlay] = useState<DoorOverlay>(null);
   const [vast, setVast] = useState<Set<string>>(() => new Set(contacts.filter((c) => c.vast).map((c) => c.name)));
   const [venue, setVenueState] = useState<Venue>(() => venues.find((v) => v.current) ?? venues[0]);
   const [toast, setToast] = useState<string | null>(null);
@@ -81,11 +84,13 @@ export function PlusOneApp({
 
   // Live data for the /app surface (STAP 3.4 + the events-live id-passing slice
   // of 3.3): the Events tab, event detail, and Gastenlijst resolve real Supabase
-  // rows instead of the in-memory mock. The door/taken state below is still the
-  // prototype's mock — it moves to DoorProvider in STAP 3.5.
+  // rows instead of the in-memory mock. The Deur/Taken tabs are wired live too
+  // (STAP 3.5) — they mount the real DoorProvider for the venue's current event.
   const top = stack[stack.length - 1];
   const { data: liveEvents } = usePoEvents();
   const events = liveEvents ?? [];
+  // The venue's current door event (live → next → recent); drives DoorProvider.
+  const doorEventQuery = usePoDoorEvent();
   // The event in context carries its id (lijst/event/pastevent via `id`, the
   // guest detail via `eventId`), so the detail resolves a real guest from the
   // same cached list the Gastenlijst reads.
@@ -109,6 +114,7 @@ export function PlusOneApp({
     setTab: (t: TabKey) => {
       setTabState(t);
       setStack([]);
+      setDoorOverlay(null);
       bump();
     },
   };
@@ -125,34 +131,11 @@ export function PlusOneApp({
     },
   };
 
-  const checkIn = (id: string, total: number): void => {
-    const g = guests.find((x) => x.id === id);
-    setInside((s) => new Set(s).add(id));
-    setLog((l) => ({ ...l, [id]: { at: nowTime(), by: DOOR_USER } }));
-    setToast((g ? g.name : 'Gast') + (total > 1 ? ' +' + (total - 1) : '') + ' · binnen ✓');
-    setTimeout(() => setToast(null), 2400);
-  };
-  const uncheck = (id: string): void => {
-    setInside((s) => {
-      const x = new Set(s);
-      x.delete(id);
-      return x;
-    });
-    setLog((l) => {
-      const o = { ...l };
-      delete o[id];
-      return o;
-    });
-    nav.back();
-  };
-  const taskDone = (id: string): boolean => tasksDone.has(id);
-  const ackTask = (id: string, val: boolean): void =>
-    setTasksDone((s) => {
-      const x = new Set(s);
-      if (val) x.add(id);
-      else x.delete(id);
-      return x;
-    });
+  // Door-overlay navigation (within the Deur/Taken tabs, scoped to DoorProvider).
+  const openGuest = (id: string): void => setDoorOverlay({ kind: 'guest', id });
+  const openAdd = (): void => setDoorOverlay({ kind: 'add' });
+  const closeOverlay = (): void => setDoorOverlay(null);
+
   const toggleVast = (n: string): void =>
     setVast((s) => {
       const x = new Set(s);
@@ -170,7 +153,12 @@ export function PlusOneApp({
   const ev = (id?: string) => events.find((e) => e.id === id);
   const guest = (id?: string) => (liveGuests ?? []).find((g) => g.id === id);
 
-  const tabRoot = started && stack.length === 0;
+  // The Deur/Taken tabs render inside DoorProvider (door branch below). A door
+  // overlay (guest detail / add) is treated like a pushed screen: it hides the
+  // mobile tab bar so the detail goes full-screen with its own action bar.
+  const isDoorTab = started && stack.length === 0 && (tab === 'deur' || tab === 'taken');
+  const doorOverlayOpen = isDoorTab && doorOverlay !== null;
+  const tabRoot = started && stack.length === 0 && !doorOverlayOpen;
 
   let screen: ReactNode;
   if (!started) {
@@ -256,12 +244,10 @@ export function PlusOneApp({
         screen = null;
     }
   } else if (tab === 'events') screen = <Events />;
-  else if (tab === 'deur') screen = <Deur />;
-  else if (tab === 'taken') screen = <Taken />;
-  else screen = <Meer />;
+  else if (tab === 'meer') screen = <Meer />;
+  // 'deur' / 'taken' render via the door branch below (inside DoorProvider).
 
-  const po: PoApp = { inside, log, checkIn, uncheck, taskDone, ackTask, vast, toggleVast, venue, switchVenue, statsVenues: statsAccess?.venues ?? [], nav };
-  const takenBadge = guests.filter((g) => g.note && !tasksDone.has(g.id)).length;
+  const po: PoApp = { vast, toggleVast, venue, switchVenue, statsVenues: statsAccess?.venues ?? [], nav };
 
   const body = (
     <>
@@ -294,6 +280,32 @@ export function PlusOneApp({
     { key: 'meer', label: 'Meer', icon: 'dots', active: currentKey === 'meer', onClick: () => nav.setTab('meer') },
   ];
 
+  // Door branch: mount the real DoorProvider (offline outbox + realtime) for the
+  // venue's current event and render the shared door components. Kept mounted
+  // across Deur↔Taken (both are door tabs) so realtime/cache survive the switch;
+  // unmounts when leaving for another tab. No event resolvable → empty state.
+  const doorTitle = tab === 'taken' ? 'Taken' : 'Check-in';
+  let doorBranch: ReactNode;
+  if (doorEventQuery.isLoading) {
+    doorBranch = <DoorTabState title={doorTitle} text="Even laden…" />;
+  } else if (doorEventQuery.data) {
+    doorBranch = (
+      <DoorQueryProvider>
+        <DoorProvider eventId={doorEventQuery.data.id}>
+          <PoDoorTab
+            tab={tab === 'taken' ? 'taken' : 'deur'}
+            overlay={doorOverlay}
+            openGuest={openGuest}
+            openAdd={openAdd}
+            closeOverlay={closeOverlay}
+          />
+        </DoorProvider>
+      </DoorQueryProvider>
+    );
+  } else {
+    doorBranch = <DoorTabState title={doorTitle} text="Geen actief event om in te checken. Maak of open eerst een event." />;
+  }
+
   return (
     <PoProvider value={po}>
       <ResponsiveShell
@@ -301,14 +313,13 @@ export function PlusOneApp({
         isTabRoot={tabRoot}
         mobileTab={tab}
         setMobileTab={nav.setTab}
-        mobileBadges={{ taken: takenBadge }}
         navItems={navItems}
         venueName={liveVenueName ?? venue.name}
         onOpenVenue={() => nav.push('venueswitch')}
         userName={liveUserName ?? 'Account'}
         userSub={liveUserSub ?? ''}
       >
-        {body}
+        {isDoorTab ? doorBranch : body}
       </ResponsiveShell>
     </PoProvider>
   );

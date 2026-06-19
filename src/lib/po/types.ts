@@ -12,7 +12,7 @@ export type Role = 'VIP' | 'All Access' | 'Artist' | 'Pers' | 'Crew' | 'Gast';
 /** `paid` = settled up front, `free` = comp, `pay` = must settle at the door. */
 export type PayStatus = 'paid' | 'free' | 'pay';
 
-export type GuestStatus = 'in' | 'wait';
+export type GuestStatus = 'in' | 'wait' | 'refused';
 
 export type Priority = 'high' | 'low';
 

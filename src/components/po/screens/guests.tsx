@@ -1,7 +1,7 @@
 'use client';
 
-/** Guest list, guest detail (+logboek, Let-op popup, stepper check-in),
- *  quick-add (#33), bulk-paste, adresboek, permanente gasten. */
+/** Guest list, guest detail (read-only logboek — check-in lives at the door,
+ *  Deur tab), quick-add (#33), bulk-paste, adresboek, permanente gasten. */
 import { useState } from 'react';
 import { v7 as uuidv7 } from 'uuid';
 import { cn } from '@/lib/utils';
@@ -23,7 +23,7 @@ import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canManageGuests } from '@/features/auth/roles';
 import { useNav, usePo } from '../context';
 import { Icon, type IconName } from '../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, PayChip, RoleChip, Scroll, StatusDot, Stepper, Top } from '../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, PayChip, RoleChip, Scroll, StatusDot, Top } from '../kit';
 import { BottomBar, Sheet } from '../shell';
 
 const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
@@ -109,7 +109,11 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
                     )}
                   </div>
                 </div>
-                <StatusDot status={g.status} label={false} />
+                {g.status === 'refused' ? (
+                  <span className="shrink-0 rounded-[7px] border border-line2 px-2 py-[3px] font-body text-[11px] font-bold text-faint">Geweigerd</span>
+                ) : (
+                  <StatusDot status={g.status} label={false} />
+                )}
               </button>
             ))}
           </div>
@@ -137,14 +141,13 @@ function LogRow({ icon, label, who, when, accent, last }: { icon: IconName; labe
 
 export function Guest({ g }: { g: GuestT }): JSX.Element {
   const nav = useNav();
-  const { inside, checkIn, uncheck, log, taskDone, ackTask } = usePo();
-  const isIn = inside.has(g.id);
-  const [plus, setPlus] = useState(g.plus);
+  // Read-only management detail. The live door state is mirrored onto the guest's
+  // own row (checked_in → 'in', refused → 'refused'); the interactive check-in /
+  // uncheck / refuse / note-ack live at the door now (Deur tab → DoorProvider,
+  // offline outbox), not here.
+  const isIn = g.status === 'in';
+  const isRefused = g.status === 'refused';
   const hasTask = !!g.note;
-  const done = taskDone(g.id);
-  const [alertOpen, setAlertOpen] = useState(g.flag === 'high' && !done);
-  const entry = log[g.id];
-  const total = 1 + plus;
 
   return (
     <div className={col}>
@@ -158,11 +161,11 @@ export function Guest({ g }: { g: GuestT }): JSX.Element {
           </>
         }
       />
-      <Scroll bottom={20}>
+      <Scroll bottom={24}>
         <div className="flex flex-col items-center px-0 pb-[18px] pt-1.5 text-center">
           <Avatar name={g.name} size={84} accent={g.role === 'VIP'} />
           <h2 className="mb-0 mt-4 whitespace-nowrap font-display text-[28px] font-extrabold tracking-[-0.02em] text-text">{g.name}</h2>
-          <div className="mt-3 flex gap-[7px]">
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-[7px]">
             <RoleChip role={g.role} />
             {g.pay === 'pay' ? (
               <PayChip pay="pay" />
@@ -171,103 +174,39 @@ export function Guest({ g }: { g: GuestT }): JSX.Element {
                 {g.pay === 'paid' ? 'BETAALD' : 'GRATIS'}
               </span>
             )}
+            {isRefused && (
+              <span className="inline-flex items-center gap-[5px] rounded-[7px] border border-line2 px-2 py-[3px] font-body text-[11px] font-bold text-faint">
+                <Icon name="close" size={11} sw={2.4} />
+                GEWEIGERD
+              </span>
+            )}
           </div>
         </div>
 
         {hasTask && (
-          <div className={cn('mb-[10px] rounded-[14px] p-[14px]', g.flag === 'high' && !done ? 'border border-transparent bg-acc-dim' : 'border border-line bg-elev')}>
-            <div className="mb-[7px] flex items-center justify-between">
-              <span className="inline-flex items-center gap-[7px]">
-                <Icon name="flag" size={15} stroke={g.flag === 'high' ? '#B5A6FF' : 'rgba(255,255,255,0.40)'} fill={g.flag === 'high' ? '#B5A6FF' : 'none'} />
-                <Label className={g.flag === 'high' ? 'text-acc-soft' : 'text-faint'}>{g.flag === 'high' ? 'Belangrijke opdracht' : 'Opdracht'}</Label>
-              </span>
-              {done ? (
-                <span className="inline-flex items-center gap-[5px] font-body text-[11.5px] font-bold text-acc">
-                  <Icon name="check2" size={13} stroke="#B5A6FF" sw={2.4} />
-                  Opgepakt
-                </span>
-              ) : (
-                <span className="font-body text-[11px] font-bold text-faint">OPEN</span>
-              )}
+          <div className={cn('mb-[10px] rounded-[14px] p-[14px]', g.flag === 'high' ? 'border border-transparent bg-acc-dim' : 'border border-line bg-elev')}>
+            <div className="mb-[7px] flex items-center gap-[7px]">
+              <Icon name="flag" size={15} stroke={g.flag === 'high' ? '#B5A6FF' : 'rgba(255,255,255,0.40)'} fill={g.flag === 'high' ? '#B5A6FF' : 'none'} />
+              <Label className={g.flag === 'high' ? 'text-acc-soft' : 'text-faint'}>{g.flag === 'high' ? 'Belangrijke opdracht' : 'Opdracht'}</Label>
             </div>
-            <div className="mb-3 text-[15px] leading-[1.45] text-text">{g.note}</div>
-            <Btn sm full kind={done ? 'ghost' : 'primary'} icon={done ? 'history' : 'check2'} onClick={() => ackTask(g.id, !done)}>
-              {done ? 'Heropenen' : 'Markeer als opgepakt'}
-            </Btn>
-          </div>
-        )}
-
-        {g.pay === 'pay' && (
-          <div className="mb-[10px] flex items-center gap-[9px] rounded-[13px] border border-dashed border-line bg-elev px-[14px] py-[11px]">
-            <Icon name="money" size={17} className="text-text" />
-            <span className="text-[13.5px] font-semibold text-text">Betaalde gastenlijst — laat afrekenen aan de deur</span>
+            <div className="text-[15px] leading-[1.45] text-text">{g.note}</div>
+            <div className="mt-[10px] text-[12px] text-faint">Afhandelen aan de deur — via de Check-in tab.</div>
           </div>
         )}
 
         <Label className="mx-0.5 mb-[10px] mt-1.5">Logboek</Label>
         <div className="mb-4 rounded-[14px] border border-line bg-elev px-[14px] py-1">
-          <LogRow icon="user" label="Toegevoegd" who={g.by} when={g.addedAt} />
+          <LogRow icon="user" label="Toegevoegd" who={g.by || '—'} when={g.addedAt} />
           {g.plus > 0 && <LogRow icon="users" label="Meegenomen gasten" who={`+${g.plus} tickets`} />}
           {isIn ? (
-            <LogRow icon="check2" label="Ingecheckt" who={entry?.by ?? g.inBy ?? '—'} when={entry?.at ?? g.at} accent last />
+            <LogRow icon="check2" label="Ingecheckt" who={g.inBy ?? 'Deur'} when={g.at} accent last />
+          ) : isRefused ? (
+            <LogRow icon="close" label="Geweigerd" who="aan de deur" last />
           ) : (
             <LogRow icon="clock" label="Nog niet ingecheckt" who="onderweg" last />
           )}
         </div>
-
-        {!isIn && (
-          <>
-            <Label className="mb-[9px]">Hoeveel komen er binnen?</Label>
-            <div className="mb-4">
-              <Stepper value={plus + 1} onChange={(v) => setPlus(Math.max(0, v - 1))} />
-            </div>
-          </>
-        )}
       </Scroll>
-      <BottomBar>
-        {isIn ? (
-          <Btn kind="ghost" full icon="back" onClick={() => uncheck(g.id)}>
-            Uitchecken
-          </Btn>
-        ) : (
-          <Btn
-            kind="primary"
-            full
-            icon="check"
-            onClick={() => {
-              checkIn(g.id, total);
-              nav.back();
-            }}
-          >
-            Check in · {total} {total === 1 ? 'persoon' : 'personen'}
-          </Btn>
-        )}
-      </BottomBar>
-
-      {alertOpen && (
-        <Sheet onClose={() => setAlertOpen(false)} center>
-          <div className="mb-[14px] flex h-[52px] w-[52px] items-center justify-center rounded-[16px] bg-acc">
-            <Icon name="warn" size={28} stroke="#16132B" sw={2.2} />
-          </div>
-          <div className="font-display text-[22px] font-extrabold tracking-[-0.01em] text-text">Let op!</div>
-          <div className="mb-[14px] mt-0.5 text-[13px] text-faint">Opdracht voor {g.name}</div>
-          <div className="mb-[18px] w-full rounded-[14px] border border-line bg-elev p-[14px] text-left text-[15.5px] leading-[1.45] text-text">{g.note}</div>
-          <Btn
-            full
-            kind="primary"
-            icon="check2"
-            onClick={() => {
-              ackTask(g.id, true);
-              setAlertOpen(false);
-            }}
-          >
-            Gezien &amp; opgepakt
-          </Btn>
-          <button type="button" onClick={() => setAlertOpen(false)} className={cn('mt-[10px] cursor-pointer border-none bg-transparent font-body text-[13.5px] font-semibold text-faint', press)}>
-            Later
-          </button>
-        </Sheet>
-      )}
     </div>
   );
 }

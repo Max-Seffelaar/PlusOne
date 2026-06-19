@@ -5,6 +5,8 @@
 export const poKeys = {
   all: ['po'] as const,
   events: (venueId: string) => [...poKeys.all, 'events', venueId] as const,
+  /** The venue's "current" event for the mobile Deur/Taken tab (live → next → recent). */
+  doorEvent: (venueId: string) => [...poKeys.all, 'door-event', venueId] as const,
   event: (eventId: string) => [...poKeys.all, 'event', eventId] as const,
   eventDetail: (eventId: string) => [...poKeys.all, 'event-detail', eventId] as const,
   eventRecap: (eventId: string) => [...poKeys.all, 'event-recap', eventId] as const,
