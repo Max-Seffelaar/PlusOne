@@ -214,7 +214,7 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
               {matchedRefused.map((g) => (
                 <div
                   key={g.id}
-                  className="flex items-center gap-[13px] rounded-[16px] border border-line2 bg-transparent p-[13px] opacity-[0.7]"
+                  className="flex items-center gap-[13px] rounded-[16px] border border-line2 bg-transparent p-[13px]"
                 >
                   <Avatar name={g.name} size={46} />
                   <div className="min-w-0 flex-1">
@@ -229,7 +229,7 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
                   <button
                     type="button"
                     onClick={() => undoRefusal(g.id)}
-                    className="shrink-0 rounded-[10px] border border-line px-[11px] py-[7px] font-display text-[12px] font-bold text-dim transition-[filter,transform] hover:brightness-[1.1] active:scale-[0.97]"
+                    className="shrink-0 rounded-[10px] border border-acc-soft bg-acc-dim px-[12px] py-[8px] font-display text-[12px] font-bold text-acc transition-[filter,transform] hover:brightness-[1.12] active:scale-[0.97]"
                   >
                     Ongedaan
                   </button>
