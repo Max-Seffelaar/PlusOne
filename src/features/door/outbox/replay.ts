@@ -86,6 +86,12 @@ export async function replayEntry(
       });
       return classifyError(error);
     }
+    case 'undo_refusal': {
+      // Re-admit a mistakenly refused guest. Idempotent: a guest not (or no
+      // longer) refused matches 0 rows = synced. The refusal row stays.
+      const { error } = await gw.undoRefusal(entry.payload.guestId);
+      return classifyError(error);
+    }
     case 'add_guest': {
       const p = entry.payload;
       const { error } = await gw.insertGuest({

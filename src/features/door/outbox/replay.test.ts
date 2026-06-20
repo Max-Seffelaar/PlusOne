@@ -22,7 +22,7 @@ function checkInEntry(over: Partial<OutboxEntry> = {}): OutboxEntry {
 /** A gateway that returns a fixed error for every method. */
 function gatewayReturning(error: DbError | null): DoorGateway {
   const r = async () => ({ error });
-  return { insertCheckIn: r, topUpCheckIn: r, voidCheckIn: r, reviveCheckIn: r, insertRefusal: r, insertGuest: r, ackNote: r };
+  return { insertCheckIn: r, topUpCheckIn: r, voidCheckIn: r, reviveCheckIn: r, insertRefusal: r, undoRefusal: r, insertGuest: r, ackNote: r };
 }
 
 const UNIQUE_GUEST: DbError = { code: '23505', details: 'Key (guest_id)=(g1) already exists.' };
@@ -158,6 +158,23 @@ describe('replayEntry', () => {
     expect(insertGuest).toHaveBeenCalledWith(
       expect.objectContaining({ event_id: 'ev1', source: 'door', added_by: UID }),
     );
+  });
+
+  it('undo_refusal re-admits by guest_id and syncs', async () => {
+    const undoRefusal = vi.fn(async () => ({ error: null }));
+    const gw: DoorGateway = { ...gatewayReturning(null), undoRefusal };
+    const entry: OutboxEntry = {
+      clientId: 'c7',
+      eventId: 'ev1',
+      kind: 'undo_refusal',
+      status: 'pending',
+      attempts: 0,
+      createdAt: '2026-06-20T22:00:00.000Z',
+      payload: { guestId: 'g9', clientTimestamp: 't' },
+    };
+    const result = await replayEntry(gw, entry, UID, DEVICE);
+    expect(result.status).toBe('synced');
+    expect(undoRefusal).toHaveBeenCalledWith('g9');
   });
 });
 

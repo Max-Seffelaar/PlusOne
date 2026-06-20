@@ -177,7 +177,9 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
           <>
             <Label className="mb-[9px]">{g.voided ? 'Opnieuw inchecken?' : 'Hoeveel komen er binnen?'}</Label>
             <div className="mb-4">
-              <Stepper value={plus + 1} onChange={(v) => setPlus(Math.max(0, v - 1))} />
+              {/* Cap at the guest's allotment (1 + their +N): you can never check in
+                  more people than were on the list. The DB clamps too (#22). */}
+              <Stepper value={plus + 1} max={1 + g.plus} onChange={(v) => setPlus(Math.min(g.plus, Math.max(0, v - 1)))} />
             </div>
             <Btn kind="ghost" full icon="close" onClick={() => setRefuseOpen(true)}>
               Weigeren

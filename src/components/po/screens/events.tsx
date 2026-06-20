@@ -23,6 +23,7 @@ import {
   usePoUpdateTier,
 } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
+import { canWorkDoor } from '@/features/auth/roles';
 import { allowedTransitions, STATUS_DESCRIPTIONS, STATUS_LABELS, type EventStatus } from '@/features/events/status';
 import { isoToLocalInput, localInputToIso } from '@/features/events/datetime';
 import { formatClock } from '@/features/stats/format';
@@ -143,6 +144,11 @@ export function EventView({ id }: { id?: string }): JSX.Element {
   const nav = useNav();
   const { event, isLoading, isError, notFound } = usePoEvent(id ?? '');
   const { data: detail } = usePoEventDetail(id ?? '');
+  const { roles } = usePoIdentity();
+  // Door-only affordances: a non-door role (staff) can't work the door or read
+  // check_ins (#17), so hide the Check-in button (its tab is gated too) and the
+  // "Laatst binnen" list unless there's data they're allowed to see.
+  const showDoor = canWorkDoor(roles);
 
   if (isLoading) return <ScreenState onBack={nav.back} title="Event" text="Laden…" />;
   if (isError || notFound || !event) {
@@ -174,9 +180,11 @@ export function EventView({ id }: { id?: string }): JSX.Element {
           <div className="mt-[9px] text-[12.5px] text-faint">{ev.guests} koppen op de lijst · incl. meegenomen gasten</div>
         </div>
         <div className="mb-4 flex gap-[10px]">
-          <Btn kind="primary" full icon="user" onClick={() => nav.setTab('deur')}>
-            Check-in
-          </Btn>
+          {showDoor && (
+            <Btn kind="primary" full icon="user" onClick={() => nav.setTab('deur')}>
+              Check-in
+            </Btn>
+          )}
           <Btn kind="dark" full icon="users" onClick={() => nav.push('lijst', { id: ev.id })}>
             Gastenlijst
           </Btn>
@@ -207,24 +215,29 @@ export function EventView({ id }: { id?: string }): JSX.Element {
             </div>
           </>
         )}
-        <Label className="mb-[10px]">Laatst binnen</Label>
-        {recent.length === 0 ? (
-          <Empty text="Nog niemand ingecheckt." />
-        ) : (
-          <div className="flex flex-col">
-            {recent.map((g) => (
-              <div key={g.guestId} className="flex items-center gap-[12px] border-b border-line2 py-[10px]">
-                <Avatar name={g.name} size={38} />
-                <div className="flex-1">
-                  <div className="text-[14.5px] font-semibold text-text">
-                    {g.name}
-                    {g.plus > 0 && <span className="text-faint"> +{g.plus}</span>}
+        {(showDoor || recent.length > 0) && (
+          <>
+            <Label className="mb-[10px]">Laatst binnen</Label>
+            {recent.length === 0 ? (
+              <Empty text="Nog niemand ingecheckt." />
+            ) : (
+              <div className="flex flex-col">
+                {recent.map((g) => (
+                  <div key={g.guestId} className="flex items-center gap-[12px] border-b border-line2 py-[10px]">
+                    <Avatar name={g.name} size={38} />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[14.5px] font-semibold text-text">
+                        {g.name}
+                        {g.plus > 0 && <span className="text-faint"> +{g.plus}</span>}
+                      </div>
+                      <div className="mt-0.5 truncate text-[12px] text-faint">door {g.by}</div>
+                    </div>
+                    <span className="font-display text-[13px] font-bold text-acc">{formatClock(g.at)}</span>
                   </div>
-                </div>
-                <span className="font-display text-[13px] font-bold text-acc">{formatClock(g.at)}</span>
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+          </>
         )}
       </Scroll>
     </div>

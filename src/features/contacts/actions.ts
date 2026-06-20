@@ -133,7 +133,7 @@ export async function syncPermanentGuests(input: SyncPermanentInput): Promise<Sy
 export async function addContactToEvent(input: AddContactToEventInput): Promise<ActionResult> {
   const parsed = addContactToEventSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { contactId, eventId, tierId } = parsed.data;
+  const { contactId, eventId, tierId, plusOnes } = parsed.data;
 
   const supabase = await createClient();
   const {
@@ -145,6 +145,7 @@ export async function addContactToEvent(input: AddContactToEventInput): Promise<
     p_contact_id: contactId,
     p_event_id: eventId,
     ...(tierId ? { p_tier_id: tierId } : {}),
+    ...(plusOnes ? { p_plus_ones: plusOnes } : {}),
   });
   if (error) return mapMutationError(error);
 

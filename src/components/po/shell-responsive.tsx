@@ -26,6 +26,7 @@ export function ResponsiveShell({
   mobileTab,
   setMobileTab,
   mobileBadges,
+  mobileTabs,
   navItems,
   venueName,
   venueSub,
@@ -39,6 +40,8 @@ export function ResponsiveShell({
   mobileTab: TabKey;
   setMobileTab: (t: TabKey) => void;
   mobileBadges?: Partial<Record<TabKey, number>>;
+  /** Which bottom tabs to show (default all); non-door roles drop Deur/Taken. */
+  mobileTabs?: readonly TabKey[];
   navItems: ShellNavItem[];
   venueName: string;
   venueSub?: string;
@@ -54,7 +57,7 @@ export function ResponsiveShell({
     return (
       <div className="flex h-[100dvh] flex-col overflow-hidden bg-bg">
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
-        {isTabRoot && <TabBar tab={mobileTab} setTab={setMobileTab} badges={mobileBadges} />}
+        {isTabRoot && <TabBar tab={mobileTab} setTab={setMobileTab} badges={mobileBadges} show={mobileTabs} />}
       </div>
     );
   }

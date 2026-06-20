@@ -69,6 +69,43 @@ export function mapRole(raw: string | null | undefined): ContactRole | undefined
   return t ? ROLE_ALIASES[t] : undefined;
 }
 
+/**
+ * Coerce a raw import phone to E.164 so it (a) passes importContactsSchema (which
+ * is strict E.164) and (b) dedupes against contacts already stored as E.164 (the
+ * landing form and the app both write E.164). NL-aware: a leading `0` becomes
+ * `+31`, `00…` becomes `+…`, a bare `31…` becomes `+31…`. Returns undefined when
+ * no valid E.164 can be formed — the contact still imports, just without a phone,
+ * rather than failing the whole batch.
+ */
+export function normalizeImportPhone(raw: string | null | undefined): string | undefined {
+  const t = (raw ?? '').trim();
+  if (t === '') return undefined;
+  const e164 = /^\+[1-9]\d{1,14}$/;
+  if (e164.test(t)) return t;
+  const digits = t.replace(/[^0-9]/g, '');
+  if (digits === '') return undefined;
+  let candidate: string;
+  if (digits.startsWith('00')) candidate = `+${digits.slice(2)}`;
+  else if (digits.startsWith('31')) candidate = `+${digits}`;
+  else if (digits.startsWith('0')) candidate = `+31${digits.slice(1)}`;
+  else candidate = `+${digits}`;
+  return e164.test(candidate) ? candidate : undefined;
+}
+
+/**
+ * Keep an ISO birthdate only when it is a plausible birthday (age 0–120), mirroring
+ * importContactsSchema's plausibleDob. An implausible value is dropped rather than
+ * failing the batch. Input is already ISO yyyy-mm-dd (via parseDate).
+ */
+export function normalizeImportBirthdate(raw: string | null | undefined): string | undefined {
+  const v = (raw ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return undefined;
+  const d = new Date(`${v}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return undefined;
+  const years = (Date.now() - d.getTime()) / (365.25 * 24 * 3600 * 1000);
+  return years >= 0 && years <= 120 ? v : undefined;
+}
+
 /** yyyy-mm-dd or dd-mm-yyyy / dd/mm/yyyy → ISO yyyy-mm-dd, else undefined. */
 export function parseDate(raw: string | null | undefined): string | undefined {
   const t = (raw ?? '').trim();
@@ -222,8 +259,13 @@ function tokenizeLine(line: string, delim: string): string[] {
 
 // ── Public parsers ────────────────────────────────────────────────────────────
 
-/** Parse a CSV file (or pasted CSV). Detects a Dutch/English header; sniffs the delimiter. */
-export function parseCsv(text: string): ParsedContact[] {
+/**
+ * Parse a CSV file (or pasted CSV). Sniffs the delimiter. By default it
+ * auto-detects a Dutch/English header; pass `firstRowIsHeader` to override —
+ * `true` skips the first row even when its column names aren't recognised (the
+ * rest is then parsed positionally), `false` forces every row to be data.
+ */
+export function parseCsv(text: string, opts?: { firstRowIsHeader?: boolean }): ParsedContact[] {
   const lines = stripBom(text)
     .split(/\r\n|\r|\n/)
     .filter((l) => l.trim() !== '');
@@ -231,8 +273,10 @@ export function parseCsv(text: string): ParsedContact[] {
 
   const delim = sniffDelimiter(lines[0]);
   const rows = lines.map((l) => tokenizeLine(l, delim));
-  const map = headerMap(rows[0]);
-  const dataRows = map ? rows.slice(1) : rows;
+  const auto = headerMap(rows[0]);
+  const treatFirstAsHeader = opts?.firstRowIsHeader ?? auto != null;
+  const map = treatFirstAsHeader ? auto : null;
+  const dataRows = treatFirstAsHeader ? rows.slice(1) : rows;
 
   const out: ParsedContact[] = [];
   for (const cells of dataRows) {
@@ -240,6 +284,17 @@ export function parseCsv(text: string): ParsedContact[] {
     if (c) out.push(c);
   }
   return out;
+}
+
+/** Whether the CSV's first row looks like a recognised header — the default for
+ *  the import "eerste regel is een koprij" toggle. */
+export function csvFirstRowIsHeader(text: string): boolean {
+  const lines = stripBom(text)
+    .split(/\r\n|\r|\n/)
+    .filter((l) => l.trim() !== '');
+  if (lines.length === 0) return false;
+  const delim = sniffDelimiter(lines[0]);
+  return headerMap(tokenizeLine(lines[0], delim)) != null;
 }
 
 /**

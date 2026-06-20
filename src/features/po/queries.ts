@@ -28,7 +28,7 @@ export type PoEventRow = {
 
 export type PoGuestRow = Pick<
   Tables['guests']['Row'],
-  'id' | 'full_name' | 'plus_ones' | 'status' | 'tier_id' | 'note' | 'note_priority' | 'created_at'
+  'id' | 'full_name' | 'plus_ones' | 'status' | 'tier_id' | 'note' | 'note_priority' | 'created_at' | 'contact_id'
 >;
 
 export type PoTierRow = Pick<
@@ -70,7 +70,7 @@ export async function fetchEvents(client: Client, venueId: string): Promise<PoEv
 export async function fetchPoGuests(client: Client, eventId: string): Promise<PoGuestRow[]> {
   const { data } = await client
     .from('guests')
-    .select('id, full_name, plus_ones, status, tier_id, note, note_priority, created_at')
+    .select('id, full_name, plus_ones, status, tier_id, note, note_priority, created_at, contact_id')
     .eq('event_id', eventId)
     .neq('status', 'removed')
     .order('created_at', { ascending: true });
@@ -164,6 +164,8 @@ export interface RecentCheckinRow {
   plus: number;
   /** Check-in instant (ISO) for display. */
   at: string;
+  /** Display name of who let them in (check_ins.checked_by → profile). */
+  by: string;
 }
 
 /** Most recent (non-voided) check-ins for an event — drives "Laatst binnen". */
@@ -174,17 +176,26 @@ export async function fetchRecentCheckins(
 ): Promise<RecentCheckinRow[]> {
   const { data } = await client
     .from('check_ins')
-    .select('checked_at, plus_ones_arrived, guests!inner(id, full_name, event_id)')
+    .select('checked_at, plus_ones_arrived, checked_by, guests!inner(id, full_name, event_id)')
     .eq('guests.event_id', eventId)
     .is('voided_at', null)
     .order('checked_at', { ascending: false })
     .limit(limit);
 
-  return (data ?? []).map((r) => ({
+  const rows = data ?? [];
+  // Resolve the checker names in one round-trip (RLS: door roles read profiles).
+  const ids = [...new Set(rows.map((r) => r.checked_by))];
+  const profiles = ids.length
+    ? (await client.from('user_profiles').select('id, full_name').in('id', ids)).data ?? []
+    : [];
+  const nameById = new Map(profiles.map((p) => [p.id, p.full_name]));
+
+  return rows.map((r) => ({
     guestId: r.guests.id,
     name: r.guests.full_name,
     plus: r.plus_ones_arrived,
     at: r.checked_at,
+    by: nameById.get(r.checked_by) ?? 'Deur',
   }));
 }
 
@@ -341,6 +352,79 @@ export async function fetchTiersWithUsage(
   }
 
   return (tiers ?? []).map((t) => ({ ...t, used: used.get(t.id) ?? 0 }));
+}
+
+// ── Address book reads (S3 Adresboek + Import) ──
+// Direct contacts-table reads, so RLS (20260615130000) limits them to admin /
+// finance / event-organizer — staff/doorhost get [] and the screen renders empty.
+// Client-agnostic like the rest of this module.
+
+export type PoContactRow = {
+  id: string;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  birthdate: string | null;
+  preferred_role: Database['public']['Enums']['contact_role'] | null;
+  note: string | null;
+  is_permanent: boolean;
+  /** Distinct non-removed events this contact has appeared on ("X× op een lijst"). */
+  eventCount: number;
+};
+
+/** Distinct-events-per-contact map, scoped by RLS to what the caller can read. */
+async function contactEventCounts(client: Client, contactIds: string[]): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (contactIds.length === 0) return counts;
+  const { data } = await client
+    .from('guests')
+    .select('contact_id, event_id')
+    .in('contact_id', contactIds)
+    .neq('status', 'removed');
+
+  const seen = new Map<string, Set<string>>();
+  for (const g of data ?? []) {
+    if (!g.contact_id) continue;
+    const set = seen.get(g.contact_id) ?? new Set<string>();
+    set.add(g.event_id);
+    seen.set(g.contact_id, set);
+  }
+  for (const [cid, set] of seen) counts.set(cid, set.size);
+  return counts;
+}
+
+/** The venue address book (managers), newest-name-first, with per-contact event counts. */
+export async function fetchContacts(
+  client: Client,
+  venueId: string,
+  search?: string
+): Promise<PoContactRow[]> {
+  let query = client
+    .from('contacts')
+    .select('id, full_name, email, phone, birthdate, preferred_role, note, is_permanent')
+    .eq('venue_id', venueId)
+    .is('anonymized_at', null)
+    .order('full_name');
+  const term = search?.trim();
+  if (term) query = query.ilike('full_name', `%${term}%`);
+
+  const { data } = await query;
+  const rows = data ?? [];
+  const counts = await contactEventCounts(client, rows.map((c) => c.id));
+  return rows.map((c) => ({ ...c, eventCount: counts.get(c.id) ?? 0 }));
+}
+
+/** Minimal e-mail/phone projection for the import dedup preview ("BESTAAT AL"). */
+export async function fetchContactKeyRows(
+  client: Client,
+  venueId: string
+): Promise<{ email: string | null; phone: string | null }[]> {
+  const { data } = await client
+    .from('contacts')
+    .select('email, phone')
+    .eq('venue_id', venueId)
+    .is('anonymized_at', null);
+  return data ?? [];
 }
 
 // ── Settings cluster reads (S6 team/quota, S7 profile/sessions, S8 venue, billing) ──

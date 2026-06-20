@@ -88,11 +88,13 @@ export const syncPermanentSchema = z.object({
 });
 export type SyncPermanentInput = z.input<typeof syncPermanentSchema>;
 
-/** Add a single contact from the address book to an event (Adresboek "+"). */
+/** Add a single contact from the address book to an event (Adresboek "+"). The
+ *  optional plus-ones ("hoeveel extra plekken?") is bounded like a normal guest add. */
 export const addContactToEventSchema = z.object({
   contactId: uuid,
   eventId: uuid,
   tierId: uuid.optional(),
+  plusOnes: z.number().int().min(0).max(50).optional(),
 });
 export type AddContactToEventInput = z.input<typeof addContactToEventSchema>;
 

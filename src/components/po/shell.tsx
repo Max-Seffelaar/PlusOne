@@ -42,13 +42,25 @@ const TABS: [TabKey, string, IconName][] = [
   ['meer', 'Meer', 'cog'],
 ];
 
-export function TabBar({ tab, setTab, badges }: { tab: TabKey; setTab: (t: TabKey) => void; badges?: Partial<Record<TabKey, number>> }): JSX.Element {
+export function TabBar({
+  tab,
+  setTab,
+  badges,
+  show,
+}: {
+  tab: TabKey;
+  setTab: (t: TabKey) => void;
+  badges?: Partial<Record<TabKey, number>>;
+  /** Which tabs to render (default: all). Lets non-door roles hide Deur/Taken. */
+  show?: readonly TabKey[];
+}): JSX.Element {
+  const tabs = show ? TABS.filter(([k]) => show.includes(k)) : TABS;
   return (
     <div
       className="flex flex-none border-t border-line2 bg-[rgba(11,11,13,0.9)] px-[14px] pt-2 backdrop-blur-[12px]"
       style={{ paddingBottom: 'calc(14px + env(safe-area-inset-bottom))' }}
     >
-      {TABS.map(([k, l, ic]) => {
+      {tabs.map(([k, l, ic]) => {
         const on = tab === k;
         const badge = badges?.[k];
         return (

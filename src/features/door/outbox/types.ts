@@ -11,6 +11,7 @@ export type OutboxKind =
   | 'check_in_void'
   | 'check_in_revive'
   | 'refusal'
+  | 'undo_refusal'
   | 'add_guest'
   | 'ack_note';
 
@@ -64,6 +65,11 @@ export interface RefusalPayload {
   clientTimestamp: string;
 }
 
+export interface UndoRefusalPayload {
+  guestId: string;
+  clientTimestamp: string;
+}
+
 export interface AddGuestPayload {
   /** Client-generated guests.id (UUIDv7). */
   id: string;
@@ -95,6 +101,7 @@ export type OutboxEntry =
   | (OutboxBase & { kind: 'check_in_void'; payload: CheckInVoidPayload })
   | (OutboxBase & { kind: 'check_in_revive'; payload: CheckInRevivePayload })
   | (OutboxBase & { kind: 'refusal'; payload: RefusalPayload })
+  | (OutboxBase & { kind: 'undo_refusal'; payload: UndoRefusalPayload })
   | (OutboxBase & { kind: 'add_guest'; payload: AddGuestPayload })
   | (OutboxBase & { kind: 'ack_note'; payload: AckNotePayload });
 
