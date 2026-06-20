@@ -153,14 +153,29 @@ describe('buildDoorView', () => {
     expect(view.waitingCount).toBe(1);
   });
 
-  it('excludes refused guests from the list (no double audit, append-only)', () => {
+  it('splits refused guests (status-based) into view.refused with the latest reason', () => {
     const view = buildDoorView(
       snapshot({
-        guests: [guest({ id: 'g1' }), guest({ id: 'g2', full_name: 'Bram de Groot' })],
-        refusals: [refusal({ guest_id: 'g2' })],
+        guests: [guest({ id: 'g1' }), guest({ id: 'g2', full_name: 'Bram de Groot', status: 'refused' })],
+        refusals: [refusal({ guest_id: 'g2', reason: 'Geen geldig ID' })],
       }),
     );
     expect(view.guests.map((g) => g.id)).toEqual(['g1']);
+    expect(view.refused.map((g) => g.id)).toEqual(['g2']);
+    expect(view.refused[0].refused).toBe(true);
+    expect(view.refused[0].refusedReason).toBe('Geen geldig ID');
+  });
+
+  it('keeps a re-admitted guest active even though a refusal row remains (undo)', () => {
+    const view = buildDoorView(
+      snapshot({
+        // status back to 'approved' after "ongedaan maken"; the refusal stays in history.
+        guests: [guest({ id: 'g1', status: 'approved' })],
+        refusals: [refusal({ guest_id: 'g1' })],
+      }),
+    );
+    expect(view.guests.map((g) => g.id)).toEqual(['g1']);
+    expect(view.refused).toHaveLength(0);
   });
 
   it('applies the tier colour from guest_tiers', () => {

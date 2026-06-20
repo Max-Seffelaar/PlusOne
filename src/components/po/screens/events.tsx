@@ -215,11 +215,12 @@ export function EventView({ id }: { id?: string }): JSX.Element {
             {recent.map((g) => (
               <div key={g.guestId} className="flex items-center gap-[12px] border-b border-line2 py-[10px]">
                 <Avatar name={g.name} size={38} />
-                <div className="flex-1">
-                  <div className="text-[14.5px] font-semibold text-text">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[14.5px] font-semibold text-text">
                     {g.name}
                     {g.plus > 0 && <span className="text-faint"> +{g.plus}</span>}
                   </div>
+                  <div className="mt-0.5 truncate text-[12px] text-faint">door {g.by}</div>
                 </div>
                 <span className="font-display text-[13px] font-bold text-acc">{formatClock(g.at)}</span>
               </div>

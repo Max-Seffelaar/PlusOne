@@ -164,6 +164,8 @@ export interface RecentCheckinRow {
   plus: number;
   /** Check-in instant (ISO) for display. */
   at: string;
+  /** Display name of who let them in (check_ins.checked_by → profile). */
+  by: string;
 }
 
 /** Most recent (non-voided) check-ins for an event — drives "Laatst binnen". */
@@ -174,17 +176,26 @@ export async function fetchRecentCheckins(
 ): Promise<RecentCheckinRow[]> {
   const { data } = await client
     .from('check_ins')
-    .select('checked_at, plus_ones_arrived, guests!inner(id, full_name, event_id)')
+    .select('checked_at, plus_ones_arrived, checked_by, guests!inner(id, full_name, event_id)')
     .eq('guests.event_id', eventId)
     .is('voided_at', null)
     .order('checked_at', { ascending: false })
     .limit(limit);
 
-  return (data ?? []).map((r) => ({
+  const rows = data ?? [];
+  // Resolve the checker names in one round-trip (RLS: door roles read profiles).
+  const ids = [...new Set(rows.map((r) => r.checked_by))];
+  const profiles = ids.length
+    ? (await client.from('user_profiles').select('id, full_name').in('id', ids)).data ?? []
+    : [];
+  const nameById = new Map(profiles.map((p) => [p.id, p.full_name]));
+
+  return rows.map((r) => ({
     guestId: r.guests.id,
     name: r.guests.full_name,
     plus: r.plus_ones_arrived,
     at: r.checked_at,
+    by: nameById.get(r.checked_by) ?? 'Deur',
   }));
 }
 

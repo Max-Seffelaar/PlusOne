@@ -10,6 +10,8 @@ import { useState, type ReactNode } from 'react';
 import { venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
 import { usePoDoorEvent, usePoEvents, usePoGuests } from '@/features/po/hooks';
+import { usePoIdentity } from '@/features/po/PoLiveProvider';
+import { canWorkDoor } from '@/features/auth/roles';
 import { DoorProvider } from '@/features/door/DoorProvider';
 import { DoorQueryProvider } from '@/features/door/DoorQueryProvider';
 import { PoProvider, type AuthNav, type AuthView, type Nav, type PoApp, type ScreenName, type StackEntry } from './context';
@@ -86,6 +88,11 @@ export function PlusOneApp({
   // rows instead of the in-memory mock. The Deur/Taken tabs are wired live too
   // (STAP 3.5) — they mount the real DoorProvider for the venue's current event.
   const top = stack[stack.length - 1];
+  const { roles } = usePoIdentity();
+  // Only door roles (admin / doorhost) see the Deur/Taken tabs — staff/finance/
+  // user_manager can't read check_ins/refusals (#17), so the door would look
+  // empty/"mock" for them. Organizers use /door/[eventId] directly.
+  const showDoor = canWorkDoor(roles);
   const { data: liveEvents } = usePoEvents();
   const events = liveEvents ?? [];
   // The venue's current door event (live → next → recent); drives DoorProvider.
@@ -148,7 +155,7 @@ export function PlusOneApp({
   // The Deur/Taken tabs render inside DoorProvider (door branch below). A door
   // overlay (guest detail / add) is treated like a pushed screen: it hides the
   // mobile tab bar so the detail goes full-screen with its own action bar.
-  const isDoorTab = started && stack.length === 0 && (tab === 'deur' || tab === 'taken');
+  const isDoorTab = showDoor && started && stack.length === 0 && (tab === 'deur' || tab === 'taken');
   const doorOverlayOpen = isDoorTab && doorOverlay !== null;
   const tabRoot = started && stack.length === 0 && !doorOverlayOpen;
 
@@ -237,7 +244,9 @@ export function PlusOneApp({
     }
   } else if (tab === 'events') screen = <Events />;
   else if (tab === 'meer') screen = <Meer />;
-  // 'deur' / 'taken' render via the door branch below (inside DoorProvider).
+  // 'deur' / 'taken' render via the door branch below when allowed; for a
+  // non-door role (showDoor=false) the tabs are hidden, so fall back to Events.
+  else screen = <Events />;
 
   const po: PoApp = { venue, switchVenue, statsVenues: statsAccess?.venues ?? [], nav };
 
@@ -265,12 +274,18 @@ export function PlusOneApp({
     top?.name === 'stats' ? 'stats' : top?.name === 'gebruikers' ? 'gebruikers' : tab;
   const navItems: ShellNavItem[] = [
     { key: 'events', label: 'Events', icon: 'cal', active: currentKey === 'events', onClick: () => nav.setTab('events') },
-    { key: 'deur', label: 'Check-in', icon: 'door', active: currentKey === 'deur', onClick: () => nav.setTab('deur') },
-    { key: 'taken', label: 'Taken', icon: 'flag', active: currentKey === 'taken', onClick: () => nav.setTab('taken') },
+    ...(showDoor
+      ? ([
+          { key: 'deur', label: 'Check-in', icon: 'door', active: currentKey === 'deur', onClick: () => nav.setTab('deur') },
+          { key: 'taken', label: 'Taken', icon: 'flag', active: currentKey === 'taken', onClick: () => nav.setTab('taken') },
+        ] as ShellNavItem[])
+      : []),
     { key: 'stats', label: 'Statistieken', icon: 'spark', active: currentKey === 'stats', onClick: () => nav.push('stats') },
     { key: 'gebruikers', label: 'Gebruikers', icon: 'users', active: currentKey === 'gebruikers', onClick: () => nav.push('gebruikers') },
     { key: 'meer', label: 'Meer', icon: 'dots', active: currentKey === 'meer', onClick: () => nav.setTab('meer') },
   ];
+  // Mobile bottom tabs — non-door roles drop Deur/Taken (default would show all).
+  const mobileTabs: TabKey[] = showDoor ? ['events', 'deur', 'taken', 'meer'] : ['events', 'meer'];
 
   // Door branch: mount the real DoorProvider (offline outbox + realtime) for the
   // venue's current event and render the shared door components. Kept mounted
@@ -305,6 +320,7 @@ export function PlusOneApp({
         isTabRoot={tabRoot}
         mobileTab={tab}
         setMobileTab={nav.setTab}
+        mobileTabs={mobileTabs}
         navItems={navItems}
         venueName={liveVenueName ?? venue.name}
         onOpenVenue={() => nav.push('venueswitch')}

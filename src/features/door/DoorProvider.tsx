@@ -68,6 +68,8 @@ interface DoorContextValue {
   /** Re-checkin a previously voided guest (clears the void, re-sets arrivals). */
   reviveCheckIn: (guestId: string, totalPeople: number) => void;
   refuse: (guestId: string, reason: string) => void;
+  /** Re-admit a guest refused by mistake — status back to approved (#10). */
+  undoRefusal: (guestId: string) => void;
   addOnSpot: (input: AddOnSpotInput) => void;
   ackNote: (guestId: string, ack: boolean) => void;
 }
@@ -344,18 +346,46 @@ export function DoorProvider({
         createdAt: ts,
         payload: { id, guestId, reason, clientTimestamp: ts },
       });
+      const g = viewRef.current?.guests.find((x) => x.id === guestId);
       patchSnapshot((s) => ({
         ...s,
+        // Mirror the server trigger optimistically: the guest moves to 'refused'
+        // (→ the "Geweigerd" lijst) and the refusal row carries the reason.
+        guests: s.guests.map((x) => (x.id === guestId ? { ...x, status: 'refused' as const } : x)),
         refusals: [
           ...s.refusals,
           { id, guest_id: guestId, refused_by: meId ?? '', reason, refused_at: ts, client_timestamp: ts, device_id: getDeviceId(), created_at: ts, anonymized_at: null },
         ],
       }));
-      const g = viewRef.current?.guests.find((x) => x.id === guestId);
       showToast(`${g?.name ?? 'Gast'} · geweigerd`);
       maybeFlush();
     },
     [eventId, meId, patchSnapshot, showToast, maybeFlush],
+  );
+
+  // "Weigering ongedaan maken": re-admit a mistakenly refused guest. Status goes
+  // back to 'approved' (→ onderweg); the refusal row stays as history (#10/#15).
+  const undoRefusal = useCallback(
+    (guestId: string) => {
+      const ts = new Date().toISOString();
+      const g = viewRef.current?.refused.find((x) => x.id === guestId);
+      outbox.enqueue({
+        clientId: uuidv7(),
+        eventId,
+        kind: 'undo_refusal',
+        status: 'pending',
+        attempts: 0,
+        createdAt: ts,
+        payload: { guestId, clientTimestamp: ts },
+      });
+      patchSnapshot((s) => ({
+        ...s,
+        guests: s.guests.map((x) => (x.id === guestId ? { ...x, status: 'approved' as const } : x)),
+      }));
+      showToast(`${g?.name ?? 'Gast'} · weer op de lijst`);
+      maybeFlush();
+    },
+    [eventId, patchSnapshot, showToast, maybeFlush],
   );
 
   const addOnSpot = useCallback(
@@ -438,7 +468,9 @@ export function DoorProvider({
   const onRealtimeGuest = useCallback(
     (row: GuestRow) => {
       if (row.event_id !== eventId) return;
-      const keep = row.status === 'approved' || row.status === 'checked_in';
+      // Keep refused too — the door shows a "Geweigerd" lijst; only pending/
+      // denied/removed drop out of the snapshot.
+      const keep = row.status === 'approved' || row.status === 'checked_in' || row.status === 'refused';
       patchSnapshot((s) => {
         const without = s.guests.filter((g) => g.id !== row.id);
         return { ...s, guests: keep ? [...without, row] : without };
@@ -468,10 +500,11 @@ export function DoorProvider({
       voidCheckIn,
       reviveCheckIn,
       refuse,
+      undoRefusal,
       addOnSpot,
       ackNote,
     }),
-    [eventId, view, tasks, quotaQuery.data, defaultTierId, sync, toast, pendingCount, outboxByGuest, guestById, checkIn, topUp, voidCheckIn, reviveCheckIn, refuse, addOnSpot, ackNote],
+    [eventId, view, tasks, quotaQuery.data, defaultTierId, sync, toast, pendingCount, outboxByGuest, guestById, checkIn, topUp, voidCheckIn, reviveCheckIn, refuse, undoRefusal, addOnSpot, ackNote],
   );
 
   return <DoorContext.Provider value={value}>{children}</DoorContext.Provider>;

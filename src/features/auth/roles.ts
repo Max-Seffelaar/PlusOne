@@ -62,6 +62,19 @@ export function canManageGuests(roles: readonly VenueRole[]): boolean {
   return roles.some((r) => GUEST_WRITE_ROLES.includes(r));
 }
 
+// Venue roles that work the door (check-in / weigeren) — the venue-role part of
+// RLS `can_check_in`: admin always, doorhost at the door. Event organizers may
+// also work the door (RLS allows them) but are event-scoped, not a venue role,
+// so the mobile nav gates on these; an organizer without a door venue-role can
+// still open /door/[eventId] directly. Hides the Deur/Taken tabs from staff /
+// finance / user_manager, who can't read check_ins/refusals anyway (#17).
+export const DOOR_ROLES: readonly VenueRole[] = ['admin', 'doorhost'] as const;
+
+/** True when any held role may work the door (UI nav gate; RLS still decides). */
+export function canWorkDoor(roles: readonly VenueRole[]): boolean {
+  return roles.some((r) => DOOR_ROLES.includes(r));
+}
+
 /**
  * Escalation guard — mirrors RLS `invites_insert` / `venue_memberships_insert`:
  * a caller may grant a set of roles only if they manage the venue, and only an

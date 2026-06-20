@@ -61,10 +61,12 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
   const [{ data: venue }, { data: guests }, { data: tiers }] = await Promise.all([
     client.from('venues').select('name').eq('id', event.venue_id).maybeSingle(),
     client
+      // Refused guests are fetched too so the door can show a "Geweigerd" lijst
+      // and offer "ongedaan maken"; buildDoorView splits them out by status.
       .from('guests')
       .select('*')
       .eq('event_id', eventId)
-      .in('status', ['approved', 'checked_in'])
+      .in('status', ['approved', 'checked_in', 'refused'])
       .order('full_name'),
     client.from('guest_tiers').select('*').eq('event_id', eventId).order('name'),
   ]);

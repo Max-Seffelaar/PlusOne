@@ -28,6 +28,9 @@ export interface DoorGateway {
   /** Re-checkin a voided guest: clear the void and re-set arrivals. */
   reviveCheckIn(guestId: string, plusOnesArrived: number, uid: string): Promise<{ error: DbError | null }>;
   insertRefusal(row: RefusalRow): Promise<{ error: DbError | null }>;
+  /** Re-admit a guest refused by mistake: status refused → approved. The refusal
+   *  row stays (append-only history); idempotent (only matches a refused row). */
+  undoRefusal(guestId: string): Promise<{ error: DbError | null }>;
   insertGuest(row: GuestRow): Promise<{ error: DbError | null }>;
   ackNote(guestId: string, ack: boolean, uid: string): Promise<{ error: DbError | null }>;
 }
@@ -68,6 +71,12 @@ export function supabaseGateway(client: SupabaseClient<Database>): DoorGateway {
       ).error,
     }),
     insertRefusal: async (row) => ({ error: (await client.from('refusals').insert(row)).error }),
+    // Re-admit: flip status back. `.eq('status','refused')` makes a replay (or a
+    // guest already re-admitted) a 0-row no-op = synced. RLS guests_update
+    // (admin/doorhost, can_write_guests) is the boundary; the audit trigger logs it.
+    undoRefusal: async (guestId) => ({
+      error: (await client.from('guests').update({ status: 'approved' }).eq('id', guestId).eq('status', 'refused')).error,
+    }),
     insertGuest: async (row) => ({ error: (await client.from('guests').insert(row)).error }),
     ackNote: async (guestId, ack, uid) => {
       if (ack) {

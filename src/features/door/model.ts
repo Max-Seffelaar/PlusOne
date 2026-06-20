@@ -34,11 +34,18 @@ export interface DoorGuest {
   inAt?: string;
   inByName?: string;
   arrived?: number;
+  /** Turned away at the door (guests.status = 'refused'). */
+  refused: boolean;
+  /** Latest refusal reason, for the "Geweigerd" lijst. */
+  refusedReason?: string;
 }
 
 export interface DoorView {
   event: DoorEventMeta;
+  /** Active guests (onderweg / binnen) — refused are split out below. */
   guests: DoorGuest[];
+  /** Geweigerde gasten — shown apart so a foutje is terug te vinden + ongedaan te maken. */
+  refused: DoorGuest[];
   tiers: TierRow[];
   insideCount: number;
   waitingCount: number;
@@ -94,6 +101,7 @@ function toDoorGuest(
   tierById: Map<string, TierRow>,
   checkInByGuest: Map<string, CheckInRow>,
   profiles: Record<string, string>,
+  refusedReason?: string,
 ): DoorGuest {
   const tier = tierById.get(g.tier_id);
   const role = tierRole(tier?.name ?? '');
@@ -121,22 +129,38 @@ function toDoorGuest(
     inAt: active ? formatTime(ci.checked_at) : undefined,
     inByName: active ? profiles[ci.checked_by] ?? 'Deur' : undefined,
     arrived: active ? ci.plus_ones_arrived : undefined,
+    refused: g.status === 'refused',
+    refusedReason,
   };
 }
 
 export function buildDoorView(snapshot: DoorSnapshot): DoorView {
   const tierById = new Map(snapshot.tiers.map((t) => [t.id, t]));
   const checkInByGuest = indexCheckIns(snapshot.checkIns);
-  const refusedSet = new Set(snapshot.refusals.map((r) => r.guest_id));
 
-  const guests = snapshot.guests
-    .filter((g) => !refusedSet.has(g.id))
-    .map((g) => toDoorGuest(g, tierById, checkInByGuest, snapshot.profiles));
+  // Latest refusal reason per guest (refusals are append-only; last one wins).
+  const reasonByGuest = new Map<string, string>();
+  for (const r of [...snapshot.refusals].sort((a, b) => (a.refused_at < b.refused_at ? -1 : 1))) {
+    reasonByGuest.set(r.guest_id, r.reason);
+  }
+
+  // Split by the denormalised guests.status (authoritative; an undone refusal is
+  // back to 'approved' even though its refusal row remains in history).
+  const guests: DoorGuest[] = [];
+  const refused: DoorGuest[] = [];
+  for (const g of snapshot.guests) {
+    if (g.status === 'refused') {
+      refused.push(toDoorGuest(g, tierById, checkInByGuest, snapshot.profiles, reasonByGuest.get(g.id)));
+    } else {
+      guests.push(toDoorGuest(g, tierById, checkInByGuest, snapshot.profiles));
+    }
+  }
 
   const insideCount = guests.filter((g) => g.inside).length;
   return {
     event: snapshot.event,
     guests,
+    refused,
     tiers: snapshot.tiers,
     insideCount,
     waitingCount: guests.length - insideCount,
