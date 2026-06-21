@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import type { EventSummary, TierStat } from '@/features/stats/data';
+import { describeAuditEntry, type AuditLine } from '@/features/audit/translate';
 
 // Client-agnostic po reads (mirrors src/features/stats/data.ts): every function
 // takes the caller's Supabase client, so a Server Component can prefetch with the
@@ -663,4 +664,136 @@ export async function fetchSubscription(
     .maybeSingle();
 
   return data ?? null;
+}
+
+// ── Audit log reads (S10 Mobiel Audit-log) ───────────────────────────────────
+// Client-agnostic mirror of the SERVER-only src/features/audit/queries.ts so the
+// mobile po surface can read the same audit_feed over the BROWSER client (same
+// pattern as fetchPoGuests lifting the desktop guests select). RLS
+// (audit_log_select_aal2: admin/finance + AAL2, inherited by the view) is the
+// boundary — an AAL1 or unauthorised caller simply gets [], and the screen then
+// shows its MFA / permission state. The Dutch sentence composition is SHARED
+// (describeAuditEntry, translate.ts), so desktop and mobile read identically.
+
+export interface PoAuditFilters {
+  venueId: string;
+  eventId?: string;
+  /** Actor (who performed the action) — "filter op user". */
+  actorId?: string;
+  /** "filter op actiesoort". */
+  action?: string;
+  /** Free-text on actor/guest/subject names (server-side ilike). */
+  search?: string;
+  limit?: number;
+}
+
+export interface PoAuditFilterOptions {
+  events: { id: string; name: string }[];
+  actors: { id: string; name: string }[];
+}
+
+// PostgREST `.or()` is comma/paren-delimited; strip those (and `*`) from user
+// input so a search term can never break out of the filter expression.
+function sanitizeAuditSearch(term: string): string {
+  return term.replace(/[,()*]/g, ' ').trim();
+}
+
+/** The venue's audit feed, newest first, filtered + capped IN the database. */
+export async function fetchPoAuditFeed(
+  client: Client,
+  filters: PoAuditFilters
+): Promise<AuditLine[]> {
+  let query = client
+    .from('audit_feed')
+    .select('*')
+    .eq('venue_id', filters.venueId)
+    .order('created_at', { ascending: false })
+    .limit(filters.limit ?? 200);
+
+  if (filters.eventId) query = query.eq('event_id', filters.eventId);
+  if (filters.actorId) query = query.eq('actor_id', filters.actorId);
+  if (filters.action && filters.action !== 'all') query = query.eq('action', filters.action);
+  if (filters.search) {
+    const s = sanitizeAuditSearch(filters.search);
+    if (s) {
+      query = query.or(
+        `actor_name.ilike.%${s}%,guest_name.ilike.%${s}%,subject_name.ilike.%${s}%`
+      );
+    }
+  }
+
+  const { data } = await query;
+  return (data ?? []).map(describeAuditEntry);
+}
+
+export interface PoGuestHistory {
+  guest: {
+    id: string;
+    fullName: string;
+    tierName: string | null;
+    status: string;
+    plusOnes: number;
+    eventName: string | null;
+  } | null;
+  lines: AuditLine[];
+}
+
+/** The per-guest "geschiedenis" (#15): every log line that concerns this guest,
+ *  oldest first as a story, plus the guest's current snapshot. */
+export async function fetchPoGuestHistory(
+  client: Client,
+  guestId: string
+): Promise<PoGuestHistory> {
+  const [{ data: rows }, { data: guest }] = await Promise.all([
+    client
+      .from('audit_feed')
+      .select('*')
+      .eq('guest_id', guestId)
+      .order('created_at', { ascending: true }),
+    client
+      .from('guests')
+      .select('id, full_name, plus_ones, status, guest_tiers(name), events(name)')
+      .eq('id', guestId)
+      .maybeSingle(),
+  ]);
+
+  return {
+    guest: guest
+      ? {
+          id: guest.id,
+          fullName: guest.full_name,
+          tierName: guest.guest_tiers?.name ?? null,
+          status: guest.status,
+          plusOnes: guest.plus_ones,
+          eventName: guest.events?.name ?? null,
+        }
+      : null,
+    lines: (rows ?? []).map(describeAuditEntry),
+  };
+}
+
+/** Filter-sheet options: the venue's events + its members (the people who act in
+ *  it) — a small bounded set, far cheaper than DISTINCT over the whole log. */
+export async function fetchPoAuditFilterOptions(
+  client: Client,
+  venueId: string
+): Promise<PoAuditFilterOptions> {
+  const [{ data: events }, { data: members }] = await Promise.all([
+    client
+      .from('events')
+      .select('id, name, starts_at')
+      .eq('venue_id', venueId)
+      .order('starts_at', { ascending: false }),
+    client
+      .from('venue_memberships')
+      .select('user_id, user_profiles(full_name)')
+      .eq('venue_id', venueId),
+  ]);
+
+  return {
+    events: (events ?? []).map((e) => ({ id: e.id, name: e.name })),
+    actors: (members ?? [])
+      .map((m) => ({ id: m.user_id, name: m.user_profiles?.full_name ?? 'Onbekend' }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'nl')),
+  };
 }

@@ -182,6 +182,12 @@ export interface MfaGate {
    * the error (so the caller can suppress its own error UI).
    */
   guard: (error: unknown, retry: () => void) => boolean;
+  /**
+   * Open the step-up sheet PROACTIVELY (not from an error) — e.g. an AAL2-gated
+   * READ like the audit log, where RLS returns [] instead of throwing. `retry`
+   * runs once the session reaches AAL2.
+   */
+  start: (retry: () => void) => void;
   /** Render this in the component tree — it's the step-up sheet when open. */
   sheet: ReactNode;
 }
@@ -197,6 +203,11 @@ export function useMfaGate(): MfaGate {
     return true;
   };
 
+  const start = (retry: () => void): void => {
+    retryRef.current = retry;
+    setOpen(true);
+  };
+
   const sheet = open ? (
     <PoMfaSheet
       onClose={() => setOpen(false)}
@@ -209,5 +220,5 @@ export function useMfaGate(): MfaGate {
     />
   ) : null;
 
-  return { guard, sheet };
+  return { guard, start, sheet };
 }

@@ -219,13 +219,12 @@ function nlDayKey(d: Date): string {
 function nlTime(d: Date): string {
   return d.toLocaleTimeString('nl-NL', { timeZone: NL_TZ, hour: '2-digit', minute: '2-digit' });
 }
-function nlWeekday(d: Date): string {
-  return d.toLocaleDateString('nl-NL', { timeZone: NL_TZ, weekday: 'short' }).replace('.', '');
-}
 
 /**
- * "Vandaag 23:14" / "Gisteren 16:02" / "za 23:14" / "12 jun 23:14" — relative day
- * + time in Amsterdam TZ. `now` is injectable for deterministic tests.
+ * "Vandaag 23:14" / "Gisteren 16:02" / "12 jun 23:14" — Vandaag/Gisteren for the
+ * last two days, otherwise the absolute date (day + month), all in Amsterdam TZ.
+ * No weekday step (Max's preference): once it's older than yesterday you want the
+ * date itself, not "za". `now` is injectable for deterministic tests.
  */
 export function formatWhen(iso: string, now: Date = new Date()): string {
   if (!iso) return '';
@@ -238,8 +237,5 @@ export function formatWhen(iso: string, now: Date = new Date()): string {
 
   if (dayKey === todayKey) return `Vandaag ${time}`;
   if (dayKey === yesterdayKey) return `Gisteren ${time}`;
-
-  const ageDays = Math.floor((now.getTime() - d.getTime()) / DAY_MS);
-  if (ageDays >= 0 && ageDays < 7) return `${nlWeekday(d)} ${time}`;
   return `${d.toLocaleDateString('nl-NL', { timeZone: NL_TZ, day: 'numeric', month: 'short' })} ${time}`;
 }

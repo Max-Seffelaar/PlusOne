@@ -32,4 +32,11 @@ export const poKeys = {
   profile: (userId: string) => [...poKeys.all, 'profile', userId] as const,
   venueSettings: (venueId: string) => [...poKeys.all, 'venue-settings', venueId] as const,
   subscription: (venueId: string) => [...poKeys.all, 'subscription', venueId] as const,
+  // Audit log (S10) — the feed keys on venue + the active filters; options
+  // (events/members for the filter sheet) on the venue; per-guest history on the
+  // guest. All under ['po'] so a venue switch clears them with the rest.
+  audit: (venueId: string, filters: Record<string, unknown>) =>
+    [...poKeys.all, 'audit', venueId, filters] as const,
+  auditOptions: (venueId: string) => [...poKeys.all, 'audit-options', venueId] as const,
+  guestHistory: (guestId: string) => [...poKeys.all, 'guest-history', guestId] as const,
 } as const;

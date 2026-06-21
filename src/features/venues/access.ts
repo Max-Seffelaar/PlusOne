@@ -32,6 +32,8 @@ export interface VenueCapabilities {
   viewQuota: boolean;
   /** May set default quota — admin only (RLS quotas_*_admin, + AAL2). */
   editQuota: boolean;
+  /** May read the immutable audit log — admin + finance (RLS audit_log_select_aal2, + AAL2). */
+  viewAudit: boolean;
 }
 
 // Capabilities for a single venue, derived from the caller's roles there. Each
@@ -48,6 +50,7 @@ export function venueCapabilities(roles: readonly VenueRole[]): VenueCapabilitie
     manageTeam: admin || userManager,
     viewQuota: admin || finance,
     editQuota: admin,
+    viewAudit: admin || finance,
   };
 }
 

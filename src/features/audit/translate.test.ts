@@ -180,12 +180,10 @@ describe('formatWhen', () => {
     expect(formatWhen('2026-06-19T18:00:00+02:00', now)).toBe('Gisteren 18:00');
   });
 
-  it('labels older days within a week by weekday', () => {
-    // 2026-06-16 is a Tuesday ("di").
-    expect(formatWhen('2026-06-16T20:30:00+02:00', now)).toBe('di 20:30');
-  });
-
-  it('labels entries older than a week by date', () => {
+  it('labels anything older than yesterday by its date (no weekday)', () => {
+    // Within a week (2026-06-16) now shows the date, not "di".
+    expect(formatWhen('2026-06-16T20:30:00+02:00', now)).toBe('16 jun 20:30');
+    // Older than a week stays a date too.
     expect(formatWhen('2026-06-01T20:30:00+02:00', now)).toBe('1 jun 20:30');
   });
 
