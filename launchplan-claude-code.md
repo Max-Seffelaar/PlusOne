@@ -75,7 +75,7 @@ de mobiele `po`-schermen worden sindsdien per scherm live bedraad (zie de invent
 | 6 | Event-detail/beheer | `/events/[id]` | ✅ | 🟡 EventBeheer stub | desktop live | mobiel live + afmaken |
 | 7 | Event aanmaken | `/events/new` | ✅ | 🟡 mock | desktop live | mobiel live |
 | 8 | Gastenlijst + quota + quick-add | `/events/[id]/guests` | ✅ | 🟡 mock | desktop live | mobiel live (kern!) |
-| 9 | Aanvragen | `/events/[id]/requests` | ✅ | 🟡 wireframe | desktop live | afmaken + live |
+| 9 | Aanvragen | `/events/[id]/requests` | ✅ | ✅ | live beide | ✅ mobiel live (PR #43) |
 | 10 | Adresboek/contacten + vaste | — | ❌ | 🟡 mock | backend live, geen UI | live UI beide |
 | 11 | Import (CSV/telefoon) | — | ❌ | 🟡 stub | backend live | live import-UI |
 | 12 | Statistieken | `/admin/stats`,`/admin/overview` | ✅ | ✅ | live beide | charts polish |
@@ -237,7 +237,7 @@ blokkeert bouw).
 | **S2** | Gastenlijst + add | 3.4 | nee | ✅ |
 | **S3** | Adresboek + Import | 3.4/3.8 | ja (§4b#4) | deels |
 | **S4** | Deur-tab | 3.5 | nee | ✅ |
-| **S5** | Aanvragen | 3.6 | ja (§4b#3) | wireframe |
+| **S5** | Aanvragen | 3.6 | ja (§4b#3) | ✅ live (PR #43) |
 | **S6** | Gebruikers + Rollen | 3.7 | ja (§4b#6) | stub |
 | **S7** | Profiel + Sessies | 3.7 | ja (§4b#9,#7) | partial |
 | **S8** | Venue-instellingen | 3.8 | ja (§4b#5) | stub |
