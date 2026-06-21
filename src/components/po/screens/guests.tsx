@@ -92,26 +92,29 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
   return (
     <div className={col}>
       <Top onBack={nav.back} title="Gastenlijst" sub={`${ev.name} · ${gs.length} getoond van ${guests.length}`} right={<IconBtn name="plus" onClick={() => nav.push('quickadd', { id: ev.id })} />} />
-      <div className="flex-none px-4 pb-[10px]">
-        <Field icon="search" placeholder="Zoek gast…" value={q} onChange={setQ} />
-      </div>
-      <div className="po-scroll flex flex-none gap-[7px] overflow-x-auto px-4 pb-3">
-        {([['all', 'Alle'], ['wait', 'Onderweg'], ['in', 'Binnen'], ['vip', 'VIP']] as const).map(([k, l]) => (
-          <FilterChip key={k} on={f === k} onClick={() => setF(k)}>
-            {l}
-          </FilterChip>
-        ))}
-      </div>
-      <div className="flex flex-none gap-2 px-4 pb-3">
-        <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd', { id: ev.id })}>
-          Snel toevoegen
-        </Btn>
-        <Btn sm kind="quiet" icon="paste" onClick={() => nav.push('bulk', { id: ev.id })}>
-          Plak namen
-        </Btn>
-        <Btn sm kind="quiet" icon="contact" onClick={() => nav.push('contacten', { id: ev.id })}>
-          Adresboek
-        </Btn>
+      {/* Toolbar — stacked on mobile, a single row on desktop. */}
+      <div className="flex-none px-4 lg:flex lg:items-center lg:gap-3 lg:pb-3">
+        <div className="pb-[10px] lg:max-w-[300px] lg:flex-1 lg:pb-0">
+          <Field icon="search" placeholder="Zoek gast…" value={q} onChange={setQ} />
+        </div>
+        <div className="po-scroll flex gap-[7px] overflow-x-auto pb-3 lg:overflow-visible lg:pb-0">
+          {([['all', 'Alle'], ['wait', 'Onderweg'], ['in', 'Binnen'], ['vip', 'VIP']] as const).map(([k, l]) => (
+            <FilterChip key={k} on={f === k} onClick={() => setF(k)}>
+              {l}
+            </FilterChip>
+          ))}
+        </div>
+        <div className="flex gap-2 pb-3 lg:ml-auto lg:pb-0">
+          <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd', { id: ev.id })}>
+            Snel toevoegen
+          </Btn>
+          <Btn sm kind="quiet" icon="paste" onClick={() => nav.push('bulk', { id: ev.id })}>
+            Plak namen
+          </Btn>
+          <Btn sm kind="quiet" icon="contact" onClick={() => nav.push('contacten', { id: ev.id })}>
+            Adresboek
+          </Btn>
+        </div>
       </div>
       <Scroll pad={16} bottom={24}>
         {isLoading ? (
@@ -121,33 +124,91 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
         ) : gs.length === 0 ? (
           <Empty text={q || f !== 'all' ? 'Geen gasten gevonden.' : 'Nog geen gasten — voeg de eerste toe.'} />
         ) : (
-          <div className="flex flex-col gap-[9px]">
-            {gs.map((g) => (
-              <button key={g.id} type="button" onClick={() => nav.push('guest', { id: g.id, eventId: ev.id })} className={cn('flex items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[12px] text-left', cardPress)}>
-                <Avatar name={g.name} size={42} accent={g.role === 'VIP'} />
-                <div className="min-w-0 flex-1">
-                  <div className="font-display text-[15.5px] font-bold text-text">
-                    {g.name}
-                    {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
+          <>
+            {/* Mobile: stacked cards. */}
+            <div className="flex flex-col gap-[9px] lg:hidden">
+              {gs.map((g) => (
+                <button key={g.id} type="button" onClick={() => nav.push('guest', { id: g.id, eventId: ev.id })} className={cn('flex items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[12px] text-left', cardPress)}>
+                  <Avatar name={g.name} size={42} accent={g.role === 'VIP'} />
+                  <div className="min-w-0 flex-1">
+                    <div className="font-display text-[15.5px] font-bold text-text">
+                      {g.name}
+                      {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
+                    </div>
+                    <div className="mt-[5px] flex flex-wrap items-center gap-1.5">
+                      <RoleChip role={g.role} />
+                      {g.pay === 'pay' && <PayChip pay="pay" />}
+                      {g.note && (
+                        <span className="text-acc-soft">
+                          <Icon name="note" size={13} />
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div className="mt-[5px] flex flex-wrap items-center gap-1.5">
-                    <RoleChip role={g.role} />
-                    {g.pay === 'pay' && <PayChip pay="pay" />}
-                    {g.note && (
-                      <span className="text-acc-soft">
-                        <Icon name="note" size={13} />
-                      </span>
-                    )}
-                  </div>
-                </div>
-                {g.status === 'refused' ? (
-                  <span className="shrink-0 rounded-[7px] border border-line2 px-2 py-[3px] font-body text-[11px] font-bold text-faint">Geweigerd</span>
-                ) : (
-                  <StatusDot status={g.status} label={false} />
-                )}
-              </button>
-            ))}
-          </div>
+                  {g.status === 'refused' ? (
+                    <span className="shrink-0 rounded-[7px] border border-line2 px-2 py-[3px] font-body text-[11px] font-bold text-faint">Geweigerd</span>
+                  ) : (
+                    <StatusDot status={g.status} label={false} />
+                  )}
+                </button>
+              ))}
+            </div>
+            {/* Desktop: dense table — more rows per screen + a "toegevoegd door" column. */}
+            <div className="hidden overflow-hidden rounded-[16px] border border-line bg-elev lg:block">
+              <table className="w-full border-collapse text-left">
+                <thead>
+                  <tr className="bg-elev2 [&>th]:px-3 [&>th]:py-[11px] [&>th]:font-body [&>th]:text-[11px] [&>th]:font-bold [&>th]:uppercase [&>th]:tracking-[0.04em] [&>th]:text-faint">
+                    <th className="!pl-4">Gast</th>
+                    <th>Rol</th>
+                    <th>Betaling</th>
+                    <th>Toegevoegd</th>
+                    <th className="!pr-4 text-right">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gs.map((g) => (
+                    <tr
+                      key={g.id}
+                      onClick={() => nav.push('guest', { id: g.id, eventId: ev.id })}
+                      className="cursor-pointer border-t border-line2 transition-colors hover:bg-elev2 [&>td]:px-3 [&>td]:py-[11px] [&>td]:align-middle"
+                    >
+                      <td className="!pl-4">
+                        <div className="flex items-center gap-[11px]">
+                          <Avatar name={g.name} size={36} accent={g.role === 'VIP'} />
+                          <span className="min-w-0">
+                            <span className="font-display text-[14.5px] font-bold text-text">
+                              {g.name}
+                              {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
+                            </span>
+                            {g.note && (
+                              <span className="mt-0.5 block max-w-[280px] truncate text-[12px] text-acc-soft">{g.note}</span>
+                            )}
+                          </span>
+                        </div>
+                      </td>
+                      <td>
+                        <RoleChip role={g.role} />
+                      </td>
+                      <td>{g.pay === 'pay' ? <PayChip pay="pay" /> : <span className="text-[12.5px] text-faint">—</span>}</td>
+                      <td>
+                        <span className="text-[13px] text-dim">{g.by || '—'}</span>
+                        {g.addedAt && <span className="ml-1.5 font-display text-[12px] text-faint">{g.addedAt}</span>}
+                      </td>
+                      <td className="!pr-4 text-right">
+                        {g.status === 'refused' ? (
+                          <span className="rounded-[7px] border border-line2 px-2 py-[3px] font-body text-[11px] font-bold text-faint">Geweigerd</span>
+                        ) : (
+                          <span className="inline-flex justify-end">
+                            <StatusDot status={g.status} />
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </Scroll>
     </div>
