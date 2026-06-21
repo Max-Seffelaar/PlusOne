@@ -49,6 +49,7 @@ export const ICONS = {
   lock: 'M6 10V8a6 6 0 0 1 12 0v2M5 10h14v10H5z',
   filter: 'M3 5h18l-7 8v5l-4 2v-7z',
   arrowUp: 'M12 19V5M6 11l6-6 6 6',
+  inbox: 'M4 13h4l1.5 3h5L16 13h4M4 13l2.5-8h11L20 13v6H4z',
 } as const;
 
 export type IconName = keyof typeof ICONS;

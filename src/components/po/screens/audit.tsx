@@ -37,14 +37,18 @@ interface FilterState {
 }
 const EMPTY_FILTERS: FilterState = { action: 'all', search: '' };
 
-export function AuditLog(): JSX.Element {
+export function AuditLog({ eventId }: { eventId?: string }): JSX.Element {
   const nav = useNav();
   const { roles, venueName } = usePoIdentity();
   const canAudit = venueCapabilities(roles).viewAudit;
   const aal = usePoAal2();
   const mfa = useMfaGate();
 
-  const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS);
+  // Pre-scope to an event when arriving from the home's activity feed; the filter
+  // sheet still lets the user widen back to "Alle events".
+  const [filters, setFilters] = useState<FilterState>(
+    eventId ? { ...EMPTY_FILTERS, eventId } : EMPTY_FILTERS
+  );
   const [sheetOpen, setSheetOpen] = useState(false);
   const [guestId, setGuestId] = useState<string | null>(null);
 

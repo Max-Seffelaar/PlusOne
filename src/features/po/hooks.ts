@@ -48,6 +48,7 @@ import {
   toPoEvent,
   toPoGuest,
   toPoTier,
+  type HomeEvent,
   toPoContact,
   toPoGuestRequest,
   toPoQuotaRequest,
@@ -96,6 +97,87 @@ export function usePoEvents() {
         const c = heads.get(r.id) ?? { registered: 0, present: 0 };
         return toPoEvent(r, { guests: c.registered, inside: c.present });
       });
+    },
+  });
+}
+
+/** Home polling cadence: keep "aanwezig"/"aanvragen" current without realtime
+ *  (realtime stays in the door, #25). React Query pauses this while the tab/window
+ *  is hidden (refetchIntervalInBackground defaults false) — Capacitor-safe (#37) —
+ *  and it only runs while the Start screen is mounted (other tabs unmount it). */
+const HOME_POLL_MS = 10_000;
+
+export interface PoHomeEvents {
+  /** Candidate events (not closed), role-scoped headcounts attached, ordered
+   *  live-first then soonest — the set the home can feature / switch between. */
+  events: HomeEvent[];
+  /** The default featured event (live → soonest upcoming → most recent open). */
+  defaultId: string | null;
+}
+
+/**
+ * Mobile Dashboard-home (S11) candidate events for the active venue: every
+ * non-closed event with the SAME role-scoped headcounts the Events cards use
+ * (fetchEventHeadcounts), so the home is consistent with the Events tab and works
+ * for doorhosts (event_stats_summary would 0 them out). The default pick mirrors
+ * the Deur tab (pickDoorEvent), so the home and the door agree on "tonight".
+ */
+export function usePoHomeEvents() {
+  const { venueId } = usePoIdentity();
+  return useQuery<PoHomeEvents>({
+    queryKey: poKeys.home(venueId ?? ''),
+    enabled: !!venueId,
+    refetchInterval: HOME_POLL_MS,
+    queryFn: async () => {
+      if (!venueId) return { events: [], defaultId: null };
+      const client = createClient();
+      const rows = await fetchEvents(client, venueId);
+      const heads = await fetchEventHeadcounts(
+        client,
+        rows.map((r) => r.id)
+      );
+      const events: HomeEvent[] = rows
+        .filter((r) => r.status !== 'closed')
+        .map((r) => {
+          const c = heads.get(r.id) ?? { registered: 0, present: 0 };
+          return { ...r, registered: c.registered, present: c.present };
+        })
+        // Live first, then soonest start — the order the picker shows.
+        .sort((a, b) => {
+          const live = (a.status === 'live' ? 0 : 1) - (b.status === 'live' ? 0 : 1);
+          if (live !== 0) return live;
+          return new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime();
+        });
+      const picked = pickDoorEvent(rows, Date.now());
+      return { events, defaultId: picked?.id ?? events[0]?.id ?? null };
+    },
+  });
+}
+
+export interface PoHomeStats {
+  /** Open (pending) guest requests on the selected event. */
+  openRequests: number;
+  /** The caller's personal quota on the selected event (#22/#31). */
+  quota: PoQuotaStatus | null;
+}
+
+/**
+ * The selected event's KPI bundle (open requests + personal quota), keyed by the
+ * event so switching the featured event refetches just these — the headcounts
+ * already live in usePoHomeEvents. Each read is RLS-scoped (0/null when denied).
+ */
+export function usePoHomeStats(eventId: string | null) {
+  return useQuery<PoHomeStats>({
+    queryKey: poKeys.homeStats(eventId ?? ''),
+    enabled: !!eventId,
+    refetchInterval: HOME_POLL_MS,
+    queryFn: async () => {
+      const client = createClient();
+      const [openRequests, quota] = await Promise.all([
+        fetchOpenRequestCount(client, eventId ?? ''),
+        fetchEventQuota(client, eventId ?? ''),
+      ]);
+      return { openRequests, quota };
     },
   });
 }
@@ -448,12 +530,14 @@ export function usePoAal2(): PoAal2State {
  */
 export function usePoAuditFeed(
   filters: Omit<PoAuditFilters, 'venueId'>,
-  options?: { enabled?: boolean }
+  options?: { enabled?: boolean; refetchInterval?: number }
 ) {
   const { venueId } = usePoIdentity();
   return useQuery<AuditLine[]>({
     queryKey: poKeys.audit(venueId ?? '', filters),
     enabled: !!venueId && (options?.enabled ?? true),
+    // Only the home's mini-feed passes an interval; the full audit screen omits it.
+    refetchInterval: options?.refetchInterval,
     queryFn: () => fetchPoAuditFeed(createClient(), { venueId: venueId ?? '', ...filters }),
   });
 }
