@@ -35,6 +35,16 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  // The desktop "(app)" dashboard shell was retired — there is one responsive
+  // surface now (po `/app`). Its old routes fold into /app. NOTE: /eventday is
+  // deliberately NOT redirected — it stays as the live Event-dag cockpit.
+  redirects: async () => [
+    { source: '/dashboard', destination: '/app', permanent: false },
+    { source: '/events', destination: '/app', permanent: false },
+    { source: '/events/:path*', destination: '/app', permanent: false },
+    { source: '/admin/:path*', destination: '/app', permanent: false },
+    { source: '/settings/:path*', destination: '/app', permanent: false },
+  ],
   headers: async () => {
     const headers = [
       {

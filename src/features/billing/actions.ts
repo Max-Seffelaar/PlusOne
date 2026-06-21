@@ -44,7 +44,7 @@ export async function setVenuePlanAction(input: SetVenuePlanInput): Promise<Bill
   if (error) return mapMutationError(error);
 
   revalidatePath('/onboarding');
-  revalidatePath('/dashboard');
+  revalidatePath('/app');
   return { ok: true };
 }
 
@@ -64,6 +64,6 @@ export async function completeOnboardingAction(
   if (error) return mapMutationError(error);
 
   revalidatePath('/', 'layout');
-  revalidatePath('/dashboard');
+  revalidatePath('/app');
   return { ok: true };
 }
