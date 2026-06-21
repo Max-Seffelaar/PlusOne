@@ -26,6 +26,7 @@ import { Aanvragen } from './screens/approvals';
 import { Allowance, Billing, Gebruikers, Import, Meer, Profile, Rollen, VenueSettings, VenueSwitch } from './screens/settings';
 import { VenueCreate } from './screens/onboarding';
 import { Stats } from './screens/stats';
+import { AuditLog } from './screens/audit';
 
 /** Shown while a pushed event/guest screen waits for its live row to load. */
 function Loading({ onBack }: { onBack: () => void }): JSX.Element {
@@ -238,6 +239,9 @@ export function PlusOneApp({
         break;
       case 'stats':
         screen = <Stats />;
+        break;
+      case 'audit':
+        screen = <AuditLog />;
         break;
       default:
         screen = null;

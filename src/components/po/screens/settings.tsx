@@ -113,7 +113,8 @@ function RolePicker({
 export function Meer(): JSX.Element {
   const nav = useNav();
   const { venue, statsVenues } = usePo();
-  const { venueName } = usePoIdentity();
+  const { venueName, roles } = usePoIdentity();
+  const canAudit = venueCapabilities(roles).viewAudit;
   const profile = usePoProfile();
   const subQ = usePoSubscription();
   const v = venue;
@@ -152,6 +153,15 @@ export function Meer(): JSX.Element {
             title="Statistieken"
             sub="Opkomst, instroom & toevoegingen"
             onClick={() => nav.push('stats')}
+            accent
+          />
+        )}
+        {canAudit && (
+          <Row
+            icon="history"
+            title="Audit log"
+            sub="Wie deed wat, wanneer · MFA"
+            onClick={() => nav.push('audit')}
             accent
           />
         )}

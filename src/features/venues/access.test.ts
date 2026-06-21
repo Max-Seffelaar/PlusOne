@@ -30,6 +30,7 @@ describe('venueCapabilities (mirrors the RLS role matrix)', () => {
       manageTeam: true,
       viewQuota: true,
       editQuota: true,
+      viewAudit: true,
     });
   });
 
@@ -48,9 +49,18 @@ describe('venueCapabilities (mirrors the RLS role matrix)', () => {
     expect(caps.viewSettings).toBe(true);
     expect(caps.viewTeam).toBe(true);
     expect(caps.viewQuota).toBe(true);
+    expect(caps.viewAudit).toBe(true);
     expect(caps.editSettings).toBe(false);
     expect(caps.manageTeam).toBe(false);
     expect(caps.editQuota).toBe(false);
+  });
+
+  it('only admin/finance may read the audit log', () => {
+    expect(venueCapabilities(['admin']).viewAudit).toBe(true);
+    expect(venueCapabilities(['finance']).viewAudit).toBe(true);
+    expect(venueCapabilities(['user_manager']).viewAudit).toBe(false);
+    expect(venueCapabilities(['staff']).viewAudit).toBe(false);
+    expect(venueCapabilities(['doorhost']).viewAudit).toBe(false);
   });
 
   it('staff/doorhost get no dashboard', () => {

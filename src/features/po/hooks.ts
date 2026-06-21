@@ -4,9 +4,11 @@
 // the active venue/event scope, then map rows -> po component shapes via the pure
 // adapters. No screen calls these yet (STAP 3.2 is infra); STAP 3.3/3.4 swap each
 // screen's mock import for the matching hook, preserving the component API.
+import { useCallback, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 import type { Guest, PoEvent, Tier } from '@/lib/po/types';
+import type { AuditLine } from '@/features/audit/translate';
 import { poKeys } from './keys';
 import { pickDoorEvent, type PoDoorEvent } from './door-event';
 import {
@@ -30,9 +32,15 @@ import {
   fetchOwnSessions,
   fetchMyProfile,
   fetchSubscription,
+  fetchPoAuditFeed,
+  fetchPoAuditFilterOptions,
+  fetchPoGuestHistory,
   type EventEditRow,
   type RecentCheckinRow,
   type PoQuotaStatus,
+  type PoAuditFilters,
+  type PoAuditFilterOptions,
+  type PoGuestHistory,
 } from './queries';
 import {
   toPoEvent,
@@ -351,5 +359,76 @@ export function usePoSubscription() {
       const row = await fetchSubscription(createClient(), venueId);
       return toPoSubscription(row, venueName ?? '');
     },
+  });
+}
+
+// ── Audit log (S10) reads ────────────────────────────────────────────────────
+
+export interface PoAal2State {
+  /** True until the first assurance-level check resolves. */
+  loading: boolean;
+  /** The browser session has reached AAL2 (MFA-verified). */
+  isAal2: boolean;
+  /** Re-check after an in-app MFA step-up upgrades the session. */
+  recheck: () => void;
+}
+
+/**
+ * AAL2 (MFA) status of the current browser session — sensitive reads like the
+ * audit log require it (#15/#20). Read straight from GoTrue
+ * (getAuthenticatorAssuranceLevel), so it is client-only and Capacitor-safe (#37);
+ * the screen calls `recheck` after the in-app step-up sheet upgrades the session.
+ */
+export function usePoAal2(): PoAal2State {
+  const [state, setState] = useState<{ loading: boolean; isAal2: boolean }>({
+    loading: true,
+    isAal2: false,
+  });
+  const recheck = useCallback(() => {
+    setState((s) => ({ ...s, loading: true }));
+    void createClient()
+      .auth.mfa.getAuthenticatorAssuranceLevel()
+      .then(({ data }) => setState({ loading: false, isAal2: data?.currentLevel === 'aal2' }))
+      .catch(() => setState({ loading: false, isAal2: false }));
+  }, []);
+  useEffect(() => {
+    recheck();
+  }, [recheck]);
+  return { ...state, recheck };
+}
+
+/**
+ * The active venue's audit feed (S10), filtered + capped in the database. Gated
+ * to admin/finance + AAL2 by RLS; the caller passes `enabled` (canAudit && AAL2)
+ * so we never fire the guaranteed-empty AAL1 query.
+ */
+export function usePoAuditFeed(
+  filters: Omit<PoAuditFilters, 'venueId'>,
+  options?: { enabled?: boolean }
+) {
+  const { venueId } = usePoIdentity();
+  return useQuery<AuditLine[]>({
+    queryKey: poKeys.audit(venueId ?? '', filters),
+    enabled: !!venueId && (options?.enabled ?? true),
+    queryFn: () => fetchPoAuditFeed(createClient(), { venueId: venueId ?? '', ...filters }),
+  });
+}
+
+/** Events + members for the audit filter sheet (the active venue). */
+export function usePoAuditFilterOptions(options?: { enabled?: boolean }) {
+  const { venueId } = usePoIdentity();
+  return useQuery<PoAuditFilterOptions>({
+    queryKey: poKeys.auditOptions(venueId ?? ''),
+    enabled: !!venueId && (options?.enabled ?? true),
+    queryFn: () => fetchPoAuditFilterOptions(createClient(), venueId ?? ''),
+  });
+}
+
+/** The per-guest "geschiedenis" timeline (#15) — null guestId keeps it idle. */
+export function usePoGuestHistory(guestId: string | null) {
+  return useQuery<PoGuestHistory>({
+    queryKey: poKeys.guestHistory(guestId ?? ''),
+    enabled: !!guestId,
+    queryFn: () => fetchPoGuestHistory(createClient(), guestId ?? ''),
   });
 }
