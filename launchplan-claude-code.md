@@ -4,6 +4,16 @@
 > Bouwen gebeurt in **losse sessies per ClickUp-taak** (lijst `901818739469`); elke [Claude]-taak
 > draagt zijn uitvoer-prompt uit DEEL D. Werkwijze v2: één taak = één sessie.
 
+> **⚠️ SUPERSEDED / UITKOMST (2026-06-21).** Dit plan beschreef een **viewport-switch met twee surfaces**
+> (desktop `(app)` + mobiel `po /app`, "Strategy A", dispatcher). Die richting is **verlaten**: de twee
+> UI's zijn samengevoegd tot **één responsieve surface** — de `po`-app op `/app` (`ResponsiveShell`:
+> bottom-tabs <1024px, sidebar ≥1024px). Het desktop-`(app)`-dashboard is **uitgefaseerd** (routes
+> redirecten naar `/app`; alleen `/eventday` blijft als losse cockpit). Gemerged via **PR #50**.
+> Desktop-layouts gedaan voor Home, Gastenlijst, Statistieken, Audit, Events en Gebruikers; resterend =
+> `/eventday` vouwen in de desktop-Deur, tablet-polish (641–1023px), `/app` deep-linking. Lees alle
+> "Strategy A / viewport-switch / dispatcher / desktop-`(app)`"-passages hieronder als **historie** —
+> de actuele architectuur staat in **CLAUDE.md** (§ "One responsive surface") en **spec-beslissing #41**.
+
 ## Context
 
 Doel: in één traject zo ver mogelijk richting launch. Voordat er code wijzigt is de werkelijke stand
