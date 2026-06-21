@@ -6,6 +6,7 @@ import {
   optimisticGuest,
   tierRole,
   toPoEvent,
+  toPoHome,
   toPoGuest,
   toPoTier,
   toPoContact,
@@ -49,6 +50,92 @@ describe('eventWhen', () => {
     expect(eventWhen('draft')).toBe('upcoming');
     expect(eventWhen('open')).toBe('upcoming');
     expect(eventWhen('live')).toBe('upcoming');
+  });
+});
+
+describe('toPoHome', () => {
+  // 22:00Z on 14 Dec = 23:00 Amsterdam, same calendar day as NOW (19:00 Amsterdam).
+  // registered/present are the role-scoped headcounts the home receives directly.
+  const baseEvent: PoEventRow = {
+    id: 'e1',
+    name: 'FRENZY',
+    starts_at: '2024-12-14T22:00:00Z',
+    ends_at: null,
+    status: 'live',
+    list_locked: true,
+    venue_name: 'De Marktkantine',
+  };
+  const boundedQuota = { quota: 20, consumed: 8, remaining: 12, exempt: false };
+  const NOW = Date.parse('2024-12-14T18:00:00Z');
+
+  it('maps a live event: headcounts, onderweg, attendance, status label', () => {
+    const v = toPoHome({ ...baseEvent, registered: 148, present: 47 }, 3, boundedQuota, NOW);
+    expect(v.scenario).toBe('live');
+    expect(v.statusLabel).toBe('Live nu');
+    expect(v.inside).toBe(47);
+    expect(v.registered).toBe(148);
+    expect(v.walking).toBe(101); // registered − present
+    expect(v.attendancePct).toBe(32); // round(47/148*100)
+    expect(v.requests).toBe(3);
+    expect(v.locked).toBe(true);
+    expect(v.daysUntil).toBe(0);
+    expect(v.dateLabel).toBe('Za 14 dec');
+    expect(v.time).toBe('23:00');
+    expect(v).toMatchObject({ quotaFree: 12, quotaTotal: 20, quotaConsumed: 8, quotaExempt: false, quotaKnown: true });
+  });
+
+  it('maps an open event starting today to the pre-event (deur dicht) scenario', () => {
+    const v = toPoHome({ ...baseEvent, status: 'open', registered: 148, present: 0 }, 5, boundedQuota, NOW);
+    expect(v.scenario).toBe('pre');
+    expect(v.statusLabel).toBe('Vanavond · deur dicht');
+    expect(v.inside).toBe(0);
+    expect(v.attendancePct).toBe(0);
+    expect(v.requests).toBe(5);
+  });
+
+  it('maps an open event on a future day to the quiet scenario with daysUntil', () => {
+    const v = toPoHome(
+      {
+        ...baseEvent,
+        name: 'Hunée',
+        status: 'open',
+        starts_at: '2024-12-20T21:00:00Z',
+        list_locked: false,
+        venue_name: 'Paradiso',
+        registered: 96,
+        present: 0,
+      },
+      2,
+      boundedQuota,
+      NOW
+    );
+    expect(v.scenario).toBe('quiet');
+    expect(v.statusLabel).toBe('Niets live');
+    expect(v.daysUntil).toBe(6);
+    expect(v.registered).toBe(96);
+    expect(v.locked).toBe(false);
+  });
+
+  it('treats an exempt quota as no limit (quotaFree null, still known)', () => {
+    const v = toPoHome(
+      { ...baseEvent, registered: 148, present: 47 },
+      0,
+      { quota: -1, consumed: 42, remaining: null, exempt: true },
+      NOW
+    );
+    expect(v.quotaExempt).toBe(true);
+    expect(v.quotaFree).toBeNull();
+    expect(v.quotaKnown).toBe(true);
+  });
+
+  it('handles a missing quota and zero counts without dividing by zero', () => {
+    const v = toPoHome({ ...baseEvent, registered: 0, present: 0 }, 0, null, NOW);
+    expect(v.inside).toBe(0);
+    expect(v.registered).toBe(0);
+    expect(v.walking).toBe(0);
+    expect(v.attendancePct).toBe(0);
+    expect(v.quotaKnown).toBe(false);
+    expect(v.quotaFree).toBeNull();
   });
 });
 

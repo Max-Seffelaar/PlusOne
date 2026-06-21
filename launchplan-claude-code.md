@@ -70,7 +70,7 @@ de mobiele `po`-schermen worden sindsdien per scherm live bedraad (zie de invent
 | 1 | Login / OTP | `/login` | ✅ | ✅ | live | UI-bugs (ClickUp) |
 | 2 | MFA enroll/verify | `/mfa/*` | ✅ | ✅ | live | — |
 | 3 | Onboarding | `/onboarding` | ✅ | ✅ | live | — |
-| 4 | Dashboard-home | `/dashboard` | ✅ | ❌ | desktop live | mobiele live home |
+| 4 | Dashboard-home | `/dashboard` | ✅ | ✅ (S11) | desktop live · mobiel live | desktop KPI-dashboard (aparte taak) |
 | 5 | Events-lijst | `/events` | ✅ | 🟡 mock | desktop live | mobiel live |
 | 6 | Event-detail/beheer | `/events/[id]` | ✅ | 🟡 EventBeheer stub | desktop live | mobiel live + afmaken |
 | 7 | Event aanmaken | `/events/new` | ✅ | 🟡 mock | desktop live | mobiel live |
@@ -243,7 +243,7 @@ blokkeert bouw).
 | **S8** | Venue-instellingen | 3.8 | ja (§4b#5) | stub |
 | **S9** | EventBeheer/Edit/Tiers | 3.8 | ja (§4b#8) | stub |
 | **S10** | Mobiel Audit-log | 3.9 | ja (§4b#2) | ✅ live (PR #44) |
-| **S11** | Mobiel Dashboard-home | 3.9 | ja (§4b#1) | geen |
+| **S11** | Mobiel Dashboard-home | 3.9 | ja (§4b#1) | ✅ live (mobiel, `start`-tab) |
 | **S12** | Billing (read-only) | 3.10 | nee | stub |
 
 **Route = parallel.** Kan meteen (ontwerp-onafhankelijk): 3.0 + 3.2 (infra), dan S1/S2/S4.

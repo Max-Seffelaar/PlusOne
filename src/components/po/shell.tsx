@@ -10,7 +10,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { Icon, type IconName } from './icon';
 
-export type TabKey = 'events' | 'deur' | 'taken' | 'meer';
+export type TabKey = 'start' | 'events' | 'deur' | 'taken' | 'meer';
 
 export function StatusBar(): JSX.Element {
   return (
@@ -36,6 +36,7 @@ export function StatusBar(): JSX.Element {
 }
 
 const TABS: [TabKey, string, IconName][] = [
+  ['start', 'Start', 'grid'],
   ['events', 'Events', 'cal'],
   ['deur', 'Check-in', 'user'],
   ['taken', 'Taken', 'flag'],
