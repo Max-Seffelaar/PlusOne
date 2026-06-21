@@ -15,6 +15,7 @@ import { useMfaGate } from '../mfa-gate';
 import { useNav } from '../context';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Btn, Empty, Label, MiniChip, Note, Scroll, Top } from '../kit';
+import { Sheet } from '../shell';
 
 const col = 'flex h-full flex-col';
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
@@ -152,6 +153,7 @@ function MemberSessions({
   const sessionsQ = usePoUserSessions(member.userId);
   const revoke = usePoAdminRevokeSession(member.userId);
   const sessions = sessionsQ.data ?? [];
+  const [confirmAll, setConfirmAll] = useState(false);
   return (
     <div className={col}>
       <Top onBack={onBack} title={member.name || member.email} sub={`Actieve apparaten · ${venueName ?? ''}`} />
@@ -191,8 +193,44 @@ function MemberSessions({
             ))}
           </div>
         )}
+        {sessions.length > 0 && (
+          <Btn
+            kind="ghost"
+            full
+            icon="logout"
+            className="mt-3"
+            disabled={revoke.isPending}
+            onClick={() => setConfirmAll(true)}
+          >
+            Log {member.name.split(' ')[0] || 'dit lid'} overal uit
+          </Btn>
+        )}
         <FormError error={revoke.isError ? revoke.error : null} />
       </Scroll>
+      {confirmAll && (
+        <Sheet onClose={() => setConfirmAll(false)} center={false}>
+          <Note icon="warn">
+            Je logt {member.name || member.email} uit op {sessions.length}{' '}
+            {sessions.length === 1 ? 'apparaat' : 'apparaten'}. Daar moet daarna opnieuw worden ingelogd.
+          </Note>
+          <Btn
+            kind="primary"
+            full
+            icon="logout"
+            className="mt-2"
+            disabled={revoke.isPending}
+            onClick={() => {
+              sessions.forEach((s) => revoke.mutate(s.id));
+              setConfirmAll(false);
+            }}
+          >
+            {revoke.isPending ? 'Uitloggen…' : 'Ja, log overal uit'}
+          </Btn>
+          <Btn kind="ghost" full className="mt-2" onClick={() => setConfirmAll(false)}>
+            Annuleren
+          </Btn>
+        </Sheet>
+      )}
     </div>
   );
 }
