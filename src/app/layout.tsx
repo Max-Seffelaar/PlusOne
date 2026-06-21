@@ -47,7 +47,12 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-title" content="PLUSONE" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       </head>
-      <body className="bg-bg text-text font-body antialiased">{children}</body>
+      {/* suppressHydrationWarning: browser extensions (e.g. Grammarly) inject
+          attributes onto <body> before React hydrates; without this their
+          attribute mismatch aborts hydration and can leave a blank screen. */}
+      <body className="bg-bg text-text font-body antialiased" suppressHydrationWarning>
+        {children}
+      </body>
     </html>
   );
 }
