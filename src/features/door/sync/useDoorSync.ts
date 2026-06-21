@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import { getDoorClient } from '../offline/device';
+import { shouldRefetchOnStatus, type ChannelStatus } from './reconnect';
 import { deriveSyncStatus, syncAgeLabel, type SyncStatus } from './status';
 
 type CheckInRow = Database['public']['Tables']['check_ins']['Row'];
@@ -119,6 +120,9 @@ export function useDoorSync({ eventId, onSync, onRealtimeCheckIn, onRealtimeGues
     const client = getDoorClient();
     let cancelled = false;
     let channel: RealtimeChannel | null = null;
+    // Previous channel status, so a resubscribe after a drop can self-heal the
+    // burst it missed (#0b). Local to this effect → reset per eventId.
+    let prevStatus: ChannelStatus | null = null;
 
     // Authenticate realtime with the user's JWT BEFORE subscribing, so the
     // postgres_changes bindings are evaluated under the user's RLS (a doorhost
@@ -143,7 +147,12 @@ export function useDoorSync({ eventId, onSync, onRealtimeCheckIn, onRealtimeGues
           },
         )
         .subscribe((st) => {
-          if (!cancelled) setRealtimeConnected(st === 'SUBSCRIBED');
+          if (cancelled) return;
+          // Self-heal: if we just resubscribed after a drop, drain the outbox +
+          // refetch the snapshot so any check-ins missed while down reappear (#0b).
+          if (shouldRefetchOnStatus(prevStatus, st)) void onSyncRef.current();
+          prevStatus = st;
+          setRealtimeConnected(st === 'SUBSCRIBED');
         });
     });
 
