@@ -27,6 +27,7 @@ import { Allowance, Billing, Gebruikers, Import, Meer, Profile, Rollen, VenueSet
 import { VenueCreate } from './screens/onboarding';
 import { Stats } from './screens/stats';
 import { AuditLog } from './screens/audit';
+import { Home } from './screens/home';
 
 /** Shown while a pushed event/guest screen waits for its live row to load. */
 function Loading({ onBack }: { onBack: () => void }): JSX.Element {
@@ -71,7 +72,7 @@ export function PlusOneApp({
   const [started, setStarted] = useState(true);
   const [authView, setAuthView] = useState<AuthView>('welcome');
   const [authProps, setAuthProps] = useState<{ email?: string }>({});
-  const [tab, setTabState] = useState<TabKey>('events');
+  const [tab, setTabState] = useState<TabKey>('start');
   const [stack, setStack] = useState<StackEntry[]>([]);
   // Door check-in overlay (guest detail / add-on-spot) for the Deur/Taken tabs.
   // The state lives here (not inside DoorProvider) so the mobile tab bar can hide
@@ -241,16 +242,17 @@ export function PlusOneApp({
         screen = <Stats />;
         break;
       case 'audit':
-        screen = <AuditLog />;
+        screen = <AuditLog eventId={p.id} />;
         break;
       default:
         screen = null;
     }
-  } else if (tab === 'events') screen = <Events />;
+  } else if (tab === 'start') screen = <Home />;
+  else if (tab === 'events') screen = <Events />;
   else if (tab === 'meer') screen = <Meer />;
   // 'deur' / 'taken' render via the door branch below when allowed; for a
-  // non-door role (showDoor=false) the tabs are hidden, so fall back to Events.
-  else screen = <Events />;
+  // non-door role (showDoor=false) the tabs are hidden, so fall back to the home.
+  else screen = <Home />;
 
   const po: PoApp = { venue, switchVenue, statsVenues: statsAccess?.venues ?? [], nav };
 
@@ -277,6 +279,7 @@ export function PlusOneApp({
   const currentKey =
     top?.name === 'stats' ? 'stats' : top?.name === 'gebruikers' ? 'gebruikers' : tab;
   const navItems: ShellNavItem[] = [
+    { key: 'start', label: 'Start', icon: 'grid', active: currentKey === 'start', onClick: () => nav.setTab('start') },
     { key: 'events', label: 'Events', icon: 'cal', active: currentKey === 'events', onClick: () => nav.setTab('events') },
     ...(showDoor
       ? ([
@@ -289,7 +292,9 @@ export function PlusOneApp({
     { key: 'meer', label: 'Meer', icon: 'dots', active: currentKey === 'meer', onClick: () => nav.setTab('meer') },
   ];
   // Mobile bottom tabs — non-door roles drop Deur/Taken (default would show all).
-  const mobileTabs: TabKey[] = showDoor ? ['events', 'deur', 'taken', 'meer'] : ['events', 'meer'];
+  const mobileTabs: TabKey[] = showDoor
+    ? ['start', 'events', 'deur', 'taken', 'meer']
+    : ['start', 'events', 'meer'];
 
   // Door branch: mount the real DoorProvider (offline outbox + realtime) for the
   // venue's current event and render the shared door components. Kept mounted

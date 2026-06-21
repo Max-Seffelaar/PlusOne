@@ -5,6 +5,10 @@
 export const poKeys = {
   all: ['po'] as const,
   events: (venueId: string) => [...poKeys.all, 'events', venueId] as const,
+  /** Mobile Dashboard-home (S11): the venue's candidate events + headcounts. */
+  home: (venueId: string) => [...poKeys.all, 'home', venueId] as const,
+  /** Home KPI bundle for the selected event (open requests + personal quota). */
+  homeStats: (eventId: string) => [...poKeys.all, 'home-stats', eventId] as const,
   /** The venue's "current" event for the mobile Deur/Taken tab (live → next → recent). */
   doorEvent: (venueId: string) => [...poKeys.all, 'door-event', venueId] as const,
   event: (eventId: string) => [...poKeys.all, 'event', eventId] as const,

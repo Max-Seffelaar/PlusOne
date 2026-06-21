@@ -14,9 +14,10 @@ import type {
   PoSessionRow,
   PoSubscriptionRow,
   PoVenueSettingsRow,
+  PoQuotaStatus,
 } from './queries';
 import type { EventSummary, TierStat } from '@/features/stats/data';
-import { formatClock } from '@/features/stats/format';
+import { formatClock, toDateInput } from '@/features/stats/format';
 import { toPerTier, type PerTier } from '@/features/stats/po-adapter';
 import { ROLE_LABELS, VENUE_ROLES, requiresMfa, type VenueRole } from '@/features/auth/roles';
 import { getPlan, isPlanId } from '@/features/billing/plans';
@@ -90,6 +91,114 @@ export function toPoEvent(row: PoEventRow, counts: EventCounts): PoEvent {
     guests: counts.guests,
     inside: counts.inside,
     when: eventWhen(row.status),
+  };
+}
+
+// ── Mobile Dashboard-home (S11) ───────────────────────────────────────────────
+// One pure mapper turns the featured event + its live reads (role-scoped on-list /
+// present headcounts / open guest_requests count / event_quota_status) into the
+// shape the Home screen renders, so the screen stays markup-only and the branching
+// (which scenario, headcounts, quota copy) is unit-tested here. Mirrors the
+// prototype's three states: a live night, a "deur dicht" pre-event tonight, and a
+// quiet day where only the next event is announced.
+
+export type HomeScenario = 'live' | 'pre' | 'quiet';
+
+export interface PoHomeView {
+  /** live = event running; pre = starts today, door still shut; quiet = future day. */
+  scenario: HomeScenario;
+  id: string;
+  name: string;
+  venue: string;
+  /** "Za 14 dec" (Amsterdam). */
+  dateLabel: string;
+  /** "23:00" (Amsterdam, 24h). */
+  time: string;
+  /** Badge copy: "Live nu" / "Vanavond · deur dicht" / "Niets live". */
+  statusLabel: string;
+  locked: boolean;
+  /** Whole calendar days until the event (Amsterdam); 0 today/past. */
+  daysUntil: number;
+  /** Present headcount (1 + plus-ones over checked-in). */
+  inside: number;
+  /** Registered headcount (1 + plus-ones over approved/checked-in). */
+  registered: number;
+  /** On the list but not yet inside (registered − present); shown when live. */
+  walking: number;
+  /** Present / registered as a whole percentage; 0 when none registered. */
+  attendancePct: number;
+  /** Open (pending) guest requests — the KPI badge. */
+  requests: number;
+  /** event_quota_status resolved → null when the caller is exempt or unknown. */
+  quotaFree: number | null;
+  quotaTotal: number;
+  quotaConsumed: number;
+  quotaExempt: boolean;
+  /** False when event_quota_status returned nothing (render "—", no sheet). */
+  quotaKnown: boolean;
+}
+
+const DAY_MS = 86_400_000;
+
+/** Whole calendar days from `nowMs` to the event start, both in Amsterdam TZ, so
+ *  "tonight at 23:00" reads as today (0) regardless of the UTC date rollover. */
+function daysUntilEvent(startsAt: string, nowMs: number): number {
+  const start = Date.parse(toDateInput(startsAt));
+  const today = Date.parse(toDateInput(new Date(nowMs).toISOString()));
+  return Math.round((start - today) / DAY_MS);
+}
+
+/**
+ * The featured event plus its role-scoped headcounts. `registered`/`present` come
+ * from the same guest-row aggregation the Events cards use (fetchEventHeadcounts),
+ * NOT from event_stats_summary — that RPC is admin/finance/organizer-gated, so a
+ * doorhost would read 0. RLS still scopes the rows, so a staff member's counts are
+ * their own slice, consistent with the rest of the app.
+ */
+export type HomeEvent = PoEventRow & {
+  /** On-list headcount (1 + plus-ones over approved/checked-in). */
+  registered: number;
+  /** Present headcount (1 + plus-ones over checked-in). */
+  present: number;
+};
+
+export function toPoHome(
+  active: HomeEvent,
+  openRequests: number,
+  quota: PoQuotaStatus | null,
+  nowMs: number
+): PoHomeView {
+  const dayDiff = daysUntilEvent(active.starts_at, nowMs);
+  const scenario: HomeScenario =
+    active.status === 'live' ? 'live' : dayDiff >= 1 ? 'quiet' : 'pre';
+
+  const inside = active.present;
+  const registered = active.registered;
+  const statusLabel =
+    scenario === 'live' ? 'Live nu' : scenario === 'pre' ? 'Vanavond · deur dicht' : 'Niets live';
+
+  return {
+    scenario,
+    id: active.id,
+    name: active.name,
+    venue: active.venue_name,
+    dateLabel: capitalize(
+      fmt(active.starts_at, { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\./g, '')
+    ),
+    time: fmt(active.starts_at, { hour: '2-digit', minute: '2-digit', hour12: false }),
+    statusLabel,
+    locked: active.list_locked,
+    daysUntil: Math.max(0, dayDiff),
+    inside,
+    registered,
+    walking: Math.max(0, registered - inside),
+    attendancePct: registered > 0 ? Math.round((inside / registered) * 100) : 0,
+    requests: openRequests,
+    quotaFree: quota ? (quota.exempt ? null : quota.remaining) : null,
+    quotaTotal: quota?.quota ?? 0,
+    quotaConsumed: quota?.consumed ?? 0,
+    quotaExempt: quota?.exempt ?? false,
+    quotaKnown: quota != null,
   };
 }
 
