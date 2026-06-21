@@ -102,7 +102,7 @@ export function Events(): JSX.Element {
           months.map((m) => (
             <div key={m} className="mb-2">
               <Label className="mx-0.5 mb-[10px] mt-3">{m}</Label>
-              <div className="flex flex-col gap-[10px]">
+              <div className="flex flex-col gap-[10px] lg:grid lg:grid-cols-2 xl:grid-cols-3">
                 {evs
                   .filter((e) => e.month === m)
                   .map((e) => (

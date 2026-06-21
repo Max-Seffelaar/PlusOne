@@ -35,9 +35,11 @@ import { Home } from './screens/home';
  *  into the full width. (Mobile is full-bleed regardless of this.) */
 const WIDE_DESKTOP: Record<string, string> = {
   start: 'max-w-[1080px]',
+  events: 'max-w-[1080px]',
   lijst: 'max-w-[1080px]',
   stats: 'max-w-[1080px]',
   audit: 'max-w-[1080px]',
+  gebruikers: 'max-w-[1080px]',
 };
 
 /** Shown while a pushed event/guest screen waits for its live row to load. */
