@@ -36,6 +36,8 @@ export const poKeys = {
   // the caller, venue-settings + subscription to a venue.
   team: (venueId: string) => [...poKeys.all, 'team', venueId] as const,
   invites: (venueId: string) => [...poKeys.all, 'invites', venueId] as const,
+  /** Invites addressed to the signed-in user (incoming "accept invite" banner). */
+  myInvites: () => [...poKeys.all, 'my-invites'] as const,
   sessions: () => [...poKeys.all, 'sessions'] as const,
   /** A team member's active sessions for the admin remote-logout screen. */
   userSessions: (targetUserId: string) => [...poKeys.all, 'user-sessions', targetUserId] as const,

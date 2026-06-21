@@ -9,6 +9,7 @@ import type {
   PoQuotaRequestRow,
   RecapGuestRow,
   PoInviteRow,
+  PoMyInviteRow,
   PoMemberRow,
   PoProfileRow,
   PoSessionRow,
@@ -517,6 +518,22 @@ export function toPoInvite(row: PoInviteRow): PoInvite {
     roles: row.roles,
     rolesLabel: rolesLabel(row.roles),
     sentAt: fmt(row.created_at, { day: 'numeric', month: 'short' }).replace('.', ''),
+  };
+}
+
+/** An invite addressed to the current user (the incoming "accepteer uitnodiging"
+ *  banner), with the inviting venue's name. */
+export interface PoMyInvite {
+  id: string;
+  venueName: string;
+  rolesLabel: string;
+}
+
+export function toPoMyInvite(row: PoMyInviteRow): PoMyInvite {
+  return {
+    id: row.id,
+    venueName: row.venue_name ?? 'een venue',
+    rolesLabel: rolesLabel(row.roles),
   };
 }
 

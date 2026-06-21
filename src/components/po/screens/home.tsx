@@ -32,6 +32,7 @@ import { useNav } from '../context';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Btn, Empty, Label, Scroll } from '../kit';
 import { Sheet } from '../shell';
+import { PendingInvitesBanner } from '../pending-invites-banner';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 const col = 'flex h-full flex-col';
@@ -566,6 +567,7 @@ export function Home(): JSX.Element {
         refreshing={manualRefreshing}
       />
       <Scroll pad={18} bottom={28} className="flex flex-col gap-[18px]">
+        <PendingInvitesBanner />
         {events.isLoading ? (
           <Empty text="Overzicht laden…" />
         ) : events.isError ? (

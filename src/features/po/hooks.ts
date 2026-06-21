@@ -32,6 +32,7 @@ import {
   fetchMemberQuotas,
   fetchVenueSettings,
   fetchPendingInvites,
+  fetchMyPendingInvites,
   fetchOwnSessions,
   fetchUserSessions,
   fetchMyProfile,
@@ -59,6 +60,7 @@ import {
   tierRole,
   toPoTeamMember,
   toPoInvite,
+  toPoMyInvite,
   toPoSession,
   toPoProfile,
   toPoVenueSettings,
@@ -69,6 +71,7 @@ import {
   type PoRecap,
   type PoTeamMember,
   type PoInvite,
+  type PoMyInvite,
   type PoSession,
   type PoProfile,
   type PoVenueSettings,
@@ -536,6 +539,18 @@ export function usePoInvites() {
       if (!venueId) return [];
       const rows = await fetchPendingInvites(createClient(), venueId);
       return rows.map(toPoInvite);
+    },
+  });
+}
+
+/** Invites addressed to the signed-in user — drives the incoming "accepteer
+ *  uitnodiging" banner (the mid-session case the desktop banner covered). */
+export function usePoMyPendingInvites() {
+  return useQuery<PoMyInvite[]>({
+    queryKey: poKeys.myInvites(),
+    queryFn: async () => {
+      const rows = await fetchMyPendingInvites(createClient());
+      return rows.map(toPoMyInvite);
     },
   });
 }
