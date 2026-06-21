@@ -195,7 +195,7 @@ export function EventView({ id }: { id?: string }): JSX.Element {
             <div className="mb-[18px] flex flex-col gap-[9px]">
               <button
                 type="button"
-                onClick={() => nav.push('aanvragen')}
+                onClick={() => nav.push('aanvragen', { id: ev.id })}
                 className={cn('flex w-full gap-[12px] rounded-[14px] border bg-elev p-[13px] text-left', cardPress)}
                 style={{ borderColor: 'rgba(181,166,255,0.4)' }}
               >

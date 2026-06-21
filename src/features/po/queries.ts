@@ -210,6 +210,87 @@ export async function fetchOpenRequestCount(client: Client, eventId: string): Pr
   return count ?? 0;
 }
 
+// ── Approvals reads (S5 Aanvragen, STAP 3.6) ──────────────────────────────────
+// Pending landing-page guest requests (#12/#31) + pending quota requests (#5),
+// read VENUE-WIDE across a set of event ids so the inbox can show "Alle events"
+// + an event picker. The caller passes the venue's visible event ids (from
+// usePoEvents, already RLS-scoped); RLS stays the boundary on the requests
+// themselves — admin sees every event's, an organizer only their own events'.
+// Each row carries its event_id so the screen can group/filter and target the
+// right event's tiers on approval. An empty id list short-circuits to [].
+
+export type PoGuestRequestRow = Pick<
+  Tables['guest_requests']['Row'],
+  'id' | 'full_name' | 'phone' | 'plus_ones' | 'motivation' | 'created_at' | 'event_id' | 'status' | 'decision_reason'
+>;
+
+/**
+ * Landing-page requests across the given events — both still-open (pending) and
+ * already-DENIED, oldest first. The screen shows the open ones as the queue and
+ * the denied ones in an "Afgewezen" section, where an admin can still add the
+ * person after all (re-approve, #12). Approved requests are excluded (they're on
+ * the list already). RLS limits visibility to admin/finance/organizer.
+ */
+export async function fetchGuestRequests(
+  client: Client,
+  eventIds: string[]
+): Promise<PoGuestRequestRow[]> {
+  if (eventIds.length === 0) return [];
+  const { data } = await client
+    .from('guest_requests')
+    .select('id, full_name, phone, plus_ones, motivation, created_at, event_id, status, decision_reason')
+    .in('event_id', eventIds)
+    .in('status', ['pending', 'denied'])
+    .order('created_at', { ascending: true });
+
+  return data ?? [];
+}
+
+export interface PoQuotaRequestRow {
+  id: string;
+  eventId: string;
+  requestedExtra: number;
+  motivation: string | null;
+  created_at: string;
+  /** Resolved requester display name (RLS-scoped user_profiles join). */
+  requesterName: string;
+}
+
+/**
+ * Pending quota requests across the given events, oldest first, with the
+ * requester name resolved in a second round-trip — mirrors the desktop guests
+ * page exactly so both surfaces stay RLS-safe (no FK-embed guessing; an
+ * unreadable profile just falls back to "Onbekend").
+ */
+export async function fetchQuotaRequests(
+  client: Client,
+  eventIds: string[]
+): Promise<PoQuotaRequestRow[]> {
+  if (eventIds.length === 0) return [];
+  const { data: reqs } = await client
+    .from('quota_requests')
+    .select('id, event_id, requested_extra, motivation, created_at, user_id')
+    .in('event_id', eventIds)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true });
+
+  const rows = reqs ?? [];
+  const ids = [...new Set(rows.map((r) => r.user_id))];
+  const profiles = ids.length
+    ? (await client.from('user_profiles').select('id, full_name').in('id', ids)).data ?? []
+    : [];
+  const nameById = new Map(profiles.map((p) => [p.id, p.full_name]));
+
+  return rows.map((r) => ({
+    id: r.id,
+    eventId: r.event_id,
+    requestedExtra: r.requested_extra,
+    motivation: r.motivation,
+    created_at: r.created_at,
+    requesterName: nameById.get(r.user_id) ?? 'Onbekend',
+  }));
+}
+
 export interface RecapGuestRow {
   id: string;
   full_name: string;

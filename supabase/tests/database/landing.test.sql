@@ -51,7 +51,7 @@ begin
 end;
 $fn$;
 
-select plan(21);
+select plan(24);
 
 -- ---------------------------------------------------------------------------
 -- A. submit_guest_request — the hardened anon path (#12/#28) + marketing (8b)
@@ -187,6 +187,31 @@ select is(
    where entity_type = 'guests' and action = 'create'
      and actor_id = '44444444-4444-4444-8444-444444444444'),
   1, 'C4 the approved guest-create is audited as the approver');
+
+-- ---------------------------------------------------------------------------
+-- D. Re-approve a denied request (#12 — "die persoon mag soms toch gewoon gaan")
+-- ---------------------------------------------------------------------------
+-- Kevin (bb..03) was denied in the seed. An organizer may still add him after
+-- all: approve_guest_request now accepts a denied request (only an already-
+-- approved one is "done"), creating the guest and clearing the denial reason.
+
+reset role;
+select pg_temp.login('44444444-4444-4444-8444-444444444444');  -- organizer
+select isnt(
+  public.approve_guest_request(
+    'bb000000-0000-7000-8000-000000000003',     -- Kevin (denied in seed)
+    'dd000000-0000-7000-8000-000000000001'),    -- Regular tier
+  null, 'D1 a denied request can be re-approved → returns the new guest id');
+
+reset role;
+select is(
+  (select count(*)::int from public.guests
+   where full_name = 'Kevin de Lange' and source = 'landing' and status = 'approved'),
+  1, 'D2 re-approval creates the landing guest after all');
+select is(
+  (select status::text || coalesce(':' || decision_reason, ':null')
+   from public.guest_requests where id = 'bb000000-0000-7000-8000-000000000003'),
+  'approved:null', 'D3 the request flips to approved and the denial reason is cleared');
 
 reset role;
 

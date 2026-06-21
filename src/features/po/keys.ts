@@ -13,8 +13,12 @@ export const poKeys = {
   guests: (eventId: string) => [...poKeys.all, 'guests', eventId] as const,
   tiers: (eventId: string) => [...poKeys.all, 'tiers', eventId] as const,
   quota: (eventId: string) => [...poKeys.all, 'quota', eventId] as const,
-  requests: (eventId: string) => [...poKeys.all, 'requests', eventId] as const,
-  quotaRequests: (eventId: string) => [...poKeys.all, 'quota-requests', eventId] as const,
+  // The approval inbox (S5) reads venue-wide (all events at once) so it can show
+  // "Alle events" + an event picker, so these scope to the VENUE. Mutations
+  // invalidate the [...all,'requests'] / [...all,'quota-requests'] PREFIX, which
+  // matches the venue key regardless of which event a decided request belonged to.
+  requests: (venueId: string) => [...poKeys.all, 'requests', venueId] as const,
+  quotaRequests: (venueId: string) => [...poKeys.all, 'quota-requests', venueId] as const,
   // Address book (S3) — contacts scope to a venue; the optional search term keys
   // distinct cached lists, so invalidating the ['po','contacts',venueId] prefix
   // refreshes every variant after a star/import/add write.

@@ -192,33 +192,45 @@ export function usePoRemoveGuest(eventId: string) {
   });
 }
 
-export function usePoApproveRequest(eventId: string) {
+// The approval inbox (S5) reads venue-wide and one screen decides requests from
+// MULTIPLE events, so these decide-mutations take no eventId: they invalidate the
+// requests-list PREFIX (matches the venue-scoped key) and derive the per-event
+// guests/tiers/quota invalidation from the mutation INPUT, which carries the id.
+const REQUESTS_KEY = [...poKeys.all, 'requests'] as const;
+const QUOTA_REQUESTS_KEY = [...poKeys.all, 'quota-requests'] as const;
+
+export function usePoApproveRequest() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: ApproveGuestRequestInput) =>
       throwOnError(await approveGuestRequest(input)),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: poKeys.requests(eventId) });
-      void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
-      void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
+    onSuccess: (_res, input) => {
+      void qc.invalidateQueries({ queryKey: REQUESTS_KEY });
+      if (input.eventId) {
+        void qc.invalidateQueries({ queryKey: poKeys.guests(input.eventId) });
+        void qc.invalidateQueries({ queryKey: poKeys.tiers(input.eventId) });
+      }
     },
   });
 }
 
-export function usePoDenyRequest(eventId: string) {
+export function usePoDenyRequest() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: DenyGuestRequestInput) => throwOnError(await denyGuestRequest(input)),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.requests(eventId) }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: REQUESTS_KEY }),
   });
 }
 
-export function usePoDecideQuota(eventId: string) {
+export function usePoDecideQuota() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: DecideQuotaRequestInput) =>
+    mutationFn: async (input: DecideQuotaRequestInput & { eventId?: string }) =>
       throwOnError(await decideQuotaRequest(input)),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.quotaRequests(eventId) }),
+    onSuccess: (_res, input) => {
+      void qc.invalidateQueries({ queryKey: QUOTA_REQUESTS_KEY });
+      if (input.eventId) void qc.invalidateQueries({ queryKey: poKeys.quota(input.eventId) });
+    },
   });
 }
 
@@ -229,7 +241,7 @@ export function usePoRequestExtraSlots(eventId: string) {
     mutationFn: async (input: QuotaRequestInput) => throwOnError(await requestExtraSlots(input)),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: poKeys.quota(eventId) });
-      void qc.invalidateQueries({ queryKey: poKeys.quotaRequests(eventId) });
+      void qc.invalidateQueries({ queryKey: QUOTA_REQUESTS_KEY });
     },
   });
 }

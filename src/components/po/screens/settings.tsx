@@ -158,10 +158,9 @@ export function Meer(): JSX.Element {
         <Row
           icon="bell"
           title="Aanvragen & verzoeken"
-          sub="3 quotum-verzoeken · 4 landingpage-aanvragen"
+          sub="Quotum-verzoeken & landingpage-aanvragen"
           onClick={() => nav.push('aanvragen')}
           accent
-          right={<span className="inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-acc px-1.5 font-display text-[12px] font-extrabold text-on-acc">7</span>}
         />
         <Row icon="user" title="Persoonlijke gegevens" sub="Profiel, e-mail & sessies" onClick={() => nav.push('profile')} />
         <Row icon="cal" title="Events & tiers" sub="Events aanmaken, tiers en aliassen" onClick={() => nav.push('eventbeheer')} />
