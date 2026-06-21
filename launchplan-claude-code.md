@@ -224,7 +224,7 @@ Capacitor-pass. Mobiele principes overal. Parallel: Max levert de Claude Design-
 
 ## Schermen ↔ sessies ↔ ontwerpen (traceability-matrix)
 
-Eén stabiel **scherm-ID (S0–S12)** in inventaris, ontwerp-taak, bouw-taak en sessie. ClickUp-naam:
+Eén stabiel **scherm-ID (S0–S13)** in inventaris, ontwerp-taak, bouw-taak en sessie. ClickUp-naam:
 bouw `S5 · [Claude] Aanvragen — sessie 3.6`; ontwerp `S5 · [Design] Aanvragen` (dependency: ontwerp
 blokkeert bouw).
 
@@ -245,6 +245,7 @@ blokkeert bouw).
 | **S10** | Mobiel Audit-log | 3.9 | ja (§4b#2) | ✅ live (PR #44) |
 | **S11** | Mobiel Dashboard-home | 3.9 | ja (§4b#1) | geen |
 | **S12** | Billing (read-only) | 3.10 | nee | stub |
+| **S13** | Desktop Event-dag cockpit (snel in-/uitchecken) | — | ja (Claude) | ✅ live |
 
 **Route = parallel.** Kan meteen (ontwerp-onafhankelijk): 3.0 + 3.2 (infra), dan S1/S2/S4.
 Ontwerp-track Max: S0 → S5 → S3 → S6/S7 → S8/S9 → S10/S11. Elk ontwerp deblokkeert zijn bouw-sessie.
