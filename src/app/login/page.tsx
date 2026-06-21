@@ -7,7 +7,7 @@ export const metadata: Metadata = {
 };
 
 // Public route (whitelisted in middleware). Authenticated users are redirected
-// to /dashboard by the middleware before reaching this page.
+// to /app by the middleware before reaching this page.
 export default async function LoginPage({
   searchParams,
 }: {

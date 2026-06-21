@@ -27,7 +27,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   const onMfaRoute = pathname.startsWith('/mfa/');
   // Onboarding is reachable before MFA: a fresh owner becomes admin the moment
   // they create their venue (#40a), which would otherwise trip the mandatory-MFA
-  // gate mid-flow. MFA enrollment happens naturally on the first /dashboard hit
+  // gate mid-flow. MFA enrollment happens naturally on the first /app hit
   // once onboarding is complete (the Team step's invites stay AAL2-gated).
   const onOnboarding = pathname === '/onboarding';
   const publicRoute = isPublic(pathname);
@@ -36,10 +36,10 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     checkMfa: !publicRoute && !onMfaRoute && !onOnboarding,
   });
 
-  // A signed-in user has no business on the login screen.
+  // A signed-in user has no business on the login screen → the one app surface.
   if (user && pathname === '/login') {
     const url = request.nextUrl.clone();
-    url.pathname = '/dashboard';
+    url.pathname = '/app';
     url.search = '';
     return redirectWithCookies(url, response);
   }

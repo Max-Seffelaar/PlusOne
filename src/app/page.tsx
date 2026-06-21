@@ -12,13 +12,7 @@ export default function Home(): JSX.Element {
             href="/app"
             className="inline-flex w-64 items-center justify-center rounded-btn bg-acc px-5 py-3 font-display font-bold text-on-acc transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]"
           >
-            Open de app (mobiel)
-          </Link>
-          <Link
-            href="/dashboard"
-            className="inline-flex w-64 items-center justify-center rounded-btn border border-line bg-elev2 px-5 py-3 font-display font-bold text-text transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]"
-          >
-            Desktop dashboard
+            Open de app
           </Link>
           <Link
             href="/e/frenzy-x4k9"
