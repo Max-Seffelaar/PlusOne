@@ -588,6 +588,38 @@ export async function fetchPendingInvites(client: Client, venueId: string): Prom
   return data ?? [];
 }
 
+export type PoMyInviteRow = {
+  id: string;
+  venue_id: string;
+  venue_name: string | null;
+  roles: Tables['invites']['Row']['roles'];
+};
+
+/** Open invites addressed to the signed-in user (matched by e-mail) — the
+ *  "invited to another venue while already logged in" banner (#24). RLS scopes
+ *  invites to the invitee; the e-mail filter mirrors the server getMyPendingInvites.
+ *  Callable from the browser client. First-login acceptance still happens in
+ *  /auth/callback; this covers the mid-session case the desktop banner did. */
+export async function fetchMyPendingInvites(client: Client): Promise<PoMyInviteRow[]> {
+  const { data: auth } = await client.auth.getUser();
+  const email = auth.user?.email;
+  if (!email) return [];
+  const { data } = await client
+    .from('invites')
+    .select('id, venue_id, roles, expires_at, venues(name)')
+    .is('accepted_at', null)
+    .gt('expires_at', new Date().toISOString())
+    .ilike('email', email)
+    .order('created_at', { ascending: false });
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    venue_id: row.venue_id,
+    venue_name: row.venues?.name ?? null,
+    roles: row.roles,
+  }));
+}
+
 export type PoQuotaRow = Pick<Tables['quotas']['Row'], 'user_id' | 'default_count'>;
 
 /** Per-member default quotas at a venue (RLS quotas_select: own row, or all for
@@ -626,6 +658,24 @@ export async function fetchOwnSessions(client: Client): Promise<PoSessionRow[]> 
     ip: s.ip,
     aal: s.aal,
     is_current: s.is_current ?? false,
+  }));
+}
+
+/** A team member's active sessions for the admin remote-logout screen. The
+ *  SECURITY DEFINER RPC re-enforces admin-at-a-shared-venue + AAL2 (it is the
+ *  real boundary); on denial it errors and we surface nothing. Callable from the
+ *  browser client — never marks rows as "current" (it is someone else's session). */
+export async function fetchUserSessions(client: Client, targetUserId: string): Promise<PoSessionRow[]> {
+  const { data } = await client.rpc('admin_list_user_sessions', { p_target: targetUserId });
+  return (data ?? []).map((s) => ({
+    session_id: s.session_id,
+    created_at: s.created_at,
+    updated_at: s.updated_at,
+    not_after: s.not_after,
+    user_agent: s.user_agent,
+    ip: s.ip,
+    aal: s.aal,
+    is_current: false,
   }));
 }
 

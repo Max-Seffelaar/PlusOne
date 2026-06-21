@@ -21,8 +21,19 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
-import { usePoAal2, usePoAuditFeed, usePoHomeEvents, usePoHomeStats, usePoProfile } from '@/features/po/hooks';
-import { toPoHome, type HomeEvent, type HomeScenario, type PoHomeView } from '@/features/po/adapters';
+import {
+  usePoAal2,
+  usePoAuditFeed,
+  usePoHomeEvents,
+  usePoHomeStats,
+  usePoProfile,
+} from '@/features/po/hooks';
+import {
+  toPoHome,
+  type HomeEvent,
+  type HomeScenario,
+  type PoHomeView,
+} from '@/features/po/adapters';
 import { canWorkDoor } from '@/features/auth/roles';
 import { venueCapabilities } from '@/features/venues/access';
 import { formatWhen } from '@/features/audit/translate';
@@ -32,6 +43,7 @@ import { useNav } from '../context';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Btn, Empty, Label, Scroll } from '../kit';
 import { Sheet } from '../shell';
+import { PendingInvitesBanner } from '../pending-invites-banner';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 const col = 'flex h-full flex-col';
@@ -186,7 +198,15 @@ function EventCard({
       </div>
 
       {canSwitch ? (
-        <button type="button" onClick={onSwitch} aria-label="Wissel event" className={cn('-mx-1 flex max-w-full items-center gap-2 rounded-[10px] px-1 text-left', press)}>
+        <button
+          type="button"
+          onClick={onSwitch}
+          aria-label="Wissel event"
+          className={cn(
+            '-mx-1 flex max-w-full items-center gap-2 rounded-[10px] px-1 text-left',
+            press
+          )}
+        >
           <span className="min-w-0 truncate font-display text-[27px] font-extrabold leading-[1.04] tracking-[-0.025em] text-text">
             {v.name}
           </span>
@@ -214,7 +234,9 @@ function EventCard({
           </span>
           <div className="min-w-0 flex-1">
             <div className="font-body text-[14.5px] font-bold text-text">
-              {v.daysUntil <= 1 ? 'Volgende event morgen' : `Volgende event over ${v.daysUntil} dagen`}
+              {v.daysUntil <= 1
+                ? 'Volgende event morgen'
+                : `Volgende event over ${v.daysUntil} dagen`}
             </div>
             <div className="mt-px text-[12.5px] text-faint">
               {v.registered} aangemeld · lijst {v.locked ? 'vergrendeld' : 'nog open'}
@@ -233,7 +255,9 @@ function EventCard({
               >
                 {v.inside}
               </span>
-              <span className="font-display text-[19px] font-bold text-faint">/ {v.registered}</span>
+              <span className="font-display text-[19px] font-bold text-faint">
+                / {v.registered}
+              </span>
             </div>
             <span className="mb-1 font-body text-[12.5px] font-bold uppercase tracking-[0.03em] text-faint">
               binnen · aangemeld
@@ -246,7 +270,10 @@ function EventCard({
             )}
           </div>
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/[0.07]">
-            <div className="h-full rounded-full bg-acc" style={{ width: `${Math.max(v.attendancePct, 2)}%` }} />
+            <div
+              className="h-full rounded-full bg-acc"
+              style={{ width: `${Math.max(v.attendancePct, 2)}%` }}
+            />
           </div>
           <div className="mt-[7px] text-[12px] text-faint">
             {v.attendancePct}% opkomst{live ? '' : ' — deur nog niet open'}
@@ -302,8 +329,14 @@ function Kpi({
       <div className="mt-[14px] font-display text-[30px] font-extrabold leading-none tracking-[-0.03em] text-text">
         {value}
       </div>
-      <div className="mt-[5px] font-body text-[12px] font-bold uppercase tracking-[0.03em] text-faint">{label}</div>
-      {sub && <div className={cn('mt-[3px] text-[11.5px]', accent ? 'text-acc-soft' : 'text-faint')}>{sub}</div>}
+      <div className="mt-[5px] font-body text-[12px] font-bold uppercase tracking-[0.03em] text-faint">
+        {label}
+      </div>
+      {sub && (
+        <div className={cn('mt-[3px] text-[11.5px]', accent ? 'text-acc-soft' : 'text-faint')}>
+          {sub}
+        </div>
+      )}
     </>
   );
   return onClick ? (
@@ -354,7 +387,10 @@ function QuickAction({
 function ActivityMini({ eventId, onAudit }: { eventId: string; onAudit: () => void }): JSX.Element {
   // Scoped to the featured event + polled on the home's 10s cadence (matches the
   // KPIs). The full audit screen opens pre-filtered to the same event via onAudit.
-  const feed = usePoAuditFeed({ action: 'all', eventId, limit: 5 }, { enabled: true, refetchInterval: 10_000 });
+  const feed = usePoAuditFeed(
+    { action: 'all', eventId, limit: 5 },
+    { enabled: true, refetchInterval: 10_000 }
+  );
   const shown = (feed.data ?? []).slice(0, 4);
   return (
     <div>
@@ -363,7 +399,10 @@ function ActivityMini({ eventId, onAudit }: { eventId: string; onAudit: () => vo
         <button
           type="button"
           onClick={onAudit}
-          className={cn('ml-auto inline-flex min-h-[44px] items-center gap-[5px] px-1 font-body text-[13px] font-bold text-acc', press)}
+          className={cn(
+            'ml-auto inline-flex min-h-[44px] items-center gap-[5px] px-1 font-body text-[13px] font-bold text-acc',
+            press
+          )}
         >
           Audit log
           <Icon name="chev" size={15} className="text-acc" />
@@ -381,12 +420,17 @@ function ActivityMini({ eventId, onAudit }: { eventId: string; onAudit: () => vo
             return (
               <div
                 key={l.id}
-                className={cn('flex items-center gap-3 py-3', i < shown.length - 1 && 'border-b border-line2')}
+                className={cn(
+                  'flex items-center gap-3 py-3',
+                  i < shown.length - 1 && 'border-b border-line2'
+                )}
               >
                 <span
                   className={cn(
                     'flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] border',
-                    door ? 'border-transparent bg-acc-dim text-acc' : 'border-line bg-elev2 text-faint'
+                    door
+                      ? 'border-transparent bg-acc-dim text-acc'
+                      : 'border-line bg-elev2 text-faint'
                   )}
                 >
                   <Icon name={meta.icon} size={15} sw={2.1} />
@@ -394,7 +438,9 @@ function ActivityMini({ eventId, onAudit }: { eventId: string; onAudit: () => vo
                 <span className="min-w-0 flex-1 text-[13.5px] leading-[1.35] text-dim">
                   <b className="font-bold text-text">{l.actor}</b> {l.text}
                 </span>
-                <span className="shrink-0 font-display text-[12px] font-semibold text-faint">{formatWhen(l.iso)}</span>
+                <span className="shrink-0 font-display text-[12px] font-semibold text-faint">
+                  {formatWhen(l.iso)}
+                </span>
               </div>
             );
           })
@@ -437,8 +483,12 @@ function EventPickerSheet({
               )}
             >
               <span className={cn('h-2 w-2 shrink-0 rounded-full', live ? 'bg-acc' : 'bg-ghost')} />
-              <span className="min-w-0 flex-1 truncate font-display text-[14.5px] font-bold text-text">{e.name}</span>
-              <span className="shrink-0 text-[12.5px] text-faint">{live ? 'Live' : formatDay(e.starts_at)}</span>
+              <span className="min-w-0 flex-1 truncate font-display text-[14.5px] font-bold text-text">
+                {e.name}
+              </span>
+              <span className="shrink-0 text-[12.5px] text-faint">
+                {live ? 'Live' : formatDay(e.starts_at)}
+              </span>
             </button>
           );
         })}
@@ -448,8 +498,17 @@ function EventPickerSheet({
 }
 
 // ── Personal-quota sheet (event_quota_status for the caller) ──────────────────
-function QuotaSheet({ v, onClose, onAdd }: { v: PoHomeView; onClose: () => void; onAdd: () => void }): JSX.Element {
-  const pct = v.quotaTotal > 0 ? Math.min(100, Math.round((v.quotaConsumed / v.quotaTotal) * 100)) : 0;
+function QuotaSheet({
+  v,
+  onClose,
+  onAdd,
+}: {
+  v: PoHomeView;
+  onClose: () => void;
+  onAdd: () => void;
+}): JSX.Element {
+  const pct =
+    v.quotaTotal > 0 ? Math.min(100, Math.round((v.quotaConsumed / v.quotaTotal) * 100)) : 0;
   return (
     <Sheet onClose={onClose} center={false}>
       <Label className="mb-3">Jouw quota op dit event</Label>
@@ -479,7 +538,8 @@ function QuotaSheet({ v, onClose, onAdd }: { v: PoHomeView; onClose: () => void;
             </div>
           </div>
           <div className="mt-3 text-[12.5px] leading-[1.5] text-faint">
-            Dit is jouw persoonlijke quotum voor dit event (#22/#31). De database bewaakt de harde grens.
+            Dit is jouw persoonlijke quotum voor dit event (#22/#31). De database bewaakt de harde
+            grens.
           </div>
         </>
       )}
@@ -502,10 +562,12 @@ function NoEvent({ isAdmin, onNew }: { isAdmin: boolean; onNew: () => void }): J
       <span className="mx-auto mb-3 flex h-[52px] w-[52px] items-center justify-center rounded-[16px] border border-line bg-elev2 text-acc">
         <Icon name="cal" size={24} />
       </span>
-      <div className="font-display text-[18px] font-extrabold text-text">Nog geen event gepland</div>
+      <div className="font-display text-[18px] font-extrabold text-text">
+        Nog geen event gepland
+      </div>
       <div className="mx-auto mt-1.5 max-w-[260px] text-[13px] leading-[1.5] text-faint">
-        Zodra er een event live of komend is, zie je hier de opkomst, openstaande aanvragen en je resterende
-        plekken.
+        Zodra er een event live of komend is, zie je hier de opkomst, openstaande aanvragen en je
+        resterende plekken.
       </div>
       {isAdmin && (
         <Btn kind="primary" full icon="cal" className="mt-4" onClick={onNew}>
@@ -550,8 +612,8 @@ export function Home(): JSX.Element {
   // the background (React Query keeps the previous data, so numbers update in place).
   const onRefresh = (): void => {
     setManualRefreshing(true);
-    void Promise.all([events.refetch(), effectiveId ? stats.refetch() : Promise.resolve()]).finally(() =>
-      setManualRefreshing(false)
+    void Promise.all([events.refetch(), effectiveId ? stats.refetch() : Promise.resolve()]).finally(
+      () => setManualRefreshing(false)
     );
   };
 
@@ -566,60 +628,98 @@ export function Home(): JSX.Element {
         refreshing={manualRefreshing}
       />
       <Scroll pad={18} bottom={28} className="flex flex-col gap-[18px]">
+        <PendingInvitesBanner />
         {events.isLoading ? (
           <Empty text="Overzicht laden…" />
         ) : events.isError ? (
           <Empty text="Kon het overzicht niet laden. Probeer het later opnieuw." />
         ) : !view ? (
-          <NoEvent isAdmin={roles.includes('admin')} onNew={() => nav.push('eventedit', { isNew: true })} />
+          <NoEvent
+            isAdmin={roles.includes('admin')}
+            onNew={() => nav.push('eventedit', { isNew: true })}
+          />
         ) : (
-          <>
-            <EventCard
-              v={view}
-              showDoor={showDoor}
-              canSwitch={list.length > 1}
-              onSwitch={() => setPickerOpen(true)}
-              onDoor={() => nav.setTab('deur')}
-            />
+          <div
+            className={cn(
+              'flex flex-col gap-[18px]',
+              // Tablet / small desktop: keep the comfortable reading column, centered.
+              'lg:mx-auto lg:w-full lg:max-w-[640px]',
+              // Wide desktop: 2-column dashboard (main + activity sidebar) when there's a feed.
+              canAudit &&
+                aal.isAal2 &&
+                'xl:mx-0 xl:max-w-none xl:grid xl:grid-cols-[minmax(0,640px)_minmax(0,1fr)] xl:items-start xl:gap-6'
+            )}
+          >
+            <div className="flex min-w-0 flex-col gap-[18px]">
+              <EventCard
+                v={view}
+                showDoor={showDoor}
+                canSwitch={list.length > 1}
+                onSwitch={() => setPickerOpen(true)}
+                onDoor={() => nav.setTab('deur')}
+              />
 
-            <div className="flex gap-[11px]">
-              <Kpi
-                icon="user"
-                label="Aanwezig"
-                value={view.inside}
-                sub={view.scenario === 'live' ? `${view.walking} onderweg` : 'deur dicht'}
-                accent={view.scenario === 'live'}
-              />
-              <Kpi
-                icon="inbox"
-                label="Aanvragen"
-                value={view.requests}
-                sub="open"
-                badge={view.requests}
-                onClick={() => nav.push('aanvragen', { id: view.id })}
-              />
-              <Kpi
-                icon="ticket"
-                label="Quota vrij"
-                value={!view.quotaKnown ? '—' : view.quotaExempt ? '∞' : view.quotaFree ?? 0}
-                sub={!view.quotaKnown ? 'onbekend' : view.quotaExempt ? 'geen limiet' : `van ${view.quotaTotal}`}
-                onClick={view.quotaKnown ? () => setQuotaOpen(true) : undefined}
-              />
-            </div>
-
-            <div>
-              <Label className="mb-3 pl-0.5">Snelle acties</Label>
               <div className="flex gap-[11px]">
-                <QuickAction icon="plus" label="Nieuwe gast" primary onClick={() => nav.push('quickadd', { id: view.id })} />
-                {showDoor && <QuickAction icon="door" label="Open deur" onClick={() => nav.setTab('deur')} />}
-                <QuickAction icon="inbox" label="Aanvragen" badge={view.requests} onClick={() => nav.push('aanvragen', { id: view.id })} />
+                <Kpi
+                  icon="user"
+                  label="Aanwezig"
+                  value={view.inside}
+                  sub={view.scenario === 'live' ? `${view.walking} onderweg` : 'deur dicht'}
+                  accent={view.scenario === 'live'}
+                />
+                <Kpi
+                  icon="inbox"
+                  label="Aanvragen"
+                  value={view.requests}
+                  sub="open"
+                  badge={view.requests}
+                  onClick={() => nav.push('aanvragen', { id: view.id })}
+                />
+                <Kpi
+                  icon="ticket"
+                  label="Quota vrij"
+                  value={!view.quotaKnown ? '—' : view.quotaExempt ? '∞' : (view.quotaFree ?? 0)}
+                  sub={
+                    !view.quotaKnown
+                      ? 'onbekend'
+                      : view.quotaExempt
+                        ? 'geen limiet'
+                        : `van ${view.quotaTotal}`
+                  }
+                  onClick={view.quotaKnown ? () => setQuotaOpen(true) : undefined}
+                />
+              </div>
+
+              <div>
+                <Label className="mb-3 pl-0.5">Snelle acties</Label>
+                <div className="flex gap-[11px]">
+                  <QuickAction
+                    icon="plus"
+                    label="Nieuwe gast"
+                    primary
+                    onClick={() => nav.push('quickadd', { id: view.id })}
+                  />
+                  {showDoor && (
+                    <QuickAction icon="door" label="Open deur" onClick={() => nav.setTab('deur')} />
+                  )}
+                  <QuickAction
+                    icon="inbox"
+                    label="Aanvragen"
+                    badge={view.requests}
+                    onClick={() => nav.push('aanvragen', { id: view.id })}
+                  />
+                </div>
               </div>
             </div>
-
             {canAudit && aal.isAal2 && (
-              <ActivityMini eventId={view.id} onAudit={() => nav.push('audit', { id: view.id })} />
+              <div className="min-w-0">
+                <ActivityMini
+                  eventId={view.id}
+                  onAudit={() => nav.push('audit', { id: view.id })}
+                />
+              </div>
             )}
-          </>
+          </div>
         )}
       </Scroll>
 
@@ -634,7 +734,12 @@ export function Home(): JSX.Element {
         />
       )}
       {pickerOpen && view && (
-        <EventPickerSheet events={list} selectedId={view.id} onPick={setSelectedId} onClose={() => setPickerOpen(false)} />
+        <EventPickerSheet
+          events={list}
+          selectedId={view.id}
+          onPick={setSelectedId}
+          onClose={() => setPickerOpen(false)}
+        />
       )}
     </div>
   );

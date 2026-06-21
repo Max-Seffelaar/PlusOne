@@ -2,8 +2,8 @@
 
 /** Onboarding step 3 — invite the team (optional, #40). Inviting requires AAL2,
  *  which a brand-new owner has not set up yet, so invites are best-effort and the
- *  step is prominently skippable; MFA can be enrolled afterwards from /dashboard.
- *  Finishing (send or skip) marks onboarding complete and moves to the dashboard. */
+ *  step is prominently skippable; MFA can be enrolled afterwards from the app.
+ *  Finishing (send or skip) marks onboarding complete and moves to the app. */
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -46,7 +46,7 @@ export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
 
   async function finish(): Promise<void> {
     await completeOnboardingAction({ venueId });
-    router.push('/dashboard');
+    router.push('/app');
   }
 
   function skip(): void {

@@ -323,6 +323,6 @@ export async function createVenueAction(input: CreateVenueInput): Promise<Create
 
   // A new membership changes the nav + onboarding gate everywhere.
   revalidatePath('/', 'layout');
-  revalidatePath('/dashboard');
+  revalidatePath('/app');
   return { ok: true, venueId: data };
 }

@@ -33,6 +33,7 @@ export function ResponsiveShell({
   onOpenVenue,
   userName,
   userSub,
+  mainMaxClass = 'max-w-[640px]',
   children,
 }: {
   serverHint: boolean;
@@ -48,6 +49,9 @@ export function ResponsiveShell({
   onOpenVenue: () => void;
   userName: string;
   userSub: string;
+  /** Desktop content-column width (Tailwind max-w-* class). Wide dashboard
+   *  screens (home) opt into more than the default reading column. */
+  mainMaxClass?: string;
   children: ReactNode;
 }): JSX.Element {
   const isMobile = useViewport(serverHint);
@@ -122,7 +126,9 @@ export function ResponsiveShell({
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <div className="relative mx-auto flex h-full w-full max-w-[640px] flex-col overflow-hidden">{children}</div>
+        <div className={cn('relative mx-auto flex h-full w-full flex-col overflow-hidden', mainMaxClass)}>
+          {children}
+        </div>
       </main>
     </div>
   );

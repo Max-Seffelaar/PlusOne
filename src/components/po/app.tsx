@@ -27,7 +27,20 @@ import { Allowance, Billing, Gebruikers, Import, Meer, Profile, Rollen, VenueSet
 import { VenueCreate } from './screens/onboarding';
 import { Stats } from './screens/stats';
 import { AuditLog } from './screens/audit';
+import { AdminSessions } from './screens/admin-sessions';
 import { Home } from './screens/home';
+
+/** Desktop content-column width per active screen. Most screens keep the
+ *  comfortable reading column (640); data-dense dashboards/tables/charts opt
+ *  into the full width. (Mobile is full-bleed regardless of this.) */
+const WIDE_DESKTOP: Record<string, string> = {
+  start: 'max-w-[1080px]',
+  events: 'max-w-[1080px]',
+  lijst: 'max-w-[1080px]',
+  stats: 'max-w-[1080px]',
+  audit: 'max-w-[1080px]',
+  gebruikers: 'max-w-[1080px]',
+};
 
 /** Shown while a pushed event/guest screen waits for its live row to load. */
 function Loading({ onBack }: { onBack: () => void }): JSX.Element {
@@ -244,6 +257,9 @@ export function PlusOneApp({
       case 'audit':
         screen = <AuditLog eventId={p.id} />;
         break;
+      case 'adminsessions':
+        screen = <AdminSessions />;
+        break;
       default:
         screen = null;
     }
@@ -322,6 +338,11 @@ export function PlusOneApp({
     doorBranch = <DoorTabState title={doorTitle} text="Geen actief event om in te checken. Maak of open eerst een event." />;
   }
 
+  // Wide desktop screens (home dashboard, guest table, stats charts, audit table)
+  // opt into the full content width; every other screen keeps the reading column.
+  const activeScreen = top?.name ?? (tabRoot ? tab : '');
+  const desktopMainMax = WIDE_DESKTOP[activeScreen] ?? 'max-w-[640px]';
+
   return (
     <PoProvider value={po}>
       <ResponsiveShell
@@ -335,6 +356,7 @@ export function PlusOneApp({
         onOpenVenue={() => nav.push('venueswitch')}
         userName={liveUserName ?? 'Account'}
         userSub={liveUserSub ?? ''}
+        mainMaxClass={desktopMainMax}
       >
         {isDoorTab ? doorBranch : body}
       </ResponsiveShell>

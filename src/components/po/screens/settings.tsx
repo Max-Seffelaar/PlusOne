@@ -177,6 +177,9 @@ export function Meer(): JSX.Element {
         <Row icon="building" title="Venues" sub={`${venues.length} locaties · wisselen`} onClick={() => nav.push('venueswitch')} />
         <Row icon="cog" title="Venue beheren" sub="Naam, AVG-bewaartermijn, standaarden" onClick={() => nav.push('venuesettings')} />
         <Row icon="users" title="Gebruikers" sub="Uitnodigen, rollen en MFA" onClick={() => nav.push('gebruikers')} accent />
+        {roles.includes('admin') && (
+          <Row icon="lock" title="Sessies & beveiliging" sub="Apparaten van teamleden op afstand uitloggen · MFA" onClick={() => nav.push('adminsessions')} />
+        )}
         <Row icon="ticket" title="Toelage per event" sub="Gasten-per-event per teamlid" onClick={() => nav.push('allowance')} />
         <Row icon="star" title="Permanente gasten" sub="Staan automatisch op elke gastenlijst" onClick={() => nav.push('vaste')} accent />
         <Row icon="contact" title="Adresboek" sub="Opgeslagen contacten herbruiken" onClick={() => nav.push('contacten')} accent />
@@ -289,15 +292,19 @@ export function Gebruikers(): JSX.Element {
         right={caps.manageTeam ? <IconBtn name="plus" onClick={() => setInvite(true)} /> : undefined}
       />
       <Scroll bottom={24}>
-        {caps.manageTeam && (
-          <Btn kind="dark" full icon="plus" className="mb-3" onClick={() => setInvite(true)}>
-            Gebruiker uitnodigen
-          </Btn>
-        )}
-        {caps.viewQuota && (
-          <Btn kind="ghost" full icon="ticket" className="mb-[18px]" onClick={() => nav.push('rollen')}>
-            Standaardquota per teamlid
-          </Btn>
+        {(caps.manageTeam || caps.viewQuota) && (
+          <div className="lg:mb-[18px] lg:flex lg:gap-3">
+            {caps.manageTeam && (
+              <Btn kind="dark" full icon="plus" className="mb-3 lg:mb-0 lg:w-auto" onClick={() => setInvite(true)}>
+                Gebruiker uitnodigen
+              </Btn>
+            )}
+            {caps.viewQuota && (
+              <Btn kind="ghost" full icon="ticket" className="mb-[18px] lg:mb-0 lg:w-auto" onClick={() => nav.push('rollen')}>
+                Standaardquota per teamlid
+              </Btn>
+            )}
+          </div>
         )}
         <Label className="mb-[10px]">Team</Label>
         {team.isLoading ? (
@@ -307,7 +314,7 @@ export function Gebruikers(): JSX.Element {
         ) : teamCount === 0 ? (
           <Empty text="Nog geen teamleden." />
         ) : (
-          <div className="mb-5 flex flex-col gap-[9px]">
+          <div className="mb-5 flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px]">
             {(team.data ?? []).map((t) => {
               const rowInner = (
                 <>
@@ -356,7 +363,7 @@ export function Gebruikers(): JSX.Element {
         ) : inviteCount === 0 ? (
           <Empty text="Geen openstaande uitnodigingen." />
         ) : (
-          <div className="flex flex-col gap-[9px]">
+          <div className="flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px]">
             {(invitesQ.data ?? []).map((iv) => (
               <div key={iv.id} className="flex items-center gap-[12px] rounded-[16px] border border-dashed border-line bg-elev p-[13px]">
                 <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[13px] border border-line bg-elev2 text-faint">

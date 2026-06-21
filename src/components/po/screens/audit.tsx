@@ -142,15 +142,83 @@ export function AuditLog({ eventId }: { eventId?: string }): JSX.Element {
         ) : lines.length === 0 ? (
           <Empty text={filtersActive ? 'Geen resultaten voor deze filters.' : 'Nog niets gelogd.'} />
         ) : (
-          <ul className="flex flex-col gap-1.5">
-            {lines.map((l) => (
-              <AuditRow
-                key={l.id}
-                line={l}
-                onHistory={l.guestId ? () => setGuestId(l.guestId) : undefined}
-              />
-            ))}
-          </ul>
+          <>
+            {/* Mobile: stacked cards (one translated sentence per card). */}
+            <ul className="flex flex-col gap-1.5 lg:hidden">
+              {lines.map((l) => (
+                <AuditRow
+                  key={l.id}
+                  line={l}
+                  onHistory={l.guestId ? () => setGuestId(l.guestId) : undefined}
+                />
+              ))}
+            </ul>
+            {/* Desktop: dense table — actor · gebeurtenis · event · apparaat · tijd. */}
+            <div className="hidden overflow-hidden rounded-[16px] border border-line bg-elev lg:block">
+              <table className="w-full border-collapse text-left">
+                <thead>
+                  <tr className="bg-elev2 [&>th]:px-3 [&>th]:py-[11px] [&>th]:font-body [&>th]:text-[11px] [&>th]:font-bold [&>th]:uppercase [&>th]:tracking-[0.04em] [&>th]:text-faint">
+                    <th className="!pl-4">Wie</th>
+                    <th>Gebeurtenis</th>
+                    <th>Event</th>
+                    <th>Apparaat</th>
+                    <th className="!pr-4 text-right">Wanneer</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lines.map((l) => {
+                    const meta = auditActionMeta(l.action);
+                    const door = isDoorDevice(l.device);
+                    const onHistory = l.guestId ? () => setGuestId(l.guestId) : undefined;
+                    return (
+                      <tr
+                        key={l.id}
+                        onClick={onHistory}
+                        title={onHistory ? `Geschiedenis van ${l.entity}` : undefined}
+                        className={cn(
+                          'border-t border-line2 [&>td]:px-3 [&>td]:py-[11px] [&>td]:align-middle',
+                          onHistory && 'cursor-pointer transition-colors hover:bg-elev2'
+                        )}
+                      >
+                        <td className="!pl-4">
+                          <div className="flex items-center gap-[10px]">
+                            <Avatar name={l.actor} size={30} />
+                            <span className="font-display text-[13.5px] font-bold text-text">{l.actor}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div className="flex items-center gap-[10px]">
+                            <span
+                              className={cn(
+                                'flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-[9px] border',
+                                door ? 'border-transparent bg-acc-dim text-acc' : 'border-line bg-elev2 text-dim'
+                              )}
+                            >
+                              <Icon name={meta.icon} size={15} />
+                            </span>
+                            <span className="text-[13.5px] leading-[1.4] text-dim">{l.text}</span>
+                            {onHistory && <Icon name="history" size={14} className="shrink-0 text-ghost" />}
+                          </div>
+                        </td>
+                        <td>
+                          <span className="block max-w-[180px] truncate text-[13px] text-dim">{l.event || '—'}</span>
+                        </td>
+                        <td>
+                          <span className={cn('inline-flex items-center gap-1.5 whitespace-nowrap text-[12.5px]', door ? 'text-acc' : 'text-faint')}>
+                            <span className={cn('h-[6px] w-[6px] rounded-full', door ? 'bg-acc' : 'bg-ghost')} />
+                            {l.device}
+                          </span>
+                        </td>
+                        <td className="!pr-4 text-right">
+                          <span className="whitespace-nowrap font-display text-[12.5px] text-faint">{formatWhen(l.iso)}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </Scroll>
 

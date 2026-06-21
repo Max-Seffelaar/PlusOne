@@ -3,7 +3,10 @@
 // is unit-tested directly (CLAUDE.md: resource input from the client is
 // untrusted).
 
-const DEFAULT_NEXT = '/dashboard';
+// The single responsive app surface (po `/app`) is the post-login default for
+// every device. The old desktop-only `(app)` routes (e.g. /dashboard) still pass
+// through as explicit ?next= targets until they are retired.
+const DEFAULT_NEXT = '/app';
 
 export function safeNextPath(raw: string | null | undefined, fallback = DEFAULT_NEXT): string {
   if (!raw) return fallback;

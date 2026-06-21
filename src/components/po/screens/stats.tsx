@@ -130,25 +130,28 @@ export function Stats(): JSX.Element {
           </div>
         )}
 
-        {/* Org-level KPIs — meaningful without selecting an event. */}
-        <div className="mb-[14px] rounded-[18px] bg-acc-dim p-[18px]">
-          <Label className="mb-[10px] text-acc-soft">Alle events · gem. opkomst</Label>
-          <div className="flex items-end gap-[10px]">
-            <div className="font-display text-[54px] font-extrabold leading-[0.9] text-text">{vk.attendancePct}</div>
-            <div className="pb-1.5">
-              <div className="text-[14px] font-semibold text-text">opkomst</div>
-              <div className="text-[12.5px] text-dim">over {vk.events} events</div>
+        {/* Org-level KPIs — meaningful without selecting an event. Stacked on
+            mobile (hero + a 2-up row); a single 3-across band on desktop. */}
+        <div className="mb-5 flex flex-col gap-[10px] lg:grid lg:grid-cols-[1.3fr_1fr_1fr] lg:items-stretch lg:gap-3">
+          <div className="rounded-[18px] bg-acc-dim p-[18px]">
+            <Label className="mb-[10px] text-acc-soft">Alle events · gem. opkomst</Label>
+            <div className="flex items-end gap-[10px]">
+              <div className="font-display text-[54px] font-extrabold leading-[0.9] text-text">{vk.attendancePct}</div>
+              <div className="pb-1.5">
+                <div className="text-[14px] font-semibold text-text">opkomst</div>
+                <div className="text-[12.5px] text-dim">over {vk.events} events</div>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="mb-5 grid grid-cols-2 gap-[10px]">
-          <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
-            <div className="font-display text-[30px] font-extrabold leading-none text-acc">{vk.presentHeadcount}</div>
-            <div className="mt-1 text-[12.5px] text-dim">Gasten binnen</div>
-          </div>
-          <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
-            <div className="font-display text-[30px] font-extrabold leading-none text-text">{vk.refused}</div>
-            <div className="mt-1 text-[12.5px] text-faint">Weigeringen</div>
+          <div className="grid grid-cols-2 gap-[10px] lg:contents">
+            <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px] lg:flex lg:flex-col lg:justify-center">
+              <div className="font-display text-[30px] font-extrabold leading-none text-acc">{vk.presentHeadcount}</div>
+              <div className="mt-1 text-[12.5px] text-dim">Gasten binnen</div>
+            </div>
+            <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px] lg:flex lg:flex-col lg:justify-center">
+              <div className="font-display text-[30px] font-extrabold leading-none text-text">{vk.refused}</div>
+              <div className="mt-1 text-[12.5px] text-faint">Weigeringen</div>
+            </div>
           </div>
         </div>
 
@@ -175,88 +178,95 @@ export function Stats(): JSX.Element {
         {!selectedEvent ? null : !eventStats ? (
           <Empty text="Laden…" />
         ) : (
-          <>
-            <div className="mb-4 grid grid-cols-2 gap-[10px]">
-              <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
-                <div className="font-display text-[24px] font-extrabold text-text">{ek.peak ?? '—'}</div>
-                <div className="mt-[3px] text-[12px] text-faint">
-                  {ek.peakCount > 0 ? `Piek · ${ek.peakCount} in 15 min` : 'Piek instroom'}
-                </div>
-              </div>
-              <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
-                <div className="font-display text-[24px] font-extrabold text-text">{ek.noShows}</div>
-                <div className="mt-[3px] text-[12px] text-faint">No-show · {ek.noShowPct}%</div>
-              </div>
-            </div>
-
-            <Label className="mb-[10px]">Instroom per kwartier</Label>
-            <div className="mb-4 rounded-[18px] border border-line bg-elev p-4">
-              {perKwartier.length === 0 ? (
-                <div className="py-[18px] text-center text-[13px] text-faint">Nog geen check-ins.</div>
-              ) : (
-                <div className="flex h-[120px] items-end gap-[5px]">
-                  {perKwartier.map((b) => (
-                    <div key={b.t} className="flex flex-1 flex-col items-center gap-1.5">
-                      <div className="font-display text-[10px] font-bold text-dim">{b.n}</div>
-                      <div
-                        className={cn(
-                          'w-full rounded-[5px] border',
-                          b.n === maxK ? 'border-transparent bg-acc' : 'border-line bg-elev2'
-                        )}
-                        style={{ height: (b.n / maxK) * 80 }}
-                      />
-                      <div className="font-display text-[9px] text-faint">{b.t}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <Label className="mb-[10px]">Aanwezig vs. aangemeld per tier</Label>
-            <div className="mb-4 rounded-[18px] border border-line bg-elev p-4">
-              {perTier.length === 0 ? (
-                <div className="py-[14px] text-center text-[13px] text-faint">Geen tierdata.</div>
-              ) : (
-                perTier.map((t, i) => (
-                  <div key={t.tier} className={i < perTier.length - 1 ? 'mb-[13px]' : ''}>
-                    <div className="mb-1.5 flex justify-between">
-                      <span className="text-[13px] font-semibold text-text">{t.tier}</span>
-                      <span className="font-display text-[12px] text-faint">
-                        <b className="text-acc">{t.binnen}</b>/{t.aangemeld}
-                      </span>
-                    </div>
-                    <div className="relative h-[8px] overflow-hidden rounded-[5px] bg-elev2">
-                      <div className="absolute inset-0 bg-white/[0.08]" style={{ width: (t.aangemeld / maxT) * 100 + '%' }} />
-                      <div className="absolute inset-0 rounded-[5px] bg-acc" style={{ width: (t.binnen / maxT) * 100 + '%' }} />
-                    </div>
+          // Desktop: two balanced columns (KPIs + instroom · tier + per-user).
+          // Mobile: the two column wrappers are plain blocks, so the original
+          // single-column order (KPIs → instroom → tier → per-user) is preserved.
+          <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-4">
+            <div>
+              <div className="mb-4 grid grid-cols-2 gap-[10px]">
+                <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
+                  <div className="font-display text-[24px] font-extrabold text-text">{ek.peak ?? '—'}</div>
+                  <div className="mt-[3px] text-[12px] text-faint">
+                    {ek.peakCount > 0 ? `Piek · ${ek.peakCount} in 15 min` : 'Piek instroom'}
                   </div>
-                ))
-              )}
+                </div>
+                <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
+                  <div className="font-display text-[24px] font-extrabold text-text">{ek.noShows}</div>
+                  <div className="mt-[3px] text-[12px] text-faint">No-show · {ek.noShowPct}%</div>
+                </div>
+              </div>
+
+              <Label className="mb-[10px]">Instroom per kwartier</Label>
+              <div className="mb-4 rounded-[18px] border border-line bg-elev p-4">
+                {perKwartier.length === 0 ? (
+                  <div className="py-[18px] text-center text-[13px] text-faint">Nog geen check-ins.</div>
+                ) : (
+                  <div className="flex h-[120px] items-end gap-[5px]">
+                    {perKwartier.map((b) => (
+                      <div key={b.t} className="flex flex-1 flex-col items-center gap-1.5">
+                        <div className="font-display text-[10px] font-bold text-dim">{b.n}</div>
+                        <div
+                          className={cn(
+                            'w-full rounded-[5px] border',
+                            b.n === maxK ? 'border-transparent bg-acc' : 'border-line bg-elev2'
+                          )}
+                          style={{ height: (b.n / maxK) * 80 }}
+                        />
+                        <div className="font-display text-[9px] text-faint">{b.t}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
-            <Label className="mb-[10px]">Toevoegingen per gebruiker</Label>
-            <div className="mb-[14px] rounded-[18px] border border-line bg-elev px-[14px] py-0.5">
-              {perUser.length === 0 ? (
-                <div className="py-[14px] text-center text-[13px] text-faint">Nog niemand heeft gasten toegevoegd.</div>
-              ) : (
-                perUser.map((u, i) => (
-                  <div
-                    key={`${u.who}-${i}`}
-                    className={cn('flex items-center gap-[12px] py-[11px]', i < perUser.length - 1 && 'border-b border-line2')}
-                  >
-                    <Avatar name={u.who} size={36} />
-                    <div className="min-w-0 flex-1">
-                      <div className="font-display text-[14.5px] font-bold text-text">{u.who}</div>
-                      <div className="mt-0.5 text-[12px] text-faint">
-                        {u.in} binnen van {u.added}
+            <div>
+              <Label className="mb-[10px]">Aanwezig vs. aangemeld per tier</Label>
+              <div className="mb-4 rounded-[18px] border border-line bg-elev p-4">
+                {perTier.length === 0 ? (
+                  <div className="py-[14px] text-center text-[13px] text-faint">Geen tierdata.</div>
+                ) : (
+                  perTier.map((t, i) => (
+                    <div key={t.tier} className={i < perTier.length - 1 ? 'mb-[13px]' : ''}>
+                      <div className="mb-1.5 flex justify-between">
+                        <span className="text-[13px] font-semibold text-text">{t.tier}</span>
+                        <span className="font-display text-[12px] text-faint">
+                          <b className="text-acc">{t.binnen}</b>/{t.aangemeld}
+                        </span>
+                      </div>
+                      <div className="relative h-[8px] overflow-hidden rounded-[5px] bg-elev2">
+                        <div className="absolute inset-0 bg-white/[0.08]" style={{ width: (t.aangemeld / maxT) * 100 + '%' }} />
+                        <div className="absolute inset-0 rounded-[5px] bg-acc" style={{ width: (t.binnen / maxT) * 100 + '%' }} />
                       </div>
                     </div>
-                    <div className="font-display text-[18px] font-extrabold text-text">{u.added}</div>
-                  </div>
-                ))
-              )}
+                  ))
+                )}
+              </div>
+
+              <Label className="mb-[10px]">Toevoegingen per gebruiker</Label>
+              <div className="mb-[14px] rounded-[18px] border border-line bg-elev px-[14px] py-0.5">
+                {perUser.length === 0 ? (
+                  <div className="py-[14px] text-center text-[13px] text-faint">Nog niemand heeft gasten toegevoegd.</div>
+                ) : (
+                  perUser.map((u, i) => (
+                    <div
+                      key={`${u.who}-${i}`}
+                      className={cn('flex items-center gap-[12px] py-[11px]', i < perUser.length - 1 && 'border-b border-line2')}
+                    >
+                      <Avatar name={u.who} size={36} />
+                      <div className="min-w-0 flex-1">
+                        <div className="font-display text-[14.5px] font-bold text-text">{u.who}</div>
+                        <div className="mt-0.5 text-[12px] text-faint">
+                          {u.in} binnen van {u.added}
+                        </div>
+                      </div>
+                      <div className="font-display text-[18px] font-extrabold text-text">{u.added}</div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
-          </>
+          </div>
         )}
 
         <div className="px-1 text-[11.5px] leading-[1.5] text-faint">

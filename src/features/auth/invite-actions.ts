@@ -161,7 +161,7 @@ export async function acceptInvitesAction(): Promise<ActionState> {
     return { ok: false, error: 'Kon de uitnodiging niet accepteren.' };
   }
 
-  revalidatePath('/dashboard');
+  revalidatePath('/app');
   revalidatePath('/', 'layout');
   return { ok: true, message: 'Uitnodiging geaccepteerd.' };
 }

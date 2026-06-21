@@ -33,7 +33,8 @@ export type ScreenName =
   | 'allowance'
   | 'eventbeheer'
   | 'stats'
-  | 'audit';
+  | 'audit'
+  | 'adminsessions';
 
 export interface ScreenProps {
   id?: string;

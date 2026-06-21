@@ -3,27 +3,27 @@ import { safeNextPath } from './next-path';
 
 describe('safeNextPath (open-redirect guard)', () => {
   it('passes through safe in-app paths', () => {
-    expect(safeNextPath('/dashboard')).toBe('/dashboard');
+    expect(safeNextPath('/app')).toBe('/app');
     expect(safeNextPath('/admin/team?venue=1')).toBe('/admin/team?venue=1');
   });
 
   it('falls back when empty', () => {
-    expect(safeNextPath(null)).toBe('/dashboard');
-    expect(safeNextPath(undefined)).toBe('/dashboard');
-    expect(safeNextPath('')).toBe('/dashboard');
+    expect(safeNextPath(null)).toBe('/app');
+    expect(safeNextPath(undefined)).toBe('/app');
+    expect(safeNextPath('')).toBe('/app');
   });
 
   it('blocks off-site and protocol-relative targets', () => {
-    expect(safeNextPath('//evil.com')).toBe('/dashboard');
-    expect(safeNextPath('https://evil.com')).toBe('/dashboard');
-    expect(safeNextPath('http://evil.com')).toBe('/dashboard');
-    expect(safeNextPath('relative/path')).toBe('/dashboard');
-    expect(safeNextPath('/a\\b')).toBe('/dashboard');
+    expect(safeNextPath('//evil.com')).toBe('/app');
+    expect(safeNextPath('https://evil.com')).toBe('/app');
+    expect(safeNextPath('http://evil.com')).toBe('/app');
+    expect(safeNextPath('relative/path')).toBe('/app');
+    expect(safeNextPath('/a\\b')).toBe('/app');
   });
 
   it('never bounces back to login or auth routes', () => {
-    expect(safeNextPath('/login')).toBe('/dashboard');
-    expect(safeNextPath('/auth/callback')).toBe('/dashboard');
+    expect(safeNextPath('/login')).toBe('/app');
+    expect(safeNextPath('/auth/callback')).toBe('/app');
   });
 
   it('honours a custom fallback', () => {

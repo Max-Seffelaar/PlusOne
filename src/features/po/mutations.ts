@@ -65,9 +65,9 @@ import type {
   UpdateEventInput,
   UpdateTierInput,
 } from '@/features/events/schemas';
-import { inviteUserAction, revokeInviteAction } from '@/features/auth/invite-actions';
+import { inviteUserAction, revokeInviteAction, acceptInvitesAction } from '@/features/auth/invite-actions';
 import { updateProfileAction, updateEmailAction } from '@/features/auth/profile-actions';
-import { revokeOwnSessionAction } from '@/features/auth/session-actions';
+import { revokeOwnSessionAction, adminRevokeSessionAction } from '@/features/auth/session-actions';
 import { updateMemberRolesAction, removeMemberAction, updateVenueSettingsAction } from '@/features/venues/actions';
 import { setDefaultQuotaAction } from '@/features/quotas/default-quota-actions';
 import type { VenueRole } from '@/features/auth/roles';
@@ -695,6 +695,17 @@ export function usePoUpdateEmail() {
   });
 }
 
+/** Accept the caller's own pending invites (the incoming-invite banner). This
+ *  changes memberships — resolved server-side in /app — so the banner reloads on
+ *  success to re-resolve identity + the venue switcher. Invalidates the list too. */
+export function usePoAcceptInvites() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => throwOnActionError(await acceptInvitesAction()),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.myInvites() }),
+  });
+}
+
 /** End one of the caller's own sessions. */
 export function usePoRevokeOwnSession() {
   const qc = useQueryClient();
@@ -705,6 +716,21 @@ export function usePoRevokeOwnSession() {
       return throwOnActionError(await revokeOwnSessionAction(NO_PREV, fd));
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.sessions() }),
+  });
+}
+
+/** Admin remote-logout of a team member's session (#20 §5). The server action
+ *  re-asserts AAL2 and the RPC re-enforces admin-at-a-shared-venue. Invalidates
+ *  that member's session list so the row disappears on success. */
+export function usePoAdminRevokeSession(targetUserId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const fd = new FormData();
+      fd.set('sessionId', sessionId);
+      return throwOnActionError(await adminRevokeSessionAction(NO_PREV, fd));
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.userSessions(targetUserId) }),
   });
 }
 
