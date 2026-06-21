@@ -326,6 +326,10 @@ export function PlusOneApp({
     doorBranch = <DoorTabState title={doorTitle} text="Geen actief event om in te checken. Maak of open eerst een event." />;
   }
 
+  // Home is a wide desktop dashboard (uses a 2-column layout); every other
+  // screen keeps the comfortable reading column. (Mobile is full-bleed regardless.)
+  const desktopMainMax = tabRoot && tab === 'start' ? 'max-w-[1080px]' : 'max-w-[640px]';
+
   return (
     <PoProvider value={po}>
       <ResponsiveShell
@@ -339,6 +343,7 @@ export function PlusOneApp({
         onOpenVenue={() => nav.push('venueswitch')}
         userName={liveUserName ?? 'Account'}
         userSub={liveUserSub ?? ''}
+        mainMaxClass={desktopMainMax}
       >
         {isDoorTab ? doorBranch : body}
       </ResponsiveShell>
