@@ -291,6 +291,7 @@ in volgorde, per migratie wat ze doet + of ze data raakt. Push nog niets.
 **STAP 3.8** Nieuwe mobiele schermen: Audit-log, Sessies, (optioneel) Dashboard-home — po-stijl.
 **STAP 3.9** Capacitor-readiness pass: geen browser-only API; `/app` standalone; backbutton noteren.
 **STAP 3.5a** Performance-baseline (Lighthouse/Web Vitals + query-timings) → top-3/5; STOP en overleg.
+  → ✅ done 2026-06-21 → `perf-baseline-3.5a.md` (incl. stress test @1500 + realtime + 500-org schaal-fit). Top-5 + MVP-cut staan als subtaken onder 3.5b (ClickUp `86exzefv8`). Twee bugs vóór de polish: reads kappen af op 1000 rijen (#0a) en realtime dropt boven `eventsPerSecond:10` (#0b).
 **STAP 3.5b** Fixes per knelpunt + hermeten (vóór/na); throttled 4G eindrapport.
 **STAP 4.1** Uitvoerbare test-suites (geen niet-bestaande features) sequentieel draaien + rapporteren.
 **STAP 4.2** Security-audit → `docs/security-audit.md` + aanvaller-tests.
