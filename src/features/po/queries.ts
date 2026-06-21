@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import type { EventSummary, TierStat } from '@/features/stats/data';
 import { describeAuditEntry, type AuditLine } from '@/features/audit/translate';
+import { chunkIds, fetchAllRanged } from '@/lib/supabase/paging';
 
 // Client-agnostic po reads (mirrors src/features/stats/data.ts): every function
 // takes the caller's Supabase client, so a Server Component can prefetch with the
@@ -69,14 +70,19 @@ export async function fetchEvents(client: Client, venueId: string): Promise<PoEv
  * exactly what `toPoGuest` needs.
  */
 export async function fetchPoGuests(client: Client, eventId: string): Promise<PoGuestRow[]> {
-  const { data } = await client
-    .from('guests')
-    .select('id, full_name, plus_ones, status, tier_id, note, note_priority, created_at, contact_id')
-    .eq('event_id', eventId)
-    .neq('status', 'removed')
-    .order('created_at', { ascending: true });
-
-  return data ?? [];
+  // Ranged: a 1500-guest list would truncate at PostgREST's 1000-row cap, hiding
+  // the rest. `created_at` isn't unique, so `.order('id')` is the tiebreaker that
+  // makes the page order deterministic (no overlap/skip across `.range()` windows).
+  return fetchAllRanged<PoGuestRow>((from, to) =>
+    client
+      .from('guests')
+      .select('id, full_name, plus_ones, status, tier_id, note, note_priority, created_at, contact_id')
+      .eq('event_id', eventId)
+      .neq('status', 'removed')
+      .order('created_at', { ascending: true })
+      .order('id')
+      .range(from, to),
+  );
 }
 
 export interface PoQuotaStatus {
@@ -142,13 +148,21 @@ export async function fetchEventHeadcounts(
   const counts = new Map<string, EventHeadcount>();
   if (eventIds.length === 0) return counts;
 
-  const { data } = await client
-    .from('guests')
-    .select('event_id, plus_ones, status')
-    .in('event_id', eventIds)
-    .in('status', ON_LIST);
+  // Ranged: this sums guests across MANY events, so the combined row set can pass
+  // 1000 even when each event is small. No natural order here → `.order('id')` is
+  // both the sort and the unique tiebreaker the ranged paging needs.
+  const data = await fetchAllRanged<Pick<Tables['guests']['Row'], 'event_id' | 'plus_ones' | 'status'>>(
+    (from, to) =>
+      client
+        .from('guests')
+        .select('event_id, plus_ones, status')
+        .in('event_id', eventIds)
+        .in('status', ON_LIST)
+        .order('id')
+        .range(from, to),
+  );
 
-  for (const g of data ?? []) {
+  for (const g of data) {
     const cur = counts.get(g.event_id) ?? { registered: 0, present: 0 };
     const heads = 1 + g.plus_ones;
     cur.registered += heads;
@@ -303,21 +317,39 @@ export interface RecapGuestRow {
   checkedAt: string | null;
 }
 
+// The recap guest projection (with its FK embeds). The generated client types
+// each embed as to-one OR to-many, so the embedded relations stay deliberately
+// loose here and the mapper below normalizes them ([x].flat()).
+type RecapGuestRaw = {
+  id: string;
+  full_name: string;
+  plus_ones: number;
+  status: GuestRowStatus;
+  guest_tiers: { name: string } | { name: string }[] | null;
+  added_by_profile: { full_name: string } | { full_name: string }[] | null;
+  check_ins: { checked_at: string; voided_at: string | null }[] | { checked_at: string; voided_at: string | null } | null;
+};
+
 /**
  * Guests of a (past) event with their tier, who-added, and check-in time — the
  * source for the recap's "ingecheckt" and "niet verschenen" lists. Only on-list
- * statuses; the per-guest check-in time is the latest non-voided check_in.
+ * statuses; the per-guest check-in time is the latest non-voided check_in. Ranged
+ * (`.order('id')` keys the paging) so a 1500-guest recap loads every row.
  */
 export async function fetchRecapGuests(client: Client, eventId: string): Promise<RecapGuestRow[]> {
-  const { data } = await client
-    .from('guests')
-    .select(
-      'id, full_name, plus_ones, status, guest_tiers(name), added_by_profile:user_profiles!guests_added_by_fkey(full_name), check_ins(checked_at, voided_at)'
-    )
-    .eq('event_id', eventId)
-    .in('status', ON_LIST);
+  const data = await fetchAllRanged<RecapGuestRaw>((from, to) =>
+    client
+      .from('guests')
+      .select(
+        'id, full_name, plus_ones, status, guest_tiers(name), added_by_profile:user_profiles!guests_added_by_fkey(full_name), check_ins(checked_at, voided_at)'
+      )
+      .eq('event_id', eventId)
+      .in('status', ON_LIST)
+      .order('id')
+      .range(from, to),
+  );
 
-  return (data ?? []).map((g) => {
+  return data.map((g) => {
     // The generated client can type the embed as to-one OR to-many; normalize to
     // an array (and drop any nullish) before reading the latest non-voided time.
     const checkins = [g.check_ins].flat().filter(Boolean) as Array<{
@@ -329,13 +361,15 @@ export async function fetchRecapGuests(client: Client, eventId: string): Promise
       .map((c) => c.checked_at)
       .sort()
       .at(-1);
+    const tier = [g.guest_tiers].flat().filter(Boolean)[0] as { name: string } | undefined;
+    const addedBy = [g.added_by_profile].flat().filter(Boolean)[0] as { full_name: string } | undefined;
     return {
       id: g.id,
       full_name: g.full_name,
       plus_ones: g.plus_ones,
       status: g.status,
-      tierName: g.guest_tiers?.name ?? null,
-      addedByName: g.added_by_profile?.full_name ?? null,
+      tierName: tier?.name ?? null,
+      addedByName: addedBy?.full_name ?? null,
       checkedAt: checkedAt ?? null,
     };
   });
@@ -418,26 +452,36 @@ export interface CheckinArrival {
   at: string;
 }
 
+type CheckinArrivalRow = Pick<
+  Tables['check_ins']['Row'],
+  'guest_id' | 'plus_ones_arrived' | 'checked_at' | 'voided_at'
+>;
+
 /**
  * Active (non-voided) check-in arrivals for an event's guests, keyed by guest id.
  * The cockpit (S13) uses this for the ACTUAL present headcount and partial-arrival
  * display (a +3 guest with 1 companion present = 2 koppen binnen, not 4). check_ins
- * carries no event_id, so we resolve the event's guest ids first (mirrors
- * fetchDoorSnapshot). RLS still gates which check_ins are visible.
+ * carries no event_id, so we filter via an inner-join on the guest's event
+ * (mirrors fetchDoorSnapshot/fetchRecentCheckins) — no `.in('guest_id', …)` list
+ * that would blow Kong's URI length at 1500 ids. Ranged so >1000 check-ins all
+ * load; `.order('id')` gives the deterministic order paging requires. RLS still
+ * gates which check_ins are visible.
  */
 export async function fetchCheckinArrivals(
   client: Client,
   eventId: string
 ): Promise<Map<string, CheckinArrival>> {
-  const { data: guests } = await client.from('guests').select('id').eq('event_id', eventId);
-  const ids = (guests ?? []).map((g) => g.id);
+  const rows = await fetchAllRanged<CheckinArrivalRow & { guests: unknown }>((from, to) =>
+    client
+      .from('check_ins')
+      .select('guest_id, plus_ones_arrived, checked_at, voided_at, guests!inner(event_id)')
+      .eq('guests.event_id', eventId)
+      .order('id')
+      .range(from, to),
+  );
+
   const map = new Map<string, CheckinArrival>();
-  if (ids.length === 0) return map;
-  const { data } = await client
-    .from('check_ins')
-    .select('guest_id, plus_ones_arrived, checked_at, voided_at')
-    .in('guest_id', ids);
-  for (const row of data ?? []) {
+  for (const row of rows) {
     if (row.voided_at == null) map.set(row.guest_id, { arrived: row.plus_ones_arrived, at: row.checked_at });
   }
   return map;
@@ -454,13 +498,17 @@ export async function fetchTiersWithUsage(
   client: Client,
   eventId: string
 ): Promise<TierWithUsage[]> {
-  const [{ data: tiers }, { data: guests }] = await Promise.all([
+  const [{ data: tiers }, guests] = await Promise.all([
     client.from('guest_tiers').select('id, name, color, max_guests, aliases').eq('event_id', eventId).order('name'),
-    client.from('guests').select('tier_id, status').eq('event_id', eventId),
+    // Ranged: occupancy counts every non-removed/denied guest, so a 1500-guest
+    // event would otherwise truncate the count at 1000. `.order('id')` keys the paging.
+    fetchAllRanged<Pick<Tables['guests']['Row'], 'tier_id' | 'status'>>((from, to) =>
+      client.from('guests').select('tier_id, status').eq('event_id', eventId).order('id').range(from, to),
+    ),
   ]);
 
   const used = new Map<string, number>();
-  for (const g of guests ?? []) {
+  for (const g of guests) {
     if (g.status === 'removed' || g.status === 'denied') continue;
     used.set(g.tier_id, (used.get(g.tier_id) ?? 0) + 1);
   }
@@ -490,22 +538,35 @@ export type PoContactRow = {
 async function contactEventCounts(client: Client, contactIds: string[]): Promise<Map<string, number>> {
   const counts = new Map<string, number>();
   if (contactIds.length === 0) return counts;
-  const { data } = await client
-    .from('guests')
-    .select('contact_id, event_id')
-    .in('contact_id', contactIds)
-    .neq('status', 'removed');
 
+  // A venue can have >1000 contacts, so the `.in('contact_id', …)` filter is
+  // chunked (≤1000 ids per request) to stay under Kong's URI length; each chunk's
+  // guest rows can themselves exceed 1000, so every chunk is ranged. `.order('id')`
+  // keys the paging.
   const seen = new Map<string, Set<string>>();
-  for (const g of data ?? []) {
-    if (!g.contact_id) continue;
-    const set = seen.get(g.contact_id) ?? new Set<string>();
-    set.add(g.event_id);
-    seen.set(g.contact_id, set);
+  for (const chunk of chunkIds(contactIds)) {
+    const rows = await fetchAllRanged<Pick<Tables['guests']['Row'], 'contact_id' | 'event_id'>>((from, to) =>
+      client
+        .from('guests')
+        .select('contact_id, event_id')
+        .in('contact_id', chunk)
+        .neq('status', 'removed')
+        .order('id')
+        .range(from, to),
+    );
+    for (const g of rows) {
+      if (!g.contact_id) continue;
+      const set = seen.get(g.contact_id) ?? new Set<string>();
+      set.add(g.event_id);
+      seen.set(g.contact_id, set);
+    }
   }
   for (const [cid, set] of seen) counts.set(cid, set.size);
   return counts;
 }
+
+/** The contacts-table row this screen reads, before the eventCount is joined on. */
+type ContactBaseRow = Omit<PoContactRow, 'eventCount'>;
 
 /** The venue address book (managers), newest-name-first, with per-contact event counts. */
 export async function fetchContacts(
@@ -513,17 +574,22 @@ export async function fetchContacts(
   venueId: string,
   search?: string
 ): Promise<PoContactRow[]> {
-  let query = client
-    .from('contacts')
-    .select('id, full_name, email, phone, birthdate, preferred_role, note, is_permanent')
-    .eq('venue_id', venueId)
-    .is('anonymized_at', null)
-    .order('full_name');
   const term = search?.trim();
-  if (term) query = query.ilike('full_name', `%${term}%`);
+  // Ranged: a venue address book can hold >1000 contacts. The full filter (incl.
+  // the optional name search) is rebuilt per page since builders are one-shot;
+  // `full_name` isn't unique, so `.order('id')` is the deterministic tiebreaker.
+  const rows = await fetchAllRanged<ContactBaseRow>((from, to) => {
+    let query = client
+      .from('contacts')
+      .select('id, full_name, email, phone, birthdate, preferred_role, note, is_permanent')
+      .eq('venue_id', venueId)
+      .is('anonymized_at', null)
+      .order('full_name')
+      .order('id');
+    if (term) query = query.ilike('full_name', `%${term}%`);
+    return query.range(from, to);
+  });
 
-  const { data } = await query;
-  const rows = data ?? [];
   const counts = await contactEventCounts(client, rows.map((c) => c.id));
   return rows.map((c) => ({ ...c, eventCount: counts.get(c.id) ?? 0 }));
 }
@@ -533,12 +599,17 @@ export async function fetchContactKeyRows(
   client: Client,
   venueId: string
 ): Promise<{ email: string | null; phone: string | null }[]> {
-  const { data } = await client
-    .from('contacts')
-    .select('email, phone')
-    .eq('venue_id', venueId)
-    .is('anonymized_at', null);
-  return data ?? [];
+  // Ranged: same >1000-contact concern. `email`/`phone` aren't unique or even
+  // sortable-as-key, so this orders by `id` purely for deterministic paging.
+  return fetchAllRanged<{ email: string | null; phone: string | null }>((from, to) =>
+    client
+      .from('contacts')
+      .select('email, phone')
+      .eq('venue_id', venueId)
+      .is('anonymized_at', null)
+      .order('id')
+      .range(from, to),
+  );
 }
 
 // ── Settings cluster reads (S6 team/quota, S7 profile/sessions, S8 venue, billing) ──

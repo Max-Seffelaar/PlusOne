@@ -11,6 +11,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
+import { fetchAllRanged } from '@/lib/supabase/paging';
 
 export type GuestRow = Database['public']['Tables']['guests']['Row'];
 export type TierRow = Database['public']['Tables']['guest_tiers']['Row'];
@@ -50,6 +51,18 @@ export function doorSnapshotKey(eventId: string): readonly ['door', string] {
 
 type Client = SupabaseClient<Database>;
 
+/**
+ * The check_ins/refusals reads embed `guests!inner(event_id)` purely to filter by
+ * event (no `guest_id` list — see fetchDoorSnapshot). The snapshot row types have
+ * no `guests` field, so drop the embed before handing rows back. Generic over the
+ * base row so one helper serves both tables.
+ */
+function stripEmbeddedGuests<T>(row: T & { guests: unknown }): T {
+  const rest: Record<string, unknown> = { ...row };
+  delete rest.guests;
+  return rest as T;
+}
+
 export async function fetchDoorSnapshot(client: Client, eventId: string): Promise<DoorSnapshot> {
   const { data: event, error: eventError } = await client
     .from('events')
@@ -58,28 +71,45 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
     .single();
   if (eventError || !event) throw new Error(eventError?.message ?? 'Event niet gevonden');
 
-  const [{ data: venue }, { data: guests }, { data: tiers }] = await Promise.all([
+  // All three event-wide reads are ranged: at a busy door (1500+ guests) a single
+  // `.select()` truncates at PostgREST's max-rows (1000) and the door silently
+  // loses ~third of the list. guests + check_ins + refusals each page to the end;
+  // every ranged read carries a unique `.order('id')` tiebreaker so pages can't
+  // overlap or skip. check_ins/refusals filter via an inner-join on the event
+  // (mirrors fetchRecentCheckins) instead of a giant `.in('guest_id', …)` — that
+  // id list would blow Kong's URI length at 1500 ids and over-return anyway.
+  const [{ data: venue }, guestRows, { data: tiers }, checkIns, refusals] = await Promise.all([
     client.from('venues').select('name').eq('id', event.venue_id).maybeSingle(),
-    client
-      // Refused guests are fetched too so the door can show a "Geweigerd" lijst
-      // and offer "ongedaan maken"; buildDoorView splits them out by status.
-      .from('guests')
-      .select('*')
-      .eq('event_id', eventId)
-      .in('status', ['approved', 'checked_in', 'refused'])
-      .order('full_name'),
+    fetchAllRanged<GuestRow>((from, to) =>
+      client
+        // Refused guests are fetched too so the door can show a "Geweigerd" lijst
+        // and offer "ongedaan maken"; buildDoorView splits them out by status.
+        .from('guests')
+        .select('*')
+        .eq('event_id', eventId)
+        .in('status', ['approved', 'checked_in', 'refused'])
+        .order('full_name')
+        .order('id')
+        .range(from, to),
+    ),
     client.from('guest_tiers').select('*').eq('event_id', eventId).order('name'),
+    fetchAllRanged<CheckInRow & { guests: unknown }>((from, to) =>
+      client
+        .from('check_ins')
+        .select('*, guests!inner(event_id)')
+        .eq('guests.event_id', eventId)
+        .order('id')
+        .range(from, to),
+    ).then((rows) => rows.map(stripEmbeddedGuests)),
+    fetchAllRanged<RefusalRow & { guests: unknown }>((from, to) =>
+      client
+        .from('refusals')
+        .select('*, guests!inner(event_id)')
+        .eq('guests.event_id', eventId)
+        .order('id')
+        .range(from, to),
+    ).then((rows) => rows.map(stripEmbeddedGuests)),
   ]);
-
-  const guestRows = guests ?? [];
-  const guestIds = guestRows.map((g) => g.id);
-
-  const [checkIns, refusals] = guestIds.length
-    ? await Promise.all([
-        client.from('check_ins').select('*').in('guest_id', guestIds).then((r) => r.data ?? []),
-        client.from('refusals').select('*').in('guest_id', guestIds).then((r) => r.data ?? []),
-      ])
-    : [[] as CheckInRow[], [] as RefusalRow[]];
 
   // Names needed for the logboek + the current user (for optimistic check-ins).
   const ids = new Set<string>();
