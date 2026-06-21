@@ -5,7 +5,7 @@
 // adapters. No screen calls these yet (STAP 3.2 is infra); STAP 3.3/3.4 swap each
 // screen's mock import for the matching hook, preserving the component API.
 import { useCallback, useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 import type { Guest, PoEvent, Tier } from '@/lib/po/types';
 import type { AuditLine } from '@/features/audit/translate';
@@ -22,6 +22,7 @@ import {
   fetchTiers,
   fetchTiersWithUsage,
   fetchPoGuests,
+  fetchCheckinArrivals,
   fetchEventQuota,
   fetchGuestRequests,
   fetchQuotaRequests,
@@ -38,6 +39,7 @@ import {
   fetchPoAuditFilterOptions,
   fetchPoGuestHistory,
   type EventEditRow,
+  type CheckinArrival,
   type RecentCheckinRow,
   type PoQuotaStatus,
   type PoAuditFilters,
@@ -72,6 +74,9 @@ import {
 } from './adapters';
 import { normalizeEmail, normalizePhoneToDigits } from '@/features/contacts/import/parse';
 import { usePoIdentity } from './PoLiveProvider';
+import { fetchEventStats } from '@/features/stats/data';
+import { eventKpis, toPerKwartier, type PerKwartier } from '@/features/stats/po-adapter';
+import { getDoorClient } from '@/features/door/offline/device';
 
 /** Existing-contact dedup keys for the import preview, mirroring the DB's
  *  email-first-else-phone matching (upsert_contacts). Two sets so a parsed row can
@@ -214,6 +219,104 @@ export function usePoGuests(eventId: string) {
       return guests.map((g) => toPoGuest(g, { role: roleByTier.get(g.tier_id) ?? 'Gast' }));
     },
   });
+}
+
+// ── Event-dag cockpit (S13) ──────────────────────────────────────────────────
+
+export interface PoEventStats {
+  /** Check-ins per 15-min bucket ({ t:"23:30", n:38 }); [] before the first check-in. */
+  perKwartier: PerKwartier[];
+  /** Peak bucket label ("23:00") or null before any check-in. */
+  peak: string | null;
+  peakCount: number;
+}
+
+/**
+ * Live event-day stats for the cockpit chart (#26). The analytics RPCs are
+ * SECURITY DEFINER and self-gate on role (admin/finance, or organizer for the
+ * event), so a caller without access gets empty rows here — never an error; the
+ * cockpit then shows the chart's empty state. Short staleTime so it tracks the
+ * night; the realtime hook also invalidates it on each check-in.
+ */
+export function usePoEventStats(eventId: string) {
+  return useQuery<PoEventStats>({
+    queryKey: poKeys.eventStats(eventId),
+    enabled: !!eventId,
+    staleTime: 15_000,
+    queryFn: async () => {
+      const { summary, perQuarter } = await fetchEventStats(createClient(), eventId);
+      const k = eventKpis(summary);
+      return { perKwartier: toPerKwartier(perQuarter), peak: k.peak, peakCount: k.peakCount };
+    },
+  });
+}
+
+/**
+ * Active check-in arrivals per guest — actual present koppen + partial-arrival
+ * display (S13). RLS gates check_ins reads (admin/finance/doorhost/organizer); a
+ * role without access gets an empty map and the cockpit falls back to the full
+ * registered party for headcounts.
+ */
+export function usePoCheckinArrivals(eventId: string) {
+  return useQuery<Map<string, CheckinArrival>>({
+    queryKey: poKeys.arrivals(eventId),
+    enabled: !!eventId,
+    staleTime: 10_000,
+    queryFn: () => fetchCheckinArrivals(createClient(), eventId),
+  });
+}
+
+/**
+ * Keep the cockpit live: subscribe to this event's guests changes (the check-in
+ * trigger flips guests.status) AND to check_ins (top-ups/voids touch check_ins
+ * without a status move), invalidating the guest list + tier counts + arrivals +
+ * stats. Mirrors the door's realtime setup (useDoorSync) — JWT set before
+ * subscribe, the shared device-scoped client — but the cockpit needs no outbox, so
+ * refetch-on-change is enough. Returns the channel state for the "live" indicator.
+ */
+export function usePoEventRealtime(eventId: string): { realtimeConnected: boolean } {
+  const qc = useQueryClient();
+  const [realtimeConnected, setRealtimeConnected] = useState(false);
+
+  useEffect(() => {
+    if (!eventId) return;
+    const client = getDoorClient();
+    let cancelled = false;
+    let channel: ReturnType<typeof client.channel> | null = null;
+
+    void client.auth.getSession().then(({ data }) => {
+      if (cancelled) return;
+      const token = data.session?.access_token;
+      if (token) client.realtime.setAuth(token);
+
+      const invalidate = (): void => {
+        void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+        void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
+        void qc.invalidateQueries({ queryKey: poKeys.arrivals(eventId) });
+        void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
+      };
+
+      channel = client
+        .channel(`eventday:${eventId}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'guests', filter: `event_id=eq.${eventId}` },
+          invalidate
+        )
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'check_ins' }, invalidate)
+        .subscribe((st) => {
+          if (!cancelled) setRealtimeConnected(st === 'SUBSCRIBED');
+        });
+    });
+
+    return () => {
+      cancelled = true;
+      setRealtimeConnected(false);
+      if (channel) void client.removeChannel(channel);
+    };
+  }, [eventId, qc]);
+
+  return { realtimeConnected };
 }
 
 /** The caller's personal quota for an event (#22/#31) — drives the quick-add hint. */

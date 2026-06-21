@@ -75,6 +75,11 @@ import type { Guest, Tier } from '@/lib/po/types';
 import { poKeys } from './keys';
 import { optimisticGuest, type OptimisticAddArgs } from './adapters';
 import { usePoIdentity } from './PoLiveProvider';
+import { supabaseGateway } from '@/features/door/outbox/gateway';
+import { getDeviceId, getDoorClient } from '@/features/door/offline/device';
+import { classifyError } from '@/features/door/outbox/replay';
+import { v7 as uuidv7 } from 'uuid';
+import { amsterdamHM, flipGuestStatus } from './eventday/cockpit';
 
 interface ActionLike {
   ok: boolean;
@@ -190,6 +195,164 @@ export function usePoRemoveGuest(eventId: string) {
       void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
     },
   });
+}
+
+// ── Event-dag cockpit check-in/out (S13) ──────────────────────────────────────
+// The desktop cockpit checks guests in/out by REUSING the door's check_ins write
+// gateway (single-sourced write logic; RLS is the boundary). check_ins is ONE row
+// per guest (unique guest_id) and a void only flags voided_at, so re-checking-in a
+// previously-voided guest must REVIVE that row, not insert a second one (else a
+// 23505 conflict). So we insert with a client UUIDv7 (idempotent, #25) and, on a
+// guest_id conflict, revive instead — covering "never in", "checked out then in
+// again", and a peer's concurrent check-in. Top-up adjusts plus_ones_arrived on an
+// already-in guest (partial arrivals). No offline outbox: the cockpit is online, so
+// it uses an optimistic flip + invalidate and lets realtime reconcile peers. The DB
+// gates the write via can_check_in (admin/doorhost/organizer, event open/live); the
+// screen hides ✓/✗ for roles without it, and check-in works while locked (#6).
+
+type ArrivalsCache = Map<string, { arrived: number; at: string }>;
+
+interface CheckinCtx {
+  prevGuests: Guest[] | undefined;
+  prevArrivals: ArrivalsCache | undefined;
+}
+
+export interface PoCheckInInput {
+  guestId: string;
+  /** Companions present now (arrived plus-ones). The cockpit's stepper picks how
+   *  many of a +N party are in; a +0 guest is always 0. */
+  plusOnes: number;
+}
+
+/** Optimistically flip a guest in↔wait and patch their arrival count; returns a snapshot. */
+function optimisticCheckin(
+  qc: QueryClient,
+  eventId: string,
+  guestId: string,
+  to: 'in' | 'wait',
+  arrived: number
+): CheckinCtx {
+  const prevGuests = qc.getQueryData<Guest[]>(poKeys.guests(eventId));
+  const prevArrivals = qc.getQueryData<ArrivalsCache>(poKeys.arrivals(eventId));
+  qc.setQueryData<Guest[]>(poKeys.guests(eventId), (old) =>
+    flipGuestStatus(old, guestId, to, to === 'in' ? amsterdamHM(new Date()) : undefined)
+  );
+  qc.setQueryData<ArrivalsCache>(poKeys.arrivals(eventId), (old) => {
+    const next: ArrivalsCache = new Map(old ?? []);
+    if (to === 'in') next.set(guestId, { arrived, at: next.get(guestId)?.at ?? new Date().toISOString() });
+    else next.delete(guestId);
+    return next;
+  });
+  return { prevGuests, prevArrivals };
+}
+
+/** Check a guest in from the cockpit (✓), reviving a previously-voided row if needed. */
+export function usePoCheckIn(eventId: string) {
+  const qc = useQueryClient();
+  const { userId } = usePoIdentity();
+  return useMutation<void, Error, PoCheckInInput, CheckinCtx>({
+    mutationFn: async ({ guestId, plusOnes }) => {
+      const gw = supabaseGateway(getDoorClient());
+      const ins = await gw.insertCheckIn({
+        id: uuidv7(),
+        guest_id: guestId,
+        checked_by: userId,
+        plus_ones_arrived: plusOnes,
+        client_timestamp: new Date().toISOString(),
+        device_id: getDeviceId(),
+        offline_synced: false,
+      });
+      if (ins.error) {
+        const detail = `${ins.error.details ?? ''} ${ins.error.message ?? ''}`;
+        if (ins.error.code === '23505' && detail.includes('guest_id')) {
+          // A check_ins row already exists for this guest (voided, or a peer's) —
+          // revive it: clears voided_at and re-sets the arrival count.
+          const rev = classifyError((await gw.reviveCheckIn(guestId, plusOnes, userId)).error);
+          if (rev.status === 'error' || rev.status === 'pending') {
+            throw new Error(rev.message ?? 'Inchecken mislukt.');
+          }
+          return;
+        }
+        const res = classifyError(ins.error);
+        if (res.status === 'error' || res.status === 'pending') {
+          throw new Error(res.message ?? 'Inchecken mislukt.');
+        }
+      }
+    },
+    onMutate: async ({ guestId, plusOnes }) => {
+      await qc.cancelQueries({ queryKey: poKeys.guests(eventId) });
+      return optimisticCheckin(qc, eventId, guestId, 'in', plusOnes);
+    },
+    onError: (_err, _input, ctx) => {
+      if (!ctx) return;
+      qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
+      qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
+    },
+    onSettled: () => invalidateAfterCheckin(qc, eventId),
+  });
+}
+
+/** Adjust how many of an already-in guest's party are present (partial / top-up). */
+export function usePoTopUpCheckIn(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation<void, Error, PoCheckInInput, { prevArrivals: ArrivalsCache | undefined }>({
+    mutationFn: async ({ guestId, plusOnes }) => {
+      const gw = supabaseGateway(getDoorClient());
+      // Absolute target; the trigger keeps it monotonic + capped, so a re-send or a
+      // row owned by another checker is a harmless no-op.
+      const res = classifyError((await gw.topUpCheckIn(guestId, plusOnes)).error);
+      if (res.status === 'error' || res.status === 'pending') {
+        throw new Error(res.message ?? 'Bijwerken mislukt.');
+      }
+    },
+    onMutate: async ({ guestId, plusOnes }) => {
+      await qc.cancelQueries({ queryKey: poKeys.arrivals(eventId) });
+      const prevArrivals = qc.getQueryData<ArrivalsCache>(poKeys.arrivals(eventId));
+      qc.setQueryData<ArrivalsCache>(poKeys.arrivals(eventId), (old) => {
+        const next: ArrivalsCache = new Map(old ?? []);
+        next.set(guestId, { arrived: plusOnes, at: next.get(guestId)?.at ?? new Date().toISOString() });
+        return next;
+      });
+      return { prevArrivals };
+    },
+    onError: (_err, _input, ctx) => {
+      if (ctx) qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
+    },
+    onSettled: () => invalidateAfterCheckin(qc, eventId),
+  });
+}
+
+/** Reverse a check-in from the cockpit (✗) — soft-void, guest returns to onderweg (#3). */
+export function usePoVoidCheckIn(eventId: string) {
+  const qc = useQueryClient();
+  const { userId } = usePoIdentity();
+  return useMutation<void, Error, { guestId: string }, CheckinCtx>({
+    mutationFn: async ({ guestId }) => {
+      const gw = supabaseGateway(getDoorClient());
+      const res = classifyError((await gw.voidCheckIn(guestId, userId)).error);
+      if (res.status === 'error' || res.status === 'pending') {
+        throw new Error(res.message ?? 'Uitchecken mislukt.');
+      }
+    },
+    onMutate: async ({ guestId }) => {
+      await qc.cancelQueries({ queryKey: poKeys.guests(eventId) });
+      return optimisticCheckin(qc, eventId, guestId, 'wait', 0);
+    },
+    onError: (_err, _input, ctx) => {
+      if (!ctx) return;
+      qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
+      qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
+    },
+    onSettled: () => invalidateAfterCheckin(qc, eventId),
+  });
+}
+
+/** A check-in/void/top-up changes the present count, tier occupancy, arrivals + chart. */
+function invalidateAfterCheckin(qc: QueryClient, eventId: string): void {
+  void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+  void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
+  void qc.invalidateQueries({ queryKey: poKeys.arrivals(eventId) });
+  void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
 }
 
 // The approval inbox (S5) reads venue-wide and one screen decides requests from

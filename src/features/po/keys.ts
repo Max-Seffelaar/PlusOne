@@ -12,6 +12,10 @@ export const poKeys = {
   eventRecap: (eventId: string) => [...poKeys.all, 'event-recap', eventId] as const,
   guests: (eventId: string) => [...poKeys.all, 'guests', eventId] as const,
   tiers: (eventId: string) => [...poKeys.all, 'tiers', eventId] as const,
+  /** Live event-day stats (per-quarter instroom + peak) for the cockpit (S13). */
+  eventStats: (eventId: string) => [...poKeys.all, 'event-stats', eventId] as const,
+  /** Active check-in arrivals per guest (actual present koppen + partial) — cockpit (S13). */
+  arrivals: (eventId: string) => [...poKeys.all, 'arrivals', eventId] as const,
   quota: (eventId: string) => [...poKeys.all, 'quota', eventId] as const,
   // The approval inbox (S5) reads venue-wide (all events at once) so it can show
   // "Alle events" + an event picker, so these scope to the VENUE. Mutations
