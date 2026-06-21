@@ -27,7 +27,12 @@ export function SyncBar(): JSX.Element {
           : sync.ageLabel;
 
   return (
-    <div className="flex flex-none items-center gap-[10px] border-b border-line2 bg-elev px-4 py-[9px]">
+    // Fixed height (#2b deur-CLS): the row must not grow/shrink as the status
+    // label, warn icon or queue badge changes, or the list below it would shift
+    // on load (poor CLS on the full-bleed mobile viewport). h-[48px] + items-center
+    // locks the geometry across every sync state (label uses `truncate`, so it
+    // never wraps to a second line either).
+    <div className="flex h-[48px] flex-none items-center gap-[10px] border-b border-line2 bg-elev px-4">
       <span className="relative flex h-[10px] w-[10px] items-center justify-center">
         {sync.status === 'live' && (
           <span

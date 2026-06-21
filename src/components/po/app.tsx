@@ -7,6 +7,7 @@
  * outbox + realtime), so there is no in-memory door state here anymore.
  */
 import { useState, type ReactNode } from 'react';
+import dynamic from 'next/dynamic';
 import { venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
 import { usePoDoorEvent, usePoEvents, usePoGuests } from '@/features/po/hooks';
@@ -22,13 +23,43 @@ import { Invite, Login, Mfa, Otp, Welcome } from './screens/auth';
 import { EventBeheer, EventEdit, EventView, Events, PastEvent, Tiers } from './screens/events';
 import { BulkPaste, Contacten, Guest, Lijst, QuickAdd, Vaste } from './screens/guests';
 import { PoDoorTab, type DoorOverlay } from './screens/door';
-import { Aanvragen } from './screens/approvals';
 import { Allowance, Billing, Gebruikers, Import, Meer, Profile, Rollen, VenueSettings, VenueSwitch } from './screens/settings';
 import { VenueCreate } from './screens/onboarding';
-import { Stats } from './screens/stats';
-import { AuditLog } from './screens/audit';
-import { AdminSessions } from './screens/admin-sessions';
 import { Home } from './screens/home';
+
+/**
+ * Code-split (#2a): the heavy/rare screens below each live in their own module
+ * that is only ever reached here, deep in the nav stack — so they have no place
+ * on the door-only / common path. Loading them lazily via `next/dynamic` keeps
+ * the `/app` First Load JS lean: a doorhost (Check-in/Taken only) never pulls the
+ * Statistieken / Audit / Admin-sessies / Aanvragen chunks. Each module is
+ * self-contained (it exports nothing the common path imports), so the chunk is
+ * cleanly evicted from the shared bundle. `ssr: false` is safe — these only
+ * mount after client-side navigation inside the already-client app shell.
+ *
+ * NOTE: Billing/Import are intentionally NOT split — they share `settings.tsx`
+ * with `Meer` (an always-present hub), so the module stays in the common chunk
+ * regardless; a dynamic import there would add a Suspense boundary for no size win.
+ */
+const ScreenLoading = (): JSX.Element => (
+  <div className="flex h-full flex-1 items-center justify-center text-[14px] text-faint">Even laden…</div>
+);
+const Stats = dynamic(() => import('./screens/stats').then((m) => m.Stats), {
+  loading: ScreenLoading,
+  ssr: false,
+});
+const AuditLog = dynamic(() => import('./screens/audit').then((m) => m.AuditLog), {
+  loading: ScreenLoading,
+  ssr: false,
+});
+const AdminSessions = dynamic(() => import('./screens/admin-sessions').then((m) => m.AdminSessions), {
+  loading: ScreenLoading,
+  ssr: false,
+});
+const Aanvragen = dynamic(() => import('./screens/approvals').then((m) => m.Aanvragen), {
+  loading: ScreenLoading,
+  ssr: false,
+});
 
 /** Desktop content-column width per active screen. Most screens keep the
  *  comfortable reading column (640); data-dense dashboards/tables/charts opt
