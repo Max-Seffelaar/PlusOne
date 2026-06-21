@@ -177,6 +177,9 @@ export function Meer(): JSX.Element {
         <Row icon="building" title="Venues" sub={`${venues.length} locaties · wisselen`} onClick={() => nav.push('venueswitch')} />
         <Row icon="cog" title="Venue beheren" sub="Naam, AVG-bewaartermijn, standaarden" onClick={() => nav.push('venuesettings')} />
         <Row icon="users" title="Gebruikers" sub="Uitnodigen, rollen en MFA" onClick={() => nav.push('gebruikers')} accent />
+        {roles.includes('admin') && (
+          <Row icon="lock" title="Sessies & beveiliging" sub="Apparaten van teamleden op afstand uitloggen · MFA" onClick={() => nav.push('adminsessions')} />
+        )}
         <Row icon="ticket" title="Toelage per event" sub="Gasten-per-event per teamlid" onClick={() => nav.push('allowance')} />
         <Row icon="star" title="Permanente gasten" sub="Staan automatisch op elke gastenlijst" onClick={() => nav.push('vaste')} accent />
         <Row icon="contact" title="Adresboek" sub="Opgeslagen contacten herbruiken" onClick={() => nav.push('contacten')} accent />

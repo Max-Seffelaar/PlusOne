@@ -27,6 +27,7 @@ import { Allowance, Billing, Gebruikers, Import, Meer, Profile, Rollen, VenueSet
 import { VenueCreate } from './screens/onboarding';
 import { Stats } from './screens/stats';
 import { AuditLog } from './screens/audit';
+import { AdminSessions } from './screens/admin-sessions';
 import { Home } from './screens/home';
 
 /** Shown while a pushed event/guest screen waits for its live row to load. */
@@ -243,6 +244,9 @@ export function PlusOneApp({
         break;
       case 'audit':
         screen = <AuditLog eventId={p.id} />;
+        break;
+      case 'adminsessions':
+        screen = <AdminSessions />;
         break;
       default:
         screen = null;

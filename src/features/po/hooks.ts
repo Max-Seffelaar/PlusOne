@@ -33,6 +33,7 @@ import {
   fetchVenueSettings,
   fetchPendingInvites,
   fetchOwnSessions,
+  fetchUserSessions,
   fetchMyProfile,
   fetchSubscription,
   fetchPoAuditFeed,
@@ -545,6 +546,23 @@ export function usePoSessions() {
     queryKey: poKeys.sessions(),
     queryFn: async () => {
       const rows = await fetchOwnSessions(createClient());
+      return rows.map(toPoSession);
+    },
+  });
+}
+
+/**
+ * A team member's active sessions for the admin remote-logout screen (#20 §5).
+ * Admin-at-a-shared-venue + AAL2 are enforced in the RPC; the caller passes
+ * `enabled` (isAdmin && AAL2 && a selected member) so we never fire the
+ * guaranteed-empty query. Never reports "current" — it is someone else's session.
+ */
+export function usePoUserSessions(targetUserId: string | null, options?: { enabled?: boolean }) {
+  return useQuery<PoSession[]>({
+    queryKey: poKeys.userSessions(targetUserId ?? ''),
+    enabled: !!targetUserId && (options?.enabled ?? true),
+    queryFn: async () => {
+      const rows = await fetchUserSessions(createClient(), targetUserId ?? '');
       return rows.map(toPoSession);
     },
   });

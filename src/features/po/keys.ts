@@ -37,6 +37,8 @@ export const poKeys = {
   team: (venueId: string) => [...poKeys.all, 'team', venueId] as const,
   invites: (venueId: string) => [...poKeys.all, 'invites', venueId] as const,
   sessions: () => [...poKeys.all, 'sessions'] as const,
+  /** A team member's active sessions for the admin remote-logout screen. */
+  userSessions: (targetUserId: string) => [...poKeys.all, 'user-sessions', targetUserId] as const,
   profile: (userId: string) => [...poKeys.all, 'profile', userId] as const,
   venueSettings: (venueId: string) => [...poKeys.all, 'venue-settings', venueId] as const,
   subscription: (venueId: string) => [...poKeys.all, 'subscription', venueId] as const,

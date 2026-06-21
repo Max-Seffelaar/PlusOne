@@ -67,7 +67,7 @@ import type {
 } from '@/features/events/schemas';
 import { inviteUserAction, revokeInviteAction } from '@/features/auth/invite-actions';
 import { updateProfileAction, updateEmailAction } from '@/features/auth/profile-actions';
-import { revokeOwnSessionAction } from '@/features/auth/session-actions';
+import { revokeOwnSessionAction, adminRevokeSessionAction } from '@/features/auth/session-actions';
 import { updateMemberRolesAction, removeMemberAction, updateVenueSettingsAction } from '@/features/venues/actions';
 import { setDefaultQuotaAction } from '@/features/quotas/default-quota-actions';
 import type { VenueRole } from '@/features/auth/roles';
@@ -705,6 +705,21 @@ export function usePoRevokeOwnSession() {
       return throwOnActionError(await revokeOwnSessionAction(NO_PREV, fd));
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.sessions() }),
+  });
+}
+
+/** Admin remote-logout of a team member's session (#20 §5). The server action
+ *  re-asserts AAL2 and the RPC re-enforces admin-at-a-shared-venue. Invalidates
+ *  that member's session list so the row disappears on success. */
+export function usePoAdminRevokeSession(targetUserId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (sessionId: string) => {
+      const fd = new FormData();
+      fd.set('sessionId', sessionId);
+      return throwOnActionError(await adminRevokeSessionAction(NO_PREV, fd));
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.userSessions(targetUserId) }),
   });
 }
 

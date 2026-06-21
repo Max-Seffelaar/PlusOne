@@ -629,6 +629,24 @@ export async function fetchOwnSessions(client: Client): Promise<PoSessionRow[]> 
   }));
 }
 
+/** A team member's active sessions for the admin remote-logout screen. The
+ *  SECURITY DEFINER RPC re-enforces admin-at-a-shared-venue + AAL2 (it is the
+ *  real boundary); on denial it errors and we surface nothing. Callable from the
+ *  browser client — never marks rows as "current" (it is someone else's session). */
+export async function fetchUserSessions(client: Client, targetUserId: string): Promise<PoSessionRow[]> {
+  const { data } = await client.rpc('admin_list_user_sessions', { p_target: targetUserId });
+  return (data ?? []).map((s) => ({
+    session_id: s.session_id,
+    created_at: s.created_at,
+    updated_at: s.updated_at,
+    not_after: s.not_after,
+    user_agent: s.user_agent,
+    ip: s.ip,
+    aal: s.aal,
+    is_current: false,
+  }));
+}
+
 export type PoProfileRow = Pick<
   Tables['user_profiles']['Row'],
   'id' | 'full_name' | 'first_name' | 'last_name' | 'email' | 'phone'
