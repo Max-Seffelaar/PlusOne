@@ -16,6 +16,8 @@ export interface SidebarNavItem {
   href: string;
   label: string;
   icon: IconName;
+  /** Show a pulsing "LIVE" badge (the Event-dag cockpit when an event is live). */
+  live?: boolean;
 }
 
 const press = 'transition-[filter,transform,background,border-color,color] hover:brightness-[1.08] active:scale-[0.985]';
@@ -92,6 +94,12 @@ export function DashSidebar({
             >
               <Icon name={item.icon} size={19} sw={on ? 2.2 : 1.9} />
               {item.label}
+              {item.live && (
+                <span className="ml-auto inline-flex items-center gap-1.5 font-body text-[10.5px] font-extrabold tracking-[0.04em] text-acc">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-acc" />
+                  LIVE
+                </span>
+              )}
             </Link>
           );
         })}

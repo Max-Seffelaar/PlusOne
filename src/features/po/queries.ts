@@ -411,6 +411,38 @@ export async function fetchEventForEdit(
   };
 }
 
+export interface CheckinArrival {
+  /** plus_ones_arrived on the active check-in (actual companions present). */
+  arrived: number;
+  /** ISO check-in time, for "Binnen · HH:MM". */
+  at: string;
+}
+
+/**
+ * Active (non-voided) check-in arrivals for an event's guests, keyed by guest id.
+ * The cockpit (S13) uses this for the ACTUAL present headcount and partial-arrival
+ * display (a +3 guest with 1 companion present = 2 koppen binnen, not 4). check_ins
+ * carries no event_id, so we resolve the event's guest ids first (mirrors
+ * fetchDoorSnapshot). RLS still gates which check_ins are visible.
+ */
+export async function fetchCheckinArrivals(
+  client: Client,
+  eventId: string
+): Promise<Map<string, CheckinArrival>> {
+  const { data: guests } = await client.from('guests').select('id').eq('event_id', eventId);
+  const ids = (guests ?? []).map((g) => g.id);
+  const map = new Map<string, CheckinArrival>();
+  if (ids.length === 0) return map;
+  const { data } = await client
+    .from('check_ins')
+    .select('guest_id, plus_ones_arrived, checked_at, voided_at')
+    .in('guest_id', ids);
+  for (const row of data ?? []) {
+    if (row.voided_at == null) map.set(row.guest_id, { arrived: row.plus_ones_arrived, at: row.checked_at });
+  }
+  return map;
+}
+
 export type TierWithUsage = PoTierRow & { used: number };
 
 /**

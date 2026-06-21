@@ -4,7 +4,8 @@ import { getMyMemberships } from '@/lib/auth/memberships';
 import { getOnboardingState } from '@/lib/auth/onboarding';
 import { resolveActiveVenueId } from '@/lib/auth/active-venue';
 import { hasDashboardAccess, venueCapabilities } from '@/features/venues/access';
-import { isManager } from '@/features/auth/roles';
+import { canWorkDoor, isManager } from '@/features/auth/roles';
+import { createClient } from '@/lib/supabase/server';
 import { PendingInvitesBanner } from '@/features/auth/components/PendingInvitesBanner';
 import { DashSidebar, type SidebarNavItem } from '@/components/po/desktop/DashSidebar';
 
@@ -34,6 +35,21 @@ export default async function AppLayout({
   const canSeeReports = memberships.some(
     (m) => m.roles.includes('admin') || m.roles.includes('finance')
   );
+  // The Event-dag cockpit (S13) is for the door-working roles (admin/doorhost);
+  // organizers reach it via deep link. Show a LIVE dot only when an event is
+  // actually live in the active venue (cheap, server-computed; updates on nav).
+  const canSeeEventDay = memberships.some((m) => canWorkDoor(m.roles));
+  let hasLiveEvent = false;
+  if (canSeeEventDay && activeVenueId) {
+    const supabase = await createClient();
+    const { data: liveRows } = await supabase
+      .from('events')
+      .select('id')
+      .eq('venue_id', activeVenueId)
+      .eq('status', 'live')
+      .limit(1);
+    hasLiveEvent = (liveRows?.length ?? 0) > 0;
+  }
 
   const displayName =
     (ctx.user.user_metadata?.full_name as string | undefined) ?? ctx.user.email ?? 'Account';
@@ -44,6 +60,9 @@ export default async function AppLayout({
     { href: '/dashboard', label: 'Dashboard', icon: 'grid' },
     { href: '/events', label: 'Events', icon: 'cal' },
   ];
+  if (canSeeEventDay) {
+    nav.push({ href: '/eventday', label: 'Event-dag', icon: 'door', live: hasLiveEvent });
+  }
   if (canSeeReports) {
     nav.push(
       { href: '/admin/stats', label: 'Statistieken', icon: 'spark' },
