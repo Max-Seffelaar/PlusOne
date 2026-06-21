@@ -21,6 +21,8 @@ import {
   fetchTiersWithUsage,
   fetchPoGuests,
   fetchEventQuota,
+  fetchGuestRequests,
+  fetchQuotaRequests,
   fetchContacts,
   fetchContactKeyRows,
   fetchVenueMembers,
@@ -39,6 +41,8 @@ import {
   toPoGuest,
   toPoTier,
   toPoContact,
+  toPoGuestRequest,
+  toPoQuotaRequest,
   toRecap,
   tierRole,
   toPoTeamMember,
@@ -48,6 +52,8 @@ import {
   toPoVenueSettings,
   toPoSubscription,
   type PoContact,
+  type PoGuestRequest,
+  type PoQuotaRequest,
   type PoRecap,
   type PoTeamMember,
   type PoInvite,
@@ -208,6 +214,44 @@ export function usePoQuota(eventId: string) {
     queryKey: poKeys.quota(eventId),
     enabled: !!eventId,
     queryFn: () => fetchEventQuota(createClient(), eventId),
+  });
+}
+
+// ── Approvals reads (S5 Aanvragen, STAP 3.6) ──
+// Read VENUE-WIDE across all of the active venue's events (ids from usePoEvents,
+// already RLS-scoped to the venue), so the inbox can show "Alle events" + an
+// event picker. RLS still gates the requests themselves: a role without rights
+// gets [], so the screen shows an empty tab rather than an error. The mutation
+// hooks invalidate the [...all,'requests'] / [...all,'quota-requests'] prefix,
+// which matches these venue keys, so a decided request drops off on success.
+
+/** Pending landing-page guest requests across the active venue's events. */
+export function usePoGuestRequests() {
+  const { venueId } = usePoIdentity();
+  const events = usePoEvents();
+  const eventIds = (events.data ?? []).map((e) => e.id);
+  return useQuery<PoGuestRequest[]>({
+    queryKey: poKeys.requests(venueId ?? ''),
+    enabled: !!venueId && events.isSuccess,
+    queryFn: async () => {
+      const rows = await fetchGuestRequests(createClient(), eventIds);
+      return rows.map((r) => toPoGuestRequest(r));
+    },
+  });
+}
+
+/** Pending quota requests across the active venue's events. */
+export function usePoQuotaRequests() {
+  const { venueId } = usePoIdentity();
+  const events = usePoEvents();
+  const eventIds = (events.data ?? []).map((e) => e.id);
+  return useQuery<PoQuotaRequest[]>({
+    queryKey: poKeys.quotaRequests(venueId ?? ''),
+    enabled: !!venueId && events.isSuccess,
+    queryFn: async () => {
+      const rows = await fetchQuotaRequests(createClient(), eventIds);
+      return rows.map((r) => toPoQuotaRequest(r));
+    },
   });
 }
 

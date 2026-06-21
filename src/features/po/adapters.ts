@@ -5,6 +5,8 @@ import type {
   PoGuestRow,
   PoTierRow,
   PoContactRow,
+  PoGuestRequestRow,
+  PoQuotaRequestRow,
   RecapGuestRow,
   PoInviteRow,
   PoMemberRow,
@@ -273,6 +275,88 @@ export function toPoContact(row: PoContactRow): PoContact {
     birthdate: row.birthdate,
     note: row.note,
     preferredRole: row.preferred_role,
+  };
+}
+
+// ── Approvals adapters (S5 Aanvragen) ──
+// The mock request types carried relative timestamps + a few computed nudges.
+// We rebuild those from the live row: a compact Dutch "X min geleden" string
+// (pure — `now` is injectable for tests) and a single deterministic large-group
+// flag, so the polished inbox keeps its look without inventing data. Payment /
+// "notify the guest" copy is dropped: there is no ticketing or outbound mail (#10).
+
+/** Compact Dutch relative time ("zojuist" / "18 min geleden" / "3 dagen geleden"). */
+export function relativeTime(iso: string, now: Date = new Date()): string {
+  const diffMs = now.getTime() - new Date(iso).getTime();
+  const min = Math.floor(diffMs / 60_000);
+  if (min < 1) return 'zojuist';
+  if (min < 60) return `${min} min geleden`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} uur geleden`;
+  const days = Math.floor(hr / 24);
+  if (days === 1) return 'gisteren';
+  if (days < 7) return `${days} dagen geleden`;
+  return fmt(iso, { day: 'numeric', month: 'short' }).replace('.', '');
+}
+
+export interface PoGuestRequest {
+  id: string;
+  /** Event this request belongs to (for grouping + targeting the right tiers). */
+  eventId: string;
+  name: string;
+  /** Extra guests (+N); the headcount is 1 + plus. */
+  plus: number;
+  /** Last-4 phone digits as a privacy-light identity hint, or null. */
+  phoneLast4: string | null;
+  motivation: string;
+  /** Relative time of submission. */
+  at: string;
+  /** Open queue vs already-refused (still re-addable). */
+  status: 'pending' | 'denied';
+  /** The refusal reason when status is 'denied'; null otherwise. */
+  denyReason: string | null;
+  /** Deterministic nudge for a large party (+3 or more); absent otherwise. */
+  flag?: string;
+}
+
+export function toPoGuestRequest(row: PoGuestRequestRow, now?: Date): PoGuestRequest {
+  const digits = (row.phone ?? '').replace(/[^0-9]/g, '');
+  // request_status is pending | approved | denied; the query only returns the
+  // first and last, but narrow defensively so the screen never mislabels a row.
+  const status: 'pending' | 'denied' = row.status === 'denied' ? 'denied' : 'pending';
+  return {
+    id: row.id,
+    eventId: row.event_id,
+    name: row.full_name,
+    plus: row.plus_ones,
+    phoneLast4: digits.length >= 4 ? digits.slice(-4) : null,
+    motivation: row.motivation ?? '',
+    at: relativeTime(row.created_at, now),
+    status,
+    denyReason: status === 'denied' ? row.decision_reason : null,
+    flag: row.plus_ones >= 3 ? `Groot gezelschap (+${row.plus_ones})` : undefined,
+  };
+}
+
+export interface PoQuotaRequest {
+  id: string;
+  /** Event this request belongs to (for grouping + per-event invalidation). */
+  eventId: string;
+  who: string;
+  /** Extra slots requested (#5) — shown as "+N". */
+  extra: number;
+  reason: string;
+  at: string;
+}
+
+export function toPoQuotaRequest(row: PoQuotaRequestRow, now?: Date): PoQuotaRequest {
+  return {
+    id: row.id,
+    eventId: row.eventId,
+    who: row.requesterName,
+    extra: row.requestedExtra,
+    reason: row.motivation ?? '',
+    at: relativeTime(row.created_at, now),
   };
 }
 

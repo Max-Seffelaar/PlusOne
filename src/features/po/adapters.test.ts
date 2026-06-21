@@ -10,6 +10,9 @@ import {
   toPoTier,
   toPoContact,
   contactRoleToPo,
+  relativeTime,
+  toPoGuestRequest,
+  toPoQuotaRequest,
   toRecap,
   toRecapGuest,
   rolesLabel,
@@ -34,6 +37,8 @@ import type {
   PoProfileRow,
   PoVenueSettingsRow,
   PoSubscriptionRow,
+  PoGuestRequestRow,
+  PoQuotaRequestRow,
 } from './queries';
 import type { EventSummary, TierStat } from '@/features/stats/data';
 import type { Tier } from '@/lib/po/types';
@@ -504,5 +509,101 @@ describe('toPoSubscription', () => {
   it('humanises an out-of-catalog plan id (e.g. the seed pilot/comped venue)', () => {
     const row: PoSubscriptionRow = { status: 'comped', plan_id: 'pilot', current_period_end: null };
     expect(toPoSubscription(row, 'Club Vesper')).toMatchObject({ plan: 'Pilot', priceLabel: '—', status: 'comped' });
+  });
+});
+
+describe('relativeTime', () => {
+  // Fixed reference instant so the buckets are deterministic.
+  const now = new Date('2024-11-23T22:00:00Z');
+  const ago = (ms: number): string => new Date(now.getTime() - ms).toISOString();
+
+  it('buckets sub-minute as "zojuist" and minutes/hours/days in Dutch', () => {
+    expect(relativeTime(ago(30_000), now)).toBe('zojuist');
+    expect(relativeTime(ago(18 * 60_000), now)).toBe('18 min geleden');
+    expect(relativeTime(ago(3 * 3_600_000), now)).toBe('3 uur geleden');
+    expect(relativeTime(ago(26 * 3_600_000), now)).toBe('gisteren');
+    expect(relativeTime(ago(3 * 86_400_000), now)).toBe('3 dagen geleden');
+  });
+
+  it('falls back to an absolute short date past a week (Europe/Amsterdam)', () => {
+    expect(relativeTime('2024-11-12T10:00:00Z', now)).toBe('12 nov');
+  });
+
+  it('treats a future timestamp (clock skew) as "zojuist"', () => {
+    expect(relativeTime(ago(-60_000), now)).toBe('zojuist');
+  });
+});
+
+describe('toPoGuestRequest', () => {
+  const now = new Date('2024-11-23T22:00:00Z');
+  const base: PoGuestRequestRow = {
+    id: 'gr1',
+    event_id: 'ee1',
+    full_name: 'Mara Visser',
+    phone: '+31612344821',
+    plus_ones: 1,
+    motivation: 'Vriendin van de DJ',
+    created_at: new Date(now.getTime() - 18 * 60_000).toISOString(),
+    status: 'pending',
+    decision_reason: null,
+  };
+
+  it('maps a pending row, masks the phone to its last 4, and formats the time', () => {
+    expect(toPoGuestRequest(base, now)).toEqual({
+      id: 'gr1',
+      eventId: 'ee1',
+      name: 'Mara Visser',
+      plus: 1,
+      phoneLast4: '4821',
+      motivation: 'Vriendin van de DJ',
+      at: '18 min geleden',
+      status: 'pending',
+      denyReason: null,
+      flag: undefined,
+    });
+  });
+
+  it('surfaces the refusal reason only for a denied row', () => {
+    const denied = toPoGuestRequest({ ...base, status: 'denied', decision_reason: 'Lijst vol' }, now);
+    expect(denied).toMatchObject({ status: 'denied', denyReason: 'Lijst vol' });
+    // A pending row never carries a stale reason even if the column is set.
+    const pending = toPoGuestRequest({ ...base, status: 'pending', decision_reason: 'Lijst vol' }, now);
+    expect(pending).toMatchObject({ status: 'pending', denyReason: null });
+  });
+
+  it('flags a large party (+3 or more) and tolerates a null phone/motivation', () => {
+    const r = toPoGuestRequest({ ...base, phone: null, motivation: null, plus_ones: 3 }, now);
+    expect(r).toMatchObject({ phoneLast4: null, motivation: '', flag: 'Groot gezelschap (+3)' });
+  });
+
+  it('does not mask a phone too short to yield 4 digits', () => {
+    expect(toPoGuestRequest({ ...base, phone: '12' }, now).phoneLast4).toBeNull();
+  });
+});
+
+describe('toPoQuotaRequest', () => {
+  const now = new Date('2024-11-23T22:00:00Z');
+  const row: PoQuotaRequestRow = {
+    id: 'qr1',
+    eventId: 'ee1',
+    requestedExtra: 3,
+    motivation: 'Twee extra promo-koppels',
+    created_at: new Date(now.getTime() - 2 * 3_600_000).toISOString(),
+    requesterName: 'Joris Willems',
+  };
+
+  it('maps the requester, extra count, reason, and relative time', () => {
+    expect(toPoQuotaRequest(row, now)).toEqual({
+      id: 'qr1',
+      eventId: 'ee1',
+      who: 'Joris Willems',
+      extra: 3,
+      reason: 'Twee extra promo-koppels',
+      at: '2 uur geleden',
+    });
+  });
+
+  it('collapses a null motivation to an empty reason', () => {
+    expect(toPoQuotaRequest({ ...row, motivation: null }, now).reason).toBe('');
   });
 });

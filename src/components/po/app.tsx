@@ -201,7 +201,7 @@ export function PlusOneApp({
         screen = <BulkPaste eventId={p.id} />;
         break;
       case 'aanvragen':
-        screen = <Aanvragen />;
+        screen = <Aanvragen eventId={p.id} />;
         break;
       case 'eventedit':
         screen = <EventEdit id={p.id} isNew={p.isNew} />;
