@@ -60,7 +60,7 @@ The token/behaviour reference is `design-system.md` (repo root). The original Cl
 
 ## Launch plan & current status
 
-The full launch plan — STAP 0 status report, screen inventory (stable IDs S0–S12), design briefs, and STAP 1–4 with paste-ready per-task prompts — lives in `launchplan-claude-code.md` (repo root). Build state: backend + RLS + audit + quota-engine + door PWA + landing + stats + AVG are done and live on the **desktop**; the `po` **mobile** screens are being wired live per that plan (only Statistieken is live today). Work proceeds in separate sessions, one ClickUp task at a time.
+The full launch plan — STAP 0 status report, screen inventory (stable IDs S0–S12), design briefs, and STAP 1–4 with paste-ready per-task prompts — lives in `launchplan-claude-code.md` (repo root). Build state: backend + RLS + audit + quota-engine + door PWA + landing + stats + AVG are done and live on the **desktop**; the `po` **mobile** screens are being wired live per that plan (the core screens are now live — Events, Gastenlijst, Aanvragen, Deur/Taken, Adresboek, the Settings-cluster, Statistieken and the Audit-log; the launch plan's screen inventory tracks the remaining per-screen status). Work proceeds in separate sessions, one ClickUp task at a time.
 
 **Env (no staging).** One Supabase project — prod, ref `tolxwgqhppdcvnogdpel`; there is no staging DB. The app reads **plain** env names: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and server-only `SUPABASE_SERVICE_ROLE_KEY` — **not** the `_STAGING`/`_PROD`-suffixed names still shown in `.env.example` (stale). Local dev/tests run against the local Supabase stack; after a merge the schema is pushed to prod with `supabase db push`.
 

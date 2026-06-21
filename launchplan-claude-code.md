@@ -37,7 +37,7 @@ zijn klaar; de mobiele schermen zijn mock die op de bestaande live-actielaag bed
 
 Backend, RLS, audit, quota-engine, deur-PWA, landing, stats en AVG-anonimisering zijn in de code
 aanwezig en getest (28 migraties t/m `20260617030000`, pgTAP + Vitest). Desktop is daarop live bedraad;
-de mobiele `po`-schermen zijn mock (behalve Statistieken).
+de mobiele `po`-schermen worden sindsdien per scherm live bedraad (zie de inventaris hieronder — de meeste kern-schermen zijn inmiddels live).
 
 | Gebied (ClickUp) | ClickUp | Code | Verdict |
 |---|---|---|---|
@@ -79,7 +79,7 @@ de mobiele `po`-schermen zijn mock (behalve Statistieken).
 | 10 | Adresboek/contacten + vaste | — | ❌ | 🟡 mock | backend live, geen UI | live UI beide |
 | 11 | Import (CSV/telefoon) | — | ❌ | 🟡 stub | backend live | live import-UI |
 | 12 | Statistieken | `/admin/stats`,`/admin/overview` | ✅ | ✅ | live beide | charts polish |
-| 13 | Audit-log + geschiedenis | `/admin/audit` | ✅ | ❌ | desktop live | mobiel scherm |
+| 13 | Audit-log + geschiedenis | `/admin/audit` | ✅ | ✅ | live beide | ✅ mobiel live (PR #44) |
 | 14 | Gebruikers/rollen | `/admin/team` | ✅ | 🟡 Rollen stub | desktop live | mobiel + afmaken |
 | 15 | Venue-instellingen | `/admin/venue` | ✅ | 🟡 stub | desktop live | mobiel afmaken |
 | 16 | Sessies / remote logout | `/admin/sessions` | ✅ | ❌ | desktop live | mobiel scherm |
@@ -91,7 +91,7 @@ de mobiele `po`-schermen zijn mock (behalve Statistieken).
 | 22 | Billing/allowance | `/admin/venue` | 🟡 | 🟡 stub | stub | Fase 13 |
 
 **(a) Eén formaat:** alleen-desktop-live: 4–9, 14, 15, 17, 18; geen mobiel ontwerp: 13, 16. Alleen-mobiel
-(by design): 19, 21. **(b) Geen live UI op beide:** adresboek/import (10/11), mobiel audit (13), mobiel
+(by design): 19, 21. **(b) Geen live UI op beide:** adresboek/import (10/11), mobiel
 sessies (16). **(c) Onaf/stub:** EventBeheer, Aanvragen, VenueSettings, Import, Rollen, Billing, Profile,
 Contacten.
 
@@ -242,7 +242,7 @@ blokkeert bouw).
 | **S7** | Profiel + Sessies | 3.7 | ja (§4b#9,#7) | partial |
 | **S8** | Venue-instellingen | 3.8 | ja (§4b#5) | stub |
 | **S9** | EventBeheer/Edit/Tiers | 3.8 | ja (§4b#8) | stub |
-| **S10** | Mobiel Audit-log | 3.9 | ja (§4b#2) | geen |
+| **S10** | Mobiel Audit-log | 3.9 | ja (§4b#2) | ✅ live (PR #44) |
 | **S11** | Mobiel Dashboard-home | 3.9 | ja (§4b#1) | geen |
 | **S12** | Billing (read-only) | 3.10 | nee | stub |
 
