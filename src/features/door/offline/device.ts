@@ -15,6 +15,7 @@ import { createBrowserClient } from '@supabase/ssr';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { v7 as uuidv7 } from 'uuid';
 import type { Database } from '@/lib/database.types';
+import { REALTIME_EVENTS_PER_SECOND } from '@/lib/supabase/client';
 
 const DEVICE_KEY = 'plusone-device-id';
 
@@ -35,7 +36,12 @@ export function getDoorClient(): SupabaseClient<Database> {
   cached = createBrowserClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { global: { headers: { 'x-device-id': getDeviceId() } } },
+    {
+      global: { headers: { 'x-device-id': getDeviceId() } },
+      // Raise the realtime throttle (default 10 ev/s drops door bursts) — #0b.
+      // See REALTIME_EVENTS_PER_SECOND for the burst-test rationale.
+      realtime: { params: { eventsPerSecond: REALTIME_EVENTS_PER_SECOND } },
+    },
   );
   return cached;
 }

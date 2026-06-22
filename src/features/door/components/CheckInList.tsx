@@ -5,19 +5,30 @@
  * Beide/Onderweg/Ingecheckt toggle, live onderweg/binnen counters. Checked-in
  * guests stay visible but dim and, under "Beide", sink below an "AL BINNEN · N"
  * divider. Recreated from the prototype `Deur` screen using the shared kit.
+ *
+ * Perf (STAP 3.5b · #1a/#1b): at ~1500 guests the list is virtualized with
+ * `@tanstack/react-virtual` — the four sections are flattened into ONE tagged
+ * item array (`flattenCheckInItems`) and only the visible window of rows mounts.
+ * Search is debounced (the input stays instant; the expensive flatten runs on the
+ * settled term). Rendering changes only — the data/outbox flow is untouched.
  */
-import { Fragment, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { Icon } from '@/components/po/icon';
-import { Avatar, Label, PayChip, Scroll, StatusDot, Top } from '@/components/po/kit';
+import { Avatar, Label, PayChip, StatusDot, Top } from '@/components/po/kit';
 import { useDoor } from '../DoorProvider';
 import type { DoorGuest } from '../model';
-import { filterBySearch } from './fuzzy';
+import { flattenCheckInItems, partsLeft, type CheckInItem, type Filter } from './checkin-items';
 import { TierChip } from './TierChip';
 
 const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
 
-type Filter = 'both' | 'wait' | 'in';
+// Distinct estimates per item type so the virtualizer reserves close-to-real
+// space before measurement (header ≈ a thin divider, guest/refused ≈ a tall card).
+const HEADER_EST = 34;
+const GUEST_EST = 86;
 
 function Seg({ value, onChange }: { value: Filter; onChange: (v: Filter) => void }): JSX.Element {
   const items: [Filter, string][] = [
@@ -48,97 +59,18 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
   const { view, outboxByGuest, undoRefusal } = useDoor();
   const [q, setQ] = useState('');
   const [f, setF] = useState<Filter>('both');
+  // Input stays instant; the heavy flatten runs on the settled term (#1b).
+  const dq = useDebouncedValue(q, 140);
 
-  if (!view) return <ListSkeleton />;
-
-  const matched = filterBySearch(view.guests, q);
-  // Three door states: onderweg (niemand binnen), DEELS BINNEN (een deel van de
-  // groep is binnen, de rest komt nog) en helemaal binnen. "Deels binnen" is een
-  // eigen, niet-gedimde status zodat een half-ingecheckte groep niet lijkt op een
-  // groep die 100% binnen is (test-feedback Max, 19 jun) — de +1 die later komt
-  // is zo meteen terug te vinden.
-  const partsLeft = (g: DoorGuest): number => (g.inside ? Math.max(0, g.plus - (g.arrived ?? 0)) : 0);
-  const waiting = matched.filter((g) => !g.inside);
-  const partial = matched.filter((g) => g.inside && partsLeft(g) > 0);
-  const fullyIn = matched.filter((g) => g.inside && partsLeft(g) === 0);
-  // Partial is shown under every filter (it's both onderweg én binnen); waiting
-  // only under Beide/Onderweg, fully-in only under Beide/Ingecheckt.
-  const showWaiting = f === 'both' || f === 'wait';
-  const showFull = f === 'both' || f === 'in';
-  const visibleCount = (showWaiting ? waiting.length : 0) + partial.length + (showFull ? fullyIn.length : 0);
-  // Geweigerd — findable + ongedaan te maken; shown under Beide/Ingecheckt or any search.
-  const matchedRefused = filterBySearch(view.refused, q);
-  const showRefused = matchedRefused.length > 0 && (f === 'both' || f === 'in' || !!q);
-
-  const divider = (label: string): JSX.Element => (
-    <div className="mx-0.5 mb-0.5 mt-2 flex items-center gap-[10px]">
-      <div className="h-px flex-1 bg-line2" />
-      <span className="font-body text-[11px] font-bold tracking-[0.06em] text-ghost">{label}</span>
-      <div className="h-px flex-1 bg-line2" />
-    </div>
+  // Hooks must run before the early return, so derive against a stable fallback.
+  const guests = view?.guests;
+  const refused = view?.refused;
+  const flat = useMemo(
+    () => flattenCheckInItems(guests ?? [], refused ?? [], f, dq),
+    [guests, refused, f, dq],
   );
 
-  const row = (g: DoorGuest): JSX.Element => {
-    const isDuplicate = (outboxByGuest.get(g.id) ?? []).some((e) => e.status === 'duplicate');
-    const remaining = partsLeft(g);
-    const partly = g.inside && remaining > 0; // deels binnen — groep nog niet compleet
-    const fully = g.inside && remaining === 0; // helemaal binnen
-    return (
-      <button
-        key={g.id}
-        type="button"
-        onClick={() => onOpenGuest(g.id)}
-        className={cn(
-          'flex items-center gap-[13px] rounded-[16px] border p-[13px] text-left',
-          cardPress,
-          // Deels binnen: NIET gedimd + accent-rand (springt eruit). Helemaal
-          // binnen: gedimd. Onderweg: normaal.
-          partly ? 'bg-elev' : fully ? 'border-line2 bg-transparent opacity-[0.55]' : 'border-line bg-elev',
-        )}
-        style={partly ? { borderColor: 'rgba(181,166,255,0.45)' } : undefined}
-      >
-        <Avatar name={g.name} size={46} accent={!g.inside && g.tierName === 'VIP'} />
-        <div className="min-w-0 flex-1">
-          <div className={cn('truncate font-display text-[17px] font-bold', fully ? 'text-dim' : 'text-text')}>
-            {g.name}
-            {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
-          </div>
-          <div className="mt-[5px] flex flex-wrap items-center gap-1.5">
-            <TierChip name={g.tierName} color={g.tierColor} icon={g.tierIcon} />
-            {g.pay && !g.inside && <PayChip pay="pay" />}
-            {isDuplicate && (
-              <span className="rounded-[6px] border border-dashed border-line px-[7px] py-[2px] font-body text-[10px] font-bold tracking-[0.03em] text-faint">
-                DUPLICAAT
-              </span>
-            )}
-          </div>
-          <div className="mt-[5px] truncate font-body text-[11.5px]">
-            {partly ? (
-              <span className="font-semibold text-acc">
-                {1 + (g.arrived ?? 0)}/{1 + g.plus} binnen · nog {remaining} onderweg
-              </span>
-            ) : (
-              <span className="text-faint">
-                door {g.addedByName}
-                {g.last4 && ` · ••${g.last4}`}
-              </span>
-            )}
-          </div>
-        </div>
-        {partly ? (
-          <span className="shrink-0 rounded-[8px] bg-acc px-[10px] py-[6px] font-display text-[12px] font-bold text-on-acc">
-            nog {remaining}
-          </span>
-        ) : fully ? (
-          <StatusDot status="in" label={false} />
-        ) : (
-          <span className="text-acc">
-            <Icon name="chev" size={24} />
-          </span>
-        )}
-      </button>
-    );
-  };
+  if (!view) return <ListSkeleton />;
 
   return (
     <div className="flex h-full flex-col">
@@ -180,79 +112,225 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
         </div>
       </div>
       <Seg value={f} onChange={setF} />
-      <Scroll pad={20} bottom={100}>
-        <Label className="mb-[10px]">
-          {q
-            ? `${matched.length + matchedRefused.length} gevonden`
-            : f === 'in'
-              ? `${view.insideCount} ingecheckt`
-              : f === 'wait'
-                ? `${view.waitingCount} nog aan de deur`
-                : 'Volgende aan de deur'}
-        </Label>
-        <div className="flex flex-col gap-[9px]">
-          {/* Onderweg — onder Beide en Onderweg. */}
-          {showWaiting && waiting.map(row)}
-          {/* Deels binnen — onder álle filters (de groep is deels onderweg én deels binnen). */}
-          {partial.length > 0 && (
-            <Fragment>
-              {divider(`DEELS BINNEN · ${partial.length}`)}
-              {partial.map(row)}
-            </Fragment>
-          )}
-          {/* Helemaal binnen — onder Beide en Ingecheckt. */}
-          {showFull && fullyIn.length > 0 && (
-            <Fragment>
-              {divider(`AL BINNEN · ${fullyIn.length}`)}
-              {fullyIn.map(row)}
-            </Fragment>
-          )}
-          {/* Geweigerd — terug te vinden + ongedaan te maken. */}
-          {showRefused && (
-            <Fragment>
-              {divider(`GEWEIGERD · ${matchedRefused.length}`)}
-              {matchedRefused.map((g) => (
-                <div
-                  key={g.id}
-                  className="flex items-center gap-[13px] rounded-[16px] border border-line2 bg-transparent p-[13px]"
-                >
-                  <Avatar name={g.name} size={46} />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-display text-[17px] font-bold text-dim">
-                      {g.name}
-                      {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
-                    </div>
-                    <div className="mt-[5px] truncate font-body text-[11.5px] text-faint">
-                      Geweigerd{g.refusedReason ? ` · ${g.refusedReason}` : ''}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => undoRefusal(g.id)}
-                    className="shrink-0 rounded-[10px] border border-acc-soft bg-acc-dim px-[12px] py-[8px] font-display text-[12px] font-bold text-acc transition-[filter,transform] hover:brightness-[1.12] active:scale-[0.97]"
-                  >
-                    Ongedaan
-                  </button>
-                </div>
-              ))}
-            </Fragment>
-          )}
-          {visibleCount === 0 && !showRefused && (
-            <div className="py-[30px] text-center text-[14px] text-faint">
-              {q ? 'Geen gast gevonden.' : f === 'in' ? 'Nog niemand ingecheckt.' : 'Iedereen is binnen 🎉'}
-            </div>
-          )}
-        </div>
-      </Scroll>
+      <VirtualBody
+        flat={flat}
+        q={dq}
+        filter={f}
+        view={view}
+        outboxByGuest={outboxByGuest}
+        onOpenGuest={onOpenGuest}
+        undoRefusal={undoRefusal}
+      />
     </div>
   );
 }
 
+/** The scrollable, virtualized list region (its own scroll parent for the virtualizer). */
+function VirtualBody({
+  flat,
+  q,
+  filter,
+  view,
+  outboxByGuest,
+  onOpenGuest,
+  undoRefusal,
+}: {
+  flat: ReturnType<typeof flattenCheckInItems>;
+  q: string;
+  filter: Filter;
+  view: NonNullable<ReturnType<typeof useDoor>['view']>;
+  outboxByGuest: ReturnType<typeof useDoor>['outboxByGuest'];
+  onOpenGuest: (id: string) => void;
+  undoRefusal: (id: string) => void;
+}): JSX.Element {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const { items, matchedCount } = flat;
+
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: (i) => (items[i]?.type === 'header' ? HEADER_EST : GUEST_EST),
+    overscan: 8,
+    // Stable keys so a check-in flip / reorder re-uses measurements correctly.
+    getItemKey: (i) => items[i]?.key ?? i,
+  });
+
+  const renderRow = (item: CheckInItem): JSX.Element => {
+    if (item.type === 'header') return divider(item.label);
+    if (item.type === 'refused') return refusedRow(item.g, undoRefusal);
+    return guestRow(item.g, outboxByGuest, onOpenGuest);
+  };
+
+  return (
+    <div ref={scrollRef} className="po-scroll min-h-0 flex-1 overflow-y-auto" style={{ padding: '0 20px 100px' }}>
+      <Label className="mb-[10px]">
+        {q
+          ? `${matchedCount} gevonden`
+          : filter === 'in'
+            ? `${view.insideCount} ingecheckt`
+            : filter === 'wait'
+              ? `${view.waitingCount} nog aan de deur`
+              : 'Volgende aan de deur'}
+      </Label>
+      {items.length === 0 ? (
+        <div className="py-[30px] text-center text-[14px] text-faint">
+          {q ? 'Geen gast gevonden.' : filter === 'in' ? 'Nog niemand ingecheckt.' : 'Iedereen is binnen 🎉'}
+        </div>
+      ) : (
+        <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
+          {virtualizer.getVirtualItems().map((vi) => {
+            const item = items[vi.index];
+            if (!item) return null;
+            return (
+              <div
+                key={vi.key}
+                data-index={vi.index}
+                ref={virtualizer.measureElement}
+                style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}
+              >
+                {/* gap between cards lived in `flex gap-[9px]`; reproduce as bottom padding. */}
+                <div className={item.type === 'header' ? '' : 'pb-[9px]'}>{renderRow(item)}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function divider(label: string): JSX.Element {
+  return (
+    <div className="mx-0.5 mb-[9px] mt-2 flex items-center gap-[10px]">
+      <div className="h-px flex-1 bg-line2" />
+      <span className="font-body text-[11px] font-bold tracking-[0.06em] text-ghost">{label}</span>
+      <div className="h-px flex-1 bg-line2" />
+    </div>
+  );
+}
+
+function guestRow(
+  g: DoorGuest,
+  outboxByGuest: ReturnType<typeof useDoor>['outboxByGuest'],
+  onOpenGuest: (id: string) => void,
+): JSX.Element {
+  const isDuplicate = (outboxByGuest.get(g.id) ?? []).some((e) => e.status === 'duplicate');
+  const remaining = partsLeft(g);
+  const partly = g.inside && remaining > 0; // deels binnen — groep nog niet compleet
+  const fully = g.inside && remaining === 0; // helemaal binnen
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenGuest(g.id)}
+      className={cn(
+        'flex w-full items-center gap-[13px] rounded-[16px] border p-[13px] text-left',
+        cardPress,
+        // Deels binnen: NIET gedimd + accent-rand (springt eruit). Helemaal
+        // binnen: gedimd. Onderweg: normaal.
+        partly ? 'bg-elev' : fully ? 'border-line2 bg-transparent opacity-[0.55]' : 'border-line bg-elev',
+      )}
+      style={partly ? { borderColor: 'rgba(181,166,255,0.45)' } : undefined}
+    >
+      <Avatar name={g.name} size={46} accent={!g.inside && g.tierName === 'VIP'} />
+      <div className="min-w-0 flex-1">
+        <div className={cn('truncate font-display text-[17px] font-bold', fully ? 'text-dim' : 'text-text')}>
+          {g.name}
+          {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
+        </div>
+        <div className="mt-[5px] flex flex-wrap items-center gap-1.5">
+          <TierChip name={g.tierName} color={g.tierColor} icon={g.tierIcon} />
+          {g.pay && !g.inside && <PayChip pay="pay" />}
+          {isDuplicate && (
+            <span className="rounded-[6px] border border-dashed border-line px-[7px] py-[2px] font-body text-[10px] font-bold tracking-[0.03em] text-faint">
+              DUPLICAAT
+            </span>
+          )}
+        </div>
+        <div className="mt-[5px] truncate font-body text-[11.5px]">
+          {partly ? (
+            <span className="font-semibold text-acc">
+              {1 + (g.arrived ?? 0)}/{1 + g.plus} binnen · nog {remaining} onderweg
+            </span>
+          ) : (
+            <span className="text-faint">
+              door {g.addedByName}
+              {g.last4 && ` · ••${g.last4}`}
+            </span>
+          )}
+        </div>
+      </div>
+      {partly ? (
+        <span className="shrink-0 rounded-[8px] bg-acc px-[10px] py-[6px] font-display text-[12px] font-bold text-on-acc">
+          nog {remaining}
+        </span>
+      ) : fully ? (
+        <StatusDot status="in" label={false} />
+      ) : (
+        <span className="text-acc">
+          <Icon name="chev" size={24} />
+        </span>
+      )}
+    </button>
+  );
+}
+
+function refusedRow(g: DoorGuest, undoRefusal: (id: string) => void): JSX.Element {
+  return (
+    <div className="flex items-center gap-[13px] rounded-[16px] border border-line2 bg-transparent p-[13px]">
+      <Avatar name={g.name} size={46} />
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-display text-[17px] font-bold text-dim">
+          {g.name}
+          {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
+        </div>
+        <div className="mt-[5px] truncate font-body text-[11.5px] text-faint">
+          Geweigerd{g.refusedReason ? ` · ${g.refusedReason}` : ''}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => undoRefusal(g.id)}
+        className="shrink-0 rounded-[10px] border border-acc-soft bg-acc-dim px-[12px] py-[8px] font-display text-[12px] font-bold text-acc transition-[filter,transform] hover:brightness-[1.12] active:scale-[0.97]"
+      >
+        Ongedaan
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Loading skeleton — reserves roughly the same vertical space as the loaded
+ * header area (two stat tiles + search field + segment control) so the
+ * skeleton→content swap doesn't shift layout (helps the deur-CLS goal).
+ */
 function ListSkeleton(): JSX.Element {
   return (
     <div className="flex h-full flex-col">
       <Top big title="Check-in" sub="Laden…" />
-      <div className="px-5 pt-10 text-center text-[14px] text-faint">Gastenlijst laden…</div>
+      {/* stat tiles */}
+      <div className="flex flex-none gap-[10px] px-5 pb-[14px]">
+        <div className="h-[66px] flex-1 animate-pulse rounded-[14px] border border-line bg-elev" />
+        <div className="h-[66px] flex-1 animate-pulse rounded-[14px] bg-acc-dim" />
+      </div>
+      {/* search field */}
+      <div className="flex-none px-5 pb-3">
+        <div className="h-[50px] animate-pulse rounded-field border border-line bg-elev" />
+      </div>
+      {/* segment control */}
+      <div className="flex flex-none gap-1.5 px-5 pb-[14px]">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="h-[37px] flex-1 animate-pulse rounded-full border border-line bg-elev" />
+        ))}
+      </div>
+      {/* a few placeholder rows */}
+      <div className="min-h-0 flex-1 overflow-hidden px-5">
+        <div className="mb-[10px] h-[14px] w-[140px] animate-pulse rounded bg-elev2" />
+        <div className="flex flex-col gap-[9px]">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="h-[74px] animate-pulse rounded-[16px] border border-line bg-elev" />
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

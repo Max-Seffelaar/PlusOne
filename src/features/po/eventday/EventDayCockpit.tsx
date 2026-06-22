@@ -8,9 +8,11 @@
  * outbox — desktop is online), lock/approvals through the existing server actions.
  * RLS is the boundary; affordances hide for roles without the right (see below).
  */
-import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { Icon, type IconName } from '@/components/po/icon';
 import { Avatar, Label } from '@/components/po/kit';
 import { DBtn, DCard } from '@/components/po/desktop/kit';
@@ -56,6 +58,9 @@ import {
 const press = 'transition-[filter,transform,background,border-color,color] hover:brightness-[1.08] active:scale-[0.985]';
 const DENY_REASON = 'Afgewezen vanuit cockpit';
 const EMPTY_ARRIVALS: ReadonlyMap<string, { arrived: number; at: string }> = new Map();
+// Stable fallbacks so the memoized `filtered` list doesn't recompute every render
+// when the query has no data yet (keeps the virtualized list cheap).
+const EMPTY_GUESTS: Guest[] = [];
 
 // ── Entry gate: resolve the live (→ next → recent) event, then mount the cockpit ──
 export function EventDayCockpitGate(): JSX.Element {
@@ -103,7 +108,7 @@ function EventDayCockpit({ event }: { event: PoDoorEvent }): JSX.Element {
   const canCheckIn = canWorkDoor(roles) || canManage; // admin/doorhost + organizer; RLS still decides
   const canSeeStats = canManage || roles.includes('finance');
 
-  const guests = usePoGuests(eventId).data ?? [];
+  const guests = usePoGuests(eventId).data ?? EMPTY_GUESTS;
   const tiers = usePoTiers(eventId).data ?? [];
   const stats = usePoEventStats(eventId).data;
   const arrivals = usePoCheckinArrivals(eventId).data ?? EMPTY_ARRIVALS;
@@ -127,10 +132,13 @@ function EventDayCockpit({ event }: { event: PoDoorEvent }): JSX.Element {
   const [toast, setToast] = useState<string | null>(null);
   const [stepper, setStepper] = useState<{ guest: Guest; count: number } | null>(null);
 
+  // Debounce only the value that drives the expensive filter; the input + the
+  // Enter-to-checkin handler keep the live `q` so typing stays instant (#1b).
+  const dq = useDebouncedValue(q, 140);
   const tiles = cockpitTiles(guests, arrivals);
   const counts = cockpitCounts(guests);
   const tierRows = perTierLive(guests, tiers, arrivals);
-  const filtered = filterCockpit(guests, statF, tierF, q);
+  const filtered = useMemo(() => filterCockpit(guests, statF, tierF, dq), [guests, statF, tierF, dq]);
   // Cheap to rebuild per render; role → tier chip display (colour + short label).
   const tierDisplay = new Map(tiers.map((t) => [t.role, { color: t.color, short: t.short }]));
   const defaultTierId = tiers.find((t) => t.isDefault)?.id ?? tiers[0]?.id ?? null;
@@ -384,79 +392,16 @@ function EventDayCockpit({ event }: { event: PoDoorEvent }): JSX.Element {
             ))}
           </div>
 
-          <div className="max-h-[560px] overflow-y-auto">
-            {filtered.map((g) => {
-              const isIn = g.status === 'in';
-              const td = tierDisplay.get(g.role);
-              const arr = arrivals.get(g.id);
-              const arrivedCount = arr ? arr.arrived : g.plus;
-              const partial = isIn && arrivedCount < g.plus;
-              const atLabel = arr?.at ? amsterdamHM(new Date(arr.at)) : g.at;
-              return (
-                <div
-                  key={g.id}
-                  className={cn(
-                    'grid grid-cols-[1fr_120px_150px_96px] items-center border-b border-line2 px-[18px] py-3 transition-colors duration-500',
-                    flashId === g.id && 'bg-acc-dim'
-                  )}
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <Avatar name={g.name} size={38} accent={isIn} />
-                    <div className="min-w-0">
-                      <div className="truncate font-display text-[15px] font-bold text-text">
-                        {g.name}
-                        {g.plus > 0 && <span className="font-extrabold text-acc"> +{g.plus}</span>}
-                      </div>
-                      <div className="truncate text-[11.5px] text-faint">
-                        {g.note || (g.by ? `Toegevoegd door ${g.by}` : '—')}
-                      </div>
-                    </div>
-                  </div>
-                  <div>
-                    <span className="inline-flex items-center gap-[7px] font-body text-[12.5px] font-bold text-dim">
-                      <span
-                        className="h-2 w-2 rounded-full"
-                        style={{ background: td?.color ?? 'rgba(255,255,255,0.26)' }}
-                      />
-                      {td?.short ?? g.role}
-                    </span>
-                  </div>
-                  <div>
-                    {isIn ? (
-                      <div>
-                        <span className="inline-flex items-center gap-1.5 font-body text-[12.5px] font-bold text-acc">
-                          <Icon name="check" size={13} sw={2.6} />
-                          Binnen{partial ? ` · ${arrivedCount + 1}/${g.plus + 1}` : ''}
-                          {atLabel ? ` · ${atLabel}` : ''}
-                        </span>
-                        {g.inBy && <div className="text-[11px] text-faint">door {g.inBy}</div>}
-                      </div>
-                    ) : (
-                      <span className="inline-flex items-center gap-[7px] text-[12.5px] text-faint">
-                        <span className="h-2 w-2 rounded-full border-[1.5px] border-ghost" />
-                        Onderweg
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex justify-end gap-[7px]">
-                    {canCheckIn ? (
-                      <>
-                        <ChkBtn kind="in" active={isIn} onClick={() => onCheckInClick(g)} />
-                        <ChkBtn kind="out" active={!isIn} onClick={() => doVoid(g)} />
-                      </>
-                    ) : (
-                      <span className="text-[11px] text-ghost">—</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-            {filtered.length === 0 && (
-              <div className="px-4 py-11 text-center text-[14px] text-faint">
-                {guests.length === 0 ? 'Nog geen gasten op de lijst.' : 'Geen gasten voor deze filter.'}
-              </div>
-            )}
-          </div>
+          <CockpitGuestList
+            rows={filtered}
+            totalGuests={guests.length}
+            arrivals={arrivals}
+            tierDisplay={tierDisplay}
+            flashId={flashId}
+            canCheckIn={canCheckIn}
+            onCheckInClick={onCheckInClick}
+            onVoid={doVoid}
+          />
 
           <div className="flex min-h-[44px] items-center gap-[10px] border-t border-line px-[18px] py-[11px]">
             {feed.length > 0 ? (
@@ -634,6 +579,132 @@ function EventDayCockpit({ event }: { event: PoDoorEvent }): JSX.Element {
 }
 
 // ── Small building blocks ───────────────────────────────────────────────────────
+
+// Rows are ~73px (avatar 38 + py-3 + two text lines); estimate close to that so
+// the virtualizer reserves the right space before measuring.
+const COCKPIT_ROW_EST = 73;
+
+/**
+ * Virtualized cockpit guest list (STAP 3.5b · #1a). Windows the rows inside the
+ * 560px scroll area so ~1500 guests don't all mount; dynamic measurement keeps
+ * partial/2-line rows aligned. Rendering only — check-in/out, flash highlight and
+ * the empty state are unchanged.
+ */
+function CockpitGuestList({
+  rows,
+  totalGuests,
+  arrivals,
+  tierDisplay,
+  flashId,
+  canCheckIn,
+  onCheckInClick,
+  onVoid,
+}: {
+  rows: Guest[];
+  totalGuests: number;
+  arrivals: ReadonlyMap<string, { arrived: number; at: string }>;
+  tierDisplay: Map<string, { color: string; short: string }>;
+  flashId: string | null;
+  canCheckIn: boolean;
+  onCheckInClick: (g: Guest) => void;
+  onVoid: (g: Guest) => void;
+}): JSX.Element {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => COCKPIT_ROW_EST,
+    overscan: 10,
+    getItemKey: (i) => rows[i]?.id ?? i,
+  });
+
+  return (
+    <div ref={scrollRef} className="max-h-[560px] overflow-y-auto">
+      {rows.length === 0 ? (
+        <div className="px-4 py-11 text-center text-[14px] text-faint">
+          {totalGuests === 0 ? 'Nog geen gasten op de lijst.' : 'Geen gasten voor deze filter.'}
+        </div>
+      ) : (
+        <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
+          {virtualizer.getVirtualItems().map((vi) => {
+            const g = rows[vi.index];
+            if (!g) return null;
+            const isIn = g.status === 'in';
+            const td = tierDisplay.get(g.role);
+            const arr = arrivals.get(g.id);
+            const arrivedCount = arr ? arr.arrived : g.plus;
+            const partial = isIn && arrivedCount < g.plus;
+            const atLabel = arr?.at ? amsterdamHM(new Date(arr.at)) : g.at;
+            return (
+              <div
+                key={vi.key}
+                data-index={vi.index}
+                ref={virtualizer.measureElement}
+                style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}
+              >
+                <div
+                  className={cn(
+                    'grid grid-cols-[1fr_120px_150px_96px] items-center border-b border-line2 px-[18px] py-3 transition-colors duration-500',
+                    flashId === g.id && 'bg-acc-dim'
+                  )}
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <Avatar name={g.name} size={38} accent={isIn} />
+                    <div className="min-w-0">
+                      <div className="truncate font-display text-[15px] font-bold text-text">
+                        {g.name}
+                        {g.plus > 0 && <span className="font-extrabold text-acc"> +{g.plus}</span>}
+                      </div>
+                      <div className="truncate text-[11.5px] text-faint">
+                        {g.note || (g.by ? `Toegevoegd door ${g.by}` : '—')}
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="inline-flex items-center gap-[7px] font-body text-[12.5px] font-bold text-dim">
+                      <span
+                        className="h-2 w-2 rounded-full"
+                        style={{ background: td?.color ?? 'rgba(255,255,255,0.26)' }}
+                      />
+                      {td?.short ?? g.role}
+                    </span>
+                  </div>
+                  <div>
+                    {isIn ? (
+                      <div>
+                        <span className="inline-flex items-center gap-1.5 font-body text-[12.5px] font-bold text-acc">
+                          <Icon name="check" size={13} sw={2.6} />
+                          Binnen{partial ? ` · ${arrivedCount + 1}/${g.plus + 1}` : ''}
+                          {atLabel ? ` · ${atLabel}` : ''}
+                        </span>
+                        {g.inBy && <div className="text-[11px] text-faint">door {g.inBy}</div>}
+                      </div>
+                    ) : (
+                      <span className="inline-flex items-center gap-[7px] text-[12.5px] text-faint">
+                        <span className="h-2 w-2 rounded-full border-[1.5px] border-ghost" />
+                        Onderweg
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex justify-end gap-[7px]">
+                    {canCheckIn ? (
+                      <>
+                        <ChkBtn kind="in" active={isIn} onClick={() => onCheckInClick(g)} />
+                        <ChkBtn kind="out" active={!isIn} onClick={() => onVoid(g)} />
+                      </>
+                    ) : (
+                      <span className="text-[11px] text-ghost">—</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function LiveClock(): JSX.Element {
   const [now, setNow] = useState(() => new Date());

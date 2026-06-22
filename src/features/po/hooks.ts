@@ -82,6 +82,7 @@ import { usePoIdentity } from './PoLiveProvider';
 import { fetchEventStats } from '@/features/stats/data';
 import { eventKpis, toPerKwartier, type PerKwartier } from '@/features/stats/po-adapter';
 import { getDoorClient } from '@/features/door/offline/device';
+import { shouldRefetchOnStatus, type ChannelStatus } from '@/features/door/sync/reconnect';
 
 /** Existing-contact dedup keys for the import preview, mirroring the DB's
  *  email-first-else-phone matching (upsert_contacts). Two sets so a parsed row can
@@ -369,6 +370,8 @@ export function usePoEventRealtime(eventId: string): { realtimeConnected: boolea
     const client = getDoorClient();
     let cancelled = false;
     let channel: ReturnType<typeof client.channel> | null = null;
+    // Previous channel status → refetch on resubscribe after a drop (#0b).
+    let prevStatus: ChannelStatus | null = null;
 
     void client.auth.getSession().then(({ data }) => {
       if (cancelled) return;
@@ -391,7 +394,12 @@ export function usePoEventRealtime(eventId: string): { realtimeConnected: boolea
         )
         .on('postgres_changes', { event: '*', schema: 'public', table: 'check_ins' }, invalidate)
         .subscribe((st) => {
-          if (!cancelled) setRealtimeConnected(st === 'SUBSCRIBED');
+          if (cancelled) return;
+          // Heal a missed burst: a resubscribe after a drop replays nothing, so
+          // refetch the 4 cockpit queries to close the gap (#0b).
+          if (shouldRefetchOnStatus(prevStatus, st)) invalidate();
+          prevStatus = st;
+          setRealtimeConnected(st === 'SUBSCRIBED');
         });
     });
 

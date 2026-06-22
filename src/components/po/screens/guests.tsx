@@ -2,9 +2,11 @@
 
 /** Guest list, guest detail (read-only logboek — check-in lives at the door,
  *  Deur tab), quick-add (#33), bulk-paste, adresboek, permanente gasten. */
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { v7 as uuidv7 } from 'uuid';
 import { cn } from '@/lib/utils';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 import type { Guest as GuestT, PoEvent } from '@/lib/po/types';
 import { normalizeImportPhone } from '@/features/contacts/import/parse';
 import type { ContactRole } from '@/features/contacts/schemas';
@@ -78,17 +80,28 @@ function DupeOption({ on, onClick, title, sub }: { on: boolean; onClick: () => v
 }
 
 // ── GUEST LIST (pushed) ──────────────────────────────────────────────────────
+type GuestFilter = 'all' | 'wait' | 'in' | 'vip';
+
+/** Pure filter for the gastenlijst — extracted so it's memoizable + testable. */
+function filterGuestList(guests: GuestT[], f: GuestFilter, q: string): GuestT[] {
+  let gs = guests.filter(
+    (g) => f === 'all' || (f === 'in' && g.status === 'in') || (f === 'wait' && g.status === 'wait') || (f === 'vip' && g.role === 'VIP'),
+  );
+  const term = q.trim().toLowerCase();
+  if (term) gs = gs.filter((g) => g.name.toLowerCase().includes(term));
+  return gs;
+}
+
 export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
   const nav = useNav();
   const { data: guests = [], isLoading, isError } = usePoGuests(ev.id);
   const [q, setQ] = useState('');
-  const [f, setF] = useState<'all' | 'wait' | 'in' | 'vip'>('all');
-  // Live data: a guest's own status (checked_in → 'in') drives in/wait, not the
-  // prototype's mock door set — the live door outbox arrives in STAP 3.5.
-  let gs = guests.filter(
-    (g) => f === 'all' || (f === 'in' && g.status === 'in') || (f === 'wait' && g.status === 'wait') || (f === 'vip' && g.role === 'VIP'),
-  );
-  if (q) gs = gs.filter((g) => g.name.toLowerCase().includes(q.toLowerCase()));
+  const [f, setF] = useState<GuestFilter>('all');
+  // Input stays instant; the expensive filter runs on the settled term (#1b).
+  // Live data: a guest's own status (checked_in → 'in') drives in/wait.
+  const dq = useDebouncedValue(q, 140);
+  const gs = useMemo(() => filterGuestList(guests, f, dq), [guests, f, dq]);
+  const openGuest = (id: string): void => nav.push('guest', { id, eventId: ev.id });
   return (
     <div className={col}>
       <Top onBack={nav.back} title="Gastenlijst" sub={`${ev.name} · ${gs.length} getoond van ${guests.length}`} right={<IconBtn name="plus" onClick={() => nav.push('quickadd', { id: ev.id })} />} />
@@ -116,19 +129,59 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
           </Btn>
         </div>
       </div>
-      <Scroll pad={16} bottom={24}>
-        {isLoading ? (
+      {isLoading ? (
+        <Scroll pad={16} bottom={24}>
           <Empty text="Gasten laden…" />
-        ) : isError ? (
+        </Scroll>
+      ) : isError ? (
+        <Scroll pad={16} bottom={24}>
           <Empty text="Kon de gastenlijst niet laden." />
-        ) : gs.length === 0 ? (
+        </Scroll>
+      ) : gs.length === 0 ? (
+        <Scroll pad={16} bottom={24}>
           <Empty text={q || f !== 'all' ? 'Geen gasten gevonden.' : 'Nog geen gasten — voeg de eerste toe.'} />
-        ) : (
-          <>
-            {/* Mobile: stacked cards. */}
-            <div className="flex flex-col gap-[9px] lg:hidden">
-              {gs.map((g) => (
-                <button key={g.id} type="button" onClick={() => nav.push('guest', { id: g.id, eventId: ev.id })} className={cn('flex items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[12px] text-left', cardPress)}>
+        </Scroll>
+      ) : (
+        <>
+          {/* Mobile: virtualized stacked cards (the @1500 case). */}
+          <GuestCardList rows={gs} onOpen={openGuest} />
+          {/* Desktop: virtualized dense table — more rows per screen + a "toegevoegd door" column. */}
+          <GuestTable rows={gs} onOpen={openGuest} />
+        </>
+      )}
+    </div>
+  );
+}
+
+// Mobile card ≈ avatar 42 + p-12 + two lines; desktop row ≈ avatar 36 + py-11.
+const GUEST_CARD_EST = 74;
+const GUEST_ROW_EST = 58;
+
+/** Virtualized mobile card list (own scroll parent → the virtualizer windows it). */
+function GuestCardList({ rows, onOpen }: { rows: GuestT[]; onOpen: (id: string) => void }): JSX.Element {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => GUEST_CARD_EST,
+    overscan: 8,
+    getItemKey: (i) => rows[i]?.id ?? i,
+  });
+  return (
+    <div ref={scrollRef} className="po-scroll min-h-0 flex-1 overflow-y-auto lg:hidden" style={{ padding: '0 16px 24px' }}>
+      <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
+        {virtualizer.getVirtualItems().map((vi) => {
+          const g = rows[vi.index];
+          if (!g) return null;
+          return (
+            <div
+              key={vi.key}
+              data-index={vi.index}
+              ref={virtualizer.measureElement}
+              style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}
+            >
+              <div className="pb-[9px]">
+                <button type="button" onClick={() => onOpen(g.id)} className={cn('flex w-full items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[12px] text-left', cardPress)}>
                   <Avatar name={g.name} size={42} accent={g.role === 'VIP'} />
                   <div className="min-w-0 flex-1">
                     <div className="font-display text-[15.5px] font-bold text-text">
@@ -151,66 +204,93 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
                     <StatusDot status={g.status} label={false} />
                   )}
                 </button>
-              ))}
+              </div>
             </div>
-            {/* Desktop: dense table — more rows per screen + a "toegevoegd door" column. */}
-            <div className="hidden overflow-hidden rounded-[16px] border border-line bg-elev lg:block">
-              <table className="w-full border-collapse text-left">
-                <thead>
-                  <tr className="bg-elev2 [&>th]:px-3 [&>th]:py-[11px] [&>th]:font-body [&>th]:text-[11px] [&>th]:font-bold [&>th]:uppercase [&>th]:tracking-[0.04em] [&>th]:text-faint">
-                    <th className="!pl-4">Gast</th>
-                    <th>Rol</th>
-                    <th>Betaling</th>
-                    <th>Toegevoegd</th>
-                    <th className="!pr-4 text-right">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {gs.map((g) => (
-                    <tr
-                      key={g.id}
-                      onClick={() => nav.push('guest', { id: g.id, eventId: ev.id })}
-                      className="cursor-pointer border-t border-line2 transition-colors hover:bg-elev2 [&>td]:px-3 [&>td]:py-[11px] [&>td]:align-middle"
-                    >
-                      <td className="!pl-4">
-                        <div className="flex items-center gap-[11px]">
-                          <Avatar name={g.name} size={36} accent={g.role === 'VIP'} />
-                          <span className="min-w-0">
-                            <span className="font-display text-[14.5px] font-bold text-text">
-                              {g.name}
-                              {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
-                            </span>
-                            {g.note && (
-                              <span className="mt-0.5 block max-w-[280px] truncate text-[12px] text-acc-soft">{g.note}</span>
-                            )}
-                          </span>
-                        </div>
-                      </td>
-                      <td>
-                        <RoleChip role={g.role} />
-                      </td>
-                      <td>{g.pay === 'pay' ? <PayChip pay="pay" /> : <span className="text-[12.5px] text-faint">—</span>}</td>
-                      <td>
-                        <span className="text-[13px] text-dim">{g.by || '—'}</span>
-                        {g.addedAt && <span className="ml-1.5 font-display text-[12px] text-faint">{g.addedAt}</span>}
-                      </td>
-                      <td className="!pr-4 text-right">
-                        {g.status === 'refused' ? (
-                          <span className="rounded-[7px] border border-line2 px-2 py-[3px] font-body text-[11px] font-bold text-faint">Geweigerd</span>
-                        ) : (
-                          <span className="inline-flex justify-end">
-                            <StatusDot status={g.status} />
-                          </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Virtualized desktop table. The header stays sticky; the rows window inside the
+ * scroll area as a positioned <tbody> (absolute <tr>s with translateY) so we keep
+ * a real <table> for column sizing while only mounting the visible rows. Rows use
+ * a CSS grid (matching the header columns) since absolute <tr>s leave normal
+ * table layout.
+ */
+function GuestTable({ rows, onOpen }: { rows: GuestT[]; onOpen: (id: string) => void }): JSX.Element {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => GUEST_ROW_EST,
+    overscan: 12,
+    getItemKey: (i) => rows[i]?.id ?? i,
+  });
+  const cols = 'grid-cols-[1fr_120px_120px_170px_110px]';
+  return (
+    <div ref={scrollRef} className="po-scroll hidden min-h-0 flex-1 overflow-y-auto lg:block" style={{ padding: '0 16px 24px' }}>
+      <div className="overflow-hidden rounded-[16px] border border-line bg-elev">
+        <table className="w-full border-collapse text-left">
+          <thead className="sticky top-0 z-[1]">
+            <tr className={cn('grid bg-elev2', cols, '[&>th]:px-3 [&>th]:py-[11px] [&>th]:font-body [&>th]:text-[11px] [&>th]:font-bold [&>th]:uppercase [&>th]:tracking-[0.04em] [&>th]:text-faint')}>
+              <th className="!pl-4">Gast</th>
+              <th>Rol</th>
+              <th>Betaling</th>
+              <th>Toegevoegd</th>
+              <th className="!pr-4 text-right">Status</th>
+            </tr>
+          </thead>
+          <tbody className="block" style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+            {virtualizer.getVirtualItems().map((vi) => {
+              const g = rows[vi.index];
+              if (!g) return null;
+              return (
+                <tr
+                  key={vi.key}
+                  data-index={vi.index}
+                  ref={virtualizer.measureElement}
+                  onClick={() => onOpen(g.id)}
+                  className={cn('grid w-full cursor-pointer items-center border-t border-line2 transition-colors hover:bg-elev2', cols, '[&>td]:px-3 [&>td]:py-[11px] [&>td]:align-middle')}
+                  style={{ position: 'absolute', top: 0, left: 0, transform: `translateY(${vi.start}px)` }}
+                >
+                  <td className="!pl-4">
+                    <div className="flex items-center gap-[11px]">
+                      <Avatar name={g.name} size={36} accent={g.role === 'VIP'} />
+                      <span className="min-w-0">
+                        <span className="font-display text-[14.5px] font-bold text-text">
+                          {g.name}
+                          {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
+                        </span>
+                        {g.note && (
+                          <span className="mt-0.5 block max-w-[280px] truncate text-[12px] text-acc-soft">{g.note}</span>
                         )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-      </Scroll>
+                      </span>
+                    </div>
+                  </td>
+                  <td>
+                    <RoleChip role={g.role} />
+                  </td>
+                  <td>{g.pay === 'pay' ? <PayChip pay="pay" /> : <span className="text-[12.5px] text-faint">—</span>}</td>
+                  <td>
+                    <span className="text-[13px] text-dim">{g.by || '—'}</span>
+                    {g.addedAt && <span className="ml-1.5 font-display text-[12px] text-faint">{g.addedAt}</span>}
+                  </td>
+                  <td className="!pr-4 flex justify-end text-right">
+                    {g.status === 'refused' ? (
+                      <span className="rounded-[7px] border border-line2 px-2 py-[3px] font-body text-[11px] font-bold text-faint">Geweigerd</span>
+                    ) : (
+                      <StatusDot status={g.status} />
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
