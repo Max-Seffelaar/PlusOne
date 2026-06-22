@@ -73,3 +73,40 @@ describe('planBulkAdd', () => {
     expect(plan.inserts).toEqual([]);
   });
 });
+
+// Quick-add (S2.2) reuses the same planner with a SINGLE row, so the one-name
+// flow is just these single-row cases. The screen detects a dupe via the same
+// byName index (lookup on the normalized typed name) and only then offers the
+// 3-choice; these assertions pin the insert-vs-update split per choice.
+describe('quick-add single-row planning', () => {
+  it('no match → one insert, no update (plain add)', () => {
+    const plan = planBulkAdd([row('Nieuwe Gast', 2)], byName, 'again');
+    expect(plan.dupeCount).toBe(0);
+    expect(plan.inserts.map((r) => r.name)).toEqual(['Nieuwe Gast']);
+    expect(plan.updates).toEqual([]);
+  });
+
+  it("dupe + 'add' → update only, plekken on top of the existing count", () => {
+    const plan = planBulkAdd([row('Anouk Smit', 1)], byName, 'add');
+    expect(plan.inserts).toEqual([]);
+    expect(plan.updates).toEqual([{ guestId: 'g1', plusOnes: 3 }]); // 2 + 1
+  });
+
+  it("dupe + 'replace' → update only, plekken set to the typed value", () => {
+    const plan = planBulkAdd([row('Anouk Smit', 4)], byName, 'replace');
+    expect(plan.inserts).toEqual([]);
+    expect(plan.updates).toEqual([{ guestId: 'g1', plusOnes: 4 }]);
+  });
+
+  it("dupe + 'again' → insert a fresh row, no update (different person, same name)", () => {
+    const plan = planBulkAdd([row('Anouk Smit', 0)], byName, 'again');
+    expect(plan.updates).toEqual([]);
+    expect(plan.inserts.map((r) => r.name)).toEqual(['Anouk Smit']);
+    expect(plan.dupeCount).toBe(1);
+  });
+
+  it('detection: a single typed name flags only when it matches an existing guest', () => {
+    expect(suspectedDuplicates([row('Anouk Smit')], byName)).toEqual(['Anouk Smit']);
+    expect(suspectedDuplicates([row('Onbekend Persoon')], byName)).toEqual([]);
+  });
+});
