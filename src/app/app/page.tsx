@@ -62,6 +62,8 @@ export default async function AppPage(): Promise<JSX.Element> {
         liveVenueName={active?.venueName ?? undefined}
         liveUserName={userName}
         liveUserSub={userSub}
+        myVenues={memberships.map((m) => ({ id: m.venueId, name: m.venueName, roles: m.roles }))}
+        activeVenueId={activeVenueId}
       />
     </PoLiveProvider>
   );

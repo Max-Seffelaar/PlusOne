@@ -251,7 +251,8 @@ export function Aanvragen({ eventId }: { eventId?: string }): JSX.Element {
             {openG === 0 ? (
               <Empty text={q ? `Geen open aanvragen voor “${search.trim()}”.` : 'Geen open aanvragen 🎉'} />
             ) : (
-              pendingG.map((r) => (
+              <div className="flex flex-col gap-[11px] lg:grid lg:grid-cols-2 lg:gap-[11px] lg:items-start">
+              {pendingG.map((r) => (
                 <div
                   key={r.id}
                   className="rounded-[18px] border border-line bg-elev p-[15px]"
@@ -286,7 +287,8 @@ export function Aanvragen({ eventId }: { eventId?: string }): JSX.Element {
                     </Btn>
                   </div>
                 </div>
-              ))
+              ))}
+              </div>
             )}
 
             {deniedG.length > 0 && (
@@ -300,7 +302,7 @@ export function Aanvragen({ eventId }: { eventId?: string }): JSX.Element {
                   <Icon name="chevD" size={16} className={cn('text-ghost transition-transform', showDenied && 'rotate-180')} />
                 </button>
                 {showDenied && (
-                  <div className="flex flex-col gap-[11px]">
+                  <div className="flex flex-col gap-[11px] lg:grid lg:grid-cols-2 lg:gap-[11px] lg:items-start">
                     {deniedG.map((r) => (
                       <div key={r.id} className="rounded-[18px] border border-line bg-elev p-[15px]">
                         {showAllEvents && <EventTag name={nameById.get(r.eventId) ?? 'Event'} />}
@@ -333,7 +335,8 @@ export function Aanvragen({ eventId }: { eventId?: string }): JSX.Element {
             {openQ === 0 ? (
               <Empty text={q ? `Geen verzoeken voor “${search.trim()}”.` : 'Geen open quotum-verzoeken.'} />
             ) : (
-              scopeQ.map((r) => (
+              <div className="flex flex-col gap-[11px] lg:grid lg:grid-cols-2 lg:gap-[11px] lg:items-start">
+              {scopeQ.map((r) => (
                 <div key={r.id} className="rounded-[18px] border border-line bg-elev p-[15px]">
                   {showAllEvents && <EventTag name={nameById.get(r.eventId) ?? 'Event'} />}
                   <div className="mb-[11px] flex items-center gap-[11px]">
@@ -357,7 +360,8 @@ export function Aanvragen({ eventId }: { eventId?: string }): JSX.Element {
                     </Btn>
                   </div>
                 </div>
-              ))
+              ))}
+              </div>
             )}
           </div>
         )}

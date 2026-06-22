@@ -80,19 +80,21 @@ async function otherAdminCount(venueId: string, excludeUserId: string): Promise<
 }
 
 /**
- * Persist the nav venue switcher (decision #1). Validates the id is a UUID and
- * one of the caller's own memberships before writing the cookie — a forged
- * value is ignored. No PII in the cookie; RLS still scopes every read.
+ * Persist the active-venue choice (decision #1). Validates the id is a UUID and
+ * one of the caller's own memberships before writing the cookie — a forged value
+ * is ignored, so the switcher can never select a venue the user lacks access to.
+ * No PII in the cookie; RLS still scopes every read. Shared by the desktop form
+ * action and the po surface's programmatic switcher.
  */
-export async function setActiveVenueAction(formData: FormData): Promise<void> {
+async function persistActiveVenue(venueId: unknown): Promise<boolean> {
   const user = await getSessionUser();
-  if (!user) return;
+  if (!user) return false;
 
-  const parsed = setActiveVenueSchema.safeParse({ venueId: formData.get('venueId') });
-  if (!parsed.success) return;
+  const parsed = setActiveVenueSchema.safeParse({ venueId });
+  if (!parsed.success) return false;
 
   const memberships = await getMyMemberships();
-  if (!memberships.some((m) => m.venueId === parsed.data.venueId)) return;
+  if (!memberships.some((m) => m.venueId === parsed.data.venueId)) return false;
 
   const cookieStore = await cookies();
   cookieStore.set(ACTIVE_VENUE_COOKIE, parsed.data.venueId, {
@@ -103,6 +105,22 @@ export async function setActiveVenueAction(formData: FormData): Promise<void> {
     maxAge: 60 * 60 * 24 * 365,
   });
   revalidatePath('/', 'layout');
+  return true;
+}
+
+/** Form-action variant for the desktop `<form action>` switcher (returns void). */
+export async function setActiveVenueAction(formData: FormData): Promise<void> {
+  await persistActiveVenue(formData.get('venueId'));
+}
+
+/**
+ * Programmatic variant for the po surface (S3.1): callable from a client onClick
+ * with a plain id. After it resolves ok, the caller does router.refresh() so the
+ * /app server component re-resolves identity from the new cookie and every
+ * venue-scoped query (events, gastenlijst, billing, team) re-fetches.
+ */
+export async function setActiveVenue(venueId: string): Promise<{ ok: boolean }> {
+  return { ok: await persistActiveVenue(venueId) };
 }
 
 /**

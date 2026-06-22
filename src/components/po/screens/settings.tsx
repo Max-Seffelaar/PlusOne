@@ -4,7 +4,7 @@
  *  persoonlijke gegevens + sessies, abonnement & facturen, importeren. */
 import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { account, allowance as allowanceData, venues } from '@/lib/po/data';
+import { account, allowance as allowanceData } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
 import { VENUE_ROLES, ROLE_LABELS, canGrantRoles, requiresMfa, type VenueRole } from '@/features/auth/roles';
 import { venueCapabilities } from '@/features/venues/access';
@@ -112,14 +112,14 @@ function RolePicker({
 // ── MEER (settings tab) ──────────────────────────────────────────────────────
 export function Meer(): JSX.Element {
   const nav = useNav();
-  const { venue, statsVenues } = usePo();
+  const { venue, myVenues, statsVenues } = usePo();
   const { venueName, roles } = usePoIdentity();
   const canAudit = venueCapabilities(roles).viewAudit;
   const profile = usePoProfile();
   const subQ = usePoSubscription();
   const v = venue;
-  // Live active-venue name + plan for the header card (the switcher behind it is
-  // still mock — separate venue-switcher task).
+  // Live active-venue name + plan for the header card; the switcher behind it is
+  // now wired to the caller's real memberships (S3.1).
   const displayVenue = venueName ?? v.name;
   const planLabel = subQ.data?.plan ?? null;
   const billingSub = subQ.data
@@ -174,7 +174,7 @@ export function Meer(): JSX.Element {
         />
         <Row icon="user" title="Persoonlijke gegevens" sub="Profiel, e-mail & sessies" onClick={() => nav.push('profile')} />
         <Row icon="cal" title="Events & tiers" sub="Events aanmaken, tiers en aliassen" onClick={() => nav.push('eventbeheer')} />
-        <Row icon="building" title="Venues" sub={`${venues.length} locaties · wisselen`} onClick={() => nav.push('venueswitch')} />
+        <Row icon="building" title="Venues" sub={`${myVenues.length} ${myVenues.length === 1 ? 'locatie' : 'locaties'} · wisselen`} onClick={() => nav.push('venueswitch')} />
         <Row icon="cog" title="Venue beheren" sub="Naam, AVG-bewaartermijn, standaarden" onClick={() => nav.push('venuesettings')} />
         <Row icon="users" title="Gebruikers" sub="Uitnodigen, rollen en MFA" onClick={() => nav.push('gebruikers')} accent />
         {roles.includes('admin') && (
@@ -634,55 +634,63 @@ export function Allowance(): JSX.Element {
   );
 }
 
-// ── VENUE SWITCHER (pushed) ──────────────────────────────────────────────────
+// ── VENUE SWITCHER (pushed) — S3.1, live ─────────────────────────────────────
+// Lists the caller's real memberships (myVenues) and the live active venue.
+// Switching persists the cookie + re-scopes the whole live layer (events,
+// gastenlijst, billing, team) via router.refresh() in app.tsx's switchVenue.
 export function VenueSwitch(): JSX.Element {
   const nav = useNav();
-  const { venue, switchVenue } = usePo();
+  const { myVenues, activeVenueId, switchVenue, switching } = usePo();
+  const activeName = myVenues.find((v) => v.id === activeVenueId)?.name ?? 'je venue';
   return (
     <div className={col}>
       <Top onBack={nav.back} title="Venues" sub="Wissel tussen je locaties" right={<IconBtn name="plus" onClick={() => nav.push('venuecreate')} />} />
       <Scroll bottom={24}>
         <Note icon="building">
-          Je werkt nu in <b>{venue.name}</b>. Je account staat los van de venue — wisselen verandert niets aan je toegang elders.
+          Je werkt nu in <b>{activeName}</b>. Je account staat los van de venue — wisselen verandert niets aan je toegang elders.
         </Note>
-        <Label className="mb-[10px]">Jouw venues · {venues.length}</Label>
-        <div className="flex flex-col gap-[10px]">
-          {venues.map((v) => {
-            const cur = v.id === venue.id;
-            return (
-              <div key={v.id} className={cn('rounded-[18px] border p-[15px]', cur ? 'border-transparent bg-acc-dim' : 'border-line bg-elev')}>
-                <div className="flex items-center gap-[13px]">
-                  <Avatar name={v.name} size={46} accent={cur} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <div className="font-display text-[16.5px] font-bold text-text">{v.name}</div>
-                      {cur && <MiniChip className="border-transparent bg-white/[0.10] text-acc">HUIDIG</MiniChip>}
-                    </div>
-                    <div className={cn('mt-0.5 text-[12.5px]', cur ? 'text-dim' : 'text-faint')}>
-                      {v.city} · {v.plan} · {v.events} events
+        <Label className="mb-[10px]">Jouw venues · {myVenues.length}</Label>
+        {myVenues.length === 0 ? (
+          <Empty text="Je hoort nog bij geen enkele venue." />
+        ) : (
+          <div className="flex flex-col gap-[10px]">
+            {myVenues.map((v) => {
+              const cur = v.id === activeVenueId;
+              return (
+                <div key={v.id} className={cn('rounded-[18px] border p-[15px]', cur ? 'border-transparent bg-acc-dim' : 'border-line bg-elev')}>
+                  <div className="flex items-center gap-[13px]">
+                    <Avatar name={v.name} size={46} accent={cur} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <div className="font-display text-[16.5px] font-bold text-text">{v.name}</div>
+                        {cur && <MiniChip className="border-transparent bg-white/[0.10] text-acc">HUIDIG</MiniChip>}
+                      </div>
+                      <div className={cn('mt-0.5 text-[12.5px]', cur ? 'text-dim' : 'text-faint')}>
+                        {cur ? 'Je werkt hier nu' : 'Wissel om hier te werken'}
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="mt-[13px] flex flex-wrap items-center gap-[7px]">
-                  <div className="flex flex-1 flex-wrap gap-1.5">
-                    {v.roles.map((ro) => (
-                      <MiniChip key={ro}>{ro}</MiniChip>
-                    ))}
+                  <div className="mt-[13px] flex flex-wrap items-center gap-[7px]">
+                    <div className="flex flex-1 flex-wrap gap-1.5">
+                      {v.roles.map((ro) => (
+                        <MiniChip key={ro}>{ROLE_LABELS[ro]}</MiniChip>
+                      ))}
+                    </div>
+                    {cur ? (
+                      <Btn sm kind="ghost" icon="cog" onClick={() => nav.push('venuesettings', { id: v.id })}>
+                        Beheren
+                      </Btn>
+                    ) : (
+                      <Btn sm kind="primary" icon="swap" disabled={switching} onClick={() => switchVenue(v.id)}>
+                        {switching ? 'Wisselen…' : 'Wissel'}
+                      </Btn>
+                    )}
                   </div>
-                  {cur ? (
-                    <Btn sm kind="ghost" icon="cog" onClick={() => nav.push('venuesettings', { id: v.id })}>
-                      Beheren
-                    </Btn>
-                  ) : (
-                    <Btn sm kind="primary" icon="swap" onClick={() => switchVenue(v)}>
-                      Wissel
-                    </Btn>
-                  )}
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
         <Btn kind="dark" full icon="plus" className="mt-[14px]" onClick={() => nav.push('venuecreate')}>
           Nieuwe venue toevoegen
         </Btn>
