@@ -15,7 +15,8 @@ import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canWorkDoor } from '@/features/auth/roles';
 import { DoorProvider } from '@/features/door/DoorProvider';
 import { DoorQueryProvider } from '@/features/door/DoorQueryProvider';
-import { PoProvider, type AuthNav, type AuthView, type Nav, type PoApp, type ScreenName, type StackEntry } from './context';
+import { setActiveVenueAction } from '@/features/venues/actions';
+import { PoProvider, type AuthNav, type AuthView, type Nav, type PoApp, type PoVenueMembership, type ScreenName, type StackEntry } from './context';
 import { PhoneFrame, Toast, type TabKey } from './shell';
 import { Top } from './kit';
 import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
@@ -96,12 +97,18 @@ function DoorTabState({ title, text }: { title: string; text: string }): JSX.Ele
 
 export function PlusOneApp({
   statsAccess,
+  myVenues = [],
+  activeVenueId = null,
   serverHint = false,
   liveVenueName,
   liveUserName,
   liveUserSub,
 }: {
   statsAccess?: { venues: { venueId: string; venueName: string }[] };
+  /** The caller's real venue memberships (live), for the venue switcher (#1). */
+  myVenues?: PoVenueMembership[];
+  /** The active (cookie-resolved) venue id, or null. */
+  activeVenueId?: string | null;
   /** Server UA hint for the first-paint viewport switch (corrected by matchMedia). */
   serverHint?: boolean;
   /** Live active-venue name from the session (shell display); mock fallback otherwise. */
@@ -215,6 +222,20 @@ export function PlusOneApp({
     nav.back();
   };
 
+  // Switch the ACTIVE venue for real (#1): write the server cookie, then full-reload
+  // so app/page.tsx re-resolves the identity and every live query re-scopes to the
+  // new venue. (Local state alone can't re-scope server-resolved identity.)
+  const switchToVenue = (venueId: string): void => {
+    if (venueId === activeVenueId) {
+      nav.back();
+      return;
+    }
+    setToast('Wisselen…');
+    const fd = new FormData();
+    fd.set('venueId', venueId);
+    void setActiveVenueAction(fd).then(() => window.location.assign('/app'));
+  };
+
   const ev = (id?: string) => events.find((e) => e.id === id);
   const guest = (id?: string) => (liveGuests ?? []).find((g) => g.id === id);
 
@@ -321,7 +342,15 @@ export function PlusOneApp({
   // non-door role (showDoor=false) the tabs are hidden, so fall back to the home.
   else screen = <Home />;
 
-  const po: PoApp = { venue, switchVenue, statsVenues: statsAccess?.venues ?? [], nav };
+  const po: PoApp = {
+    venue,
+    switchVenue,
+    statsVenues: statsAccess?.venues ?? [],
+    myVenues,
+    activeVenueId,
+    switchToVenue,
+    nav,
+  };
 
   const body = (
     <>

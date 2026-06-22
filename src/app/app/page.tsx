@@ -58,6 +58,8 @@ export default async function AppPage(): Promise<JSX.Element> {
     <PoLiveProvider identity={identity}>
       <PlusOneApp
         statsAccess={{ venues: venues.map((v) => ({ venueId: v.venueId, venueName: v.venueName })) }}
+        myVenues={memberships.map((m) => ({ venueId: m.venueId, venueName: m.venueName, roles: m.roles }))}
+        activeVenueId={activeVenueId}
         serverHint={serverHint}
         liveVenueName={active?.venueName ?? undefined}
         liveUserName={userName}

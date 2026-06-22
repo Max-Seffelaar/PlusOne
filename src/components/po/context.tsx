@@ -9,6 +9,7 @@
 import { createContext, useContext } from 'react';
 import type { TabKey } from './shell';
 import type { Venue } from '@/lib/po/types';
+import type { VenueRole } from '@/features/auth/roles';
 
 export type ScreenName =
   | 'event'
@@ -64,10 +65,24 @@ export interface AuthNav {
   start: () => void;
 }
 
+/** A venue the signed-in user belongs to (live membership), for the switcher (#1). */
+export interface PoVenueMembership {
+  venueId: string;
+  venueName: string;
+  roles: VenueRole[];
+}
+
 export interface PoApp {
   venue: Venue;
   switchVenue: (v: Venue) => void;
   statsVenues: { venueId: string; venueName: string }[];
+  /** The caller's real venue memberships (live) — drives the venue switcher. */
+  myVenues: PoVenueMembership[];
+  /** The active (cookie-resolved) venue id, or null. */
+  activeVenueId: string | null;
+  /** Switch the active venue server-side (cookie) + full reload, so every live
+   *  query re-scopes to the new venue (#1). A no-op for the already-active venue. */
+  switchToVenue: (venueId: string) => void;
   nav: Nav;
 }
 
