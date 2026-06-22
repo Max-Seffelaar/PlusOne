@@ -32,6 +32,30 @@ export function arrivedHeads(g: Guest, arrivals: ArrivalsByGuest): number {
   return 1 + (a ? a.arrived : g.plus || 0);
 }
 
+/** Koppen currently inside for a guest: their present arrivals, or 0 when the
+ *  guest is not (yet) checked in. Drives the in-/uitcheck modals (S1.2). */
+export function insideHeads(g: Guest, arrivals: ArrivalsByGuest): number {
+  return g.status === 'in' ? arrivedHeads(g, arrivals) : 0;
+}
+
+/** The party math behind the cockpit's quantified in-/uitcheck modals (S1.2):
+ *  full party koppen, how many are already inside, and how many are still
+ *  onderweg. Pure so "X van Y binnen · nog Z" stays unit-tested. */
+export interface PartyState {
+  /** Full registered party (1 + plus_ones). */
+  totalHeads: number;
+  /** Koppen already inside (0 when onderweg). */
+  insideHeads: number;
+  /** Still to arrive (totalHeads − insideHeads). */
+  remaining: number;
+}
+
+export function partyState(g: Guest, arrivals: ArrivalsByGuest): PartyState {
+  const totalHeads = heads(g);
+  const inside = insideHeads(g, arrivals);
+  return { totalHeads, insideHeads: inside, remaining: totalHeads - inside };
+}
+
 /** Guests that count toward tonight (everything except refused). */
 function onList(guests: Guest[]): Guest[] {
   return guests.filter((g) => g.status !== 'refused');

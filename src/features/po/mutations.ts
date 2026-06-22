@@ -349,6 +349,56 @@ export function usePoVoidCheckIn(eventId: string) {
   });
 }
 
+export interface PoCheckOutInput {
+  guestId: string;
+  /** Koppen that STAY inside after the check-out. 0 = everyone leaves (full void). */
+  remainingHeads: number;
+}
+
+/**
+ * Partial or full check-out from the cockpit (S1.2). The check_ins model is one
+ * row per guest with a MONOTONE plus_ones_arrived (offline-safety, #25), so there
+ * is no in-place "lower the count". A full check-out is a soft-void (#3); a partial
+ * check-out is modelled honestly as void + re-checkin of the smaller party — the
+ * revive-aware cap trigger resets arrivals fresh, so the count can drop. Online
+ * only (no outbox): optimistic flip + invalidate, RLS (incl. the S1.1 uncheck gate)
+ * decides. Not atomic across the two writes; on a mid-failure the guest is left
+ * onderweg and the error surfaces — the host re-checks-in.
+ */
+export function usePoCheckOut(eventId: string) {
+  const qc = useQueryClient();
+  const { userId } = usePoIdentity();
+  return useMutation<void, Error, PoCheckOutInput, CheckinCtx>({
+    mutationFn: async ({ guestId, remainingHeads }) => {
+      const gw = supabaseGateway(getDoorClient());
+      const voided = classifyError((await gw.voidCheckIn(guestId, userId)).error);
+      if (voided.status === 'error' || voided.status === 'pending') {
+        throw new Error(voided.message ?? 'Uitchecken mislukt.');
+      }
+      if (remainingHeads >= 1) {
+        const revived = classifyError(
+          (await gw.reviveCheckIn(guestId, remainingHeads - 1, userId)).error
+        );
+        if (revived.status === 'error' || revived.status === 'pending') {
+          throw new Error(revived.message ?? 'Uitchecken mislukt.');
+        }
+      }
+    },
+    onMutate: async ({ guestId, remainingHeads }) => {
+      await qc.cancelQueries({ queryKey: poKeys.guests(eventId) });
+      return remainingHeads <= 0
+        ? optimisticCheckin(qc, eventId, guestId, 'wait', 0)
+        : optimisticCheckin(qc, eventId, guestId, 'in', remainingHeads - 1);
+    },
+    onError: (_err, _input, ctx) => {
+      if (!ctx) return;
+      qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
+      qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
+    },
+    onSettled: () => invalidateAfterCheckin(qc, eventId),
+  });
+}
+
 /** A check-in/void/top-up changes the present count, tier occupancy, arrivals + chart. */
 function invalidateAfterCheckin(qc: QueryClient, eventId: string): void {
   void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
