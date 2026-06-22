@@ -49,6 +49,7 @@ import {
   createTier,
   deleteTier,
   setAutoLock,
+  setEventAllowUncheck,
   setLandingActive,
   setListLock,
   updateEvent,
@@ -60,6 +61,7 @@ import type {
   CreateTierInput,
   DeleteTierInput,
   SetAutoLockInput,
+  SetAllowUncheckInput,
   SetLandingActiveInput,
   SetLockInput,
   UpdateEventInput,
@@ -553,6 +555,16 @@ export function usePoSetAutoLock(eventId: string) {
   });
 }
 
+/** Set/clear the per-event "uitchecken toestaan" override (#3 / S1.1). null inherits
+ *  the venue default. Invalidates the event so the cockpit's effective gate refreshes. */
+export function usePoSetAllowUncheck(eventId: string) {
+  const invalidate = useInvalidateEvent();
+  return useMutation({
+    mutationFn: async (input: SetAllowUncheckInput) => throwOnError(await setEventAllowUncheck(input)),
+    onSuccess: () => invalidate(eventId),
+  });
+}
+
 export function usePoCreateTier(eventId: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -738,6 +750,7 @@ export interface PoVenueSettingsInput {
   name: string;
   retentionMonths: number;
   defaultPersonalQuota: number;
+  allowUncheck: boolean;
   companyName: string;
   kvkNumber: string;
   vatNumber: string;
@@ -760,6 +773,7 @@ export function usePoUpdateVenueSettings() {
       fd.set('name', input.name);
       fd.set('retentionMonths', String(input.retentionMonths));
       fd.set('defaultPersonalQuota', String(input.defaultPersonalQuota));
+      fd.set('allowUncheck', String(input.allowUncheck));
       fd.set('companyName', input.companyName);
       fd.set('kvkNumber', input.kvkNumber);
       fd.set('vatNumber', input.vatNumber);

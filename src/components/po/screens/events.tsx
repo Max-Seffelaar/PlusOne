@@ -16,12 +16,14 @@ import {
   usePoChangeStatus,
   usePoCreateEvent,
   usePoCreateTier,
+  usePoSetAllowUncheck,
   usePoSetAutoLock,
   usePoSetLandingActive,
   usePoSetListLock,
   usePoUpdateEvent,
   usePoUpdateTier,
 } from '@/features/po/mutations';
+import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canWorkDoor } from '@/features/auth/roles';
 import { allowedTransitions, STATUS_DESCRIPTIONS, STATUS_LABELS, type EventStatus } from '@/features/events/status';
@@ -264,6 +266,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const setLandingActive = usePoSetLandingActive(editId);
   const setListLock = usePoSetListLock(editId);
   const setAutoLock = usePoSetAutoLock(editId);
+  const setAllowUncheck = usePoSetAllowUncheck(editId);
 
   const [name, setName] = useState('');
   const [dateStr, setDateStr] = useState('');
@@ -273,6 +276,9 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const [autoDate, setAutoDate] = useState('');
   const [autoTime, setAutoTime] = useState('');
   const [locked, setLocked] = useState(false);
+  // Per-event "uitchecken toestaan" override: true/false force it, null inherits
+  // the venue default (#3 / S1.1). An immediate operational control like the lock.
+  const [uncheckOverride, setUncheckOverride] = useState<boolean | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -285,6 +291,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     setTimeStr(t);
     setLandingOn(ev.landingActive);
     setLocked(ev.listLocked);
+    setUncheckOverride(ev.allowUncheckOverride);
     const [ad, at] = splitLocal(ev.autoLockAt);
     setAutoOn(!!ev.autoLockAt);
     setAutoDate(ad);
@@ -300,6 +307,9 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const writable = isNew ? isAdmin : canManage;
   const venueLabel = isNew ? venueName ?? '' : ev?.venueName ?? '';
   const saving = createEvent.isPending || updateEvent.isPending;
+  // Uitchecken toestaan: effective = override ?? venue default ?? true (#3 / S1.1).
+  const venueDefaultUncheck = ev?.venueAllowUncheck ?? true;
+  const effectiveUncheck = resolveAllowUncheck(uncheckOverride, venueDefaultUncheck);
 
   // Name + start (+ landing/auto-lock as config) commit together on save; list-lock
   // and status are immediate operational controls (mirrors the desktop split).
@@ -345,6 +355,19 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     } catch (e) {
       setLocked(!v);
       setErr(e instanceof Error ? e.message : 'Kon de lijst niet (ont)grendelen.');
+    }
+  };
+
+  // Set (true/false) or clear (null = follow company default) the uncheck override.
+  const toggleUncheck = async (next: boolean | null): Promise<void> => {
+    const prev = uncheckOverride;
+    setUncheckOverride(next);
+    setErr(null);
+    try {
+      await setAllowUncheck.mutateAsync({ eventId: editId, allowUncheck: next });
+    } catch (e) {
+      setUncheckOverride(prev);
+      setErr(e instanceof Error ? e.message : 'Kon de uitcheck-instelling niet wijzigen.');
     }
   };
 
@@ -500,8 +523,29 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
                 sub={locked ? 'Staff kan niet meer muteren — admin/host/deur wel' : 'Typisch bij deuropening'}
                 on={locked}
                 set={(v) => writable && void toggleLock(v)}
-                last
               />
+              <ToggleRow
+                title="Uitchecken toestaan"
+                sub={
+                  uncheckOverride === null
+                    ? `Volgt de bedrijfsstandaard (${venueDefaultUncheck ? 'aan' : 'uit'})`
+                    : effectiveUncheck
+                      ? 'Aan voor dit event'
+                      : 'Uit voor dit event'
+                }
+                on={effectiveUncheck}
+                set={(v) => writable && void toggleUncheck(v)}
+                last={uncheckOverride === null}
+              />
+              {uncheckOverride !== null && writable && (
+                <button
+                  type="button"
+                  onClick={() => void toggleUncheck(null)}
+                  className="w-full border-t border-line2 py-[11px] text-left font-body text-[12.5px] font-semibold text-faint transition-[filter] hover:brightness-[1.2]"
+                >
+                  Volg de bedrijfsstandaard ({venueDefaultUncheck ? 'aan' : 'uit'})
+                </button>
+              )}
             </div>
           </>
         )}

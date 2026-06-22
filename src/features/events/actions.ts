@@ -14,6 +14,7 @@ import {
   setLandingActiveSchema,
   setLockSchema,
   setAutoLockSchema,
+  setAllowUncheckSchema,
   createTierSchema,
   updateTierSchema,
   deleteTierSchema,
@@ -26,6 +27,7 @@ import {
   type SetLandingActiveInput,
   type SetLockInput,
   type SetAutoLockInput,
+  type SetAllowUncheckInput,
   type CreateTierInput,
   type UpdateTierInput,
   type DeleteTierInput,
@@ -212,6 +214,31 @@ export async function setAutoLock(input: SetAutoLockInput): Promise<ActionResult
   if (!ctx) return unauthorized();
 
   const { error } = await supabase.from('events').update({ auto_lock_at: autoLockAt }).eq('id', eventId);
+  if (error) return mapMutationError(error);
+  revalidateEvent(eventId);
+  return { ok: true };
+}
+
+// ── Uitchecken toestaan — per-event override (#3 / S1.1) ────────────────────────
+
+/**
+ * Set (or clear) the per-event "uitchecken toestaan" override. true/false force
+ * the setting for this event; null inherits the venue (company) default. An
+ * immediate operational control like setListLock — not part of the form save. RLS
+ * (admin/organizer events update) is the boundary; the change is audited
+ * (audit_events_allow_uncheck) and the effective value gates the door/cockpit void
+ * write via the RESTRICTIVE check_ins policy.
+ */
+export async function setEventAllowUncheck(input: SetAllowUncheckInput): Promise<ActionResult> {
+  const parsed = setAllowUncheckSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  const { eventId, allowUncheck } = parsed.data;
+
+  const supabase = await createClient();
+  const ctx = await getAuthContext();
+  if (!ctx) return unauthorized();
+
+  const { error } = await supabase.from('events').update({ allow_uncheck: allowUncheck }).eq('id', eventId);
   if (error) return mapMutationError(error);
   revalidateEvent(eventId);
   return { ok: true };

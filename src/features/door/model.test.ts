@@ -76,7 +76,7 @@ function refusal(over: Partial<RefusalRow> = {}): RefusalRow {
 
 function snapshot(over: Partial<DoorSnapshot> = {}): DoorSnapshot {
   return {
-    event: { id: 'ev1', name: 'FRENZY', venueName: 'De Marktkantine', status: 'open', listLocked: false },
+    event: { id: 'ev1', name: 'FRENZY', venueName: 'De Marktkantine', status: 'open', listLocked: false, allowUncheck: true },
     guests: [],
     tiers: [tier(), tier({ id: 't-vip', name: 'VIP — fles op tafel', color: '#B5A6FF' })],
     checkIns: [],

@@ -44,7 +44,7 @@ import type { PoSubscription, PoTeamMember } from '@/features/po/adapters';
 import { useMfaGate, isAal2Error } from '../mfa-gate';
 import { useNav, usePo } from '../context';
 import { Icon, type IconName } from '../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, Row, Scroll, Top } from '../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, Row, Scroll, ToggleRow, Top } from '../kit';
 import { BottomBar, Sheet } from '../shell';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
@@ -707,6 +707,7 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
     name: '',
     retentionMonths: 12,
     defaultPersonalQuota: 0,
+    allowUncheck: true,
     companyName: '',
     kvkNumber: '',
     vatNumber: '',
@@ -724,6 +725,7 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
         name: s.name,
         retentionMonths: s.retentionMonths,
         defaultPersonalQuota: s.defaultPersonalQuota,
+        allowUncheck: s.allowUncheck,
         companyName: s.companyName,
         kvkNumber: s.kvkNumber,
         vatNumber: s.vatNumber,
@@ -777,6 +779,7 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
     form.name !== s.name ||
     form.retentionMonths !== s.retentionMonths ||
     form.defaultPersonalQuota !== s.defaultPersonalQuota ||
+    form.allowUncheck !== s.allowUncheck ||
     form.companyName !== s.companyName ||
     form.kvkNumber !== s.kvkNumber ||
     form.vatNumber !== s.vatNumber ||
@@ -819,6 +822,17 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
               <span className="font-display text-[18px] font-extrabold text-text">{form.defaultPersonalQuota}</span>
             )}
           </div>
+        </div>
+
+        <Label className="mb-[10px]">Aan de deur</Label>
+        <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-4 py-1">
+          <ToggleRow
+            title="Uitchecken toestaan"
+            sub="Mag een check-in aan de deur teruggedraaid worden? Per event te overschrijven."
+            on={form.allowUncheck}
+            set={(v) => canEdit && setForm((f) => ({ ...f, allowUncheck: v }))}
+            last
+          />
         </div>
 
         <Label className="mb-[10px]">AVG & bewaartermijn</Label>
