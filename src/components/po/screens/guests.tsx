@@ -665,8 +665,8 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                   . Wat wil je doen?
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <DupeOption on={dupeMode === 'add'} onClick={() => setDupeMode('add')} title="Tickets erbij optellen" sub={`+${effPlus} bovenop hun huidige aantal`} />
-                  <DupeOption on={dupeMode === 'replace'} onClick={() => setDupeMode('replace')} title="Nieuw aantal geven" sub={`Vervang hun plekken door +${effPlus}`} />
+                  <DupeOption on={dupeMode === 'add'} onClick={() => setDupeMode('add')} title="Tickets erbij optellen" sub={`Wordt +${dupe.plusOnes + effPlus} (nu +${dupe.plusOnes})`} />
+                  <DupeOption on={dupeMode === 'replace'} onClick={() => setDupeMode('replace')} title="Nieuw aantal geven" sub={`Wordt +${effPlus} (nu +${dupe.plusOnes})`} />
                   <DupeOption on={dupeMode === 'again'} onClick={() => setDupeMode('again')} title="Toch opnieuw toevoegen" sub="Als losse, nieuwe regel (andere persoon)" />
                 </div>
               </div>
