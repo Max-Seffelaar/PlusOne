@@ -19,3 +19,35 @@ export function isMobileUA(ua: string | null | undefined): boolean {
   if (!ua) return false;
   return MOBILE_UA.test(ua);
 }
+
+/**
+ * Best-effort, human-readable device label from a User-Agent — "Chrome · Windows",
+ * "Safari · iPhone", … — for the active-sessions list (S7). Browser AND OS are
+ * shown so two sessions on the same browser are still distinguishable. Pure (no
+ * browser/Node APIs) so it runs in Server Components, the browser and a Capacitor
+ * webview alike (#37).
+ *
+ * NB: a session created server-side (e.g. the local dev-login route) records the
+ * server's UA, which has no OS token — the label then degrades to just "Browser".
+ * Real browser logins always carry an OS token, so the production label is full.
+ */
+export function deviceLabel(ua: string | null | undefined): string {
+  if (!ua) return 'Onbekend apparaat';
+  const s = ua.toLowerCase();
+  const browser =
+    s.includes('edg') ? 'Edge'
+    : s.includes('firefox') || s.includes('fxios') ? 'Firefox'
+    : s.includes('chrome') || s.includes('crios') ? 'Chrome'
+    : s.includes('safari') ? 'Safari'
+    : 'Browser';
+  const os =
+    s.includes('iphone') ? 'iPhone'
+    : s.includes('ipad') ? 'iPad'
+    : s.includes('android') ? 'Android'
+    : s.includes('cros') ? 'ChromeOS'
+    : s.includes('mac os') || s.includes('macintosh') ? 'Mac'
+    : s.includes('windows') ? 'Windows'
+    : s.includes('linux') ? 'Linux'
+    : '';
+  return os ? `${browser} · ${os}` : browser;
+}

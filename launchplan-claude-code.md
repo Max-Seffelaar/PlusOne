@@ -248,8 +248,8 @@ blokkeert bouw).
 | **S3** | Adresboek + Import | 3.4/3.8 | ja (§4b#4) | deels |
 | **S4** | Deur-tab | 3.5 | nee | ✅ |
 | **S5** | Aanvragen | 3.6 | ja (§4b#3) | ✅ live (PR #43) |
-| **S6** | Gebruikers + Rollen | 3.7 | ja (§4b#6) | stub |
-| **S7** | Profiel + Sessies | 3.7 | ja (§4b#9,#7) | partial |
+| **S6** | Gebruikers + Rollen | 3.7 | ja (§4b#6) | ✅ live · invite-chips + assign-events (PR #56) |
+| **S7** | Profiel + Sessies | 3.7 | ja (§4b#9,#7) | ✅ live · zelf-MFA + sessie-OS-label (PR #56) |
 | **S8** | Venue-instellingen | 3.8 | ja (§4b#5) | stub |
 | **S9** | EventBeheer/Edit/Tiers | 3.8 | ja (§4b#8) | stub |
 | **S10** | Mobiel Audit-log | 3.9 | ja (§4b#2) | ✅ live (PR #44) |

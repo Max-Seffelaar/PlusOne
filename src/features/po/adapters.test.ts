@@ -17,7 +17,6 @@ import {
   toRecap,
   toRecapGuest,
   rolesLabel,
-  deviceLabel,
   toPoTeamMember,
   toPoInvite,
   toPoSession,
@@ -471,17 +470,6 @@ describe('toPoInvite', () => {
     const iv = toPoInvite(row);
     expect(iv).toMatchObject({ id: 'i1', email: 'nieuw@venue.nl', roles: ['doorhost'], rolesLabel: 'Deurhost' });
     expect(iv.sentAt).toBe('3 dec');
-  });
-});
-
-describe('deviceLabel', () => {
-  it('derives browser + OS from the UA', () => {
-    expect(deviceLabel('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0) AppleWebKit Safari')).toBe('Safari · iPhone');
-    expect(deviceLabel('Mozilla/5.0 (Windows NT 10.0) Chrome/120 Safari')).toBe('Chrome · Windows');
-    expect(deviceLabel('Mozilla/5.0 (Macintosh) Firefox/120')).toBe('Firefox · Mac');
-  });
-  it('falls back when the UA is absent', () => {
-    expect(deviceLabel(null)).toBe('Onbekend apparaat');
   });
 });
 

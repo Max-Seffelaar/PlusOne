@@ -60,6 +60,13 @@ export const inviteSchema = z.object({
       .max(9999, 'Quotum is te hoog')
       .optional()
   ),
+  // Optional event-organizer scope (#6/#24): events of THIS venue the invitee is
+  // granted on acceptance. formData.getAll → string[] (or [] when none). Admin-only;
+  // the action re-checks the caller is an admin and that the events are in-venue.
+  eventIds: z.preprocess(
+    (v) => (Array.isArray(v) ? v : v == null ? [] : [v]),
+    z.array(uuidSchema).max(200, 'Te veel events').default([])
+  ),
 });
 
 export const profileNameSchema = z.object({
