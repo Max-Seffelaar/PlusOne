@@ -50,12 +50,16 @@ import { v7 as uuidv7 } from 'uuid';
 const BURST_N = Number(process.argv[2] ?? process.env.BURST_N ?? 500);
 const DEFAULT_EPS = 10; // supabase-js default — the bug.
 const RAISED_EPS = 200; // === REALTIME_EVENTS_PER_SECOND (the fix).
-const SETTLE_MS = 3_000; // wait after the last insert for in-flight events to land.
+const SETTLE_MS = 7_000; // wait after the last insert for in-flight events to land
+// (200 eps drains ~200/sec, so 500 queued events need ≥2.5s; 7s leaves margin).
 const SUBSCRIBE_TIMEOUT_MS = 10_000;
 
 // A fixed namespace so re-runs reuse the same throwaway rows (idempotent setup).
-const NS = '0bbur570'; // -> ids look like 0bbur570-0000-7000-8000-............
-const VENUE_ID = `${NS}-0000-7000-8000-000000000001`;
+const NS = '0bb00570'; // valid-hex namespace -> ids look like 0bb00570-0000-7000-8000-...
+// Hang the throwaway event off the EXISTING seed venue (Club Vesper): the quota
+// trigger only exempts venue members, and the seed admin (ACTOR_ID) is an admin
+// there, so inserts aren't blocked by a 0 personal quota on a brand-new venue.
+const VENUE_ID = 'aa000000-0000-7000-8000-000000000001';
 const EVENT_ID = `${NS}-0000-7000-8000-000000000002`;
 const TIER_ID = `${NS}-0000-7000-8000-000000000003`;
 // Reuse the admin seed user_profile for added_by / checked_by (it always exists).
@@ -155,15 +159,9 @@ function makeSubscriber(url, serviceKey, label, eventsPerSecond, guestIds) {
 
 // ── Idempotent throwaway scaffolding (venue/event/tier/guests) ───────────────
 async function ensureScaffold(admin) {
-  // upsert venue/event/tier (ignore-on-conflict via upsert).
-  let { error } = await admin
-    .from('venues')
-    .upsert(
-      { id: VENUE_ID, name: 'zzz-rt-burst (throwaway)', slug: `zzz-rt-burst-${NS}`, retention_months: 1 },
-      { onConflict: 'id' },
-    );
-  if (error) throw new Error(`venue upsert: ${error.message}`);
-
+  // Reuse the existing seed venue (VENUE_ID = Club Vesper) — do NOT upsert over it.
+  // Just hang a throwaway event + tier + guests off it.
+  let error;
   ({ error } = await admin.from('events').upsert(
     {
       id: EVENT_ID,
@@ -231,15 +229,16 @@ async function burst(admin, subscribers, guestIds) {
 
 // ── Soft teardown — honour #3 (no hard delete): void check-ins + remove guests ─
 async function softTeardown(admin, guestIds) {
-  // Void the burst check-ins (keeps the row, no DELETE grant).
-  const { error: vErr } = await admin
-    .from('check_ins')
-    .update({ voided_at: new Date().toISOString(), voided_by: ACTOR_ID })
-    .in('guest_id', guestIds);
-  if (vErr) console.warn(`  void check_ins: ${vErr.message}`);
-  // Soft-remove the throwaway guests so they fall out of every count.
-  for (let i = 0; i < guestIds.length; i += 500) {
-    const chunk = guestIds.slice(i, i + 500);
+  // Chunk the .in() filters at 100 ids — 500 ids in a single GET/PATCH overflows
+  // Kong's URI length (the very class of bug #0a fixes). Void check-ins + soft-
+  // remove the throwaway guests so they fall out of every count.
+  for (let i = 0; i < guestIds.length; i += 100) {
+    const chunk = guestIds.slice(i, i + 100);
+    const { error: vErr } = await admin
+      .from('check_ins')
+      .update({ voided_at: new Date().toISOString(), voided_by: ACTOR_ID })
+      .in('guest_id', chunk);
+    if (vErr) console.warn(`  void check_ins (chunk ${i}): ${vErr.message}`);
     const { error: rErr } = await admin.from('guests').update({ status: 'removed' }).in('id', chunk);
     if (rErr) console.warn(`  remove guests (chunk ${i}): ${rErr.message}`);
   }
