@@ -10,7 +10,7 @@ import { useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
-import { usePoDoorCandidates, usePoDoorEvent, usePoEvents, usePoGuests } from '@/features/po/hooks';
+import { usePoDoorCandidates, usePoEvents, usePoGuests } from '@/features/po/hooks';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canWorkDoor } from '@/features/auth/roles';
 import { DoorProvider } from '@/features/door/DoorProvider';
@@ -22,7 +22,7 @@ import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
 import { Invite, Login, Mfa, Otp, Welcome } from './screens/auth';
 import { EventBeheer, EventEdit, EventView, Events, PastEvent, Tiers } from './screens/events';
 import { BulkPaste, Contacten, Guest, Lijst, QuickAdd, Vaste } from './screens/guests';
-import { PoDoorTab, type DoorOverlay } from './screens/door';
+import { DoorEventPicker, PoDoorTab, type DoorOverlay } from './screens/door';
 import { Allowance, Billing, Gebruikers, Import, Meer, Profile, Rollen, VenueSettings, VenueSwitch } from './screens/settings';
 import { VenueCreate } from './screens/onboarding';
 import { Home } from './screens/home';
@@ -144,12 +144,14 @@ export function PlusOneApp({
   const showDoor = canWorkDoor(roles);
   const { data: liveEvents } = usePoEvents();
   const events = liveEvents ?? [];
-  // The venue's current door event (live → next → recent); drives DoorProvider.
-  const doorEventQuery = usePoDoorEvent();
-  // Non-closed events for the Deur-tab switcher; the override (doorEventId) wins,
-  // else the auto-pick. So "Check-in" from event X lands on X, not a guess (S1.3).
-  const doorCandidates = usePoDoorCandidates().data ?? [];
-  const effectiveDoorEventId = doorEventId ?? doorEventQuery.data?.id ?? null;
+  // Non-closed events for the door (live-first). Selection-first (S1.3): an explicit
+  // pick (doorEventId, set by "Check-in" from an event card) wins; with exactly one
+  // candidate we use it; with several, the user chooses — no auto-pick guess. Only
+  // the chosen event's guests are ever loaded, so dozens of live events stay cheap.
+  const doorCandidatesQuery = usePoDoorCandidates();
+  const doorCandidates = doorCandidatesQuery.data ?? [];
+  const resolvedDoorId = doorEventId ?? (doorCandidates.length === 1 ? doorCandidates[0].id : null);
+  const resolvedDoorName = doorCandidates.find((e) => e.id === resolvedDoorId)?.name ?? '';
   // The event in context carries its id (lijst/event/pastevent via `id`, the
   // guest detail via `eventId`), so the detail resolves a real guest from the
   // same cached list the Gastenlijst reads.
@@ -367,25 +369,28 @@ export function PlusOneApp({
   // unmounts when leaving for another tab. No event resolvable → empty state.
   const doorTitle = tab === 'taken' ? 'Taken' : 'Check-in';
   let doorBranch: ReactNode;
-  if (!effectiveDoorEventId && doorEventQuery.isLoading) {
-    doorBranch = <DoorTabState title={doorTitle} text="Even laden…" />;
-  } else if (effectiveDoorEventId) {
+  if (resolvedDoorId) {
     doorBranch = (
       <DoorQueryProvider>
-        <DoorProvider eventId={effectiveDoorEventId}>
+        <DoorProvider eventId={resolvedDoorId}>
           <PoDoorTab
             tab={tab === 'taken' ? 'taken' : 'deur'}
             overlay={doorOverlay}
             openGuest={openGuest}
             openAdd={openAdd}
             closeOverlay={closeOverlay}
-            candidates={doorCandidates}
-            currentEventId={effectiveDoorEventId}
-            onSelectEvent={setDoorEventId}
+            currentEventName={doorCandidates.length > 1 ? resolvedDoorName : undefined}
+            onChangeEvent={doorCandidates.length > 1 ? () => setDoorEventId(null) : undefined}
           />
         </DoorProvider>
       </DoorQueryProvider>
     );
+  } else if (doorCandidatesQuery.isLoading) {
+    doorBranch = <DoorTabState title={doorTitle} text="Even laden…" />;
+  } else if (doorCandidates.length > 1) {
+    // Several live/open events and nothing picked yet → choose first (S1.3). The
+    // /app shell keeps the bottom-tab menu visible around this picker.
+    doorBranch = <DoorEventPicker events={doorCandidates} onPick={setDoorEventId} />;
   } else {
     doorBranch = <DoorTabState title={doorTitle} text="Geen actief event om in te checken. Maak of open eerst een event." />;
   }

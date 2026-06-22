@@ -22,7 +22,7 @@ import type { PoDoorEvent } from '@/features/po/door-event';
 import type { Guest } from '@/lib/po/types';
 import {
   usePoCheckinArrivals,
-  usePoDoorEvent,
+  usePoDoorCandidates,
   usePoEventForEdit,
   usePoEventRealtime,
   usePoEventStats,
@@ -31,6 +31,7 @@ import {
   usePoQuotaRequests,
   usePoTiers,
 } from '@/features/po/hooks';
+import { DoorEventPicker } from '@/components/po/screens/door';
 import {
   usePoApproveRequest,
   usePoCheckIn,
@@ -64,9 +65,14 @@ const EMPTY_ARRIVALS: ReadonlyMap<string, { arrived: number; at: string }> = new
 // when the query has no data yet (keeps the virtualized list cheap).
 const EMPTY_GUESTS: Guest[] = [];
 
-// ── Entry gate: resolve the live (→ next → recent) event, then mount the cockpit ──
+// ── Entry gate: pick the event (no auto-guess with >1 live), then mount cockpit ──
 export function EventDayCockpitGate(): JSX.Element {
-  const { data: event, isLoading } = usePoDoorEvent();
+  const { data: candidates = [], isLoading } = usePoDoorCandidates();
+  const [chosenId, setChosenId] = useState<string | null>(null);
+  // Selection-first (S1.3): a deliberate pick wins; with exactly one event use it;
+  // with several, the user chooses which event-dag to drive — no auto-guess.
+  const resolvedId = chosenId ?? (candidates.length === 1 ? candidates[0].id : null);
+  const event = candidates.find((e) => e.id === resolvedId) ?? null;
 
   if (isLoading) {
     return (
@@ -81,25 +87,43 @@ export function EventDayCockpitGate(): JSX.Element {
     );
   }
 
-  if (!event) {
+  if (event) {
     return (
-      <DCard className="flex flex-col items-center gap-3 px-6 py-16 text-center">
-        <span className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-line bg-elev2 text-faint">
-          <Icon name="door" size={22} />
-        </span>
-        <div className="font-display text-[18px] font-bold text-text">Geen live of aankomend event</div>
-        <div className="max-w-sm text-[13.5px] text-faint">
-          Zodra een event live staat (of de deur opent) verschijnt hier de cockpit met live check-in.
-        </div>
+      <EventDayCockpit
+        event={event}
+        onChangeEvent={candidates.length > 1 ? () => setChosenId(null) : undefined}
+      />
+    );
+  }
+
+  if (candidates.length > 1) {
+    return (
+      <DCard className="overflow-hidden p-0">
+        <DoorEventPicker
+          events={candidates}
+          onPick={setChosenId}
+          title="Kies de event-dag"
+          sub="Aan welke live event-dag wil je werken?"
+        />
       </DCard>
     );
   }
 
-  return <EventDayCockpit event={event} />;
+  return (
+    <DCard className="flex flex-col items-center gap-3 px-6 py-16 text-center">
+      <span className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-line bg-elev2 text-faint">
+        <Icon name="door" size={22} />
+      </span>
+      <div className="font-display text-[18px] font-bold text-text">Geen live of aankomend event</div>
+      <div className="max-w-sm text-[13.5px] text-faint">
+        Zodra een event live staat (of de deur opent) verschijnt hier de cockpit met live check-in.
+      </div>
+    </DCard>
+  );
 }
 
 // ── The cockpit ───────────────────────────────────────────────────────────────
-function EventDayCockpit({ event }: { event: PoDoorEvent }): JSX.Element {
+function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChangeEvent?: () => void }): JSX.Element {
   const eventId = event.id;
   const router = useRouter();
   const { roles } = usePoIdentity();
@@ -281,11 +305,18 @@ function EventDayCockpit({ event }: { event: PoDoorEvent }): JSX.Element {
           <h1 className="font-display text-[22px] font-extrabold tracking-[-0.02em] text-text">Event-dag</h1>
           <div className="truncate text-[13px] text-faint">{event.name} · live aan de deur</div>
         </div>
-        {canCheckIn && (
-          <DBtn kind="ghost" icon="door" onClick={() => router.push(`/door/${eventId}`)}>
-            Open deur-app
-          </DBtn>
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {onChangeEvent && (
+            <DBtn kind="ghost" icon="cal" onClick={onChangeEvent}>
+              Wissel event
+            </DBtn>
+          )}
+          {canCheckIn && (
+            <DBtn kind="ghost" icon="door" onClick={() => router.push(`/door/${eventId}`)}>
+              Open deur-app
+            </DBtn>
+          )}
+        </div>
       </div>
 
       {/* LIVE strip */}
