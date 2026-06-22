@@ -52,6 +52,9 @@ export interface Nav {
   push: (name: ScreenName, props?: ScreenProps) => void;
   back: () => void;
   setTab: (t: TabKey) => void;
+  /** Open the Deur tab for a SPECIFIC event (S1.3) — "Check-in" from an event card
+   *  must land on that event's door, not the venue-wide auto-pick. */
+  openDoor: (eventId: string) => void;
 }
 
 export type AuthView = 'welcome' | 'login' | 'otp' | 'mfa' | 'invite';

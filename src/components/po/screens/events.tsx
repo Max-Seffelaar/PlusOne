@@ -183,7 +183,7 @@ export function EventView({ id }: { id?: string }): JSX.Element {
         </div>
         <div className="mb-4 flex gap-[10px]">
           {showDoor && (
-            <Btn kind="primary" full icon="user" onClick={() => nav.setTab('deur')}>
+            <Btn kind="primary" full icon="user" onClick={() => nav.openDoor(ev.id)}>
               Check-in
             </Btn>
           )}

@@ -47,8 +47,14 @@ export interface DoorView {
   /** Geweigerde gasten — shown apart so a foutje is terug te vinden + ongedaan te maken. */
   refused: DoorGuest[];
   tiers: TierRow[];
+  /** Guest ROWS (reservations) inside / still onderweg — the door's per-name unit. */
   insideCount: number;
   waitingCount: number;
+  /** KOPPEN (incl. +1's, #5) inside / still onderweg — matches EventView/cockpit.
+   *  The door shows both units side by side so "1500 gasten · 2100 koppen" is
+   *  never ambiguous (S1.3). A partial party splits across the two head totals. */
+  insideHeadcount: number;
+  waitingHeadcount: number;
 }
 
 export interface DoorTask {
@@ -157,6 +163,10 @@ export function buildDoorView(snapshot: DoorSnapshot): DoorView {
   }
 
   const insideCount = guests.filter((g) => g.inside).length;
+  // Koppen (#5): present = self + arrived companions; registered = self + all +1's.
+  // Onderweg koppen = registered − present (a partial party contributes to both).
+  const insideHeadcount = guests.reduce((n, g) => n + (g.inside ? 1 + (g.arrived ?? 0) : 0), 0);
+  const registeredHeadcount = guests.reduce((n, g) => n + 1 + g.plus, 0);
   return {
     event: snapshot.event,
     guests,
@@ -164,6 +174,8 @@ export function buildDoorView(snapshot: DoorSnapshot): DoorView {
     tiers: snapshot.tiers,
     insideCount,
     waitingCount: guests.length - insideCount,
+    insideHeadcount,
+    waitingHeadcount: registeredHeadcount - insideHeadcount,
   };
 }
 

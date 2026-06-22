@@ -138,6 +138,24 @@ describe('buildDoorView', () => {
     expect(view.waitingCount).toBe(0);
   });
 
+  it('totals both gasten (rows) and koppen (heads), splitting a partial party (S1.3)', () => {
+    const view = buildDoorView(
+      snapshot({
+        guests: [
+          guest({ id: 'g1', plus_ones: 2 }), // +2 party (3 koppen)
+          guest({ id: 'g2', full_name: 'Sam', plus_ones: 0 }), // solo, onderweg
+        ],
+        checkIns: [checkIn({ guest_id: 'g1', plus_ones_arrived: 1 })], // 2 of 3 present
+      }),
+    );
+    // Rows: g1 inside, g2 onderweg.
+    expect(view.insideCount).toBe(1);
+    expect(view.waitingCount).toBe(1);
+    // Koppen: g1 = 2 inside (self + 1) and 1 onderweg; g2 = 1 onderweg → 2 in / 2 onderweg.
+    expect(view.insideHeadcount).toBe(2);
+    expect(view.waitingHeadcount).toBe(2);
+  });
+
   it('treats a voided check-in as not inside — back to onderweg (soft void #3)', () => {
     const view = buildDoorView(
       snapshot({

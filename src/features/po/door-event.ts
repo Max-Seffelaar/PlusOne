@@ -24,6 +24,23 @@ function toDoorEvent(row: PoEventRow): PoDoorEvent {
   return { id: row.id, name: row.name, venueName: row.venue_name, status: row.status };
 }
 
+/**
+ * Every event the door/cockpit may work, ordered the way a switcher should show
+ * them: live first, then soonest start. Closed events are read-only history and
+ * never a check-in target (#9/#26), so they are dropped. Drives the Deur-tab event
+ * switcher (S1.3) — the user can deliberately pick when several events are live.
+ */
+export function doorCandidates(rows: PoEventRow[]): PoDoorEvent[] {
+  const startMs = (r: PoEventRow): number => new Date(r.starts_at).getTime();
+  return rows
+    .filter((r) => r.status !== 'closed')
+    .sort((a, b) => {
+      const live = (a.status === 'live' ? 0 : 1) - (b.status === 'live' ? 0 : 1);
+      return live !== 0 ? live : startMs(a) - startMs(b);
+    })
+    .map(toDoorEvent);
+}
+
 export function pickDoorEvent(rows: PoEventRow[], nowMs: number): PoDoorEvent | null {
   if (rows.length === 0) return null;
 

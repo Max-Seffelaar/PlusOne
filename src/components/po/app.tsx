@@ -10,7 +10,7 @@ import { useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
-import { usePoDoorEvent, usePoEvents, usePoGuests } from '@/features/po/hooks';
+import { usePoDoorCandidates, usePoDoorEvent, usePoEvents, usePoGuests } from '@/features/po/hooks';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canWorkDoor } from '@/features/auth/roles';
 import { DoorProvider } from '@/features/door/DoorProvider';
@@ -123,6 +123,9 @@ export function PlusOneApp({
   // behind a full-screen door detail (isTabRoot below); the door components that
   // read it render inside the provider, via <PoDoorTab>.
   const [doorOverlay, setDoorOverlay] = useState<DoorOverlay>(null);
+  // S1.3: when the user opens "Check-in" from a specific event card, that event id
+  // overrides the venue-wide auto-pick for the Deur/Taken tabs. null = auto-pick.
+  const [doorEventId, setDoorEventId] = useState<string | null>(null);
   const [venue, setVenueState] = useState<Venue>(() => venues.find((v) => v.current) ?? venues[0]);
   const [toast, setToast] = useState<string | null>(null);
   const [key, setKey] = useState(0);
@@ -143,6 +146,10 @@ export function PlusOneApp({
   const events = liveEvents ?? [];
   // The venue's current door event (live → next → recent); drives DoorProvider.
   const doorEventQuery = usePoDoorEvent();
+  // Non-closed events for the Deur-tab switcher; the override (doorEventId) wins,
+  // else the auto-pick. So "Check-in" from event X lands on X, not a guess (S1.3).
+  const doorCandidates = usePoDoorCandidates().data ?? [];
+  const effectiveDoorEventId = doorEventId ?? doorEventQuery.data?.id ?? null;
   // The event in context carries its id (lijst/event/pastevent via `id`, the
   // guest detail via `eventId`), so the detail resolves a real guest from the
   // same cached list the Gastenlijst reads.
@@ -165,6 +172,16 @@ export function PlusOneApp({
     },
     setTab: (t: TabKey) => {
       setTabState(t);
+      setStack([]);
+      setDoorOverlay(null);
+      // A manual tab tap returns the door to its auto-picked event (S1.3).
+      setDoorEventId(null);
+      bump();
+    },
+    // "Check-in" from a specific event: open the Deur tab for THAT event (S1.3).
+    openDoor: (eventId: string) => {
+      setDoorEventId(eventId);
+      setTabState('deur');
       setStack([]);
       setDoorOverlay(null);
       bump();
@@ -190,6 +207,7 @@ export function PlusOneApp({
 
   const switchVenue = (v: Venue): void => {
     setVenueState(v);
+    setDoorEventId(null); // the override belongs to the old venue's events (S1.3)
     setToast('Gewisseld naar ' + v.name);
     setTimeout(() => setToast(null), 2200);
     nav.back();
@@ -349,18 +367,21 @@ export function PlusOneApp({
   // unmounts when leaving for another tab. No event resolvable → empty state.
   const doorTitle = tab === 'taken' ? 'Taken' : 'Check-in';
   let doorBranch: ReactNode;
-  if (doorEventQuery.isLoading) {
+  if (!effectiveDoorEventId && doorEventQuery.isLoading) {
     doorBranch = <DoorTabState title={doorTitle} text="Even laden…" />;
-  } else if (doorEventQuery.data) {
+  } else if (effectiveDoorEventId) {
     doorBranch = (
       <DoorQueryProvider>
-        <DoorProvider eventId={doorEventQuery.data.id}>
+        <DoorProvider eventId={effectiveDoorEventId}>
           <PoDoorTab
             tab={tab === 'taken' ? 'taken' : 'deur'}
             overlay={doorOverlay}
             openGuest={openGuest}
             openAdd={openAdd}
             closeOverlay={closeOverlay}
+            candidates={doorCandidates}
+            currentEventId={effectiveDoorEventId}
+            onSelectEvent={setDoorEventId}
           />
         </DoorProvider>
       </DoorQueryProvider>

@@ -51,6 +51,8 @@ function makeView(n: number): DoorView {
     tiers: [],
     insideCount: 0,
     waitingCount: n,
+    insideHeadcount: 0,
+    waitingHeadcount: n,
   };
 }
 

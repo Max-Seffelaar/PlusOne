@@ -79,14 +79,19 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
         title="Check-in"
         sub={`${view.event.name}${view.event.venueName ? ` · ${view.event.venueName}` : ''}`}
       />
+      {/* Both units side by side (S1.3): the big number is gasten (rows — the
+          door's per-name unit), the sub-line is koppen (incl. +1's, #5) so it
+          reconciles with EventView/cockpit. */}
       <div className="flex flex-none gap-[10px] px-5 pb-[14px]">
         <div className="flex-1 rounded-[14px] border border-line bg-elev px-[14px] py-[12px]">
-          <div className="font-display text-[26px] font-extrabold text-text">{view.waitingCount}</div>
-          <div className="text-[12px] text-faint">onderweg</div>
+          <div className="font-display text-[26px] font-extrabold leading-none text-text">{view.waitingCount}</div>
+          <div className="mt-1 text-[12px] text-faint">gasten onderweg</div>
+          <div className="mt-0.5 text-[11px] text-ghost">{view.waitingHeadcount} koppen</div>
         </div>
         <div className="flex-1 rounded-[14px] bg-acc-dim px-[14px] py-[12px]">
-          <div className="font-display text-[26px] font-extrabold text-acc">{view.insideCount}</div>
-          <div className="text-[12px] text-dim">binnen</div>
+          <div className="font-display text-[26px] font-extrabold leading-none text-acc">{view.insideCount}</div>
+          <div className="mt-1 text-[12px] text-dim">gasten binnen</div>
+          <div className="mt-0.5 text-[11px] text-faint">{view.insideHeadcount} koppen</div>
         </div>
       </div>
       <div className="flex-none px-5 pb-3">
@@ -307,10 +312,10 @@ function ListSkeleton(): JSX.Element {
   return (
     <div className="flex h-full flex-col">
       <Top big title="Check-in" sub="Laden…" />
-      {/* stat tiles */}
+      {/* stat tiles (height matches the loaded gasten + koppen tiles → no CLS) */}
       <div className="flex flex-none gap-[10px] px-5 pb-[14px]">
-        <div className="h-[66px] flex-1 animate-pulse rounded-[14px] border border-line bg-elev" />
-        <div className="h-[66px] flex-1 animate-pulse rounded-[14px] bg-acc-dim" />
+        <div className="h-[81px] flex-1 animate-pulse rounded-[14px] border border-line bg-elev" />
+        <div className="h-[81px] flex-1 animate-pulse rounded-[14px] bg-acc-dim" />
       </div>
       {/* search field */}
       <div className="flex-none px-5 pb-3">
