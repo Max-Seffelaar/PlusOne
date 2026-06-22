@@ -3,6 +3,8 @@
 > Bron: meet-sessie 2026-06-21 (read-only). Hoort bij `launchplan-claude-code.md` DEEL D (STAP 3.5a/3.5b).
 > Fixes + vóór/na-hermeting leven in ClickUp onder **3.5b** (`86exzefv8`); deze doc is het bewijs + de recipe.
 > **Niets in deze meting wijzigde app-code of liet DB-residu achter** (stress-data committed → superuser-teardown → baseline geverifieerd).
+>
+> **✅ STATUS 2026-06-22 — 3.5b code SHIPPED & GEMERGED naar `main`.** De zes code-fixes (#0a/#0b/#1a/#1b/#2a/#2b) zijn gemerged via **PR #53** (correctheid + deur) en **PR #54** (polish); vóór/na staat in de tabel onderaan. Wat van STAP 3.5 nog rest is **#3 = de schaal-track** (realtime→Broadcast, polling/caching terug, caching hete reads, tier/pooling, kostenmodel, hosted load-test) — aparte ClickUp-taak, **géén MVP-blocker** (zie "Platform-fit op doel-schaal").
 
 ## Samenvatting in één zin
 
@@ -67,15 +69,29 @@ Schone test: 500 check-ins burst (596/sec), 2 subscribers naast elkaar.
 
 ## Top-bevindingen → 3.5b-taken (MVP-cut)
 
-| # | ClickUp | Bevinding | MVP? |
-|---|---|---|---|
-| #0a | `86ey0rdp1` | Ranged reads (1000-afkapping) | **JA** (events >1000) |
-| #0b | `86ey0rdpf` | Realtime throttle fix | **JA** |
-| #1a | `86ey0rdpw` | Lijst-virtualisatie | **JA\*** (grote events) |
-| #1b | `86ey0rdqh` | Zoeken debouncen | nee\* |
-| #2a | `86ey0rdqq` | `/app` code-split (recharts lazy) | nee (polish) |
-| #2b | `86ey0rdr0` | First-paint + deur-CLS | nee (polish) |
-| #3 | `86ey0rdra` | Realtime→Broadcast + read-load + tier/pooling/kosten | nee (schaal-track) |
+| # | ClickUp | Bevinding | MVP? | Status |
+|---|---|---|---|---|
+| #0a | `86ey0rdp1` | Ranged reads (1000-afkapping) | **JA** (events >1000) | ✅ PR #53 |
+| #0b | `86ey0rdpf` | Realtime throttle fix | **JA** | ✅ PR #53 |
+| #1a | `86ey0rdpw` | Lijst-virtualisatie | **JA\*** (grote events) | ✅ PR #53 |
+| #1b | `86ey0rdqh` | Zoeken debouncen | nee\* | ✅ PR #53 |
+| #2a | `86ey0rdqq` | `/app` code-split (recharts lazy) | nee (polish) | ✅ PR #54 |
+| #2b | `86ey0rdr0` | First-paint + deur-CLS | nee (polish) | ✅ PR #54 |
+| #3 | `86ey0rdra` | Realtime→Broadcast + read-load + tier/pooling/kosten | nee (schaal-track) | ⏳ aparte schaal-sessie |
+
+**Vóór/na (gemeten 2026-06-22, throwaway 1500-gasten-event → superuser-teardown; baseline hersteld):**
+
+| Metriek | Baseline (3.5a) | Na 3.5b |
+|---|---|---|
+| Gasten zichtbaar aan de deur @1500 | **1000 / 1532** (532 onzichtbaar) | **1500 / 1500** ✅ |
+| Headcount @1500 | fout (afgekapt) | **2100 koppen** ✓ |
+| Deur DOM-nodes @1500 | ~13.850 | **~300** (~18 rijen, gevirtualiseerd) |
+| Zoeken (toets) @1500 | INP 224 ms | **~10 ms** (debounce 140 ms) |
+| Realtime burst (3 s-venster) | **0 / 500** (default 10/s) | **393 / 500** (200/s) |
+| `/eventday` First Load JS | 216 kB | **113 kB** (−48%) |
+| Deur-CLS (mobiel) | 0,298 | **0** |
+
+> **Caveat (blijft staan):** cold-load-seconden zijn de dev-server (ongethrottled); de harde bewijzen zijn de DOM-node-telling (gelijk dev/prod) + de DB-proof. Absolute realtime-doorvoer is **settle-gevoelig op de low-latency lokale stack** (7 s-drain → beide 500/500) → definitieve realtime-schaalvalidatie hoort bij **#3 (Broadcast) tegen hosted Supabase**.
 
 ## Platform-fit op doel-schaal (500+ orgs gelijktijdig)
 
