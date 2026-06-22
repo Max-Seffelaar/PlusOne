@@ -130,9 +130,38 @@ insert into public.quota_requests (event_id, user_id, requested_extra) values
   ('ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555', 3);
 
 -- ---------------------------------------------------------------------------
+-- Address book (contacts) — Sessie C (#8/#10/#11). Two permanent contacts at
+-- Club Vesper (auto-sync candidates), one ordinary contact, and one at the
+-- second venue for cross-venue isolation tests. MUST be seeded BEFORE the guests:
+-- the S2.1 auto-contact trigger (guests_autolink_contact) creates a contact for
+-- any guest with an e-mail/phone, so inserting Sanne the contact first lets the
+-- matching Sanne guest dedup-LINK to her (instead of the guest auto-creating a
+-- contact that then collides with this fixed-id row).
+-- ---------------------------------------------------------------------------
+
+insert into public.contacts
+  (id, venue_id, full_name, email, phone, birthdate, preferred_role, is_permanent, source, created_by)
+values
+  ('c0000000-0000-7000-8000-000000000001', 'aa000000-0000-7000-8000-000000000001',
+   'Sanne Mulder', 'sanne@example.test', '+31687654321', '1996-04-12', 'vip', true, 'manual',
+   '11111111-1111-4111-8111-111111111111'),
+  ('c0000000-0000-7000-8000-000000000002', 'aa000000-0000-7000-8000-000000000001',
+   'Anouk Smit', 'anouk@example.test', null, null, 'all_access', true, 'manual',
+   '11111111-1111-4111-8111-111111111111'),
+  ('c0000000-0000-7000-8000-000000000003', 'aa000000-0000-7000-8000-000000000001',
+   'Pim Scholten', null, '+31622222222', null, 'guest', false, 'import',
+   '11111111-1111-4111-8111-111111111111'),
+  -- Second venue (Max=admin there too): proves contacts never leak across venues.
+  ('c0000000-0000-7000-8000-000000000004', 'aa000000-0000-7000-8000-000000000002',
+   'Marit Jansen', 'marit@example.test', null, null, 'vip', true, 'manual',
+   '11111111-1111-4111-8111-111111111111');
+
+-- ---------------------------------------------------------------------------
 -- Guests — 30 total: 8 hand-picked (checked in / refused / removed / pending /
 -- door-add / priority note) + 22 bulk. Tom's non-removed guests consume
--- 10 of his 12 slots (1 + plus_ones each — decision #22).
+-- 10 of his 12 slots (1 + plus_ones each — decision #22). Guests with an
+-- e-mail/phone that matches no contact above auto-create a 'guest_list' contact
+-- (S2.1) — that's the address book growing from the night, by design.
 -- ---------------------------------------------------------------------------
 
 insert into public.guests
@@ -233,30 +262,6 @@ values
   ('bb000000-0000-7000-8000-000000000003', 'ee000000-0000-7000-8000-000000000001',
    'Kevin de Lange', 'denied',
    '11111111-1111-4111-8111-111111111111', now(), 'Lijst zit vol voor deze avond');
-
--- ---------------------------------------------------------------------------
--- Address book (contacts) — Sessie C (#8/#10/#11). Two permanent contacts at
--- Club Vesper (auto-sync candidates), one ordinary contact, and one at the
--- second venue for cross-venue isolation tests. Sanne is linked to an existing
--- guest so her "X× op een lijst" stat is non-zero.
--- ---------------------------------------------------------------------------
-
-insert into public.contacts
-  (id, venue_id, full_name, email, phone, birthdate, preferred_role, is_permanent, source, created_by)
-values
-  ('c0000000-0000-7000-8000-000000000001', 'aa000000-0000-7000-8000-000000000001',
-   'Sanne Mulder', 'sanne@example.test', '+31687654321', '1996-04-12', 'vip', true, 'manual',
-   '11111111-1111-4111-8111-111111111111'),
-  ('c0000000-0000-7000-8000-000000000002', 'aa000000-0000-7000-8000-000000000001',
-   'Anouk Smit', 'anouk@example.test', null, null, 'all_access', true, 'manual',
-   '11111111-1111-4111-8111-111111111111'),
-  ('c0000000-0000-7000-8000-000000000003', 'aa000000-0000-7000-8000-000000000001',
-   'Pim Scholten', null, '+31622222222', null, 'guest', false, 'import',
-   '11111111-1111-4111-8111-111111111111'),
-  -- Second venue (Max=admin there too): proves contacts never leak across venues.
-  ('c0000000-0000-7000-8000-000000000004', 'aa000000-0000-7000-8000-000000000002',
-   'Marit Jansen', 'marit@example.test', null, null, 'vip', true, 'manual',
-   '11111111-1111-4111-8111-111111111111');
 
 -- Link the ordinary (non-permanent) contact to an existing guest so the
 -- "X× op een lijst" reuse stat is non-zero in dev, without pre-placing a

@@ -43,21 +43,32 @@ $fn$;
 
 select plan(22);
 
+-- Auto-contact (S2.1): seeded guests with an e-mail/phone now grow the address
+-- book, so the contact count is no longer a fixed 3/4. Capture the full
+-- (superuser-visible) baseline up front and assert RLS visibility RELATIVE to it,
+-- so the test stays correct as the seed evolves.
+select set_config('test.contacts_all', (select count(*)::text from public.contacts), true);
+select set_config('test.contacts_v1', (select count(*)::text from public.contacts
+  where venue_id = 'aa000000-0000-7000-8000-000000000001'), true);
+
 -- ---------------------------------------------------------------------------
 -- A. SELECT visibility — managers + finance + organizer read; others nothing
 -- ---------------------------------------------------------------------------
 
 select pg_temp.login('11111111-1111-4111-8111-111111111111');  -- admin at BOTH venues
-select is((select count(*)::int from public.contacts), 4, 'A1 admin sees all 4 contacts across both venues');
+select is((select count(*)::int from public.contacts), current_setting('test.contacts_all')::int,
+  'A1 admin sees every contact across both venues');
 
 select pg_temp.login('33333333-3333-4333-8333-333333333333');  -- finance, venue 1 only
-select is((select count(*)::int from public.contacts), 3, 'A2 finance sees venue 1 contacts (3)');
+select is((select count(*)::int from public.contacts), current_setting('test.contacts_v1')::int,
+  'A2 finance sees venue 1 contacts only');
 select is(
   (select count(*)::int from public.contacts where venue_id = 'aa000000-0000-7000-8000-000000000002'),
   0, 'A3 finance cannot see venue 2 contacts (cross-venue isolation)');
 
 select pg_temp.login('44444444-4444-4444-8444-444444444444');  -- organizer (event scope at venue 1)
-select is((select count(*)::int from public.contacts), 3, 'A4 organizer sees the venue address book of his event');
+select is((select count(*)::int from public.contacts), current_setting('test.contacts_v1')::int,
+  'A4 organizer sees the venue address book of his event');
 
 select pg_temp.login('55555555-5555-4555-8555-555555555555');  -- staff
 select is((select count(*)::int from public.contacts), 0, 'A5 staff has NO direct address-book read');
@@ -82,7 +93,7 @@ reset role;
 select pg_temp.login('55555555-5555-4555-8555-555555555555');  -- staff
 select is(
   (select count(*)::int from public.search_contacts_for_reuse('aa000000-0000-7000-8000-000000000001')),
-  3, 'B1 staff reuses the address book by name (3 contacts)');
+  least(current_setting('test.contacts_v1')::int, 50), 'B1 staff reuses the venue address book by name');
 select is(
   (select event_count from public.search_contacts_for_reuse('aa000000-0000-7000-8000-000000000001')
    where full_name = 'Pim Scholten'),
@@ -94,12 +105,12 @@ select is(
 select pg_temp.login('66666666-6666-4666-8666-666666666666');  -- doorhost
 select is(
   (select count(*)::int from public.search_contacts_for_reuse('aa000000-0000-7000-8000-000000000001')),
-  3, 'B4 doorhost can reuse the address book');
+  least(current_setting('test.contacts_v1')::int, 50), 'B4 doorhost can reuse the address book');
 
 select pg_temp.login('44444444-4444-4444-8444-444444444444');  -- organizer
 select is(
   (select count(*)::int from public.search_contacts_for_reuse('aa000000-0000-7000-8000-000000000001')),
-  3, 'B5 organizer can reuse the address book');
+  least(current_setting('test.contacts_v1')::int, 50), 'B5 organizer can reuse the address book');
 
 select pg_temp.login_anon();
 select throws_ok(

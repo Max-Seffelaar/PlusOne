@@ -121,12 +121,14 @@ values ('fa000000-0000-7000-8000-000000000006',
         'ee000000-0000-7000-8000-000000000001', 'dd000000-0000-7000-8000-000000000001',
         'Staff Toegevoegd', 'auto.staff@test.example', '55555555-5555-4555-8555-555555555555', 'app', 'approved');
 
+-- Read the result as superuser: staff has no RLS read on contacts (G1), so the
+-- count must NOT run as staff or it would see 0 even though the trigger (DEFINER)
+-- created the contact.
+reset role;
 select is(
   (select count(*)::int from public.contacts
      where venue_id = 'aa000000-0000-7000-8000-000000000001' and email_norm = 'auto.staff@test.example'),
   1, 'G2 a staff guest-add still creates the contact (trigger DEFINER bypass)');
-
-reset role;
 
 select * from finish();
 rollback;
