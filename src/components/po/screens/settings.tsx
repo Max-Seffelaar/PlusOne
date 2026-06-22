@@ -2,8 +2,9 @@
 
 /** Settings cluster: Meer (hub), gebruikers/rollen, toelage, venue switch/beheer,
  *  persoonlijke gegevens + sessies, abonnement & facturen, importeren. */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { createClient } from '@/lib/supabase/client';
 import { account, allowance as allowanceData, venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
 import { VENUE_ROLES, ROLE_LABELS, canGrantRoles, requiresMfa, type VenueRole } from '@/features/auth/roles';
@@ -42,7 +43,7 @@ import {
   usePoImportContacts,
 } from '@/features/po/mutations';
 import type { PoSubscription, PoTeamMember } from '@/features/po/adapters';
-import { useMfaGate, isAal2Error } from '../mfa-gate';
+import { useMfaGate, isAal2Error, PoMfaSheet } from '../mfa-gate';
 import { useNav, usePo } from '../context';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Row, Scroll, Top } from '../kit';
@@ -377,7 +378,7 @@ export function Gebruikers(): JSX.Element {
         )}
         <Label className="mb-[10px]">Team</Label>
         {team.isLoading ? (
-          <Empty text="Laden…" />
+          <Loading />
         ) : team.isError ? (
           <Empty text="Kon het team niet laden." />
         ) : teamCount === 0 ? (
@@ -428,7 +429,7 @@ export function Gebruikers(): JSX.Element {
         )}
         <Label className="mb-[10px]">Openstaande uitnodigingen</Label>
         {invitesQ.isLoading ? (
-          <Empty text="Laden…" />
+          <Loading />
         ) : inviteCount === 0 ? (
           <Empty text="Geen openstaande uitnodigingen." />
         ) : (
@@ -914,17 +915,19 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
 
         <Label className="mb-[10px]">Bedrijfsgegevens</Label>
         <Field icon="building" value={form.companyName} onChange={editStr('companyName')} placeholder="Bedrijfsnaam" className="mb-[14px]" />
+        {/* min-w-0 lets each field shrink below its content so the 2-col row never
+            overflows the viewport at ≤390px (the btw-nummer overflow, S4.2). */}
         <div className="mb-[14px] flex gap-2">
-          <Field icon="grid" value={form.kvkNumber} onChange={editStr('kvkNumber', (v) => v.replace(/[^0-9]/g, '').slice(0, 8))} inputMode="numeric" placeholder="KvK (8 cijfers)" className="flex-1" />
-          <Field value={form.vatNumber} onChange={editStr('vatNumber')} placeholder="btw-nummer" className="flex-1" />
+          <Field icon="grid" value={form.kvkNumber} onChange={editStr('kvkNumber', (v) => v.replace(/[^0-9]/g, '').slice(0, 8))} inputMode="numeric" placeholder="KvK (8 cijfers)" className="min-w-0 flex-1" />
+          <Field value={form.vatNumber} onChange={editStr('vatNumber')} placeholder="btw-nummer" className="min-w-0 flex-1" />
         </div>
         <Field icon="mail" value={form.financeEmail} onChange={editStr('financeEmail')} inputMode="email" placeholder="Factuur-e-mail" className="mb-[18px]" />
 
         <Label className="mb-[10px]">Adres</Label>
         <Field icon="pin" value={form.addressLine} onChange={editStr('addressLine')} placeholder="Straat en nummer" className="mb-[14px]" />
         <div className="mb-[14px] flex gap-2">
-          <Field value={form.postalCode} onChange={editStr('postalCode')} placeholder="Postcode" className="flex-1" />
-          <Field value={form.city} onChange={editStr('city')} placeholder="Stad" className="flex-[1.4]" />
+          <Field value={form.postalCode} onChange={editStr('postalCode')} placeholder="Postcode" className="min-w-0 flex-1" />
+          <Field value={form.city} onChange={editStr('city')} placeholder="Stad" className="min-w-0 flex-[1.4]" />
         </div>
         <Field value={form.country} onChange={editStr('country')} placeholder="Land" className="mb-1.5" />
 
@@ -944,6 +947,127 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
             {save.isPending ? 'Opslaan…' : 'Opslaan'}
           </Btn>
         </BottomBar>
+      )}
+    </div>
+  );
+}
+
+// MFA row in the profile's security card (S4.3). A mandatory role (admin/finance)
+// can never disable it; an optional role can voluntarily ENABLE it (reusing the
+// enroll step from mfa-gate: QR + 6-digit code) and disable it again. The verified
+// factor is read client-side from GoTrue (Capacitor-safe, #37), independent of the
+// role-based `mandatory` flag.
+function MfaCard({ mandatory }: { mandatory: boolean }): JSX.Element {
+  const [hasMfa, setHasMfa] = useState<boolean | null>(null); // null = still loading
+  const [enroll, setEnroll] = useState(false);
+  const [confirmDisable, setConfirmDisable] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(() => {
+    setHasMfa(null);
+    void createClient()
+      .auth.mfa.listFactors()
+      .then(({ data }) =>
+        setHasMfa((data?.all ?? []).some((f) => f.factor_type === 'totp' && f.status === 'verified'))
+      )
+      .catch(() => setHasMfa(false));
+  }, []);
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  // Optional roles only — drop every verified TOTP factor. Requires the session to
+  // be AAL2 (the middleware steps a factor-holder up at login), so it normally
+  // succeeds; on failure we surface a retry hint rather than dead-ending.
+  async function disable(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      const supabase = createClient();
+      const { data } = await supabase.auth.mfa.listFactors();
+      const verified = (data?.all ?? []).filter((f) => f.factor_type === 'totp' && f.status === 'verified');
+      for (const f of verified) {
+        const { error: unErr } = await supabase.auth.mfa.unenroll({ factorId: f.id });
+        if (unErr) throw unErr;
+      }
+      setConfirmDisable(false);
+      refresh();
+    } catch {
+      setError('Kon tweestapsverificatie niet uitschakelen. Verifieer opnieuw en probeer het nog eens.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const on = hasMfa === true;
+  const sub = mandatory
+    ? 'Verplicht voor jouw rol · authenticator-app'
+    : on
+      ? 'Ingeschakeld · authenticator-app'
+      : 'Optioneel — schakel het in voor extra beveiliging';
+  const chipLabel = mandatory ? 'VERPLICHT' : hasMfa === null ? '…' : on ? 'AAN' : 'UIT';
+
+  return (
+    <div className="flex items-start gap-[12px] border-b border-line2 py-[14px]">
+      <span className={cn('mt-px', mandatory || on ? 'text-acc' : 'text-faint')}>
+        <Icon name="shield" size={19} />
+      </span>
+      <div className="flex-1">
+        <div className="text-[14.5px] font-semibold text-text">Tweestapsverificatie</div>
+        <div className="mt-0.5 text-[12px] leading-[1.4] text-faint">{sub}</div>
+        {/* Optional role: enable / disable. Mandatory but not yet enrolled: activate. */}
+        {hasMfa !== null && !mandatory && (
+          <button
+            type="button"
+            onClick={() => (on ? setConfirmDisable(true) : setEnroll(true))}
+            className={cn('mt-[7px] font-body text-[12.5px] font-bold', press, on ? 'text-faint' : 'text-acc')}
+          >
+            {on ? 'Uitschakelen' : 'Inschakelen'}
+          </button>
+        )}
+        {hasMfa === false && mandatory && (
+          <button
+            type="button"
+            onClick={() => setEnroll(true)}
+            className={cn('mt-[7px] font-body text-[12.5px] font-bold text-acc', press)}
+          >
+            Nu activeren
+          </button>
+        )}
+      </div>
+      <MiniChip className={cn('border-transparent', mandatory || on ? 'bg-acc-dim text-acc' : 'bg-elev2 text-faint')}>
+        {chipLabel}
+      </MiniChip>
+
+      {enroll && (
+        <PoMfaSheet
+          title="Tweestapsverificatie inschakelen"
+          subtitle="Beveilig je account met een authenticator-app."
+          onClose={() => setEnroll(false)}
+          onVerified={() => {
+            setEnroll(false);
+            refresh();
+          }}
+        />
+      )}
+      {confirmDisable && (
+        <Sheet onClose={() => setConfirmDisable(false)} center={false}>
+          <Note icon="warn">
+            Je rol vereist geen tweestapsverificatie, maar uitschakelen verlaagt je accountbeveiliging. Je kunt het later opnieuw inschakelen.
+          </Note>
+          {error && (
+            <p className="mb-1 text-[12.5px] text-red-300" role="alert">
+              {error}
+            </p>
+          )}
+          <Btn kind="primary" full icon="shield" className="mt-2" disabled={busy} onClick={() => void disable()}>
+            {busy ? 'Uitschakelen…' : 'Ja, uitschakelen'}
+          </Btn>
+          <Btn kind="ghost" full className="mt-2" onClick={() => setConfirmDisable(false)}>
+            Annuleren
+          </Btn>
+        </Sheet>
       )}
     </div>
   );
@@ -1046,20 +1170,7 @@ export function Profile(): JSX.Element {
 
         <Label className="mb-[10px] mt-[18px]">Beveiliging</Label>
         <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-4 py-1">
-          <div className="flex items-center gap-[12px] border-b border-line2 py-[14px]">
-            <span className={p.mfaRequired ? 'text-acc' : 'text-faint'}>
-              <Icon name="shield" size={19} />
-            </span>
-            <div className="flex-1">
-              <div className="text-[14.5px] font-semibold text-text">Tweestapsverificatie</div>
-              <div className="mt-0.5 text-[12px] text-faint">
-                {p.mfaRequired ? 'Verplicht voor jouw rol · authenticator-app' : 'Optioneel voor jouw rol'}
-              </div>
-            </div>
-            <MiniChip className={cn('border-transparent', p.mfaRequired ? 'bg-acc-dim text-acc' : 'bg-elev2 text-faint')}>
-              {p.mfaRequired ? 'VERPLICHT' : 'OPTIONEEL'}
-            </MiniChip>
-          </div>
+          <MfaCard mandatory={p.mfaRequired} />
           <div className="flex items-center gap-[12px] py-[14px]">
             <span className="text-faint">
               <Icon name="mail" size={19} />
@@ -1073,7 +1184,7 @@ export function Profile(): JSX.Element {
 
         <Label className="mb-[10px]">Actieve sessies</Label>
         {sessionsQ.isLoading ? (
-          <Empty text="Laden…" />
+          <Loading />
         ) : sessions.length === 0 ? (
           <Empty text="Geen actieve sessies." />
         ) : (

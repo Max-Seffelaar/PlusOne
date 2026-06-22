@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isMobileUA } from './ua';
+import { isMobileUA, deviceLabel } from './ua';
 
 describe('isMobileUA', () => {
   it('returns true for mobile user-agents', () => {
@@ -50,5 +50,32 @@ describe('isMobileUA', () => {
     expect(isMobileUA('')).toBe(false);
     expect(isMobileUA(null)).toBe(false);
     expect(isMobileUA(undefined)).toBe(false);
+  });
+});
+
+describe('deviceLabel', () => {
+  it('derives browser + OS from a real browser UA', () => {
+    expect(
+      deviceLabel(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      ),
+    ).toBe('Chrome · Windows');
+    expect(
+      deviceLabel(
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+      ),
+    ).toBe('Safari · iPhone');
+    expect(
+      deviceLabel('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Gecko/20100101 Firefox/120.0'),
+    ).toBe('Firefox · Mac');
+    // Edge wins over its embedded "Chrome"/"Safari" tokens; ChromeOS is detected.
+    expect(deviceLabel('Mozilla/5.0 (Windows NT 10.0) Chrome/120 Safari Edg/120')).toBe('Edge · Windows');
+    expect(deviceLabel('Mozilla/5.0 (X11; CrOS x86_64) Chrome/120 Safari')).toBe('Chrome · ChromeOS');
+  });
+  it('degrades gracefully', () => {
+    expect(deviceLabel(null)).toBe('Onbekend apparaat');
+    expect(deviceLabel(undefined)).toBe('Onbekend apparaat');
+    // A server-side UA (e.g. dev-login) with no browser/OS token → bare "Browser".
+    expect(deviceLabel('node')).toBe('Browser');
   });
 });
