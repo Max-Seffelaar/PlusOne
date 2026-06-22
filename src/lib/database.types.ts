@@ -1378,7 +1378,7 @@ export type Database = {
     }
     Enums: {
       contact_role: "vip" | "all_access" | "artist" | "press" | "crew" | "guest"
-      contact_source: "manual" | "import" | "guest_request"
+      contact_source: "manual" | "import" | "guest_request" | "guest_list"
       event_status: "draft" | "open" | "live" | "closed"
       guest_source: "app" | "landing" | "door" | "permanent"
       guest_status:
@@ -1525,7 +1525,7 @@ export const Constants = {
   public: {
     Enums: {
       contact_role: ["vip", "all_access", "artist", "press", "crew", "guest"],
-      contact_source: ["manual", "import", "guest_request"],
+      contact_source: ["manual", "import", "guest_request", "guest_list"],
       event_status: ["draft", "open", "live", "closed"],
       guest_source: ["app", "landing", "door", "permanent"],
       guest_status: [
