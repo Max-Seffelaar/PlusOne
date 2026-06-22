@@ -42,7 +42,7 @@ $fn$;
 -- v1 = aa000000-0000-7000-8000-000000000001, v2 = ...0002
 -- Max=1111…, Noor=2222…, Femke=3333…, Yusuf=4444…, Tom=5555…, Lisa=6666…
 
-select plan(41);
+select plan(46);
 
 -- ---------------------------------------------------------------------------
 -- A. invites INSERT — who may invite, AAL2, escalation guard, forge, x-venue
@@ -323,6 +323,56 @@ select throws_ok($$ select public.admin_revoke_session(
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2', 'admin@plusone.test');
 select is(public.admin_revoke_session('55550000-0000-4000-8000-000000000002'), true,
           'F9 admin (AAL2) remote-logs-out a member''s session');
+
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- G. invite event-organizer scope (#6/#24) — admin-only, granted on acceptance
+-- ---------------------------------------------------------------------------
+-- Two fresh events: one in venue 1 (granted on acceptance) and one in venue 2
+-- (must be ignored — the invite belongs to venue 1). Inserted as superuser.
+
+insert into public.events (id, venue_id, name, starts_at, landing_slug) values
+  ('ae000000-0000-7000-8000-0000000000e1', 'aa000000-0000-7000-8000-000000000001',
+   'Invite Org Test V1', now() + interval '7 days', 'invite-org-test-v1'),
+  ('ae000000-0000-7000-8000-0000000000e2', 'aa000000-0000-7000-8000-000000000002',
+   'Invite Org Test V2', now() + interval '7 days', 'invite-org-test-v2');
+
+-- G1: a user_manager (AAL2) may invite, but NOT attach event scope (admin-only).
+select pg_temp.login('22222222-2222-4222-8222-222222222222', 'aal2', 'manager@plusone.test');
+select throws_ok($$
+  insert into public.invites (venue_id, email, roles, invited_by, expires_at, event_ids)
+  values ('aa000000-0000-7000-8000-000000000001', 'orgscope@plusone.test', '{staff}',
+          '22222222-2222-4222-8222-222222222222', now() + interval '7 days',
+          array['ae000000-0000-7000-8000-0000000000e1']::uuid[])
+$$, '42501', null, 'G1 user_manager cannot attach event scope (admin-only)');
+
+-- G2: an admin (AAL2) may. Capture a venue-1 AND a venue-2 event id; the
+-- cross-venue one is ignored at ACCEPTANCE, not refused here.
+select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2', 'admin@plusone.test');
+select lives_ok($$
+  insert into public.invites (venue_id, email, roles, invited_by, expires_at, event_ids)
+  values ('aa000000-0000-7000-8000-000000000001', 'staff@plusone.test', '{staff}',
+          '11111111-1111-4111-8111-111111111111', now() + interval '7 days',
+          array['ae000000-0000-7000-8000-0000000000e1',
+                'ae000000-0000-7000-8000-0000000000e2']::uuid[])
+$$, 'G2 admin attaches event scope (incl. a cross-venue id) to an invite');
+reset role;
+
+-- G3: the invitee (Tom = staff@) accepts → becomes organizer of the venue-1 event.
+select pg_temp.login('55555555-5555-4555-8555-555555555555', 'aal1', 'staff@plusone.test');
+select ok(public.accept_pending_invites() >= 1, 'G3 invitee accepts the event-scope invite');
+reset role;
+select is((select count(*)::int from public.event_organizers
+           where user_id = '55555555-5555-4555-8555-555555555555'
+             and event_id = 'ae000000-0000-7000-8000-0000000000e1'),
+          1, 'G4 acceptance granted organizer scope on the venue-1 event');
+
+-- G5: the cross-venue event id was filtered out (no organizer row in venue 2).
+select is((select count(*)::int from public.event_organizers
+           where user_id = '55555555-5555-4555-8555-555555555555'
+             and event_id = 'ae000000-0000-7000-8000-0000000000e2'),
+          0, 'G5 a cross-venue event id is ignored at acceptance');
 
 reset role;
 

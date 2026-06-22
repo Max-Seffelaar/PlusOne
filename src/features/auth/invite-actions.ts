@@ -60,11 +60,12 @@ export async function inviteUserAction(
     email: formData.get('email'),
     roles: formData.getAll('roles'),
     defaultQuota: formData.get('defaultQuota'),
+    eventIds: formData.getAll('eventIds'),
   });
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? 'Controleer de invoer.' };
   }
-  const { venueId, email, roles, defaultQuota } = parsed.data;
+  const { venueId, email, roles, defaultQuota, eventIds } = parsed.data;
   const typedRoles = roles as VenueRole[];
 
   try {
@@ -87,6 +88,11 @@ export async function inviteUserAction(
   if (!canGrantRoles(callerRoles, typedRoles)) {
     return { ok: false, error: 'Je mag deze rollen hier niet toekennen.' };
   }
+  // Event-organizer scope is an admin-only grant (mirrors assignOrganizer, #6/#24);
+  // RLS (invites_insert) re-enforces this, but check up front for a clear message.
+  if (eventIds.length > 0 && !callerRoles.includes('admin')) {
+    return { ok: false, error: 'Alleen een beheerder kan iemand aan events koppelen.' };
+  }
 
   // 1) Ensure an auth identity exists so OTP login is possible (invite-only —
   //    no public signups). Duplicate e-mail just means the account is already
@@ -105,6 +111,20 @@ export async function inviteUserAction(
   // 2) Record the invite through the user-scoped client → RLS enforces
   //    manager-role + AAL2 + escalation + invited_by = self once more.
   const supabase = await createClient();
+
+  // Keep only event ids that actually belong to this venue (RLS already scopes
+  // the read to the caller's venues). Defends against a stale/cross-venue id; the
+  // acceptance RPC filters again, so this is belt-and-braces for a clean store.
+  let validEventIds: string[] = [];
+  if (eventIds.length > 0) {
+    const { data: events } = await supabase
+      .from('events')
+      .select('id')
+      .eq('venue_id', venueId)
+      .in('id', eventIds);
+    validEventIds = (events ?? []).map((e) => e.id);
+  }
+
   const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const { error: inviteError } = await supabase.from('invites').insert({
     venue_id: venueId,
@@ -114,6 +134,8 @@ export async function inviteUserAction(
     expires_at: expiresAt,
     // Seeded as the member's venue default quota on acceptance (#4); null = none.
     default_quota: defaultQuota ?? null,
+    // Event-organizer scope granted on acceptance (#6/#24); [] = venue roles only.
+    event_ids: validEventIds,
   });
 
   if (inviteError) {

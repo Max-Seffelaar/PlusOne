@@ -364,6 +364,30 @@ export function Empty({ text }: { text: string }): JSX.Element {
   return <div className="py-[30px] text-center text-[14px] text-faint">{text}</div>;
 }
 
+// ── Spinner / Loading ─────────────────────────────────────────────────────────
+// A lavender-accented ring spinner for in-screen load states (replaces a bare
+// "Laden…" line). Tailwind's `animate-spin` is functional, not an entrance
+// animation, so it intentionally runs regardless of prefers-reduced-motion.
+export function Spinner({ size = 18, className }: { size?: number; className?: string }): JSX.Element {
+  return (
+    <span
+      role="status"
+      aria-label="Laden"
+      className={cn('inline-block animate-spin rounded-full border-2 border-line2 border-t-acc', className)}
+      style={{ width: size, height: size }}
+    />
+  );
+}
+
+export function Loading({ text = 'Laden…', className }: { text?: string; className?: string }): JSX.Element {
+  return (
+    <div className={cn('flex items-center justify-center gap-[10px] py-[30px] text-[14px] text-faint', className)}>
+      <Spinner />
+      {text && <span>{text}</span>}
+    </div>
+  );
+}
+
 export function MiniChip({ children, className, onClick }: { children: ReactNode; className?: string; onClick?: () => void }): JSX.Element {
   const cls = cn(
     'inline-flex items-center gap-[5px] whitespace-nowrap rounded-[7px] border border-line bg-transparent px-[9px] py-[4px] font-body text-[10.5px] font-bold tracking-[0.03em] text-dim',

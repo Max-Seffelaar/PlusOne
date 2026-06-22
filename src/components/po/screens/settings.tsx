@@ -27,6 +27,7 @@ import {
   usePoVenueSettings,
   usePoSubscription,
   usePoContactKeys,
+  usePoEvents,
 } from '@/features/po/hooks';
 import {
   usePoInviteUser,
@@ -44,7 +45,7 @@ import type { PoSubscription, PoTeamMember } from '@/features/po/adapters';
 import { useMfaGate, isAal2Error } from '../mfa-gate';
 import { useNav, usePo } from '../context';
 import { Icon, type IconName } from '../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, Row, Scroll, Top } from '../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Row, Scroll, Top } from '../kit';
 import { BottomBar, Sheet } from '../shell';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
@@ -63,8 +64,10 @@ function FormError({ error }: { error: unknown }): JSX.Element | null {
   );
 }
 
-/** Role multi-select rows, shared by the invite form and the member sheet. Only
- *  an admin may toggle the `admin` role (mirrors the escalation guard / RLS). */
+/** Role multi-select as selectable chips (design language: lavender pill when on,
+ *  same pattern as the import-source toggles), shared by the invite form and the
+ *  member sheet. Only an admin may toggle `admin` (mirrors the escalation guard /
+ *  RLS); a blocked chip dims and shows why. */
 function RolePicker({
   selected,
   toggle,
@@ -75,7 +78,7 @@ function RolePicker({
   callerIsAdmin: boolean;
 }): JSX.Element {
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-wrap gap-2">
       {VENUE_ROLES.map((k) => {
         const on = selected.includes(k);
         const blocked = k === 'admin' && !callerIsAdmin;
@@ -85,23 +88,16 @@ function RolePicker({
             type="button"
             disabled={blocked}
             onClick={() => toggle(k)}
+            aria-pressed={on}
             className={cn(
-              'flex items-center gap-[12px] rounded-[13px] border px-[14px] py-[13px] text-left',
-              on ? 'border-transparent bg-acc-dim' : 'border-line bg-elev',
-              blocked && 'opacity-40',
-              !blocked && press,
+              'inline-flex items-center gap-[7px] rounded-full border px-[15px] py-[10px] font-display text-[13.5px] font-bold',
+              on ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev text-dim',
+              blocked ? 'opacity-40' : press,
             )}
           >
-            <span
-              className={cn(
-                'flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[7px] border-2',
-                on ? 'border-acc bg-acc' : 'border-ghost bg-transparent',
-              )}
-            >
-              {on && <Icon name="check" size={13} stroke="#16132B" sw={3} />}
-            </span>
-            <span className="flex-1 font-display text-[14.5px] font-bold text-text">{ROLE_LABELS[k]}</span>
-            {blocked && <span className="text-[11px] text-faint">alleen beheerder</span>}
+            {on && <Icon name="check" size={14} stroke="#16132B" sw={2.6} />}
+            {ROLE_LABELS[k]}
+            {blocked && <span className="ml-0.5 text-[10px] font-bold opacity-70">· alleen beheerder</span>}
           </button>
         );
       })}
@@ -200,18 +196,29 @@ export function Gebruikers(): JSX.Element {
 
   const team = usePoTeam();
   const invitesQ = usePoInvites();
+  const eventsQ = usePoEvents();
   const inviteUser = usePoInviteUser();
   const revokeInvite = usePoRevokeInvite();
   const mfa = useMfaGate();
 
   const [invite, setInvite] = useState(false);
   const [email, setEmail] = useState('');
-  const [inviteRoles, setInviteRoles] = useState<VenueRole[]>(['staff']);
+  // Nothing pre-selected — the inviter chooses the role(s) deliberately (S4.1/S4.2).
+  const [inviteRoles, setInviteRoles] = useState<VenueRole[]>([]);
+  const [inviteEvents, setInviteEvents] = useState<string[]>([]);
   const [quota, setQuota] = useState('');
   const [sheetMember, setSheetMember] = useState<PoTeamMember | null>(null);
 
   const toggleInviteRole = (r: VenueRole): void =>
     setInviteRoles((s) => (s.includes(r) ? s.filter((x) => x !== r) : [...s, r]));
+  const toggleInviteEvent = (id: string): void =>
+    setInviteEvents((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  // Event-organizer scope is admin-only (mirrors assignOrganizer / the invite RLS),
+  // and only upcoming events are sensible to staff up front.
+  const upcomingEvents = (eventsQ.data ?? []).filter((e) => e.when === 'upcoming');
+  const allEventsSelected = upcomingEvents.length > 0 && inviteEvents.length === upcomingEvents.length;
+  const toggleAllEvents = (): void =>
+    setInviteEvents(allEventsSelected ? [] : upcomingEvents.map((e) => e.id));
   const sensitive = requiresMfa(inviteRoles);
   const canSubmit = /.+@.+\..+/.test(email) && inviteRoles.length > 0 && !inviteUser.isPending;
 
@@ -231,12 +238,18 @@ export function Gebruikers(): JSX.Element {
   if (invite) {
     const submit = (): void =>
       inviteUser.mutate(
-        { email: email.trim(), roles: inviteRoles, defaultQuota: quota === '' ? undefined : Number(quota) },
+        {
+          email: email.trim(),
+          roles: inviteRoles,
+          defaultQuota: quota === '' ? undefined : Number(quota),
+          eventIds: callerIsAdmin ? inviteEvents : undefined,
+        },
         {
           onSuccess: () => {
             setInvite(false);
             setEmail('');
-            setInviteRoles(['staff']);
+            setInviteRoles([]);
+            setInviteEvents([]);
             setQuota('');
           },
           // AAL1 user → open the MFA step-up sheet and retry the invite after.
@@ -256,6 +269,62 @@ export function Gebruikers(): JSX.Element {
               Beheerder en Financiën krijgen <b>verplichte MFA</b>. Bij de eerste login stelt de gebruiker een authenticator-app in.
             </Note>
           )}
+
+          {/* Event-organizer scope (#6/#24) — admin-only, mirrors the invite RLS. */}
+          {callerIsAdmin && (
+            <>
+              <div className="mb-[10px] mt-[18px] flex items-center justify-between gap-3">
+                <Label>Toevoegen aan events · optioneel</Label>
+                {upcomingEvents.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={toggleAllEvents}
+                    className={cn('shrink-0 font-body text-[12px] font-semibold text-acc', press)}
+                  >
+                    {allEventsSelected ? 'Wis selectie' : 'Alle events'}
+                  </button>
+                )}
+              </div>
+              {eventsQ.isLoading ? (
+                <Loading text="Events laden…" />
+              ) : upcomingEvents.length === 0 ? (
+                <div className="rounded-[13px] border border-dashed border-line bg-elev px-[14px] py-[12px] text-[12.5px] text-faint">
+                  Geen aankomende events om aan toe te voegen.
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {upcomingEvents.map((e) => {
+                    const on = inviteEvents.includes(e.id);
+                    return (
+                      <button
+                        key={e.id}
+                        type="button"
+                        onClick={() => toggleInviteEvent(e.id)}
+                        aria-pressed={on}
+                        className={cn(
+                          'inline-flex items-center gap-[8px] rounded-[13px] border px-[13px] py-[10px] text-left font-display text-[13px] font-bold',
+                          on ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev text-dim',
+                          press,
+                        )}
+                      >
+                        <Icon name={on ? 'check' : 'cal'} size={14} sw={2.4} stroke={on ? '#16132B' : undefined} />
+                        <span>{e.name}</span>
+                        <span className={cn('text-[11px] font-semibold', on ? 'text-on-acc/70' : 'text-faint')}>
+                          {e.date} {e.mon}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {inviteEvents.length > 0 && (
+                <Note icon="cal">
+                  Wordt <b>organisator</b> van {inviteEvents.length} {inviteEvents.length === 1 ? 'event' : 'events'} zodra de uitnodiging is geaccepteerd. Een organisator beheert de gastenlijst van dat event (#6).
+                </Note>
+              )}
+            </>
+          )}
+
           <Label className="mb-2 mt-[18px]">Standaardquotum · optioneel</Label>
           <Field
             icon="ticket"
