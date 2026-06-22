@@ -24,7 +24,18 @@ export function isAal2Error(error: unknown): boolean {
 
 type Phase = 'loading' | 'challenge' | 'enroll' | 'error';
 
-function PoMfaSheet({ onVerified, onClose }: { onVerified: () => void; onClose: () => void }): JSX.Element {
+export function PoMfaSheet({
+  onVerified,
+  onClose,
+  title = 'Tweestapsverificatie',
+  subtitle = 'Deze actie vereist tweestapsverificatie.',
+}: {
+  onVerified: () => void;
+  onClose: () => void;
+  /** Header copy — overridden for the voluntary "MFA inschakelen" flow (S4.3). */
+  title?: string;
+  subtitle?: string;
+}): JSX.Element {
   const [phase, setPhase] = useState<Phase>('loading');
   const [factorId, setFactorId] = useState<string | null>(null);
   const [qr, setQr] = useState<string | null>(null);
@@ -104,8 +115,8 @@ function PoMfaSheet({ onVerified, onClose }: { onVerified: () => void; onClose: 
           <Icon name="shield" size={20} />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="font-display text-[16px] font-bold text-text">Tweestapsverificatie</div>
-          <div className="text-[12px] text-faint">Deze actie vereist tweestapsverificatie.</div>
+          <div className="font-display text-[16px] font-bold text-text">{title}</div>
+          <div className="text-[12px] text-faint">{subtitle}</div>
         </div>
       </div>
 

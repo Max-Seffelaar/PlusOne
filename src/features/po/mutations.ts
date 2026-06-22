@@ -646,6 +646,8 @@ export interface PoInviteInput {
   roles: VenueRole[];
   /** Optional default quota seeded on acceptance (#4); omit for none. */
   defaultQuota?: number;
+  /** Optional event-organizer scope granted on acceptance (#6/#24); admin-only. */
+  eventIds?: string[];
 }
 
 /** Invite a user to the active venue (AAL2 + escalation enforced by the action). */
@@ -660,6 +662,7 @@ export function usePoInviteUser() {
       fd.set('email', input.email);
       input.roles.forEach((r) => fd.append('roles', r));
       if (input.defaultQuota != null) fd.set('defaultQuota', String(input.defaultQuota));
+      input.eventIds?.forEach((id) => fd.append('eventIds', id));
       return throwOnActionError(await inviteUserAction(NO_PREV, fd));
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.invites(venueId ?? '') }),

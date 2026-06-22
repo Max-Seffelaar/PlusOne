@@ -624,6 +624,7 @@ export type Database = {
           created_at: string
           default_quota: number | null
           email: string
+          event_ids: string[]
           expires_at: string
           id: string
           invited_by: string
@@ -636,6 +637,7 @@ export type Database = {
           created_at?: string
           default_quota?: number | null
           email: string
+          event_ids?: string[]
           expires_at: string
           id?: string
           invited_by: string
@@ -648,6 +650,7 @@ export type Database = {
           created_at?: string
           default_quota?: number | null
           email?: string
+          event_ids?: string[]
           expires_at?: string
           id?: string
           invited_by?: string

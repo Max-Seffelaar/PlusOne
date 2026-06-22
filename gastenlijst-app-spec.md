@@ -212,6 +212,7 @@ Niet in applicatiecode, maar via **Postgres-triggers** op `guests`, `quotas`, `e
 | Primaire login | **E-mail OTP** (6-cijferige code) | Geen wachtwoord-hashes opgeslagen → niets te lekken, geen credential stuffing, geen wachtwoorddeling onder personeel. OTP werkt betrouwbaarder dan magic links in een PWA (verkeerde browser-context). |
 | Registratie | **Invite-only** | Accounts worden uitsluitend aangemaakt via uitnodiging door Admin/User Manager. Geen open signup → geen fake accounts. |
 | Admin & Finance | **Verplichte MFA (TOTP-app)** | Via Supabase native MFA. In RLS wordt afgedwongen (AAL2) dat quota-verhogingen, rolwijzigingen en audit-log-inzage alleen werken met een MFA-geverifieerde sessie. Gestolen mailbox alléén is dan niet genoeg. |
+| Overige rollen | **MFA optioneel — zelf in/uit te schakelen** (S4.3) | Niet-verplichte rollen kunnen vrijwillig 2FA aanzetten (zelfde TOTP-enroll: QR + 6-cijferige code) en weer uit. Verplichte rollen houden MFA altijd aan. Een user_manager die uitnodigt heeft sowieso AAL2 nodig en wordt zo nodig bij de actie ge-step-upt. |
 | Passkeys | **Roadmap, zodra stable** | Supabase passkeys zijn sinds mei 2026 in beta (experimentele API). Phishing-resistent einddoel; toevoegen is straks een uitbreiding, geen verbouwing. |
 
 ### Hardening

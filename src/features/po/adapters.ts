@@ -22,6 +22,7 @@ import { formatClock, toDateInput } from '@/features/stats/format';
 import { toPerTier, type PerTier } from '@/features/stats/po-adapter';
 import { ROLE_LABELS, VENUE_ROLES, requiresMfa, type VenueRole } from '@/features/auth/roles';
 import { getPlan, isPlanId } from '@/features/billing/plans';
+import { deviceLabel } from '@/lib/ua';
 
 // Pure DB-row -> po-component-shape mappers (mirrors src/features/stats/po-adapter.ts).
 // No I/O, so they're unit-tested directly (adapters.test.ts). The po mock types
@@ -535,27 +536,6 @@ export function toPoMyInvite(row: PoMyInviteRow): PoMyInvite {
     venueName: row.venue_name ?? 'een venue',
     rolesLabel: rolesLabel(row.roles),
   };
-}
-
-/** Best-effort device label from a User-Agent ("Safari · iPhone"). */
-export function deviceLabel(ua: string | null): string {
-  if (!ua) return 'Onbekend apparaat';
-  const s = ua.toLowerCase();
-  const browser =
-    s.includes('edg') ? 'Edge'
-    : s.includes('firefox') || s.includes('fxios') ? 'Firefox'
-    : s.includes('chrome') || s.includes('crios') ? 'Chrome'
-    : s.includes('safari') ? 'Safari'
-    : 'Browser';
-  const os =
-    s.includes('iphone') ? 'iPhone'
-    : s.includes('ipad') ? 'iPad'
-    : s.includes('android') ? 'Android'
-    : s.includes('mac os') || s.includes('macintosh') ? 'Mac'
-    : s.includes('windows') ? 'Windows'
-    : s.includes('linux') ? 'Linux'
-    : '';
-  return os ? `${browser} · ${os}` : browser;
 }
 
 export interface PoSession {
