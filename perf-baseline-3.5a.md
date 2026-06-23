@@ -4,7 +4,7 @@
 > Fixes + vóór/na-hermeting leven in ClickUp onder **3.5b** (`86exzefv8`); deze doc is het bewijs + de recipe.
 > **Niets in deze meting wijzigde app-code of liet DB-residu achter** (stress-data committed → superuser-teardown → baseline geverifieerd).
 >
-> **✅ STATUS 2026-06-22 — 3.5b code SHIPPED & GEMERGED naar `main`.** De zes code-fixes (#0a/#0b/#1a/#1b/#2a/#2b) zijn gemerged via **PR #53** (correctheid + deur) en **PR #54** (polish); vóór/na staat in de tabel onderaan. Wat van STAP 3.5 nog rest is **#3 = de schaal-track** (realtime→Broadcast, polling/caching terug, caching hete reads, tier/pooling, kostenmodel, hosted load-test) — aparte ClickUp-taak, **géén MVP-blocker** (zie "Platform-fit op doel-schaal").
+> **✅ STATUS 2026-06-22 — 3.5b code SHIPPED & GEMERGED naar `main`.** De zes code-fixes (#0a/#0b/#1a/#1b/#2a/#2b) zijn gemerged via **PR #53** (correctheid + deur) en **PR #54** (polish); vóór/na staat in de tabel onderaan. Wat van STAP 3.5 nog rest is **#3 = de schaal-track** (realtime→Broadcast, polling/caching terug, caching hete reads, tier/pooling, kostenmodel, hosted load-test) — aparte ClickUp-taak, **géén MVP-blocker** (zie "Platform-fit op doel-schaal"). **Ontwerp + ops-check leven in `perf-scale-track-3.5.md`** (de goedkope ops-checks (d) tier/pooling + (f) kostenmodel zijn daar opgeleverd; (a/b/c/e/g) zijn gespecificeerd).
 
 ## Samenvatting in één zin
 
