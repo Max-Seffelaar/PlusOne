@@ -4,11 +4,22 @@
 > ClickUp: `86ey0rdra` (#3, schaal-track). **Géén MVP/pilot-blocker** — nodig vóór grootschalige onboarding.
 > Doel-schaal: **500+ orgs die mogelijk gelijktijdig werken** (clubs/event-spaces, piek vrijdag/zaterdagnacht).
 >
-> **Status deze sessie (2026-06-22):** de twee goedkope ops-checks zijn opgeleverd als onderbouwde analyse —
-> **(d) tier/pooling-sanity** en **(f) kostenmodel** (secties 3 + 4). De vier code-tracks **(a) Broadcast,
-> (b) polling, (c) caching, (e) RLS-helpers** en de **(g) hosted load-test** zijn concreet uitgewerkt als
-> ontwerp (secties 5–9) maar **nog niet geïmplementeerd** — bewust: de aanrader-volgorde is eerst (g) als
-> meet-fundament neerzetten, dán (a/b/c/e) implementeren mét (g) als vóór/na-bewijs. Geen app-code gewijzigd.
+> **Status 2026-06-23 (bijgewerkt):**
+> - ✅ **(d) tier/pooling-sanity + (f) kostenmodel** — opgeleverd als analyse (secties 3 + 4).
+> - ✅ **(e) RLS + denormalisatie** — `event_id`+`venue_id` op `check_ins`/`refusals` (gevuld door de
+>   `set_checkin_scope` BEFORE-trigger), SELECT-policies teruggebracht tot één membership-check op de
+>   geïndexeerde `venue_id`. **Gemerged + naar prod gepusht** (PR #59; collisie-fix PR #60 — zie ⚠️).
+> - ✅ **(a) deel 1 — event-filter** — deur/cockpit `postgres_changes` op `check_ins` filtert nu `event_id=eq.X`
+>   (kon pas ná de denormalisatie); types geregenereerd + insert-paden gewired (gateway/replay/optimistic/cockpit,
+>   venue_id trigger-gevuld). Type-check + 421 unit-tests + lint groen.
+> - ⏳ **(a) deel 2 — Broadcast**, **(b) polling**, **(c) caching**, **(g) hosted load-test** — nog te doen
+>   (ontwerp in secties 5–9). (g) is het vóór/na-meet-fundament; de harness staat klaar in
+>   `scripts/perf/realtime-loadtest-hosted.mjs`.
+>
+> ⚠️ **Migratie-collisie (les):** twee parallelle sessies kozen dezelfde 0622-tijdstempels → main was even niet
+> schoon te resetten (Supabase indexeert op versie/PK). Opgelost in **PR #60**: `checkin_event_scope` hernoemd
+> naar `20260622140000`, de overbodige `restore_request_contact_link` gedropt (de `guests_autolink_contact`-trigger
+> van de andere sessie dekt de #8 contact-link al). De **prod-push-flow + collisie-guardrail** staan nu in `CLAUDE.md`.
 
 ## Samenvatting in één alinea
 
