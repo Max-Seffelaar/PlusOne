@@ -81,4 +81,62 @@ export const home = {
   newEvent: 'New event',
   loadingOverview: 'Loading the overview…',
   loadError: "Couldn't load the overview. Try again in a moment.",
+
+  // ── S14 · mission-control board (multi-event dashboard) ──
+  metaEventsToday: '{n} today',
+  metaUpcoming: '{n} upcoming',
+  metaDoorsOpen: 'doors open',
+  newGuest: 'New guest',
+  // pulse strip
+  pulseOnList: 'On the list',
+  pulseRequests: 'Open requests',
+  pulseQuota: 'Quota requests',
+  pulseLive: 'Events live',
+  badgeAction: 'action',
+  deltaToday: 'today',
+  // graphs
+  graphRequestedTitle: 'Requested',
+  graphRequestedSub: 'Spot requests, per event',
+  graphOnListTitle: 'On the list',
+  graphOnListSub: 'Approved & on the list, per event',
+  // events section
+  eventsHeading: 'Events',
+  countFound: 'found',
+  countTotal: 'total',
+  searchEvents: 'Search events…',
+  filterAll: 'All',
+  filterToday: 'Today',
+  filterUpcoming: 'Upcoming',
+  // status chips
+  chipLive: 'Live',
+  chipTonight: 'Tonight',
+  chipUpcoming: 'Upcoming',
+  // card counts
+  cOnList: 'On the list',
+  cRequests: 'Requests',
+  cQuota: 'Quota',
+  cInside: 'Inside',
+  doorAt: 'doors {time}',
+  // card actions (titles / aria)
+  aOpen: 'Open',
+  aDoor: 'Door',
+  aRequests: 'Requests',
+  aEdit: 'Edit',
+  aLock: 'Lock list',
+  aUnlock: 'Unlock list',
+  // pagination
+  pageOf: '{shown} of {total}',
+  eventsCount: '{n} events',
+  showMore: 'Show more ({n})',
+  allShown: 'All {n} events shown',
+  // empty states
+  emptyFilteredTitle: 'No events found',
+  emptyFilteredBody: 'Adjust your search or filter to see events.',
+  clearFilters: 'Clear filters',
+  emptyNoneTitle: 'Nothing scheduled',
+  emptyNoneBody: 'No events on the calendar for this venue yet.',
+  createEvent: 'Create an event',
+  // toasts
+  toastListOpen: '{name} · list open',
+  toastListLocked: '{name} · list locked',
 } as const;
