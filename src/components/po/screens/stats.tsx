@@ -30,9 +30,9 @@ const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scal
 
 export function Stats(): JSX.Element {
   const nav = useNav();
-  const { statsVenues } = usePo();
-  const [venueIdx, setVenueIdx] = useState(0);
-  const venue = statsVenues[venueIdx] ?? null;
+  const { statsVenues, activeVenueId: globalVenueId } = usePo();
+  // Stats scope to the globally-active venue (one switcher, not a second per-screen one).
+  const venue = statsVenues.find((v) => v.venueId === globalVenueId) ?? statsVenues[0] ?? null;
   const activeVenueId = venue?.venueId ?? null;
 
   const [venueStats, setVenueStats] = useState<VenueStats | null>(null);
@@ -112,25 +112,6 @@ export function Stats(): JSX.Element {
         right={<IconBtn name="refresh" onClick={() => setReloadKey((k) => k + 1)} />}
       />
       <Scroll bottom={28} className={cn(loading && 'opacity-60 transition-opacity')}>
-        {statsVenues.length > 1 && (
-          <div className="po-scroll mb-4 flex gap-2 overflow-x-auto">
-            {statsVenues.map((v, i) => (
-              <button
-                key={v.venueId}
-                type="button"
-                onClick={() => setVenueIdx(i)}
-                className={cn(
-                  'inline-flex shrink-0 items-center rounded-full border px-[14px] py-[8px] font-display text-[13px] font-bold',
-                  press,
-                  i === venueIdx ? 'border-transparent bg-acc text-on-acc' : 'border-line text-dim'
-                )}
-              >
-                {v.venueName}
-              </button>
-            ))}
-          </div>
-        )}
-
         {/* Org-level KPIs — meaningful without selecting an event. Stacked on
             mobile (hero + a 2-up row); a single 3-across band on desktop. */}
         <div className="mb-5 flex flex-col gap-[10px] lg:grid lg:grid-cols-[1.3fr_1fr_1fr] lg:items-stretch lg:gap-3">

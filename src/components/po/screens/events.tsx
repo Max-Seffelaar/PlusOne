@@ -496,9 +496,13 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
                 type="button"
                 onClick={() => void copyLink()}
                 aria-label={t.events.copyLinkAria}
-                className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] border border-line text-faint transition-[filter] hover:brightness-[1.2]"
+                className={cn(
+                  'flex shrink-0 items-center gap-1.5 rounded-[10px] border px-3 py-[7px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.2]',
+                  copied ? 'border-acc/40 bg-acc-dim text-acc' : 'border-line text-dim',
+                )}
               >
-                <Icon name={copied ? 'check' : 'share'} size={16} />
+                <Icon name={copied ? 'check' : 'link'} size={15} />
+                {copied ? t.events.copyLinkDone : t.events.copyLinkLabel}
               </button>
             </div>
           )}

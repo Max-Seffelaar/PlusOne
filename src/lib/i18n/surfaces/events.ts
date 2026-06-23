@@ -62,6 +62,8 @@ export const events = {
   landingActiveTitle: 'Request link active',
   landingActiveSub: 'Guests can request a spot through the link.',
   copyLinkAria: 'Copy sign-up link',
+  copyLinkLabel: 'Copy link',
+  copyLinkDone: 'Copied!',
   autoCloseTitle: 'Close sign-ups automatically',
   autoCloseOnSub: 'After this, no one can request a spot.',
   autoCloseOffSub: 'Link stays open until you close it.',
