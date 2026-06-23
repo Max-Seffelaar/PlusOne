@@ -47,8 +47,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(new URL('/login?error=devlogin', request.url));
   }
 
-  // User-scoped client: verify the token so the session cookies are set.
-  const supabase = await createClient();
+  // User-scoped client: verify the token so the session cookies are set. Forward
+  // the browser's real User-Agent so the session GoTrue records carries a usable
+  // device label ("Chrome · Windows") in the active-sessions list — a server-side
+  // verifyOtp otherwise stamps the Node UA, which degrades to a bare "Browser".
+  const supabase = await createClient({
+    headers: { 'User-Agent': request.headers.get('user-agent') ?? 'PlusOne dev-login' },
+  });
   const { error } = await supabase.auth.verifyOtp({ type: 'magiclink', token_hash: tokenHash });
   if (error) {
     return NextResponse.redirect(new URL('/login?error=devlogin', request.url));
