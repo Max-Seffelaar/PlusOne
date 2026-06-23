@@ -53,6 +53,9 @@ interface DoorContextValue {
   tasks: DoorTask[];
   quota: QuotaStatus | null;
   defaultTierId: string | null;
+  /** Effective "uitchecken toestaan" for this event (#3 / S1.1). When false the
+   *  screens hide the "Check-in terugdraaien" affordance; RLS rejects it too. */
+  allowUncheck: boolean;
   sync: DoorSyncState;
   toast: string | null;
   /** Entries for this event still awaiting the network (sync-bar queue badge). */
@@ -490,6 +493,7 @@ export function DoorProvider({
       tasks,
       quota: quotaQuery.data ?? null,
       defaultTierId,
+      allowUncheck: view?.event.allowUncheck ?? true,
       sync,
       toast,
       pendingCount,

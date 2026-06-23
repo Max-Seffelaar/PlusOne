@@ -132,6 +132,7 @@ export async function updateVenueSettingsAction(
     city: formData.get('city'),
     country: formData.get('country'),
     defaultPersonalQuota: formData.get('defaultPersonalQuota'),
+    allowUncheck: formData.get('allowUncheck'),
   });
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? 'Controleer de invoer.' };
@@ -159,6 +160,7 @@ export async function updateVenueSettingsAction(
         city: fields.city,
         country: fields.country,
         default_personal_quota: fields.defaultPersonalQuota,
+        allow_uncheck: fields.allowUncheck,
       },
       { count: 'exact' }
     )

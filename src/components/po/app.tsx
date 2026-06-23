@@ -10,19 +10,20 @@ import { useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
-import { usePoDoorEvent, usePoEvents, usePoGuests } from '@/features/po/hooks';
+import { usePoDoorCandidates, usePoEvents, usePoGuests } from '@/features/po/hooks';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canWorkDoor } from '@/features/auth/roles';
 import { DoorProvider } from '@/features/door/DoorProvider';
 import { DoorQueryProvider } from '@/features/door/DoorQueryProvider';
-import { PoProvider, type AuthNav, type AuthView, type Nav, type PoApp, type ScreenName, type StackEntry } from './context';
+import { setActiveVenueAction } from '@/features/venues/actions';
+import { PoProvider, type AuthNav, type AuthView, type Nav, type PoApp, type PoVenueMembership, type ScreenName, type StackEntry } from './context';
 import { PhoneFrame, Toast, type TabKey } from './shell';
 import { Top } from './kit';
 import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
 import { Invite, Login, Mfa, Otp, Welcome } from './screens/auth';
 import { EventBeheer, EventEdit, EventView, Events, PastEvent, Tiers } from './screens/events';
 import { BulkPaste, Contacten, Guest, Lijst, QuickAdd, Vaste } from './screens/guests';
-import { PoDoorTab, type DoorOverlay } from './screens/door';
+import { DoorEventPicker, PoDoorTab, type DoorOverlay } from './screens/door';
 import { Allowance, Billing, Gebruikers, Import, Meer, Profile, Rollen, VenueSettings, VenueSwitch } from './screens/settings';
 import { VenueCreate } from './screens/onboarding';
 import { Home } from './screens/home';
@@ -96,12 +97,18 @@ function DoorTabState({ title, text }: { title: string; text: string }): JSX.Ele
 
 export function PlusOneApp({
   statsAccess,
+  myVenues = [],
+  activeVenueId = null,
   serverHint = false,
   liveVenueName,
   liveUserName,
   liveUserSub,
 }: {
   statsAccess?: { venues: { venueId: string; venueName: string }[] };
+  /** The caller's real venue memberships (live), for the venue switcher (#1). */
+  myVenues?: PoVenueMembership[];
+  /** The active (cookie-resolved) venue id, or null. */
+  activeVenueId?: string | null;
   /** Server UA hint for the first-paint viewport switch (corrected by matchMedia). */
   serverHint?: boolean;
   /** Live active-venue name from the session (shell display); mock fallback otherwise. */
@@ -123,6 +130,9 @@ export function PlusOneApp({
   // behind a full-screen door detail (isTabRoot below); the door components that
   // read it render inside the provider, via <PoDoorTab>.
   const [doorOverlay, setDoorOverlay] = useState<DoorOverlay>(null);
+  // S1.3: when the user opens "Check-in" from a specific event card, that event id
+  // overrides the venue-wide auto-pick for the Deur/Taken tabs. null = auto-pick.
+  const [doorEventId, setDoorEventId] = useState<string | null>(null);
   const [venue, setVenueState] = useState<Venue>(() => venues.find((v) => v.current) ?? venues[0]);
   const [toast, setToast] = useState<string | null>(null);
   const [key, setKey] = useState(0);
@@ -141,8 +151,14 @@ export function PlusOneApp({
   const showDoor = canWorkDoor(roles);
   const { data: liveEvents } = usePoEvents();
   const events = liveEvents ?? [];
-  // The venue's current door event (live → next → recent); drives DoorProvider.
-  const doorEventQuery = usePoDoorEvent();
+  // Non-closed events for the door (live-first). Selection-first (S1.3): an explicit
+  // pick (doorEventId, set by "Check-in" from an event card) wins; with exactly one
+  // candidate we use it; with several, the user chooses — no auto-pick guess. Only
+  // the chosen event's guests are ever loaded, so dozens of live events stay cheap.
+  const doorCandidatesQuery = usePoDoorCandidates();
+  const doorCandidates = doorCandidatesQuery.data ?? [];
+  const resolvedDoorId = doorEventId ?? (doorCandidates.length === 1 ? doorCandidates[0].id : null);
+  const resolvedDoorName = doorCandidates.find((e) => e.id === resolvedDoorId)?.name ?? '';
   // The event in context carries its id (lijst/event/pastevent via `id`, the
   // guest detail via `eventId`), so the detail resolves a real guest from the
   // same cached list the Gastenlijst reads.
@@ -165,6 +181,16 @@ export function PlusOneApp({
     },
     setTab: (t: TabKey) => {
       setTabState(t);
+      setStack([]);
+      setDoorOverlay(null);
+      // A manual tab tap returns the door to its auto-picked event (S1.3).
+      setDoorEventId(null);
+      bump();
+    },
+    // "Check-in" from a specific event: open the Deur tab for THAT event (S1.3).
+    openDoor: (eventId: string) => {
+      setDoorEventId(eventId);
+      setTabState('deur');
       setStack([]);
       setDoorOverlay(null);
       bump();
@@ -190,9 +216,24 @@ export function PlusOneApp({
 
   const switchVenue = (v: Venue): void => {
     setVenueState(v);
+    setDoorEventId(null); // the override belongs to the old venue's events (S1.3)
     setToast('Gewisseld naar ' + v.name);
     setTimeout(() => setToast(null), 2200);
     nav.back();
+  };
+
+  // Switch the ACTIVE venue for real (#1): write the server cookie, then full-reload
+  // so app/page.tsx re-resolves the identity and every live query re-scopes to the
+  // new venue. (Local state alone can't re-scope server-resolved identity.)
+  const switchToVenue = (venueId: string): void => {
+    if (venueId === activeVenueId) {
+      nav.back();
+      return;
+    }
+    setToast('Wisselen…');
+    const fd = new FormData();
+    fd.set('venueId', venueId);
+    void setActiveVenueAction(fd).then(() => window.location.assign('/app'));
   };
 
   const ev = (id?: string) => events.find((e) => e.id === id);
@@ -301,7 +342,15 @@ export function PlusOneApp({
   // non-door role (showDoor=false) the tabs are hidden, so fall back to the home.
   else screen = <Home />;
 
-  const po: PoApp = { venue, switchVenue, statsVenues: statsAccess?.venues ?? [], nav };
+  const po: PoApp = {
+    venue,
+    switchVenue,
+    statsVenues: statsAccess?.venues ?? [],
+    myVenues,
+    activeVenueId,
+    switchToVenue,
+    nav,
+  };
 
   const body = (
     <>
@@ -349,22 +398,28 @@ export function PlusOneApp({
   // unmounts when leaving for another tab. No event resolvable → empty state.
   const doorTitle = tab === 'taken' ? 'Taken' : 'Check-in';
   let doorBranch: ReactNode;
-  if (doorEventQuery.isLoading) {
-    doorBranch = <DoorTabState title={doorTitle} text="Even laden…" />;
-  } else if (doorEventQuery.data) {
+  if (resolvedDoorId) {
     doorBranch = (
       <DoorQueryProvider>
-        <DoorProvider eventId={doorEventQuery.data.id}>
+        <DoorProvider eventId={resolvedDoorId}>
           <PoDoorTab
             tab={tab === 'taken' ? 'taken' : 'deur'}
             overlay={doorOverlay}
             openGuest={openGuest}
             openAdd={openAdd}
             closeOverlay={closeOverlay}
+            currentEventName={doorCandidates.length > 1 ? resolvedDoorName : undefined}
+            onChangeEvent={doorCandidates.length > 1 ? () => setDoorEventId(null) : undefined}
           />
         </DoorProvider>
       </DoorQueryProvider>
     );
+  } else if (doorCandidatesQuery.isLoading) {
+    doorBranch = <DoorTabState title={doorTitle} text="Even laden…" />;
+  } else if (doorCandidates.length > 1) {
+    // Several live/open events and nothing picked yet → choose first (S1.3). The
+    // /app shell keeps the bottom-tab menu visible around this picker.
+    doorBranch = <DoorEventPicker events={doorCandidates} onPick={setDoorEventId} />;
   } else {
     doorBranch = <DoorTabState title={doorTitle} text="Geen actief event om in te checken. Maak of open eerst een event." />;
   }

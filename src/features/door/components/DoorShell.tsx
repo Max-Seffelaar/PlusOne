@@ -7,6 +7,7 @@
  * `app.tsx` nav pattern, scoped to the door.
  */
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { Icon, type IconName } from '@/components/po/icon';
 import { PhoneFrame, StatusBar, Toast } from '@/components/po/shell';
@@ -62,6 +63,7 @@ function DoorTabBar({ tab, setTab, takenBadge }: { tab: Tab; setTab: (t: Tab) =>
 
 export function DoorShell(): JSX.Element {
   const { tasks, toast } = useDoor();
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>('checkin');
   const [overlay, setOverlay] = useState<Overlay>(null);
   const takenBadge = tasks.filter((t) => !t.done).length;
@@ -80,6 +82,21 @@ export function DoorShell(): JSX.Element {
   return (
     <PhoneFrame>
       <StatusBar />
+      {/* Way back out of the focused door PWA (e.g. when opened from the cockpit's
+          "Open deur-app") so it isn't a dead-end. Overlays carry their own back. */}
+      {!overlay && (
+        <div className="flex flex-none items-center px-3 pt-1">
+          <button
+            type="button"
+            onClick={() => router.back()}
+            aria-label="Terug"
+            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 font-body text-[13px] font-semibold text-faint transition-[filter] hover:brightness-[1.3]"
+          >
+            <Icon name="chev" size={17} className="rotate-180" />
+            Terug
+          </button>
+        </div>
+      )}
       <SyncBar />
       <div key={navKey} className="po-screen-anim flex min-h-0 flex-1 flex-col">
         {screen}

@@ -329,6 +329,7 @@ export type Database = {
       }
       events: {
         Row: {
+          allow_uncheck: boolean | null
           auto_lock_at: string | null
           created_at: string
           ends_at: string | null
@@ -346,6 +347,7 @@ export type Database = {
           went_live_at: string | null
         }
         Insert: {
+          allow_uncheck?: boolean | null
           auto_lock_at?: string | null
           created_at?: string
           ends_at?: string | null
@@ -363,6 +365,7 @@ export type Database = {
           went_live_at?: string | null
         }
         Update: {
+          allow_uncheck?: boolean | null
           auto_lock_at?: string | null
           created_at?: string
           ends_at?: string | null
@@ -978,6 +981,7 @@ export type Database = {
       venues: {
         Row: {
           address_line: string | null
+          allow_uncheck: boolean
           city: string | null
           company_name: string | null
           country: string
@@ -996,6 +1000,7 @@ export type Database = {
         }
         Insert: {
           address_line?: string | null
+          allow_uncheck?: boolean
           city?: string | null
           company_name?: string | null
           country?: string
@@ -1014,6 +1019,7 @@ export type Database = {
         }
         Update: {
           address_line?: string | null
+          allow_uncheck?: boolean
           city?: string | null
           company_name?: string | null
           country?: string
@@ -1130,6 +1136,7 @@ export type Database = {
         Returns: string
       }
       current_user_requires_mfa: { Args: never; Returns: boolean }
+      event_allows_uncheck: { Args: { p_event_id: string }; Returns: boolean }
       event_checkins_per_quarter: {
         Args: { p_event_id: string }
         Returns: {

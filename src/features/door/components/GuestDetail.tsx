@@ -49,7 +49,7 @@ function LogRow({
 }
 
 export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () => void }): JSX.Element | null {
-  const { guestById, checkIn, topUp, voidCheckIn, reviveCheckIn, refuse, ackNote } = useDoor();
+  const { guestById, checkIn, topUp, voidCheckIn, reviveCheckIn, refuse, ackNote, allowUncheck } = useDoor();
   const g = guestById(guestId);
   // Start the door check-in at just the named guest (1 person), NOT the whole
   // party: arrivals are staggered (#25), so the host bumps the stepper for any
@@ -159,19 +159,25 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
           </>
         )}
 
-        {g.inside && (
-          <Btn
-            kind="ghost"
-            full
-            icon="history"
-            onClick={() => {
-              voidCheckIn(g.id);
-              onBack();
-            }}
-          >
-            Check-in terugdraaien
-          </Btn>
-        )}
+        {g.inside &&
+          (allowUncheck ? (
+            <Btn
+              kind="ghost"
+              full
+              icon="history"
+              onClick={() => {
+                voidCheckIn(g.id);
+                onBack();
+              }}
+            >
+              Check-in terugdraaien
+            </Btn>
+          ) : (
+            <div className="flex items-center gap-[9px] rounded-[13px] border border-dashed border-line bg-elev px-[14px] py-[11px] text-[12.5px] text-faint">
+              <Icon name="lock" size={15} className="text-faint" />
+              Uitchecken staat uit voor dit event — vraag een beheerder.
+            </div>
+          ))}
 
         {!g.inside && (
           <>

@@ -22,7 +22,7 @@ import type { PoDoorEvent } from '@/features/po/door-event';
 import type { Guest } from '@/lib/po/types';
 import {
   usePoCheckinArrivals,
-  usePoDoorEvent,
+  usePoDoorCandidates,
   usePoEventForEdit,
   usePoEventRealtime,
   usePoEventStats,
@@ -31,14 +31,15 @@ import {
   usePoQuotaRequests,
   usePoTiers,
 } from '@/features/po/hooks';
+import { DoorEventPicker } from '@/components/po/screens/door';
 import {
   usePoApproveRequest,
   usePoCheckIn,
+  usePoCheckOut,
   usePoDecideQuota,
   usePoDenyRequest,
   usePoSetListLock,
   usePoTopUpCheckIn,
-  usePoVoidCheckIn,
 } from '@/features/po/mutations';
 import {
   amsterdamHM,
@@ -48,8 +49,10 @@ import {
   currentBucketIndex,
   feedIsAccent,
   filterCockpit,
+  insideHeads,
   liveFeedLabel,
   matchFirstWaiting,
+  partyState,
   perTierLive,
   type FeedEntry,
   type StatusFilter,
@@ -62,9 +65,14 @@ const EMPTY_ARRIVALS: ReadonlyMap<string, { arrived: number; at: string }> = new
 // when the query has no data yet (keeps the virtualized list cheap).
 const EMPTY_GUESTS: Guest[] = [];
 
-// ── Entry gate: resolve the live (→ next → recent) event, then mount the cockpit ──
+// ── Entry gate: pick the event (no auto-guess with >1 live), then mount cockpit ──
 export function EventDayCockpitGate(): JSX.Element {
-  const { data: event, isLoading } = usePoDoorEvent();
+  const { data: candidates = [], isLoading } = usePoDoorCandidates();
+  const [chosenId, setChosenId] = useState<string | null>(null);
+  // Selection-first (S1.3): a deliberate pick wins; with exactly one event use it;
+  // with several, the user chooses which event-dag to drive — no auto-guess.
+  const resolvedId = chosenId ?? (candidates.length === 1 ? candidates[0].id : null);
+  const event = candidates.find((e) => e.id === resolvedId) ?? null;
 
   if (isLoading) {
     return (
@@ -79,25 +87,43 @@ export function EventDayCockpitGate(): JSX.Element {
     );
   }
 
-  if (!event) {
+  if (event) {
     return (
-      <DCard className="flex flex-col items-center gap-3 px-6 py-16 text-center">
-        <span className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-line bg-elev2 text-faint">
-          <Icon name="door" size={22} />
-        </span>
-        <div className="font-display text-[18px] font-bold text-text">Geen live of aankomend event</div>
-        <div className="max-w-sm text-[13.5px] text-faint">
-          Zodra een event live staat (of de deur opent) verschijnt hier de cockpit met live check-in.
-        </div>
+      <EventDayCockpit
+        event={event}
+        onChangeEvent={candidates.length > 1 ? () => setChosenId(null) : undefined}
+      />
+    );
+  }
+
+  if (candidates.length > 1) {
+    return (
+      <DCard className="overflow-hidden p-0">
+        <DoorEventPicker
+          events={candidates}
+          onPick={setChosenId}
+          title="Kies de event-dag"
+          sub="Aan welke live event-dag wil je werken?"
+        />
       </DCard>
     );
   }
 
-  return <EventDayCockpit event={event} />;
+  return (
+    <DCard className="flex flex-col items-center gap-3 px-6 py-16 text-center">
+      <span className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-line bg-elev2 text-faint">
+        <Icon name="door" size={22} />
+      </span>
+      <div className="font-display text-[18px] font-bold text-text">Geen live of aankomend event</div>
+      <div className="max-w-sm text-[13.5px] text-faint">
+        Zodra een event live staat (of de deur opent) verschijnt hier de cockpit met live check-in.
+      </div>
+    </DCard>
+  );
 }
 
 // ── The cockpit ───────────────────────────────────────────────────────────────
-function EventDayCockpit({ event }: { event: PoDoorEvent }): JSX.Element {
+function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChangeEvent?: () => void }): JSX.Element {
   const eventId = event.id;
   const router = useRouter();
   const { roles } = usePoIdentity();
@@ -117,7 +143,7 @@ function EventDayCockpit({ event }: { event: PoDoorEvent }): JSX.Element {
   const quotaRequests = usePoQuotaRequests().data ?? [];
 
   const checkIn = usePoCheckIn(eventId);
-  const voidCheckIn = usePoVoidCheckIn(eventId);
+  const checkOut = usePoCheckOut(eventId);
   const topUp = usePoTopUpCheckIn(eventId);
   const setLock = usePoSetListLock(eventId);
   const approve = usePoApproveRequest();
@@ -129,8 +155,10 @@ function EventDayCockpit({ event }: { event: PoDoorEvent }): JSX.Element {
   const [tierF, setTierF] = useState('all');
   const [feed, setFeed] = useState<FeedEntry[]>([]);
   const [flashId, setFlashId] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
-  const [stepper, setStepper] = useState<{ guest: Guest; count: number } | null>(null);
+  const [toast, setToast] = useState<{ msg: string; tone: 'in' | 'out' } | null>(null);
+  // Quantified in-/uitcheck modal (S1.2). `value` is the stepper position in koppen:
+  // checkin = arriving now, topup = how many more, checkout = how many leave.
+  const [modal, setModal] = useState<{ kind: 'checkin' | 'topup' | 'checkout'; guest: Guest; value: number } | null>(null);
 
   // Debounce only the value that drives the expensive filter; the input + the
   // Enter-to-checkin handler keep the live `q` so typing stays instant (#1b).
@@ -143,14 +171,18 @@ function EventDayCockpit({ event }: { event: PoDoorEvent }): JSX.Element {
   const tierDisplay = new Map(tiers.map((t) => [t.role, { color: t.color, short: t.short }]));
   const defaultTierId = tiers.find((t) => t.isDefault)?.id ?? tiers[0]?.id ?? null;
   const listLocked = editRow?.listLocked ?? false;
+  // Effective "uitchecken toestaan" for this event (#3 / S1.1). When false the ✗
+  // affordance is disabled here; the RESTRICTIVE check_ins policy rejects it too.
+  const allowUncheck = editRow?.allowUncheck ?? true;
 
   const evGuestReqs = guestRequests.filter((r) => r.eventId === eventId && r.status === 'pending');
   const evQuotaReqs = quotaRequests.filter((r) => r.eventId === eventId);
   const openReqs = evGuestReqs.length + evQuotaReqs.length;
 
-  function notify(msg: string): void {
-    setToast(msg);
-    window.setTimeout(() => setToast((v) => (v === msg ? null : v)), 3200);
+  function notify(msg: string, tone: 'in' | 'out' = 'out'): void {
+    const entry = { msg, tone };
+    setToast(entry);
+    window.setTimeout(() => setToast((v) => (v === entry ? null : v)), 3200);
   }
   function pushFeed(e: FeedEntry): void {
     setFeed((f) => [e, ...f].slice(0, 6));
@@ -165,36 +197,64 @@ function EventDayCockpit({ event }: { event: PoDoorEvent }): JSX.Element {
     checkIn.mutate({ guestId: g.id, plusOnes: arrived }, { onError: (e) => notify(e.message) });
     pushFeed({ kind: 'in', t: amsterdamHM(new Date()), name: g.name, plus: arrived });
     flash(g.id);
+    notify(`${g.name}${arrived > 0 ? ` +${arrived}` : ''} ingecheckt · ${1 + arrived} binnen`, 'in');
   }
-  // ✓ click: +0 guests check in at once; +N guests open the stepper to pick how many
-  // of the party arrived — or adjust an already-in guest (partial check-in, #9).
+  // ✓ click: a +0 guest checks in at once; a +N guest opens the quantified modal to
+  // pick how many of the party arrive now, or to top up an already-in party (S1.2).
   function onCheckInClick(g: Guest): void {
     if (!canCheckIn) return;
-    if (g.plus === 0) {
-      doCheckIn(g, 0);
+    const ps = partyState(g, arrivals);
+    if (g.status !== 'in') {
+      if (g.plus === 0) {
+        doCheckIn(g, 0);
+        return;
+      }
+      setModal({ kind: 'checkin', guest: g, value: ps.totalHeads }); // default: whole party
       return;
     }
-    const cur = arrivals.get(g.id)?.arrived ?? g.plus;
-    setStepper({ guest: g, count: g.status === 'in' ? 1 + Math.min(g.plus, cur) : 1 + g.plus });
-  }
-  function confirmStepper(): void {
-    if (!stepper) return;
-    const { guest, count } = stepper;
-    const arrived = count - 1;
-    if (guest.status === 'in') {
-      topUp.mutate({ guestId: guest.id, plusOnes: arrived }, { onError: (e) => notify(e.message) });
-    } else {
-      checkIn.mutate({ guestId: guest.id, plusOnes: arrived }, { onError: (e) => notify(e.message) });
+    if (ps.remaining <= 0) {
+      notify(`${g.name} is al volledig binnen`, 'in');
+      return;
     }
-    pushFeed({ kind: 'in', t: amsterdamHM(new Date()), name: guest.name, plus: arrived });
-    flash(guest.id);
-    setStepper(null);
+    setModal({ kind: 'topup', guest: g, value: ps.remaining }); // default: the rest
   }
-  function doVoid(g: Guest): void {
-    if (!canCheckIn) return;
-    voidCheckIn.mutate({ guestId: g.id }, { onError: (e) => notify(e.message) });
-    pushFeed({ kind: 'out', t: amsterdamHM(new Date()), name: g.name, plus: g.plus });
-    flash(g.id);
+  // ✗ click: open the quantified check-out modal (symmetric). Disabled when the
+  // event does not allow uitchecken (#3 / S1.1) — the button is locked, RLS too.
+  function onVoidClick(g: Guest): void {
+    if (!canCheckIn || !allowUncheck) return;
+    const inside = insideHeads(g, arrivals);
+    if (inside <= 0) return; // already onderweg
+    setModal({ kind: 'checkout', guest: g, value: inside }); // default: the whole party
+  }
+  function confirmModal(): void {
+    if (!modal) return;
+    const { kind, guest, value } = modal;
+    if (kind === 'checkin') {
+      const arrived = Math.max(0, value - 1);
+      checkIn.mutate({ guestId: guest.id, plusOnes: arrived }, { onError: (e) => notify(e.message) });
+      pushFeed({ kind: 'in', t: amsterdamHM(new Date()), name: guest.name, plus: arrived });
+      notify(`${guest.name}${arrived > 0 ? ` +${arrived}` : ''} ingecheckt · ${value} binnen`, 'in');
+    } else if (kind === 'topup') {
+      const inside = insideHeads(guest, arrivals);
+      const newArrived = Math.min(guest.plus, inside - 1 + value);
+      topUp.mutate({ guestId: guest.id, plusOnes: newArrived }, { onError: (e) => notify(e.message) });
+      pushFeed({ kind: 'in', t: amsterdamHM(new Date()), name: guest.name, plus: value });
+      notify(`${guest.name} bijgewerkt · nu ${newArrived + 1} binnen`, 'in');
+    } else {
+      const inside = insideHeads(guest, arrivals);
+      const leaving = Math.min(inside, Math.max(1, value));
+      const remainingHeads = inside - leaving;
+      checkOut.mutate({ guestId: guest.id, remainingHeads }, { onError: (e) => notify(e.message) });
+      pushFeed({ kind: 'out', t: amsterdamHM(new Date()), name: guest.name, plus: Math.max(0, leaving - 1) });
+      notify(
+        remainingHeads === 0
+          ? `${guest.name} uitgecheckt`
+          : `${guest.name} · ${leaving} uitgecheckt, ${remainingHeads} blijft binnen`,
+        'out'
+      );
+    }
+    flash(guest.id);
+    setModal(null);
   }
   function onSearchKey(e: KeyboardEvent<HTMLInputElement>): void {
     if (e.key !== 'Enter' || !canCheckIn) return;
@@ -245,11 +305,18 @@ function EventDayCockpit({ event }: { event: PoDoorEvent }): JSX.Element {
           <h1 className="font-display text-[22px] font-extrabold tracking-[-0.02em] text-text">Event-dag</h1>
           <div className="truncate text-[13px] text-faint">{event.name} · live aan de deur</div>
         </div>
-        {canCheckIn && (
-          <DBtn kind="ghost" icon="door" onClick={() => router.push(`/door/${eventId}`)}>
-            Open deur-app
-          </DBtn>
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {onChangeEvent && (
+            <DBtn kind="ghost" icon="cal" onClick={onChangeEvent}>
+              Wissel event
+            </DBtn>
+          )}
+          {canCheckIn && (
+            <DBtn kind="ghost" icon="door" onClick={() => router.push(`/door/${eventId}`)}>
+              Open deur-app
+            </DBtn>
+          )}
+        </div>
       </div>
 
       {/* LIVE strip */}
@@ -399,8 +466,9 @@ function EventDayCockpit({ event }: { event: PoDoorEvent }): JSX.Element {
             tierDisplay={tierDisplay}
             flashId={flashId}
             canCheckIn={canCheckIn}
+            allowUncheck={allowUncheck}
             onCheckInClick={onCheckInClick}
-            onVoid={doVoid}
+            onVoid={onVoidClick}
           />
 
           <div className="flex min-h-[44px] items-center gap-[10px] border-t border-line px-[18px] py-[11px]">
@@ -515,62 +583,90 @@ function EventDayCockpit({ event }: { event: PoDoorEvent }): JSX.Element {
         </div>
       </div>
 
-      {stepper && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={() => setStepper(null)}
-        >
-          <div
-            className="w-[320px] rounded-[18px] border border-line bg-elev p-5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="font-display text-[17px] font-bold text-text">
-              {stepper.guest.name}
-              <span className="text-acc"> +{stepper.guest.plus}</span>
-            </div>
-            <div className="mt-0.5 text-[12.5px] text-faint">Hoeveel personen zijn er nu?</div>
-            <div className="mt-4 flex items-center justify-between gap-3 rounded-[14px] bg-acc-dim p-2.5">
-              <button
-                type="button"
-                onClick={() => setStepper((s) => (s ? { ...s, count: Math.max(1, s.count - 1) } : s))}
-                className={cn('flex h-11 w-11 items-center justify-center rounded-[12px] border border-line bg-elev2 text-text', press)}
-                aria-label="Minder"
-              >
-                <Icon name="minus" size={20} sw={2.4} />
-              </button>
-              <div className="text-center">
-                <div className="font-display text-[26px] font-bold leading-none text-text">
-                  {stepper.count}
-                  <span className="text-faint">/{stepper.guest.plus + 1}</span>
+      {modal &&
+        (() => {
+          const g = modal.guest;
+          const ps = partyState(g, arrivals);
+          const isOut = modal.kind === 'checkout';
+          const max = modal.kind === 'checkin' ? ps.totalHeads : modal.kind === 'topup' ? ps.remaining : ps.insideHeads;
+          const v = Math.min(max, Math.max(1, modal.value));
+          const afterInside =
+            modal.kind === 'checkin' ? v : modal.kind === 'topup' ? ps.insideHeads + v : ps.insideHeads - v;
+          const setV = (nv: number): void =>
+            setModal((s) => (s ? { ...s, value: Math.min(max, Math.max(1, nv)) } : s));
+          const heading =
+            modal.kind === 'checkin'
+              ? 'Hoeveel personen komen er nu binnen?'
+              : modal.kind === 'topup'
+                ? `${ps.insideHeads} van ${ps.totalHeads} binnen · nog ${ps.remaining} onderweg`
+                : `${ps.insideHeads} ${ps.insideHeads === 1 ? 'persoon' : 'personen'} binnen`;
+          const stepLabel = modal.kind === 'checkin' ? 'binnen' : modal.kind === 'topup' ? 'erbij' : 'uitchecken';
+          const confirmLine =
+            modal.kind === 'checkin'
+              ? `Je checkt ${v} van ${ps.totalHeads} ${ps.totalHeads === 1 ? 'persoon' : 'personen'} in.`
+              : modal.kind === 'topup'
+                ? `Straks ${afterInside} van ${ps.totalHeads} binnen.`
+                : `Je gaat nu ${v} van ${ps.insideHeads} ${ps.insideHeads === 1 ? 'persoon' : 'personen'} uitchecken${afterInside > 0 ? ` · ${afterInside} blijft binnen` : ''}.`;
+          const confirmBtn =
+            modal.kind === 'checkin' ? 'Inchecken' : modal.kind === 'topup' ? `Nog ${v} inchecken` : 'Uitchecken';
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setModal(null)}>
+              <div className="w-[340px] rounded-[18px] border border-line bg-elev p-5" onClick={(e) => e.stopPropagation()}>
+                <div className="font-display text-[17px] font-bold text-text">
+                  {g.name}
+                  {g.plus > 0 && <span className="text-acc"> +{g.plus}</span>}
                 </div>
-                <div className="mt-0.5 text-[11px] text-dim">personen</div>
+                <div className="mt-0.5 text-[12.5px] text-faint">{heading}</div>
+                <div className={cn('mt-4 flex items-center justify-between gap-3 rounded-[14px] p-2.5', isOut ? 'bg-elev2' : 'bg-acc-dim')}>
+                  <button
+                    type="button"
+                    onClick={() => setV(v - 1)}
+                    disabled={v <= 1}
+                    className={cn('flex h-11 w-11 items-center justify-center rounded-[12px] border border-line bg-elev2 text-text disabled:opacity-40', v > 1 && press)}
+                    aria-label="Minder"
+                  >
+                    <Icon name="minus" size={20} sw={2.4} />
+                  </button>
+                  <div className="text-center">
+                    <div className="font-display text-[26px] font-bold leading-none text-text">
+                      {v}
+                      <span className="text-faint">/{max}</span>
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-dim">{stepLabel}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setV(v + 1)}
+                    disabled={v >= max}
+                    className={cn('flex h-11 w-11 items-center justify-center rounded-[12px] border border-line bg-elev2 disabled:opacity-40', v < max && press)}
+                    aria-label="Meer"
+                  >
+                    <Icon name="plus" size={20} sw={2.4} stroke="#B5A6FF" />
+                  </button>
+                </div>
+                <div className="mt-3 text-center text-[12.5px] text-faint">{confirmLine}</div>
+                <div className="mt-4 flex gap-2">
+                  <DBtn kind="ghost" className="flex-1 justify-center" onClick={() => setModal(null)}>
+                    Annuleer
+                  </DBtn>
+                  <DBtn kind={isOut ? 'dark' : undefined} className="flex-1 justify-center" onClick={confirmModal}>
+                    {confirmBtn}
+                  </DBtn>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() =>
-                  setStepper((s) => (s ? { ...s, count: Math.min(s.guest.plus + 1, s.count + 1) } : s))
-                }
-                className={cn('flex h-11 w-11 items-center justify-center rounded-[12px] border border-line bg-elev2', press)}
-                aria-label="Meer"
-              >
-                <Icon name="plus" size={20} sw={2.4} stroke="#B5A6FF" />
-              </button>
             </div>
-            <div className="mt-4 flex gap-2">
-              <DBtn kind="ghost" className="flex-1 justify-center" onClick={() => setStepper(null)}>
-                Annuleer
-              </DBtn>
-              <DBtn className="flex-1 justify-center" onClick={confirmStepper}>
-                {stepper.guest.status === 'in' ? 'Bijwerken' : 'Inchecken'}
-              </DBtn>
-            </div>
-          </div>
-        </div>
-      )}
+          );
+        })()}
       {toast && (
         <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
-          <div className="rounded-[12px] border border-line bg-elev2 px-4 py-3 font-body text-[13.5px] font-semibold text-text shadow-lg">
-            {toast}
+          <div
+            className={cn(
+              'flex items-center gap-2.5 rounded-[14px] border px-[18px] py-[13px] font-body text-[14px] font-bold shadow-lg',
+              toast.tone === 'in' ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev2 text-text'
+            )}
+          >
+            <Icon name={toast.tone === 'in' ? 'check' : 'history'} size={17} sw={2.4} stroke={toast.tone === 'in' ? '#16132B' : undefined} />
+            {toast.msg}
           </div>
         </div>
       )}
@@ -597,6 +693,7 @@ function CockpitGuestList({
   tierDisplay,
   flashId,
   canCheckIn,
+  allowUncheck,
   onCheckInClick,
   onVoid,
 }: {
@@ -606,6 +703,7 @@ function CockpitGuestList({
   tierDisplay: Map<string, { color: string; short: string }>;
   flashId: string | null;
   canCheckIn: boolean;
+  allowUncheck: boolean;
   onCheckInClick: (g: Guest) => void;
   onVoid: (g: Guest) => void;
 }): JSX.Element {
@@ -690,7 +788,12 @@ function CockpitGuestList({
                     {canCheckIn ? (
                       <>
                         <ChkBtn kind="in" active={isIn} onClick={() => onCheckInClick(g)} />
-                        <ChkBtn kind="out" active={!isIn} onClick={() => onVoid(g)} />
+                        <ChkBtn
+                          kind="out"
+                          active={!isIn}
+                          disabled={isIn && !allowUncheck}
+                          onClick={() => onVoid(g)}
+                        />
                       </>
                     ) : (
                       <span className="text-[11px] text-ghost">—</span>
@@ -763,25 +866,38 @@ function TierChip({
   );
 }
 
-function ChkBtn({ kind, active, onClick }: { kind: 'in' | 'out'; active: boolean; onClick: () => void }): JSX.Element {
+function ChkBtn({
+  kind,
+  active,
+  disabled,
+  onClick,
+}: {
+  kind: 'in' | 'out';
+  active: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}): JSX.Element {
   const isIn = kind === 'in';
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
       aria-pressed={active}
-      title={isIn ? 'Inchecken' : 'Uitchecken / niet binnen'}
+      title={isIn ? 'Inchecken' : disabled ? 'Uitchecken staat uit voor dit event' : 'Uitchecken / niet binnen'}
       className={cn(
         'flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] border',
-        press,
-        active
-          ? isIn
-            ? 'border-transparent bg-acc text-on-acc'
-            : 'border-line bg-elev2 text-text'
-          : 'border-line bg-transparent text-ghost'
+        !disabled && press,
+        disabled
+          ? 'cursor-not-allowed border-line bg-transparent text-ghost opacity-50'
+          : active
+            ? isIn
+              ? 'border-transparent bg-acc text-on-acc'
+              : 'border-line bg-elev2 text-text'
+            : 'border-line bg-transparent text-ghost'
       )}
     >
-      <Icon name={isIn ? 'check' : 'close'} size={isIn ? 19 : 16} sw={2.4} />
+      <Icon name={disabled ? 'lock' : isIn ? 'check' : 'close'} size={isIn ? 19 : 16} sw={2.4} />
     </button>
   );
 }

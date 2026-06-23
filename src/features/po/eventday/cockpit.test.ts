@@ -10,8 +10,10 @@ import {
   filterCockpit,
   flipGuestStatus,
   heads,
+  insideHeads,
   liveFeedLabel,
   matchFirstWaiting,
+  partyState,
   perTierLive,
   type FeedEntry,
 } from './cockpit';
@@ -86,6 +88,37 @@ describe('arrivals (partial check-in)', () => {
   it('perTierLive reflects partial arrivals per tier', () => {
     const [vip] = perTierLive(guests, tiers, new Map([['1', { arrived: 1 }]]));
     expect(vip).toMatchObject({ binnen: 2, aangemeld: 5 });
+  });
+});
+
+describe('insideHeads / partyState (S1.2 in-/uitcheck modals)', () => {
+  it('insideHeads is 0 when onderweg, the arrived koppen when in', () => {
+    expect(insideHeads(g({ id: '1', status: 'wait', plus: 2 }), new Map())).toBe(0);
+    // in, 1 companion present → 2 koppen inside
+    expect(insideHeads(g({ id: '1', status: 'in', plus: 2 }), new Map([['1', { arrived: 1 }]]))).toBe(2);
+    // in, no arrival row → falls back to the full party (1 + 2 = 3)
+    expect(insideHeads(g({ id: '1', status: 'in', plus: 2 }), new Map())).toBe(3);
+  });
+
+  it('partyState reports total / inside / remaining koppen', () => {
+    // +3 party, onderweg: 0 inside, 4 still to come
+    expect(partyState(g({ id: '1', status: 'wait', plus: 3 }), new Map())).toEqual({
+      totalHeads: 4,
+      insideHeads: 0,
+      remaining: 4,
+    });
+    // +3 party, 1 of them inside (self only) → 1 inside, 3 remaining ("1 van 4 · nog 3")
+    expect(partyState(g({ id: '1', status: 'in', plus: 3 }), new Map([['1', { arrived: 0 }]]))).toEqual({
+      totalHeads: 4,
+      insideHeads: 1,
+      remaining: 3,
+    });
+    // fully inside: nothing remaining
+    expect(partyState(g({ id: '1', status: 'in', plus: 3 }), new Map([['1', { arrived: 3 }]]))).toEqual({
+      totalHeads: 4,
+      insideHeads: 4,
+      remaining: 0,
+    });
   });
 });
 

@@ -19,6 +19,7 @@ const baseVenue = {
   city: '',
   country: '',
   defaultPersonalQuota: 0,
+  allowUncheck: 'true',
 };
 
 describe('venueSettingsSchema', () => {

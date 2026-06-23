@@ -54,6 +54,9 @@ export const venueSettingsSchema = z.object({
     .int('Vul een geheel getal in')
     .min(0, 'Minimaal 0')
     .max(100000, 'Dat is wel erg veel'),
+  // Company-wide "uitchecken toestaan" default (#3 / S1.1). The form sends a
+  // 'true'/'false' toggle string; coerce to a real boolean.
+  allowUncheck: z.enum(['true', 'false']).transform((v) => v === 'true'),
 });
 
 // Venue type shown to guests at check-in / on landing pages. Constrained here
