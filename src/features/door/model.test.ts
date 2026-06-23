@@ -46,6 +46,8 @@ function checkIn(over: Partial<CheckInRow> = {}): CheckInRow {
   return {
     id: 'ci1',
     guest_id: 'g1',
+    event_id: 'e1',
+    venue_id: 'v1',
     checked_by: 'u-lisa',
     checked_at: '2026-06-20T23:41:00Z',
     client_timestamp: null,
@@ -63,6 +65,8 @@ function refusal(over: Partial<RefusalRow> = {}): RefusalRow {
   return {
     id: 'r1',
     guest_id: 'g1',
+    event_id: 'e1',
+    venue_id: 'v1',
     refused_by: 'u-lisa',
     reason: 'Niet op de lijst',
     refused_at: '2026-06-21T00:03:00Z',
@@ -76,7 +80,7 @@ function refusal(over: Partial<RefusalRow> = {}): RefusalRow {
 
 function snapshot(over: Partial<DoorSnapshot> = {}): DoorSnapshot {
   return {
-    event: { id: 'ev1', name: 'FRENZY', venueName: 'De Marktkantine', status: 'open', listLocked: false, allowUncheck: true },
+    event: { id: 'ev1', venueId: 'v1', name: 'FRENZY', venueName: 'De Marktkantine', status: 'open', listLocked: false, allowUncheck: true },
     guests: [],
     tiers: [tier(), tier({ id: 't-vip', name: 'VIP — fles op tafel', color: '#B5A6FF' })],
     checkIns: [],

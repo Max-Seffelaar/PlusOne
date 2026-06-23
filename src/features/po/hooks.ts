@@ -410,7 +410,11 @@ export function usePoEventRealtime(eventId: string): { realtimeConnected: boolea
           { event: '*', schema: 'public', table: 'guests', filter: `event_id=eq.${eventId}` },
           invalidate
         )
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'check_ins' }, invalidate)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'check_ins', filter: `event_id=eq.${eventId}` },
+          invalidate
+        )
         .subscribe((st) => {
           if (cancelled) return;
           // Heal a missed burst: a resubscribe after a drop replays nothing, so

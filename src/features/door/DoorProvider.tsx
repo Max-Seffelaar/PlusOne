@@ -224,6 +224,8 @@ export function DoorProvider({
         const row: CheckInRow = {
           id: ciId,
           guest_id: guestId,
+          event_id: eventId,
+          venue_id: s.event.venueId,
           checked_by: meId ?? '',
           checked_at: ts,
           client_timestamp: ts,
@@ -357,7 +359,7 @@ export function DoorProvider({
         guests: s.guests.map((x) => (x.id === guestId ? { ...x, status: 'refused' as const } : x)),
         refusals: [
           ...s.refusals,
-          { id, guest_id: guestId, refused_by: meId ?? '', reason, refused_at: ts, client_timestamp: ts, device_id: getDeviceId(), created_at: ts, anonymized_at: null },
+          { id, guest_id: guestId, event_id: eventId, venue_id: s.event.venueId, refused_by: meId ?? '', reason, refused_at: ts, client_timestamp: ts, device_id: getDeviceId(), created_at: ts, anonymized_at: null },
         ],
       }));
       showToast(`${g?.name ?? 'Gast'} · geweigerd`);

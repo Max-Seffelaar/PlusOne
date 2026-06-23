@@ -258,6 +258,7 @@ export function usePoCheckIn(eventId: string) {
       const ins = await gw.insertCheckIn({
         id: uuidv7(),
         guest_id: guestId,
+        event_id: eventId,
         checked_by: userId,
         plus_ones_arrived: plusOnes,
         client_timestamp: new Date().toISOString(),

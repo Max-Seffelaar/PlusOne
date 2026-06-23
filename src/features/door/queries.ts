@@ -22,6 +22,9 @@ export type EventStatus = Database['public']['Enums']['event_status'];
 
 export interface DoorEventMeta {
   id: string;
+  /** Denormalised venue scope, for optimistic check_in/refusal rows (the door
+   *  knows its venue; venue_id is otherwise trigger-filled server-side). */
+  venueId: string;
   name: string;
   venueName: string;
   status: EventStatus;
@@ -133,6 +136,7 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
   return {
     event: {
       id: event.id,
+      venueId: event.venue_id,
       name: event.name,
       venueName: venue?.name ?? '',
       status: event.status,
