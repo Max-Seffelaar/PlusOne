@@ -595,6 +595,8 @@ export interface PoVenueSettings {
   slug: string;
   retentionMonths: number;
   defaultPersonalQuota: number;
+  /** Company-wide default: may a check-in be reversed (uitchecken, #3 / S1.1)? */
+  allowUncheck: boolean;
   companyName: string;
   kvkNumber: string;
   vatNumber: string;
@@ -612,6 +614,7 @@ export function toPoVenueSettings(row: PoVenueSettingsRow): PoVenueSettings {
     slug: row.slug,
     retentionMonths: row.retention_months,
     defaultPersonalQuota: row.default_personal_quota,
+    allowUncheck: row.allow_uncheck,
     companyName: row.company_name ?? '',
     kvkNumber: row.kvk_number ?? '',
     vatNumber: row.vat_number ?? '',

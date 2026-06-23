@@ -182,10 +182,32 @@ function phrase(row: AuditFeedRow): { text: string; entity: string } {
       };
     }
 
-    case 'events':
-      if (action === 'lock') return { text: 'vergrendelde de gastenlijst', entity: row.event_name ?? 'het event' };
-      if (action === 'unlock') return { text: 'ontgrendelde de gastenlijst', entity: row.event_name ?? 'het event' };
-      return { text: 'wijzigde het event', entity: row.event_name ?? 'het event' };
+    case 'events': {
+      const ev = row.event_name ?? 'het event';
+      if (action === 'lock') return { text: 'vergrendelde de gastenlijst', entity: ev };
+      if (action === 'unlock') return { text: 'ontgrendelde de gastenlijst', entity: ev };
+      // Per-event "uitchecken toestaan" override (#3 / S1.1): true/false/null(inherit).
+      if (after && 'allow_uncheck' in after) {
+        if (after.allow_uncheck === true) return { text: `zette uitchecken aan voor ${ev}`, entity: ev };
+        if (after.allow_uncheck === false) return { text: `zette uitchecken uit voor ${ev}`, entity: ev };
+        return { text: `liet uitchecken de bedrijfsstandaard volgen voor ${ev}`, entity: ev };
+      }
+      return { text: 'wijzigde het event', entity: ev };
+    }
+
+    case 'venues': {
+      // Company-wide "uitchecken toestaan" default (#3 / S1.1).
+      if (after && 'allow_uncheck' in after) {
+        return {
+          text:
+            after.allow_uncheck === true
+              ? 'zette uitchecken aan voor de hele locatie'
+              : 'zette uitchecken uit voor de hele locatie',
+          entity: 'de locatie',
+        };
+      }
+      return { text: 'wijzigde de locatie-instellingen', entity: 'de locatie' };
+    }
 
     default:
       return { text: `${action} op ${entityType}`, entity: row.guest_name ?? row.subject_name ?? '—' };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pickDoorEvent } from './door-event';
+import { doorCandidates, pickDoorEvent } from './door-event';
 import type { PoEventRow } from './queries';
 
 type Status = PoEventRow['status'];
@@ -63,5 +63,23 @@ describe('pickDoorEvent', () => {
       venueName: 'De Marktkantine',
       status: 'live',
     });
+  });
+});
+
+describe('doorCandidates (S1.3 event switcher)', () => {
+  it('drops closed events and orders live first, then soonest start', () => {
+    const rows = [
+      row('far', 'open', '2026-07-10T20:00:00Z'),
+      row('closed', 'closed', '2026-06-19T19:00:00Z'),
+      row('liveB', 'live', '2026-06-19T22:00:00Z'),
+      row('soon', 'draft', '2026-06-21T20:00:00Z'),
+      row('liveA', 'live', '2026-06-19T18:00:00Z'),
+    ];
+    // Two live events first (soonest start among them), then the rest by start; closed gone.
+    expect(doorCandidates(rows).map((e) => e.id)).toEqual(['liveA', 'liveB', 'soon', 'far']);
+  });
+
+  it('is empty when every event is closed', () => {
+    expect(doorCandidates([row('a', 'closed', '2026-06-10T20:00:00Z')])).toEqual([]);
   });
 });

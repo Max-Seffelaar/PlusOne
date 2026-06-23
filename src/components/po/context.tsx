@@ -53,6 +53,9 @@ export interface Nav {
   push: (name: ScreenName, props?: ScreenProps) => void;
   back: () => void;
   setTab: (t: TabKey) => void;
+  /** Open the Deur tab for a SPECIFIC event (S1.3) — "Check-in" from an event card
+   *  must land on that event's door, not the venue-wide auto-pick. */
+  openDoor: (eventId: string) => void;
 }
 
 export type AuthView = 'welcome' | 'login' | 'otp' | 'mfa' | 'invite';
@@ -62,26 +65,24 @@ export interface AuthNav {
   start: () => void;
 }
 
-/** A venue the caller can switch to (one of their live memberships). */
-export interface PoVenueOption {
-  id: string;
-  name: string;
+/** A venue the signed-in user belongs to (live membership), for the switcher (#1). */
+export interface PoVenueMembership {
+  venueId: string;
+  venueName: string;
   roles: VenueRole[];
 }
 
 export interface PoApp {
-  /** Active venue as a mock-shaped Venue (live id+name+roles); fallback for
-   *  screens that still read `po.venue`. Prefer identity.venueName for display. */
   venue: Venue;
-  /** Live switchable venues = the caller's memberships (S3.1). */
-  myVenues: PoVenueOption[];
-  /** Live active venue id (from the session cookie); null when venue-less. */
-  activeVenueId: string | null;
-  /** Switch the active venue: persists the cookie + re-scopes the live layer. */
-  switchVenue: (venueId: string) => void;
-  /** True while a venue switch is in flight (disables the switch buttons). */
-  switching: boolean;
+  switchVenue: (v: Venue) => void;
   statsVenues: { venueId: string; venueName: string }[];
+  /** The caller's real venue memberships (live) — drives the venue switcher. */
+  myVenues: PoVenueMembership[];
+  /** The active (cookie-resolved) venue id, or null. */
+  activeVenueId: string | null;
+  /** Switch the active venue server-side (cookie) + full reload, so every live
+   *  query re-scopes to the new venue (#1). A no-op for the already-active venue. */
+  switchToVenue: (venueId: string) => void;
   nav: Nav;
 }
 

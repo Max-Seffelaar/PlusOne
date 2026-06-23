@@ -83,8 +83,8 @@ async function otherAdminCount(venueId: string, excludeUserId: string): Promise<
  * Persist the active-venue choice (decision #1). Validates the id is a UUID and
  * one of the caller's own memberships before writing the cookie — a forged value
  * is ignored, so the switcher can never select a venue the user lacks access to.
- * No PII in the cookie; RLS still scopes every read. Shared by the desktop form
- * action and the po surface's programmatic switcher.
+ * No PII in the cookie; RLS still scopes every read. Backs the form-action
+ * switcher used by both the desktop and po surfaces.
  */
 async function persistActiveVenue(venueId: unknown): Promise<boolean> {
   const user = await getSessionUser();
@@ -108,19 +108,9 @@ async function persistActiveVenue(venueId: unknown): Promise<boolean> {
   return true;
 }
 
-/** Form-action variant for the desktop `<form action>` switcher (returns void). */
+/** Form-action switcher: validate + persist the active-venue cookie (returns void). */
 export async function setActiveVenueAction(formData: FormData): Promise<void> {
   await persistActiveVenue(formData.get('venueId'));
-}
-
-/**
- * Programmatic variant for the po surface (S3.1): callable from a client onClick
- * with a plain id. After it resolves ok, the caller does router.refresh() so the
- * /app server component re-resolves identity from the new cookie and every
- * venue-scoped query (events, gastenlijst, billing, team) re-fetches.
- */
-export async function setActiveVenue(venueId: string): Promise<{ ok: boolean }> {
-  return { ok: await persistActiveVenue(venueId) };
 }
 
 /**
@@ -150,6 +140,7 @@ export async function updateVenueSettingsAction(
     city: formData.get('city'),
     country: formData.get('country'),
     defaultPersonalQuota: formData.get('defaultPersonalQuota'),
+    allowUncheck: formData.get('allowUncheck'),
   });
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? 'Controleer de invoer.' };
@@ -177,6 +168,7 @@ export async function updateVenueSettingsAction(
         city: fields.city,
         country: fields.country,
         default_personal_quota: fields.defaultPersonalQuota,
+        allow_uncheck: fields.allowUncheck,
       },
       { count: 'exact' }
     )

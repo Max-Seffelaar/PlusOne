@@ -46,7 +46,7 @@ import type { PoSubscription, PoTeamMember } from '@/features/po/adapters';
 import { useMfaGate, isAal2Error, PoMfaSheet } from '../mfa-gate';
 import { useNav, usePo } from '../context';
 import { Icon, type IconName } from '../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Row, Scroll, Top } from '../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Row, Scroll, ToggleRow, Top } from '../kit';
 import { BottomBar, Sheet } from '../shell';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
@@ -109,14 +109,14 @@ function RolePicker({
 // ── MEER (settings tab) ──────────────────────────────────────────────────────
 export function Meer(): JSX.Element {
   const nav = useNav();
-  const { venue, myVenues, statsVenues } = usePo();
+  const { venue, statsVenues, myVenues } = usePo();
   const { venueName, roles } = usePoIdentity();
   const canAudit = venueCapabilities(roles).viewAudit;
   const profile = usePoProfile();
   const subQ = usePoSubscription();
   const v = venue;
-  // Live active-venue name + plan for the header card; the switcher behind it is
-  // now wired to the caller's real memberships (S3.1).
+  // Live active-venue name + plan for the header card; the switcher is now wired to
+  // the caller's real memberships (usePo().myVenues), not the mock prototype data.
   const displayVenue = venueName ?? v.name;
   const planLabel = subQ.data?.plan ?? null;
   const billingSub = subQ.data
@@ -704,14 +704,11 @@ export function Allowance(): JSX.Element {
   );
 }
 
-// ── VENUE SWITCHER (pushed) — S3.1, live ─────────────────────────────────────
-// Lists the caller's real memberships (myVenues) and the live active venue.
-// Switching persists the cookie + re-scopes the whole live layer (events,
-// gastenlijst, billing, team) via router.refresh() in app.tsx's switchVenue.
+// ── VENUE SWITCHER (pushed) ──────────────────────────────────────────────────
 export function VenueSwitch(): JSX.Element {
   const nav = useNav();
-  const { myVenues, activeVenueId, switchVenue, switching } = usePo();
-  const activeName = myVenues.find((v) => v.id === activeVenueId)?.name ?? 'je venue';
+  const { myVenues, activeVenueId, switchToVenue } = usePo();
+  const activeName = myVenues.find((v) => v.venueId === activeVenueId)?.venueName ?? 'deze venue';
   return (
     <div className={col}>
       <Top onBack={nav.back} title="Venues" sub="Wissel tussen je locaties" right={<IconBtn name="plus" onClick={() => nav.push('venuecreate')} />} />
@@ -725,34 +722,31 @@ export function VenueSwitch(): JSX.Element {
         ) : (
           <div className="flex flex-col gap-[10px]">
             {myVenues.map((v) => {
-              const cur = v.id === activeVenueId;
+              const cur = v.venueId === activeVenueId;
               return (
-                <div key={v.id} className={cn('rounded-[18px] border p-[15px]', cur ? 'border-transparent bg-acc-dim' : 'border-line bg-elev')}>
+                <div key={v.venueId} className={cn('rounded-[18px] border p-[15px]', cur ? 'border-transparent bg-acc-dim' : 'border-line bg-elev')}>
                   <div className="flex items-center gap-[13px]">
-                    <Avatar name={v.name} size={46} accent={cur} />
+                    <Avatar name={v.venueName} size={46} accent={cur} />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <div className="font-display text-[16.5px] font-bold text-text">{v.name}</div>
+                        <div className="font-display text-[16.5px] font-bold text-text">{v.venueName}</div>
                         {cur && <MiniChip className="border-transparent bg-white/[0.10] text-acc">HUIDIG</MiniChip>}
                       </div>
-                      <div className={cn('mt-0.5 text-[12.5px]', cur ? 'text-dim' : 'text-faint')}>
-                        {cur ? 'Je werkt hier nu' : 'Wissel om hier te werken'}
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {v.roles.map((ro) => (
+                          <MiniChip key={ro}>{ROLE_LABELS[ro] ?? ro}</MiniChip>
+                        ))}
                       </div>
                     </div>
                   </div>
-                  <div className="mt-[13px] flex flex-wrap items-center gap-[7px]">
-                    <div className="flex flex-1 flex-wrap gap-1.5">
-                      {v.roles.map((ro) => (
-                        <MiniChip key={ro}>{ROLE_LABELS[ro]}</MiniChip>
-                      ))}
-                    </div>
+                  <div className="mt-[13px] flex items-center justify-end gap-[7px]">
                     {cur ? (
-                      <Btn sm kind="ghost" icon="cog" onClick={() => nav.push('venuesettings', { id: v.id })}>
+                      <Btn sm kind="ghost" icon="cog" onClick={() => nav.push('venuesettings', { id: v.venueId })}>
                         Beheren
                       </Btn>
                     ) : (
-                      <Btn sm kind="primary" icon="swap" disabled={switching} onClick={() => switchVenue(v.id)}>
-                        {switching ? 'Wisselen…' : 'Wissel'}
+                      <Btn sm kind="primary" icon="swap" onClick={() => switchToVenue(v.venueId)}>
+                        Wissel
                       </Btn>
                     )}
                   </div>
@@ -785,6 +779,7 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
     name: '',
     retentionMonths: 12,
     defaultPersonalQuota: 0,
+    allowUncheck: true,
     companyName: '',
     kvkNumber: '',
     vatNumber: '',
@@ -802,6 +797,7 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
         name: s.name,
         retentionMonths: s.retentionMonths,
         defaultPersonalQuota: s.defaultPersonalQuota,
+        allowUncheck: s.allowUncheck,
         companyName: s.companyName,
         kvkNumber: s.kvkNumber,
         vatNumber: s.vatNumber,
@@ -855,6 +851,7 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
     form.name !== s.name ||
     form.retentionMonths !== s.retentionMonths ||
     form.defaultPersonalQuota !== s.defaultPersonalQuota ||
+    form.allowUncheck !== s.allowUncheck ||
     form.companyName !== s.companyName ||
     form.kvkNumber !== s.kvkNumber ||
     form.vatNumber !== s.vatNumber ||
@@ -897,6 +894,17 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
               <span className="font-display text-[18px] font-extrabold text-text">{form.defaultPersonalQuota}</span>
             )}
           </div>
+        </div>
+
+        <Label className="mb-[10px]">Aan de deur</Label>
+        <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-4 py-1">
+          <ToggleRow
+            title="Uitchecken toestaan"
+            sub="Mag een check-in aan de deur teruggedraaid worden? Per event te overschrijven."
+            on={form.allowUncheck}
+            set={(v) => canEdit && setForm((f) => ({ ...f, allowUncheck: v }))}
+            last
+          />
         </div>
 
         <Label className="mb-[10px]">AVG & bewaartermijn</Label>

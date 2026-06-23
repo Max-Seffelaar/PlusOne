@@ -5,7 +5,7 @@
 -- (the public landing form), so the audit/provenance stays legible.
 --
 -- This MUST be its own migration: Postgres forbids using a freshly ADDed enum
--- value in the same transaction that added it, and 20260622120100 references
+-- value in the same transaction that added it, and 20260622130100 references
 -- 'guest_list' in the auto-link trigger function. Splitting the ALTER TYPE into
 -- this file commits the value before that function is created.
 

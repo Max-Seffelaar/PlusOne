@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import type { EventSummary, TierStat } from '@/features/stats/data';
 import { describeAuditEntry, type AuditLine } from '@/features/audit/translate';
+import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
 import { chunkIds, fetchAllRanged } from '@/lib/supabase/paging';
 
 // Client-agnostic po reads (mirrors src/features/stats/data.ts): every function
@@ -405,6 +406,12 @@ export interface EventEditRow {
   venueName: string;
   /** The caller is an organizer scoped to this event (admin is derived from roles). */
   isOrganizer: boolean;
+  /** Effective "uitchecken toestaan" (event override -> venue default -> true, #3 / S1.1). */
+  allowUncheck: boolean;
+  /** Raw per-event override: null = inherit the venue default. Drives the toggle's "volg standaard" state. */
+  allowUncheckOverride: boolean | null;
+  /** The venue/company default, so the form can label what "volg standaard" resolves to. */
+  venueAllowUncheck: boolean;
 }
 
 /** A single event with the editable fields + the caller's organizer scope (EventEdit). */
@@ -417,7 +424,7 @@ export async function fetchEventForEdit(
     client
       .from('events')
       .select(
-        'id, name, starts_at, ends_at, status, landing_active, landing_slug, list_locked, auto_lock_at, venues(name)'
+        'id, name, starts_at, ends_at, status, landing_active, landing_slug, list_locked, auto_lock_at, allow_uncheck, venues(name, allow_uncheck)'
       )
       .eq('id', eventId)
       .maybeSingle(),
@@ -430,6 +437,7 @@ export async function fetchEventForEdit(
   ]);
   if (!e) return null;
 
+  const venueAllowUncheck = e.venues?.allow_uncheck ?? true;
   return {
     id: e.id,
     name: e.name,
@@ -442,6 +450,9 @@ export async function fetchEventForEdit(
     autoLockAt: e.auto_lock_at,
     venueName: e.venues?.name ?? '',
     isOrganizer: !!org,
+    allowUncheck: resolveAllowUncheck(e.allow_uncheck, venueAllowUncheck),
+    allowUncheckOverride: e.allow_uncheck,
+    venueAllowUncheck,
   };
 }
 
@@ -773,6 +784,7 @@ export type PoVenueSettingsRow = Pick<
   | 'slug'
   | 'retention_months'
   | 'default_personal_quota'
+  | 'allow_uncheck'
   | 'company_name'
   | 'kvk_number'
   | 'vat_number'
@@ -791,7 +803,7 @@ export async function fetchVenueSettings(
   const { data } = await client
     .from('venues')
     .select(
-      'id, name, slug, retention_months, default_personal_quota, company_name, kvk_number, vat_number, finance_email, address_line, postal_code, city, country'
+      'id, name, slug, retention_months, default_personal_quota, allow_uncheck, company_name, kvk_number, vat_number, finance_email, address_line, postal_code, city, country'
     )
     .eq('id', venueId)
     .maybeSingle();

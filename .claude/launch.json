@@ -7,6 +7,14 @@
       "runtimeArgs": ["dev"],
       "port": 7000,
       "autoPort": true
+    },
+    {
+      "name": "dev9000",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["dev"],
+      "env": { "PORT": "9000" },
+      "port": 9000,
+      "autoPort": false
     }
   ]
 }

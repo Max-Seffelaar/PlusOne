@@ -11,6 +11,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
+import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
 import { fetchAllRanged } from '@/lib/supabase/paging';
 
 export type GuestRow = Database['public']['Tables']['guests']['Row'];
@@ -25,6 +26,8 @@ export interface DoorEventMeta {
   venueName: string;
   status: EventStatus;
   listLocked: boolean;
+  /** Effective "uitchecken toestaan" (event override -> venue default -> true, #3 / S1.1). */
+  allowUncheck: boolean;
 }
 
 export interface DoorSnapshot {
@@ -66,7 +69,7 @@ function stripEmbeddedGuests<T>(row: T & { guests: unknown }): T {
 export async function fetchDoorSnapshot(client: Client, eventId: string): Promise<DoorSnapshot> {
   const { data: event, error: eventError } = await client
     .from('events')
-    .select('id, name, status, list_locked, venue_id')
+    .select('id, name, status, list_locked, allow_uncheck, venue_id')
     .eq('id', eventId)
     .single();
   if (eventError || !event) throw new Error(eventError?.message ?? 'Event niet gevonden');
@@ -79,7 +82,7 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
   // (mirrors fetchRecentCheckins) instead of a giant `.in('guest_id', …)` — that
   // id list would blow Kong's URI length at 1500 ids and over-return anyway.
   const [{ data: venue }, guestRows, { data: tiers }, checkIns, refusals] = await Promise.all([
-    client.from('venues').select('name').eq('id', event.venue_id).maybeSingle(),
+    client.from('venues').select('name, allow_uncheck').eq('id', event.venue_id).maybeSingle(),
     fetchAllRanged<GuestRow>((from, to) =>
       client
         // Refused guests are fetched too so the door can show a "Geweigerd" lijst
@@ -134,6 +137,7 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
       venueName: venue?.name ?? '',
       status: event.status,
       listLocked: event.list_locked,
+      allowUncheck: resolveAllowUncheck(event.allow_uncheck, venue?.allow_uncheck ?? true),
     },
     guests: guestRows,
     tiers: tiers ?? [],

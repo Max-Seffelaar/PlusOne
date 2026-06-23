@@ -94,6 +94,15 @@ export const setAutoLockSchema = z.object({
 });
 export type SetAutoLockInput = z.input<typeof setAutoLockSchema>;
 
+// ── Uitchecken toestaan — per-event override (#3 / S1.1) ────────────────────────
+// true = always on for this event, false = always off, null = inherit the venue
+// (company) default. Effective value is resolved by event_allows_uncheck in SQL.
+export const setAllowUncheckSchema = z.object({
+  eventId: uuid,
+  allowUncheck: z.boolean().nullable(),
+});
+export type SetAllowUncheckInput = z.input<typeof setAllowUncheckSchema>;
+
 // ── Tiers (#8) ─────────────────────────────────────────────────────────────────
 
 // Aliases feed the quick-add parser (#33): lowercased, trimmed, de-duped.

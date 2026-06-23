@@ -11,11 +11,25 @@
 //  - Door navigation HTML is PII-free (the page does not SSR guest data), so it
 //    is safe to cache on a shared device; per-user data lives in IndexedDB and
 //    is wiped on sign-out.
+//
+// DEV KILL-SWITCH: this SW is registered at the ROOT scope, so once the door
+// registers it, it controls the WHOLE origin. With stale-while-revalidate that
+// serves stale dev assets across /app too (it masked code changes and even
+// 404-ed rebuilt chunks during local testing). The offline shell is a PRODUCTION
+// concern, so on localhost the SW caches nothing, purges old caches, unregisters
+// itself, and reloads its clients so they drop SW control and fetch fresh.
+
+const DEV =
+  self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
 
 const CACHE = 'plusone-door-v1';
 const SHELL = ['/door'];
 
 self.addEventListener('install', (event) => {
+  if (DEV) {
+    self.skipWaiting();
+    return;
+  }
   event.waitUntil(
     caches
       .open(CACHE)
@@ -26,6 +40,20 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
+  if (DEV) {
+    // Purge every cache, unregister self, then reload open windows so they are no
+    // longer controlled by this SW and load fresh assets straight from the dev server.
+    event.waitUntil(
+      caches
+        .keys()
+        .then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
+        .then(() => self.registration.unregister())
+        .then(() => self.clients.matchAll({ type: 'window' }))
+        .then((clients) => clients.forEach((c) => c.navigate(c.url)))
+        .catch(() => undefined),
+    );
+    return;
+  }
   event.waitUntil(
     caches
       .keys()
@@ -42,6 +70,7 @@ function putInCache(request, response) {
 const STATIC_RE = /\/_next\/|\/icons\/|\.(?:js|css|woff2?|png|svg|ico|jpg|jpeg|webp)$/;
 
 self.addEventListener('fetch', (event) => {
+  if (DEV) return; // dev: never intercept — always fresh from the network
   const request = event.request;
   if (request.method !== 'GET') return; // never cache writes / auth POSTs
   const url = new URL(request.url);

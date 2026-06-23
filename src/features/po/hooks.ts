@@ -10,7 +10,7 @@ import { createClient } from '@/lib/supabase/client';
 import type { Guest, PoEvent, Tier } from '@/lib/po/types';
 import type { AuditLine } from '@/features/audit/translate';
 import { poKeys } from './keys';
-import { pickDoorEvent, type PoDoorEvent } from './door-event';
+import { doorCandidates, pickDoorEvent, type PoDoorEvent } from './door-event';
 import {
   fetchEvents,
   fetchEventForEdit,
@@ -207,6 +207,24 @@ export function usePoDoorEvent() {
       if (!venueId) return null;
       const rows = await fetchEvents(createClient(), venueId);
       return pickDoorEvent(rows, Date.now());
+    },
+  });
+}
+
+/**
+ * Every non-closed event the door/cockpit may work (live first, then soonest),
+ * for the Deur-tab event switcher (S1.3). Lean read scoped to the active venue;
+ * lets the user deliberately pick which event they are doing the door for when
+ * several are live, instead of the automatic pickDoorEvent guess.
+ */
+export function usePoDoorCandidates() {
+  const { venueId } = usePoIdentity();
+  return useQuery<PoDoorEvent[]>({
+    queryKey: poKeys.doorCandidates(venueId ?? ''),
+    enabled: !!venueId,
+    queryFn: async () => {
+      if (!venueId) return [];
+      return doorCandidates(await fetchEvents(createClient(), venueId));
     },
   });
 }
