@@ -16,8 +16,8 @@ const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scal
 
 type Method = 'ideal' | 'sepa';
 const METHODS: { id: Method; label: string; sub: string; icon: IconName }[] = [
-  { id: 'ideal', label: 'iDEAL', sub: 'Eenmalig via je eigen bank', icon: 'card' },
-  { id: 'sepa', label: 'SEPA-incasso', sub: 'Maandelijks automatisch afgeschreven', icon: 'refresh' },
+  { id: 'ideal', label: 'iDEAL', sub: 'One-off through your own bank', icon: 'card' },
+  { id: 'sepa', label: 'SEPA Direct Debit', sub: 'Charged automatically each month', icon: 'refresh' },
 ];
 
 export function BetalingStep({
@@ -35,20 +35,20 @@ export function BetalingStep({
       current={2}
       panel={
         <WizardPanel
-          title="Veilig betalen"
-          sub="Je proefperiode van 14 dagen loopt al — je betaalt pas daarna, en je kunt maandelijks opzeggen."
+          title="Pay safely"
+          sub="Your 14-day trial is already running. You only pay after that, and you can cancel monthly."
           bullets={[
-            'Maandelijks opzegbaar',
-            'Betaal met iDEAL of SEPA-incasso',
-            'Wij bewaren nooit je IBAN of kaartgegevens',
+            'Cancel monthly',
+            'Pay with iDEAL or SEPA Direct Debit',
+            'We never store your IBAN or card details',
           ]}
         />
       }
-      heading="Rond je betaling af"
-      sub="Kies hoe je straks betaalt. Tijdens je gratis proefperiode wordt er nog niets afgeschreven."
+      heading="Set up your payment"
+      sub="Pick how you'll pay later. Nothing is charged during your free trial."
       footer={
         <Btn kind="primary" full icon="arrowR" onClick={onNext}>
-          Doorgaan
+          Continue
         </Btn>
       }
     >
@@ -59,13 +59,13 @@ export function BetalingStep({
             <div className="font-display text-[17px] font-extrabold tracking-[-0.01em] text-text">
               {plan.name}
             </div>
-            <div className="text-[13px] text-dim">maandelijks · opzegbaar · 14 dagen gratis</div>
+            <div className="text-[13px] text-dim">monthly · cancel anytime · 14 days free</div>
           </div>
           <div className="font-display text-[17px] font-bold text-text">{planPriceLabel(plan)}</div>
         </div>
       </div>
 
-      <Label className="mb-2">Betaalmethode</Label>
+      <Label className="mb-2">Payment method</Label>
       <div className="flex flex-col gap-[10px]">
         {METHODS.map((m) => {
           const on = m.id === method;
@@ -99,8 +99,8 @@ export function BetalingStep({
       </div>
 
       <p className="mt-4 text-[12.5px] leading-[1.5] text-faint">
-        Betalen verloopt veilig via onze betaalprovider. De eerste keer rond je het af in je browser;
-        daarna gaat het automatisch. Tijdens de proefperiode betaal je niets.
+        Payments run securely through our payment provider. The first time you complete it in your
+        browser; after that it&apos;s automatic. During the trial you pay nothing.
       </p>
     </WizardShell>
   );

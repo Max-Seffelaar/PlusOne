@@ -272,13 +272,13 @@ export function usePoCheckIn(eventId: string) {
           // revive it: clears voided_at and re-sets the arrival count.
           const rev = classifyError((await gw.reviveCheckIn(guestId, plusOnes, userId)).error);
           if (rev.status === 'error' || rev.status === 'pending') {
-            throw new Error(rev.message ?? 'Inchecken mislukt.');
+            throw new Error(rev.message ?? 'Check-in failed.');
           }
           return;
         }
         const res = classifyError(ins.error);
         if (res.status === 'error' || res.status === 'pending') {
-          throw new Error(res.message ?? 'Inchecken mislukt.');
+          throw new Error(res.message ?? 'Check-in failed.');
         }
       }
     },
@@ -305,7 +305,7 @@ export function usePoTopUpCheckIn(eventId: string) {
       // row owned by another checker is a harmless no-op.
       const res = classifyError((await gw.topUpCheckIn(guestId, plusOnes)).error);
       if (res.status === 'error' || res.status === 'pending') {
-        throw new Error(res.message ?? 'Bijwerken mislukt.');
+        throw new Error(res.message ?? 'Update failed.');
       }
     },
     onMutate: async ({ guestId, plusOnes }) => {
@@ -334,7 +334,7 @@ export function usePoVoidCheckIn(eventId: string) {
       const gw = supabaseGateway(getDoorClient());
       const res = classifyError((await gw.voidCheckIn(guestId, userId)).error);
       if (res.status === 'error' || res.status === 'pending') {
-        throw new Error(res.message ?? 'Uitchecken mislukt.');
+        throw new Error(res.message ?? 'Check-out failed.');
       }
     },
     onMutate: async ({ guestId }) => {
@@ -374,14 +374,14 @@ export function usePoCheckOut(eventId: string) {
       const gw = supabaseGateway(getDoorClient());
       const voided = classifyError((await gw.voidCheckIn(guestId, userId)).error);
       if (voided.status === 'error' || voided.status === 'pending') {
-        throw new Error(voided.message ?? 'Uitchecken mislukt.');
+        throw new Error(voided.message ?? 'Check-out failed.');
       }
       if (remainingHeads >= 1) {
         const revived = classifyError(
           (await gw.reviveCheckIn(guestId, remainingHeads - 1, userId)).error
         );
         if (revived.status === 'error' || revived.status === 'pending') {
-          throw new Error(revived.message ?? 'Uitchecken mislukt.');
+          throw new Error(revived.message ?? 'Check-out failed.');
         }
       }
     },
@@ -657,7 +657,7 @@ export function usePoInviteUser() {
   const { venueId } = usePoIdentity();
   return useMutation({
     mutationFn: async (input: PoInviteInput) => {
-      if (!venueId) throw new Error('Geen actieve venue geselecteerd.');
+      if (!venueId) throw new Error('No active venue selected.');
       const fd = new FormData();
       fd.set('venueId', venueId);
       fd.set('email', input.email);
@@ -690,7 +690,7 @@ export function usePoUpdateMemberRoles() {
   const { venueId } = usePoIdentity();
   return useMutation({
     mutationFn: async (input: { userId: string; roles: VenueRole[] }) => {
-      if (!venueId) throw new Error('Geen actieve venue geselecteerd.');
+      if (!venueId) throw new Error('No active venue selected.');
       const fd = new FormData();
       fd.set('venueId', venueId);
       fd.set('userId', input.userId);
@@ -707,7 +707,7 @@ export function usePoRemoveMember() {
   const { venueId } = usePoIdentity();
   return useMutation({
     mutationFn: async (userId: string) => {
-      if (!venueId) throw new Error('Geen actieve venue geselecteerd.');
+      if (!venueId) throw new Error('No active venue selected.');
       const fd = new FormData();
       fd.set('venueId', venueId);
       fd.set('userId', userId);
@@ -723,7 +723,7 @@ export function usePoSetDefaultQuota() {
   const { venueId } = usePoIdentity();
   return useMutation({
     mutationFn: async (input: { userId: string; defaultCount: number }) => {
-      if (!venueId) throw new Error('Geen actieve venue geselecteerd.');
+      if (!venueId) throw new Error('No active venue selected.');
       const fd = new FormData();
       fd.set('venueId', venueId);
       fd.set('userId', input.userId);
@@ -821,7 +821,7 @@ export function usePoUpdateVenueSettings() {
   const { venueId } = usePoIdentity();
   return useMutation({
     mutationFn: async (input: PoVenueSettingsInput) => {
-      if (!venueId) throw new Error('Geen actieve venue geselecteerd.');
+      if (!venueId) throw new Error('No active venue selected.');
       const fd = new FormData();
       fd.set('venueId', venueId);
       fd.set('name', input.name);

@@ -61,7 +61,7 @@ function revalidateEvent(id: string): void {
 function aal2Gate(isAal2: boolean): MutationError | null {
   return isAal2
     ? null
-    : { ok: false, code: 'aal2_required', message: 'Deze actie vereist MFA. Verifieer eerst met je authenticator.' };
+    : { ok: false, code: 'aal2_required', message: 'This action needs MFA. Verify with your authenticator first.' };
 }
 
 function alreadyRegistered(error: { code?: string; status?: number; message?: string }): boolean {
@@ -106,7 +106,7 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
     if (error?.code === '23505') continue; // slug clash → new suffix
     return mapMutationError(error);
   }
-  return { ok: false, code: 'slug', message: 'Kon geen unieke landingslink genereren. Probeer het opnieuw.' };
+  return { ok: false, code: 'slug', message: "Couldn't generate a unique landing link. Try again." };
 }
 
 /** Edit name / start / end (admin or organizer — RLS). */
@@ -266,7 +266,7 @@ export async function createTier(input: CreateTierInput): Promise<ActionResult> 
   });
   if (error) {
     if (error.code === '23505') {
-      return { ok: false, code: '23505', message: 'Er bestaat al een tier met deze naam.' };
+      return { ok: false, code: '23505', message: 'A tier with this name already exists.' };
     }
     return mapMutationError(error);
   }
@@ -302,7 +302,7 @@ export async function updateTier(input: UpdateTierInput): Promise<ActionResult> 
     .maybeSingle();
   if (error) {
     if (error.code === '23505') {
-      return { ok: false, code: '23505', message: 'Er bestaat al een tier met deze naam.' };
+      return { ok: false, code: '23505', message: 'A tier with this name already exists.' };
     }
     return mapMutationError(error);
   }
@@ -333,7 +333,7 @@ export async function deleteTier(input: DeleteTierInput): Promise<ActionResult> 
       return {
         ok: false,
         code: '23503',
-        message: 'Deze tier heeft nog gasten. Verplaats ze eerst naar een andere tier.',
+        message: 'This tier still has guests. Move them to another tier first.',
       };
     }
     return mapMutationError(error);
@@ -361,7 +361,7 @@ export async function assignOrganizer(input: AssignOrganizerInput): Promise<Acti
     .insert({ event_id: eventId, user_id: userId });
   if (error) {
     if (error.code === '23505') {
-      return { ok: false, code: '23505', message: 'Deze gebruiker is al organisator van dit event.' };
+      return { ok: false, code: '23505', message: 'This user is already an organizer of this event.' };
     }
     return mapMutationError(error);
   }
@@ -404,16 +404,16 @@ export async function inviteOrganizer(input: InviteOrganizerInput): Promise<Acti
         ok: false,
         code: 'exists',
         message:
-          'Dit e-mailadres heeft al een account. Laat de persoon één keer inloggen en koppel ’m dan als bestaande gebruiker.',
+          'This email already has an account. Have them log in once, then link them as an existing user.',
       };
     }
     console.error('inviteOrganizer: createUser failed', createError.message);
-    return { ok: false, code: 'invite', message: 'Kon de uitnodiging niet aanmaken. Probeer het opnieuw.' };
+    return { ok: false, code: 'invite', message: "Couldn't create the invite. Try again." };
   }
 
   const organizerUserId = created?.user?.id;
   if (!organizerUserId) {
-    return { ok: false, code: 'invite', message: 'Kon de uitnodiging niet aanmaken. Probeer het opnieuw.' };
+    return { ok: false, code: 'invite', message: "Couldn't create the invite. Try again." };
   }
 
   // Pre-provision the profile so event_organizers.user_id FK resolves. The user
@@ -423,7 +423,7 @@ export async function inviteOrganizer(input: InviteOrganizerInput): Promise<Acti
     .upsert({ id: organizerUserId, full_name: fullName, email }, { onConflict: 'id', ignoreDuplicates: true });
   if (profileError) {
     console.error('inviteOrganizer: profile upsert failed', profileError.message);
-    return { ok: false, code: 'invite', message: 'Kon de uitnodiging niet vastleggen.' };
+    return { ok: false, code: 'invite', message: "Couldn't record the invite." };
   }
 
   const supabase = await createClient();
@@ -432,7 +432,7 @@ export async function inviteOrganizer(input: InviteOrganizerInput): Promise<Acti
     .insert({ event_id: eventId, user_id: organizerUserId });
   if (error) {
     if (error.code === '23505') {
-      return { ok: false, code: '23505', message: 'Deze persoon is al organisator van dit event.' };
+      return { ok: false, code: '23505', message: 'This person is already an organizer of this event.' };
     }
     return mapMutationError(error);
   }
@@ -459,7 +459,7 @@ export async function removeOrganizer(input: RemoveOrganizerInput): Promise<Acti
     .eq('user_id', userId);
   if (error) return mapMutationError(error);
   if (!count) {
-    return { ok: false, code: 'noop', message: 'Kon de organisator niet verwijderen (geen toegang).' };
+    return { ok: false, code: 'noop', message: "Couldn't remove the organizer (no access)." };
   }
   revalidateEvent(eventId);
   return { ok: true };

@@ -24,13 +24,13 @@ export const submitGuestRequestSchema = z.object({
     .trim()
     .min(1)
     .max(120)
-    .regex(/^[a-z0-9-]+$/i, 'Ongeldige link'),
-  fullName: z.string().trim().min(2, 'Vul je naam in').max(120),
+    .regex(/^[a-z0-9-]+$/i, 'Invalid link'),
+  fullName: z.string().trim().min(2, 'Enter your name').max(120),
   email: z
     .string()
     .trim()
     .max(254)
-    .email('Ongeldig e-mailadres')
+    .email('Invalid email')
     .optional()
     .or(z.literal(''))
     .transform((v) => (v && v.length > 0 ? v : undefined)),
@@ -40,7 +40,7 @@ export const submitGuestRequestSchema = z.object({
   phone: z
     .string()
     .trim()
-    .regex(/^\+[1-9]\d{1,14}$/, 'Ongeldig telefoonnummer')
+    .regex(/^\+[1-9]\d{1,14}$/, 'Invalid phone number')
     .optional()
     .or(z.literal(''))
     .transform((v) => (v && v.length > 0 ? v : undefined)),
@@ -50,7 +50,7 @@ export const submitGuestRequestSchema = z.object({
   birthdate: z
     .string()
     .trim()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Ongeldige geboortedatum')
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date of birth')
     .optional()
     .or(z.literal(''))
     .transform((v) => (v && v.length > 0 ? v : undefined)),
@@ -72,7 +72,7 @@ export type ApproveGuestRequestInput = z.input<typeof approveGuestRequestSchema>
 /** Admin/organizer denies a landing request with a mandatory reason (#12). */
 export const denyGuestRequestSchema = z.object({
   requestId: uuid,
-  reason: z.string().trim().min(1, 'Geef een reden bij een afwijzing').max(500),
+  reason: z.string().trim().min(1, 'Give a reason for declining').max(500),
   eventId: uuid.optional(),
 });
 export type DenyGuestRequestInput = z.input<typeof denyGuestRequestSchema>;

@@ -73,8 +73,8 @@ describe('deviceLabel', () => {
     expect(deviceLabel('Mozilla/5.0 (X11; CrOS x86_64) Chrome/120 Safari')).toBe('Chrome · ChromeOS');
   });
   it('degrades gracefully', () => {
-    expect(deviceLabel(null)).toBe('Onbekend apparaat');
-    expect(deviceLabel(undefined)).toBe('Onbekend apparaat');
+    expect(deviceLabel(null)).toBe('Unknown device');
+    expect(deviceLabel(undefined)).toBe('Unknown device');
     // A server-side UA (e.g. dev-login) with no browser/OS token → bare "Browser".
     expect(deviceLabel('node')).toBe('Browser');
   });

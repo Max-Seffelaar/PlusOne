@@ -51,8 +51,8 @@ describe('getPlan / planPriceLabel', () => {
   });
 
   it('formats price labels', () => {
-    expect(planPriceLabel(getPlan('indie'))).toBe('Gratis');
-    expect(planPriceLabel(getPlan('premium'))).toBe('€49/mnd');
-    expect(planPriceLabel(getPlan('pro'))).toBe('Op aanvraag');
+    expect(planPriceLabel(getPlan('indie'))).toBe('Free');
+    expect(planPriceLabel(getPlan('premium'))).toBe('€49/mo');
+    expect(planPriceLabel(getPlan('pro'))).toBe('On request');
   });
 });

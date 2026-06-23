@@ -1,5 +1,5 @@
 // Audit-log translation (#15): turn an enriched audit_feed row into a readable
-// Dutch log line — "Max verplaatste Juri Braakman van Regular naar VIP".
+// log line — "Max moved Juri Braakman from Regular to VIP".
 //
 // Pure, no I/O, so it is trivially unit-testable and runs on server and client
 // alike. The DB (audit_feed view) already resolved actor/guest/subject/tier
@@ -48,15 +48,15 @@ function roleList(v: unknown): string | null {
   return Array.isArray(v) && v.length > 0 ? v.join(', ') : null;
 }
 
-const SYSTEM = 'Systeem';
-const SOMEONE = 'een gast';
+const SYSTEM = 'System';
+const SOMEONE = 'a guest';
 
 /** Compose the phrase after the actor for one audit row. */
 function phrase(row: AuditFeedRow): { text: string; entity: string } {
   const after = side(row.diff, 'after');
   const before = side(row.diff, 'before');
   const guest = row.guest_name ?? SOMEONE;
-  const subject = row.subject_name ?? 'een gebruiker';
+  const subject = row.subject_name ?? 'a user';
   const action = row.action ?? 'update';
   const entityType = row.entity_type ?? '';
 
@@ -65,107 +65,107 @@ function phrase(row: AuditFeedRow): { text: string; entity: string } {
       switch (action) {
         case 'create': {
           const tier = row.new_tier_name ? ` (${row.new_tier_name})` : '';
-          return { text: `voegde ${guest} toe${tier}`, entity: guest };
+          return { text: `added ${guest}${tier}`, entity: guest };
         }
         case 'tier_change':
           return {
-            text: `verplaatste ${guest} van ${row.old_tier_name ?? '—'} naar ${row.new_tier_name ?? '—'}`,
+            text: `moved ${guest} from ${row.old_tier_name ?? '—'} to ${row.new_tier_name ?? '—'}`,
             entity: guest,
           };
         case 'check_in':
-          return { text: `checkte ${guest} in`, entity: guest };
+          return { text: `checked in ${guest}`, entity: guest };
         case 'refuse':
-          return { text: `weigerde ${guest}`, entity: guest };
+          return { text: `refused ${guest}`, entity: guest };
         case 'delete':
-          return { text: `verwijderde ${guest} (soft delete)`, entity: guest };
+          return { text: `removed ${guest} (soft delete)`, entity: guest };
         case 'update': {
-          // Note "Let op!"-acknowledgement (#39).
+          // Note "Heads up!"-acknowledgement (#39).
           if (after && 'note_acknowledged_at' in after && str(after.note_acknowledged_at)) {
-            return { text: `vinkte de let-op-notitie van ${guest} af`, entity: guest };
+            return { text: `acknowledged the heads-up note on ${guest}`, entity: guest };
           }
           const bp = num(before?.plus_ones);
           const ap = num(after?.plus_ones);
           if (ap !== null && bp !== null) {
-            return { text: `wijzigde ${guest} naar +${ap} (was +${bp})`, entity: guest };
+            return { text: `changed ${guest} to +${ap} (was +${bp})`, entity: guest };
           }
-          return { text: `wijzigde de gegevens van ${guest}`, entity: guest };
+          return { text: `updated the details for ${guest}`, entity: guest };
         }
         default:
-          return { text: `wijzigde ${guest}`, entity: guest };
+          return { text: `updated ${guest}`, entity: guest };
       }
 
     case 'check_ins': {
       const arrived = num(after?.plus_ones_arrived);
       const extra = arrived && arrived > 0 ? ` +${arrived}` : '';
-      return { text: `checkte ${guest}${extra} in aan de deur`, entity: guest };
+      return { text: `checked in ${guest}${extra} at the door`, entity: guest };
     }
 
     case 'refusals': {
       const reason = str(after?.reason);
       return {
-        text: `weigerde ${guest}${reason ? ` — reden: ${reason}` : ''}`,
+        text: `refused ${guest}${reason ? `, reason: ${reason}` : ''}`,
         entity: guest,
       };
     }
 
     case 'guest_tiers': {
-      const name = str(after?.name) ?? str(before?.name) ?? 'een tier';
-      if (action === 'create') return { text: `maakte tier ${name} aan`, entity: name };
-      if (action === 'delete') return { text: `verwijderde tier ${name}`, entity: name };
-      return { text: `wijzigde tier ${name}`, entity: name };
+      const name = str(after?.name) ?? str(before?.name) ?? 'a tier';
+      if (action === 'create') return { text: `created tier ${name}`, entity: name };
+      if (action === 'delete') return { text: `removed tier ${name}`, entity: name };
+      return { text: `updated tier ${name}`, entity: name };
     }
 
     case 'quotas':
     case 'event_quotas': {
-      const scope = entityType === 'event_quotas' ? 'event-quotum' : 'venue-quotum';
+      const scope = entityType === 'event_quotas' ? 'event quota' : 'venue quota';
       const key = entityType === 'event_quotas' ? 'quota_override' : 'default_count';
       const b = num(before?.[key]);
       const a = num(after?.[key]);
       if (action === 'quota_grant') {
-        if (b === null) return { text: `kende ${subject} een ${scope} van ${a ?? '?'} toe`, entity: subject };
-        return { text: `verhoogde het ${scope} van ${subject} (${b} → ${a ?? '?'})`, entity: subject };
+        if (b === null) return { text: `granted ${subject} an ${scope} of ${a ?? '?'}`, entity: subject };
+        return { text: `raised the ${scope} for ${subject} (${b} → ${a ?? '?'})`, entity: subject };
       }
       if (a !== null && b !== null) {
-        return { text: `verlaagde het ${scope} van ${subject} (${b} → ${a})`, entity: subject };
+        return { text: `lowered the ${scope} for ${subject} (${b} → ${a})`, entity: subject };
       }
-      return { text: `wijzigde het ${scope} van ${subject}`, entity: subject };
+      return { text: `changed the ${scope} for ${subject}`, entity: subject };
     }
 
     case 'quota_requests': {
       const extra = num(after?.requested_extra) ?? num(before?.requested_extra);
       switch (action) {
         case 'create':
-          return { text: `vroeg ${extra ?? '?'} extra plekken aan`, entity: subject };
+          return { text: `requested ${extra ?? '?'} more spots`, entity: subject };
         case 'approve':
-          return { text: `keurde het quotum-verzoek van ${subject} goed`, entity: subject };
+          return { text: `approved the quota request from ${subject}`, entity: subject };
         case 'deny': {
           const reason = str(after?.decision_reason);
           return {
-            text: `wees het quotum-verzoek van ${subject} af${reason ? ` — ${reason}` : ''}`,
+            text: `denied the quota request from ${subject}${reason ? `, ${reason}` : ''}`,
             entity: subject,
           };
         }
         default:
-          return { text: `wijzigde het quotum-verzoek van ${subject}`, entity: subject };
+          return { text: `changed the quota request from ${subject}`, entity: subject };
       }
     }
 
     case 'guest_requests': {
       // Landing-page request decisions (#12). The requester is free-text on the
       // request, not a user_profile, so read the name straight from the diff.
-      const name = str(after?.full_name) ?? str(before?.full_name) ?? 'een aanvraag';
+      const name = str(after?.full_name) ?? str(before?.full_name) ?? 'a request';
       switch (action) {
         case 'approve':
-          return { text: `keurde de landingpage-aanvraag van ${name} goed`, entity: name };
+          return { text: `approved the landing page request from ${name}`, entity: name };
         case 'deny': {
           const reason = str(after?.decision_reason);
           return {
-            text: `wees de landingpage-aanvraag van ${name} af${reason ? ` — ${reason}` : ''}`,
+            text: `denied the landing page request from ${name}${reason ? `, ${reason}` : ''}`,
             entity: name,
           };
         }
         default:
-          return { text: `wijzigde de landingpage-aanvraag van ${name}`, entity: name };
+          return { text: `changed the landing page request from ${name}`, entity: name };
       }
     }
 
@@ -173,44 +173,44 @@ function phrase(row: AuditFeedRow): { text: string; entity: string } {
       const roles = roleList(after?.roles);
       const oldRoles = roleList(before?.roles);
       if (action === 'create')
-        return { text: `gaf ${subject} toegang${roles ? ` (${roles})` : ''}`, entity: subject };
+        return { text: `gave ${subject} access${roles ? ` (${roles})` : ''}`, entity: subject };
       if (action === 'delete')
-        return { text: `trok de toegang van ${subject} in`, entity: subject };
+        return { text: `removed ${subject}'s access`, entity: subject };
       return {
-        text: `wijzigde de rollen van ${subject}${oldRoles && roles ? ` (${oldRoles} → ${roles})` : ''}`,
+        text: `changed ${subject}'s roles${oldRoles && roles ? ` (${oldRoles} → ${roles})` : ''}`,
         entity: subject,
       };
     }
 
     case 'events': {
-      const ev = row.event_name ?? 'het event';
-      if (action === 'lock') return { text: 'vergrendelde de gastenlijst', entity: ev };
-      if (action === 'unlock') return { text: 'ontgrendelde de gastenlijst', entity: ev };
-      // Per-event "uitchecken toestaan" override (#3 / S1.1): true/false/null(inherit).
+      const ev = row.event_name ?? 'the event';
+      if (action === 'lock') return { text: 'locked the list', entity: ev };
+      if (action === 'unlock') return { text: 'unlocked the list', entity: ev };
+      // Per-event "allow check-out" override (#3 / S1.1): true/false/null(inherit).
       if (after && 'allow_uncheck' in after) {
-        if (after.allow_uncheck === true) return { text: `zette uitchecken aan voor ${ev}`, entity: ev };
-        if (after.allow_uncheck === false) return { text: `zette uitchecken uit voor ${ev}`, entity: ev };
-        return { text: `liet uitchecken de bedrijfsstandaard volgen voor ${ev}`, entity: ev };
+        if (after.allow_uncheck === true) return { text: `turned on check-out for ${ev}`, entity: ev };
+        if (after.allow_uncheck === false) return { text: `turned off check-out for ${ev}`, entity: ev };
+        return { text: `set check-out to follow the venue default for ${ev}`, entity: ev };
       }
-      return { text: 'wijzigde het event', entity: ev };
+      return { text: 'updated the event', entity: ev };
     }
 
     case 'venues': {
-      // Company-wide "uitchecken toestaan" default (#3 / S1.1).
+      // Venue-wide "allow check-out" default (#3 / S1.1).
       if (after && 'allow_uncheck' in after) {
         return {
           text:
             after.allow_uncheck === true
-              ? 'zette uitchecken aan voor de hele locatie'
-              : 'zette uitchecken uit voor de hele locatie',
-          entity: 'de locatie',
+              ? 'turned on check-out for the whole venue'
+              : 'turned off check-out for the whole venue',
+          entity: 'the venue',
         };
       }
-      return { text: 'wijzigde de locatie-instellingen', entity: 'de locatie' };
+      return { text: 'changed the venue settings', entity: 'the venue' };
     }
 
     default:
-      return { text: `${action} op ${entityType}`, entity: row.guest_name ?? row.subject_name ?? '—' };
+      return { text: `${action} on ${entityType}`, entity: row.guest_name ?? row.subject_name ?? '—' };
   }
 }
 
@@ -239,14 +239,14 @@ function nlDayKey(d: Date): string {
   return d.toLocaleDateString('en-CA', { timeZone: NL_TZ });
 }
 function nlTime(d: Date): string {
-  return d.toLocaleTimeString('nl-NL', { timeZone: NL_TZ, hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleTimeString('en-GB', { timeZone: NL_TZ, hour: '2-digit', minute: '2-digit' });
 }
 
 /**
- * "Vandaag 23:14" / "Gisteren 16:02" / "12 jun 23:14" — Vandaag/Gisteren for the
+ * "Today 23:14" / "Yesterday 16:02" / "12 Jun 23:14" — Today/Yesterday for the
  * last two days, otherwise the absolute date (day + month), all in Amsterdam TZ.
  * No weekday step (Max's preference): once it's older than yesterday you want the
- * date itself, not "za". `now` is injectable for deterministic tests.
+ * date itself, not "Sat". `now` is injectable for deterministic tests.
  */
 export function formatWhen(iso: string, now: Date = new Date()): string {
   if (!iso) return '';
@@ -257,7 +257,7 @@ export function formatWhen(iso: string, now: Date = new Date()): string {
   const todayKey = nlDayKey(now);
   const yesterdayKey = nlDayKey(new Date(now.getTime() - DAY_MS));
 
-  if (dayKey === todayKey) return `Vandaag ${time}`;
-  if (dayKey === yesterdayKey) return `Gisteren ${time}`;
-  return `${d.toLocaleDateString('nl-NL', { timeZone: NL_TZ, day: 'numeric', month: 'short' })} ${time}`;
+  if (dayKey === todayKey) return `Today ${time}`;
+  if (dayKey === yesterdayKey) return `Yesterday ${time}`;
+  return `${d.toLocaleDateString('en-GB', { timeZone: NL_TZ, day: 'numeric', month: 'short' })} ${time}`;
 }

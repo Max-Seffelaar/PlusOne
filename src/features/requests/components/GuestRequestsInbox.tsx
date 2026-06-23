@@ -37,7 +37,7 @@ export function GuestRequestsInbox({
   return (
     <section className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
-        <p className="label">Landingpage-aanvragen</p>
+        <p className="label">Landing page requests</p>
         {requests.length > 0 && (
           <span className="rounded-full bg-acc px-2 py-0.5 text-xs font-bold text-on-acc">
             {requests.length}
@@ -46,13 +46,13 @@ export function GuestRequestsInbox({
       </div>
 
       <p className="text-sm text-dim">
-        Aanvragen vallen <b>buiten</b> je eigen quotum (#31) — goedkeuren kost jou geen plek,
-        maar telt wel mee in de tier-max.
+        Requests fall <b>outside</b> your own quota (#31). Approving one costs you no spot,
+        but still counts toward the tier max.
       </p>
 
       {requests.length === 0 ? (
         <div className="card">
-          <p className="text-sm text-dim">Geen open aanvragen.</p>
+          <p className="text-sm text-dim">No requests right now. The line&apos;s clear.</p>
         </div>
       ) : (
         requests.map((r) => (
@@ -104,16 +104,16 @@ function RequestRow({
         <p className="font-display">
           {request.fullName}
           {request.plusOnes > 0 && <span className="text-acc"> +{request.plusOnes}</span>}
-          <span className="text-faint"> · {heads} {heads === 1 ? 'persoon' : 'personen'}</span>
+          <span className="text-faint"> · {heads} {heads === 1 ? 'person' : 'people'}</span>
         </p>
         <span className="text-xs text-faint">
-          {new Date(request.createdAt).toLocaleDateString('nl-NL')}
+          {new Date(request.createdAt).toLocaleDateString('en-GB')}
         </span>
       </div>
       {contact && <p className="text-sm text-dim">{contact}</p>}
       {request.birthdate && (
         <p className="text-sm text-faint">
-          Geb. {new Date(request.birthdate).toLocaleDateString('nl-NL')}
+          Born {new Date(request.birthdate).toLocaleDateString('en-GB')}
         </p>
       )}
       {request.motivation && <p className="text-sm text-dim">“{request.motivation}”</p>}
@@ -122,8 +122,8 @@ function RequestRow({
         <div className="flex flex-col gap-2">
           <textarea
             className="field min-h-[3.5rem] text-sm"
-            placeholder="Reden van afwijzing (verplicht)"
-            aria-label="Reden van afwijzing"
+            placeholder="Reason for declining (required)"
+            aria-label="Reason for declining"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             maxLength={500}
@@ -135,10 +135,10 @@ function RequestRow({
               disabled={pending || reason.trim() === ''}
               onClick={deny}
             >
-              Afwijzen bevestigen
+              Confirm decline
             </button>
             <button type="button" className="btn-ghost" onClick={() => setDenying(false)}>
-              Terug
+              Back
             </button>
           </div>
         </div>
@@ -148,7 +148,7 @@ function RequestRow({
             <span className="label">Tier</span>
             <select
               className="field"
-              aria-label={`Tier voor ${request.fullName}`}
+              aria-label={`Tier for ${request.fullName}`}
               value={tierId}
               onChange={(e) => setTierId(e.target.value)}
               disabled={tiers.length === 0}
@@ -167,7 +167,7 @@ function RequestRow({
               disabled={pending || tiers.length === 0 || tierId === ''}
               onClick={approve}
             >
-              {pending ? '…' : 'Goedkeuren'}
+              {pending ? '…' : 'Approve'}
             </button>
             <button
               type="button"
@@ -175,7 +175,7 @@ function RequestRow({
               disabled={pending}
               onClick={() => setDenying(true)}
             >
-              Afwijzen
+              Decline
             </button>
           </div>
         </div>

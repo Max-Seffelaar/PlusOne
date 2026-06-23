@@ -10,13 +10,13 @@ import { cn } from '@/lib/utils';
 import { Icon } from '@/components/po/icon';
 
 const ACTIONS: [string, string][] = [
-  ['all', 'Alle'],
+  ['all', 'All'],
   ['check_in', 'Check-ins'],
-  ['create', 'Toevoegingen'],
+  ['create', 'Added'],
   ['tier_change', 'Tier'],
-  ['quota_grant', 'Quotum'],
-  ['approve', 'Goedkeuringen'],
-  ['refuse', 'Weigeringen'],
+  ['quota_grant', 'Quota'],
+  ['approve', 'Approvals'],
+  ['refuse', 'Refusals'],
   ['lock', 'Lock'],
 ];
 
@@ -82,12 +82,12 @@ export function AuditFilters({ events, actors, current }: AuditFiltersProps): JS
 
       <div className="flex flex-wrap items-center gap-2">
         <select
-          aria-label="Filter op event"
+          aria-label="Filter by event"
           className={selectClass}
           value={current.eventId ?? ''}
           onChange={(e) => pushParam('event', e.target.value || null)}
         >
-          <option value="">Alle events</option>
+          <option value="">All events</option>
           {events.map((e) => (
             <option key={e.id} value={e.id}>
               {e.name}
@@ -96,12 +96,12 @@ export function AuditFilters({ events, actors, current }: AuditFiltersProps): JS
         </select>
 
         <select
-          aria-label="Filter op gebruiker"
+          aria-label="Filter by person"
           className={selectClass}
           value={current.actorId ?? ''}
           onChange={(e) => pushParam('user', e.target.value || null)}
         >
-          <option value="">Alle gebruikers</option>
+          <option value="">All people</option>
           {actors.map((a) => (
             <option key={a.id} value={a.id}>
               {a.name}
@@ -116,7 +116,7 @@ export function AuditFilters({ events, actors, current }: AuditFiltersProps): JS
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Zoek op gast, gebruiker…"
+            placeholder="Search the log…"
             className="w-full flex-1 border-none bg-transparent text-[13.5px] text-text outline-none placeholder:text-faint"
           />
         </div>

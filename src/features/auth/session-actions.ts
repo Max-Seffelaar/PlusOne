@@ -17,16 +17,16 @@ export async function revokeOwnSessionAction(
   formData: FormData
 ): Promise<ActionState> {
   const parsed = sessionIdSchema.safeParse({ sessionId: formData.get('sessionId') });
-  if (!parsed.success) return { ok: false, error: 'Ongeldige sessie.' };
+  if (!parsed.success) return { ok: false, error: 'Invalid session.' };
 
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('revoke_own_session', {
     p_session_id: parsed.data.sessionId,
   });
-  if (error || !data) return { ok: false, error: 'Kon de sessie niet beëindigen.' };
+  if (error || !data) return { ok: false, error: "Couldn't end the session." };
 
   revalidatePath('/settings/profile');
-  return { ok: true, message: 'Sessie beëindigd.' };
+  return { ok: true, message: 'Session ended.' };
 }
 
 /**
@@ -38,7 +38,7 @@ export async function adminRevokeSessionAction(
   formData: FormData
 ): Promise<ActionState> {
   const parsed = sessionIdSchema.safeParse({ sessionId: formData.get('sessionId') });
-  if (!parsed.success) return { ok: false, error: 'Ongeldige sessie.' };
+  if (!parsed.success) return { ok: false, error: 'Invalid session.' };
 
   try {
     await assertAal2();
@@ -46,7 +46,7 @@ export async function adminRevokeSessionAction(
     if (e instanceof AuthorizationError) {
       return {
         ok: false,
-        error: e.reason === 'aal2_required' ? 'Deze actie vereist MFA.' : 'Je bent niet ingelogd.',
+        error: e.reason === 'aal2_required' ? 'This action needs MFA.' : "You're not logged in.",
       };
     }
     throw e;
@@ -57,9 +57,9 @@ export async function adminRevokeSessionAction(
     p_session_id: parsed.data.sessionId,
   });
   if (error || !data) {
-    return { ok: false, error: 'Kon de sessie niet beëindigen (geen toegang).' };
+    return { ok: false, error: "Couldn't end the session (no access)." };
   }
 
   revalidatePath('/admin/sessions');
-  return { ok: true, message: 'Gebruiker op afstand uitgelogd.' };
+  return { ok: true, message: 'User logged out remotely.' };
 }

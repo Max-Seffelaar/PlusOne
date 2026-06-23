@@ -31,7 +31,7 @@ function TierTooltip({ active, payload }: TooltipInjected<TierDatum>): JSX.Eleme
     <div className="rounded-[10px] border border-line bg-elev2 px-3 py-2 text-[12.5px] shadow-lg">
       <div className="font-display font-bold text-text">{d.tier}</div>
       <div className="text-dim">
-        <span className="text-acc">{d.present}</span> binnen / {d.registered} aangemeld
+        <span className="text-acc">{d.present}</span> inside / {d.registered} expected
       </div>
     </div>
   );
@@ -39,7 +39,7 @@ function TierTooltip({ active, payload }: TooltipInjected<TierDatum>): JSX.Eleme
 
 export function TierChart({ data }: { data: TierDatum[] }): JSX.Element {
   if (data.length === 0) {
-    return <div className="py-12 text-center text-[14px] text-faint">Nog geen tiers met gasten.</div>;
+    return <div className="py-12 text-center text-[14px] text-faint">No tiers with guests yet.</div>;
   }
   const height = Math.max(120, data.length * 48);
   return (

@@ -28,7 +28,7 @@ export function RemoveMemberButton({
   if (disabledReason) {
     return (
       <span className="text-faint text-xs" title={disabledReason}>
-        Verwijderen niet mogelijk
+        Can&apos;t remove
       </span>
     );
   }
@@ -40,7 +40,7 @@ export function RemoveMemberButton({
         className="btn-ghost text-xs text-red-300"
         onClick={() => setConfirming(true)}
       >
-        Verwijderen
+        Remove
       </button>
     );
   }
@@ -48,18 +48,18 @@ export function RemoveMemberButton({
   return (
     <div className="border-line bg-bg/40 flex w-full flex-col gap-3 rounded-field border p-3">
       <p className="text-sm">
-        <span className="font-semibold">{memberName}</span> verwijderen uit{' '}
+        Remove <span className="font-semibold">{memberName}</span> from{' '}
         <span className="font-semibold">{venueName}</span>?
       </p>
       <p className="text-faint text-xs">
-        Hiermee vervalt <span className="text-dim">alleen</span> de toegang tot déze venue. Het account
-        blijft bestaan en toegang tot andere venues of events verandert niet. De actie wordt gelogd.
+        This only revokes access to <span className="text-dim">this</span> venue. The account stays, and
+        access to other venues or events doesn&apos;t change. This action is logged.
       </p>
       <form action={formAction} className="flex items-center gap-2">
         <input type="hidden" name="venueId" value={venueId} />
         <input type="hidden" name="userId" value={userId} />
         <button type="submit" className="btn-dark text-sm text-red-300" disabled={pending}>
-          {pending ? 'Bezig…' : 'Definitief verwijderen'}
+          {pending ? 'Removing…' : 'Remove for good'}
         </button>
         <button
           type="button"
@@ -67,7 +67,7 @@ export function RemoveMemberButton({
           onClick={() => setConfirming(false)}
           disabled={pending}
         >
-          Annuleren
+          Cancel
         </button>
       </form>
       {!state.ok && state.error && (

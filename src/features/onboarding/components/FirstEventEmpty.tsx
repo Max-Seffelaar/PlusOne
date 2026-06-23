@@ -12,11 +12,11 @@ export function FirstEventEmpty({ venueName }: { venueName: string }): JSX.Eleme
           <Icon name="cal" size={30} />
         </div>
         <h1 className="m-0 font-display text-[30px] font-extrabold tracking-[-0.02em] text-text">
-          Maak je eerste event
+          Create your first event
         </h1>
         <p className="mx-auto mt-3 max-w-[380px] text-[15px] leading-[1.5] text-dim">
-          <span className="text-text">{venueName}</span> staat klaar. Maak een event aan en zet je
-          eerste gasten op de lijst.
+          <span className="text-text">{venueName}</span> is ready. Create an event and add your
+          first guests to the list.
         </p>
         <div className="mt-8 flex flex-col items-center gap-4">
           <Link
@@ -24,13 +24,13 @@ export function FirstEventEmpty({ venueName }: { venueName: string }): JSX.Eleme
             className="inline-flex cursor-pointer items-center gap-2 rounded-[12px] border border-transparent bg-acc px-[20px] py-[13px] font-display text-[15px] font-bold tracking-[-0.01em] text-on-acc transition-[filter,transform] hover:brightness-[1.08] active:scale-[0.985]"
           >
             <Icon name="cal" size={18} sw={2.1} />
-            Nieuw event
+            New event
           </Link>
           <Link
             href="/events"
             className="font-body text-[13.5px] font-semibold text-faint transition-colors hover:text-text"
           >
-            Hoe werkt het?
+            How does it work?
           </Link>
         </div>
       </div>

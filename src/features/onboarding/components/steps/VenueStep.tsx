@@ -16,7 +16,7 @@ const TYPE_LABEL: Record<VenueType, string> = {
   club: 'Club',
   festival: 'Festival',
   bar: 'Bar',
-  concertzaal: 'Concertzaal',
+  concertzaal: 'Concert hall',
 };
 
 const RETENTION_OPTIONS = [6, 12, 24] as const;
@@ -49,16 +49,16 @@ export function VenueStep({ onCreated }: { onCreated: (venueId: string) => void 
       current={1}
       panel={
         <WizardPanel
-          title="Zet je venue op de kaart"
-          sub="De basis voor elke gastenlijst en check-in die je straks draait."
+          title="Put your venue on the map"
+          sub="The base for every guest list and check-in you'll run."
           bullets={[
-            'Voeg later meer venues toe',
-            'Je past deze gegevens altijd aan in instellingen',
+            'Add more venues later',
+            'You can always change these details in settings',
           ]}
         />
       }
-      heading="Vertel ons over je venue"
-      sub="Dit zien gasten op je landingpages en bij check-in."
+      heading="Tell us about your venue"
+      sub="Guests see this on your landing pages and at check-in."
       footer={
         <>
           {error && <div className="mb-3 text-[13.5px] text-[#ff9b9b]">{error}</div>}
@@ -70,22 +70,22 @@ export function VenueStep({ onCreated }: { onCreated: (venueId: string) => void 
             disabled={!ok || pending}
             className={ok ? '' : 'opacity-[0.45]'}
           >
-            {pending ? 'Bezig…' : 'Venue aanmaken'}
+            {pending ? 'Working…' : 'Create venue'}
           </Btn>
         </>
       }
     >
-      <Label className="mb-2">Naam van je venue</Label>
+      <Label className="mb-2">Venue name</Label>
       <Field
         icon="building"
-        placeholder="bv. LOFI"
+        placeholder="e.g. LOFI"
         value={name}
         onChange={setName}
         autoFocus
         className="mb-[14px]"
       />
 
-      <Label className="mb-2">Adres</Label>
+      <Label className="mb-2">Address</Label>
       <Field
         icon="pin"
         placeholder="Wibautstraat 150, Amsterdam"
@@ -94,7 +94,7 @@ export function VenueStep({ onCreated }: { onCreated: (venueId: string) => void 
         className="mb-[18px]"
       />
 
-      <Label className="mb-[10px]">Type venue</Label>
+      <Label className="mb-[10px]">Venue type</Label>
       <div className="mb-[18px] grid grid-cols-2 gap-[8px]">
         {VENUE_TYPES.map((t) => (
           <button
@@ -114,11 +114,11 @@ export function VenueStep({ onCreated }: { onCreated: (venueId: string) => void 
         ))}
       </div>
 
-      <Label className="mb-[10px]">AVG-bewaartermijn</Label>
+      <Label className="mb-[10px]">Data retention</Label>
       <div className="rounded-[16px] border border-line bg-elev p-4">
         <div className="mb-[14px] text-[13px] leading-[1.5] text-dim">
-          Gastdata wordt na deze termijn automatisch geanonimiseerd tot “Gast #X” (#29). Standaard 12
-          maanden.
+          After this period, guest data is anonymized automatically to “Guest #X” (#29). Default 12
+          months.
         </div>
         <div className="flex gap-[8px]">
           {RETENTION_OPTIONS.map((m) => (
@@ -134,7 +134,7 @@ export function VenueStep({ onCreated }: { onCreated: (venueId: string) => void 
                   : 'border-line bg-elev2 text-dim'
               )}
             >
-              {m} mnd
+              {m} mo
             </button>
           ))}
         </div>

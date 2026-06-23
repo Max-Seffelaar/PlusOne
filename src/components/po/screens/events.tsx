@@ -3,6 +3,7 @@
 /** Events tab + event detail, event CRUD, tier/alias beheer, past-event recap. */
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { t, fmt } from '@/lib/i18n';
 import type { PoEvent } from '@/lib/po/types';
 import {
   usePoEvent,
@@ -69,9 +70,9 @@ export function Events(): JSX.Element {
   const months = [...new Set(evs.map((e) => e.month))];
   return (
     <div className={col}>
-      <Top big title="Events" right={<IconBtn name="search" />} />
+      <Top big title={t.events.title} right={<IconBtn name="search" />} />
       <div className="flex flex-none items-center gap-2 px-5 pb-[14px]">
-        {([['upcoming', 'Komend'], ['past', 'Geweest']] as const).map(([k, l]) => (
+        {([['upcoming', t.events.tabUpcoming], ['past', t.events.tabPast]] as const).map(([k, l]) => (
           <button
             key={k}
             type="button"
@@ -87,19 +88,19 @@ export function Events(): JSX.Element {
       </div>
       <div className="flex flex-none gap-2 px-5 pb-[14px]">
         <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd')}>
-          Nieuwe gast
+          {t.events.addGuest}
         </Btn>
         <Btn sm kind="ghost" icon="cal" onClick={() => nav.push('eventedit', { isNew: true })}>
-          Nieuw event
+          {t.events.newEvent}
         </Btn>
       </div>
       <Scroll bottom={100}>
         {isLoading ? (
-          <Empty text="Events laden…" />
+          <Empty text={t.events.loadingEvents} />
         ) : isError ? (
-          <Empty text="Kon de events niet laden. Probeer het later opnieuw." />
+          <Empty text={t.events.loadEventsError} />
         ) : evs.length === 0 ? (
-          <Empty text={when === 'upcoming' ? 'Nog geen komende events.' : 'Nog geen afgelopen events.'} />
+          <Empty text={when === 'upcoming' ? t.events.emptyUpcoming : t.events.emptyPast} />
         ) : (
           months.map((m) => (
             <div key={m} className="mb-2">
@@ -123,12 +124,12 @@ export function Events(): JSX.Element {
                         <div className="overflow-hidden text-ellipsis whitespace-nowrap font-display text-[17px] font-bold text-text">{e.name}</div>
                         <div className="mt-[3px] flex items-center gap-1.5 text-[13px] text-faint">
                           <Icon name="clock" size={13} stroke="rgba(255,255,255,0.40)" />
-                          Deur {e.time} · {e.venue}
+                          {fmt(t.events.cardDoors, { time: e.time, venue: e.venue })}
                         </div>
                       </div>
                       <div className="shrink-0 text-right">
                         <div className="font-display text-[16px] font-bold text-text">{e.guests}</div>
-                        <div className="text-[11px] text-faint">{when === 'past' ? (e.guests > 0 ? Math.round((e.inside / e.guests) * 100) : 0) + '% op' : 'gasten'}</div>
+                        <div className="text-[11px] text-faint">{when === 'past' ? (e.guests > 0 ? Math.round((e.inside / e.guests) * 100) : 0) + t.events.cardTurnoutSuffix : t.events.cardGuests}</div>
                       </div>
                     </button>
                   ))}
@@ -152,9 +153,9 @@ export function EventView({ id }: { id?: string }): JSX.Element {
   // "Laatst binnen" list unless there's data they're allowed to see.
   const showDoor = canWorkDoor(roles);
 
-  if (isLoading) return <ScreenState onBack={nav.back} title="Event" text="Laden…" />;
+  if (isLoading) return <ScreenState onBack={nav.back} title={t.events.detailTitle} text={t.events.loading} />;
   if (isError || notFound || !event) {
-    return <ScreenState onBack={nav.back} title="Event" text="Dit event is niet (meer) beschikbaar." />;
+    return <ScreenState onBack={nav.back} title={t.events.detailTitle} text={t.events.eventUnavailable} />;
   }
 
   const ev = event;
@@ -174,27 +175,27 @@ export function EventView({ id }: { id?: string }): JSX.Element {
         <div className={cn(hasSecondary && 'lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start')}>
           <div className={cn(!hasSecondary && 'lg:mx-auto lg:max-w-[680px]')}>
             <div className="mb-3 grid grid-cols-2 gap-[10px]">
-              <Stat big v={onweg} l="Onderweg" />
-              <Stat big v={ev.inside} l="Binnen" acc />
+              <Stat big v={onweg} l={t.events.statOnTheWay} />
+              <Stat big v={ev.inside} l={t.events.statInside} acc />
             </div>
             <div className="mb-3 rounded-[18px] border border-line bg-elev p-4">
               <div className="mb-[9px] flex justify-between">
-                <Label>Opkomst gastenlijst</Label>
+                <Label>{t.events.turnout}</Label>
                 <span className="font-display font-bold text-acc">{Math.round(pct * 100)}%</span>
               </div>
               <div className="h-[10px] overflow-hidden rounded-[6px] bg-elev2">
                 <div className="h-full rounded-[6px] bg-acc" style={{ width: pct * 100 + '%' }} />
               </div>
-              <div className="mt-[9px] text-[12.5px] text-faint">{ev.guests} koppen op de lijst · incl. meegenomen gasten</div>
+              <div className="mt-[9px] text-[12.5px] text-faint">{fmt(t.events.peopleOnList, { n: ev.guests })}</div>
             </div>
             <div className="mb-4 flex gap-[10px] lg:mb-0">
               {showDoor && (
                 <Btn kind="primary" full icon="user" onClick={() => nav.openDoor(ev.id)}>
-                  Check-in
+                  {t.events.checkIn}
                 </Btn>
               )}
               <Btn kind="dark" full icon="users" onClick={() => nav.push('lijst', { id: ev.id })}>
-                Gastenlijst
+                {t.events.guestList}
               </Btn>
             </div>
           </div>
@@ -202,7 +203,7 @@ export function EventView({ id }: { id?: string }): JSX.Element {
             <div className="mt-4 lg:mt-0">
               {openRequests > 0 && (
                 <>
-                  <Label className="mb-[10px]">Aandacht nodig</Label>
+                  <Label className="mb-[10px]">{t.events.needsAttention}</Label>
                   <div className="mb-[18px] flex flex-col gap-[9px]">
                     <button
                       type="button"
@@ -215,9 +216,11 @@ export function EventView({ id }: { id?: string }): JSX.Element {
                       </span>
                       <div className="flex-1">
                         <div className="font-body text-[14px] font-bold text-text">
-                          {openRequests} open {openRequests === 1 ? 'aanvraag' : 'aanvragen'}
+                          {openRequests === 1
+                            ? fmt(t.events.openRequest, { n: openRequests })
+                            : fmt(t.events.openRequests, { n: openRequests })}
                         </div>
-                        <div className="mt-0.5 text-[12.5px] leading-[1.4] text-faint">Wachten op jouw goedkeuring — tik om af te handelen</div>
+                        <div className="mt-0.5 text-[12.5px] leading-[1.4] text-faint">{t.events.requestsSub}</div>
                       </div>
                       <span className="self-center text-acc">
                         <Icon name="chev" size={20} />
@@ -228,9 +231,9 @@ export function EventView({ id }: { id?: string }): JSX.Element {
               )}
               {(showDoor || recent.length > 0) && (
                 <>
-                  <Label className="mb-[10px]">Laatst binnen</Label>
+                  <Label className="mb-[10px]">{t.events.justIn}</Label>
                   {recent.length === 0 ? (
-                    <Empty text="Nog niemand ingecheckt." />
+                    <Empty text={t.events.noOneInside} />
                   ) : (
                     <div className="flex flex-col">
                       {recent.map((g) => (
@@ -241,7 +244,7 @@ export function EventView({ id }: { id?: string }): JSX.Element {
                               {g.name}
                               {g.plus > 0 && <span className="text-faint"> +{g.plus}</span>}
                             </div>
-                            <div className="mt-0.5 truncate text-[12px] text-faint">door {g.by}</div>
+                            <div className="mt-0.5 truncate text-[12px] text-faint">{fmt(t.events.by, { by: g.by })}</div>
                           </div>
                           <span className="font-display text-[13px] font-bold text-acc">{formatClock(g.at)}</span>
                         </div>
@@ -311,9 +314,9 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ev?.id]);
 
-  if (!isNew && isLoading) return <ScreenState onBack={nav.back} title="Event bewerken" text="Laden…" />;
+  if (!isNew && isLoading) return <ScreenState onBack={nav.back} title={t.events.editTitle} text={t.events.loading} />;
   if (!isNew && (isError || !ev)) {
-    return <ScreenState onBack={nav.back} title="Event bewerken" text="Dit event is niet (meer) beschikbaar." />;
+    return <ScreenState onBack={nav.back} title={t.events.editTitle} text={t.events.eventUnavailable} />;
   }
 
   const writable = isNew ? isAdmin : canManage;
@@ -329,18 +332,18 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     setErr(null);
     const startsAt = localInputToIso(`${dateStr}T${timeStr}`);
     if (!name.trim() || !startsAt) {
-      setErr('Vul een naam, datum en tijd in.');
+      setErr(t.events.errNameDateTime);
       return;
     }
     const autoIso = autoOn ? localInputToIso(`${autoDate}T${autoTime}`) : null;
     if (autoOn && !autoIso) {
-      setErr('Vul de sluitdatum en -tijd in (of zet automatisch sluiten uit).');
+      setErr(t.events.errCloseDateTime);
       return;
     }
     try {
       if (isNew) {
         if (!venueId) {
-          setErr('Geen actieve venue gevonden.');
+          setErr(t.events.errNoVenue);
           return;
         }
         await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, landingActive: landingOn });
@@ -355,7 +358,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
       }
       nav.back();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Opslaan is mislukt. Probeer het opnieuw.');
+      setErr(e instanceof Error ? e.message : t.events.errSaveFailed);
     }
   };
 
@@ -366,7 +369,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
       await setListLock.mutateAsync({ eventId: editId, locked: v });
     } catch (e) {
       setLocked(!v);
-      setErr(e instanceof Error ? e.message : 'Kon de lijst niet (ont)grendelen.');
+      setErr(e instanceof Error ? e.message : t.events.errLockFailed);
     }
   };
 
@@ -379,7 +382,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
       await setAllowUncheck.mutateAsync({ eventId: editId, allowUncheck: next });
     } catch (e) {
       setUncheckOverride(prev);
-      setErr(e instanceof Error ? e.message : 'Kon de uitcheck-instelling niet wijzigen.');
+      setErr(e instanceof Error ? e.message : t.events.errUncheckFailed);
     }
   };
 
@@ -388,7 +391,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     try {
       await changeStatus.mutateAsync({ eventId: editId, status: to });
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Kon de status niet wijzigen.');
+      setErr(e instanceof Error ? e.message : t.events.errStatusFailed);
     }
   };
 
@@ -405,30 +408,28 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title={isNew ? 'Nieuw event' : 'Event bewerken'} sub={isNew ? undefined : ev?.name} />
+      <Top onBack={nav.back} title={isNew ? t.events.newEvent : t.events.editTitle} sub={isNew ? undefined : ev?.name} />
       <Scroll bottom={120}>
         {err && <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{err}</div>}
         {!writable && (
           <Note icon="shield">
-            {isNew
-              ? 'Alleen beheerders kunnen events aanmaken.'
-              : 'Je kunt dit event alleen bekijken — wijzigen vereist beheerder- of organisator-rechten.'}
+            {isNew ? t.events.noteAdminsOnly : t.events.noteViewOnly}
           </Note>
         )}
 
-        <Label className="mb-2">Naam</Label>
-        <Field placeholder="bv. FRENZY" value={name} onChange={writable ? setName : undefined} className="mb-[14px]" />
+        <Label className="mb-2">{t.events.fieldName}</Label>
+        <Field placeholder={t.events.namePlaceholder} value={name} onChange={writable ? setName : undefined} className="mb-[14px]" />
 
-        <Label className="mb-2">Venue</Label>
-        <Field icon="building" value={venueLabel} placeholder="Onbekende venue" className="mb-[14px]" />
+        <Label className="mb-2">{t.events.fieldVenue}</Label>
+        <Field icon="building" value={venueLabel} placeholder={t.events.venuePlaceholder} className="mb-[14px]" />
 
         <div className="mb-[14px] flex gap-[10px]">
           <div className="flex-1">
-            <Label className="mb-2">Datum</Label>
+            <Label className="mb-2">{t.events.fieldDate}</Label>
             <Field icon="cal" type="date" value={dateStr} onChange={writable ? setDateStr : undefined} />
           </div>
           <div className="flex-1">
-            <Label className="mb-2">Deur open</Label>
+            <Label className="mb-2">{t.events.fieldDoors}</Label>
             <Field icon="clock" type="time" value={timeStr} onChange={writable ? setTimeStr : undefined} />
           </div>
         </div>
@@ -443,8 +444,8 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
               <Icon name="ticket" size={18} />
             </span>
             <span className="flex-1">
-              <span className="block font-body text-[15px] font-semibold text-text">Tiers & aliassen</span>
-              <span className="mt-px block text-[12.5px] text-faint">Voeden de quick-add</span>
+              <span className="block font-body text-[15px] font-semibold text-text">{t.events.tiersRowTitle}</span>
+              <span className="mt-px block text-[12.5px] text-faint">{t.events.tiersRowSub}</span>
             </span>
             <Icon name="chev" size={18} className="text-ghost" />
           </button>
@@ -452,7 +453,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
 
         {!isNew && ev && (
           <>
-            <Label className="mb-[10px]">Status</Label>
+            <Label className="mb-[10px]">{t.events.status}</Label>
             <div className="mb-[18px] rounded-[16px] border border-line bg-elev p-[14px]">
               <div className="font-display text-[15px] font-bold text-text">{STATUS_LABELS[ev.status]}</div>
               <div className="mt-0.5 text-[12.5px] leading-[1.4] text-faint">{STATUS_DESCRIPTIONS[ev.status]}</div>
@@ -479,11 +480,11 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           </>
         )}
 
-        <Label className="mb-[10px]">Landingpage</Label>
+        <Label className="mb-[10px]">{t.events.landingPage}</Label>
         <div className="mb-[18px] rounded-[16px] border border-line bg-elev px-[14px] py-1">
           <ToggleRow
-            title="Aanvraaglink actief"
-            sub="Gasten kunnen zich aanmelden via de link"
+            title={t.events.landingActiveTitle}
+            sub={t.events.landingActiveSub}
             on={landingOn}
             set={(v) => writable && setLandingOn(v)}
             last={!landingOn || isNew}
@@ -494,7 +495,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
               <button
                 type="button"
                 onClick={() => void copyLink()}
-                aria-label="Kopieer aanmeldlink"
+                aria-label={t.events.copyLinkAria}
                 className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] border border-line text-faint transition-[filter] hover:brightness-[1.2]"
               >
                 <Icon name={copied ? 'check' : 'share'} size={16} />
@@ -504,8 +505,8 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           {!isNew && landingOn && (
             <div className="border-t border-line2">
               <ToggleRow
-                title="Sluit aanmelden automatisch"
-                sub={autoOn ? 'Na dit moment kan niemand zich meer aanmelden' : 'Link blijft open tot je hem handmatig sluit'}
+                title={t.events.autoCloseTitle}
+                sub={autoOn ? t.events.autoCloseOnSub : t.events.autoCloseOffSub}
                 on={autoOn}
                 set={(v) => writable && setAutoOn(v)}
                 last={!autoOn}
@@ -513,11 +514,11 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
               {autoOn && (
                 <div className="flex gap-[10px] pb-[14px]">
                   <div className="flex-1">
-                    <Label className="mb-2">Sluit op</Label>
+                    <Label className="mb-2">{t.events.closesOn}</Label>
                     <Field icon="cal" type="date" value={autoDate} onChange={writable ? setAutoDate : undefined} />
                   </div>
                   <div className="flex-1">
-                    <Label className="mb-2">Om</Label>
+                    <Label className="mb-2">{t.events.closesAt}</Label>
                     <Field icon="clock" type="time" value={autoTime} onChange={writable ? setAutoTime : undefined} />
                   </div>
                 </div>
@@ -528,22 +529,24 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
 
         {!isNew && (
           <>
-            <Label className="mb-[10px]">Aan de deur</Label>
+            <Label className="mb-[10px]">{t.events.atTheDoor}</Label>
             <div className="rounded-[16px] border border-line bg-elev px-[14px] py-1">
               <ToggleRow
-                title="Lijst vergrendelen"
-                sub={locked ? 'Staff kan niet meer muteren — admin/host/deur wel' : 'Typisch bij deuropening'}
+                title={t.events.lockListTitle}
+                sub={locked ? t.events.lockListOnSub : t.events.lockListOffSub}
                 on={locked}
                 set={(v) => writable && void toggleLock(v)}
               />
               <ToggleRow
-                title="Uitchecken toestaan"
+                title={t.events.allowCheckoutTitle}
                 sub={
                   uncheckOverride === null
-                    ? `Volgt de bedrijfsstandaard (${venueDefaultUncheck ? 'aan' : 'uit'})`
+                    ? fmt(t.events.allowCheckoutFollowsSub, {
+                        state: venueDefaultUncheck ? t.events.stateOn : t.events.stateOff,
+                      })
                     : effectiveUncheck
-                      ? 'Aan voor dit event'
-                      : 'Uit voor dit event'
+                      ? t.events.allowCheckoutOnSub
+                      : t.events.allowCheckoutOffSub
                 }
                 on={effectiveUncheck}
                 set={(v) => writable && void toggleUncheck(v)}
@@ -555,7 +558,9 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
                   onClick={() => void toggleUncheck(null)}
                   className="w-full border-t border-line2 py-[11px] text-left font-body text-[12.5px] font-semibold text-faint transition-[filter] hover:brightness-[1.2]"
                 >
-                  Volg de bedrijfsstandaard ({venueDefaultUncheck ? 'aan' : 'uit'})
+                  {fmt(t.events.followVenueDefault, {
+                    state: venueDefaultUncheck ? t.events.stateOn : t.events.stateOff,
+                  })}
                 </button>
               )}
             </div>
@@ -571,7 +576,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           disabled={!writable || saving}
           className={!writable || saving ? 'opacity-50' : ''}
         >
-          {saving ? 'Bezig…' : isNew ? 'Event aanmaken' : 'Opslaan'}
+          {saving ? t.events.saving : isNew ? t.events.createEvent : t.events.saveEvent}
         </Btn>
       </BottomBar>
     </div>
@@ -620,7 +625,7 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
       resetForm();
       setAdding(false);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Kon de tier niet aanmaken.');
+      setErr(e instanceof Error ? e.message : t.events.errCreateTier);
     }
   };
 
@@ -633,7 +638,7 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
     try {
       await updateTier.mutateAsync({ tierId, aliases: [...current, a] });
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Kon de alias niet opslaan.');
+      setErr(e instanceof Error ? e.message : t.events.errSaveAlias);
     }
   };
 
@@ -641,7 +646,7 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
     <div className={col}>
       <Top
         onBack={nav.back}
-        title="Tiers & aliassen"
+        title={t.events.tiersTitle}
         sub={event?.name}
         right={<IconBtn name={adding ? 'close' : 'plus'} onClick={() => setAdding((a) => !a)} />}
       />
@@ -649,9 +654,9 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
         {err && <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{err}</div>}
         {adding && (
           <div className="mb-[14px] rounded-[18px] border border-acc bg-elev p-4">
-            <Label className="mb-[10px]">Nieuwe tier</Label>
-            <Field placeholder="Naam, bv. “Backstage”" value={nm} onChange={setNm} autoFocus className="mb-3" />
-            <Label className="mb-2">Kleur</Label>
+            <Label className="mb-[10px]">{t.events.newTier}</Label>
+            <Field placeholder={t.events.tierNamePlaceholder} value={nm} onChange={setNm} autoFocus className="mb-3" />
+            <Label className="mb-2">{t.events.color}</Label>
             <div className="mb-[14px] flex gap-[9px]">
               {TIER_COLORS.map((c) => (
                 <button
@@ -660,14 +665,14 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
                   onClick={() => setColor(c)}
                   className="h-[34px] w-[34px] cursor-pointer rounded-full transition-[filter] hover:brightness-[1.1]"
                   style={{ background: c, border: '2px solid ' + (color === c ? '#FFFFFF' : 'transparent') }}
-                  aria-label={`Kleur ${c}`}
+                  aria-label={fmt(t.events.colorAria, { color: c })}
                 />
               ))}
             </div>
-            <Label className="mb-2">Max (optioneel)</Label>
-            <Field placeholder="∞ — geen maximum" value={max} onChange={setMax} inputMode="numeric" className="mb-[14px]" />
-            <Label className="mb-2">Aliassen · voeden de quick-add</Label>
-            <Field icon="spark" placeholder="backstage, bs, prod…" value={aliasText} onChange={setAliasText} />
+            <Label className="mb-2">{t.events.maxOptional}</Label>
+            <Field placeholder={t.events.maxPlaceholder} value={max} onChange={setMax} inputMode="numeric" className="mb-[14px]" />
+            <Label className="mb-2">{t.events.aliasesFeedLabel}</Label>
+            <Field icon="spark" placeholder={t.events.aliasesPlaceholder} value={aliasText} onChange={setAliasText} />
             {aliasText.trim() && (
               <div className="mt-[10px] flex flex-wrap gap-1.5">
                 {aliasText
@@ -683,44 +688,44 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
             )}
           </div>
         )}
-        <Note icon="spark">Aliassen bepalen wat de quick-add herkent. “fles” of “champagne” → VIP. Onbekende woorden vraagt de app na — nooit stil naar Regular.</Note>
+        <Note icon="spark">{t.events.aliasesNote}</Note>
         {isLoading ? (
-          <Empty text="Tiers laden…" />
+          <Empty text={t.events.loadingTiers} />
         ) : isError ? (
-          <Empty text="Kon de tiers niet laden. Probeer het later opnieuw." />
+          <Empty text={t.events.loadTiersError} />
         ) : (tierList ?? []).length === 0 ? (
-          <Empty text="Nog geen tiers — voeg er één toe met +." />
+          <Empty text={t.events.emptyTiers} />
         ) : (
           <div className="flex flex-col gap-[11px]">
-            {(tierList ?? []).map((t) => (
-              <div key={t.id} className="rounded-[18px] border border-line bg-elev p-[15px]">
+            {(tierList ?? []).map((tier) => (
+              <div key={tier.id} className="rounded-[18px] border border-line bg-elev p-[15px]">
                 <div className="mb-3 flex items-center gap-[11px]">
-                  <span className="h-[14px] w-[14px] shrink-0 rounded-full" style={{ background: t.color }} />
+                  <span className="h-[14px] w-[14px] shrink-0 rounded-full" style={{ background: tier.color }} />
                   <div className="min-w-0 flex-1">
-                    <div className="font-display text-[15.5px] font-bold text-text">{t.name}</div>
-                    <div className="mt-px text-[12px] text-faint">{t.max ? `${t.used} / ${t.max} gebruikt` : `${t.used} · geen max`}</div>
+                    <div className="font-display text-[15.5px] font-bold text-text">{tier.name}</div>
+                    <div className="mt-px text-[12px] text-faint">{tier.max ? fmt(t.events.tierUsedOfMax, { used: tier.used, max: tier.max }) : fmt(t.events.tierUsedNoMax, { used: tier.used })}</div>
                   </div>
-                  {t.isDefault && <MiniChip>STANDAARD</MiniChip>}
+                  {tier.isDefault && <MiniChip>{t.events.tierDefault}</MiniChip>}
                 </div>
-                {t.max && (
+                {tier.max && (
                   <div className="mb-3 h-[6px] overflow-hidden rounded-[4px] bg-elev2">
-                    <div className="h-full rounded-[4px]" style={{ width: Math.min(100, (t.used / t.max) * 100) + '%', background: t.color }} />
+                    <div className="h-full rounded-[4px]" style={{ width: Math.min(100, (tier.used / tier.max) * 100) + '%', background: tier.color }} />
                   </div>
                 )}
-                <Label className="mb-2">Aliassen</Label>
+                <Label className="mb-2">{t.events.aliases}</Label>
                 <div className="flex flex-wrap gap-1.5">
-                  {t.aliases.map((a) => (
+                  {tier.aliases.map((a) => (
                     <span key={a} className="inline-flex items-center gap-[5px] rounded-[8px] border border-line bg-elev2 px-[9px] py-[5px] font-mono text-[12px] text-dim">
                       {a}
                     </span>
                   ))}
-                  {aliasFor === t.id ? (
+                  {aliasFor === tier.id ? (
                     <input
                       autoFocus
                       value={newAlias}
                       onChange={(e) => setNewAlias(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') void commitAlias(t.id, t.aliases);
+                        if (e.key === 'Enter') void commitAlias(tier.id, tier.aliases);
                         if (e.key === 'Escape') {
                           setAliasFor(null);
                           setNewAlias('');
@@ -730,20 +735,20 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
                         setAliasFor(null);
                         setNewAlias('');
                       }}
-                      placeholder="alias…"
+                      placeholder={t.events.aliasInputPlaceholder}
                       className="w-[120px] rounded-[8px] border border-acc bg-elev2 px-[9px] py-[5px] font-mono text-[12px] text-text outline-none placeholder:text-faint"
                     />
                   ) : (
                     <button
                       type="button"
                       onClick={() => {
-                        setAliasFor(t.id);
+                        setAliasFor(tier.id);
                         setNewAlias('');
                       }}
                       className="inline-flex items-center gap-1 rounded-[8px] border border-dashed border-line bg-transparent px-[9px] py-[5px] font-body text-[12px] text-faint transition-[filter] hover:brightness-[1.2]"
                     >
                       <Icon name="plus" size={12} sw={2.4} />
-                      alias
+                      {t.events.aliasAdd}
                     </button>
                   )}
                 </div>
@@ -755,7 +760,7 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
       {adding && (
         <BottomBar>
           <Btn kind="primary" full icon="check" onClick={() => void submit()} disabled={!nm.trim() || createTier.isPending} className={nm.trim() && !createTier.isPending ? '' : 'opacity-50'}>
-            {createTier.isPending ? 'Bezig…' : 'Tier aanmaken'}
+            {createTier.isPending ? t.events.saving : t.events.addTier}
           </Btn>
         </BottomBar>
       )}
@@ -773,9 +778,9 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
   const [showAllIn, setShowAllIn] = useState(false);
   const [showAllNo, setShowAllNo] = useState(false);
 
-  if (evLoading || rLoading) return <ScreenState onBack={nav.back} title="Recap" text="Laden…" />;
+  if (evLoading || rLoading) return <ScreenState onBack={nav.back} title={t.events.recapTitle} text={t.events.loading} />;
   if (evError || rError || notFound || !event || !r) {
-    return <ScreenState onBack={nav.back} title="Recap" text="Deze recap is niet beschikbaar." />;
+    return <ScreenState onBack={nav.back} title={t.events.recapTitle} text={t.events.recapUnavailable} />;
   }
 
   const ev = event;
@@ -793,13 +798,13 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
         <div className="lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start">
         <div>
         <div className="mb-[14px] rounded-[18px] bg-acc-dim p-[18px]">
-          <Label className="mb-[10px] text-acc-soft">Afgelopen event · samenvatting</Label>
+          <Label className="mb-[10px] text-acc-soft">{t.events.recapHeading}</Label>
           <div className="flex items-end gap-[10px]">
             <div className="font-display text-[54px] font-extrabold leading-[0.9] text-text">{pct}%</div>
             <div className="pb-1.5">
-              <div className="text-[14px] font-semibold text-text">opkomst</div>
+              <div className="text-[14px] font-semibold text-text">{t.events.turnoutWord}</div>
               <div className="text-[12.5px] text-dim">
-                {r.arrived} van {r.listed} koppen
+                {fmt(t.events.peopleOf, { arrived: r.arrived, listed: r.listed })}
               </div>
             </div>
           </div>
@@ -811,18 +816,18 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
         <div className="mb-4 grid grid-cols-2 gap-[10px]">
           <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
             <div className="font-display text-[30px] font-extrabold leading-none text-acc">{r.arrived}</div>
-            <div className="mt-1 text-[12.5px] text-dim">Ingecheckt</div>
+            <div className="mt-1 text-[12.5px] text-dim">{t.events.checkedIn}</div>
           </div>
           <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
             <div className="font-display text-[30px] font-extrabold leading-none text-text">{r.noShow}</div>
-            <div className="mt-1 text-[12.5px] text-faint">Niet verschenen</div>
+            <div className="mt-1 text-[12.5px] text-faint">{t.events.noShows}</div>
           </div>
         </div>
 
-        <Label className="mb-[10px]">Ingecheckt · {r.checkedIn.length}</Label>
+        <Label className="mb-[10px]">{fmt(t.events.checkedInLabel, { n: r.checkedIn.length })}</Label>
         {r.checkedIn.length === 0 ? (
           <div className="mb-4">
-            <Empty text="Niemand ingecheckt." />
+            <Empty text={t.events.noOneCheckedIn} />
           </div>
         ) : (
           <div className="mb-4 rounded-[18px] border border-line bg-elev px-[14px] py-0.5">
@@ -850,7 +855,7 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
                 onClick={() => setShowAllIn(true)}
                 className="w-full border-t border-line2 py-3 font-body text-[13.5px] font-bold text-dim transition-[filter] hover:brightness-[1.2]"
               >
-                Toon alle {r.checkedIn.length} ingecheckt
+                {fmt(t.events.showAllCheckedIn, { n: r.checkedIn.length })}
               </button>
             )}
           </div>
@@ -858,10 +863,10 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
 
         </div>
         <div className="mt-4 lg:mt-0">
-        <Label className="mb-[10px]">Niet verschenen · {r.noShows.length}</Label>
+        <Label className="mb-[10px]">{fmt(t.events.noShowsLabel, { n: r.noShows.length })}</Label>
         {r.noShows.length === 0 ? (
           <div className="mb-[18px]">
-            <Empty text="Iedereen kwam opdagen." />
+            <Empty text={t.events.everyoneShowed} />
           </div>
         ) : (
           <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-[14px] py-0.5">
@@ -873,9 +878,9 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
                     {g.name}
                     {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
                   </div>
-                  {g.by && <div className="mt-[3px] text-[12px] text-faint">toegevoegd door {g.by}</div>}
+                  {g.by && <div className="mt-[3px] text-[12px] text-faint">{fmt(t.events.addedBy, { by: g.by })}</div>}
                 </div>
-                <span className="text-[12px] font-bold text-faint">no-show</span>
+                <span className="text-[12px] font-bold text-faint">{t.events.noShowTag}</span>
               </div>
             ))}
             {!showAllNo && r.noShows.length > RECAP_CAP && (
@@ -884,28 +889,28 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
                 onClick={() => setShowAllNo(true)}
                 className="w-full border-t border-line2 py-3 font-body text-[13.5px] font-bold text-dim transition-[filter] hover:brightness-[1.2]"
               >
-                Toon alle {r.noShows.length} no-shows
+                {fmt(t.events.showAllNoShows, { n: r.noShows.length })}
               </button>
             )}
           </div>
         )}
 
-        <Label className="mb-[10px]">Opkomst per tier</Label>
+        <Label className="mb-[10px]">{t.events.byTier}</Label>
         <div className="mb-[14px] rounded-[18px] border border-line bg-elev p-4">
           {r.perTier.length === 0 ? (
-            <div className="py-[14px] text-center text-[13px] text-faint">Geen tierdata.</div>
+            <div className="py-[14px] text-center text-[13px] text-faint">{t.events.noTierData}</div>
           ) : (
-            r.perTier.map((t, i) => (
-              <div key={t.tier} className={i < r.perTier.length - 1 ? 'mb-[13px]' : ''}>
+            r.perTier.map((row, i) => (
+              <div key={row.tier} className={i < r.perTier.length - 1 ? 'mb-[13px]' : ''}>
                 <div className="mb-1.5 flex justify-between">
-                  <span className="text-[13px] font-semibold text-text">{t.tier}</span>
+                  <span className="text-[13px] font-semibold text-text">{row.tier}</span>
                   <span className="font-display text-[12px] text-faint">
-                    <b className="text-acc">{t.binnen}</b>/{t.aangemeld}
+                    <b className="text-acc">{row.binnen}</b>/{row.aangemeld}
                   </span>
                 </div>
                 <div className="relative h-[8px] overflow-hidden rounded-[5px] bg-elev2">
-                  <div className="absolute inset-0 bg-white/[0.08]" style={{ width: (t.aangemeld / maxT) * 100 + '%' }} />
-                  <div className="absolute inset-0 rounded-[5px] bg-acc" style={{ width: (t.binnen / maxT) * 100 + '%' }} />
+                  <div className="absolute inset-0 bg-white/[0.08]" style={{ width: (row.aangemeld / maxT) * 100 + '%' }} />
+                  <div className="absolute inset-0 rounded-[5px] bg-acc" style={{ width: (row.binnen / maxT) * 100 + '%' }} />
                 </div>
               </div>
             ))
@@ -914,19 +919,19 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
         <div className="mb-4 grid grid-cols-2 gap-[10px]">
           <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
             <div className="font-display text-[24px] font-extrabold text-text">{r.refused}</div>
-            <div className="mt-[3px] text-[12px] text-faint">Geweigerd</div>
+            <div className="mt-[3px] text-[12px] text-faint">{t.events.refused}</div>
           </div>
           <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
             <div className="font-display text-[24px] font-extrabold text-text">{r.peak}</div>
-            <div className="mt-[3px] text-[12px] text-faint">Piek instroom</div>
+            <div className="mt-[3px] text-[12px] text-faint">{t.events.peak}</div>
           </div>
         </div>
         <div className="flex gap-[10px]">
           <Btn kind="dark" full icon="users" onClick={() => nav.push('lijst', { id: ev.id })}>
-            Gastenlijst
+            {t.events.recapGuestList}
           </Btn>
           <Btn kind="quiet" full icon="dl">
-            Export
+            {t.events.exportLabel}
           </Btn>
         </div>
         </div>
@@ -957,7 +962,7 @@ export function EventBeheer(): JSX.Element {
       <span className="min-w-0 flex-1">
         <span className="block font-display text-[15.5px] font-bold text-text">{e.name}</span>
         <span className="mt-px block text-[12.5px] text-faint">
-          {e.venue} · {e.guests} gasten
+          {fmt(t.events.hubCardSub, { venue: e.venue, n: e.guests })}
         </span>
       </span>
       <Icon name="chev" size={18} className="text-ghost" />
@@ -965,37 +970,37 @@ export function EventBeheer(): JSX.Element {
   );
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Events & tiers" sub="Maak en beheer je evenementen" />
+      <Top onBack={nav.back} title={t.events.hubTitle} sub={t.events.hubSub} />
       <Scroll bottom={24}>
         <button type="button" onClick={() => nav.push('eventedit', { isNew: true })} className={cn('mb-5 flex w-full items-center gap-[13px] rounded-[16px] bg-acc p-4 text-left', press)}>
           <span className="flex h-[40px] w-[40px] items-center justify-center rounded-[12px] bg-on-acc/[0.14] text-on-acc">
             <Icon name="plus" size={22} sw={2.4} />
           </span>
           <span className="flex-1">
-            <span className="block font-display text-[16px] font-extrabold text-on-acc">Nieuw evenement</span>
-            <span className="mt-px block text-[12.5px] text-on-acc/70">Naam, datum, tiers & landingpage</span>
+            <span className="block font-display text-[16px] font-extrabold text-on-acc">{t.events.hubNewEvent}</span>
+            <span className="mt-px block text-[12.5px] text-on-acc/70">{t.events.hubNewEventSub}</span>
           </span>
           <span className="text-on-acc">
             <Icon name="arrowR" size={20} />
           </span>
         </button>
         {isLoading ? (
-          <Empty text="Events laden…" />
+          <Empty text={t.events.loadingEvents} />
         ) : isError ? (
-          <Empty text="Kon de events niet laden. Probeer het later opnieuw." />
+          <Empty text={t.events.loadEventsError} />
         ) : (
           <>
-            <Label className="mb-[10px]">Komende events · {upcoming.length}</Label>
+            <Label className="mb-[10px]">{fmt(t.events.upcomingCount, { n: upcoming.length })}</Label>
             {upcoming.length === 0 ? (
               <div className="mb-5">
-                <Empty text="Nog geen komende events." />
+                <Empty text={t.events.emptyUpcoming} />
               </div>
             ) : (
               <div className="mb-5 flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px]">{upcoming.map((e) => evRow(e, false))}</div>
             )}
-            <Label className="mb-[10px]">Afgelopen</Label>
+            <Label className="mb-[10px]">{t.events.past}</Label>
             {past.length === 0 ? (
-              <Empty text="Nog geen afgelopen events." />
+              <Empty text={t.events.emptyPast} />
             ) : (
               <div className="flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px]">{past.map((e) => evRow(e, true))}</div>
             )}

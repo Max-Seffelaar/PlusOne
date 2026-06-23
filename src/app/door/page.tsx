@@ -41,8 +41,8 @@ export default async function DoorIndexPage(): Promise<JSX.Element> {
   return (
     <main className="mx-auto flex min-h-[100dvh] max-w-md flex-col gap-5 p-5">
       <header className="flex flex-col gap-1 pt-4">
-        <h1 className="font-display text-[28px] font-extrabold tracking-[-0.02em] text-text">Deur</h1>
-        <p className="text-sm text-faint">Kies het evenement waar je aan de deur staat.</p>
+        <h1 className="font-display text-[28px] font-extrabold tracking-[-0.02em] text-text">Door</h1>
+        <p className="text-sm text-faint">Pick the event you&apos;re working the door for.</p>
       </header>
 
       <div className="flex flex-col gap-[10px]">
@@ -64,7 +64,7 @@ export default async function DoorIndexPage(): Promise<JSX.Element> {
         ))}
         {list.length === 0 && (
           <div className="rounded-[16px] border border-line bg-elev p-6 text-center text-sm text-faint">
-            Geen open evenementen om aan de deur te doen.
+            No open events to work the door.
           </div>
         )}
       </div>

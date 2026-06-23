@@ -12,46 +12,46 @@ describe('parseRetryAfterSeconds', () => {
 });
 
 describe('describeAuthError', () => {
-  it('maps rate limits (status 429) to Dutch with a countdown', () => {
+  it('maps rate limits (status 429) to a message with a countdown', () => {
     const r = describeAuthError({
       status: 429,
       message: 'For security purposes, you can only request this after 30 seconds.',
     });
     expect(r.retryAfterSeconds).toBe(30);
-    expect(r.message).toContain('30 seconden');
+    expect(r.message).toContain('30 seconds');
   });
 
   it('maps a rate-limit code without a number to a generic wait message', () => {
     const r = describeAuthError({ code: 'over_email_send_rate_limit', message: 'Email rate limit exceeded' });
-    expect(r.message).toContain('Te veel pogingen');
+    expect(r.message).toContain('Too many tries');
     expect(r.retryAfterSeconds).toBeUndefined();
   });
 
   it('maps expired/invalid OTP', () => {
-    expect(describeAuthError({ code: 'otp_expired' }).message).toContain('ongeldig of verlopen');
+    expect(describeAuthError({ code: 'otp_expired' }).message).toContain('has expired');
     expect(
       describeAuthError({ message: 'Token has expired or is invalid' }).message
-    ).toContain('ongeldig of verlopen');
+    ).toContain('has expired');
   });
 
   it('maps MFA verification failure', () => {
-    expect(describeAuthError({ code: 'mfa_verification_failed' }).message).toContain('Verificatiecode');
+    expect(describeAuthError({ code: 'mfa_verification_failed' }).message).toContain('verification code');
   });
 
   it('maps signups-disabled to an invite hint (invite-only)', () => {
-    expect(describeAuthError({ message: 'Signups not allowed for otp' }).message).toContain('uitnodiging');
+    expect(describeAuthError({ message: 'Signups not allowed for otp' }).message).toContain('invite');
   });
 
   it('maps RLS / privilege denial to a generic access message', () => {
-    expect(describeAuthError({ code: '42501' }).message).toContain('geen toegang');
+    expect(describeAuthError({ code: '42501' }).message).toContain("don't have access");
     expect(describeAuthError({ message: 'new row violates row-level security policy' }).message).toContain(
-      'geen toegang'
+      "don't have access"
     );
   });
 
   it('falls back to a generic message for unknown errors', () => {
-    expect(describeAuthError({ message: 'kaboom' }).message).toBe('Er ging iets mis. Probeer het opnieuw.');
-    expect(describeAuthError(null).message).toBe('Er ging iets mis. Probeer het opnieuw.');
-    expect(describeAuthError(undefined).message).toBe('Er ging iets mis. Probeer het opnieuw.');
+    expect(describeAuthError({ message: 'kaboom' }).message).toBe('Something went wrong. Try again.');
+    expect(describeAuthError(null).message).toBe('Something went wrong. Try again.');
+    expect(describeAuthError(undefined).message).toBe('Something went wrong. Try again.');
   });
 });

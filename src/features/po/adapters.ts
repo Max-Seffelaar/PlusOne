@@ -39,7 +39,7 @@ type GuestRowStatus = Database['public']['Enums']['guest_status'];
 const TZ = 'Europe/Amsterdam';
 
 function fmt(iso: string, opts: Intl.DateTimeFormatOptions): string {
-  return new Intl.DateTimeFormat('nl-NL', { timeZone: TZ, ...opts }).format(new Date(iso));
+  return new Intl.DateTimeFormat('en-GB', { timeZone: TZ, ...opts }).format(new Date(iso));
 }
 function capitalize(s: string): string {
   return s.length > 0 ? s.charAt(0).toUpperCase() + s.slice(1) : s;
@@ -116,7 +116,7 @@ export interface PoHomeView {
   dateLabel: string;
   /** "23:00" (Amsterdam, 24h). */
   time: string;
-  /** Badge copy: "Live nu" / "Vanavond · deur dicht" / "Niets live". */
+  /** Badge copy: "Live now" / "Tonight · doors closed" / "Nothing live". */
   statusLabel: string;
   locked: boolean;
   /** Whole calendar days until the event (Amsterdam); 0 today/past. */
@@ -177,7 +177,7 @@ export function toPoHome(
   const inside = active.present;
   const registered = active.registered;
   const statusLabel =
-    scenario === 'live' ? 'Live nu' : scenario === 'pre' ? 'Vanavond · deur dicht' : 'Niets live';
+    scenario === 'live' ? 'Live now' : scenario === 'pre' ? 'Tonight · doors closed' : 'Nothing live';
 
   return {
     scenario,
@@ -391,22 +391,22 @@ export function toPoContact(row: PoContactRow): PoContact {
 
 // ── Approvals adapters (S5 Aanvragen) ──
 // The mock request types carried relative timestamps + a few computed nudges.
-// We rebuild those from the live row: a compact Dutch "X min geleden" string
+// We rebuild those from the live row: a compact "X min ago" string
 // (pure — `now` is injectable for tests) and a single deterministic large-group
 // flag, so the polished inbox keeps its look without inventing data. Payment /
 // "notify the guest" copy is dropped: there is no ticketing or outbound mail (#10).
 
-/** Compact Dutch relative time ("zojuist" / "18 min geleden" / "3 dagen geleden"). */
+/** Compact relative time ("just now" / "18 min ago" / "3 days ago"). */
 export function relativeTime(iso: string, now: Date = new Date()): string {
   const diffMs = now.getTime() - new Date(iso).getTime();
   const min = Math.floor(diffMs / 60_000);
-  if (min < 1) return 'zojuist';
-  if (min < 60) return `${min} min geleden`;
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min} min ago`;
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr} uur geleden`;
+  if (hr < 24) return `${hr} hr ago`;
   const days = Math.floor(hr / 24);
-  if (days === 1) return 'gisteren';
-  if (days < 7) return `${days} dagen geleden`;
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days} days ago`;
   return fmt(iso, { day: 'numeric', month: 'short' }).replace('.', '');
 }
 
@@ -476,10 +476,10 @@ export function toPoQuotaRequest(row: PoQuotaRequestRow, now?: Date): PoQuotaReq
 // because the live action sheets need the ids + role arrays to drive invite /
 // role-change / quota / session writes straight from a rendered row.
 
-/** Roles → a human label in canonical order ("Beheerder · Financiën"). */
+/** Roles → a human label in canonical order ("Admin · Finance"). */
 export function rolesLabel(roles: readonly VenueRole[]): string {
   const labels = VENUE_ROLES.filter((r) => roles.includes(r)).map((r) => ROLE_LABELS[r]);
-  return labels.length > 0 ? labels.join(' · ') : 'Geen rol';
+  return labels.length > 0 ? labels.join(' · ') : 'No role';
 }
 
 export interface PoTeamMember {
@@ -533,7 +533,7 @@ export interface PoMyInvite {
 export function toPoMyInvite(row: PoMyInviteRow): PoMyInvite {
   return {
     id: row.id,
-    venueName: row.venue_name ?? 'een venue',
+    venueName: row.venue_name ?? 'a venue',
     rolesLabel: rolesLabel(row.roles),
   };
 }
@@ -550,9 +550,9 @@ export function toPoSession(row: PoSessionRow): PoSession {
   return {
     id: row.session_id,
     device: deviceLabel(row.user_agent),
-    where: row.ip ?? 'Onbekende locatie',
+    where: row.ip ?? 'Unknown location',
     last: row.is_current
-      ? 'Nu actief'
+      ? 'Active now'
       : fmt(row.updated_at, {
           day: 'numeric',
           month: 'short',
@@ -647,25 +647,25 @@ export function toPoSubscription(
   if (!row) return null;
   // plan_id resolves through the shared catalog (indie/premium/pro). A row may
   // carry a plan id outside the catalog (e.g. a pilot/legacy id) — show that id
-  // humanised rather than "Geen abonnement", which is only for a truly null plan.
+  // humanised rather than "No subscription", which is only for a truly null plan.
   const plan = row.plan_id && isPlanId(row.plan_id) ? getPlan(row.plan_id) : null;
   const priceLabel =
     plan == null
       ? '—'
       : plan.priceEur == null
-        ? 'Op aanvraag'
+        ? 'On request'
         : plan.priceEur === 0
-          ? 'Gratis'
+          ? 'Free'
           : `€${plan.priceEur}`;
   return {
-    plan: plan?.name ?? (row.plan_id ? capitalize(row.plan_id) : 'Geen abonnement'),
+    plan: plan?.name ?? (row.plan_id ? capitalize(row.plan_id) : 'No subscription'),
     priceLabel,
-    period: 'maand',
+    period: 'month',
     status: row.status,
     renews: row.current_period_end
       ? fmt(row.current_period_end, { day: 'numeric', month: 'short', year: 'numeric' }).replace('.', '')
       : '—',
-    events: plan?.id === 'indie' ? '1 actief event' : 'Onbeperkt',
+    events: plan?.id === 'indie' ? '1 active event' : 'Unlimited',
     venueLabel: venueName,
   };
 }

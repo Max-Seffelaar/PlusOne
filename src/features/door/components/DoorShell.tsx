@@ -9,6 +9,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import { Icon, type IconName } from '@/components/po/icon';
 import { PhoneFrame, StatusBar, Toast } from '@/components/po/shell';
 import { useDoor } from '../DoorProvider';
@@ -22,8 +23,8 @@ type Tab = 'checkin' | 'taken';
 type Overlay = { kind: 'guest'; id: string } | { kind: 'add' } | null;
 
 const DOOR_TABS: [Tab, string, IconName][] = [
-  ['checkin', 'Check-in', 'user'],
-  ['taken', 'Taken', 'flag'],
+  ['checkin', t.door.tabCheckin, 'user'],
+  ['taken', t.door.tabTasks, 'flag'],
 ];
 
 function DoorTabBar({ tab, setTab, takenBadge }: { tab: Tab; setTab: (t: Tab) => void; takenBadge: number }): JSX.Element {
@@ -89,11 +90,11 @@ export function DoorShell(): JSX.Element {
           <button
             type="button"
             onClick={() => router.back()}
-            aria-label="Terug"
+            aria-label={t.door.back}
             className="inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 font-body text-[13px] font-semibold text-faint transition-[filter] hover:brightness-[1.3]"
           >
             <Icon name="chev" size={17} className="rotate-180" />
-            Terug
+            {t.door.back}
           </button>
         </div>
       )}

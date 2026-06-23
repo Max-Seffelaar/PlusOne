@@ -1,4 +1,4 @@
-// Maps Supabase auth/RLS errors to short, generic Dutch copy (CLAUDE.md:
+// Maps Supabase auth/RLS errors to short, generic copy (CLAUDE.md:
 // "Errors returned to the client are generic; details go to server logs only"
 // and "never reveal whether a guest/e-mail already exists"). Pure function so
 // it is unit-tested directly.
@@ -15,7 +15,7 @@ interface ErrorLike {
   status?: unknown;
 }
 
-const GENERIC = 'Er ging iets mis. Probeer het opnieuw.';
+const GENERIC = 'Something went wrong. Try again.';
 
 /** Extracts the wait time from GoTrue's "...after N seconds" rate-limit text. */
 export function parseRetryAfterSeconds(message: string): number | undefined {
@@ -47,8 +47,8 @@ export function describeAuthError(error: unknown): NormalizedAuthError {
     const retryAfterSeconds = parseRetryAfterSeconds(message);
     return {
       message: retryAfterSeconds
-        ? `Te veel pogingen. Probeer het over ${retryAfterSeconds} seconden opnieuw.`
-        : 'Te veel pogingen. Wacht even en probeer het opnieuw.',
+        ? `Too many tries. Try again in ${retryAfterSeconds} seconds.`
+        : 'Too many tries. Wait a moment and try again.',
       retryAfterSeconds,
     };
   }
@@ -60,22 +60,22 @@ export function describeAuthError(error: unknown): NormalizedAuthError {
     lower.includes('token has expired') ||
     lower.includes('invalid') && (lower.includes('otp') || lower.includes('token') || lower.includes('code'))
   ) {
-    return { message: 'Code ongeldig of verlopen. Vraag een nieuwe code aan.' };
+    return { message: "That code didn't work or has expired. Request a new one." };
   }
 
   // MFA / TOTP verification failure.
   if (code === 'mfa_verification_failed' || lower.includes('totp') || lower.includes('mfa')) {
-    return { message: 'Verificatiecode klopt niet. Probeer het opnieuw.' };
+    return { message: "That verification code isn't right. Try again." };
   }
 
   // Signups disabled (invite-only) — do not reveal whether the e-mail exists.
   if (code === 'signup_disabled' || lower.includes('signups not allowed')) {
-    return { message: 'Dit account bestaat niet of is niet uitgenodigd. Vraag een beheerder om een uitnodiging.' };
+    return { message: "This account doesn't exist or isn't invited. Ask an admin for an invite." };
   }
 
   // RLS / privilege denial bubbling up from Postgres (defense-in-depth surface).
   if (code === '42501' || lower.includes('row-level security') || lower.includes('not authorized')) {
-    return { message: 'Je hebt geen toegang tot deze actie.' };
+    return { message: "You don't have access to this action." };
   }
 
   return { message: GENERIC };

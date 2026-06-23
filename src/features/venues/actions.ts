@@ -25,9 +25,9 @@ export interface ActionState {
   message?: string;
 }
 
-const AAL2_MESSAGE = 'Deze actie vereist MFA. Verifieer eerst met je authenticator.';
+const AAL2_MESSAGE = 'This action needs MFA. Verify with your authenticator first.';
 
-// AAL2 assertion mapped to Dutch copy; rethrows anything that isn't an auth error.
+// AAL2 assertion mapped to UI copy; rethrows anything that isn't an auth error.
 async function requireAal2(): Promise<ActionState | null> {
   try {
     await assertAal2();
@@ -36,7 +36,7 @@ async function requireAal2(): Promise<ActionState | null> {
     if (e instanceof AuthorizationError) {
       return {
         ok: false,
-        error: e.reason === 'aal2_required' ? AAL2_MESSAGE : 'Je bent niet ingelogd.',
+        error: e.reason === 'aal2_required' ? AAL2_MESSAGE : "You're not logged in.",
       };
     }
     throw e;
@@ -125,7 +125,7 @@ export async function updateVenueSettingsAction(
   formData: FormData
 ): Promise<ActionState> {
   const user = await getSessionUser();
-  if (!user) return { ok: false, error: 'Je bent niet ingelogd.' };
+  if (!user) return { ok: false, error: "You're not logged in." };
 
   const parsed = venueSettingsSchema.safeParse({
     venueId: formData.get('venueId'),
@@ -143,13 +143,13 @@ export async function updateVenueSettingsAction(
     allowUncheck: formData.get('allowUncheck'),
   });
   if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Controleer de invoer.' };
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Check your details.' };
   }
   const { venueId, ...fields } = parsed.data;
 
   const callerRoles = await callerRolesAt(venueId, user.id);
   if (!callerRoles.includes('admin')) {
-    return { ok: false, error: 'Alleen een beheerder kan de venue-instellingen wijzigen.' };
+    return { ok: false, error: 'Only an admin can change the venue settings.' };
   }
 
   const supabase = await createClient();
@@ -176,11 +176,11 @@ export async function updateVenueSettingsAction(
 
   if (error || !count) {
     if (error) console.error('updateVenueSettings: update failed', error.message);
-    return { ok: false, error: 'Kon de instellingen niet opslaan.' };
+    return { ok: false, error: "Couldn't save the settings." };
   }
 
   revalidatePath('/admin/venue');
-  return { ok: true, message: 'Instellingen opgeslagen.' };
+  return { ok: true, message: 'Settings saved.' };
 }
 
 /**
@@ -194,7 +194,7 @@ export async function updateMemberRolesAction(
   formData: FormData
 ): Promise<ActionState> {
   const user = await getSessionUser();
-  if (!user) return { ok: false, error: 'Je bent niet ingelogd.' };
+  if (!user) return { ok: false, error: "You're not logged in." };
 
   const parsed = memberRolesSchema.safeParse({
     venueId: formData.get('venueId'),
@@ -202,7 +202,7 @@ export async function updateMemberRolesAction(
     roles: formData.getAll('roles'),
   });
   if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Controleer de invoer.' };
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Check your details.' };
   }
   const { venueId, userId, roles } = parsed.data;
   const newRoles = roles as VenueRole[];
@@ -212,18 +212,18 @@ export async function updateMemberRolesAction(
 
   const callerRoles = await callerRolesAt(venueId, user.id);
   const currentRoles = await memberRolesAt(venueId, userId);
-  if (!currentRoles) return { ok: false, error: 'Lid niet gevonden.' };
+  if (!currentRoles) return { ok: false, error: 'Member not found.' };
 
   // Escalation guard, both directions (mirrors RLS USING + WITH CHECK).
   if (!canGrantRoles(callerRoles, currentRoles) || !canGrantRoles(callerRoles, newRoles)) {
-    return { ok: false, error: 'Je mag deze rollen hier niet wijzigen.' };
+    return { ok: false, error: "You can't change these roles here." };
   }
 
   const others = await otherAdminCount(venueId, userId);
   if (roleChangeWouldOrphanVenue(currentRoles, newRoles, others)) {
     return {
       ok: false,
-      error: 'Dit is de laatste beheerder. Maak eerst iemand anders beheerder.',
+      error: 'This is the last admin. Make someone else an admin first.',
     };
   }
 
@@ -236,11 +236,11 @@ export async function updateMemberRolesAction(
 
   if (error || !count) {
     if (error) console.error('updateMemberRoles: update failed', error.message);
-    return { ok: false, error: 'Kon de rollen niet wijzigen (geen toegang of MFA vereist).' };
+    return { ok: false, error: "Couldn't change the roles (no access, or MFA required)." };
   }
 
   revalidatePath('/admin/team');
-  return { ok: true, message: 'Rollen bijgewerkt.' };
+  return { ok: true, message: 'Roles updated.' };
 }
 
 /**
@@ -255,13 +255,13 @@ export async function removeMemberAction(
   formData: FormData
 ): Promise<ActionState> {
   const user = await getSessionUser();
-  if (!user) return { ok: false, error: 'Je bent niet ingelogd.' };
+  if (!user) return { ok: false, error: "You're not logged in." };
 
   const parsed = removeMemberSchema.safeParse({
     venueId: formData.get('venueId'),
     userId: formData.get('userId'),
   });
-  if (!parsed.success) return { ok: false, error: 'Ongeldige invoer.' };
+  if (!parsed.success) return { ok: false, error: 'Invalid input.' };
   const { venueId, userId } = parsed.data;
 
   const aal2 = await requireAal2();
@@ -269,17 +269,17 @@ export async function removeMemberAction(
 
   const callerRoles = await callerRolesAt(venueId, user.id);
   const targetRoles = await memberRolesAt(venueId, userId);
-  if (!targetRoles) return { ok: false, error: 'Lid niet gevonden.' };
+  if (!targetRoles) return { ok: false, error: 'Member not found.' };
 
   if (!canGrantRoles(callerRoles, targetRoles)) {
-    return { ok: false, error: 'Je mag dit lid hier niet verwijderen.' };
+    return { ok: false, error: "You can't remove this member here." };
   }
 
   const others = await otherAdminCount(venueId, userId);
   if (removalWouldOrphanVenue(targetRoles, others)) {
     return {
       ok: false,
-      error: 'Dit is de laatste beheerder. Maak eerst iemand anders beheerder.',
+      error: 'This is the last admin. Make someone else an admin first.',
     };
   }
 
@@ -292,11 +292,11 @@ export async function removeMemberAction(
 
   if (error || !count) {
     if (error) console.error('removeMember: delete failed', error.message);
-    return { ok: false, error: 'Kon het lid niet verwijderen (geen toegang of MFA vereist).' };
+    return { ok: false, error: "Couldn't remove the member (no access, or MFA required)." };
   }
 
   revalidatePath('/admin/team');
-  return { ok: true, message: 'Toegang tot deze venue ingetrokken.' };
+  return { ok: true, message: 'Access to this venue revoked.' };
 }
 
 // ── Self-service venue creation (#40a) ───────────────────────────────────────

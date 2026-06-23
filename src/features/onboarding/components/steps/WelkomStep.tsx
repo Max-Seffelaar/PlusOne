@@ -8,9 +8,9 @@ import { Icon } from '@/components/po/icon';
 import { Btn } from '@/components/po/kit';
 
 const STEPS = [
-  { n: 1, title: 'Je venue instellen', sub: 'Naam, adres en bewaartermijn' },
-  { n: 2, title: 'Abonnement kiezen', sub: 'Schaalt mee met je venue' },
-  { n: 3, title: 'Je team uitnodigen', sub: 'Hosts en managers — kan ook later' },
+  { n: 1, title: 'Set up your venue', sub: 'Name, address, and data retention' },
+  { n: 2, title: 'Pick a plan', sub: 'Scales with your venue' },
+  { n: 3, title: 'Invite your team', sub: 'Hosts and managers, or do it later' },
 ] as const;
 
 export function WelkomStep({
@@ -28,14 +28,14 @@ export function WelkomStep({
       <div className="w-full max-w-[460px]">
         <span className="mb-6 inline-flex items-center gap-[7px] rounded-full bg-acc-dim px-3 py-[6px] font-body text-[12.5px] font-bold text-acc">
           <Icon name="check" size={14} sw={2.6} />
-          Magic link geverifieerd
+          Magic link verified
         </span>
         <h1 className="m-0 font-display text-[40px] font-extrabold leading-[1.02] tracking-[-0.03em] text-text">
-          Laten we je venue opzetten
+          Let&apos;s set up your venue
         </h1>
         <p className="mt-4 text-[16px] leading-[1.5] text-dim">
-          Ingelogd als <span className="text-text">{owner.email || owner.name}</span>. In drie korte
-          stappen sta je klaar om je eerste event te maken.
+          Logged in as <span className="text-text">{owner.email || owner.name}</span>. Three quick
+          steps and you&apos;re ready to create your first event.
         </p>
 
         <div className="mt-8 flex flex-col gap-[10px]">
@@ -61,7 +61,7 @@ export function WelkomStep({
         </div>
 
         <Btn kind="primary" full icon="arrowR" onClick={onNext} className="mt-8">
-          Account opzetten
+          Set up account
         </Btn>
       </div>
     </div>

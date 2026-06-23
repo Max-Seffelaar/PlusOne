@@ -108,7 +108,7 @@ export function useNav(): Nav {
 // a missing/blocked store just degrades to the old in-memory behaviour.
 
 const NAV_STORAGE_KEY = 'po:nav-state';
-const PERSISTED_TABS: readonly TabKey[] = ['start', 'events', 'deur', 'taken', 'meer'];
+const PERSISTED_TABS: readonly TabKey[] = ['start', 'events', 'guests', 'deur', 'meer'];
 
 export interface PersistedNav {
   tab: TabKey;

@@ -20,6 +20,7 @@
  */
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { t, fmt } from '@/lib/i18n';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import {
   usePoAal2,
@@ -60,11 +61,13 @@ function amsterdamHour(): number {
   );
 }
 
-function greetingFor(hour: number): string {
-  if (hour < 6) return 'Goedenacht';
-  if (hour < 12) return 'Goedemorgen';
-  if (hour < 18) return 'Goedemiddag';
-  return 'Goedenavond';
+/** Full hour-based greeting (copy-deck §3). Drops the name punctuation when the
+ *  user has no first name, so it never reads "Good morning, ." */
+function greetingFor(hour: number, name: string): string {
+  if (hour < 6) return name ? fmt(t.home.greetLate, { name }) : t.home.greetLateNoName;
+  if (hour < 12) return name ? fmt(t.home.greetMorning, { name }) : t.home.greetMorningNoName;
+  if (hour < 18) return name ? fmt(t.home.greetAfternoon, { name }) : t.home.greetAfternoonNoName;
+  return name ? fmt(t.home.greetEvening, { name }) : t.home.greetEveningNoName;
 }
 
 // ── Greeting + refresh + venue switcher ───────────────────────────────────────
@@ -83,7 +86,7 @@ function TopBar({
   onRefresh: () => void;
   refreshing: boolean;
 }): JSX.Element {
-  const hello = greetingFor(amsterdamHour());
+  const hello = greetingFor(amsterdamHour(), firstName);
   return (
     <div
       className="flex flex-none items-center gap-2.5 px-[18px] pb-[14px]"
@@ -92,17 +95,16 @@ function TopBar({
       <div className="min-w-0 flex-1">
         <div className="truncate text-[13px] font-semibold tracking-[0.01em] text-faint">
           {hello}
-          {firstName ? `, ${firstName}` : ''}
         </div>
         <div className="font-display text-[24px] font-extrabold leading-[1.05] tracking-[-0.02em] text-text">
-          Overzicht
+          {t.home.title}
         </div>
       </div>
       <button
         type="button"
         onClick={onRefresh}
         disabled={refreshing}
-        aria-label="Verversen"
+        aria-label={t.home.refresh}
         className={cn(
           'flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] border border-line bg-elev text-text',
           press,
@@ -114,7 +116,7 @@ function TopBar({
       <button
         type="button"
         onClick={onVenue}
-        aria-label="Wissel venue"
+        aria-label={t.home.switchVenue}
         className={cn(
           'inline-flex min-h-[44px] shrink-0 items-center gap-[9px] rounded-full border border-line bg-elev py-[7px] pl-[13px] pr-[7px] text-text',
           press
@@ -192,7 +194,7 @@ function EventCard({
         {v.locked && (
           <span className="ml-auto inline-flex items-center gap-[5px] whitespace-nowrap rounded-[7px] border border-line px-[9px] py-[3px] font-body text-[11px] font-bold text-faint">
             <Icon name="lock" size={11} sw={2} className="text-faint" />
-            Lijst vergrendeld
+            {t.home.listLocked}
           </span>
         )}
       </div>
@@ -201,7 +203,7 @@ function EventCard({
         <button
           type="button"
           onClick={onSwitch}
-          aria-label="Wissel event"
+          aria-label={t.home.switchEvent}
           className={cn(
             '-mx-1 flex max-w-full items-center gap-2 rounded-[10px] px-1 text-left',
             press
@@ -235,11 +237,14 @@ function EventCard({
           <div className="min-w-0 flex-1">
             <div className="font-body text-[14.5px] font-bold text-text">
               {v.daysUntil <= 1
-                ? 'Volgende event morgen'
-                : `Volgende event over ${v.daysUntil} dagen`}
+                ? t.home.nextEventTomorrow
+                : fmt(t.home.nextEventInDays, { n: v.daysUntil })}
             </div>
             <div className="mt-px text-[12.5px] text-faint">
-              {v.registered} aangemeld · lijst {v.locked ? 'vergrendeld' : 'nog open'}
+              {fmt(t.home.quietMeta, {
+                n: v.registered,
+                state: v.locked ? t.home.quietStateLocked : t.home.quietStateOpen,
+              })}
             </div>
           </div>
         </div>
@@ -260,12 +265,12 @@ function EventCard({
               </span>
             </div>
             <span className="mb-1 font-body text-[12.5px] font-bold uppercase tracking-[0.03em] text-faint">
-              binnen · aangemeld
+              {t.home.insideRegistered}
             </span>
             {live && v.walking > 0 && (
               <span className="mb-1 ml-auto inline-flex items-center gap-[5px] whitespace-nowrap font-body text-[12.5px] font-bold text-acc-soft">
                 <Icon name="user" size={13} className="text-acc-soft" />
-                {v.walking} onderweg
+                {fmt(t.home.onTheWay, { n: v.walking })}
               </span>
             )}
           </div>
@@ -276,12 +281,13 @@ function EventCard({
             />
           </div>
           <div className="mt-[7px] text-[12px] text-faint">
-            {v.attendancePct}% opkomst{live ? '' : ' — deur nog niet open'}
+            {fmt(t.home.turnout, { pct: v.attendancePct })}
+            {live ? '' : t.home.turnoutClosedSuffix}
           </div>
           {v.scenario === 'pre' && showDoor && (
             <div className="mt-4">
               <Btn kind="primary" full icon="door" onClick={onDoor}>
-                Open de deur
+                {t.home.openDoor}
               </Btn>
             </div>
           )}
@@ -395,7 +401,7 @@ function ActivityMini({ eventId, onAudit }: { eventId: string; onAudit: () => vo
   return (
     <div>
       <div className="mb-2 flex items-center pl-0.5">
-        <Label>Laatste activiteit</Label>
+        <Label>{t.home.latest}</Label>
         <button
           type="button"
           onClick={onAudit}
@@ -404,15 +410,15 @@ function ActivityMini({ eventId, onAudit }: { eventId: string; onAudit: () => vo
             press
           )}
         >
-          Audit log
+          {t.home.auditLog}
           <Icon name="chev" size={15} className="text-acc" />
         </button>
       </div>
       <div className="rounded-[18px] border border-line bg-elev px-[15px]">
         {feed.isLoading ? (
-          <div className="py-[18px] text-center text-[13px] text-faint">Laden…</div>
+          <div className="py-[18px] text-center text-[13px] text-faint">{t.home.loading}</div>
         ) : shown.length === 0 ? (
-          <div className="py-[18px] text-center text-[13px] text-faint">Nog niets gelogd.</div>
+          <div className="py-[18px] text-center text-[13px] text-faint">{t.home.nothingLogged}</div>
         ) : (
           shown.map((l, i) => {
             const meta = auditActionMeta(l.action);
@@ -464,7 +470,7 @@ function EventPickerSheet({
 }): JSX.Element {
   return (
     <Sheet onClose={onClose} center={false}>
-      <Label className="mb-3">Kies event</Label>
+      <Label className="mb-3">{t.home.pickEvent}</Label>
       <div className="flex flex-col gap-1.5">
         {events.map((e) => {
           const live = e.status === 'live';
@@ -487,7 +493,7 @@ function EventPickerSheet({
                 {e.name}
               </span>
               <span className="shrink-0 text-[12.5px] text-faint">
-                {live ? 'Live' : formatDay(e.starts_at)}
+                {live ? t.home.live : formatDay(e.starts_at)}
               </span>
             </button>
           );
@@ -511,12 +517,12 @@ function QuotaSheet({
     v.quotaTotal > 0 ? Math.min(100, Math.round((v.quotaConsumed / v.quotaTotal) * 100)) : 0;
   return (
     <Sheet onClose={onClose} center={false}>
-      <Label className="mb-3">Jouw quota op dit event</Label>
+      <Label className="mb-3">{t.home.quotaSheetTitle}</Label>
       {v.quotaExempt ? (
         <div className="rounded-[16px] border border-line bg-elev p-4">
-          <div className="font-display text-[20px] font-extrabold text-acc">Geen limiet</div>
+          <div className="font-display text-[20px] font-extrabold text-acc">{t.home.quotaNoLimit}</div>
           <div className="mt-1 text-[13px] leading-[1.5] text-faint">
-            Als beheerder of organisator tellen jouw toevoegingen niet tegen een persoonlijk quotum.
+            {t.home.quotaExemptBody}
           </div>
         </div>
       ) : (
@@ -527,28 +533,29 @@ function QuotaSheet({
                 {v.quotaFree ?? 0}
               </span>
               <span className="font-display text-[17px] font-bold text-faint">
-                {v.quotaFree === 1 ? 'plek vrij' : 'plekken vrij'}
+                {v.quotaFree === 1
+                  ? fmt(t.home.quotaSpotLeft, { n: v.quotaFree })
+                  : fmt(t.home.quotaSpotsLeft, { n: v.quotaFree ?? 0 })}
               </span>
             </div>
             <div className="mt-[14px] h-2 overflow-hidden rounded-full bg-white/[0.07]">
               <div className="h-full rounded-full bg-acc" style={{ width: `${pct}%` }} />
             </div>
             <div className="mt-2 text-[12.5px] text-faint">
-              {v.quotaConsumed} van {v.quotaTotal} gebruikt
+              {fmt(t.home.quotaUsed, { consumed: v.quotaConsumed, total: v.quotaTotal })}
             </div>
           </div>
           <div className="mt-3 text-[12.5px] leading-[1.5] text-faint">
-            Dit is jouw persoonlijke quotum voor dit event (#22/#31). De database bewaakt de harde
-            grens.
+            {t.home.quotaSheetBody}
           </div>
         </>
       )}
       <div className="mt-4 flex flex-col gap-2">
         <Btn kind="primary" full icon="plus" onClick={onAdd}>
-          Nieuwe gast toevoegen
+          {t.home.quotaAddGuest}
         </Btn>
         <Btn kind="ghost" full onClick={onClose}>
-          Sluiten
+          {t.home.close}
         </Btn>
       </div>
     </Sheet>
@@ -563,15 +570,14 @@ function NoEvent({ isAdmin, onNew }: { isAdmin: boolean; onNew: () => void }): J
         <Icon name="cal" size={24} />
       </span>
       <div className="font-display text-[18px] font-extrabold text-text">
-        Nog geen event gepland
+        {t.home.noEventTitle}
       </div>
       <div className="mx-auto mt-1.5 max-w-[260px] text-[13px] leading-[1.5] text-faint">
-        Zodra er een event live of komend is, zie je hier de opkomst, openstaande aanvragen en je
-        resterende plekken.
+        {t.home.noEventBody}
       </div>
       {isAdmin && (
         <Btn kind="primary" full icon="cal" className="mt-4" onClick={onNew}>
-          Nieuw event
+          {t.home.newEvent}
         </Btn>
       )}
     </div>
@@ -630,9 +636,9 @@ export function Home(): JSX.Element {
       <Scroll pad={18} bottom={28} className="flex flex-col gap-[18px]">
         <PendingInvitesBanner />
         {events.isLoading ? (
-          <Empty text="Overzicht laden…" />
+          <Empty text={t.home.loadingOverview} />
         ) : events.isError ? (
-          <Empty text="Kon het overzicht niet laden. Probeer het later opnieuw." />
+          <Empty text={t.home.loadError} />
         ) : !view ? (
           <NoEvent
             isAdmin={roles.includes('admin')}
@@ -662,49 +668,59 @@ export function Home(): JSX.Element {
               <div className="flex gap-[11px]">
                 <Kpi
                   icon="user"
-                  label="Aanwezig"
+                  label={t.home.kpiInside}
                   value={view.inside}
-                  sub={view.scenario === 'live' ? `${view.walking} onderweg` : 'deur dicht'}
+                  sub={
+                    view.scenario === 'live'
+                      ? fmt(t.home.onTheWay, { n: view.walking })
+                      : t.home.kpiInsideSubDoorsClosed
+                  }
                   accent={view.scenario === 'live'}
                 />
                 <Kpi
                   icon="inbox"
-                  label="Aanvragen"
+                  label={t.home.kpiRequests}
                   value={view.requests}
-                  sub="open"
+                  sub={t.home.kpiRequestsSub}
                   badge={view.requests}
                   onClick={() => nav.push('aanvragen', { id: view.id })}
                 />
                 <Kpi
                   icon="ticket"
-                  label="Quota vrij"
-                  value={!view.quotaKnown ? '—' : view.quotaExempt ? '∞' : (view.quotaFree ?? 0)}
+                  label={t.home.kpiQuota}
+                  value={
+                    !view.quotaKnown
+                      ? t.home.quotaSubUnknownValue
+                      : view.quotaExempt
+                        ? t.home.quotaSubExemptValue
+                        : (view.quotaFree ?? 0)
+                  }
                   sub={
                     !view.quotaKnown
-                      ? 'onbekend'
+                      ? t.home.quotaSubUnknown
                       : view.quotaExempt
-                        ? 'geen limiet'
-                        : `van ${view.quotaTotal}`
+                        ? t.home.quotaSubExempt
+                        : fmt(t.home.quotaSubOf, { total: view.quotaTotal })
                   }
                   onClick={view.quotaKnown ? () => setQuotaOpen(true) : undefined}
                 />
               </div>
 
               <div>
-                <Label className="mb-3 pl-0.5">Snelle acties</Label>
+                <Label className="mb-3 pl-0.5">{t.home.quickActions}</Label>
                 <div className="flex gap-[11px]">
                   <QuickAction
                     icon="plus"
-                    label="Nieuwe gast"
+                    label={t.home.actionAddGuest}
                     primary
                     onClick={() => nav.push('quickadd', { id: view.id })}
                   />
                   {showDoor && (
-                    <QuickAction icon="door" label="Open deur" onClick={() => nav.setTab('deur')} />
+                    <QuickAction icon="door" label={t.home.actionOpenDoor} onClick={() => nav.setTab('deur')} />
                   )}
                   <QuickAction
                     icon="inbox"
-                    label="Aanvragen"
+                    label={t.home.actionRequests}
                     badge={view.requests}
                     onClick={() => nav.push('aanvragen', { id: view.id })}
                   />

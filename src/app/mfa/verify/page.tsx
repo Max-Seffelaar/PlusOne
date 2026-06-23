@@ -4,7 +4,7 @@ import { getAuthContext } from '@/lib/auth/context';
 import { safeNextPath } from '@/features/auth/next-path';
 import { MfaChallengeForm } from '@/features/auth/components/MfaChallengeForm';
 
-export const metadata: Metadata = { title: 'Verifiëren — PLUSONE' };
+export const metadata: Metadata = { title: 'Verify · PlusOne' };
 
 export default async function MfaVerifyPage({
   searchParams,

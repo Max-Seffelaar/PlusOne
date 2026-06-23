@@ -17,6 +17,7 @@
  */
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { fmt, t } from '@/lib/i18n';
 import {
   usePoEvents,
   usePoGuestRequests,
@@ -111,8 +112,8 @@ export function Aanvragen({ eventId }: { eventId?: string }): JSX.Element {
     setShowDenied(false);
     setErr(null);
   };
-  const switchTab = (t: Tab): void => {
-    setTab(t);
+  const switchTab = (next: Tab): void => {
+    setTab(next);
     setErr(null);
   };
   const openDeny = (target: DenyTarget): void => {
@@ -135,7 +136,7 @@ export function Aanvragen({ eventId }: { eventId?: string }): JSX.Element {
       await approve.mutateAsync({ requestId: assign.id, tierId, eventId: assign.eventId });
       setAssign(null);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Goedkeuren is mislukt.');
+      setErr(e instanceof Error ? e.message : t.requests.approveFailed);
     }
   };
 
@@ -150,7 +151,7 @@ export function Aanvragen({ eventId }: { eventId?: string }): JSX.Element {
       }
       setDeny(null);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Afwijzen is mislukt.');
+      setErr(e instanceof Error ? e.message : t.requests.declineFailed);
     }
   };
 
@@ -159,27 +160,27 @@ export function Aanvragen({ eventId }: { eventId?: string }): JSX.Element {
     try {
       await decideQuota.mutateAsync({ requestId: req.id, decision: 'approved', eventId: req.eventId });
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Goedkeuren is mislukt. Vereist mogelijk MFA.');
+      setErr(e instanceof Error ? e.message : t.requests.approveQuotaFailed);
     }
   };
 
   if (!venueId) {
     return (
       <div className={col}>
-        <Top onBack={nav.back} title="Aanvragen" />
+        <Top onBack={nav.back} title={t.requests.title} />
         <div className="po-scroll min-h-0 flex-1 overflow-y-auto px-5 pb-[28px]">
-          <Empty text="Geen actieve venue geselecteerd." />
+          <Empty text={t.requests.noVenue} />
         </div>
       </div>
     );
   }
 
-  const scopeLabel = sel ? nameById.get(sel) ?? 'Event' : 'Alle events';
+  const scopeLabel = sel ? nameById.get(sel) ?? t.requests.scopeEventFallback : t.requests.scopeAll;
   const scopeCount = sel ? openByEvent.get(sel) ?? 0 : totalOpen;
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Aanvragen" sub={scopeLabel} />
+      <Top onBack={nav.back} title={t.requests.title} sub={scopeLabel} />
 
       {/* Event dropdown */}
       <div className="flex-none px-5 pb-[10px]">
@@ -204,12 +205,12 @@ export function Aanvragen({ eventId }: { eventId?: string }): JSX.Element {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Zoek op naam…"
-            aria-label="Zoek op naam"
+            placeholder={t.requests.searchPlaceholder}
+            aria-label={t.requests.searchAria}
             className="min-w-0 flex-1 border-none bg-transparent font-body text-[15px] text-text outline-none placeholder:text-faint"
           />
           {search && (
-            <button type="button" onClick={() => setSearch('')} aria-label="Wis zoekopdracht" className={cn('shrink-0 text-faint', press)}>
+            <button type="button" onClick={() => setSearch('')} aria-label={t.requests.clearSearchAria} className={cn('shrink-0 text-faint', press)}>
               <Icon name="close" size={16} />
             </button>
           )}
@@ -218,7 +219,7 @@ export function Aanvragen({ eventId }: { eventId?: string }): JSX.Element {
 
       {/* Tabs */}
       <div className="flex flex-none gap-1.5 px-5 pb-[14px]">
-        {([['landing', 'Landingpage', openG], ['quota', 'Quotum', openQ]] as const).map(([k, l, n]) => (
+        {([['landing', t.requests.tabLanding, openG], ['quota', t.requests.tabQuota, openQ]] as const).map(([k, l, n]) => (
           <button
             key={k}
             type="button"
@@ -240,16 +241,14 @@ export function Aanvragen({ eventId }: { eventId?: string }): JSX.Element {
         {err && !assign && !deny && <ErrLine msg={err} />}
 
         {loading ? (
-          <Empty text="Aanvragen laden…" />
+          <Empty text={t.requests.loading} />
         ) : isError ? (
-          <Empty text="Kon de aanvragen niet laden. Probeer het later opnieuw." />
+          <Empty text={t.requests.loadError} />
         ) : tab === 'landing' ? (
           <div className="flex flex-col gap-[11px]">
-            <Note icon="user">
-              Landingpage-aanvragen vallen <b>buiten</b> je eigen quotum (#31) — goedkeuren kost jou geen plek, maar telt wel mee in de tier-max.
-            </Note>
+            <Note icon="user">{t.requests.landingNote}</Note>
             {openG === 0 ? (
-              <Empty text={q ? `Geen open aanvragen voor “${search.trim()}”.` : 'Geen open aanvragen 🎉'} />
+              <Empty text={q ? fmt(t.requests.emptyLandingSearch, { q: search.trim() }) : t.requests.emptyLanding} />
             ) : (
               <div className="flex flex-col gap-[11px] lg:grid lg:grid-cols-2 lg:gap-[11px] lg:items-start">
               {pendingG.map((r) => (
@@ -267,7 +266,9 @@ export function Aanvragen({ eventId }: { eventId?: string }): JSX.Element {
                         {r.plus > 0 && <span className="text-faint"> +{r.plus}</span>}
                       </div>
                       <div className="truncate text-[12px] text-faint">
-                        {r.phoneLast4 && <>tel. •••• {r.phoneLast4} · </>}via landingpage · {r.at}
+                        {r.phoneLast4
+                          ? fmt(t.requests.cardPhoneVia, { last4: r.phoneLast4, at: r.at })
+                          : fmt(t.requests.cardVia, { at: r.at })}
                       </div>
                     </div>
                   </div>
@@ -280,10 +281,10 @@ export function Aanvragen({ eventId }: { eventId?: string }): JSX.Element {
                   {r.motivation && <div className="mb-[13px] pl-0.5 text-[13.5px] leading-[1.45] text-dim">“{r.motivation}”</div>}
                   <div className="flex gap-2">
                     <Btn sm kind="dark" full icon="close" disabled={landingBusy} onClick={() => openDeny({ kind: 'landing', id: r.id, name: r.name, eventId: r.eventId })}>
-                      Afwijzen
+                      {t.requests.decline}
                     </Btn>
                     <Btn sm kind="primary" full icon="check2" disabled={landingBusy} onClick={() => openAssign(r)}>
-                      Toevoegen…
+                      {t.requests.approveAdd}
                     </Btn>
                   </div>
                 </div>
@@ -298,7 +299,7 @@ export function Aanvragen({ eventId }: { eventId?: string }): JSX.Element {
                   onClick={() => setShowDenied((s) => !s)}
                   className="mb-[10px] flex w-full items-center justify-between rounded-[12px] px-1 py-1.5 text-left"
                 >
-                  <Label>Afgewezen · {deniedG.length}</Label>
+                  <Label>{fmt(t.requests.deniedHeading, { n: deniedG.length })}</Label>
                   <Icon name="chevD" size={16} className={cn('text-ghost transition-transform', showDenied && 'rotate-180')} />
                 </button>
                 {showDenied && (
@@ -313,15 +314,15 @@ export function Aanvragen({ eventId }: { eventId?: string }): JSX.Element {
                               {r.name}
                               {r.plus > 0 && <span className="text-faint"> +{r.plus}</span>}
                             </div>
-                            <div className="truncate text-[12px] text-faint">{r.phoneLast4 && <>tel. •••• {r.phoneLast4} · </>}{r.at}</div>
+                            <div className="truncate text-[12px] text-faint">{r.phoneLast4 ? fmt(t.requests.deniedPhone, { last4: r.phoneLast4, at: r.at }) : r.at}</div>
                           </div>
                         </div>
                         <div className="mb-[12px] flex items-start gap-[7px] rounded-[9px] bg-elev2 px-[11px] py-[8px] text-[12.5px] leading-[1.4] text-faint">
                           <Icon name="close" size={13} stroke="rgba(255,255,255,0.40)" className="mt-px shrink-0" />
-                          <span>Afgewezen{r.denyReason ? <> — “{r.denyReason}”</> : ''}</span>
+                          <span>{r.denyReason ? fmt(t.requests.declinedReason, { reason: r.denyReason }) : t.requests.declined}</span>
                         </div>
                         <Btn sm kind="primary" full icon="check2" disabled={landingBusy} onClick={() => openAssign(r)}>
-                          Alsnog toevoegen
+                          {t.requests.approveAnyway}
                         </Btn>
                       </div>
                     ))}
@@ -333,7 +334,7 @@ export function Aanvragen({ eventId }: { eventId?: string }): JSX.Element {
         ) : (
           <div className="flex flex-col gap-[11px]">
             {openQ === 0 ? (
-              <Empty text={q ? `Geen verzoeken voor “${search.trim()}”.` : 'Geen open quotum-verzoeken.'} />
+              <Empty text={q ? fmt(t.requests.emptyQuotaSearch, { q: search.trim() }) : t.requests.emptyQuota} />
             ) : (
               <div className="flex flex-col gap-[11px] lg:grid lg:grid-cols-2 lg:gap-[11px] lg:items-start">
               {scopeQ.map((r) => (
@@ -347,16 +348,16 @@ export function Aanvragen({ eventId }: { eventId?: string }): JSX.Element {
                     </div>
                     <div className="text-right">
                       <div className="font-display text-[18px] font-extrabold text-acc">+{r.extra}</div>
-                      <div className="text-[10.5px] text-faint">{r.extra === 1 ? 'plek' : 'plekken'}</div>
+                      <div className="text-[10.5px] text-faint">{r.extra === 1 ? t.requests.slotOne : t.requests.slotMany}</div>
                     </div>
                   </div>
                   {r.reason && <div className="mb-[13px] pl-0.5 text-[13.5px] leading-[1.45] text-dim">“{r.reason}”</div>}
                   <div className="flex gap-2">
                     <Btn sm kind="dark" full icon="close" disabled={quotaBusy} onClick={() => openDeny({ kind: 'quota', id: r.id, name: r.who, eventId: r.eventId })}>
-                      Afwijzen
+                      {t.requests.deny}
                     </Btn>
                     <Btn sm kind="primary" full icon="check2" disabled={quotaBusy} onClick={() => void approveQuota(r)}>
-                      Keur +{r.extra} goed
+                      {fmt(t.requests.approveExtra, { n: r.extra })}
                     </Btn>
                   </div>
                 </div>
@@ -442,13 +443,13 @@ function EventPickerSheet({
   );
   return (
     <Sheet onClose={onClose} center={false}>
-      <div className="mb-[14px] font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">Kies event</div>
+      <div className="mb-[14px] font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{t.requests.pickEventTitle}</div>
       <div className="flex flex-col gap-[7px]">
-        {row('', 'Alle events', total, sel === '')}
+        {row('', t.requests.scopeAll, total, sel === '')}
         {events.map((e) => row(e.id, e.name, counts.get(e.id) ?? 0, sel === e.id))}
       </div>
       <button type="button" onClick={onClose} className={cn('mt-4 cursor-pointer self-center border-none bg-transparent font-body text-[13.5px] font-semibold text-faint', press)}>
-        Sluiten
+        {t.requests.close}
       </button>
     </Sheet>
   );
@@ -481,7 +482,7 @@ function AssignSheet({
     if (tierId === '' && tiers.length > 0) setTierId(tiers[0].id);
   }, [tiers, tierId]);
 
-  const tier = tiers.find((t) => t.id === tierId);
+  const tier = tiers.find((row) => row.id === tierId);
   const heads = 1 + req.plus;
   const noTiers = !tiersLoading && tiers.length === 0;
   return (
@@ -494,36 +495,37 @@ function AssignSheet({
             {req.plus > 0 && <span className="text-faint"> +{req.plus}</span>}
           </div>
           <div className="truncate text-[12.5px] text-faint">
-            {eventName ? `${eventName} · ` : ''}
-            {heads} {heads === 1 ? 'persoon' : 'personen'}
+            {eventName
+              ? fmt(t.requests.assignHeads, { event: eventName, n: heads })
+              : fmt(t.requests.assignHeadsNoEvent, { n: heads })}
           </div>
         </div>
       </div>
-      <Label className="mb-[10px]">Op welke tier komt deze gast?</Label>
+      <Label className="mb-[10px]">{t.requests.assignTierQuestion}</Label>
       {tiersLoading ? (
-        <div className="mb-[14px] py-[18px] text-center text-[13px] text-faint">Tiers laden…</div>
+        <div className="mb-[14px] py-[18px] text-center text-[13px] text-faint">{t.requests.assignLoadingTiers}</div>
       ) : noTiers ? (
         <div className="mb-[14px]">
-          <Note icon="ticket">Dit event heeft nog geen tiers. Maak er één aan zodat we de gast op de juiste plek kunnen zetten.</Note>
+          <Note icon="ticket">{t.requests.assignNoTiers}</Note>
           <Btn kind="primary" full icon="plus" onClick={onCreateTier}>
-            Tier aanmaken
+            {t.requests.assignCreateTier}
           </Btn>
         </div>
       ) : (
         <div className="mb-[14px] flex flex-col gap-[7px]">
-          {tiers.map((t) => {
-            const on = t.id === tierId;
+          {tiers.map((row) => {
+            const on = row.id === tierId;
             return (
               <button
-                key={t.id}
+                key={row.id}
                 type="button"
-                onClick={() => setTierId(t.id)}
+                onClick={() => setTierId(row.id)}
                 className={cn('flex items-center gap-[11px] rounded-[12px] border px-[13px] py-[12px] text-left', on ? 'border-transparent bg-acc-dim' : 'border-line bg-elev', press)}
               >
-                <span className="h-[12px] w-[12px] shrink-0 rounded-full" style={{ background: t.color }} />
+                <span className="h-[12px] w-[12px] shrink-0 rounded-full" style={{ background: row.color }} />
                 <span className="min-w-0 flex-1">
-                  <span className="block font-display text-[14.5px] font-bold text-text">{t.short}</span>
-                  <span className="block text-[11.5px] text-faint">{t.max != null ? `${t.used}/${t.max} bezet` : 'Geen maximum'}</span>
+                  <span className="block font-display text-[14.5px] font-bold text-text">{row.short}</span>
+                  <span className="block text-[11.5px] text-faint">{row.max != null ? fmt(t.requests.tierUsedOfMax, { used: row.used, max: row.max }) : t.requests.tierNoMax}</span>
                 </span>
                 <span className={cn('flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full border-2', on ? 'border-acc bg-acc' : 'border-ghost bg-transparent')}>
                   {on && <Icon name="check" size={12} stroke="#16132B" sw={3} />}
@@ -537,18 +539,19 @@ function AssignSheet({
         <div className="mb-4 flex items-center gap-[10px] rounded-[13px] bg-acc-dim px-[14px] py-[13px]">
           <Icon name="check2" size={18} stroke="#B5A6FF" sw={2.4} />
           <span className="text-[13.5px] leading-[1.4] text-text">
-            {heads} {heads === 1 ? 'persoon komt' : 'personen komen'} op de lijst{tier && <> onder <b>{tier.short}</b></>}.
+            {fmt(t.requests.assignSummary, { n: heads })}
+            {tier && <>{t.requests.assignSummaryTierConnector}<b>{tier.short}</b></>}.
           </span>
         </div>
       )}
       {error && <ErrLine msg={error} />}
       {!noTiers && (
         <Btn kind="primary" full icon="check" disabled={pending || tiersLoading || !tierId} onClick={() => onConfirm(tierId)} className={pending || tiersLoading || !tierId ? 'opacity-50' : ''}>
-          {pending ? 'Bezig…' : 'Toevoegen aan lijst'}
+          {pending ? t.requests.assignBusy : t.requests.assignConfirm}
         </Btn>
       )}
       <button type="button" onClick={onClose} className={cn('mt-3 cursor-pointer self-center border-none bg-transparent font-body text-[13.5px] font-semibold text-faint', press)}>
-        Annuleren
+        {t.requests.cancel}
       </button>
     </Sheet>
   );
@@ -569,29 +572,34 @@ function DenySheet({
 }): JSX.Element {
   const [reason, setReason] = useState('');
   const trimmed = reason.trim();
+  const isLanding = target.kind === 'landing';
   return (
     <Sheet onClose={onClose} center={false}>
-      <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">Afwijzen</div>
+      <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">
+        {isLanding ? t.requests.declineHeading : t.requests.denyHeading}
+      </div>
       <div className="mb-4 text-[13px] text-faint">
-        {target.kind === 'landing' ? `Aanvraag van ${target.name}` : `Quotum-verzoek van ${target.name}`}
+        {isLanding
+          ? fmt(t.requests.declineFromLanding, { name: target.name })
+          : fmt(t.requests.denyFromQuota, { name: target.name })}
       </div>
       <Label className="mb-[10px]">
-        Reden <span className="font-normal normal-case text-faint">· verplicht, de aanvrager ziet dit</span>
+        {t.requests.reasonLabel} <span className="font-normal normal-case text-faint">{t.requests.reasonRequired}</span>
       </Label>
       <textarea
         autoFocus
         value={reason}
         onChange={(e) => setReason(e.target.value)}
         maxLength={500}
-        placeholder="bv. lijst zit vol — geen plek meer voor dit event"
+        placeholder={t.requests.reasonPlaceholder}
         className="mb-4 min-h-[88px] w-full resize-none rounded-field border border-line bg-elev px-[15px] py-[13px] font-body text-[15px] leading-[1.4] text-text outline-none placeholder:text-faint focus:border-acc"
       />
       {error && <ErrLine msg={error} />}
       <Btn kind="primary" full icon="close" disabled={pending || !trimmed} onClick={() => onConfirm(trimmed)} className={pending || !trimmed ? 'opacity-50' : ''}>
-        {pending ? 'Bezig…' : 'Afwijzen bevestigen'}
+        {pending ? t.requests.declineBusy : isLanding ? t.requests.declineConfirm : t.requests.denyConfirm}
       </Btn>
       <button type="button" onClick={onClose} className={cn('mt-3 cursor-pointer self-center border-none bg-transparent font-body text-[13.5px] font-semibold text-faint', press)}>
-        Annuleren
+        {t.requests.cancel}
       </button>
     </Sheet>
   );

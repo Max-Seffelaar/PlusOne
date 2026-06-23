@@ -14,6 +14,7 @@
  * navigation inside its provider.
  */
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import { Toast } from '../shell';
 import { useDoor } from '@/features/door/DoorProvider';
 import type { PoDoorEvent } from '@/features/po/door-event';
@@ -35,8 +36,8 @@ export type DoorOverlay = { kind: 'guest'; id: string } | { kind: 'add' } | null
 export function DoorEventPicker({
   events,
   onPick,
-  title = 'Kies het event',
-  sub = 'Aan welk event sta je aan de deur?',
+  title = 'Pick an event',
+  sub = 'Which event are you working the door for?',
 }: {
   events: PoDoorEvent[];
   onPick: (eventId: string) => void;
@@ -70,7 +71,7 @@ export function DoorEventPicker({
         ))}
         {events.length === 0 && (
           <div className="rounded-[16px] border border-line bg-elev p-6 text-center text-[13.5px] text-faint">
-            Geen open of live event om aan de deur te doen.
+            No open or live event to work the door for.
           </div>
         )}
       </div>
@@ -93,7 +94,7 @@ function DoorEventBar({ name, onChange }: { name: string; onChange: () => void }
           'transition-[filter] hover:brightness-[1.12]',
         )}
       >
-        Wissel
+        Switch
       </button>
     </div>
   );
@@ -101,6 +102,7 @@ function DoorEventBar({ name, onChange }: { name: string; onChange: () => void }
 
 export function PoDoorTab({
   tab,
+  onTab,
   overlay,
   openGuest,
   openAdd,
@@ -109,6 +111,8 @@ export function PoDoorTab({
   onChangeEvent,
 }: {
   tab: 'deur' | 'taken';
+  /** Switch the Check-in/Tasks segment (the merged /app Door tab). */
+  onTab?: (seg: 'deur' | 'taken') => void;
   overlay: DoorOverlay;
   openGuest: (id: string) => void;
   openAdd: () => void;
@@ -133,6 +137,23 @@ export function PoDoorTab({
       <SyncBar />
       {!overlay && onChangeEvent && currentEventName && (
         <DoorEventBar name={currentEventName} onChange={onChangeEvent} />
+      )}
+      {!overlay && onTab && (
+        <div className="flex flex-none items-center gap-2 px-5 pb-1 pt-2">
+          {(['deur', 'taken'] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => onTab(s)}
+              className={cn(
+                'rounded-full px-[14px] py-[6px] font-display text-[13px] font-bold transition-[filter] hover:brightness-110',
+                tab === s ? 'bg-acc text-on-acc' : 'border border-line bg-elev text-dim',
+              )}
+            >
+              {s === 'deur' ? t.nav.checkin : t.nav.tasks}
+            </button>
+          ))}
+        </div>
       )}
       <div key={navKey} className="po-screen-anim flex min-h-0 flex-1 flex-col">
         {screen}

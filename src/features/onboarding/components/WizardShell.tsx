@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 import { AUTH_GRADIENT } from '@/lib/po/theme';
 import { Icon } from '@/components/po/icon';
 
-const STEP_LABELS = ['Venue', 'Abonnement', 'Team'] as const;
+const STEP_LABELS = ['Venue', 'Plan', 'Team'] as const;
 
 function StepDots({ current }: { current: 1 | 2 | 3 }): JSX.Element {
   return (
@@ -111,7 +111,7 @@ export function WizardShell({
           </span>
         </div>
         {panel}
-        <div className="font-body text-[12px] text-ghost">gastenlijst by Mainstage HQ</div>
+        <div className="font-body text-[12px] text-ghost">guest list by Mainstage HQ</div>
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">

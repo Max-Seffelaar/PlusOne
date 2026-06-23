@@ -9,10 +9,10 @@ import { useTransition } from 'react';
 import { cn } from '@/lib/utils';
 
 const PRESETS: [string, number | null][] = [
-  ['30 dagen', 30],
-  ['3 maanden', 90],
-  ['12 maanden', 365],
-  ['Alles', null],
+  ['30 days', 30],
+  ['3 months', 90],
+  ['12 months', 365],
+  ['All', null],
 ];
 
 export function PeriodControls({
@@ -70,7 +70,7 @@ export function PeriodControls({
       })}
       <div className="flex-1" />
       <label className="flex items-center gap-1.5 text-[12px] text-faint">
-        van
+        From
         <input
           type="date"
           value={from ?? ''}
@@ -79,7 +79,7 @@ export function PeriodControls({
         />
       </label>
       <label className="flex items-center gap-1.5 text-[12px] text-faint">
-        tot
+        To
         <input
           type="date"
           value={to ?? ''}

@@ -8,6 +8,7 @@
  */
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import { Icon } from '@/components/po/icon';
 import { Avatar, Label, Scroll, Top } from '@/components/po/kit';
 import { useDoor } from '../DoorProvider';
@@ -17,9 +18,9 @@ type Filter = 'open' | 'done' | 'all';
 
 function Seg({ value, onChange }: { value: Filter; onChange: (v: Filter) => void }): JSX.Element {
   const items: [Filter, string][] = [
-    ['open', 'Open'],
-    ['done', 'Klaar'],
-    ['all', 'Alle'],
+    ['open', t.door.tasksFilterOpen],
+    ['done', t.door.tasksFilterDone],
+    ['all', t.door.tasksFilterAll],
   ];
   return (
     <div className="flex flex-none gap-1.5 px-5 pb-[14px]">
@@ -59,22 +60,22 @@ export function Taken({ onOpenGuest }: { onOpenGuest: (id: string) => void }): J
 
   return (
     <div className="flex h-full flex-col">
-      <Top big title="Taken" sub="openstaande opdrachten aan de deur" />
+      <Top big title={t.door.tasksTitle} sub={t.door.tasksSub} />
       <div className="flex flex-none gap-[10px] px-5 pb-[14px]">
         <div className="flex-1 rounded-[14px] bg-acc-dim px-[14px] py-[12px]">
           <div className="font-display text-[26px] font-extrabold text-acc">{openCount}</div>
-          <div className="text-[12px] text-dim">open</div>
+          <div className="text-[12px] text-dim">{t.door.tasksStatOpen}</div>
         </div>
         <div className="flex-1 rounded-[14px] border border-line bg-elev px-[14px] py-[12px]">
           <div className="flex items-center gap-1.5">
             <Icon name="flag" size={18} stroke="#B5A6FF" fill="#B5A6FF" />
             <div className="font-display text-[26px] font-extrabold text-text">{highOpen}</div>
           </div>
-          <div className="text-[12px] text-faint">belangrijk</div>
+          <div className="text-[12px] text-faint">{t.door.tasksStatPriority}</div>
         </div>
         <div className="flex-1 rounded-[14px] border border-line bg-elev px-[14px] py-[12px]">
           <div className="font-display text-[26px] font-extrabold text-text">{doneCount}</div>
-          <div className="text-[12px] text-faint">klaar</div>
+          <div className="text-[12px] text-faint">{t.door.tasksStatDone}</div>
         </div>
       </div>
       <Seg value={f} onChange={setF} />
@@ -94,7 +95,7 @@ export function Taken({ onOpenGuest }: { onOpenGuest: (id: string) => void }): J
                   press,
                   done ? 'border-acc bg-acc' : 'border-ghost bg-transparent',
                 )}
-                aria-label={done ? 'Heropenen' : 'Markeer klaar'}
+                aria-label={done ? t.door.taskReopen : t.door.taskMarkDone}
               >
                 {done && <Icon name="check" size={15} stroke="#16132B" sw={3} />}
               </button>
@@ -103,17 +104,17 @@ export function Taken({ onOpenGuest }: { onOpenGuest: (id: string) => void }): J
                   {high && (
                     <span className="inline-flex items-center gap-1 rounded-[6px] bg-acc-dim px-[7px] py-0.5 font-body text-[10px] font-extrabold tracking-[0.04em] text-acc">
                       <Icon name="flag" size={10} stroke="#B5A6FF" fill="#B5A6FF" sw={2} />
-                      BELANGRIJK
+                      {t.door.taskPriorityBadge}
                     </span>
                   )}
                   <span className={cn('inline-flex items-center gap-[5px] font-body text-[11.5px] font-bold', guest.inside ? 'text-acc' : 'text-faint')}>
                     {guest.inside ? (
                       <>
                         <Icon name="check2" size={12} stroke="#B5A6FF" sw={2.4} />
-                        binnen
+                        {t.door.taskInside}
                       </>
                     ) : (
-                      'onderweg'
+                      t.door.taskOnTheWay
                     )}
                   </span>
                 </div>
@@ -129,9 +130,9 @@ export function Taken({ onOpenGuest }: { onOpenGuest: (id: string) => void }): J
             </div>
           ))}
           {list.length === 0 && (
-            <div className="py-[36px] text-center text-[14.5px] text-faint">{f === 'open' ? 'Alles opgepakt 🎉' : 'Niets hier.'}</div>
+            <div className="py-[36px] text-center text-[14.5px] text-faint">{f === 'open' ? t.door.tasksEmptyOpen : t.door.tasksEmptyOther}</div>
           )}
-          {tasks.length === 0 && f !== 'open' && <Label className="mt-2 text-center">Geen opdrachten voor dit event.</Label>}
+          {tasks.length === 0 && f !== 'open' && <Label className="mt-2 text-center">{t.door.tasksEmptyEvent}</Label>}
         </div>
       </Scroll>
     </div>

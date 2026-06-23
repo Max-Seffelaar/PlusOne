@@ -17,7 +17,7 @@ export function EventsTopbar({ backHref }: { backHref?: string }): JSX.Element {
         </div>
         {backHref && (
           <Link href={backHref} className="text-dim hover:text-text text-sm transition-colors">
-            ← Terug
+            ← Back
           </Link>
         )}
       </div>

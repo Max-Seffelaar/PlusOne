@@ -25,7 +25,7 @@ export function RevokeSessionButton({
         className="btn-ghost text-xs"
         disabled={pending}
         onClick={(e) => {
-          if (!window.confirm(admin ? 'Deze sessie op afstand uitloggen?' : 'Deze sessie beëindigen?'))
+          if (!window.confirm(admin ? 'Log out this device remotely?' : 'End this session?'))
             e.preventDefault();
         }}
       >

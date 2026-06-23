@@ -5,7 +5,7 @@ import { z } from 'zod';
 // fields stay optional). plus_ones is bounded defensively.
 
 const uuid = z.string().uuid();
-const fullName = z.string().trim().min(1, 'Naam is verplicht').max(200);
+const fullName = z.string().trim().min(1, 'Name is required').max(200);
 const plusOnes = z.number().int().min(0).max(50);
 
 /** Empty string from a form field -> null (optional, dataminimalisatie #9). */
@@ -50,8 +50,8 @@ export const bulkAddSchema = z.object({
         phone: optionalText(40),
       })
     )
-    .min(1, 'Geen gasten om toe te voegen')
-    .max(500, 'Te veel regels in één keer'),
+    .min(1, 'No guests to add')
+    .max(500, 'Too many lines at once'),
 });
 export type BulkAddInput = z.input<typeof bulkAddSchema>;
 
