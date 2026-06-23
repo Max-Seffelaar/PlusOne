@@ -99,3 +99,50 @@ export function usePo(): PoApp {
 export function useNav(): Nav {
   return usePo().nav;
 }
+
+// ── Nav-state persistence (S3.2) ─────────────────────────────────────────────
+// The po nav stack is in-memory, so a browser refresh used to drop you back on
+// Start. We persist the current tab + stack to sessionStorage (survives reload,
+// clears on tab-close) so a refresh keeps you on the same screen. Capacitor-safe
+// (#37): sessionStorage works in native webviews, and every access is guarded so
+// a missing/blocked store just degrades to the old in-memory behaviour.
+
+const NAV_STORAGE_KEY = 'po:nav-state';
+const PERSISTED_TABS: readonly TabKey[] = ['start', 'events', 'deur', 'taken', 'meer'];
+
+export interface PersistedNav {
+  tab: TabKey;
+  stack: StackEntry[];
+}
+
+/** Read the persisted nav-state — returns null on SSR, unavailable storage, or a
+ *  malformed payload (so a corrupt value can never wedge the app on boot). */
+export function loadNavState(): PersistedNav | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.sessionStorage.getItem(NAV_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PersistedNav>;
+    if (!parsed || !PERSISTED_TABS.includes(parsed.tab as TabKey) || !Array.isArray(parsed.stack)) {
+      return null;
+    }
+    // Shallow-validate each entry; drop anything that isn't a {name, props}.
+    const stack = parsed.stack.filter(
+      (e): e is StackEntry =>
+        !!e && typeof (e as StackEntry).name === 'string' && typeof (e as StackEntry).props === 'object'
+    );
+    return { tab: parsed.tab as TabKey, stack };
+  } catch {
+    return null;
+  }
+}
+
+/** Persist the nav-state; silently no-ops when storage is unavailable. */
+export function saveNavState(state: PersistedNav): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(NAV_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    /* private mode / quota / native webview without storage — ignore */
+  }
+}

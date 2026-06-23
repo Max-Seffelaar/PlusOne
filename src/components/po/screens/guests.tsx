@@ -390,6 +390,8 @@ interface JustAdded {
   plus: number;
   tierShort: string;
   vip: boolean;
+  /** True when this row updated an existing guest's plekken (dupe add/replace) rather than inserting. */
+  updated?: boolean;
 }
 
 function PreviewChip({ icon, dot, label }: { icon?: IconName; dot?: string; label: string }): JSX.Element {
@@ -413,6 +415,10 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const { data: tiers = [] } = usePoTiers(evId);
   const { data: quota } = usePoQuota(evId);
   const add = usePoAddGuest(evId);
+  const update = usePoUpdateGuest(evId);
+  // The event's existing guests drive duplicate detection (S2.2). RLS-scoped, so
+  // staff only match against their own guests — exactly the rows they may update.
+  const { data: liveGuests = [] } = usePoGuests(evId);
   const reqExtra = usePoRequestExtraSlots(evId);
   const { roles } = usePoIdentity();
 
@@ -422,6 +428,8 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const [evPick, setEvPick] = useState(false);
   const [reqOpen, setReqOpen] = useState(false);
   const [reqMotiv, setReqMotiv] = useState('');
+  // null until the user picks how to handle a name that's already on the list.
+  const [dupeMode, setDupeMode] = useState<DupeMode | null>(null);
 
   const qaTiers: QuickAddTier[] = tiers.map((t) => ({ id: t.id, name: t.name, aliases: t.aliases }));
   const defaultTierId = resolveDefaultTierId(qaTiers);
@@ -439,6 +447,19 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const effTier = tiers.find((t) => t.id === effTierId);
   const cost = 1 + effPlus;
 
+  // Duplicate detection (S2.2): does the typed name already match a guest on this
+  // event? Same name-only match + 3-choice as bulk-paste (planBulkAdd), so the
+  // pattern is identical across quick + bulk. (The address book keeps its own
+  // 2-choice — a known contact has no "different person, same name" case.)
+  const byName = useMemo(
+    () => indexGuestsByName(liveGuests.map((g) => ({ id: g.id, name: g.name, plusOnes: g.plus }))),
+    [liveGuests],
+  );
+  const dupe = effName ? byName.get(effName.trim().toLowerCase()) ?? null : null;
+  // A dupe forces an explicit choice before submit; 'again' (insert) vs add/replace (update).
+  const needsDupeChoice = !!dupe && dupeMode === null;
+  const willInsert = !dupe || dupeMode === 'again';
+
   const exempt = quota?.exempt ?? false;
   const remaining = exempt ? null : quota?.remaining ?? null;
   const overQuota = remaining !== null && cost > remaining;
@@ -448,19 +469,56 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const canAdd = exempt || canManageGuests(roles);
   const reqShortfall = remaining !== null ? Math.max(1, cost - remaining) : 1;
   const needsAsk = !!isAmbiguous && !choice;
-  const canSubmit = !add.isPending && !!defaultTierId && !!evId && effName !== '' && !needsAsk && !overQuota;
+  // Quota only gates the INSERT path; an add/replace on an existing guest is a
+  // delta the DB enforces, so don't block it on the new-guest cost.
+  const blockForQuota = overQuota && willInsert;
+  const canSubmit =
+    !add.isPending && !update.isPending && !!defaultTierId && !!evId && effName !== '' && !needsAsk && !needsDupeChoice && !blockForQuota;
 
   const onInput = (v: string): void => {
     setVal(v);
     setChoice(null);
+    setDupeMode(null);
     setReqOpen(false);
     reqExtra.reset();
   };
 
   const commit = (): void => {
     if (!canSubmit || !effTier) return;
-    // Client UUIDv7 so the optimistic row and the inserted row share an id (#25)
-    // — the list reconciles without a flash when invalidation refetches.
+    // Reuse the bulk planner with a single row, so quick + bulk split inserts vs
+    // plus-ones updates identically. mode defaults to 'again' when there's no dupe.
+    const row: BulkRowInput = {
+      name: effName,
+      plusOnes: effPlus,
+      tierId: effTierId,
+      email: parsed?.email ?? undefined,
+      phone: parsed?.phone ?? undefined,
+    };
+    const plan = planBulkAdd([row], byName, dupeMode ?? 'again');
+
+    // Update path: erbij optellen / nieuw aantal on the matched existing guest.
+    if (plan.updates.length > 0) {
+      const u = plan.updates[0];
+      update.mutate(
+        { guestId: u.guestId, plusOnes: u.plusOnes },
+        {
+          onSuccess: () => {
+            setAdded((a) => [
+              { id: u.guestId, name: effName, plus: u.plusOnes, tierShort: effTier.short, vip: effTier.role === 'VIP', updated: true },
+              ...a,
+            ]);
+            setVal('');
+            setChoice(null);
+            setDupeMode(null);
+          },
+        },
+      );
+      return;
+    }
+
+    // Insert path (no dupe, or "toch opnieuw toevoegen"). Client UUIDv7 so the
+    // optimistic row and the inserted row share an id (#25) — the list reconciles
+    // without a flash when invalidation refetches.
     const id = uuidv7();
     const snapshot: JustAdded = { id, name: effName, plus: effPlus, tierShort: effTier.short, vip: effTier.role === 'VIP' };
     add.mutate(
@@ -479,6 +537,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
           setAdded((a) => [snapshot, ...a]);
           setVal('');
           setChoice(null);
+          setDupeMode(null);
         },
       },
     );
@@ -587,7 +646,33 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
               </div>
             )}
 
-            {parsed && !needsAsk && !exempt && remaining !== null && (
+            {!needsAsk && dupe && (
+              <div className="mt-3 rounded-[16px] border border-acc bg-acc-dim p-[14px]">
+                <div className="mb-1 flex items-center gap-2">
+                  <Icon name="warn" size={16} stroke="#B5A6FF" />
+                  <Label className="text-acc-soft">Staat al op de lijst</Label>
+                </div>
+                <div className="mb-3 text-[12.5px] leading-[1.45] text-text">
+                  <b>{dupe.name}</b> staat al op deze lijst
+                  {dupe.plusOnes > 0 ? (
+                    <>
+                      {' '}
+                      met <b>+{dupe.plusOnes}</b> {dupe.plusOnes === 1 ? 'plek' : 'plekken'}
+                    </>
+                  ) : (
+                    ' zonder extra plekken'
+                  )}
+                  . Wat wil je doen?
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <DupeOption on={dupeMode === 'add'} onClick={() => setDupeMode('add')} title="Tickets erbij optellen" sub={`Wordt +${dupe.plusOnes + effPlus} (nu +${dupe.plusOnes})`} />
+                  <DupeOption on={dupeMode === 'replace'} onClick={() => setDupeMode('replace')} title="Nieuw aantal geven" sub={`Wordt +${effPlus} (nu +${dupe.plusOnes})`} />
+                  <DupeOption on={dupeMode === 'again'} onClick={() => setDupeMode('again')} title="Toch opnieuw toevoegen" sub="Als losse, nieuwe regel (andere persoon)" />
+                </div>
+              </div>
+            )}
+
+            {parsed && !needsAsk && !dupe && !exempt && remaining !== null && (
               <div className={cn('mt-3 flex items-center gap-[9px] rounded-[13px] px-[14px] py-[11px]', overQuota ? 'border border-acc bg-white/[0.04]' : 'border border-line bg-elev')}>
                 <Icon name="ticket" size={17} stroke={overQuota ? '#B5A6FF' : 'rgba(255,255,255,0.40)'} />
                 <span className="flex-1 text-[13.5px] text-text">
@@ -600,7 +685,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
               </div>
             )}
 
-            {overQuota && parsed && !needsAsk ? (
+            {!dupe && overQuota && parsed && !needsAsk ? (
               reqExtra.isSuccess ? (
                 <div className="mt-[10px] flex items-center gap-[9px] rounded-[13px] border border-acc bg-acc-dim px-[14px] py-[11px] text-[13px] text-text">
                   <Icon name="check" size={16} stroke="#B5A6FF" />
@@ -682,7 +767,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                       </div>
                       <span className="inline-flex items-center gap-[5px] font-body text-[11.5px] font-bold text-acc">
                         <Icon name="check2" size={13} stroke="#B5A6FF" sw={2.4} />
-                        op lijst
+                        {g.updated ? 'bijgewerkt' : 'op lijst'}
                       </span>
                     </div>
                   ))}
@@ -694,7 +779,13 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
       </Scroll>
       <BottomBar>
         <Btn kind="primary" full icon="plus" onClick={commit} className={canSubmit ? '' : 'opacity-[0.45]'}>
-          {add.isPending ? 'Bezig…' : parsed ? `Voeg toe · ${effName || 'gast'}${effPlus ? ' +' + effPlus : ''}` : 'Typ een naam'}
+          {add.isPending || update.isPending
+            ? 'Bezig…'
+            : !parsed
+              ? 'Typ een naam'
+              : dupe && (dupeMode === 'add' || dupeMode === 'replace')
+                ? `Bijwerken · ${effName}`
+                : `Voeg toe · ${effName || 'gast'}${effPlus ? ' +' + effPlus : ''}`}
         </Btn>
       </BottomBar>
 
@@ -1427,18 +1518,22 @@ export function Vaste(): JSX.Element {
   const noRights = !isLoading && !isError && !canView && permanent.length === 0;
 
   const [pick, setPick] = useState(false);
-  const [result, setResult] = useState<{ event: string; added: number } | null>(null);
+  const [result, setResult] = useState<{ event: string; added: number; total: number } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const runSync = (evId: string, evName: string): void => {
     setErrorMsg(null);
     setResult(null);
+    // Capture the permanent total now so the result can say "X van Y" — the sync
+    // skips guests already on the event (or manually removed), never touching
+    // their plekken (S2.2: skip + clearer report, decided with Max).
+    const total = permanent.length;
     sync.mutate(
       { eventId: evId },
       {
         onSuccess: (res) => {
           setPick(false);
-          setResult({ event: evName, added: res.ok ? res.added : 0 });
+          setResult({ event: evName, added: res.ok ? res.added : 0, total });
         },
         onError: (e) => setErrorMsg(e instanceof Error ? e.message : 'Synchroniseren mislukt.'),
       },
@@ -1465,9 +1560,11 @@ export function Vaste(): JSX.Element {
           <div className="mb-3 flex items-center gap-[9px] rounded-[13px] border border-acc bg-acc-dim px-[14px] py-[11px] text-[13px] text-text">
             <Icon name="check" size={16} stroke="#B5A6FF" />
             <span className="flex-1">
-              {result.added > 0
-                ? `${result.added} ${result.added === 1 ? 'gast' : 'gasten'} toegevoegd aan ${result.event}.`
-                : `Iedereen stond al op ${result.event} (of is daar handmatig verwijderd).`}
+              {result.added === 0
+                ? `Iedereen stond al op ${result.event} (of is daar handmatig verwijderd).`
+                : result.added === result.total
+                  ? `Alle ${result.total} permanente ${result.total === 1 ? 'gast' : 'gasten'} toegevoegd aan ${result.event}.`
+                  : `${result.added} van ${result.total} toegevoegd aan ${result.event} — de rest stond er al op (of is handmatig verwijderd).`}
             </span>
           </div>
         )}

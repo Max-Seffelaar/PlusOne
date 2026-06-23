@@ -6,7 +6,7 @@
  * live Supabase data; the Deur/Taken tabs mount the real DoorProvider (offline
  * outbox + realtime), so there is no in-memory door state here anymore.
  */
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
@@ -16,7 +16,18 @@ import { canWorkDoor } from '@/features/auth/roles';
 import { DoorProvider } from '@/features/door/DoorProvider';
 import { DoorQueryProvider } from '@/features/door/DoorQueryProvider';
 import { setActiveVenueAction } from '@/features/venues/actions';
-import { PoProvider, type AuthNav, type AuthView, type Nav, type PoApp, type PoVenueMembership, type ScreenName, type StackEntry } from './context';
+import {
+  PoProvider,
+  loadNavState,
+  saveNavState,
+  type AuthNav,
+  type AuthView,
+  type Nav,
+  type PoApp,
+  type PoVenueMembership,
+  type ScreenName,
+  type StackEntry,
+} from './context';
 import { PhoneFrame, Toast, type TabKey } from './shell';
 import { Top } from './kit';
 import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
@@ -63,8 +74,11 @@ const Aanvragen = dynamic(() => import('./screens/approvals').then((m) => m.Aanv
 });
 
 /** Desktop content-column width per active screen. Most screens keep the
- *  comfortable reading column (640); data-dense dashboards/tables/charts opt
- *  into the full width. (Mobile is full-bleed regardless of this.) */
+ *  comfortable reading column (640); data-dense dashboards/tables/charts and the
+ *  detail/dashboard screens with a real wide layout opt into the full width
+ *  (S3.3). Forms (eventedit/tiers/settings/profile/billing/quickadd/bulk/import)
+ *  deliberately stay narrow — they read better in one column. (Mobile is
+ *  full-bleed regardless of this.) */
 const WIDE_DESKTOP: Record<string, string> = {
   start: 'max-w-[1080px]',
   events: 'max-w-[1080px]',
@@ -72,6 +86,11 @@ const WIDE_DESKTOP: Record<string, string> = {
   stats: 'max-w-[1080px]',
   audit: 'max-w-[1080px]',
   gebruikers: 'max-w-[1080px]',
+  // Detail / dashboard screens with a two-column or grid desktop layout (S3.3).
+  event: 'max-w-[1080px]',
+  pastevent: 'max-w-[1080px]',
+  eventbeheer: 'max-w-[1080px]',
+  aanvragen: 'max-w-[1080px]',
 };
 
 /** Shown while a pushed event/guest screen waits for its live row to load. */
@@ -136,6 +155,25 @@ export function PlusOneApp({
   const [venue, setVenueState] = useState<Venue>(() => venues.find((v) => v.current) ?? venues[0]);
   const [toast, setToast] = useState<string | null>(null);
   const [key, setKey] = useState(0);
+
+  // Restore the tab + nav stack after a browser refresh (S3.2). Runs once on
+  // mount (never during SSR), so there's no hydration mismatch; the persisted
+  // screen replaces the default Start on the next frame. `navHydrated` gates the
+  // writer below so the initial {start, []} can't clobber the saved value before
+  // this read runs.
+  const [navHydrated, setNavHydrated] = useState(false);
+  useEffect(() => {
+    const saved = loadNavState();
+    if (saved) {
+      setTabState(saved.tab);
+      setStack(saved.stack);
+    }
+    setNavHydrated(true);
+  }, []);
+  useEffect(() => {
+    if (!navHydrated) return;
+    saveNavState({ tab, stack });
+  }, [navHydrated, tab, stack]);
 
   const bump = (): void => setKey((k) => k + 1);
 

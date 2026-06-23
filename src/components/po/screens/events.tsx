@@ -162,85 +162,97 @@ export function EventView({ id }: { id?: string }): JSX.Element {
   const pct = ev.guests > 0 ? ev.inside / ev.guests : 0;
   const recent = detail?.recent ?? [];
   const openRequests = detail?.openRequests ?? 0;
+  // Desktop (S3.3): the headline numbers/actions go left, the "needs attention"
+  // + "laatst binnen" feed go right. When there's no secondary content the left
+  // column reads as a normal centered column instead of a wide thin strip.
+  const hasSecondary = openRequests > 0 || showDoor || recent.length > 0;
 
   return (
     <div className={col}>
       <Top onBack={nav.back} title={ev.name} sub={`${ev.venue} · ${ev.date} ${ev.mon}`} right={<IconBtn name="dots" onClick={() => nav.push('eventedit', { id: ev.id })} />} />
       <Scroll bottom={28}>
-        <div className="mb-3 grid grid-cols-2 gap-[10px]">
-          <Stat big v={onweg} l="Onderweg" />
-          <Stat big v={ev.inside} l="Binnen" acc />
-        </div>
-        <div className="mb-3 rounded-[18px] border border-line bg-elev p-4">
-          <div className="mb-[9px] flex justify-between">
-            <Label>Opkomst gastenlijst</Label>
-            <span className="font-display font-bold text-acc">{Math.round(pct * 100)}%</span>
-          </div>
-          <div className="h-[10px] overflow-hidden rounded-[6px] bg-elev2">
-            <div className="h-full rounded-[6px] bg-acc" style={{ width: pct * 100 + '%' }} />
-          </div>
-          <div className="mt-[9px] text-[12.5px] text-faint">{ev.guests} koppen op de lijst · incl. meegenomen gasten</div>
-        </div>
-        <div className="mb-4 flex gap-[10px]">
-          {showDoor && (
-            <Btn kind="primary" full icon="user" onClick={() => nav.openDoor(ev.id)}>
-              Check-in
-            </Btn>
-          )}
-          <Btn kind="dark" full icon="users" onClick={() => nav.push('lijst', { id: ev.id })}>
-            Gastenlijst
-          </Btn>
-        </div>
-        {openRequests > 0 && (
-          <>
-            <Label className="mb-[10px]">Aandacht nodig</Label>
-            <div className="mb-[18px] flex flex-col gap-[9px]">
-              <button
-                type="button"
-                onClick={() => nav.push('aanvragen', { id: ev.id })}
-                className={cn('flex w-full gap-[12px] rounded-[14px] border bg-elev p-[13px] text-left', cardPress)}
-                style={{ borderColor: 'rgba(181,166,255,0.4)' }}
-              >
-                <span className="mt-px text-acc-soft">
-                  <Icon name="bell" size={19} />
-                </span>
-                <div className="flex-1">
-                  <div className="font-body text-[14px] font-bold text-text">
-                    {openRequests} open {openRequests === 1 ? 'aanvraag' : 'aanvragen'}
-                  </div>
-                  <div className="mt-0.5 text-[12.5px] leading-[1.4] text-faint">Wachten op jouw goedkeuring — tik om af te handelen</div>
-                </div>
-                <span className="self-center text-acc">
-                  <Icon name="chev" size={20} />
-                </span>
-              </button>
+        <div className={cn(hasSecondary && 'lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start')}>
+          <div className={cn(!hasSecondary && 'lg:mx-auto lg:max-w-[680px]')}>
+            <div className="mb-3 grid grid-cols-2 gap-[10px]">
+              <Stat big v={onweg} l="Onderweg" />
+              <Stat big v={ev.inside} l="Binnen" acc />
             </div>
-          </>
-        )}
-        {(showDoor || recent.length > 0) && (
-          <>
-            <Label className="mb-[10px]">Laatst binnen</Label>
-            {recent.length === 0 ? (
-              <Empty text="Nog niemand ingecheckt." />
-            ) : (
-              <div className="flex flex-col">
-                {recent.map((g) => (
-                  <div key={g.guestId} className="flex items-center gap-[12px] border-b border-line2 py-[10px]">
-                    <Avatar name={g.name} size={38} />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[14.5px] font-semibold text-text">
-                        {g.name}
-                        {g.plus > 0 && <span className="text-faint"> +{g.plus}</span>}
-                      </div>
-                      <div className="mt-0.5 truncate text-[12px] text-faint">door {g.by}</div>
-                    </div>
-                    <span className="font-display text-[13px] font-bold text-acc">{formatClock(g.at)}</span>
-                  </div>
-                ))}
+            <div className="mb-3 rounded-[18px] border border-line bg-elev p-4">
+              <div className="mb-[9px] flex justify-between">
+                <Label>Opkomst gastenlijst</Label>
+                <span className="font-display font-bold text-acc">{Math.round(pct * 100)}%</span>
               </div>
-            )}
-          </>
-        )}
+              <div className="h-[10px] overflow-hidden rounded-[6px] bg-elev2">
+                <div className="h-full rounded-[6px] bg-acc" style={{ width: pct * 100 + '%' }} />
+              </div>
+              <div className="mt-[9px] text-[12.5px] text-faint">{ev.guests} koppen op de lijst · incl. meegenomen gasten</div>
+            </div>
+            <div className="mb-4 flex gap-[10px] lg:mb-0">
+              {showDoor && (
+                <Btn kind="primary" full icon="user" onClick={() => nav.openDoor(ev.id)}>
+                  Check-in
+                </Btn>
+              )}
+              <Btn kind="dark" full icon="users" onClick={() => nav.push('lijst', { id: ev.id })}>
+                Gastenlijst
+              </Btn>
+            </div>
+          </div>
+          {hasSecondary && (
+            <div className="mt-4 lg:mt-0">
+              {openRequests > 0 && (
+                <>
+                  <Label className="mb-[10px]">Aandacht nodig</Label>
+                  <div className="mb-[18px] flex flex-col gap-[9px]">
+                    <button
+                      type="button"
+                      onClick={() => nav.push('aanvragen', { id: ev.id })}
+                      className={cn('flex w-full gap-[12px] rounded-[14px] border bg-elev p-[13px] text-left', cardPress)}
+                      style={{ borderColor: 'rgba(181,166,255,0.4)' }}
+                    >
+                      <span className="mt-px text-acc-soft">
+                        <Icon name="bell" size={19} />
+                      </span>
+                      <div className="flex-1">
+                        <div className="font-body text-[14px] font-bold text-text">
+                          {openRequests} open {openRequests === 1 ? 'aanvraag' : 'aanvragen'}
+                        </div>
+                        <div className="mt-0.5 text-[12.5px] leading-[1.4] text-faint">Wachten op jouw goedkeuring — tik om af te handelen</div>
+                      </div>
+                      <span className="self-center text-acc">
+                        <Icon name="chev" size={20} />
+                      </span>
+                    </button>
+                  </div>
+                </>
+              )}
+              {(showDoor || recent.length > 0) && (
+                <>
+                  <Label className="mb-[10px]">Laatst binnen</Label>
+                  {recent.length === 0 ? (
+                    <Empty text="Nog niemand ingecheckt." />
+                  ) : (
+                    <div className="flex flex-col">
+                      {recent.map((g) => (
+                        <div key={g.guestId} className="flex items-center gap-[12px] border-b border-line2 py-[10px]">
+                          <Avatar name={g.name} size={38} />
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-[14.5px] font-semibold text-text">
+                              {g.name}
+                              {g.plus > 0 && <span className="text-faint"> +{g.plus}</span>}
+                            </div>
+                            <div className="mt-0.5 truncate text-[12px] text-faint">door {g.by}</div>
+                          </div>
+                          <span className="font-display text-[13px] font-bold text-acc">{formatClock(g.at)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </Scroll>
     </div>
   );
@@ -776,6 +788,10 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
     <div className={col}>
       <Top onBack={nav.back} title={ev.name} sub={`${ev.venue} · ${ev.date} ${ev.mon}`} right={<IconBtn name="share" />} />
       <Scroll bottom={28}>
+        {/* Desktop (S3.3): two columns — left = opkomst + ingecheckt, right =
+            no-shows + per-tier + acties. Stacks to one column below lg. */}
+        <div className="lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start">
+        <div>
         <div className="mb-[14px] rounded-[18px] bg-acc-dim p-[18px]">
           <Label className="mb-[10px] text-acc-soft">Afgelopen event · samenvatting</Label>
           <div className="flex items-end gap-[10px]">
@@ -840,6 +856,8 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
           </div>
         )}
 
+        </div>
+        <div className="mt-4 lg:mt-0">
         <Label className="mb-[10px]">Niet verschenen · {r.noShows.length}</Label>
         {r.noShows.length === 0 ? (
           <div className="mb-[18px]">
@@ -911,6 +929,8 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
             Export
           </Btn>
         </div>
+        </div>
+        </div>
       </Scroll>
     </div>
   );
@@ -971,13 +991,13 @@ export function EventBeheer(): JSX.Element {
                 <Empty text="Nog geen komende events." />
               </div>
             ) : (
-              <div className="mb-5 flex flex-col gap-[9px]">{upcoming.map((e) => evRow(e, false))}</div>
+              <div className="mb-5 flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px]">{upcoming.map((e) => evRow(e, false))}</div>
             )}
             <Label className="mb-[10px]">Afgelopen</Label>
             {past.length === 0 ? (
               <Empty text="Nog geen afgelopen events." />
             ) : (
-              <div className="flex flex-col gap-[9px]">{past.map((e) => evRow(e, true))}</div>
+              <div className="flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px]">{past.map((e) => evRow(e, true))}</div>
             )}
           </>
         )}
