@@ -135,7 +135,7 @@ export function useDoorSync({ eventId, onSync, onRealtimeCheckIn, onRealtimeGues
 
       channel = client
         .channel(`door:${eventId}`)
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'check_ins' }, (payload) => {
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'check_ins', filter: `event_id=eq.${eventId}` }, (payload) => {
           onCheckInRef.current(payload.new as CheckInRow);
           setNow(Date.now());
         })

@@ -8,8 +8,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 
-export type CheckInRow = Database['public']['Tables']['check_ins']['Insert'];
-export type RefusalRow = Database['public']['Tables']['refusals']['Insert'];
+// event_id is supplied explicitly by the door (replay.ts passes entry.eventId,
+// like add_guest); venue_id is derived server-side by the set_checkin_scope
+// BEFORE INSERT trigger (migration 20260622140000), so it is omitted here and
+// cast over at the insert call below.
+export type CheckInRow = Omit<Database['public']['Tables']['check_ins']['Insert'], 'venue_id'>;
+export type RefusalRow = Omit<Database['public']['Tables']['refusals']['Insert'], 'venue_id'>;
 export type GuestRow = Database['public']['Tables']['guests']['Insert'];
 
 /** The fields of a PostgrestError the outbox cares about. */
@@ -37,7 +41,10 @@ export interface DoorGateway {
 
 export function supabaseGateway(client: SupabaseClient<Database>): DoorGateway {
   return {
-    insertCheckIn: async (row) => ({ error: (await client.from('check_ins').insert(row)).error }),
+    // venue_id is populated by the set_checkin_scope trigger; cast over the omitted column.
+    insertCheckIn: async (row) => ({
+      error: (await client.from('check_ins').insert(row as Database['public']['Tables']['check_ins']['Insert'])).error,
+    }),
     // Update by guest_id; check_ins_update_door RLS scopes it to any door-scoped
     // user (can_check_in), and cap_check_in_arrivals clamps + keeps it monotonic.
     topUpCheckIn: async (guestId, plusOnesArrived) => ({
@@ -70,7 +77,9 @@ export function supabaseGateway(client: SupabaseClient<Database>): DoorGateway {
           .eq('guest_id', guestId)
       ).error,
     }),
-    insertRefusal: async (row) => ({ error: (await client.from('refusals').insert(row)).error }),
+    insertRefusal: async (row) => ({
+      error: (await client.from('refusals').insert(row as Database['public']['Tables']['refusals']['Insert'])).error,
+    }),
     // Re-admit: flip status back. `.eq('status','refused')` makes a replay (or a
     // guest already re-admitted) a 0-row no-op = synced. RLS guests_update
     // (admin/doorhost, can_write_guests) is the boundary; the audit trigger logs it.

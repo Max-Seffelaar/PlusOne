@@ -77,10 +77,12 @@ export type Database = {
           client_timestamp: string | null
           created_at: string
           device_id: string | null
+          event_id: string
           guest_id: string
           id: string
           offline_synced: boolean
           plus_ones_arrived: number
+          venue_id: string
           voided_at: string | null
           voided_by: string | null
         }
@@ -90,10 +92,12 @@ export type Database = {
           client_timestamp?: string | null
           created_at?: string
           device_id?: string | null
+          event_id: string
           guest_id: string
           id?: string
           offline_synced?: boolean
           plus_ones_arrived?: number
+          venue_id: string
           voided_at?: string | null
           voided_by?: string | null
         }
@@ -103,10 +107,12 @@ export type Database = {
           client_timestamp?: string | null
           created_at?: string
           device_id?: string | null
+          event_id?: string
           guest_id?: string
           id?: string
           offline_synced?: boolean
           plus_ones_arrived?: number
+          venue_id?: string
           voided_at?: string | null
           voided_by?: string | null
         }
@@ -119,10 +125,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "check_ins_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "check_ins_guest_id_fkey"
             columns: ["guest_id"]
             isOneToOne: true
             referencedRelation: "guests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "check_ins_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
             referencedColumns: ["id"]
           },
           {
@@ -811,35 +831,48 @@ export type Database = {
           client_timestamp: string | null
           created_at: string
           device_id: string | null
+          event_id: string
           guest_id: string
           id: string
           reason: string
           refused_at: string
           refused_by: string
+          venue_id: string
         }
         Insert: {
           anonymized_at?: string | null
           client_timestamp?: string | null
           created_at?: string
           device_id?: string | null
+          event_id: string
           guest_id: string
           id?: string
           reason: string
           refused_at?: string
           refused_by: string
+          venue_id: string
         }
         Update: {
           anonymized_at?: string | null
           client_timestamp?: string | null
           created_at?: string
           device_id?: string | null
+          event_id?: string
           guest_id?: string
           id?: string
           reason?: string
           refused_at?: string
           refused_by?: string
+          venue_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "refusals_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "refusals_guest_id_fkey"
             columns: ["guest_id"]
@@ -852,6 +885,13 @@ export type Database = {
             columns: ["refused_by"]
             isOneToOne: false
             referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "refusals_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
             referencedColumns: ["id"]
           },
         ]

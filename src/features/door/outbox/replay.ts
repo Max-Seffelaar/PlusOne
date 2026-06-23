@@ -49,6 +49,7 @@ export async function replayEntry(
       const { error } = await gw.insertCheckIn({
         id: p.id,
         guest_id: p.guestId,
+        event_id: entry.eventId,
         checked_by: uid,
         plus_ones_arrived: p.plusOnesArrived,
         client_timestamp: p.clientTimestamp,
@@ -79,6 +80,7 @@ export async function replayEntry(
       const { error } = await gw.insertRefusal({
         id: p.id,
         guest_id: p.guestId,
+        event_id: entry.eventId,
         refused_by: uid,
         reason: p.reason,
         client_timestamp: p.clientTimestamp,
