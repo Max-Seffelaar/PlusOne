@@ -55,6 +55,10 @@ export const events = {
   venuePlaceholder: 'Unknown venue',
   fieldDate: 'Date',
   fieldDoors: 'Doors',
+  // Template picker (create-from-template, 86exyp8gn).
+  fieldTemplate: 'Template',
+  templateBlank: 'No template',
+  templateNote: 'Tiers, capacity, and settings come from the template. Name and date stay yours.',
   tiersRowTitle: 'Tiers & aliases',
   tiersRowSub: 'Feed the quick-add',
   status: 'Status',
@@ -83,6 +87,15 @@ export const events = {
   saving: 'Saving…',
   createEvent: 'Create event',
   saveEvent: 'Save event',
+  // Save-as-template (86exyp8gn) — snapshot this event's setup into a template.
+  saveTemplateLabel: 'Reuse this setup',
+  saveTemplateCta: 'Save as template',
+  saveTemplateHint: "Saves this event's tiers, capacity, and settings as a reusable template you can pick next time.",
+  saveTemplatePlaceholder: 'Template name, e.g. "Lofi — open air"',
+  saveTemplateConfirm: 'Save template',
+  saveTemplateCancel: 'Cancel',
+  saveTemplateDone: 'Saved as a template.',
+  saveTemplateError: "Couldn't save the template.",
 
   // ── Tiers & aliases ─────────────────────────────────────────────────────────
   tiersTitle: 'Tiers & aliases',

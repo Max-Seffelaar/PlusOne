@@ -23,6 +23,7 @@ const QUOTA_EXCEEDED = '45001';
 const TIER_FULL = '45002';
 const REQUEST_DECIDED = '45003';
 const INVALID_TRANSITION = '45004';
+const CAPACITY_EXCEEDED = '45005';
 const INSUFFICIENT_PRIVILEGE = '42501';
 const UNIQUE_VIOLATION = '23505';
 const NOT_NULL_VIOLATION = '23502';
@@ -36,6 +37,7 @@ export function mapMutationError(error: PostgrestLikeError | null | undefined): 
     case TIER_FULL:
     case REQUEST_DECIDED:
     case INVALID_TRANSITION:
+    case CAPACITY_EXCEEDED:
       // These DB messages are crafted UI copy with safe numbers only.
       return { ok: false, code, message: error?.message ?? 'Not allowed.' };
     case INSUFFICIENT_PRIVILEGE:

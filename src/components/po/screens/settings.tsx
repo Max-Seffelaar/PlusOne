@@ -30,6 +30,7 @@ import {
   usePoSubscription,
   usePoContactKeys,
   usePoEvents,
+  usePoCanManageTemplates,
 } from '@/features/po/hooks';
 import {
   usePoInviteUser,
@@ -113,6 +114,7 @@ export function Meer(): JSX.Element {
   const { venue, statsVenues, myVenues } = usePo();
   const { venueName, roles } = usePoIdentity();
   const canAudit = venueCapabilities(roles).viewAudit;
+  const canManageTemplates = usePoCanManageTemplates();
   const profile = usePoProfile();
   const subQ = usePoSubscription();
   const v = venue;
@@ -158,6 +160,9 @@ export function Meer(): JSX.Element {
 
         <Label className="mb-1 mt-[22px]">{t.sections.thisVenue}</Label>
         <Row icon="cal" title={t.settings.more.eventsTitle} sub={t.settings.more.eventsSub} onClick={() => nav.push('eventbeheer')} />
+        {canManageTemplates && (
+          <Row icon="grid" title={t.settings.more.templatesTitle} sub={t.settings.more.templatesSub} onClick={() => nav.push('templates')} />
+        )}
         <Row icon="cog" title={t.settings.more.venueSettingsTitle} sub={t.settings.more.venueSettingsSub} onClick={() => nav.push('venuesettings')} />
         <Row icon="ticket" title={t.settings.more.quotaTitle} sub={t.settings.more.quotaSub} onClick={() => nav.push('allowance')} />
         <Row icon="star" title={t.settings.more.regularsTitle} sub={t.settings.more.regularsSub} onClick={() => nav.push('vaste')} accent />
