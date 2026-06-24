@@ -244,14 +244,16 @@ export function PlusOneApp({
     else setStack((s) => s.slice(0, -1));
     bump();
   };
-  const histNav = usePoHistoryNav({ enabled: navHydrated && started, popLevel });
+  // In-app depth: pushed-screen count, or 1 for a door overlay (mutually exclusive).
+  const depth = doorOverlayOpen ? 1 : stack.length;
+  const histNav = usePoHistoryNav({ enabled: navHydrated && started, depth, popLevel });
 
-  // Match the browser history to a stack restored from sessionStorage (S3.2) so the
-  // back button works immediately after a refresh into a deep screen. Runs once,
-  // after hydration; the overlay is never persisted, so only the stack counts.
+  // Arm the sentinel once after a sessionStorage restore (S3.2) so the back button
+  // works immediately after a refresh into a deep screen. Runs once, after
+  // hydration; the overlay is never persisted, so only a non-empty stack counts.
   useEffect(() => {
     if (!navHydrated) return;
-    for (let i = 0; i < stack.length; i += 1) histNav.recordPush();
+    if (stack.length > 0) histNav.recordPush();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navHydrated]);
 

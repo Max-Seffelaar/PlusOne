@@ -3,12 +3,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import { usePoHistoryNav } from './history-nav';
 
-/** Deliver a popstate exactly as a back/forward press would, carrying the target
- *  entry's state (manual dispatch does NOT mutate window.history.state — the hook
- *  reads `e.state`, which is what we exercise here). */
-function pressBack(state: unknown): void {
+type Props = { enabled: boolean; depth: number; popLevel: () => void };
+const noop = (): void => {};
+
+/** A real back/forward press: dispatch popstate (manual dispatch doesn't move the
+ *  history position, which is fine — the hook decides from its own `armed`/`depth`). */
+function pressBack(): void {
   act(() => {
-    window.dispatchEvent(new PopStateEvent('popstate', { state }));
+    window.dispatchEvent(new PopStateEvent('popstate'));
   });
 }
 
@@ -17,75 +19,85 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('usePoHistoryNav', () => {
-  it('recordPush stamps an incrementing poDepth onto history.state', () => {
-    const { result } = renderHook(() => usePoHistoryNav({ enabled: true, popLevel: () => {} }));
-
-    act(() => result.current.recordPush());
-    expect((window.history.state as { poDepth?: number } | null)?.poDepth).toBe(1);
-
-    act(() => result.current.recordPush());
-    expect((window.history.state as { poDepth?: number } | null)?.poDepth).toBe(2);
-  });
-
-  it('a real back (popstate to a lower poDepth) pops exactly one in-app level', () => {
-    const popLevel = vi.fn();
-    const { result } = renderHook(() => usePoHistoryNav({ enabled: true, popLevel }));
-    act(() => {
-      result.current.recordPush();
-      result.current.recordPush();
+describe('usePoHistoryNav (single-sentinel model)', () => {
+  it('recordPush arms exactly one sentinel and is idempotent', () => {
+    const { result } = renderHook((p: Props) => usePoHistoryNav(p), {
+      initialProps: { enabled: true, depth: 1, popLevel: noop },
     });
+    const pushSpy = vi.spyOn(window.history, 'pushState');
 
-    pressBack({ poDepth: 1 });
-    expect(popLevel).toHaveBeenCalledTimes(1);
+    act(() => result.current.recordPush());
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+    expect((window.history.state as { poSentinel?: boolean } | null)?.poSentinel).toBe(true);
 
-    // A forward / same-depth move must NOT pop again.
-    pressBack({ poDepth: 2 });
-    expect(popLevel).toHaveBeenCalledTimes(1);
+    // Going deeper must NOT add a second entry — the one sentinel stays on top.
+    act(() => result.current.recordPush());
+    expect(pushSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('back at the tab root (a popstate with no poDepth) does not pop — the app exits cleanly', () => {
+  it('a real back pops one level and re-arms while still below the root', () => {
     const popLevel = vi.fn();
-    renderHook(() => usePoHistoryNav({ enabled: true, popLevel }));
+    const { result, rerender } = renderHook((p: Props) => usePoHistoryNav(p), {
+      initialProps: { enabled: true, depth: 2, popLevel },
+    });
+    act(() => result.current.recordPush()); // arm at depth 2
+    const pushSpy = vi.spyOn(window.history, 'pushState');
 
-    pressBack(null); // landed on a foreign entry (e.g. baseline /app) → no in-app pop
+    pressBack(); // depth 2 → pop to 1, re-arm
+    expect(popLevel).toHaveBeenCalledTimes(1);
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+
+    rerender({ enabled: true, depth: 1, popLevel });
+    pressBack(); // depth 1 → pop to 0, do NOT re-arm
+    expect(popLevel).toHaveBeenCalledTimes(2);
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('a back at the tab root does not pop — the app exits cleanly', () => {
+    const popLevel = vi.fn();
+    renderHook((p: Props) => usePoHistoryNav(p), {
+      initialProps: { enabled: true, depth: 0, popLevel },
+    });
+    pressBack(); // never armed (depth 0)
     expect(popLevel).not.toHaveBeenCalled();
   });
 
-  it('goBack is a no-op at the root and drives history.back once a screen is pushed', () => {
-    const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {});
-    const { result } = renderHook(() => usePoHistoryNav({ enabled: true, popLevel: () => {} }));
+  it('recordReset consumes the sentinel in one guarded back, without popping a level', () => {
+    const popLevel = vi.fn();
+    const backSpy = vi.spyOn(window.history, 'back').mockImplementation(noop);
+    const { result } = renderHook((p: Props) => usePoHistoryNav(p), {
+      initialProps: { enabled: true, depth: 1, popLevel },
+    });
+    act(() => result.current.recordPush()); // arm
+
+    act(() => result.current.recordReset());
+    expect(backSpy).toHaveBeenCalledTimes(1); // single back, never history.go(-N)
+
+    pressBack(); // the guarded popstate from our own back() must not pop a level
+    expect(popLevel).not.toHaveBeenCalled();
+  });
+
+  it('goBack is a no-op at the root and drives a back once armed', () => {
+    const backSpy = vi.spyOn(window.history, 'back').mockImplementation(noop);
+    const { result } = renderHook((p: Props) => usePoHistoryNav(p), {
+      initialProps: { enabled: true, depth: 0, popLevel: noop },
+    });
 
     act(() => result.current.goBack());
-    expect(backSpy).not.toHaveBeenCalled(); // depth 0 → never accidentally leaves /app
+    expect(backSpy).not.toHaveBeenCalled(); // not armed → never leaves /app by accident
 
-    act(() => result.current.recordPush());
+    act(() => result.current.recordPush()); // arm (depth prop is 0 here, but arm is unconditional)
     act(() => result.current.goBack());
     expect(backSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('recordReset rewinds exactly the entries it pushed and swallows its own popstate', () => {
-    const popLevel = vi.fn();
-    const goSpy = vi.spyOn(window.history, 'go').mockImplementation(() => {});
-    const { result } = renderHook(() => usePoHistoryNav({ enabled: true, popLevel }));
-    act(() => {
-      result.current.recordPush();
-      result.current.recordPush();
-    });
-
-    act(() => result.current.recordReset());
-    expect(goSpy).toHaveBeenCalledWith(-2);
-
-    // The guarded popstate fired by our own history.go must not pop an in-app level.
-    pressBack({ poDepth: 0 });
-    expect(popLevel).not.toHaveBeenCalled();
-  });
-
   it('does not listen while disabled', () => {
     const popLevel = vi.fn();
-    renderHook(() => usePoHistoryNav({ enabled: false, popLevel }));
-
-    pressBack({ poDepth: -1 });
+    const { result } = renderHook((p: Props) => usePoHistoryNav(p), {
+      initialProps: { enabled: false, depth: 1, popLevel },
+    });
+    act(() => result.current.recordPush());
+    pressBack();
     expect(popLevel).not.toHaveBeenCalled();
   });
 });
