@@ -42,6 +42,17 @@ import { VenueCreate } from './screens/onboarding';
 import { Home } from './screens/home';
 import { t, fmt } from '@/lib/i18n';
 
+/** A captured po navigation position. Restoring one sets every nav-relevant piece,
+ *  so a single back step can return to a different TAB — not just pop the current
+ *  tab's pushed stack. The back button retraces a sequence of these (#37). */
+type NavPos = {
+  tab: TabKey;
+  stack: StackEntry[];
+  doorOverlay: DoorOverlay;
+  doorEventId: string | null;
+  doorSeg: 'deur' | 'taken';
+};
+
 /**
  * Code-split (#2a): the heavy/rare screens below each live in their own module
  * that is only ever reached here, deep in the nav stack — so they have no place
@@ -217,80 +228,103 @@ export function PlusOneApp({
         : '';
   const { data: liveGuests } = usePoGuests(eventIdInContext);
 
-  // ── Browser/OS back-button ↔ in-app nav stack (history integration) ──────────
-  // /app is a single URL with its own nav stack, so the physical back button
-  // (browser, mouse, Android system/gesture) must pop the in-app stack instead of
-  // leaving the app. We mirror the in-app depth onto the History API: every push /
-  // door-overlay adds a same-URL entry, a real back fires popstate → `popLevel`,
-  // and the in-app chevron routes through `goBack()`. A door overlay (guest detail
-  // / add-on-spot) only exists at stack root, so depth = overlay ? 1 : stack.length
-  // (the two are mutually exclusive — see `isDoorTab` below).
+  // ── Browser/OS back-button ↔ in-app navigation (full history integration) ─────
+  // /app is a single URL with its own in-memory navigation, so the physical back
+  // button (browser, mouse, Android system/gesture) must retrace the journey instead
+  // of leaving the app. We keep a stack of position snapshots (navHistory): EVERY
+  // forward navigation — push a screen, switch a tab, open the door overlay — records
+  // the current position + one same-URL history entry, and a real back fires popstate
+  // → we restore the previous snapshot. So back undoes pushed screens AND tab switches
+  // in reverse (Android-style), only exiting the app at the very first position.
   const isDoorTab = showDoor && started && stack.length === 0 && tab === 'deur';
   const doorOverlayOpen = isDoorTab && doorOverlay !== null;
-  // The popstate listener is bound once; read the live overlay flag via a ref so it
-  // pops the right level (overlay before stack).
-  const doorOverlayOpenRef = useRef(doorOverlayOpen);
-  doorOverlayOpenRef.current = doorOverlayOpen;
-  // One push per user gesture. Several po cards are clickable rows that ALSO
-  // contain action buttons (e.g. the Home event card: `onClick={onOpen}` on the
-  // card + an "Open"/edit/lock button inside). A button click bubbles to the row,
-  // so a single tap fired TWO `nav.push`es → two stack entries + two history
-  // entries → the back button needed two presses per screen. This guard collapses
-  // any second push within the same synchronous event dispatch; the inner (real)
-  // target wins because its handler runs before the bubble reaches the row.
-  const pushGuard = useRef(false);
-  const popLevel = (): void => {
-    if (doorOverlayOpenRef.current) setDoorOverlay(null);
-    else setStack((s) => s.slice(0, -1));
+
+  const navHistory = useRef<NavPos[]>([]);
+  // The current position, recaptured each render so a forward navigation remembers
+  // exactly where it left from (which tab + stack + door state).
+  const posRef = useRef<NavPos>({ tab, stack, doorOverlay, doorEventId, doorSeg });
+  posRef.current = { tab, stack, doorOverlay, doorEventId, doorSeg };
+  // One navigation per user gesture: several po cards are clickable rows that ALSO
+  // contain action buttons (Home event card = `onClick={onOpen}` on the card + an
+  // Open/edit/lock button inside). A button tap bubbles to the row, firing the handler
+  // twice → two history entries → two back presses per screen. This guard drops a
+  // second navigation in the same synchronous dispatch; the inner (real) target wins.
+  const navGuard = useRef(false);
+
+  // A real back (physical button or the in-app chevron): restore the previous
+  // position. A no-op when empty → the browser then leaves /app and the app exits.
+  const restorePrevious = (): void => {
+    const prev = navHistory.current.pop();
+    if (!prev) return;
+    setTabState(prev.tab);
+    setStack(prev.stack);
+    setDoorOverlay(prev.doorOverlay);
+    setDoorEventId(prev.doorEventId);
+    setDoorSeg(prev.doorSeg);
     bump();
   };
-  // In-app depth: pushed-screen count, or 1 for a door overlay (mutually exclusive).
-  const depth = doorOverlayOpen ? 1 : stack.length;
-  const histNav = usePoHistoryNav({ enabled: navHydrated && started, depth, popLevel });
+  const histNav = usePoHistoryNav({ enabled: navHydrated && started, onBack: restorePrevious });
 
-  // Arm the sentinel once after a sessionStorage restore (S3.2) so the back button
-  // works immediately after a refresh into a deep screen. Runs once, after
-  // hydration; the overlay is never persisted, so only a non-empty stack counts.
+  // A forward navigation: remember where we are, add a history entry, then change.
+  const navigate = (apply: () => void): void => {
+    if (navGuard.current) return;
+    navGuard.current = true;
+    queueMicrotask(() => {
+      navGuard.current = false;
+    });
+    navHistory.current.push(posRef.current);
+    histNav.recordNavigate();
+    apply();
+    bump();
+  };
+
+  // Rebuild the back-path within the restored tab after a refresh into a deep screen
+  // (pre-refresh tab-switch history isn't persisted — acceptable): one snapshot + one
+  // history entry per stack prefix, so the back button works immediately. The ref
+  // guard keeps it idempotent under React StrictMode's double-invoke (no double entries).
+  const reconstructed = useRef(false);
   useEffect(() => {
-    if (!navHydrated) return;
-    if (stack.length > 0) histNav.recordPush();
+    if (!navHydrated || reconstructed.current) return;
+    reconstructed.current = true;
+    if (stack.length === 0) return;
+    navHistory.current = stack.map((_, i): NavPos => ({
+      tab,
+      stack: stack.slice(0, i),
+      doorOverlay: null,
+      doorEventId: null,
+      doorSeg: 'deur',
+    }));
+    stack.forEach(() => histNav.recordNavigate());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navHydrated]);
 
   const nav: Nav = {
     push: (name: ScreenName, props = {}) => {
-      if (pushGuard.current) return; // collapse a bubbled double-fire (see pushGuard)
-      pushGuard.current = true;
-      queueMicrotask(() => {
-        pushGuard.current = false;
-      });
-      setStack((s) => [...s, { name, props }]);
-      histNav.recordPush();
-      bump();
+      navigate(() => setStack((s) => [...s, { name, props }]));
     },
-    // Route through the History API: popstate → `popLevel` does the actual pop, so
-    // the chevron and the physical back button share one path.
+    // The physical back button and the in-app chevron share one path via the History API.
     back: () => {
       histNav.goBack();
     },
     setTab: (t: TabKey) => {
-      setTabState(t);
-      setStack([]);
-      setDoorOverlay(null);
-      // A manual tab tap returns the door to its auto-picked event (S1.3).
-      setDoorEventId(null);
-      histNav.recordReset();
-      bump();
+      // Re-tapping the current tab at its root is a true no-op — don't add a back step.
+      if (t === tab && stack.length === 0 && doorOverlay === null) return;
+      navigate(() => {
+        setTabState(t);
+        setStack([]);
+        setDoorOverlay(null);
+        setDoorEventId(null); // a manual tab tap returns the door to its auto-pick (S1.3)
+      });
     },
     // "Check-in" from a specific event: open the Deur tab for THAT event (S1.3).
     openDoor: (eventId: string) => {
-      setDoorEventId(eventId);
-      setTabState('deur');
-      setDoorSeg('deur');
-      setStack([]);
-      setDoorOverlay(null);
-      histNav.recordReset();
-      bump();
+      navigate(() => {
+        setDoorEventId(eventId);
+        setTabState('deur');
+        setDoorSeg('deur');
+        setStack([]);
+        setDoorOverlay(null);
+      });
     },
   };
 
@@ -306,18 +340,11 @@ export function PlusOneApp({
     },
   };
 
-  // Door-overlay navigation (within the Deur/Taken tabs, scoped to DoorProvider).
-  // Opening an overlay is a depth step (it hides the tab bar like a pushed screen),
-  // so it records a history entry; closing routes through the History API like back.
-  // Guard the push so switching guest↔add (overlay replaced, not stacked) can't drift.
-  const openGuest = (id: string): void => {
-    if (!doorOverlay) histNav.recordPush();
-    setDoorOverlay({ kind: 'guest', id });
-  };
-  const openAdd = (): void => {
-    if (!doorOverlay) histNav.recordPush();
-    setDoorOverlay({ kind: 'add' });
-  };
+  // Door-overlay navigation (Deur/Taken tabs): opening the overlay is a forward step
+  // (it hides the tab bar like a pushed screen); closing routes through back so the
+  // physical button and the overlay's own close button share one path.
+  const openGuest = (id: string): void => navigate(() => setDoorOverlay({ kind: 'guest', id }));
+  const openAdd = (): void => navigate(() => setDoorOverlay({ kind: 'add' }));
   const closeOverlay = (): void => histNav.goBack();
 
   const switchVenue = (v: Venue): void => {
