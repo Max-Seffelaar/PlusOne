@@ -1,6 +1,6 @@
 /**
  * Pure flattening for the door check-in list (STAP 3.5b · #1a). The list has four
- * sections with dividers (Onderweg / DEELS BINNEN / AL BINNEN / GEWEIGERD). To
+ * sections with dividers (Onderweg / PARTLY INSIDE / INSIDE / REFUSED). To
  * virtualize it we collapse the *visible* set into ONE tagged array — a header row
  * or a guest/refused row per item — so a single `useVirtualizer` windows the lot.
  *
@@ -27,9 +27,9 @@ export interface FlattenResult {
   items: CheckInItem[];
   /** Guests visible under the active filter (excl. refused) — empty-state pivot. */
   visibleCount: number;
-  /** matched active + matched refused — drives the "N gevonden" search count. */
+  /** matched active + matched refused — drives the "N found" search count. */
   matchedCount: number;
-  /** True when the GEWEIGERD section is rendered (search or Beide/Ingecheckt). */
+  /** True when the REFUSED section is rendered (search or Beide/Ingecheckt). */
   showRefused: boolean;
 }
 
@@ -37,7 +37,7 @@ export interface FlattenResult {
  * Build the flattened, virtualizable item list for the current view + filter +
  * query. Header rows are emitted only for non-empty sections; a guest is in
  * exactly one of waiting / partial / fullyIn. Order is stable: Onderweg →
- * DEELS BINNEN → AL BINNEN → GEWEIGERD (mirrors the original JSX).
+ * PARTLY INSIDE → INSIDE → REFUSED (mirrors the original JSX).
  */
 export function flattenCheckInItems(
   guests: DoorGuest[],
@@ -63,15 +63,15 @@ export function flattenCheckInItems(
     for (const g of waiting) items.push({ type: 'guest', key: g.id, g });
   }
   if (partial.length > 0) {
-    items.push({ type: 'header', key: 'h-partial', label: `DEELS BINNEN · ${partial.length}` });
+    items.push({ type: 'header', key: 'h-partial', label: `PARTLY INSIDE · ${partial.length}` });
     for (const g of partial) items.push({ type: 'guest', key: g.id, g });
   }
   if (showFull && fullyIn.length > 0) {
-    items.push({ type: 'header', key: 'h-full', label: `AL BINNEN · ${fullyIn.length}` });
+    items.push({ type: 'header', key: 'h-full', label: `INSIDE · ${fullyIn.length}` });
     for (const g of fullyIn) items.push({ type: 'guest', key: g.id, g });
   }
   if (showRefused) {
-    items.push({ type: 'header', key: 'h-refused', label: `GEWEIGERD · ${matchedRefused.length}` });
+    items.push({ type: 'header', key: 'h-refused', label: `REFUSED · ${matchedRefused.length}` });
     for (const g of matchedRefused) items.push({ type: 'refused', key: `ref-${g.id}`, g });
   }
 

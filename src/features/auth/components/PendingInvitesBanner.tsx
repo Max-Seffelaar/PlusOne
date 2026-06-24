@@ -13,7 +13,7 @@ export async function PendingInvitesBanner(): Promise<JSX.Element | null> {
     <div className="border-acc-dim bg-acc-dim mx-auto mb-4 flex max-w-3xl flex-col gap-3 rounded-card border p-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="text-sm">
         <p className="text-text font-semibold">
-          {invites.length === 1 ? 'Je hebt een openstaande uitnodiging' : `Je hebt ${invites.length} openstaande uitnodigingen`}
+          {invites.length === 1 ? 'You have a pending invite' : `You have ${invites.length} pending invites`}
         </p>
         <p className="text-dim mt-1">
           {invites

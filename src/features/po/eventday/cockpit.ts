@@ -193,7 +193,7 @@ export function flipGuestStatus(
 
 /** "HH:MM" in Europe/Amsterdam for a given instant (tabular live clock + bucket calc). */
 export function amsterdamHM(now: Date): string {
-  return new Intl.DateTimeFormat('nl-NL', {
+  return new Intl.DateTimeFormat('en-GB', {
     timeZone: TZ,
     hour: '2-digit',
     minute: '2-digit',
@@ -203,7 +203,7 @@ export function amsterdamHM(now: Date): string {
 
 /** "HH:MM:SS" in Europe/Amsterdam — the big live clock in the LIVE strip. */
 export function amsterdamHMS(now: Date): string {
-  return new Intl.DateTimeFormat('nl-NL', {
+  return new Intl.DateTimeFormat('en-GB', {
     timeZone: TZ,
     hour: '2-digit',
     minute: '2-digit',
@@ -242,7 +242,7 @@ export type FeedEntry =
 export function liveFeedLabel(e: FeedEntry): string {
   if (e.kind === 'msg') return e.msg;
   const tail = e.plus > 0 ? ` +${e.plus}` : '';
-  return `${e.name}${tail} ${e.kind === 'in' ? 'ingecheckt' : 'uitgecheckt'}`;
+  return `${e.name}${tail} ${e.kind === 'in' ? 'checked in' : 'checked out'}`;
 }
 
 /** Whether a feed entry should render with the accent dot (positive/inbound). */

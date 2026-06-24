@@ -9,6 +9,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { t, fmt } from '@/lib/i18n';
 import {
   parseQuickAdd,
   resolveAmbiguity,
@@ -85,17 +86,17 @@ export function AddOnSpot({ onBack }: { onBack: () => void }): JSX.Element {
     setChoice(null);
   };
 
-  const tierLabel = (id: string): string => view?.tiers.find((t) => t.id === id)?.name ?? 'Gast';
+  const tierLabel = (id: string): string => view?.tiers.find((tr) => tr.id === id)?.name ?? t.door.tierFallback;
 
   return (
     <div className="flex h-full flex-col">
       <Top
         onBack={onBack}
-        title="Gast toevoegen"
-        sub={exempt ? 'geen persoonlijk quotum' : left != null ? `jouw quotum ${Math.max(0, left)} van ${total} over` : 'aan de deur'}
+        title={t.door.addTitle}
+        sub={exempt ? t.door.addSubNoQuota : left != null ? fmt(t.door.addSubQuotaLeft, { n: Math.max(0, left), m: total ?? 0 }) : t.door.addSubFallback}
       />
       <Scroll bottom={120}>
-        <Label className="mb-2">Typ vrij — naam, +gasten, tier</Label>
+        <Label className="mb-2">{t.door.addInputLabel}</Label>
         <div className={cn('rounded-[16px] border bg-elev px-[15px] py-[14px] transition-colors', parsed ? 'border-acc' : 'border-line')}>
           <input
             autoFocus
@@ -104,7 +105,7 @@ export function AddOnSpot({ onBack }: { onBack: () => void }): JSX.Element {
             onKeyDown={(e) => {
               if (e.key === 'Enter' && canCommit) commit();
             }}
-            placeholder={'bv. "Juri Braakman +2 vip"'}
+            placeholder={t.door.addInputPlaceholder}
             className="w-full border-none bg-transparent font-display text-[18px] font-bold tracking-[-0.01em] text-text outline-none placeholder:text-faint"
           />
           {parsed && (
@@ -120,7 +121,7 @@ export function AddOnSpot({ onBack }: { onBack: () => void }): JSX.Element {
         {needsAsk && parsed?.ambiguous && (
           <div className="mt-3 rounded-[16px] bg-acc-dim p-[14px]">
             <div className="mb-[11px] text-[13.5px] leading-[1.45] text-text">
-              <b>“{parsed.ambiguous.text}”</b> herken ik niet. Wat bedoel je?
+              {fmt(t.door.ambiguity, { x: parsed.ambiguous.text })}
             </div>
             <div className="flex flex-col gap-2">
               {parsed.ambiguous.suggestions.map((s) => (
@@ -141,7 +142,7 @@ export function AddOnSpot({ onBack }: { onBack: () => void }): JSX.Element {
                 className="flex items-center gap-[10px] rounded-[12px] border border-line bg-bg px-[13px] py-[12px] text-text transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]"
               >
                 <span className="h-[10px] w-[10px] rounded-full" style={{ background: tierColor(defaultTierId ?? '') }} />
-                <span className="flex-1 text-left font-display text-[14.5px] font-bold">Regular</span>
+                <span className="flex-1 text-left font-display text-[14.5px] font-bold">{t.door.tierRegular}</span>
                 <Icon name="chev" size={16} className="text-ghost" />
               </button>
               <button
@@ -150,7 +151,7 @@ export function AddOnSpot({ onBack }: { onBack: () => void }): JSX.Element {
                 className="flex items-center gap-[10px] rounded-[12px] border border-line bg-bg px-[13px] py-[12px] text-text transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]"
               >
                 <Icon name="user" size={15} className="text-faint" />
-                <span className="flex-1 text-left font-display text-[14.5px] font-bold">Hoort bij de naam</span>
+                <span className="flex-1 text-left font-display text-[14.5px] font-bold">{t.door.ambiguityBelongsToName}</span>
                 <Icon name="chev" size={16} className="text-ghost" />
               </button>
             </div>
@@ -161,15 +162,15 @@ export function AddOnSpot({ onBack }: { onBack: () => void }): JSX.Element {
           <div className={cn('mt-3 flex items-center gap-[9px] rounded-[13px] px-[14px] py-[11px]', overQuota ? 'border border-acc bg-white/[0.04]' : 'border border-line bg-elev')}>
             <Icon name="ticket" size={17} stroke={overQuota ? '#B5A6FF' : 'rgba(255,255,255,0.40)'} />
             <span className="flex-1 text-[13.5px] text-text">
-              Kost <b>{cost}</b> {cost === 1 ? 'plek' : 'plekken'} · {Math.max(0, left - cost)} over na toevoegen
+              {fmt(t.door.quotaCost, { cost, unit: cost === 1 ? t.door.slotSingular : t.door.slotPlural, left: Math.max(0, left - cost) })}
             </span>
-            {overQuota && <MiniChip className="border-acc text-acc">Quotum vol</MiniChip>}
+            {overQuota && <MiniChip className="border-acc text-acc">{t.door.quotaFull}</MiniChip>}
           </div>
         )}
 
         {added.length > 0 && (
           <>
-            <Label className="mx-0.5 mb-[10px] mt-[22px]">Net toegevoegd · {added.length}</Label>
+            <Label className="mx-0.5 mb-[10px] mt-[22px]">{fmt(t.door.justAdded, { n: added.length })}</Label>
             <div className="flex flex-col gap-2">
               {added.map((r) => (
                 <div key={r.id} className="flex items-center gap-[11px] rounded-[14px] border border-line bg-elev p-[11px]">
@@ -186,7 +187,7 @@ export function AddOnSpot({ onBack }: { onBack: () => void }): JSX.Element {
                   </div>
                   <span className="inline-flex items-center gap-[5px] font-body text-[11.5px] font-bold text-acc">
                     <Icon name="check2" size={13} stroke="#B5A6FF" sw={2.4} />
-                    op lijst
+                    {t.door.onList}
                   </span>
                 </div>
               ))}
@@ -196,7 +197,9 @@ export function AddOnSpot({ onBack }: { onBack: () => void }): JSX.Element {
       </Scroll>
       <BottomBar>
         <Btn kind="primary" full icon="plus" onClick={commit} className={canCommit ? '' : 'opacity-[0.45]'}>
-          {parsed?.name ? `Voeg toe · ${parsed.name}${parsed.plusOnes ? ` +${parsed.plusOnes}` : ''}` : 'Typ een naam'}
+          {parsed?.name
+            ? fmt(t.door.addCommit, { name: `${parsed.name}${parsed.plusOnes ? ` +${parsed.plusOnes}` : ''}` })
+            : t.door.addTypeName}
         </Btn>
       </BottomBar>
     </div>

@@ -68,7 +68,7 @@ export function EventStatusControl({
           ))}
         </div>
       ) : (
-        <p className="text-faint text-sm">Geen statuswijzigingen beschikbaar.</p>
+        <p className="text-faint text-sm">No status changes available.</p>
       )}
 
       {confirming && (
@@ -82,7 +82,7 @@ export function EventStatusControl({
               disabled={pending}
               onClick={() => run(confirming.to)}
             >
-              {pending ? '…' : 'Bevestigen'}
+              {pending ? '…' : 'Confirm'}
             </button>
             <button
               type="button"
@@ -90,7 +90,7 @@ export function EventStatusControl({
               disabled={pending}
               onClick={() => setConfirming(null)}
             >
-              Annuleren
+              Cancel
             </button>
           </div>
         </div>

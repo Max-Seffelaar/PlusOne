@@ -75,7 +75,7 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
     .select('id, name, status, list_locked, allow_uncheck, venue_id')
     .eq('id', eventId)
     .single();
-  if (eventError || !event) throw new Error(eventError?.message ?? 'Event niet gevonden');
+  if (eventError || !event) throw new Error(eventError?.message ?? 'Event not found');
 
   // All three event-wide reads are ranged: at a busy door (1500+ guests) a single
   // `.select()` truncates at PostgREST's max-rows (1000) and the door silently

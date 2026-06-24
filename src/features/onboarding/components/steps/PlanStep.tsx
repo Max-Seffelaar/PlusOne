@@ -42,17 +42,17 @@ export function PlanStep({
       current={2}
       panel={
         <WizardPanel
-          title="Kies wat bij je past"
-          sub="Schaalt mee met je venue. Maandelijks opzegbaar — wissel later wanneer je wilt."
+          title="Pick what fits"
+          sub="Scales with your venue. Cancel monthly, switch whenever you like."
         />
       }
-      heading="Kies je abonnement"
-      sub="Je rondt de betaling later af; je venue draait meteen op een proefperiode."
+      heading="Pick your plan"
+      sub="You'll handle payment later. Your venue starts on a trial right away."
       footer={
         <>
           {error && <div className="mb-3 text-[13.5px] text-[#ff9b9b]">{error}</div>}
           <Btn kind="primary" full icon="arrowR" onClick={submit} disabled={pending}>
-            {pending ? 'Bezig…' : 'Doorgaan naar betaling'}
+            {pending ? 'Working…' : 'Continue to payment'}
           </Btn>
         </>
       }
@@ -86,7 +86,7 @@ export function PlanStep({
                   </span>
                   {plan.popular && (
                     <span className="rounded-[7px] bg-acc px-[8px] py-[3px] font-body text-[10.5px] font-bold uppercase tracking-[0.03em] text-on-acc">
-                      Populair
+                      Popular
                     </span>
                   )}
                 </div>

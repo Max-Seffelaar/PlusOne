@@ -11,6 +11,7 @@ import { useState, useTransition, type ReactNode } from 'react';
 import PhoneInput from 'react-phone-number-input/input';
 import { isValidPhoneNumber } from 'react-phone-number-input';
 import { cn } from '@/lib/utils';
+import { t, fmt } from '@/lib/i18n';
 import type { SubmitGuestRequestInput } from '@/features/requests/schemas';
 import { isValidEmail } from '@/features/requests/validation';
 import { CountrySelect, type CountryCode } from './country-select';
@@ -68,7 +69,7 @@ function LField({
     <div className="mb-[14px]">
       <div className="mb-[7px] flex items-center justify-between">
         <span className="text-[12px] font-bold uppercase tracking-[0.04em] text-faint">{label}</span>
-        {optional && <span className="text-[11.5px] text-ghost">optioneel</span>}
+        {optional && <span className="text-[11.5px] text-ghost">{t.landing.optional}</span>}
       </div>
       <div className={cn('flex gap-[11px] rounded-[14px] border bg-elev px-[15px] transition-colors focus-within:border-acc', error ? 'border-acc' : 'border-line', area ? 'items-start py-[13px]' : 'items-center py-[14px]')}>
         <span className={cn('text-faint', area && 'mt-0.5')}>
@@ -89,7 +90,7 @@ function Footer(): JSX.Element {
   return (
     <div className="mt-[22px] flex items-center justify-center gap-[7px] text-center text-[12px] text-ghost">
       <div className="flex h-[18px] w-[18px] items-center justify-center rounded-[6px] bg-elev2 font-display text-[9px] font-extrabold tracking-[-0.03em] text-faint">+1</div>
-      Gastenlijst geregeld via PLUSONE
+      {t.landing.footer}
     </div>
   );
 }
@@ -111,9 +112,9 @@ export function LandingClosed(): JSX.Element {
         <div className="mx-auto mb-5 flex h-[62px] w-[62px] items-center justify-center rounded-[20px] bg-elev2">
           <Icon name="clock" size={30} className="text-faint" />
         </div>
-        <h1 className="m-0 mb-[10px] font-display text-[26px] font-extrabold tracking-[-0.02em]">Aanvragen gesloten</h1>
+        <h1 className="m-0 mb-[10px] font-display text-[26px] font-extrabold tracking-[-0.02em]">{t.landing.closedTitle}</h1>
         <p className="mx-auto max-w-[330px] text-[15px] leading-[1.55] text-dim">
-          Deze aanmeldlink is niet (meer) actief. Vraag de organisatie om een actuele link.
+          {t.landing.closedBody}
         </p>
       </div>
       <Footer />
@@ -147,7 +148,7 @@ export function LandingForm({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const ok = name.trim().length > 1;
-  const first = name.trim().split(' ')[0] || 'gast';
+  const first = name.trim().split(' ')[0] || t.landing.nameFallback;
   const heads = 1 + plus;
 
   function submit(): void {
@@ -157,9 +158,9 @@ export function LandingForm({
     // Inline validation: e-mail (if given) and phone. libphonenumber validates
     // the number per the selected country (E.164); a wrong/incomplete one is
     // caught here before submit.
-    const eErr = email.trim() && !isValidEmail(email) ? 'Vul een geldig e-mailadres in.' : null;
+    const eErr = email.trim() && !isValidEmail(email) ? t.landing.emailError : null;
     const pErr =
-      phone && !isValidPhoneNumber(phone) ? 'Controleer je telefoonnummer (incl. landcode).' : null;
+      phone && !isValidPhoneNumber(phone) ? t.landing.phoneError : null;
     setEmailErr(eErr);
     setPhoneErr(pErr);
     if (eErr || pErr) return;
@@ -199,7 +200,7 @@ export function LandingForm({
     <div className="mb-[22px] text-center">
       <div className="mb-5 inline-flex items-center gap-2 rounded-full bg-acc-dim px-[13px] py-1.5">
         <div className="flex h-[22px] w-[22px] items-center justify-center rounded-[7px] bg-acc font-display text-[12px] font-extrabold tracking-[-0.03em] text-on-acc">+1</div>
-        <span className="font-body text-[12.5px] font-bold text-acc-soft">Gastenlijst-aanvraag</span>
+        <span className="font-body text-[12.5px] font-bold text-acc-soft">{fmt(t.landing.eyebrow, { event: event.name })}</span>
       </div>
       <h1 className="m-0 font-display text-[52px] font-extrabold leading-[0.95] tracking-[-0.03em]">{event.name}</h1>
       {event.line && <div className="mt-[14px] text-[14.5px] leading-[1.5] text-dim">{event.line}</div>}
@@ -207,13 +208,13 @@ export function LandingForm({
         {(
           [
             ['cal', event.date],
-            ['clock', 'deur ' + event.time],
+            ['clock', fmt(t.landing.doorsAt, { time: event.time })],
             ...(event.venue ? ([['pin', event.venue]] as [IconName, string][]) : []),
           ] as [IconName, string][]
-        ).map(([d, t]) => (
-          <span key={t} className="inline-flex items-center gap-[7px] rounded-[11px] border border-line bg-elev px-[13px] py-2 text-[13px] font-semibold text-dim">
+        ).map(([d, label]) => (
+          <span key={label} className="inline-flex items-center gap-[7px] rounded-[11px] border border-line bg-elev px-[13px] py-2 text-[13px] font-semibold text-dim">
             <Icon name={d} size={15} className="text-faint" />
-            {t}
+            {label}
           </span>
         ))}
       </div>
@@ -228,21 +229,23 @@ export function LandingForm({
           <div className="mx-auto mb-5 flex h-[62px] w-[62px] items-center justify-center rounded-[20px] bg-acc">
             <Icon name="check2" size={32} stroke="#16132B" sw={2.4} />
           </div>
-          <h2 className="m-0 mb-[10px] font-display text-[26px] font-extrabold tracking-[-0.02em]">Je aanvraag is in behandeling</h2>
+          <h2 className="m-0 mb-[10px] font-display text-[26px] font-extrabold tracking-[-0.02em]">{t.landing.successTitle}</h2>
           <p className="mx-auto max-w-[330px] text-[15px] leading-[1.55] text-dim">
-            Bedankt, <b className="text-text">{first}</b>
-            {plus > 0 && <span> (+{plus})</span>}. De organisatie van {event.name} beoordeelt je aanvraag.
+            {t.landing.successGreetPre}
+            <b className="text-text">{first}</b>
+            {plus > 0 && <span> {fmt(t.landing.successPlus, { n: plus })}</span>}
+            {fmt(t.landing.successReview, { event: event.name })}
           </p>
           <div className="mt-[22px] flex items-center gap-[11px] rounded-[14px] bg-acc-dim px-4 py-[14px] text-left">
             <Icon name="shield" size={18} stroke="#B5A6FF" />
-            <span className="text-[13px] leading-[1.4] text-text">Bewaar deze pagina niet als bewijs — check-in loopt op naam aan de deur.</span>
+            <span className="text-[13px] leading-[1.4] text-text">{t.landing.successInfo}</span>
           </div>
           <button
             type="button"
             onClick={reset}
             className={cn('mt-[18px] cursor-pointer border-none bg-transparent font-body text-[13.5px] font-semibold text-faint', press)}
           >
-            Nog iemand aanmelden
+            {t.landing.successReset}
           </button>
         </div>
         <Footer />
@@ -255,31 +258,31 @@ export function LandingForm({
     <Wrap>
       {Hero}
       <div className="rounded-[24px] border border-line bg-elev px-[22px] py-6">
-        <div className="mb-1 font-display text-[21px] font-extrabold tracking-[-0.01em]">Zet jezelf op de lijst</div>
-        <div className="mb-[14px] text-[13.5px] leading-[1.45] text-faint">Vul je naam in. De rest helpt de organisatie je sneller te herkennen aan de deur.</div>
+        <div className="mb-1 font-display text-[21px] font-extrabold tracking-[-0.01em]">{t.landing.formTitle}</div>
+        <div className="mb-[14px] text-[13.5px] leading-[1.45] text-faint">{t.landing.formSub}</div>
         {event.closes && (
           <div className="mb-[18px] inline-flex items-center gap-2 rounded-[11px] bg-acc-dim px-3 py-2">
             <Icon name="clock" size={14} stroke="#B5A6FF" />
-            <span className="text-[12.5px] font-semibold text-text">Aanmelden kan t/m {event.closes}</span>
+            <span className="text-[12.5px] font-semibold text-text">{fmt(t.landing.closesBanner, { closes: event.closes })}</span>
           </div>
         )}
 
-        <LField icon="user" label="Naam" value={name} set={setName} placeholder="Voor- en achternaam" />
+        <LField icon="user" label={t.landing.nameLabel} value={name} set={setName} placeholder={t.landing.namePlaceholder} />
 
         <div className="mb-[14px]">
           <div className="mb-[7px] flex items-center justify-between">
-            <span className="text-[12px] font-bold uppercase tracking-[0.04em] text-faint">Hoeveel kom je</span>
-            <span className="text-[11.5px] text-ghost">incl. jezelf</span>
+            <span className="text-[12px] font-bold uppercase tracking-[0.04em] text-faint">{t.landing.plusOnesLabel}</span>
+            <span className="text-[11.5px] text-ghost">{t.landing.plusOnesNote}</span>
           </div>
           <div className="flex items-center justify-between gap-[14px] rounded-[16px] bg-acc-dim p-[9px]">
-            <button type="button" onClick={() => setPlus(Math.max(0, plus - 1))} className={stepBtn} aria-label="Minder">
+            <button type="button" onClick={() => setPlus(Math.max(0, plus - 1))} className={stepBtn} aria-label={t.landing.stepLessAria}>
               <Icon name="minus" size={20} sw={2.4} />
             </button>
             <div className="text-center">
               <div className="font-display text-[26px] font-extrabold leading-none">{heads}</div>
-              <div className="mt-0.5 text-[11px] text-dim">{heads === 1 ? 'persoon' : 'personen'}</div>
+              <div className="mt-0.5 text-[11px] text-dim">{heads === 1 ? t.landing.personSingular : t.landing.personPlural}</div>
             </div>
-            <button type="button" onClick={() => setPlus(plus + 1)} className={stepBtn} aria-label="Meer">
+            <button type="button" onClick={() => setPlus(plus + 1)} className={stepBtn} aria-label={t.landing.stepMoreAria}>
               <Icon name="plus" size={20} sw={2.4} stroke="#B5A6FF" />
             </button>
           </div>
@@ -287,13 +290,13 @@ export function LandingForm({
 
         <LField
           icon="mail"
-          label="E-mail"
+          label={t.landing.emailLabel}
           value={email}
           set={(v) => {
             setEmail(v);
             if (emailErr) setEmailErr(null);
           }}
-          placeholder="jij@voorbeeld.nl"
+          placeholder={t.landing.emailPlaceholder}
           type="email"
           inputMode="email"
           optional
@@ -301,8 +304,8 @@ export function LandingForm({
         />
         <div className="mb-[14px]">
           <div className="mb-[7px] flex items-center justify-between">
-            <span className="text-[12px] font-bold uppercase tracking-[0.04em] text-faint">Telefoon</span>
-            <span className="text-[11.5px] text-ghost">optioneel</span>
+            <span className="text-[12px] font-bold uppercase tracking-[0.04em] text-faint">{t.landing.phoneLabel}</span>
+            <span className="text-[11.5px] text-ghost">{t.landing.optional}</span>
           </div>
           <div className={cn('flex items-center gap-[8px] rounded-[14px] border bg-elev py-[10px] pl-[9px] pr-[15px] transition-colors focus-within:border-acc', phoneErr ? 'border-acc' : 'border-line')}>
             <CountrySelect
@@ -323,14 +326,14 @@ export function LandingForm({
                 setPhone(v);
                 if (phoneErr) setPhoneErr(null);
               }}
-              aria-label="Telefoonnummer"
-              placeholder="6 12 34 56 78"
+              aria-label={t.landing.phoneAria}
+              placeholder={t.landing.phonePlaceholder}
               className="min-w-0 flex-1 border-none bg-transparent text-[16px] text-text outline-none placeholder:text-faint"
             />
           </div>
           {phoneErr && <FieldError text={phoneErr} />}
         </div>
-        <LField icon="note" label="Bericht" value={motiv} set={setMotiv} placeholder="bv. vriend van de DJ, verjaardag…" optional area />
+        <LField icon="note" label={t.landing.messageLabel} value={motiv} set={setMotiv} placeholder={t.landing.messagePlaceholder} optional area />
 
         <button
           type="button"
@@ -342,8 +345,8 @@ export function LandingForm({
             {marketing && <Icon name="check" size={12} stroke="#16132B" sw={3} />}
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block font-display text-[13.5px] font-bold text-text">Houd me op de hoogte</span>
-            <span className="mt-px block text-[11.5px] leading-[1.4] text-faint">Ja, de organisatie mag mijn gegevens gebruiken om me te informeren over komende events.</span>
+            <span className="block font-display text-[13.5px] font-bold text-text">{t.landing.marketingTitle}</span>
+            <span className="mt-px block text-[11.5px] leading-[1.4] text-faint">{t.landing.marketingSub}</span>
           </span>
         </button>
 
@@ -362,7 +365,7 @@ export function LandingForm({
           className={cn('mt-1.5 inline-flex w-full items-center justify-center gap-[9px] rounded-[14px] border-none bg-acc px-4 py-4 font-display text-[16px] font-bold tracking-[-0.01em] text-on-acc', press, ok && !pending ? 'cursor-pointer' : 'cursor-not-allowed opacity-[0.45]')}
         >
           <Icon name="check2" size={19} sw={2.2} />
-          {pending ? 'Versturen…' : 'Verstuur aanvraag'}
+          {pending ? t.landing.submitting : t.landing.submit}
         </button>
         {error && (
           <div className="mt-[12px] flex items-start gap-2 rounded-[12px] border border-line bg-bg px-3 py-[11px]">
@@ -372,7 +375,7 @@ export function LandingForm({
         )}
         <div className="mt-[14px] flex items-start gap-2">
           <Icon name="shield" size={14} className="text-ghost" />
-          <span className="text-[11.5px] leading-[1.45] text-ghost">Je gegevens gaan alleen naar de organisatie van dit event en worden na het bewaartermijn automatisch geanonimiseerd. Geen account nodig.</span>
+          <span className="text-[11.5px] leading-[1.45] text-ghost">{t.landing.privacyNote}</span>
         </div>
       </div>
       <Footer />

@@ -1,5 +1,5 @@
-// Plan catalog — the single source of truth for the onboarding "Kies je
-// abonnement" cards AND the Zod enum that validates a chosen plan. Billing is
+// Plan catalog — the single source of truth for the onboarding "Pick your
+// plan" cards AND the Zod enum that validates a chosen plan. Billing is
 // stubbed for MVP (#32/#40c): picking a plan only writes a subscriptions row
 // (trialing/comped), no Stripe call happens yet. Keep this module pure (no
 // server-only imports) so client and server can both read it.
@@ -10,34 +10,34 @@ export type PlanId = (typeof PLAN_IDS)[number];
 export interface Plan {
   id: PlanId;
   name: string;
-  /** Monthly price in euro; 0 = gratis, null = "op aanvraag" (Pro). */
+  /** Monthly price in euro; 0 = free, null = "on request" (Pro). */
   priceEur: number | null;
   features: string[];
   popular: boolean;
 }
 
-// Copy mirrors the onboarding "Plan kiezen" mockup. Pro pricing is intentionally
-// "op aanvraag" until the billing-fase (#32) fixes the real Stripe prices.
+// Copy mirrors the onboarding "Pick your plan" mockup. Pro pricing is intentionally
+// "on request" until the billing-fase (#32) fixes the real Stripe prices.
 export const PLANS: readonly Plan[] = [
   {
     id: 'indie',
     name: 'Indie',
     priceEur: 0,
-    features: ['Check-in aan de deur', 'Eén actief event'],
+    features: ['Check-in at the door', 'One active event'],
     popular: false,
   },
   {
     id: 'premium',
     name: 'Premium',
     priceEur: 49,
-    features: ['Onbeperkte events', 'Tot 3 venues'],
+    features: ['Unlimited events', 'Up to 3 venues'],
     popular: true,
   },
   {
     id: 'pro',
     name: 'Pro',
     priceEur: null,
-    features: ['Alles uit Premium', 'Onbeperkt venues', 'Priority support'],
+    features: ['Everything in Premium', 'Unlimited venues', 'Priority support'],
     popular: false,
   },
 ];
@@ -57,7 +57,7 @@ export function getPlan(id: PlanId): Plan {
 
 /** Short price label for the plan cards. */
 export function planPriceLabel(plan: Plan): string {
-  if (plan.priceEur === null) return 'Op aanvraag';
-  if (plan.priceEur === 0) return 'Gratis';
-  return `€${plan.priceEur}/mnd`;
+  if (plan.priceEur === null) return 'On request';
+  if (plan.priceEur === 0) return 'Free';
+  return `€${plan.priceEur}/mo`;
 }

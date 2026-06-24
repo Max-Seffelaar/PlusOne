@@ -72,10 +72,10 @@ export function tierRole(name: string): { label: string; icon: IconName } {
   if (n.includes('all access') || n.includes('allaccess') || n.includes('access'))
     return { label: 'All Access', icon: 'shield' };
   if (n.includes('artist') || n.includes('artiest') || n.includes('dj')) return { label: 'Artist', icon: 'star' };
-  if (n.includes('pers') || n.includes('press') || n.includes('media')) return { label: 'Pers', icon: 'note' };
+  if (n.includes('pers') || n.includes('press') || n.includes('media')) return { label: 'Press', icon: 'note' };
   if (n.includes('crew') || n.includes('prod') || n.includes('staff')) return { label: 'Crew', icon: 'users' };
   // Free-form tier: show its own (short) name, generic glyph.
-  return { label: name.length > 0 && name.length <= 16 ? name : 'Gast', icon: 'user' };
+  return { label: name.length > 0 && name.length <= 16 ? name : 'Guest', icon: 'user' };
 }
 
 export function lastFour(phone: string | null): string | null {
@@ -85,11 +85,11 @@ export function lastFour(phone: string | null): string | null {
 }
 
 export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' });
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
 export function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 
 /** Earliest check-in per guest (the first wins, decision #11). */
@@ -122,7 +122,7 @@ function toDoorGuest(
     tierName: role.label,
     tierColor: tier?.color ?? FALLBACK_TIER_COLOR,
     tierIcon: role.icon,
-    addedByName: profiles[g.added_by] ?? 'Onbekend',
+    addedByName: profiles[g.added_by] ?? 'Unknown',
     addedAt: formatDate(g.created_at),
     last4: lastFour(g.phone),
     note: g.note,
@@ -133,7 +133,7 @@ function toDoorGuest(
     voided: ci != null && ci.voided_at != null,
     pay: false,
     inAt: active ? formatTime(ci.checked_at) : undefined,
-    inByName: active ? profiles[ci.checked_by] ?? 'Deur' : undefined,
+    inByName: active ? profiles[ci.checked_by] ?? 'Door' : undefined,
     arrived: active ? ci.plus_ones_arrived : undefined,
     refused: g.status === 'refused',
     refusedReason,

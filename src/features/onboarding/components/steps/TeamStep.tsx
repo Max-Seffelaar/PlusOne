@@ -69,7 +69,7 @@ export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
           if (res.error && /MFA|authenticator/i.test(res.error)) {
             blocked = true;
           } else {
-            setError(res.error ?? 'Kon de uitnodiging niet versturen.');
+            setError(res.error ?? "Couldn't send the invite.");
             return;
           }
         }
@@ -87,23 +87,23 @@ export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
       current={3}
       panel={
         <WizardPanel
-          title="Beter met je team"
-          sub="Geef hosts en managers toegang met de juiste rollen en quota."
+          title="Better with your team"
+          sub="Give hosts and managers access with the right roles and quota."
           bullets={[
-            'Rollen bepalen wie wat mag',
-            'Uitnodigen kan ook later',
-            'Teamleden krijgen een eigen magic link per e-mail',
+            'Roles decide who can do what',
+            'You can invite people later too',
+            'Team members get their own magic link by email',
           ]}
         />
       }
-      heading="Nodig je team uit"
-      sub="Voeg hosts en managers toe. Of sla over en doe het later vanuit Team."
+      heading="Invite your team"
+      sub="Add hosts and managers. Or skip and do it later from Team."
       footer={
         <div className="flex flex-col gap-[10px]">
           {error && <div className="text-[13.5px] text-[#ff9b9b]">{error}</div>}
           {mfaBlocked ? (
             <Btn kind="primary" full icon="arrowR" onClick={() => startTransition(finish)} disabled={pending}>
-              {pending ? 'Bezig…' : 'Doorgaan naar dashboard'}
+              {pending ? 'Working…' : 'Continue to dashboard'}
             </Btn>
           ) : (
             <Btn
@@ -114,19 +114,19 @@ export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
               disabled={pending || validRows.length === 0}
               className={validRows.length === 0 ? 'opacity-[0.45]' : ''}
             >
-              {pending ? 'Bezig…' : 'Uitnodigingen versturen'}
+              {pending ? 'Working…' : 'Send invites'}
             </Btn>
           )}
           <Btn kind="quiet" full onClick={skip} disabled={pending}>
-            Overslaan
+            Skip
           </Btn>
         </div>
       }
     >
       {mfaBlocked && (
         <Note icon="shield">
-          Stel eerst tweestapsverificatie in om teamleden uit te nodigen — dat is verplicht voor het
-          toekennen van rollen (AAL2). Je rondt onboarding nu af en nodigt je team daarna uit vanuit
+          Set up two-factor first to invite team members. It&apos;s required for granting roles (AAL2).
+          You&apos;ll finish onboarding now and invite your team afterwards from
           <b> Team</b>.
         </Note>
       )}
@@ -135,14 +135,14 @@ export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
         {rows.map((r) => (
           <div key={r.id} className="rounded-[16px] border border-line bg-elev p-[14px]">
             <div className="mb-[10px] flex items-center justify-between">
-              <Label>Rol</Label>
+              <Label>Role</Label>
               {rows.length > 1 && (
                 <button
                   type="button"
                   onClick={() => removeRow(r.id)}
                   className={cn('text-[12.5px] font-semibold text-faint', press)}
                 >
-                  Verwijderen
+                  Remove
                 </button>
               )}
             </div>
@@ -166,7 +166,7 @@ export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
             </div>
             <Field
               icon="mail"
-              placeholder="naam@venue.nl"
+              placeholder="name@venue.com"
               value={r.email}
               onChange={(v) => update(r.id, { email: v })}
               inputMode="email"
@@ -183,7 +183,7 @@ export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
           press
         )}
       >
-        Nog iemand toevoegen
+        Add someone else
       </button>
     </WizardShell>
   );

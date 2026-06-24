@@ -34,23 +34,23 @@ export function EventForm(props: Props): JSX.Element {
 
     const startIso = localInputToIso(startsAt);
     if (!startIso) {
-      setError('Vul een geldige startdatum en -tijd in.');
+      setError('Enter a valid start date and time.');
       return;
     }
     const endIso = localInputToIso(endsAt);
     if (endsAt && !endIso) {
-      setError('Vul een geldige einddatum en -tijd in.');
+      setError('Enter a valid end date and time.');
       return;
     }
     if (endIso && endIso <= startIso) {
-      setError('Het einde moet ná de start liggen.');
+      setError('The end has to be after the start.');
       return;
     }
 
     startTransition(async () => {
       if (props.mode === 'create') {
         if (!venueId) {
-          setError('Kies een venue.');
+          setError('Pick a venue.');
           return;
         }
         const res = await createEvent({
@@ -91,31 +91,31 @@ export function EventForm(props: Props): JSX.Element {
       )}
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="label">Naam</span>
+        <span className="label">Name</span>
         <input
           className="field"
           value={name}
           autoComplete="off"
-          placeholder="bv. PLUSONE Launch Night"
+          placeholder="e.g. PlusOne Launch Night"
           onChange={(e) => setName(e.target.value)}
         />
       </label>
 
       <div className="flex flex-col gap-3 sm:flex-row">
         <div className="flex flex-1 flex-col gap-1 text-sm">
-          <span className="label">Start (deur open)</span>
-          <DateTimeField value={startsAt} onChange={setStartsAt} placeholder="Kies start" />
+          <span className="label">Doors open</span>
+          <DateTimeField value={startsAt} onChange={setStartsAt} placeholder="Pick start" />
         </div>
         <div className="flex flex-1 flex-col gap-1 text-sm">
           <span className="label">
-            Einde <span className="text-faint normal-case">(optioneel)</span>
+            End <span className="text-faint normal-case">(optional)</span>
           </span>
-          <DateTimeField value={endsAt} onChange={setEndsAt} placeholder="Kies einde" allowClear />
+          <DateTimeField value={endsAt} onChange={setEndsAt} placeholder="Pick end" allowClear />
         </div>
       </div>
       <p className="text-faint text-xs">
-        Loopt het event over middernacht? Vul gewoon de echte eindtijd in — alles hangt aan het
-        event, niet de kalenderdag.
+        Event runs past midnight? Just enter the real end time. Everything hangs on the event, not
+        the calendar day.
       </p>
 
       {isCreate && (
@@ -126,7 +126,7 @@ export function EventForm(props: Props): JSX.Element {
             checked={landingActive}
             onChange={(e) => setLandingActive(e.target.checked)}
           />
-          Aanvraaglink meteen activeren
+          Activate the request link right away
         </label>
       )}
 
@@ -137,9 +137,9 @@ export function EventForm(props: Props): JSX.Element {
           disabled={pending}
           onClick={submit}
         >
-          {pending ? '…' : isCreate ? 'Event aanmaken' : 'Opslaan'}
+          {pending ? '…' : isCreate ? 'Create event' : 'Save event'}
         </button>
-        {saved && <span className="text-acc text-sm">Opgeslagen.</span>}
+        {saved && <span className="text-acc text-sm">Saved.</span>}
       </div>
 
       {error && (

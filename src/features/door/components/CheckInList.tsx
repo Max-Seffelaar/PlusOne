@@ -15,6 +15,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
+import { t, fmt } from '@/lib/i18n';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { Icon } from '@/components/po/icon';
 import { Avatar, Label, PayChip, StatusDot, Top } from '@/components/po/kit';
@@ -32,9 +33,9 @@ const GUEST_EST = 86;
 
 function Seg({ value, onChange }: { value: Filter; onChange: (v: Filter) => void }): JSX.Element {
   const items: [Filter, string][] = [
-    ['both', 'Beide'],
-    ['wait', 'Onderweg'],
-    ['in', 'Ingecheckt'],
+    ['both', t.door.filterAll],
+    ['wait', t.door.filterOnTheWay],
+    ['in', t.door.filterInside],
   ];
   return (
     <div className="flex flex-none gap-1.5 px-5 pb-[14px]">
@@ -76,7 +77,7 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
     <div className="flex h-full flex-col">
       <Top
         big
-        title="Check-in"
+        title={t.door.checkinTitle}
         sub={`${view.event.name}${view.event.venueName ? ` · ${view.event.venueName}` : ''}`}
       />
       {/* Both units side by side (S1.3): the big number is gasten (rows — the
@@ -85,13 +86,13 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
       <div className="flex flex-none gap-[10px] px-5 pb-[14px]">
         <div className="flex-1 rounded-[14px] border border-line bg-elev px-[14px] py-[12px]">
           <div className="font-display text-[26px] font-extrabold leading-none text-text">{view.waitingCount}</div>
-          <div className="mt-1 text-[12px] text-faint">gasten onderweg</div>
-          <div className="mt-0.5 text-[11px] text-ghost">{view.waitingHeadcount} koppen</div>
+          <div className="mt-1 text-[12px] text-faint">{t.door.statOnTheWay}</div>
+          <div className="mt-0.5 text-[11px] text-ghost">{fmt(t.door.headcountSub, { n: view.waitingHeadcount })}</div>
         </div>
         <div className="flex-1 rounded-[14px] bg-acc-dim px-[14px] py-[12px]">
           <div className="font-display text-[26px] font-extrabold leading-none text-acc">{view.insideCount}</div>
-          <div className="mt-1 text-[12px] text-dim">gasten binnen</div>
-          <div className="mt-0.5 text-[11px] text-faint">{view.insideHeadcount} koppen</div>
+          <div className="mt-1 text-[12px] text-dim">{t.door.statInside}</div>
+          <div className="mt-0.5 text-[11px] text-faint">{fmt(t.door.headcountSub, { n: view.insideHeadcount })}</div>
         </div>
       </div>
       <div className="flex-none px-5 pb-3">
@@ -102,14 +103,14 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Typ de naam van de gast…"
+            placeholder={t.door.searchPlaceholder}
             autoFocus
             className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none placeholder:text-faint"
           />
           <button
             type="button"
             onClick={onAdd}
-            aria-label="Gast ter plekke toevoegen"
+            aria-label={t.door.addOnSpotAria}
             className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-[9px] bg-text text-bg transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.94]"
           >
             <Icon name="plus" size={18} sw={2.4} />
@@ -170,16 +171,16 @@ function VirtualBody({
     <div ref={scrollRef} className="po-scroll min-h-0 flex-1 overflow-y-auto" style={{ padding: '0 20px 100px' }}>
       <Label className="mb-[10px]">
         {q
-          ? `${matchedCount} gevonden`
+          ? fmt(t.door.resultFound, { n: matchedCount })
           : filter === 'in'
-            ? `${view.insideCount} ingecheckt`
+            ? fmt(t.door.countCheckedIn, { n: view.insideCount })
             : filter === 'wait'
-              ? `${view.waitingCount} nog aan de deur`
-              : 'Volgende aan de deur'}
+              ? fmt(t.door.countStillAtDoor, { n: view.waitingCount })
+              : t.door.nextAtDoor}
       </Label>
       {items.length === 0 ? (
         <div className="py-[30px] text-center text-[14px] text-faint">
-          {q ? 'Geen gast gevonden.' : filter === 'in' ? 'Nog niemand ingecheckt.' : 'Iedereen is binnen 🎉'}
+          {q ? t.door.emptySearch : filter === 'in' ? t.door.emptyNoneInside : t.door.emptyEveryoneIn}
         </div>
       ) : (
         <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
@@ -247,18 +248,18 @@ function guestRow(
           {g.pay && !g.inside && <PayChip pay="pay" />}
           {isDuplicate && (
             <span className="rounded-[6px] border border-dashed border-line px-[7px] py-[2px] font-body text-[10px] font-bold tracking-[0.03em] text-faint">
-              DUPLICAAT
+              {t.door.duplicate}
             </span>
           )}
         </div>
         <div className="mt-[5px] truncate font-body text-[11.5px]">
           {partly ? (
             <span className="font-semibold text-acc">
-              {1 + (g.arrived ?? 0)}/{1 + g.plus} binnen · nog {remaining} onderweg
+              {fmt(t.door.partlyInside, { arrived: 1 + (g.arrived ?? 0), total: 1 + g.plus, n: remaining })}
             </span>
           ) : (
             <span className="text-faint">
-              door {g.addedByName}
+              {t.door.logBy} {g.addedByName}
               {g.last4 && ` · ••${g.last4}`}
             </span>
           )}
@@ -266,7 +267,7 @@ function guestRow(
       </div>
       {partly ? (
         <span className="shrink-0 rounded-[8px] bg-acc px-[10px] py-[6px] font-display text-[12px] font-bold text-on-acc">
-          nog {remaining}
+          {fmt(t.door.partlyBadge, { n: remaining })}
         </span>
       ) : fully ? (
         <StatusDot status="in" label={false} />
@@ -289,7 +290,7 @@ function refusedRow(g: DoorGuest, undoRefusal: (id: string) => void): JSX.Elemen
           {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
         </div>
         <div className="mt-[5px] truncate font-body text-[11.5px] text-faint">
-          Geweigerd{g.refusedReason ? ` · ${g.refusedReason}` : ''}
+          {g.refusedReason ? fmt(t.door.refusedWithReason, { reason: g.refusedReason }) : t.door.refused}
         </div>
       </div>
       <button
@@ -297,7 +298,7 @@ function refusedRow(g: DoorGuest, undoRefusal: (id: string) => void): JSX.Elemen
         onClick={() => undoRefusal(g.id)}
         className="shrink-0 rounded-[10px] border border-acc-soft bg-acc-dim px-[12px] py-[8px] font-display text-[12px] font-bold text-acc transition-[filter,transform] hover:brightness-[1.12] active:scale-[0.97]"
       >
-        Ongedaan
+        {t.door.undo}
       </button>
     </div>
   );
@@ -311,7 +312,7 @@ function refusedRow(g: DoorGuest, undoRefusal: (id: string) => void): JSX.Elemen
 function ListSkeleton(): JSX.Element {
   return (
     <div className="flex h-full flex-col">
-      <Top big title="Check-in" sub="Laden…" />
+      <Top big title={t.door.checkinTitle} sub={t.door.loadingSub} />
       {/* stat tiles (height matches the loaded gasten + koppen tiles → no CLS) */}
       <div className="flex flex-none gap-[10px] px-5 pb-[14px]">
         <div className="h-[81px] flex-1 animate-pulse rounded-[14px] border border-line bg-elev" />

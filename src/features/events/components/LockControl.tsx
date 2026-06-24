@@ -43,7 +43,7 @@ export function LockControl({
     setError(null);
     const iso = localInputToIso(autoInput);
     if (!iso) {
-      setError('Kies een geldige datum en tijd voor de auto-lock.');
+      setError('Pick a valid date and time for the auto-lock.');
       return;
     }
     startTransition(async () => {
@@ -65,11 +65,11 @@ export function LockControl({
     <section className="card flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="label">Lijst-lock</h2>
+          <h2 className="label">List lock</h2>
           <p className="text-dim mt-0.5 text-sm">
             {locked
-              ? 'Handmatig vergrendeld. Staff kan niet meer muteren.'
-              : 'Open. Typisch vergrendel je bij deuropening.'}
+              ? "Locked manually. Staff can't make changes."
+              : 'Open. You usually lock it when doors open.'}
           </p>
         </div>
         <button
@@ -78,19 +78,19 @@ export function LockControl({
           onClick={toggleManual}
           className="btn-primary text-sm disabled:opacity-50"
         >
-          {locked ? 'Ontgrendelen' : 'Vergrendelen'}
+          {locked ? 'Unlock' : 'Lock'}
         </button>
       </div>
 
       <div className="border-line2 flex flex-col gap-2 border-t pt-3">
-        <span className="label">Automatisch vergrendelen op tijd</span>
+        <span className="label">Auto-lock at a set time</span>
         <p className="text-faint text-xs">
-          Vanaf dit moment kan staff niets meer toevoegen of wijzigen (admin, organisator en doorhost
-          wel).
+          From that moment, staff can&apos;t add or change anything (admin, organizer, and door host
+          still can).
         </p>
         {autoActive && (
           <p className="text-dim text-sm">
-            {autoPassed ? 'Automatisch vergrendeld sinds ' : 'Vergrendelt automatisch op '}
+            {autoPassed ? 'Auto-locked since ' : 'Auto-locks at '}
             <span className="text-text font-semibold">
               {formatEventDate(autoLockAt)} · {formatEventTime(autoLockAt)}
             </span>
@@ -99,7 +99,7 @@ export function LockControl({
         )}
         <div className="flex flex-wrap items-center gap-2">
           <div className="min-w-[14rem] flex-1">
-            <DateTimeField value={autoInput} onChange={setAutoInput} placeholder="Kies datum en tijd" allowClear />
+            <DateTimeField value={autoInput} onChange={setAutoInput} placeholder="Pick date and time" allowClear />
           </div>
           <button
             type="button"
@@ -107,11 +107,11 @@ export function LockControl({
             onClick={saveAuto}
             className="btn-secondary text-sm disabled:opacity-50"
           >
-            {autoActive ? 'Bijwerken' : 'Instellen'}
+            {autoActive ? 'Update' : 'Set'}
           </button>
           {autoActive && (
             <button type="button" disabled={pending} onClick={clearAuto} className="btn-ghost text-sm">
-              Uitzetten
+              Turn off
             </button>
           )}
         </div>

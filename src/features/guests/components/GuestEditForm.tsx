@@ -82,12 +82,12 @@ export function GuestEditForm({ guest, tiers }: GuestEditFormProps) {
   return (
     <div className="card flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <p className="label">Gast bewerken</p>
-        {removed && <span className="text-xs text-faint">Verwijderd</span>}
+        <p className="label">Edit guest</p>
+        {removed && <span className="text-xs text-faint">Removed</span>}
       </div>
 
       <label className="flex flex-col gap-1 text-sm">
-        Naam
+        Name
         <input className="field" value={fullName} onChange={(e) => setFullName(e.target.value)} />
       </label>
 
@@ -117,45 +117,45 @@ export function GuestEditForm({ guest, tiers }: GuestEditFormProps) {
 
       <div className="flex flex-wrap gap-3">
         <label className="flex flex-1 flex-col gap-1 text-sm">
-          E-mail <span className="text-faint">(optioneel)</span>
+          Email <span className="text-faint">(optional)</span>
           <input className="field" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
         </label>
         <label className="flex flex-1 flex-col gap-1 text-sm">
-          Telefoon <span className="text-faint">(optioneel)</span>
+          Phone <span className="text-faint">(optional)</span>
           <input className="field" value={phone} onChange={(e) => setPhone(e.target.value)} />
         </label>
       </div>
 
       <label className="flex flex-col gap-1 text-sm">
-        Notitie
+        Note
         <textarea className="field min-h-[3rem]" value={note} onChange={(e) => setNote(e.target.value)} />
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        Prioriteit notitie
+        Note priority
         <select
           className="field w-40"
           value={notePriority}
           onChange={(e) => setNotePriority(e.target.value as EditableGuest['note_priority'])}
         >
-          <option value="none">Geen</option>
-          <option value="low">Laag</option>
-          <option value="high">Hoog — Let op!</option>
+          <option value="none">None</option>
+          <option value="low">Low</option>
+          <option value="high">High · heads up</option>
         </select>
       </label>
 
       <div className="flex flex-wrap gap-2">
         <button type="button" className="btn-primary disabled:opacity-50" disabled={pending} onClick={save}>
-          {pending ? '…' : 'Opslaan'}
+          {pending ? '…' : 'Save'}
         </button>
         {!removed && (
           <button type="button" className="btn-ghost" disabled={pending} onClick={remove}>
-            Verwijderen
+            Remove guest
           </button>
         )}
       </div>
 
-      {saved && <p className="text-sm text-acc">Opgeslagen.</p>}
+      {saved && <p className="text-sm text-acc">Saved.</p>}
       {error && <p className="text-sm text-acc-soft">{error}</p>}
     </div>
   );

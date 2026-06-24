@@ -25,7 +25,7 @@ export function AuditTable({
   if (lines.length === 0) {
     return (
       <DCard className="p-8 text-center text-[14px] text-faint">
-        Geen log-regels voor deze filters.
+        Nothing logged for these filters.
       </DCard>
     );
   }
@@ -33,7 +33,7 @@ export function AuditTable({
   return (
     <DCard className="overflow-hidden p-0">
       <div className={cn('grid border-b border-line bg-bg px-[22px] py-[13px]', AUDIT_GRID)}>
-        {['Wie', 'Actie', 'Wat', 'Wanneer', 'Device'].map((h) => (
+        {['Who', 'Action', 'What', 'When', 'Device'].map((h) => (
           <Label key={h}>{h}</Label>
         ))}
       </div>
@@ -60,7 +60,7 @@ export function AuditTable({
                 href={`/admin/audit?venue=${venueId}&guest=${a.guestId}`}
                 className="ml-2 whitespace-nowrap text-[12.5px] text-acc-soft underline-offset-2 hover:underline"
               >
-                geschiedenis
+                timeline
               </Link>
             )}
           </div>
@@ -75,7 +75,7 @@ export function AuditTable({
       ))}
       <div className="flex items-center gap-2 border-t border-line2 px-[22px] py-3 text-[12px] text-faint">
         <Icon name="shield" size={14} className="text-faint" />
-        Append-only · geschreven door database-triggers, nooit door app-code (#15). Inzage vereist
+        Append-only · written by database triggers, never by app code (#15). Access requires
         Admin/Finance + MFA.
       </div>
     </DCard>

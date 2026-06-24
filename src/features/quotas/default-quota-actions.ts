@@ -39,7 +39,7 @@ export async function setDefaultQuotaAction(
   formData: FormData
 ): Promise<ActionState> {
   const user = await getSessionUser();
-  if (!user) return { ok: false, error: 'Je bent niet ingelogd.' };
+  if (!user) return { ok: false, error: "You're not logged in." };
 
   const parsed = defaultQuotaSchema.safeParse({
     venueId: formData.get('venueId'),
@@ -47,7 +47,7 @@ export async function setDefaultQuotaAction(
     defaultCount: formData.get('defaultCount'),
   });
   if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Controleer de invoer.' };
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Check your details.' };
   }
   const { venueId, userId, defaultCount } = parsed.data;
 
@@ -59,8 +59,8 @@ export async function setDefaultQuotaAction(
         ok: false,
         error:
           e.reason === 'aal2_required'
-            ? 'Deze actie vereist MFA. Verifieer eerst met je authenticator.'
-            : 'Je bent niet ingelogd.',
+            ? 'This action needs MFA. Verify with your authenticator first.'
+            : "You're not logged in.",
       };
     }
     throw e;
@@ -68,7 +68,7 @@ export async function setDefaultQuotaAction(
 
   const callerRoles = await callerRolesAt(venueId, user.id);
   if (!callerRoles.includes('admin')) {
-    return { ok: false, error: 'Alleen een beheerder kan toelages instellen.' };
+    return { ok: false, error: 'Only an admin can set allowances.' };
   }
 
   const supabase = await createClient();
@@ -78,9 +78,9 @@ export async function setDefaultQuotaAction(
 
   if (error) {
     console.error('setDefaultQuota: upsert failed', error.message);
-    return { ok: false, error: 'Kon de toelage niet opslaan (geen toegang of MFA vereist).' };
+    return { ok: false, error: "Couldn't save the allowance (no access, or MFA required)." };
   }
 
   revalidatePath('/admin/venue');
-  return { ok: true, message: 'Toelage opgeslagen.' };
+  return { ok: true, message: 'Allowance saved.' };
 }

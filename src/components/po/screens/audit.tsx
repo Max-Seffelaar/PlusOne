@@ -10,6 +10,7 @@
  *  Meer hub. */
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { fmt, t } from '@/lib/i18n';
 import { formatWhen, type AuditLine } from '@/features/audit/translate';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { usePoAal2, usePoAuditFeed, usePoAuditFilterOptions, usePoGuestHistory } from '@/features/po/hooks';
@@ -66,9 +67,9 @@ export function AuditLog({ eventId }: { eventId?: string }): JSX.Element {
   if (!canAudit) {
     return (
       <div className={col}>
-        <Top onBack={nav.back} title="Audit log" />
+        <Top onBack={nav.back} title={t.audit.title} />
         <Scroll bottom={28}>
-          <Empty text="Je hebt geen rechten om het audit log in te zien." />
+          <Empty text={t.audit.noRights} />
         </Scroll>
       </div>
     );
@@ -87,7 +88,7 @@ export function AuditLog({ eventId }: { eventId?: string }): JSX.Element {
     <div className={col}>
       <Top
         onBack={nav.back}
-        title="Audit log"
+        title={t.audit.title}
         sub={venueName ?? undefined}
         right={
           aal.isAal2 ? (
@@ -96,7 +97,7 @@ export function AuditLog({ eventId }: { eventId?: string }): JSX.Element {
               <button
                 type="button"
                 onClick={() => setSheetOpen(true)}
-                aria-label="Filteren"
+                aria-label={t.audit.filterAria}
                 className={cn(
                   'relative flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border bg-elev text-text',
                   press,
@@ -113,34 +114,29 @@ export function AuditLog({ eventId }: { eventId?: string }): JSX.Element {
         }
       />
       <Scroll bottom={28}>
-        <Note icon="shield">
-          Onveranderlijk logboek — geschreven door database-triggers, nooit door app-code (#15). Inzage
-          vereist Beheerder/Financiën + MFA.
-        </Note>
+        <Note icon="shield">{t.audit.immutableNote}</Note>
 
         {!aal.isAal2 ? (
           aal.loading ? (
-            <Empty text="Laden…" />
+            <Empty text={t.audit.loading} />
           ) : (
             <div className="rounded-[18px] border border-acc-dim bg-acc-dim p-5">
               <div className="mb-1 flex items-center gap-[10px]">
                 <Icon name="shield" size={20} stroke="#B5A6FF" />
-                <span className="font-display text-[16px] font-bold text-text">MFA vereist</span>
+                <span className="font-display text-[16px] font-bold text-text">{t.audit.mfaTitle}</span>
               </div>
-              <div className="mb-4 text-[13px] leading-[1.5] text-dim">
-                Inzage in het onveranderlijke logboek vereist een tweestaps-geverifieerde sessie.
-              </div>
+              <div className="mb-4 text-[13px] leading-[1.5] text-dim">{t.audit.mfaBody}</div>
               <Btn kind="primary" full icon="shield" onClick={() => mfa.start(() => aal.recheck())}>
-                Verifieer met MFA
+                {t.audit.mfaVerify}
               </Btn>
             </div>
           )
         ) : feed.isLoading ? (
-          <Empty text="Laden…" />
+          <Empty text={t.audit.loading} />
         ) : feed.isError ? (
-          <Empty text="Kon het audit log niet laden." />
+          <Empty text={t.audit.loadError} />
         ) : lines.length === 0 ? (
-          <Empty text={filtersActive ? 'Geen resultaten voor deze filters.' : 'Nog niets gelogd.'} />
+          <Empty text={filtersActive ? t.audit.emptyFiltered : t.audit.empty} />
         ) : (
           <>
             {/* Mobile: stacked cards (one translated sentence per card). */}
@@ -158,11 +154,11 @@ export function AuditLog({ eventId }: { eventId?: string }): JSX.Element {
               <table className="w-full border-collapse text-left">
                 <thead>
                   <tr className="bg-elev2 [&>th]:px-3 [&>th]:py-[11px] [&>th]:font-body [&>th]:text-[11px] [&>th]:font-bold [&>th]:uppercase [&>th]:tracking-[0.04em] [&>th]:text-faint">
-                    <th className="!pl-4">Wie</th>
-                    <th>Gebeurtenis</th>
-                    <th>Event</th>
-                    <th>Apparaat</th>
-                    <th className="!pr-4 text-right">Wanneer</th>
+                    <th className="!pl-4">{t.audit.colWho}</th>
+                    <th>{t.audit.colAction}</th>
+                    <th>{t.audit.colEvent}</th>
+                    <th>{t.audit.colDevice}</th>
+                    <th className="!pr-4 text-right">{t.audit.colWhen}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -174,7 +170,7 @@ export function AuditLog({ eventId }: { eventId?: string }): JSX.Element {
                       <tr
                         key={l.id}
                         onClick={onHistory}
-                        title={onHistory ? `Geschiedenis van ${l.entity}` : undefined}
+                        title={onHistory ? fmt(t.audit.rowHistoryTitle, { name: l.entity }) : undefined}
                         className={cn(
                           'border-t border-line2 [&>td]:px-3 [&>td]:py-[11px] [&>td]:align-middle',
                           onHistory && 'cursor-pointer transition-colors hover:bg-elev2'
@@ -280,7 +276,7 @@ function AuditRow({ line, onHistory }: { line: AuditLine; onHistory?: () => void
         <button
           type="button"
           onClick={onHistory}
-          aria-label={`Geschiedenis van ${line.entity}`}
+          aria-label={fmt(t.audit.rowHistoryTitle, { name: line.entity })}
           className={cn(
             'flex w-full items-start gap-[12px] rounded-[14px] border border-line bg-elev p-[12px] text-left',
             press
@@ -323,26 +319,26 @@ function FilterSheet({
   return (
     <Sheet onClose={onClose} center={false}>
       <div className="mb-3 flex items-center justify-between">
-        <Label>Filteren</Label>
+        <Label>{t.audit.filterTitle}</Label>
         <button
           type="button"
           onClick={() => setDraft(EMPTY_FILTERS)}
           className={cn('font-body text-[12.5px] font-semibold text-faint', press)}
         >
-          Wissen
+          {t.audit.clear}
         </button>
       </div>
 
       <div className="po-scroll -mx-1 max-h-[58vh] overflow-y-auto px-1">
         <Field
           icon="search"
-          placeholder="Zoek op naam…"
+          placeholder={t.audit.searchPlaceholder}
           value={draft.search}
           onChange={(v) => setDraft((d) => ({ ...d, search: v }))}
           className="mb-4"
         />
 
-        <Label className="mb-2">Actie</Label>
+        <Label className="mb-2">{t.audit.filterActionLabel}</Label>
         <div className="mb-4 flex flex-wrap gap-1.5">
           {AUDIT_ACTION_FILTERS.map((a) => (
             <button
@@ -360,10 +356,10 @@ function FilterSheet({
           ))}
         </div>
 
-        <Label className="mb-2">Event</Label>
+        <Label className="mb-2">{t.audit.filterEventLabel}</Label>
         <div className="mb-4 flex flex-col gap-1.5">
           <button type="button" onClick={() => setDraft((d) => ({ ...d, eventId: undefined }))} className={optRow(!draft.eventId)}>
-            <span className="font-display text-[14px] font-bold text-text">Alle events</span>
+            <span className="font-display text-[14px] font-bold text-text">{t.audit.filterAllEvents}</span>
             {!draft.eventId && <Icon name="check" size={16} className="shrink-0 text-acc" />}
           </button>
           {events.map((e) => (
@@ -374,10 +370,10 @@ function FilterSheet({
           ))}
         </div>
 
-        <Label className="mb-2">Gebruiker</Label>
+        <Label className="mb-2">{t.audit.filterUserLabel}</Label>
         <div className="mb-1 flex flex-col gap-1.5">
           <button type="button" onClick={() => setDraft((d) => ({ ...d, actorId: undefined }))} className={optRow(!draft.actorId)}>
-            <span className="font-display text-[14px] font-bold text-text">Alle gebruikers</span>
+            <span className="font-display text-[14px] font-bold text-text">{t.audit.filterAllUsers}</span>
             {!draft.actorId && <Icon name="check" size={16} className="shrink-0 text-acc" />}
           </button>
           {actors.map((a) => (
@@ -390,7 +386,7 @@ function FilterSheet({
       </div>
 
       <Btn kind="primary" full icon="check" className="mt-4" onClick={() => onApply(draft)}>
-        Toon resultaten
+        {t.audit.showResults}
       </Btn>
     </Sheet>
   );
@@ -404,16 +400,16 @@ function GuestHistoryView({ guestId, onBack }: { guestId: string; onBack: () => 
 
   return (
     <div className={col}>
-      <Top onBack={onBack} title="Geschiedenis" sub={guest?.fullName ?? undefined} />
+      <Top onBack={onBack} title={t.audit.historyTitle} sub={guest?.fullName ?? undefined} />
       <Scroll bottom={28}>
         {history.isLoading ? (
-          <Empty text="Laden…" />
+          <Empty text={t.audit.loading} />
         ) : history.isError ? (
-          <Empty text="Kon de geschiedenis niet laden." />
+          <Empty text={t.audit.historyLoadError} />
         ) : (
           <>
             <div className="mb-5 rounded-[18px] border border-line bg-elev p-4">
-              <Label className="mb-2">Geschiedenis van</Label>
+              <Label className="mb-2">{t.audit.historyOf}</Label>
               {guest ? (
                 <div className="flex items-center gap-[13px]">
                   <Avatar name={guest.fullName} size={46} />
@@ -430,13 +426,13 @@ function GuestHistoryView({ guestId, onBack }: { guestId: string; onBack: () => 
                   </div>
                 </div>
               ) : (
-                <div className="text-[13.5px] text-dim">Deze gast is niet (meer) zichtbaar.</div>
+                <div className="text-[13.5px] text-dim">{t.audit.guestNotVisible}</div>
               )}
             </div>
 
-            <Label className="mb-3">Tijdlijn</Label>
+            <Label className="mb-3">{t.audit.timelineLabel}</Label>
             {lines.length === 0 ? (
-              <Empty text="Nog geen gebeurtenissen voor deze gast." />
+              <Empty text={t.audit.noGuestEvents} />
             ) : (
               <ul className="flex flex-col">
                 {lines.map((l, i) => (

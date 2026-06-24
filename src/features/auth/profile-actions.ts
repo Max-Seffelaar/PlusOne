@@ -22,7 +22,7 @@ export async function updateProfileAction(
   formData: FormData
 ): Promise<ActionState> {
   const user = await getSessionUser();
-  if (!user) return { ok: false, error: 'Je bent niet ingelogd.' };
+  if (!user) return { ok: false, error: "You're not logged in." };
 
   const parsed = profileSchema.safeParse({
     firstName: formData.get('firstName'),
@@ -30,7 +30,7 @@ export async function updateProfileAction(
     phone: formData.get('phone'),
   });
   if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Controleer de invoer.' };
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Check your details.' };
   }
   const { firstName, lastName, phone } = parsed.data;
 
@@ -44,11 +44,11 @@ export async function updateProfileAction(
       full_name: `${firstName} ${lastName}`.trim(),
     })
     .eq('id', user.id);
-  if (error) return { ok: false, error: 'Kon je profiel niet opslaan.' };
+  if (error) return { ok: false, error: "Couldn't save your profile." };
 
   revalidatePath('/settings/profile');
   revalidatePath('/', 'layout'); // nav shows the name
-  return { ok: true, message: 'Profiel opgeslagen.' };
+  return { ok: true, message: 'Profile saved.' };
 }
 
 /**
@@ -62,14 +62,14 @@ export async function updateEmailAction(
   formData: FormData
 ): Promise<ActionState> {
   const user = await getSessionUser();
-  if (!user) return { ok: false, error: 'Je bent niet ingelogd.' };
+  if (!user) return { ok: false, error: "You're not logged in." };
 
   const parsed = emailChangeSchema.safeParse({ email: formData.get('email') });
   if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Ongeldig e-mailadres.' };
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid email.' };
   }
   if (parsed.data.email === user.email) {
-    return { ok: false, error: 'Dit is al je huidige e-mailadres.' };
+    return { ok: false, error: 'This is already your current email.' };
   }
 
   const supabase = await createClient();
@@ -78,6 +78,6 @@ export async function updateEmailAction(
 
   return {
     ok: true,
-    message: 'Bevestig de wijziging via de link die we naar je oude én nieuwe e-mailadres sturen.',
+    message: 'Confirm the change via the link we send to both your old and new email.',
   };
 }

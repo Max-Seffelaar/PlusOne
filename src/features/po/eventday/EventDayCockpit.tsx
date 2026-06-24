@@ -12,6 +12,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNod
 import { useRouter } from 'next/navigation';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
+import { t, fmt } from '@/lib/i18n';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { Icon, type IconName } from '@/components/po/icon';
 import { Avatar, Label } from '@/components/po/kit';
@@ -59,7 +60,7 @@ import {
 } from './cockpit';
 
 const press = 'transition-[filter,transform,background,border-color,color] hover:brightness-[1.08] active:scale-[0.985]';
-const DENY_REASON = 'Afgewezen vanuit cockpit';
+const DENY_REASON = t.cockpit.denyReason;
 const EMPTY_ARRIVALS: ReadonlyMap<string, { arrived: number; at: string }> = new Map();
 // Stable fallbacks so the memoized `filtered` list doesn't recompute every render
 // when the query has no data yet (keeps the virtualized list cheap).
@@ -102,8 +103,8 @@ export function EventDayCockpitGate(): JSX.Element {
         <DoorEventPicker
           events={candidates}
           onPick={setChosenId}
-          title="Kies de event-dag"
-          sub="Aan welke live event-dag wil je werken?"
+          title={t.cockpit.pickEventTitle}
+          sub={t.cockpit.pickEventSub}
         />
       </DCard>
     );
@@ -114,9 +115,9 @@ export function EventDayCockpitGate(): JSX.Element {
       <span className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-line bg-elev2 text-faint">
         <Icon name="door" size={22} />
       </span>
-      <div className="font-display text-[18px] font-bold text-text">Geen live of aankomend event</div>
+      <div className="font-display text-[18px] font-bold text-text">{t.cockpit.noLiveEventTitle}</div>
       <div className="max-w-sm text-[13.5px] text-faint">
-        Zodra een event live staat (of de deur opent) verschijnt hier de cockpit met live check-in.
+        {t.cockpit.noLiveEventSub}
       </div>
     </DCard>
   );
@@ -197,7 +198,7 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
     checkIn.mutate({ guestId: g.id, plusOnes: arrived }, { onError: (e) => notify(e.message) });
     pushFeed({ kind: 'in', t: amsterdamHM(new Date()), name: g.name, plus: arrived });
     flash(g.id);
-    notify(`${g.name}${arrived > 0 ? ` +${arrived}` : ''} ingecheckt · ${1 + arrived} binnen`, 'in');
+    notify(fmt(t.cockpit.toastCheckedIn, { name: g.name, plus: arrived > 0 ? ` +${arrived}` : '', inside: 1 + arrived }), 'in');
   }
   // ✓ click: a +0 guest checks in at once; a +N guest opens the quantified modal to
   // pick how many of the party arrive now, or to top up an already-in party (S1.2).
@@ -213,7 +214,7 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
       return;
     }
     if (ps.remaining <= 0) {
-      notify(`${g.name} is al volledig binnen`, 'in');
+      notify(fmt(t.cockpit.toastFullyInside, { name: g.name }), 'in');
       return;
     }
     setModal({ kind: 'topup', guest: g, value: ps.remaining }); // default: the rest
@@ -233,13 +234,13 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
       const arrived = Math.max(0, value - 1);
       checkIn.mutate({ guestId: guest.id, plusOnes: arrived }, { onError: (e) => notify(e.message) });
       pushFeed({ kind: 'in', t: amsterdamHM(new Date()), name: guest.name, plus: arrived });
-      notify(`${guest.name}${arrived > 0 ? ` +${arrived}` : ''} ingecheckt · ${value} binnen`, 'in');
+      notify(fmt(t.cockpit.toastCheckedIn, { name: guest.name, plus: arrived > 0 ? ` +${arrived}` : '', inside: value }), 'in');
     } else if (kind === 'topup') {
       const inside = insideHeads(guest, arrivals);
       const newArrived = Math.min(guest.plus, inside - 1 + value);
       topUp.mutate({ guestId: guest.id, plusOnes: newArrived }, { onError: (e) => notify(e.message) });
       pushFeed({ kind: 'in', t: amsterdamHM(new Date()), name: guest.name, plus: value });
-      notify(`${guest.name} bijgewerkt · nu ${newArrived + 1} binnen`, 'in');
+      notify(fmt(t.cockpit.toastTopup, { name: guest.name, inside: newArrived + 1 }), 'in');
     } else {
       const inside = insideHeads(guest, arrivals);
       const leaving = Math.min(inside, Math.max(1, value));
@@ -248,8 +249,8 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
       pushFeed({ kind: 'out', t: amsterdamHM(new Date()), name: guest.name, plus: Math.max(0, leaving - 1) });
       notify(
         remainingHeads === 0
-          ? `${guest.name} uitgecheckt`
-          : `${guest.name} · ${leaving} uitgecheckt, ${remainingHeads} blijft binnen`,
+          ? fmt(t.cockpit.toastCheckedOut, { name: guest.name })
+          : fmt(t.cockpit.toastPartialCheckout, { name: guest.name, leaving, remaining: remainingHeads }),
         'out'
       );
     }
@@ -274,25 +275,25 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
       { requestId: r.id, tierId: defaultTierId, eventId },
       { onError: (e) => notify(e.message) }
     );
-    pushFeed({ kind: 'msg', t: amsterdamHM(new Date()), msg: `${r.name}${r.plus ? ` +${r.plus}` : ''} goedgekeurd`, accent: true });
+    pushFeed({ kind: 'msg', t: amsterdamHM(new Date()), msg: fmt(t.cockpit.feedApproved, { name: r.name, plus: r.plus ? ` +${r.plus}` : '' }), accent: true });
   }
   function denyLanding(r: { id: string; name: string }): void {
     deny.mutate({ requestId: r.id, reason: DENY_REASON, eventId }, { onError: (e) => notify(e.message) });
-    pushFeed({ kind: 'msg', t: amsterdamHM(new Date()), msg: `${r.name} afgewezen`, accent: false });
+    pushFeed({ kind: 'msg', t: amsterdamHM(new Date()), msg: fmt(t.cockpit.feedDeclined, { name: r.name }), accent: false });
   }
   function approveQuota(r: { id: string; who: string; extra: number }): void {
     decideQuota.mutate(
       { requestId: r.id, decision: 'approved', eventId },
       { onError: (e) => notify(e.message) }
     );
-    pushFeed({ kind: 'msg', t: amsterdamHM(new Date()), msg: `${r.who} kreeg +${r.extra} quotum`, accent: true });
+    pushFeed({ kind: 'msg', t: amsterdamHM(new Date()), msg: fmt(t.cockpit.feedQuotaGranted, { who: r.who, n: r.extra }), accent: true });
   }
   function denyQuota(r: { id: string; who: string }): void {
     decideQuota.mutate(
       { requestId: r.id, decision: 'denied', reason: DENY_REASON, eventId },
       { onError: (e) => notify(e.message) }
     );
-    pushFeed({ kind: 'msg', t: amsterdamHM(new Date()), msg: `Quota-verzoek van ${r.who} afgewezen`, accent: false });
+    pushFeed({ kind: 'msg', t: amsterdamHM(new Date()), msg: fmt(t.cockpit.feedQuotaDenied, { who: r.who }), accent: false });
   }
 
   const doorTime = editRow?.startsAt ? amsterdamHM(new Date(editRow.startsAt)) : null;
@@ -302,18 +303,18 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
       {/* page header */}
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="font-display text-[22px] font-extrabold tracking-[-0.02em] text-text">Event-dag</h1>
-          <div className="truncate text-[13px] text-faint">{event.name} · live aan de deur</div>
+          <h1 className="font-display text-[22px] font-extrabold tracking-[-0.02em] text-text">{t.cockpit.pageTitle}</h1>
+          <div className="truncate text-[13px] text-faint">{fmt(t.cockpit.pageSub, { name: event.name })}</div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {onChangeEvent && (
             <DBtn kind="ghost" icon="cal" onClick={onChangeEvent}>
-              Wissel event
+              {t.cockpit.switchEvent}
             </DBtn>
           )}
           {canCheckIn && (
             <DBtn kind="ghost" icon="door" onClick={() => router.push(`/door/${eventId}`)}>
-              Open deur-app
+              {t.cockpit.openDoorApp}
             </DBtn>
           )}
         </div>
@@ -327,13 +328,13 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
         <div className="flex flex-wrap items-center gap-4">
           <span className="inline-flex items-center gap-[7px] rounded-full bg-acc-dim px-3 py-1.5 font-body text-[12px] font-extrabold tracking-[0.04em] text-acc">
             <span className={cn('h-[7px] w-[7px] rounded-full bg-acc', realtimeConnected && 'animate-pulse')} />
-            LIVE AAN DE DEUR
+            {t.cockpit.liveBadge}
           </span>
           <div className="min-w-0">
             <div className="truncate font-display text-[23px] font-extrabold tracking-[-0.02em] text-text">{event.name}</div>
             <div className="text-[13px] text-faint">
               {event.venueName}
-              {doorTime ? ` · deur ${doorTime}` : ''}
+              {doorTime ? ` · ${fmt(t.cockpit.doorTime, { time: doorTime })}` : ''}
             </div>
           </div>
           <div className="flex-1" />
@@ -342,7 +343,7 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
             type="button"
             onClick={toggleLock}
             disabled={!canManage || setLock.isPending}
-            title={canManage ? 'Lijst vergrendelen/openen' : 'Alleen beheerder of organisator'}
+            title={canManage ? t.cockpit.lockTitleManage : t.cockpit.lockTitleNoRights}
             className={cn(
               'inline-flex items-center gap-2 whitespace-nowrap rounded-[12px] border px-[15px] py-[11px] font-display text-[14px] font-bold',
               canManage && press,
@@ -351,16 +352,16 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
             )}
           >
             <Icon name={listLocked ? 'lock' : 'history'} size={16} sw={2.1} />
-            {listLocked ? 'Lijst vergrendeld' : 'Lijst open'}
+            {listLocked ? t.cockpit.listLocked : t.cockpit.listOpen}
           </button>
         </div>
 
         <div className="mb-[9px] mt-5 flex items-baseline justify-between">
-          <Label>Opkomst nu</Label>
+          <Label>{t.cockpit.turnoutNow}</Label>
           <span className="font-display text-[15px] font-bold">
             <span className="text-acc">{tiles.binnenH}</span>{' '}
             <span className="text-faint">
-              / {tiles.aangemeldH} koppen · {Math.round(tiles.pct * 100)}%
+              / {fmt(t.cockpit.turnoutTail, { total: tiles.aangemeldH, pct: Math.round(tiles.pct * 100) })}
             </span>
           </span>
         </div>
@@ -372,21 +373,19 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
         </div>
         <div className="mt-3 flex items-center gap-[7px] text-[12.5px] text-faint">
           <Icon name="shield" size={13} className="text-faint" />
-          {listLocked
-            ? 'Lijst vergrendeld — geen nieuwe gasten, inchecken aan de deur blijft mogelijk.'
-            : 'Lijst open — gasten kunnen nog toegevoegd of gewijzigd worden.'}
+          {listLocked ? t.cockpit.lockedHint : t.cockpit.openHint}
         </div>
       </div>
 
       {/* KPI tiles */}
       <div className="grid grid-cols-4 gap-4">
-        <Tile v={tiles.binnenH} l="Binnen" s={`van ${tiles.aangemeldH} koppen`} accent />
-        <Tile v={tiles.onderwegH} l="Onderweg" s="nog te checken" />
-        <Tile v={`${Math.round(tiles.pct * 100)}%`} l="Aanwezigheid" s="opkomst nu" />
+        <Tile v={tiles.binnenH} l={t.cockpit.tileInside} s={fmt(t.cockpit.tileInsideSub, { total: tiles.aangemeldH })} accent />
+        <Tile v={tiles.onderwegH} l={t.cockpit.tileOnTheWay} s={t.cockpit.tileOnTheWaySub} />
+        <Tile v={`${Math.round(tiles.pct * 100)}%`} l={t.cockpit.tilePresence} s={t.cockpit.tilePresenceSub} />
         <Tile
           v={canSeeStats ? stats?.peak ?? '—' : '—'}
-          l="Piek instroom"
-          s={canSeeStats && stats?.peak ? `${stats.peakCount} in 15 min` : 'nog geen piek'}
+          l={t.cockpit.tilePeak}
+          s={canSeeStats && stats?.peak ? fmt(t.cockpit.tilePeakSub, { n: stats.peakCount }) : t.cockpit.tilePeakNone}
         />
       </div>
 
@@ -402,11 +401,11 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   onKeyDown={onSearchKey}
-                  placeholder={canCheckIn ? 'Snel inchecken — typ naam en druk Enter…' : 'Zoek gast…'}
+                  placeholder={canCheckIn ? t.cockpit.searchCheckIn : t.cockpit.searchPlaceholder}
                   className="min-w-0 flex-1 border-none bg-transparent text-[14px] text-text outline-none placeholder:text-faint"
                 />
                 {q && (
-                  <button type="button" onClick={() => setQ('')} className="flex text-faint" aria-label="Wissen">
+                  <button type="button" onClick={() => setQ('')} className="flex text-faint" aria-label={t.cockpit.clearAria}>
                     <Icon name="close" size={15} />
                   </button>
                 )}
@@ -414,9 +413,9 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
               <div className="inline-flex gap-[3px] rounded-[12px] border border-line bg-bg p-[3px]">
                 {(
                   [
-                    ['all', 'Alle', counts.all],
-                    ['wait', 'Onderweg', counts.wait],
-                    ['in', 'Binnen', counts.in],
+                    ['all', t.cockpit.filterAll, counts.all],
+                    ['wait', t.cockpit.filterOnTheWay, counts.wait],
+                    ['in', t.cockpit.filterInside, counts.in],
                   ] as const
                 ).map(([k, l, n]) => {
                   const on = statF === k;
@@ -440,7 +439,7 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
             </div>
             <div className="flex flex-wrap gap-[7px]">
               <TierChip on={tierF === 'all'} onClick={() => setTierF('all')}>
-                Alle tiers
+                {t.cockpit.allTiers}
               </TierChip>
               {tierRows.map((t) => (
                 <TierChip key={t.role} on={tierF === t.role} onClick={() => setTierF(t.role)}>
@@ -452,7 +451,7 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
           </div>
 
           <div className="grid grid-cols-[1fr_120px_150px_96px] border-b border-line2 bg-bg px-[18px] py-[11px]">
-            {['Gast', 'Tier', 'Status', 'In / uit'].map((h, i) => (
+            {[t.cockpit.colGuest, t.cockpit.colTier, t.cockpit.colStatus, t.cockpit.colInOut].map((h, i) => (
               <Label key={h} className={i === 3 ? 'text-right' : undefined}>
                 {h}
               </Label>
@@ -484,7 +483,7 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
               </>
             ) : (
               <span className="text-[12.5px] text-faint">
-                {filtered.length} gasten getoond · check-ins verschijnen hier live
+                {fmt(t.cockpit.feedShown, { n: filtered.length })}
               </span>
             )}
           </div>
@@ -495,26 +494,26 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
           {canManage && (
             <DCard className="p-[22px]">
               <div className="mb-1 flex items-center justify-between">
-                <div className="font-display text-[17px] font-bold text-text">Wacht op goedkeuring</div>
+                <div className="font-display text-[17px] font-bold text-text">{t.cockpit.approvalsTitle}</div>
                 {openReqs > 0 && (
                   <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-acc px-[7px] font-display text-[13px] font-extrabold text-on-acc">
                     {openReqs}
                   </span>
                 )}
               </div>
-              <div className="mb-4 text-[12.5px] text-faint">Quota van het team · landingpagina-aanvragen</div>
+              <div className="mb-4 text-[12.5px] text-faint">{t.cockpit.approvalsSub}</div>
               {openReqs === 0 ? (
                 <div className="flex flex-col items-center gap-[10px] py-2 text-center text-[13.5px] text-faint">
                   <span className="flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line bg-elev2 text-acc">
                     <Icon name="check" size={19} sw={2.3} />
                   </span>
-                  Alles afgehandeld — geen open verzoeken.
+                  {t.cockpit.approvalsEmpty}
                 </div>
               ) : (
                 <div className="flex flex-col gap-[18px]">
                   {evQuotaReqs.length > 0 && (
                     <div>
-                      <Label className="mb-[11px]">Quota · team</Label>
+                      <Label className="mb-[11px]">{t.cockpit.approvalsQuotaLabel}</Label>
                       <div className="flex flex-col gap-[13px]">
                         {evQuotaReqs.map((r) => (
                           <div key={r.id} className="flex items-center gap-[11px]">
@@ -522,13 +521,13 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                             <div className="min-w-0 flex-1">
                               <div className="truncate text-[13.5px] font-semibold text-text">{r.who}</div>
                               <div className="truncate text-[11.5px] text-faint">
-                                quotum +{r.extra}
+                                {fmt(t.cockpit.quotaPlus, { n: r.extra })}
                                 {r.reason ? ` · ${r.reason}` : ''}
                               </div>
                             </div>
                             <div className="flex shrink-0 gap-[6px]">
-                              <MiniBtn icon="check" accent title="Toekennen" onClick={() => approveQuota(r)} />
-                              <MiniBtn icon="close" title="Afwijzen" onClick={() => denyQuota(r)} />
+                              <MiniBtn icon="check" accent title={t.cockpit.approveQuotaTitle} onClick={() => approveQuota(r)} />
+                              <MiniBtn icon="close" title={t.cockpit.denyTitle} onClick={() => denyQuota(r)} />
                             </div>
                           </div>
                         ))}
@@ -537,7 +536,7 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                   )}
                   {evGuestReqs.length > 0 && (
                     <div>
-                      <Label className="mb-[11px]">Landingpagina</Label>
+                      <Label className="mb-[11px]">{t.cockpit.approvalsLandingLabel}</Label>
                       <div className="flex flex-col gap-[13px]">
                         {evGuestReqs.map((r) => (
                           <div key={r.id} className="flex items-center gap-[11px]">
@@ -548,18 +547,18 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                                 {r.plus > 0 && <span className="font-extrabold text-acc"> +{r.plus}</span>}
                               </div>
                               <div className={cn('truncate text-[11.5px]', r.flag ? 'text-acc' : 'text-faint')}>
-                                {r.flag ?? r.motivation ?? (r.phoneLast4 ? `tel ••${r.phoneLast4}` : 'aanvraag')}
+                                {r.flag ?? r.motivation ?? (r.phoneLast4 ? fmt(t.cockpit.phoneLast4, { last4: r.phoneLast4 }) : t.cockpit.requestFallback)}
                               </div>
                             </div>
                             <div className="flex shrink-0 gap-[6px]">
                               <MiniBtn
                                 icon="check"
                                 accent
-                                title={defaultTierId ? 'Goedkeuren' : 'Maak eerst een tier aan'}
+                                title={defaultTierId ? t.cockpit.approveTitle : t.cockpit.approveNoTier}
                                 disabled={!defaultTierId}
                                 onClick={() => approveLanding(r)}
                               />
-                              <MiniBtn icon="close" title="Afwijzen" onClick={() => denyLanding(r)} />
+                              <MiniBtn icon="close" title={t.cockpit.denyTitle} onClick={() => denyLanding(r)} />
                             </div>
                           </div>
                         ))}
@@ -573,8 +572,8 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
 
           {/* aanwezig per tier */}
           <DCard className="p-[22px]">
-            <div className="mb-1 font-display text-[17px] font-bold text-text">Aanwezig per tier</div>
-            <div className="mb-[18px] text-[12.5px] text-faint">Binnen vs. aangemeld · koppen incl. +1&apos;s</div>
+            <div className="mb-1 font-display text-[17px] font-bold text-text">{t.cockpit.perTierTitle}</div>
+            <div className="mb-[18px] text-[12.5px] text-faint">{t.cockpit.perTierSub}</div>
             <PerTierBars rows={tierRows} />
           </DCard>
 
@@ -596,19 +595,24 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
             setModal((s) => (s ? { ...s, value: Math.min(max, Math.max(1, nv)) } : s));
           const heading =
             modal.kind === 'checkin'
-              ? 'Hoeveel personen komen er nu binnen?'
+              ? t.cockpit.modalHowManyIn
               : modal.kind === 'topup'
-                ? `${ps.insideHeads} van ${ps.totalHeads} binnen · nog ${ps.remaining} onderweg`
-                : `${ps.insideHeads} ${ps.insideHeads === 1 ? 'persoon' : 'personen'} binnen`;
-          const stepLabel = modal.kind === 'checkin' ? 'binnen' : modal.kind === 'topup' ? 'erbij' : 'uitchecken';
+                ? fmt(t.cockpit.modalTopupHeading, { inside: ps.insideHeads, total: ps.totalHeads, n: ps.remaining })
+                : fmt(t.cockpit.modalCheckoutHeading, { inside: ps.insideHeads, unit: ps.insideHeads === 1 ? t.cockpit.personSingular : t.cockpit.personPlural });
+          const stepLabel = modal.kind === 'checkin' ? t.cockpit.stepInside : modal.kind === 'topup' ? t.cockpit.stepMore : t.cockpit.stepCheckOut;
           const confirmLine =
             modal.kind === 'checkin'
-              ? `Je checkt ${v} van ${ps.totalHeads} ${ps.totalHeads === 1 ? 'persoon' : 'personen'} in.`
+              ? fmt(t.cockpit.modalCheckinLine, { v, total: ps.totalHeads, unit: ps.totalHeads === 1 ? t.cockpit.personSingular : t.cockpit.personPlural })
               : modal.kind === 'topup'
-                ? `Straks ${afterInside} van ${ps.totalHeads} binnen.`
-                : `Je gaat nu ${v} van ${ps.insideHeads} ${ps.insideHeads === 1 ? 'persoon' : 'personen'} uitchecken${afterInside > 0 ? ` · ${afterInside} blijft binnen` : ''}.`;
+                ? fmt(t.cockpit.modalTopupLine, { after: afterInside, total: ps.totalHeads })
+                : fmt(t.cockpit.modalCheckoutLine, {
+                    v,
+                    inside: ps.insideHeads,
+                    unit: ps.insideHeads === 1 ? t.cockpit.personSingular : t.cockpit.personPlural,
+                    tail: afterInside > 0 ? fmt(t.cockpit.modalCheckoutLineTail, { after: afterInside }) : '',
+                  });
           const confirmBtn =
-            modal.kind === 'checkin' ? 'Inchecken' : modal.kind === 'topup' ? `Nog ${v} inchecken` : 'Uitchecken';
+            modal.kind === 'checkin' ? t.cockpit.modalConfirmCheckin : modal.kind === 'topup' ? fmt(t.cockpit.modalConfirmTopup, { n: v }) : t.cockpit.modalConfirmCheckout;
           return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setModal(null)}>
               <div className="w-[340px] rounded-[18px] border border-line bg-elev p-5" onClick={(e) => e.stopPropagation()}>
@@ -623,7 +627,7 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                     onClick={() => setV(v - 1)}
                     disabled={v <= 1}
                     className={cn('flex h-11 w-11 items-center justify-center rounded-[12px] border border-line bg-elev2 text-text disabled:opacity-40', v > 1 && press)}
-                    aria-label="Minder"
+                    aria-label={t.cockpit.modalMinusAria}
                   >
                     <Icon name="minus" size={20} sw={2.4} />
                   </button>
@@ -639,7 +643,7 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                     onClick={() => setV(v + 1)}
                     disabled={v >= max}
                     className={cn('flex h-11 w-11 items-center justify-center rounded-[12px] border border-line bg-elev2 disabled:opacity-40', v < max && press)}
-                    aria-label="Meer"
+                    aria-label={t.cockpit.modalPlusAria}
                   >
                     <Icon name="plus" size={20} sw={2.4} stroke="#B5A6FF" />
                   </button>
@@ -647,7 +651,7 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                 <div className="mt-3 text-center text-[12.5px] text-faint">{confirmLine}</div>
                 <div className="mt-4 flex gap-2">
                   <DBtn kind="ghost" className="flex-1 justify-center" onClick={() => setModal(null)}>
-                    Annuleer
+                    {t.cockpit.modalCancel}
                   </DBtn>
                   <DBtn kind={isOut ? 'dark' : undefined} className="flex-1 justify-center" onClick={confirmModal}>
                     {confirmBtn}
@@ -720,7 +724,7 @@ function CockpitGuestList({
     <div ref={scrollRef} className="max-h-[560px] overflow-y-auto">
       {rows.length === 0 ? (
         <div className="px-4 py-11 text-center text-[14px] text-faint">
-          {totalGuests === 0 ? 'Nog geen gasten op de lijst.' : 'Geen gasten voor deze filter.'}
+          {totalGuests === 0 ? t.cockpit.emptyNoGuests : t.cockpit.emptyNoFilter}
         </div>
       ) : (
         <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
@@ -754,7 +758,7 @@ function CockpitGuestList({
                         {g.plus > 0 && <span className="font-extrabold text-acc"> +{g.plus}</span>}
                       </div>
                       <div className="truncate text-[11.5px] text-faint">
-                        {g.note || (g.by ? `Toegevoegd door ${g.by}` : '—')}
+                        {g.note || (g.by ? fmt(t.cockpit.addedBy, { name: g.by }) : '—')}
                       </div>
                     </div>
                   </div>
@@ -772,15 +776,15 @@ function CockpitGuestList({
                       <div>
                         <span className="inline-flex items-center gap-1.5 font-body text-[12.5px] font-bold text-acc">
                           <Icon name="check" size={13} sw={2.6} />
-                          Binnen{partial ? ` · ${arrivedCount + 1}/${g.plus + 1}` : ''}
+                          {partial ? fmt(t.cockpit.rowInsidePartial, { arrived: arrivedCount + 1, total: g.plus + 1 }) : t.cockpit.rowInside}
                           {atLabel ? ` · ${atLabel}` : ''}
                         </span>
-                        {g.inBy && <div className="text-[11px] text-faint">door {g.inBy}</div>}
+                        {g.inBy && <div className="text-[11px] text-faint">{fmt(t.cockpit.rowInsideBy, { name: g.inBy })}</div>}
                       </div>
                     ) : (
                       <span className="inline-flex items-center gap-[7px] text-[12.5px] text-faint">
                         <span className="h-2 w-2 rounded-full border-[1.5px] border-ghost" />
-                        Onderweg
+                        {t.cockpit.rowOnTheWay}
                       </span>
                     )}
                   </div>
@@ -820,7 +824,7 @@ function LiveClock(): JSX.Element {
       <div className="font-display text-[30px] font-extrabold tabular-nums tracking-[-0.01em] text-text">
         {amsterdamHMS(now)}
       </div>
-      <div className="text-[11.5px] text-faint">lokale tijd</div>
+      <div className="text-[11.5px] text-faint">{t.cockpit.localTime}</div>
     </div>
   );
 }
@@ -884,7 +888,7 @@ function ChkBtn({
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
       aria-pressed={active}
-      title={isIn ? 'Inchecken' : disabled ? 'Uitchecken staat uit voor dit event' : 'Uitchecken / niet binnen'}
+      title={isIn ? t.cockpit.checkInTitle : disabled ? t.cockpit.checkOutDisabledTitle : t.cockpit.checkOutTitle}
       className={cn(
         'flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] border',
         !disabled && press,
@@ -939,7 +943,7 @@ function MiniBtn({
 
 function PerTierBars({ rows }: { rows: ReturnType<typeof perTierLive> }): JSX.Element {
   if (rows.length === 0) {
-    return <div className="text-[13px] text-faint">Nog geen gasten op de lijst.</div>;
+    return <div className="text-[13px] text-faint">{t.cockpit.perTierEmpty}</div>;
   }
   const maxH = Math.max(1, ...rows.map((t) => t.aangemeld));
   return (
@@ -985,18 +989,18 @@ function KwartierCard({ perKwartier }: { perKwartier: { t: string; n: number }[]
     <DCard className="p-[22px]">
       <div className="mb-[18px] flex items-start justify-between">
         <div>
-          <div className="font-display text-[17px] font-bold text-text">Instroom per kwartier</div>
-          <div className="mt-0.5 text-[12.5px] text-faint">Check-ins aan de deur</div>
+          <div className="font-display text-[17px] font-bold text-text">{t.cockpit.arrivalsTitle}</div>
+          <div className="mt-0.5 text-[12.5px] text-faint">{t.cockpit.arrivalsSub}</div>
         </div>
         {curIdx >= 0 && perKwartier[curIdx] && (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-acc-dim px-[10px] py-1.5 font-body text-[11.5px] font-bold text-acc">
             <span className="h-1.5 w-1.5 rounded-full bg-acc animate-pulse" />
-            nu {perKwartier[curIdx].t}
+            {fmt(t.cockpit.arrivalsNow, { time: perKwartier[curIdx].t })}
           </span>
         )}
       </div>
       {perKwartier.length === 0 ? (
-        <div className="py-6 text-center text-[13px] text-faint">Nog geen instroom vanavond.</div>
+        <div className="py-6 text-center text-[13px] text-faint">{t.cockpit.arrivalsEmpty}</div>
       ) : (
         <div className="flex h-[150px] items-end gap-[5px]">
           {perKwartier.map((b, i) => {

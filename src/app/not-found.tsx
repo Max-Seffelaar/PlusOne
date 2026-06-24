@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { getSessionUser } from '@/lib/auth/context';
 
 export const metadata: Metadata = {
-  title: 'Pagina niet gevonden — PLUSONE',
+  title: 'Page not found — PLUSONE',
 };
 
 // Global 404 boundary (S3.4). Next renders this for unmatched routes AND whenever
@@ -23,7 +23,7 @@ export default async function NotFound(): Promise<JSX.Element> {
   // Never let the boundary itself throw — if auth can't resolve, treat as guest.
   const user = await getSessionUser().catch(() => null);
   const href = user ? '/app' : '/login';
-  const cta = user ? 'Naar je overzicht' : 'Naar inloggen';
+  const cta = user ? 'Back to your dashboard' : 'Go to login';
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center px-6 text-center">
@@ -35,7 +35,7 @@ export default async function NotFound(): Promise<JSX.Element> {
           404
         </h1>
         <p className="mt-4 text-[15px] leading-[1.6] text-dim">
-          Deze pagina bestaat niet (meer). Misschien is het event opgeruimd, of klopt de link niet.
+          This page took the night off. Maybe the event was cleared, or the link is off.
         </p>
         <Link
           href={href}

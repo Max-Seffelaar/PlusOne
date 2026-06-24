@@ -1,8 +1,8 @@
 import type { IconName } from '@/components/po/icon';
 
 // Pure presentation helpers for the mobile audit-log (S10). The heavy lifting —
-// turning an audit_feed row into a Dutch sentence ("Max verplaatste Juri van
-// Regular naar VIP") — lives in src/features/audit/translate.ts
+// turning an audit_feed row into a sentence ("Max moved Juri from Regular to
+// VIP") — lives in src/features/audit/translate.ts
 // (describeAuditEntry/formatWhen) and is SHARED with the desktop /admin/audit
 // screen. Here we only map the derived `action` onto a row glyph + short label
 // and translate a guest's status, so desktop and mobile read identically. No I/O,
@@ -11,26 +11,26 @@ import type { IconName } from '@/components/po/icon';
 
 export interface AuditActionMeta {
   icon: IconName;
-  /** Short Dutch label for the action chip / timeline marker. */
+  /** Short label for the action chip / timeline marker. */
   label: string;
 }
 
 // One entry per derived action the audit triggers can emit (see translate.ts).
 const ACTION_META: Record<string, AuditActionMeta> = {
-  create: { icon: 'plus', label: 'Toegevoegd' },
+  create: { icon: 'plus', label: 'Added' },
   tier_change: { icon: 'swap', label: 'Tier' },
   check_in: { icon: 'door', label: 'Check-in' },
-  refuse: { icon: 'close', label: 'Geweigerd' },
-  delete: { icon: 'minus', label: 'Verwijderd' },
-  update: { icon: 'cog', label: 'Wijziging' },
-  quota_grant: { icon: 'ticket', label: 'Quotum' },
-  approve: { icon: 'check', label: 'Goedgekeurd' },
-  deny: { icon: 'close', label: 'Afgewezen' },
-  lock: { icon: 'lock', label: 'Vergrendeld' },
-  unlock: { icon: 'lock', label: 'Ontgrendeld' },
+  refuse: { icon: 'close', label: 'Refused' },
+  delete: { icon: 'minus', label: 'Removed' },
+  update: { icon: 'cog', label: 'Change' },
+  quota_grant: { icon: 'ticket', label: 'Quota' },
+  approve: { icon: 'check', label: 'Approved' },
+  deny: { icon: 'close', label: 'Declined' },
+  lock: { icon: 'lock', label: 'Locked' },
+  unlock: { icon: 'lock', label: 'Unlocked' },
 };
 
-const FALLBACK: AuditActionMeta = { icon: 'history', label: 'Actie' };
+const FALLBACK: AuditActionMeta = { icon: 'history', label: 'Action' };
 
 export function auditActionMeta(action: string): AuditActionMeta {
   return ACTION_META[action] ?? FALLBACK;
@@ -39,26 +39,26 @@ export function auditActionMeta(action: string): AuditActionMeta {
 // Action filter chips for the filter sheet — mirrors the desktop AuditFilters set
 // (#15), in display order. 'all' clears the action filter.
 export const AUDIT_ACTION_FILTERS: { key: string; label: string }[] = [
-  { key: 'all', label: 'Alles' },
+  { key: 'all', label: 'All' },
   { key: 'check_in', label: 'Check-in' },
-  { key: 'create', label: 'Toegevoegd' },
+  { key: 'create', label: 'Added' },
   { key: 'tier_change', label: 'Tier' },
-  { key: 'quota_grant', label: 'Quotum' },
-  { key: 'approve', label: 'Goedgekeurd' },
-  { key: 'refuse', label: 'Geweigerd' },
-  { key: 'lock', label: 'Vergrendeld' },
+  { key: 'quota_grant', label: 'Quota' },
+  { key: 'approve', label: 'Approved' },
+  { key: 'refuse', label: 'Refused' },
+  { key: 'lock', label: 'Locked' },
 ];
 
 const STATUS_LABELS: Record<string, string> = {
-  pending: 'In afwachting',
-  approved: 'Op de lijst',
-  denied: 'Afgewezen',
-  checked_in: 'Binnen',
-  refused: 'Geweigerd',
-  removed: 'Verwijderd',
+  pending: 'Pending',
+  approved: 'On the list',
+  denied: 'Declined',
+  checked_in: 'Inside',
+  refused: 'Refused',
+  removed: 'Removed',
 };
 
-/** Dutch label for a guest's current status (per-guest history header). */
+/** Label for a guest's current status (per-guest history header). */
 export function guestStatusLabel(status: string): string {
   return STATUS_LABELS[status] ?? status;
 }

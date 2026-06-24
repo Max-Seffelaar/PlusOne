@@ -179,7 +179,7 @@ export function DoorProvider({
           uid: user.id,
           deviceId: getDeviceId(),
         });
-        if (summary.duplicates > 0) showToast('Was al ingecheckt op een ander apparaat');
+        if (summary.duplicates > 0) showToast('Was already checked in on another device');
         if (summary.errors > 0) {
           const failed = outbox.getSnapshot().find((e) => e.status === 'error' && e.message);
           if (failed?.message) showToast(failed.message);
@@ -239,7 +239,7 @@ export function DoorProvider({
         return { ...s, checkIns: [...s.checkIns, row] };
       });
       const g = viewRef.current?.guests.find((x) => x.id === guestId);
-      showToast(`${g?.name ?? 'Gast'}${plusArrived > 0 ? ` +${plusArrived}` : ''} · binnen ✓`);
+      showToast(`${g?.name ?? 'Guest'}${plusArrived > 0 ? ` +${plusArrived}` : ''} · inside ✓`);
       maybeFlush();
     },
     [eventId, meId, patchSnapshot, showToast, maybeFlush],
@@ -271,7 +271,7 @@ export function DoorProvider({
           c.guest_id === guestId ? { ...c, plus_ones_arrived: Math.max(c.plus_ones_arrived, target) } : c,
         ),
       }));
-      showToast(`${g.name} · nu ${1 + target} binnen`);
+      showToast(`${g.name} · now ${1 + target} inside`);
       maybeFlush();
     },
     [eventId, patchSnapshot, showToast, maybeFlush],
@@ -300,7 +300,7 @@ export function DoorProvider({
           c.guest_id === guestId ? { ...c, voided_at: ts, voided_by: meId ?? '' } : c,
         ),
       }));
-      showToast(`${g.name} · check-in teruggedraaid`);
+      showToast(`${g.name} · check-in reversed`);
       maybeFlush();
     },
     [eventId, meId, patchSnapshot, showToast, maybeFlush],
@@ -332,7 +332,7 @@ export function DoorProvider({
             : c,
         ),
       }));
-      showToast(`${g.name}${plusArrived > 0 ? ` +${plusArrived}` : ''} · weer binnen ✓`);
+      showToast(`${g.name}${plusArrived > 0 ? ` +${plusArrived}` : ''} · back inside ✓`);
       maybeFlush();
     },
     [eventId, meId, patchSnapshot, showToast, maybeFlush],
@@ -362,7 +362,7 @@ export function DoorProvider({
           { id, guest_id: guestId, event_id: eventId, venue_id: s.event.venueId, refused_by: meId ?? '', reason, refused_at: ts, client_timestamp: ts, device_id: getDeviceId(), created_at: ts, anonymized_at: null },
         ],
       }));
-      showToast(`${g?.name ?? 'Gast'} · geweigerd`);
+      showToast(`${g?.name ?? 'Guest'} · refused`);
       maybeFlush();
     },
     [eventId, meId, patchSnapshot, showToast, maybeFlush],
@@ -387,7 +387,7 @@ export function DoorProvider({
         ...s,
         guests: s.guests.map((x) => (x.id === guestId ? { ...x, status: 'approved' as const } : x)),
       }));
-      showToast(`${g?.name ?? 'Gast'} · weer op de lijst`);
+      showToast(`${g?.name ?? 'Guest'} · back on the list`);
       maybeFlush();
     },
     [eventId, patchSnapshot, showToast, maybeFlush],

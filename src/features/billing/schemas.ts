@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import { PLAN_IDS } from './plans';
 
-const uuid = z.string().uuid('Ongeldige id');
+const uuid = z.string().uuid('Invalid id');
 
 export const planIdSchema = z.enum(PLAN_IDS as unknown as [string, ...string[]]);
 

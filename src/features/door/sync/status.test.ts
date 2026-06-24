@@ -46,9 +46,9 @@ describe('deriveSyncStatus', () => {
 
 describe('syncAgeLabel', () => {
   it('formats the spec copy', () => {
-    expect(syncAgeLabel(null, T0)).toBe('verbinden…');
-    expect(syncAgeLabel(T0 - 3_000, T0)).toBe('zojuist gesynct');
-    expect(syncAgeLabel(T0 - 25_000, T0)).toBe('25s geleden');
-    expect(syncAgeLabel(T0 - 3 * 60_000, T0)).toBe('laatste sync 3 min geleden');
+    expect(syncAgeLabel(null, T0)).toBe('connecting…');
+    expect(syncAgeLabel(T0 - 3_000, T0)).toBe('synced just now');
+    expect(syncAgeLabel(T0 - 25_000, T0)).toBe('25s ago');
+    expect(syncAgeLabel(T0 - 3 * 60_000, T0)).toBe('last sync 3 min ago');
   });
 });

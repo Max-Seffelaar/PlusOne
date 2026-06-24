@@ -4,18 +4,18 @@ import { submitGuestRequest } from '@/features/requests/actions';
 import { LandingForm, LandingClosed, type LandingEvent } from '@/components/po/landing';
 
 export const metadata: Metadata = {
-  title: 'Zet jezelf op de lijst · PLUSONE',
+  title: 'Get on the list · PlusOne',
   // Per-event request links are private; never index them.
   robots: { index: false, follow: false },
 };
 
-const dateFmt = new Intl.DateTimeFormat('nl-NL', {
+const dateFmt = new Intl.DateTimeFormat('en-GB', {
   weekday: 'short',
   day: 'numeric',
   month: 'short',
   timeZone: 'Europe/Amsterdam',
 });
-const timeFmt = new Intl.DateTimeFormat('nl-NL', {
+const timeFmt = new Intl.DateTimeFormat('en-GB', {
   hour: '2-digit',
   minute: '2-digit',
   timeZone: 'Europe/Amsterdam',

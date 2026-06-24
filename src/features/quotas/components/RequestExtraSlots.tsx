@@ -16,7 +16,7 @@ export function RequestExtraSlots({ eventId }: { eventId: string }) {
     startTransition(async () => {
       const res = await requestExtraSlots({ eventId, requestedExtra: extra, motivation });
       if (res.ok) {
-        setFeedback({ ok: true, message: 'Aanvraag verstuurd — een admin beslist.' });
+        setFeedback({ ok: true, message: 'Request sent. An admin decides.' });
         setMotivation('');
         setOpen(false);
       } else {
@@ -29,7 +29,7 @@ export function RequestExtraSlots({ eventId }: { eventId: string }) {
     return (
       <div className="flex flex-col gap-2">
         <button type="button" className="btn-dark self-start" onClick={() => setOpen(true)}>
-          Extra plekken aanvragen
+          Request more slots
         </button>
         {feedback && (
           <p className={feedback.ok ? 'text-sm text-acc' : 'text-sm text-acc-soft'}>
@@ -42,9 +42,9 @@ export function RequestExtraSlots({ eventId }: { eventId: string }) {
 
   return (
     <div className="card flex flex-col gap-3">
-      <p className="label">Extra plekken aanvragen</p>
+      <p className="label">Request more slots</p>
       <label className="flex flex-col gap-1 text-sm">
-        Aantal extra plekken
+        Extra slots
         <input
           type="number"
           min={1}
@@ -55,10 +55,10 @@ export function RequestExtraSlots({ eventId }: { eventId: string }) {
         />
       </label>
       <label className="flex flex-col gap-1 text-sm">
-        Motivatie
+        Reason
         <textarea
           className="field min-h-[4rem]"
-          placeholder="Waarom heb je deze plekken nodig?"
+          placeholder="Why do you need these slots?"
           value={motivation}
           onChange={(e) => setMotivation(e.target.value)}
           maxLength={500}
@@ -71,10 +71,10 @@ export function RequestExtraSlots({ eventId }: { eventId: string }) {
           disabled={pending || motivation.trim() === ''}
           onClick={submit}
         >
-          {pending ? '…' : 'Versturen'}
+          {pending ? '…' : 'Send'}
         </button>
         <button type="button" className="btn-ghost" onClick={() => setOpen(false)}>
-          Annuleren
+          Cancel
         </button>
       </div>
       {feedback && !feedback.ok && <p className="text-sm text-acc-soft">{feedback.message}</p>}

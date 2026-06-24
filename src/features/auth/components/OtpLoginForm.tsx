@@ -32,7 +32,7 @@ export function OtpLoginForm({ nextPath }: { nextPath: string }): JSX.Element {
   async function sendCode(targetEmail: string): Promise<void> {
     const parsed = requestOtpSchema.safeParse({ email: targetEmail });
     if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? 'Ongeldig e-mailadres');
+      setError(parsed.error.issues[0]?.message ?? 'Invalid email');
       return;
     }
     setBusy(true);
@@ -52,14 +52,14 @@ export function OtpLoginForm({ nextPath }: { nextPath: string }): JSX.Element {
     }
     setEmail(parsed.data.email);
     setStep('code');
-    setInfo(`We hebben een 6-cijferige code naar ${parsed.data.email} gestuurd.`);
+    setInfo(`We sent a 6-digit code to ${parsed.data.email}.`);
     setCooldown(60);
   }
 
   async function verify(tokenValue: string = code): Promise<void> {
     const parsed = verifyOtpSchema.safeParse({ email, token: tokenValue });
     if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? 'Ongeldige code');
+      setError(parsed.error.issues[0]?.message ?? 'Invalid code');
       return;
     }
     setBusy(true);
@@ -83,7 +83,7 @@ export function OtpLoginForm({ nextPath }: { nextPath: string }): JSX.Element {
     <div className="w-full max-w-sm">
       <div className="mb-8 text-center">
         <h1 className="font-display text-4xl font-extrabold tracking-tight">PLUSONE</h1>
-        <p className="text-dim mt-2 text-sm">Zet ze op de lijst. Wij doen de deur.</p>
+        <p className="text-dim mt-2 text-sm">The guest list that runs the door.</p>
       </div>
 
       <div className="card">
@@ -98,7 +98,7 @@ export function OtpLoginForm({ nextPath }: { nextPath: string }): JSX.Element {
           >
             <div className="flex flex-col gap-2">
               <label htmlFor="email" className="label">
-                E-mailadres
+                Email
               </label>
               <input
                 id="email"
@@ -109,16 +109,16 @@ export function OtpLoginForm({ nextPath }: { nextPath: string }): JSX.Element {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="jij@venue.nl"
+                placeholder="you@venue.com"
                 className="field"
                 aria-describedby={error ? 'auth-error' : undefined}
               />
             </div>
             <button type="submit" className="btn-primary w-full" disabled={busy}>
-              {busy ? 'Bezig…' : 'Stuur inlogcode'}
+              {busy ? 'Sending…' : 'Send code'}
             </button>
             <p className="text-faint text-center text-xs">
-              Alleen op uitnodiging. Geen wachtwoorden — je logt in met een code per e-mail.
+              Invite only. No passwords here. We&apos;ll email you a 6-digit code.
             </p>
           </form>
         ) : (
@@ -132,7 +132,7 @@ export function OtpLoginForm({ nextPath }: { nextPath: string }): JSX.Element {
           >
             <div className="flex flex-col gap-2">
               <label htmlFor="code" className="label">
-                Inlogcode
+                Your code
               </label>
               <input
                 id="code"
@@ -157,7 +157,7 @@ export function OtpLoginForm({ nextPath }: { nextPath: string }): JSX.Element {
               />
             </div>
             <button type="submit" className="btn-primary w-full" disabled={busy || code.length !== 6}>
-              {busy ? 'Bezig…' : 'Inloggen'}
+              {busy ? 'Verifying…' : 'Verify'}
             </button>
             <div className="flex items-center justify-between text-xs">
               <button
@@ -166,7 +166,7 @@ export function OtpLoginForm({ nextPath }: { nextPath: string }): JSX.Element {
                 disabled={cooldown > 0 || busy}
                 onClick={() => void sendCode(email)}
               >
-                {cooldown > 0 ? `Opnieuw versturen (${cooldown}s)` : 'Code opnieuw versturen'}
+                {cooldown > 0 ? `Resend code (${cooldown}s)` : 'Resend code'}
               </button>
               <button
                 type="button"
@@ -178,7 +178,7 @@ export function OtpLoginForm({ nextPath }: { nextPath: string }): JSX.Element {
                   setInfo(null);
                 }}
               >
-                Ander e-mailadres
+                Use another email
               </button>
             </div>
           </form>

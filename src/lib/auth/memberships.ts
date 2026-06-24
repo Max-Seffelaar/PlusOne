@@ -42,7 +42,7 @@ export async function getMyMemberships(): Promise<Membership[]> {
 
   return (data ?? []).map((row) => ({
     venueId: row.venue_id,
-    venueName: row.venues?.name ?? 'Onbekende venue',
+    venueName: row.venues?.name ?? 'Unknown venue',
     roles: row.roles,
   }));
 }

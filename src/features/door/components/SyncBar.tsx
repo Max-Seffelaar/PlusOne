@@ -7,6 +7,7 @@
  * data), warn=red (the one genuinely new hue — flagged in the build summary).
  */
 import { cn } from '@/lib/utils';
+import { t, fmt } from '@/lib/i18n';
 import { Icon } from '@/components/po/icon';
 import { useDoor } from '../DoorProvider';
 
@@ -19,11 +20,11 @@ export function SyncBar(): JSX.Element {
 
   const label =
     sync.status === 'live'
-      ? 'Live · realtime'
+      ? t.door.syncLive
       : sync.status === 'warn'
-        ? 'Geen sync >10 min — controleer verbinding'
+        ? t.door.syncWarn
         : !sync.online
-          ? `Offline · ${sync.ageLabel}`
+          ? fmt(t.door.syncOffline, { age: sync.ageLabel })
           : sync.ageLabel;
 
   return (
@@ -50,7 +51,7 @@ export function SyncBar(): JSX.Element {
         </span>
         {pendingCount > 0 && (
           <span className="shrink-0 rounded-full border border-line bg-elev2 px-[7px] py-[1px] font-body text-[10.5px] font-bold text-dim">
-            {pendingCount} in wachtrij
+            {fmt(t.door.syncQueued, { n: pendingCount })}
           </span>
         )}
       </span>
@@ -58,7 +59,7 @@ export function SyncBar(): JSX.Element {
       <button
         type="button"
         onClick={sync.forceSync}
-        aria-label="Nu synchroniseren"
+        aria-label={t.door.syncNowAria}
         className={cn('flex h-[30px] w-[30px] items-center justify-center rounded-[10px] border border-line bg-elev2 text-dim', press)}
       >
         <Icon name="refresh" size={16} className={cn(sync.syncing && 'motion-safe:animate-spin')} />

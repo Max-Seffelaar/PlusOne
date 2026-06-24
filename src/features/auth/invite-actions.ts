@@ -53,7 +53,7 @@ export async function inviteUserAction(
   formData: FormData
 ): Promise<ActionState> {
   const user = await getSessionUser();
-  if (!user) return { ok: false, error: 'Je bent niet ingelogd.' };
+  if (!user) return { ok: false, error: "You're not logged in." };
 
   const parsed = inviteSchema.safeParse({
     venueId: formData.get('venueId'),
@@ -63,7 +63,7 @@ export async function inviteUserAction(
     eventIds: formData.getAll('eventIds'),
   });
   if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Controleer de invoer.' };
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Check your details.' };
   }
   const { venueId, email, roles, defaultQuota, eventIds } = parsed.data;
   const typedRoles = roles as VenueRole[];
@@ -76,8 +76,8 @@ export async function inviteUserAction(
         ok: false,
         error:
           e.reason === 'aal2_required'
-            ? 'Deze actie vereist MFA. Verifieer eerst met je authenticator.'
-            : 'Je bent niet ingelogd.',
+            ? 'This action needs MFA. Verify with your authenticator first.'
+            : "You're not logged in.",
       };
     }
     throw e;
@@ -86,12 +86,12 @@ export async function inviteUserAction(
   // App-layer authority + escalation guard (RLS is the real boundary).
   const callerRoles = await callerRolesAt(venueId, user.id);
   if (!canGrantRoles(callerRoles, typedRoles)) {
-    return { ok: false, error: 'Je mag deze rollen hier niet toekennen.' };
+    return { ok: false, error: "You can't grant these roles here." };
   }
   // Event-organizer scope is an admin-only grant (mirrors assignOrganizer, #6/#24);
   // RLS (invites_insert) re-enforces this, but check up front for a clear message.
   if (eventIds.length > 0 && !callerRoles.includes('admin')) {
-    return { ok: false, error: 'Alleen een beheerder kan iemand aan events koppelen.' };
+    return { ok: false, error: 'Only an admin can link someone to events.' };
   }
 
   // 1) Ensure an auth identity exists so OTP login is possible (invite-only —
@@ -105,7 +105,7 @@ export async function inviteUserAction(
   });
   if (createError && !alreadyRegistered(createError)) {
     console.error('inviteUser: createUser failed', createError.message);
-    return { ok: false, error: 'Kon de uitnodiging niet aanmaken. Probeer het opnieuw.' };
+    return { ok: false, error: "Couldn't create the invite. Try again." };
   }
 
   // 2) Record the invite through the user-scoped client → RLS enforces
@@ -140,14 +140,14 @@ export async function inviteUserAction(
 
   if (inviteError) {
     if (inviteError.code === '23505') {
-      return { ok: false, error: 'Er staat al een open uitnodiging voor dit e-mailadres.' };
+      return { ok: false, error: 'There’s already an open invite for this email.' };
     }
     console.error('inviteUser: invite insert failed', inviteError.message);
-    return { ok: false, error: 'Kon de uitnodiging niet vastleggen.' };
+    return { ok: false, error: "Couldn't record the invite." };
   }
 
   revalidatePath('/admin/team');
-  return { ok: true, message: `Uitnodiging klaargezet voor ${email}.` };
+  return { ok: true, message: `Invite ready for ${email}.` };
 }
 
 /** Cancel a pending invite (RLS enforces manager + AAL2 + escalation). */
@@ -156,7 +156,7 @@ export async function revokeInviteAction(
   formData: FormData
 ): Promise<ActionState> {
   const parsed = revokeInviteSchema.safeParse({ inviteId: formData.get('inviteId') });
-  if (!parsed.success) return { ok: false, error: 'Ongeldige uitnodiging.' };
+  if (!parsed.success) return { ok: false, error: 'Invalid invite.' };
 
   const supabase = await createClient();
   const { error, count } = await supabase
@@ -165,25 +165,25 @@ export async function revokeInviteAction(
     .eq('id', parsed.data.inviteId);
 
   if (error || !count) {
-    return { ok: false, error: 'Kon de uitnodiging niet intrekken (geen toegang of al geaccepteerd).' };
+    return { ok: false, error: "Couldn't cancel the invite (no access, or already accepted)." };
   }
 
   revalidatePath('/admin/team');
-  return { ok: true, message: 'Uitnodiging ingetrokken.' };
+  return { ok: true, message: 'Invite canceled.' };
 }
 
 /** Accept the caller's own pending invites (used by the banner). */
 export async function acceptInvitesAction(): Promise<ActionState> {
   const user = await getSessionUser();
-  if (!user) return { ok: false, error: 'Je bent niet ingelogd.' };
+  if (!user) return { ok: false, error: "You're not logged in." };
 
   const supabase = await createClient();
   const { error } = await supabase.rpc('accept_pending_invites');
   if (error) {
-    return { ok: false, error: 'Kon de uitnodiging niet accepteren.' };
+    return { ok: false, error: "Couldn't accept the invite." };
   }
 
   revalidatePath('/app');
   revalidatePath('/', 'layout');
-  return { ok: true, message: 'Uitnodiging geaccepteerd.' };
+  return { ok: true, message: 'Invite accepted.' };
 }

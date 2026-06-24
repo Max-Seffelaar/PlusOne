@@ -26,8 +26,8 @@ export function QuotaRequestsInbox({
   if (requests.length === 0) {
     return (
       <div className="card">
-        <p className="label mb-1">Quota-verzoeken</p>
-        <p className="text-sm text-dim">Geen open verzoeken.</p>
+        <p className="label mb-1">Quota requests</p>
+        <p className="text-sm text-dim">No requests right now. The line&apos;s clear.</p>
       </div>
     );
   }
@@ -35,7 +35,7 @@ export function QuotaRequestsInbox({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
-        <p className="label">Quota-verzoeken</p>
+        <p className="label">Quota requests</p>
         <span className="rounded-full bg-acc px-2 py-0.5 text-xs font-bold text-on-acc">
           {requests.length}
         </span>
@@ -75,7 +75,7 @@ function RequestRow({ eventId, request }: { eventId: string; request: PendingReq
           <span className="text-acc">+{request.requestedExtra}</span>
         </p>
         <span className="text-xs text-faint">
-          {new Date(request.createdAt).toLocaleDateString('nl-NL')}
+          {new Date(request.createdAt).toLocaleDateString('en-GB')}
         </span>
       </div>
       {request.motivation && <p className="text-sm text-dim">{request.motivation}</p>}
@@ -84,7 +84,7 @@ function RequestRow({ eventId, request }: { eventId: string; request: PendingReq
         <div className="flex flex-col gap-2">
           <textarea
             className="field min-h-[3.5rem] text-sm"
-            placeholder="Reden van afwijzing (verplicht)"
+            placeholder="Reason for denial (required)"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             maxLength={500}
@@ -96,10 +96,10 @@ function RequestRow({ eventId, request }: { eventId: string; request: PendingReq
               disabled={pending || reason.trim() === ''}
               onClick={() => decide('denied')}
             >
-              Afwijzen bevestigen
+              Confirm deny
             </button>
             <button type="button" className="btn-ghost" onClick={() => setDenying(false)}>
-              Terug
+              Back
             </button>
           </div>
         </div>
@@ -111,10 +111,10 @@ function RequestRow({ eventId, request }: { eventId: string; request: PendingReq
             disabled={pending}
             onClick={() => decide('approved')}
           >
-            {pending ? '…' : 'Goedkeuren'}
+            {pending ? '…' : 'Approve'}
           </button>
           <button type="button" className="btn-dark" disabled={pending} onClick={() => setDenying(true)}>
-            Afwijzen
+            Deny
           </button>
         </div>
       )}

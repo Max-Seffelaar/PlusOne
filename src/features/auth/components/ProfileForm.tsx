@@ -41,20 +41,20 @@ export function ProfileForm({
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
             <label htmlFor="firstName" className="label">
-              Voornaam
+              First name
             </label>
             <input id="firstName" name="firstName" type="text" defaultValue={currentFirstName} required maxLength={80} className="field" />
           </div>
           <div className="flex flex-col gap-2">
             <label htmlFor="lastName" className="label">
-              Achternaam
+              Last name
             </label>
             <input id="lastName" name="lastName" type="text" defaultValue={currentLastName} required maxLength={120} className="field" />
           </div>
         </div>
         <div className="flex flex-col gap-2">
           <label htmlFor="phone" className="label">
-            Telefoonnummer
+            Phone number
           </label>
           <input
             id="phone"
@@ -68,7 +68,7 @@ export function ProfileForm({
           />
         </div>
         <button type="submit" className="btn-primary self-start" disabled={profilePending}>
-          {profilePending ? 'Bezig…' : 'Profiel opslaan'}
+          {profilePending ? 'Saving…' : 'Save profile'}
         </button>
         <Result state={profileState} />
       </form>
@@ -76,7 +76,7 @@ export function ProfileForm({
       <form action={emailAction} className="card flex flex-col gap-4">
         <div className="flex flex-col gap-2">
           <label htmlFor="email" className="label">
-            E-mailadres
+            Email
           </label>
           <input
             id="email"
@@ -88,12 +88,12 @@ export function ProfileForm({
             className="field"
           />
           <p className="text-faint text-xs">
-            Alleen jij kunt je eigen e-mailadres wijzigen. Je bevestigt de wijziging via een link in
-            je huidige én nieuwe inbox.
+            Only you can change your email. You confirm the change through a link in both your current
+            and new inbox.
           </p>
         </div>
         <button type="submit" className="btn-dark self-start" disabled={emailPending}>
-          {emailPending ? 'Bezig…' : 'E-mailadres wijzigen'}
+          {emailPending ? 'Saving…' : 'Change email'}
         </button>
         <Result state={emailState} />
       </form>

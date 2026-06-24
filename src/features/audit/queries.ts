@@ -128,7 +128,7 @@ export async function fetchAuditFilterOptions(venueId: string): Promise<AuditFil
   return {
     events: (events ?? []).map((e) => ({ id: e.id, name: e.name })),
     actors: (members ?? [])
-      .map((m) => ({ id: m.user_id, name: m.user_profiles?.full_name ?? 'Onbekend' }))
+      .map((m) => ({ id: m.user_id, name: m.user_profiles?.full_name ?? 'Unknown' }))
       .sort((a, b) => a.name.localeCompare(b.name, 'nl')),
   };
 }

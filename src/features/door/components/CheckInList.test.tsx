@@ -111,7 +111,7 @@ describe('CheckInList virtualization @1500', () => {
     view.current = makeView(1500);
     render(<CheckInList onOpenGuest={vi.fn()} onAdd={vi.fn()} />);
 
-    const input = screen.getByPlaceholderText('Typ de naam van de gast…');
+    const input = screen.getByPlaceholderText('Search a name…');
     // A guest deep in the list is NOT mounted initially…
     expect(screen.queryByText('Gast Nummer 1234')).not.toBeInTheDocument();
 
@@ -121,13 +121,13 @@ describe('CheckInList virtualization @1500', () => {
     const hit = await screen.findByText('Gast Nummer 1234', {}, { timeout: 1000 });
     expect(hit).toBeInTheDocument();
     // And the search count reflects the single match.
-    expect(screen.getByText('1 gevonden')).toBeInTheDocument();
+    expect(screen.getByText('1 found')).toBeInTheDocument();
   });
 
   it('renders the loading skeleton when the view is absent', () => {
     view.current = null;
     const { container } = render(<CheckInList onOpenGuest={vi.fn()} onAdd={vi.fn()} />);
-    expect(within(container).getByText('Laden…')).toBeInTheDocument();
+    expect(within(container).getByText('Loading…')).toBeInTheDocument();
     expect(container.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0);
   });
 });

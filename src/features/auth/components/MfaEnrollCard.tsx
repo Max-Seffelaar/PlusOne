@@ -47,7 +47,7 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
     if (!factorId) return;
     const parsed = totpSchema.safeParse(code);
     if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? 'Ongeldige code');
+      setError(parsed.error.issues[0]?.message ?? 'Invalid code');
       return;
     }
     setBusy(true);
@@ -67,10 +67,10 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
 
   return (
     <div className="card w-full max-w-sm">
-      <h1 className="font-display text-2xl font-bold">Stel MFA in</h1>
+      <h1 className="font-display text-2xl font-bold">Set up two-factor</h1>
       <p className="text-dim mt-1 text-sm">
-        Voor jouw rol is tweestapsverificatie verplicht. Scan de QR-code met een authenticator-app
-        (bijv. Google Authenticator, 1Password) en vul de code in.
+        Two-factor is required for your role. Scan the QR code with an authenticator app
+        (e.g. Google Authenticator, 1Password), then enter the code.
       </p>
 
       {error && !qr ? (
@@ -79,7 +79,7 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
             {error}
           </p>
           <button type="button" className="btn-dark w-full" onClick={() => void startEnrollment()}>
-            Opnieuw proberen
+            Try again
           </button>
         </div>
       ) : qr ? (
@@ -95,13 +95,13 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={qr}
-              alt="QR-code voor authenticator-app"
+              alt="QR code for authenticator app"
               className="bg-text h-44 w-44 rounded-card p-2"
             />
           </div>
           {secret && (
             <p className="text-faint text-center text-xs">
-              Handmatig invoeren?{' '}
+              Enter it manually?{' '}
               <code className="text-dim break-all" data-testid="totp-secret">
                 {secret}
               </code>
@@ -109,7 +109,7 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
           )}
           <div className="flex flex-col gap-2">
             <label htmlFor="totp" className="label">
-              Code uit je app
+              Code from your app
             </label>
             <input
               id="totp"
@@ -126,7 +126,7 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
             />
           </div>
           <button type="submit" className="btn-primary w-full" disabled={busy || code.length !== 6}>
-            {busy ? 'Bezig…' : 'Activeer MFA'}
+            {busy ? 'Verifying…' : 'Verify'}
           </button>
           {error && (
             <p className="text-sm text-red-300" role="alert">
@@ -135,7 +135,7 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
           )}
         </form>
       ) : (
-        <p className="text-dim mt-4 text-sm">QR-code laden…</p>
+        <p className="text-dim mt-4 text-sm">Loading QR code…</p>
       )}
     </div>
   );

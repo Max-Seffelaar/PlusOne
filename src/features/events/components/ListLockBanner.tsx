@@ -17,11 +17,11 @@ export function ListLockBanner({
       role="status"
       className="rounded-card border border-acc bg-acc-dim p-3 text-sm"
     >
-      <p className="text-text font-semibold">Lijst vergrendeld</p>
+      <p className="text-text font-semibold">List locked</p>
       <p className="text-dim mt-0.5">
         {youAreBlocked
-          ? 'Je kunt nu geen gasten toevoegen of wijzigen. Vraag een admin, organisator of doorhost om de lijst te ontgrendelen.'
-          : 'Alleen admin, organisator en doorhost kunnen nog wijzigen.'}
+          ? "You can't add or change guests right now. Ask an admin, organizer, or door host to unlock the list."
+          : 'Only an admin, organizer, or door host can make changes now.'}
       </p>
     </div>
   );

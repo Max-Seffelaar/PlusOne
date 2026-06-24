@@ -224,12 +224,12 @@ describe('amsterdamHM / currentBucketIndex', () => {
 describe('liveFeedLabel / feedIsAccent', () => {
   it('labels a check-in with +N', () => {
     const e: FeedEntry = { kind: 'in', t: '23:10', name: 'Bram', plus: 2 };
-    expect(liveFeedLabel(e)).toBe('Bram +2 ingecheckt');
+    expect(liveFeedLabel(e)).toBe('Bram +2 checked in');
     expect(feedIsAccent(e)).toBe(true);
   });
   it('labels a check-out without accent', () => {
     const e: FeedEntry = { kind: 'out', t: '23:11', name: 'Bram', plus: 0 };
-    expect(liveFeedLabel(e)).toBe('Bram uitgecheckt');
+    expect(liveFeedLabel(e)).toBe('Bram checked out');
     expect(feedIsAccent(e)).toBe(false);
   });
   it('passes a message entry through', () => {

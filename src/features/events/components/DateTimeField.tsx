@@ -16,10 +16,10 @@ interface Parts {
   mi: number;
 }
 
-const WEEKDAYS = ['ma', 'di', 'wo', 'do', 'vr', 'za', 'zo'];
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5); // 0,5,…,55
-const monthFmt = new Intl.DateTimeFormat('nl-NL', { month: 'long', year: 'numeric' });
-const triggerFmt = new Intl.DateTimeFormat('nl-NL', {
+const monthFmt = new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric' });
+const triggerFmt = new Intl.DateTimeFormat('en-GB', {
   weekday: 'short',
   day: 'numeric',
   month: 'short',
@@ -50,7 +50,7 @@ function firstWeekdayMon(y: number, mo: number): number {
 export function DateTimeField({
   value,
   onChange,
-  placeholder = 'Kies datum en tijd',
+  placeholder = 'Pick date and time',
   allowClear = false,
 }: {
   value: string;
@@ -138,13 +138,13 @@ export function DateTimeField({
       {open && (
         <div className="border-line bg-elev2 absolute left-0 z-20 mt-2 w-[19rem] rounded-card border p-3 shadow-xl">
           <div className="mb-2 flex items-center justify-between">
-            <button type="button" onClick={() => shiftMonth(-1)} className="btn-ghost px-2 py-1 text-sm" aria-label="Vorige maand">
+            <button type="button" onClick={() => shiftMonth(-1)} className="btn-ghost px-2 py-1 text-sm" aria-label="Previous month">
               ‹
             </button>
             <span className="font-display text-sm font-bold capitalize">
               {monthFmt.format(new Date(view.y, view.mo - 1, 1))}
             </span>
-            <button type="button" onClick={() => shiftMonth(1)} className="btn-ghost px-2 py-1 text-sm" aria-label="Volgende maand">
+            <button type="button" onClick={() => shiftMonth(1)} className="btn-ghost px-2 py-1 text-sm" aria-label="Next month">
               ›
             </button>
           </div>
@@ -177,12 +177,12 @@ export function DateTimeField({
           </div>
 
           <div className="border-line2 mt-3 flex items-center gap-2 border-t pt-3">
-            <span className="label">Tijd</span>
+            <span className="label">Time</span>
             <select
               className="field flex-1 py-1.5"
               value={hour}
               onChange={(e) => changeHour(Number(e.target.value))}
-              aria-label="Uur"
+              aria-label="Hour"
             >
               {Array.from({ length: 24 }, (_, h) => (
                 <option key={h} value={h}>
@@ -195,7 +195,7 @@ export function DateTimeField({
               className="field flex-1 py-1.5"
               value={minute}
               onChange={(e) => changeMinute(Number(e.target.value))}
-              aria-label="Minuut"
+              aria-label="Minute"
             >
               {MINUTES.map((mi) => (
                 <option key={mi} value={mi}>
@@ -215,13 +215,13 @@ export function DateTimeField({
                 }}
                 className="btn-ghost text-acc-soft text-sm"
               >
-                Wissen
+                Clear
               </button>
             ) : (
               <span />
             )}
             <button type="button" onClick={() => setOpen(false)} className="btn-primary text-sm">
-              Klaar
+              Done
             </button>
           </div>
         </div>

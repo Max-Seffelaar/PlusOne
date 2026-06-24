@@ -5,8 +5,8 @@ const uuid = z.string().uuid();
 /** Staff asks for X extra slots with a motivation (#5). */
 export const quotaRequestSchema = z.object({
   eventId: uuid,
-  requestedExtra: z.coerce.number().int().min(1, 'Vraag minimaal 1 plek aan').max(100),
-  motivation: z.string().trim().min(1, 'Geef een korte motivatie').max(500),
+  requestedExtra: z.coerce.number().int().min(1, 'Ask for at least 1 spot').max(100),
+  motivation: z.string().trim().min(1, 'Add a short reason').max(500),
 });
 export type QuotaRequestInput = z.input<typeof quotaRequestSchema>;
 
@@ -21,9 +21,9 @@ export const defaultQuotaSchema = z.object({
   userId: uuid,
   defaultCount: z.coerce
     .number()
-    .int('Vul een geheel getal in')
-    .min(0, 'Minimaal 0')
-    .max(100000, 'Dat is wel erg veel'),
+    .int('Enter a whole number')
+    .min(0, 'At least 0')
+    .max(100000, "That's a lot"),
 });
 export type DefaultQuotaInput = z.input<typeof defaultQuotaSchema>;
 
@@ -35,7 +35,7 @@ export const decideQuotaRequestSchema = z
     reason: z.string().trim().max(500).optional(),
   })
   .refine((v) => v.decision !== 'denied' || (v.reason && v.reason.length > 0), {
-    message: 'Geef een reden bij een afwijzing',
+    message: 'Give a reason for declining',
     path: ['reason'],
   });
 export type DecideQuotaRequestInput = z.input<typeof decideQuotaRequestSchema>;

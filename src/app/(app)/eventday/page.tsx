@@ -6,7 +6,7 @@ import type { PoIdentity } from '@/features/po/PoLiveProvider';
 import { EventDayProvider } from './EventDayProvider';
 
 export const metadata: Metadata = {
-  title: 'PLUSONE — Event-dag',
+  title: 'Event day · PlusOne',
 };
 
 // S13 · Desktop Event-dag cockpit. Auth + MFA are already enforced by the (app)

@@ -26,15 +26,15 @@ export function classifyError(error: DbError | null): ReplayResult {
   if (code === '23505') {
     const detail = `${error.details ?? ''} ${error.message ?? ''}`;
     if (detail.includes('guest_id')) {
-      return { status: 'duplicate', message: 'Al ingecheckt op een ander apparaat.' };
+      return { status: 'duplicate', message: 'Already checked in on another device.' };
     }
     // Conflict on the primary key = our own row already persisted (idempotent).
     return { status: 'synced' };
   }
-  if (code === '45001') return { status: 'error', message: error.message ?? 'Quotum vol voor dit event.' };
-  if (code === '45002') return { status: 'error', message: error.message ?? 'Dit tier zit vol.' };
+  if (code === '45001') return { status: 'error', message: error.message ?? 'Quota full for this event.' };
+  if (code === '45002') return { status: 'error', message: error.message ?? 'This tier is full.' };
   // Network / server / transient RLS hiccup → retry on the next drain.
-  return { status: 'pending', message: error.message ?? 'Verbinding mislukt — opnieuw proberen.' };
+  return { status: 'pending', message: error.message ?? 'Connection failed. Retrying.' };
 }
 
 export async function replayEntry(
@@ -145,7 +145,7 @@ export async function drainOutbox(deps: DrainDeps): Promise<DrainSummary> {
     try {
       result = await replayEntry(deps.gateway, entry, deps.uid, deps.deviceId);
     } catch (e) {
-      result = { status: 'pending', message: e instanceof Error ? e.message : 'Onbekende fout' };
+      result = { status: 'pending', message: e instanceof Error ? e.message : 'Unknown error' };
     }
     deps.update(entry.clientId, {
       status: result.status,

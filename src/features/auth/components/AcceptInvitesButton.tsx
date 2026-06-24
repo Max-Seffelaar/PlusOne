@@ -20,7 +20,7 @@ export function AcceptInvitesButton(): JSX.Element {
         })
       }
     >
-      {pending ? 'Bezig…' : 'Uitnodiging accepteren'}
+      {pending ? 'Working…' : 'Accept invite'}
     </button>
   );
 }

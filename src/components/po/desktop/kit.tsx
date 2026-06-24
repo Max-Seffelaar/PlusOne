@@ -4,6 +4,7 @@
  *  shared kit; desktop Btn/Card/chips differ slightly in radius + sizing. */
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import { Icon, type IconName } from '../icon';
 
 const press = 'transition-[filter,transform,background,border-color,color] hover:brightness-[1.08] active:scale-[0.985]';
@@ -33,17 +34,17 @@ export function DCard({ children, className }: { children: ReactNode; className?
 }
 
 const ACTION_LABEL: Record<string, string> = {
-  check_in: 'Check-in',
-  refuse: 'Weigering',
-  tier_change: 'Tier',
-  lock: 'Lock',
-  unlock: 'Unlock',
-  quota_grant: 'Quotum',
-  create: 'Toegevoegd',
-  delete: 'Verwijderd',
-  approve: 'Goedgekeurd',
-  deny: 'Afgewezen',
-  update: 'Wijziging',
+  check_in: t.shared.actions.checkIn,
+  refuse: t.shared.actions.refuse,
+  tier_change: t.shared.actions.tier,
+  lock: t.shared.actions.lock,
+  unlock: t.shared.actions.unlock,
+  quota_grant: t.shared.actions.quota,
+  create: t.shared.actions.create,
+  delete: t.shared.actions.delete,
+  approve: t.shared.actions.approve,
+  deny: t.shared.actions.deny,
+  update: t.shared.actions.update,
 };
 const ACCENT_ACTIONS = ['check_in', 'quota_grant', 'approve', 'tier_change'];
 
@@ -56,8 +57,8 @@ export function ActionChip({ action }: { action: string }): JSX.Element {
   );
 }
 
-export function Tag({ t, acc }: { t: string; acc?: boolean }): JSX.Element {
-  return <span className={cn('rounded-[8px] border px-[11px] py-[5px] font-display text-[11.5px] font-bold', acc ? 'border-transparent bg-acc-dim text-acc' : 'border-line bg-elev2 text-dim')}>{t}</span>;
+export function Tag({ label, acc }: { label: string; acc?: boolean }): JSX.Element {
+  return <span className={cn('rounded-[8px] border px-[11px] py-[5px] font-display text-[11.5px] font-bold', acc ? 'border-transparent bg-acc-dim text-acc' : 'border-line bg-elev2 text-dim')}>{label}</span>;
 }
 
 /** Small round approve/reject button used in the dashboard approvals summary. */

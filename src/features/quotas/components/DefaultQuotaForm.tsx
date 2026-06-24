@@ -24,7 +24,7 @@ export function DefaultQuotaForm({
       <input type="hidden" name="userId" value={userId} />
       <div className="flex items-center gap-2">
         <label htmlFor={`quota-${userId}`} className="sr-only">
-          Standaard-toelage
+          Default allowance
         </label>
         <input
           id={`quota-${userId}`}
@@ -37,7 +37,7 @@ export function DefaultQuotaForm({
           className="field w-20 py-1.5 text-right text-sm"
         />
         <button type="submit" className="btn-dark text-xs" disabled={pending}>
-          {pending ? '…' : 'Opslaan'}
+          {pending ? '…' : 'Save'}
         </button>
       </div>
       {state.ok && state.message && (

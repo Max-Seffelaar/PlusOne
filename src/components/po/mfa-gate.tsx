@@ -12,6 +12,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import { createClient } from '@/lib/supabase/client';
 import { Icon } from './icon';
 import { Btn, Field, Label, Note } from './kit';
@@ -27,8 +28,8 @@ type Phase = 'loading' | 'challenge' | 'enroll' | 'error';
 export function PoMfaSheet({
   onVerified,
   onClose,
-  title = 'Tweestapsverificatie',
-  subtitle = 'Deze actie vereist tweestapsverificatie.',
+  title = t.shared.mfaGate.title,
+  subtitle = t.shared.mfaGate.subtitle,
 }: {
   onVerified: () => void;
   onClose: () => void;
@@ -51,7 +52,7 @@ export function PoMfaSheet({
     void (async () => {
       const { data, error: listError } = await supabase.auth.mfa.listFactors();
       if (listError) {
-        setError('Kon de MFA-status niet laden.');
+        setError(t.shared.mfaGate.loadError);
         setPhase('error');
         return;
       }
@@ -69,7 +70,7 @@ export function PoMfaSheet({
       }
       const { data: enrolled, error: enrollError } = await supabase.auth.mfa.enroll({ factorType: 'totp' });
       if (enrollError || !enrolled) {
-        setError('Kon MFA niet starten. Probeer het opnieuw.');
+        setError(t.shared.mfaGate.startError);
         setPhase('error');
         return;
       }
@@ -88,7 +89,7 @@ export function PoMfaSheet({
     const { error: verifyError } = await createClient().auth.mfa.challengeAndVerify({ factorId, code });
     setBusy(false);
     if (verifyError) {
-      setError('Code onjuist of verlopen. Probeer het opnieuw.');
+      setError(t.shared.mfaGate.codeError);
       setCode('');
       return;
     }
@@ -120,26 +121,24 @@ export function PoMfaSheet({
         </div>
       </div>
 
-      {phase === 'loading' && <div className="py-6 text-center text-[13px] text-faint">Laden…</div>}
+      {phase === 'loading' && <div className="py-6 text-center text-[13px] text-faint">{t.shared.mfaGate.loading}</div>}
 
       {phase === 'error' && (
         <>
-          <Note icon="warn">{error ?? 'Er ging iets mis.'}</Note>
+          <Note icon="warn">{error ?? t.shared.mfaGate.genericError}</Note>
           <Btn kind="ghost" full onClick={() => void cancel()}>
-            Sluiten
+            {t.shared.mfaGate.close}
           </Btn>
         </>
       )}
 
       {phase === 'enroll' && (
         <>
-          <Note icon="shield">
-            Scan de QR-code met je authenticator-app (of voer de sleutel handmatig in) en vul daarna de 6-cijferige code in.
-          </Note>
+          <Note icon="shield">{t.shared.mfaGate.enrollNote}</Note>
           {qr && (
             <div className="mb-3 flex justify-center">
               {/* eslint-disable-next-line @next/next/no-img-element -- QR is an inline SVG data-URI from GoTrue, not a static asset */}
-              <img src={qr} alt="MFA QR-code" className="h-[176px] w-[176px] rounded-[12px] bg-white p-2" />
+              <img src={qr} alt={t.shared.mfaGate.qrAlt} className="h-[176px] w-[176px] rounded-[12px] bg-white p-2" />
             </div>
           )}
           {secret && (
@@ -152,7 +151,7 @@ export function PoMfaSheet({
 
       {(phase === 'enroll' || phase === 'challenge') && (
         <>
-          <Label className="mb-2">6-cijferige code</Label>
+          <Label className="mb-2">{t.shared.mfaGate.codeLabel}</Label>
           <Field
             icon="shield"
             value={code}
@@ -175,10 +174,10 @@ export function PoMfaSheet({
             disabled={code.length !== 6 || busy}
             onClick={() => void verify()}
           >
-            {busy ? 'Verifiëren…' : 'Verifiëren'}
+            {busy ? t.shared.mfaGate.verifying : t.shared.mfaGate.verify}
           </Btn>
           <Btn kind="ghost" full className="mt-2" onClick={() => void cancel()}>
-            Annuleren
+            {t.shared.mfaGate.cancel}
           </Btn>
         </>
       )}

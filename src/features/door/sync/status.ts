@@ -30,12 +30,12 @@ export function deriveSyncStatus({ online, realtimeConnected, lastSyncAt, now }:
   return 'stale';
 }
 
-/** Human label for the bar ("3 min geleden", "zojuist gesynct", "verbinden…"). */
+/** Human label for the bar ("last sync 3 min ago", "synced just now", "connecting…"). */
 export function syncAgeLabel(lastSyncAt: number | null, now: number): string {
-  if (lastSyncAt == null) return 'verbinden…';
+  if (lastSyncAt == null) return 'connecting…';
   const sec = Math.max(0, Math.floor((now - lastSyncAt) / 1000));
-  if (sec < 10) return 'zojuist gesynct';
-  if (sec < 60) return `${sec}s geleden`;
+  if (sec < 10) return 'synced just now';
+  if (sec < 60) return `${sec}s ago`;
   const min = Math.floor(sec / 60);
-  return `laatste sync ${min} min geleden`;
+  return `last sync ${min} min ago`;
 }
