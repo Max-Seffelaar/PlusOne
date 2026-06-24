@@ -3,6 +3,7 @@ import 'server-only';
 import { redirect } from 'next/navigation';
 import type { User } from '@supabase/supabase-js';
 import { getAuthContext, getSessionUser, type AuthContext } from './context';
+import { requireConsent } from './consent';
 
 function loginRedirect(nextPath?: string): string {
   return nextPath ? `/login?next=${encodeURIComponent(nextPath)}` : '/login';
@@ -30,6 +31,8 @@ export async function requireAppAccess(currentPath?: string): Promise<AuthContex
   if (ctx.requiresMfa && !ctx.hasVerifiedTotp) {
     redirect('/mfa/enroll');
   }
+  // First-login consent gate (#20/#40): accept Terms + Privacy before the app.
+  await requireConsent(ctx.user.id, currentPath ?? '/app');
   return ctx;
 }
 

@@ -33,6 +33,7 @@ import {
   syncPermanentGuests,
   toggleContactPermanent,
   upsertContact,
+  forgetContact,
   type ImportResult,
   type SyncResult,
 } from '@/features/contacts/actions';
@@ -42,6 +43,7 @@ import type {
   SyncPermanentInput,
   TogglePermanentInput,
   UpsertContactInput,
+  ForgetContactInput,
 } from '@/features/contacts/schemas';
 import {
   changeEventStatus,
@@ -54,6 +56,14 @@ import {
   setListLock,
   updateEvent,
   updateTier,
+  createTemplate,
+  updateTemplate,
+  deleteTemplate,
+  createTemplateTier,
+  updateTemplateTier,
+  deleteTemplateTier,
+  createEventFromTemplate,
+  createTemplateFromEvent,
 } from '@/features/events/actions';
 import type {
   ChangeStatusInput,
@@ -66,6 +76,14 @@ import type {
   SetLockInput,
   UpdateEventInput,
   UpdateTierInput,
+  CreateTemplateInput,
+  UpdateTemplateInput,
+  DeleteTemplateInput,
+  CreateTemplateTierInput,
+  UpdateTemplateTierInput,
+  DeleteTemplateTierInput,
+  CreateEventFromTemplateInput,
+  CreateTemplateFromEventInput,
 } from '@/features/events/schemas';
 import { inviteUserAction, revokeInviteAction, acceptInvitesAction } from '@/features/auth/invite-actions';
 import { updateProfileAction, updateEmailAction } from '@/features/auth/profile-actions';
@@ -485,6 +503,23 @@ export function usePoUpsertContact() {
   });
 }
 
+/**
+ * On-request erasure ("forget me", #29) — admin only (enforced in the
+ * forget_contact RPC). Invalidates the contacts lists AND every guests cache,
+ * since the person's guest rows are anonymized across events.
+ */
+export function usePoForgetContact() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: ForgetContactInput) => throwOnError(await forgetContact(input)),
+    onSuccess: () => {
+      invalidateContacts(qc, venueId);
+      void qc.invalidateQueries({ queryKey: [...poKeys.all, 'guests'] });
+    },
+  });
+}
+
 /** Star/unstar a contact as a permanent guest (#11) — admin/organizer via RLS. */
 export function usePoToggleContactPermanent() {
   const qc = useQueryClient();
@@ -637,6 +672,113 @@ export function usePoDeleteTier(eventId: string) {
   return useMutation({
     mutationFn: async (input: DeleteTierInput) => throwOnError(await deleteTier(input)),
     onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) }),
+  });
+}
+
+// ── Event templates (86exyp8gn) ─────────────────────────────────────────────
+// Management writes invalidate the venue's template list (+ the single template /
+// its tier list on tier edits). Creating an event FROM a template invalidates the
+// events list, like usePoCreateEvent. Template tier counts live on the list, so a
+// tier add/remove also refreshes the templates list.
+
+export function usePoCreateTemplate() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: CreateTemplateInput): Promise<string> => {
+      const res = await createTemplate(input);
+      if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
+      return res.templateId;
+    },
+    onSuccess: () => {
+      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.templates(venueId) });
+    },
+  });
+}
+
+export function usePoUpdateTemplate(templateId: string) {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: UpdateTemplateInput) => throwOnError(await updateTemplate(input)),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: poKeys.template(templateId) });
+      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.templates(venueId) });
+    },
+  });
+}
+
+export function usePoDeleteTemplate() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: DeleteTemplateInput) => throwOnError(await deleteTemplate(input)),
+    onSuccess: () => {
+      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.templates(venueId) });
+    },
+  });
+}
+
+export function usePoCreateTemplateTier(templateId: string) {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: CreateTemplateTierInput) => throwOnError(await createTemplateTier(input)),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: poKeys.templateTiers(templateId) });
+      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.templates(venueId) });
+    },
+  });
+}
+
+export function usePoUpdateTemplateTier(templateId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: UpdateTemplateTierInput) => throwOnError(await updateTemplateTier(input)),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.templateTiers(templateId) }),
+  });
+}
+
+export function usePoDeleteTemplateTier(templateId: string) {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: DeleteTemplateTierInput) => throwOnError(await deleteTemplateTier(input)),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: poKeys.templateTiers(templateId) });
+      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.templates(venueId) });
+    },
+  });
+}
+
+export function usePoCreateEventFromTemplate() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: CreateEventFromTemplateInput): Promise<string> => {
+      const res = await createEventFromTemplate(input);
+      if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
+      return res.eventId;
+    },
+    onSuccess: () => {
+      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
+    },
+  });
+}
+
+/** Save an existing event's setup as a new template; refreshes the templates list. */
+export function usePoCreateTemplateFromEvent() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: CreateTemplateFromEventInput): Promise<string> => {
+      const res = await createTemplateFromEvent(input);
+      if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
+      return res.templateId;
+    },
+    onSuccess: () => {
+      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.templates(venueId) });
+    },
   });
 }
 

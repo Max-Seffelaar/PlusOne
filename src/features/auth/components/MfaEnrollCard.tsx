@@ -62,7 +62,8 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
       return;
     }
     // Session is now AAL2 — full navigation so the server picks up the new AAL.
-    window.location.assign(nextPath);
+    // `replace` so the /mfa step doesn't linger behind /app in history.
+    window.location.replace(nextPath);
   }
 
   return (

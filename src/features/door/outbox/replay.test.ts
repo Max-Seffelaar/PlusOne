@@ -29,6 +29,10 @@ const UNIQUE_GUEST: DbError = { code: '23505', details: 'Key (guest_id)=(g1) alr
 const UNIQUE_PKEY: DbError = { code: '23505', details: 'Key (id)=(ci1) already exists.' };
 const QUOTA_FULL: DbError = { code: '45001', message: 'Quotum overschreden: dit zou 6 van 5 plekken gebruiken.' };
 const TIER_FULL: DbError = { code: '45002', message: 'Tier zit vol: 11 van 10 plekken bezet.' };
+const CAPACITY_FULL: DbError = {
+  code: '45005',
+  message: 'Capaciteit bereikt: dit zou 1801 van 1800 plekken voor dit event gebruiken.',
+};
 const NETWORK: DbError = { code: undefined, message: 'Failed to fetch' };
 
 describe('classifyError', () => {
@@ -45,9 +49,10 @@ describe('classifyError', () => {
     expect(classifyError(UNIQUE_PKEY)).toEqual({ status: 'synced' });
   });
 
-  it('maps quota (45001) and tier (45002) to terminal errors carrying the message', () => {
+  it('maps quota (45001), tier (45002), and capacity (45005) to terminal errors carrying the message', () => {
     expect(classifyError(QUOTA_FULL)).toEqual({ status: 'error', message: QUOTA_FULL.message });
     expect(classifyError(TIER_FULL)).toEqual({ status: 'error', message: TIER_FULL.message });
+    expect(classifyError(CAPACITY_FULL)).toEqual({ status: 'error', message: CAPACITY_FULL.message });
   });
 
   it('treats unknown/network errors as transient (retry)', () => {

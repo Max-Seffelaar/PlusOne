@@ -8,6 +8,7 @@ import { Field, Label } from '@/components/po/kit';
 import { Btn } from '@/components/po/kit';
 import { createVenueAction } from '@/features/venues/actions';
 import { VENUE_TYPES, type VenueType } from '@/features/venues/schemas';
+import { TERMS_URL, PRIVACY_URL } from '@/lib/legal';
 import { WizardShell, WizardPanel } from '../WizardShell';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
@@ -26,16 +27,23 @@ export function VenueStep({ onCreated }: { onCreated: (venueId: string) => void 
   const [address, setAddress] = useState('');
   const [venueType, setVenueType] = useState<VenueType>('club');
   const [retention, setRetention] = useState(12);
+  const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const ok = name.trim().length > 1;
+  const ok = name.trim().length > 1 && agreed;
 
   function submit(): void {
     if (!ok || pending) return;
     setError(null);
     startTransition(async () => {
-      const res = await createVenueAction({ name, address, venueType, retentionMonths: retention });
+      const res = await createVenueAction({
+        name,
+        address,
+        venueType,
+        retentionMonths: retention,
+        termsAccepted: agreed,
+      });
       if (res.ok) {
         onCreated(res.venueId);
       } else {
@@ -139,6 +147,26 @@ export function VenueStep({ onCreated }: { onCreated: (venueId: string) => void 
           ))}
         </div>
       </div>
+
+      <label className="mt-[18px] flex cursor-pointer items-start gap-[11px] rounded-[16px] border border-line bg-elev p-4">
+        <input
+          type="checkbox"
+          checked={agreed}
+          onChange={(e) => setAgreed(e.target.checked)}
+          className="mt-[2px] h-[19px] w-[19px] shrink-0 accent-acc"
+        />
+        <span className="text-[13px] leading-[1.5] text-text">
+          I agree to the{' '}
+          <a href={TERMS_URL} target="_blank" rel="noreferrer" className="font-semibold text-acc underline">
+            Terms
+          </a>{' '}
+          and{' '}
+          <a href={PRIVACY_URL} target="_blank" rel="noreferrer" className="font-semibold text-acc underline">
+            Privacy Policy
+          </a>
+          .
+        </span>
+      </label>
     </WizardShell>
   );
 }

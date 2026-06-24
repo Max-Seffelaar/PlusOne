@@ -9,11 +9,13 @@ import {
   syncPermanentSchema,
   addContactToEventSchema,
   importContactsSchema,
+  forgetContactSchema,
   type UpsertContactInput,
   type TogglePermanentInput,
   type SyncPermanentInput,
   type AddContactToEventInput,
   type ImportContactsInput,
+  type ForgetContactInput,
 } from './schemas';
 
 export type ActionResult = { ok: true } | MutationError;
@@ -72,6 +74,32 @@ export async function upsertContact(input: UpsertContactInput): Promise<ActionRe
     });
     if (error) return mapMutationError(error);
   }
+
+  revalidatePath(APP_PATH);
+  return { ok: true };
+}
+
+/**
+ * On-request erasure (AVG art. 17 / #29): immediately anonymize one address-book
+ * contact + all its linked guests + their refusals, ignoring the retention
+ * window. The forget_contact RPC self-guards admin-of-venue (the DB is the
+ * boundary); admin is an MFA-mandatory role, so no extra per-action AAL2 step-up.
+ * Irreversible — the UI confirms before calling this.
+ */
+export async function forgetContact(input: ForgetContactInput): Promise<ActionResult> {
+  const parsed = forgetContactSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return unauthorized();
+
+  const { error } = await supabase.rpc('forget_contact', {
+    p_contact_id: parsed.data.contactId,
+  });
+  if (error) return mapMutationError(error);
 
   revalidatePath(APP_PATH);
   return { ok: true };
