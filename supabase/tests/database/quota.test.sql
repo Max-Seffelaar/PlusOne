@@ -102,6 +102,13 @@ reset role;
 
 -- ===========================================================================
 -- 3. Landing guests fall outside personal quota (#31). Knob: 0 free.
+--    NB (security-audit 4.2): a STAFF member may no longer self-attribute a guest
+--    as source='landing' — that quota-bypass forge is now rejected by the
+--    guests_insert WITH CHECK (migration 20260623140200; see
+--    attacker_quota_bypass.test.sql). Real landing guests are created only by the
+--    SECURITY DEFINER approve_guest_request RPC (added_by = the exempt approver),
+--    so #31 is proven here at the function level + via an owner-side insert
+--    (past RLS), not via a staff forge.
 -- ===========================================================================
 
 update public.event_quotas
@@ -110,21 +117,26 @@ update public.event_quotas
   where event_id = 'ee000000-0000-7000-8000-000000000001'
     and user_id = '55555555-5555-4555-8555-555555555555';
 
-select pg_temp.login('55555555-5555-4555-8555-555555555555');
-select lives_ok($$
-  insert into public.guests (event_id, tier_id, full_name, plus_ones, added_by, source)
-  values ('ee000000-0000-7000-8000-000000000001',
-          'dd000000-0000-7000-8000-000000000001', 'Landing Gast', 5,
-          '55555555-5555-4555-8555-555555555555', 'landing')
-$$, '3.1 landing add succeeds even with 0 free slots (#31)');
-reset role;
+-- 3.1 the #31 rule itself: a landing-source row consumes 0 personal slots (seed
+-- guest cc..07 is the organizer-staged landing request).
+select is(
+  public.guest_personal_contribution(
+    (select g from public.guests g where g.id = 'cc000000-0000-7000-8000-000000000007'),
+    null),
+  0, '3.1 a landing-source guest contributes 0 personal slots (#31)');
 
+-- 3.2 adding a landing guest for the staffer (inserted as owner — the RPC path)
+-- does not raise their personal consumption, even with 0 free slots.
+insert into public.guests (event_id, tier_id, full_name, plus_ones, added_by, source, status)
+values ('ee000000-0000-7000-8000-000000000001',
+        'dd000000-0000-7000-8000-000000000001', 'Landing Gast', 5,
+        '55555555-5555-4555-8555-555555555555', 'landing', 'approved');
 select is(
   public.user_event_consumption(
     'ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555'),
   public.user_event_quota(
     'ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555'),
-  '3.2 landing add did not raise the personal consumption');
+  '3.2 the landing add did not raise the staffer''s personal consumption (#31)');
 
 -- ===========================================================================
 -- 4. Admin & organizer add without a personal limit (role matrix §2).

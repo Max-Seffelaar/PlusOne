@@ -176,6 +176,76 @@ describe('replayEntry', () => {
     expect(result.status).toBe('synced');
     expect(undoRefusal).toHaveBeenCalledWith('g9');
   });
+
+  it('refusal records the reason, pinning refused_by + event + device, and syncs', async () => {
+    const insertRefusal = vi.fn(async () => ({ error: null }));
+    const gw: DoorGateway = { ...gatewayReturning(null), insertRefusal };
+    const entry: OutboxEntry = {
+      clientId: 'c8',
+      eventId: 'ev1',
+      kind: 'refusal',
+      status: 'pending',
+      attempts: 0,
+      createdAt: '2026-06-20T22:00:00.000Z',
+      payload: { id: 'r1', guestId: 'g1', reason: 'Geen geldig ID', clientTimestamp: '2026-06-20T22:00:00.000Z' },
+    };
+    const result = await replayEntry(gw, entry, UID, DEVICE);
+    expect(result.status).toBe('synced');
+    expect(insertRefusal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'r1',
+        guest_id: 'g1',
+        event_id: 'ev1',
+        refused_by: UID,
+        reason: 'Geen geldig ID',
+        device_id: DEVICE,
+      }),
+    );
+  });
+
+  it('refusal re-sent (own row already persisted) is idempotent → synced', async () => {
+    const result = await replayEntry(gatewayReturning(UNIQUE_PKEY), {
+      clientId: 'c9',
+      eventId: 'ev1',
+      kind: 'refusal',
+      status: 'pending',
+      attempts: 1,
+      createdAt: '2026-06-20T22:00:00.000Z',
+      payload: { id: 'r1', guestId: 'g1', reason: 'Geen geldig ID', clientTimestamp: 't' },
+    }, UID, DEVICE);
+    expect(result.status).toBe('synced');
+  });
+
+  it('ack_note acknowledges by guest_id, pinning the session user', async () => {
+    const ackNote = vi.fn(async () => ({ error: null }));
+    const gw: DoorGateway = { ...gatewayReturning(null), ackNote };
+    const result = await replayEntry(gw, {
+      clientId: 'c10',
+      eventId: 'ev1',
+      kind: 'ack_note',
+      status: 'pending',
+      attempts: 0,
+      createdAt: '2026-06-20T22:00:00.000Z',
+      payload: { guestId: 'g1', ack: true },
+    }, UID, DEVICE);
+    expect(result.status).toBe('synced');
+    expect(ackNote).toHaveBeenCalledWith('g1', true, UID);
+  });
+
+  it('ack_note reopen (ack=false) passes the flag through', async () => {
+    const ackNote = vi.fn(async () => ({ error: null }));
+    const gw: DoorGateway = { ...gatewayReturning(null), ackNote };
+    await replayEntry(gw, {
+      clientId: 'c11',
+      eventId: 'ev1',
+      kind: 'ack_note',
+      status: 'pending',
+      attempts: 0,
+      createdAt: '2026-06-20T22:00:00.000Z',
+      payload: { guestId: 'g1', ack: false },
+    }, UID, DEVICE);
+    expect(ackNote).toHaveBeenCalledWith('g1', false, UID);
+  });
 });
 
 /** In-memory stand-in for the persisted store. */

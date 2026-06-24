@@ -64,13 +64,21 @@ select throws_ok($$
           'Over Quota App', 50, '55555555-5555-4555-8555-555555555555', 'app')
 $$, '45001', null, 'B1 a +50 app add breaches personal quota');
 
-select lives_ok($$
-  insert into public.guests (event_id, tier_id, full_name, plus_ones, added_by, source)
-  values ('ee000000-0000-7000-8000-000000000001', 'dd000000-0000-7000-8000-000000000001',
-          'Over Quota Permanent', 50, '55555555-5555-4555-8555-555555555555', 'permanent')
-$$, 'B2 the same +50 add as permanent is quota-exempt');
-
 reset role;
+
+-- B2: source='permanent' is personally exempt (#11). A staff member may NO LONGER
+-- self-attribute a guest as 'permanent' — that quota forge is rejected by the
+-- guests_insert WITH CHECK (migration 20260623140200; see
+-- attacker_quota_bypass.test.sql). Proven here at the function level on the synced
+-- Sanne guest (added by the A-section sync, added_by = the exempt admin).
+select is(
+  public.guest_personal_contribution(
+    (select g from public.guests g
+       where g.event_id = 'ee000000-0000-7000-8000-000000000001'
+         and g.contact_id = 'c0000000-0000-7000-8000-000000000001'
+         and g.status <> 'removed' limit 1),
+    null),
+  0, 'B2 a permanent-source guest contributes 0 personal slots (#11, quota-exempt)');
 
 -- Tier-max still counts permanent: a capped tier filled by a permanent guest
 -- rejects the next add of any source.

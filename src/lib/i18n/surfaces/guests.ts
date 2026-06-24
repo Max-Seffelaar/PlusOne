@@ -12,6 +12,22 @@
  * Use `fmt(t.guests.<key>, { … })` for values with {placeholders}.
  */
 export const guests = {
+  // ── Create a tier on the spot (#64) ───────────────────────────────────────
+  // Shown by the add flows (quick-add / bulk / contacts) when an event has no
+  // tiers yet; an admin/organizer can create the first one inline.
+  tierCreate: {
+    intro: 'This event has no tiers yet.',
+    introCreate: 'Add one here and you can keep going.',
+    introAsk: 'Ask an admin or organizer to add one.',
+    createBtn: 'Create tier',
+    nameLabel: 'Name',
+    namePlaceholder: 'e.g. "Regular" or "Guest list"',
+    aliasLabel: 'Alias · optional, feeds the quick-add',
+    aliasPlaceholder: 'guest, regular, door…',
+    busy: 'Creating…',
+    cancel: 'Cancel',
+    error: "Couldn't create the tier.",
+  },
   // ── Guest list ────────────────────────────────────────────────────────────
   list: {
     title: 'Guests',

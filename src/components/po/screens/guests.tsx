@@ -31,6 +31,7 @@ import {
   usePoSyncPermanent,
   usePoUpsertContact,
   usePoUpdateGuest,
+  usePoCreateTier,
 } from '@/features/po/mutations';
 import type { PoContact } from '@/features/po/adapters';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
@@ -77,6 +78,101 @@ function DupeOption({ on, onClick, title, sub }: { on: boolean; onClick: () => v
         <span className="block text-[11.5px] text-faint">{sub}</span>
       </span>
     </button>
+  );
+}
+
+// ── NO-TIERS ESCAPE HATCH ────────────────────────────────────────────────────
+// Shared by all three add flows (QuickAdd / BulkPaste / AddToEventSheet). When an
+// event has no tiers yet the flows used to dead-end ("add one in event settings");
+// now an admin/organizer can create the first tier inline and the add continues.
+// No "default" flag exists on guest_tiers — resolveDefaultTierId picks the only/
+// first tier — so the moment usePoCreateTier invalidates the tiers query the
+// parent re-resolves defaultTierId, this block unmounts, and the add UI appears.
+// `canCreate` mirrors the guest_tiers_insert RLS (admin OR event organizer,
+// surfaced via the quota `exempt` flag); everyone else gets a "ask a beheerder"
+// note instead of a button that would only fail with a 42501.
+function NoTiersBlock({ eventId, canCreate, className }: { eventId: string; canCreate: boolean; className?: string }): JSX.Element {
+  const createTier = usePoCreateTier(eventId);
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [alias, setAlias] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async (): Promise<void> => {
+    const nm = name.trim();
+    if (!nm || createTier.isPending) return;
+    setErr(null);
+    try {
+      await createTier.mutateAsync({
+        eventId,
+        name: nm,
+        color: '#B5A6FF',
+        aliases: alias.split(',').map((a) => a.trim()).filter(Boolean),
+      });
+      // Success needs no follow-up: the tiers query invalidates → the parent
+      // re-renders with a resolved defaultTierId → this block unmounts and the add
+      // flow takes over with the brand-new (default) tier selected.
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : t.guests.tierCreate.error);
+    }
+  };
+
+  return (
+    <div className={cn('rounded-[16px] border border-line bg-elev p-[14px]', className)}>
+      <div className="flex items-start gap-[11px]">
+        <span className="mt-px shrink-0 text-acc">
+          <Icon name="ticket" size={17} />
+        </span>
+        <div className="flex-1 text-[13.5px] leading-[1.45] text-faint">
+          {t.guests.tierCreate.intro}{' '}
+          {canCreate ? t.guests.tierCreate.introCreate : t.guests.tierCreate.introAsk}
+        </div>
+      </div>
+
+      {canCreate && !open && (
+        <Btn sm kind="primary" icon="plus" className="mt-3" onClick={() => setOpen(true)}>
+          {t.guests.tierCreate.createBtn}
+        </Btn>
+      )}
+
+      {canCreate && open && (
+        <div className="mt-3 flex flex-col gap-[12px]">
+          <div>
+            <Label className="mb-2">{t.guests.tierCreate.nameLabel}</Label>
+            <Field autoFocus placeholder={t.guests.tierCreate.namePlaceholder} value={name} onChange={setName} maxLength={80} />
+          </div>
+          <div>
+            <Label className="mb-2">{t.guests.tierCreate.aliasLabel}</Label>
+            <Field icon="spark" placeholder={t.guests.tierCreate.aliasPlaceholder} value={alias} onChange={setAlias} />
+          </div>
+          {err && (
+            <p className="text-[12.5px] text-red-300" role="alert">
+              {err}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Btn
+              kind="primary"
+              icon="check"
+              disabled={!name.trim() || createTier.isPending}
+              className={!name.trim() || createTier.isPending ? 'opacity-[0.45]' : ''}
+              onClick={() => void submit()}
+            >
+              {createTier.isPending ? t.guests.tierCreate.busy : t.guests.tierCreate.createBtn}
+            </Btn>
+            <Btn
+              kind="ghost"
+              onClick={() => {
+                setOpen(false);
+                setErr(null);
+              }}
+            >
+              {t.guests.tierCreate.cancel}
+            </Btn>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -585,11 +681,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
           </div>
         )}
 
-        {curEv && canAdd && !defaultTierId && (
-          <div className="rounded-[16px] border border-line bg-elev p-[14px] text-[13.5px] leading-[1.45] text-faint">
-            {t.guests.add.noTiers}
-          </div>
-        )}
+        {curEv && canAdd && !defaultTierId && <NoTiersBlock eventId={evId} canCreate={exempt} />}
 
         {curEv && canAdd && defaultTierId && (
           <>
@@ -925,9 +1017,7 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
         {!curEv ? (
           <Empty text={t.guests.bulk.noUpcoming} />
         ) : !defaultTierId ? (
-          <div className="rounded-[16px] border border-line bg-elev p-[14px] text-[13.5px] leading-[1.45] text-faint">
-            {t.guests.bulk.noTiers}
-          </div>
+          <NoTiersBlock eventId={evId} canCreate={exempt} />
         ) : (
           <>
             <textarea
@@ -1314,6 +1404,10 @@ function AddToEventSheet({
   const add = usePoAddContactToEvent();
   const [evId, setEvId] = useState<string>(eventId && upcoming.some((e) => e.id === eventId) ? eventId : upcoming[0]?.id ?? '');
   const { data: tiers = [], isLoading: tiersLoading } = usePoTiers(evId);
+  // Only an admin/organizer may create a tier (guest_tiers_insert RLS, surfaced via
+  // the quota exempt flag) — finance can open the address book but not make tiers.
+  const { data: quota } = usePoQuota(evId);
+  const canCreateTier = quota?.exempt ?? false;
   // Is this contact already a live (non-removed) guest on the selected event? We
   // reuse the event's guest list (RLS-scoped) rather than a separate query, so the
   // existing add/update invalidations keep it fresh.
@@ -1459,7 +1553,7 @@ function AddToEventSheet({
               {tiersLoading ? (
                 <div className="mb-3 text-[12.5px] text-faint">{t.guests.contacts.loadingTickets}</div>
               ) : tiers.length === 0 ? (
-                <Note icon="ticket">{t.guests.contacts.noTiers}</Note>
+                <NoTiersBlock eventId={evId} canCreate={canCreateTier} className="mb-3" />
               ) : (
                 <div className="mb-3 flex flex-wrap gap-2">
                   {tiers.map((tier) => {

@@ -19,7 +19,12 @@ const optionalText = (max: number) =>
     .optional();
 
 export const notePriority = z.enum(['none', 'low', 'high']);
-export const guestSource = z.enum(['app', 'landing', 'door']);
+// Direct client inserts may only ever be 'app' (quick-add) or 'door' (door
+// add-on-the-spot). 'landing'/'permanent' guests are created exclusively by the
+// SECURITY DEFINER RPCs (approve_guest_request / sync_permanent_guests_into_event)
+// and are rejected by the guests_insert RLS WITH CHECK — forging them would dodge
+// personal quota (#22/#31, migration 20260623140200). Defense in depth.
+export const guestSource = z.enum(['app', 'door']);
 
 /** One guest to create (quick-add resolved line, or door add-on-the-spot). */
 export const addGuestSchema = z.object({
