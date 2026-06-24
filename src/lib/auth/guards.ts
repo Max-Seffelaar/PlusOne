@@ -17,10 +17,11 @@ export async function requireUser(currentPath?: string): Promise<User> {
 
 /**
  * Page guard for the authenticated app shell. Beyond requiring a user it
- * enforces the MFA policy (CLAUDE.md §Auth):
- *   - admin/finance without a verified factor → must enroll;
- *   - anyone with a factor on an AAL1 session → must step up.
- * Returns the full context for the layout to render with.
+ * enforces MFA *enrollment* (CLAUDE.md §Auth, #20): admin/finance without a
+ * verified factor must enroll. It deliberately does NOT force an AAL1 session up
+ * to AAL2 to browse — AAL2 is required only for specific sensitive actions, which
+ * step up in place via the app's MFA sheet. Forcing /mfa/verify on every entry
+ * is what made admins re-MFA on each visit. Returns the full context to render.
  */
 export async function requireAppAccess(currentPath?: string): Promise<AuthContext> {
   const ctx = await getAuthContext();
@@ -28,9 +29,6 @@ export async function requireAppAccess(currentPath?: string): Promise<AuthContex
 
   if (ctx.requiresMfa && !ctx.hasVerifiedTotp) {
     redirect('/mfa/enroll');
-  }
-  if (ctx.hasVerifiedTotp && ctx.currentLevel !== 'aal2' && ctx.nextLevel === 'aal2') {
-    redirect('/mfa/verify');
   }
   return ctx;
 }
