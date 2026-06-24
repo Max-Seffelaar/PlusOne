@@ -5,6 +5,7 @@ import { home } from './surfaces/home';
 import { events } from './surfaces/events';
 import { guests } from './surfaces/guests';
 import { settings } from './surfaces/settings';
+import { templates } from './surfaces/templates';
 import { onboarding } from './surfaces/onboarding';
 import { requests } from './surfaces/requests';
 import { audit } from './surfaces/audit';
@@ -32,6 +33,7 @@ export const t = {
   events,
   guests,
   settings,
+  templates,
   onboarding,
   requests,
   audit,

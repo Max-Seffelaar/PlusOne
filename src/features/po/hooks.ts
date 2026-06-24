@@ -40,6 +40,10 @@ import {
   fetchPoAuditFeed,
   fetchPoAuditFilterOptions,
   fetchPoGuestHistory,
+  fetchTemplates,
+  fetchTemplate,
+  fetchTemplateTiers,
+  fetchOrganizesAtVenue,
   type EventEditRow,
   type CheckinArrival,
   type RecentCheckinRow,
@@ -47,6 +51,9 @@ import {
   type PoAuditFilters,
   type PoAuditFilterOptions,
   type PoGuestHistory,
+  type PoTemplateRow,
+  type PoTemplateDetail,
+  type PoTemplateTierRow,
 } from './queries';
 import {
   toPoEvent,
@@ -291,6 +298,53 @@ export function usePoTiers(eventId: string) {
       return rows.map((r) => toPoTier(r, r.used));
     },
   });
+}
+
+// ── Event templates (86exyp8gn) ──────────────────────────────────────────────
+
+/** Every reusable template of the active venue. */
+export function usePoTemplates() {
+  const { venueId } = usePoIdentity();
+  return useQuery<PoTemplateRow[]>({
+    queryKey: poKeys.templates(venueId ?? ''),
+    enabled: !!venueId,
+    queryFn: () => (venueId ? fetchTemplates(createClient(), venueId) : Promise.resolve([])),
+  });
+}
+
+/** A single template's editable fields. */
+export function usePoTemplate(templateId: string) {
+  return useQuery<PoTemplateDetail | null>({
+    queryKey: poKeys.template(templateId),
+    enabled: !!templateId,
+    queryFn: () => fetchTemplate(createClient(), templateId),
+  });
+}
+
+/** A template's tier list (seeding order). */
+export function usePoTemplateTiers(templateId: string) {
+  return useQuery<PoTemplateTierRow[]>({
+    queryKey: poKeys.templateTiers(templateId),
+    enabled: !!templateId,
+    queryFn: () => fetchTemplateTiers(createClient(), templateId),
+  });
+}
+
+/**
+ * Whether the caller may manage this venue's templates (admin OR organizes any
+ * event there — mirrors the event_templates RLS). Admins short-circuit the query;
+ * organizers resolve via a cheap count of their own event_organizers rows.
+ */
+export function usePoCanManageTemplates(): boolean {
+  const { venueId, userId, roles } = usePoIdentity();
+  const isAdmin = roles.includes('admin');
+  const { data } = useQuery<boolean>({
+    queryKey: [...poKeys.all, 'can-manage-templates', venueId ?? ''],
+    enabled: !!venueId && !!userId && !isAdmin,
+    queryFn: () =>
+      venueId && userId ? fetchOrganizesAtVenue(createClient(), venueId, userId) : Promise.resolve(false),
+  });
+  return isAdmin || data === true;
 }
 
 /**

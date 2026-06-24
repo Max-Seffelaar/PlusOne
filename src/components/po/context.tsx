@@ -35,7 +35,9 @@ export type ScreenName =
   | 'eventbeheer'
   | 'stats'
   | 'audit'
-  | 'adminsessions';
+  | 'adminsessions'
+  | 'templates'
+  | 'templateedit';
 
 export interface ScreenProps {
   id?: string;
