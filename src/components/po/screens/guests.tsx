@@ -48,22 +48,6 @@ const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24]
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 const col = 'flex h-full flex-col';
 
-function FilterChip({ on, onClick, children, grow }: { on: boolean; onClick: () => void; children: React.ReactNode; grow?: boolean }): JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'shrink-0 cursor-pointer rounded-full border px-[14px] py-[7px] font-display text-[13px] font-bold transition-[filter] hover:brightness-[1.07]',
-        grow && 'flex-1',
-        on ? 'border-transparent bg-text text-bg' : 'border-line bg-transparent text-dim',
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
 /** Radio-style option row for the "already on the list" choice (bulk add). */
 function DupeOption({ on, onClick, title, sub }: { on: boolean; onClick: () => void; title: string; sub: string }): JSX.Element {
   return (
@@ -179,27 +163,23 @@ function NoTiersBlock({ eventId, canCreate, className }: { eventId: string; canC
 }
 
 // ── GUEST LIST (pushed) ──────────────────────────────────────────────────────
-type GuestFilter = 'all' | 'wait' | 'in' | 'vip';
+// Feedback (Joeri, 24 jun 2026): the On the way / Inside / VIP filter chips were
+// removed — they weren't logical on the management list (status lives at the
+// door). Search is the only filter here now.
 
-/** Pure filter for the gastenlijst — extracted so it's memoizable + testable. */
-function filterGuestList(guests: GuestT[], f: GuestFilter, q: string): GuestT[] {
-  let gs = guests.filter(
-    (g) => f === 'all' || (f === 'in' && g.status === 'in') || (f === 'wait' && g.status === 'wait') || (f === 'vip' && g.role === 'VIP'),
-  );
+/** Pure search filter for the gastenlijst — extracted so it's memoizable + testable. */
+function filterGuestList(guests: GuestT[], q: string): GuestT[] {
   const term = q.trim().toLowerCase();
-  if (term) gs = gs.filter((g) => g.name.toLowerCase().includes(term));
-  return gs;
+  return term ? guests.filter((g) => g.name.toLowerCase().includes(term)) : guests;
 }
 
 export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
   const nav = useNav();
   const { data: guests = [], isLoading, isError } = usePoGuests(ev.id);
   const [q, setQ] = useState('');
-  const [f, setF] = useState<GuestFilter>('all');
   // Input stays instant; the expensive filter runs on the settled term (#1b).
-  // Live data: a guest's own status (checked_in → 'in') drives in/wait.
   const dq = useDebouncedValue(q, 140);
-  const gs = useMemo(() => filterGuestList(guests, f, dq), [guests, f, dq]);
+  const gs = useMemo(() => filterGuestList(guests, dq), [guests, dq]);
   const openGuest = (id: string): void => nav.push('guest', { id, eventId: ev.id });
   return (
     <div className={col}>
@@ -208,13 +188,6 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
       <div className="flex-none px-4 lg:flex lg:items-center lg:gap-3 lg:pb-3">
         <div className="pb-[10px] lg:max-w-[300px] lg:flex-1 lg:pb-0">
           <Field icon="search" placeholder={t.guests.list.searchPlaceholder} value={q} onChange={setQ} />
-        </div>
-        <div className="po-scroll flex gap-[7px] overflow-x-auto pb-3 lg:overflow-visible lg:pb-0">
-          {([['all', t.guests.list.filterAll], ['wait', t.guests.list.filterWait], ['in', t.guests.list.filterIn], ['vip', t.guests.list.filterVip]] as const).map(([k, l]) => (
-            <FilterChip key={k} on={f === k} onClick={() => setF(k)}>
-              {l}
-            </FilterChip>
-          ))}
         </div>
         <div className="flex gap-2 pb-3 lg:ml-auto lg:pb-0">
           <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd', { id: ev.id })}>
@@ -238,7 +211,7 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
         </Scroll>
       ) : gs.length === 0 ? (
         <Scroll pad={16} bottom={24}>
-          <Empty text={q || f !== 'all' ? t.guests.list.emptyFiltered : t.guests.list.empty} />
+          <Empty text={q ? t.guests.list.emptyFiltered : t.guests.list.empty} />
         </Scroll>
       ) : (
         <>
@@ -252,8 +225,8 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
   );
 }
 
-// Mobile card ≈ avatar 42 + p-12 + two lines; desktop row ≈ avatar 36 + py-11.
-const GUEST_CARD_EST = 74;
+// Mobile card ≈ avatar 34 + py-8 + one line (denser, feedback Joeri); desktop row ≈ avatar 36 + py-11.
+const GUEST_CARD_EST = 52;
 const GUEST_ROW_EST = 58;
 
 /** Virtualized mobile card list (own scroll parent → the virtualizer windows it). */
@@ -279,24 +252,21 @@ function GuestCardList({ rows, onOpen }: { rows: GuestT[]; onOpen: (id: string) 
               ref={virtualizer.measureElement}
               style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}
             >
-              <div className="pb-[9px]">
-                <button type="button" onClick={() => onOpen(g.id)} className={cn('flex w-full items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[12px] text-left', cardPress)}>
-                  <Avatar name={g.name} size={42} accent={g.role === 'VIP'} />
-                  <div className="min-w-0 flex-1">
-                    <div className="font-display text-[15.5px] font-bold text-text">
-                      {g.name}
-                      {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
-                    </div>
-                    <div className="mt-[5px] flex flex-wrap items-center gap-1.5">
-                      <RoleChip role={g.role} />
-                      {g.pay === 'pay' && <PayChip pay="pay" />}
-                      {g.note && (
-                        <span className="text-acc-soft">
-                          <Icon name="note" size={13} />
-                        </span>
-                      )}
-                    </div>
-                  </div>
+              {/* Dense single-line card (feedback Joeri): more names per screen. */}
+              <div className="pb-[7px]">
+                <button type="button" onClick={() => onOpen(g.id)} className={cn('flex w-full items-center gap-[10px] rounded-[12px] border border-line bg-elev px-[11px] py-[8px] text-left', cardPress)}>
+                  <Avatar name={g.name} size={34} accent={g.role === 'VIP'} />
+                  <span className="min-w-0 flex-1 truncate font-display text-[14.5px] font-bold text-text">
+                    {g.name}
+                    {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
+                  </span>
+                  {g.note && (
+                    <span className="shrink-0 text-acc-soft">
+                      <Icon name="note" size={13} />
+                    </span>
+                  )}
+                  {g.pay === 'pay' && <PayChip pay="pay" />}
+                  <RoleChip role={g.role} />
                   {g.status === 'refused' ? (
                     <span className="shrink-0 rounded-[7px] border border-line2 px-2 py-[3px] font-body text-[11px] font-bold text-faint">{t.guests.list.refused}</span>
                   ) : (
