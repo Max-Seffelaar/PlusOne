@@ -20,7 +20,7 @@ import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { Icon } from '@/components/po/icon';
 import { Avatar, Label, PayChip, StatusDot, Top } from '@/components/po/kit';
 import { useDoor } from '../DoorProvider';
-import type { DoorGuest } from '../model';
+import { tierRole, type DoorGuest } from '../model';
 import { flattenCheckInItems, partsLeft, type CheckInItem, type Filter } from './checkin-items';
 import { TierChip } from './TierChip';
 
@@ -56,10 +56,49 @@ function Seg({ value, onChange }: { value: Filter; onChange: (v: Filter) => void
   );
 }
 
+/** Optional per-tier filter chips (feedback Joeri): tap a tier to narrow the list
+ *  to it; multiple chips OR together; none selected = all. Hidden when an event
+ *  has a single tier (nothing to filter). Coloured by the tier's own colour. */
+function TierFilterBar({
+  tiers,
+  selected,
+  onToggle,
+}: {
+  tiers: { id: string; name: string; color: string | null }[];
+  selected: Set<string>;
+  onToggle: (id: string) => void;
+}): JSX.Element | null {
+  if (tiers.length <= 1) return null;
+  return (
+    <div className="flex flex-none flex-wrap gap-1.5 px-5 pb-[14px]">
+      {tiers.map((tier) => {
+        const on = selected.has(tier.id);
+        const color = tier.color ?? '#8E8E93';
+        return (
+          <button
+            key={tier.id}
+            type="button"
+            onClick={() => onToggle(tier.id)}
+            className={cn(
+              'flex items-center gap-1.5 rounded-full border px-3 py-[7px] font-display text-[12px] font-bold transition-[filter] hover:brightness-[1.07]',
+              on ? 'border-transparent text-bg' : 'border-line bg-transparent text-dim',
+            )}
+            style={on ? { background: color } : undefined}
+          >
+            <span className="h-2 w-2 rounded-full" style={{ background: on ? 'rgba(11,11,13,0.55)' : color }} />
+            {tierRole(tier.name).label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) => void; onAdd: () => void }): JSX.Element {
   const { view, outboxByGuest, undoRefusal } = useDoor();
   const [q, setQ] = useState('');
   const [f, setF] = useState<Filter>('both');
+  const [tierFilter, setTierFilter] = useState<Set<string>>(() => new Set());
   // Input stays instant; the heavy flatten runs on the settled term (#1b).
   const dq = useDebouncedValue(q, 140);
 
@@ -67,9 +106,16 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
   const guests = view?.guests;
   const refused = view?.refused;
   const flat = useMemo(
-    () => flattenCheckInItems(guests ?? [], refused ?? [], f, dq),
-    [guests, refused, f, dq],
+    () => flattenCheckInItems(guests ?? [], refused ?? [], f, dq, tierFilter),
+    [guests, refused, f, dq, tierFilter],
   );
+  const toggleTier = (id: string): void =>
+    setTierFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   if (!view) return <ListSkeleton />;
 
@@ -118,6 +164,7 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
         </div>
       </div>
       <Seg value={f} onChange={setF} />
+      <TierFilterBar tiers={view.tiers} selected={tierFilter} onToggle={toggleTier} />
       <VirtualBody
         flat={flat}
         q={dq}
@@ -235,7 +282,10 @@ function guestRow(
         // binnen: gedimd. Onderweg: normaal.
         partly ? 'bg-elev' : fully ? 'border-line2 bg-transparent opacity-[0.55]' : 'border-line bg-elev',
       )}
-      style={partly ? { borderColor: 'rgba(181,166,255,0.45)' } : undefined}
+      // Whole-row tint: a left edge in the guest's tier colour (feedback Joeri).
+      // Inset box-shadow, so it never fights the border shorthand; the fully-in
+      // row's opacity dims it too, keeping "checked-in = muted".
+      style={{ boxShadow: `inset 3px 0 0 ${g.tierColor}`, ...(partly ? { borderColor: 'rgba(181,166,255,0.45)' } : {}) }}
     >
       <Avatar name={g.name} size={46} accent={!g.inside && g.tierName === 'VIP'} />
       <div className="min-w-0 flex-1">

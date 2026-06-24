@@ -39,7 +39,7 @@ describe('partsLeft', () => {
   });
 });
 
-describe('flattenCheckInItems — sections', () => {
+describe('flattenCheckInItems — one alphabetical list (feedback Joeri)', () => {
   const guests = [
     dg({ id: 'w1', name: 'Wendy Waiting' }), // onderweg
     dg({ id: 'w2', name: 'Wim Wachtend' }), // onderweg
@@ -49,74 +49,84 @@ describe('flattenCheckInItems — sections', () => {
   ];
   const refused = [dg({ id: 'r1', name: 'Rico Refused', refused: true, refusedReason: 'Lijst vol' })];
 
-  it('orders sections Onderweg → PARTLY INSIDE → INSIDE → REFUSED under Beide', () => {
-    const { items } = flattenCheckInItems(guests, refused, 'both', '');
-    expect(headers(items)).toEqual(['PARTLY INSIDE · 1', 'INSIDE · 2', 'REFUSED · 1']);
-    // Waiting rows come first (no header), then each section after its divider.
-    expect(guestNames(items).slice(0, 2)).toEqual(['Wendy Waiting', 'Wim Wachtend']);
+  it('puts every active guest in ONE alphabetical list — no inside/partly dividers', () => {
+    const { items, visibleCount } = flattenCheckInItems(guests, refused, 'both', '');
+    // Only the REFUSED group keeps a divider; checked-in guests stay in place.
+    expect(headers(items)).toEqual(['REFUSED · 1']);
+    expect(guestNames(items)).toEqual([
+      'Fenna Full',
+      'Floris Full',
+      'Piet Partial',
+      'Wendy Waiting',
+      'Wim Wachtend',
+    ]);
+    expect(visibleCount).toBe(5);
   });
 
-  it('only shows a header when its section is non-empty', () => {
-    const onlyWaiting = [dg({ id: 'w1', name: 'Solo' })];
-    const { items } = flattenCheckInItems(onlyWaiting, [], 'both', '');
-    expect(headers(items)).toEqual([]); // no partial/full/refused → no dividers
-    expect(guestNames(items)).toEqual(['Solo']);
-  });
-
-  it('filter=wait hides INSIDE and REFUSED but keeps PARTLY INSIDE', () => {
+  it('filter=wait keeps onderweg + partly-inside (alphabetical), hides fully-in + refused', () => {
     const { items, visibleCount } = flattenCheckInItems(guests, refused, 'wait', '');
-    expect(headers(items)).toEqual(['PARTLY INSIDE · 1']);
-    // waiting (2) + partial (1)
+    expect(headers(items)).toEqual([]);
+    expect(guestNames(items)).toEqual(['Piet Partial', 'Wendy Waiting', 'Wim Wachtend']);
     expect(visibleCount).toBe(3);
   });
 
-  it('filter=in hides Onderweg, shows INSIDE + PARTLY INSIDE + REFUSED', () => {
+  it('filter=in shows every inside guest (full + partly) + refused', () => {
     const { items, visibleCount } = flattenCheckInItems(guests, refused, 'in', '');
-    expect(guestNames(items)).not.toContain('Wendy Waiting');
-    expect(headers(items)).toEqual(['PARTLY INSIDE · 1', 'INSIDE · 2', 'REFUSED · 1']);
-    // partial (1) + fullyIn (2)
+    expect(guestNames(items)).toEqual(['Fenna Full', 'Floris Full', 'Piet Partial']);
+    expect(headers(items)).toEqual(['REFUSED · 1']);
     expect(visibleCount).toBe(3);
   });
 
-  it('a search term narrows to the right items and surfaces refused on any filter', () => {
+  it('a search term narrows active rows and surfaces refused on any filter', () => {
     const { items, matchedCount, showRefused } = flattenCheckInItems(guests, refused, 'wait', 'rico');
-    expect(showRefused).toBe(true); // refused shows under a query even with filter=wait
-    expect(guestNames(items)).toEqual([]); // no active guest matches "rico"
+    expect(showRefused).toBe(true);
+    expect(guestNames(items)).toEqual([]);
     expect(items.some((i) => i.type === 'refused')).toBe(true);
     expect(matchedCount).toBe(1);
+  });
+
+  it('a tier filter narrows to the selected tier(s); empty set = all', () => {
+    const mixed = [
+      dg({ id: 'a', name: 'Vip One', tierId: 'vip' }),
+      dg({ id: 'b', name: 'Reg One', tierId: 'reg' }),
+      dg({ id: 'c', name: 'Vip Two', tierId: 'vip' }),
+    ];
+    expect(guestNames(flattenCheckInItems(mixed, [], 'both', '', new Set()).items)).toEqual([
+      'Reg One',
+      'Vip One',
+      'Vip Two',
+    ]);
+    expect(guestNames(flattenCheckInItems(mixed, [], 'both', '', new Set(['vip'])).items)).toEqual([
+      'Vip One',
+      'Vip Two',
+    ]);
+    expect(guestNames(flattenCheckInItems(mixed, [], 'both', '', new Set(['reg'])).items)).toEqual(['Reg One']);
   });
 });
 
 describe('flattenCheckInItems — 1500 guests', () => {
-  // ~1500 realistic mix: 900 onderweg, 300 deels binnen, 300 helemaal binnen.
   const guests: DoorGuest[] = [];
   for (let i = 0; i < 900; i++) guests.push(dg({ id: `w${i}`, name: `Wachtend Persoon ${i}` }));
   for (let i = 0; i < 299; i++)
     guests.push(dg({ id: `p${i}`, name: `Partial Persoon ${i}`, plus: 4, inside: true, arrived: 1 }));
-  // One uniquely-named guest in the PARTLY INSIDE section so a search lands on
-  // exactly one row (the fuzzy subsequence match would otherwise also catch
-  // "…42" inside "…142"/"…242").
   guests.push(dg({ id: 'pUniq', name: 'Zélda Quintano', plus: 4, inside: true, arrived: 1 }));
   for (let i = 0; i < 300; i++)
     guests.push(dg({ id: `f${i}`, name: `Full Persoon ${i}`, plus: 0, inside: true, arrived: 0 }));
   const refused = [dg({ id: 'r', name: 'Refused Person', refused: true })];
 
-  it('produces correct section counts + dividers across 1500 guests', () => {
+  it('flattens 1500 active guests into one list + a single refused divider', () => {
     const { items, visibleCount } = flattenCheckInItems(guests, refused, 'both', '');
-    expect(headers(items)).toEqual(['PARTLY INSIDE · 300', 'INSIDE · 300', 'REFUSED · 1']);
-    // 900 waiting + 300 partial + 300 full = 1500 guest rows (refused not counted).
+    expect(headers(items)).toEqual(['REFUSED · 1']);
     expect(visibleCount).toBe(1500);
     expect(guestNames(items)).toHaveLength(1500);
-    // 1500 guests + 1 refused + 3 headers = 1504 total items.
-    expect(items).toHaveLength(1504);
+    // 1500 guests + 1 refused + 1 refused-divider = 1502 total items.
+    expect(items).toHaveLength(1502);
   });
 
   it('a specific search term narrows the 1500 down to the matching guest', () => {
     const { items, matchedCount } = flattenCheckInItems(guests, refused, 'both', 'zelda quintano');
-    const names = guestNames(items);
-    expect(names).toEqual(['Zélda Quintano']);
+    expect(guestNames(items)).toEqual(['Zélda Quintano']);
     expect(matchedCount).toBe(1);
-    // Header for the one non-empty section it lands in (PARTLY INSIDE).
-    expect(headers(items)).toEqual(['PARTLY INSIDE · 1']);
+    expect(headers(items)).toEqual([]); // no refused match → no divider
   });
 });
