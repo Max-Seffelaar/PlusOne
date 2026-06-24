@@ -173,7 +173,8 @@ export function EventView({ id }: { id?: string }): JSX.Element {
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title={ev.name} sub={`${ev.venue} · ${ev.date} ${ev.mon}`} right={<IconBtn name="dots" onClick={() => nav.push('eventedit', { id: ev.id })} />} />
+      {/* Feedback Joeri: the "dots" icon was unreadable — use a clear settings/edit cog. */}
+      <Top onBack={nav.back} title={ev.name} sub={`${ev.venue} · ${ev.date} ${ev.mon}`} right={<IconBtn name="cog" onClick={() => nav.push('eventedit', { id: ev.id })} />} />
       <Scroll bottom={28}>
         <div className={cn(hasSecondary && 'lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start')}>
           <div className={cn(!hasSecondary && 'lg:mx-auto lg:max-w-[680px]')}>
@@ -663,6 +664,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
         {!isNew && (
           <>
             <Label className="mb-[10px]">{t.events.atTheDoor}</Label>
+            <Note icon="shield">{t.events.lockListNote}</Note>
             <div className="rounded-[16px] border border-line bg-elev px-[14px] py-1">
               <ToggleRow
                 title={t.events.lockListTitle}
