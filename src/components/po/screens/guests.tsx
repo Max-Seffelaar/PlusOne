@@ -31,10 +31,12 @@ import {
   usePoSyncPermanent,
   usePoUpsertContact,
   usePoUpdateGuest,
+  usePoCreateTier,
 } from '@/features/po/mutations';
 import type { PoContact } from '@/features/po/adapters';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canManageGuests } from '@/features/auth/roles';
+import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../context';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, PayChip, RoleChip, Scroll, StatusDot, Stepper, Top } from '../kit';
@@ -79,6 +81,101 @@ function DupeOption({ on, onClick, title, sub }: { on: boolean; onClick: () => v
   );
 }
 
+// ── NO-TIERS ESCAPE HATCH ────────────────────────────────────────────────────
+// Shared by all three add flows (QuickAdd / BulkPaste / AddToEventSheet). When an
+// event has no tiers yet the flows used to dead-end ("add one in event settings");
+// now an admin/organizer can create the first tier inline and the add continues.
+// No "default" flag exists on guest_tiers — resolveDefaultTierId picks the only/
+// first tier — so the moment usePoCreateTier invalidates the tiers query the
+// parent re-resolves defaultTierId, this block unmounts, and the add UI appears.
+// `canCreate` mirrors the guest_tiers_insert RLS (admin OR event organizer,
+// surfaced via the quota `exempt` flag); everyone else gets a "ask a beheerder"
+// note instead of a button that would only fail with a 42501.
+function NoTiersBlock({ eventId, canCreate, className }: { eventId: string; canCreate: boolean; className?: string }): JSX.Element {
+  const createTier = usePoCreateTier(eventId);
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [alias, setAlias] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async (): Promise<void> => {
+    const nm = name.trim();
+    if (!nm || createTier.isPending) return;
+    setErr(null);
+    try {
+      await createTier.mutateAsync({
+        eventId,
+        name: nm,
+        color: '#B5A6FF',
+        aliases: alias.split(',').map((a) => a.trim()).filter(Boolean),
+      });
+      // Success needs no follow-up: the tiers query invalidates → the parent
+      // re-renders with a resolved defaultTierId → this block unmounts and the add
+      // flow takes over with the brand-new (default) tier selected.
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : t.guests.tierCreate.error);
+    }
+  };
+
+  return (
+    <div className={cn('rounded-[16px] border border-line bg-elev p-[14px]', className)}>
+      <div className="flex items-start gap-[11px]">
+        <span className="mt-px shrink-0 text-acc">
+          <Icon name="ticket" size={17} />
+        </span>
+        <div className="flex-1 text-[13.5px] leading-[1.45] text-faint">
+          {t.guests.tierCreate.intro}{' '}
+          {canCreate ? t.guests.tierCreate.introCreate : t.guests.tierCreate.introAsk}
+        </div>
+      </div>
+
+      {canCreate && !open && (
+        <Btn sm kind="primary" icon="plus" className="mt-3" onClick={() => setOpen(true)}>
+          {t.guests.tierCreate.createBtn}
+        </Btn>
+      )}
+
+      {canCreate && open && (
+        <div className="mt-3 flex flex-col gap-[12px]">
+          <div>
+            <Label className="mb-2">{t.guests.tierCreate.nameLabel}</Label>
+            <Field autoFocus placeholder={t.guests.tierCreate.namePlaceholder} value={name} onChange={setName} maxLength={80} />
+          </div>
+          <div>
+            <Label className="mb-2">{t.guests.tierCreate.aliasLabel}</Label>
+            <Field icon="spark" placeholder={t.guests.tierCreate.aliasPlaceholder} value={alias} onChange={setAlias} />
+          </div>
+          {err && (
+            <p className="text-[12.5px] text-red-300" role="alert">
+              {err}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Btn
+              kind="primary"
+              icon="check"
+              disabled={!name.trim() || createTier.isPending}
+              className={!name.trim() || createTier.isPending ? 'opacity-[0.45]' : ''}
+              onClick={() => void submit()}
+            >
+              {createTier.isPending ? t.guests.tierCreate.busy : t.guests.tierCreate.createBtn}
+            </Btn>
+            <Btn
+              kind="ghost"
+              onClick={() => {
+                setOpen(false);
+                setErr(null);
+              }}
+            >
+              {t.guests.tierCreate.cancel}
+            </Btn>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── GUEST LIST (pushed) ──────────────────────────────────────────────────────
 type GuestFilter = 'all' | 'wait' | 'in' | 'vip';
 
@@ -104,14 +201,14 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
   const openGuest = (id: string): void => nav.push('guest', { id, eventId: ev.id });
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Gastenlijst" sub={`${ev.name} · ${gs.length} getoond van ${guests.length}`} right={<IconBtn name="plus" onClick={() => nav.push('quickadd', { id: ev.id })} />} />
+      <Top onBack={nav.back} title={t.guests.list.title} sub={`${ev.name} · ${fmt(t.guests.list.sub, { shown: gs.length, total: guests.length })}`} right={<IconBtn name="plus" onClick={() => nav.push('quickadd', { id: ev.id })} />} />
       {/* Toolbar — stacked on mobile, a single row on desktop. */}
       <div className="flex-none px-4 lg:flex lg:items-center lg:gap-3 lg:pb-3">
         <div className="pb-[10px] lg:max-w-[300px] lg:flex-1 lg:pb-0">
-          <Field icon="search" placeholder="Zoek gast…" value={q} onChange={setQ} />
+          <Field icon="search" placeholder={t.guests.list.searchPlaceholder} value={q} onChange={setQ} />
         </div>
         <div className="po-scroll flex gap-[7px] overflow-x-auto pb-3 lg:overflow-visible lg:pb-0">
-          {([['all', 'Alle'], ['wait', 'Onderweg'], ['in', 'Binnen'], ['vip', 'VIP']] as const).map(([k, l]) => (
+          {([['all', t.guests.list.filterAll], ['wait', t.guests.list.filterWait], ['in', t.guests.list.filterIn], ['vip', t.guests.list.filterVip]] as const).map(([k, l]) => (
             <FilterChip key={k} on={f === k} onClick={() => setF(k)}>
               {l}
             </FilterChip>
@@ -119,27 +216,27 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
         </div>
         <div className="flex gap-2 pb-3 lg:ml-auto lg:pb-0">
           <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd', { id: ev.id })}>
-            Snel toevoegen
+            {t.guests.list.addGuest}
           </Btn>
           <Btn sm kind="quiet" icon="paste" onClick={() => nav.push('bulk', { id: ev.id })}>
-            Plak namen
+            {t.guests.list.pasteList}
           </Btn>
           <Btn sm kind="quiet" icon="contact" onClick={() => nav.push('contacten', { id: ev.id })}>
-            Adresboek
+            {t.guests.list.contacts}
           </Btn>
         </div>
       </div>
       {isLoading ? (
         <Scroll pad={16} bottom={24}>
-          <Empty text="Gasten laden…" />
+          <Empty text={t.guests.list.loading} />
         </Scroll>
       ) : isError ? (
         <Scroll pad={16} bottom={24}>
-          <Empty text="Kon de gastenlijst niet laden." />
+          <Empty text={t.guests.list.loadError} />
         </Scroll>
       ) : gs.length === 0 ? (
         <Scroll pad={16} bottom={24}>
-          <Empty text={q || f !== 'all' ? 'Geen gasten gevonden.' : 'Nog geen gasten — voeg de eerste toe.'} />
+          <Empty text={q || f !== 'all' ? t.guests.list.emptyFiltered : t.guests.list.empty} />
         </Scroll>
       ) : (
         <>
@@ -199,7 +296,7 @@ function GuestCardList({ rows, onOpen }: { rows: GuestT[]; onOpen: (id: string) 
                     </div>
                   </div>
                   {g.status === 'refused' ? (
-                    <span className="shrink-0 rounded-[7px] border border-line2 px-2 py-[3px] font-body text-[11px] font-bold text-faint">Geweigerd</span>
+                    <span className="shrink-0 rounded-[7px] border border-line2 px-2 py-[3px] font-body text-[11px] font-bold text-faint">{t.guests.list.refused}</span>
                   ) : (
                     <StatusDot status={g.status} label={false} />
                   )}
@@ -236,11 +333,11 @@ function GuestTable({ rows, onOpen }: { rows: GuestT[]; onOpen: (id: string) => 
         <table className="w-full border-collapse text-left">
           <thead className="sticky top-0 z-[1]">
             <tr className={cn('grid bg-elev2', cols, '[&>th]:px-3 [&>th]:py-[11px] [&>th]:font-body [&>th]:text-[11px] [&>th]:font-bold [&>th]:uppercase [&>th]:tracking-[0.04em] [&>th]:text-faint')}>
-              <th className="!pl-4">Gast</th>
-              <th>Rol</th>
-              <th>Betaling</th>
-              <th>Toegevoegd</th>
-              <th className="!pr-4 text-right">Status</th>
+              <th className="!pl-4">{t.guests.list.colGuest}</th>
+              <th>{t.guests.list.colRole}</th>
+              <th>{t.guests.list.colPayment}</th>
+              <th>{t.guests.list.colAdded}</th>
+              <th className="!pr-4 text-right">{t.guests.list.colStatus}</th>
             </tr>
           </thead>
           <tbody className="block" style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
@@ -280,7 +377,7 @@ function GuestTable({ rows, onOpen }: { rows: GuestT[]; onOpen: (id: string) => 
                   </td>
                   <td className="!pr-4 flex justify-end text-right">
                     {g.status === 'refused' ? (
-                      <span className="rounded-[7px] border border-line2 px-2 py-[3px] font-body text-[11px] font-bold text-faint">Geweigerd</span>
+                      <span className="rounded-[7px] border border-line2 px-2 py-[3px] font-body text-[11px] font-bold text-faint">{t.guests.list.refused}</span>
                     ) : (
                       <StatusDot status={g.status} />
                     )}
@@ -325,7 +422,7 @@ export function Guest({ g }: { g: GuestT }): JSX.Element {
     <div className={col}>
       <Top
         onBack={nav.back}
-        title="Gast"
+        title={t.guests.detail.title}
         right={
           <>
             <IconBtn name="share" />
@@ -343,13 +440,13 @@ export function Guest({ g }: { g: GuestT }): JSX.Element {
               <PayChip pay="pay" />
             ) : (
               <span className={cn('rounded-[7px] px-2 py-[3px] text-[11px] font-bold', g.pay === 'paid' ? 'border border-transparent bg-acc-dim text-acc' : 'border border-line2 text-faint')}>
-                {g.pay === 'paid' ? 'BETAALD' : 'GRATIS'}
+                {g.pay === 'paid' ? t.guests.detail.paid : t.guests.detail.free}
               </span>
             )}
             {isRefused && (
               <span className="inline-flex items-center gap-[5px] rounded-[7px] border border-line2 px-2 py-[3px] font-body text-[11px] font-bold text-faint">
                 <Icon name="close" size={11} sw={2.4} />
-                GEWEIGERD
+                {t.guests.detail.refused}
               </span>
             )}
           </div>
@@ -359,23 +456,23 @@ export function Guest({ g }: { g: GuestT }): JSX.Element {
           <div className={cn('mb-[10px] rounded-[14px] p-[14px]', g.flag === 'high' ? 'border border-transparent bg-acc-dim' : 'border border-line bg-elev')}>
             <div className="mb-[7px] flex items-center gap-[7px]">
               <Icon name="flag" size={15} stroke={g.flag === 'high' ? '#B5A6FF' : 'rgba(255,255,255,0.40)'} fill={g.flag === 'high' ? '#B5A6FF' : 'none'} />
-              <Label className={g.flag === 'high' ? 'text-acc-soft' : 'text-faint'}>{g.flag === 'high' ? 'Belangrijke opdracht' : 'Opdracht'}</Label>
+              <Label className={g.flag === 'high' ? 'text-acc-soft' : 'text-faint'}>{g.flag === 'high' ? t.guests.detail.taskPriority : t.guests.detail.task}</Label>
             </div>
             <div className="text-[15px] leading-[1.45] text-text">{g.note}</div>
-            <div className="mt-[10px] text-[12px] text-faint">Afhandelen aan de deur — via de Check-in tab.</div>
+            <div className="mt-[10px] text-[12px] text-faint">{t.guests.detail.taskAtDoor}</div>
           </div>
         )}
 
-        <Label className="mx-0.5 mb-[10px] mt-1.5">Logboek</Label>
+        <Label className="mx-0.5 mb-[10px] mt-1.5">{t.guests.detail.log}</Label>
         <div className="mb-4 rounded-[14px] border border-line bg-elev px-[14px] py-1">
-          <LogRow icon="user" label="Toegevoegd" who={g.by || '—'} when={g.addedAt} />
-          {g.plus > 0 && <LogRow icon="users" label="Meegenomen gasten" who={`+${g.plus} tickets`} />}
+          <LogRow icon="user" label={t.guests.detail.logAdded} who={g.by || '—'} when={g.addedAt} />
+          {g.plus > 0 && <LogRow icon="users" label={t.guests.detail.logPlusOnes} who={fmt(t.guests.detail.logPlusOnesValue, { n: g.plus })} />}
           {isIn ? (
-            <LogRow icon="check2" label="Ingecheckt" who={g.inBy ?? 'Deur'} when={g.at} accent last />
+            <LogRow icon="check2" label={t.guests.detail.logCheckedIn} who={g.inBy ?? t.guests.detail.logActorDoor} when={g.at} accent last />
           ) : isRefused ? (
-            <LogRow icon="close" label="Geweigerd" who="aan de deur" last />
+            <LogRow icon="close" label={t.guests.detail.logRefused} who={t.guests.detail.logRefusedWho} last />
           ) : (
-            <LogRow icon="clock" label="Nog niet ingecheckt" who="onderweg" last />
+            <LogRow icon="clock" label={t.guests.detail.logNotInYet} who={t.guests.detail.logOnTheWay} last />
           )}
         </div>
       </Scroll>
@@ -544,18 +641,18 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   };
 
   const sub = !curEv
-    ? 'Geen event gekozen'
+    ? t.guests.add.subNoEvent
     : exempt
-      ? 'onbeperkt quotum'
+      ? t.guests.add.subUnlimited
       : remaining !== null && quota
-        ? `jouw quotum ${remaining} van ${quota.quota} over`
-        : 'gast toevoegen';
+        ? fmt(t.guests.add.subQuota, { n: remaining, m: quota.quota })
+        : t.guests.add.subFallback;
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Gast toevoegen" sub={sub} right={<IconBtn name="paste" onClick={() => nav.push('bulk', curEv ? { id: curEv.id } : {})} />} />
+      <Top onBack={nav.back} title={t.guests.add.title} sub={sub} right={<IconBtn name="paste" onClick={() => nav.push('bulk', curEv ? { id: curEv.id } : {})} />} />
       <Scroll bottom={120}>
-        <Label className="mb-2">Evenement</Label>
+        <Label className="mb-2">{t.guests.add.eventLabel}</Label>
         {curEv ? (
           <button type="button" onClick={() => setEvPick(true)} className={cn('mb-4 flex w-full items-center gap-[13px] rounded-[14px] border border-line bg-elev px-[14px] py-[13px] text-left', press)}>
             <span className="w-[40px] shrink-0 text-center">
@@ -565,7 +662,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
             <span className="min-w-0 flex-1">
               <span className="block font-display text-[15.5px] font-bold text-text">{curEv.name}</span>
               <span className="mt-px block text-[12.5px] text-faint">
-                deur {curEv.time} · {curEv.venue}
+                {fmt(t.guests.add.eventDoors, { time: curEv.time, venue: curEv.venue })}
               </span>
             </span>
             <span className="text-acc">
@@ -574,25 +671,21 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
           </button>
         ) : (
           <div className="mb-4">
-            <Empty text="Nog geen komend event om aan toe te voegen." />
+            <Empty text={t.guests.add.noUpcoming} />
           </div>
         )}
 
         {curEv && !canAdd && (
           <div className="rounded-[16px] border border-line bg-elev p-[14px] text-[13.5px] leading-[1.45] text-faint">
-            Je hebt op dit event geen rechten om gasten toe te voegen. Vraag een beheerder of organisator om toegang.
+            {t.guests.add.noRights}
           </div>
         )}
 
-        {curEv && canAdd && !defaultTierId && (
-          <div className="rounded-[16px] border border-line bg-elev p-[14px] text-[13.5px] leading-[1.45] text-faint">
-            Dit event heeft nog geen tiers. Voeg eerst een tier toe via eventbeheer voordat je gasten toevoegt.
-          </div>
-        )}
+        {curEv && canAdd && !defaultTierId && <NoTiersBlock eventId={evId} canCreate={exempt} />}
 
         {curEv && canAdd && defaultTierId && (
           <>
-            <Label className="mb-2">Typ vrij — naam, +gasten, tier</Label>
+            <Label className="mb-2">{t.guests.add.inputLabel}</Label>
             <div className={cn('rounded-[16px] border bg-elev px-[15px] py-[14px] transition-colors', parsed ? 'border-acc' : 'border-line')}>
               <input
                 autoFocus
@@ -601,7 +694,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && canSubmit) commit();
                 }}
-                placeholder={'bv. "Juri Braakman +2 vip"'}
+                placeholder={t.guests.add.inputPlaceholder}
                 className="w-full border-none bg-transparent font-display text-[18px] font-bold tracking-[-0.01em] text-text outline-none placeholder:text-faint"
               />
               {parsed && (
@@ -619,14 +712,14 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
             {needsAsk && parsed?.ambiguous && (
               <div className="mt-3 rounded-[16px] bg-acc-dim p-[14px]">
                 <div className="mb-[11px] text-[13.5px] leading-[1.45] text-text">
-                  <b>“{parsed.ambiguous.text}”</b> herken ik niet. Wat bedoel je?
+                  {fmt(t.guests.add.ambiguityQuestion, { x: parsed.ambiguous.text })}
                 </div>
                 <div className="flex flex-col gap-2">
                   {parsed.ambiguous.suggestions.map((s) => {
-                    const t = tiers.find((x) => x.id === s.tierId);
+                    const tier = tiers.find((x) => x.id === s.tierId);
                     return (
                       <button key={s.tierId} type="button" onClick={() => setChoice({ kind: 'tier', tierId: s.tierId })} className={cn('flex items-center gap-[10px] rounded-[12px] border border-line bg-bg px-[13px] py-[12px] text-text', press)}>
-                        <span className="h-[10px] w-[10px] rounded-full" style={{ background: t?.color ?? '#B5A6FF' }} />
+                        <span className="h-[10px] w-[10px] rounded-full" style={{ background: tier?.color ?? '#B5A6FF' }} />
                         <span className="flex-1 text-left font-display text-[14.5px] font-bold">{s.tierName}</span>
                         <Icon name="chev" size={16} className="text-ghost" />
                       </button>
@@ -634,12 +727,12 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                   })}
                   <button type="button" onClick={() => setChoice({ kind: 'default' })} className={cn('flex items-center gap-[10px] rounded-[12px] border border-line bg-bg px-[13px] py-[12px] text-text', press)}>
                     <Icon name="ticket" size={15} className="text-faint" />
-                    <span className="flex-1 text-left font-display text-[14.5px] font-bold">{tiers.find((t) => t.id === defaultTierId)?.short ?? 'Standaard'}</span>
+                    <span className="flex-1 text-left font-display text-[14.5px] font-bold">{tiers.find((x) => x.id === defaultTierId)?.short ?? t.guests.add.choiceDefault}</span>
                     <Icon name="chev" size={16} className="text-ghost" />
                   </button>
                   <button type="button" onClick={() => setChoice({ kind: 'name' })} className={cn('flex items-center gap-[10px] rounded-[12px] border border-line bg-bg px-[13px] py-[12px] text-text', press)}>
                     <Icon name="user" size={15} className="text-faint" />
-                    <span className="flex-1 text-left font-display text-[14.5px] font-bold">Hoort bij de naam</span>
+                    <span className="flex-1 text-left font-display text-[14.5px] font-bold">{t.guests.add.choiceName}</span>
                     <Icon name="chev" size={16} className="text-ghost" />
                   </button>
                 </div>
@@ -650,24 +743,25 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
               <div className="mt-3 rounded-[16px] border border-acc bg-acc-dim p-[14px]">
                 <div className="mb-1 flex items-center gap-2">
                   <Icon name="warn" size={16} stroke="#B5A6FF" />
-                  <Label className="text-acc-soft">Staat al op de lijst</Label>
+                  <Label className="text-acc-soft">{t.guests.add.dupeTitle}</Label>
                 </div>
                 <div className="mb-3 text-[12.5px] leading-[1.45] text-text">
-                  <b>{dupe.name}</b> staat al op deze lijst
+                  <b>{dupe.name}</b>
                   {dupe.plusOnes > 0 ? (
                     <>
-                      {' '}
-                      met <b>+{dupe.plusOnes}</b> {dupe.plusOnes === 1 ? 'plek' : 'plekken'}
+                      {t.guests.add.dupeOnListWith}
+                      <b>+{dupe.plusOnes}</b>
+                      {fmt(t.guests.add.dupeOnListSlots, { slots: dupe.plusOnes === 1 ? t.guests.add.slotOne : t.guests.add.slotMany })}
                     </>
                   ) : (
-                    ' zonder extra plekken'
+                    t.guests.add.dupeOnListNoExtra
                   )}
-                  . Wat wil je doen?
+                  {t.guests.add.dupeWhatToDo}
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <DupeOption on={dupeMode === 'add'} onClick={() => setDupeMode('add')} title="Tickets erbij optellen" sub={`Wordt +${dupe.plusOnes + effPlus} (nu +${dupe.plusOnes})`} />
-                  <DupeOption on={dupeMode === 'replace'} onClick={() => setDupeMode('replace')} title="Nieuw aantal geven" sub={`Wordt +${effPlus} (nu +${dupe.plusOnes})`} />
-                  <DupeOption on={dupeMode === 'again'} onClick={() => setDupeMode('again')} title="Toch opnieuw toevoegen" sub="Als losse, nieuwe regel (andere persoon)" />
+                  <DupeOption on={dupeMode === 'add'} onClick={() => setDupeMode('add')} title={t.guests.add.dupeAddTitle} sub={fmt(t.guests.add.dupeAddSub, { total: dupe.plusOnes + effPlus, current: dupe.plusOnes })} />
+                  <DupeOption on={dupeMode === 'replace'} onClick={() => setDupeMode('replace')} title={t.guests.add.dupeReplaceTitle} sub={fmt(t.guests.add.dupeReplaceSub, { n: effPlus, current: dupe.plusOnes })} />
+                  <DupeOption on={dupeMode === 'again'} onClick={() => setDupeMode('again')} title={t.guests.add.dupeAgainTitle} sub={t.guests.add.dupeAgainSub} />
                 </div>
               </div>
             )}
@@ -676,12 +770,12 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
               <div className={cn('mt-3 flex items-center gap-[9px] rounded-[13px] px-[14px] py-[11px]', overQuota ? 'border border-acc bg-white/[0.04]' : 'border border-line bg-elev')}>
                 <Icon name="ticket" size={17} stroke={overQuota ? '#B5A6FF' : 'rgba(255,255,255,0.40)'} />
                 <span className="flex-1 text-[13.5px] text-text">
-                  Kost <b>{cost}</b> {cost === 1 ? 'plek' : 'plekken'} ·{' '}
+                  {fmt(t.guests.add.quotaCost, { cost, slots: cost === 1 ? t.guests.add.slotOne : t.guests.add.slotMany })}
                   {overQuota
-                    ? `${remaining} over · ${cost - remaining} te veel`
-                    : `${remaining - cost} over na toevoegen`}
+                    ? fmt(t.guests.add.quotaOver, { remaining, over: cost - remaining })
+                    : fmt(t.guests.add.quotaLeftAfter, { left: remaining - cost })}
                 </span>
-                {overQuota && <MiniChip className="border-acc text-acc">Quotum vol</MiniChip>}
+                {overQuota && <MiniChip className="border-acc text-acc">{t.guests.add.quotaFull}</MiniChip>}
               </div>
             )}
 
@@ -689,12 +783,12 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
               reqExtra.isSuccess ? (
                 <div className="mt-[10px] flex items-center gap-[9px] rounded-[13px] border border-acc bg-acc-dim px-[14px] py-[11px] text-[13px] text-text">
                   <Icon name="check" size={16} stroke="#B5A6FF" />
-                  <span className="flex-1">Aanvraag verstuurd — een beheerder beslist erover.</span>
+                  <span className="flex-1">{t.guests.add.requestSent}</span>
                 </div>
               ) : reqOpen ? (
                 <div className="mt-[10px] flex flex-col gap-[10px] rounded-[16px] border border-line bg-elev p-[14px]">
                   <Label>
-                    Vraag {reqShortfall} extra {reqShortfall === 1 ? 'plek' : 'plekken'} aan
+                    {fmt(t.guests.add.requestExtraLabel, { n: reqShortfall, slots: reqShortfall === 1 ? t.guests.add.slotOne : t.guests.add.slotMany })}
                   </Label>
                   <textarea
                     autoFocus
@@ -702,12 +796,12 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                     onChange={(e) => setReqMotiv(e.target.value)}
                     maxLength={500}
                     rows={2}
-                    placeholder="Waarom heb je deze plekken nodig?"
+                    placeholder={t.guests.add.requestMotivPlaceholder}
                     className="w-full resize-none rounded-[12px] border border-line bg-bg px-[13px] py-[11px] text-[14px] text-text outline-none placeholder:text-faint focus:border-acc"
                   />
                   {reqExtra.isError && (
                     <p className="text-[12.5px] text-acc" role="alert">
-                      {reqExtra.error?.message ?? 'Versturen mislukt.'}
+                      {reqExtra.error?.message ?? t.guests.add.requestSendFailed}
                     </p>
                   )}
                   <div className="flex gap-2">
@@ -724,7 +818,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                         })
                       }
                     >
-                      {reqExtra.isPending ? 'Versturen…' : 'Versturen'}
+                      {reqExtra.isPending ? t.guests.add.sending : t.guests.add.send}
                     </Btn>
                     <Btn
                       kind="ghost"
@@ -733,13 +827,13 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                         setReqMotiv('');
                       }}
                     >
-                      Annuleren
+                      {t.guests.add.cancel}
                     </Btn>
                   </div>
                 </div>
               ) : (
                 <Btn kind="ghost" full icon="plus" className="mt-[10px]" onClick={() => setReqOpen(true)}>
-                  Extra plekken aanvragen
+                  {t.guests.add.requestExtra}
                 </Btn>
               )
             ) : null}
@@ -753,7 +847,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
 
             {added.length > 0 && (
               <>
-                <Label className="mx-0.5 mb-[10px] mt-[22px]">Net toegevoegd · {added.length}</Label>
+                <Label className="mx-0.5 mb-[10px] mt-[22px]">{fmt(t.guests.add.justAdded, { n: added.length })}</Label>
                 <div className="flex flex-col gap-2">
                   {added.map((g) => (
                     <div key={g.id} className="flex items-center gap-[11px] rounded-[14px] border border-line bg-elev p-[11px]">
@@ -767,7 +861,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                       </div>
                       <span className="inline-flex items-center gap-[5px] font-body text-[11.5px] font-bold text-acc">
                         <Icon name="check2" size={13} stroke="#B5A6FF" sw={2.4} />
-                        {g.updated ? 'bijgewerkt' : 'op lijst'}
+                        {g.updated ? t.guests.add.chipUpdated : t.guests.add.chipOnList}
                       </span>
                     </div>
                   ))}
@@ -780,19 +874,19 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
       <BottomBar>
         <Btn kind="primary" full icon="plus" onClick={commit} className={canSubmit ? '' : 'opacity-[0.45]'}>
           {add.isPending || update.isPending
-            ? 'Bezig…'
+            ? t.guests.add.submitBusy
             : !parsed
-              ? 'Typ een naam'
+              ? t.guests.add.submitTypeName
               : dupe && (dupeMode === 'add' || dupeMode === 'replace')
-                ? `Bijwerken · ${effName}`
-                : `Voeg toe · ${effName || 'gast'}${effPlus ? ' +' + effPlus : ''}`}
+                ? fmt(t.guests.add.submitUpdate, { name: effName })
+                : fmt(t.guests.add.submitAdd, { name: effName || t.guests.add.submitFallbackName, plus: effPlus ? ' +' + effPlus : '' })}
         </Btn>
       </BottomBar>
 
       {evPick && (
         <Sheet onClose={() => setEvPick(false)} center={false}>
-          <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">Kies evenement</div>
-          <div className="mb-4 text-[13px] text-faint">Aan welke gastenlijst voeg je toe?</div>
+          <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{t.guests.add.pickEventTitle}</div>
+          <div className="mb-4 text-[13px] text-faint">{t.guests.add.pickEventSub}</div>
           <div className="flex flex-col gap-2">
             {upcoming.map((e) => {
               const on = e.id === curEv?.id;
@@ -910,7 +1004,7 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
       setChoices({});
       nav.back();
     } catch (e) {
-      setOrchErr(e instanceof Error ? e.message : 'Toevoegen mislukt.');
+      setOrchErr(e instanceof Error ? e.message : t.guests.bulk.addFailed);
     } finally {
       setBusy(false);
     }
@@ -918,14 +1012,12 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Plak een lijst" sub={curEv ? `Naar ${curEv.name} · één gast per regel` : 'Eén gast per regel'} />
+      <Top onBack={nav.back} title={t.guests.bulk.title} sub={curEv ? fmt(t.guests.bulk.subTo, { event: curEv.name }) : t.guests.bulk.subFallback} />
       <Scroll bottom={120}>
         {!curEv ? (
-          <Empty text="Nog geen komend event om aan toe te voegen." />
+          <Empty text={t.guests.bulk.noUpcoming} />
         ) : !defaultTierId ? (
-          <div className="rounded-[16px] border border-line bg-elev p-[14px] text-[13.5px] leading-[1.45] text-faint">
-            Dit event heeft nog geen tiers. Voeg eerst een tier toe via eventbeheer.
-          </div>
+          <NoTiersBlock eventId={evId} canCreate={exempt} />
         ) : (
           <>
             <textarea
@@ -935,14 +1027,14 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
                 setChoices({});
               }}
               rows={5}
-              placeholder={'Juri Braakman +2 vip\nNoor de Wit\nSem Aaltink fles\nLucas van Os +1'}
+              placeholder={t.guests.bulk.placeholder}
               className="mb-4 w-full resize-y rounded-[14px] border border-line bg-elev p-[14px] font-body text-[14.5px] leading-[1.5] text-text outline-none placeholder:text-faint"
             />
             {rows.length > 0 && (
               <>
                 <div className="mb-[10px] flex items-center justify-between">
-                  <Label>Preview · {rows.length} regels</Label>
-                  {doubtful > 0 && <MiniChip className="border-acc text-acc">{doubtful} te controleren</MiniChip>}
+                  <Label>{fmt(t.guests.bulk.preview, { n: rows.length })}</Label>
+                  {doubtful > 0 && <MiniChip className="border-acc text-acc">{fmt(t.guests.bulk.toCheck, { n: doubtful })}</MiniChip>}
                 </div>
                 <div className="flex flex-col gap-2">
                   {rows.map((r, i) => {
@@ -959,12 +1051,12 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
                               {res.plusOnes > 0 && <span className="text-faint"> +{res.plusOnes}</span>}
                             </div>
                             <div className={cn('mt-0.5 text-[11.5px]', ask ? 'text-acc' : 'text-faint')}>
-                              {ask ? `“${r.ambiguous?.text ?? ''}” onbekend` : tier?.short ?? '—'}
+                              {ask ? fmt(t.guests.bulk.rowUnknown, { x: r.ambiguous?.text ?? '' }) : tier?.short ?? '—'}
                             </div>
                           </div>
                           {!ask &&
                             (byName.has(res.name.trim().toLowerCase()) ? (
-                              <MiniChip className="border-acc text-acc">AL OP LIJST</MiniChip>
+                              <MiniChip className="border-acc text-acc">{t.guests.bulk.rowAlreadyOnList}</MiniChip>
                             ) : (
                               <span className="text-acc">
                                 <Icon name="check2" size={17} stroke="#B5A6FF" sw={2.2} />
@@ -988,14 +1080,14 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
                               onClick={() => setChoices((c) => ({ ...c, [i]: { kind: 'default' } }))}
                               className={cn('flex-1 rounded-[10px] border border-line bg-elev2 py-[9px] font-display text-[12.5px] font-bold text-text', press)}
                             >
-                              {tiers.find((t) => t.id === defaultTierId)?.short ?? 'Standaard'}
+                              {tiers.find((x) => x.id === defaultTierId)?.short ?? t.guests.bulk.rowChoiceDefault}
                             </button>
                             <button
                               type="button"
                               onClick={() => setChoices((c) => ({ ...c, [i]: { kind: 'name' } }))}
                               className={cn('flex-1 rounded-[10px] border border-line bg-elev2 py-[9px] font-display text-[12.5px] font-bold text-text', press)}
                             >
-                              Bij naam
+                              {t.guests.bulk.rowChoiceName}
                             </button>
                           </div>
                         )}
@@ -1008,7 +1100,7 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
                     <div className="mb-1 flex items-center gap-2">
                       <Icon name="warn" size={16} stroke="#B5A6FF" />
                       <Label className="text-acc-soft">
-                        {dupNames.length} {dupNames.length === 1 ? 'staat' : 'staan'} er volgens ons al op
+                        {fmt(t.guests.bulk.dupeHeader, { n: dupNames.length })}
                       </Label>
                     </div>
                     <div className="mb-3 flex flex-wrap gap-1.5">
@@ -1021,18 +1113,18 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
                         <MiniChip className="border-transparent bg-bg text-faint">+{dupNames.length - 12}</MiniChip>
                       )}
                     </div>
-                    <div className="mb-2 text-[12.5px] font-semibold text-text">Wat wil je met deze mensen doen?</div>
+                    <div className="mb-2 text-[12.5px] font-semibold text-text">{t.guests.bulk.dupeWhatToDo}</div>
                     <div className="flex flex-col gap-1.5">
-                      <DupeOption on={dupeMode === 'add'} onClick={() => setDupeMode('add')} title="Tickets erbij optellen" sub="Nieuwe plekken bovenop hun huidige aantal" />
-                      <DupeOption on={dupeMode === 'replace'} onClick={() => setDupeMode('replace')} title="Nieuw aantal geven" sub="Vervang hun plekken door wat je nu invult" />
-                      <DupeOption on={dupeMode === 'again'} onClick={() => setDupeMode('again')} title="Toch opnieuw toevoegen" sub="Als losse, nieuwe regel (andere persoon)" />
+                      <DupeOption on={dupeMode === 'add'} onClick={() => setDupeMode('add')} title={t.guests.bulk.dupeAddTitle} sub={t.guests.bulk.dupeAddSub} />
+                      <DupeOption on={dupeMode === 'replace'} onClick={() => setDupeMode('replace')} title={t.guests.bulk.dupeReplaceTitle} sub={t.guests.bulk.dupeReplaceSub} />
+                      <DupeOption on={dupeMode === 'again'} onClick={() => setDupeMode('again')} title={t.guests.bulk.dupeAgainTitle} sub={t.guests.bulk.dupeAgainSub} />
                     </div>
                   </div>
                 )}
                 {!exempt && remaining !== null && (
                   <div className={cn('mt-3 text-[12.5px]', overQuota ? 'text-acc-soft' : 'text-faint')}>
-                    {total} {total === 1 ? 'plek' : 'plekken'} · {remaining} over in je quotum
-                    {overQuota && ' — de hele batch wordt geblokkeerd'}
+                    {fmt(t.guests.bulk.quotaLine, { total, slots: total === 1 ? t.guests.bulk.slotOne : t.guests.bulk.slotMany, remaining })}
+                    {overQuota && t.guests.bulk.quotaBlocked}
                   </div>
                 )}
                 {(addBulk.isError || orchErr) && (
@@ -1049,12 +1141,12 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
       <BottomBar>
         <Btn kind="primary" full icon="check" onClick={() => void confirm()} className={canConfirm ? '' : 'opacity-[0.45]'}>
           {busy
-            ? 'Bezig…'
+            ? t.guests.bulk.busy
             : doubtful > 0
-              ? `Voeg ${ready} toe · ${doubtful} open`
+              ? fmt(t.guests.bulk.submitOpen, { ready, open: doubtful })
               : dupNames.length > 0
-                ? `Verwerk ${ready} ${ready === 1 ? 'regel' : 'regels'}`
-                : `Voeg ${ready} ${ready === 1 ? 'gast' : 'gasten'} toe`}
+                ? fmt(t.guests.bulk.submitProcess, { ready, lines: ready === 1 ? t.guests.bulk.lineOne : t.guests.bulk.lineMany })
+                : fmt(t.guests.bulk.submitAdd, { ready, guests: ready === 1 ? t.guests.bulk.guestOne : t.guests.bulk.guestMany })}
         </Btn>
       </BottomBar>
     </div>
@@ -1067,12 +1159,12 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
 // via add_contact_to_event (a deliberate add clears any "respect the removal"
 // exclusion). Staff/doorhost have no contacts access → an explicit permission note.
 const CONTACT_ROLE_OPTIONS: { value: ContactRole; label: string }[] = [
-  { value: 'vip', label: 'VIP' },
-  { value: 'all_access', label: 'All Access' },
-  { value: 'artist', label: 'Artiest' },
-  { value: 'press', label: 'Pers' },
-  { value: 'crew', label: 'Crew' },
-  { value: 'guest', label: 'Gast' },
+  { value: 'vip', label: t.guests.contacts.roleVip },
+  { value: 'all_access', label: t.guests.contacts.roleAllAccess },
+  { value: 'artist', label: t.guests.contacts.roleArtist },
+  { value: 'press', label: t.guests.contacts.rolePress },
+  { value: 'crew', label: t.guests.contacts.roleCrew },
+  { value: 'guest', label: t.guests.contacts.roleGuest },
 ];
 
 export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
@@ -1109,24 +1201,24 @@ export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
     <div className={col}>
       <Top
         onBack={nav.back}
-        title="Adresboek"
-        sub={`${contacts.length} ${contacts.length === 1 ? 'contact' : 'contacten'} · herbruik in één tik`}
+        title={t.guests.contacts.title}
+        sub={fmt(t.guests.contacts.sub, { n: contacts.length, contacts: contacts.length === 1 ? t.guests.contacts.contactOne : t.guests.contacts.contactMany })}
         right={<IconBtn name="upload" onClick={() => nav.push('import')} />}
       />
       <div className="flex-none px-4 pb-3">
-        <Field icon="search" placeholder="Zoek op naam of laatste 4 cijfers…" value={q} onChange={setQ} inputMode="text" />
+        <Field icon="search" placeholder={t.guests.contacts.searchPlaceholder} value={q} onChange={setQ} inputMode="text" />
       </div>
       <Scroll pad={16} bottom={24}>
         {isLoading ? (
-          <Empty text="Adresboek laden…" />
+          <Empty text={t.guests.contacts.loading} />
         ) : noRights ? (
           <Note icon="shield">
-            Je hebt geen rechten om het adresboek te bekijken. Alleen een beheerder, financiën of organisator ziet de opgeslagen contacten.
+            {t.guests.contacts.noRights}
           </Note>
         ) : isError ? (
-          <Empty text="Kon het adresboek niet laden." />
+          <Empty text={t.guests.contacts.loadError} />
         ) : cs.length === 0 ? (
-          <Empty text={term ? 'Geen contacten gevonden.' : 'Nog geen opgeslagen contacten — importeer of voeg gasten toe.'} />
+          <Empty text={term ? t.guests.contacts.emptyFiltered : t.guests.contacts.empty} />
         ) : (
           <div className="flex flex-col gap-[9px]">
             {cs.map((c) => {
@@ -1135,12 +1227,12 @@ export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
               return (
                 <div key={c.id} className="flex items-center gap-[10px] rounded-[16px] border border-line bg-elev p-[12px]">
                   <Avatar name={c.name} size={42} accent={c.vast} />
-                  <button type="button" onClick={() => setEditing(c)} aria-label={`Bewerk ${c.name}`} className={cn('min-w-0 flex-1 text-left', press)}>
+                  <button type="button" onClick={() => setEditing(c)} aria-label={fmt(t.guests.contacts.editAria, { name: c.name })} className={cn('min-w-0 flex-1 text-left', press)}>
                     <div className="font-display text-[15.5px] font-bold text-text">{c.name}</div>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       <RoleChip role={c.role} />
                       <span className="text-[11.5px] text-faint">
-                        {c.events}× op een lijst{c.phoneLast4 ? ` · ••${c.phoneLast4}` : ''}
+                        {fmt(t.guests.contacts.onListCount, { n: c.events })}{c.phoneLast4 ? ` · ••${c.phoneLast4}` : ''}
                       </span>
                     </div>
                   </button>
@@ -1149,7 +1241,7 @@ export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
                     onClick={() => onStarClick(c)}
                     disabled={starring}
                     aria-pressed={c.vast}
-                    title={c.vast ? 'Niet meer altijd toevoegen' : 'Altijd toevoegen'}
+                    title={c.vast ? t.guests.contacts.unmakeRegular : t.guests.contacts.makeRegular}
                     className={cn('flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[11px] border', press, c.vast ? 'border-transparent bg-acc-dim text-acc' : 'border-line text-ghost')}
                   >
                     <Icon name="star" size={17} fill={c.vast ? '#B5A6FF' : 'none'} stroke={c.vast ? '#B5A6FF' : 'rgba(255,255,255,0.26)'} />
@@ -1157,7 +1249,7 @@ export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
                   <button
                     type="button"
                     onClick={() => setAddingFor(c)}
-                    aria-label={`Voeg ${c.name} toe aan een event`}
+                    aria-label={fmt(t.guests.contacts.addToEventAria, { name: c.name })}
                     className={cn('flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[11px] border-none', press, isAdded ? 'bg-acc-dim text-acc' : 'bg-text text-bg')}
                   >
                     <Icon name={isAdded ? 'check2' : 'plus'} size={18} sw={2.4} />
@@ -1213,13 +1305,13 @@ function ContactEditSheet({ contact, onClose }: { contact: PoContact; onClose: (
 
   const save = (): void => {
     setErr(null);
-    if (!venueId) return setErr('Geen actieve venue.');
-    if (name.trim() === '') return setErr('Naam is verplicht.');
+    if (!venueId) return setErr(t.guests.contacts.noVenue);
+    if (name.trim() === '') return setErr(t.guests.contacts.nameRequired);
     let phoneVal: string | undefined;
     const phoneTrim = phone.trim();
     if (phoneTrim !== '') {
       phoneVal = normalizeImportPhone(phoneTrim);
-      if (!phoneVal) return setErr('Controleer het telefoonnummer (bv. 06… of +31…).');
+      if (!phoneVal) return setErr(t.guests.contacts.phoneInvalid);
     }
     upsert.mutate(
       {
@@ -1232,7 +1324,7 @@ function ContactEditSheet({ contact, onClose }: { contact: PoContact; onClose: (
         note: contact.note ?? undefined,
         preferredRole: role || undefined,
       },
-      { onSuccess: onClose, onError: (e) => setErr(e instanceof Error ? e.message : 'Opslaan mislukt.') },
+      { onSuccess: onClose, onError: (e) => setErr(e instanceof Error ? e.message : t.guests.contacts.saveFailed) },
     );
   };
 
@@ -1241,19 +1333,19 @@ function ContactEditSheet({ contact, onClose }: { contact: PoContact; onClose: (
       <div className="mb-4 flex items-center gap-[12px]">
         <Avatar name={name || contact.name} size={44} accent={contact.vast} />
         <div className="min-w-0 flex-1">
-          <div className="font-display text-[17px] font-bold text-text">Contact bewerken</div>
-          <div className="text-[12px] text-faint">{contact.events}× op een lijst</div>
+          <div className="font-display text-[17px] font-bold text-text">{t.guests.contacts.editTitle}</div>
+          <div className="text-[12px] text-faint">{fmt(t.guests.contacts.onListCount, { n: contact.events })}</div>
         </div>
       </div>
-      <Label className="mb-2">Naam</Label>
-      <Field icon="user" value={name} onChange={setName} placeholder="Volledige naam" className="mb-[14px]" />
-      <Label className="mb-2">E-mail</Label>
-      <Field icon="mail" value={email} onChange={setEmail} inputMode="email" placeholder="naam@mail.nl" className="mb-[14px]" />
-      <Label className="mb-2">Telefoon</Label>
-      <Field icon="phone" value={phone} onChange={setPhone} inputMode="tel" placeholder="06 … of +31 …" className="mb-[14px]" />
-      <Label className="mb-2">Voorkeur-tier</Label>
+      <Label className="mb-2">{t.guests.contacts.nameLabel}</Label>
+      <Field icon="user" value={name} onChange={setName} placeholder={t.guests.contacts.namePlaceholder} className="mb-[14px]" />
+      <Label className="mb-2">{t.guests.contacts.emailLabel}</Label>
+      <Field icon="mail" value={email} onChange={setEmail} inputMode="email" placeholder={t.guests.contacts.emailPlaceholder} className="mb-[14px]" />
+      <Label className="mb-2">{t.guests.contacts.phoneLabel}</Label>
+      <Field icon="phone" value={phone} onChange={setPhone} inputMode="tel" placeholder={t.guests.contacts.phonePlaceholder} className="mb-[14px]" />
+      <Label className="mb-2">{t.guests.contacts.tierLabel}</Label>
       <div className="flex flex-wrap gap-2">
-        <RolePill label="Geen" on={role === ''} onClick={() => setRole('')} />
+        <RolePill label={t.guests.contacts.tierNone} on={role === ''} onClick={() => setRole('')} />
         {CONTACT_ROLE_OPTIONS.map((o) => (
           <RolePill key={o.value} label={o.label} on={role === o.value} onClick={() => setRole(o.value)} />
         ))}
@@ -1264,7 +1356,7 @@ function ContactEditSheet({ contact, onClose }: { contact: PoContact; onClose: (
         </p>
       )}
       <Btn kind="primary" full icon="check" className="mt-4" disabled={upsert.isPending || name.trim() === ''} onClick={save}>
-        {upsert.isPending ? 'Opslaan…' : 'Opslaan'}
+        {upsert.isPending ? t.guests.contacts.saving : t.guests.contacts.save}
       </Btn>
     </Sheet>
   );
@@ -1279,16 +1371,16 @@ function PermanentConfirmSheet({ contact, onClose }: { contact: PoContact; onClo
         <span className="flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-[13px] bg-acc-dim text-acc">
           <Icon name="star" size={22} stroke="#B5A6FF" fill="#B5A6FF" />
         </span>
-        <div className="font-display text-[18px] font-bold text-text">{contact.name} altijd toevoegen?</div>
+        <div className="font-display text-[18px] font-bold text-text">{fmt(t.guests.contacts.makeRegularTitle, { name: contact.name })}</div>
       </div>
       <Note icon="star">
-        <b>{contact.name}</b> komt dan automatisch op élke <b>nieuwe</b> gastenlijst. Bestaande events vul je bij via “Nu toevoegen aan een event”. Je kunt dit altijd weer uitzetten.
+        <b>{contact.name}</b> {fmt(t.guests.contacts.makeRegularNote, { new: t.guests.contacts.makeRegularNoteNew })}
       </Note>
       <Btn full kind="primary" icon="star" className="mt-1" disabled={toggle.isPending} onClick={() => toggle.mutate({ contactId: contact.id, isPermanent: true }, { onSuccess: onClose })}>
-        {toggle.isPending ? 'Bezig…' : 'Ja, altijd toevoegen'}
+        {toggle.isPending ? t.guests.contacts.makeRegularBusy : t.guests.contacts.makeRegularConfirm}
       </Btn>
       <Btn full kind="ghost" className="mt-2" onClick={onClose}>
-        Annuleren
+        {t.guests.contacts.cancel}
       </Btn>
     </Sheet>
   );
@@ -1312,6 +1404,10 @@ function AddToEventSheet({
   const add = usePoAddContactToEvent();
   const [evId, setEvId] = useState<string>(eventId && upcoming.some((e) => e.id === eventId) ? eventId : upcoming[0]?.id ?? '');
   const { data: tiers = [], isLoading: tiersLoading } = usePoTiers(evId);
+  // Only an admin/organizer may create a tier (guest_tiers_insert RLS, surfaced via
+  // the quota exempt flag) — finance can open the address book but not make tiers.
+  const { data: quota } = usePoQuota(evId);
+  const canCreateTier = quota?.exempt ?? false;
   // Is this contact already a live (non-removed) guest on the selected event? We
   // reuse the event's guest list (RLS-scoped) rather than a separate query, so the
   // existing add/update invalidations keep it fresh.
@@ -1344,10 +1440,10 @@ function AddToEventSheet({
   // New guest on this event: ticket + plus-ones via add_contact_to_event.
   const submitNew = (): void => {
     setErr(null);
-    if (!evId) return setErr('Kies een event.');
+    if (!evId) return setErr(t.guests.contacts.pickEvent);
     add.mutate(
       { contactId: contact.id, eventId: evId, tierId: tierId || undefined, plusOnes: plus || undefined },
-      { onSuccess: finishOk, onError: (e) => setErr(e instanceof Error ? e.message : 'Toevoegen mislukt.') },
+      { onSuccess: finishOk, onError: (e) => setErr(e instanceof Error ? e.message : t.guests.contacts.addFailed) },
     );
   };
 
@@ -1359,7 +1455,7 @@ function AddToEventSheet({
     setErr(null);
     update.mutate(
       { guestId: onList.id, plusOnes: finalPlus },
-      { onSuccess: finishOk, onError: (e) => setErr(e instanceof Error ? e.message : 'Opslaan mislukt.') },
+      { onSuccess: finishOk, onError: (e) => setErr(e instanceof Error ? e.message : t.guests.contacts.saveFailed) },
     );
   };
 
@@ -1370,14 +1466,14 @@ function AddToEventSheet({
 
   return (
     <Sheet onClose={onClose} center={false}>
-      <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{contact.name} toevoegen</div>
-      <div className="mb-4 text-[13px] text-faint">Kies het event{onList ? '' : ' en het ticket'}.</div>
+      <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{fmt(t.guests.contacts.addTitle, { name: contact.name })}</div>
+      <div className="mb-4 text-[13px] text-faint">{onList ? t.guests.contacts.addPickEvent : t.guests.contacts.addPickEventTicket}</div>
 
       {upcoming.length === 0 ? (
-        <Empty text="Geen komend event om aan toe te voegen." />
+        <Empty text={t.guests.contacts.addNoUpcoming} />
       ) : (
         <>
-          <Label className="mb-2">Event</Label>
+          <Label className="mb-2">{t.guests.contacts.eventLabel}</Label>
           <div className="mb-4 flex flex-col gap-2">
             {upcoming.map((e) => {
               const on = e.id === evId;
@@ -1403,42 +1499,43 @@ function AddToEventSheet({
           </div>
 
           {guestsLoading ? (
-            <div className="mb-3 text-[12.5px] text-faint">Lijst controleren…</div>
+            <div className="mb-3 text-[12.5px] text-faint">{t.guests.contacts.checkingList}</div>
           ) : onList ? (
             // Already on this event — choose: add to, or replace, the plus-ones.
             <>
               <Note icon="user">
-                <b>{contact.name}</b> staat al op deze lijst
+                <b>{contact.name}</b>
                 {onList.plus > 0 ? (
                   <>
-                    {' '}
-                    met <b>+{onList.plus}</b> {onList.plus === 1 ? 'plek' : 'plekken'}
+                    {t.guests.contacts.dupePrefix}
+                    <b>+{onList.plus}</b>
+                    {fmt(t.guests.contacts.dupeSlots, { slots: onList.plus === 1 ? t.guests.contacts.slotOne : t.guests.contacts.slotMany })}
                   </>
                 ) : (
-                  ' zonder extra plekken'
+                  t.guests.contacts.onListNoExtra
                 )}
-                .
+                {t.guests.contacts.dupeSuffix}
               </Note>
-              <Label className="mb-2">Wat wil je doen?</Label>
+              <Label className="mb-2">{t.guests.contacts.whatToDo}</Label>
               <div className="mb-3 flex gap-2">
-                <RolePill label="Erbij optellen" on={mode === 'add'} onClick={() => switchMode('add')} />
-                <RolePill label="Nieuw totaal" on={mode === 'set'} onClick={() => switchMode('set')} />
+                <RolePill label={t.guests.contacts.modeAdd} on={mode === 'add'} onClick={() => switchMode('add')} />
+                <RolePill label={t.guests.contacts.modeSet} on={mode === 'set'} onClick={() => switchMode('set')} />
               </div>
               <div className="mb-1 flex items-center justify-between gap-[14px] rounded-[16px] bg-acc-dim p-[10px]">
-                <button type="button" onClick={() => setAmount((a) => Math.max(0, a - 1))} aria-label="Minder" className={cn('flex h-[46px] w-[46px] items-center justify-center rounded-[14px] border border-line bg-elev2 text-text', press)}>
+                <button type="button" onClick={() => setAmount((a) => Math.max(0, a - 1))} aria-label={t.guests.contacts.stepperLess} className={cn('flex h-[46px] w-[46px] items-center justify-center rounded-[14px] border border-line bg-elev2 text-text', press)}>
                   <Icon name="minus" size={20} sw={2.4} />
                 </button>
                 <div className="text-center">
                   <div className="font-display text-[28px] font-extrabold leading-none text-text">{amount}</div>
-                  <div className="mt-0.5 text-[11px] text-dim">{mode === 'add' ? 'erbij' : 'totaal'}</div>
+                  <div className="mt-0.5 text-[11px] text-dim">{mode === 'add' ? t.guests.contacts.stepperAddSuffix : t.guests.contacts.stepperTotalSuffix}</div>
                 </div>
-                <button type="button" onClick={() => setAmount((a) => a + 1)} aria-label="Meer" className={cn('flex h-[46px] w-[46px] items-center justify-center rounded-[14px] border border-line bg-elev2 text-text', press)}>
+                <button type="button" onClick={() => setAmount((a) => a + 1)} aria-label={t.guests.contacts.stepperMore} className={cn('flex h-[46px] w-[46px] items-center justify-center rounded-[14px] border border-line bg-elev2 text-text', press)}>
                   <Icon name="plus" size={20} sw={2.4} stroke="#B5A6FF" />
                 </button>
               </div>
               <div className="mb-3 px-1 text-[12px] text-faint">
-                Wordt <b className="text-text">+{finalPlus}</b> {finalPlus === 1 ? 'plek' : 'plekken'} in totaal
-                {mode === 'add' && amount > 0 ? ` (was +${onList.plus})` : ''}.
+                {t.guests.contacts.becomesPrefix}<b className="text-text">+{finalPlus}</b>{fmt(t.guests.contacts.becomesSuffix, { slots: finalPlus === 1 ? t.guests.contacts.slotOne : t.guests.contacts.slotMany })}
+                {mode === 'add' && amount > 0 ? fmt(t.guests.contacts.becomesWas, { n: onList.plus }) : ''}.
               </div>
               {err && (
                 <p className="mt-1 text-[12.5px] text-red-300" role="alert">
@@ -1446,42 +1543,42 @@ function AddToEventSheet({
                 </p>
               )}
               <Btn kind="primary" full icon="check" className="mt-2" disabled={busy} onClick={submitAdjust}>
-                {update.isPending ? 'Opslaan…' : `Opslaan · +${finalPlus}`}
+                {update.isPending ? t.guests.contacts.saving : fmt(t.guests.contacts.adjustSave, { n: finalPlus })}
               </Btn>
             </>
           ) : (
             // New on this event — pick a ticket + how many people.
             <>
-              <Label className="mb-2">Ticket / tier</Label>
+              <Label className="mb-2">{t.guests.contacts.ticketLabel}</Label>
               {tiersLoading ? (
-                <div className="mb-3 text-[12.5px] text-faint">Tickets laden…</div>
+                <div className="mb-3 text-[12.5px] text-faint">{t.guests.contacts.loadingTickets}</div>
               ) : tiers.length === 0 ? (
-                <Note icon="ticket">Dit event heeft nog geen tiers. Voeg er eerst een toe via eventbeheer.</Note>
+                <NoTiersBlock eventId={evId} canCreate={canCreateTier} className="mb-3" />
               ) : (
                 <div className="mb-3 flex flex-wrap gap-2">
-                  {tiers.map((t) => {
-                    const on = t.id === tierId;
+                  {tiers.map((tier) => {
+                    const on = tier.id === tierId;
                     return (
                       <button
-                        key={t.id}
+                        key={tier.id}
                         type="button"
-                        onClick={() => setTierId(t.id)}
+                        onClick={() => setTierId(tier.id)}
                         className={cn('inline-flex items-center gap-[7px] rounded-[11px] border px-[12px] py-[9px] font-display text-[13px] font-bold', press, on ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev text-text')}
                       >
-                        <span className="h-[9px] w-[9px] rounded-full" style={{ background: t.color }} />
-                        {t.short}
+                        <span className="h-[9px] w-[9px] rounded-full" style={{ background: tier.color }} />
+                        {tier.short}
                       </button>
                     );
                   })}
                 </div>
               )}
 
-              <Label className="mb-2">Aantal personen</Label>
+              <Label className="mb-2">{t.guests.contacts.peopleLabel}</Label>
               <div className="mb-1">
                 <Stepper value={1 + plus} onChange={(v) => setPlus(Math.max(0, v - 1))} />
               </div>
               <div className="mb-3 px-1 text-[12px] text-faint">
-                {plus === 0 ? 'Alleen deze gast.' : `${contact.name} + ${plus} extra ${plus === 1 ? 'plek' : 'plekken'} (${1 + plus} totaal).`}
+                {plus === 0 ? t.guests.contacts.peopleOnlyGuest : fmt(t.guests.contacts.peopleWithExtra, { name: contact.name, n: plus, slots: plus === 1 ? t.guests.contacts.slotOne : t.guests.contacts.slotMany, total: 1 + plus })}
               </div>
 
               {err && (
@@ -1490,7 +1587,7 @@ function AddToEventSheet({
                 </p>
               )}
               <Btn kind="primary" full icon="plus" className="mt-2" disabled={busy || !evId || tiers.length === 0} onClick={submitNew}>
-                {add.isPending ? 'Toevoegen…' : plus > 0 ? `Voeg toe · ${1 + plus} personen` : 'Voeg toe aan gastenlijst'}
+                {add.isPending ? t.guests.contacts.addBusy : plus > 0 ? fmt(t.guests.contacts.addPeople, { n: 1 + plus }) : t.guests.contacts.addToGuestList}
               </Btn>
             </>
           )}
@@ -1535,7 +1632,7 @@ export function Vaste(): JSX.Element {
           setPick(false);
           setResult({ event: evName, added: res.ok ? res.added : 0, total });
         },
-        onError: (e) => setErrorMsg(e instanceof Error ? e.message : 'Synchroniseren mislukt.'),
+        onError: (e) => setErrorMsg(e instanceof Error ? e.message : t.guests.permanent.syncFailed),
       },
     );
   };
@@ -1544,15 +1641,15 @@ export function Vaste(): JSX.Element {
     <div className={col}>
       <Top
         onBack={nav.back}
-        title="Permanente gasten"
-        sub={`${permanent.length} ${permanent.length === 1 ? 'gast' : 'gasten'}`}
+        title={t.guests.permanent.title}
+        sub={fmt(t.guests.permanent.sub, { n: permanent.length, guests: permanent.length === 1 ? t.guests.permanent.guestOne : t.guests.permanent.guestMany })}
         right={<IconBtn name="plus" onClick={() => nav.push('contacten')} />}
       />
       <Scroll bottom={24}>
         <div className="mb-4 flex gap-[12px] rounded-[16px] bg-acc-dim p-[15px]">
           <Icon name="star" size={20} stroke="#B5A6FF" fill="#B5A6FF" />
           <div className="text-[13.5px] leading-[1.45] text-text">
-            Deze gasten komen <b>automatisch</b> op élke nieuwe gastenlijst. Eén keer instellen — daarna niets meer doen.
+            {t.guests.permanent.blurb}
           </div>
         </div>
 
@@ -1561,10 +1658,10 @@ export function Vaste(): JSX.Element {
             <Icon name="check" size={16} stroke="#B5A6FF" />
             <span className="flex-1">
               {result.added === 0
-                ? `Iedereen stond al op ${result.event} (of is daar handmatig verwijderd).`
+                ? fmt(t.guests.permanent.resultNoneAdded, { event: result.event })
                 : result.added === result.total
-                  ? `Alle ${result.total} permanente ${result.total === 1 ? 'gast' : 'gasten'} toegevoegd aan ${result.event}.`
-                  : `${result.added} van ${result.total} toegevoegd aan ${result.event} — de rest stond er al op (of is handmatig verwijderd).`}
+                  ? fmt(t.guests.permanent.resultAllAdded, { total: result.total, guests: result.total === 1 ? t.guests.permanent.guestOneLabel : t.guests.permanent.guestManyLabel, event: result.event })
+                  : fmt(t.guests.permanent.resultPartial, { added: result.added, total: result.total, event: result.event })}
             </span>
           </div>
         )}
@@ -1577,20 +1674,20 @@ export function Vaste(): JSX.Element {
 
         {!isLoading && !isError && permanent.length > 0 && (
           <Btn kind="dark" full icon="cal" className="mb-4" disabled={sync.isPending} onClick={() => setPick(true)}>
-            {sync.isPending ? 'Toevoegen…' : 'Nu toevoegen aan een event'}
+            {sync.isPending ? t.guests.permanent.addNowBusy : t.guests.permanent.addNow}
           </Btn>
         )}
 
         {isLoading ? (
-          <Empty text="Laden…" />
+          <Empty text={t.guests.permanent.loading} />
         ) : noRights ? (
           <Note icon="shield">
-            Je hebt geen rechten om permanente gasten te beheren. Alleen een beheerder, financiën of organisator ziet het adresboek.
+            {t.guests.permanent.noRights}
           </Note>
         ) : isError ? (
-          <Empty text="Kon de permanente gasten niet laden." />
+          <Empty text={t.guests.permanent.loadError} />
         ) : permanent.length === 0 ? (
-          <Empty text="Nog geen permanente gasten — ster ze in het adresboek." />
+          <Empty text={t.guests.permanent.empty} />
         ) : (
           <div className="flex flex-col gap-[9px]">
             {permanent.map((c) => {
@@ -1600,13 +1697,13 @@ export function Vaste(): JSX.Element {
                   <Avatar name={c.name} size={42} accent />
                   <div className="flex-1">
                     <div className="font-display text-[15.5px] font-bold text-text">{c.name}</div>
-                    <div className="mt-[3px] text-[12px] text-faint">auto · {c.role}</div>
+                    <div className="mt-[3px] text-[12px] text-faint">{fmt(t.guests.permanent.autoRole, { role: c.role })}</div>
                   </div>
                   <button
                     type="button"
                     onClick={() => toggleVast.mutate({ contactId: c.id, isPermanent: false })}
                     disabled={removing}
-                    title="Verwijder uit permanente gasten"
+                    title={t.guests.permanent.removeRegular}
                     className={cn('flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line text-faint', press)}
                   >
                     <Icon name="close" size={16} />
@@ -1620,10 +1717,10 @@ export function Vaste(): JSX.Element {
 
       {pick && (
         <Sheet onClose={() => setPick(false)} center={false}>
-          <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">Synchroniseer met event</div>
-          <div className="mb-4 text-[13px] text-faint">Voeg de permanente gasten toe aan een event. Handmatig verwijderde gasten blijven eruit.</div>
+          <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{t.guests.permanent.syncTitle}</div>
+          <div className="mb-4 text-[13px] text-faint">{t.guests.permanent.syncSub}</div>
           {upcoming.length === 0 ? (
-            <Empty text="Geen komend event." />
+            <Empty text={t.guests.permanent.noUpcoming} />
           ) : (
             <div className="flex flex-col gap-2">
               {upcoming.map((e) => (

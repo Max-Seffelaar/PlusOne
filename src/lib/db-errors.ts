@@ -1,5 +1,5 @@
 /**
- * Maps database errors to safe Dutch UI copy. The quota engine raises custom
+ * Maps database errors to safe UI copy. The quota engine raises custom
  * SQLSTATEs (see 20260613180000_quota_engine.sql); their messages are
  * deliberately user-facing and PII-free, so we surface them. Everything else
  * collapses to a generic message — details stay in the server logs only
@@ -10,7 +10,7 @@ export interface MutationError {
   ok: false;
   /** Stable code the UI can branch on (the SQLSTATE, or 'unauthorized'/'invalid'). */
   code: string;
-  /** Dutch, safe to show. */
+  /** Safe to show. */
   message: string;
 }
 
@@ -36,31 +36,31 @@ export function mapMutationError(error: PostgrestLikeError | null | undefined): 
     case TIER_FULL:
     case REQUEST_DECIDED:
     case INVALID_TRANSITION:
-      // These DB messages are crafted Dutch UI copy with safe numbers only.
-      return { ok: false, code, message: error?.message ?? 'Niet toegestaan.' };
+      // These DB messages are crafted UI copy with safe numbers only.
+      return { ok: false, code, message: error?.message ?? 'Not allowed.' };
     case INSUFFICIENT_PRIVILEGE:
       return {
         ok: false,
         code,
-        message: 'Je hebt hier geen rechten voor (of MFA is vereist).',
+        message: "You don't have rights for this (or MFA is required).",
       };
     case UNIQUE_VIOLATION:
-      return { ok: false, code, message: 'Dit bestaat al.' };
+      return { ok: false, code, message: 'This already exists.' };
     case NOT_NULL_VIOLATION:
     case CHECK_VIOLATION:
-      return { ok: false, code, message: 'Sommige gegevens ontbreken of zijn ongeldig.' };
+      return { ok: false, code, message: 'Some details are missing or invalid.' };
     default:
-      return { ok: false, code, message: 'Er ging iets mis. Probeer het opnieuw.' };
+      return { ok: false, code, message: 'Something went wrong. Try again.' };
   }
 }
 
 export const unauthorized = (): MutationError => ({
   ok: false,
   code: 'unauthorized',
-  message: 'Je sessie is verlopen. Log opnieuw in.',
+  message: 'Your session expired. Log in again.',
 });
 
-export const invalidInput = (message = 'Controleer de ingevulde gegevens.'): MutationError => ({
+export const invalidInput = (message = 'Check the details you entered.'): MutationError => ({
   ok: false,
   code: 'invalid',
   message,

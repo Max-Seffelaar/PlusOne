@@ -33,7 +33,7 @@ export function MemberRolesEditor({
   if (!open) {
     return (
       <button type="button" className="btn-ghost text-xs" onClick={() => setOpen(true)}>
-        Rollen wijzigen
+        Edit roles
       </button>
     );
   }
@@ -44,7 +44,7 @@ export function MemberRolesEditor({
       <input type="hidden" name="userId" value={userId} />
 
       <fieldset className="flex flex-col gap-2">
-        <legend className="label mb-1">Rollen voor {memberName}</legend>
+        <legend className="label mb-1">Roles for {memberName}</legend>
         <div className="grid grid-cols-2 gap-2">
           {VENUE_ROLES.map((role: VenueRole) => {
             const disabled = role === 'admin' && !callerIsAdmin;
@@ -71,16 +71,16 @@ export function MemberRolesEditor({
           })}
         </div>
         {!callerIsAdmin && (
-          <p className="text-faint text-xs">Alleen een beheerder kan de rol Beheerder toekennen of intrekken.</p>
+          <p className="text-faint text-xs">Only an admin can grant or revoke the admin role.</p>
         )}
       </fieldset>
 
       <div className="flex items-center gap-2">
         <button type="submit" className="btn-primary text-sm" disabled={pending}>
-          {pending ? 'Bezig…' : 'Opslaan'}
+          {pending ? 'Saving…' : 'Save'}
         </button>
         <button type="button" className="btn-ghost text-sm" onClick={() => setOpen(false)} disabled={pending}>
-          Annuleren
+          Cancel
         </button>
       </div>
 

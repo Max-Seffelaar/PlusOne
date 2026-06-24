@@ -51,7 +51,7 @@ export function OrganizerManager({
       const res = await inviteOrganizer({ eventId, email });
       if (res.ok) {
         setEmail('');
-        setNotice('Organisator klaargezet. De persoon logt in op /login met dit e-mailadres.');
+        setNotice('Organizer set up. They log in at /login with this email.');
       } else {
         setError(res.message);
       }
@@ -69,7 +69,7 @@ export function OrganizerManager({
 
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="label">Organisatoren ({organizers.length})</h2>
+      <h2 className="label">Organizers ({organizers.length})</h2>
 
       {organizers.length > 0 ? (
         <ul className="flex flex-col gap-2">
@@ -89,25 +89,25 @@ export function OrganizerManager({
                   disabled={pending}
                   onClick={() => remove(o.userId)}
                 >
-                  Verwijderen
+                  Remove
                 </button>
               )}
             </li>
           ))}
         </ul>
       ) : (
-        <p className="text-dim text-sm">Nog geen organisator gekoppeld.</p>
+        <p className="text-dim text-sm">No organizer assigned yet.</p>
       )}
 
       {!isAdmin ? (
-        <p className="text-faint text-xs">Alleen een admin kan organisatoren koppelen.</p>
+        <p className="text-faint text-xs">Only an admin can assign organizers.</p>
       ) : !isAal2 ? (
         <div className="border-acc-dim bg-acc-dim rounded-card border p-4 text-sm">
-          <p className="text-text font-semibold">MFA vereist</p>
+          <p className="text-text font-semibold">MFA required</p>
           <p className="text-dim mt-1">
-            Een organisator koppelen vereist een MFA-geverifieerde sessie.{' '}
+            Assigning an organizer needs an MFA-verified session.{' '}
             <Link href={hasVerifiedTotp ? '/mfa/verify' : '/mfa/enroll'} className="text-acc-soft underline">
-              {hasVerifiedTotp ? 'Verifieer met je authenticator' : 'Stel MFA in'}
+              {hasVerifiedTotp ? 'Verify with your authenticator' : 'Set up MFA'}
             </Link>
             .
           </p>
@@ -116,7 +116,7 @@ export function OrganizerManager({
         <div className="border-line flex flex-col gap-4 rounded-card border p-4">
           {candidates.length > 0 && (
             <div className="flex flex-col gap-2">
-              <span className="label">Bestaande gebruiker koppelen</span>
+              <span className="label">Assign an existing user</span>
               <div className="flex flex-wrap gap-2">
                 <select
                   className="field min-w-0 flex-1"
@@ -135,17 +135,17 @@ export function OrganizerManager({
                   disabled={pending || !selected}
                   onClick={assign}
                 >
-                  Koppelen
+                  Assign
                 </button>
               </div>
             </div>
           )}
 
           <div className="border-line2 flex flex-col gap-2 border-t pt-4">
-            <span className="label">Nieuwe organisator uitnodigen</span>
+            <span className="label">Invite a new organizer</span>
             <p className="text-faint text-xs">
-              Maakt een account aan (ook voor externe organisatoren — geen venue-toegang, #24). De
-              eerste OTP-login activeert het.
+              Creates an account (also for external organizers, with no venue access). The first
+              OTP login activates it.
             </p>
             <div className="flex flex-wrap gap-2">
               <input
@@ -153,7 +153,7 @@ export function OrganizerManager({
                 inputMode="email"
                 autoComplete="off"
                 className="field min-w-0 flex-1"
-                placeholder="organisator@extern.nl"
+                placeholder="organizer@external.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
@@ -163,7 +163,7 @@ export function OrganizerManager({
                 disabled={pending || !email}
                 onClick={invite}
               >
-                Uitnodigen
+                Invite
               </button>
             </div>
           </div>

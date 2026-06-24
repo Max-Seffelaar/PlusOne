@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import { VENUE_ROLES } from '@/features/auth/roles';
 
-const uuid = z.string().uuid('Ongeldige id');
+const uuid = z.string().uuid('Invalid id');
 const venueRole = z.enum(VENUE_ROLES as unknown as [string, ...string[]]);
 
 // Optional free-text field from a form: trim, and treat empty as NULL so the DB
@@ -14,7 +14,7 @@ const optionalText = (max: number) =>
   z
     .string()
     .trim()
-    .max(max, 'Te lang')
+    .max(max, 'Too long')
     .transform((v) => (v === '' ? null : v));
 
 // Venue settings (decision #16/#24): name + AVG retention + company/legal/finance/
@@ -22,23 +22,23 @@ const optionalText = (max: number) =>
 // default personal quota. retention bounds match the DB check (1..60).
 export const venueSettingsSchema = z.object({
   venueId: uuid,
-  name: z.string().trim().min(1, 'Vul een venuenaam in').max(120, 'Naam is te lang'),
+  name: z.string().trim().min(1, 'Enter a venue name').max(120, 'Name is too long'),
   retentionMonths: z.coerce
     .number()
-    .int('Vul een geheel aantal maanden in')
-    .min(1, 'Minimaal 1 maand')
-    .max(60, 'Maximaal 60 maanden'),
+    .int('Enter a whole number of months')
+    .min(1, 'At least 1 month')
+    .max(60, 'At most 60 months'),
   companyName: optionalText(200),
   kvkNumber: optionalText(20).refine(
     (v) => v === null || /^\d{8}$/.test(v),
-    'KvK-nummer bestaat uit 8 cijfers'
+    'KVK number is 8 digits'
   ),
   vatNumber: optionalText(20),
   financeEmail: optionalText(254)
     .transform((v) => (v ? v.toLowerCase() : v))
     .refine(
       (v) => v === null || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
-      'Ongeldig e-mailadres'
+      'Invalid email'
     ),
   addressLine: optionalText(200),
   postalCode: optionalText(16),
@@ -47,13 +47,13 @@ export const venueSettingsSchema = z.object({
   country: z
     .string()
     .trim()
-    .max(56, 'Te lang')
+    .max(56, 'Too long')
     .transform((v) => (v === '' ? 'NL' : v)),
   defaultPersonalQuota: z.coerce
     .number()
-    .int('Vul een geheel getal in')
-    .min(0, 'Minimaal 0')
-    .max(100000, 'Dat is wel erg veel'),
+    .int('Enter a whole number')
+    .min(0, 'At least 0')
+    .max(100000, "That's a lot"),
   // Company-wide "uitchecken toestaan" default (#3 / S1.1). The form sends a
   // 'true'/'false' toggle string; coerce to a real boolean.
   allowUncheck: z.enum(['true', 'false']).transform((v) => v === 'true'),
@@ -74,30 +74,30 @@ export type VenueType = (typeof VENUE_TYPES)[number];
 // captures them so they persist in the same create transaction. Rules mirror
 // venueSettingsSchema so both creation paths validate identically.
 export const createVenueSchema = z.object({
-  name: z.string().trim().min(1, 'Vul een venuenaam in').max(120, 'Naam is te lang'),
+  name: z.string().trim().min(1, 'Enter a venue name').max(120, 'Name is too long'),
   address: z
     .string()
     .trim()
-    .max(200, 'Adres is te lang')
+    .max(200, 'Address is too long')
     .optional()
     .transform((v) => v ?? ''),
   venueType: z.enum(VENUE_TYPES as unknown as [string, ...string[]]),
   retentionMonths: z.coerce
     .number()
-    .int('Vul een geheel aantal maanden in')
-    .min(1, 'Minimaal 1 maand')
-    .max(60, 'Maximaal 60 maanden')
+    .int('Enter a whole number of months')
+    .min(1, 'At least 1 month')
+    .max(60, 'At most 60 months')
     .default(12),
   kvkNumber: optionalText(20)
     .optional()
-    .refine((v) => v == null || /^\d{8}$/.test(v), 'KvK-nummer bestaat uit 8 cijfers'),
+    .refine((v) => v == null || /^\d{8}$/.test(v), 'KVK number is 8 digits'),
   vatNumber: optionalText(20).optional(),
   financeEmail: optionalText(254)
     .optional()
     .transform((v) => (v ? v.toLowerCase() : v))
     .refine(
       (v) => v == null || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
-      'Ongeldig e-mailadres'
+      'Invalid email'
     ),
   city: optionalText(120).optional(),
   // Switcher quick-create → make a ready-to-use venue: skip the onboarding resume
@@ -119,7 +119,7 @@ export const memberRolesSchema = z.object({
   userId: uuid,
   roles: z
     .array(venueRole)
-    .min(1, 'Kies minstens één rol')
+    .min(1, 'Pick at least one role')
     .transform((r) => VENUE_ROLES.filter((role) => r.includes(role))),
 });
 

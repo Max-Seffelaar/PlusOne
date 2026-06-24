@@ -13,7 +13,7 @@ import { ROLE_LABELS, VENUE_ROLES, requiresMfa } from '@/features/auth/roles';
 import { isMobileUA } from '@/lib/ua';
 
 export const metadata: Metadata = {
-  title: 'PLUSONE — Gastenlijst',
+  title: 'Guest list · PlusOne',
 };
 
 export default async function AppPage(): Promise<JSX.Element> {
@@ -54,7 +54,7 @@ export default async function AppPage(): Promise<JSX.Element> {
       ? VENUE_ROLES.filter((r) => active.roles.includes(r))
           .map((r) => ROLE_LABELS[r])
           .join(' · ')
-      : 'Lid';
+      : 'Member';
   const userSub = active && requiresMfa(active.roles) ? `${roleLabel} · MFA` : roleLabel;
 
   // First-paint viewport hint (corrected client-side by matchMedia) + the live

@@ -23,7 +23,7 @@ export function SignOutButton(): JSX.Element {
         })
       }
     >
-      {pending ? '…' : 'Uitloggen'}
+      {pending ? '…' : 'Log out'}
     </button>
   );
 }

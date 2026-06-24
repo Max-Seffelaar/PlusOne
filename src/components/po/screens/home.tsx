@@ -1,746 +1,858 @@
 'use client';
 
 /**
- * S11 · Mobiel Dashboard-home (KPI's) — launchplan §4b#1, bouwplan 3.8.
+ * S14 · Dashboard-home (mission control) — the multi-event operations board.
  *
- * The post-login landing on a phone: an active-event card (live / pre-event /
- * quiet states) with an opkomstbalk, three KPI tiles (aanwezig · open aanvragen ·
- * quota-resterend), quick actions (Nieuwe gast · Open deur · Aanvragen) and an
- * MFA-gated mini activity-feed that links to the audit log (S10).
+ * Replaces the S11 single-featured-event home. Built for a venue running many
+ * events at once: a venue-wide pulse strip, two per-event bar graphs (requested
+ * vs on-the-list), and a searchable, PAGINATED list of event cards — each with
+ * its live counts (on list · open requests · quota requests · inside/turnout when
+ * live) and quick actions (Open · Door · Requests · Edit · Lock list).
  *
- * Live data: role-scoped headcounts (same aggregation as the Events cards, so a
- * doorhost sees real numbers) + open guest_requests count + event_quota_status,
- * via usePoHomeEvents()/usePoHomeStats(). When more than one event is live or
- * upcoming, the event name becomes a switcher (picker sheet). A refresh button
- * re-reads everything — the home is a live read, so the offline outbox/force-sync
- * stays in the Deur tab (#25), never duplicated here. Recreated from the Claude
- * Design handoff with the real po kit; every action reuses an existing screen.
- * Entrance motion is the shell's `po-screen-anim` (translateY, reduced-motion-safe);
- * tap targets are ≥44px.
+ * Scalable data (the "50 events / 1000+ guests" concern): THREE queries total,
+ * regardless of event count — usePoHomeEvents (all non-closed events + role-scoped
+ * on-list/inside headcounts) + usePoGuestRequests + usePoQuotaRequests (venue-wide,
+ * grouped by event here). Search/filter/pagination are client-side over that set.
+ * The shell (sidebar / bottom-tabs) is the ResponsiveShell; this screen renders
+ * only the content column. English copy via the i18n catalogus; lg: = 1024px.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { t, fmt } from '@/lib/i18n';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
-import {
-  usePoAal2,
-  usePoAuditFeed,
-  usePoHomeEvents,
-  usePoHomeStats,
-  usePoProfile,
-} from '@/features/po/hooks';
-import {
-  toPoHome,
-  type HomeEvent,
-  type HomeScenario,
-  type PoHomeView,
-} from '@/features/po/adapters';
+import { usePoHomeEvents, usePoGuestRequests, usePoQuotaRequests, usePoProfile } from '@/features/po/hooks';
+import type { HomeEvent } from '@/features/po/adapters';
 import { canWorkDoor } from '@/features/auth/roles';
-import { venueCapabilities } from '@/features/venues/access';
-import { formatWhen } from '@/features/audit/translate';
-import { formatDay } from '@/features/stats/format';
-import { auditActionMeta, isDoorDevice } from '@/features/po/audit-presenter';
 import { useNav } from '../context';
 import { Icon, type IconName } from '../icon';
-import { Avatar, Btn, Empty, Label, Scroll } from '../kit';
-import { Sheet } from '../shell';
+import { Btn, Scroll } from '../kit';
+import { Toast } from '../shell';
 import { PendingInvitesBanner } from '../pending-invites-banner';
 
+const TZ = 'Europe/Amsterdam';
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
-const col = 'flex h-full flex-col';
+const PAGE_SIZE = 7;
 
-/** Current hour in the product TZ (#26) — identical on server and client, so the
- *  greeting can't cause a hydration mismatch the way a client-local hour would. */
+const fmtTime = (iso: string): string =>
+  new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false }).format(
+    new Date(iso)
+  );
+const fmtDate = (iso: string): string =>
+  new Intl.DateTimeFormat('en-GB', { timeZone: TZ, weekday: 'short', day: 'numeric', month: 'short' }).format(
+    new Date(iso)
+  );
+const dayKey = (iso: string | number): string =>
+  new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ });
+const kfmt = (n: number): string => (n >= 1000 ? (n / 1000).toFixed(1).replace('.0', '') + 'k' : String(n));
+
+/** Current hour in the product TZ (#26) — stable across SSR/CSR. */
 function amsterdamHour(): number {
   return Number(
-    new Intl.DateTimeFormat('en-US', {
-      timeZone: 'Europe/Amsterdam',
-      hour: 'numeric',
-      hourCycle: 'h23',
-    }).format(new Date())
+    new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', hourCycle: 'h23' }).format(new Date())
   );
 }
-
-function greetingFor(hour: number): string {
-  if (hour < 6) return 'Goedenacht';
-  if (hour < 12) return 'Goedemorgen';
-  if (hour < 18) return 'Goedemiddag';
-  return 'Goedenavond';
+function greetingFor(hour: number, name: string): string {
+  if (hour < 6) return name ? fmt(t.home.greetLate, { name }) : t.home.greetLateNoName;
+  if (hour < 12) return name ? fmt(t.home.greetMorning, { name }) : t.home.greetMorningNoName;
+  if (hour < 18) return name ? fmt(t.home.greetAfternoon, { name }) : t.home.greetAfternoonNoName;
+  return name ? fmt(t.home.greetEvening, { name }) : t.home.greetEveningNoName;
 }
 
-// ── Greeting + refresh + venue switcher ───────────────────────────────────────
-function TopBar({
-  venueName,
-  userName,
-  firstName,
-  onVenue,
-  onRefresh,
-  refreshing,
-}: {
-  venueName: string;
-  userName: string;
-  firstName: string;
-  onVenue: () => void;
-  onRefresh: () => void;
-  refreshing: boolean;
-}): JSX.Element {
-  const hello = greetingFor(amsterdamHour());
-  return (
-    <div
-      className="flex flex-none items-center gap-2.5 px-[18px] pb-[14px]"
-      style={{ paddingTop: 'calc(16px + env(safe-area-inset-top))' }}
-    >
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[13px] font-semibold tracking-[0.01em] text-faint">
-          {hello}
-          {firstName ? `, ${firstName}` : ''}
-        </div>
-        <div className="font-display text-[24px] font-extrabold leading-[1.05] tracking-[-0.02em] text-text">
-          Overzicht
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={onRefresh}
-        disabled={refreshing}
-        aria-label="Verversen"
-        className={cn(
-          'flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] border border-line bg-elev text-text',
-          press,
-          refreshing && 'opacity-60'
-        )}
-      >
-        <Icon name="refresh" size={19} className={cn(refreshing && 'motion-safe:animate-spin')} />
-      </button>
-      <button
-        type="button"
-        onClick={onVenue}
-        aria-label="Wissel venue"
-        className={cn(
-          'inline-flex min-h-[44px] shrink-0 items-center gap-[9px] rounded-full border border-line bg-elev py-[7px] pl-[13px] pr-[7px] text-text',
-          press
-        )}
-      >
-        <span className="max-w-[88px] truncate font-display text-[13px] font-bold tracking-[-0.01em]">
-          {venueName}
-        </span>
-        <Avatar name={userName || venueName} size={30} accent />
-      </button>
-    </div>
-  );
+/** The flattened per-event row the whole board renders from. */
+interface BoardEvent {
+  id: string;
+  name: string;
+  venue: string;
+  date: string;
+  door: string;
+  when: 'today' | 'upcoming';
+  live: boolean;
+  locked: boolean;
+  onList: number;
+  inside: number;
+  turnout: number;
+  requests: number;
+  quota: number;
 }
 
-// ── Live status dot (pulse only when truly live + motion allowed) ─────────────
-function LiveBadge({ scenario, label }: { scenario: HomeScenario; label: string }): JSX.Element {
-  const live = scenario === 'live';
-  const quiet = scenario === 'quiet';
+// ── status chip ───────────────────────────────────────────────────────────────
+function StatusChip({ e }: { e: BoardEvent }): JSX.Element {
+  const label = e.live ? t.home.chipLive : e.when === 'today' ? t.home.chipTonight : t.home.chipUpcoming;
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-2 whitespace-nowrap font-body text-[12.5px] font-extrabold uppercase tracking-[0.04em]',
-        live ? 'text-acc' : quiet ? 'text-faint' : 'text-acc-soft'
+        'inline-flex items-center gap-[6px] whitespace-nowrap rounded-full border px-[9px] py-1 font-body text-[11px] font-extrabold uppercase tracking-[0.04em]',
+        e.live ? 'border-transparent bg-acc-dim text-acc' : 'border-line text-faint'
       )}
     >
-      <span className="relative h-[9px] w-[9px] shrink-0">
-        {live && (
-          <span className="absolute -inset-1 rounded-full bg-acc opacity-60 motion-safe:animate-ping" />
-        )}
-        <span
-          className={cn(
-            'absolute inset-0 rounded-full',
-            live ? 'bg-acc' : quiet ? 'border-2 border-ghost' : 'bg-acc-soft'
-          )}
-        />
+      <span className="relative h-[7px] w-[7px]">
+        {e.live && <span className="absolute -inset-1 rounded-full bg-acc opacity-60 motion-safe:animate-ping" />}
+        <span className={cn('absolute inset-0 rounded-full', e.live ? 'bg-acc' : 'bg-ghost')} />
       </span>
       {label}
     </span>
   );
 }
 
-// ── Active-event hero (name is a switcher when >1 event is live/upcoming) ─────
-function EventCard({
-  v,
-  showDoor,
-  canSwitch,
-  onSwitch,
-  onDoor,
-}: {
-  v: PoHomeView;
-  showDoor: boolean;
-  canSwitch: boolean;
-  onSwitch: () => void;
-  onDoor: () => void;
-}): JSX.Element {
-  const live = v.scenario === 'live';
-  const quiet = v.scenario === 'quiet';
-  return (
-    <div
-      className={cn(
-        'relative overflow-hidden rounded-[22px] p-5',
-        live ? 'border border-[rgba(181,166,255,0.30)]' : 'border border-line bg-elev'
-      )}
-      style={
-        live
-          ? {
-              background:
-                'linear-gradient(165deg, rgba(181,166,255,0.14), rgba(181,166,255,0.04) 60%, transparent), #161618',
-            }
-          : undefined
-      }
-    >
-      <div className="mb-[14px] flex items-center">
-        <LiveBadge scenario={v.scenario} label={v.statusLabel} />
-        {v.locked && (
-          <span className="ml-auto inline-flex items-center gap-[5px] whitespace-nowrap rounded-[7px] border border-line px-[9px] py-[3px] font-body text-[11px] font-bold text-faint">
-            <Icon name="lock" size={11} sw={2} className="text-faint" />
-            Lijst vergrendeld
-          </span>
-        )}
-      </div>
-
-      {canSwitch ? (
-        <button
-          type="button"
-          onClick={onSwitch}
-          aria-label="Wissel event"
-          className={cn(
-            '-mx-1 flex max-w-full items-center gap-2 rounded-[10px] px-1 text-left',
-            press
-          )}
-        >
-          <span className="min-w-0 truncate font-display text-[27px] font-extrabold leading-[1.04] tracking-[-0.025em] text-text">
-            {v.name}
-          </span>
-          <Icon name="chevD" size={20} className="shrink-0 text-ghost" />
-        </button>
-      ) : (
-        <div className="font-display text-[27px] font-extrabold leading-[1.04] tracking-[-0.025em] text-text">
-          {v.name}
-        </div>
-      )}
-      <div className="mt-[7px] flex items-center gap-[9px] text-[13.5px] text-dim">
-        <Icon name="cal" size={14} className="shrink-0 text-faint" />
-        <span className="whitespace-nowrap">
-          {v.dateLabel} · {v.time}
-        </span>
-        <span className="text-ghost">·</span>
-        <Icon name="pin" size={14} className="shrink-0 text-faint" />
-        <span className="min-w-0 truncate">{v.venue}</span>
-      </div>
-
-      {quiet ? (
-        <div className="mt-[18px] flex items-center gap-3 rounded-[14px] border border-line2 bg-bg px-[15px] py-[13px]">
-          <span className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-[12px] border border-line bg-elev2 text-acc">
-            <Icon name="clock" size={19} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="font-body text-[14.5px] font-bold text-text">
-              {v.daysUntil <= 1
-                ? 'Volgende event morgen'
-                : `Volgende event over ${v.daysUntil} dagen`}
-            </div>
-            <div className="mt-px text-[12.5px] text-faint">
-              {v.registered} aangemeld · lijst {v.locked ? 'vergrendeld' : 'nog open'}
-            </div>
-          </div>
-        </div>
-      ) : (
-        <>
-          <div className="mt-5 flex items-end gap-3">
-            <div className="flex items-baseline gap-2">
-              <span
-                className={cn(
-                  'font-display text-[46px] font-extrabold leading-[0.9] tracking-[-0.03em]',
-                  live ? 'text-text' : 'text-dim'
-                )}
-              >
-                {v.inside}
-              </span>
-              <span className="font-display text-[19px] font-bold text-faint">
-                / {v.registered}
-              </span>
-            </div>
-            <span className="mb-1 font-body text-[12.5px] font-bold uppercase tracking-[0.03em] text-faint">
-              binnen · aangemeld
-            </span>
-            {live && v.walking > 0 && (
-              <span className="mb-1 ml-auto inline-flex items-center gap-[5px] whitespace-nowrap font-body text-[12.5px] font-bold text-acc-soft">
-                <Icon name="user" size={13} className="text-acc-soft" />
-                {v.walking} onderweg
-              </span>
-            )}
-          </div>
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/[0.07]">
-            <div
-              className="h-full rounded-full bg-acc"
-              style={{ width: `${Math.max(v.attendancePct, 2)}%` }}
-            />
-          </div>
-          <div className="mt-[7px] text-[12px] text-faint">
-            {v.attendancePct}% opkomst{live ? '' : ' — deur nog niet open'}
-          </div>
-          {v.scenario === 'pre' && showDoor && (
-            <div className="mt-4">
-              <Btn kind="primary" full icon="door" onClick={onDoor}>
-                Open de deur
-              </Btn>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-// ── KPI tile (a button when it drills in, a plain card otherwise) ─────────────
-function Kpi({
+// ── pulse strip ─────────────────────────────────────────────────────────────
+// A tile is a plain readout, or — when `onClick` is set (Requests / Quota) — a
+// button that jumps into the approval inbox. Clickable tiles show a → affordance.
+function PulseTile({
   icon,
   label,
   value,
-  sub,
-  badge,
-  accent,
+  action,
   onClick,
 }: {
   icon: IconName;
   label: string;
   value: string | number;
-  sub?: string;
-  badge?: number;
-  accent?: boolean;
+  action?: boolean;
   onClick?: () => void;
 }): JSX.Element {
-  const className = cn(
-    'relative flex min-w-0 flex-1 flex-col rounded-[16px] border px-[14px] pb-[13px] pt-[14px] text-left',
-    accent ? 'border-transparent bg-acc-dim' : 'border-line bg-elev',
-    onClick && cn('cursor-pointer', press)
+  const cls = cn(
+    'flex min-w-0 flex-1 flex-col rounded-[18px] border p-[16px_18px] text-left',
+    action ? 'border-transparent bg-acc-dim' : 'border-line bg-elev',
+    onClick && press
   );
   const inner = (
     <>
-      <div className="flex items-center justify-between">
-        <span className={accent ? 'text-acc' : 'text-faint'}>
-          <Icon name={icon} size={18} />
+      <div className="mb-3 flex items-center gap-2">
+        <span className={action ? 'text-acc' : 'text-faint'}>
+          <Icon name={icon} size={16} />
         </span>
-        {badge != null && badge > 0 && (
-          <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-acc px-1.5 font-body text-[11.5px] font-extrabold text-on-acc">
-            {badge}
+        <span className="font-body text-[11.5px] font-bold uppercase tracking-[0.03em] text-faint">{label}</span>
+        {onClick && (
+          <span className={cn('ml-auto', action ? 'text-acc' : 'text-ghost')}>
+            <Icon name="arrowR" size={15} />
           </span>
         )}
       </div>
-      <div className="mt-[14px] font-display text-[30px] font-extrabold leading-none tracking-[-0.03em] text-text">
+      <div
+        className={cn(
+          'font-display text-[34px] font-extrabold leading-none tracking-[-0.03em]',
+          action ? 'text-acc' : 'text-text'
+        )}
+      >
         {value}
       </div>
-      <div className="mt-[5px] font-body text-[12px] font-bold uppercase tracking-[0.03em] text-faint">
-        {label}
-      </div>
-      {sub && (
-        <div className={cn('mt-[3px] text-[11.5px]', accent ? 'text-acc-soft' : 'text-faint')}>
-          {sub}
-        </div>
-      )}
     </>
   );
-  return onClick ? (
-    <button type="button" onClick={onClick} className={className}>
-      {inner}
-    </button>
-  ) : (
-    <div className={className}>{inner}</div>
+  if (onClick)
+    return (
+      <button type="button" onClick={onClick} className={cls}>
+        {inner}
+      </button>
+    );
+  return <div className={cls}>{inner}</div>;
+}
+
+// ── combined graph (requested vs on-the-list, grouped per event) ──────────────
+// One chart, two bars per event on a SHARED y-scale so the comparison is honest.
+// Hovering (desktop) or tapping (touch) a column reveals a tooltip with both
+// exact numbers — the bars themselves stay number-free so 8 events read clean.
+function ComboChart({
+  data,
+}: {
+  data: { id: string; label: string; live: boolean; requested: number; onList: number }[];
+}): JSX.Element {
+  const [active, setActive] = useState<number | null>(null);
+  const H = 168;
+  const top = Math.max(...data.flatMap((d) => [d.requested, d.onList]), 1);
+  const last = data.length - 1;
+  const barH = (v: number): number => (v <= 0 ? 0 : Math.max((v / top) * (H - 16), 3));
+  return (
+    <div className="card flex min-w-0 flex-col rounded-[22px] border border-line bg-elev p-[22px]">
+      {/* header + legend */}
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0">
+          <div className="font-display text-[16.5px] font-bold tracking-[-0.01em] text-text">
+            {t.home.graphComboTitle}
+          </div>
+          <div className="mt-0.5 text-[12.5px] text-faint">{t.home.graphComboSub}</div>
+        </div>
+        <div className="flex items-center gap-[14px]">
+          <span className="inline-flex items-center gap-[7px] font-body text-[12px] font-semibold text-dim">
+            <span className="h-[10px] w-[10px] rounded-[3px] bg-acc-soft" />
+            {t.home.legRequested}
+          </span>
+          <span className="inline-flex items-center gap-[7px] font-body text-[12px] font-semibold text-dim">
+            <span className="h-[10px] w-[10px] rounded-[3px] bg-acc" />
+            {t.home.legOnList}
+          </span>
+        </div>
+      </div>
+
+      {/* plot */}
+      <div className="relative mb-[10px]" style={{ height: H }}>
+        <div className="pointer-events-none absolute inset-0 flex flex-col justify-between">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className={i === 3 ? 'h-px bg-line' : 'h-px bg-line2'} />
+          ))}
+        </div>
+        <div className="relative flex h-full items-end gap-1">
+          {data.map((d, i) => {
+            const on = active === i;
+            return (
+              <button
+                type="button"
+                key={d.id}
+                aria-label={`${d.label}: ${d.requested} ${t.home.legRequested}, ${d.onList} ${t.home.legOnList}`}
+                onMouseEnter={() => setActive(i)}
+                onMouseLeave={() => setActive((cur) => (cur === i ? null : cur))}
+                onClick={() => setActive((cur) => (cur === i ? null : i))}
+                className="group relative flex h-full min-w-0 flex-1 items-end justify-center rounded-[8px] transition-colors"
+                style={{ background: on ? 'rgba(255,255,255,0.04)' : undefined }}
+              >
+                <span className="flex h-full items-end justify-center gap-[4px] px-0.5">
+                  <span
+                    className="w-full max-w-[15px] rounded-[5px_5px_2px_2px] bg-acc-soft transition-[height,filter] duration-300 group-hover:brightness-110"
+                    style={{ height: barH(d.requested), minWidth: 6 }}
+                  />
+                  <span
+                    className="relative w-full max-w-[15px] rounded-[5px_5px_2px_2px] bg-acc transition-[height,filter] duration-300 group-hover:brightness-110"
+                    style={{ height: barH(d.onList), minWidth: 6 }}
+                  >
+                    {d.live && (
+                      <span className="absolute -top-[3px] left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-white motion-safe:animate-pulse" />
+                    )}
+                  </span>
+                </span>
+
+                {on && (
+                  <span
+                    className={cn(
+                      'absolute bottom-[calc(100%+8px)] z-10 w-max max-w-[200px] rounded-[12px] border border-line bg-elev2 p-[10px_12px] text-left shadow-[0_10px_34px_rgba(0,0,0,0.5)]',
+                      i === 0 ? 'left-0' : i === last ? 'right-0' : 'left-1/2 -translate-x-1/2'
+                    )}
+                  >
+                    <span className="mb-1.5 block truncate font-display text-[13px] font-bold text-text">{d.label}</span>
+                    <span className="flex items-center justify-between gap-5 font-body text-[12.5px]">
+                      <span className="inline-flex items-center gap-[6px] text-dim">
+                        <span className="h-[9px] w-[9px] rounded-[2px] bg-acc-soft" />
+                        {t.home.legRequested}
+                      </span>
+                      <span className="font-display font-extrabold text-text">{d.requested}</span>
+                    </span>
+                    <span className="mt-1 flex items-center justify-between gap-5 font-body text-[12.5px]">
+                      <span className="inline-flex items-center gap-[6px] text-dim">
+                        <span className="h-[9px] w-[9px] rounded-[2px] bg-acc" />
+                        {t.home.legOnList}
+                      </span>
+                      <span className="font-display font-extrabold text-text">{d.onList}</span>
+                    </span>
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex gap-1">
+        {data.map((d, i) => (
+          <div
+            key={d.id}
+            className={cn(
+              'min-w-0 flex-1 truncate px-0.5 text-center font-body text-[10.5px] font-semibold',
+              active === i ? 'text-text' : d.live ? 'text-acc-soft' : 'text-faint'
+            )}
+          >
+            {d.label}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
-// ── Quick action ──────────────────────────────────────────────────────────────
-function QuickAction({
-  icon,
+// ── event card pieces ─────────────────────────────────────────────────────────
+// A stat readout. Requests / Quota pass `onClick` → tapping the number itself
+// opens that event's approval queue (stopPropagation keeps the card's Open click
+// from also firing).
+function Count({
+  value,
   label,
+  action,
+  live,
+  onClick,
+}: {
+  value: string | number;
+  label: string;
+  action?: boolean;
+  live?: boolean;
+  onClick?: () => void;
+}): JSX.Element {
+  const cls = cn(
+    'min-w-0 max-lg:flex-1 max-lg:rounded-[12px] max-lg:border max-lg:border-line2 max-lg:bg-bg max-lg:p-[9px_11px] lg:text-center',
+    onClick && cn(press, 'cursor-pointer max-lg:hover:border-ghost')
+  );
+  const inner = (
+    <>
+      <div
+        className={cn(
+          'font-display text-[19px] font-extrabold leading-none tracking-[-0.02em]',
+          action ? 'text-acc' : live ? 'text-acc-soft' : 'text-text'
+        )}
+      >
+        {value}
+      </div>
+      <div
+        className={cn(
+          'mt-[5px] whitespace-nowrap font-body text-[10.5px] font-bold uppercase tracking-[0.03em]',
+          action ? 'text-acc-soft' : 'text-faint'
+        )}
+      >
+        {label}
+      </div>
+    </>
+  );
+  if (onClick)
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick();
+        }}
+        className={cn(cls, 'text-left lg:text-center')}
+      >
+        {inner}
+      </button>
+    );
+  return <div className={cls}>{inner}</div>;
+}
+
+function ActionBtn({
+  icon,
+  title,
   badge,
-  primary,
+  on,
   onClick,
 }: {
   icon: IconName;
-  label: string;
+  title: string;
   badge?: number;
-  primary?: boolean;
+  on?: boolean;
   onClick: () => void;
 }): JSX.Element {
   return (
     <button
       type="button"
-      onClick={onClick}
+      title={title}
+      aria-label={title}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
       className={cn(
-        'relative flex min-h-[44px] min-w-0 flex-1 flex-col items-center gap-[9px] rounded-[16px] border px-2 py-4 font-display text-[13px] font-bold tracking-[-0.01em]',
-        primary ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev text-text',
+        'relative flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] border',
+        on ? 'border-transparent bg-acc-dim text-acc' : 'border-line bg-elev2 text-dim',
         press
       )}
     >
+      <Icon name={icon} size={19} />
       {badge != null && badge > 0 && (
-        <span className="absolute right-3 top-[10px] inline-flex h-[19px] min-w-[19px] items-center justify-center rounded-full border-2 border-bg bg-acc px-[5px] font-body text-[11px] font-extrabold text-on-acc">
+        <span className="absolute -right-1.5 -top-1.5 inline-flex h-[19px] min-w-[19px] items-center justify-center rounded-full border-2 border-bg bg-acc px-[5px] font-body text-[11px] font-extrabold text-on-acc">
           {badge}
         </span>
       )}
-      <Icon name={icon} size={23} sw={2} />
-      {label}
     </button>
   );
 }
 
-// ── Mini activity feed (only mounted for admin/finance at AAL2) ───────────────
-function ActivityMini({ eventId, onAudit }: { eventId: string; onAudit: () => void }): JSX.Element {
-  // Scoped to the featured event + polled on the home's 10s cadence (matches the
-  // KPIs). The full audit screen opens pre-filtered to the same event via onAudit.
-  const feed = usePoAuditFeed(
-    { action: 'all', eventId, limit: 5 },
-    { enabled: true, refetchInterval: 10_000 }
+function EventRow({
+  e,
+  showDoor,
+  onOpen,
+  onDoor,
+  onReq,
+  onEdit,
+  onLock,
+}: {
+  e: BoardEvent;
+  showDoor: boolean;
+  onOpen: () => void;
+  onDoor: () => void;
+  onReq: (tab: 'landing' | 'quota') => void;
+  onEdit: () => void;
+  onLock: () => void;
+}): JSX.Element {
+  const counts = (
+    <div className="ev-counts flex shrink-0 flex-wrap gap-2 lg:items-center lg:gap-[26px]">
+      <Count value={kfmt(e.onList)} label={t.home.cOnList} />
+      <Count value={e.requests} label={t.home.cRequests} action={e.requests > 0} onClick={() => onReq('landing')} />
+      <Count value={e.quota} label={t.home.cQuota} action={e.quota > 0} onClick={() => onReq('quota')} />
+      {e.live && <Count value={`${e.inside} · ${e.turnout}%`} label={t.home.cInside} live />}
+    </div>
   );
-  const shown = (feed.data ?? []).slice(0, 4);
+  const actions = (
+    <div className="flex shrink-0 items-center gap-2 max-lg:w-full">
+      <Btn sm kind="primary" icon="arrowR" onClick={onOpen} className="max-lg:flex-1" style={{ flexDirection: 'row-reverse' }}>
+        {t.home.aOpen}
+      </Btn>
+      {showDoor && <ActionBtn icon="door" title={t.home.aDoor} onClick={onDoor} />}
+      <ActionBtn icon="inbox" title={t.home.aRequests} badge={e.requests} onClick={() => onReq('landing')} />
+      <ActionBtn icon="cog" title={t.home.aEdit} onClick={onEdit} />
+      <ActionBtn
+        icon="lock"
+        title={e.locked ? t.home.aUnlock : t.home.aLock}
+        on={e.locked}
+        onClick={onLock}
+      />
+    </div>
+  );
+  const meta = (
+    <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px] text-dim">
+      <span className="inline-flex items-center gap-[5px]">
+        <Icon name="pin" size={13} className="text-faint" />
+        {e.venue}
+      </span>
+      <span className="text-ghost">·</span>
+      <span className="inline-flex items-center gap-[5px]">
+        <Icon name="cal" size={13} className="text-faint" />
+        {e.date}
+      </span>
+      <span className="text-ghost">·</span>
+      <span className="inline-flex items-center gap-[5px]">
+        <Icon name="clock" size={13} className="text-faint" />
+        {fmt(t.home.doorAt, { time: e.door })}
+      </span>
+    </div>
+  );
   return (
-    <div>
-      <div className="mb-2 flex items-center pl-0.5">
-        <Label>Laatste activiteit</Label>
-        <button
-          type="button"
-          onClick={onAudit}
-          className={cn(
-            'ml-auto inline-flex min-h-[44px] items-center gap-[5px] px-1 font-body text-[13px] font-bold text-acc',
-            press
-          )}
-        >
-          Audit log
-          <Icon name="chev" size={15} className="text-acc" />
-        </button>
+    <div
+      onClick={onOpen}
+      className={cn(
+        'evcard cursor-pointer rounded-[20px] border p-4 transition-[border-color] active:scale-[0.995] lg:flex lg:items-center lg:gap-[22px] lg:p-[18px_22px]',
+        e.live ? 'border-[rgba(181,166,255,0.28)]' : 'border-line bg-elev hover:border-ghost'
+      )}
+      style={
+        e.live
+          ? { background: 'linear-gradient(110deg, rgba(181,166,255,0.10), transparent 45%), #161618' }
+          : undefined
+      }
+    >
+      <div className="min-w-0 flex-1 max-lg:mb-[14px]">
+        <div className="flex items-start gap-2.5 lg:items-center">
+          <span className="min-w-0 font-display text-[19px] font-extrabold leading-[1.1] tracking-[-0.02em] text-text lg:text-[21px]">
+            {e.name}
+          </span>
+          <span className="ml-auto lg:ml-2">
+            <StatusChip e={e} />
+          </span>
+        </div>
+        {meta}
       </div>
-      <div className="rounded-[18px] border border-line bg-elev px-[15px]">
-        {feed.isLoading ? (
-          <div className="py-[18px] text-center text-[13px] text-faint">Laden…</div>
-        ) : shown.length === 0 ? (
-          <div className="py-[18px] text-center text-[13px] text-faint">Nog niets gelogd.</div>
-        ) : (
-          shown.map((l, i) => {
-            const meta = auditActionMeta(l.action);
-            const door = isDoorDevice(l.device);
-            return (
-              <div
-                key={l.id}
-                className={cn(
-                  'flex items-center gap-3 py-3',
-                  i < shown.length - 1 && 'border-b border-line2'
-                )}
-              >
-                <span
-                  className={cn(
-                    'flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] border',
-                    door
-                      ? 'border-transparent bg-acc-dim text-acc'
-                      : 'border-line bg-elev2 text-faint'
-                  )}
-                >
-                  <Icon name={meta.icon} size={15} sw={2.1} />
-                </span>
-                <span className="min-w-0 flex-1 text-[13.5px] leading-[1.35] text-dim">
-                  <b className="font-bold text-text">{l.actor}</b> {l.text}
-                </span>
-                <span className="shrink-0 font-display text-[12px] font-semibold text-faint">
-                  {formatWhen(l.iso)}
-                </span>
-              </div>
-            );
-          })
-        )}
-      </div>
+      <div className="max-lg:mb-[14px]">{counts}</div>
+      {actions}
     </div>
   );
 }
 
-// ── Event switcher (when >1 event is live/upcoming) ───────────────────────────
-function EventPickerSheet({
-  events,
-  selectedId,
-  onPick,
-  onClose,
+// ── search + filter ───────────────────────────────────────────────────────────
+function SearchFilter({
+  query,
+  setQuery,
+  filter,
+  setFilter,
+  counts,
 }: {
-  events: HomeEvent[];
-  selectedId: string;
-  onPick: (id: string) => void;
-  onClose: () => void;
+  query: string;
+  setQuery: (s: string) => void;
+  filter: string;
+  setFilter: (s: string) => void;
+  counts: Record<string, number>;
 }): JSX.Element {
+  const filters: [string, string][] = [
+    ['all', t.home.filterAll],
+    ['today', t.home.filterToday],
+    ['upcoming', t.home.filterUpcoming],
+  ];
   return (
-    <Sheet onClose={onClose} center={false}>
-      <Label className="mb-3">Kies event</Label>
-      <div className="flex flex-col gap-1.5">
-        {events.map((e) => {
-          const live = e.status === 'live';
+    <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+      <div className="flex flex-1 items-center gap-[11px] rounded-[14px] border border-line bg-elev px-[15px] py-[11px]">
+        <Icon name="search" size={19} className="shrink-0 text-faint" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t.home.searchEvents}
+          className="min-w-0 flex-1 bg-transparent font-body text-[16px] text-text outline-none placeholder:text-faint"
+        />
+      </div>
+      <div className="flex gap-1 overflow-x-auto rounded-[13px] border border-line bg-elev p-1">
+        {filters.map(([k, l]) => {
+          const on = filter === k;
           return (
             <button
-              key={e.id}
+              key={k}
               type="button"
-              onClick={() => {
-                onPick(e.id);
-                onClose();
-              }}
+              onClick={() => setFilter(k)}
               className={cn(
-                'flex min-h-[44px] items-center gap-3 rounded-[13px] border px-[14px] py-[12px] text-left',
+                'inline-flex min-h-[40px] items-center gap-[7px] whitespace-nowrap rounded-[9px] px-[14px] font-display text-[13.5px] font-bold',
                 press,
-                e.id === selectedId ? 'border-transparent bg-acc-dim' : 'border-line bg-elev'
+                on ? 'bg-acc text-on-acc' : 'text-dim'
               )}
             >
-              <span className={cn('h-2 w-2 shrink-0 rounded-full', live ? 'bg-acc' : 'bg-ghost')} />
-              <span className="min-w-0 flex-1 truncate font-display text-[14.5px] font-bold text-text">
-                {e.name}
-              </span>
-              <span className="shrink-0 text-[12.5px] text-faint">
-                {live ? 'Live' : formatDay(e.starts_at)}
+              {l}
+              <span className={cn('font-body text-[11px] font-bold', on ? 'text-on-acc/70' : 'text-faint')}>
+                {counts[k] ?? 0}
               </span>
             </button>
           );
         })}
       </div>
-    </Sheet>
-  );
-}
-
-// ── Personal-quota sheet (event_quota_status for the caller) ──────────────────
-function QuotaSheet({
-  v,
-  onClose,
-  onAdd,
-}: {
-  v: PoHomeView;
-  onClose: () => void;
-  onAdd: () => void;
-}): JSX.Element {
-  const pct =
-    v.quotaTotal > 0 ? Math.min(100, Math.round((v.quotaConsumed / v.quotaTotal) * 100)) : 0;
-  return (
-    <Sheet onClose={onClose} center={false}>
-      <Label className="mb-3">Jouw quota op dit event</Label>
-      {v.quotaExempt ? (
-        <div className="rounded-[16px] border border-line bg-elev p-4">
-          <div className="font-display text-[20px] font-extrabold text-acc">Geen limiet</div>
-          <div className="mt-1 text-[13px] leading-[1.5] text-faint">
-            Als beheerder of organisator tellen jouw toevoegingen niet tegen een persoonlijk quotum.
-          </div>
-        </div>
-      ) : (
-        <>
-          <div className="rounded-[16px] border border-line2 bg-bg p-[18px]">
-            <div className="flex items-baseline gap-2">
-              <span className="font-display text-[40px] font-extrabold leading-[0.9] tracking-[-0.03em] text-acc">
-                {v.quotaFree ?? 0}
-              </span>
-              <span className="font-display text-[17px] font-bold text-faint">
-                {v.quotaFree === 1 ? 'plek vrij' : 'plekken vrij'}
-              </span>
-            </div>
-            <div className="mt-[14px] h-2 overflow-hidden rounded-full bg-white/[0.07]">
-              <div className="h-full rounded-full bg-acc" style={{ width: `${pct}%` }} />
-            </div>
-            <div className="mt-2 text-[12.5px] text-faint">
-              {v.quotaConsumed} van {v.quotaTotal} gebruikt
-            </div>
-          </div>
-          <div className="mt-3 text-[12.5px] leading-[1.5] text-faint">
-            Dit is jouw persoonlijke quotum voor dit event (#22/#31). De database bewaakt de harde
-            grens.
-          </div>
-        </>
-      )}
-      <div className="mt-4 flex flex-col gap-2">
-        <Btn kind="primary" full icon="plus" onClick={onAdd}>
-          Nieuwe gast toevoegen
-        </Btn>
-        <Btn kind="ghost" full onClick={onClose}>
-          Sluiten
-        </Btn>
-      </div>
-    </Sheet>
-  );
-}
-
-// ── Empty state (no live/upcoming event at this venue) ────────────────────────
-function NoEvent({ isAdmin, onNew }: { isAdmin: boolean; onNew: () => void }): JSX.Element {
-  return (
-    <div className="rounded-[22px] border border-line bg-elev p-6 text-center">
-      <span className="mx-auto mb-3 flex h-[52px] w-[52px] items-center justify-center rounded-[16px] border border-line bg-elev2 text-acc">
-        <Icon name="cal" size={24} />
-      </span>
-      <div className="font-display text-[18px] font-extrabold text-text">
-        Nog geen event gepland
-      </div>
-      <div className="mx-auto mt-1.5 max-w-[260px] text-[13px] leading-[1.5] text-faint">
-        Zodra er een event live of komend is, zie je hier de opkomst, openstaande aanvragen en je
-        resterende plekken.
-      </div>
-      {isAdmin && (
-        <Btn kind="primary" full icon="cal" className="mt-4" onClick={onNew}>
-          Nieuw event
-        </Btn>
-      )}
     </div>
   );
 }
 
-// ── Screen ────────────────────────────────────────────────────────────────────
+// ── pagination ────────────────────────────────────────────────────────────────
+function Pagination({
+  page,
+  pages,
+  setPage,
+  total,
+  shown,
+}: {
+  page: number;
+  pages: number;
+  setPage: (n: number) => void;
+  total: number;
+  shown: number;
+}): JSX.Element {
+  if (pages <= 1)
+    return <div className="py-1.5 text-center text-[12.5px] text-faint">{fmt(t.home.eventsCount, { n: total })}</div>;
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-3">
+      <span className="text-[12.5px] text-faint">{fmt(t.home.pageOf, { shown, total })}</span>
+      <div className="flex items-center gap-[7px]">
+        <button
+          type="button"
+          disabled={page === 0}
+          onClick={() => setPage(page - 1)}
+          className={cn('flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line bg-elev', press, page === 0 ? 'text-ghost' : 'text-dim')}
+        >
+          <Icon name="back" size={17} />
+        </button>
+        {Array.from({ length: pages }).map((_, i) => (
+          <button
+            key={i}
+            type="button"
+            onClick={() => setPage(i)}
+            className={cn(
+              'h-[38px] min-w-[38px] rounded-[11px] border font-display text-[14px] font-bold',
+              press,
+              i === page ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev text-dim'
+            )}
+          >
+            {i + 1}
+          </button>
+        ))}
+        <button
+          type="button"
+          disabled={page === pages - 1}
+          onClick={() => setPage(page + 1)}
+          className={cn('flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line bg-elev', press, page === pages - 1 ? 'text-ghost' : 'text-dim')}
+        >
+          <Icon name="chev" size={17} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Skeleton(): JSX.Element {
+  return (
+    <div className="flex items-center gap-[22px] rounded-[20px] border border-line bg-elev p-[18px_22px]">
+      <div className="min-w-0 flex-1">
+        <div className="h-[18px] w-[45%] animate-pulse rounded-[7px] bg-elev2" />
+        <div className="mt-3 h-3 w-[62%] animate-pulse rounded-md bg-elev2" />
+      </div>
+      <div className="flex gap-2 max-lg:hidden">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="h-11 w-11 animate-pulse rounded-[12px] bg-elev2" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EmptyBoard({
+  filtered,
+  isAdmin,
+  onClear,
+  onNew,
+}: {
+  filtered: boolean;
+  isAdmin: boolean;
+  onClear: () => void;
+  onNew: () => void;
+}): JSX.Element {
+  return (
+    <div className="flex flex-col items-center rounded-[22px] border border-dashed border-line bg-elev px-6 py-[54px] text-center">
+      <span className="flex h-[60px] w-[60px] items-center justify-center rounded-[18px] border border-line bg-elev2 text-faint">
+        <Icon name={filtered ? 'search' : 'cal'} size={26} />
+      </span>
+      <div className="mt-[18px] font-display text-[21px] font-extrabold tracking-[-0.01em] text-text">
+        {filtered ? t.home.emptyFilteredTitle : t.home.emptyNoneTitle}
+      </div>
+      <div className="mt-[7px] max-w-[320px] text-[14px] leading-[1.5] text-faint">
+        {filtered ? t.home.emptyFilteredBody : t.home.emptyNoneBody}
+      </div>
+      <div className="mt-[22px]">
+        {filtered ? (
+          <Btn kind="ghost" sm icon="close" onClick={onClear}>
+            {t.home.clearFilters}
+          </Btn>
+        ) : (
+          isAdmin && (
+            <Btn kind="primary" sm icon="cal" onClick={onNew}>
+              {t.home.createEvent}
+            </Btn>
+          )
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── screen ────────────────────────────────────────────────────────────────────
 export function Home(): JSX.Element {
   const nav = useNav();
   const { roles, venueName } = usePoIdentity();
-  const events = usePoHomeEvents();
-  const profile = usePoProfile();
-  const aal = usePoAal2();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [quotaOpen, setQuotaOpen] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [manualRefreshing, setManualRefreshing] = useState(false);
-
   const showDoor = canWorkDoor(roles);
-  const canAudit = venueCapabilities(roles).viewAudit;
-  const userName = profile.data?.name ?? '';
-  const firstName = profile.data?.firstName ?? '';
+  const isAdmin = roles.includes('admin');
 
-  const list = events.data?.events ?? [];
-  // Honour an explicit pick while it's still a candidate, else the default pick.
-  const effectiveId =
-    (selectedId && list.some((e) => e.id === selectedId) ? selectedId : null) ??
-    events.data?.defaultId ??
-    null;
-  const selected = list.find((e) => e.id === effectiveId) ?? null;
+  const eventsQ = usePoHomeEvents();
+  const guestReqQ = usePoGuestRequests();
+  const quotaReqQ = usePoQuotaRequests();
+  const firstName = usePoProfile().data?.firstName ?? '';
 
-  const stats = usePoHomeStats(effectiveId);
-  const view = selected
-    ? toPoHome(selected, stats.data?.openRequests ?? 0, stats.data?.quota ?? null, Date.now())
-    : null;
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState('all');
+  const [page, setPage] = useState(0);
+  const [toast, setToast] = useState<string | null>(null);
+  // Lock is optimistic-local for now (the DB lock mutation lives on the event /
+  // cockpit; wiring it here is a follow-up). Tracked per event id.
+  const [lockOverride, setLockOverride] = useState<Record<string, boolean>>({});
 
-  // Spin the icon only on a manual tap — the 10s auto-poll refetches silently in
-  // the background (React Query keeps the previous data, so numbers update in place).
-  const onRefresh = (): void => {
-    setManualRefreshing(true);
-    void Promise.all([events.refetch(), effectiveId ? stats.refetch() : Promise.resolve()]).finally(
-      () => setManualRefreshing(false)
-    );
+  const showToast = (msg: string): void => {
+    setToast(msg);
+    window.setTimeout(() => setToast(null), 2200);
   };
 
+  const board: BoardEvent[] = useMemo(() => {
+    const evs: HomeEvent[] = eventsQ.data?.events ?? [];
+    const reqBy = new Map<string, number>();
+    for (const r of guestReqQ.data ?? []) reqBy.set(r.eventId, (reqBy.get(r.eventId) ?? 0) + 1);
+    const quotaBy = new Map<string, number>();
+    for (const r of quotaReqQ.data ?? []) quotaBy.set(r.eventId, (quotaBy.get(r.eventId) ?? 0) + 1);
+    const today = dayKey(Date.now());
+    return evs.map((e) => {
+      const live = e.status === 'live';
+      return {
+        id: e.id,
+        name: e.name,
+        venue: e.venue_name,
+        date: fmtDate(e.starts_at),
+        door: fmtTime(e.starts_at),
+        when: live || dayKey(e.starts_at) === today ? 'today' : 'upcoming',
+        live,
+        locked: lockOverride[e.id] ?? e.list_locked,
+        onList: e.registered,
+        inside: e.present,
+        turnout: e.registered > 0 ? Math.round((e.present / e.registered) * 100) : 0,
+        requests: reqBy.get(e.id) ?? 0,
+        quota: quotaBy.get(e.id) ?? 0,
+      };
+    });
+  }, [eventsQ.data, guestReqQ.data, quotaReqQ.data, lockOverride]);
+
+  const liveFirst = (a: BoardEvent, b: BoardEvent): number =>
+    (a.when === 'today' ? 0 : 1) - (b.when === 'today' ? 0 : 1);
+
+  const pulse = useMemo(
+    () => ({
+      onList: board.reduce((s, e) => s + e.onList, 0),
+      requests: guestReqQ.data?.length ?? 0,
+      quota: quotaReqQ.data?.length ?? 0,
+      live: board.filter((e) => e.live).length,
+      today: board.filter((e) => e.when === 'today').length,
+      upcoming: board.filter((e) => e.when === 'upcoming').length,
+      hasLive: board.some((e) => e.live),
+    }),
+    [board, guestReqQ.data, quotaReqQ.data]
+  );
+
+  // Cap the graph x-axis so it stays readable at scale (today/live first).
+  const series = useMemo(
+    () =>
+      board
+        .slice()
+        .sort(liveFirst)
+        .slice(0, 8)
+        .map((e) => ({ id: e.id, label: e.name, live: e.live, requested: e.requests, onList: e.onList })),
+    [board]
+  );
+
+  const segCounts = useMemo(
+    () => ({
+      all: board.length,
+      today: board.filter((e) => e.when === 'today').length,
+      upcoming: board.filter((e) => e.when === 'upcoming').length,
+    }),
+    [board]
+  );
+
+  const list = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return board
+      .filter((e) => (filter === 'all' || e.when === filter) && (!q || (e.name + ' ' + e.venue).toLowerCase().includes(q)))
+      .sort(liveFirst);
+  }, [board, query, filter]);
+
+  const filtersActive = query.trim() !== '' || filter !== 'all';
+  const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+  const pageClamped = Math.min(page, pages - 1);
+  const visible = list.slice(pageClamped * PAGE_SIZE, pageClamped * PAGE_SIZE + PAGE_SIZE);
+
+  const onLock = (e: BoardEvent): void => {
+    const next = !e.locked;
+    setLockOverride((m) => ({ ...m, [e.id]: next }));
+    showToast(fmt(next ? t.home.toastListLocked : t.home.toastListOpen, { name: e.name }));
+  };
+
+  const loading = eventsQ.isLoading;
+
   return (
-    <div className={col}>
-      <TopBar
-        venueName={venueName ?? 'Venue'}
-        userName={userName}
-        firstName={firstName}
-        onVenue={() => nav.push('venueswitch')}
-        onRefresh={onRefresh}
-        refreshing={manualRefreshing}
-      />
-      <Scroll pad={18} bottom={28} className="flex flex-col gap-[18px]">
-        <PendingInvitesBanner />
-        {events.isLoading ? (
-          <Empty text="Overzicht laden…" />
-        ) : events.isError ? (
-          <Empty text="Kon het overzicht niet laden. Probeer het later opnieuw." />
-        ) : !view ? (
-          <NoEvent
-            isAdmin={roles.includes('admin')}
-            onNew={() => nav.push('eventedit', { isNew: true })}
-          />
-        ) : (
-          <div
-            className={cn(
-              'flex flex-col gap-[18px]',
-              // Tablet / small desktop: keep the comfortable reading column, centered.
-              'lg:mx-auto lg:w-full lg:max-w-[640px]',
-              // Wide desktop: 2-column dashboard (main + activity sidebar) when there's a feed.
-              canAudit &&
-                aal.isAal2 &&
-                'xl:mx-0 xl:max-w-none xl:grid xl:grid-cols-[minmax(0,640px)_minmax(0,1fr)] xl:items-start xl:gap-6'
-            )}
-          >
-            <div className="flex min-w-0 flex-col gap-[18px]">
-              <EventCard
-                v={view}
-                showDoor={showDoor}
-                canSwitch={list.length > 1}
-                onSwitch={() => setPickerOpen(true)}
-                onDoor={() => nav.setTab('deur')}
-              />
+    <div className="flex h-full flex-col">
+      <Scroll pad={0} bottom={28} className="po-screen-anim">
+        <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-[22px] px-4 pb-2 pt-[18px] lg:px-[38px] lg:pt-[30px]">
+          <PendingInvitesBanner />
 
-              <div className="flex gap-[11px]">
-                <Kpi
-                  icon="user"
-                  label="Aanwezig"
-                  value={view.inside}
-                  sub={view.scenario === 'live' ? `${view.walking} onderweg` : 'deur dicht'}
-                  accent={view.scenario === 'live'}
-                />
-                <Kpi
-                  icon="inbox"
-                  label="Aanvragen"
-                  value={view.requests}
-                  sub="open"
-                  badge={view.requests}
-                  onClick={() => nav.push('aanvragen', { id: view.id })}
-                />
-                <Kpi
-                  icon="ticket"
-                  label="Quota vrij"
-                  value={!view.quotaKnown ? '—' : view.quotaExempt ? '∞' : (view.quotaFree ?? 0)}
-                  sub={
-                    !view.quotaKnown
-                      ? 'onbekend'
-                      : view.quotaExempt
-                        ? 'geen limiet'
-                        : `van ${view.quotaTotal}`
-                  }
-                  onClick={view.quotaKnown ? () => setQuotaOpen(true) : undefined}
-                />
-              </div>
-
-              <div>
-                <Label className="mb-3 pl-0.5">Snelle acties</Label>
-                <div className="flex gap-[11px]">
-                  <QuickAction
-                    icon="plus"
-                    label="Nieuwe gast"
-                    primary
-                    onClick={() => nav.push('quickadd', { id: view.id })}
-                  />
-                  {showDoor && (
-                    <QuickAction icon="door" label="Open deur" onClick={() => nav.setTab('deur')} />
-                  )}
-                  <QuickAction
-                    icon="inbox"
-                    label="Aanvragen"
-                    badge={view.requests}
-                    onClick={() => nav.push('aanvragen', { id: view.id })}
-                  />
-                </div>
+          {/* greeting */}
+          <div className="flex flex-wrap items-end gap-4">
+            <div className="min-w-0 flex-1">
+              <h1 className="font-display text-[27px] font-extrabold leading-[1.02] tracking-[-0.025em] text-text lg:text-[33px]">
+                {greetingFor(amsterdamHour(), firstName)}
+              </h1>
+              <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[13.5px] text-faint">
+                <span className="font-semibold text-dim">{venueName ?? 'Venue'}</span>
+                <span className="text-ghost">·</span>
+                <span>{fmt(t.home.metaEventsToday, { n: pulse.today })}</span>
+                {pulse.upcoming > 0 && (
+                  <>
+                    <span className="text-ghost">·</span>
+                    <span>{fmt(t.home.metaUpcoming, { n: pulse.upcoming })}</span>
+                  </>
+                )}
+                {pulse.hasLive && (
+                  <>
+                    <span className="text-ghost">·</span>
+                    <span className="inline-flex items-center gap-1.5 font-bold text-acc">
+                      <span className="h-[7px] w-[7px] rounded-full bg-acc motion-safe:animate-pulse" />
+                      {t.home.metaDoorsOpen}
+                    </span>
+                  </>
+                )}
               </div>
             </div>
-            {canAudit && aal.isAal2 && (
-              <div className="min-w-0">
-                <ActivityMini
-                  eventId={view.id}
-                  onAudit={() => nav.push('audit', { id: view.id })}
-                />
+            <div className="flex gap-2.5 max-lg:hidden">
+              <Btn sm kind="ghost" icon="plus" onClick={() => nav.setTab('guests')}>
+                {t.home.newGuest}
+              </Btn>
+              <Btn sm icon="cal" onClick={() => nav.push('eventedit', { isNew: true })}>
+                {t.home.newEvent}
+              </Btn>
+            </div>
+          </div>
+
+          {/* pulse strip — Requests / Quota tiles deep-link into the inbox */}
+          <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
+            <PulseTile icon="users" label={t.home.pulseOnList} value={kfmt(pulse.onList)} />
+            <PulseTile
+              icon="inbox"
+              label={t.home.pulseRequests}
+              value={pulse.requests}
+              action={pulse.requests > 0}
+              onClick={() => nav.push('aanvragen', { tab: 'landing' })}
+            />
+            <PulseTile
+              icon="ticket"
+              label={t.home.pulseQuota}
+              value={pulse.quota}
+              action={pulse.quota > 0}
+              onClick={() => nav.push('aanvragen', { tab: 'quota' })}
+            />
+            <PulseTile icon="spark" label={t.home.pulseLive} value={pulse.live} />
+          </div>
+
+          {/* combined graph — requested vs on-the-list, per event */}
+          {board.length > 0 && <ComboChart data={series} />}
+
+          {/* events list */}
+          <div>
+            <div className="mb-4 flex flex-wrap items-center gap-2.5">
+              <h2 className="font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">
+                {t.home.eventsHeading}
+              </h2>
+              {!loading && (
+                <span className="text-[12.5px] text-faint">
+                  {list.length} {filtersActive ? t.home.countFound : t.home.countTotal}
+                </span>
+              )}
+            </div>
+            <div className="mb-4">
+              <SearchFilter query={query} setQuery={setQuery} filter={filter} setFilter={setFilter} counts={segCounts} />
+            </div>
+
+            {loading ? (
+              <div className="flex flex-col gap-3">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} />
+                ))}
               </div>
+            ) : list.length === 0 ? (
+              <EmptyBoard
+                filtered={filtersActive}
+                isAdmin={isAdmin}
+                onClear={() => {
+                  setQuery('');
+                  setFilter('all');
+                }}
+                onNew={() => nav.push('eventedit', { isNew: true })}
+              />
+            ) : (
+              <>
+                <div className="flex flex-col gap-3">
+                  {visible.map((e) => (
+                    <EventRow
+                      key={e.id}
+                      e={e}
+                      showDoor={showDoor}
+                      onOpen={() => nav.push('event', { id: e.id })}
+                      onDoor={() => nav.openDoor(e.id)}
+                      onReq={(tab) => nav.push('aanvragen', { id: e.id, tab })}
+                      onEdit={() => nav.push('eventedit', { id: e.id })}
+                      onLock={() => onLock(e)}
+                    />
+                  ))}
+                </div>
+                <div className="mt-[22px]">
+                  <Pagination
+                    page={pageClamped}
+                    pages={pages}
+                    setPage={setPage}
+                    total={list.length}
+                    shown={visible.length + pageClamped * PAGE_SIZE}
+                  />
+                </div>
+              </>
             )}
           </div>
-        )}
+        </div>
       </Scroll>
-
-      {quotaOpen && view && (
-        <QuotaSheet
-          v={view}
-          onClose={() => setQuotaOpen(false)}
-          onAdd={() => {
-            setQuotaOpen(false);
-            nav.push('quickadd', { id: view.id });
-          }}
-        />
-      )}
-      {pickerOpen && view && (
-        <EventPickerSheet
-          events={list}
-          selectedId={view.id}
-          onPick={setSelectedId}
-          onClose={() => setPickerOpen(false)}
-        />
-      )}
+      {toast && <Toast>{toast}</Toast>}
     </div>
   );
 }

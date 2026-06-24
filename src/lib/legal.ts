@@ -10,8 +10,8 @@
 /** Version of the legal docs a user/venue consents to. Bump on a material change. */
 export const TERMS_VERSION = '2026-06-24';
 
-/** Algemene Voorwaarden (Terms of Service). */
-export const TERMS_URL = process.env.NEXT_PUBLIC_TERMS_URL ?? 'https://plusone.app/voorwaarden';
+/** Terms of Service. */
+export const TERMS_URL = process.env.NEXT_PUBLIC_TERMS_URL ?? 'https://plusone.app/terms';
 
-/** Privacybeleid (Privacy Policy). */
+/** Privacy Policy. */
 export const PRIVACY_URL = process.env.NEXT_PUBLIC_PRIVACY_URL ?? 'https://plusone.app/privacy';

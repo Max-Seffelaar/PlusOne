@@ -10,6 +10,7 @@ import { getCountries, getCountryCallingCode, type Country } from 'react-phone-n
 import flagComponents from 'react-phone-number-input/flags';
 import nlLabels from 'react-phone-number-input/locale/nl.json';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import { Icon } from './icon';
 import './landing-phone.css';
 
@@ -93,7 +94,7 @@ export function CountrySelect({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        aria-label="Land kiezen"
+        aria-label={t.shared.country.pickAria}
         aria-haspopup="listbox"
         aria-expanded={open}
         className="flex items-center gap-[6px] rounded-[9px] px-[5px] py-[5px] text-text transition-[filter,background-color] hover:bg-elev2 active:scale-[0.97]"
@@ -113,8 +114,8 @@ export function CountrySelect({
               ref={searchRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Zoek land of code…"
-              aria-label="Zoek land"
+              placeholder={t.shared.country.searchPlaceholder}
+              aria-label={t.shared.country.searchAria}
               className="min-w-0 flex-1 border-none bg-transparent text-[14.5px] text-text outline-none placeholder:text-faint"
             />
           </div>
@@ -141,7 +142,7 @@ export function CountrySelect({
             })}
             {filtered.length === 0 && (
               <li className="px-[13px] py-[14px] text-center text-[13px] text-faint">
-                Geen land gevonden
+                {t.shared.country.empty}
               </li>
             )}
           </ul>

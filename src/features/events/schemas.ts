@@ -5,21 +5,21 @@
 import { z } from 'zod';
 import { EVENT_STATUSES } from './status';
 
-const uuid = z.string().uuid('Ongeldige id');
+const uuid = z.string().uuid('Invalid id');
 
 // Client sends an ISO instant (new Date(datetime-local).toISOString()), so an
 // event that runs 23:00→05:00 is two full timestamps and crosses midnight by
 // construction (#26). Default .datetime() accepts the trailing 'Z'.
-const isoDateTime = z.string().datetime('Ongeldige datum/tijd');
+const isoDateTime = z.string().datetime('Invalid date/time');
 
-const eventName = z.string().trim().min(1, 'Vul een naam in').max(160, 'Naam is te lang');
+const eventName = z.string().trim().min(1, 'Enter a name').max(160, 'Name is too long');
 
 // Single lavender-family palette is the design intent, but we only validate the
 // shape (#RRGGBB); the picker constrains the choices.
 const hexColor = z
   .string()
   .trim()
-  .regex(/^#[0-9a-fA-F]{6}$/, 'Kies een geldige kleur');
+  .regex(/^#[0-9a-fA-F]{6}$/, 'Pick a valid color');
 
 const eventStatus = z.enum(EVENT_STATUSES as unknown as [string, ...string[]]);
 
@@ -43,7 +43,7 @@ export const createEventSchema = z
     landingActive: z.boolean().default(false),
   })
   .refine((v) => !v.endsAt || v.endsAt > v.startsAt, {
-    message: 'Het einde moet ná de start liggen',
+    message: 'The end must be after the start',
     path: ['endsAt'],
   });
 export type CreateEventInput = z.input<typeof createEventSchema>;
@@ -56,7 +56,7 @@ export const updateEventSchema = z
     endsAt: isoDateTime.nullable().optional(),
   })
   .refine((v) => v.endsAt == null || v.startsAt == null || v.endsAt > v.startsAt, {
-    message: 'Het einde moet ná de start liggen',
+    message: 'The end must be after the start',
     path: ['endsAt'],
   });
 export type UpdateEventInput = z.input<typeof updateEventSchema>;
@@ -108,21 +108,21 @@ export type SetAllowUncheckInput = z.input<typeof setAllowUncheckSchema>;
 // Aliases feed the quick-add parser (#33): lowercased, trimmed, de-duped.
 const aliases = z
   .array(z.string().trim().toLowerCase().min(1).max(40))
-  .max(20, 'Maximaal 20 aliassen')
+  .max(20, 'At most 20 aliases')
   .default([])
   .transform((arr) => [...new Set(arr.filter(Boolean))]);
 
 const maxGuests = z
   .number()
   .int()
-  .positive('Maximum moet groter dan 0 zijn')
+  .positive('Maximum must be greater than 0')
   .max(100000)
   .nullable()
   .optional();
 
 export const createTierSchema = z.object({
   eventId: uuid,
-  name: z.string().trim().min(1, 'Vul een naam in').max(80, 'Naam is te lang'),
+  name: z.string().trim().min(1, 'Enter a name').max(80, 'Name is too long'),
   description: optionalText(280),
   color: hexColor.nullable().optional(),
   maxGuests,
@@ -132,7 +132,7 @@ export type CreateTierInput = z.input<typeof createTierSchema>;
 
 export const updateTierSchema = z.object({
   tierId: uuid,
-  name: z.string().trim().min(1, 'Vul een naam in').max(80).optional(),
+  name: z.string().trim().min(1, 'Enter a name').max(80).optional(),
   description: optionalText(280),
   color: hexColor.nullable().optional(),
   maxGuests,
@@ -156,9 +156,9 @@ export const inviteOrganizerSchema = z.object({
   email: z
     .string()
     .trim()
-    .min(1, 'Vul een e-mailadres in')
+    .min(1, 'Enter an email')
     .max(254)
-    .email('Ongeldig e-mailadres')
+    .email('Invalid email')
     .transform((v) => v.toLowerCase()),
 });
 export type InviteOrganizerInput = z.input<typeof inviteOrganizerSchema>;

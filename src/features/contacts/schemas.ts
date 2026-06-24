@@ -3,10 +3,10 @@ import { z } from 'zod';
 // Address-book (contacts) input validation — every contacts mutation is parsed
 // here before any DB call (CLAUDE.md security checklist). The DB's generated
 // *_norm columns + unique indexes are the dedup authority; these schemas only
-// guard shape. Dutch messages, English code.
+// guard shape.
 
 const uuid = z.string().uuid();
-const fullName = z.string().trim().min(1, 'Naam is verplicht').max(200);
+const fullName = z.string().trim().min(1, 'Name is required').max(200);
 
 /** Mirrors the prototype Role union; a preference hint that drives tier mapping. */
 export const contactRole = z.enum(['vip', 'all_access', 'artist', 'press', 'crew', 'guest']);
@@ -24,7 +24,7 @@ const email = z
   .transform(emptyToUndef)
   .refine(
     (v) => v === undefined || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v),
-    'Ongeldig e-mailadres'
+    'Invalid email'
   );
 
 // E.164 (the landing form already produces this via react-phone-number-input).
@@ -35,7 +35,7 @@ const phone = z
   .transform(emptyToUndef)
   .refine(
     (v) => v === undefined || /^\+[1-9]\d{1,14}$/.test(v),
-    'Controleer het telefoonnummer (incl. landcode).'
+    'Check the phone number, including the country code.'
   );
 
 /** ISO YYYY-MM-DD; must parse and be a plausible birthday (age 0–120). */
@@ -52,7 +52,7 @@ const birthdate = z
   .string()
   .optional()
   .transform(emptyToUndef)
-  .refine(plausibleDob, 'Ongeldige geboortedatum');
+  .refine(plausibleDob, 'Invalid date of birth');
 
 const note = z
   .string()
@@ -111,7 +111,7 @@ export const importContactsSchema = z.object({
         preferredRole: contactRole.optional(),
       })
     )
-    .min(1, 'Geen contacten om te importeren')
-    .max(2000, 'Te veel rijen in één import (max 2000)'),
+    .min(1, 'No contacts to import')
+    .max(2000, 'Too many rows in one import (max 2000)'),
 });
 export type ImportContactsInput = z.input<typeof importContactsSchema>;

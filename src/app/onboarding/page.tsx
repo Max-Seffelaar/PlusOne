@@ -6,7 +6,7 @@ import { getOnboardingState } from '@/lib/auth/onboarding';
 import { OnboardingWizard } from '@/features/onboarding/components/OnboardingWizard';
 
 export const metadata: Metadata = {
-  title: 'PLUSONE — Aan de slag',
+  title: 'Get started · PlusOne',
 };
 
 // Self-service onboarding (#40). Reachable before MFA/venue exist, so it uses the

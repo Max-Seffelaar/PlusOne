@@ -42,6 +42,8 @@ export interface ScreenProps {
   /** Event scope for the guest detail (props.id there is the guest id). */
   eventId?: string;
   isNew?: boolean;
+  /** Approvals (aanvragen) deep-link: which queue to open first. */
+  tab?: 'landing' | 'quota';
 }
 
 export interface StackEntry {
@@ -108,7 +110,7 @@ export function useNav(): Nav {
 // a missing/blocked store just degrades to the old in-memory behaviour.
 
 const NAV_STORAGE_KEY = 'po:nav-state';
-const PERSISTED_TABS: readonly TabKey[] = ['start', 'events', 'deur', 'taken', 'meer'];
+const PERSISTED_TABS: readonly TabKey[] = ['start', 'events', 'guests', 'deur', 'meer'];
 
 export interface PersistedNav {
   tab: TabKey;

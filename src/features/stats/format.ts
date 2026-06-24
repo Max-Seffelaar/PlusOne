@@ -9,7 +9,7 @@ export function formatClock(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleTimeString('nl-NL', { timeZone: NL_TZ, hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleTimeString('en-GB', { timeZone: NL_TZ, hour: '2-digit', minute: '2-digit' });
 }
 
 /** A date → "20 jun" (Amsterdam). */
@@ -17,7 +17,7 @@ export function formatDay(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('nl-NL', { timeZone: NL_TZ, day: 'numeric', month: 'short' });
+  return d.toLocaleDateString('en-GB', { timeZone: NL_TZ, day: 'numeric', month: 'short' });
 }
 
 /** Numeric attendance percentage from the DB → "72%". */

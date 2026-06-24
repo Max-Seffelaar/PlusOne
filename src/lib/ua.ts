@@ -32,7 +32,7 @@ export function isMobileUA(ua: string | null | undefined): boolean {
  * Real browser logins always carry an OS token, so the production label is full.
  */
 export function deviceLabel(ua: string | null | undefined): string {
-  if (!ua) return 'Onbekend apparaat';
+  if (!ua) return 'Unknown device';
   const s = ua.toLowerCase();
   const browser =
     s.includes('edg') ? 'Edge'

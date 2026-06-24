@@ -21,7 +21,7 @@ interface QuickAddFieldProps {
   exempt: boolean;
 }
 
-const plural = (n: number) => (n === 1 ? 'plek' : 'plekken');
+const plural = (n: number) => (n === 1 ? 'slot' : 'slots');
 
 /**
  * The quick-add field (decision #33): one input that parses free text into a
@@ -90,13 +90,13 @@ export function QuickAddField({
   return (
     <div className="flex flex-col gap-2">
       <label className="label" htmlFor="quick-add">
-        Snel toevoegen
+        Quick add
       </label>
       <div className="flex gap-2">
         <input
           id="quick-add"
           className="field flex-1"
-          placeholder="Bijv. Juri Braakman +2 vip fles"
+          placeholder='e.g. "Juri Braakman +2 vip"'
           value={input}
           autoComplete="off"
           onChange={(e) => reset(e.target.value)}
@@ -113,19 +113,19 @@ export function QuickAddField({
           disabled={!canSubmit || overQuota}
           onClick={submit}
         >
-          {pending ? '…' : 'Toevoegen'}
+          {pending ? '…' : 'Add guest'}
         </button>
       </div>
 
       {/* Live preview chips (case a/b) */}
       {input.trim() !== '' && !isAmbiguous && (
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <Chip>{effName || <span className="text-faint">wie?</span>}</Chip>
+          <Chip>{effName || <span className="text-faint">who?</span>}</Chip>
           <button
             type="button"
             className={chipClass}
             onClick={() => setEditingTier((v) => !v)}
-            aria-label="Tier wijzigen"
+            aria-label="Change tier"
           >
             {effTier?.name ?? '—'}
           </button>
@@ -133,7 +133,7 @@ export function QuickAddField({
           {!exempt && (
             <span className={cn('text-dim', overQuota && 'text-acc-soft')}>
               {slots} {plural(slots)}
-              {remaining !== null && ` van je quotum`}
+              {remaining !== null && ` of your quota`}
             </span>
           )}
         </div>
@@ -162,8 +162,8 @@ export function QuickAddField({
       {isAmbiguous && parsed.ambiguous && (
         <div className="card flex flex-col gap-2">
           <p className="text-sm text-dim">
-            &lsquo;<span className="text-text">{parsed.ambiguous.text}</span>&rsquo; herken ik niet
-            — bedoel je?
+            Not sure what you mean by &lsquo;<span className="text-text">{parsed.ambiguous.text}</span>&rsquo;.
+            Pick one:
           </p>
           <div className="flex flex-wrap gap-2">
             {parsed.ambiguous.suggestions.map((s) => (
@@ -184,14 +184,14 @@ export function QuickAddField({
               className={cn(chipClass, choice?.kind === 'default' && 'border-acc text-acc')}
               onClick={() => setChoice({ kind: 'default' })}
             >
-              {tiers.find((t) => t.id === defaultTierId)?.name ?? 'Standaard'}
+              {tiers.find((t) => t.id === defaultTierId)?.name ?? 'Default'}
             </button>
             <button
               type="button"
               className={cn(chipClass, choice?.kind === 'name' && 'border-acc text-acc')}
               onClick={() => setChoice({ kind: 'name' })}
             >
-              Hoort bij de naam
+              Part of the name
             </button>
           </div>
           {choice && (
@@ -204,8 +204,8 @@ export function QuickAddField({
 
       {overQuota && (
         <p className="text-sm text-acc-soft">
-          Dit ({slots} {plural(slots)}) past niet meer in je quotum
-          {remaining !== null && ` (${remaining} over)`}.
+          This ({slots} {plural(slots)}) puts you over your quota
+          {remaining !== null && ` (${remaining} left)`}.
         </p>
       )}
       {error && <p className="text-sm text-acc-soft">{error}</p>}
@@ -228,7 +228,7 @@ function Stepper({ value, onChange }: { value: number; onChange: (n: number) => 
         className="h-7 w-7 rounded-full bg-elev2 text-text disabled:opacity-40"
         onClick={() => onChange(value - 1)}
         disabled={value <= 0}
-        aria-label="Min één"
+        aria-label="Minus one"
       >
         −
       </button>
@@ -237,7 +237,7 @@ function Stepper({ value, onChange }: { value: number; onChange: (n: number) => 
         type="button"
         className="h-7 w-7 rounded-full bg-elev2 text-text"
         onClick={() => onChange(value + 1)}
-        aria-label="Plus één"
+        aria-label="Plus one"
       >
         +
       </button>

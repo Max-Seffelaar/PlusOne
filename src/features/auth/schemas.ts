@@ -10,24 +10,24 @@ import { VENUE_ROLES } from './roles';
 export const emailSchema = z
   .string()
   .trim()
-  .min(1, 'Vul een e-mailadres in')
-  .max(254, 'E-mailadres is te lang')
-  .email('Ongeldig e-mailadres')
+  .min(1, 'Enter an email')
+  .max(254, 'Email is too long')
+  .email('Invalid email')
   .transform((v) => v.toLowerCase());
 
 // Supabase e-mail OTP is a 6-digit numeric code.
 export const otpSchema = z
   .string()
   .trim()
-  .regex(/^\d{6}$/, 'Vul de 6-cijferige code in');
+  .regex(/^\d{6}$/, 'Enter the 6-digit code');
 
 // TOTP codes are also 6 digits.
 export const totpSchema = z
   .string()
   .trim()
-  .regex(/^\d{6}$/, 'Vul de 6-cijferige code uit je authenticator-app in');
+  .regex(/^\d{6}$/, 'Enter the 6-digit code from your authenticator app');
 
-export const uuidSchema = z.string().uuid('Ongeldige id');
+export const uuidSchema = z.string().uuid('Invalid id');
 
 export const venueRoleSchema = z.enum(
   VENUE_ROLES as unknown as [string, ...string[]]
@@ -47,17 +47,17 @@ export const inviteSchema = z.object({
   email: emailSchema,
   roles: z
     .array(venueRoleSchema)
-    .min(1, 'Kies minstens één rol')
-    .refine((r) => new Set(r).size === r.length, 'Dubbele rol'),
+    .min(1, 'Pick at least one role')
+    .refine((r) => new Set(r).size === r.length, 'Duplicate role'),
   // Optional guest quota seeded as the new member's venue default on acceptance
   // (#4). Blank → undefined → nothing seeded. The form sends a string, so coerce.
   defaultQuota: z.preprocess(
     (v) => (v === '' || v == null ? undefined : v),
     z.coerce
-      .number({ invalid_type_error: 'Quotum moet een getal zijn' })
-      .int('Quotum moet een heel getal zijn')
-      .min(0, 'Quotum mag niet negatief zijn')
-      .max(9999, 'Quotum is te hoog')
+      .number({ invalid_type_error: 'Quota must be a number' })
+      .int('Quota must be a whole number')
+      .min(0, "Quota can't be negative")
+      .max(9999, 'Quota is too high')
       .optional()
   ),
   // Optional event-organizer scope (#6/#24): events of THIS venue the invitee is
@@ -65,7 +65,7 @@ export const inviteSchema = z.object({
   // the action re-checks the caller is an admin and that the events are in-venue.
   eventIds: z.preprocess(
     (v) => (Array.isArray(v) ? v : v == null ? [] : [v]),
-    z.array(uuidSchema).max(200, 'Te veel events').default([])
+    z.array(uuidSchema).max(200, 'Too many events').default([])
   ),
 });
 
@@ -73,21 +73,21 @@ export const profileNameSchema = z.object({
   fullName: z
     .string()
     .trim()
-    .min(1, 'Vul je naam in')
-    .max(120, 'Naam is te lang'),
+    .min(1, 'Enter your name')
+    .max(120, 'Name is too long'),
 });
 
 // Profile is global to the user (decision #24): first/last name + phone. full_name
 // is kept as a display mirror, maintained by the action from first + last.
 export const profileSchema = z.object({
-  firstName: z.string().trim().min(1, 'Vul je voornaam in').max(80, 'Te lang'),
-  lastName: z.string().trim().min(1, 'Vul je achternaam in').max(120, 'Te lang'),
+  firstName: z.string().trim().min(1, 'Enter your first name').max(80, 'Too long'),
+  lastName: z.string().trim().min(1, 'Enter your last name').max(120, 'Too long'),
   phone: z
     .string()
     .trim()
-    .max(40, 'Te lang')
+    .max(40, 'Too long')
     .transform((v) => (v === '' ? null : v))
-    .refine((v) => v === null || /^[+0-9 ()-]{6,40}$/.test(v), 'Ongeldig telefoonnummer'),
+    .refine((v) => v === null || /^[+0-9 ()-]{6,40}$/.test(v), 'Invalid phone number'),
 });
 
 export const emailChangeSchema = z.object({

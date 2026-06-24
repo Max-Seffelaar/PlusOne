@@ -6,7 +6,7 @@
  * identical content in between. Built with the real `po` kit + design tokens;
  * the screens rendered inside stay as-is for now (wired live per S1+).
  */
-import { type ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { Icon, type IconName } from './icon';
 import { TabBar, type TabKey } from './shell';
@@ -18,6 +18,9 @@ export interface ShellNavItem {
   icon: IconName;
   active: boolean;
   onClick: () => void;
+  /** Desktop grouping: 'main' = the primary tabs, 'more' = promoted More items
+   *  (Analytics/Team/…) shown below a divider since the sidebar has the room. */
+  section?: 'main' | 'more';
 }
 
 export function ResponsiveShell({
@@ -93,19 +96,23 @@ export function ResponsiveShell({
         </button>
 
         <nav className="flex flex-col gap-[3px]">
-          {navItems.map((it) => (
-            <button
-              key={it.key}
-              type="button"
-              onClick={it.onClick}
-              className={cn(
-                'flex w-full items-center gap-3 rounded-[12px] px-3 py-[11px] text-left font-display text-[14.5px] font-bold transition-[filter] hover:brightness-[1.1]',
-                it.active ? 'bg-acc-dim text-acc' : 'text-dim',
+          {navItems.map((it, i) => (
+            <Fragment key={it.key}>
+              {it.section === 'more' && navItems[i - 1]?.section !== 'more' && (
+                <div className="mx-3 my-2 h-px bg-line2" />
               )}
-            >
-              <Icon name={it.icon} size={19} sw={it.active ? 2.2 : 1.9} />
-              {it.label}
-            </button>
+              <button
+                type="button"
+                onClick={it.onClick}
+                className={cn(
+                  'flex w-full items-center gap-3 rounded-[12px] px-3 py-[11px] text-left font-display text-[14.5px] font-bold transition-[filter] hover:brightness-[1.1]',
+                  it.active ? 'bg-acc-dim text-acc' : 'text-dim',
+                )}
+              >
+                <Icon name={it.icon} size={19} sw={it.active ? 2.2 : 1.9} />
+                {it.label}
+              </button>
+            </Fragment>
           ))}
         </nav>
 

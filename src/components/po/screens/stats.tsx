@@ -8,6 +8,7 @@
  *  Reached from the Meer hub, gated to reporting venues (admin/finance). */
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { fmt, t } from '@/lib/i18n';
 import { createClient } from '@/lib/supabase/client';
 import {
   fetchEventStats,
@@ -29,9 +30,9 @@ const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scal
 
 export function Stats(): JSX.Element {
   const nav = useNav();
-  const { statsVenues } = usePo();
-  const [venueIdx, setVenueIdx] = useState(0);
-  const venue = statsVenues[venueIdx] ?? null;
+  const { statsVenues, activeVenueId: globalVenueId } = usePo();
+  // Stats scope to the globally-active venue (one switcher, not a second per-screen one).
+  const venue = statsVenues.find((v) => v.venueId === globalVenueId) ?? statsVenues[0] ?? null;
   const activeVenueId = venue?.venueId ?? null;
 
   const [venueStats, setVenueStats] = useState<VenueStats | null>(null);
@@ -85,9 +86,9 @@ export function Stats(): JSX.Element {
   if (!venue) {
     return (
       <div className={col}>
-        <Top onBack={nav.back} title="Statistieken" />
+        <Top onBack={nav.back} title={t.analytics.title} />
         <Scroll bottom={28}>
-          <Empty text="Je hebt geen rechten om statistieken in te zien." />
+          <Empty text={t.analytics.noRights} />
         </Scroll>
       </div>
     );
@@ -106,57 +107,38 @@ export function Stats(): JSX.Element {
     <div className={col}>
       <Top
         onBack={nav.back}
-        title="Statistieken"
+        title={t.analytics.title}
         sub={venue.venueName}
         right={<IconBtn name="refresh" onClick={() => setReloadKey((k) => k + 1)} />}
       />
       <Scroll bottom={28} className={cn(loading && 'opacity-60 transition-opacity')}>
-        {statsVenues.length > 1 && (
-          <div className="po-scroll mb-4 flex gap-2 overflow-x-auto">
-            {statsVenues.map((v, i) => (
-              <button
-                key={v.venueId}
-                type="button"
-                onClick={() => setVenueIdx(i)}
-                className={cn(
-                  'inline-flex shrink-0 items-center rounded-full border px-[14px] py-[8px] font-display text-[13px] font-bold',
-                  press,
-                  i === venueIdx ? 'border-transparent bg-acc text-on-acc' : 'border-line text-dim'
-                )}
-              >
-                {v.venueName}
-              </button>
-            ))}
-          </div>
-        )}
-
         {/* Org-level KPIs — meaningful without selecting an event. Stacked on
             mobile (hero + a 2-up row); a single 3-across band on desktop. */}
         <div className="mb-5 flex flex-col gap-[10px] lg:grid lg:grid-cols-[1.3fr_1fr_1fr] lg:items-stretch lg:gap-3">
           <div className="rounded-[18px] bg-acc-dim p-[18px]">
-            <Label className="mb-[10px] text-acc-soft">Alle events · gem. opkomst</Label>
+            <Label className="mb-[10px] text-acc-soft">{t.analytics.venueTurnoutLabel}</Label>
             <div className="flex items-end gap-[10px]">
               <div className="font-display text-[54px] font-extrabold leading-[0.9] text-text">{vk.attendancePct}</div>
               <div className="pb-1.5">
-                <div className="text-[14px] font-semibold text-text">opkomst</div>
-                <div className="text-[12.5px] text-dim">over {vk.events} events</div>
+                <div className="text-[14px] font-semibold text-text">{t.analytics.turnoutWord}</div>
+                <div className="text-[12.5px] text-dim">{fmt(t.analytics.overEvents, { n: vk.events })}</div>
               </div>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-[10px] lg:contents">
             <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px] lg:flex lg:flex-col lg:justify-center">
               <div className="font-display text-[30px] font-extrabold leading-none text-acc">{vk.presentHeadcount}</div>
-              <div className="mt-1 text-[12.5px] text-dim">Gasten binnen</div>
+              <div className="mt-1 text-[12.5px] text-dim">{t.analytics.guestsInside}</div>
             </div>
             <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px] lg:flex lg:flex-col lg:justify-center">
               <div className="font-display text-[30px] font-extrabold leading-none text-text">{vk.refused}</div>
-              <div className="mt-1 text-[12.5px] text-faint">Weigeringen</div>
+              <div className="mt-1 text-[12.5px] text-faint">{t.analytics.refusals}</div>
             </div>
           </div>
         </div>
 
         {/* Per-event detail. */}
-        <Label className="mb-[10px]">Per event</Label>
+        <Label className="mb-[10px]">{t.analytics.perEvent}</Label>
         <button
           type="button"
           onClick={() => setPickOpen(true)}
@@ -169,14 +151,14 @@ export function Stats(): JSX.Element {
         >
           <span className="h-2 w-2 shrink-0 rounded-full bg-acc" />
           <span className="min-w-0 flex-1 truncate font-display text-[14.5px] font-bold text-text">
-            {selectedEvent ? selectedEvent.name : events.length === 0 ? 'Nog geen events' : 'Kies een event'}
+            {selectedEvent ? selectedEvent.name : events.length === 0 ? t.analytics.noEventsYet : t.analytics.pickEvent}
           </span>
           {selectedEvent && <span className="shrink-0 text-[12.5px] text-faint">{formatDay(selectedEvent.startsAt)}</span>}
           <Icon name="chevD" size={16} className="text-ghost" />
         </button>
 
         {!selectedEvent ? null : !eventStats ? (
-          <Empty text="Laden…" />
+          <Empty text={t.analytics.loading} />
         ) : (
           // Desktop: two balanced columns (KPIs + instroom · tier + per-user).
           // Mobile: the two column wrappers are plain blocks, so the original
@@ -187,19 +169,19 @@ export function Stats(): JSX.Element {
                 <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
                   <div className="font-display text-[24px] font-extrabold text-text">{ek.peak ?? '—'}</div>
                   <div className="mt-[3px] text-[12px] text-faint">
-                    {ek.peakCount > 0 ? `Piek · ${ek.peakCount} in 15 min` : 'Piek instroom'}
+                    {ek.peakCount > 0 ? fmt(t.analytics.peakWithCount, { n: ek.peakCount }) : t.analytics.peakLabel}
                   </div>
                 </div>
                 <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
                   <div className="font-display text-[24px] font-extrabold text-text">{ek.noShows}</div>
-                  <div className="mt-[3px] text-[12px] text-faint">No-show · {ek.noShowPct}%</div>
+                  <div className="mt-[3px] text-[12px] text-faint">{fmt(t.analytics.noShowLabel, { pct: ek.noShowPct })}</div>
                 </div>
               </div>
 
-              <Label className="mb-[10px]">Instroom per kwartier</Label>
+              <Label className="mb-[10px]">{t.analytics.arrivalsLabel}</Label>
               <div className="mb-4 rounded-[18px] border border-line bg-elev p-4">
                 {perKwartier.length === 0 ? (
-                  <div className="py-[18px] text-center text-[13px] text-faint">Nog geen check-ins.</div>
+                  <div className="py-[18px] text-center text-[13px] text-faint">{t.analytics.noCheckins}</div>
                 ) : (
                   <div className="flex h-[120px] items-end gap-[5px]">
                     {perKwartier.map((b) => (
@@ -221,32 +203,32 @@ export function Stats(): JSX.Element {
             </div>
 
             <div>
-              <Label className="mb-[10px]">Aanwezig vs. aangemeld per tier</Label>
+              <Label className="mb-[10px]">{t.analytics.tierLabel}</Label>
               <div className="mb-4 rounded-[18px] border border-line bg-elev p-4">
                 {perTier.length === 0 ? (
-                  <div className="py-[14px] text-center text-[13px] text-faint">Geen tierdata.</div>
+                  <div className="py-[14px] text-center text-[13px] text-faint">{t.analytics.noTierData}</div>
                 ) : (
-                  perTier.map((t, i) => (
-                    <div key={t.tier} className={i < perTier.length - 1 ? 'mb-[13px]' : ''}>
+                  perTier.map((row, i) => (
+                    <div key={row.tier} className={i < perTier.length - 1 ? 'mb-[13px]' : ''}>
                       <div className="mb-1.5 flex justify-between">
-                        <span className="text-[13px] font-semibold text-text">{t.tier}</span>
+                        <span className="text-[13px] font-semibold text-text">{row.tier}</span>
                         <span className="font-display text-[12px] text-faint">
-                          <b className="text-acc">{t.binnen}</b>/{t.aangemeld}
+                          <b className="text-acc">{row.binnen}</b>/{row.aangemeld}
                         </span>
                       </div>
                       <div className="relative h-[8px] overflow-hidden rounded-[5px] bg-elev2">
-                        <div className="absolute inset-0 bg-white/[0.08]" style={{ width: (t.aangemeld / maxT) * 100 + '%' }} />
-                        <div className="absolute inset-0 rounded-[5px] bg-acc" style={{ width: (t.binnen / maxT) * 100 + '%' }} />
+                        <div className="absolute inset-0 bg-white/[0.08]" style={{ width: (row.aangemeld / maxT) * 100 + '%' }} />
+                        <div className="absolute inset-0 rounded-[5px] bg-acc" style={{ width: (row.binnen / maxT) * 100 + '%' }} />
                       </div>
                     </div>
                   ))
                 )}
               </div>
 
-              <Label className="mb-[10px]">Toevoegingen per gebruiker</Label>
+              <Label className="mb-[10px]">{t.analytics.addedByLabel}</Label>
               <div className="mb-[14px] rounded-[18px] border border-line bg-elev px-[14px] py-0.5">
                 {perUser.length === 0 ? (
-                  <div className="py-[14px] text-center text-[13px] text-faint">Nog niemand heeft gasten toegevoegd.</div>
+                  <div className="py-[14px] text-center text-[13px] text-faint">{t.analytics.noOneAdded}</div>
                 ) : (
                   perUser.map((u, i) => (
                     <div
@@ -257,7 +239,7 @@ export function Stats(): JSX.Element {
                       <div className="min-w-0 flex-1">
                         <div className="font-display text-[14.5px] font-bold text-text">{u.who}</div>
                         <div className="mt-0.5 text-[12px] text-faint">
-                          {u.in} binnen van {u.added}
+                          {fmt(t.analytics.userInOfAdded, { in: u.in, added: u.added })}
                         </div>
                       </div>
                       <div className="font-display text-[18px] font-extrabold text-text">{u.added}</div>
@@ -269,14 +251,12 @@ export function Stats(): JSX.Element {
           </div>
         )}
 
-        <div className="px-1 text-[11.5px] leading-[1.5] text-faint">
-          Alle cijfers hangen aan het event, niet aan de kalenderdag. Aanwezig = check-in aan de deur.
-        </div>
+        <div className="px-1 text-[11.5px] leading-[1.5] text-faint">{t.analytics.footerNote}</div>
       </Scroll>
 
       {pickOpen && (
         <Sheet onClose={() => setPickOpen(false)} center={false}>
-          <Label className="mb-3">Kies event</Label>
+          <Label className="mb-3">{t.analytics.pickEventTitle}</Label>
           <div className="flex flex-col gap-1.5">
             {events.map((e) => (
               <button

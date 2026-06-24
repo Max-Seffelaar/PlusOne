@@ -5,7 +5,7 @@ import { hasAcceptedCurrentTerms } from '@/lib/auth/consent';
 import { ConsentScreen } from '@/features/auth/components/ConsentScreen';
 
 export const metadata: Metadata = {
-  title: 'PLUSONE — Voorwaarden & privacy',
+  title: 'Terms & privacy · PlusOne',
 };
 
 // Only same-origin relative paths may be returned to (no open redirect).

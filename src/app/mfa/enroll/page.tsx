@@ -4,7 +4,7 @@ import { getAuthContext } from '@/lib/auth/context';
 import { safeNextPath } from '@/features/auth/next-path';
 import { MfaEnrollCard } from '@/features/auth/components/MfaEnrollCard';
 
-export const metadata: Metadata = { title: 'MFA instellen — PLUSONE' };
+export const metadata: Metadata = { title: 'Set up MFA · PlusOne' };
 
 export default async function MfaEnrollPage({
   searchParams,

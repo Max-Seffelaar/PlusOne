@@ -7,6 +7,7 @@
  *  resolved server-side in /app, so we router.refresh() afterwards to re-resolve
  *  identity + the venue switcher. Renders nothing when there are no invites. */
 import { useRouter } from 'next/navigation';
+import { t, fmt } from '@/lib/i18n';
 import { usePoMyPendingInvites } from '@/features/po/hooks';
 import { usePoAcceptInvites } from '@/features/po/mutations';
 import { Icon } from './icon';
@@ -25,8 +26,8 @@ export function PendingInvitesBanner(): JSX.Element | null {
         <Icon name="mail" size={20} stroke="#B5A6FF" />
         <span className="font-display text-[15px] font-bold text-text">
           {list.length === 1
-            ? 'Je hebt een openstaande uitnodiging'
-            : `Je hebt ${list.length} openstaande uitnodigingen`}
+            ? t.shared.invites.headingOne
+            : fmt(t.shared.invites.headingMany, { n: list.length })}
         </span>
       </div>
       <div className="mb-3 text-[13px] leading-[1.5] text-dim">
@@ -40,14 +41,14 @@ export function PendingInvitesBanner(): JSX.Element | null {
         onClick={() => accept.mutate(undefined, { onSuccess: () => router.refresh() })}
       >
         {accept.isPending
-          ? 'Accepteren…'
+          ? t.shared.invites.accepting
           : list.length === 1
-            ? 'Uitnodiging accepteren'
-            : 'Uitnodigingen accepteren'}
+            ? t.shared.invites.acceptOne
+            : t.shared.invites.acceptMany}
       </Btn>
       {accept.isError && (
         <p className="mt-2 text-[12.5px] text-red-300" role="alert">
-          Kon de uitnodiging niet accepteren. Probeer het opnieuw.
+          {t.shared.invites.error}
         </p>
       )}
     </div>

@@ -303,7 +303,7 @@ export async function fetchQuotaRequests(
     requestedExtra: r.requested_extra,
     motivation: r.motivation,
     created_at: r.created_at,
-    requesterName: nameById.get(r.user_id) ?? 'Onbekend',
+    requesterName: nameById.get(r.user_id) ?? 'Unknown',
   }));
 }
 

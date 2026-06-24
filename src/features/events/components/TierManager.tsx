@@ -30,7 +30,7 @@ function ColorPicker({
         <button
           key={c}
           type="button"
-          aria-label={`Kleur ${c}`}
+          aria-label={`Color ${c}`}
           onClick={() => onChange(c)}
           className="h-10 w-10 rounded-full transition-transform hover:scale-110"
           // Dark gap + white ring reads clearly on any surface.
@@ -67,7 +67,7 @@ function parseMax(text: string): { value: number | null; error?: string } {
   const trimmed = text.trim();
   if (trimmed === '') return { value: null };
   const n = Number(trimmed);
-  if (!Number.isInteger(n) || n <= 0) return { value: null, error: 'Maximum moet een getal groter dan 0 zijn.' };
+  if (!Number.isInteger(n) || n <= 0) return { value: null, error: 'Max has to be a number greater than 0.' };
   return { value: n };
 }
 
@@ -81,16 +81,16 @@ function TierEditFields({
   return (
     <>
       <label className="flex flex-col gap-1 text-sm">
-        <span className="label">Naam</span>
+        <span className="label">Tier name</span>
         <input
           className="field"
           value={fields.name}
-          placeholder="bv. VIP + fles op tafel"
+          placeholder="e.g. VIP + bottle on the table"
           onChange={(e) => setFields({ ...fields, name: e.target.value })}
         />
       </label>
       <label className="flex flex-col gap-1 text-sm">
-        <span className="label">Beschrijving (optioneel)</span>
+        <span className="label">Description (optional)</span>
         <input
           className="field"
           value={fields.description}
@@ -98,11 +98,11 @@ function TierEditFields({
         />
       </label>
       <div className="flex flex-col gap-1 text-sm">
-        <span className="label">Kleur</span>
+        <span className="label">Color</span>
         <ColorPicker value={fields.color} onChange={(c) => setFields({ ...fields, color: c })} />
       </div>
       <label className="flex flex-col gap-1 text-sm">
-        <span className="label">Max aantal (optioneel)</span>
+        <span className="label">Max guests (optional)</span>
         <input
           className="field w-32"
           inputMode="numeric"
@@ -112,7 +112,7 @@ function TierEditFields({
         />
       </label>
       <label className="flex flex-col gap-1 text-sm">
-        <span className="label">Aliassen · voeden de quick-add</span>
+        <span className="label">Aliases · feed the quick-add</span>
         <input
           className="field font-mono"
           value={fields.aliasesText}
@@ -168,10 +168,10 @@ function TierRow({ tier }: { tier: EventTierRow }): JSX.Element {
           <TierEditFields fields={fields} setFields={setFields} />
           <div className="flex flex-wrap gap-2">
             <button type="button" className="btn-primary text-sm disabled:opacity-50" disabled={pending} onClick={save}>
-              {pending ? '…' : 'Opslaan'}
+              {pending ? '…' : 'Save'}
             </button>
             <button type="button" className="btn-ghost text-sm" disabled={pending} onClick={() => setEditing(false)}>
-              Annuleren
+              Cancel
             </button>
             <button
               type="button"
@@ -179,7 +179,7 @@ function TierRow({ tier }: { tier: EventTierRow }): JSX.Element {
               disabled={pending}
               onClick={remove}
             >
-              Verwijderen
+              Remove
             </button>
           </div>
           {error && (
@@ -199,12 +199,12 @@ function TierRow({ tier }: { tier: EventTierRow }): JSX.Element {
             <div className="min-w-0 flex-1">
               <p className="font-display text-text font-bold">{tier.name}</p>
               <p className="text-faint text-xs">
-                {tier.maxGuests ? `${tier.used} / ${tier.maxGuests} bezet` : `${tier.used} · geen max`}
+                {tier.maxGuests ? `${tier.used} / ${tier.maxGuests} taken` : `${tier.used} · no max`}
                 {tier.description ? ` · ${tier.description}` : ''}
               </p>
             </div>
             <button type="button" className="btn-ghost text-xs" onClick={() => setEditing(true)}>
-              Bewerken
+              Edit
             </button>
           </div>
           {tier.maxGuests != null && (
@@ -266,21 +266,21 @@ function AddTierForm({ eventId }: { eventId: string }): JSX.Element {
   if (!open) {
     return (
       <button type="button" className="btn-secondary w-full text-sm" onClick={() => setOpen(true)}>
-        + Tier toevoegen
+        + Add tier
       </button>
     );
   }
 
   return (
     <div className="border-acc bg-elev rounded-card flex flex-col gap-3 border p-4">
-      <p className="label">Nieuwe tier</p>
+      <p className="label">New tier</p>
       <TierEditFields fields={fields} setFields={setFields} />
       <div className="flex gap-2">
         <button type="button" className="btn-primary text-sm disabled:opacity-50" disabled={pending} onClick={create}>
-          {pending ? '…' : 'Tier aanmaken'}
+          {pending ? '…' : 'Create tier'}
         </button>
         <button type="button" className="btn-ghost text-sm" disabled={pending} onClick={() => setOpen(false)}>
-          Annuleren
+          Cancel
         </button>
       </div>
       {error && (
@@ -307,8 +307,8 @@ export function TierManager({
         <h2 className="label">Tiers ({tiers.length})</h2>
       </div>
       <p className="text-faint text-xs">
-        Tiers werken als tickettypes. Aliassen bepalen wat de quick-add herkent (“fles” → VIP). Een
-        max begrenst het aantal gasten in de tier.
+        Tiers work like ticket types. Aliases decide what the quick-add recognizes (“bottle” → VIP). A
+        max caps the number of guests in the tier.
       </p>
 
       {tiers.length > 0 ? (
@@ -318,7 +318,7 @@ export function TierManager({
           ))}
         </ul>
       ) : (
-        <p className="text-dim text-sm">Nog geen tiers. Voeg er minstens één toe (bijv. “Regular”).</p>
+        <p className="text-dim text-sm">No tiers yet. Add one like “VIP” or “Regular”.</p>
       )}
 
       {canManage && <AddTierForm eventId={eventId} />}

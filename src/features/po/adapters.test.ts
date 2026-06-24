@@ -70,7 +70,7 @@ describe('toPoHome', () => {
   it('maps a live event: headcounts, onderweg, attendance, status label', () => {
     const v = toPoHome({ ...baseEvent, registered: 148, present: 47 }, 3, boundedQuota, NOW);
     expect(v.scenario).toBe('live');
-    expect(v.statusLabel).toBe('Live nu');
+    expect(v.statusLabel).toBe('Live now');
     expect(v.inside).toBe(47);
     expect(v.registered).toBe(148);
     expect(v.walking).toBe(101); // registered − present
@@ -78,7 +78,7 @@ describe('toPoHome', () => {
     expect(v.requests).toBe(3);
     expect(v.locked).toBe(true);
     expect(v.daysUntil).toBe(0);
-    expect(v.dateLabel).toBe('Za 14 dec');
+    expect(v.dateLabel).toBe('Sat 14 Dec');
     expect(v.time).toBe('23:00');
     expect(v).toMatchObject({ quotaFree: 12, quotaTotal: 20, quotaConsumed: 8, quotaExempt: false, quotaKnown: true });
   });
@@ -86,7 +86,7 @@ describe('toPoHome', () => {
   it('maps an open event starting today to the pre-event (deur dicht) scenario', () => {
     const v = toPoHome({ ...baseEvent, status: 'open', registered: 148, present: 0 }, 5, boundedQuota, NOW);
     expect(v.scenario).toBe('pre');
-    expect(v.statusLabel).toBe('Vanavond · deur dicht');
+    expect(v.statusLabel).toBe('Tonight · doors closed');
     expect(v.inside).toBe(0);
     expect(v.attendancePct).toBe(0);
     expect(v.requests).toBe(5);
@@ -109,7 +109,7 @@ describe('toPoHome', () => {
       NOW
     );
     expect(v.scenario).toBe('quiet');
-    expect(v.statusLabel).toBe('Niets live');
+    expect(v.statusLabel).toBe('Nothing live');
     expect(v.daysUntil).toBe(6);
     expect(v.registered).toBe(96);
     expect(v.locked).toBe(false);
@@ -224,7 +224,7 @@ describe('toPoGuest', () => {
       status: 'in',
       contactId: 'c1',
     });
-    expect(g.addedAt).toBe('28 nov');
+    expect(g.addedAt).toBe('28 Nov');
   });
 
   it('defaults addedBy/note and maps a waiting guest', () => {
@@ -349,11 +349,11 @@ describe('toRecap', () => {
 
 describe('rolesLabel', () => {
   it('joins role labels in canonical order', () => {
-    expect(rolesLabel(['finance', 'admin'])).toBe('Beheerder · Financiën');
-    expect(rolesLabel(['staff'])).toBe('Personeel');
+    expect(rolesLabel(['finance', 'admin'])).toBe('Admin · Finance');
+    expect(rolesLabel(['staff'])).toBe('Staff');
   });
   it('falls back when no roles', () => {
-    expect(rolesLabel([])).toBe('Geen rol');
+    expect(rolesLabel([])).toBe('No role');
   });
 });
 
@@ -371,7 +371,7 @@ describe('toPoTeamMember', () => {
       name: 'Sanne de Vries',
       email: 'sanne@venue.nl',
       roles: ['admin', 'finance'],
-      rolesLabel: 'Beheerder · Financiën',
+      rolesLabel: 'Admin · Finance',
       quota: 10,
     });
   });
@@ -396,7 +396,7 @@ describe('optimisticGuest', () => {
       note: '',
       flag: null,
       by: '',
-      addedAt: '14 dec',
+      addedAt: '14 Dec',
       status: 'wait',
     });
   });
@@ -468,8 +468,8 @@ describe('toPoInvite', () => {
   };
   it('formats the sent date (Amsterdam) and labels roles', () => {
     const iv = toPoInvite(row);
-    expect(iv).toMatchObject({ id: 'i1', email: 'nieuw@venue.nl', roles: ['doorhost'], rolesLabel: 'Deurhost' });
-    expect(iv.sentAt).toBe('3 dec');
+    expect(iv).toMatchObject({ id: 'i1', email: 'nieuw@venue.nl', roles: ['doorhost'], rolesLabel: 'Door host' });
+    expect(iv.sentAt).toBe('3 Dec');
   });
 });
 
@@ -484,13 +484,13 @@ describe('toPoSession', () => {
     aal: 'aal1',
     is_current: false,
   };
-  it('shows "Nu actief" for the current session', () => {
-    expect(toPoSession({ ...base, is_current: true })).toMatchObject({ id: 's1', current: true, last: 'Nu actief', where: '84.12.0.1' });
+  it('shows "Active now" for the current session', () => {
+    expect(toPoSession({ ...base, is_current: true })).toMatchObject({ id: 's1', current: true, last: 'Active now', where: '84.12.0.1' });
   });
   it('formats last-seen for other sessions and handles a missing ip', () => {
     const se = toPoSession({ ...base, ip: null });
     expect(se.current).toBe(false);
-    expect(se.where).toBe('Onbekende locatie');
+    expect(se.where).toBe('Unknown location');
     expect(se.last).toContain('23:30');
   });
 });
@@ -512,7 +512,7 @@ describe('toPoProfile', () => {
       lastName: 'Seffelaar',
       email: 'max@venue.nl',
       phone: '0612345678',
-      roleLabel: 'Beheerder',
+      roleLabel: 'Admin',
       mfaRequired: true,
     });
   });
@@ -568,20 +568,20 @@ describe('toPoSubscription', () => {
     expect(toPoSubscription(row, 'LOFI')).toEqual({
       plan: 'Premium',
       priceLabel: '€49',
-      period: 'maand',
+      period: 'month',
       status: 'active',
-      renews: '1 jan 2025',
-      events: 'Onbeperkt',
+      renews: '1 Jan 2025',
+      events: 'Unlimited',
       venueLabel: 'LOFI',
     });
   });
   it('handles an unknown/absent plan and no renewal date', () => {
     const row: PoSubscriptionRow = { status: 'trialing', plan_id: null, current_period_end: null };
-    expect(toPoSubscription(row, 'LOFI')).toMatchObject({ plan: 'Geen abonnement', priceLabel: '—', renews: '—', status: 'trialing' });
+    expect(toPoSubscription(row, 'LOFI')).toMatchObject({ plan: 'No subscription', priceLabel: '—', renews: '—', status: 'trialing' });
   });
   it('labels an indie plan as a single active event', () => {
     const row: PoSubscriptionRow = { status: 'comped', plan_id: 'indie', current_period_end: null };
-    expect(toPoSubscription(row, 'LOFI')).toMatchObject({ plan: 'Indie', priceLabel: 'Gratis', events: '1 actief event' });
+    expect(toPoSubscription(row, 'LOFI')).toMatchObject({ plan: 'Indie', priceLabel: 'Free', events: '1 active event' });
   });
   it('humanises an out-of-catalog plan id (e.g. the seed pilot/comped venue)', () => {
     const row: PoSubscriptionRow = { status: 'comped', plan_id: 'pilot', current_period_end: null };
@@ -594,20 +594,20 @@ describe('relativeTime', () => {
   const now = new Date('2024-11-23T22:00:00Z');
   const ago = (ms: number): string => new Date(now.getTime() - ms).toISOString();
 
-  it('buckets sub-minute as "zojuist" and minutes/hours/days in Dutch', () => {
-    expect(relativeTime(ago(30_000), now)).toBe('zojuist');
-    expect(relativeTime(ago(18 * 60_000), now)).toBe('18 min geleden');
-    expect(relativeTime(ago(3 * 3_600_000), now)).toBe('3 uur geleden');
-    expect(relativeTime(ago(26 * 3_600_000), now)).toBe('gisteren');
-    expect(relativeTime(ago(3 * 86_400_000), now)).toBe('3 dagen geleden');
+  it('buckets sub-minute as "just now" and minutes/hours/days in English', () => {
+    expect(relativeTime(ago(30_000), now)).toBe('just now');
+    expect(relativeTime(ago(18 * 60_000), now)).toBe('18 min ago');
+    expect(relativeTime(ago(3 * 3_600_000), now)).toBe('3 hr ago');
+    expect(relativeTime(ago(26 * 3_600_000), now)).toBe('yesterday');
+    expect(relativeTime(ago(3 * 86_400_000), now)).toBe('3 days ago');
   });
 
   it('falls back to an absolute short date past a week (Europe/Amsterdam)', () => {
-    expect(relativeTime('2024-11-12T10:00:00Z', now)).toBe('12 nov');
+    expect(relativeTime('2024-11-12T10:00:00Z', now)).toBe('12 Nov');
   });
 
-  it('treats a future timestamp (clock skew) as "zojuist"', () => {
-    expect(relativeTime(ago(-60_000), now)).toBe('zojuist');
+  it('treats a future timestamp (clock skew) as "just now"', () => {
+    expect(relativeTime(ago(-60_000), now)).toBe('just now');
   });
 });
 
@@ -633,7 +633,7 @@ describe('toPoGuestRequest', () => {
       plus: 1,
       phoneLast4: '4821',
       motivation: 'Vriendin van de DJ',
-      at: '18 min geleden',
+      at: '18 min ago',
       status: 'pending',
       denyReason: null,
       flag: undefined,
@@ -676,7 +676,7 @@ describe('toPoQuotaRequest', () => {
       who: 'Joris Willems',
       extra: 3,
       reason: 'Twee extra promo-koppels',
-      at: '2 uur geleden',
+      at: '2 hr ago',
     });
   });
 

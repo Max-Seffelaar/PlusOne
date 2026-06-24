@@ -8,6 +8,7 @@
  */
 import type { CSSProperties, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import { Icon, type IconName, ROLE_ICON } from './icon';
 
 const press = 'transition-[filter,transform,background,border-color] hover:brightness-[1.07] active:scale-[0.975]';
@@ -79,7 +80,7 @@ export function StatusDot({ status, label = true }: { status: 'in' | 'wait'; lab
       ) : (
         <span className="h-[15px] w-[15px] rounded-full border-2 border-ghost" />
       )}
-      {label && (inn ? 'Binnen' : 'Onderweg')}
+      {label && (inn ? t.shared.kit.statusInside : t.shared.kit.statusOnTheWay)}
     </span>
   );
 }
@@ -89,7 +90,7 @@ export function PayChip({ pay }: { pay: string }): JSX.Element | null {
   if (pay !== 'pay') return null;
   return (
     <span className="inline-flex items-center gap-[4px] rounded-[7px] border border-dashed border-line px-2 py-[3px] font-body text-[11px] font-bold tracking-[0.02em] text-text">
-      € MOET BETALEN
+      {t.shared.kit.payMustPay}
     </span>
   );
 }
@@ -200,7 +201,7 @@ export function Stepper({ value, onChange, max }: { value: number; onChange: (v:
   const btn = cn('flex h-[52px] w-[52px] items-center justify-center rounded-[16px] border border-line bg-elev2 text-text', press);
   return (
     <div className="flex items-center justify-between gap-[14px] rounded-[20px] bg-acc-dim p-[10px]">
-      <button type="button" className={btn} onClick={() => onChange(Math.max(0, value - 1))} aria-label="Minder">
+      <button type="button" className={btn} onClick={() => onChange(Math.max(0, value - 1))} aria-label={t.shared.kit.stepperLess}>
         <Icon name="minus" size={22} sw={2.4} />
       </button>
       <div className="text-center">
@@ -208,9 +209,9 @@ export function Stepper({ value, onChange, max }: { value: number; onChange: (v:
           {value}
           {max != null && <span className="text-faint">/{max}</span>}
         </div>
-        <div className="mt-[3px] font-body text-[11px] text-dim">personen</div>
+        <div className="mt-[3px] font-body text-[11px] text-dim">{t.shared.kit.stepperUnit}</div>
       </div>
-      <button type="button" className={btn} onClick={() => onChange(value + 1)} aria-label="Meer">
+      <button type="button" className={btn} onClick={() => onChange(value + 1)} aria-label={t.shared.kit.stepperMore}>
         <Icon name="plus" size={22} sw={2.4} stroke="#B5A6FF" />
       </button>
     </div>
@@ -276,7 +277,7 @@ export function Top({
   sub?: ReactNode;
 }): JSX.Element {
   const backBtn = (
-    <button type="button" onClick={onBack} className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text', press)} aria-label="Terug">
+    <button type="button" onClick={onBack} className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text', press)} aria-label={t.shared.kit.back}>
       <Icon name="back" size={20} />
     </button>
   );
@@ -372,14 +373,14 @@ export function Spinner({ size = 18, className }: { size?: number; className?: s
   return (
     <span
       role="status"
-      aria-label="Laden"
+      aria-label={t.shared.kit.loadingAria}
       className={cn('inline-block animate-spin rounded-full border-2 border-line2 border-t-acc', className)}
       style={{ width: size, height: size }}
     />
   );
 }
 
-export function Loading({ text = 'Laden…', className }: { text?: string; className?: string }): JSX.Element {
+export function Loading({ text = t.shared.kit.loading, className }: { text?: string; className?: string }): JSX.Element {
   return (
     <div className={cn('flex items-center justify-center gap-[10px] py-[30px] text-[14px] text-faint', className)}>
       <Spinner />

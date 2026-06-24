@@ -16,10 +16,10 @@ export function RevokeInviteButton({ inviteId }: { inviteId: string }): JSX.Elem
         className="btn-ghost text-xs"
         disabled={pending}
         onClick={(e) => {
-          if (!window.confirm('Uitnodiging intrekken?')) e.preventDefault();
+          if (!window.confirm('Revoke this invite?')) e.preventDefault();
         }}
       >
-        {pending ? '…' : 'Intrekken'}
+        {pending ? '…' : 'Revoke'}
       </button>
       {!state.ok && state.error && <span className="text-xs text-red-300">{state.error}</span>}
     </form>

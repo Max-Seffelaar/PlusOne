@@ -3,7 +3,7 @@ import { OtpLoginForm } from '@/features/auth/components/OtpLoginForm';
 import { safeNextPath } from '@/features/auth/next-path';
 
 export const metadata: Metadata = {
-  title: 'Inloggen — PLUSONE',
+  title: 'Log in · PlusOne',
 };
 
 // Public route (whitelisted in middleware). Authenticated users are redirected

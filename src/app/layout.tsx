@@ -17,8 +17,8 @@ const body = Hanken_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: 'PLUSONE — Gastenlijstbeheer',
-  description: 'Multi-tenant gastenlijst SaaS voor venues',
+  title: 'PlusOne · Guest list management',
+  description: 'Multi-tenant guest list SaaS for venues',
   generator: 'Next.js',
   applicationName: 'PLUSONE',
   referrer: 'strict-origin-when-cross-origin',
@@ -40,7 +40,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }): JSX.Element {
   return (
-    <html lang="nl" className={`${display.variable} ${body.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`${display.variable} ${body.variable}`} suppressHydrationWarning>
       <head>
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

@@ -4,7 +4,7 @@
 
 const TZ = 'Europe/Amsterdam';
 
-const dateFmt = new Intl.DateTimeFormat('nl-NL', {
+const dateFmt = new Intl.DateTimeFormat('en-GB', {
   timeZone: TZ,
   weekday: 'short',
   day: 'numeric',
@@ -12,7 +12,7 @@ const dateFmt = new Intl.DateTimeFormat('nl-NL', {
   year: 'numeric',
 });
 
-const timeFmt = new Intl.DateTimeFormat('nl-NL', {
+const timeFmt = new Intl.DateTimeFormat('en-GB', {
   timeZone: TZ,
   hour: '2-digit',
   minute: '2-digit',

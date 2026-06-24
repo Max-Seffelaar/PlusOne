@@ -35,7 +35,7 @@ export function MfaChallengeForm({ nextPath }: { nextPath: string }): JSX.Elemen
     if (!factorId) return;
     const parsed = totpSchema.safeParse(code);
     if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? 'Ongeldige code');
+      setError(parsed.error.issues[0]?.message ?? 'Invalid code');
       return;
     }
     setBusy(true);
@@ -59,9 +59,9 @@ export function MfaChallengeForm({ nextPath }: { nextPath: string }): JSX.Elemen
 
   return (
     <div className="card w-full max-w-sm">
-      <h1 className="font-display text-2xl font-bold">Tweestapsverificatie</h1>
+      <h1 className="font-display text-2xl font-bold">Verify it&apos;s you</h1>
       <p className="text-dim mt-1 text-sm">
-        Vul de 6-cijferige code uit je authenticator-app in om door te gaan.
+        Enter the 6-digit code from your authenticator app to continue.
       </p>
 
       <form
@@ -84,10 +84,10 @@ export function MfaChallengeForm({ nextPath }: { nextPath: string }): JSX.Elemen
           onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
           placeholder="000000"
           className="field text-center text-2xl tracking-[0.5em]"
-          aria-label="Verificatiecode"
+          aria-label="Verification code"
         />
         <button type="submit" className="btn-primary w-full" disabled={busy || code.length !== 6}>
-          {busy ? 'Bezig…' : 'Verifiëren'}
+          {busy ? 'Verifying…' : 'Verify'}
         </button>
         {error && (
           <p className="text-sm text-red-300" role="alert">
@@ -95,7 +95,7 @@ export function MfaChallengeForm({ nextPath }: { nextPath: string }): JSX.Elemen
           </p>
         )}
         <button type="button" className="text-faint hover:text-text text-center text-xs" onClick={() => void signOut()}>
-          Uitloggen
+          Log out
         </button>
       </form>
     </div>

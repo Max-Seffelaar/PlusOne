@@ -68,7 +68,7 @@ export async function submitGuestRequest(input: SubmitGuestRequestInput): Promis
   });
   if (error) {
     console.error('[submitGuestRequest] rpc error:', error.message);
-    return { ok: false, code: 'error', message: 'Er ging iets mis. Probeer het opnieuw.' };
+    return { ok: false, code: 'error', message: 'Something went wrong. Try again.' };
   }
 
   switch (data) {
@@ -78,13 +78,13 @@ export async function submitGuestRequest(input: SubmitGuestRequestInput): Promis
       return {
         ok: false,
         code: 'rate_limited',
-        message: 'Te veel aanvragen vanaf dit netwerk. Probeer het over een paar minuten opnieuw.',
+        message: 'Too many requests from this network. Try again in a few minutes.',
       };
     case 'closed':
       return {
         ok: false,
         code: 'closed',
-        message: 'De aanmeldingen voor dit event zijn gesloten.',
+        message: 'Requests for this event are closed.',
       };
     default:
       return invalidInput();

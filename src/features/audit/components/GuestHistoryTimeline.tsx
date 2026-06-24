@@ -9,12 +9,12 @@ import { formatWhen, type AuditLine } from '../translate';
 import type { GuestHistory } from '../queries';
 
 const STATUS_LABELS: Record<string, string> = {
-  pending: 'In afwachting',
-  approved: 'Op de lijst',
-  denied: 'Afgewezen',
-  checked_in: 'Binnen',
-  refused: 'Geweigerd',
-  removed: 'Verwijderd',
+  pending: 'In the queue',
+  approved: 'On the list',
+  denied: 'Declined',
+  checked_in: 'Inside',
+  refused: 'Refused',
+  removed: 'Removed',
 };
 
 function Line({ line, last }: { line: AuditLine; last: boolean }): JSX.Element {
@@ -59,11 +59,11 @@ export function GuestHistoryTimeline({
         href={`/admin/audit?venue=${venueId}`}
         className="inline-flex w-fit items-center gap-1.5 text-[13px] text-dim transition-colors hover:text-text"
       >
-        <Icon name="back" size={16} /> Terug naar audit log
+        <Icon name="back" size={16} /> Back to audit log
       </Link>
 
       <DCard className="p-6">
-        <Label>Geschiedenis van</Label>
+        <Label>Timeline for</Label>
         {guest ? (
           <>
             <div className="mt-1 flex items-center gap-3">
@@ -82,14 +82,14 @@ export function GuestHistoryTimeline({
             </div>
           </>
         ) : (
-          <p className="mt-1 text-[14px] text-dim">Deze gast is niet (meer) zichtbaar.</p>
+          <p className="mt-1 text-[14px] text-dim">This guest isn&apos;t visible anymore.</p>
         )}
       </DCard>
 
       <DCard className="p-6">
-        <div className="mb-5 font-display text-[17px] font-bold text-text">Tijdlijn</div>
+        <div className="mb-5 font-display text-[17px] font-bold text-text">Timeline</div>
         {lines.length === 0 ? (
-          <p className="text-[14px] text-faint">Nog geen gebeurtenissen voor deze gast.</p>
+          <p className="text-[14px] text-faint">Nothing logged for this guest yet.</p>
         ) : (
           <ul className="flex flex-col">
             {lines.map((line, i) => (

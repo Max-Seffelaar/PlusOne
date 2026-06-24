@@ -12,9 +12,9 @@ export function QuotaCounter({ quota, consumed, remaining, exempt }: QuotaCounte
   if (exempt) {
     return (
       <div className="card">
-        <p className="label mb-1">Jouw plekken</p>
-        <p className="font-display text-lg">Onbeperkt</p>
-        <p className="text-sm text-dim">Als admin/organisator tel je niet op een quotum.</p>
+        <p className="label mb-1">Your slots</p>
+        <p className="font-display text-lg">Unlimited</p>
+        <p className="text-sm text-dim">As an admin or organizer you don&apos;t count against a quota.</p>
       </div>
     );
   }
@@ -24,19 +24,19 @@ export function QuotaCounter({ quota, consumed, remaining, exempt }: QuotaCounte
 
   return (
     <div className="card">
-      <p className="label mb-1">Jouw plekken</p>
+      <p className="label mb-1">Your slots</p>
       <p className="font-display text-2xl">
         <span className={cn(low && 'text-acc-soft')}>{remaining}</span>
-        <span className="text-dim"> van {quota} over</span>
+        <span className="text-dim"> of {quota} left</span>
       </p>
-      <p className="text-sm text-dim">voor dit event</p>
+      <p className="text-sm text-dim">for this event</p>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-elev2" aria-hidden>
         <div
           className={cn('h-full rounded-full bg-acc transition-all', low && 'bg-acc-soft')}
           style={{ width: `${pct}%` }}
         />
       </div>
-      <p className="mt-1 text-xs text-faint">{consumed} gebruikt</p>
+      <p className="mt-1 text-xs text-faint">{consumed} used</p>
     </div>
   );
 }

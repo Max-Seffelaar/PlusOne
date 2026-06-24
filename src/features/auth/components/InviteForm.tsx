@@ -28,7 +28,7 @@ export function InviteForm({
 
       <div className="flex flex-col gap-2">
         <label htmlFor="invite-email" className="label">
-          E-mailadres
+          Email
         </label>
         <input
           id="invite-email"
@@ -37,13 +37,13 @@ export function InviteForm({
           inputMode="email"
           autoComplete="off"
           required
-          placeholder="nieuwe-collega@venue.nl"
+          placeholder="new-colleague@venue.com"
           className="field"
         />
       </div>
 
       <fieldset className="flex flex-col gap-2">
-        <legend className="label mb-1">Rollen</legend>
+        <legend className="label mb-1">Roles</legend>
         <div className="grid grid-cols-2 gap-2">
           {VENUE_ROLES.map((role: VenueRole) => {
             const disabled = role === 'admin' && !callerIsAdmin;
@@ -67,13 +67,13 @@ export function InviteForm({
           })}
         </div>
         {!callerIsAdmin && (
-          <p className="text-faint text-xs">Alleen een beheerder kan de rol Beheerder toekennen.</p>
+          <p className="text-faint text-xs">Only an admin can grant the admin role.</p>
         )}
       </fieldset>
 
       <div className="flex flex-col gap-2">
         <label htmlFor="invite-quota" className="label">
-          Quotum per event <span className="text-faint">(optioneel)</span>
+          Quota per event <span className="text-faint">(optional)</span>
         </label>
         <input
           id="invite-quota"
@@ -82,22 +82,22 @@ export function InviteForm({
           min={0}
           max={9999}
           inputMode="numeric"
-          placeholder="bijv. 10"
+          placeholder="e.g. 10"
           className="field"
         />
         <p className="text-faint text-xs">
-          Aantal gastenplekken dat dit teamlid per event mag vullen. Leeg laten = de standaard van de venue.
+          How many guest slots this member can fill per event. Leave it empty to use the venue default.
         </p>
       </div>
 
       <button type="submit" className="btn-primary w-full" disabled={pending}>
-        {pending ? 'Bezig…' : 'Uitnodiging versturen'}
+        {pending ? 'Working…' : 'Send invite'}
       </button>
 
       {state.ok && state.message && (
         <p className="text-acc-soft text-sm" role="status">
-          {state.message} De persoon logt in op <span className="font-semibold">/login</span> met dit
-          e-mailadres; de eerste code-login activeert het account.
+          {state.message} They log in at <span className="font-semibold">/login</span> with this
+          email; the first code login activates the account.
         </p>
       )}
       {!state.ok && state.error && (

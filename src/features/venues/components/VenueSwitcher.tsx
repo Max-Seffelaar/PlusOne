@@ -25,7 +25,7 @@ export function VenueSwitcher({
   return (
     <form ref={formRef} action={setActiveVenueAction}>
       <label htmlFor="venue-switcher" className="sr-only">
-        Actieve venue
+        Active venue
       </label>
       <select
         id="venue-switcher"

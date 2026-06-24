@@ -32,14 +32,14 @@ function InflowTooltip({ active, payload }: TooltipInjected<InflowDatum>): JSX.E
     <div className="rounded-[10px] border border-line bg-elev2 px-3 py-2 text-[12.5px] shadow-lg">
       <div className="font-display font-bold text-text">{d.label}</div>
       <div className="text-dim">{d.checkins} check-ins</div>
-      <div className="text-faint">{d.headcount} personen binnen</div>
+      <div className="text-faint">{d.headcount} people inside</div>
     </div>
   );
 }
 
 export function InflowChart({ data, peakLabel }: { data: InflowDatum[]; peakLabel: string | null }): JSX.Element {
   if (data.length === 0) {
-    return <div className="py-12 text-center text-[14px] text-faint">Nog geen check-ins.</div>;
+    return <div className="py-12 text-center text-[14px] text-faint">No check-ins yet.</div>;
   }
   return (
     // min-w-0 keeps ResponsiveContainer from feeding its width back into a

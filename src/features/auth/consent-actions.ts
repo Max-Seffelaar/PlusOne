@@ -19,7 +19,7 @@ export interface ActionState {
  */
 export async function acceptTermsAction(): Promise<ActionState> {
   const user = await getSessionUser();
-  if (!user) return { ok: false, error: 'Je bent niet ingelogd.' };
+  if (!user) return { ok: false, error: "You're not logged in." };
 
   const supabase = await createClient();
   const { error, count } = await supabase
@@ -32,7 +32,7 @@ export async function acceptTermsAction(): Promise<ActionState> {
 
   if (error || !count) {
     if (error) console.error('acceptTerms: update failed', error.message);
-    return { ok: false, error: 'Kon je akkoord niet opslaan. Probeer het opnieuw.' };
+    return { ok: false, error: "Couldn't save your consent. Please try again." };
   }
 
   // The gate is re-evaluated server-side on the next navigation.

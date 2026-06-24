@@ -21,7 +21,7 @@ interface BulkPasteDialogProps {
   exempt: boolean;
 }
 
-const plural = (n: number) => (n === 1 ? 'plek' : 'plekken');
+const plural = (n: number) => (n === 1 ? 'slot' : 'slots');
 
 /**
  * Bulk paste (decision #33): paste a WhatsApp-style list, preview the parsed
@@ -79,7 +79,7 @@ export function BulkPasteDialog({
   return (
     <div className="flex flex-col gap-3">
       <label className="label" htmlFor="bulk-paste">
-        Lijst plakken
+        Paste a list
       </label>
       <textarea
         id="bulk-paste"
@@ -99,10 +99,10 @@ export function BulkPasteDialog({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-line text-left text-faint">
-                  <th className="px-3 py-2 font-medium">Naam</th>
+                  <th className="px-3 py-2 font-medium">Name</th>
                   <th className="px-3 py-2 font-medium">Tier</th>
                   <th className="px-3 py-2 font-medium">+N</th>
-                  <th className="px-3 py-2 font-medium">Plekken</th>
+                  <th className="px-3 py-2 font-medium">Slots</th>
                 </tr>
               </thead>
               <tbody>
@@ -144,8 +144,8 @@ export function BulkPasteDialog({
 
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className={cn('text-sm text-dim', overQuota && 'text-acc-soft')}>
-              {rows.length} {rows.length === 1 ? 'regel' : 'regels'} · {total} {plural(total)}
-              {!exempt && remaining !== null && ` · ${remaining} over in je quotum`}
+              {rows.length} {rows.length === 1 ? 'line' : 'lines'} · {total} {plural(total)}
+              {!exempt && remaining !== null && ` · ${remaining} left in your quota`}
             </span>
             <button
               type="button"
@@ -153,19 +153,19 @@ export function BulkPasteDialog({
               disabled={!canConfirm}
               onClick={confirm}
             >
-              {pending ? '…' : `Bevestig ${rows.length} ${rows.length === 1 ? 'gast' : 'gasten'}`}
+              {pending ? '…' : `Add ${rows.length} ${rows.length === 1 ? 'guest' : 'guests'}`}
             </button>
           </div>
 
           {unresolved > 0 && (
             <p className="text-sm text-dim">
-              {unresolved} {unresolved === 1 ? 'regel heeft' : 'regels hebben'} nog een keuze nodig.
+              {unresolved} {unresolved === 1 ? 'line still needs' : 'lines still need'} a choice.
             </p>
           )}
           {overQuota && (
             <p className="text-sm text-acc-soft">
-              Deze lijst ({total} {plural(total)}) overschrijdt je quotum
-              {remaining !== null && ` (${remaining} over)`} — de hele batch wordt geblokkeerd.
+              This list ({total} {plural(total)}) puts you over your quota
+              {remaining !== null && ` (${remaining} left)`}. The whole batch is blocked.
             </p>
           )}
           {error && <p className="text-sm text-acc-soft">{error}</p>}
@@ -236,14 +236,14 @@ function AmbiguityChips({
           className={cn(chip, value?.kind === 'default' && active)}
           onClick={() => onChoose({ kind: 'default' })}
         >
-          {tiers.find((t) => t.id === defaultTierId)?.name ?? 'Standaard'}
+          {tiers.find((t) => t.id === defaultTierId)?.name ?? 'Default'}
         </button>
         <button
           type="button"
           className={cn(chip, value?.kind === 'name' && active)}
           onClick={() => onChoose({ kind: 'name' })}
         >
-          Bij de naam
+          Part of the name
         </button>
       </div>
     </div>

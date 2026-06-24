@@ -41,7 +41,7 @@ export function LandingControl({
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);
       },
-      () => setError('Kopiëren lukte niet.')
+      () => setError("Couldn't copy the link.")
     );
   }
 
@@ -49,9 +49,9 @@ export function LandingControl({
     <section className="card flex flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="label">Aanvraaglink</h2>
+          <h2 className="label">Request link</h2>
           <p className="text-dim mt-0.5 text-sm">
-            {landingActive ? 'Actief — gasten kunnen zich aanmelden.' : 'Uit — niemand kan zich aanmelden.'}
+            {landingActive ? 'On. Guests can request a spot.' : 'Off. No one can request a spot.'}
           </p>
         </div>
         <button
@@ -60,14 +60,14 @@ export function LandingControl({
           onClick={() => toggle(!landingActive)}
           className="btn-primary text-sm disabled:opacity-50"
         >
-          {landingActive ? 'Deactiveren' : 'Activeren'}
+          {landingActive ? 'Deactivate' : 'Activate'}
         </button>
       </div>
 
       <div className="border-line2 flex items-center gap-2 border-t pt-3">
         <code className="text-dim min-w-0 flex-1 truncate font-mono text-xs">{origin ? url : `/e/${slug}`}</code>
         <button type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={copy}>
-          {copied ? 'Gekopieerd' : 'Kopiëren'}
+          {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
 

@@ -18,13 +18,13 @@ export const VENUE_ROLES: readonly VenueRole[] = [
   'doorhost',
 ] as const;
 
-// Dutch UI labels (CLAUDE.md: Dutch UI copy).
+// UI labels for venue roles.
 export const ROLE_LABELS: Record<VenueRole, string> = {
-  admin: 'Beheerder',
-  user_manager: 'Gebruikersbeheer',
-  finance: 'Financiën',
-  staff: 'Personeel',
-  doorhost: 'Deurhost',
+  admin: 'Admin',
+  user_manager: 'User manager',
+  finance: 'Finance',
+  staff: 'Staff',
+  doorhost: 'Door host',
 };
 
 // Roles for which MFA (AAL2) is mandatory — CLAUDE.md §Auth, spec §5.

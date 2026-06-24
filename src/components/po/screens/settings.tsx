@@ -4,6 +4,7 @@
  *  persoonlijke gegevens + sessies, abonnement & facturen, importeren. */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { t, fmt } from '@/lib/i18n';
 import { createClient } from '@/lib/supabase/client';
 import { account, allowance as allowanceData } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
@@ -57,7 +58,7 @@ const iconSm = 'flex h-[34px] w-[34px] shrink-0 items-center justify-center roun
 /** Inline action error, matching the desktop forms' `text-red-300` treatment. */
 function FormError({ error }: { error: unknown }): JSX.Element | null {
   if (!error) return null;
-  const msg = error instanceof Error && error.message ? error.message : 'Er ging iets mis.';
+  const msg = error instanceof Error && error.message ? error.message : t.settings.common.formError;
   return (
     <p className="mt-3 text-[12.5px] leading-[1.45] text-red-300" role="alert">
       {msg}
@@ -98,7 +99,7 @@ function RolePicker({
           >
             {on && <Icon name="check" size={14} stroke="#16132B" sw={2.6} />}
             {ROLE_LABELS[k]}
-            {blocked && <span className="ml-0.5 text-[10px] font-bold opacity-70">· alleen beheerder</span>}
+            {blocked && <span className="ml-0.5 text-[10px] font-bold opacity-70">· {t.settings.common.adminOnly}</span>}
           </button>
         );
       })}
@@ -123,16 +124,16 @@ export function Meer(): JSX.Element {
     ? subQ.data.priceLabel.startsWith('€')
       ? `${subQ.data.plan} · ${subQ.data.priceLabel}/${subQ.data.period}`
       : subQ.data.plan
-    : 'Beheer je abonnement';
+    : t.settings.more.billingDefault;
   return (
     <div className={col}>
-      <Top big title="Instellingen" />
+      <Top big title={t.settings.more.title} />
       <Scroll bottom={100}>
         <button type="button" onClick={() => nav.push('venueswitch')} className={cn('mb-5 flex w-full items-center gap-[14px] rounded-[18px] border border-line bg-elev p-4 text-left', cardPress)}>
           <Avatar name={displayVenue} size={48} accent />
           <div className="min-w-0 flex-1">
             <div className="font-display text-[18px] font-bold text-text">{displayVenue}</div>
-            <div className="text-[12.5px] text-faint">{profile.data?.name ?? account.user} · wissel van venue</div>
+            <div className="text-[12.5px] text-faint">{fmt(t.settings.more.switchSub, { name: profile.data?.name ?? account.user })}</div>
           </div>
           <span className="inline-flex items-center gap-[7px]">
             {planLabel && (
@@ -143,46 +144,35 @@ export function Meer(): JSX.Element {
             </span>
           </span>
         </button>
-        <Label className="mb-1">Jouw bedrijf</Label>
+        <Label className="mb-1">{t.sections.account}</Label>
+        <Row icon="user" title={t.settings.more.profileTitle} sub={t.settings.more.profileSub} onClick={() => nav.push('profile')} />
+
+        <Label className="mb-1 mt-[22px]">{t.sections.insights}</Label>
         {statsVenues.length > 0 && (
-          <Row
-            icon="spark"
-            title="Statistieken"
-            sub="Opkomst, instroom & toevoegingen"
-            onClick={() => nav.push('stats')}
-            accent
-          />
+          <Row icon="spark" title={t.settings.more.analyticsTitle} sub={t.settings.more.analyticsSub} onClick={() => nav.push('stats')} accent />
         )}
         {canAudit && (
-          <Row
-            icon="history"
-            title="Audit log"
-            sub="Wie deed wat, wanneer · MFA"
-            onClick={() => nav.push('audit')}
-            accent
-          />
+          <Row icon="history" title={t.settings.more.auditTitle} sub={t.settings.more.auditSub} onClick={() => nav.push('audit')} accent />
         )}
-        <Row
-          icon="bell"
-          title="Aanvragen & verzoeken"
-          sub="Quotum-verzoeken & landingpage-aanvragen"
-          onClick={() => nav.push('aanvragen')}
-          accent
-        />
-        <Row icon="user" title="Persoonlijke gegevens" sub="Profiel, e-mail & sessies" onClick={() => nav.push('profile')} />
-        <Row icon="cal" title="Events & tiers" sub="Events aanmaken, tiers en aliassen" onClick={() => nav.push('eventbeheer')} />
-        <Row icon="building" title="Venues" sub={`${myVenues.length} ${myVenues.length === 1 ? 'locatie' : 'locaties'} · wisselen`} onClick={() => nav.push('venueswitch')} />
-        <Row icon="cog" title="Venue beheren" sub="Naam, AVG-bewaartermijn, standaarden" onClick={() => nav.push('venuesettings')} />
-        <Row icon="users" title="Gebruikers" sub="Uitnodigen, rollen en MFA" onClick={() => nav.push('gebruikers')} accent />
+        <Row icon="bell" title={t.settings.more.requestsTitle} sub={t.settings.more.requestsSub} onClick={() => nav.push('aanvragen')} accent />
+
+        <Label className="mb-1 mt-[22px]">{t.sections.thisVenue}</Label>
+        <Row icon="cal" title={t.settings.more.eventsTitle} sub={t.settings.more.eventsSub} onClick={() => nav.push('eventbeheer')} />
+        <Row icon="cog" title={t.settings.more.venueSettingsTitle} sub={t.settings.more.venueSettingsSub} onClick={() => nav.push('venuesettings')} />
+        <Row icon="ticket" title={t.settings.more.quotaTitle} sub={t.settings.more.quotaSub} onClick={() => nav.push('allowance')} />
+        <Row icon="star" title={t.settings.more.regularsTitle} sub={t.settings.more.regularsSub} onClick={() => nav.push('vaste')} accent />
+        <Row icon="contact" title={t.settings.more.contactsTitle} sub={t.settings.more.contactsSub} onClick={() => nav.push('contacten')} accent />
+        <Row icon="upload" title={t.settings.more.importTitle} sub={t.settings.more.importSub} onClick={() => nav.push('import')} />
+        <Row icon="spark" title={t.settings.more.billingTitle} sub={billingSub} onClick={() => nav.push('billing')} accent right={<Icon name="chev" size={18} className="text-ghost" />} />
+
+        <Label className="mb-1 mt-[22px]">{t.sections.teamAccess}</Label>
+        <Row icon="users" title={t.settings.more.teamTitle} sub={t.settings.more.teamSub} onClick={() => nav.push('gebruikers')} accent />
         {roles.includes('admin') && (
-          <Row icon="lock" title="Sessies & beveiliging" sub="Apparaten van teamleden op afstand uitloggen · MFA" onClick={() => nav.push('adminsessions')} />
+          <Row icon="lock" title={t.settings.more.sessionsTitle} sub={t.settings.more.sessionsSub} onClick={() => nav.push('adminsessions')} />
         )}
-        <Row icon="ticket" title="Toelage per event" sub="Gasten-per-event per teamlid" onClick={() => nav.push('allowance')} />
-        <Row icon="star" title="Permanente gasten" sub="Staan automatisch op elke gastenlijst" onClick={() => nav.push('vaste')} accent />
-        <Row icon="contact" title="Adresboek" sub="Opgeslagen contacten herbruiken" onClick={() => nav.push('contacten')} accent />
-        <Row icon="upload" title="Importeren" sub="Plak, CSV of telefooncontacten" onClick={() => nav.push('import')} />
-        <Label className="mb-1 mt-[22px]">Abonnement</Label>
-        <Row icon="spark" title="Abonnement & facturen" sub={billingSub} onClick={() => nav.push('billing')} accent right={<Icon name="chev" size={18} className="text-ghost" />} />
+
+        <Label className="mb-1 mt-[22px]">{t.sections.switchVenue}</Label>
+        <Row icon="building" title={t.settings.more.venuesTitle} sub={fmt(myVenues.length === 1 ? t.settings.more.venuesSubOne : t.settings.more.venuesSubMany, { n: myVenues.length })} onClick={() => nav.push('venueswitch')} />
       </Scroll>
     </div>
   );
@@ -227,9 +217,9 @@ export function Gebruikers(): JSX.Element {
   if (!caps.viewTeam) {
     return (
       <div className={col}>
-        <Top onBack={nav.back} title="Gebruikers" />
+        <Top onBack={nav.back} title={t.settings.team.title} />
         <Scroll bottom={24}>
-          <Empty text="Je hebt geen rechten om het team te beheren." />
+          <Empty text={t.settings.team.noRights} />
         </Scroll>
       </div>
     );
@@ -259,15 +249,17 @@ export function Gebruikers(): JSX.Element {
       );
     return (
       <div className={col}>
-        <Top onBack={() => setInvite(false)} title="Gebruiker uitnodigen" />
+        <Top onBack={() => setInvite(false)} title={t.settings.team.inviteTitle} />
         <Scroll bottom={130}>
-          <Label className="mb-2">E-mailadres</Label>
-          <Field icon="contact" placeholder="naam@venue.nl" value={email} onChange={setEmail} inputMode="email" autoFocus className="mb-[18px]" />
-          <Label className="mb-[10px]">Rollen · meerdere mogelijk</Label>
+          <Label className="mb-2">{t.settings.team.emailLabel}</Label>
+          <Field icon="contact" placeholder={t.settings.team.emailPlaceholder} value={email} onChange={setEmail} inputMode="email" autoFocus className="mb-[18px]" />
+          <Label className="mb-[10px]">{t.settings.team.rolesLabel}</Label>
           <RolePicker selected={inviteRoles} toggle={toggleInviteRole} callerIsAdmin={callerIsAdmin} />
           {sensitive && (
             <Note icon="shield">
-              Beheerder en Financiën krijgen <b>verplichte MFA</b>. Bij de eerste login stelt de gebruiker een authenticator-app in.
+              {t.settings.team.mfaNotePre}
+              <b>{t.settings.team.mfaNoteBold}</b>
+              {t.settings.team.mfaNotePost}
             </Note>
           )}
 
@@ -275,22 +267,22 @@ export function Gebruikers(): JSX.Element {
           {callerIsAdmin && (
             <>
               <div className="mb-[10px] mt-[18px] flex items-center justify-between gap-3">
-                <Label>Toevoegen aan events · optioneel</Label>
+                <Label>{t.settings.team.eventScopeLabel}</Label>
                 {upcomingEvents.length > 0 && (
                   <button
                     type="button"
                     onClick={toggleAllEvents}
                     className={cn('shrink-0 font-body text-[12px] font-semibold text-acc', press)}
                   >
-                    {allEventsSelected ? 'Wis selectie' : 'Alle events'}
+                    {allEventsSelected ? t.settings.team.clearSelection : t.settings.team.allEvents}
                   </button>
                 )}
               </div>
               {eventsQ.isLoading ? (
-                <Loading text="Events laden…" />
+                <Loading text={t.settings.team.eventsLoading} />
               ) : upcomingEvents.length === 0 ? (
                 <div className="rounded-[13px] border border-dashed border-line bg-elev px-[14px] py-[12px] text-[12.5px] text-faint">
-                  Geen aankomende events om aan toe te voegen.
+                  {t.settings.team.noUpcomingEvents}
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-2">
@@ -320,29 +312,31 @@ export function Gebruikers(): JSX.Element {
               )}
               {inviteEvents.length > 0 && (
                 <Note icon="cal">
-                  Wordt <b>organisator</b> van {inviteEvents.length} {inviteEvents.length === 1 ? 'event' : 'events'} zodra de uitnodiging is geaccepteerd. Een organisator beheert de gastenlijst van dat event (#6).
+                  {t.settings.team.organizerNotePre}
+                  <b>{t.settings.team.organizerNoteBold}</b>
+                  {fmt(inviteEvents.length === 1 ? t.settings.team.organizerNoteOne : t.settings.team.organizerNoteMany, { n: inviteEvents.length })}
                 </Note>
               )}
             </>
           )}
 
-          <Label className="mb-2 mt-[18px]">Standaardquotum · optioneel</Label>
+          <Label className="mb-2 mt-[18px]">{t.settings.team.quotaLabel}</Label>
           <Field
             icon="ticket"
-            placeholder="bv. 5 gasten per event"
+            placeholder={t.settings.team.quotaPlaceholder}
             value={quota}
             onChange={(v) => setQuota(v.replace(/[^0-9]/g, '').slice(0, 4))}
             inputMode="numeric"
             className="mb-1.5"
           />
           <div className="pl-0.5 text-[12px] leading-[1.4] text-faint">
-            Wordt het standaardquotum zodra de uitnodiging is geaccepteerd. Leeg = de standaard van de venue.
+            {t.settings.team.quotaHelp}
           </div>
           <FormError error={inviteUser.isError && !isAal2Error(inviteUser.error) ? inviteUser.error : null} />
         </Scroll>
         <BottomBar>
           <Btn kind="primary" full icon="arrowR" disabled={!canSubmit} onClick={submit} className={canSubmit ? '' : 'opacity-[0.45]'}>
-            {inviteUser.isPending ? 'Versturen…' : 'Verstuur uitnodiging'}
+            {inviteUser.isPending ? t.settings.team.sending : t.settings.team.sendInvite}
           </Btn>
         </BottomBar>
         {mfa.sheet}
@@ -357,8 +351,8 @@ export function Gebruikers(): JSX.Element {
     <div className={col}>
       <Top
         onBack={nav.back}
-        title="Gebruikers"
-        sub={`${teamCount} ${teamCount === 1 ? 'teamlid' : 'teamleden'} · ${inviteCount} open`}
+        title={t.settings.team.title}
+        sub={fmt(teamCount === 1 ? t.settings.team.subOne : t.settings.team.subMany, { count: teamCount, open: inviteCount })}
         right={caps.manageTeam ? <IconBtn name="plus" onClick={() => setInvite(true)} /> : undefined}
       />
       <Scroll bottom={24}>
@@ -366,36 +360,36 @@ export function Gebruikers(): JSX.Element {
           <div className="lg:mb-[18px] lg:flex lg:gap-3">
             {caps.manageTeam && (
               <Btn kind="dark" full icon="plus" className="mb-3 lg:mb-0 lg:w-auto" onClick={() => setInvite(true)}>
-                Gebruiker uitnodigen
+                {t.settings.team.inviteCta}
               </Btn>
             )}
             {caps.viewQuota && (
               <Btn kind="ghost" full icon="ticket" className="mb-[18px] lg:mb-0 lg:w-auto" onClick={() => nav.push('rollen')}>
-                Standaardquota per teamlid
+                {t.settings.team.quotaPerMember}
               </Btn>
             )}
           </div>
         )}
-        <Label className="mb-[10px]">Team</Label>
+        <Label className="mb-[10px]">{t.settings.team.teamLabel}</Label>
         {team.isLoading ? (
           <Loading />
         ) : team.isError ? (
-          <Empty text="Kon het team niet laden." />
+          <Empty text={t.settings.team.teamLoadError} />
         ) : teamCount === 0 ? (
-          <Empty text="Nog geen teamleden." />
+          <Empty text={t.settings.team.teamEmpty} />
         ) : (
           <div className="mb-5 flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px]">
-            {(team.data ?? []).map((t) => {
+            {(team.data ?? []).map((tm) => {
               const rowInner = (
                 <>
-                  <Avatar name={t.name} size={42} />
+                  <Avatar name={tm.name} size={42} />
                   <div className="min-w-0 flex-1">
-                    <div className="font-display text-[15px] font-bold text-text">{t.name}</div>
+                    <div className="font-display text-[15px] font-bold text-text">{tm.name}</div>
                     <div className="mt-0.5 text-[12px] text-faint">
-                      {t.rolesLabel} · quotum {t.quota}
+                      {tm.rolesLabel} · {fmt(t.settings.team.memberQuota, { n: tm.quota })}
                     </div>
                   </div>
-                  {requiresMfa(t.roles) && (
+                  {requiresMfa(tm.roles) && (
                     <MiniChip className="border-transparent bg-acc-dim text-acc">
                       <Icon name="shield" size={11} stroke="#B5A6FF" />
                       MFA
@@ -403,7 +397,7 @@ export function Gebruikers(): JSX.Element {
                   )}
                   {caps.manageTeam && (
                     <span className="inline-flex items-center gap-1 rounded-[9px] border border-line2 px-2 py-[5px] font-body text-[12px] font-semibold text-dim">
-                      Beheer
+                      {t.settings.team.manage}
                       <Icon name="chev" size={15} />
                     </span>
                   )}
@@ -411,27 +405,27 @@ export function Gebruikers(): JSX.Element {
               );
               return caps.manageTeam ? (
                 <button
-                  key={t.userId}
+                  key={tm.userId}
                   type="button"
-                  onClick={() => setSheetMember(t)}
+                  onClick={() => setSheetMember(tm)}
                   className={cn('flex items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[13px] text-left', cardPress)}
-                  aria-label={`Beheer ${t.name}`}
+                  aria-label={fmt(t.settings.team.manageAria, { name: tm.name })}
                 >
                   {rowInner}
                 </button>
               ) : (
-                <div key={t.userId} className="flex items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[13px]">
+                <div key={tm.userId} className="flex items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[13px]">
                   {rowInner}
                 </div>
               );
             })}
           </div>
         )}
-        <Label className="mb-[10px]">Openstaande uitnodigingen</Label>
+        <Label className="mb-[10px]">{t.settings.team.invitesLabel}</Label>
         {invitesQ.isLoading ? (
           <Loading />
         ) : inviteCount === 0 ? (
-          <Empty text="Geen openstaande uitnodigingen." />
+          <Empty text={t.settings.team.invitesEmpty} />
         ) : (
           <div className="flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px]">
             {(invitesQ.data ?? []).map((iv) => (
@@ -442,12 +436,12 @@ export function Gebruikers(): JSX.Element {
                 <div className="min-w-0 flex-1">
                   <div className="overflow-hidden text-ellipsis whitespace-nowrap font-body text-[14px] font-semibold text-text">{iv.email}</div>
                   <div className="mt-0.5 text-[12px] text-faint">
-                    {iv.rolesLabel} · verstuurd {iv.sentAt}
+                    {fmt(t.settings.team.invitedRoles, { roles: iv.rolesLabel, when: iv.sentAt })}
                   </div>
                 </div>
                 {caps.manageTeam && (
                   <MiniChip onClick={() => revokeInvite.mutate(iv.id)}>
-                    {revokeInvite.isPending && revokeInvite.variables === iv.id ? '…' : 'Intrekken'}
+                    {revokeInvite.isPending && revokeInvite.variables === iv.id ? t.settings.team.revoking : t.settings.team.revoke}
                   </MiniChip>
                 )}
               </div>
@@ -504,23 +498,24 @@ function MemberSheet({
       </div>
 
       {!canManageThis ? (
-        <Note icon="shield">Je mag dit lid niet beheren — alleen een beheerder kan een beheerder wijzigen of verwijderen.</Note>
+        <Note icon="shield">{t.settings.team.sheetNoRights}</Note>
       ) : confirmRemove ? (
         <>
           <Note icon="warn">
-            <b>{member.name}</b> verliest toegang tot deze venue. Het account en toegang tot andere venues blijven intact (#24).
+            <b>{fmt(t.settings.team.removeConfirmBold, { name: member.name })}</b>
+            {t.settings.team.removeConfirmPost}
           </Note>
           <FormError error={err} />
           <Btn kind="primary" full icon="warn" className="mt-2" disabled={busy} onClick={doRemove}>
-            {removeMember.isPending ? 'Intrekken…' : 'Ja, toegang intrekken'}
+            {removeMember.isPending ? t.settings.team.removing : t.settings.team.removeConfirmBtn}
           </Btn>
           <Btn kind="ghost" full className="mt-2" onClick={() => setConfirmRemove(false)}>
-            Annuleren
+            {t.settings.common.cancel}
           </Btn>
         </>
       ) : (
         <>
-          <Label className="mb-[10px]">Rollen</Label>
+          <Label className="mb-[10px]">{t.settings.team.sheetRolesLabel}</Label>
           <RolePicker selected={roles} toggle={toggle} callerIsAdmin={callerIsAdmin} />
           <FormError error={err} />
           <Btn
@@ -531,14 +526,14 @@ function MemberSheet({
             disabled={roles.length === 0 || busy}
             onClick={saveRoles}
           >
-            {updateRoles.isPending ? 'Opslaan…' : 'Rollen opslaan'}
+            {updateRoles.isPending ? t.settings.team.savingRoles : t.settings.team.saveRoles}
           </Btn>
           <button
             type="button"
             onClick={() => setConfirmRemove(true)}
             className={cn('mt-3 w-full cursor-pointer border-none bg-transparent text-center font-body text-[13px] font-semibold text-faint', press)}
           >
-            Toegang tot deze venue intrekken
+            {t.settings.team.removeAccess}
           </button>
         </>
       )}
@@ -560,9 +555,9 @@ export function Rollen(): JSX.Element {
   if (!caps.viewQuota) {
     return (
       <div className={col}>
-        <Top onBack={nav.back} title="Gebruikers & toelages" />
+        <Top onBack={nav.back} title={t.settings.quota.rolesTitle} />
         <Scroll bottom={24}>
-          <Empty text="Je hebt geen rechten om toelages te bekijken." />
+          <Empty text={t.settings.quota.rolesNoRights} />
         </Scroll>
       </div>
     );
@@ -571,18 +566,17 @@ export function Rollen(): JSX.Element {
   const members = team.data ?? [];
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Gebruikers & toelages" />
+      <Top onBack={nav.back} title={t.settings.quota.rolesTitle} />
       <Scroll bottom={28}>
         <Note icon="ticket">
-          Elk teamlid mag standaard een aantal gasten per event toevoegen.{' '}
-          {caps.editQuota ? 'Elke wijziging komt in het audit log.' : 'Alleen een beheerder kan dit wijzigen.'}
+          {caps.editQuota ? t.settings.quota.rolesNoteAdmin : t.settings.quota.rolesNoteReadonly}
         </Note>
         {team.isLoading ? (
-          <Empty text="Laden…" />
+          <Empty text={t.settings.quota.loading} />
         ) : team.isError ? (
-          <Empty text="Kon de toelages niet laden." />
+          <Empty text={t.settings.quota.rolesLoadError} />
         ) : members.length === 0 ? (
-          <Empty text="Nog geen teamleden." />
+          <Empty text={t.settings.quota.rolesEmpty} />
         ) : (
           <div className="flex flex-col gap-[11px]">
             {members.map((m) => (
@@ -620,27 +614,27 @@ function MemberQuotaRow({ member, canEdit }: { member: PoTeamMember; canEdit: bo
         </div>
         {canEdit && changed && (
           <MiniChip onClick={save} className="border-transparent bg-acc text-on-acc">
-            {setQuota.isPending ? 'Opslaan…' : 'Opslaan'}
+            {setQuota.isPending ? t.settings.quota.saving : t.settings.quota.save}
           </MiniChip>
         )}
       </div>
       {canEdit ? (
         <div className="flex items-center justify-between gap-[14px] rounded-[16px] bg-acc-dim p-[9px]">
-          <button type="button" onClick={() => setValue((v) => Math.max(0, v - 1))} className={stepBtn} aria-label="Minder">
+          <button type="button" onClick={() => setValue((v) => Math.max(0, v - 1))} className={stepBtn} aria-label={t.settings.quota.less}>
             <Icon name="minus" size={20} sw={2.4} />
           </button>
           <div className="text-center">
             <div className="font-display text-[26px] font-extrabold leading-none text-text">{value}</div>
-            <div className="mt-0.5 text-[11px] text-dim">gasten / event</div>
+            <div className="mt-0.5 text-[11px] text-dim">{t.settings.quota.guestsPerEvent}</div>
           </div>
-          <button type="button" onClick={() => setValue((v) => v + 1)} className={stepBtn} aria-label="Meer">
+          <button type="button" onClick={() => setValue((v) => v + 1)} className={stepBtn} aria-label={t.settings.quota.more}>
             <Icon name="plus" size={20} sw={2.4} stroke="#B5A6FF" />
           </button>
         </div>
       ) : (
         <div className="rounded-[14px] bg-elev2 px-[14px] py-[12px] text-center">
           <span className="font-display text-[18px] font-extrabold text-text">{member.quota}</span>
-          <span className="ml-1.5 text-[12px] text-faint">gasten / event</span>
+          <span className="ml-1.5 text-[12px] text-faint">{t.settings.quota.guestsPerEvent}</span>
         </div>
       )}
       <FormError error={setQuota.isError && !isAal2Error(setQuota.error) ? setQuota.error : null} />
@@ -657,12 +651,14 @@ export function Allowance(): JSX.Element {
   const stepBtn = cn('flex h-[46px] w-[46px] items-center justify-center rounded-[14px] border border-line bg-elev2 text-text', press);
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Toelage per event" sub={allowanceData.event} right={<IconBtn name="cal" />} />
+      <Top onBack={nav.back} title={t.settings.quota.allowanceTitle} sub={allowanceData.event} right={<IconBtn name="cal" />} />
       <Scroll bottom={120}>
         <Note icon="ticket">
-          Iedereen heeft een standaardquotum. Hier verhoog of verlaag je het <b>alleen voor dit event</b> — elke wijziging komt in het audit log.
+          {t.settings.quota.allowanceNotePre}
+          <b>{t.settings.quota.allowanceNoteBold}</b>
+          {t.settings.quota.allowanceNotePost}
         </Note>
-        <Label className="mb-[10px]">Teamleden · {allowanceData.event}</Label>
+        <Label className="mb-[10px]">{fmt(t.settings.quota.allowanceMembers, { event: allowanceData.event })}</Label>
         <div className="flex flex-col gap-[10px]">
           {rows.map((r) => {
             const changed = r.override !== r.base;
@@ -673,20 +669,20 @@ export function Allowance(): JSX.Element {
                   <div className="min-w-0 flex-1">
                     <div className="font-display text-[15px] font-bold text-text">{r.name}</div>
                     <div className="text-[12px] text-faint">
-                      {r.role} · standaard {r.base}
+                      {r.role} · {fmt(t.settings.quota.allowanceDefault, { n: r.base })}
                     </div>
                   </div>
-                  {changed && <MiniChip className="border-transparent bg-acc-dim text-acc">{r.override > r.base ? '+' + (r.override - r.base) : r.override - r.base} override</MiniChip>}
+                  {changed && <MiniChip className="border-transparent bg-acc-dim text-acc">{r.override > r.base ? fmt(t.settings.quota.overridePlus, { n: r.override - r.base }) : fmt(t.settings.quota.overrideMinus, { n: r.override - r.base })}</MiniChip>}
                 </div>
                 <div className="flex items-center justify-between gap-[14px] rounded-[16px] bg-acc-dim p-[9px]">
-                  <button type="button" onClick={() => set(r.name, r.override - 1)} className={stepBtn} aria-label="Minder">
+                  <button type="button" onClick={() => set(r.name, r.override - 1)} className={stepBtn} aria-label={t.settings.quota.less}>
                     <Icon name="minus" size={20} sw={2.4} />
                   </button>
                   <div className="text-center">
                     <div className="font-display text-[26px] font-extrabold leading-none text-text">{r.override}</div>
-                    <div className="mt-0.5 text-[11px] text-dim">plekken</div>
+                    <div className="mt-0.5 text-[11px] text-dim">{t.settings.quota.spots}</div>
                   </div>
-                  <button type="button" onClick={() => set(r.name, r.override + 1)} className={stepBtn} aria-label="Meer">
+                  <button type="button" onClick={() => set(r.name, r.override + 1)} className={stepBtn} aria-label={t.settings.quota.more}>
                     <Icon name="plus" size={20} sw={2.4} stroke="#B5A6FF" />
                   </button>
                 </div>
@@ -697,7 +693,7 @@ export function Allowance(): JSX.Element {
       </Scroll>
       <BottomBar>
         <Btn kind="primary" full icon="check" onClick={() => nav.back()}>
-          Toelages opslaan
+          {t.settings.quota.saveAllowance}
         </Btn>
       </BottomBar>
     </div>
@@ -708,17 +704,19 @@ export function Allowance(): JSX.Element {
 export function VenueSwitch(): JSX.Element {
   const nav = useNav();
   const { myVenues, activeVenueId, switchToVenue } = usePo();
-  const activeName = myVenues.find((v) => v.venueId === activeVenueId)?.venueName ?? 'deze venue';
+  const activeName = myVenues.find((v) => v.venueId === activeVenueId)?.venueName ?? t.settings.venueSwitch.thisVenueFallback;
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Venues" sub="Wissel tussen je locaties" right={<IconBtn name="plus" onClick={() => nav.push('venuecreate')} />} />
+      <Top onBack={nav.back} title={t.settings.venueSwitch.title} sub={t.settings.venueSwitch.sub} right={<IconBtn name="plus" onClick={() => nav.push('venuecreate')} />} />
       <Scroll bottom={24}>
         <Note icon="building">
-          Je werkt nu in <b>{activeName}</b>. Je account staat los van de venue — wisselen verandert niets aan je toegang elders.
+          {t.settings.venueSwitch.notePre}
+          <b>{fmt(t.settings.venueSwitch.noteBold, { name: activeName })}</b>
+          {t.settings.venueSwitch.notePost}
         </Note>
-        <Label className="mb-[10px]">Jouw venues · {myVenues.length}</Label>
+        <Label className="mb-[10px]">{fmt(t.settings.venueSwitch.yourVenues, { n: myVenues.length })}</Label>
         {myVenues.length === 0 ? (
-          <Empty text="Je hoort nog bij geen enkele venue." />
+          <Empty text={t.settings.venueSwitch.empty} />
         ) : (
           <div className="flex flex-col gap-[10px]">
             {myVenues.map((v) => {
@@ -730,7 +728,7 @@ export function VenueSwitch(): JSX.Element {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <div className="font-display text-[16.5px] font-bold text-text">{v.venueName}</div>
-                        {cur && <MiniChip className="border-transparent bg-white/[0.10] text-acc">HUIDIG</MiniChip>}
+                        {cur && <MiniChip className="border-transparent bg-white/[0.10] text-acc">{t.settings.venueSwitch.current}</MiniChip>}
                       </div>
                       <div className="mt-1 flex flex-wrap gap-1.5">
                         {v.roles.map((ro) => (
@@ -742,11 +740,11 @@ export function VenueSwitch(): JSX.Element {
                   <div className="mt-[13px] flex items-center justify-end gap-[7px]">
                     {cur ? (
                       <Btn sm kind="ghost" icon="cog" onClick={() => nav.push('venuesettings', { id: v.venueId })}>
-                        Beheren
+                        {t.settings.venueSwitch.manage}
                       </Btn>
                     ) : (
                       <Btn sm kind="primary" icon="swap" onClick={() => switchToVenue(v.venueId)}>
-                        Wissel
+                        {t.settings.venueSwitch.switch}
                       </Btn>
                     )}
                   </div>
@@ -756,7 +754,7 @@ export function VenueSwitch(): JSX.Element {
           </div>
         )}
         <Btn kind="dark" full icon="plus" className="mt-[14px]" onClick={() => nav.push('venuecreate')}>
-          Nieuwe venue toevoegen
+          {t.settings.venueSwitch.addVenue}
         </Btn>
       </Scroll>
     </div>
@@ -819,9 +817,9 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
   if (!caps.viewSettings) {
     return (
       <div className={col}>
-        <Top onBack={nav.back} title="Venue beheren" sub={venueName ?? venue.name} />
+        <Top onBack={nav.back} title={t.settings.venue.title} sub={venueName ?? venue.name} />
         <Scroll bottom={24}>
-          <Empty text="Je hebt geen rechten om de venue-instellingen te bekijken." />
+          <Empty text={t.settings.venue.viewNoRights} />
         </Scroll>
       </div>
     );
@@ -829,9 +827,9 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
   if ((settingsQ.isLoading || !loaded) && !settingsQ.isError) {
     return (
       <div className={col}>
-        <Top onBack={nav.back} title="Venue beheren" sub={venueName ?? venue.name} />
+        <Top onBack={nav.back} title={t.settings.venue.title} sub={venueName ?? venue.name} />
         <Scroll bottom={24}>
-          <Empty text="Laden…" />
+          <Empty text={t.settings.venue.loading} />
         </Scroll>
       </div>
     );
@@ -839,9 +837,9 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
   if (!s) {
     return (
       <div className={col}>
-        <Top onBack={nav.back} title="Venue beheren" sub={venueName ?? venue.name} />
+        <Top onBack={nav.back} title={t.settings.venue.title} sub={venueName ?? venue.name} />
         <Scroll bottom={24}>
-          <Empty text="Kon de venue-instellingen niet laden." />
+          <Empty text={t.settings.venue.loadError} />
         </Scroll>
       </div>
     );
@@ -864,29 +862,29 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Venue beheren" sub={s.name} />
+      <Top onBack={nav.back} title={t.settings.venue.title} sub={s.name} />
       <Scroll bottom={canEdit ? 120 : 28}>
-        {!canEdit && <Note icon="shield">Je ziet de instellingen alleen-lezen. Alleen een beheerder kan ze wijzigen.</Note>}
+        {!canEdit && <Note icon="shield">{t.settings.venue.readonlyNote}</Note>}
 
-        <Label className="mb-2">Naam</Label>
+        <Label className="mb-2">{t.settings.venue.nameLabel}</Label>
         <Field icon="building" value={form.name} onChange={editStr('name')} className="mb-[14px]" />
-        <Label className="mb-2">Landingpage-basis</Label>
+        <Label className="mb-2">{t.settings.venue.landingLabel}</Label>
         <Field icon="link" value={`plus.one/${s.slug}`} className="mb-[18px]" />
 
-        <Label className="mb-[10px]">Gastenlijst-standaarden</Label>
+        <Label className="mb-[10px]">{t.settings.venue.defaultsLabel}</Label>
         <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-4 py-1">
           <div className="flex items-center gap-[12px] py-[14px]">
             <div className="flex-1">
-              <div className="text-[14.5px] font-semibold text-text">Standaard quotum per teamlid</div>
-              <div className="mt-0.5 text-[12px] text-faint">Gasten-per-event, per persoon te overschrijven</div>
+              <div className="text-[14.5px] font-semibold text-text">{t.settings.venue.defaultQuotaTitle}</div>
+              <div className="mt-0.5 text-[12px] text-faint">{t.settings.venue.defaultQuotaSub}</div>
             </div>
             {canEdit ? (
               <div className="flex items-center gap-2">
-                <button type="button" onClick={() => setForm((f) => ({ ...f, defaultPersonalQuota: Math.max(0, f.defaultPersonalQuota - 1) }))} className={cn(iconSm, press)} aria-label="Minder">
+                <button type="button" onClick={() => setForm((f) => ({ ...f, defaultPersonalQuota: Math.max(0, f.defaultPersonalQuota - 1) }))} className={cn(iconSm, press)} aria-label={t.settings.quota.less}>
                   <Icon name="minus" size={16} />
                 </button>
                 <span className="min-w-[22px] text-center font-display text-[18px] font-extrabold text-text">{form.defaultPersonalQuota}</span>
-                <button type="button" onClick={() => setForm((f) => ({ ...f, defaultPersonalQuota: f.defaultPersonalQuota + 1 }))} className={cn(iconSm, press, 'text-acc')} aria-label="Meer">
+                <button type="button" onClick={() => setForm((f) => ({ ...f, defaultPersonalQuota: f.defaultPersonalQuota + 1 }))} className={cn(iconSm, press, 'text-acc')} aria-label={t.settings.quota.more}>
                   <Icon name="plus" size={16} />
                 </button>
               </div>
@@ -896,20 +894,20 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
           </div>
         </div>
 
-        <Label className="mb-[10px]">Aan de deur</Label>
+        <Label className="mb-[10px]">{t.settings.venue.atDoorLabel}</Label>
         <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-4 py-1">
           <ToggleRow
-            title="Uitchecken toestaan"
-            sub="Mag een check-in aan de deur teruggedraaid worden? Per event te overschrijven."
+            title={t.settings.venue.allowCheckoutTitle}
+            sub={t.settings.venue.allowCheckoutSub}
             on={form.allowUncheck}
             set={(v) => canEdit && setForm((f) => ({ ...f, allowUncheck: v }))}
             last
           />
         </div>
 
-        <Label className="mb-[10px]">AVG & bewaartermijn</Label>
+        <Label className="mb-[10px]">{t.settings.venue.retentionLabel}</Label>
         <div className="mb-[18px] rounded-[18px] border border-line bg-elev p-4">
-          <div className="mb-[14px] text-[13.5px] leading-[1.5] text-dim">Gastdata wordt na deze termijn automatisch geanonimiseerd tot “Gast #X”. Het audit log blijft intact.</div>
+          <div className="mb-[14px] text-[13.5px] leading-[1.5] text-dim">{t.settings.venue.retentionNote}</div>
           <div className="flex gap-[7px]">
             {[6, 12, 24].map((m) => (
               <button
@@ -923,32 +921,32 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
                   form.retentionMonths === m ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev2 text-dim',
                 )}
               >
-                {m} mnd
+                {fmt(t.settings.venue.retentionMonths, { n: m })}
               </button>
             ))}
           </div>
         </div>
 
-        <Label className="mb-[10px]">Bedrijfsgegevens</Label>
-        <Field icon="building" value={form.companyName} onChange={editStr('companyName')} placeholder="Bedrijfsnaam" className="mb-[14px]" />
+        <Label className="mb-[10px]">{t.settings.venue.companyLabel}</Label>
+        <Field icon="building" value={form.companyName} onChange={editStr('companyName')} placeholder={t.settings.venue.companyNamePlaceholder} className="mb-[14px]" />
         {/* min-w-0 lets each field shrink below its content so the 2-col row never
             overflows the viewport at ≤390px (the btw-nummer overflow, S4.2). */}
         <div className="mb-[14px] flex gap-2">
-          <Field icon="grid" value={form.kvkNumber} onChange={editStr('kvkNumber', (v) => v.replace(/[^0-9]/g, '').slice(0, 8))} inputMode="numeric" placeholder="KvK (8 cijfers)" className="min-w-0 flex-1" />
-          <Field value={form.vatNumber} onChange={editStr('vatNumber')} placeholder="btw-nummer" className="min-w-0 flex-1" />
+          <Field icon="grid" value={form.kvkNumber} onChange={editStr('kvkNumber', (v) => v.replace(/[^0-9]/g, '').slice(0, 8))} inputMode="numeric" placeholder={t.settings.venue.kvkPlaceholder} className="min-w-0 flex-1" />
+          <Field value={form.vatNumber} onChange={editStr('vatNumber')} placeholder={t.settings.venue.vatPlaceholder} className="min-w-0 flex-1" />
         </div>
-        <Field icon="mail" value={form.financeEmail} onChange={editStr('financeEmail')} inputMode="email" placeholder="Factuur-e-mail" className="mb-[18px]" />
+        <Field icon="mail" value={form.financeEmail} onChange={editStr('financeEmail')} inputMode="email" placeholder={t.settings.venue.billingEmailPlaceholder} className="mb-[18px]" />
 
-        <Label className="mb-[10px]">Adres</Label>
-        <Field icon="pin" value={form.addressLine} onChange={editStr('addressLine')} placeholder="Straat en nummer" className="mb-[14px]" />
+        <Label className="mb-[10px]">{t.settings.venue.addressLabel}</Label>
+        <Field icon="pin" value={form.addressLine} onChange={editStr('addressLine')} placeholder={t.settings.venue.streetPlaceholder} className="mb-[14px]" />
         <div className="mb-[14px] flex gap-2">
-          <Field value={form.postalCode} onChange={editStr('postalCode')} placeholder="Postcode" className="min-w-0 flex-1" />
-          <Field value={form.city} onChange={editStr('city')} placeholder="Stad" className="min-w-0 flex-[1.4]" />
+          <Field value={form.postalCode} onChange={editStr('postalCode')} placeholder={t.settings.venue.postalPlaceholder} className="min-w-0 flex-1" />
+          <Field value={form.city} onChange={editStr('city')} placeholder={t.settings.venue.cityPlaceholder} className="min-w-0 flex-[1.4]" />
         </div>
-        <Field value={form.country} onChange={editStr('country')} placeholder="Land" className="mb-1.5" />
+        <Field value={form.country} onChange={editStr('country')} placeholder={t.settings.venue.countryPlaceholder} className="mb-1.5" />
 
         <FormError error={save.isError ? save.error : null} />
-        {save.isSuccess && !dirty && <p className="mt-3 text-[12.5px] text-acc-soft">Instellingen opgeslagen.</p>}
+        {save.isSuccess && !dirty && <p className="mt-3 text-[12.5px] text-acc-soft">{t.settings.venue.saved}</p>}
       </Scroll>
       {canEdit && (
         <BottomBar>
@@ -960,7 +958,7 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
             className={canSave ? '' : 'opacity-[0.45]'}
             onClick={() => save.mutate(form)}
           >
-            {save.isPending ? 'Opslaan…' : 'Opslaan'}
+            {save.isPending ? t.settings.venue.saving : t.settings.venue.save}
           </Btn>
         </BottomBar>
       )}
@@ -1010,7 +1008,7 @@ function MfaCard({ mandatory }: { mandatory: boolean }): JSX.Element {
       setConfirmDisable(false);
       refresh();
     } catch {
-      setError('Kon tweestapsverificatie niet uitschakelen. Verifieer opnieuw en probeer het nog eens.');
+      setError(t.settings.profile.mfaDisableError);
     } finally {
       setBusy(false);
     }
@@ -1018,11 +1016,11 @@ function MfaCard({ mandatory }: { mandatory: boolean }): JSX.Element {
 
   const on = hasMfa === true;
   const sub = mandatory
-    ? 'Verplicht voor jouw rol · authenticator-app'
+    ? t.settings.profile.mfaSubMandatory
     : on
-      ? 'Ingeschakeld · authenticator-app'
-      : 'Optioneel — schakel het in voor extra beveiliging';
-  const chipLabel = mandatory ? 'VERPLICHT' : hasMfa === null ? '…' : on ? 'AAN' : 'UIT';
+      ? t.settings.profile.mfaSubOn
+      : t.settings.profile.mfaSubOff;
+  const chipLabel = mandatory ? t.settings.profile.mfaChipRequired : hasMfa === null ? '…' : on ? t.settings.profile.mfaChipOn : t.settings.profile.mfaChipOff;
 
   return (
     <div className="flex items-start gap-[12px] border-b border-line2 py-[14px]">
@@ -1030,7 +1028,7 @@ function MfaCard({ mandatory }: { mandatory: boolean }): JSX.Element {
         <Icon name="shield" size={19} />
       </span>
       <div className="flex-1">
-        <div className="text-[14.5px] font-semibold text-text">Tweestapsverificatie</div>
+        <div className="text-[14.5px] font-semibold text-text">{t.settings.profile.mfaTitle}</div>
         <div className="mt-0.5 text-[12px] leading-[1.4] text-faint">{sub}</div>
         {/* Optional role: enable / disable. Mandatory but not yet enrolled: activate. */}
         {hasMfa !== null && !mandatory && (
@@ -1039,7 +1037,7 @@ function MfaCard({ mandatory }: { mandatory: boolean }): JSX.Element {
             onClick={() => (on ? setConfirmDisable(true) : setEnroll(true))}
             className={cn('mt-[7px] font-body text-[12.5px] font-bold', press, on ? 'text-faint' : 'text-acc')}
           >
-            {on ? 'Uitschakelen' : 'Inschakelen'}
+            {on ? t.settings.profile.mfaDisable : t.settings.profile.mfaEnable}
           </button>
         )}
         {hasMfa === false && mandatory && (
@@ -1048,7 +1046,7 @@ function MfaCard({ mandatory }: { mandatory: boolean }): JSX.Element {
             onClick={() => setEnroll(true)}
             className={cn('mt-[7px] font-body text-[12.5px] font-bold text-acc', press)}
           >
-            Nu activeren
+            {t.settings.profile.mfaActivateNow}
           </button>
         )}
       </div>
@@ -1058,8 +1056,8 @@ function MfaCard({ mandatory }: { mandatory: boolean }): JSX.Element {
 
       {enroll && (
         <PoMfaSheet
-          title="Tweestapsverificatie inschakelen"
-          subtitle="Beveilig je account met een authenticator-app."
+          title={t.settings.profile.mfaEnrollTitle}
+          subtitle={t.settings.profile.mfaEnrollSubtitle}
           onClose={() => setEnroll(false)}
           onVerified={() => {
             setEnroll(false);
@@ -1070,7 +1068,7 @@ function MfaCard({ mandatory }: { mandatory: boolean }): JSX.Element {
       {confirmDisable && (
         <Sheet onClose={() => setConfirmDisable(false)} center={false}>
           <Note icon="warn">
-            Je rol vereist geen tweestapsverificatie, maar uitschakelen verlaagt je accountbeveiliging. Je kunt het later opnieuw inschakelen.
+            {t.settings.profile.mfaDisableNote}
           </Note>
           {error && (
             <p className="mb-1 text-[12.5px] text-red-300" role="alert">
@@ -1078,10 +1076,10 @@ function MfaCard({ mandatory }: { mandatory: boolean }): JSX.Element {
             </p>
           )}
           <Btn kind="primary" full icon="shield" className="mt-2" disabled={busy} onClick={() => void disable()}>
-            {busy ? 'Uitschakelen…' : 'Ja, uitschakelen'}
+            {busy ? t.settings.profile.mfaDisabling : t.settings.profile.mfaDisableConfirm}
           </Btn>
           <Btn kind="ghost" full className="mt-2" onClick={() => setConfirmDisable(false)}>
-            Annuleren
+            {t.settings.common.cancel}
           </Btn>
         </Sheet>
       )}
@@ -1122,9 +1120,9 @@ export function Profile(): JSX.Element {
   if (profileQ.isLoading || !loaded) {
     return (
       <div className={col}>
-        <Top onBack={nav.back} title="Persoonlijke gegevens" />
+        <Top onBack={nav.back} title={t.settings.profile.title} />
         <Scroll bottom={24}>
-          <Empty text={profileQ.isError ? 'Kon je profiel niet laden.' : 'Laden…'} />
+          <Empty text={profileQ.isError ? t.settings.profile.loadError : t.settings.profile.loading} />
         </Scroll>
       </div>
     );
@@ -1132,9 +1130,9 @@ export function Profile(): JSX.Element {
   if (!p) {
     return (
       <div className={col}>
-        <Top onBack={nav.back} title="Persoonlijke gegevens" />
+        <Top onBack={nav.back} title={t.settings.profile.title} />
         <Scroll bottom={24}>
-          <Empty text="Kon je profiel niet laden." />
+          <Empty text={t.settings.profile.loadError} />
         </Scroll>
       </div>
     );
@@ -1150,41 +1148,41 @@ export function Profile(): JSX.Element {
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Persoonlijke gegevens" />
+      <Top onBack={nav.back} title={t.settings.profile.title} />
       <Scroll bottom={130}>
         <div className="flex flex-col items-center px-0 pb-5 pt-1 text-center">
           <Avatar name={p.name || p.email} size={84} accent />
-          <h2 className="mb-0 mt-4 font-display text-[26px] font-extrabold tracking-[-0.02em] text-text">{p.name || 'Naamloos'}</h2>
+          <h2 className="mb-0 mt-4 font-display text-[26px] font-extrabold tracking-[-0.02em] text-text">{p.name || t.settings.profile.noName}</h2>
           <div className="mt-1 text-[13px] text-faint">{p.roleLabel}</div>
         </div>
 
-        <Label className="mb-2">Voornaam</Label>
-        <Field icon="user" value={firstName} onChange={setFirstName} placeholder="Voornaam" className="mb-[14px]" />
-        <Label className="mb-2">Achternaam</Label>
-        <Field icon="user" value={lastName} onChange={setLastName} placeholder="Achternaam" className="mb-[14px]" />
-        <Label className="mb-2">Telefoon</Label>
-        <Field icon="phone" value={phone} onChange={setPhone} inputMode="tel" placeholder="06 …" className="mb-1.5" />
+        <Label className="mb-2">{t.settings.profile.firstNameLabel}</Label>
+        <Field icon="user" value={firstName} onChange={setFirstName} placeholder={t.settings.profile.firstNamePlaceholder} className="mb-[14px]" />
+        <Label className="mb-2">{t.settings.profile.lastNameLabel}</Label>
+        <Field icon="user" value={lastName} onChange={setLastName} placeholder={t.settings.profile.lastNamePlaceholder} className="mb-[14px]" />
+        <Label className="mb-2">{t.settings.profile.phoneLabel}</Label>
+        <Field icon="phone" value={phone} onChange={setPhone} inputMode="tel" placeholder={t.settings.profile.phonePlaceholder} className="mb-1.5" />
         <FormError error={updateProfile.isError ? updateProfile.error : null} />
         {updateProfile.isSuccess && !nameChanged && (
-          <p className="mt-2 text-[12.5px] text-acc-soft">Profiel opgeslagen.</p>
+          <p className="mt-2 text-[12.5px] text-acc-soft">{t.settings.profile.profileSaved}</p>
         )}
 
-        <Label className="mb-2 mt-[18px]">E-mailadres</Label>
+        <Label className="mb-2 mt-[18px]">{t.settings.profile.emailLabel}</Label>
         <Field icon="mail" value={email} onChange={setEmail} inputMode="email" className="mb-1.5" />
         <div className="pl-0.5 text-[12px] leading-[1.4] text-faint">
-          Alleen jij kunt je e-mailadres wijzigen — nooit een venue-admin. We sturen een bevestiging naar je oude én nieuwe adres.
+          {t.settings.profile.emailNote}
         </div>
         {emailChanged && (
           <Btn kind="dark" full icon="mail" className="mt-3" disabled={updateEmail.isPending} onClick={() => updateEmail.mutate(email.trim())}>
-            {updateEmail.isPending ? 'Versturen…' : 'Wijzig e-mailadres'}
+            {updateEmail.isPending ? t.settings.profile.sending : t.settings.profile.changeEmail}
           </Btn>
         )}
         <FormError error={updateEmail.isError ? updateEmail.error : null} />
         {updateEmail.isSuccess && (
-          <p className="mt-2 text-[12.5px] text-acc-soft">Bevestig de wijziging via de link die we naar je oude én nieuwe adres sturen.</p>
+          <p className="mt-2 text-[12.5px] text-acc-soft">{t.settings.profile.emailSent}</p>
         )}
 
-        <Label className="mb-[10px] mt-[18px]">Beveiliging</Label>
+        <Label className="mb-[10px] mt-[18px]">{t.settings.profile.securityLabel}</Label>
         <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-4 py-1">
           <MfaCard mandatory={p.mfaRequired} />
           <div className="flex items-center gap-[12px] py-[14px]">
@@ -1192,17 +1190,17 @@ export function Profile(): JSX.Element {
               <Icon name="mail" size={19} />
             </span>
             <div className="flex-1">
-              <div className="text-[14.5px] font-semibold text-text">Inlogmethode</div>
-              <div className="mt-0.5 text-[12px] text-faint">Passwordless · e-mailcode (OTP)</div>
+              <div className="text-[14.5px] font-semibold text-text">{t.settings.profile.loginMethodTitle}</div>
+              <div className="mt-0.5 text-[12px] text-faint">{t.settings.profile.loginMethodSub}</div>
             </div>
           </div>
         </div>
 
-        <Label className="mb-[10px]">Actieve sessies</Label>
+        <Label className="mb-[10px]">{t.settings.profile.sessionsLabel}</Label>
         {sessionsQ.isLoading ? (
           <Loading />
         ) : sessions.length === 0 ? (
-          <Empty text="Geen actieve sessies." />
+          <Empty text={t.settings.profile.sessionsEmpty} />
         ) : (
           <div className="mb-3 rounded-[18px] border border-line bg-elev px-4 py-0.5">
             {sessions.map((se, i) => (
@@ -1218,7 +1216,7 @@ export function Profile(): JSX.Element {
                 </div>
                 {!se.current && (
                   <MiniChip onClick={() => revokeSession.mutate(se.id)}>
-                    {revokeSession.isPending && revokeSession.variables === se.id ? '…' : 'Uitloggen'}
+                    {revokeSession.isPending && revokeSession.variables === se.id ? '…' : t.settings.profile.logOut}
                   </MiniChip>
                 )}
               </div>
@@ -1234,7 +1232,7 @@ export function Profile(): JSX.Element {
             disabled={revokeSession.isPending}
             onClick={() => setConfirmLogoutAll(true)}
           >
-            Alle andere apparaten uitloggen
+            {t.settings.profile.logOutAll}
           </Btn>
         )}
         <FormError error={revokeSession.isError ? revokeSession.error : null} />
@@ -1248,13 +1246,13 @@ export function Profile(): JSX.Element {
           className={!nameChanged || !profileValid ? 'opacity-[0.45]' : ''}
           onClick={() => updateProfile.mutate({ firstName: firstName.trim(), lastName: lastName.trim(), phone: phone.trim() })}
         >
-          {updateProfile.isPending ? 'Opslaan…' : 'Opslaan'}
+          {updateProfile.isPending ? t.settings.profile.saving : t.settings.profile.save}
         </Btn>
       </BottomBar>
       {confirmLogoutAll && (
         <Sheet onClose={() => setConfirmLogoutAll(false)} center={false}>
           <Note icon="warn">
-            Je logt {others.length} {others.length === 1 ? 'ander apparaat' : 'andere apparaten'} uit. Op {others.length === 1 ? 'dat apparaat' : 'die apparaten'} moet daarna opnieuw worden ingelogd. Dit apparaat blijft ingelogd.
+            {fmt(others.length === 1 ? t.settings.profile.logoutAllConfirmOne : t.settings.profile.logoutAllConfirmMany, { n: others.length })}
           </Note>
           <FormError error={revokeSession.isError ? revokeSession.error : null} />
           <Btn
@@ -1268,10 +1266,10 @@ export function Profile(): JSX.Element {
               setConfirmLogoutAll(false);
             }}
           >
-            {revokeSession.isPending ? 'Uitloggen…' : `Ja, log ${others.length} ${others.length === 1 ? 'apparaat' : 'apparaten'} uit`}
+            {revokeSession.isPending ? t.settings.profile.loggingOut : fmt(others.length === 1 ? t.settings.profile.logoutAllConfirmBtnOne : t.settings.profile.logoutAllConfirmBtnMany, { n: others.length })}
           </Btn>
           <Btn kind="ghost" full className="mt-2" onClick={() => setConfirmLogoutAll(false)}>
-            Annuleren
+            {t.settings.common.cancel}
           </Btn>
         </Sheet>
       )}
@@ -1284,11 +1282,11 @@ export function Profile(): JSX.Element {
 // nothing else: no Stripe call, no checkout, no invoices yet (Fase 13, #32). Any
 // member may view (RLS subscriptions_select_member).
 const SUB_STATUS: Record<PoSubscription['status'], { label: string; chip: string }> = {
-  trialing: { label: 'PROEFPERIODE', chip: 'bg-acc-dim text-acc' },
-  active: { label: 'ACTIEF', chip: 'bg-acc-dim text-acc' },
-  comped: { label: 'GRATIS · PILOT', chip: 'bg-acc-dim text-acc' },
-  past_due: { label: 'BETALING MISLUKT', chip: 'bg-red-300/15 text-red-300' },
-  canceled: { label: 'OPGEZEGD', chip: 'bg-elev2 text-faint' },
+  trialing: { label: t.settings.billing.statusTrialing, chip: 'bg-acc-dim text-acc' },
+  active: { label: t.settings.billing.statusActive, chip: 'bg-acc-dim text-acc' },
+  comped: { label: t.settings.billing.statusComped, chip: 'bg-acc-dim text-acc' },
+  past_due: { label: t.settings.billing.statusPastDue, chip: 'bg-red-300/15 text-red-300' },
+  canceled: { label: t.settings.billing.statusCanceled, chip: 'bg-elev2 text-faint' },
 };
 
 export function Billing(): JSX.Element {
@@ -1297,14 +1295,14 @@ export function Billing(): JSX.Element {
   const sub = subQ.data ?? null;
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Abonnement & facturen" />
+      <Top onBack={nav.back} title={t.settings.billing.title} />
       <Scroll bottom={28}>
         {subQ.isLoading ? (
-          <Empty text="Laden…" />
+          <Empty text={t.settings.billing.loading} />
         ) : subQ.isError ? (
-          <Empty text="Kon het abonnement niet laden." />
+          <Empty text={t.settings.billing.loadError} />
         ) : !sub ? (
-          <Empty text="Nog geen abonnement voor deze venue." />
+          <Empty text={t.settings.billing.empty} />
         ) : (
           <BillingBody sub={sub} />
         )}
@@ -1330,7 +1328,7 @@ function BillingBody({ sub }: { sub: PoSubscription }): JSX.Element {
           {sub.priceLabel.startsWith('€') && <span className="pb-[5px] text-[14px] text-dim">/ {sub.period}</span>}
         </div>
         <div className="grid grid-cols-2 gap-[10px]">
-          {([['Events', sub.events], ['Venue', sub.venueLabel], ['Verlengt', sub.renews], ['Status', st.label]] as const).map(([k, val]) => (
+          {([[t.settings.billing.fieldEvents, sub.events], [t.settings.billing.fieldVenue, sub.venueLabel], [t.settings.billing.fieldRenews, sub.renews], [t.settings.billing.fieldStatus, st.label]] as const).map(([k, val]) => (
             <div key={k}>
               <div className="text-[11.5px] text-dim">{k}</div>
               <div className="mt-0.5 font-display text-[14px] font-bold text-text">{val}</div>
@@ -1340,27 +1338,27 @@ function BillingBody({ sub }: { sub: PoSubscription }): JSX.Element {
       </div>
 
       {sub.status === 'past_due' && (
-        <Note icon="warn">Je laatste betaling is mislukt. Werk je betaalmethode bij in het betaalportaal om onderbreking te voorkomen.</Note>
+        <Note icon="warn">{t.settings.billing.pastDueBanner}</Note>
       )}
 
-      <Label className="mb-[10px]">Betaalmethode</Label>
+      <Label className="mb-[10px]">{t.settings.billing.paymentMethodLabel}</Label>
       <div className="mb-2 flex items-center gap-[13px] rounded-[18px] border border-line bg-elev p-4">
         <span className="flex h-[42px] w-[42px] items-center justify-center rounded-[12px] border border-line bg-elev2 text-acc">
           <Icon name="card" size={20} />
         </span>
         <div className="flex-1">
-          <div className="text-[14.5px] font-semibold text-text">SEPA-incasso &amp; iDEAL</div>
-          <div className="mt-0.5 text-[12.5px] text-faint">Beheerd via de betaalprovider</div>
+          <div className="text-[14.5px] font-semibold text-text">{t.settings.billing.paymentMethodTitle}</div>
+          <div className="mt-0.5 text-[12.5px] text-faint">{t.settings.billing.paymentMethodSub}</div>
         </div>
       </div>
       <div className="mb-[18px] flex items-start gap-[7px] pl-0.5 text-[12px] text-faint">
         <Icon name="shield" size={13} className="text-ghost" />
-        <span className="leading-[1.45]">Betalingen via SEPA-incasso &amp; iDEAL. We bewaren nooit zelf je IBAN — dat regelt de betaalprovider.</span>
+        <span className="leading-[1.45]">{t.settings.billing.paymentNote}</span>
       </div>
 
-      <Label className="mb-[10px]">Facturen</Label>
+      <Label className="mb-[10px]">{t.settings.billing.invoicesLabel}</Label>
       <div className="rounded-[18px] border border-dashed border-line bg-elev p-5 text-center">
-        <div className="text-[13.5px] leading-[1.5] text-faint">Facturen en het betaalportaal verschijnen hier zodra facturatie live gaat.</div>
+        <div className="text-[13.5px] leading-[1.5] text-faint">{t.settings.billing.invoicesSoon}</div>
       </div>
     </>
   );
@@ -1434,19 +1432,19 @@ export function Import(): JSX.Element {
   if (result) {
     return (
       <div className={col}>
-        <Top onBack={nav.back} title="Importeren" />
+        <Top onBack={nav.back} title={t.settings.import.title} />
         <Scroll bottom={100}>
           <div className="mb-4 flex flex-col items-center gap-3 rounded-[18px] bg-acc-dim p-6 text-center">
             <span className="flex h-[52px] w-[52px] items-center justify-center rounded-[16px] bg-acc">
               <Icon name="check2" size={28} stroke="#16132B" sw={2.4} />
             </span>
-            <div className="font-display text-[22px] font-extrabold text-text">Klaar!</div>
+            <div className="font-display text-[22px] font-extrabold text-text">{t.settings.import.doneTitle}</div>
             <div className="text-[13.5px] leading-[1.5] text-text">
-              {result.inserted} nieuw · {result.updated} bijgewerkt · {result.skipped} overgeslagen
+              {fmt(t.settings.import.doneSummary, { inserted: result.inserted, updated: result.updated, skipped: result.skipped })}
             </div>
           </div>
           <Note icon="contact">
-            Nieuwe en bijgewerkte contacten staan nu in je adresboek. Dubbele zijn samengevoegd — bestaande gegevens blijven behouden.
+            {t.settings.import.doneNote}
           </Note>
         </Scroll>
         <BottomBar>
@@ -1459,7 +1457,7 @@ export function Import(): JSX.Element {
               nav.back();
             }}
           >
-            Naar adresboek
+            {t.settings.import.toContacts}
           </Btn>
         </BottomBar>
       </div>
@@ -1467,18 +1465,18 @@ export function Import(): JSX.Element {
   }
 
   const sources: [ImportSource | 'soon', IconName, string][] = [
-    ['paste', 'paste', 'Plak lijst'],
-    ['csv', 'upload', 'CSV'],
-    ['soon', 'contact', 'Telefoon'],
-    ['soon', 'ticket', 'Vorig event'],
+    ['paste', 'paste', t.settings.import.sourcePaste],
+    ['csv', 'upload', t.settings.import.sourceCsv],
+    ['soon', 'contact', t.settings.import.sourcePhone],
+    ['soon', 'ticket', t.settings.import.sourceLastEvent],
   ];
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title="Importeren" />
+      <Top onBack={nav.back} title={t.settings.import.title} />
       <Scroll bottom={total > 0 ? 110 : 40}>
         <div className="mb-[14px] text-[13.5px] leading-[1.5] text-faint">
-          Iedereen die ooit op een lijst stond in één keer in je adresboek. Dubbele worden automatisch herkend en gekoppeld.
+          {t.settings.import.intro}
         </div>
         <div className="po-scroll mb-4 flex gap-2 overflow-x-auto">
           {sources.map(([key, ic, l]) => {
@@ -1503,7 +1501,7 @@ export function Import(): JSX.Element {
               >
                 <Icon name={ic} size={15} sw={2.1} />
                 {l}
-                {soon && <span className="text-[10px] font-bold text-faint">binnenkort</span>}
+                {soon && <span className="text-[10px] font-bold text-faint">{t.settings.import.sourceSoon}</span>}
               </button>
             );
           })}
@@ -1513,7 +1511,7 @@ export function Import(): JSX.Element {
           <>
             <label className={cn('mb-3 flex cursor-pointer items-center justify-center gap-2 rounded-[14px] border border-dashed border-line bg-elev py-[14px] font-display text-[14px] font-bold text-text', press)}>
               <Icon name="upload" size={17} />
-              Kies een CSV-bestand
+              {t.settings.import.pickCsv}
               <input type="file" accept=".csv,text/csv,text/plain" className="hidden" onChange={(e) => onPickFile(e.target.files?.[0])} />
             </label>
             {text.trim() !== '' && (
@@ -1526,8 +1524,8 @@ export function Import(): JSX.Element {
                   {firstRowIsHeader && <Icon name="check" size={13} stroke="#16132B" sw={3} />}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block font-display text-[13.5px] font-bold text-text">Eerste regel is een koprij</span>
-                  <span className="block text-[11.5px] text-faint">Zet uit als je lijst meteen met een contact begint</span>
+                  <span className="block font-display text-[13.5px] font-bold text-text">{t.settings.import.headerTitle}</span>
+                  <span className="block text-[11.5px] text-faint">{t.settings.import.headerSub}</span>
                 </span>
               </button>
             )}
@@ -1540,8 +1538,8 @@ export function Import(): JSX.Element {
           rows={5}
           placeholder={
             source === 'csv'
-              ? 'naam,email,telefoon,rol\nAnouk Smit,anouk@mail.nl,0612345678,vip'
-              : 'Anouk Smit, anouk@mail.nl\nPim Scholten\nFemke Bakker, +31612345678'
+              ? t.settings.import.csvPlaceholder
+              : t.settings.import.pastePlaceholder
           }
           className="mb-4 w-full resize-y rounded-[14px] border border-line bg-elev p-[14px] font-body text-[14.5px] leading-[1.5] text-text outline-none placeholder:text-faint"
         />
@@ -1550,14 +1548,14 @@ export function Import(): JSX.Element {
           <>
             <div className="mb-[10px] flex items-center justify-between">
               <Label>
-                Herkend · {total} {total === 1 ? 'contact' : 'contacten'}
+                {fmt(total === 1 ? t.settings.import.recognizedOne : t.settings.import.recognizedMany, { n: total })}
               </Label>
               <div className="flex gap-1.5">
-                <MiniChip className="border-transparent bg-acc-dim text-acc">{newCount} nieuw</MiniChip>
-                {dupCount > 0 && <MiniChip>{dupCount} bestaat al</MiniChip>}
+                <MiniChip className="border-transparent bg-acc-dim text-acc">{fmt(t.settings.import.newCount, { n: newCount })}</MiniChip>
+                {dupCount > 0 && <MiniChip>{fmt(t.settings.import.existsCount, { n: dupCount })}</MiniChip>}
               </div>
             </div>
-            {keysQ.isLoading && <div className="mb-2 text-[12px] text-faint">Dubbele controleren…</div>}
+            {keysQ.isLoading && <div className="mb-2 text-[12px] text-faint">{t.settings.import.checkingDuplicates}</div>}
             <div className="flex flex-col gap-2">
               {classified.slice(0, 50).map(({ row, exists }, i) => (
                 <div key={`${row.fullName}-${i}`} className="flex items-center gap-[11px] rounded-[13px] border border-line bg-elev px-[12px] py-[10px]">
@@ -1567,27 +1565,27 @@ export function Import(): JSX.Element {
                     {(row.email || row.phone) && <div className="truncate text-[11.5px] text-faint">{row.email ?? row.phone}</div>}
                   </div>
                   <span className={cn('shrink-0 rounded-[7px] px-2 py-[3px] text-[10.5px] font-bold', exists ? 'bg-acc-dim text-acc' : 'border border-line text-text')}>
-                    {exists ? 'BESTAAT AL' : 'NIEUW'}
+                    {exists ? t.settings.import.rowExists : t.settings.import.rowNew}
                   </span>
                 </div>
               ))}
             </div>
-            {total > 50 && <div className="mt-2 text-center text-[12px] text-faint">+{total - 50} meer worden ook geïmporteerd</div>}
-            {intraSkipped > 0 && <div className="mt-2 text-[12px] text-faint">{intraSkipped} dubbele in je lijst overgeslagen.</div>}
+            {total > 50 && <div className="mt-2 text-center text-[12px] text-faint">{fmt(t.settings.import.moreImported, { n: total - 50 })}</div>}
+            {intraSkipped > 0 && <div className="mt-2 text-[12px] text-faint">{fmt(t.settings.import.intraSkipped, { n: intraSkipped })}</div>}
           </>
         )}
 
         {importMut.isError && (
           <div className="mt-3 flex items-center gap-[9px] rounded-[13px] border border-acc bg-acc-dim px-[14px] py-[11px] text-[13px] text-text">
             <Icon name="warn" size={16} stroke="#B5A6FF" />
-            <span className="flex-1">{importMut.error?.message ?? 'Importeren mislukt.'}</span>
+            <span className="flex-1">{importMut.error?.message ?? t.settings.import.importError}</span>
           </div>
         )}
       </Scroll>
       {total > 0 && (
         <BottomBar>
           <Btn kind="primary" full icon="check" disabled={!canImport} className={canImport ? '' : 'opacity-[0.45]'} onClick={commit}>
-            {importMut.isPending ? 'Importeren…' : `Importeer ${total} ${total === 1 ? 'contact' : 'contacten'}`}
+            {importMut.isPending ? t.settings.import.importing : fmt(total === 1 ? t.settings.import.importOne : t.settings.import.importMany, { n: total })}
           </Btn>
         </BottomBar>
       )}

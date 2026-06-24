@@ -13,6 +13,7 @@ import type { Venue } from '@/lib/po/types';
 import { usePoDoorCandidates, usePoEvents, usePoGuests } from '@/features/po/hooks';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canWorkDoor } from '@/features/auth/roles';
+import { venueCapabilities } from '@/features/venues/access';
 import { DoorProvider } from '@/features/door/DoorProvider';
 import { DoorQueryProvider } from '@/features/door/DoorQueryProvider';
 import { setActiveVenueAction } from '@/features/venues/actions';
@@ -38,6 +39,7 @@ import { DoorEventPicker, PoDoorTab, type DoorOverlay } from './screens/door';
 import { Allowance, Billing, Gebruikers, Import, Meer, Profile, Rollen, VenueSettings, VenueSwitch } from './screens/settings';
 import { VenueCreate } from './screens/onboarding';
 import { Home } from './screens/home';
+import { t, fmt } from '@/lib/i18n';
 
 /**
  * Code-split (#2a): the heavy/rare screens below each live in their own module
@@ -54,7 +56,7 @@ import { Home } from './screens/home';
  * regardless; a dynamic import there would add a Suspense boundary for no size win.
  */
 const ScreenLoading = (): JSX.Element => (
-  <div className="flex h-full flex-1 items-center justify-center text-[14px] text-faint">Even laden…</div>
+  <div className="flex h-full flex-1 items-center justify-center text-[14px] text-faint">{t.common.loading}</div>
 );
 const Stats = dynamic(() => import('./screens/stats').then((m) => m.Stats), {
   loading: ScreenLoading,
@@ -82,6 +84,7 @@ const Aanvragen = dynamic(() => import('./screens/approvals').then((m) => m.Aanv
 const WIDE_DESKTOP: Record<string, string> = {
   start: 'max-w-[1080px]',
   events: 'max-w-[1080px]',
+  guests: 'max-w-[1080px]',
   lijst: 'max-w-[1080px]',
   stats: 'max-w-[1080px]',
   audit: 'max-w-[1080px]',
@@ -97,8 +100,8 @@ const WIDE_DESKTOP: Record<string, string> = {
 function Loading({ onBack }: { onBack: () => void }): JSX.Element {
   return (
     <div className="flex h-full flex-col">
-      <Top onBack={onBack} title="Laden…" />
-      <div className="flex flex-1 items-center justify-center text-[14px] text-faint">Even laden…</div>
+      <Top onBack={onBack} title={t.common.loading} />
+      <div className="flex flex-1 items-center justify-center text-[14px] text-faint">{t.common.loading}</div>
     </div>
   );
 }
@@ -152,6 +155,8 @@ export function PlusOneApp({
   // S1.3: when the user opens "Check-in" from a specific event card, that event id
   // overrides the venue-wide auto-pick for the Deur/Taken tabs. null = auto-pick.
   const [doorEventId, setDoorEventId] = useState<string | null>(null);
+  // Merged Door tab: Check-in ('deur') / Tasks ('taken') segment (was two tabs).
+  const [doorSeg, setDoorSeg] = useState<'deur' | 'taken'>('deur');
   const [venue, setVenueState] = useState<Venue>(() => venues.find((v) => v.current) ?? venues[0]);
   const [toast, setToast] = useState<string | null>(null);
   const [key, setKey] = useState(0);
@@ -189,6 +194,9 @@ export function PlusOneApp({
   const showDoor = canWorkDoor(roles);
   const { data: liveEvents } = usePoEvents();
   const events = liveEvents ?? [];
+  // The Guests tab lands on the next/active event's list (first upcoming); switch
+  // to another event via the Events tab. Guests is now a first-class destination.
+  const featuredGuestsEvent = events.find((e) => e.when === 'upcoming') ?? null;
   // Non-closed events for the door (live-first). Selection-first (S1.3): an explicit
   // pick (doorEventId, set by "Check-in" from an event card) wins; with exactly one
   // candidate we use it; with several, the user chooses — no auto-pick guess. Only
@@ -229,6 +237,7 @@ export function PlusOneApp({
     openDoor: (eventId: string) => {
       setDoorEventId(eventId);
       setTabState('deur');
+      setDoorSeg('deur');
       setStack([]);
       setDoorOverlay(null);
       bump();
@@ -255,7 +264,7 @@ export function PlusOneApp({
   const switchVenue = (v: Venue): void => {
     setVenueState(v);
     setDoorEventId(null); // the override belongs to the old venue's events (S1.3)
-    setToast('Gewisseld naar ' + v.name);
+    setToast(fmt(t.venue.switched, { name: v.name }));
     setTimeout(() => setToast(null), 2200);
     nav.back();
   };
@@ -268,7 +277,7 @@ export function PlusOneApp({
       nav.back();
       return;
     }
-    setToast('Wisselen…');
+    setToast(t.venue.switching);
     const fd = new FormData();
     fd.set('venueId', venueId);
     void setActiveVenueAction(fd).then(() => window.location.assign('/app'));
@@ -280,7 +289,7 @@ export function PlusOneApp({
   // The Deur/Taken tabs render inside DoorProvider (door branch below). A door
   // overlay (guest detail / add) is treated like a pushed screen: it hides the
   // mobile tab bar so the detail goes full-screen with its own action bar.
-  const isDoorTab = showDoor && started && stack.length === 0 && (tab === 'deur' || tab === 'taken');
+  const isDoorTab = showDoor && started && stack.length === 0 && tab === 'deur';
   const doorOverlayOpen = isDoorTab && doorOverlay !== null;
   const tabRoot = started && stack.length === 0 && !doorOverlayOpen;
 
@@ -326,7 +335,7 @@ export function PlusOneApp({
         screen = <BulkPaste eventId={p.id} />;
         break;
       case 'aanvragen':
-        screen = <Aanvragen eventId={p.id} />;
+        screen = <Aanvragen eventId={p.id} initialTab={p.tab} />;
         break;
       case 'eventedit':
         screen = <EventEdit id={p.id} isNew={p.isNew} />;
@@ -375,9 +384,15 @@ export function PlusOneApp({
     }
   } else if (tab === 'start') screen = <Home />;
   else if (tab === 'events') screen = <Events />;
+  else if (tab === 'guests')
+    screen = featuredGuestsEvent ? (
+      <Lijst ev={featuredGuestsEvent} />
+    ) : (
+      <DoorTabState title={t.nav.guests} text={t.guestsTab.empty} />
+    );
   else if (tab === 'meer') screen = <Meer />;
-  // 'deur' / 'taken' render via the door branch below when allowed; for a
-  // non-door role (showDoor=false) the tabs are hidden, so fall back to the home.
+  // 'deur' renders via the door branch below when allowed; for a non-door role
+  // (showDoor=false) the tab is hidden, so fall back to the home.
   else screen = <Home />;
 
   const po: PoApp = {
@@ -411,37 +426,55 @@ export function PlusOneApp({
   // Signed-in: responsive shell — desktop sidebar ≥1024px, mobile tabs below it
   // (S0 nav-shell). Screens are unchanged for now; wired live per S1+.
   const currentKey =
-    top?.name === 'stats' ? 'stats' : top?.name === 'gebruikers' ? 'gebruikers' : tab;
+    top?.name === 'stats'
+      ? 'stats'
+      : top?.name === 'gebruikers'
+        ? 'gebruikers'
+        : top?.name === 'aanvragen'
+          ? 'aanvragen'
+          : tab;
+  const caps = venueCapabilities(roles);
+  const canViewStats = (statsAccess?.venues.length ?? 0) > 0;
+  // Venue-wide approval inbox in the desktop sidebar. Gated on admin — the
+  // reliable venue-level decider (organizers act per-event, finance is read-only).
+  // Everyone still reaches requests via Home's clickable tiles / per-event cards.
+  const canDecideRequests = roles.includes('admin');
   const navItems: ShellNavItem[] = [
-    { key: 'start', label: 'Start', icon: 'grid', active: currentKey === 'start', onClick: () => nav.setTab('start') },
-    { key: 'events', label: 'Events', icon: 'cal', active: currentKey === 'events', onClick: () => nav.setTab('events') },
+    { key: 'start', section: 'main', label: t.nav.home, icon: 'grid', active: currentKey === 'start', onClick: () => nav.setTab('start') },
+    { key: 'events', section: 'main', label: t.nav.events, icon: 'cal', active: currentKey === 'events', onClick: () => nav.setTab('events') },
+    { key: 'guests', section: 'main', label: t.nav.guests, icon: 'user', active: currentKey === 'guests', onClick: () => nav.setTab('guests') },
     ...(showDoor
-      ? ([
-          { key: 'deur', label: 'Check-in', icon: 'door', active: currentKey === 'deur', onClick: () => nav.setTab('deur') },
-          { key: 'taken', label: 'Taken', icon: 'flag', active: currentKey === 'taken', onClick: () => nav.setTab('taken') },
-        ] as ShellNavItem[])
+      ? ([{ key: 'deur', section: 'main', label: t.nav.door, icon: 'door', active: currentKey === 'deur', onClick: () => nav.setTab('deur') }] as ShellNavItem[])
       : []),
-    { key: 'stats', label: 'Statistieken', icon: 'spark', active: currentKey === 'stats', onClick: () => nav.push('stats') },
-    { key: 'gebruikers', label: 'Gebruikers', icon: 'users', active: currentKey === 'gebruikers', onClick: () => nav.push('gebruikers') },
-    { key: 'meer', label: 'Meer', icon: 'dots', active: currentKey === 'meer', onClick: () => nav.setTab('meer') },
+    ...(canDecideRequests
+      ? ([{ key: 'aanvragen', section: 'more', label: t.nav.requests, icon: 'inbox', active: currentKey === 'aanvragen', onClick: () => nav.push('aanvragen') }] as ShellNavItem[])
+      : []),
+    ...(canViewStats
+      ? ([{ key: 'stats', section: 'more', label: t.nav.analytics, icon: 'spark', active: currentKey === 'stats', onClick: () => nav.push('stats') }] as ShellNavItem[])
+      : []),
+    ...(caps.viewTeam
+      ? ([{ key: 'gebruikers', section: 'more', label: t.nav.team, icon: 'users', active: currentKey === 'gebruikers', onClick: () => nav.push('gebruikers') }] as ShellNavItem[])
+      : []),
+    { key: 'meer', section: 'more', label: t.nav.more, icon: 'dots', active: currentKey === 'meer', onClick: () => nav.setTab('meer') },
   ];
   // Mobile bottom tabs — non-door roles drop Deur/Taken (default would show all).
   const mobileTabs: TabKey[] = showDoor
-    ? ['start', 'events', 'deur', 'taken', 'meer']
-    : ['start', 'events', 'meer'];
+    ? ['start', 'events', 'guests', 'deur', 'meer']
+    : ['start', 'events', 'guests', 'meer'];
 
   // Door branch: mount the real DoorProvider (offline outbox + realtime) for the
   // venue's current event and render the shared door components. Kept mounted
   // across Deur↔Taken (both are door tabs) so realtime/cache survive the switch;
   // unmounts when leaving for another tab. No event resolvable → empty state.
-  const doorTitle = tab === 'taken' ? 'Taken' : 'Check-in';
+  const doorTitle = doorSeg === 'taken' ? t.door.tasksTitle : t.door.checkinTitle;
   let doorBranch: ReactNode;
   if (resolvedDoorId) {
     doorBranch = (
       <DoorQueryProvider>
         <DoorProvider eventId={resolvedDoorId}>
           <PoDoorTab
-            tab={tab === 'taken' ? 'taken' : 'deur'}
+            tab={doorSeg}
+            onTab={setDoorSeg}
             overlay={doorOverlay}
             openGuest={openGuest}
             openAdd={openAdd}
@@ -453,13 +486,13 @@ export function PlusOneApp({
       </DoorQueryProvider>
     );
   } else if (doorCandidatesQuery.isLoading) {
-    doorBranch = <DoorTabState title={doorTitle} text="Even laden…" />;
+    doorBranch = <DoorTabState title={doorTitle} text={t.common.loading} />;
   } else if (doorCandidates.length > 1) {
     // Several live/open events and nothing picked yet → choose first (S1.3). The
     // /app shell keeps the bottom-tab menu visible around this picker.
     doorBranch = <DoorEventPicker events={doorCandidates} onPick={setDoorEventId} />;
   } else {
-    doorBranch = <DoorTabState title={doorTitle} text="Geen actief event om in te checken. Maak of open eerst een event." />;
+    doorBranch = <DoorTabState title={doorTitle} text={t.door.noEvent} />;
   }
 
   // Wide desktop screens (home dashboard, guest table, stats charts, audit table)
@@ -478,7 +511,7 @@ export function PlusOneApp({
         navItems={navItems}
         venueName={liveVenueName ?? venue.name}
         onOpenVenue={() => nav.push('venueswitch')}
-        userName={liveUserName ?? 'Account'}
+        userName={liveUserName ?? t.common.account}
         userSub={liveUserSub ?? ''}
         mainMaxClass={desktopMainMax}
       >

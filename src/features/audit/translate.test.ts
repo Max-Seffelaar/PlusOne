@@ -37,7 +37,7 @@ describe('describeAuditEntry', () => {
       })
     );
     expect(line.actor).toBe('Max');
-    expect(line.text).toBe('verplaatste Juri Braakman van Regular naar VIP');
+    expect(line.text).toBe('moved Juri Braakman from Regular to VIP');
     expect(line.entity).toBe('Juri Braakman');
     expect(line.guestId).toBe('g1');
   });
@@ -46,7 +46,7 @@ describe('describeAuditEntry', () => {
     const line = describeAuditEntry(
       row({ action: 'create', new_tier_name: 'VIP', diff: { before: null, after: { full_name: 'Juri Braakman' } } })
     );
-    expect(line.text).toBe('voegde Juri Braakman toe (VIP)');
+    expect(line.text).toBe('added Juri Braakman (VIP)');
   });
 
   it('describes a door check-in with plus-ones arrived', () => {
@@ -58,7 +58,7 @@ describe('describeAuditEntry', () => {
         diff: { before: null, after: { guest_id: 'g1', plus_ones_arrived: 2 } },
       })
     );
-    expect(line.text).toBe('checkte Juri Braakman +2 in aan de deur');
+    expect(line.text).toBe('checked in Juri Braakman +2 at the door');
     expect(line.device).toBe('door-ipad-01');
   });
 
@@ -70,26 +70,26 @@ describe('describeAuditEntry', () => {
         diff: { before: null, after: { guest_id: 'g1', reason: 'Geen geldig ID' } },
       })
     );
-    expect(line.text).toBe('weigerde Juri Braakman — reden: Geen geldig ID');
+    expect(line.text).toBe('refused Juri Braakman, reason: Geen geldig ID');
   });
 
   it('describes a soft delete', () => {
     const line = describeAuditEntry(row({ action: 'delete' }));
-    expect(line.text).toBe('verwijderde Juri Braakman (soft delete)');
+    expect(line.text).toBe('removed Juri Braakman (soft delete)');
   });
 
-  it('describes the "Let op!" note acknowledgement (#39)', () => {
+  it('describes the "Heads up!" note acknowledgement (#39)', () => {
     const line = describeAuditEntry(
       row({ action: 'update', diff: { before: { note_acknowledged_at: null }, after: { note_acknowledged_at: '2026-06-20T22:00:00Z' } } })
     );
-    expect(line.text).toBe('vinkte de let-op-notitie van Juri Braakman af');
+    expect(line.text).toBe('acknowledged the heads-up note on Juri Braakman');
   });
 
   it('describes a plus-ones change', () => {
     const line = describeAuditEntry(
       row({ action: 'update', diff: { before: { plus_ones: 1 }, after: { plus_ones: 3 } } })
     );
-    expect(line.text).toBe('wijzigde Juri Braakman naar +3 (was +1)');
+    expect(line.text).toBe('changed Juri Braakman to +3 (was +1)');
   });
 
   it('describes an event quota grant with the raise', () => {
@@ -103,7 +103,7 @@ describe('describeAuditEntry', () => {
         diff: { before: { quota_override: 10 }, after: { quota_override: 13 } },
       })
     );
-    expect(line.text).toBe('verhoogde het event-quotum van Tom Bakker (10 → 13)');
+    expect(line.text).toBe('raised the event quota for Tom Bakker (10 → 13)');
     expect(line.entity).toBe('Tom Bakker');
   });
 
@@ -117,7 +117,7 @@ describe('describeAuditEntry', () => {
         diff: { before: { status: 'pending' }, after: { status: 'approved' } },
       })
     );
-    expect(line.text).toBe('keurde het quotum-verzoek van Tom Bakker goed');
+    expect(line.text).toBe('approved the quota request from Tom Bakker');
   });
 
   it('describes a membership role change', () => {
@@ -130,7 +130,7 @@ describe('describeAuditEntry', () => {
         diff: { before: { roles: ['staff'] }, after: { roles: ['staff', 'doorhost'] } },
       })
     );
-    expect(line.text).toBe('wijzigde de rollen van Lisa (staff → staff, doorhost)');
+    expect(line.text).toBe("changed Lisa's roles (staff → staff, doorhost)");
   });
 
   it('describes a landing-page request decision (#12)', () => {
@@ -142,7 +142,7 @@ describe('describeAuditEntry', () => {
         diff: { before: { status: 'pending', full_name: 'Mara Visser' }, after: { status: 'approved', full_name: 'Mara Visser' } },
       })
     );
-    expect(approve.text).toBe('keurde de landingpage-aanvraag van Mara Visser goed');
+    expect(approve.text).toBe('approved the landing page request from Mara Visser');
     const deny = describeAuditEntry(
       row({
         entity_type: 'guest_requests',
@@ -151,40 +151,40 @@ describe('describeAuditEntry', () => {
         diff: { before: { full_name: 'Mara Visser' }, after: { full_name: 'Mara Visser', decision_reason: 'Vol' } },
       })
     );
-    expect(deny.text).toBe('wees de landingpage-aanvraag van Mara Visser af — Vol');
+    expect(deny.text).toBe('denied the landing page request from Mara Visser, Vol');
   });
 
   it('describes lock / unlock', () => {
     expect(describeAuditEntry(row({ entity_type: 'events', action: 'lock', guest_name: null })).text).toBe(
-      'vergrendelde de gastenlijst'
+      'locked the list'
     );
     expect(describeAuditEntry(row({ entity_type: 'events', action: 'unlock', guest_name: null })).text).toBe(
-      'ontgrendelde de gastenlijst'
+      'unlocked the list'
     );
   });
 
-  it('falls back to "Systeem" for a null actor', () => {
-    expect(describeAuditEntry(row({ actor_name: null })).actor).toBe('Systeem');
+  it('falls back to "System" for a null actor', () => {
+    expect(describeAuditEntry(row({ actor_name: null })).actor).toBe('System');
   });
 });
 
 describe('formatWhen', () => {
   const now = new Date('2026-06-20T12:00:00+02:00'); // Amsterdam midday
 
-  it('labels same-day entries "Vandaag HH:MM" in Amsterdam TZ', () => {
+  it('labels same-day entries "Today HH:MM" in Amsterdam TZ', () => {
     // 21:14Z = 23:14 in Amsterdam (+02 summer time).
-    expect(formatWhen('2026-06-20T21:14:00Z', now)).toBe('Vandaag 23:14');
+    expect(formatWhen('2026-06-20T21:14:00Z', now)).toBe('Today 23:14');
   });
 
-  it('labels the previous day "Gisteren HH:MM"', () => {
-    expect(formatWhen('2026-06-19T18:00:00+02:00', now)).toBe('Gisteren 18:00');
+  it('labels the previous day "Yesterday HH:MM"', () => {
+    expect(formatWhen('2026-06-19T18:00:00+02:00', now)).toBe('Yesterday 18:00');
   });
 
   it('labels anything older than yesterday by its date (no weekday)', () => {
-    // Within a week (2026-06-16) now shows the date, not "di".
-    expect(formatWhen('2026-06-16T20:30:00+02:00', now)).toBe('16 jun 20:30');
+    // Within a week (2026-06-16) now shows the date, not "Tue".
+    expect(formatWhen('2026-06-16T20:30:00+02:00', now)).toBe('16 Jun 20:30');
     // Older than a week stays a date too.
-    expect(formatWhen('2026-06-01T20:30:00+02:00', now)).toBe('1 jun 20:30');
+    expect(formatWhen('2026-06-01T20:30:00+02:00', now)).toBe('1 Jun 20:30');
   });
 
   it('returns empty string for a missing timestamp', () => {

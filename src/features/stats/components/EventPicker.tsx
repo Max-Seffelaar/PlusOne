@@ -33,7 +33,7 @@ export function EventPicker({
     <div className="inline-flex items-center gap-[9px] rounded-[12px] border border-line bg-elev px-[14px] py-[10px]">
       <span className="h-2 w-2 rounded-full bg-acc" />
       <select
-        aria-label="Kies event"
+        aria-label="Pick an event"
         value={current}
         disabled={pending}
         onChange={(e) => onChange(e.target.value)}

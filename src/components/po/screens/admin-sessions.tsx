@@ -23,7 +23,7 @@ const sessionIcon = (device: string): IconName => (/mac|windows|linux/i.test(dev
 
 function FormError({ error }: { error: unknown }): JSX.Element | null {
   if (!error) return null;
-  const msg = error instanceof Error && error.message ? error.message : 'Er ging iets mis.';
+  const msg = error instanceof Error && error.message ? error.message : 'Something went wrong.';
   return (
     <p className="mt-3 text-[12.5px] leading-[1.45] text-red-300" role="alert">
       {msg}
@@ -43,9 +43,9 @@ export function AdminSessions(): JSX.Element {
   if (!isAdmin) {
     return (
       <div className={col}>
-        <Top onBack={nav.back} title="Sessies" />
+        <Top onBack={nav.back} title="Sessions" />
         <Scroll bottom={28}>
-          <Empty text="Alleen beheerders kunnen de sessies van teamleden beheren." />
+          <Empty text="Only admins can manage team members' sessions." />
         </Scroll>
       </div>
     );
@@ -55,24 +55,24 @@ export function AdminSessions(): JSX.Element {
   if (!aal.isAal2) {
     return (
       <div className={col}>
-        <Top onBack={nav.back} title="Sessies & remote logout" sub={venueName ?? undefined} />
+        <Top onBack={nav.back} title="Team sessions" sub={venueName ?? undefined} />
         <Scroll bottom={28}>
           <Note icon="shield">
-            Sessiebeheer en het op afstand uitloggen van teamleden vereisen een MFA-geverifieerde sessie.
+            Managing sessions and logging out team members remotely needs an MFA-verified session.
           </Note>
           {aal.loading ? (
-            <Empty text="Laden…" />
+            <Empty text="Loading…" />
           ) : (
             <div className="rounded-[18px] border border-acc-dim bg-acc-dim p-5">
               <div className="mb-1 flex items-center gap-[10px]">
                 <Icon name="shield" size={20} stroke="#B5A6FF" />
-                <span className="font-display text-[16px] font-bold text-text">MFA vereist</span>
+                <span className="font-display text-[16px] font-bold text-text">MFA required</span>
               </div>
               <div className="mb-4 text-[13px] leading-[1.5] text-dim">
-                Verifieer met je authenticator om de apparaten van een teamlid te beheren.
+                Verify with your authenticator to manage a team member&apos;s devices.
               </div>
               <Btn kind="primary" full icon="shield" onClick={() => mfa.start(() => aal.recheck())}>
-                Verifieer met MFA
+                Verify with MFA
               </Btn>
             </div>
           )}
@@ -102,16 +102,16 @@ function MemberPicker({
   const members = team.data ?? [];
   return (
     <div className={col}>
-      <Top onBack={onBack} title="Sessies & remote logout" sub={venueName ?? undefined} />
+      <Top onBack={onBack} title="Team sessions" sub={venueName ?? undefined} />
       <Scroll bottom={28}>
         <Note icon="shield">
-          Kies een teamlid om hun actieve apparaten te bekijken en zo nodig op afstand uit te loggen.
+          Pick a member to see their active devices and log them out remotely if needed.
         </Note>
-        <Label className="mb-[10px]">Teamlid kiezen</Label>
+        <Label className="mb-[10px]">Pick a member</Label>
         {team.isLoading ? (
-          <Empty text="Laden…" />
+          <Empty text="Loading…" />
         ) : members.length === 0 ? (
-          <Empty text="Geen teamleden in deze venue." />
+          <Empty text="No team members in this venue." />
         ) : (
           <div className="flex flex-col gap-2">
             {members.map((m) => (
@@ -126,7 +126,7 @@ function MemberPicker({
               >
                 <Avatar name={m.name || m.email} size={40} />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[14.5px] font-semibold text-text">{m.name || 'Naamloos'}</div>
+                  <div className="truncate text-[14.5px] font-semibold text-text">{m.name || 'No name'}</div>
                   <div className="mt-0.5 truncate text-[12px] text-faint">
                     {m.email} · {m.rolesLabel}
                   </div>
@@ -156,17 +156,17 @@ function MemberSessions({
   const [confirmAll, setConfirmAll] = useState(false);
   return (
     <div className={col}>
-      <Top onBack={onBack} title={member.name || member.email} sub={`Actieve apparaten · ${venueName ?? ''}`} />
+      <Top onBack={onBack} title={member.name || member.email} sub={`Active devices · ${venueName ?? ''}`} />
       <Scroll bottom={28}>
         <Note icon="shield">
-          Op afstand uitloggen beëindigt de sessie op dat apparaat — daar moet daarna opnieuw worden ingelogd.
+          Logging out remotely ends the session on that device. They&apos;ll need to log in again there.
         </Note>
         {sessionsQ.isLoading ? (
-          <Empty text="Laden…" />
+          <Empty text="Loading…" />
         ) : sessionsQ.isError ? (
-          <Empty text="Kon de sessies niet laden." />
+          <Empty text="Couldn't load the sessions." />
         ) : sessions.length === 0 ? (
-          <Empty text="Geen actieve sessies." />
+          <Empty text="No active sessions." />
         ) : (
           <div className="rounded-[18px] border border-line bg-elev px-4 py-0.5">
             {sessions.map((se, i) => (
@@ -187,7 +187,7 @@ function MemberSessions({
                   </div>
                 </div>
                 <MiniChip onClick={() => revoke.mutate(se.id)}>
-                  {revoke.isPending && revoke.variables === se.id ? '…' : 'Uitloggen'}
+                  {revoke.isPending && revoke.variables === se.id ? '…' : 'Log out'}
                 </MiniChip>
               </div>
             ))}
@@ -202,7 +202,7 @@ function MemberSessions({
             disabled={revoke.isPending}
             onClick={() => setConfirmAll(true)}
           >
-            Log {member.name.split(' ')[0] || 'dit lid'} overal uit
+            Log {member.name.split(' ')[0] || 'this member'} out everywhere
           </Btn>
         )}
         <FormError error={revoke.isError ? revoke.error : null} />
@@ -210,8 +210,8 @@ function MemberSessions({
       {confirmAll && (
         <Sheet onClose={() => setConfirmAll(false)} center={false}>
           <Note icon="warn">
-            Je logt {member.name || member.email} uit op {sessions.length}{' '}
-            {sessions.length === 1 ? 'apparaat' : 'apparaten'}. Daar moet daarna opnieuw worden ingelogd.
+            You&apos;ll log {member.name || member.email} out on {sessions.length}{' '}
+            {sessions.length === 1 ? 'device' : 'devices'}. They&apos;ll need to log in again there.
           </Note>
           <Btn
             kind="primary"
@@ -224,10 +224,10 @@ function MemberSessions({
               setConfirmAll(false);
             }}
           >
-            {revoke.isPending ? 'Uitloggen…' : 'Ja, log overal uit'}
+            {revoke.isPending ? 'Logging out…' : 'Yes, log out everywhere'}
           </Btn>
           <Btn kind="ghost" full className="mt-2" onClick={() => setConfirmAll(false)}>
-            Annuleren
+            Cancel
           </Btn>
         </Sheet>
       )}

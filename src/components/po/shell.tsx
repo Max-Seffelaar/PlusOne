@@ -8,9 +8,10 @@
  */
 import { useEffect, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import { Icon, type IconName } from './icon';
 
-export type TabKey = 'start' | 'events' | 'deur' | 'taken' | 'meer';
+export type TabKey = 'start' | 'events' | 'guests' | 'deur' | 'meer';
 
 export function StatusBar(): JSX.Element {
   return (
@@ -36,11 +37,11 @@ export function StatusBar(): JSX.Element {
 }
 
 const TABS: [TabKey, string, IconName][] = [
-  ['start', 'Start', 'grid'],
-  ['events', 'Events', 'cal'],
-  ['deur', 'Check-in', 'user'],
-  ['taken', 'Taken', 'flag'],
-  ['meer', 'Meer', 'cog'],
+  ['start', t.nav.home, 'grid'],
+  ['events', t.nav.events, 'cal'],
+  ['guests', t.nav.guests, 'user'],
+  ['deur', t.nav.door, 'door'],
+  ['meer', t.nav.more, 'cog'],
 ];
 
 export function TabBar({
@@ -130,10 +131,10 @@ function StageHead(): JSX.Element {
         <div className="flex h-[34px] w-[34px] items-center justify-center rounded-[11px] bg-acc font-display text-[16px] font-extrabold tracking-[-0.03em] text-on-acc">+1</div>
         <div>
           <div className="font-display text-[17px] font-extrabold tracking-[-0.01em] text-[#1a1a1a]">plusone</div>
-          <div className="text-[11px] text-[#9a948a]">gastenlijst · klikbaar prototype</div>
+          <div className="text-[11px] text-[#9a948a]">{t.shared.shell.stageSub}</div>
         </div>
       </div>
-      <div className="hidden text-[12.5px] text-[#8d877b] sm:block">Klik je door de flow — typ een naam bij Check-in</div>
+      <div className="hidden text-[12.5px] text-[#8d877b] sm:block">{t.shared.shell.stageHint}</div>
     </div>
   );
 }
