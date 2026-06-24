@@ -34,6 +34,8 @@ export interface VenueCapabilities {
   editQuota: boolean;
   /** May read the immutable audit log — admin + finance (RLS audit_log_select_aal2, + AAL2). */
   viewAudit: boolean;
+  /** May erase a contact on request ("forget me", AVG art. 17) — admin only (RPC forget_contact). */
+  forgetContact: boolean;
 }
 
 // Capabilities for a single venue, derived from the caller's roles there. Each
@@ -51,6 +53,7 @@ export function venueCapabilities(roles: readonly VenueRole[]): VenueCapabilitie
     viewQuota: admin || finance,
     editQuota: admin,
     viewAudit: admin || finance,
+    forgetContact: admin,
   };
 }
 

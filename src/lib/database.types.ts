@@ -1245,6 +1245,7 @@ export type Database = {
         }[]
       }
       event_venue: { Args: { p_event_id: string }; Returns: string }
+      forget_contact: { Args: { p_contact_id: string }; Returns: Json }
       guest_event: { Args: { p_guest_id: string }; Returns: string }
       guest_personal_contribution: {
         Args: {

@@ -31,6 +31,7 @@ describe('venueCapabilities (mirrors the RLS role matrix)', () => {
       viewQuota: true,
       editQuota: true,
       viewAudit: true,
+      forgetContact: true,
     });
   });
 
@@ -61,6 +62,14 @@ describe('venueCapabilities (mirrors the RLS role matrix)', () => {
     expect(venueCapabilities(['user_manager']).viewAudit).toBe(false);
     expect(venueCapabilities(['staff']).viewAudit).toBe(false);
     expect(venueCapabilities(['doorhost']).viewAudit).toBe(false);
+  });
+
+  it('only an admin may forget a contact on request (not finance — it is a write)', () => {
+    expect(venueCapabilities(['admin']).forgetContact).toBe(true);
+    expect(venueCapabilities(['finance']).forgetContact).toBe(false);
+    expect(venueCapabilities(['user_manager']).forgetContact).toBe(false);
+    expect(venueCapabilities(['staff']).forgetContact).toBe(false);
+    expect(venueCapabilities(['doorhost']).forgetContact).toBe(false);
   });
 
   it('staff/doorhost get no dashboard', () => {

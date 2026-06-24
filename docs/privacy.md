@@ -164,11 +164,16 @@ verwerkingsverantwoordelijke; wij faciliteren als verwerker.
 
 - **Inzage/rectificatie:** een admin/organisator kan gastgegevens inzien en
   corrigeren binnen zijn scope.
-- **Verwijdering vóór de bewaartermijn:** een gast op `removed` zetten (soft delete)
-  haalt hem van de actieve lijst. Voor het daadwerkelijk wissen van PII op verzoek
-  vóór het verstrijken van de termijn is een **vervroegde-anonimisatie-actie** nodig
-  (zie TODO §9) — de anonimiseringslogica bestaat al, alleen een per-gast-trigger
-  ontbreekt nog.
+- **Verwijdering vóór de bewaartermijn (recht op vergetelheid, art. 17):** een gast
+  op `removed` zetten (soft delete) haalt hem alleen van de actieve lijst — de PII
+  blijft tot de bewaartermijn. Voor een echt wisverzoek kan een **admin** een
+  adresboek-contact **direct anonimiseren op verzoek** via `public.forget_contact()`
+  (knop "Forget this person" in het adresboek, po Gasten → Adresboek): het contact
+  én al diens gekoppelde gasten/weigeringen binnen de venue worden meteen
+  geanonimiseerd, ongeacht de bewaartermijn. Vereist **admin** (admin is een
+  MFA-verplichte rol, dus geen extra MFA-stap per actie); onomkeerbaar; de actie +
+  de audit-redactie worden zelf in het log vastgelegd. Het verzoek loopt via de
+  venue als verwerkingsverantwoordelijke.
 - **Auditlog:** blijft bestaan voor fraudebestrijding (gerechtvaardigd belang #1/#4),
   maar de PII erin wordt bij anonimisering geschoond — er blijft dus geen naam/contact
   van de betrokkene in het log staan.
@@ -190,8 +195,13 @@ contactgegevens horen in de verwerkersovereenkomst.
 
 - [ ] Verwerkersovereenkomst-**template** opstellen en juridisch laten toetsen
   (op basis van dit document).
-- [ ] **Vervroegde anonimisatie op verzoek** (per gast/aanvrager) als admin-actie —
-  hergebruikt `run_privacy_retention()`-logica, maar gescoped op één record.
+- [x] **Vervroegde anonimisatie op verzoek** — geïmplementeerd als
+  `public.forget_contact(uuid)` (migratie `20260624120000`, admin self-guard; admin
+  is MFA-verplicht, dus geen extra AAL2-stap per actie).
+  Wist één adresboek-contact + al diens gekoppelde gasten/weigeringen direct, vóór de
+  bewaartermijn; auditdiffs worden structuurbehoudend geschoond. Open vervolg:
+  hetzelfde op gast-niveau voor gasten zónder contact-koppeling, en het meenemen van
+  losse `guest_requests` (nu nog gedekt door de nachtelijke window-sweep).
 - [ ] **Export voor betrokkenenrechten** (inzage/portabiliteit) — fase 2.
 - [ ] **Fase-5-UI** voor `retention_months` in venue-instellingen (veld + logica
   bestaan al; zie `src/components/po/screens/settings.tsx`).

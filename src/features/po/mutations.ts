@@ -33,6 +33,7 @@ import {
   syncPermanentGuests,
   toggleContactPermanent,
   upsertContact,
+  forgetContact,
   type ImportResult,
   type SyncResult,
 } from '@/features/contacts/actions';
@@ -42,6 +43,7 @@ import type {
   SyncPermanentInput,
   TogglePermanentInput,
   UpsertContactInput,
+  ForgetContactInput,
 } from '@/features/contacts/schemas';
 import {
   changeEventStatus,
@@ -482,6 +484,23 @@ export function usePoUpsertContact() {
   return useMutation({
     mutationFn: async (input: UpsertContactInput) => throwOnError(await upsertContact(input)),
     onSuccess: () => invalidateContacts(qc, venueId),
+  });
+}
+
+/**
+ * On-request erasure ("forget me", #29) — admin only (enforced in the
+ * forget_contact RPC). Invalidates the contacts lists AND every guests cache,
+ * since the person's guest rows are anonymized across events.
+ */
+export function usePoForgetContact() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: ForgetContactInput) => throwOnError(await forgetContact(input)),
+    onSuccess: () => {
+      invalidateContacts(qc, venueId);
+      void qc.invalidateQueries({ queryKey: [...poKeys.all, 'guests'] });
+    },
   });
 }
 
