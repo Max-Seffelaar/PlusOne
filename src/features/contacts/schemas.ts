@@ -82,6 +82,16 @@ export const togglePermanentSchema = z.object({
 });
 export type TogglePermanentInput = z.input<typeof togglePermanentSchema>;
 
+/**
+ * On-request erasure ("forget me", AVG art. 17 / #29): anonymize one contact +
+ * all its linked guests immediately. Admin + AAL2 is enforced in the DB function
+ * (forget_contact) — this schema only guards the shape.
+ */
+export const forgetContactSchema = z.object({
+  contactId: uuid,
+});
+export type ForgetContactInput = z.input<typeof forgetContactSchema>;
+
 /** Sync the venue's permanent contacts onto one event (#11). */
 export const syncPermanentSchema = z.object({
   eventId: uuid,
