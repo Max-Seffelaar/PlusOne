@@ -92,13 +92,13 @@ export const home = {
   pulseRequests: 'Open requests',
   pulseQuota: 'Quota requests',
   pulseLive: 'Events live',
-  badgeAction: 'action',
   deltaToday: 'today',
-  // graphs
-  graphRequestedTitle: 'Requested',
-  graphRequestedSub: 'Spot requests, per event',
-  graphOnListTitle: 'On the list',
-  graphOnListSub: 'Approved & on the list, per event',
+  // graph (one combined chart — requested vs on-the-list, per event)
+  graphComboTitle: 'Requested vs on the list',
+  graphComboSub: 'Open requests and approved guests, per event',
+  legRequested: 'Requested',
+  legOnList: 'On the list',
+  graphHint: 'Hover an event for exact numbers',
   // events section
   eventsHeading: 'Events',
   countFound: 'found',

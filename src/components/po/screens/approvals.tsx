@@ -53,7 +53,15 @@ function EventTag({ name }: { name: string }): JSX.Element {
   );
 }
 
-export function Aanvragen({ eventId }: { eventId?: string }): JSX.Element {
+export function Aanvragen({
+  eventId,
+  initialTab,
+}: {
+  eventId?: string;
+  /** Which queue to open on first render — set when deep-linked from Home's
+   *  "Open requests" (landing) / "Quota requests" (quota) tiles. */
+  initialTab?: Tab;
+}): JSX.Element {
   const nav = useNav();
   const { venueId } = usePoIdentity();
   const eventsQuery = usePoEvents();
@@ -62,7 +70,7 @@ export function Aanvragen({ eventId }: { eventId?: string }): JSX.Element {
   const qReqs = usePoQuotaRequests();
 
   const [sel, setSel] = useState<string>(eventId ?? ''); // '' = Alle events
-  const [tab, setTab] = useState<Tab>('landing');
+  const [tab, setTab] = useState<Tab>(initialTab ?? 'landing');
   const [search, setSearch] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [showDenied, setShowDenied] = useState(false);

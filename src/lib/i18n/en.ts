@@ -22,6 +22,7 @@ export const en = {
     checkin: 'Check-in',
     tasks: 'Tasks',
     analytics: 'Analytics',
+    requests: 'Requests',
     team: 'Team',
     more: 'More',
   },

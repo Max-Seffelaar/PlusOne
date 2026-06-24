@@ -95,32 +95,36 @@ function StatusChip({ e }: { e: BoardEvent }): JSX.Element {
 }
 
 // ── pulse strip ─────────────────────────────────────────────────────────────
+// A tile is a plain readout, or — when `onClick` is set (Requests / Quota) — a
+// button that jumps into the approval inbox. Clickable tiles show a → affordance.
 function PulseTile({
   icon,
   label,
   value,
   action,
+  onClick,
 }: {
   icon: IconName;
   label: string;
   value: string | number;
   action?: boolean;
+  onClick?: () => void;
 }): JSX.Element {
-  return (
-    <div
-      className={cn(
-        'flex min-w-0 flex-1 flex-col rounded-[18px] border p-[16px_18px]',
-        action ? 'border-transparent bg-acc-dim' : 'border-line bg-elev'
-      )}
-    >
+  const cls = cn(
+    'flex min-w-0 flex-1 flex-col rounded-[18px] border p-[16px_18px] text-left',
+    action ? 'border-transparent bg-acc-dim' : 'border-line bg-elev',
+    onClick && press
+  );
+  const inner = (
+    <>
       <div className="mb-3 flex items-center gap-2">
         <span className={action ? 'text-acc' : 'text-faint'}>
           <Icon name={icon} size={16} />
         </span>
         <span className="font-body text-[11.5px] font-bold uppercase tracking-[0.03em] text-faint">{label}</span>
-        {action && (
-          <span className="ml-auto font-body text-[9.5px] font-extrabold uppercase tracking-[0.05em] text-acc">
-            {t.home.badgeAction}
+        {onClick && (
+          <span className={cn('ml-auto', action ? 'text-acc' : 'text-ghost')}>
+            <Icon name="arrowR" size={15} />
           </span>
         )}
       </div>
@@ -132,65 +136,126 @@ function PulseTile({
       >
         {value}
       </div>
-    </div>
+    </>
   );
+  if (onClick)
+    return (
+      <button type="button" onClick={onClick} className={cls}>
+        {inner}
+      </button>
+    );
+  return <div className={cls}>{inner}</div>;
 }
 
-// ── bar panel (one metric per event) ──────────────────────────────────────────
-function Bars({
-  title,
-  sub,
+// ── combined graph (requested vs on-the-list, grouped per event) ──────────────
+// One chart, two bars per event on a SHARED y-scale so the comparison is honest.
+// Hovering (desktop) or tapping (touch) a column reveals a tooltip with both
+// exact numbers — the bars themselves stay number-free so 8 events read clean.
+function ComboChart({
   data,
-  accent,
 }: {
-  title: string;
-  sub: string;
-  data: { id: string; label: string; value: number; live: boolean }[];
-  accent: boolean;
+  data: { id: string; label: string; live: boolean; requested: number; onList: number }[];
 }): JSX.Element {
-  const H = 150;
-  const top = Math.max(...data.map((d) => d.value), 1);
+  const [active, setActive] = useState<number | null>(null);
+  const H = 168;
+  const top = Math.max(...data.flatMap((d) => [d.requested, d.onList]), 1);
+  const last = data.length - 1;
+  const barH = (v: number): number => (v <= 0 ? 0 : Math.max((v / top) * (H - 16), 3));
   return (
     <div className="card flex min-w-0 flex-col rounded-[22px] border border-line bg-elev p-[22px]">
-      <div className="mb-5">
-        <div className="font-display text-[16.5px] font-bold tracking-[-0.01em] text-text">{title}</div>
-        <div className="mt-0.5 text-[12.5px] text-faint">{sub}</div>
+      {/* header + legend */}
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0">
+          <div className="font-display text-[16.5px] font-bold tracking-[-0.01em] text-text">
+            {t.home.graphComboTitle}
+          </div>
+          <div className="mt-0.5 text-[12.5px] text-faint">{t.home.graphComboSub}</div>
+        </div>
+        <div className="flex items-center gap-[14px]">
+          <span className="inline-flex items-center gap-[7px] font-body text-[12px] font-semibold text-dim">
+            <span className="h-[10px] w-[10px] rounded-[3px] bg-acc-soft" />
+            {t.home.legRequested}
+          </span>
+          <span className="inline-flex items-center gap-[7px] font-body text-[12px] font-semibold text-dim">
+            <span className="h-[10px] w-[10px] rounded-[3px] bg-acc" />
+            {t.home.legOnList}
+          </span>
+        </div>
       </div>
+
+      {/* plot */}
       <div className="relative mb-[10px]" style={{ height: H }}>
         <div className="pointer-events-none absolute inset-0 flex flex-col justify-between">
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className={i === 3 ? 'h-px bg-line' : 'h-px bg-line2'} />
           ))}
         </div>
-        <div className="relative flex h-full items-end">
-          {data.map((d) => {
-            const h = Math.max((d.value / top) * (H - 22), 3);
+        <div className="relative flex h-full items-end gap-1">
+          {data.map((d, i) => {
+            const on = active === i;
             return (
-              <div key={d.id} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1.5">
-                <span className="font-display text-[12.5px] font-bold leading-none text-text">{kfmt(d.value)}</span>
-                <div
-                  className={cn(
-                    'relative w-full max-w-[38px] rounded-[7px_7px_3px_3px] transition-[height] duration-300',
-                    accent ? 'bg-acc' : 'bg-acc-soft'
-                  )}
-                  style={{ height: h }}
-                >
-                  {d.live && (
-                    <span className="absolute -top-[3px] left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-white motion-safe:animate-pulse" />
-                  )}
-                </div>
-              </div>
+              <button
+                type="button"
+                key={d.id}
+                aria-label={`${d.label}: ${d.requested} ${t.home.legRequested}, ${d.onList} ${t.home.legOnList}`}
+                onMouseEnter={() => setActive(i)}
+                onMouseLeave={() => setActive((cur) => (cur === i ? null : cur))}
+                onClick={() => setActive((cur) => (cur === i ? null : i))}
+                className="group relative flex h-full min-w-0 flex-1 items-end justify-center rounded-[8px] transition-colors"
+                style={{ background: on ? 'rgba(255,255,255,0.04)' : undefined }}
+              >
+                <span className="flex h-full items-end justify-center gap-[4px] px-0.5">
+                  <span
+                    className="w-full max-w-[15px] rounded-[5px_5px_2px_2px] bg-acc-soft transition-[height,filter] duration-300 group-hover:brightness-110"
+                    style={{ height: barH(d.requested), minWidth: 6 }}
+                  />
+                  <span
+                    className="relative w-full max-w-[15px] rounded-[5px_5px_2px_2px] bg-acc transition-[height,filter] duration-300 group-hover:brightness-110"
+                    style={{ height: barH(d.onList), minWidth: 6 }}
+                  >
+                    {d.live && (
+                      <span className="absolute -top-[3px] left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-white motion-safe:animate-pulse" />
+                    )}
+                  </span>
+                </span>
+
+                {on && (
+                  <span
+                    className={cn(
+                      'absolute bottom-[calc(100%+8px)] z-10 w-max max-w-[200px] rounded-[12px] border border-line bg-elev2 p-[10px_12px] text-left shadow-[0_10px_34px_rgba(0,0,0,0.5)]',
+                      i === 0 ? 'left-0' : i === last ? 'right-0' : 'left-1/2 -translate-x-1/2'
+                    )}
+                  >
+                    <span className="mb-1.5 block truncate font-display text-[13px] font-bold text-text">{d.label}</span>
+                    <span className="flex items-center justify-between gap-5 font-body text-[12.5px]">
+                      <span className="inline-flex items-center gap-[6px] text-dim">
+                        <span className="h-[9px] w-[9px] rounded-[2px] bg-acc-soft" />
+                        {t.home.legRequested}
+                      </span>
+                      <span className="font-display font-extrabold text-text">{d.requested}</span>
+                    </span>
+                    <span className="mt-1 flex items-center justify-between gap-5 font-body text-[12.5px]">
+                      <span className="inline-flex items-center gap-[6px] text-dim">
+                        <span className="h-[9px] w-[9px] rounded-[2px] bg-acc" />
+                        {t.home.legOnList}
+                      </span>
+                      <span className="font-display font-extrabold text-text">{d.onList}</span>
+                    </span>
+                  </span>
+                )}
+              </button>
             );
           })}
         </div>
       </div>
-      <div className="flex">
-        {data.map((d) => (
+
+      <div className="flex gap-1">
+        {data.map((d, i) => (
           <div
             key={d.id}
             className={cn(
               'min-w-0 flex-1 truncate px-0.5 text-center font-body text-[10.5px] font-semibold',
-              d.live ? 'text-acc-soft' : 'text-faint'
+              active === i ? 'text-text' : d.live ? 'text-acc-soft' : 'text-faint'
             )}
           >
             {d.label}
@@ -202,9 +267,28 @@ function Bars({
 }
 
 // ── event card pieces ─────────────────────────────────────────────────────────
-function Count({ value, label, action, live }: { value: string | number; label: string; action?: boolean; live?: boolean }): JSX.Element {
-  return (
-    <div className="min-w-0 max-lg:flex-1 max-lg:rounded-[12px] max-lg:border max-lg:border-line2 max-lg:bg-bg max-lg:p-[9px_11px] lg:text-center">
+// A stat readout. Requests / Quota pass `onClick` → tapping the number itself
+// opens that event's approval queue (stopPropagation keeps the card's Open click
+// from also firing).
+function Count({
+  value,
+  label,
+  action,
+  live,
+  onClick,
+}: {
+  value: string | number;
+  label: string;
+  action?: boolean;
+  live?: boolean;
+  onClick?: () => void;
+}): JSX.Element {
+  const cls = cn(
+    'min-w-0 max-lg:flex-1 max-lg:rounded-[12px] max-lg:border max-lg:border-line2 max-lg:bg-bg max-lg:p-[9px_11px] lg:text-center',
+    onClick && cn(press, 'cursor-pointer max-lg:hover:border-ghost')
+  );
+  const inner = (
+    <>
       <div
         className={cn(
           'font-display text-[19px] font-extrabold leading-none tracking-[-0.02em]',
@@ -221,8 +305,22 @@ function Count({ value, label, action, live }: { value: string | number; label: 
       >
         {label}
       </div>
-    </div>
+    </>
   );
+  if (onClick)
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick();
+        }}
+        className={cn(cls, 'text-left lg:text-center')}
+      >
+        {inner}
+      </button>
+    );
+  return <div className={cls}>{inner}</div>;
 }
 
 function ActionBtn({
@@ -276,15 +374,15 @@ function EventRow({
   showDoor: boolean;
   onOpen: () => void;
   onDoor: () => void;
-  onReq: () => void;
+  onReq: (tab: 'landing' | 'quota') => void;
   onEdit: () => void;
   onLock: () => void;
 }): JSX.Element {
   const counts = (
     <div className="ev-counts flex shrink-0 flex-wrap gap-2 lg:items-center lg:gap-[26px]">
       <Count value={kfmt(e.onList)} label={t.home.cOnList} />
-      <Count value={e.requests} label={t.home.cRequests} action={e.requests > 0} />
-      <Count value={e.quota} label={t.home.cQuota} action={e.quota > 0} />
+      <Count value={e.requests} label={t.home.cRequests} action={e.requests > 0} onClick={() => onReq('landing')} />
+      <Count value={e.quota} label={t.home.cQuota} action={e.quota > 0} onClick={() => onReq('quota')} />
       {e.live && <Count value={`${e.inside} · ${e.turnout}%`} label={t.home.cInside} live />}
     </div>
   );
@@ -294,7 +392,7 @@ function EventRow({
         {t.home.aOpen}
       </Btn>
       {showDoor && <ActionBtn icon="door" title={t.home.aDoor} onClick={onDoor} />}
-      <ActionBtn icon="inbox" title={t.home.aRequests} badge={e.requests} onClick={onReq} />
+      <ActionBtn icon="inbox" title={t.home.aRequests} badge={e.requests} onClick={() => onReq('landing')} />
       <ActionBtn icon="cog" title={t.home.aEdit} onClick={onEdit} />
       <ActionBtn
         icon="lock"
@@ -669,31 +767,28 @@ export function Home(): JSX.Element {
             </div>
           </div>
 
-          {/* pulse strip */}
+          {/* pulse strip — Requests / Quota tiles deep-link into the inbox */}
           <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
             <PulseTile icon="users" label={t.home.pulseOnList} value={kfmt(pulse.onList)} />
-            <PulseTile icon="inbox" label={t.home.pulseRequests} value={pulse.requests} action={pulse.requests > 0} />
-            <PulseTile icon="ticket" label={t.home.pulseQuota} value={pulse.quota} action={pulse.quota > 0} />
+            <PulseTile
+              icon="inbox"
+              label={t.home.pulseRequests}
+              value={pulse.requests}
+              action={pulse.requests > 0}
+              onClick={() => nav.push('aanvragen', { tab: 'landing' })}
+            />
+            <PulseTile
+              icon="ticket"
+              label={t.home.pulseQuota}
+              value={pulse.quota}
+              action={pulse.quota > 0}
+              onClick={() => nav.push('aanvragen', { tab: 'quota' })}
+            />
             <PulseTile icon="spark" label={t.home.pulseLive} value={pulse.live} />
           </div>
 
-          {/* two graphs */}
-          {board.length > 0 && (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <Bars
-                title={t.home.graphRequestedTitle}
-                sub={t.home.graphRequestedSub}
-                accent={false}
-                data={series.map((s) => ({ id: s.id, label: s.label, value: s.requested, live: s.live }))}
-              />
-              <Bars
-                title={t.home.graphOnListTitle}
-                sub={t.home.graphOnListSub}
-                accent
-                data={series.map((s) => ({ id: s.id, label: s.label, value: s.onList, live: s.live }))}
-              />
-            </div>
-          )}
+          {/* combined graph — requested vs on-the-list, per event */}
+          {board.length > 0 && <ComboChart data={series} />}
 
           {/* events list */}
           <div>
@@ -737,7 +832,7 @@ export function Home(): JSX.Element {
                       showDoor={showDoor}
                       onOpen={() => nav.push('event', { id: e.id })}
                       onDoor={() => nav.openDoor(e.id)}
-                      onReq={() => nav.push('aanvragen', { id: e.id })}
+                      onReq={(tab) => nav.push('aanvragen', { id: e.id, tab })}
                       onEdit={() => nav.push('eventedit', { id: e.id })}
                       onLock={() => onLock(e)}
                     />

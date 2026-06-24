@@ -42,6 +42,8 @@ export interface ScreenProps {
   /** Event scope for the guest detail (props.id there is the guest id). */
   eventId?: string;
   isNew?: boolean;
+  /** Approvals (aanvragen) deep-link: which queue to open first. */
+  tab?: 'landing' | 'quota';
 }
 
 export interface StackEntry {

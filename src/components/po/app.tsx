@@ -335,7 +335,7 @@ export function PlusOneApp({
         screen = <BulkPaste eventId={p.id} />;
         break;
       case 'aanvragen':
-        screen = <Aanvragen eventId={p.id} />;
+        screen = <Aanvragen eventId={p.id} initialTab={p.tab} />;
         break;
       case 'eventedit':
         screen = <EventEdit id={p.id} isNew={p.isNew} />;
@@ -426,15 +426,28 @@ export function PlusOneApp({
   // Signed-in: responsive shell — desktop sidebar ≥1024px, mobile tabs below it
   // (S0 nav-shell). Screens are unchanged for now; wired live per S1+.
   const currentKey =
-    top?.name === 'stats' ? 'stats' : top?.name === 'gebruikers' ? 'gebruikers' : tab;
+    top?.name === 'stats'
+      ? 'stats'
+      : top?.name === 'gebruikers'
+        ? 'gebruikers'
+        : top?.name === 'aanvragen'
+          ? 'aanvragen'
+          : tab;
   const caps = venueCapabilities(roles);
   const canViewStats = (statsAccess?.venues.length ?? 0) > 0;
+  // Venue-wide approval inbox in the desktop sidebar. Gated on admin — the
+  // reliable venue-level decider (organizers act per-event, finance is read-only).
+  // Everyone still reaches requests via Home's clickable tiles / per-event cards.
+  const canDecideRequests = roles.includes('admin');
   const navItems: ShellNavItem[] = [
     { key: 'start', section: 'main', label: t.nav.home, icon: 'grid', active: currentKey === 'start', onClick: () => nav.setTab('start') },
     { key: 'events', section: 'main', label: t.nav.events, icon: 'cal', active: currentKey === 'events', onClick: () => nav.setTab('events') },
     { key: 'guests', section: 'main', label: t.nav.guests, icon: 'user', active: currentKey === 'guests', onClick: () => nav.setTab('guests') },
     ...(showDoor
       ? ([{ key: 'deur', section: 'main', label: t.nav.door, icon: 'door', active: currentKey === 'deur', onClick: () => nav.setTab('deur') }] as ShellNavItem[])
+      : []),
+    ...(canDecideRequests
+      ? ([{ key: 'aanvragen', section: 'more', label: t.nav.requests, icon: 'inbox', active: currentKey === 'aanvragen', onClick: () => nav.push('aanvragen') }] as ShellNavItem[])
       : []),
     ...(canViewStats
       ? ([{ key: 'stats', section: 'more', label: t.nav.analytics, icon: 'spark', active: currentKey === 'stats', onClick: () => nav.push('stats') }] as ShellNavItem[])
