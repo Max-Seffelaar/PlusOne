@@ -11,6 +11,7 @@ import type { Guest, PoEvent, Tier } from '@/lib/po/types';
 import type { AuditLine } from '@/features/audit/translate';
 import { poKeys } from './keys';
 import { doorCandidates, pickDoorEvent, type PoDoorEvent } from './door-event';
+import { eventPhase } from './event-phase';
 import {
   fetchEvents,
   fetchEventForEdit,
@@ -146,16 +147,18 @@ export function usePoHomeEvents() {
         client,
         rows.map((r) => r.id)
       );
+      const now = Date.now();
       const events: HomeEvent[] = rows
-        .filter((r) => r.status !== 'closed')
+        .filter((r) => r.cancelled_at == null)
         .map((r) => {
           const c = heads.get(r.id) ?? { registered: 0, present: 0 };
           return { ...r, registered: c.registered, present: c.present };
         })
         // Live first, then soonest start — the order the picker shows.
         .sort((a, b) => {
-          const live = (a.status === 'live' ? 0 : 1) - (b.status === 'live' ? 0 : 1);
-          if (live !== 0) return live;
+          const liveA = eventPhase(a.starts_at, a.ends_at, now) === 'live' ? 0 : 1;
+          const liveB = eventPhase(b.starts_at, b.ends_at, now) === 'live' ? 0 : 1;
+          if (liveA !== liveB) return liveA - liveB;
           return new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime();
         });
       const picked = pickDoorEvent(rows, Date.now());
@@ -224,7 +227,7 @@ export function usePoDoorCandidates() {
     enabled: !!venueId,
     queryFn: async () => {
       if (!venueId) return [];
-      return doorCandidates(await fetchEvents(createClient(), venueId));
+      return doorCandidates(await fetchEvents(createClient(), venueId), Date.now());
     },
   });
 }

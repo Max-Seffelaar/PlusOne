@@ -41,12 +41,17 @@ export const events = {
   // ── Event edit / create ─────────────────────────────────────────────────────
   editTitle: 'Edit event',
   errNameDateTime: 'Enter a name, date, and time.',
+  errName: 'Enter a name.',
+  errDateTime: 'Enter a date and time.',
+  errEndDateTime: 'Enter the end date and time, or clear both.',
+  errStartAfterEnd: 'The end must be after the start.',
   errCloseDateTime: 'Enter the close date and time, or turn off auto-close.',
   errNoVenue: 'No active venue found.',
   errSaveFailed: "Couldn't save. Try again.",
   errLockFailed: "Couldn't lock or unlock the list.",
   errUncheckFailed: "Couldn't change the check-out setting.",
   errStatusFailed: "Couldn't change the status.",
+  errCancelFailed: "Couldn't update the event.",
   noteAdminsOnly: 'Only admins can create events.',
   noteViewOnly: 'You can only view this event. Changes need admin or organizer rights.',
   fieldName: 'Name',
@@ -55,6 +60,8 @@ export const events = {
   venuePlaceholder: 'Unknown venue',
   fieldDate: 'Date',
   fieldDoors: 'Doors',
+  fieldEndDate: 'End date',
+  fieldEnd: 'End',
   tiersRowTitle: 'Tiers & aliases',
   tiersRowSub: 'Feed the quick-add',
   status: 'Status',
@@ -83,6 +90,17 @@ export const events = {
   saving: 'Saving…',
   createEvent: 'Create event',
   saveEvent: 'Save event',
+
+  // ── Cancel event (replaces the retired status machine) ────────────────────────
+  cancelHeading: 'Cancel event',
+  cancelSub:
+    'Stops the door, closes the request link, and leaves changes to an admin only. You can reinstate it later.',
+  reinstateSub: 'This event is cancelled. Reinstate it to reopen the door and the request link.',
+  cancelEvent: 'Cancel event',
+  reinstateEvent: 'Reinstate event',
+  cancelledBanner: 'Cancelled. The door and request link are off; only an admin can change it.',
+  cancelledBadge: 'Cancelled',
+  liveBadge: 'Live',
 
   // ── Tiers & aliases ─────────────────────────────────────────────────────────
   tiersTitle: 'Tiers & aliases',

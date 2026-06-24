@@ -18,6 +18,10 @@ export type Priority = 'high' | 'low';
 
 export type EventWhen = 'upcoming' | 'past';
 
+/** Time-derived lifecycle phase (src/features/po/event-phase.ts). Replaces the
+ *  retired manual status machine for everything the UI shows. */
+export type EventPhase = 'upcoming' | 'live' | 'past';
+
 export interface PoEvent {
   id: string;
   name: string;
@@ -30,6 +34,10 @@ export interface PoEvent {
   inside: number;
   accent?: boolean;
   when: EventWhen;
+  /** Time-derived phase; `live` drives the "happening now" badge. */
+  phase: EventPhase;
+  /** The event was cancelled (admin action) — shown as a badge, blocks the door. */
+  cancelled: boolean;
 }
 
 export interface Guest {

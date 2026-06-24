@@ -50,6 +50,7 @@ import {
   deleteTier,
   setAutoLock,
   setEventAllowUncheck,
+  setEventCancelled,
   setLandingActive,
   setListLock,
   updateEvent,
@@ -62,6 +63,7 @@ import type {
   DeleteTierInput,
   SetAutoLockInput,
   SetAllowUncheckInput,
+  SetCancelledInput,
   SetLandingActiveInput,
   SetLockInput,
   UpdateEventInput,
@@ -578,6 +580,16 @@ export function usePoChangeStatus(eventId: string) {
   const invalidate = useInvalidateEvent();
   return useMutation({
     mutationFn: async (input: ChangeStatusInput) => throwOnError(await changeEventStatus(input)),
+    onSuccess: () => invalidate(eventId),
+  });
+}
+
+/** Cancel / un-cancel an event (replaces the retired status machine). Invalidates
+ *  the event + the venue list so the cancelled badge + door availability refresh. */
+export function usePoSetCancelled(eventId: string) {
+  const invalidate = useInvalidateEvent();
+  return useMutation({
+    mutationFn: async (input: SetCancelledInput) => throwOnError(await setEventCancelled(input)),
     onSuccess: () => invalidate(eventId),
   });
 }
