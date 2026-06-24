@@ -86,6 +86,14 @@ const Aanvragen = dynamic(() => import('./screens/approvals').then((m) => m.Aanv
   loading: ScreenLoading,
   ssr: false,
 });
+const Templates = dynamic(() => import('./screens/templates').then((m) => m.Templates), {
+  loading: ScreenLoading,
+  ssr: false,
+});
+const TemplateEdit = dynamic(() => import('./screens/templates').then((m) => m.TemplateEdit), {
+  loading: ScreenLoading,
+  ssr: false,
+});
 
 /** Desktop content-column width per active screen. Most screens keep the
  *  comfortable reading column (640); data-dense dashboards/tables/charts and the
@@ -462,6 +470,12 @@ export function PlusOneApp({
         break;
       case 'adminsessions':
         screen = <AdminSessions />;
+        break;
+      case 'templates':
+        screen = <Templates />;
+        break;
+      case 'templateedit':
+        screen = <TemplateEdit id={p.id} isNew={p.isNew} />;
         break;
       default:
         screen = null;

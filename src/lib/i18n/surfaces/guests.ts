@@ -214,6 +214,16 @@ export const guests = {
     makeRegularConfirm: 'Yes, add to every list',
     makeRegularBusy: 'Working…',
     cancel: 'Cancel',
+    // Forget / on-request erasure (GDPR art. 17). Admin only.
+    forget: 'Forget this person',
+    forgetTitle: 'Forget {name}?',
+    forgetBody:
+      'Permanently anonymizes {name} to “Contact #X” and wipes their name, email, phone and birthday — from this contact and every guest entry of theirs at this venue. The audit log stays, but without their personal data.',
+    forgetIrreversible: 'This cannot be undone.',
+    forgetPermanentWarn: 'They are marked as a regular (kept on purpose) — forgetting them removes that too.',
+    forgetConfirm: 'Yes, forget permanently',
+    forgetBusy: 'Forgetting…',
+    forgetFailed: "Couldn't complete the request.",
     // Add-to-event sheet
     addTitle: 'Add {name}',
     addPickEventTicket: 'Pick the event and the ticket.',

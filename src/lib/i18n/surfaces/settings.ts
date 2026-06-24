@@ -31,6 +31,8 @@ export const settings = {
     profileSub: 'Profile, email, and sessions',
     eventsTitle: 'Events & tiers',
     eventsSub: 'Create events, tiers, and aliases',
+    templatesTitle: 'Event templates',
+    templatesSub: 'Reusable setups per event type',
     venuesTitle: 'Venues',
     venuesSubOne: '{n} venue · switch',
     venuesSubMany: '{n} venues · switch',

@@ -47,11 +47,37 @@ settings"):
 |---|---|---|
 | **Access token (JWT) expiry** | **3600s** (1 h) | Short-lived; tune down if desired. |
 | **Refresh token rotation** | **ON** | A stolen refresh token is single-use. |
-| **Refresh token reuse interval** | **10s** | Grace window for races. |
-| **Inactivity / time-box** (optional) | per policy | Consider a session time-box for door devices. |
+| **Refresh token reuse interval** | **10s** (≥10; raise to ~30 if you see sporadic logouts) | Grace window for the browser-vs-server refresh race in SSR — too small and a slightly-stale concurrent refresh trips reuse-detection and **revokes the whole session** (→ full re-login → re-MFA). |
+| **Time-box user sessions** | **OFF, or ≥ 30 days** | ⚠️ See "Stay logged in" below. A short time-box forces a full re-login (and, for admin/finance, another MFA) the moment it elapses. |
+| **Inactivity timeout** | **OFF / generous** | ⚠️ An inactivity timeout shorter than the gap between visits kills the session → re-login → re-MFA. |
 
 Local mirror: `[auth] jwt_expiry = 3600`, `enable_refresh_token_rotation = true`,
 `refresh_token_reuse_interval = 10`.
+
+### Stay logged in — "remember me" (why MFA must NOT re-prompt every visit)
+
+The app persists the session for **30 days** so a returning user is not forced to
+log in (and admin/finance re-MFA) constantly. This is intentional and already wired:
+the access token stays short-lived, but the **refresh-token cookie** is given a
+30-day `maxAge` in all three Supabase clients (`src/lib/supabase/cookie-options.ts`
+→ `AUTH_COOKIE_MAX_AGE`, applied in `server.ts`, `client.ts`, `middleware.ts`).
+**AAL2 is sticky for the session** (verifying MFA upgrades the session; refreshes
+preserve `aal2`), so within the window a returning user keeps their MFA assurance
+**without re-challenging** — MFA is once *per device per 30 days*, not per login.
+
+For that to actually hold, the server-side session must outlive the cookie:
+
+- **Do not** set a short **Time-box user sessions** or **Inactivity timeout** —
+  either one terminates the session server-side, after which the 30-day cookie is
+  useless (`getUser()` fails → middleware bounces to `/login` → fresh login is
+  AAL1 → `/mfa/verify`). This is the #1 cause of "I have to MFA again and again".
+- Keep the **reuse interval** ≥ 10s (raise if sporadic logouts persist).
+- Re-login is then only expected on: a genuinely new device/browser, cleared
+  cookies/incognito, switching between the Vercel preview URL and the prod domain
+  (cookies are per-domain), an admin remote-logout, or after 30 days.
+
+To change the window, edit `AUTH_COOKIE_MAX_AGE` (one constant) and match the
+dashboard **Time-box** to it.
 
 ## 3. OTP (Authentication → Email → OTP)
 
@@ -69,6 +95,27 @@ sees the 6-digit code (not only a link). The Supabase default template already
 includes both a link and "enter the code: {{ .Token }}" — if you customise it,
 keep the token. Template editor: **Authentication → Email Templates → Magic Link**.
 
+### Invite email → must use the SSR `token_hash` route (REQUIRED)
+
+`inviteUserAction` sends a new invitee the **"Invite user"** template via
+`inviteUserByEmail`. For the **server-side** session to come up, the link must hit
+our own `/auth/confirm` route with a `token_hash` — a raw PKCE `code` link can't be
+exchanged from an e-mail click (there is no verifier cookie), so the default
+`{{ .ConfirmationURL }}` template will *silently fail to log the invitee in*. Edit
+**Authentication → Email Templates → "Invite user"** to:
+
+```html
+<h2>You've been invited to PlusOne</h2>
+<p>Accept your invite and set up access:</p>
+<p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite&next=/app">Accept the invite</a></p>
+```
+
+- **Site URL** (§6) must be the production app URL — it is the `{{ .SiteURL }}` base.
+- `{{ .TokenHash }}` + `type=invite` are verified statelessly by `/auth/confirm`
+  (`verifyOtp`), which then runs `accept_pending_invites()` and lands them at `/app`.
+- The **"Magic Link"** template (above) already drives the *existing-user* invite
+  notification (a user from another venue, #24) — same token_hash / 6-digit code.
+
 ## 4. MFA / TOTP (Authentication → Multi-Factor)
 
 | Setting | Value | Why |
@@ -76,9 +123,13 @@ keep the token. Template editor: **Authentication → Email Templates → Magic 
 | **TOTP (Authenticator app) enroll** | **ON** | Enrollment flow (`/mfa/enroll`). |
 | **TOTP verify** | **ON** | Step-up + login challenge. |
 
-- MFA is **mandatory for admin & finance** — enforced in-app
-  (`requireAppAccess` → `/mfa/enroll`) and in RLS (AAL2 on sensitive writes).
-  The dashboard only needs TOTP enabled; the *mandatory* part is our code.
+- MFA **enrollment** is **mandatory for admin & finance** — enforced in-app
+  (`requireAppAccess` → `/mfa/enroll`). **AAL2 is scoped** (since 2026-06-24):
+  required in RLS only for the sensitive access actions — invite / revoke-invite /
+  member add-remove-rolechange / remote-logout — **not** for browsing or for
+  quotas / organizers / audit-log. The app steps the session up in place via the
+  MFA sheet when such an action is attempted (see CLAUDE.md §Auth). The dashboard
+  only needs TOTP enabled; the *mandatory enrollment* part is our code.
 - Local mirror: `[auth.mfa.totp] enroll_enabled = true`, `verify_enabled = true`.
 
 ## 5. Rate limits (Authentication → Rate Limits)
@@ -102,7 +153,8 @@ stricter via the dashboard.
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | client + server | Project URL. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | client + server | Anon key (RLS-scoped). |
-| `SUPABASE_SERVICE_ROLE_KEY` | **server only** | Used solely by `inviteUserAction` (`admin.createUser`). Never expose to the browser — CLAUDE.md. |
+| `SUPABASE_SERVICE_ROLE_KEY` | **server only** | Used solely by `inviteUserAction` (`admin.inviteUserByEmail`). Never expose to the browser — CLAUDE.md. |
+| `NEXT_PUBLIC_APP_URL` | optional (scripts) | App origin used by `scripts/invite-link.mjs` to print a ready `/auth/confirm` login link. |
 
 Local values live in `.env.local` (gitignored) and come from `supabase status`.
 

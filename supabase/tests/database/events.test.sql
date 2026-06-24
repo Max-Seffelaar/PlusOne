@@ -253,11 +253,13 @@ $$, 'D3 a removed guest frees the tier slot');
 reset role;
 
 -- ---------------------------------------------------------------------------
--- E. Organizer assignment (#6/#24) — admin + AAL2 only (event_organizers RLS).
+-- E. Organizer assignment (#6/#24) — admin role only (event_organizers RLS).
+--    AAL2 was dropped for organizer assignment (migration 20260624160000):
+--    it now needs the admin role and succeeds at AAL1. Wrong-role denial stays.
 --    Backs the assignOrganizer / inviteOrganizer / removeOrganizer actions.
 -- ---------------------------------------------------------------------------
 
--- E1: admin with MFA assigns an existing user as organizer.
+-- E1: admin (still works at AAL2) assigns an existing user as organizer.
 savepoint e1;
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2');
 select lives_ok($$
@@ -268,14 +270,14 @@ $$, 'E1 admin (AAL2) assigns an organizer');
 reset role;
 rollback to savepoint e1;
 
--- E2: admin WITHOUT MFA is refused (sensitive scope grant needs AAL2).
+-- E2: admin at AAL1 may now assign an organizer (AAL2 no longer required).
 savepoint e2;
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal1');
-select throws_ok($$
+select lives_ok($$
   insert into public.event_organizers (event_id, user_id)
   values ('ee000000-0000-7000-8000-000000000001',
           '55555555-5555-4555-8555-555555555555')
-$$, '42501', null, 'E2 admin without AAL2 cannot assign an organizer');
+$$, 'E2 admin (AAL1) assigns an organizer — role-only, no MFA');
 reset role;
 rollback to savepoint e2;
 

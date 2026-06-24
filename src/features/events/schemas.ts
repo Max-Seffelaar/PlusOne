@@ -177,3 +177,93 @@ export const removeOrganizerSchema = z.object({
   userId: uuid,
 });
 export type RemoveOrganizerInput = z.input<typeof removeOrganizerSchema>;
+
+// ── Event templates (86exyp8gn) ──────────────────────────────────────────────
+// A named, reusable per-event-type setup: a tier set + a hard total capacity +
+// default event settings, seeded onto a new event on create. Reuses the tier
+// primitives (name/description/color/maxGuests/aliases) so the editor is identical.
+
+// Hard total event capacity (people through the door). Same bound as the DB check
+// (> 0); nullable = no cap.
+const capacity = z
+  .number()
+  .int()
+  .positive('Capacity must be greater than 0')
+  .max(1_000_000)
+  .nullable()
+  .optional();
+
+// Auto-lock offset in minutes relative to event start (negative = before doors).
+const autoLockOffsetMinutes = z.number().int().min(-100_000).max(100_000).nullable().optional();
+
+const templateName = z.string().trim().min(1, 'Enter a name').max(120, 'Name is too long');
+
+export const createTemplateSchema = z.object({
+  venueId: uuid,
+  name: templateName,
+  capacity,
+  // tri-state, like setAllowUncheckSchema: true/false force it, null inherits venue.
+  allowUncheck: z.boolean().nullable().optional(),
+  landingActive: z.boolean().default(false),
+  autoLockOffsetMinutes,
+});
+export type CreateTemplateInput = z.input<typeof createTemplateSchema>;
+
+export const updateTemplateSchema = z.object({
+  templateId: uuid,
+  name: templateName.optional(),
+  capacity,
+  allowUncheck: z.boolean().nullable().optional(),
+  landingActive: z.boolean().optional(),
+  autoLockOffsetMinutes,
+});
+export type UpdateTemplateInput = z.input<typeof updateTemplateSchema>;
+
+export const deleteTemplateSchema = z.object({ templateId: uuid });
+export type DeleteTemplateInput = z.input<typeof deleteTemplateSchema>;
+
+// Template tiers — the guest_tier fields, keyed on templateId (no eventId). venue_id
+// is trigger-stamped, never client-supplied.
+export const createTemplateTierSchema = z.object({
+  templateId: uuid,
+  name: z.string().trim().min(1, 'Enter a name').max(80, 'Name is too long'),
+  description: optionalText(280),
+  color: hexColor.nullable().optional(),
+  maxGuests,
+  aliases,
+});
+export type CreateTemplateTierInput = z.input<typeof createTemplateTierSchema>;
+
+export const updateTemplateTierSchema = z.object({
+  tierId: uuid,
+  name: z.string().trim().min(1, 'Enter a name').max(80).optional(),
+  description: optionalText(280),
+  color: hexColor.nullable().optional(),
+  maxGuests,
+  aliases: aliases.optional(),
+});
+export type UpdateTemplateTierInput = z.input<typeof updateTemplateTierSchema>;
+
+export const deleteTemplateTierSchema = z.object({ tierId: uuid });
+export type DeleteTemplateTierInput = z.input<typeof deleteTemplateTierSchema>;
+
+// Create an event from a template (the create_event_from_template RPC's input).
+export const createEventFromTemplateSchema = z
+  .object({
+    templateId: uuid,
+    name: eventName,
+    startsAt: isoDateTime,
+    endsAt: isoDateTime.nullable().optional(),
+  })
+  .refine((v) => !v.endsAt || v.endsAt > v.startsAt, {
+    message: 'The end must be after the start',
+    path: ['endsAt'],
+  });
+export type CreateEventFromTemplateInput = z.input<typeof createEventFromTemplateSchema>;
+
+// Save an existing event's setup as a new template (the create_template_from_event RPC).
+export const createTemplateFromEventSchema = z.object({
+  eventId: uuid,
+  name: templateName,
+});
+export type CreateTemplateFromEventInput = z.input<typeof createTemplateFromEventSchema>;

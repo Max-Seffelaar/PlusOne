@@ -7,6 +7,7 @@ import { getAuthContext } from '@/lib/auth/context';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
 import { buildEventSlug } from './slug';
 import type { EventStatus } from './status';
+import type { Database } from '@/lib/database.types';
 import {
   createEventSchema,
   updateEventSchema,
@@ -22,6 +23,14 @@ import {
   assignOrganizerSchema,
   inviteOrganizerSchema,
   removeOrganizerSchema,
+  createTemplateSchema,
+  updateTemplateSchema,
+  deleteTemplateSchema,
+  createTemplateTierSchema,
+  updateTemplateTierSchema,
+  deleteTemplateTierSchema,
+  createEventFromTemplateSchema,
+  createTemplateFromEventSchema,
   type CreateEventInput,
   type UpdateEventInput,
   type ChangeStatusInput,
@@ -36,6 +45,14 @@ import {
   type AssignOrganizerInput,
   type InviteOrganizerInput,
   type RemoveOrganizerInput,
+  type CreateTemplateInput,
+  type UpdateTemplateInput,
+  type DeleteTemplateInput,
+  type CreateTemplateTierInput,
+  type UpdateTemplateTierInput,
+  type DeleteTemplateTierInput,
+  type CreateEventFromTemplateInput,
+  type CreateTemplateFromEventInput,
 } from './schemas';
 
 // Every action follows the CLAUDE.md security checklist: verify the session
@@ -47,6 +64,7 @@ import {
 
 export type ActionResult = { ok: true } | MutationError;
 export type CreateEventResult = { ok: true; eventId: string } | MutationError;
+export type CreateTemplateResult = { ok: true; templateId: string } | MutationError;
 
 const listPath = '/events';
 const managePath = (id: string) => `/events/${id}`;
@@ -490,4 +508,217 @@ export async function removeOrganizer(input: RemoveOrganizerInput): Promise<Acti
   }
   revalidateEvent(eventId);
   return { ok: true };
+}
+
+// ── Event templates (86exyp8gn) ─────────────────────────────────────────────
+// Reusable per-event-type setups (tiers + capacity + default settings). MANAGEMENT
+// (create/update/delete a template + its tiers) is admin OR venue-organizer — RLS
+// (event_templates_* / event_template_tiers_*) is the boundary, the same authority
+// as the address book. Creating an event FROM a template stays admin-only (the RPC
+// re-checks). No (app)-route revalidation: the po React-Query layer owns freshness.
+
+type TemplateTierInsert = Database['public']['Tables']['event_template_tiers']['Insert'];
+
+/** Create a template (admin or venue-organizer — RLS event_templates_insert). */
+export async function createTemplate(input: CreateTemplateInput): Promise<CreateTemplateResult> {
+  const parsed = createTemplateSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  const { venueId, name, capacity, allowUncheck, landingActive, autoLockOffsetMinutes } = parsed.data;
+
+  const supabase = await createClient();
+  const ctx = await getAuthContext();
+  if (!ctx) return unauthorized();
+
+  const { data, error } = await supabase
+    .from('event_templates')
+    .insert({
+      venue_id: venueId,
+      name,
+      capacity: capacity ?? null,
+      allow_uncheck: allowUncheck ?? null,
+      landing_active: landingActive,
+      auto_lock_offset_minutes: autoLockOffsetMinutes ?? null,
+    })
+    .select('id')
+    .single();
+  if (error) {
+    if (error.code === '23505') {
+      return { ok: false, code: '23505', message: 'A template with this name already exists.' };
+    }
+    return mapMutationError(error);
+  }
+  return { ok: true, templateId: data.id };
+}
+
+/** Edit a template (partial; admin or venue-organizer — RLS). */
+export async function updateTemplate(input: UpdateTemplateInput): Promise<ActionResult> {
+  const parsed = updateTemplateSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  const { templateId, name, capacity, allowUncheck, landingActive, autoLockOffsetMinutes } = parsed.data;
+
+  const supabase = await createClient();
+  const ctx = await getAuthContext();
+  if (!ctx) return unauthorized();
+
+  const patch = {
+    ...(name !== undefined ? { name } : {}),
+    ...(capacity !== undefined ? { capacity } : {}),
+    ...(allowUncheck !== undefined ? { allow_uncheck: allowUncheck } : {}),
+    ...(landingActive !== undefined ? { landing_active: landingActive } : {}),
+    ...(autoLockOffsetMinutes !== undefined ? { auto_lock_offset_minutes: autoLockOffsetMinutes } : {}),
+  };
+  if (Object.keys(patch).length === 0) return { ok: true };
+
+  const { error } = await supabase.from('event_templates').update(patch).eq('id', templateId);
+  if (error) {
+    if (error.code === '23505') {
+      return { ok: false, code: '23505', message: 'A template with this name already exists.' };
+    }
+    return mapMutationError(error);
+  }
+  return { ok: true };
+}
+
+/** Delete a template — cascades its tiers; already-created events are untouched. */
+export async function deleteTemplate(input: DeleteTemplateInput): Promise<ActionResult> {
+  const parsed = deleteTemplateSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  const { templateId } = parsed.data;
+
+  const supabase = await createClient();
+  const ctx = await getAuthContext();
+  if (!ctx) return unauthorized();
+
+  const { error } = await supabase.from('event_templates').delete().eq('id', templateId);
+  if (error) return mapMutationError(error);
+  return { ok: true };
+}
+
+/** Add a tier to a template (admin or venue-organizer — RLS). */
+export async function createTemplateTier(input: CreateTemplateTierInput): Promise<ActionResult> {
+  const parsed = createTemplateTierSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  const { templateId, name, description, color, maxGuests, aliases } = parsed.data;
+
+  const supabase = await createClient();
+  const ctx = await getAuthContext();
+  if (!ctx) return unauthorized();
+
+  // venue_id is filled by set_template_tier_scope (NOT NULL, trigger-stamped from the
+  // parent template); omit it from the row and cast, so the client never supplies it.
+  const row = {
+    template_id: templateId,
+    name,
+    description,
+    color,
+    max_guests: maxGuests ?? null,
+    aliases,
+  };
+  const { error } = await supabase.from('event_template_tiers').insert(row as TemplateTierInsert);
+  if (error) {
+    if (error.code === '23505') {
+      return { ok: false, code: '23505', message: 'A tier with this name already exists.' };
+    }
+    return mapMutationError(error);
+  }
+  return { ok: true };
+}
+
+/** Edit a template tier (partial). */
+export async function updateTemplateTier(input: UpdateTemplateTierInput): Promise<ActionResult> {
+  const parsed = updateTemplateTierSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  const { tierId, name, description, color, maxGuests, aliases } = parsed.data;
+
+  const supabase = await createClient();
+  const ctx = await getAuthContext();
+  if (!ctx) return unauthorized();
+
+  const patch = {
+    ...(name !== undefined ? { name } : {}),
+    ...(description !== undefined ? { description } : {}),
+    ...(color !== undefined ? { color } : {}),
+    ...(maxGuests !== undefined ? { max_guests: maxGuests } : {}),
+    ...(aliases !== undefined ? { aliases } : {}),
+  };
+  if (Object.keys(patch).length === 0) return { ok: true };
+
+  const { error } = await supabase.from('event_template_tiers').update(patch).eq('id', tierId);
+  if (error) {
+    if (error.code === '23505') {
+      return { ok: false, code: '23505', message: 'A tier with this name already exists.' };
+    }
+    return mapMutationError(error);
+  }
+  return { ok: true };
+}
+
+/** Delete a template tier. */
+export async function deleteTemplateTier(input: DeleteTemplateTierInput): Promise<ActionResult> {
+  const parsed = deleteTemplateTierSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  const { tierId } = parsed.data;
+
+  const supabase = await createClient();
+  const ctx = await getAuthContext();
+  if (!ctx) return unauthorized();
+
+  const { error } = await supabase.from('event_template_tiers').delete().eq('id', tierId);
+  if (error) return mapMutationError(error);
+  return { ok: true };
+}
+
+/**
+ * Create an event from a template (admin-only — create_event_from_template re-checks
+ * admin on the template's venue). The RPC seeds tiers + capacity + settings atomically
+ * and returns the new event id; the fase-6 BEFORE trigger fills a unique landing slug.
+ */
+export async function createEventFromTemplate(
+  input: CreateEventFromTemplateInput,
+): Promise<CreateEventResult> {
+  const parsed = createEventFromTemplateSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  const { templateId, name, startsAt, endsAt } = parsed.data;
+
+  const supabase = await createClient();
+  const ctx = await getAuthContext();
+  if (!ctx) return unauthorized();
+
+  const { data, error } = await supabase.rpc('create_event_from_template', {
+    p_template_id: templateId,
+    p_name: name,
+    p_starts_at: startsAt,
+    p_ends_at: endsAt ?? undefined,
+  });
+  if (error) return mapMutationError(error);
+  revalidatePath(listPath);
+  return { ok: true, eventId: data as string };
+}
+
+/**
+ * Save an existing event's setup (tiers + capacity + default settings) as a new
+ * reusable template (admin OR venue-organizer — create_template_from_event re-checks).
+ */
+export async function createTemplateFromEvent(
+  input: CreateTemplateFromEventInput,
+): Promise<CreateTemplateResult> {
+  const parsed = createTemplateFromEventSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  const { eventId, name } = parsed.data;
+
+  const supabase = await createClient();
+  const ctx = await getAuthContext();
+  if (!ctx) return unauthorized();
+
+  const { data, error } = await supabase.rpc('create_template_from_event', {
+    p_event_id: eventId,
+    p_name: name,
+  });
+  if (error) {
+    if (error.code === '23505') {
+      return { ok: false, code: '23505', message: 'A template with this name already exists.' };
+    }
+    return mapMutationError(error);
+  }
+  return { ok: true, templateId: data as string };
 }

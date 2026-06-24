@@ -11,11 +11,14 @@ import {
   usePoEventForEdit,
   usePoEventRecap,
   usePoEvents,
+  usePoTemplates,
   usePoTiers,
 } from '@/features/po/hooks';
 import {
   usePoSetCancelled,
   usePoCreateEvent,
+  usePoCreateEventFromTemplate,
+  usePoCreateTemplateFromEvent,
   usePoCreateTier,
   usePoSetAllowUncheck,
   usePoSetAutoLock,
@@ -279,6 +282,102 @@ function splitLocal(iso: string | null): [string, string] {
   return [d, t];
 }
 
+/** A blank/template selector chip for the create-from-template picker (86exyp8gn). */
+function TemplateChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'rounded-full border px-[13px] py-[7px] font-display text-[12.5px] font-bold transition-colors',
+        active ? 'border-acc bg-acc-dim text-acc' : 'border-line text-dim hover:brightness-110',
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+/** Save an existing event's setup (tiers + capacity + settings) as a reusable template. */
+function SaveAsTemplate({ eventId }: { eventId: string }): JSX.Element {
+  const createTpl = usePoCreateTemplateFromEvent();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async (): Promise<void> => {
+    if (!name.trim() || createTpl.isPending) return;
+    setErr(null);
+    setMsg(null);
+    try {
+      await createTpl.mutateAsync({ eventId, name: name.trim() });
+      setMsg(t.events.saveTemplateDone);
+      setName('');
+      setOpen(false);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : t.events.saveTemplateError);
+    }
+  };
+
+  return (
+    <div className="mt-[18px]">
+      <Label className="mb-[10px]">{t.events.saveTemplateLabel}</Label>
+      {open ? (
+        <div className="rounded-[16px] border border-acc bg-elev p-4">
+          <p className="mb-2.5 text-[12.5px] leading-[1.5] text-faint">{t.events.saveTemplateHint}</p>
+          <Field
+            placeholder={t.events.saveTemplatePlaceholder}
+            value={name}
+            onChange={setName}
+            autoFocus
+            className="mb-3"
+          />
+          <div className="flex gap-2">
+            <Btn
+              kind="primary"
+              sm
+              icon="check"
+              onClick={() => void submit()}
+              disabled={!name.trim() || createTpl.isPending}
+              className={!name.trim() || createTpl.isPending ? 'opacity-50' : ''}
+            >
+              {createTpl.isPending ? t.events.saving : t.events.saveTemplateConfirm}
+            </Btn>
+            <Btn
+              kind="ghost"
+              sm
+              onClick={() => {
+                setOpen(false);
+                setName('');
+                setErr(null);
+              }}
+            >
+              {t.events.saveTemplateCancel}
+            </Btn>
+          </div>
+          {err && <p className="mt-2 text-[12.5px] text-[#E89AC0]">{err}</p>}
+        </div>
+      ) : (
+        <>
+          <Btn
+            kind="dark"
+            full
+            icon="grid"
+            onClick={() => {
+              setOpen(true);
+              setMsg(null);
+            }}
+          >
+            {t.events.saveTemplateCta}
+          </Btn>
+          {msg && <p className="mt-2 text-[12.5px] text-acc-soft">{msg}</p>}
+        </>
+      )}
+    </div>
+  );
+}
+
 export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.Element {
   const nav = useNav();
   const { venueId, venueName, roles } = usePoIdentity();
@@ -287,6 +386,8 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const { data: ev, isLoading, isError, canManage } = usePoEventForEdit(editId);
 
   const createEvent = usePoCreateEvent();
+  const createFromTemplate = usePoCreateEventFromTemplate();
+  const templates = usePoTemplates();
   const updateEvent = usePoUpdateEvent(editId);
   const setCancelled = usePoSetCancelled(editId);
   const setLandingActive = usePoSetLandingActive(editId);
@@ -295,6 +396,8 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const setAllowUncheck = usePoSetAllowUncheck(editId);
 
   const [name, setName] = useState('');
+  // Create-from-template (86exyp8gn): null = blank event (the existing path).
+  const [templateId, setTemplateId] = useState<string | null>(null);
   const [dateStr, setDateStr] = useState('');
   const [timeStr, setTimeStr] = useState('');
   const [endDateStr, setEndDateStr] = useState('');
@@ -337,7 +440,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
 
   const writable = isNew ? isAdmin : canManage;
   const venueLabel = isNew ? venueName ?? '' : ev?.venueName ?? '';
-  const saving = createEvent.isPending || updateEvent.isPending;
+  const saving = createEvent.isPending || createFromTemplate.isPending || updateEvent.isPending;
   // Uitchecken toestaan: effective = override ?? venue default ?? true (#3 / S1.1).
   const venueDefaultUncheck = ev?.venueAllowUncheck ?? true;
   const effectiveUncheck = resolveAllowUncheck(uncheckOverride, venueDefaultUncheck);
@@ -378,7 +481,11 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           setErr(t.events.errNoVenue);
           return;
         }
-        await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn });
+        if (templateId) {
+          await createFromTemplate.mutateAsync({ templateId, name: name.trim(), startsAt, endsAt });
+        } else {
+          await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn });
+        }
       } else {
         await updateEvent.mutateAsync({ eventId: editId, name: name.trim(), startsAt, endsAt });
         if (ev && landingOn !== ev.landingActive) {
@@ -457,6 +564,28 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           </Note>
         )}
 
+        {isNew && isAdmin && (templates.data?.length ?? 0) > 0 && (
+          <>
+            <Label className="mb-2">{t.events.fieldTemplate}</Label>
+            <div className="mb-[14px] flex flex-wrap gap-2">
+              <TemplateChip label={t.events.templateBlank} active={!templateId} onClick={() => setTemplateId(null)} />
+              {(templates.data ?? []).map((tpl) => (
+                <TemplateChip
+                  key={tpl.id}
+                  label={tpl.name}
+                  active={templateId === tpl.id}
+                  onClick={() => setTemplateId(tpl.id)}
+                />
+              ))}
+            </div>
+            {templateId && (
+              <div className="mb-[14px]">
+                <Note icon="spark">{t.events.templateNote}</Note>
+              </div>
+            )}
+          </>
+        )}
+
         <Label className="mb-2">{t.events.fieldName}</Label>
         <Field placeholder={t.events.namePlaceholder} value={name} onChange={writable ? setName : undefined} className="mb-[14px]" />
 
@@ -509,8 +638,8 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           <ToggleRow
             title={t.events.landingActiveTitle}
             sub={t.events.landingActiveSub}
-            on={landingOn}
-            set={(v) => writable && setLandingOn(v)}
+            on={isNew && templateId ? false : landingOn}
+            set={(v) => writable && !(isNew && templateId) && setLandingOn(v)}
             last={!landingOn || isNew}
           />
           {!isNew && landingOn && ev?.landingSlug && (
@@ -594,6 +723,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
             </div>
           </>
         )}
+        {!isNew && writable && <SaveAsTemplate eventId={editId} />}
 
         {!isNew && isAdmin && (
           <>

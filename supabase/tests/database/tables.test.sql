@@ -24,9 +24,12 @@ select tables_are(
     'landing_request_throttle',
     -- Sessie C (Gasten & adresboek): venue address book + permanent-guest
     -- exclusion ledger (#8/#10/#11).
-    'contacts', 'contact_event_exclusions'
+    'contacts', 'contact_event_exclusions',
+    -- Event templates (86exyp8gn): reusable per-event-type setups (tiers +
+    -- capacity + default settings), seeded onto a new event on create.
+    'event_templates', 'event_template_tiers'
   ],
-  'public schema contains exactly the MVP tables (Fase 1 + invites + landing + adresboek)'
+  'public schema contains exactly the MVP tables (Fase 1 + invites + landing + adresboek + templates)'
 );
 
 -- RLS: on for every table, no exceptions (default-deny without policies) ----

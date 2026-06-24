@@ -372,11 +372,113 @@ export type Database = {
           },
         ]
       }
+      event_template_tiers: {
+        Row: {
+          aliases: string[]
+          color: string | null
+          created_at: string
+          description: string | null
+          id: string
+          max_guests: number | null
+          name: string
+          position: number
+          template_id: string
+          updated_at: string
+          venue_id: string
+        }
+        Insert: {
+          aliases?: string[]
+          color?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          max_guests?: number | null
+          name: string
+          position?: number
+          template_id: string
+          updated_at?: string
+          venue_id: string
+        }
+        Update: {
+          aliases?: string[]
+          color?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          max_guests?: number | null
+          name?: string
+          position?: number
+          template_id?: string
+          updated_at?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_template_tiers_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "event_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_template_tiers_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_templates: {
+        Row: {
+          allow_uncheck: boolean | null
+          auto_lock_offset_minutes: number | null
+          capacity: number | null
+          created_at: string
+          id: string
+          landing_active: boolean
+          name: string
+          updated_at: string
+          venue_id: string
+        }
+        Insert: {
+          allow_uncheck?: boolean | null
+          auto_lock_offset_minutes?: number | null
+          capacity?: number | null
+          created_at?: string
+          id?: string
+          landing_active?: boolean
+          name: string
+          updated_at?: string
+          venue_id: string
+        }
+        Update: {
+          allow_uncheck?: boolean | null
+          auto_lock_offset_minutes?: number | null
+          capacity?: number | null
+          created_at?: string
+          id?: string
+          landing_active?: boolean
+          name?: string
+          updated_at?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_templates_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       events: {
         Row: {
           allow_uncheck: boolean | null
           auto_lock_at: string | null
           cancelled_at: string | null
+          capacity: number | null
           created_at: string
           ends_at: string | null
           id: string
@@ -396,6 +498,7 @@ export type Database = {
           allow_uncheck?: boolean | null
           auto_lock_at?: string | null
           cancelled_at?: string | null
+          capacity?: number | null
           created_at?: string
           ends_at?: string | null
           id?: string
@@ -415,6 +518,7 @@ export type Database = {
           allow_uncheck?: boolean | null
           auto_lock_at?: string | null
           cancelled_at?: string | null
+          capacity?: number | null
           created_at?: string
           ends_at?: string | null
           id?: string
@@ -1207,6 +1311,19 @@ export type Database = {
       can_read_venue_stats: { Args: { p_venue_id: string }; Returns: boolean }
       can_view_profile: { Args: { p_profile_id: string }; Returns: boolean }
       can_write_guests: { Args: { p_event_id: string }; Returns: boolean }
+      create_event_from_template: {
+        Args: {
+          p_ends_at?: string
+          p_name: string
+          p_starts_at: string
+          p_template_id: string
+        }
+        Returns: string
+      }
+      create_template_from_event: {
+        Args: { p_event_id: string; p_name: string }
+        Returns: string
+      }
       create_venue_with_owner: {
         Args: {
           p_address: string
@@ -1226,6 +1343,18 @@ export type Database = {
       }
       current_user_requires_mfa: { Args: never; Returns: boolean }
       event_allows_uncheck: { Args: { p_event_id: string }; Returns: boolean }
+      event_capacity_consumption: {
+        Args: { p_event_id: string }
+        Returns: number
+      }
+      event_capacity_status: {
+        Args: { p_event_id: string }
+        Returns: {
+          capacity: number
+          consumed: number
+          remaining: number
+        }[]
+      }
       event_checkins_per_quarter: {
         Args: { p_event_id: string }
         Returns: {
@@ -1294,6 +1423,14 @@ export type Database = {
         }[]
       }
       event_venue: { Args: { p_event_id: string }; Returns: string }
+      forget_contact: { Args: { p_contact_id: string }; Returns: Json }
+      guest_capacity_contribution: {
+        Args: {
+          g: Database["public"]["Tables"]["guests"]["Row"]
+          p_went_live_at: string
+        }
+        Returns: number
+      }
       guest_event: { Args: { p_guest_id: string }; Returns: string }
       guest_personal_contribution: {
         Args: {

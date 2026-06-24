@@ -532,6 +532,81 @@ export async function fetchTiersWithUsage(
   return (tiers ?? []).map((t) => ({ ...t, used: used.get(t.id) ?? 0 }));
 }
 
+// ── Event templates (86exyp8gn) ──────────────────────────────────────────────
+// Reusable per-event-type setups (RLS: members read their venue's templates).
+export type PoTemplateRow = Pick<
+  Tables['event_templates']['Row'],
+  'id' | 'name' | 'capacity' | 'allow_uncheck' | 'landing_active' | 'auto_lock_offset_minutes'
+> & { tierCount: number };
+
+export type PoTemplateDetail = Pick<
+  Tables['event_templates']['Row'],
+  'id' | 'venue_id' | 'name' | 'capacity' | 'allow_uncheck' | 'landing_active' | 'auto_lock_offset_minutes'
+>;
+
+export type PoTemplateTierRow = Pick<
+  Tables['event_template_tiers']['Row'],
+  'id' | 'name' | 'description' | 'color' | 'max_guests' | 'aliases' | 'position'
+>;
+
+/** Every template of a venue with its tier count, name-sorted. */
+export async function fetchTemplates(client: Client, venueId: string): Promise<PoTemplateRow[]> {
+  const { data } = await client
+    .from('event_templates')
+    .select(
+      'id, name, capacity, allow_uncheck, landing_active, auto_lock_offset_minutes, event_template_tiers(count)',
+    )
+    .eq('venue_id', venueId)
+    .order('name');
+  return (data ?? []).map((t) => ({
+    id: t.id,
+    name: t.name,
+    capacity: t.capacity,
+    allow_uncheck: t.allow_uncheck,
+    landing_active: t.landing_active,
+    auto_lock_offset_minutes: t.auto_lock_offset_minutes,
+    tierCount: t.event_template_tiers?.[0]?.count ?? 0,
+  }));
+}
+
+/** A single template's editable fields. */
+export async function fetchTemplate(client: Client, templateId: string): Promise<PoTemplateDetail | null> {
+  const { data } = await client
+    .from('event_templates')
+    .select('id, venue_id, name, capacity, allow_uncheck, landing_active, auto_lock_offset_minutes')
+    .eq('id', templateId)
+    .maybeSingle();
+  return data ?? null;
+}
+
+/** A template's tiers in seeding order (position, then creation). */
+export async function fetchTemplateTiers(client: Client, templateId: string): Promise<PoTemplateTierRow[]> {
+  const { data } = await client
+    .from('event_template_tiers')
+    .select('id, name, description, color, max_guests, aliases, position')
+    .eq('template_id', templateId)
+    .order('position')
+    .order('created_at');
+  return data ?? [];
+}
+
+/**
+ * Whether the caller organizes ANY event at this venue — the client-side half of
+ * the "admin OR organizer" template-management gate (organizes_event_at_venue in
+ * RLS). The user can read their own event_organizers rows (user_id = auth.uid()),
+ * so this counts them, inner-joined to the venue's events. RLS stays the real
+ * boundary; this only decides which write affordances the UI shows.
+ */
+export async function fetchOrganizesAtVenue(client: Client, venueId: string, userId: string): Promise<boolean> {
+  if (!userId || !venueId) return false;
+  const { count } = await client
+    .from('event_organizers')
+    .select('event_id, events!inner(venue_id)', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('events.venue_id', venueId);
+  return (count ?? 0) > 0;
+}
+
 // ── Address book reads (S3 Adresboek + Import) ──
 // Direct contacts-table reads, so RLS (20260615130000) limits them to admin /
 // finance / event-organizer — staff/doorhost get [] and the screen renders empty.
