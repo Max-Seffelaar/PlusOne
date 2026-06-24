@@ -24,7 +24,7 @@ begin
 end;
 $fn$;
 
-select plan(15);
+select plan(23);
 
 -- ---------------------------------------------------------------------------
 -- A. create_venue_with_owner — create, effects, audit actor
@@ -140,6 +140,79 @@ select set_config(
 reset role;
 select isnt(current_setting('test.vid2')::uuid, current_setting('test.vid')::uuid,
   'T15 a completed venue is not reused — a second create makes a new venue');
+
+-- ---------------------------------------------------------------------------
+-- E. switcher quick-create — company/billing fields persist + p_complete
+-- ---------------------------------------------------------------------------
+-- The in-app "New venue" switcher (ClickUp 86ey1khun) creates a READY-TO-USE
+-- venue: company/billing fields persist in the same transaction, onboarding is
+-- stamped complete, and the resume guard is skipped so an established owner who
+-- still has an in-onboarding venue (test.vid2 from T15) gets a NEW venue.
+
+select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@plusone.test');
+select set_config(
+  'test.vid3',
+  public.create_venue_with_owner(
+    p_name => 'Switcher Co',
+    p_address => '',
+    p_venue_type => 'bar',
+    p_retention_months => 12,
+    p_city => 'Amsterdam',
+    p_kvk_number => '87654321',
+    p_vat_number => 'NL999999999B01',
+    p_finance_email => 'Bill@Switcher.NL',
+    p_complete => true,
+    p_terms_version => '2026-06-24-test'
+  )::text,
+  false
+);
+reset role;
+
+-- p_complete bypasses the resume guard: the owner still has test.vid2 in
+-- onboarding, yet this is a brand-new venue, not test.vid2.
+select isnt(current_setting('test.vid3')::uuid, current_setting('test.vid2')::uuid,
+  'T16 p_complete skips the resume guard — a new venue, not the in-onboarding one');
+
+select is((select city from public.venues where id = current_setting('test.vid3')::uuid),
+          'Amsterdam', 'T17 the switcher city is persisted on the venue');
+
+select is((select kvk_number || '|' || vat_number || '|' || finance_email
+           from public.venues where id = current_setting('test.vid3')::uuid),
+          '87654321|NL999999999B01|bill@switcher.nl',
+          'T18 KvK + VAT persist and the finance e-mail is lowercased');
+
+select is((select (settings #>> '{onboarding,completed}')::boolean from public.venues
+           where id = current_setting('test.vid3')::uuid),
+          true, 'T19 p_complete stamps onboarding.completed=true (no wizard bounce)');
+
+select is((select roles @> '{admin}'::public.venue_role[] from public.venue_memberships
+           where venue_id = current_setting('test.vid3')::uuid
+             and user_id = '44444444-4444-4444-8444-444444444444'),
+          true, 'T20 the creator is Admin of the switcher-created venue (#40a)');
+
+-- ---------------------------------------------------------------------------
+-- F. company consent recorded at venue creation (#40, ClickUp 86ey1khun)
+-- ---------------------------------------------------------------------------
+
+select is((select terms_version from public.venues where id = current_setting('test.vid3')::uuid),
+          '2026-06-24-test', 'T21 the accepted terms version is recorded on the venue');
+
+select is(
+  (select terms_accepted_by = '44444444-4444-4444-8444-444444444444'
+            and terms_accepted_at is not null
+     from public.venues where id = current_setting('test.vid3')::uuid),
+  true, 'T22 company consent records the accepting actor + a timestamp');
+
+-- A create WITHOUT a terms version (e.g. the seed/legacy path) leaves the consent
+-- columns null — no false consent is ever recorded.
+select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@plusone.test');
+select set_config('test.vid4',
+  public.create_venue_with_owner('No Consent', 'x', 'club', 12, null, false,
+    null, null, null, null, true)::text, false);
+reset role;
+
+select is((select terms_version from public.venues where id = current_setting('test.vid4')::uuid),
+          null, 'T23 a create without a terms version records no consent (no false consent)');
 
 select * from finish();
 

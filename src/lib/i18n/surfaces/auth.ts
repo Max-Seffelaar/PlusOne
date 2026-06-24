@@ -61,4 +61,19 @@ export const auth = {
   inviteSlotsChip: '5 spots/event',
   inviteAccept: 'Accept invite',
   inviteNotNow: 'Not now',
+
+  // ── Consent (first-login Terms + Privacy gate, #20/#40) ───────────────────
+  consentBadge: 'Quick thing',
+  consentTitle: 'Terms & privacy',
+  consentBody: 'Before you continue, please agree to our terms and privacy policy.',
+  consentSignedInAs: 'Signed in as {email}.',
+  // Split so the Terms/Privacy words can be links.
+  consentPre: 'I agree to the ',
+  consentTerms: 'Terms',
+  consentMid: ' and ',
+  consentPrivacy: 'Privacy Policy',
+  consentPost: '.',
+  consentSubmit: 'Agree & continue',
+  consentBusy: 'Working…',
+  consentError: 'Something went wrong.',
 } as const;
