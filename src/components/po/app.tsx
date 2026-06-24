@@ -231,6 +231,14 @@ export function PlusOneApp({
   // pops the right level (overlay before stack).
   const doorOverlayOpenRef = useRef(doorOverlayOpen);
   doorOverlayOpenRef.current = doorOverlayOpen;
+  // One push per user gesture. Several po cards are clickable rows that ALSO
+  // contain action buttons (e.g. the Home event card: `onClick={onOpen}` on the
+  // card + an "Open"/edit/lock button inside). A button click bubbles to the row,
+  // so a single tap fired TWO `nav.push`es → two stack entries + two history
+  // entries → the back button needed two presses per screen. This guard collapses
+  // any second push within the same synchronous event dispatch; the inner (real)
+  // target wins because its handler runs before the bubble reaches the row.
+  const pushGuard = useRef(false);
   const popLevel = (): void => {
     if (doorOverlayOpenRef.current) setDoorOverlay(null);
     else setStack((s) => s.slice(0, -1));
@@ -249,6 +257,11 @@ export function PlusOneApp({
 
   const nav: Nav = {
     push: (name: ScreenName, props = {}) => {
+      if (pushGuard.current) return; // collapse a bubbled double-fire (see pushGuard)
+      pushGuard.current = true;
+      queueMicrotask(() => {
+        pushGuard.current = false;
+      });
       setStack((s) => [...s, { name, props }]);
       histNav.recordPush();
       bump();
