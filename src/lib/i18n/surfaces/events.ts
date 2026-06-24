@@ -107,6 +107,9 @@ export const events = {
   colorAria: 'Color {color}',
   maxOptional: 'Max (optional)',
   maxPlaceholder: '∞ no maximum',
+  // Paid tiers (#34 — display only, no payment processing). Blank = free.
+  priceOptional: 'Door price (optional)',
+  pricePlaceholder: 'Free — e.g. 25',
   aliasesFeedLabel: 'Aliases · feed the quick-add',
   aliasesPlaceholder: 'backstage, bs, prod…',
   aliasesNote:

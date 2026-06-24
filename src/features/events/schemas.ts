@@ -120,12 +120,22 @@ const maxGuests = z
   .nullable()
   .optional();
 
+// Door price in euro cents (#34 — display only, no payment processing). null = free.
+const doorPriceCents = z
+  .number()
+  .int('Enter a whole amount')
+  .min(0, 'Price cannot be negative')
+  .max(100_000_00, 'Price is too high')
+  .nullable()
+  .optional();
+
 export const createTierSchema = z.object({
   eventId: uuid,
   name: z.string().trim().min(1, 'Enter a name').max(80, 'Name is too long'),
   description: optionalText(280),
   color: hexColor.nullable().optional(),
   maxGuests,
+  doorPriceCents,
   aliases,
 });
 export type CreateTierInput = z.input<typeof createTierSchema>;
@@ -136,6 +146,7 @@ export const updateTierSchema = z.object({
   description: optionalText(280),
   color: hexColor.nullable().optional(),
   maxGuests,
+  doorPriceCents,
   aliases: aliases.optional(),
 });
 export type UpdateTierInput = z.input<typeof updateTierSchema>;

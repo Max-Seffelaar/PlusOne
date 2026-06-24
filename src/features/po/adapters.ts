@@ -322,8 +322,9 @@ export function toPoTier(row: PoTierRow, used: number): Tier {
     color: row.color ?? DEFAULT_TIER_COLOR,
     max: row.max_guests,
     used,
-    // Door price isn't modelled in the core schema (#10) — UI default.
-    doorPrice: 0,
+    // Door price (euros) from guest_tiers.door_price_cents (#34 — display only, no
+    // payment processing). 0 = free.
+    doorPrice: (row.door_price_cents ?? 0) / 100,
     aliases: row.aliases ?? [],
   };
 }
