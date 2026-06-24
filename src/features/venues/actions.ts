@@ -9,6 +9,7 @@ import { assertAal2, AuthorizationError } from '@/lib/auth/guards';
 import { ACTIVE_VENUE_COOKIE } from '@/lib/auth/active-venue';
 import { canGrantRoles, type VenueRole } from '@/features/auth/roles';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
+import { TERMS_VERSION } from '@/lib/legal';
 import {
   venueSettingsSchema,
   createVenueSchema,
@@ -317,7 +318,13 @@ export type CreateVenueResult = { ok: true; venueId: string } | MutationError;
 export async function createVenueAction(input: CreateVenueInput): Promise<CreateVenueResult> {
   const parsed = createVenueSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { name, address, venueType, retentionMonths } = parsed.data;
+  const { name, address, venueType, retentionMonths, kvkNumber, vatNumber, financeEmail, city, complete, termsAccepted } =
+    parsed.data;
+
+  // Legal consent (#40): a venue can only be created with explicit agreement.
+  if (!termsAccepted) {
+    return invalidInput('Ga akkoord met de voorwaarden en het privacybeleid om een venue aan te maken.');
+  }
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
@@ -328,6 +335,16 @@ export async function createVenueAction(input: CreateVenueInput): Promise<Create
     p_address: address,
     p_venue_type: venueType,
     p_retention_months: retentionMonths,
+    // Company/billing profile (switcher quick-create); the wizard omits these, so
+    // they fall through to the RPC's null defaults.
+    p_kvk_number: kvkNumber ?? undefined,
+    p_vat_number: vatNumber ?? undefined,
+    p_finance_email: financeEmail ?? undefined,
+    p_city: city ?? undefined,
+    // true → ready-to-use venue (skip resume guard + mark onboarding complete).
+    p_complete: complete,
+    // Records the company consent on the venue (who/when/version), server-stamped.
+    p_terms_version: TERMS_VERSION,
   });
   if (error || !data) return mapMutationError(error);
 

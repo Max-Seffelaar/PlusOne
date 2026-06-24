@@ -949,6 +949,8 @@ export type Database = {
           id: string
           last_name: string | null
           phone: string | null
+          terms_accepted_at: string | null
+          terms_version: string | null
           updated_at: string
         }
         Insert: {
@@ -959,6 +961,8 @@ export type Database = {
           id: string
           last_name?: string | null
           phone?: string | null
+          terms_accepted_at?: string | null
+          terms_version?: string | null
           updated_at?: string
         }
         Update: {
@@ -969,6 +973,8 @@ export type Database = {
           id?: string
           last_name?: string | null
           phone?: string | null
+          terms_accepted_at?: string | null
+          terms_version?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -1035,6 +1041,9 @@ export type Database = {
           retention_months: number
           settings: Json
           slug: string
+          terms_accepted_at: string | null
+          terms_accepted_by: string | null
+          terms_version: string | null
           updated_at: string
           vat_number: string | null
         }
@@ -1054,6 +1063,9 @@ export type Database = {
           retention_months?: number
           settings?: Json
           slug: string
+          terms_accepted_at?: string | null
+          terms_accepted_by?: string | null
+          terms_version?: string | null
           updated_at?: string
           vat_number?: string | null
         }
@@ -1073,6 +1085,9 @@ export type Database = {
           retention_months?: number
           settings?: Json
           slug?: string
+          terms_accepted_at?: string | null
+          terms_accepted_by?: string | null
+          terms_version?: string | null
           updated_at?: string
           vat_number?: string | null
         }
@@ -1167,10 +1182,16 @@ export type Database = {
       create_venue_with_owner: {
         Args: {
           p_address: string
+          p_city?: string
           p_comped?: boolean
+          p_complete?: boolean
+          p_finance_email?: string
+          p_kvk_number?: string
           p_name: string
           p_plan_id?: string
           p_retention_months: number
+          p_terms_version?: string
+          p_vat_number?: string
           p_venue_type: string
         }
         Returns: string

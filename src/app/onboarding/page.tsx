@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { requireUser } from '@/lib/auth/guards';
+import { requireConsent } from '@/lib/auth/consent';
 import { getOnboardingState } from '@/lib/auth/onboarding';
 import { OnboardingWizard } from '@/features/onboarding/components/OnboardingWizard';
 
@@ -13,6 +14,8 @@ export const metadata: Metadata = {
 // and loop). A finished user is sent to the app.
 export default async function OnboardingPage(): Promise<JSX.Element> {
   const user = await requireUser('/onboarding');
+  // Accept Terms + Privacy before the onboarding wizard (#20/#40).
+  await requireConsent(user.id, '/onboarding');
   const state = await getOnboardingState();
   if (state.step === 'done') redirect('/app');
 
