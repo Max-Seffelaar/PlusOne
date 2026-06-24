@@ -75,8 +75,10 @@ export function OtpLoginForm({ nextPath }: { nextPath: string }): JSX.Element {
       return;
     }
     // Full navigation so the freshly-set auth cookies reach the server, which
-    // accepts any pending invites before landing the user in the app.
-    window.location.assign(`/auth/callback?next=${encodeURIComponent(nextPath)}`);
+    // accepts any pending invites before landing the user in the app. `replace`
+    // (not `assign`) so /login doesn't linger in history — otherwise a back from
+    // /app bounces through the login→/app redirect and feels like a trap.
+    window.location.replace(`/auth/callback?next=${encodeURIComponent(nextPath)}`);
   }
 
   return (

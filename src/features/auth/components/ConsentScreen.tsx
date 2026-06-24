@@ -25,7 +25,8 @@ export function ConsentScreen({ next, email }: { next: string; email: string }):
         return;
       }
       // Full navigation so the server re-evaluates the gate and lands on `next`.
-      window.location.assign(next);
+      // `replace` so the consent step doesn't linger behind /app in history.
+      window.location.replace(next);
     });
   }
 

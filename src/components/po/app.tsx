@@ -6,7 +6,7 @@
  * live Supabase data; the Deur/Taken tabs mount the real DoorProvider (offline
  * outbox + realtime), so there is no in-memory door state here anymore.
  */
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
@@ -29,6 +29,7 @@ import {
   type ScreenName,
   type StackEntry,
 } from './context';
+import { usePoHistoryNav } from './history-nav';
 import { PhoneFrame, Toast, type TabKey } from './shell';
 import { Top } from './kit';
 import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
@@ -216,14 +217,46 @@ export function PlusOneApp({
         : '';
   const { data: liveGuests } = usePoGuests(eventIdInContext);
 
+  // ── Browser/OS back-button ↔ in-app nav stack (history integration) ──────────
+  // /app is a single URL with its own nav stack, so the physical back button
+  // (browser, mouse, Android system/gesture) must pop the in-app stack instead of
+  // leaving the app. We mirror the in-app depth onto the History API: every push /
+  // door-overlay adds a same-URL entry, a real back fires popstate → `popLevel`,
+  // and the in-app chevron routes through `goBack()`. A door overlay (guest detail
+  // / add-on-spot) only exists at stack root, so depth = overlay ? 1 : stack.length
+  // (the two are mutually exclusive — see `isDoorTab` below).
+  const isDoorTab = showDoor && started && stack.length === 0 && tab === 'deur';
+  const doorOverlayOpen = isDoorTab && doorOverlay !== null;
+  // The popstate listener is bound once; read the live overlay flag via a ref so it
+  // pops the right level (overlay before stack).
+  const doorOverlayOpenRef = useRef(doorOverlayOpen);
+  doorOverlayOpenRef.current = doorOverlayOpen;
+  const popLevel = (): void => {
+    if (doorOverlayOpenRef.current) setDoorOverlay(null);
+    else setStack((s) => s.slice(0, -1));
+    bump();
+  };
+  const histNav = usePoHistoryNav({ enabled: navHydrated && started, popLevel });
+
+  // Match the browser history to a stack restored from sessionStorage (S3.2) so the
+  // back button works immediately after a refresh into a deep screen. Runs once,
+  // after hydration; the overlay is never persisted, so only the stack counts.
+  useEffect(() => {
+    if (!navHydrated) return;
+    for (let i = 0; i < stack.length; i += 1) histNav.recordPush();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navHydrated]);
+
   const nav: Nav = {
     push: (name: ScreenName, props = {}) => {
       setStack((s) => [...s, { name, props }]);
+      histNav.recordPush();
       bump();
     },
+    // Route through the History API: popstate → `popLevel` does the actual pop, so
+    // the chevron and the physical back button share one path.
     back: () => {
-      setStack((s) => s.slice(0, -1));
-      bump();
+      histNav.goBack();
     },
     setTab: (t: TabKey) => {
       setTabState(t);
@@ -231,6 +264,7 @@ export function PlusOneApp({
       setDoorOverlay(null);
       // A manual tab tap returns the door to its auto-picked event (S1.3).
       setDoorEventId(null);
+      histNav.recordReset();
       bump();
     },
     // "Check-in" from a specific event: open the Deur tab for THAT event (S1.3).
@@ -240,6 +274,7 @@ export function PlusOneApp({
       setDoorSeg('deur');
       setStack([]);
       setDoorOverlay(null);
+      histNav.recordReset();
       bump();
     },
   };
@@ -257,9 +292,18 @@ export function PlusOneApp({
   };
 
   // Door-overlay navigation (within the Deur/Taken tabs, scoped to DoorProvider).
-  const openGuest = (id: string): void => setDoorOverlay({ kind: 'guest', id });
-  const openAdd = (): void => setDoorOverlay({ kind: 'add' });
-  const closeOverlay = (): void => setDoorOverlay(null);
+  // Opening an overlay is a depth step (it hides the tab bar like a pushed screen),
+  // so it records a history entry; closing routes through the History API like back.
+  // Guard the push so switching guest↔add (overlay replaced, not stacked) can't drift.
+  const openGuest = (id: string): void => {
+    if (!doorOverlay) histNav.recordPush();
+    setDoorOverlay({ kind: 'guest', id });
+  };
+  const openAdd = (): void => {
+    if (!doorOverlay) histNav.recordPush();
+    setDoorOverlay({ kind: 'add' });
+  };
+  const closeOverlay = (): void => histNav.goBack();
 
   const switchVenue = (v: Venue): void => {
     setVenueState(v);
@@ -286,11 +330,9 @@ export function PlusOneApp({
   const ev = (id?: string) => events.find((e) => e.id === id);
   const guest = (id?: string) => (liveGuests ?? []).find((g) => g.id === id);
 
-  // The Deur/Taken tabs render inside DoorProvider (door branch below). A door
-  // overlay (guest detail / add) is treated like a pushed screen: it hides the
-  // mobile tab bar so the detail goes full-screen with its own action bar.
-  const isDoorTab = showDoor && started && stack.length === 0 && tab === 'deur';
-  const doorOverlayOpen = isDoorTab && doorOverlay !== null;
+  // `isDoorTab` / `doorOverlayOpen` are computed above (history integration). A door
+  // overlay is treated like a pushed screen: it hides the mobile tab bar so the
+  // detail goes full-screen. `tabRoot` = a bare tab with nothing on top.
   const tabRoot = started && stack.length === 0 && !doorOverlayOpen;
 
   let screen: ReactNode;
