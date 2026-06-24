@@ -123,7 +123,8 @@ reset role;
 
 -- ===========================================================================
 -- 8. AUTHORIZATION — the #17 core: staff see nothing, organizers only their
---    own event, admin/finance everything (read-only), audit needs AAL2.
+--    own event, admin/finance everything (read-only). Audit viewing is role-only
+--    (AAL2 dropped, migration 20260624160000).
 -- ===========================================================================
 
 -- Staff (Tom): no stats, no audit, no venue rollup — only his own quota counter.
@@ -162,12 +163,13 @@ select is((select count(*)::int from public.venue_stats_summary('aa000000-0000-7
   0, '8.10 finance gets NO stats for a venue they are not a member of');
 reset role;
 
--- Admin without AAL2: stats are role-gated (work), but the audit feed needs MFA.
+-- Admin without AAL2: stats are role-gated (work); the audit feed is now role-only
+-- too (AAL2 dropped for audit-log viewing, migration 20260624160000).
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal1');
 select is((select registered from public.event_stats_summary('ee000000-0000-7000-8000-000000000001')),
   28, '8.11 admin (AAL1) still sees stats — they are not AAL2-gated');
-select is((select count(*)::int from public.audit_feed), 0,
-  '8.12 admin (AAL1) sees NO audit feed — inzage vereist MFA (#Auth)');
+select ok((select count(*) from public.audit_feed) > 0,
+  '8.12 admin (AAL1) now sees the audit feed — role-only, MFA no longer required (#Auth)');
 reset role;
 
 -- ===========================================================================

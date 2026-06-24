@@ -5,15 +5,15 @@
  *  naar VIP · za 23:14"), a bottom-sheet filter (event / gebruiker / actie +
  *  zoeken), and a per-guest geschiedenis-tijdlijn. Reads the same audit_feed as
  *  the desktop /admin/audit over the browser client; the Dutch sentences come
- *  from the SHARED features/audit/translate.ts. Gated to admin/finance + AAL2 —
- *  RLS is the real boundary, this only renders the right state. Reached from the
- *  Meer hub. */
+ *  from the SHARED features/audit/translate.ts. Gated to admin/finance (no AAL2
+ *  since 2026-06-24 — MFA is scoped to invite/member/session actions) — RLS is
+ *  the real boundary, this only renders the right state. Reached from the Meer hub. */
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import { formatWhen, type AuditLine } from '@/features/audit/translate';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
-import { usePoAal2, usePoAuditFeed, usePoAuditFilterOptions, usePoGuestHistory } from '@/features/po/hooks';
+import { usePoAuditFeed, usePoAuditFilterOptions, usePoGuestHistory } from '@/features/po/hooks';
 import { venueCapabilities } from '@/features/venues/access';
 import {
   AUDIT_ACTION_FILTERS,
@@ -21,7 +21,6 @@ import {
   guestStatusLabel,
   isDoorDevice,
 } from '@/features/po/audit-presenter';
-import { useMfaGate } from '../mfa-gate';
 import { useNav } from '../context';
 import { Icon } from '../icon';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, Note, Scroll, Top } from '../kit';
@@ -42,8 +41,6 @@ export function AuditLog({ eventId }: { eventId?: string }): JSX.Element {
   const nav = useNav();
   const { roles, venueName } = usePoIdentity();
   const canAudit = venueCapabilities(roles).viewAudit;
-  const aal = usePoAal2();
-  const mfa = useMfaGate();
 
   // Pre-scope to an event when arriving from the home's activity feed; the filter
   // sheet still lets the user widen back to "Alle events".
@@ -60,7 +57,7 @@ export function AuditLog({ eventId }: { eventId?: string }): JSX.Element {
       action: filters.action,
       search: filters.search.trim() || undefined,
     },
-    { enabled: canAudit && aal.isAal2 }
+    { enabled: canAudit }
   );
 
   // No admin/finance role → never even attempt to read (RLS would refuse anyway).
@@ -91,47 +88,30 @@ export function AuditLog({ eventId }: { eventId?: string }): JSX.Element {
         title={t.audit.title}
         sub={venueName ?? undefined}
         right={
-          aal.isAal2 ? (
-            <>
-              <IconBtn name="refresh" onClick={() => void feed.refetch()} />
-              <button
-                type="button"
-                onClick={() => setSheetOpen(true)}
-                aria-label={t.audit.filterAria}
-                className={cn(
-                  'relative flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border bg-elev text-text',
-                  press,
-                  filtersActive ? 'border-acc' : 'border-line'
-                )}
-              >
-                <Icon name="filter" size={19} />
-                {filtersActive && (
-                  <span className="absolute -right-[3px] -top-[3px] h-[10px] w-[10px] rounded-full border-2 border-bg bg-acc" />
-                )}
-              </button>
-            </>
-          ) : undefined
+          <>
+            <IconBtn name="refresh" onClick={() => void feed.refetch()} />
+            <button
+              type="button"
+              onClick={() => setSheetOpen(true)}
+              aria-label={t.audit.filterAria}
+              className={cn(
+                'relative flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border bg-elev text-text',
+                press,
+                filtersActive ? 'border-acc' : 'border-line'
+              )}
+            >
+              <Icon name="filter" size={19} />
+              {filtersActive && (
+                <span className="absolute -right-[3px] -top-[3px] h-[10px] w-[10px] rounded-full border-2 border-bg bg-acc" />
+              )}
+            </button>
+          </>
         }
       />
       <Scroll bottom={28}>
         <Note icon="shield">{t.audit.immutableNote}</Note>
 
-        {!aal.isAal2 ? (
-          aal.loading ? (
-            <Empty text={t.audit.loading} />
-          ) : (
-            <div className="rounded-[18px] border border-acc-dim bg-acc-dim p-5">
-              <div className="mb-1 flex items-center gap-[10px]">
-                <Icon name="shield" size={20} stroke="#B5A6FF" />
-                <span className="font-display text-[16px] font-bold text-text">{t.audit.mfaTitle}</span>
-              </div>
-              <div className="mb-4 text-[13px] leading-[1.5] text-dim">{t.audit.mfaBody}</div>
-              <Btn kind="primary" full icon="shield" onClick={() => mfa.start(() => aal.recheck())}>
-                {t.audit.mfaVerify}
-              </Btn>
-            </div>
-          )
-        ) : feed.isLoading ? (
+        {feed.isLoading ? (
           <Empty text={t.audit.loading} />
         ) : feed.isError ? (
           <Empty text={t.audit.loadError} />
@@ -228,7 +208,6 @@ export function AuditLog({ eventId }: { eventId?: string }): JSX.Element {
           onClose={() => setSheetOpen(false)}
         />
       )}
-      {mfa.sheet}
     </div>
   );
 }

@@ -5,9 +5,11 @@
 --   * Audit immutability (#4): audit_log is written ONLY by triggers. App roles
 --     hold SELECT and nothing else — so even an admin with AAL2 (who may READ it)
 --     cannot insert a forged row, alter a diff, or delete history. 42501 each.
---   * AAL2 gate (CLAUDE.md §Auth): quota grants, role changes and audit reads
---     need a step-up. An admin whose session is only AAL1 must be refused — RLS
---     keys these on auth.jwt()->>'aal', so dropping to AAL1 must not unlock them.
+--   * AAL2 gate (CLAUDE.md §Auth): post-migration 20260624160000 the second
+--     factor is scoped to the genuinely access-granting actions. MEMBERSHIP role
+--     changes still need a step-up (an AAL1 admin is refused), but quota grants,
+--     event-organizer assignment and audit-log reads are now ROLE-ONLY and
+--     succeed at AAL1. RLS keys the kept gate on auth.jwt()->>'aal'.
 -- Seed venue aa..01, event ee..01. Everything rolls back.
 
 begin;
@@ -59,7 +61,8 @@ $$, '42501', null, 'A3 admin+AAL2 cannot DELETE audit history');
 reset role;
 
 -- ---------------------------------------------------------------------------
--- B. Who may READ the audit log: admin/finance + AAL2 only (#4)
+-- B. Who may READ the audit log: admin/finance, role-only (AAL2 dropped, #4 /
+--    migration 20260624160000). Wrong-role still sees nothing.
 -- ---------------------------------------------------------------------------
 
 select pg_temp.login('55555555-5555-4555-8555-555555555555');
@@ -68,51 +71,53 @@ select is((select count(*)::int from public.audit_log), 0,
 reset role;
 
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal1');
-select is((select count(*)::int from public.audit_log), 0,
-  'B2 admin on an AAL1 session sees no audit rows (step-up required)');
+select ok((select count(*)::int from public.audit_log) > 0,
+  'B2 admin on an AAL1 session now reads the audit trail (role-only, no step-up)');
 reset role;
 
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2');
 select ok((select count(*)::int from public.audit_log) > 0,
-  'B3 admin WITH AAL2 reads the audit trail');
+  'B3 admin WITH AAL2 still reads the audit trail');
 reset role;
 
 -- ---------------------------------------------------------------------------
--- C. Sensitive writes need AAL2 — an AAL1 admin is refused (no step-down bypass)
+-- C. Step-up scope after migration 20260624160000: MEMBERSHIP role grants still
+--    need AAL2 (an AAL1 admin is refused — no step-down bypass), but quota grants
+--    and event-organizer assignment are now role-only and succeed at AAL1.
 -- ---------------------------------------------------------------------------
 
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal1');
 
--- Quota grant: USING needs AAL2 → the row is invisible to the update → 0 rows.
+-- Quota grant: role-only now → the AAL1 admin's update lands on its row.
 select is(
   pg_temp.rowcount($$update public.quotas set default_count = 99
               where venue_id = 'aa000000-0000-7000-8000-000000000001'
                 and user_id = '55555555-5555-4555-8555-555555555555'$$),
-  0, 'C1 AAL1 admin cannot grant quota (update matches no row)');
+  1, 'C1 AAL1 admin may grant quota (role-only, MFA no longer required)');
 
--- Role grant: WITH CHECK needs AAL2 → the insert is rejected.
+-- Role grant: WITH CHECK STILL needs AAL2 → the insert is rejected (UNCHANGED).
 select throws_ok($$
   insert into public.venue_memberships (venue_id, user_id, roles)
   values ('aa000000-0000-7000-8000-000000000001',
           '44444444-4444-4444-8444-444444444444', '{staff}')
-$$, '42501', null, 'C2 AAL1 admin cannot grant a membership (role change)');
+$$, '42501', null, 'C2 AAL1 admin still cannot grant a membership (role change keeps AAL2)');
 
--- Organizer assignment is an admin role-grant too — AAL2 required.
-select throws_ok($$
+-- Organizer assignment is now role-only — an AAL1 admin may assign.
+select lives_ok($$
   insert into public.event_organizers (event_id, user_id)
   values ('ee000000-0000-7000-8000-000000000001',
           '55555555-5555-4555-8555-555555555555')
-$$, '42501', null, 'C3 AAL1 admin cannot assign an event organizer');
+$$, 'C3 AAL1 admin may assign an event organizer (role-only)');
 
 reset role;
 
--- Anchor: WITH AAL2 the same quota grant succeeds (the gate is the only blocker).
+-- Anchor: the same quota grant still succeeds at AAL2 (role check holds either way).
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2');
 select is(
   pg_temp.rowcount($$update public.quotas set default_count = 11
               where venue_id = 'aa000000-0000-7000-8000-000000000001'
                 and user_id = '55555555-5555-4555-8555-555555555555'$$),
-  1, 'C4 admin WITH AAL2 may grant quota');
+  1, 'C4 admin WITH AAL2 may still grant quota');
 reset role;
 
 select * from finish();

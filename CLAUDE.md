@@ -31,7 +31,7 @@ The full functional spec lives in `gastenlijst-app-spec.md` (repo root). Decisio
 
 - Supabase Auth, **passwordless only**: e-mail OTP (6-digit). Password auth is disabled in project settings — verify this in setup.
 - **Invite-only.** Public signups disabled. Accounts are created exclusively through admin/user-manager invitations.
-- **MFA (TOTP) mandatory for `admin` and `finance` roles.** Sensitive operations (quota grants, role changes, audit-log access) require AAL2 — enforce in RLS via `auth.jwt()->>'aal'`.
+- **MFA (TOTP) enrollment mandatory for `admin` and `finance` roles** (no factor → no app access; enforced by `requireAppAccess` → `/mfa/enroll`). **AAL2 is scoped, not app-wide** (refined 2026-06-24): it is enforced in RLS (`auth.jwt()->>'aal'`) only for the *sensitive access actions* — inviting/revoking a teammate, adding/removing/role-changing a member, and remote-logging-out another user's session. **Quota grants, event-organizer assignment, and audit-log viewing are role-only (no AAL2).** The app steps the session up in place (the in-app MFA sheet, `useMfaGate`) when such an action is attempted — it does **not** force the whole app to AAL2 (that caused "re-MFA on every visit"). Migration `20260624160000_mfa_scope_sensitive_actions`.
 - Short-lived access tokens, refresh rotation on. Admin screen for per-user session list + remote logout.
 - The `service_role` key only ever appears in server-side code (Edge Functions / Route Handlers running on the server). If you ever find it referenced in client-bundled code, stop and fix immediately.
 

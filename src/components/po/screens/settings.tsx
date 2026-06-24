@@ -445,7 +445,14 @@ export function Gebruikers(): JSX.Element {
                   </div>
                 </div>
                 {caps.manageTeam && (
-                  <MiniChip onClick={() => revokeInvite.mutate(iv.id)}>
+                  <MiniChip
+                    onClick={() => {
+                      // AAL1 → open the MFA step-up sheet and retry the revoke after.
+                      const doRevoke = (): void =>
+                        revokeInvite.mutate(iv.id, { onError: (e) => mfa.guard(e, doRevoke) });
+                      doRevoke();
+                    }}
+                  >
                     {revokeInvite.isPending && revokeInvite.variables === iv.id ? t.settings.team.revoking : t.settings.team.revoke}
                   </MiniChip>
                 )}
@@ -453,9 +460,10 @@ export function Gebruikers(): JSX.Element {
             ))}
           </div>
         )}
-        <FormError error={revokeInvite.isError ? revokeInvite.error : null} />
+        <FormError error={revokeInvite.isError && !isAal2Error(revokeInvite.error) ? revokeInvite.error : null} />
       </Scroll>
       {sheetMember && <MemberSheet member={sheetMember} callerRoles={roles} onClose={() => setSheetMember(null)} />}
+      {mfa.sheet}
     </div>
   );
 }

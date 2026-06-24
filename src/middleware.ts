@@ -53,19 +53,17 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     return redirectWithCookies(url, response);
   }
 
-  // MFA gate on protected routes (not /mfa/* or /onboarding, to avoid bouncing a
-  // new owner mid-flow). Mandatory for admin/finance (CLAUDE.md §Auth); anyone
-  // with a factor must step up.
-  if (
-    user &&
-    !publicRoute &&
-    !onMfaRoute &&
-    !onOnboarding &&
-    !gate.isAal2 &&
-    (gate.requiresMfa || gate.hasFactor)
-  ) {
+  // MFA ENROLLMENT gate on protected routes (not /mfa/* or /onboarding, to avoid
+  // bouncing a new owner mid-flow). Enrollment stays mandatory for admin/finance
+  // (CLAUDE.md §Auth, #20). AAL2 itself is required only for specific sensitive
+  // actions (invite / revoke-invite / member add-remove-rolechange / remote-logout),
+  // which step the session up IN PLACE via the app's MFA sheet — so we no longer
+  // bounce an AAL1 session to /mfa/verify just to browse (that caused the
+  // "re-MFA on every visit" friction). Anyone without a factor that needs one is
+  // still sent to enroll.
+  if (user && !publicRoute && !onMfaRoute && !onOnboarding && gate.requiresMfa && !gate.hasFactor) {
     const url = request.nextUrl.clone();
-    url.pathname = gate.requiresMfa && !gate.hasFactor ? '/mfa/enroll' : '/mfa/verify';
+    url.pathname = '/mfa/enroll';
     url.search = '';
     url.searchParams.set('next', pathname);
     return redirectWithCookies(url, response);
