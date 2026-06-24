@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { PlusOneApp } from '@/components/po/app';
 import { PoLiveProvider, type PoIdentity } from '@/features/po/PoLiveProvider';
 import { getOnboardingState } from '@/lib/auth/onboarding';
+import { acceptedCurrentTerms } from '@/lib/auth/consent';
 import { getMyMemberships, getReportingVenues } from '@/lib/auth/memberships';
 import { getSessionUser } from '@/lib/auth/context';
 import { resolveActiveVenueId } from '@/lib/auth/active-venue';
@@ -39,8 +40,14 @@ export default async function AppPage(): Promise<JSX.Element> {
   // Real display name + role label for the shell footer (RLS: own profile).
   const supabase = await createClient();
   const { data: profileRow } = user
-    ? await supabase.from('user_profiles').select('full_name').eq('id', user.id).maybeSingle()
+    ? await supabase
+        .from('user_profiles')
+        .select('full_name, terms_accepted_at, terms_version')
+        .eq('id', user.id)
+        .maybeSingle()
     : { data: null };
+  // First-login consent gate (#20/#40): accept Terms + Privacy before the app.
+  if (user && !acceptedCurrentTerms(profileRow)) redirect('/consent?next=/app');
   const userName = profileRow?.full_name || user?.email || 'Account';
   const roleLabel =
     active && active.roles.length > 0

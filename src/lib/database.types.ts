@@ -1053,6 +1053,8 @@ export type Database = {
           id: string
           last_name: string | null
           phone: string | null
+          terms_accepted_at: string | null
+          terms_version: string | null
           updated_at: string
         }
         Insert: {
@@ -1063,6 +1065,8 @@ export type Database = {
           id: string
           last_name?: string | null
           phone?: string | null
+          terms_accepted_at?: string | null
+          terms_version?: string | null
           updated_at?: string
         }
         Update: {
@@ -1073,6 +1077,8 @@ export type Database = {
           id?: string
           last_name?: string | null
           phone?: string | null
+          terms_accepted_at?: string | null
+          terms_version?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -1139,6 +1145,9 @@ export type Database = {
           retention_months: number
           settings: Json
           slug: string
+          terms_accepted_at: string | null
+          terms_accepted_by: string | null
+          terms_version: string | null
           updated_at: string
           vat_number: string | null
         }
@@ -1158,6 +1167,9 @@ export type Database = {
           retention_months?: number
           settings?: Json
           slug: string
+          terms_accepted_at?: string | null
+          terms_accepted_by?: string | null
+          terms_version?: string | null
           updated_at?: string
           vat_number?: string | null
         }
@@ -1177,6 +1189,9 @@ export type Database = {
           retention_months?: number
           settings?: Json
           slug?: string
+          terms_accepted_at?: string | null
+          terms_accepted_by?: string | null
+          terms_version?: string | null
           updated_at?: string
           vat_number?: string | null
         }
@@ -1281,17 +1296,35 @@ export type Database = {
         Args: { p_event_id: string; p_name: string }
         Returns: string
       }
-      create_venue_with_owner: {
-        Args: {
-          p_address: string
-          p_comped?: boolean
-          p_name: string
-          p_plan_id?: string
-          p_retention_months: number
-          p_venue_type: string
-        }
-        Returns: string
-      }
+      create_venue_with_owner:
+        | {
+            Args: {
+              p_address: string
+              p_comped?: boolean
+              p_name: string
+              p_plan_id?: string
+              p_retention_months: number
+              p_venue_type: string
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              p_address: string
+              p_city?: string
+              p_comped?: boolean
+              p_complete?: boolean
+              p_finance_email?: string
+              p_kvk_number?: string
+              p_name: string
+              p_plan_id?: string
+              p_retention_months: number
+              p_terms_version?: string
+              p_vat_number?: string
+              p_venue_type: string
+            }
+            Returns: string
+          }
       current_user_requires_mfa: { Args: never; Returns: boolean }
       event_allows_uncheck: { Args: { p_event_id: string }; Returns: boolean }
       event_capacity_consumption: {
@@ -1374,6 +1407,7 @@ export type Database = {
         }[]
       }
       event_venue: { Args: { p_event_id: string }; Returns: string }
+      forget_contact: { Args: { p_contact_id: string }; Returns: Json }
       guest_capacity_contribution: {
         Args: {
           g: Database["public"]["Tables"]["guests"]["Row"]
