@@ -241,6 +241,7 @@ export const createTemplateTierSchema = z.object({
   description: optionalText(280),
   color: hexColor.nullable().optional(),
   maxGuests,
+  doorPriceCents,
   aliases,
 });
 export type CreateTemplateTierInput = z.input<typeof createTemplateTierSchema>;
@@ -251,6 +252,7 @@ export const updateTemplateTierSchema = z.object({
   description: optionalText(280),
   color: hexColor.nullable().optional(),
   maxGuests,
+  doorPriceCents,
   aliases: aliases.optional(),
 });
 export type UpdateTemplateTierInput = z.input<typeof updateTemplateTierSchema>;

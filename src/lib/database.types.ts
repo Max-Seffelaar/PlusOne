@@ -378,6 +378,7 @@ export type Database = {
           color: string | null
           created_at: string
           description: string | null
+          door_price_cents: number | null
           id: string
           max_guests: number | null
           name: string
@@ -391,6 +392,7 @@ export type Database = {
           color?: string | null
           created_at?: string
           description?: string | null
+          door_price_cents?: number | null
           id?: string
           max_guests?: number | null
           name: string
@@ -404,6 +406,7 @@ export type Database = {
           color?: string | null
           created_at?: string
           description?: string | null
+          door_price_cents?: number | null
           id?: string
           max_guests?: number | null
           name?: string
