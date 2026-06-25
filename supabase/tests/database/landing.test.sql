@@ -84,11 +84,12 @@ select is(
   public.submit_guest_request('plusone-launch-night', 'A', null, null, 0, null, 'ip-a', false),
   'invalid', 'A6 a too-short name is rejected server-side');
 
--- Rate limit: a fresh IP, window max = 10. The 10th still passes, the 11th trips.
-select is(pg_temp.submit_n(10, 'ip-rl'), 'ok', 'A7a ten submissions within the window stay ok');
+-- Rate limit: a fresh IP, window max = 5 (tightened in 20260625100000). The 5th
+-- still passes, the 6th trips.
+select is(pg_temp.submit_n(5, 'ip-rl'), 'ok', 'A7a five submissions within the window stay ok');
 select is(
   public.submit_guest_request('plusone-launch-night', 'RL Over', null, null, 0, null, 'ip-rl', false),
-  'rate_limited', 'A7b the 11th submission from the same IP is rate-limited');
+  'rate_limited', 'A7b the 6th submission from the same IP is rate-limited');
 
 -- Marketing opt-in (8b): the consent flag is persisted as given.
 select pg_temp.login_anon();
