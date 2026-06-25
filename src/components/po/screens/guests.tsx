@@ -539,7 +539,7 @@ function GuestTable({
                       aria-label={isSelected ? 'Deselect' : 'Select'}
                       className={cn(
                         'flex h-[20px] w-[20px] items-center justify-center rounded-full border-2 transition-colors',
-                        isSelected ? 'border-acc bg-acc' : 'border-ghost bg-transparent opacity-0 group-hover:opacity-100',
+                        isSelected ? 'border-acc bg-acc' : 'border-ghost bg-transparent opacity-25 group-hover:opacity-100',
                       )}
                     >
                       {isSelected && <Icon name="check2" size={10} stroke="#0B0B0D" sw={2.8} />}
@@ -1517,6 +1517,7 @@ export function ContactProfile({
   const [confirmStar, setConfirmStar] = useState(false);
   const [forgetting, setForgetting] = useState(false);
   const [tierPicking, setTierPicking] = useState(false);
+  const [tierGuestId, setTierGuestId] = useState<string | null>(null);
   const [tierErr, setTierErr] = useState<string | null>(null);
 
   if (isLoading) {
@@ -1662,10 +1663,10 @@ export function ContactProfile({
                         <span className="h-[8px] w-[8px] rounded-full" style={{ background: e.tierColor }} />
                         {e.tier ?? t.guests.contactProfile.tierNone}
                       </span>
-                      {e.isOrigin && p.promoteGuestId && tierOptions.length > 1 && (
+                      {e.isOrigin && tierOptions.length > 1 && (
                         <button
                           type="button"
-                          onClick={() => { setTierErr(null); setTierPicking(true); }}
+                          onClick={() => { setTierErr(null); setTierGuestId(e.guestId); setTierPicking(true); }}
                           className="rounded-[7px] border border-line2 bg-transparent px-2 py-[3px] font-body text-[11px] font-bold text-faint transition-colors hover:border-acc hover:text-acc"
                         >
                           {t.guests.contactProfile.changeTier}
@@ -1741,7 +1742,7 @@ export function ContactProfile({
           onClose={() => setPromoting(false)}
         />
       )}
-      {tierPicking && p.promoteGuestId && (
+      {tierPicking && tierGuestId && (
         <Sheet onClose={() => setTierPicking(false)} center={false}>
           <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{t.guests.contactProfile.changeTier}</div>
           <div className="mb-4 text-[13px] text-faint">{t.guests.contactProfile.changeTierSub}</div>
@@ -1754,7 +1755,7 @@ export function ContactProfile({
                 onClick={() => {
                   setTierErr(null);
                   changeTier.mutate(
-                    { guestId: p.promoteGuestId!, tierId: tier.id },
+                    { guestId: tierGuestId, tierId: tier.id },
                     {
                       onSuccess: () => setTierPicking(false),
                       onError: (e) => setTierErr(e instanceof Error ? e.message : t.guests.multiSelect.tierFailed),
