@@ -11,6 +11,7 @@ function tier(over: Partial<TierRow> = {}): TierRow {
     color: '#8A8A93',
     max_guests: null,
     aliases: [],
+    door_price_cents: null,
     created_at: '2026-06-01T00:00:00Z',
     updated_at: '2026-06-01T00:00:00Z',
     ...over,

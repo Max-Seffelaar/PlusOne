@@ -254,9 +254,10 @@ describe('toPoTier', () => {
     color: '#FFD700',
     max_guests: 50,
     aliases: ['vip', 'v.i.p.'],
+    door_price_cents: null,
   };
 
-  it('maps a tier row + used count to the po Tier shape', () => {
+  it('maps a tier row + used count to the po Tier shape (free tier)', () => {
     expect(toPoTier(row, 12)).toEqual({
       id: 't1',
       name: 'VIP',
@@ -268,6 +269,11 @@ describe('toPoTier', () => {
       doorPrice: 0,
       aliases: ['vip', 'v.i.p.'],
     });
+  });
+
+  it('converts door_price_cents to euros (#34, display only)', () => {
+    expect(toPoTier({ ...row, door_price_cents: 2500 }, 0).doorPrice).toBe(25);
+    expect(toPoTier({ ...row, door_price_cents: 1250 }, 0).doorPrice).toBe(12.5);
   });
 
   it('falls back to the accent colour when the tier has none', () => {

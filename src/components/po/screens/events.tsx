@@ -777,6 +777,7 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
   const [nm, setNm] = useState('');
   const [color, setColor] = useState('#B5A6FF');
   const [max, setMax] = useState('');
+  const [price, setPrice] = useState('');
   const [aliasText, setAliasText] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [aliasFor, setAliasFor] = useState<string | null>(null);
@@ -786,6 +787,7 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
     setNm('');
     setColor('#B5A6FF');
     setMax('');
+    setPrice('');
     setAliasText('');
   };
 
@@ -793,12 +795,17 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
     if (!nm.trim() || createTier.isPending) return;
     setErr(null);
     const maxNum = Number.parseInt(max, 10);
+    // Door price in euros → cents (#34, display only). Blank/0 = free (null).
+    const priceNum = Number.parseFloat(price.replace(',', '.'));
+    const doorPriceCents =
+      price.trim() && Number.isFinite(priceNum) && priceNum > 0 ? Math.round(priceNum * 100) : null;
     try {
       await createTier.mutateAsync({
         eventId: id,
         name: nm.trim(),
         color,
         maxGuests: Number.isFinite(maxNum) && maxNum > 0 ? maxNum : null,
+        doorPriceCents,
         aliases: aliasText.split(',').map((a) => a.trim()).filter(Boolean),
       });
       resetForm();
@@ -850,6 +857,8 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
             </div>
             <Label className="mb-2">{t.events.maxOptional}</Label>
             <Field placeholder={t.events.maxPlaceholder} value={max} onChange={setMax} inputMode="numeric" className="mb-[14px]" />
+            <Label className="mb-2">{t.events.priceOptional}</Label>
+            <Field placeholder={t.events.pricePlaceholder} value={price} onChange={setPrice} inputMode="numeric" className="mb-[14px]" />
             <Label className="mb-2">{t.events.aliasesFeedLabel}</Label>
             <Field icon="spark" placeholder={t.events.aliasesPlaceholder} value={aliasText} onChange={setAliasText} />
             {aliasText.trim() && (
@@ -884,6 +893,11 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
                     <div className="font-display text-[15.5px] font-bold text-text">{tier.name}</div>
                     <div className="mt-px text-[12px] text-faint">{tier.max ? fmt(t.events.tierUsedOfMax, { used: tier.used, max: tier.max }) : fmt(t.events.tierUsedNoMax, { used: tier.used })}</div>
                   </div>
+                  {tier.doorPrice > 0 && (
+                    <span className="shrink-0 rounded-[7px] bg-acc-dim px-2 py-[3px] font-display text-[11.5px] font-bold text-acc">
+                      €{tier.doorPrice % 1 === 0 ? tier.doorPrice : tier.doorPrice.toFixed(2)}
+                    </span>
+                  )}
                   {tier.isDefault && <MiniChip>{t.events.tierDefault}</MiniChip>}
                 </div>
                 {tier.max && (

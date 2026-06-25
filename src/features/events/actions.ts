@@ -295,7 +295,7 @@ export async function setEventAllowUncheck(input: SetAllowUncheckInput): Promise
 export async function createTier(input: CreateTierInput): Promise<ActionResult> {
   const parsed = createTierSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { eventId, name, description, color, maxGuests, aliases } = parsed.data;
+  const { eventId, name, description, color, maxGuests, doorPriceCents, aliases } = parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
@@ -307,6 +307,7 @@ export async function createTier(input: CreateTierInput): Promise<ActionResult> 
     description,
     color,
     max_guests: maxGuests ?? null,
+    door_price_cents: doorPriceCents ?? null,
     aliases,
   });
   if (error) {
@@ -324,7 +325,7 @@ export async function createTier(input: CreateTierInput): Promise<ActionResult> 
 export async function updateTier(input: UpdateTierInput): Promise<ActionResult> {
   const parsed = updateTierSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { tierId, name, description, color, maxGuests, aliases } = parsed.data;
+  const { tierId, name, description, color, maxGuests, doorPriceCents, aliases } = parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
@@ -335,6 +336,7 @@ export async function updateTier(input: UpdateTierInput): Promise<ActionResult> 
     ...(description !== undefined ? { description } : {}),
     ...(color !== undefined ? { color } : {}),
     ...(maxGuests !== undefined ? { max_guests: maxGuests } : {}),
+    ...(doorPriceCents !== undefined ? { door_price_cents: doorPriceCents } : {}),
     ...(aliases !== undefined ? { aliases } : {}),
   };
   if (Object.keys(patch).length === 0) return { ok: true };

@@ -37,7 +37,7 @@ export type PoGuestRow = Pick<
 
 export type PoTierRow = Pick<
   Tables['guest_tiers']['Row'],
-  'id' | 'name' | 'color' | 'max_guests' | 'aliases'
+  'id' | 'name' | 'color' | 'max_guests' | 'aliases' | 'door_price_cents'
 >;
 
 /** All events for a venue, newest first (RLS: members read their venue's events). */
@@ -125,7 +125,7 @@ export async function fetchEventQuota(
 export async function fetchTiers(client: Client, eventId: string): Promise<PoTierRow[]> {
   const { data } = await client
     .from('guest_tiers')
-    .select('id, name, color, max_guests, aliases')
+    .select('id, name, color, max_guests, aliases, door_price_cents')
     .eq('event_id', eventId)
     .order('name', { ascending: true });
 
@@ -515,7 +515,7 @@ export async function fetchTiersWithUsage(
   eventId: string
 ): Promise<TierWithUsage[]> {
   const [{ data: tiers }, guests] = await Promise.all([
-    client.from('guest_tiers').select('id, name, color, max_guests, aliases').eq('event_id', eventId).order('name'),
+    client.from('guest_tiers').select('id, name, color, max_guests, aliases, door_price_cents').eq('event_id', eventId).order('name'),
     // Ranged: occupancy counts every non-removed/denied guest, so a 1500-guest
     // event would otherwise truncate the count at 1000. `.order('id')` keys the paging.
     fetchAllRanged<Pick<Tables['guests']['Row'], 'tier_id' | 'status'>>((from, to) =>
