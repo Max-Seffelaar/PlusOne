@@ -22,11 +22,12 @@ import { t, fmt } from '@/lib/i18n';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { usePoHomeEvents, usePoGuestRequests, usePoQuotaRequests, usePoProfile } from '@/features/po/hooks';
 import type { HomeEvent } from '@/features/po/adapters';
+import { eventPhase } from '@/features/po/event-phase';
 import { canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '../context';
 import { Icon, type IconName } from '../icon';
 import { Btn, Scroll } from '../kit';
-import { Toast } from '../shell';
+import { Sheet, Toast } from '../shell';
 import { PendingInvitesBanner } from '../pending-invites-banner';
 
 const TZ = 'Europe/Amsterdam';
@@ -65,7 +66,8 @@ interface BoardEvent {
   venue: string;
   date: string;
   door: string;
-  when: 'today' | 'upcoming';
+  startsAtMs: number;
+  when: 'today' | 'upcoming' | 'past';
   live: boolean;
   locked: boolean;
   onList: number;
@@ -77,7 +79,13 @@ interface BoardEvent {
 
 // ── status chip ───────────────────────────────────────────────────────────────
 function StatusChip({ e }: { e: BoardEvent }): JSX.Element {
-  const label = e.live ? t.home.chipLive : e.when === 'today' ? t.home.chipTonight : t.home.chipUpcoming;
+  const label = e.live
+    ? t.home.chipLive
+    : e.when === 'today'
+      ? t.home.chipTonight
+      : e.when === 'past'
+        ? t.home.chipPast
+        : t.home.chipUpcoming;
   return (
     <span
       className={cn(
@@ -632,6 +640,7 @@ export function Home(): JSX.Element {
   const [filter, setFilter] = useState('all');
   const [page, setPage] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
+  const [guestPickOpen, setGuestPickOpen] = useState(false);
   // Lock is optimistic-local for now (the DB lock mutation lives on the event /
   // cockpit; wiring it here is a follow-up). Tracked per event id.
   const [lockOverride, setLockOverride] = useState<Record<string, boolean>>({});
@@ -648,15 +657,20 @@ export function Home(): JSX.Element {
     const quotaBy = new Map<string, number>();
     for (const r of quotaReqQ.data ?? []) quotaBy.set(r.eventId, (quotaBy.get(r.eventId) ?? 0) + 1);
     const today = dayKey(Date.now());
+    const now = Date.now();
     return evs.map((e) => {
-      const live = e.status === 'live';
+      const phase = eventPhase(e.starts_at, e.ends_at, now);
+      const live = phase === 'live';
+      const when: BoardEvent['when'] =
+        phase === 'past' ? 'past' : live || dayKey(e.starts_at) === today ? 'today' : 'upcoming';
       return {
         id: e.id,
         name: e.name,
         venue: e.venue_name,
         date: fmtDate(e.starts_at),
         door: fmtTime(e.starts_at),
-        when: live || dayKey(e.starts_at) === today ? 'today' : 'upcoming',
+        startsAtMs: new Date(e.starts_at).getTime(),
+        when,
         live,
         locked: lockOverride[e.id] ?? e.list_locked,
         onList: e.registered,
@@ -668,8 +682,13 @@ export function Home(): JSX.Element {
     });
   }, [eventsQ.data, guestReqQ.data, quotaReqQ.data, lockOverride]);
 
-  const liveFirst = (a: BoardEvent, b: BoardEvent): number =>
-    (a.when === 'today' ? 0 : 1) - (b.when === 'today' ? 0 : 1);
+  // Upcoming section: live/today first, then soonest upcoming.
+  const sortUpcoming = (a: BoardEvent, b: BoardEvent): number => {
+    const wA = a.when === 'today' ? 0 : 1;
+    const wB = b.when === 'today' ? 0 : 1;
+    if (wA !== wB) return wA - wB;
+    return a.startsAtMs - b.startsAtMs;
+  };
 
   const pulse = useMemo(
     () => ({
@@ -684,12 +703,13 @@ export function Home(): JSX.Element {
     [board, guestReqQ.data, quotaReqQ.data]
   );
 
-  // Cap the graph x-axis so it stays readable at scale (today/live first).
+  // Cap the graph to non-past events (today/live first) so the chart stays relevant.
   const series = useMemo(
     () =>
       board
+        .filter((e) => e.when !== 'past')
         .slice()
-        .sort(liveFirst)
+        .sort(sortUpcoming)
         .slice(0, 8)
         .map((e) => ({ id: e.id, label: e.name, live: e.live, requested: e.requests, onList: e.onList })),
     [board]
@@ -697,19 +717,31 @@ export function Home(): JSX.Element {
 
   const segCounts = useMemo(
     () => ({
-      all: board.length,
+      all: board.filter((e) => e.when !== 'past').length,
       today: board.filter((e) => e.when === 'today').length,
       upcoming: board.filter((e) => e.when === 'upcoming').length,
     }),
     [board]
   );
 
-  const list = useMemo(() => {
+  // Upcoming section: non-past events filtered by tab + search.
+  const upcomingList = useMemo(() => {
     const q = query.trim().toLowerCase();
     return board
-      .filter((e) => (filter === 'all' || e.when === filter) && (!q || (e.name + ' ' + e.venue).toLowerCase().includes(q)))
-      .sort(liveFirst);
+      .filter((e) => e.when !== 'past' && (filter === 'all' || e.when === filter) && (!q || (e.name + ' ' + e.venue).toLowerCase().includes(q)))
+      .sort(sortUpcoming);
   }, [board, query, filter]);
+
+  // Past section: past events filtered by search only, most recent first.
+  const pastList = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return board
+      .filter((e) => e.when === 'past' && (!q || (e.name + ' ' + e.venue).toLowerCase().includes(q)))
+      .sort((a, b) => b.startsAtMs - a.startsAtMs);
+  }, [board, query]);
+
+  // Alias used in EmptyBoard + pagination (upcoming section only).
+  const list = upcomingList;
 
   const filtersActive = query.trim() !== '' || filter !== 'all';
   const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
@@ -758,7 +790,7 @@ export function Home(): JSX.Element {
               </div>
             </div>
             <div className="flex gap-2.5 max-lg:hidden">
-              <Btn sm kind="ghost" icon="plus" onClick={() => nav.setTab('guests')}>
+              <Btn sm kind="ghost" icon="plus" onClick={() => setGuestPickOpen(true)}>
                 {t.home.newGuest}
               </Btn>
               <Btn sm icon="cal" onClick={() => nav.push('eventedit', { isNew: true })}>
@@ -784,17 +816,17 @@ export function Home(): JSX.Element {
               action={pulse.quota > 0}
               onClick={() => nav.push('aanvragen', { tab: 'quota' })}
             />
-            <PulseTile icon="spark" label={t.home.pulseLive} value={pulse.live} />
+            <PulseTile icon="spark" label={t.home.pulseLive} value={pulse.live} onClick={() => nav.setTab('events')} />
           </div>
 
           {/* combined graph — requested vs on-the-list, per event */}
           {board.length > 0 && <ComboChart data={series} />}
 
-          {/* events list */}
+          {/* Upcoming events section */}
           <div>
             <div className="mb-4 flex flex-wrap items-center gap-2.5">
               <h2 className="font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">
-                {t.home.eventsHeading}
+                {t.home.upcomingEventsHeading}
               </h2>
               {!loading && (
                 <span className="text-[12.5px] text-faint">
@@ -850,9 +882,95 @@ export function Home(): JSX.Element {
               </>
             )}
           </div>
+
+          {/* Past events section — most recent first, capped at 5, link to Events tab */}
+          {!loading && pastList.length > 0 && (
+            <div>
+              <div className="mb-4 flex flex-wrap items-center gap-2.5">
+                <h2 className="font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">
+                  {t.home.pastEventsHeading}
+                </h2>
+                <span className="text-[12.5px] text-faint">
+                  {fmt(pastList.length === 1 ? t.home.pastEventsCount : t.home.pastEventsCountPlural, { n: pastList.length })}
+                </span>
+              </div>
+              <div className="flex flex-col gap-3">
+                {pastList.slice(0, 5).map((e) => (
+                  <EventRow
+                    key={e.id}
+                    e={e}
+                    showDoor={false}
+                    onOpen={() => nav.push('pastevent', { id: e.id })}
+                    onDoor={() => nav.openDoor(e.id)}
+                    onReq={(tab) => nav.push('aanvragen', { id: e.id, tab })}
+                    onEdit={() => nav.push('eventedit', { id: e.id })}
+                    onLock={() => onLock(e)}
+                  />
+                ))}
+              </div>
+              {pastList.length > 5 && (
+                <div className="mt-4 text-center">
+                  <button
+                    type="button"
+                    onClick={() => nav.setTab('events')}
+                    className={cn('inline-flex items-center gap-2 font-body text-[13.5px] font-bold text-dim', press)}
+                  >
+                    {t.home.viewAllPast}
+                    <Icon name="arrowR" size={15} />
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </Scroll>
       {toast && <Toast>{toast}</Toast>}
+
+      {guestPickOpen && (
+        <Sheet onClose={() => setGuestPickOpen(false)}>
+          <h2 className="mb-4 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">
+            {t.home.pickEventForGuest}
+          </h2>
+          {board.filter((e) => e.when !== 'past').length === 0 ? (
+            <div className="flex flex-col items-center gap-4 py-6 text-center">
+              <p className="text-[14px] text-faint">{t.home.noUpcomingToday}</p>
+              {isAdmin && (
+                <Btn sm kind="primary" icon="cal" onClick={() => { setGuestPickOpen(false); nav.push('eventedit', { isNew: true }); }}>
+                  {t.home.newEvent}
+                </Btn>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {board
+                .filter((e) => e.when !== 'past')
+                .sort(sortUpcoming)
+                .map((e) => (
+                  <button
+                    key={e.id}
+                    type="button"
+                    onClick={() => {
+                      setGuestPickOpen(false);
+                      nav.push('quickadd', { id: e.id });
+                    }}
+                    className={cn(
+                      'flex w-full items-center gap-3 rounded-[16px] border border-line bg-elev px-4 py-3 text-left',
+                      press
+                    )}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-display text-[15.5px] font-bold text-text">{e.name}</div>
+                      <div className="mt-0.5 text-[12.5px] text-faint">
+                        {e.date} · {fmt(t.home.doorAt, { time: e.door })}
+                      </div>
+                    </div>
+                    <StatusChip e={e} />
+                  </button>
+                ))}
+            </div>
+          )}
+        </Sheet>
+      )}
     </div>
   );
 }

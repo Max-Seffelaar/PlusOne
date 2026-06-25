@@ -1,7 +1,7 @@
 // Landing-slug helpers — pure, mirrored from public.slugify in
 // 20260613200000_event_management.sql. The app builds a nice slug from the event
-// name; the database BEFORE-INSERT trigger is the backstop (fills a slug when
-// blank) and the unique index is the authority on collisions.
+// name and date; the database BEFORE-INSERT trigger is the backstop (fills a slug
+// when blank) and the unique index is the authority on collisions.
 
 /** Lowercase, non-alphanumerics → single '-', trimmed. Matches SQL slugify(). */
 export function slugify(text: string): string {
