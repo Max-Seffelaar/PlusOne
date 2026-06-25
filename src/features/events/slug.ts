@@ -23,12 +23,23 @@ export function randomSlugSuffix(length = 4): string {
 }
 
 /**
- * Build a landing slug from an event name plus a random suffix for uniqueness.
- * Falls back to "event" when the name has no usable characters. The suffix is
- * injectable so the unit test is deterministic. The slug is generated once at
- * creation and never editable afterwards — a shared link must not break.
+ * Build a landing slug: {name}-{YYYY-MM-DD}-{random}.
+ *
+ * The date (from the event's starts_at) makes the slug human-readable and
+ * means two events with the same name on different dates never collide.
+ * The random suffix defeats slug enumeration — without it a bot could probe
+ * predictable names to discover valid landing links.
+ *
+ * startsAt must be an ISO datetime string (e.g. "2026-07-15T22:00:00").
+ * suffix is injectable so unit tests are deterministic.
+ * The slug is generated once at creation and never editable afterwards.
  */
-export function buildEventSlug(name: string, suffix: string = randomSlugSuffix()): string {
+export function buildEventSlug(
+  name: string,
+  startsAt: string,
+  suffix: string = randomSlugSuffix(),
+): string {
   const base = slugify(name) || 'event';
-  return `${base}-${suffix}`;
+  const date = startsAt.slice(0, 10); // YYYY-MM-DD
+  return `${base}-${date}-${suffix}`;
 }

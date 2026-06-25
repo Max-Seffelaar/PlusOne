@@ -114,7 +114,7 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
         starts_at: startsAt,
         ends_at: endsAt ?? null,
         landing_active: landingActive,
-        landing_slug: buildEventSlug(name),
+        landing_slug: buildEventSlug(name, startsAt),
       })
       .select('id')
       .single();
