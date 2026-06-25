@@ -546,7 +546,7 @@ export type PoTemplateDetail = Pick<
 
 export type PoTemplateTierRow = Pick<
   Tables['event_template_tiers']['Row'],
-  'id' | 'name' | 'description' | 'color' | 'max_guests' | 'aliases' | 'position'
+  'id' | 'name' | 'description' | 'color' | 'max_guests' | 'door_price_cents' | 'aliases' | 'position'
 >;
 
 /** Every template of a venue with its tier count, name-sorted. */
@@ -583,7 +583,7 @@ export async function fetchTemplate(client: Client, templateId: string): Promise
 export async function fetchTemplateTiers(client: Client, templateId: string): Promise<PoTemplateTierRow[]> {
   const { data } = await client
     .from('event_template_tiers')
-    .select('id, name, description, color, max_guests, aliases, position')
+    .select('id, name, description, color, max_guests, door_price_cents, aliases, position')
     .eq('template_id', templateId)
     .order('position')
     .order('created_at');
