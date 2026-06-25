@@ -50,8 +50,11 @@ export const requests = {
   approveAnyway: 'Approve anyway',
 
   // ── Quota queue ─────────────────────────────────────────────────────────────
+  // Feedback (Joeri, 24 jun 2026): nothing explained what a quota request is.
+  quotaNote:
+    "A quota request is a team member or artist asking for extra guest-list slots once they've used up their allowance. Approve to top up their spots for this event, or deny with a reason. Each person's base quota is set on the Team page.",
   emptyQuotaSearch: 'No requests for "{q}".',
-  emptyQuota: 'No open quota requests.',
+  emptyQuota: 'No open quota requests. Team members can ask here when they run out of slots.',
   slotOne: 'slot',
   slotMany: 'slots',
   deny: 'Deny',

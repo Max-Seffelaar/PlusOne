@@ -341,6 +341,7 @@ export function Aanvragen({
           </div>
         ) : (
           <div className="flex flex-col gap-[11px]">
+            <Note icon="users">{t.requests.quotaNote}</Note>
             {openQ === 0 ? (
               <Empty text={q ? fmt(t.requests.emptyQuotaSearch, { q: search.trim() }) : t.requests.emptyQuota} />
             ) : (
