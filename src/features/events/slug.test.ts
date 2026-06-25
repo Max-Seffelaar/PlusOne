@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { slugify, buildEventSlug, randomSlugSuffix } from './slug';
+import { slugify, buildEventSlug } from './slug';
 
 describe('slugify (mirrors SQL public.slugify)', () => {
   it('lowercases and dashes non-alphanumerics', () => {
@@ -21,25 +21,14 @@ describe('slugify (mirrors SQL public.slugify)', () => {
 });
 
 describe('buildEventSlug', () => {
-  it('appends the suffix to the slugified name', () => {
-    expect(buildEventSlug('FRENZY', 'x4k9')).toBe('frenzy-x4k9');
-    expect(buildEventSlug('PLUSONE Launch Night', 'ab12')).toBe('plusone-launch-night-ab12');
+  it('combines the slugified name with the date', () => {
+    expect(buildEventSlug('FRENZY', '2026-07-12')).toBe('frenzy-2026-07-12');
+    expect(buildEventSlug('PLUSONE Launch Night', '2026-12-31')).toBe('plusone-launch-night-2026-12-31');
+    expect(buildEventSlug('Summer Rave', '2026-07-12')).toBe('summer-rave-2026-07-12');
   });
 
   it('falls back to "event" when the name has no usable characters', () => {
-    expect(buildEventSlug('!!!', 'zzzz')).toBe('event-zzzz');
-    expect(buildEventSlug('', 'zzzz')).toBe('event-zzzz');
-  });
-
-  it('uses a random suffix by default', () => {
-    const slug = buildEventSlug('Test');
-    expect(slug).toMatch(/^test-[a-z0-9]{4}$/);
-  });
-});
-
-describe('randomSlugSuffix', () => {
-  it('produces a lowercase alphanumeric string of the requested length', () => {
-    expect(randomSlugSuffix(4)).toMatch(/^[a-z0-9]{4}$/);
-    expect(randomSlugSuffix(8)).toMatch(/^[a-z0-9]{8}$/);
+    expect(buildEventSlug('!!!', '2026-07-12')).toBe('event-2026-07-12');
+    expect(buildEventSlug('', '2026-07-12')).toBe('event-2026-07-12');
   });
 });
