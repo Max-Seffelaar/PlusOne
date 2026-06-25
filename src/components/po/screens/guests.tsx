@@ -33,6 +33,7 @@ import {
   usePoForgetContact,
   usePoUpdateGuest,
   usePoCreateTier,
+  usePoChangeGuestTier,
   usePoChangeGuestsTierBulk,
   usePoPromoteGuestToContact,
 } from '@/features/po/mutations';
@@ -520,7 +521,7 @@ function GuestTable({
                     else onOpen(g.id);
                   }}
                   className={cn(
-                    'grid w-full cursor-pointer items-center border-t border-line2 transition-colors',
+                    'group grid w-full cursor-pointer items-center border-t border-line2 transition-colors',
                     cols,
                     '[&>td]:px-3 [&>td]:py-[11px] [&>td]:align-middle',
                     isSelected ? 'bg-acc-dim hover:bg-acc-dim/80' : 'hover:bg-elev2',
@@ -646,8 +647,6 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const [reqMotiv, setReqMotiv] = useState('');
   // null until the user picks how to handle a name that's already on the list.
   const [dupeMode, setDupeMode] = useState<DupeMode | null>(null);
-  // Optional contact-info prompt: shown when no email/phone was parsed from the text.
-  const [contactExpanded, setContactExpanded] = useState(false);
   const [contactEmail, setContactEmail] = useState('');
   const [contactPhone, setContactPhone] = useState('');
 
@@ -700,7 +699,6 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
     setChoice(null);
     setDupeMode(null);
     setReqOpen(false);
-    setContactExpanded(false);
     setContactEmail('');
     setContactPhone('');
     reqExtra.reset();
@@ -764,7 +762,6 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
           setVal('');
           setChoice(null);
           setDupeMode(null);
-          setContactExpanded(false);
           setContactEmail('');
           setContactPhone('');
         },
@@ -835,8 +832,30 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                   {effPlus > 0 && <PreviewChip icon="users" label={`+${effPlus}`} />}
                   {!needsAsk && effTier && <PreviewChip dot={effTier.color} label={effTier.short} />}
                   {needsAsk && parsed.ambiguous && (
-                    <MiniChip className="border-dashed border-acc text-text">“{parsed.ambiguous.text}” ?</MiniChip>
+                    <MiniChip className="border-dashed border-acc text-text">{'“'}{parsed.ambiguous.text}{'”'} ?</MiniChip>
                   )}
+                </div>
+              )}
+              {parsed && !needsAsk && !dupe && effName && !parsed.email && !parsed.phone && (
+                <div className="mt-[10px] flex gap-[8px] border-t border-white/[0.08] pt-[10px]">
+                  <input
+                    type="email"
+                    inputMode="email"
+                    autoComplete="off"
+                    value={contactEmail}
+                    onChange={(e) => setContactEmail(e.target.value)}
+                    placeholder={t.guests.add.contactEmailPlaceholder}
+                    className="min-w-0 flex-1 rounded-[10px] border border-line bg-bg px-[11px] py-[8px] text-[13px] text-text outline-none placeholder:text-faint focus:border-acc"
+                  />
+                  <input
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="off"
+                    value={contactPhone}
+                    onChange={(e) => setContactPhone(e.target.value)}
+                    placeholder={t.guests.add.contactPhonePlaceholder}
+                    className="min-w-0 flex-1 rounded-[10px] border border-line bg-bg px-[11px] py-[8px] text-[13px] text-text outline-none placeholder:text-faint focus:border-acc"
+                  />
                 </div>
               )}
             </div>
@@ -908,46 +927,6 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                     : fmt(t.guests.add.quotaLeftAfter, { left: remaining - cost })}
                 </span>
                 {overQuota && <MiniChip className="border-acc text-acc">{t.guests.add.quotaFull}</MiniChip>}
-              </div>
-            )}
-
-            {parsed && !needsAsk && !dupe && effName && !parsed.email && !parsed.phone && (
-              <div className="mt-3">
-                {contactExpanded ? (
-                  <div className="flex flex-col gap-[10px] rounded-[16px] border border-line bg-elev p-[14px]">
-                    <p className="text-[12.5px] leading-[1.45] text-faint">{t.guests.add.contactPromptHint}</p>
-                    <input
-                      type="email"
-                      inputMode="email"
-                      autoComplete="off"
-                      value={contactEmail}
-                      onChange={(e) => setContactEmail(e.target.value)}
-                      placeholder={t.guests.add.contactEmailPlaceholder}
-                      className="w-full rounded-[12px] border border-line bg-bg px-[13px] py-[10px] text-[14px] text-text outline-none placeholder:text-faint focus:border-acc"
-                    />
-                    <input
-                      type="tel"
-                      inputMode="tel"
-                      autoComplete="off"
-                      value={contactPhone}
-                      onChange={(e) => setContactPhone(e.target.value)}
-                      placeholder={t.guests.add.contactPhonePlaceholder}
-                      className="w-full rounded-[12px] border border-line bg-bg px-[13px] py-[10px] text-[14px] text-text outline-none placeholder:text-faint focus:border-acc"
-                    />
-                    <button type="button" onClick={() => { setContactExpanded(false); setContactEmail(''); setContactPhone(''); }} className="self-start text-[12.5px] text-faint underline underline-offset-2">
-                      {t.guests.add.cancel}
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setContactExpanded(true)}
-                    className={cn('flex items-center gap-[8px] rounded-[12px] border border-line bg-elev px-[13px] py-[10px] text-[13px] text-faint', press)}
-                  >
-                    <Icon name="user" size={14} className="text-faint" />
-                    {t.guests.add.contactPrompt}
-                  </button>
-                )}
               </div>
             )}
 
@@ -1530,11 +1509,15 @@ export function ContactProfile({
   const { data: liveEvents = [] } = usePoEvents();
   const upcoming = liveEvents.filter((e) => e.when === 'upcoming');
   const toggleVast = usePoToggleContactPermanent();
+  const { data: tierOptions = [] } = usePoTiers(originEventId ?? '');
+  const changeTier = usePoChangeGuestTier(originEventId ?? '');
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
   const [promoting, setPromoting] = useState(false);
   const [confirmStar, setConfirmStar] = useState(false);
   const [forgetting, setForgetting] = useState(false);
+  const [tierPicking, setTierPicking] = useState(false);
+  const [tierErr, setTierErr] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -1679,6 +1662,15 @@ export function ContactProfile({
                         <span className="h-[8px] w-[8px] rounded-full" style={{ background: e.tierColor }} />
                         {e.tier ?? t.guests.contactProfile.tierNone}
                       </span>
+                      {e.isOrigin && p.promoteGuestId && tierOptions.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => { setTierErr(null); setTierPicking(true); }}
+                          className="rounded-[7px] border border-line2 bg-transparent px-2 py-[3px] font-body text-[11px] font-bold text-faint transition-colors hover:border-acc hover:text-acc"
+                        >
+                          {t.guests.contactProfile.changeTier}
+                        </button>
+                      )}
                       {e.plusOnes > 0 && <MiniChip className="border-line2 text-faint">{fmt(t.guests.contactProfile.plusChip, { n: e.plusOnes })}</MiniChip>}
                     </div>
                   </div>
@@ -1748,6 +1740,39 @@ export function ContactProfile({
           defaultPhone={p.phone}
           onClose={() => setPromoting(false)}
         />
+      )}
+      {tierPicking && p.promoteGuestId && (
+        <Sheet onClose={() => setTierPicking(false)} center={false}>
+          <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{t.guests.contactProfile.changeTier}</div>
+          <div className="mb-4 text-[13px] text-faint">{t.guests.contactProfile.changeTierSub}</div>
+          <div className="flex flex-col gap-2">
+            {tierOptions.map((tier) => (
+              <button
+                key={tier.id}
+                type="button"
+                disabled={changeTier.isPending}
+                onClick={() => {
+                  setTierErr(null);
+                  changeTier.mutate(
+                    { guestId: p.promoteGuestId!, tierId: tier.id },
+                    {
+                      onSuccess: () => setTierPicking(false),
+                      onError: (e) => setTierErr(e instanceof Error ? e.message : t.guests.multiSelect.tierFailed),
+                    },
+                  );
+                }}
+                className={cn('flex items-center gap-[10px] rounded-[12px] border border-line bg-bg px-[13px] py-[12px] text-text', press, changeTier.isPending && 'opacity-50')}
+              >
+                <span className="h-[10px] w-[10px] rounded-full shrink-0" style={{ background: tier.color }} />
+                <span className="flex-1 text-left font-display text-[14.5px] font-bold">{tier.name}</span>
+              </button>
+            ))}
+          </div>
+          {tierErr && <p className="mt-2 text-[12.5px] text-red-300" role="alert">{tierErr}</p>}
+          <Btn kind="ghost" full className="mt-3" onClick={() => setTierPicking(false)}>
+            {t.guests.contacts.cancel}
+          </Btn>
+        </Sheet>
       )}
     </div>
   );

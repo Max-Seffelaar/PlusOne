@@ -343,6 +343,9 @@ export const guests = {
     promoteSub: 'Save this person to your contacts. Email or phone helps find them on the next list.',
     promoteHint: "With an email or phone number we recognise them next time. Without one, they're saved by name only.",
     promoteSave: 'Save as contact',
+    // Tier change from the person profile
+    changeTier: 'Change tier',
+    changeTierSub: 'Pick a tier for this guest.',
   },
   // ── Guest list: multi-select + bulk tier change ───────────────────────────
   multiSelect: {
