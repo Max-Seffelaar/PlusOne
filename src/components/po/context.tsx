@@ -16,6 +16,7 @@ export type ScreenName =
   | 'lijst'
   | 'guest'
   | 'contacten'
+  | 'contactprofile'
   | 'vaste'
   | 'rollen'
   | 'import'

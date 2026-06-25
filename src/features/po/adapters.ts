@@ -17,6 +17,8 @@ import type {
   PoSubscriptionRow,
   PoVenueSettingsRow,
   PoQuotaStatus,
+  ContactProfileHeader,
+  ContactAppearance,
 } from './queries';
 import type { EventSummary, TierStat } from '@/features/stats/data';
 import { formatClock, toDateInput } from '@/features/stats/format';
@@ -389,6 +391,224 @@ export function toPoContact(row: PoContactRow): PoContact {
     birthdate: row.birthdate,
     note: row.note,
     preferredRole: row.preferred_role,
+  };
+}
+
+// ── Contact profile (address-book detail) ──
+// Pure mapper: the contact header + all appearances + resolved actor names → the
+// contact-profile view. Derived-only — the timeline is built from the add /
+// check-in / void / refusal events we can read, NOT the audit log, so field edits
+// and tier-change history are intentionally absent (those live in the Audit screen).
+// Two sections fall out: the per-event roster (events newest-first, with tier, +N
+// and present heads) and the merged activity timeline (newest-first).
+
+export type ContactEventStatus = 'inside' | 'onTheWay' | 'refused';
+
+export interface PoProfileEvent {
+  eventId: string;
+  name: string;
+  /** "Sat 14 Dec 2024" (Amsterdam). */
+  dateLabel: string;
+  tier: string | null;
+  tierColor: string;
+  /** Role badge derived from the tier name. */
+  role: Role;
+  status: ContactEventStatus;
+  /** Registered extra guests (+N). */
+  plusOnes: number;
+  /** Heads actually present (1 + arrived companions); null when they never arrived. */
+  presentHeads: number | null;
+  /** Total registered heads (1 + plusOnes). */
+  registeredHeads: number;
+  /** Per-event door note (task), shown prominently on the pinned event. */
+  note: string | null;
+  /** Note priority as the po flag ("high" → accent task card). */
+  noteFlag: Priority | null;
+  /** True for the event the profile was opened from — pinned to the top. */
+  isOrigin: boolean;
+  /** ISO event start — sorting + keys. */
+  startsAt: string;
+}
+
+export type ContactTimelineKind = 'added' | 'checkin' | 'void' | 'refusal';
+
+export interface PoProfileTimelineItem {
+  key: string;
+  kind: ContactTimelineKind;
+  /** Event this happened on (the timeline spans events). */
+  event: string;
+  /** Resolved actor name; '' when unknown (the screen renders a fallback). */
+  who: string;
+  /** "14 Dec · 23:14" (Amsterdam). */
+  when: string;
+  /** Companions present (kind='checkin'); 0 otherwise. */
+  arrived: number;
+  /** Refusal reason (kind='refusal'); '' otherwise. */
+  reason: string;
+  /** ISO instant — for ordering. */
+  ts: string;
+}
+
+export interface PoContactProfile {
+  id: string;
+  name: string;
+  role: Role;
+  vast: boolean;
+  email: string | null;
+  phone: string | null;
+  /** "12 Apr 1996" or null. */
+  birthday: string | null;
+  note: string | null;
+  /** "3 Dec 2024" — when the contact was first saved. */
+  since: string;
+  eventsCount: number;
+  attendedCount: number;
+  refusedCount: number;
+  /** Sum of registered plus-ones across all appearances. */
+  plusOnesTotal: number;
+  events: PoProfileEvent[];
+  timeline: PoProfileTimelineItem[];
+  /** True once this person is a real address-book contact (has email/phone). */
+  isContact: boolean;
+  /** Name-only guest: the guest row to edit to promote it; null when a contact. */
+  promoteGuestId: string | null;
+  // Raw fields the edit / add-to-event sheets reuse (mirror PoContact), so the
+  // profile can drive those writes without a second contacts read.
+  phoneLast4: string | null;
+  birthdate: string | null;
+  preferredRole: ContactRoleEnum | null;
+}
+
+/** "14 Dec · 23:14" (Amsterdam) for a timeline instant. */
+function timelineWhen(iso: string): string {
+  const date = fmt(iso, { day: 'numeric', month: 'short' }).replace('.', '');
+  const time = fmt(iso, { hour: '2-digit', minute: '2-digit', hour12: false });
+  return `${date} · ${time}`;
+}
+
+function profileEventStatus(status: GuestRowStatus): ContactEventStatus {
+  const s = guestStatusToPo(status);
+  return s === 'in' ? 'inside' : s === 'refused' ? 'refused' : 'onTheWay';
+}
+
+export function toPoContactProfile(
+  header: ContactProfileHeader,
+  appearances: ContactAppearance[],
+  actorNames: Record<string, string>,
+  opts: { isContact?: boolean; promoteGuestId?: string | null; originEventId?: string | null } = {}
+): PoContactProfile {
+  const isContact = opts.isContact ?? true;
+  const originEventId = opts.originEventId ?? null;
+  const events: PoProfileEvent[] = appearances
+    .map((a) => {
+      // The active (non-voided) check-in is "currently inside"; its arrived count
+      // gives the present heads (a +2 guest with 1 companion present = 2 heads in).
+      const active = a.checkIns.find((c) => c.voidedAt == null) ?? null;
+      return {
+        eventId: a.eventId,
+        name: a.eventName,
+        dateLabel: capitalize(
+          // en-GB renders the weekday+year form as "Sat, 14 Dec 2024" — drop the
+          // comma (and any abbrev dots) for the clean "Sat 14 Dec 2024".
+          fmt(a.eventStartsAt, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).replace(/[.,]/g, '')
+        ),
+        tier: a.tierName,
+        tierColor: a.tierColor ?? DEFAULT_TIER_COLOR,
+        role: tierRole(a.tierName ?? ''),
+        status: profileEventStatus(a.status),
+        plusOnes: a.plusOnes,
+        presentHeads: active ? 1 + active.arrived : null,
+        registeredHeads: 1 + a.plusOnes,
+        note: a.note,
+        noteFlag: notePriorityToFlag(a.notePriority),
+        isOrigin: originEventId != null && a.eventId === originEventId,
+        startsAt: a.eventStartsAt,
+      };
+    })
+    // Pin the event you came from to the top, then newest-first.
+    .sort((x, y) => {
+      if (x.isOrigin !== y.isOrigin) return x.isOrigin ? -1 : 1;
+      return y.startsAt.localeCompare(x.startsAt);
+    });
+
+  const timeline: PoProfileTimelineItem[] = [];
+  for (const a of appearances) {
+    timeline.push({
+      key: `add-${a.guestId}`,
+      kind: 'added',
+      event: a.eventName,
+      who: actorNames[a.addedBy] ?? '',
+      when: timelineWhen(a.addedAt),
+      arrived: 0,
+      reason: '',
+      ts: a.addedAt,
+    });
+    for (const c of a.checkIns) {
+      timeline.push({
+        key: `in-${a.guestId}-${c.checkedAt}`,
+        kind: 'checkin',
+        event: a.eventName,
+        who: actorNames[c.checkedBy] ?? '',
+        when: timelineWhen(c.checkedAt),
+        arrived: c.arrived,
+        reason: '',
+        ts: c.checkedAt,
+      });
+      if (c.voidedAt) {
+        timeline.push({
+          key: `void-${a.guestId}-${c.voidedAt}`,
+          kind: 'void',
+          event: a.eventName,
+          who: c.voidedBy ? actorNames[c.voidedBy] ?? '' : '',
+          when: timelineWhen(c.voidedAt),
+          arrived: 0,
+          reason: '',
+          ts: c.voidedAt,
+        });
+      }
+    }
+    for (const r of a.refusals) {
+      timeline.push({
+        key: `ref-${a.guestId}-${r.refusedAt}`,
+        kind: 'refusal',
+        event: a.eventName,
+        who: actorNames[r.refusedBy] ?? '',
+        when: timelineWhen(r.refusedAt),
+        arrived: 0,
+        reason: r.reason,
+        ts: r.refusedAt,
+      });
+    }
+  }
+  // Newest-first across every event — the whole story as one feed.
+  timeline.sort((x, y) => y.ts.localeCompare(x.ts));
+
+  const digits = (header.phone ?? '').replace(/[^0-9]/g, '');
+  return {
+    id: header.id,
+    name: header.fullName,
+    // A real contact badges from its preferred_role; a name-only guest has none,
+    // so fall back to the tier role of its (single) appearance.
+    role: isContact ? contactRoleToPo(header.preferredRole) : events[0]?.role ?? 'Gast',
+    vast: header.isPermanent,
+    email: header.email,
+    phone: header.phone,
+    birthday: header.birthdate
+      ? fmt(header.birthdate, { day: 'numeric', month: 'short', year: 'numeric' }).replace('.', '')
+      : null,
+    note: header.note,
+    since: fmt(header.createdAt, { day: 'numeric', month: 'short', year: 'numeric' }).replace('.', ''),
+    eventsCount: appearances.length,
+    attendedCount: appearances.filter((a) => a.checkIns.some((c) => c.voidedAt == null)).length,
+    refusedCount: appearances.filter((a) => a.status === 'refused').length,
+    plusOnesTotal: appearances.reduce((sum, a) => sum + a.plusOnes, 0),
+    events,
+    timeline,
+    isContact,
+    promoteGuestId: opts.promoteGuestId ?? null,
+    phoneLast4: digits.length >= 4 ? digits.slice(-4) : null,
+    birthdate: header.birthdate,
+    preferredRole: header.preferredRole,
   };
 }
 

@@ -15,6 +15,14 @@
       "env": { "PORT": "9000" },
       "port": 9000,
       "autoPort": false
+    },
+    {
+      "name": "dev8080",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["dev"],
+      "env": { "PORT": "8080" },
+      "port": 8080,
+      "autoPort": false
     }
   ]
 }

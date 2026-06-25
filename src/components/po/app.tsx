@@ -10,7 +10,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
-import { usePoDoorCandidates, usePoEvents, usePoGuests } from '@/features/po/hooks';
+import { usePoDoorCandidates, usePoEvents } from '@/features/po/hooks';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canWorkDoor } from '@/features/auth/roles';
 import { venueCapabilities } from '@/features/venues/access';
@@ -35,7 +35,7 @@ import { Top } from './kit';
 import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
 import { Invite, Login, Mfa, Otp, Welcome } from './screens/auth';
 import { EventBeheer, EventEdit, EventView, Events, PastEvent, Tiers } from './screens/events';
-import { BulkPaste, Contacten, Guest, Lijst, QuickAdd, Vaste } from './screens/guests';
+import { BulkPaste, Contacten, ContactProfile, Lijst, QuickAdd, Vaste } from './screens/guests';
 import { DoorEventPicker, PoDoorTab, type DoorOverlay } from './screens/door';
 import { Allowance, Billing, Gebruikers, Import, Meer, Profile, Rollen, VenueSettings, VenueSwitch } from './screens/settings';
 import { VenueCreate } from './screens/onboarding';
@@ -225,16 +225,6 @@ export function PlusOneApp({
   const doorCandidates = doorCandidatesQuery.data ?? [];
   const resolvedDoorId = doorEventId ?? (doorCandidates.length === 1 ? doorCandidates[0].id : null);
   const resolvedDoorName = doorCandidates.find((e) => e.id === resolvedDoorId)?.name ?? '';
-  // The event in context carries its id (lijst/event/pastevent via `id`, the
-  // guest detail via `eventId`), so the detail resolves a real guest from the
-  // same cached list the Gastenlijst reads.
-  const eventIdInContext =
-    top?.name === 'guest'
-      ? top.props.eventId ?? ''
-      : top && (top.name === 'lijst' || top.name === 'event' || top.name === 'pastevent')
-        ? top.props.id ?? ''
-        : '';
-  const { data: liveGuests } = usePoGuests(eventIdInContext);
 
   // ── Browser/OS back-button ↔ in-app navigation (full history integration) ─────
   // /app is a single URL with its own in-memory navigation, so the physical back
@@ -378,7 +368,6 @@ export function PlusOneApp({
   };
 
   const ev = (id?: string) => events.find((e) => e.id === id);
-  const guest = (id?: string) => (liveGuests ?? []).find((g) => g.id === id);
 
   // `isDoorTab` / `doorOverlayOpen` are computed above (history integration). A door
   // overlay is treated like a pushed screen: it hides the mobile tab bar so the
@@ -403,13 +392,16 @@ export function PlusOneApp({
         screen = e ? <Lijst ev={e} /> : <Loading onBack={nav.back} />;
         break;
       }
-      case 'guest': {
-        const g = guest(p.id);
-        screen = g ? <Guest g={g} /> : <Loading onBack={nav.back} />;
+      case 'guest':
+        // Tapping a guest opens the unified person profile (linked → cross-event,
+        // name-only → this one event), with the originating event pinned on top.
+        screen = <ContactProfile guestId={p.id} originEventId={p.eventId} />;
         break;
-      }
       case 'contacten':
         screen = <Contacten eventId={p.id} />;
+        break;
+      case 'contactprofile':
+        screen = <ContactProfile contactId={p.id} />;
         break;
       case 'vaste':
         screen = <Vaste />;

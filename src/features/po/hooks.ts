@@ -29,6 +29,7 @@ import {
   fetchQuotaRequests,
   fetchContacts,
   fetchContactKeyRows,
+  fetchPersonProfile,
   fetchVenueMembers,
   fetchMemberQuotas,
   fetchVenueSettings,
@@ -62,6 +63,7 @@ import {
   toPoTier,
   type HomeEvent,
   toPoContact,
+  toPoContactProfile,
   toPoGuestRequest,
   toPoQuotaRequest,
   toRecap,
@@ -74,6 +76,7 @@ import {
   toPoVenueSettings,
   toPoSubscription,
   type PoContact,
+  type PoContactProfile,
   type PoGuestRequest,
   type PoQuotaRequest,
   type PoRecap,
@@ -586,6 +589,39 @@ export function usePoContactKeys() {
         if (p) phones.add(p);
       }
       return { emails, phones };
+    },
+  });
+}
+
+/**
+ * The unified person profile, resolved from a contact id OR a guest id (header +
+ * cross-event appearances + a derived activity timeline). Tapping a guest opens the
+ * same screen: linked → the full contact profile; name-only → a single-appearance
+ * profile (isContact false) the caller can promote. Derived-only (no audit/AAL2):
+ * RLS scopes the underlying reads, so an admin sees the whole history and an
+ * organizer only their events'. `originEventId` pins the event you came from to the
+ * top. Returns null when nothing is visible — the screen shows its not-found state.
+ */
+export function usePoPersonProfile(args: {
+  contactId?: string | null;
+  guestId?: string | null;
+  originEventId?: string | null;
+}) {
+  const { contactId, guestId, originEventId } = args;
+  // One cache key per person, under the ['po','contact-profile'] prefix so a
+  // contact write (edit / promote / add-to-event) refreshes whichever is open.
+  const key = contactId ?? (guestId ? `g:${guestId}` : '');
+  return useQuery<PoContactProfile | null>({
+    queryKey: poKeys.contactProfile(key),
+    enabled: !!key,
+    queryFn: async () => {
+      const data = await fetchPersonProfile(createClient(), { contactId, guestId });
+      if (!data.header) return null;
+      return toPoContactProfile(data.header, data.appearances, data.actorNames, {
+        isContact: data.isContact,
+        promoteGuestId: data.promoteGuestId,
+        originEventId,
+      });
     },
   });
 }

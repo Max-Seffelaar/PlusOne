@@ -9,6 +9,7 @@ import {
   toPoGuest,
   toPoTier,
   toPoContact,
+  toPoContactProfile,
   contactRoleToPo,
   relativeTime,
   toPoGuestRequest,
@@ -38,6 +39,8 @@ import type {
   PoSubscriptionRow,
   PoGuestRequestRow,
   PoQuotaRequestRow,
+  ContactProfileHeader,
+  ContactAppearance,
 } from './queries';
 import type { EventSummary, TierStat } from '@/features/stats/data';
 import type { Tier } from '@/lib/po/types';
@@ -469,6 +472,164 @@ describe('toPoContact', () => {
   it('strips non-digits before taking the last 4', () => {
     expect(toPoContact({ ...base, phone: '06 12 34 56 78' }).phoneLast4).toBe('5678');
     expect(toPoContact({ ...base, phone: '123' }).phoneLast4).toBeNull();
+  });
+});
+
+describe('toPoContactProfile', () => {
+  const header: ContactProfileHeader = {
+    id: 'c1',
+    fullName: 'Anouk Smit',
+    email: 'anouk@mail.nl',
+    phone: '+31612345678',
+    birthdate: '1996-04-12',
+    preferredRole: 'vip',
+    note: 'Regular',
+    isPermanent: true,
+    source: 'manual',
+    createdAt: '2024-11-03T12:00:00Z',
+  };
+  // Two events: a VIP they attended (Dec) and a refused one with no tier (Nov).
+  const appearances: ContactAppearance[] = [
+    {
+      guestId: 'g1',
+      eventId: 'e1',
+      eventName: 'FRENZY',
+      eventStartsAt: '2024-12-14T22:00:00Z', // Sat 14 Dec, 23:00 Amsterdam
+      plusOnes: 2,
+      status: 'checked_in',
+      tierName: 'VIP',
+      tierColor: '#FFD700',
+      note: 'Bottle on table',
+      notePriority: 'high',
+      addedBy: 'u-max',
+      addedAt: '2024-12-01T10:00:00Z',
+      checkIns: [
+        { checkedAt: '2024-12-14T22:30:00Z', checkedBy: 'u-door', arrived: 1, voidedAt: null, voidedBy: null },
+      ],
+      refusals: [],
+    },
+    {
+      guestId: 'g2',
+      eventId: 'e2',
+      eventName: 'LOFI',
+      eventStartsAt: '2024-11-09T22:00:00Z',
+      plusOnes: 0,
+      status: 'refused',
+      tierName: null,
+      tierColor: null,
+      note: null,
+      notePriority: 'none',
+      addedBy: 'u-max',
+      addedAt: '2024-11-01T10:00:00Z',
+      checkIns: [],
+      refusals: [{ refusedAt: '2024-11-09T22:45:00Z', refusedBy: 'u-door', reason: 'List full' }],
+    },
+  ];
+  const actorNames = { 'u-max': 'Max', 'u-door': 'Sanne' };
+
+  it('maps the header, derives the stat strip, and formats the dates (Amsterdam)', () => {
+    const v = toPoContactProfile(header, appearances, actorNames);
+    expect(v).toMatchObject({
+      id: 'c1',
+      name: 'Anouk Smit',
+      role: 'VIP',
+      vast: true,
+      email: 'anouk@mail.nl',
+      phone: '+31612345678',
+      birthday: '12 Apr 1996',
+      since: '3 Nov 2024',
+      eventsCount: 2,
+      attendedCount: 1, // only the VIP with an active (non-voided) check-in
+      refusedCount: 1,
+      plusOnesTotal: 2,
+      // A 3-arg call defaults to a real contact (no promote).
+      isContact: true,
+      promoteGuestId: null,
+      // Raw fields the edit/add sheets reuse.
+      phoneLast4: '5678',
+      birthdate: '1996-04-12',
+      preferredRole: 'vip',
+    });
+  });
+
+  it('builds the per-event roster newest-first with tier, +N and present heads', () => {
+    const v = toPoContactProfile(header, appearances, actorNames);
+    expect(v.events.map((e) => e.eventId)).toEqual(['e1', 'e2']); // Dec before Nov
+    expect(v.events[0]).toMatchObject({
+      name: 'FRENZY',
+      dateLabel: 'Sat 14 Dec 2024',
+      tier: 'VIP',
+      tierColor: '#FFD700',
+      role: 'VIP',
+      status: 'inside',
+      plusOnes: 2,
+      presentHeads: 2, // 1 self + 1 companion arrived
+      registeredHeads: 3, // 1 + 2
+      note: 'Bottle on table',
+      noteFlag: 'high',
+      isOrigin: false, // no originEventId passed
+    });
+    expect(v.events[1]).toMatchObject({
+      name: 'LOFI',
+      tier: null,
+      tierColor: '#B5A6FF', // default accent when the tier has no colour
+      role: 'Gast',
+      status: 'refused',
+      presentHeads: null,
+      registeredHeads: 1,
+      note: null,
+      noteFlag: null,
+    });
+  });
+
+  it('pins the event you came from to the top', () => {
+    const v = toPoContactProfile(header, appearances, actorNames, { originEventId: 'e2' });
+    expect(v.events.map((e) => e.eventId)).toEqual(['e2', 'e1']); // origin first, despite being older
+    expect(v.events[0].isOrigin).toBe(true);
+    expect(v.events[1].isOrigin).toBe(false);
+  });
+
+  it('renders a name-only guest as a single-event profile, role from the tier', () => {
+    const v = toPoContactProfile({ ...header, preferredRole: null }, [appearances[0]], actorNames, {
+      isContact: false,
+      promoteGuestId: 'g1',
+    });
+    expect(v.isContact).toBe(false);
+    expect(v.promoteGuestId).toBe('g1');
+    expect(v.role).toBe('VIP'); // from the tier — a name-only guest has no preferred_role
+    expect(v.eventsCount).toBe(1);
+    expect(v.events[0].name).toBe('FRENZY');
+  });
+
+  it('merges the activity timeline newest-first with resolved actors', () => {
+    const v = toPoContactProfile(header, appearances, actorNames);
+    expect(v.timeline.map((it) => it.kind)).toEqual(['checkin', 'added', 'refusal', 'added']);
+    expect(v.timeline[0]).toMatchObject({ kind: 'checkin', event: 'FRENZY', who: 'Sanne', arrived: 1, when: '14 Dec · 23:30' });
+    expect(v.timeline[1]).toMatchObject({ kind: 'added', event: 'FRENZY', who: 'Max' });
+    expect(v.timeline[2]).toMatchObject({ kind: 'refusal', event: 'LOFI', who: 'Sanne', reason: 'List full' });
+  });
+
+  it('emits a void item for a reversed check-in and leaves unknown actors blank', () => {
+    const reversed: ContactAppearance[] = [
+      {
+        ...appearances[0],
+        status: 'approved', // back to on-the-way after the void
+        checkIns: [
+          { checkedAt: '2024-12-14T22:30:00Z', checkedBy: 'u-door', arrived: 1, voidedAt: '2024-12-14T23:00:00Z', voidedBy: 'u-ghost' },
+        ],
+      },
+    ];
+    const v = toPoContactProfile(header, reversed, {}); // no actor names resolve
+    const kinds = v.timeline.map((it) => it.kind);
+    expect(kinds).toContain('void');
+    // The void sorts above the check-in/add (latest ts) and carries a blank actor.
+    expect(v.timeline[0]).toMatchObject({ kind: 'void', who: '' });
+    expect(v.attendedCount).toBe(0); // the only check-in is voided
+  });
+
+  it('handles a contact with no appearances (empty roster + timeline)', () => {
+    const v = toPoContactProfile(header, [], {});
+    expect(v).toMatchObject({ eventsCount: 0, attendedCount: 0, refusedCount: 0, plusOnesTotal: 0, events: [], timeline: [] });
   });
 });
 
