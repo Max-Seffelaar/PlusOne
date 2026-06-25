@@ -100,7 +100,7 @@ insert into public.events (id, venue_id, name, starts_at, ends_at, status, landi
   ('ee000000-0000-7000-8000-000000000001',
    'aa000000-0000-7000-8000-000000000001',
    'PLUSONE Launch Night',
-   '2026-06-20 23:00:00+02', '2026-06-21 05:00:00+02',
+   (now() + interval '1 year')::timestamptz, (now() + interval '1 year' + interval '6 hours')::timestamptz,
    'open', 'plusone-launch-night', true);
 
 insert into public.event_organizers (event_id, user_id) values
@@ -234,17 +234,17 @@ insert into public.check_ins
   (guest_id, checked_by, checked_at, client_timestamp, device_id, plus_ones_arrived, offline_synced)
 values
   ('cc000000-0000-7000-8000-000000000002', '66666666-6666-4666-8666-666666666666',
-   '2026-06-20 23:41:00+02', '2026-06-20 23:41:00+02', 'door-ipad-01', 1, false),
+   now() + interval '1 year' + interval '41 minutes', now() + interval '1 year' + interval '41 minutes', 'door-ipad-01', 1, false),
   -- Recorded offline, synced later: client stamp precedes the server stamp
   ('cc000000-0000-7000-8000-000000000003', '66666666-6666-4666-8666-666666666666',
-   '2026-06-20 23:57:00+02', '2026-06-20 23:55:00+02', 'door-ipad-01', 0, true),
+   now() + interval '1 year' + interval '57 minutes', now() + interval '1 year' + interval '55 minutes', 'door-ipad-01', 0, true),
   -- After midnight, still this event (decision #26)
   ('cc000000-0000-7000-8000-000000000004', '11111111-1111-4111-8111-111111111111',
-   '2026-06-21 00:12:00+02', null, null, 0, false);
+   now() + interval '1 year' + interval '72 minutes', null, null, 0, false);
 
 insert into public.refusals (guest_id, refused_by, reason, refused_at, device_id) values
   ('cc000000-0000-7000-8000-000000000005', '66666666-6666-4666-8666-666666666666',
-   'Agressief gedrag bij de deur', '2026-06-21 00:03:00+02', 'door-ipad-01');
+   'Agressief gedrag bij de deur', now() + interval '1 year' + interval '63 minutes', 'door-ipad-01');
 
 -- ---------------------------------------------------------------------------
 -- Landing-page requests (decision #12/#28): two open, one decided
