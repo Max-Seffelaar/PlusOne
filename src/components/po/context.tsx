@@ -36,7 +36,9 @@ export type ScreenName =
   | 'eventbeheer'
   | 'stats'
   | 'audit'
-  | 'adminsessions';
+  | 'adminsessions'
+  | 'templates'
+  | 'templateedit';
 
 export interface ScreenProps {
   id?: string;
@@ -147,5 +149,18 @@ export function saveNavState(state: PersistedNav): void {
     window.sessionStorage.setItem(NAV_STORAGE_KEY, JSON.stringify(state));
   } catch {
     /* private mode / quota / native webview without storage — ignore */
+  }
+}
+
+/** Drop the persisted nav-state so the next load starts fresh on the default tab.
+ *  Used before a venue-create full-reload: without this, the reload would restore
+ *  the venuecreate screen from sessionStorage instead of landing the new owner on
+ *  the new venue's Start tab. */
+export function clearNavState(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(NAV_STORAGE_KEY);
+  } catch {
+    /* unavailable storage — nothing to clear */
   }
 }

@@ -1,10 +1,12 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { getSessionUser } from '@/lib/auth/context';
 import { assertAal2, AuthorizationError } from '@/lib/auth/guards';
+import type { Database } from '@/lib/database.types';
 import { inviteSchema, revokeInviteSchema } from './schemas';
 import { canGrantRoles, type VenueRole } from './roles';
 
@@ -15,6 +17,16 @@ export interface ActionState {
 }
 
 const INVITE_TTL_DAYS = 7;
+
+// Bare anon client (no session cookies) used only to send a login-link e-mail to
+// an already-registered invitee — never touches the caller's own session.
+function createAnonClient() {
+  return createSupabaseClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
 
 // Loads the caller's roles at a venue (RLS: the user always sees their own
 // membership). Empty when not a member.
@@ -43,10 +55,11 @@ function alreadyRegistered(error: { code?: string; status?: number; message?: st
  * is sensitive), caller's venue role + escalation guard checked in the app AND
  * again by RLS on the invite insert, all input through Zod.
  *
- * The auth user is created up-front (service role) so invite-only OTP login
- * works without public signups; the invite row — written through the
- * user-scoped client so RLS re-validates — is what actually grants access when
- * the invitee accepts on first login. The audit trigger records the invite.
+ * The invitee is provisioned + e-mailed via the service role (inviteUserByEmail
+ * for a new address, a magic-link login for one that already exists — invite-only,
+ * no public signups); the invite row — written through the user-scoped client so
+ * RLS re-validates — is what actually grants access when the invitee accepts on
+ * first login. The audit trigger records the invite.
  */
 export async function inviteUserAction(
   _prev: ActionState,
@@ -94,18 +107,28 @@ export async function inviteUserAction(
     return { ok: false, error: 'Only an admin can link someone to events.' };
   }
 
-  // 1) Ensure an auth identity exists so OTP login is possible (invite-only —
-  //    no public signups). Duplicate e-mail just means the account is already
-  //    there (e.g. a user from another venue, decision #24).
+  // 1) Provision the auth identity AND notify the invitee by e-mail (invite-only,
+  //    no public signups — #20). For a NEW address inviteUserByEmail creates the
+  //    account and sends the "You've been invited" mail in one step. An already-
+  //    registered address (e.g. a user from another venue, #24) can't be
+  //    re-invited, so we send them a magic-link login instead. Either way the
+  //    invite ROW written below is what actually grants access on first login —
+  //    the e-mail is only the notification, so a transient send failure for an
+  //    existing user must not block the invite.
   const service = createServiceClient();
-  const { error: createError } = await service.auth.admin.createUser({
-    email,
-    email_confirm: true,
-    user_metadata: { full_name: email.split('@')[0] },
+  const { error: inviteMailError } = await service.auth.admin.inviteUserByEmail(email, {
+    data: { full_name: email.split('@')[0] },
   });
-  if (createError && !alreadyRegistered(createError)) {
-    console.error('inviteUser: createUser failed', createError.message);
-    return { ok: false, error: "Couldn't create the invite. Try again." };
+  if (inviteMailError && alreadyRegistered(inviteMailError)) {
+    const mailer = createAnonClient();
+    const { error: otpError } = await mailer.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: false },
+    });
+    if (otpError) console.error('inviteUser: existing-user notify failed', otpError.message);
+  } else if (inviteMailError) {
+    console.error('inviteUser: inviteUserByEmail failed', inviteMailError.message);
+    return { ok: false, error: "Couldn't send the invite. Try again." };
   }
 
   // 2) Record the invite through the user-scoped client → RLS enforces
@@ -147,7 +170,7 @@ export async function inviteUserAction(
   }
 
   revalidatePath('/admin/team');
-  return { ok: true, message: `Invite ready for ${email}.` };
+  return { ok: true, message: `Invite sent to ${email}.` };
 }
 
 /** Cancel a pending invite (RLS enforces manager + AAL2 + escalation). */
@@ -157,6 +180,24 @@ export async function revokeInviteAction(
 ): Promise<ActionState> {
   const parsed = revokeInviteSchema.safeParse({ inviteId: formData.get('inviteId') });
   if (!parsed.success) return { ok: false, error: 'Invalid invite.' };
+
+  // AAL2 — revoking an access grant is sensitive (#20). Return the recognizable
+  // "needs MFA" message so the po step-up sheet opens; RLS (invites_delete)
+  // re-enforces it as the real boundary.
+  try {
+    await assertAal2();
+  } catch (e) {
+    if (e instanceof AuthorizationError) {
+      return {
+        ok: false,
+        error:
+          e.reason === 'aal2_required'
+            ? 'This action needs MFA. Verify with your authenticator first.'
+            : "You're not logged in.",
+      };
+    }
+    throw e;
+  }
 
   const supabase = await createClient();
   const { error, count } = await supabase

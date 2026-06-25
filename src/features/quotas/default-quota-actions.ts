@@ -3,7 +3,6 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { getSessionUser } from '@/lib/auth/context';
-import { assertAal2, AuthorizationError } from '@/lib/auth/guards';
 import type { VenueRole } from '@/features/auth/roles';
 import { defaultQuotaSchema } from './schemas';
 
@@ -30,9 +29,10 @@ async function callerRolesAt(venueId: string, userId: string): Promise<VenueRole
 /**
  * Set a member's default quota at a venue (decision #4, role matrix §2: quota is
  * admin-only and per-user). Security checklist: session verified server-side,
- * AAL2 enforced (quota grant is sensitive), admin role confirmed in the app AND
- * by RLS (quotas_insert/update_admin both require admin + AAL2), input through
- * Zod. The audit trigger logs an increase as 'quota_grant'.
+ * admin role confirmed in the app AND by RLS (quotas_insert/update_admin), input
+ * through Zod. Quota grants are NOT MFA-gated (decision 2026-06-24: AAL2 is scoped
+ * to invite / member add-remove-rolechange / remote-logout). The audit trigger
+ * logs an increase as 'quota_grant'.
  */
 export async function setDefaultQuotaAction(
   _prev: ActionState,
@@ -51,21 +51,6 @@ export async function setDefaultQuotaAction(
   }
   const { venueId, userId, defaultCount } = parsed.data;
 
-  try {
-    await assertAal2();
-  } catch (e) {
-    if (e instanceof AuthorizationError) {
-      return {
-        ok: false,
-        error:
-          e.reason === 'aal2_required'
-            ? 'This action needs MFA. Verify with your authenticator first.'
-            : "You're not logged in.",
-      };
-    }
-    throw e;
-  }
-
   const callerRoles = await callerRolesAt(venueId, user.id);
   if (!callerRoles.includes('admin')) {
     return { ok: false, error: 'Only an admin can set allowances.' };
@@ -78,7 +63,7 @@ export async function setDefaultQuotaAction(
 
   if (error) {
     console.error('setDefaultQuota: upsert failed', error.message);
-    return { ok: false, error: "Couldn't save the allowance (no access, or MFA required)." };
+    return { ok: false, error: "Couldn't save the allowance (no access)." };
   }
 
   revalidatePath('/admin/venue');

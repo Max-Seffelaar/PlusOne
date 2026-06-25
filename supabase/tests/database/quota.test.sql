@@ -28,7 +28,7 @@ begin
 end;
 $fn$;
 
-select plan(42);
+select plan(41);
 
 -- ===========================================================================
 -- 1. Quota math helpers (read-only, as the owner/superuser)
@@ -358,8 +358,9 @@ $$, '45001', null, '8.5 cannot reclaim a live-removed slot with a new add');
 reset role;
 
 -- ===========================================================================
--- 9. Quota-request approval (#4/#5): atomic, AAL2-gated, writes the override.
---    Uses the seed's open request (Tom, +3).
+-- 9. Quota-request approval (#4/#5): atomic, role-only, writes the override.
+--    AAL2 was dropped for approve_quota_request (migration 20260624160000) —
+--    an admin may now approve at AAL1. Uses the seed's open request (Tom, +3).
 -- ===========================================================================
 
 create temp table quota_before as
@@ -376,44 +377,34 @@ select throws_ok($$
 $$, '42501', null, '9.1 staff cannot approve a quota request');
 reset role;
 
--- Admin without AAL2 cannot approve (sensitive op, CLAUDE.md §Auth).
+-- Admin at AAL1 now approves (MFA no longer required for this action).
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal1');
-select throws_ok($$
-  select public.approve_quota_request(
-    (select id from public.quota_requests
-     where user_id = '55555555-5555-4555-8555-555555555555'
-       and status = 'pending' and requested_extra = 3 limit 1))
-$$, '42501', null, '9.2 admin without AAL2 cannot approve');
-reset role;
-
--- Admin with AAL2 approves.
-select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2');
 select lives_ok($$
   select public.approve_quota_request(
     (select id from public.quota_requests
      where user_id = '55555555-5555-4555-8555-555555555555'
        and status = 'pending' and requested_extra = 3 limit 1))
-$$, '9.3 admin (AAL2) approves the request');
+$$, '9.2 admin (AAL1) approves the request — role-only, no MFA');
 reset role;
 
 select is(
   (select status::text from public.quota_requests
    where user_id = '55555555-5555-4555-8555-555555555555' and requested_extra = 3 limit 1),
-  'approved', '9.4 request is marked approved');
+  'approved', '9.3 request is marked approved');
 
 select is(
   public.user_event_quota(
     'ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555'),
   (select q from quota_before) + 3,
-  '9.5 the override is raised by exactly the granted extra (#4)');
+  '9.4 the override is raised by exactly the granted extra (#4)');
 
 -- A decided request cannot be approved a second time (double-grant guard).
-select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2');
+select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal1');
 select throws_ok($$
   select public.approve_quota_request(
     (select id from public.quota_requests
      where user_id = '55555555-5555-4555-8555-555555555555' and requested_extra = 3 limit 1))
-$$, '45003', null, '9.6 a decided request cannot be approved again');
+$$, '45003', null, '9.5 a decided request cannot be approved again');
 reset role;
 
 select * from finish();

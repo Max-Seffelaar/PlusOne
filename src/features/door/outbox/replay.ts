@@ -8,9 +8,9 @@
  * first — the server's first write wins and ours is marked `duplicate` (#11),
  * while the guest stays "binnen" because they are, in fact, inside.
  *
- * Quota / tier-full rejections (45001/45002) are terminal `error`s that carry
- * the trigger's Dutch message. Everything else (network, 5xx) is transient and
- * falls back to `pending` so the next drain retries.
+ * Quota / tier-full / capacity rejections (45001/45002/45005) are terminal
+ * `error`s that carry the trigger's Dutch message. Everything else (network, 5xx)
+ * is transient and falls back to `pending` so the next drain retries.
  */
 import type { DbError, DoorGateway } from './gateway';
 import { isPending, type OutboxEntry, type OutboxStatus } from './types';
@@ -33,6 +33,7 @@ export function classifyError(error: DbError | null): ReplayResult {
   }
   if (code === '45001') return { status: 'error', message: error.message ?? 'Quota full for this event.' };
   if (code === '45002') return { status: 'error', message: error.message ?? 'This tier is full.' };
+  if (code === '45005') return { status: 'error', message: error.message ?? 'This event is at capacity.' };
   // Network / server / transient RLS hiccup → retry on the next drain.
   return { status: 'pending', message: error.message ?? 'Connection failed. Retrying.' };
 }

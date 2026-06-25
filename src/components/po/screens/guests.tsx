@@ -30,12 +30,14 @@ import {
   usePoAddContactToEvent,
   usePoSyncPermanent,
   usePoUpsertContact,
+  usePoForgetContact,
   usePoUpdateGuest,
   usePoCreateTier,
 } from '@/features/po/mutations';
 import type { PoContact, PoProfileEvent, PoProfileTimelineItem, ContactTimelineKind } from '@/features/po/adapters';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canManageGuests } from '@/features/auth/roles';
+import { venueCapabilities } from '@/features/venues/access';
 import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../context';
 import { Icon, type IconName } from '../icon';
@@ -1290,6 +1292,7 @@ export function ContactProfile({
   const [adding, setAdding] = useState(false);
   const [promoting, setPromoting] = useState(false);
   const [confirmStar, setConfirmStar] = useState(false);
+  const [forgetting, setForgetting] = useState(false);
 
   if (isLoading) {
     return (
@@ -1474,7 +1477,17 @@ export function ContactProfile({
         )}
       </Scroll>
 
-      {editing && <ContactEditSheet contact={contact} onClose={() => setEditing(false)} />}
+      {editing && (
+        <ContactEditSheet
+          contact={contact}
+          onClose={() => setEditing(false)}
+          onForget={() => {
+            setEditing(false);
+            setForgetting(true);
+          }}
+        />
+      )}
+      {forgetting && <ForgetConfirmSheet contact={contact} onClose={() => setForgetting(false)} />}
       {confirmStar && <PermanentConfirmSheet contact={contact} onClose={() => setConfirmStar(false)} />}
       {adding && (
         <AddToEventSheet
@@ -1580,8 +1593,17 @@ function RolePill({ label, on, onClick }: { label: string; on: boolean; onClick:
 
 /** Edit a contact's name / e-mail / phone / preferred tier by hand (#8). The
  *  upsert is a full overwrite, so birthdate + note are carried through unchanged. */
-function ContactEditSheet({ contact, onClose }: { contact: PoContact; onClose: () => void }): JSX.Element {
-  const { venueId } = usePoIdentity();
+function ContactEditSheet({
+  contact,
+  onClose,
+  onForget,
+}: {
+  contact: PoContact;
+  onClose: () => void;
+  onForget: (c: PoContact) => void;
+}): JSX.Element {
+  const { venueId, roles } = usePoIdentity();
+  const canForget = venueCapabilities(roles).forgetContact;
   const upsert = usePoUpsertContact();
   const [name, setName] = useState(contact.name);
   const [email, setEmail] = useState(contact.email ?? '');
@@ -1644,6 +1666,77 @@ function ContactEditSheet({ contact, onClose }: { contact: PoContact; onClose: (
       <Btn kind="primary" full icon="check" className="mt-4" disabled={upsert.isPending || name.trim() === ''} onClick={save}>
         {upsert.isPending ? t.guests.contacts.saving : t.guests.contacts.save}
       </Btn>
+      {canForget && (
+        <button
+          type="button"
+          onClick={() => onForget(contact)}
+          className={cn(
+            'mt-[10px] flex w-full items-center justify-center gap-2 rounded-[13px] border border-red-500/25 bg-red-500/[0.05] py-[11px] font-display text-[13px] font-bold text-red-300',
+            press,
+          )}
+        >
+          <Icon name="shield" size={15} stroke="currentColor" />
+          {t.guests.contacts.forget}
+        </button>
+      )}
+      <Btn kind="ghost" full className="mt-2" onClick={onClose}>
+        {t.guests.contacts.cancel}
+      </Btn>
+    </Sheet>
+  );
+}
+
+/** Confirm + execute an on-request erasure ("vergeet mij", AVG art. 17 / #29).
+ *  Admin-only (the entry button is capability-gated). No MFA step-up — admin is an
+ *  MFA-mandatory role, so the action stays frictionless. Irreversible, so the
+ *  destructive confirm spells it out. forget_contact re-checks admin server-side. */
+function ForgetConfirmSheet({ contact, onClose }: { contact: PoContact; onClose: () => void }): JSX.Element {
+  const forget = usePoForgetContact();
+  const [err, setErr] = useState<string | null>(null);
+
+  const run = (): void => {
+    setErr(null);
+    forget.mutate(
+      { contactId: contact.id },
+      {
+        onSuccess: onClose,
+        onError: (e) => setErr(e instanceof Error ? e.message : t.guests.contacts.forgetFailed),
+      },
+    );
+  };
+
+  return (
+    <Sheet onClose={onClose} center={false}>
+      <div className="mb-3 flex items-center gap-[12px]">
+        <span className="flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-[13px] bg-red-500/15 text-red-300">
+          <Icon name="warn" size={22} stroke="currentColor" />
+        </span>
+        <div className="font-display text-[18px] font-bold text-text">
+          {fmt(t.guests.contacts.forgetTitle, { name: contact.name })}
+        </div>
+      </div>
+      <p className="text-[13px] leading-[1.5] text-dim">
+        {fmt(t.guests.contacts.forgetBody, { name: contact.name })}
+      </p>
+      {contact.vast && <Note icon="star">{t.guests.contacts.forgetPermanentWarn}</Note>}
+      <p className="mt-3 font-display text-[13px] font-bold text-red-300">{t.guests.contacts.forgetIrreversible}</p>
+      {err && (
+        <p className="mt-3 text-[12.5px] text-red-300" role="alert">
+          {err}
+        </p>
+      )}
+      <button
+        type="button"
+        onClick={run}
+        disabled={forget.isPending}
+        className={cn(
+          'mt-4 flex w-full items-center justify-center gap-2 rounded-[14px] bg-red-500/90 py-[13px] font-display text-[14.5px] font-bold text-white disabled:opacity-60',
+          press,
+        )}
+      >
+        <Icon name="shield" size={17} stroke="currentColor" />
+        {forget.isPending ? t.guests.contacts.forgetBusy : t.guests.contacts.forgetConfirm}
+      </button>
       <Btn kind="ghost" full className="mt-2" onClick={onClose}>
         {t.guests.contacts.cancel}
       </Btn>

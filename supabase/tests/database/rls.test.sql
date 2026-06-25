@@ -340,7 +340,8 @@ select is(
 reset role;
 
 -- ---------------------------------------------------------------------------
--- J. quotas — staff read own numbers; granting needs admin + AAL2
+-- J. quotas — staff read own numbers; granting needs the admin role (role-only;
+--    AAL2 dropped for quota grants, migration 20260624160000)
 -- ---------------------------------------------------------------------------
 
 select pg_temp.login('55555555-5555-4555-8555-555555555555');
@@ -357,13 +358,13 @@ select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal1');
 select is(
   pg_temp.rowcount($$update public.quotas set default_count = 11
               where user_id = '55555555-5555-4555-8555-555555555555'$$),
-  0, 'J3 quota grant WITHOUT AAL2 is refused, even for admin');
+  1, 'J3 admin grants quota at AAL1 — role-only, MFA no longer required');
 
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2');
 select is(
   pg_temp.rowcount($$update public.quotas set default_count = 11
               where user_id = '55555555-5555-4555-8555-555555555555'$$),
-  1, 'J4 quota grant with AAL2 succeeds');
+  1, 'J4 quota grant still succeeds at AAL2');
 
 select pg_temp.login('55555555-5555-4555-8555-555555555555');
 select lives_ok($$
@@ -392,7 +393,8 @@ select is(
 reset role;
 
 -- ---------------------------------------------------------------------------
--- K. audit log — admin/finance only, and only with AAL2
+-- K. audit log — admin/finance only (role-only; AAL2 dropped for audit-log
+--    viewing, migration 20260624160000). Other roles still see nothing.
 -- ---------------------------------------------------------------------------
 
 insert into public.audit_log (actor_id, venue_id, entity_type, entity_id, action)
@@ -401,18 +403,18 @@ values ('11111111-1111-4111-8111-111111111111',
         'guests', 'cc000000-0000-7000-8000-000000000001', 'test_entry');
 
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal1');
-select is((select count(*)::int from public.audit_log), 0,
-  'K1 audit log hidden without AAL2, even for admin');
+select is((select count(*)::int from public.audit_log where action = 'test_entry'), 1,
+  'K1 admin reads the audit log at AAL1 — role-only, MFA no longer required');
 
 -- Since fase 3 the seed itself produces trigger-written entries, so K2/K3
 -- pin the hand-inserted row instead of counting the whole table.
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2');
 select is((select count(*)::int from public.audit_log where action = 'test_entry'), 1,
-  'K2 admin with AAL2 reads the audit log');
+  'K2 admin still reads the audit log at AAL2');
 
 select pg_temp.login('33333333-3333-4333-8333-333333333333', 'aal2');
 select is((select count(*)::int from public.audit_log where action = 'test_entry'), 1,
-  'K3 finance with AAL2 reads the audit log');
+  'K3 finance reads the audit log');
 
 select pg_temp.login('66666666-6666-4666-8666-666666666666', 'aal2');
 select is((select count(*)::int from public.audit_log), 0,

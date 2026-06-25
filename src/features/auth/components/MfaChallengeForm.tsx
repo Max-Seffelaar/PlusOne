@@ -49,7 +49,8 @@ export function MfaChallengeForm({ nextPath }: { nextPath: string }): JSX.Elemen
       setError(describeAuthError(verifyError).message);
       return;
     }
-    window.location.assign(nextPath);
+    // `replace` so the /mfa step doesn't linger behind /app in history.
+    window.location.replace(nextPath);
   }
 
   async function signOut(): Promise<void> {

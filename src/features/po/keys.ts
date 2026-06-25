@@ -48,6 +48,11 @@ export const poKeys = {
   profile: (userId: string) => [...poKeys.all, 'profile', userId] as const,
   venueSettings: (venueId: string) => [...poKeys.all, 'venue-settings', venueId] as const,
   subscription: (venueId: string) => [...poKeys.all, 'subscription', venueId] as const,
+  // Event templates (86exyp8gn) — reusable per-event-type setups scope to a venue;
+  // a single template + its tier list key on the template id.
+  templates: (venueId: string) => [...poKeys.all, 'templates', venueId] as const,
+  template: (templateId: string) => [...poKeys.all, 'template', templateId] as const,
+  templateTiers: (templateId: string) => [...poKeys.all, 'template-tiers', templateId] as const,
   // Audit log (S10) — the feed keys on venue + the active filters; options
   // (events/members for the filter sheet) on the venue; per-guest history on the
   // guest. All under ['po'] so a venue switch clears them with the rest.
