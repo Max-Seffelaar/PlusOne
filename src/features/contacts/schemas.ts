@@ -82,6 +82,13 @@ export const togglePermanentSchema = z.object({
 });
 export type TogglePermanentInput = z.input<typeof togglePermanentSchema>;
 
+/** Explicit name-only promote: create a contact from a guest even without dedup key.
+ *  Calls the promote_guest_to_contact SECURITY DEFINER RPC (20260625100000). */
+export const promoteGuestToContactSchema = z.object({
+  guestId: uuid,
+});
+export type PromoteGuestToContactInput = z.input<typeof promoteGuestToContactSchema>;
+
 /**
  * On-request erasure ("forget me", AVG art. 17 / #29): anonymize one contact +
  * all its linked guests immediately. Admin + AAL2 is enforced in the DB function

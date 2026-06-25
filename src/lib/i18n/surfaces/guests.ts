@@ -129,6 +129,11 @@ export const guests = {
     pickEventSub: 'Which guest list are you adding to?',
     slotOne: 'slot',
     slotMany: 'slots',
+    // Optional contact-info prompt (shown when no email/phone parsed from text)
+    contactPrompt: 'Add email · phone',
+    contactEmailPlaceholder: 'Email address',
+    contactPhonePlaceholder: 'Phone number',
+    contactPromptHint: 'Optional. Saves them to your contacts so you can reuse them next time.',
   },
   // ── Bulk paste (#33) ──────────────────────────────────────────────────────
   bulk: {
@@ -333,10 +338,23 @@ export const guests = {
     thisEvent: 'This event',
     // Name-only guest (not a contact yet) → promote
     saveAsContact: 'Save as contact',
-    guestOnlyNote: 'Not a saved contact yet. Add an email or phone to reuse this person across events and keep their history.',
+    guestOnlyNote: 'Not a saved contact yet. Save to keep their history and find them next time.',
     promoteTitle: 'Save as contact',
-    promoteSub: 'Add an email or phone so you can reuse this person next time.',
-    promoteHint: 'With an email or phone we recognise them on the next list and keep their history. Name-only guests stay one-off.',
+    promoteSub: 'Save this person to your contacts. Email or phone helps find them on the next list.',
+    promoteHint: "With an email or phone number we recognise them next time. Without one, they're saved by name only.",
     promoteSave: 'Save as contact',
+  },
+  // ── Guest list: multi-select + bulk tier change ───────────────────────────
+  multiSelect: {
+    selectionBar: '{n} selected',
+    changeTier: 'Change tier',
+    cancelSelection: 'Cancel',
+    tierSheetTitle: 'Set tier',
+    tierSheetSub: 'Apply to {n} {guests}',
+    tierApply: 'Apply to {n} {guests}',
+    tierBusy: 'Updating…',
+    guestOne: 'guest',
+    guestMany: 'guests',
+    tierFailed: "Couldn't update tier.",
   },
 } as const;

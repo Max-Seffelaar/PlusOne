@@ -78,3 +78,11 @@ export const changeTierSchema = z.object({
   tierId: uuid,
 });
 export type ChangeTierInput = z.input<typeof changeTierSchema>;
+
+/** Bulk tier change: move multiple guests to the same tier in one update. */
+export const changeTierBulkSchema = z.object({
+  guestIds: z.array(uuid).min(1).max(500),
+  tierId: uuid,
+  eventId: uuid,
+});
+export type ChangeTierBulkInput = z.input<typeof changeTierBulkSchema>;

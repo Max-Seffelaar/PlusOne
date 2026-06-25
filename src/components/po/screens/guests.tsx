@@ -33,6 +33,8 @@ import {
   usePoForgetContact,
   usePoUpdateGuest,
   usePoCreateTier,
+  usePoChangeGuestsTierBulk,
+  usePoPromoteGuestToContact,
 } from '@/features/po/mutations';
 import type { PoContact, PoProfileEvent, PoProfileTimelineItem, ContactTimelineKind } from '@/features/po/adapters';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
@@ -176,11 +178,47 @@ function filterGuestList(guests: GuestT[], q: string): GuestT[] {
 export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
   const nav = useNav();
   const { data: guests = [], isLoading, isError } = usePoGuests(ev.id);
+  const { data: tiers = [] } = usePoTiers(ev.id);
+  const changeBulkTier = usePoChangeGuestsTierBulk(ev.id);
   const [q, setQ] = useState('');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkTierOpen, setBulkTierOpen] = useState(false);
+  const [bulkErr, setBulkErr] = useState<string | null>(null);
   // Input stays instant; the expensive filter runs on the settled term (#1b).
   const dq = useDebouncedValue(q, 140);
   const gs = useMemo(() => filterGuestList(guests, dq), [guests, dq]);
+
+  const toggleSelect = (id: string): void =>
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const clearSelection = (): void => setSelected(new Set());
+
   const openGuest = (id: string): void => nav.push('guest', { id, eventId: ev.id });
+  // In select mode, tapping a card toggles it; outside select mode it opens.
+  const onCardAct = (id: string): void => {
+    if (selected.size > 0) toggleSelect(id);
+    else openGuest(id);
+  };
+
+  const applyBulkTier = (tierId: string): void => {
+    setBulkErr(null);
+    changeBulkTier.mutate(
+      { guestIds: Array.from(selected), tierId, eventId: ev.id },
+      {
+        onSuccess: () => {
+          clearSelection();
+          setBulkTierOpen(false);
+        },
+        onError: (e) =>
+          setBulkErr(e instanceof Error ? e.message : t.guests.multiSelect.tierFailed),
+      },
+    );
+  };
+
   return (
     <div className={col}>
       <Top onBack={nav.back} title={t.guests.list.title} sub={`${ev.name} · ${fmt(t.guests.list.sub, { shown: gs.length, total: guests.length })}`} right={<IconBtn name="plus" onClick={() => nav.push('quickadd', { id: ev.id })} />} />
@@ -216,12 +254,106 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
       ) : (
         <>
           {/* Mobile: virtualized stacked cards (the @1500 case). */}
-          <GuestCardList rows={gs} onOpen={openGuest} />
+          <GuestCardList rows={gs} selected={selected} onAct={onCardAct} onToggle={toggleSelect} />
           {/* Desktop: virtualized dense table — more rows per screen + a "toegevoegd door" column. */}
-          <GuestTable rows={gs} onOpen={openGuest} />
+          <GuestTable rows={gs} selected={selected} onOpen={openGuest} onToggle={toggleSelect} />
         </>
       )}
+      {/* Selection BottomBar — replaces the normal empty bar when guests are selected. */}
+      {selected.size > 0 && (
+        <BottomBar>
+          <div className="flex w-full items-center gap-2">
+            <span className="flex-1 font-display text-[14px] font-bold text-text">
+              {fmt(t.guests.multiSelect.selectionBar, { n: selected.size })}
+            </span>
+            <Btn
+              sm
+              kind="primary"
+              icon="ticket"
+              onClick={() => {
+                setBulkErr(null);
+                setBulkTierOpen(true);
+              }}
+            >
+              {t.guests.multiSelect.changeTier}
+            </Btn>
+            <Btn sm kind="ghost" onClick={clearSelection}>
+              {t.guests.multiSelect.cancelSelection}
+            </Btn>
+          </div>
+        </BottomBar>
+      )}
+      {bulkTierOpen && (
+        <BulkTierSheet
+          count={selected.size}
+          tiers={tiers}
+          isPending={changeBulkTier.isPending}
+          err={bulkErr}
+          onPick={applyBulkTier}
+          onClose={() => setBulkTierOpen(false)}
+        />
+      )}
     </div>
+  );
+}
+
+/** Pick one tier and apply it to N selected guests. */
+function BulkTierSheet({
+  count,
+  tiers,
+  isPending,
+  err,
+  onPick,
+  onClose,
+}: {
+  count: number;
+  tiers: Array<{ id: string; name: string; short: string; color: string }>;
+  isPending: boolean;
+  err: string | null;
+  onPick: (tierId: string) => void;
+  onClose: () => void;
+}): JSX.Element {
+  const ms = t.guests.multiSelect;
+  const guestWord = count === 1 ? ms.guestOne : ms.guestMany;
+  return (
+    <Sheet onClose={onClose} center={false}>
+      <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">
+        {ms.tierSheetTitle}
+      </div>
+      <div className="mb-4 text-[13px] text-faint">
+        {fmt(ms.tierSheetSub, { n: count, guests: guestWord })}
+      </div>
+      <div className="flex flex-col gap-2">
+        {tiers.map((tier) => (
+          <button
+            key={tier.id}
+            type="button"
+            disabled={isPending}
+            onClick={() => onPick(tier.id)}
+            className={cn(
+              'flex items-center gap-[12px] rounded-[12px] border border-line bg-elev px-[14px] py-[13px] text-left',
+              press,
+              isPending && 'opacity-50',
+            )}
+          >
+            <span className="h-[10px] w-[10px] shrink-0 rounded-full" style={{ background: tier.color }} />
+            <span className="flex-1 font-display text-[14.5px] font-bold text-text">{tier.name}</span>
+            <Icon name="chev" size={16} className="text-ghost" />
+          </button>
+        ))}
+      </div>
+      {err && (
+        <p className="mt-3 text-[12.5px] text-red-300" role="alert">
+          {err}
+        </p>
+      )}
+      {isPending && (
+        <p className="mt-3 text-center text-[12.5px] text-faint">{ms.tierBusy}</p>
+      )}
+      <Btn kind="ghost" full className="mt-3" onClick={onClose} disabled={isPending}>
+        {ms.cancelSelection}
+      </Btn>
+    </Sheet>
   );
 }
 
@@ -229,9 +361,37 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
 const GUEST_CARD_EST = 52;
 const GUEST_ROW_EST = 58;
 
-/** Virtualized mobile card list (own scroll parent → the virtualizer windows it). */
-function GuestCardList({ rows, onOpen }: { rows: GuestT[]; onOpen: (id: string) => void }): JSX.Element {
+/** Virtualized mobile card list (own scroll parent → the virtualizer windows it).
+ *  Long-press (≥350ms) enters multi-select mode for the pressed card. */
+function GuestCardList({
+  rows,
+  selected,
+  onAct,
+  onToggle,
+}: {
+  rows: GuestT[];
+  selected: Set<string>;
+  onAct: (id: string) => void;
+  onToggle: (id: string) => void;
+}): JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const longPress = useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+
+  const startLong = (id: string): void => {
+    if (longPress.current) clearTimeout(longPress.current.timer);
+    const timer = setTimeout(() => {
+      longPress.current = null;
+      onToggle(id);
+    }, 350);
+    longPress.current = { id, timer };
+  };
+  const cancelLong = (): void => {
+    if (longPress.current) {
+      clearTimeout(longPress.current.timer);
+      longPress.current = null;
+    }
+  };
+
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
@@ -245,6 +405,7 @@ function GuestCardList({ rows, onOpen }: { rows: GuestT[]; onOpen: (id: string) 
         {virtualizer.getVirtualItems().map((vi) => {
           const g = rows[vi.index];
           if (!g) return null;
+          const isSelected = selected.has(g.id);
           return (
             <div
               key={vi.key}
@@ -254,18 +415,39 @@ function GuestCardList({ rows, onOpen }: { rows: GuestT[]; onOpen: (id: string) 
             >
               {/* Dense single-line card (feedback Joeri): more names per screen. */}
               <div className="pb-[7px]">
-                <button type="button" onClick={() => onOpen(g.id)} className={cn('flex w-full items-center gap-[10px] rounded-[12px] border border-line bg-elev px-[11px] py-[8px] text-left', cardPress)}>
-                  <Avatar name={g.name} size={34} accent={g.role === 'VIP'} />
+                <button
+                  type="button"
+                  onClick={() => onAct(g.id)}
+                  onPointerDown={() => startLong(g.id)}
+                  onPointerUp={cancelLong}
+                  onPointerLeave={cancelLong}
+                  onPointerCancel={cancelLong}
+                  className={cn(
+                    'flex w-full items-center gap-[10px] rounded-[12px] border px-[11px] py-[8px] text-left',
+                    cardPress,
+                    isSelected ? 'border-acc bg-acc-dim' : 'border-line bg-elev',
+                  )}
+                >
+                  {selected.size > 0 ? (
+                    <span className={cn(
+                      'flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full border-2 transition-colors',
+                      isSelected ? 'border-acc bg-acc' : 'border-ghost bg-transparent',
+                    )}>
+                      {isSelected && <Icon name="check2" size={11} stroke="#0B0B0D" sw={2.8} />}
+                    </span>
+                  ) : (
+                    <Avatar name={g.name} size={34} accent={g.role === 'VIP'} />
+                  )}
                   <span className="min-w-0 flex-1 truncate font-display text-[14.5px] font-bold text-text">
                     {g.name}
                     {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
                   </span>
-                  {g.note && (
+                  {g.note && !isSelected && (
                     <span className="shrink-0 text-acc-soft">
                       <Icon name="note" size={13} />
                     </span>
                   )}
-                  {g.pay === 'pay' && <PayChip pay="pay" />}
+                  {g.pay === 'pay' && !isSelected && <PayChip pay="pay" />}
                   <RoleChip role={g.role} />
                   {g.status === 'refused' ? (
                     <span className="shrink-0 rounded-[7px] border border-line2 px-2 py-[3px] font-body text-[11px] font-bold text-faint">{t.guests.list.refused}</span>
@@ -287,9 +469,19 @@ function GuestCardList({ rows, onOpen }: { rows: GuestT[]; onOpen: (id: string) 
  * scroll area as a positioned <tbody> (absolute <tr>s with translateY) so we keep
  * a real <table> for column sizing while only mounting the visible rows. Rows use
  * a CSS grid (matching the header columns) since absolute <tr>s leave normal
- * table layout.
+ * table layout. A checkbox column on the left enters multi-select mode.
  */
-function GuestTable({ rows, onOpen }: { rows: GuestT[]; onOpen: (id: string) => void }): JSX.Element {
+function GuestTable({
+  rows,
+  selected,
+  onOpen,
+  onToggle,
+}: {
+  rows: GuestT[];
+  selected: Set<string>;
+  onOpen: (id: string) => void;
+  onToggle: (id: string) => void;
+}): JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -298,14 +490,15 @@ function GuestTable({ rows, onOpen }: { rows: GuestT[]; onOpen: (id: string) => 
     overscan: 12,
     getItemKey: (i) => rows[i]?.id ?? i,
   });
-  const cols = 'grid-cols-[1fr_120px_120px_170px_110px]';
+  const cols = 'grid-cols-[40px_1fr_120px_120px_170px_110px]';
   return (
     <div ref={scrollRef} className="po-scroll hidden min-h-0 flex-1 overflow-y-auto lg:block" style={{ padding: '0 16px 24px' }}>
       <div className="overflow-hidden rounded-[16px] border border-line bg-elev">
         <table className="w-full border-collapse text-left">
           <thead className="sticky top-0 z-[1]">
             <tr className={cn('grid bg-elev2', cols, '[&>th]:px-3 [&>th]:py-[11px] [&>th]:font-body [&>th]:text-[11px] [&>th]:font-bold [&>th]:uppercase [&>th]:tracking-[0.04em] [&>th]:text-faint')}>
-              <th className="!pl-4">{t.guests.list.colGuest}</th>
+              <th className="!pl-3" />
+              <th>{t.guests.list.colGuest}</th>
               <th>{t.guests.list.colRole}</th>
               <th>{t.guests.list.colPayment}</th>
               <th>{t.guests.list.colAdded}</th>
@@ -316,16 +509,42 @@ function GuestTable({ rows, onOpen }: { rows: GuestT[]; onOpen: (id: string) => 
             {virtualizer.getVirtualItems().map((vi) => {
               const g = rows[vi.index];
               if (!g) return null;
+              const isSelected = selected.has(g.id);
               return (
                 <tr
                   key={vi.key}
                   data-index={vi.index}
                   ref={virtualizer.measureElement}
-                  onClick={() => onOpen(g.id)}
-                  className={cn('grid w-full cursor-pointer items-center border-t border-line2 transition-colors hover:bg-elev2', cols, '[&>td]:px-3 [&>td]:py-[11px] [&>td]:align-middle')}
+                  onClick={() => {
+                    if (selected.size > 0) onToggle(g.id);
+                    else onOpen(g.id);
+                  }}
+                  className={cn(
+                    'grid w-full cursor-pointer items-center border-t border-line2 transition-colors',
+                    cols,
+                    '[&>td]:px-3 [&>td]:py-[11px] [&>td]:align-middle',
+                    isSelected ? 'bg-acc-dim hover:bg-acc-dim/80' : 'hover:bg-elev2',
+                  )}
                   style={{ position: 'absolute', top: 0, left: 0, transform: `translateY(${vi.start}px)` }}
                 >
-                  <td className="!pl-4">
+                  <td className="!pl-3">
+                    {/* Clicking the checkbox always toggles (enters select mode if needed). */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggle(g.id);
+                      }}
+                      aria-label={isSelected ? 'Deselect' : 'Select'}
+                      className={cn(
+                        'flex h-[20px] w-[20px] items-center justify-center rounded-full border-2 transition-colors',
+                        isSelected ? 'border-acc bg-acc' : 'border-ghost bg-transparent opacity-0 group-hover:opacity-100',
+                      )}
+                    >
+                      {isSelected && <Icon name="check2" size={10} stroke="#0B0B0D" sw={2.8} />}
+                    </button>
+                  </td>
+                  <td>
                     <div className="flex items-center gap-[11px]">
                       <Avatar name={g.name} size={36} accent={g.role === 'VIP'} />
                       <span className="min-w-0">
@@ -427,6 +646,10 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const [reqMotiv, setReqMotiv] = useState('');
   // null until the user picks how to handle a name that's already on the list.
   const [dupeMode, setDupeMode] = useState<DupeMode | null>(null);
+  // Optional contact-info prompt: shown when no email/phone was parsed from the text.
+  const [contactExpanded, setContactExpanded] = useState(false);
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
 
   const qaTiers: QuickAddTier[] = tiers.map((t) => ({ id: t.id, name: t.name, aliases: t.aliases }));
   const defaultTierId = resolveDefaultTierId(qaTiers);
@@ -477,19 +700,25 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
     setChoice(null);
     setDupeMode(null);
     setReqOpen(false);
+    setContactExpanded(false);
+    setContactEmail('');
+    setContactPhone('');
     reqExtra.reset();
   };
 
   const commit = (): void => {
     if (!canSubmit || !effTier) return;
+    // Prefer parsed email/phone from the text; fall back to the optional contact fields.
+    const emailVal = parsed?.email ?? (contactEmail.trim() || undefined);
+    const phoneVal = parsed?.phone ?? (contactPhone.trim() || undefined);
     // Reuse the bulk planner with a single row, so quick + bulk split inserts vs
     // plus-ones updates identically. mode defaults to 'again' when there's no dupe.
     const row: BulkRowInput = {
       name: effName,
       plusOnes: effPlus,
       tierId: effTierId,
-      email: parsed?.email ?? undefined,
-      phone: parsed?.phone ?? undefined,
+      email: emailVal,
+      phone: phoneVal,
     };
     const plan = planBulkAdd([row], byName, dupeMode ?? 'again');
 
@@ -525,8 +754,8 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
         tierId: effTierId,
         fullName: effName,
         plusOnes: effPlus,
-        email: parsed?.email ?? undefined,
-        phone: parsed?.phone ?? undefined,
+        email: emailVal,
+        phone: phoneVal,
         source: 'app',
       },
       {
@@ -535,6 +764,9 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
           setVal('');
           setChoice(null);
           setDupeMode(null);
+          setContactExpanded(false);
+          setContactEmail('');
+          setContactPhone('');
         },
       },
     );
@@ -676,6 +908,46 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                     : fmt(t.guests.add.quotaLeftAfter, { left: remaining - cost })}
                 </span>
                 {overQuota && <MiniChip className="border-acc text-acc">{t.guests.add.quotaFull}</MiniChip>}
+              </div>
+            )}
+
+            {parsed && !needsAsk && !dupe && effName && !parsed.email && !parsed.phone && (
+              <div className="mt-3">
+                {contactExpanded ? (
+                  <div className="flex flex-col gap-[10px] rounded-[16px] border border-line bg-elev p-[14px]">
+                    <p className="text-[12.5px] leading-[1.45] text-faint">{t.guests.add.contactPromptHint}</p>
+                    <input
+                      type="email"
+                      inputMode="email"
+                      autoComplete="off"
+                      value={contactEmail}
+                      onChange={(e) => setContactEmail(e.target.value)}
+                      placeholder={t.guests.add.contactEmailPlaceholder}
+                      className="w-full rounded-[12px] border border-line bg-bg px-[13px] py-[10px] text-[14px] text-text outline-none placeholder:text-faint focus:border-acc"
+                    />
+                    <input
+                      type="tel"
+                      inputMode="tel"
+                      autoComplete="off"
+                      value={contactPhone}
+                      onChange={(e) => setContactPhone(e.target.value)}
+                      placeholder={t.guests.add.contactPhonePlaceholder}
+                      className="w-full rounded-[12px] border border-line bg-bg px-[13px] py-[10px] text-[14px] text-text outline-none placeholder:text-faint focus:border-acc"
+                    />
+                    <button type="button" onClick={() => { setContactExpanded(false); setContactEmail(''); setContactPhone(''); }} className="self-start text-[12.5px] text-faint underline underline-offset-2">
+                      {t.guests.add.cancel}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setContactExpanded(true)}
+                    className={cn('flex items-center gap-[8px] rounded-[12px] border border-line bg-elev px-[13px] py-[10px] text-[13px] text-faint', press)}
+                  >
+                    <Icon name="user" size={14} className="text-faint" />
+                    {t.guests.add.contactPrompt}
+                  </button>
+                )}
               </div>
             )}
 
@@ -1500,26 +1772,37 @@ function PromoteSheet({
   onClose: () => void;
 }): JSX.Element {
   const update = usePoUpdateGuest(eventId);
+  const promote = usePoPromoteGuestToContact(eventId);
   const [name, setName] = useState(defaultName);
   const [email, setEmail] = useState(defaultEmail ?? '');
   const [phone, setPhone] = useState(defaultPhone ?? '');
   const [err, setErr] = useState<string | null>(null);
 
-  // Promotion needs a dedup key — at least an e-mail or phone.
-  const canSave = name.trim() !== '' && (email.trim() !== '' || phone.trim() !== '');
+  const canSave = name.trim() !== '';
+  const busy = update.isPending || promote.isPending;
   const save = (): void => {
     setErr(null);
     if (name.trim() === '') return setErr(t.guests.contacts.nameRequired);
-    let phoneVal: string | undefined;
-    const phoneTrim = phone.trim();
-    if (phoneTrim !== '') {
-      phoneVal = normalizeImportPhone(phoneTrim);
-      if (!phoneVal) return setErr(t.guests.contacts.phoneInvalid);
+    const hasContact = email.trim() !== '' || phone.trim() !== '';
+    if (hasContact) {
+      // Has a dedup key — updateGuest triggers the auto-link (20260624170000).
+      let phoneVal: string | undefined;
+      const phoneTrim = phone.trim();
+      if (phoneTrim !== '') {
+        phoneVal = normalizeImportPhone(phoneTrim);
+        if (!phoneVal) return setErr(t.guests.contacts.phoneInvalid);
+      }
+      update.mutate(
+        { guestId, fullName: name.trim(), email: email.trim() || undefined, phone: phoneVal },
+        { onSuccess: onClose, onError: (e) => setErr(e instanceof Error ? e.message : t.guests.contacts.saveFailed) },
+      );
+    } else {
+      // Name-only: use the SECURITY DEFINER RPC that creates a name-only contact.
+      promote.mutate(
+        { guestId },
+        { onSuccess: onClose, onError: (e) => setErr(e instanceof Error ? e.message : t.guests.contacts.saveFailed) },
+      );
     }
-    update.mutate(
-      { guestId, fullName: name.trim(), email: email.trim() || undefined, phone: phoneVal },
-      { onSuccess: onClose, onError: (e) => setErr(e instanceof Error ? e.message : t.guests.contacts.saveFailed) },
-    );
   };
 
   return (
@@ -1538,8 +1821,8 @@ function PromoteSheet({
           {err}
         </p>
       )}
-      <Btn kind="primary" full icon="check" className="mt-2" disabled={update.isPending || !canSave} onClick={save}>
-        {update.isPending ? t.guests.contacts.saving : t.guests.contactProfile.promoteSave}
+      <Btn kind="primary" full icon="check" className="mt-2" disabled={busy || !canSave} onClick={save}>
+        {busy ? t.guests.contacts.saving : t.guests.contactProfile.promoteSave}
       </Btn>
       <Btn kind="ghost" full className="mt-2" onClick={onClose}>
         {t.guests.contacts.cancel}

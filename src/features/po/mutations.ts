@@ -11,6 +11,7 @@ import {
   addGuestsBulk,
   updateGuest,
   changeGuestTier,
+  changeGuestsTierBulk,
   removeGuest,
   type ActionResult,
 } from '@/features/guests/actions';
@@ -19,6 +20,7 @@ import type {
   BulkAddInput,
   UpdateGuestInput,
   ChangeTierInput,
+  ChangeTierBulkInput,
 } from '@/features/guests/schemas';
 import { approveGuestRequest, denyGuestRequest } from '@/features/requests/actions';
 import type {
@@ -34,6 +36,7 @@ import {
   toggleContactPermanent,
   upsertContact,
   forgetContact,
+  promoteGuestToContact,
   type ImportResult,
   type SyncResult,
 } from '@/features/contacts/actions';
@@ -44,6 +47,7 @@ import type {
   TogglePermanentInput,
   UpsertContactInput,
   ForgetContactInput,
+  PromoteGuestToContactInput,
 } from '@/features/contacts/schemas';
 import {
   changeEventStatus,
@@ -211,6 +215,30 @@ export function usePoChangeGuestTier(eventId: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
       void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
+    },
+  });
+}
+
+export function usePoChangeGuestsTierBulk(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: ChangeTierBulkInput) => throwOnError(await changeGuestsTierBulk(input)),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+      void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
+    },
+  });
+}
+
+export function usePoPromoteGuestToContact(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: PromoteGuestToContactInput) =>
+      throwOnError(await promoteGuestToContact(input)),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+      void qc.invalidateQueries({ queryKey: [...poKeys.all, 'contact-profile'] });
+      void qc.invalidateQueries({ queryKey: [...poKeys.all, 'contacts'] });
     },
   });
 }
