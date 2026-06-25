@@ -34,6 +34,8 @@ export const poKeys = {
   // refreshes every variant after a star/import/add write.
   contacts: (venueId: string, search = '') => [...poKeys.all, 'contacts', venueId, search] as const,
   contactKeys: (venueId: string) => [...poKeys.all, 'contact-keys', venueId] as const,
+  /** A single contact's full profile (header + cross-event appearances + timeline). */
+  contactProfile: (contactId: string) => [...poKeys.all, 'contact-profile', contactId] as const,
   // Settings cluster — team/quota + invites scope to a venue, sessions/profile to
   // the caller, venue-settings + subscription to a venue.
   team: (venueId: string) => [...poKeys.all, 'team', venueId] as const,

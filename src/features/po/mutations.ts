@@ -173,7 +173,14 @@ export function usePoUpdateGuest(eventId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: UpdateGuestInput) => throwOnError(await updateGuest(input)),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+      // A guest edit can add email/phone → promote it to a contact, and changes the
+      // open person profile (name / note / appearance) — refresh whichever is open.
+      void qc.invalidateQueries({ queryKey: [...poKeys.all, 'contact-profile'] });
+      // …and a promote grows the address book, so refresh the contacts list too.
+      void qc.invalidateQueries({ queryKey: [...poKeys.all, 'contacts'] });
+    },
   });
 }
 
@@ -468,11 +475,15 @@ export function usePoRequestExtraSlots(eventId: string) {
 // add/sync paths invalidate the affected event subtree (guests/tiers/quota) just
 // like a normal guest add; the star/import paths invalidate the contacts caches.
 
-/** Invalidate every cached contacts list + the import dedup-key set for a venue. */
+/** Invalidate every cached contacts list + the import dedup-key set for a venue,
+ *  plus any open contact-profile (an edit/star changes its header + stats). The
+ *  profile prefix is venue-agnostic, so a blunt prefix invalidation refetches
+ *  whichever single profile is on screen — cheap, since at most one is mounted. */
 function invalidateContacts(qc: QueryClient, venueId: string | null): void {
   if (!venueId) return;
   void qc.invalidateQueries({ queryKey: [...poKeys.all, 'contacts', venueId] });
   void qc.invalidateQueries({ queryKey: poKeys.contactKeys(venueId) });
+  void qc.invalidateQueries({ queryKey: [...poKeys.all, 'contact-profile'] });
 }
 
 /** Create or edit a single address-book contact (manager-only via RLS). */
@@ -507,7 +518,11 @@ export function usePoAddContactToEvent() {
   return useMutation({
     mutationFn: async (input: AddContactToEventInput) =>
       throwOnError(await addContactToEvent(input)),
-    onSuccess: (_res, input) => invalidateAfterAdd(qc, input.eventId),
+    onSuccess: (_res, input) => {
+      invalidateAfterAdd(qc, input.eventId);
+      // The contact gained an appearance — refresh any open profile (S2 detail).
+      void qc.invalidateQueries({ queryKey: [...poKeys.all, 'contact-profile'] });
+    },
   });
 }
 

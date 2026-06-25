@@ -21,7 +21,7 @@ import {
   type ParseResult,
 } from '@/features/guests/quick-add-parser';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
-import { usePoEvents, usePoGuests, usePoTiers, usePoQuota, usePoContacts, usePoPermanentContacts } from '@/features/po/hooks';
+import { usePoEvents, usePoGuests, usePoTiers, usePoQuota, usePoContacts, usePoPersonProfile, usePoPermanentContacts } from '@/features/po/hooks';
 import {
   usePoAddGuest,
   usePoAddGuestsBulk,
@@ -33,13 +33,13 @@ import {
   usePoUpdateGuest,
   usePoCreateTier,
 } from '@/features/po/mutations';
-import type { PoContact } from '@/features/po/adapters';
+import type { PoContact, PoProfileEvent, PoProfileTimelineItem, ContactTimelineKind } from '@/features/po/adapters';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canManageGuests } from '@/features/auth/roles';
 import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../context';
 import { Icon, type IconName } from '../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, PayChip, RoleChip, Scroll, StatusDot, Stepper, Top } from '../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, PayChip, RoleChip, Scroll, StatusDot, Stepper, Top } from '../kit';
 import { BottomBar, Sheet } from '../shell';
 
 const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
@@ -404,78 +404,6 @@ function LogRow({ icon, label, who, when, accent, last }: { icon: IconName; labe
         <span className={cn('text-[13.5px] font-semibold', accent ? 'text-acc' : 'text-text')}>{who}</span>
         {when && <span className="ml-[7px] font-display text-[12px] text-faint">{when}</span>}
       </span>
-    </div>
-  );
-}
-
-export function Guest({ g }: { g: GuestT }): JSX.Element {
-  const nav = useNav();
-  // Read-only management detail. The live door state is mirrored onto the guest's
-  // own row (checked_in → 'in', refused → 'refused'); the interactive check-in /
-  // uncheck / refuse / note-ack live at the door now (Deur tab → DoorProvider,
-  // offline outbox), not here.
-  const isIn = g.status === 'in';
-  const isRefused = g.status === 'refused';
-  const hasTask = !!g.note;
-
-  return (
-    <div className={col}>
-      <Top
-        onBack={nav.back}
-        title={t.guests.detail.title}
-        right={
-          <>
-            <IconBtn name="share" />
-            <IconBtn name="dots" />
-          </>
-        }
-      />
-      <Scroll bottom={24}>
-        <div className="flex flex-col items-center px-0 pb-[18px] pt-1.5 text-center">
-          <Avatar name={g.name} size={84} accent={g.role === 'VIP'} />
-          <h2 className="mb-0 mt-4 whitespace-nowrap font-display text-[28px] font-extrabold tracking-[-0.02em] text-text">{g.name}</h2>
-          <div className="mt-3 flex flex-wrap items-center justify-center gap-[7px]">
-            <RoleChip role={g.role} />
-            {g.pay === 'pay' ? (
-              <PayChip pay="pay" />
-            ) : (
-              <span className={cn('rounded-[7px] px-2 py-[3px] text-[11px] font-bold', g.pay === 'paid' ? 'border border-transparent bg-acc-dim text-acc' : 'border border-line2 text-faint')}>
-                {g.pay === 'paid' ? t.guests.detail.paid : t.guests.detail.free}
-              </span>
-            )}
-            {isRefused && (
-              <span className="inline-flex items-center gap-[5px] rounded-[7px] border border-line2 px-2 py-[3px] font-body text-[11px] font-bold text-faint">
-                <Icon name="close" size={11} sw={2.4} />
-                {t.guests.detail.refused}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {hasTask && (
-          <div className={cn('mb-[10px] rounded-[14px] p-[14px]', g.flag === 'high' ? 'border border-transparent bg-acc-dim' : 'border border-line bg-elev')}>
-            <div className="mb-[7px] flex items-center gap-[7px]">
-              <Icon name="flag" size={15} stroke={g.flag === 'high' ? '#B5A6FF' : 'rgba(255,255,255,0.40)'} fill={g.flag === 'high' ? '#B5A6FF' : 'none'} />
-              <Label className={g.flag === 'high' ? 'text-acc-soft' : 'text-faint'}>{g.flag === 'high' ? t.guests.detail.taskPriority : t.guests.detail.task}</Label>
-            </div>
-            <div className="text-[15px] leading-[1.45] text-text">{g.note}</div>
-            <div className="mt-[10px] text-[12px] text-faint">{t.guests.detail.taskAtDoor}</div>
-          </div>
-        )}
-
-        <Label className="mx-0.5 mb-[10px] mt-1.5">{t.guests.detail.log}</Label>
-        <div className="mb-4 rounded-[14px] border border-line bg-elev px-[14px] py-1">
-          <LogRow icon="user" label={t.guests.detail.logAdded} who={g.by || '—'} when={g.addedAt} />
-          {g.plus > 0 && <LogRow icon="users" label={t.guests.detail.logPlusOnes} who={fmt(t.guests.detail.logPlusOnesValue, { n: g.plus })} />}
-          {isIn ? (
-            <LogRow icon="check2" label={t.guests.detail.logCheckedIn} who={g.inBy ?? t.guests.detail.logActorDoor} when={g.at} accent last />
-          ) : isRefused ? (
-            <LogRow icon="close" label={t.guests.detail.logRefused} who={t.guests.detail.logRefusedWho} last />
-          ) : (
-            <LogRow icon="clock" label={t.guests.detail.logNotInYet} who={t.guests.detail.logOnTheWay} last />
-          )}
-        </div>
-      </Scroll>
     </div>
   );
 }
@@ -1180,7 +1108,6 @@ export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
   const upcoming = liveEvents.filter((e) => e.when === 'upcoming');
 
   const [q, setQ] = useState('');
-  const [editing, setEditing] = useState<PoContact | null>(null);
   const [addingFor, setAddingFor] = useState<PoContact | null>(null);
   const [confirmStar, setConfirmStar] = useState<PoContact | null>(null);
   const [added, setAdded] = useState<Set<string>>(new Set());
@@ -1227,7 +1154,7 @@ export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
               return (
                 <div key={c.id} className="flex items-center gap-[10px] rounded-[16px] border border-line bg-elev p-[12px]">
                   <Avatar name={c.name} size={42} accent={c.vast} />
-                  <button type="button" onClick={() => setEditing(c)} aria-label={fmt(t.guests.contacts.editAria, { name: c.name })} className={cn('min-w-0 flex-1 text-left', press)}>
+                  <button type="button" onClick={() => nav.push('contactprofile', { id: c.id })} aria-label={fmt(t.guests.contacts.openAria, { name: c.name })} className={cn('min-w-0 flex-1 text-left', press)}>
                     <div className="font-display text-[15.5px] font-bold text-text">{c.name}</div>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       <RoleChip role={c.role} />
@@ -1261,7 +1188,6 @@ export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
         )}
       </Scroll>
 
-      {editing && <ContactEditSheet contact={editing} onClose={() => setEditing(null)} />}
       {confirmStar && <PermanentConfirmSheet contact={confirmStar} onClose={() => setConfirmStar(null)} />}
       {addingFor && (
         <AddToEventSheet
@@ -1276,6 +1202,366 @@ export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
         />
       )}
     </div>
+  );
+}
+
+// ── PERSON PROFILE (pushed) ──────────────────────────────────────────────────
+// The unified read-first profile for one person, opened from EITHER the address
+// book (a contact) OR the guest list (a guest). A linked guest shows the full
+// cross-event profile; a name-only guest shows just its one event plus a "Save as
+// contact" promote (add email/phone → the auto-link trigger creates the contact).
+// Header + contact info, a 4-stat strip, the events they're on (tier + +N + present
+// heads, the event you came from pinned on top with its door note), and a derived
+// activity timeline (added / checked in / reversed / refused, newest first).
+// Derived-only: no audit log, so it works for anyone who can open the person (RLS
+// slices what they see); field-edit history lives in the Audit screen.
+const TIMELINE_ICON: Record<ContactTimelineKind, IconName> = {
+  added: 'user',
+  checkin: 'check2',
+  void: 'clock',
+  refusal: 'close',
+};
+
+function timelineLabel(it: PoProfileTimelineItem): string {
+  const cp = t.guests.contactProfile;
+  if (it.kind === 'added') return fmt(cp.tAdded, { event: it.event });
+  if (it.kind === 'checkin')
+    return it.arrived > 0 ? fmt(cp.tCheckinHeads, { event: it.event, n: it.arrived }) : fmt(cp.tCheckin, { event: it.event });
+  if (it.kind === 'void') return fmt(cp.tVoid, { event: it.event });
+  return it.reason ? fmt(cp.tRefusalReason, { event: it.event, reason: it.reason }) : fmt(cp.tRefusal, { event: it.event });
+}
+
+/** One contact-info line (phone / email / birthday / note) in the header card. */
+function InfoRow({ icon, label, value, last }: { icon: IconName; label?: string; value: string; last?: boolean }): JSX.Element {
+  return (
+    <div className={cn('flex items-center gap-[12px] py-[11px]', last ? '' : 'border-b border-line2')}>
+      <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-[9px] bg-elev2 text-dim">
+        <Icon name={icon} size={15} sw={2} />
+      </span>
+      <div className="min-w-0 flex-1">
+        {label && <div className="text-[10.5px] font-bold uppercase tracking-[0.04em] text-faint">{label}</div>}
+        <div className="truncate text-[13.5px] text-text">{value}</div>
+      </div>
+    </div>
+  );
+}
+
+/** One stat tile in the profile's 4-up strip. */
+function Stat({ n, label, accent }: { n: number; label: string; accent?: boolean }): JSX.Element {
+  return (
+    <div className="rounded-[12px] border border-line bg-elev px-1 py-[11px] text-center">
+      <div className={cn('font-display text-[20px] font-extrabold leading-none', accent ? 'text-acc' : 'text-text')}>{n}</div>
+      <div className="mt-[5px] text-[10px] font-bold uppercase tracking-[0.02em] text-faint">{label}</div>
+    </div>
+  );
+}
+
+/** Trailing status pill for an event row (inside · on the way · refused). */
+function EventStatusPill({ e }: { e: PoProfileEvent }): JSX.Element {
+  if (e.status === 'refused') {
+    return <span className="shrink-0 rounded-[7px] border border-line2 px-2 py-[3px] font-body text-[11px] font-bold text-faint">{t.guests.contactProfile.statusRefused}</span>;
+  }
+  if (e.status === 'inside') {
+    return (
+      <span className="inline-flex shrink-0 items-center gap-[5px] rounded-[7px] bg-acc-dim px-2 py-[4px] font-body text-[11px] font-bold text-acc">
+        <Icon name="check2" size={12} stroke="#B5A6FF" sw={2.4} />
+        {fmt(t.guests.contactProfile.statusInside, { n: e.presentHeads ?? 1 })}
+      </span>
+    );
+  }
+  return <span className="shrink-0 font-body text-[11px] font-bold text-faint">{t.guests.contactProfile.statusOnTheWay}</span>;
+}
+
+export function ContactProfile({
+  contactId,
+  guestId,
+  originEventId,
+}: {
+  contactId?: string;
+  guestId?: string;
+  originEventId?: string;
+}): JSX.Element {
+  const nav = useNav();
+  const { data: profile, isLoading, isError } = usePoPersonProfile({ contactId, guestId, originEventId });
+  const { data: liveEvents = [] } = usePoEvents();
+  const upcoming = liveEvents.filter((e) => e.when === 'upcoming');
+  const toggleVast = usePoToggleContactPermanent();
+  const [editing, setEditing] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [promoting, setPromoting] = useState(false);
+  const [confirmStar, setConfirmStar] = useState(false);
+
+  if (isLoading) {
+    return (
+      <div className={col}>
+        <Top onBack={nav.back} title={t.guests.contactProfile.title} />
+        <Loading text={t.guests.contactProfile.loading} />
+      </div>
+    );
+  }
+  if (isError || !profile) {
+    return (
+      <div className={col}>
+        <Top onBack={nav.back} title={t.guests.contactProfile.title} />
+        <Scroll pad={16} bottom={24}>
+          <Empty text={t.guests.contactProfile.notFound} />
+        </Scroll>
+      </div>
+    );
+  }
+
+  const p = profile;
+  // The PoContact the contact sheets expect — only ever passed when p.isContact,
+  // where p.id is the real contact id.
+  const contact: PoContact = {
+    id: p.id,
+    name: p.name,
+    role: p.role,
+    events: p.eventsCount,
+    vast: p.vast,
+    phoneLast4: p.phoneLast4,
+    email: p.email,
+    phone: p.phone,
+    birthdate: p.birthdate,
+    note: p.note,
+    preferredRole: p.preferredRole,
+  };
+  const onStar = (): void => {
+    if (p.vast) toggleVast.mutate({ contactId: p.id, isPermanent: false });
+    else setConfirmStar(true);
+  };
+  const hasInfo = !!(p.phone || p.email || p.birthday || p.note);
+  // The event a promote is charged against: the one we opened from, else its only one.
+  const promoteEventId = originEventId || p.events[0]?.eventId || '';
+
+  return (
+    <div className={col}>
+      <Top
+        onBack={nav.back}
+        title={t.guests.contactProfile.title}
+        right={
+          // Only a saved contact can be made "Regular" (the flag lives on the contact).
+          p.isContact ? (
+            <button
+              type="button"
+              onClick={onStar}
+              disabled={toggleVast.isPending}
+              aria-pressed={p.vast}
+              title={p.vast ? t.guests.contactProfile.unmakeRegular : t.guests.contactProfile.makeRegular}
+              className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border', press, p.vast ? 'border-transparent bg-acc-dim text-acc' : 'border-line bg-elev text-ghost')}
+            >
+              <Icon name="star" size={18} fill={p.vast ? '#B5A6FF' : 'none'} stroke={p.vast ? '#B5A6FF' : 'rgba(255,255,255,0.4)'} />
+            </button>
+          ) : undefined
+        }
+      />
+      <Scroll bottom={24}>
+        {/* Header */}
+        <div className="flex flex-col items-center px-0 pb-[16px] pt-1.5 text-center">
+          <Avatar name={p.name} size={84} accent={p.vast} />
+          <h2 className="mb-0 mt-4 font-display text-[26px] font-extrabold tracking-[-0.02em] text-text">{p.name}</h2>
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-[7px]">
+            <RoleChip role={p.role} />
+            {p.vast && (
+              <span className="inline-flex items-center gap-[5px] rounded-[7px] border border-transparent bg-acc-dim px-2 py-[3px] font-body text-[11px] font-bold uppercase tracking-[0.04em] text-acc">
+                <Icon name="star" size={11} fill="#B5A6FF" stroke="#B5A6FF" />
+                {t.guests.contactProfile.regular}
+              </span>
+            )}
+          </div>
+          <div className="mt-2 text-[12px] text-faint">{fmt(t.guests.contactProfile.since, { date: p.since })}</div>
+        </div>
+
+        {/* Actions: a saved contact edits / adds-to-event / stars; a name-only guest
+            gets a "Save as contact" promote (add email/phone) instead. */}
+        {p.isContact ? (
+          <>
+            <div className="mb-4 flex gap-2">
+              <Btn kind="ghost" full onClick={() => setEditing(true)}>
+                {t.guests.contactProfile.edit}
+              </Btn>
+              <Btn kind="primary" full icon="plus" onClick={() => setAdding(true)}>
+                {t.guests.contactProfile.addToEvent}
+              </Btn>
+            </div>
+            {hasInfo && (
+              <div className="mb-4 rounded-[14px] border border-line bg-elev px-[14px] py-1">
+                {p.phone && <InfoRow icon="phone" value={p.phone} last={!p.email && !p.birthday && !p.note} />}
+                {p.email && <InfoRow icon="mail" value={p.email} last={!p.birthday && !p.note} />}
+                {p.birthday && <InfoRow icon="spark" label={t.guests.contactProfile.birthday} value={p.birthday} last={!p.note} />}
+                {p.note && <InfoRow icon="note" value={p.note} last />}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="mb-3">
+              <Btn kind="primary" full icon="contact" onClick={() => setPromoting(true)}>
+                {t.guests.contactProfile.saveAsContact}
+              </Btn>
+            </div>
+            <Note icon="contact">{t.guests.contactProfile.guestOnlyNote}</Note>
+          </>
+        )}
+
+        {/* Stat strip */}
+        <div className="mb-5 grid grid-cols-4 gap-2">
+          <Stat n={p.eventsCount} label={t.guests.contactProfile.statEvents} />
+          <Stat n={p.attendedCount} label={t.guests.contactProfile.statAttended} accent />
+          <Stat n={p.refusedCount} label={t.guests.contactProfile.statRefused} />
+          <Stat n={p.plusOnesTotal} label={t.guests.contactProfile.statPlusOnes} />
+        </div>
+
+        {/* Events — the one you came from is pinned on top with its door note. */}
+        <Label className="mx-0.5 mb-[10px]">{t.guests.contactProfile.eventsTitle}</Label>
+        {p.events.length === 0 ? (
+          <div className="mb-5">
+            <Empty text={t.guests.contactProfile.eventsEmpty} />
+          </div>
+        ) : (
+          <div className="mb-5 flex flex-col gap-2">
+            {p.events.map((e) => (
+              <div key={e.eventId} className={cn('rounded-[14px] border bg-elev p-[13px]', e.isOrigin ? 'border-acc' : 'border-line')}>
+                <div className="flex items-start gap-[10px]">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-display text-[14.5px] font-bold text-text">{e.name}</span>
+                      {e.isOrigin && <MiniChip className="border-acc text-acc">{t.guests.contactProfile.thisEvent}</MiniChip>}
+                    </div>
+                    <div className="mt-0.5 text-[12px] text-faint">{e.dateLabel}</div>
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      <span className="inline-flex items-center gap-[6px] rounded-[7px] border border-line bg-elev2 px-2 py-[3px] font-body text-[11px] font-bold text-text">
+                        <span className="h-[8px] w-[8px] rounded-full" style={{ background: e.tierColor }} />
+                        {e.tier ?? t.guests.contactProfile.tierNone}
+                      </span>
+                      {e.plusOnes > 0 && <MiniChip className="border-line2 text-faint">{fmt(t.guests.contactProfile.plusChip, { n: e.plusOnes })}</MiniChip>}
+                    </div>
+                  </div>
+                  <EventStatusPill e={e} />
+                </div>
+                {e.note && (
+                  <div className={cn('mt-[11px] flex items-start gap-[8px] rounded-[10px] p-[10px]', e.noteFlag === 'high' ? 'bg-acc-dim' : 'bg-elev2')}>
+                    <span className="mt-px shrink-0">
+                      <Icon name="flag" size={13} stroke={e.noteFlag === 'high' ? '#B5A6FF' : 'rgba(255,255,255,0.40)'} fill={e.noteFlag === 'high' ? '#B5A6FF' : 'none'} />
+                    </span>
+                    <div className={cn('text-[12.5px] leading-[1.4]', e.noteFlag === 'high' ? 'text-text' : 'text-faint')}>{e.note}</div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Activity timeline (history) */}
+        <Label className="mx-0.5 mb-[6px]">{t.guests.contactProfile.timelineTitle}</Label>
+        <p className="mx-0.5 mb-[10px] text-[12px] leading-[1.45] text-faint">{t.guests.contactProfile.timelineNote}</p>
+        {p.timeline.length === 0 ? (
+          <Empty text={t.guests.contactProfile.timelineEmpty} />
+        ) : (
+          <div className="rounded-[14px] border border-line bg-elev px-[14px] py-1">
+            {p.timeline.map((it, i) => (
+              <LogRow
+                key={it.key}
+                icon={TIMELINE_ICON[it.kind]}
+                label={timelineLabel(it)}
+                who={it.who || t.guests.contactProfile.actorDoor}
+                when={it.when}
+                accent={it.kind === 'checkin'}
+                last={i === p.timeline.length - 1}
+              />
+            ))}
+          </div>
+        )}
+      </Scroll>
+
+      {editing && <ContactEditSheet contact={contact} onClose={() => setEditing(false)} />}
+      {confirmStar && <PermanentConfirmSheet contact={contact} onClose={() => setConfirmStar(false)} />}
+      {adding && (
+        <AddToEventSheet
+          contact={contact}
+          upcoming={upcoming}
+          onClose={() => setAdding(false)}
+          onAdded={() => setAdding(false)}
+        />
+      )}
+      {promoting && p.promoteGuestId && (
+        <PromoteSheet
+          guestId={p.promoteGuestId}
+          eventId={promoteEventId}
+          defaultName={p.name}
+          defaultEmail={p.email}
+          defaultPhone={p.phone}
+          onClose={() => setPromoting(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Promote a name-only guest into a contact: add an e-mail/phone (the dedup key)
+ *  and the widened auto-link trigger (20260624170000) creates + links the contact
+ *  on the guest update. Editing just the name is allowed too (no promote). */
+function PromoteSheet({
+  guestId,
+  eventId,
+  defaultName,
+  defaultEmail,
+  defaultPhone,
+  onClose,
+}: {
+  guestId: string;
+  eventId: string;
+  defaultName: string;
+  defaultEmail: string | null;
+  defaultPhone: string | null;
+  onClose: () => void;
+}): JSX.Element {
+  const update = usePoUpdateGuest(eventId);
+  const [name, setName] = useState(defaultName);
+  const [email, setEmail] = useState(defaultEmail ?? '');
+  const [phone, setPhone] = useState(defaultPhone ?? '');
+  const [err, setErr] = useState<string | null>(null);
+
+  // Promotion needs a dedup key — at least an e-mail or phone.
+  const canSave = name.trim() !== '' && (email.trim() !== '' || phone.trim() !== '');
+  const save = (): void => {
+    setErr(null);
+    if (name.trim() === '') return setErr(t.guests.contacts.nameRequired);
+    let phoneVal: string | undefined;
+    const phoneTrim = phone.trim();
+    if (phoneTrim !== '') {
+      phoneVal = normalizeImportPhone(phoneTrim);
+      if (!phoneVal) return setErr(t.guests.contacts.phoneInvalid);
+    }
+    update.mutate(
+      { guestId, fullName: name.trim(), email: email.trim() || undefined, phone: phoneVal },
+      { onSuccess: onClose, onError: (e) => setErr(e instanceof Error ? e.message : t.guests.contacts.saveFailed) },
+    );
+  };
+
+  return (
+    <Sheet onClose={onClose} center={false}>
+      <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{t.guests.contactProfile.promoteTitle}</div>
+      <div className="mb-4 text-[13px] text-faint">{t.guests.contactProfile.promoteSub}</div>
+      <Label className="mb-2">{t.guests.contacts.nameLabel}</Label>
+      <Field icon="user" value={name} onChange={setName} placeholder={t.guests.contacts.namePlaceholder} className="mb-[14px]" />
+      <Label className="mb-2">{t.guests.contacts.emailLabel}</Label>
+      <Field icon="mail" value={email} onChange={setEmail} inputMode="email" placeholder={t.guests.contacts.emailPlaceholder} className="mb-[14px]" />
+      <Label className="mb-2">{t.guests.contacts.phoneLabel}</Label>
+      <Field icon="phone" value={phone} onChange={setPhone} inputMode="tel" placeholder={t.guests.contacts.phonePlaceholder} className="mb-[14px]" />
+      <Note icon="contact">{t.guests.contactProfile.promoteHint}</Note>
+      {err && (
+        <p className="mt-1 text-[12.5px] text-red-300" role="alert">
+          {err}
+        </p>
+      )}
+      <Btn kind="primary" full icon="check" className="mt-2" disabled={update.isPending || !canSave} onClick={save}>
+        {update.isPending ? t.guests.contacts.saving : t.guests.contactProfile.promoteSave}
+      </Btn>
+      <Btn kind="ghost" full className="mt-2" onClick={onClose}>
+        {t.guests.contacts.cancel}
+      </Btn>
+    </Sheet>
   );
 }
 
@@ -1357,6 +1643,9 @@ function ContactEditSheet({ contact, onClose }: { contact: PoContact; onClose: (
       )}
       <Btn kind="primary" full icon="check" className="mt-4" disabled={upsert.isPending || name.trim() === ''} onClick={save}>
         {upsert.isPending ? t.guests.contacts.saving : t.guests.contacts.save}
+      </Btn>
+      <Btn kind="ghost" full className="mt-2" onClick={onClose}>
+        {t.guests.contacts.cancel}
       </Btn>
     </Sheet>
   );
@@ -1593,6 +1882,9 @@ function AddToEventSheet({
           )}
         </>
       )}
+      <Btn kind="ghost" full className="mt-3" onClick={onClose}>
+        {t.guests.contacts.cancel}
+      </Btn>
     </Sheet>
   );
 }

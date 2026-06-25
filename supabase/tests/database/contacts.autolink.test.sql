@@ -19,7 +19,7 @@ begin
 end;
 $fn$;
 
-select plan(11);
+select plan(15);
 
 select pg_temp.login('11111111-1111-4111-8111-111111111111');  -- admin (quota-exempt)
 
@@ -129,6 +129,42 @@ select is(
   (select count(*)::int from public.contacts
      where venue_id = 'aa000000-0000-7000-8000-000000000001' and email_norm = 'auto.staff@test.example'),
   1, 'G2 a staff guest-add still creates the contact (trigger DEFINER bypass)');
+
+-- ── H. Promote on UPDATE: add an e-mail to a name-only guest → contact created ─
+-- The "Save as contact" action edits the existing guest; the widened trigger
+-- (20260624170000, before insert OR update of email/phone) must now run the same
+-- dedup + create + back-link. Guest D (fa..04) was the name-only guest from above.
+select pg_temp.login('11111111-1111-4111-8111-111111111111');  -- admin
+
+update public.guests set email = 'Promote.Me@Test.Example'
+  where id = 'fa000000-0000-7000-8000-000000000004';
+
+select is(
+  (select count(*)::int from public.contacts
+     where venue_id = 'aa000000-0000-7000-8000-000000000001' and email_norm = 'promote.me@test.example'),
+  1, 'H1 adding an e-mail to a name-only guest creates the contact on update');
+
+select is(
+  (select c.email_norm from public.guests g join public.contacts c on c.id = g.contact_id
+     where g.id = 'fa000000-0000-7000-8000-000000000004'),
+  'promote.me@test.example', 'H2 the promoted guest is back-linked to that contact');
+
+-- ── I. Updating an ALREADY-linked guest''s e-mail does not re-link / duplicate ──
+-- The function no-ops the moment contact_id is set, so changing a linked guest''s
+-- e-mail neither moves the link nor spawns a contact for the new key. Guest A
+-- (fa..01) was linked to auto.mail@test.example in section A.
+update public.guests set email = 'changed.again@test.example'
+  where id = 'fa000000-0000-7000-8000-000000000001';
+
+select is(
+  (select count(*)::int from public.contacts
+     where venue_id = 'aa000000-0000-7000-8000-000000000001' and email_norm = 'changed.again@test.example'),
+  0, 'I1 changing an already-linked guest e-mail makes no new contact');
+
+select is(
+  (select c.email_norm from public.guests g join public.contacts c on c.id = g.contact_id
+     where g.id = 'fa000000-0000-7000-8000-000000000001'),
+  'auto.mail@test.example', 'I2 the original contact link is unchanged');
 
 select * from finish();
 rollback;

@@ -181,6 +181,7 @@ export const guests = {
     empty: 'No contacts yet. Save a guest to reuse them next time.',
     onListCount: '{n}× on a list',
     editAria: 'Edit {name}',
+    openAria: 'Open {name}',
     unmakeRegular: 'Stop adding to every list',
     makeRegular: 'Add to every list',
     addToEventAria: 'Add {name} to an event',
@@ -277,5 +278,55 @@ export const guests = {
     noUpcoming: 'No upcoming event.',
     guestOneLabel: 'guest',
     guestManyLabel: 'guests',
+  },
+  // ── Contact profile (address-book detail) ─────────────────────────────────
+  // Tap a contact in the address book to open this read-only profile: their
+  // events, tiers, +1 counts, and a derived activity timeline. Derived-only — no
+  // audit log — so profile/field edits are intentionally not in the timeline.
+  contactProfile: {
+    title: 'Contact',
+    loading: 'Loading contact…',
+    notFound: "This contact isn't available, or you don't have access to it.",
+    edit: 'Edit',
+    addToEvent: 'Add to event',
+    makeRegular: 'Add to every list',
+    unmakeRegular: 'Stop adding to every list',
+    regular: 'Regular',
+    since: 'Known since {date}',
+    noContactInfo: 'No phone or email saved.',
+    birthday: 'Birthday',
+    // Stat strip
+    statEvents: 'On a list',
+    statAttended: 'Attended',
+    statRefused: 'Refused',
+    statPlusOnes: 'Plus-ones',
+    // Events section
+    eventsTitle: 'Events',
+    eventsEmpty: 'Not on any guest list yet.',
+    tierNone: 'No tier',
+    statusInside: '{n} in',
+    statusOnTheWay: 'On the way',
+    statusRefused: 'Refused',
+    plusChip: '+{n}',
+    // Activity timeline
+    timelineTitle: 'Activity',
+    timelineNote: 'Check-ins, refusals and list changes. Profile edits live in the audit log.',
+    timelineEmpty: 'No activity yet.',
+    tAdded: 'Added to {event}',
+    tCheckin: 'Checked in at {event}',
+    tCheckinHeads: 'Checked in at {event} · +{n} with them',
+    tVoid: 'Check-in reversed at {event}',
+    tRefusal: 'Refused at {event}',
+    tRefusalReason: 'Refused at {event} · {reason}',
+    actorDoor: 'Door',
+    // Pinned origin event (opened from a guest list)
+    thisEvent: 'This event',
+    // Name-only guest (not a contact yet) → promote
+    saveAsContact: 'Save as contact',
+    guestOnlyNote: 'Not a saved contact yet. Add an email or phone to reuse this person across events and keep their history.',
+    promoteTitle: 'Save as contact',
+    promoteSub: 'Add an email or phone so you can reuse this person next time.',
+    promoteHint: 'With an email or phone we recognise them on the next list and keep their history. Name-only guests stay one-off.',
+    promoteSave: 'Save as contact',
   },
 } as const;

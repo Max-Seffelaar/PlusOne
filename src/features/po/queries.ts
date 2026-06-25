@@ -623,6 +623,285 @@ export async function fetchContactKeyRows(
   );
 }
 
+// ── Contact profile (address-book detail) ─────────────────────────────────────
+// One person across ALL their guest appearances (guests.contact_id), for the
+// contact-profile screen. Derived-only (no audit log): the timeline is built from
+// guests / check_ins / refusals — tables every contact-reader (admin/finance/
+// organizer) can at least partly read — so the profile needs no AAL2 and is
+// naturally RLS-sliced (admin sees the full cross-event history, an organizer only
+// their events'). The audit-backed "who edited a field" trail stays out by design.
+
+export interface ContactProfileHeader {
+  id: string;
+  fullName: string;
+  email: string | null;
+  phone: string | null;
+  birthdate: string | null;
+  preferredRole: Database['public']['Enums']['contact_role'] | null;
+  note: string | null;
+  isPermanent: boolean;
+  source: Database['public']['Enums']['contact_source'];
+  createdAt: string;
+}
+
+export interface ContactCheckIn {
+  checkedAt: string;
+  checkedBy: string;
+  /** plus_ones_arrived — companions present on this check-in. */
+  arrived: number;
+  voidedAt: string | null;
+  voidedBy: string | null;
+}
+
+export interface ContactRefusal {
+  refusedAt: string;
+  refusedBy: string;
+  reason: string;
+}
+
+export interface ContactAppearance {
+  guestId: string;
+  eventId: string;
+  eventName: string;
+  eventStartsAt: string;
+  plusOnes: number;
+  status: GuestRowStatus;
+  tierName: string | null;
+  tierColor: string | null;
+  /** Per-event door note + priority (shown on the pinned event's task card). */
+  note: string | null;
+  notePriority: Database['public']['Enums']['note_priority'];
+  addedBy: string;
+  /** guests.created_at — when they were put on this event's list. */
+  addedAt: string;
+  checkIns: ContactCheckIn[];
+  refusals: ContactRefusal[];
+}
+
+export interface ContactProfileData {
+  /** null when the contact isn't visible to the caller (RLS) or doesn't exist. */
+  header: ContactProfileHeader | null;
+  appearances: ContactAppearance[];
+  /** Resolved actor display names by user id (for the timeline). */
+  actorNames: Record<string, string>;
+}
+
+/**
+ * The unified person profile, resolved from EITHER an address-book contact OR a
+ * single guest row. A name-only guest (no contact) still gets a profile (its one
+ * appearance), so tapping any guest opens the same screen — `isContact` drives the
+ * "Save as contact" promote affordance + hides contact-only actions.
+ */
+export interface PersonProfileData extends ContactProfileData {
+  /** True once the person is a real address-book contact (has email/phone). */
+  isContact: boolean;
+  /** For a name-only guest: the guest row to edit to promote it; null otherwise. */
+  promoteGuestId: string | null;
+}
+
+// The embeds come back typed as to-one OR to-many by the generated client (same as
+// fetchRecapGuests), so they stay loose here and the mapper normalizes them.
+type ProfileEmbedEvent = { name: string; starts_at: string };
+type ProfileEmbedTier = { name: string; color: string | null };
+type ProfileEmbedCheckIn = {
+  checked_at: string;
+  checked_by: string;
+  plus_ones_arrived: number;
+  voided_at: string | null;
+  voided_by: string | null;
+};
+type ProfileEmbedRefusal = { refused_at: string; refused_by: string; reason: string };
+type ProfileAppearanceRaw = {
+  id: string;
+  event_id: string;
+  plus_ones: number;
+  status: GuestRowStatus;
+  created_at: string;
+  added_by: string;
+  note: string | null;
+  note_priority: Database['public']['Enums']['note_priority'];
+  events: ProfileEmbedEvent | ProfileEmbedEvent[] | null;
+  guest_tiers: ProfileEmbedTier | ProfileEmbedTier[] | null;
+  check_ins: ProfileEmbedCheckIn | ProfileEmbedCheckIn[] | null;
+  refusals: ProfileEmbedRefusal | ProfileEmbedRefusal[] | null;
+};
+
+const PROFILE_APPEARANCE_SELECT =
+  'id, event_id, plus_ones, status, created_at, added_by, note, note_priority, events(name, starts_at), guest_tiers(name, color), check_ins(checked_at, checked_by, plus_ones_arrived, voided_at, voided_by), refusals(refused_at, refused_by, reason)';
+
+/** Normalize one embedded guest row (the embeds come back to-one OR to-many). */
+function mapAppearance(g: ProfileAppearanceRaw): ContactAppearance {
+  const ev = [g.events].flat().filter(Boolean)[0] as ProfileEmbedEvent | undefined;
+  const tier = [g.guest_tiers].flat().filter(Boolean)[0] as ProfileEmbedTier | undefined;
+  const checkIns = ([g.check_ins].flat().filter(Boolean) as ProfileEmbedCheckIn[]).map((c) => ({
+    checkedAt: c.checked_at,
+    checkedBy: c.checked_by,
+    arrived: c.plus_ones_arrived,
+    voidedAt: c.voided_at,
+    voidedBy: c.voided_by,
+  }));
+  const refusals = ([g.refusals].flat().filter(Boolean) as ProfileEmbedRefusal[]).map((r) => ({
+    refusedAt: r.refused_at,
+    refusedBy: r.refused_by,
+    reason: r.reason,
+  }));
+  return {
+    guestId: g.id,
+    eventId: g.event_id,
+    eventName: ev?.name ?? '',
+    eventStartsAt: ev?.starts_at ?? g.created_at,
+    plusOnes: g.plus_ones,
+    status: g.status,
+    tierName: tier?.name ?? null,
+    tierColor: tier?.color ?? null,
+    note: g.note,
+    notePriority: g.note_priority,
+    addedBy: g.added_by,
+    addedAt: g.created_at,
+    checkIns,
+    refusals,
+  };
+}
+
+/** Collect the distinct actor ids across appearances (added / checked / refused). */
+function actorIds(appearances: ContactAppearance[]): string[] {
+  const ids = new Set<string>();
+  for (const a of appearances) {
+    ids.add(a.addedBy);
+    for (const ci of a.checkIns) {
+      ids.add(ci.checkedBy);
+      if (ci.voidedBy) ids.add(ci.voidedBy);
+    }
+    for (const r of a.refusals) ids.add(r.refusedBy);
+  }
+  return [...ids];
+}
+
+/** Every non-removed guest appearance for a contact, with event + tier + the door
+ *  history (check-ins, refusals) embedded. RLS scopes both the rows and the embeds.
+ *  A single contact's appearances are bounded (events-per-venue × attendance), well
+ *  under PostgREST's 1000-row cap, so no ranged paging is needed here. */
+async function fetchContactAppearances(client: Client, contactId: string): Promise<ContactAppearance[]> {
+  const { data } = await client
+    .from('guests')
+    .select(PROFILE_APPEARANCE_SELECT)
+    .eq('contact_id', contactId)
+    .neq('status', 'removed')
+    .order('created_at', { ascending: false });
+
+  return ((data ?? []) as ProfileAppearanceRaw[]).map(mapAppearance);
+}
+
+/** A single guest row as one appearance — the name-only / guest-keyed path. */
+async function fetchGuestAppearance(client: Client, guestId: string): Promise<ContactAppearance[]> {
+  const { data } = await client.from('guests').select(PROFILE_APPEARANCE_SELECT).eq('id', guestId);
+  return ((data ?? []) as ProfileAppearanceRaw[]).map(mapAppearance);
+}
+
+/** Resolve a set of actor ids → display names in one round-trip (RLS-scoped;
+ *  an unreadable actor simply drops out and the screen shows a fallback). */
+async function fetchActorNames(client: Client, ids: string[]): Promise<Record<string, string>> {
+  if (ids.length === 0) return {};
+  const { data } = await client.from('user_profiles').select('id, full_name').in('id', ids);
+  const names: Record<string, string> = {};
+  for (const p of data ?? []) names[p.id] = p.full_name;
+  return names;
+}
+
+/** The contact header + all appearances + resolved actor names for the profile.
+ *  header is null when the caller can't read the contact (RLS) or it doesn't exist. */
+export async function fetchContactProfile(client: Client, contactId: string): Promise<ContactProfileData> {
+  const [{ data: c }, appearances] = await Promise.all([
+    client
+      .from('contacts')
+      .select('id, full_name, email, phone, birthdate, preferred_role, note, is_permanent, source, created_at')
+      .eq('id', contactId)
+      .maybeSingle(),
+    fetchContactAppearances(client, contactId),
+  ]);
+
+  if (!c) return { header: null, appearances: [], actorNames: {} };
+
+  const actorNames = await fetchActorNames(client, actorIds(appearances));
+
+  return {
+    header: {
+      id: c.id,
+      fullName: c.full_name,
+      email: c.email,
+      phone: c.phone,
+      birthdate: c.birthdate,
+      preferredRole: c.preferred_role,
+      note: c.note,
+      isPermanent: c.is_permanent,
+      source: c.source,
+      createdAt: c.created_at,
+    },
+    appearances,
+    actorNames,
+  };
+}
+
+const EMPTY_PERSON: PersonProfileData = {
+  header: null,
+  appearances: [],
+  actorNames: {},
+  isContact: false,
+  promoteGuestId: null,
+};
+
+/**
+ * Resolve the unified person profile from a contact id OR a guest id. A guest that
+ * is already linked to a contact resolves to the full cross-event contact profile;
+ * a name-only guest resolves to a single-appearance profile (isContact false) the
+ * caller can promote by adding an e-mail/phone. header is null when nothing is
+ * visible (RLS) or found — the screen then shows its not-found state.
+ */
+export async function fetchPersonProfile(
+  client: Client,
+  args: { contactId?: string | null; guestId?: string | null }
+): Promise<PersonProfileData> {
+  if (args.contactId) {
+    const data = await fetchContactProfile(client, args.contactId);
+    return { ...data, isContact: data.header != null, promoteGuestId: null };
+  }
+  if (args.guestId) {
+    const { data: g } = await client
+      .from('guests')
+      .select('id, contact_id, full_name, email, phone, note, created_at')
+      .eq('id', args.guestId)
+      .maybeSingle();
+    if (!g) return EMPTY_PERSON;
+    // Already a contact → the full cross-event profile.
+    if (g.contact_id) {
+      const data = await fetchContactProfile(client, g.contact_id);
+      return { ...data, isContact: true, promoteGuestId: null };
+    }
+    // Name-only guest → a one-appearance profile, synthesised from the guest row.
+    const appearances = await fetchGuestAppearance(client, g.id);
+    const actorNames = await fetchActorNames(client, actorIds(appearances));
+    return {
+      header: {
+        id: g.id,
+        fullName: g.full_name,
+        email: g.email,
+        phone: g.phone,
+        birthdate: null,
+        preferredRole: null,
+        note: g.note,
+        isPermanent: false,
+        source: 'guest_list',
+        createdAt: g.created_at,
+      },
+      appearances,
+      actorNames,
+      isContact: false,
+      promoteGuestId: g.id,
+    };
+  }
+  return EMPTY_PERSON;
+}
+
 // ── Settings cluster reads (S6 team/quota, S7 profile/sessions, S8 venue, billing) ──
 // Same client-agnostic shape: a Server Component can prefetch, a Client Component
 // reads with the browser client. RLS scopes every row — a staff member who can't
