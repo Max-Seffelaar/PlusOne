@@ -37,6 +37,14 @@ export function Templates(): JSX.Element {
   const nav = useNav();
   const { data, isLoading, isError } = usePoTemplates();
   const canManage = usePoCanManageTemplates();
+
+  // Skip the empty-list screen: go straight to "New template" the first time.
+  useEffect(() => {
+    if (!isLoading && !isError && canManage && (data ?? []).length === 0) {
+      nav.push('templateedit', { isNew: true });
+    }
+  }, [isLoading, isError, canManage, data, nav]);
+
   return (
     <div className={col}>
       <Top
