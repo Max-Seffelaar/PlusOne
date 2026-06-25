@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { slugify, buildEventSlug, randomSlugSuffix } from './slug';
+import { slugify, buildEventSlug } from './slug';
 
 describe('slugify (mirrors SQL public.slugify)', () => {
   it('lowercases and dashes non-alphanumerics', () => {
@@ -21,25 +21,21 @@ describe('slugify (mirrors SQL public.slugify)', () => {
 });
 
 describe('buildEventSlug', () => {
-  it('appends the suffix to the slugified name', () => {
-    expect(buildEventSlug('FRENZY', 'x4k9')).toBe('frenzy-x4k9');
-    expect(buildEventSlug('PLUSONE Launch Night', 'ab12')).toBe('plusone-launch-night-ab12');
+  it('appends the UTC date to the slugified name', () => {
+    expect(buildEventSlug('FRENZY', '2026-07-12T22:00:00Z')).toBe('frenzy-2026-07-12');
+    expect(buildEventSlug('PLUSONE Launch Night', '2026-07-12T22:00:00Z')).toBe('plusone-launch-night-2026-07-12');
+    expect(buildEventSlug('Summer Rave', new Date('2026-07-12T22:00:00Z'))).toBe('summer-rave-2026-07-12');
   });
 
   it('falls back to "event" when the name has no usable characters', () => {
-    expect(buildEventSlug('!!!', 'zzzz')).toBe('event-zzzz');
-    expect(buildEventSlug('', 'zzzz')).toBe('event-zzzz');
+    expect(buildEventSlug('!!!', '2026-07-12T00:00:00Z')).toBe('event-2026-07-12');
+    expect(buildEventSlug('', '2026-07-12T00:00:00Z')).toBe('event-2026-07-12');
   });
 
-  it('uses a random suffix by default', () => {
-    const slug = buildEventSlug('Test');
-    expect(slug).toMatch(/^test-[a-z0-9]{4}$/);
-  });
-});
-
-describe('randomSlugSuffix', () => {
-  it('produces a lowercase alphanumeric string of the requested length', () => {
-    expect(randomSlugSuffix(4)).toMatch(/^[a-z0-9]{4}$/);
-    expect(randomSlugSuffix(8)).toMatch(/^[a-z0-9]{8}$/);
+  it('uses UTC date from the timestamp', () => {
+    // 23:59:59Z is still the same UTC day
+    expect(buildEventSlug('Test', '2026-07-12T23:59:59Z')).toBe('test-2026-07-12');
+    // 00:00:01Z on the 13th flips to the next day
+    expect(buildEventSlug('Test', '2026-07-13T00:00:01Z')).toBe('test-2026-07-13');
   });
 });

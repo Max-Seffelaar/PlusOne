@@ -5,7 +5,6 @@ import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { getAuthContext } from '@/lib/auth/context';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
-import { buildEventSlug } from './slug';
 import type { EventStatus } from './status';
 import type { Database } from '@/lib/database.types';
 import {
@@ -104,29 +103,26 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
 
-  // Retry on the astronomically rare slug collision with a fresh suffix.
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const { data, error } = await supabase
-      .from('events')
-      .insert({
-        venue_id: venueId,
-        name,
-        starts_at: startsAt,
-        ends_at: endsAt ?? null,
-        landing_active: landingActive,
-        landing_slug: buildEventSlug(name),
-      })
-      .select('id')
-      .single();
+  // Pass '' so the events_set_landing_slug BEFORE-INSERT trigger generates the slug
+  // (name-yyyy-mm-dd, with -2/-3/… on the rare same-name-same-date collision).
+  const { data, error } = await supabase
+    .from('events')
+    .insert({
+      venue_id: venueId,
+      name,
+      starts_at: startsAt,
+      ends_at: endsAt ?? null,
+      landing_active: landingActive,
+      landing_slug: '',
+    })
+    .select('id')
+    .single();
 
-    if (!error && data) {
-      revalidatePath(listPath);
-      return { ok: true, eventId: data.id };
-    }
-    if (error?.code === '23505') continue; // slug clash → new suffix
-    return mapMutationError(error);
+  if (!error && data) {
+    revalidatePath(listPath);
+    return { ok: true, eventId: data.id };
   }
-  return { ok: false, code: 'slug', message: "Couldn't generate a unique landing link. Try again." };
+  return mapMutationError(error);
 }
 
 /** Edit name / start / end (admin or organizer — RLS). */
