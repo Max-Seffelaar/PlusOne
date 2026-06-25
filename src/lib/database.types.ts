@@ -7,6 +7,31 @@ export type Json =
   | Json[]
 
 export type Database = {
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       audit_log: {
@@ -452,6 +477,7 @@ export type Database = {
         Row: {
           allow_uncheck: boolean | null
           auto_lock_at: string | null
+          cancelled_at: string | null
           capacity: number | null
           created_at: string
           ends_at: string | null
@@ -471,6 +497,7 @@ export type Database = {
         Insert: {
           allow_uncheck?: boolean | null
           auto_lock_at?: string | null
+          cancelled_at?: string | null
           capacity?: number | null
           created_at?: string
           ends_at?: string | null
@@ -490,6 +517,7 @@ export type Database = {
         Update: {
           allow_uncheck?: boolean | null
           auto_lock_at?: string | null
+          cancelled_at?: string | null
           capacity?: number | null
           created_at?: string
           ends_at?: string | null
@@ -1296,35 +1324,23 @@ export type Database = {
         Args: { p_event_id: string; p_name: string }
         Returns: string
       }
-      create_venue_with_owner:
-        | {
-            Args: {
-              p_address: string
-              p_comped?: boolean
-              p_name: string
-              p_plan_id?: string
-              p_retention_months: number
-              p_venue_type: string
-            }
-            Returns: string
-          }
-        | {
-            Args: {
-              p_address: string
-              p_city?: string
-              p_comped?: boolean
-              p_complete?: boolean
-              p_finance_email?: string
-              p_kvk_number?: string
-              p_name: string
-              p_plan_id?: string
-              p_retention_months: number
-              p_terms_version?: string
-              p_vat_number?: string
-              p_venue_type: string
-            }
-            Returns: string
-          }
+      create_venue_with_owner: {
+        Args: {
+          p_address: string
+          p_city?: string
+          p_comped?: boolean
+          p_complete?: boolean
+          p_finance_email?: string
+          p_kvk_number?: string
+          p_name: string
+          p_plan_id?: string
+          p_retention_months: number
+          p_terms_version?: string
+          p_vat_number?: string
+          p_venue_type: string
+        }
+        Returns: string
+      }
       current_user_requires_mfa: { Args: never; Returns: boolean }
       event_allows_uncheck: { Args: { p_event_id: string }; Returns: boolean }
       event_capacity_consumption: {
@@ -1419,7 +1435,7 @@ export type Database = {
       guest_personal_contribution: {
         Args: {
           g: Database["public"]["Tables"]["guests"]["Row"]
-          p_went_live_at: string
+          p_is_inside: boolean
         }
         Returns: number
       }
@@ -1513,20 +1529,33 @@ export type Database = {
         Returns: undefined
       }
       slugify: { Args: { p_text: string }; Returns: string }
-      submit_guest_request: {
-        Args: {
-          p_birthdate?: string
-          p_email: string
-          p_full_name: string
-          p_ip_hash: string
-          p_marketing_opt_in: boolean
-          p_motivation: string
-          p_phone: string
-          p_plus_ones: number
-          p_slug: string
-        }
-        Returns: string
-      }
+      submit_guest_request:
+        | {
+            Args: {
+              p_email: string
+              p_full_name: string
+              p_ip_hash: string
+              p_motivation: string
+              p_phone: string
+              p_plus_ones: number
+              p_slug: string
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              p_birthdate?: string
+              p_email: string
+              p_full_name: string
+              p_ip_hash: string
+              p_marketing_opt_in: boolean
+              p_motivation: string
+              p_phone: string
+              p_plus_ones: number
+              p_slug: string
+            }
+            Returns: string
+          }
       sync_permanent_guests_into_event: {
         Args: { p_event_id: string }
         Returns: number
@@ -1742,6 +1771,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       contact_role: ["vip", "all_access", "artist", "press", "crew", "guest"],

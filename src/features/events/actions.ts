@@ -12,6 +12,7 @@ import {
   createEventSchema,
   updateEventSchema,
   changeStatusSchema,
+  setCancelledSchema,
   setLandingActiveSchema,
   setLockSchema,
   setAutoLockSchema,
@@ -33,6 +34,7 @@ import {
   type CreateEventInput,
   type UpdateEventInput,
   type ChangeStatusInput,
+  type SetCancelledInput,
   type SetLandingActiveInput,
   type SetLockInput,
   type SetAutoLockInput,
@@ -167,6 +169,31 @@ export async function changeEventStatus(input: ChangeStatusInput): Promise<Actio
   const { error } = await supabase
     .from('events')
     .update({ status: status as EventStatus })
+    .eq('id', eventId);
+  if (error) return mapMutationError(error);
+  revalidateEvent(eventId);
+  return { ok: true };
+}
+
+/**
+ * Cancel (or un-cancel) an event (replaces the retired status='closed', 24 jun
+ * 2026). A cancelled event is admin-only and stops taking check-ins and public
+ * requests — all enforced in the database (can_write_guests / can_check_in /
+ * events_select_landing). RLS (events_update_admin_organizer) is the boundary; the
+ * generic events audit trigger records who toggled it.
+ */
+export async function setEventCancelled(input: SetCancelledInput): Promise<ActionResult> {
+  const parsed = setCancelledSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  const { eventId, cancelled } = parsed.data;
+
+  const supabase = await createClient();
+  const ctx = await getAuthContext();
+  if (!ctx) return unauthorized();
+
+  const { error } = await supabase
+    .from('events')
+    .update({ cancelled_at: cancelled ? new Date().toISOString() : null })
     .eq('id', eventId);
   if (error) return mapMutationError(error);
   revalidateEvent(eventId);

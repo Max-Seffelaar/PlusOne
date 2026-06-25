@@ -70,8 +70,9 @@ values ('cc000000-0000-7000-8000-0000000d0003', '11111111-1111-4111-8111-1111111
 select is((select status::text from public.guests where id = 'cc000000-0000-7000-8000-0000000d0003'),
   'removed', '6 a removed guest is not flipped to refused');
 
--- 7. Quota-neutral: a refused guest still consumes 1 + plus_ones, so the adder's
---    consumption is unchanged across the refusal (only denied/removed free a slot).
+-- 7. Capacity rule (amended 24 jun 2026): refusing a guest who is not inside FREES
+--    their slot — only a checked-in (inside) guest keeps consuming. Guest D (+1, not
+--    checked in) is refused, so the adder's consumption drops by 1 + plus_ones = 2.
 reset role;
 create temp table _c(before int, after int);
 insert into _c(before)
@@ -82,7 +83,7 @@ values ('cc000000-0000-7000-8000-0000000d0004', '11111111-1111-4111-8111-1111111
 reset role;
 update _c set after =
   public.user_event_consumption('ee000000-0000-7000-8000-000000000001', '11111111-1111-4111-8111-111111111111');
-select is((select after - before from _c), 0, '7 refusing a guest is quota-neutral (refused still consumes)');
+select is((select after - before from _c), -2, '7 refusing a not-inside guest frees its slot (1 + plus_ones = 2)');
 
 -- 8. The status mirror is auditable AND idempotent: guest B was refused twice but
 --    the status flipped once, so there is exactly one guests 'refuse' entry

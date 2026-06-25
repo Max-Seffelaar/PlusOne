@@ -15,7 +15,7 @@ import {
   usePoTiers,
 } from '@/features/po/hooks';
 import {
-  usePoChangeStatus,
+  usePoSetCancelled,
   usePoCreateEvent,
   usePoCreateEventFromTemplate,
   usePoCreateTemplateFromEvent,
@@ -30,7 +30,6 @@ import {
 import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canWorkDoor } from '@/features/auth/roles';
-import { allowedTransitions, STATUS_DESCRIPTIONS, STATUS_LABELS, type EventStatus } from '@/features/events/status';
 import { isoToLocalInput, localInputToIso } from '@/features/events/datetime';
 import { formatClock } from '@/features/stats/format';
 import { useNav } from '../context';
@@ -124,7 +123,19 @@ export function Events(): JSX.Element {
                       </div>
                       <div className="w-px self-stretch bg-line2" />
                       <div className="min-w-0 flex-1">
-                        <div className="overflow-hidden text-ellipsis whitespace-nowrap font-display text-[17px] font-bold text-text">{e.name}</div>
+                        <div className="flex items-center gap-2">
+                          <div className="overflow-hidden text-ellipsis whitespace-nowrap font-display text-[17px] font-bold text-text">{e.name}</div>
+                          {e.cancelled ? (
+                            <span className="shrink-0 rounded-full bg-[#E89AC0]/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#E89AC0]">
+                              {t.events.cancelledBadge}
+                            </span>
+                          ) : e.phase === 'live' ? (
+                            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-acc-dim px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-acc">
+                              <span className="h-1.5 w-1.5 rounded-full bg-acc" />
+                              {t.events.liveBadge}
+                            </span>
+                          ) : null}
+                        </div>
                         <div className="mt-[3px] flex items-center gap-1.5 text-[13px] text-faint">
                           <Icon name="clock" size={13} stroke="rgba(255,255,255,0.40)" />
                           {fmt(t.events.cardDoors, { time: e.time, venue: e.venue })}
@@ -378,7 +389,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const createFromTemplate = usePoCreateEventFromTemplate();
   const templates = usePoTemplates();
   const updateEvent = usePoUpdateEvent(editId);
-  const changeStatus = usePoChangeStatus(editId);
+  const setCancelled = usePoSetCancelled(editId);
   const setLandingActive = usePoSetLandingActive(editId);
   const setListLock = usePoSetListLock(editId);
   const setAutoLock = usePoSetAutoLock(editId);
@@ -389,6 +400,8 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [dateStr, setDateStr] = useState('');
   const [timeStr, setTimeStr] = useState('');
+  const [endDateStr, setEndDateStr] = useState('');
+  const [endTimeStr, setEndTimeStr] = useState('');
   const [landingOn, setLandingOn] = useState(false);
   const [autoOn, setAutoOn] = useState(false);
   const [autoDate, setAutoDate] = useState('');
@@ -407,6 +420,9 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     const [d, t] = splitLocal(ev.startsAt);
     setDateStr(d);
     setTimeStr(t);
+    const [ed, et] = splitLocal(ev.endsAt);
+    setEndDateStr(ed);
+    setEndTimeStr(et);
     setLandingOn(ev.landingActive);
     setLocked(ev.listLocked);
     setUncheckOverride(ev.allowUncheckOverride);
@@ -433,9 +449,25 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   // and status are immediate operational controls (mirrors the desktop split).
   const save = async (): Promise<void> => {
     setErr(null);
+    if (!name.trim()) {
+      setErr(t.events.errName);
+      return;
+    }
     const startsAt = localInputToIso(`${dateStr}T${timeStr}`);
-    if (!name.trim() || !startsAt) {
-      setErr(t.events.errNameDateTime);
+    if (!startsAt) {
+      setErr(t.events.errDateTime);
+      return;
+    }
+    // End time is optional, but if either end field is filled both must be, and the
+    // end must be after the start — mirror the DB CHECK so the user gets a clear
+    // message instead of the generic save failure (the date-save bug).
+    const endsAt = endDateStr && endTimeStr ? localInputToIso(`${endDateStr}T${endTimeStr}`) : null;
+    if ((endDateStr || endTimeStr) && !endsAt) {
+      setErr(t.events.errEndDateTime);
+      return;
+    }
+    if (endsAt && endsAt <= startsAt) {
+      setErr(t.events.errStartAfterEnd);
       return;
     }
     const autoIso = autoOn ? localInputToIso(`${autoDate}T${autoTime}`) : null;
@@ -450,12 +482,12 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           return;
         }
         if (templateId) {
-          await createFromTemplate.mutateAsync({ templateId, name: name.trim(), startsAt, endsAt: null });
+          await createFromTemplate.mutateAsync({ templateId, name: name.trim(), startsAt, endsAt });
         } else {
-          await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, landingActive: landingOn });
+          await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn });
         }
       } else {
-        await updateEvent.mutateAsync({ eventId: editId, name: name.trim(), startsAt });
+        await updateEvent.mutateAsync({ eventId: editId, name: name.trim(), startsAt, endsAt });
         if (ev && landingOn !== ev.landingActive) {
           await setLandingActive.mutateAsync({ eventId: editId, active: landingOn });
         }
@@ -493,12 +525,12 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     }
   };
 
-  const doStatus = async (to: EventStatus): Promise<void> => {
+  const toggleCancel = async (next: boolean): Promise<void> => {
     setErr(null);
     try {
-      await changeStatus.mutateAsync({ eventId: editId, status: to });
+      await setCancelled.mutateAsync({ eventId: editId, cancelled: next });
     } catch (e) {
-      setErr(e instanceof Error ? e.message : t.events.errStatusFailed);
+      setErr(e instanceof Error ? e.message : t.events.errCancelFailed);
     }
   };
 
@@ -518,6 +550,14 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
       <Top onBack={nav.back} title={isNew ? t.events.newEvent : t.events.editTitle} sub={isNew ? undefined : ev?.name} />
       <Scroll bottom={120}>
         {err && <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{err}</div>}
+        {!isNew && ev?.cancelledAt && (
+          <div
+            className="mb-3 rounded-[12px] border px-3 py-2.5 text-[13px] font-semibold text-[#E89AC0]"
+            style={{ borderColor: 'rgba(232,154,192,0.4)' }}
+          >
+            {t.events.cancelledBanner}
+          </div>
+        )}
         {!writable && (
           <Note icon="shield">
             {isNew ? t.events.noteAdminsOnly : t.events.noteViewOnly}
@@ -563,6 +603,19 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           </div>
         </div>
 
+        {/* End time (optional). Drives the Upcoming/Live/Past phase — a night with
+            an end stays "Live" until it actually ends, then rolls to "Past". */}
+        <div className="mb-[14px] flex gap-[10px]">
+          <div className="flex-1">
+            <Label className="mb-2">{t.events.fieldEndDate}</Label>
+            <Field icon="cal" type="date" value={endDateStr} onChange={writable ? setEndDateStr : undefined} />
+          </div>
+          <div className="flex-1">
+            <Label className="mb-2">{t.events.fieldEnd}</Label>
+            <Field icon="clock" type="time" value={endTimeStr} onChange={writable ? setEndTimeStr : undefined} />
+          </div>
+        </div>
+
         {!isNew && (
           <button
             type="button"
@@ -578,35 +631,6 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
             </span>
             <Icon name="chev" size={18} className="text-ghost" />
           </button>
-        )}
-
-        {!isNew && ev && (
-          <>
-            <Label className="mb-[10px]">{t.events.status}</Label>
-            <div className="mb-[18px] rounded-[16px] border border-line bg-elev p-[14px]">
-              <div className="font-display text-[15px] font-bold text-text">{STATUS_LABELS[ev.status]}</div>
-              <div className="mt-0.5 text-[12.5px] leading-[1.4] text-faint">{STATUS_DESCRIPTIONS[ev.status]}</div>
-              {writable && allowedTransitions(ev.status, { isAdmin }).length > 0 && (
-                <div className="mt-3 flex flex-col gap-2.5">
-                  {allowedTransitions(ev.status, { isAdmin }).map((tr) => (
-                    <div key={tr.to}>
-                      {tr.warning && <div className="mb-1.5 text-[12px] leading-[1.4] text-faint">{tr.warning}</div>}
-                      <Btn
-                        kind={tr.to === 'closed' ? 'dark' : 'primary'}
-                        sm
-                        full
-                        icon="check"
-                        onClick={() => void doStatus(tr.to)}
-                        disabled={changeStatus.isPending}
-                      >
-                        {tr.label}
-                      </Btn>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </>
         )}
 
         <Label className="mb-[10px]">{t.events.landingPage}</Label>
@@ -700,6 +724,27 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           </>
         )}
         {!isNew && writable && <SaveAsTemplate eventId={editId} />}
+
+        {!isNew && isAdmin && (
+          <>
+            <Label className="mb-[10px] mt-[18px]">{t.events.cancelHeading}</Label>
+            <div className="rounded-[16px] border border-line bg-elev p-[14px]">
+              <div className="mb-2.5 text-[12.5px] leading-[1.4] text-faint">
+                {ev?.cancelledAt ? t.events.reinstateSub : t.events.cancelSub}
+              </div>
+              <Btn
+                kind="dark"
+                sm
+                full
+                icon={ev?.cancelledAt ? 'check' : 'close'}
+                onClick={() => void toggleCancel(!ev?.cancelledAt)}
+                disabled={setCancelled.isPending}
+              >
+                {ev?.cancelledAt ? t.events.reinstateEvent : t.events.cancelEvent}
+              </Btn>
+            </div>
+          </>
+        )}
       </Scroll>
       <BottomBar>
         <Btn

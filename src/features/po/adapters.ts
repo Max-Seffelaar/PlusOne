@@ -1,4 +1,5 @@
-import type { Guest, PoEvent, Tier, Role, GuestStatus, Priority, EventWhen, RecapGuest } from '@/lib/po/types';
+import type { Guest, PoEvent, Tier, Role, GuestStatus, Priority, RecapGuest } from '@/lib/po/types';
+import { eventPhase, eventWhenFromPhase } from './event-phase';
 import type { Database } from '@/lib/database.types';
 import type {
   PoEventRow,
@@ -32,7 +33,6 @@ import { deviceLabel } from '@/lib/ua';
 // wire up (STAP 3.3+); cross-entity bits (a guest's role badge, who added it) are
 // passed in by the caller so the mappers stay pure.
 
-type EventStatus = Database['public']['Enums']['event_status'];
 type NotePriority = Database['public']['Enums']['note_priority'];
 type GuestRowStatus = Database['public']['Enums']['guest_status'];
 
@@ -43,11 +43,6 @@ function fmt(iso: string, opts: Intl.DateTimeFormatOptions): string {
 }
 function capitalize(s: string): string {
   return s.length > 0 ? s.charAt(0).toUpperCase() + s.slice(1) : s;
-}
-
-/** "draft/open/live" are upcoming; only a closed event is "past" (#9, #26). */
-export function eventWhen(status: EventStatus): EventWhen {
-  return status === 'closed' ? 'past' : 'upcoming';
 }
 
 /** Door state mirrored onto the guest row: checked_in → in, refused → refused,
@@ -81,7 +76,8 @@ export interface EventCounts {
   inside: number;
 }
 
-export function toPoEvent(row: PoEventRow, counts: EventCounts): PoEvent {
+export function toPoEvent(row: PoEventRow, counts: EventCounts, nowMs: number = Date.now()): PoEvent {
+  const phase = eventPhase(row.starts_at, row.ends_at, nowMs);
   return {
     id: row.id,
     name: row.name,
@@ -92,7 +88,9 @@ export function toPoEvent(row: PoEventRow, counts: EventCounts): PoEvent {
     month: capitalize(fmt(row.starts_at, { month: 'long', year: 'numeric' })),
     guests: counts.guests,
     inside: counts.inside,
-    when: eventWhen(row.status),
+    when: eventWhenFromPhase(phase),
+    phase,
+    cancelled: row.cancelled_at != null,
   };
 }
 
@@ -172,7 +170,11 @@ export function toPoHome(
 ): PoHomeView {
   const dayDiff = daysUntilEvent(active.starts_at, nowMs);
   const scenario: HomeScenario =
-    active.status === 'live' ? 'live' : dayDiff >= 1 ? 'quiet' : 'pre';
+    eventPhase(active.starts_at, active.ends_at, nowMs) === 'live'
+      ? 'live'
+      : dayDiff >= 1
+        ? 'quiet'
+        : 'pre';
 
   const inside = active.present;
   const registered = active.registered;

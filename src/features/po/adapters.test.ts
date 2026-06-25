@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  eventWhen,
   guestStatusToPo,
   notePriorityToFlag,
   optimisticGuest,
@@ -43,15 +42,6 @@ import type {
 import type { EventSummary, TierStat } from '@/features/stats/data';
 import type { Tier } from '@/lib/po/types';
 
-describe('eventWhen', () => {
-  it('maps closed to past, everything else to upcoming', () => {
-    expect(eventWhen('closed')).toBe('past');
-    expect(eventWhen('draft')).toBe('upcoming');
-    expect(eventWhen('open')).toBe('upcoming');
-    expect(eventWhen('live')).toBe('upcoming');
-  });
-});
-
 describe('toPoHome', () => {
   // 22:00Z on 14 Dec = 23:00 Amsterdam, same calendar day as NOW (19:00 Amsterdam).
   // registered/present are the role-scoped headcounts the home receives directly.
@@ -61,6 +51,7 @@ describe('toPoHome', () => {
     starts_at: '2024-12-14T22:00:00Z',
     ends_at: null,
     status: 'live',
+    cancelled_at: null,
     list_locked: true,
     venue_name: 'De Marktkantine',
   };
@@ -68,7 +59,10 @@ describe('toPoHome', () => {
   const NOW = Date.parse('2024-12-14T18:00:00Z');
 
   it('maps a live event: headcounts, onderweg, attendance, status label', () => {
-    const v = toPoHome({ ...baseEvent, registered: 148, present: 47 }, 3, boundedQuota, NOW);
+    // "Live" is now time-derived: place now 30 min after the 22:00Z start (inside
+    // the live window), same Amsterdam calendar day as the 23:00 start.
+    const liveNow = Date.parse('2024-12-14T22:30:00Z');
+    const v = toPoHome({ ...baseEvent, registered: 148, present: 47 }, 3, boundedQuota, liveNow);
     expect(v.scenario).toBe('live');
     expect(v.statusLabel).toBe('Live now');
     expect(v.inside).toBe(47);
@@ -175,14 +169,17 @@ describe('toPoEvent', () => {
     name: 'LOFI Nightcap',
     starts_at: '2024-11-23T22:00:00Z', // 23:00 in Amsterdam (CET, winter)
     ends_at: null,
-    status: 'closed',
+    status: 'open',
+    cancelled_at: null,
     list_locked: false,
     venue_name: 'Lofi',
   };
+  // A fixed "now" well after the 2024 event → time-derived phase is 'past'.
+  const NOW = Date.parse('2026-01-01T00:00:00Z');
 
-  it('formats the date parts in Europe/Amsterdam and carries the counts', () => {
+  it('formats the date parts in Europe/Amsterdam and carries the counts + phase', () => {
     const counts: EventCounts = { guests: 132, inside: 121 };
-    expect(toPoEvent(row, counts)).toEqual({
+    expect(toPoEvent(row, counts, NOW)).toEqual({
       id: 'e1',
       name: 'LOFI Nightcap',
       venue: 'Lofi',
@@ -193,7 +190,18 @@ describe('toPoEvent', () => {
       guests: 132,
       inside: 121,
       when: 'past',
+      phase: 'past',
+      cancelled: false,
     });
+  });
+
+  it('derives an upcoming/live phase from time and flags a cancelled event', () => {
+    const counts: EventCounts = { guests: 0, inside: 0 };
+    const future = { ...row, starts_at: '2026-02-01T22:00:00Z', cancelled_at: '2026-01-02T00:00:00Z' };
+    const v = toPoEvent(future, counts, NOW);
+    expect(v.phase).toBe('upcoming'); // starts after NOW
+    expect(v.when).toBe('upcoming');
+    expect(v.cancelled).toBe(true);
   });
 });
 

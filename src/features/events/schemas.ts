@@ -67,6 +67,15 @@ export const changeStatusSchema = z.object({
 });
 export type ChangeStatusInput = z.input<typeof changeStatusSchema>;
 
+// Cancel / un-cancel an event (replaces the retired status='closed' semantics,
+// 24 jun 2026). A cancelled event is admin-only, takes no check-ins and no public
+// requests — enforced in the database (can_write_guests / can_check_in / landing).
+export const setCancelledSchema = z.object({
+  eventId: uuid,
+  cancelled: z.boolean(),
+});
+export type SetCancelledInput = z.input<typeof setCancelledSchema>;
+
 // ── Landing page (#28) ────────────────────────────────────────────────────────
 
 export const setLandingActiveSchema = z.object({

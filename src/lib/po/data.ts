@@ -26,14 +26,14 @@ import type {
 } from './types';
 
 export const events: PoEvent[] = [
-  { id: 'frenzy', name: 'FRENZY', venue: 'De Marktkantine', time: '23:00', date: '14', mon: 'DEC', month: 'December 2024', guests: 148, inside: 0, accent: true, when: 'upcoming' },
-  { id: 'hunee', name: 'Hunée — All Night Long', venue: 'Paradiso', time: '22:00', date: '20', mon: 'DEC', month: 'December 2024', guests: 96, inside: 0, when: 'upcoming' },
-  { id: 'zezout', name: 'ZEZOUT × LOFI', venue: 'Garage Noord', time: '23:30', date: '21', mon: 'DEC', month: 'December 2024', guests: 61, inside: 0, when: 'upcoming' },
-  { id: 'mindscape', name: 'MINDSCAPE', venue: 'Shelter', time: '23:00', date: '27', mon: 'DEC', month: 'December 2024', guests: 110, inside: 0, when: 'upcoming' },
-  { id: 'frenzy-j', name: 'FRENZY', venue: 'De Marktkantine', time: '23:00', date: '10', mon: 'JAN', month: 'Januari 2025', guests: 38, inside: 0, when: 'upcoming' },
-  { id: 'nyd', name: "New Year's Day", venue: 'Radion', time: '08:00', date: '01', mon: 'JAN', month: 'Januari 2025', guests: 73, inside: 0, when: 'upcoming' },
-  { id: 'lofi-nov', name: 'LOFI Nightcap', venue: 'Lofi', time: '23:00', date: '23', mon: 'NOV', month: 'November 2024', guests: 132, inside: 121, when: 'past' },
-  { id: 'warehouse', name: 'Warehouse 09', venue: 'NDSM-loods', time: '22:00', date: '09', mon: 'NOV', month: 'November 2024', guests: 210, inside: 188, when: 'past' },
+  { id: 'frenzy', name: 'FRENZY', venue: 'De Marktkantine', time: '23:00', date: '14', mon: 'DEC', month: 'December 2024', guests: 148, inside: 0, accent: true, when: 'upcoming', phase: 'upcoming', cancelled: false },
+  { id: 'hunee', name: 'Hunée — All Night Long', venue: 'Paradiso', time: '22:00', date: '20', mon: 'DEC', month: 'December 2024', guests: 96, inside: 0, when: 'upcoming', phase: 'upcoming', cancelled: false },
+  { id: 'zezout', name: 'ZEZOUT × LOFI', venue: 'Garage Noord', time: '23:30', date: '21', mon: 'DEC', month: 'December 2024', guests: 61, inside: 0, when: 'upcoming', phase: 'upcoming', cancelled: false },
+  { id: 'mindscape', name: 'MINDSCAPE', venue: 'Shelter', time: '23:00', date: '27', mon: 'DEC', month: 'December 2024', guests: 110, inside: 0, when: 'upcoming', phase: 'upcoming', cancelled: false },
+  { id: 'frenzy-j', name: 'FRENZY', venue: 'De Marktkantine', time: '23:00', date: '10', mon: 'JAN', month: 'Januari 2025', guests: 38, inside: 0, when: 'upcoming', phase: 'upcoming', cancelled: false },
+  { id: 'nyd', name: "New Year's Day", venue: 'Radion', time: '08:00', date: '01', mon: 'JAN', month: 'Januari 2025', guests: 73, inside: 0, when: 'upcoming', phase: 'upcoming', cancelled: false },
+  { id: 'lofi-nov', name: 'LOFI Nightcap', venue: 'Lofi', time: '23:00', date: '23', mon: 'NOV', month: 'November 2024', guests: 132, inside: 121, when: 'past', phase: 'past', cancelled: false },
+  { id: 'warehouse', name: 'Warehouse 09', venue: 'NDSM-loods', time: '22:00', date: '09', mon: 'NOV', month: 'November 2024', guests: 210, inside: 188, when: 'past', phase: 'past', cancelled: false },
 ];
 
 export const guests: Guest[] = [

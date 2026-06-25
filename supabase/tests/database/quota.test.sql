@@ -35,8 +35,8 @@ select plan(41);
 -- ===========================================================================
 
 select is(public.user_event_consumption(
-  'ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555'), 10,
-  '1.1 Tom consumes 10 (Bram refused 2 + 6 bulk; removed Pieter freed, event open)');
+  'ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555'), 8,
+  '1.1 Tom consumes 8 (6 bulk = 8 slots; refused Bram + removed Pieter both free their slot — capacity rule amended 24 jun 2026: free unless inside)');
 select is(public.user_event_quota(
   'ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555'), 12,
   '1.2 event override (12) beats the venue default (10)');
@@ -293,25 +293,37 @@ select is((select exempt from public.event_quota_status(
 reset role;
 
 -- ===========================================================================
--- 8. LIVE-RULE (#22) — runs LAST (went_live_at is permanent once stamped).
---    Removal frees a slot before go-live, never after.
+-- 8. CAPACITY RULE (#22, amended 24 jun 2026): removal/rejection frees a slot
+--    UNLESS the guest is already inside (a non-voided check-in). went_live_at no
+--    longer drives the rule (the status machine was retired); it is kept as an
+--    audit marker, still stamped on a manual go-live. The full rule is proven in
+--    event_lifecycle_capacity.test.sql; this section locks the seed-level
+--    behaviour + the pure helper's two branches. Runs LAST (it takes the event
+--    live, a one-way marker).
 -- ===========================================================================
 
--- Plenty of headroom so only the live-rule (not the limit) is under test.
+-- Plenty of headroom so only the rule (not the limit) is under test.
 update public.event_quotas set quota_override = 100000
   where event_id = 'ee000000-0000-7000-8000-000000000001'
     and user_id = '55555555-5555-4555-8555-555555555555';
 
+create temp table cap_base as
+  select public.user_event_consumption(
+    'ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555') as c;
+
 insert into public.guests (id, event_id, tier_id, full_name, plus_ones, added_by, source, status)
 values
   ('cc000000-0000-7000-8000-0000000000e1', 'ee000000-0000-7000-8000-000000000001',
-   'dd000000-0000-7000-8000-000000000001', 'Live Gast A', 0,
+   'dd000000-0000-7000-8000-000000000001', 'Cap Removed', 0,
    '55555555-5555-4555-8555-555555555555', 'app', 'approved'),
   ('cc000000-0000-7000-8000-0000000000e2', 'ee000000-0000-7000-8000-000000000001',
-   'dd000000-0000-7000-8000-000000000001', 'Live Gast B', 0,
+   'dd000000-0000-7000-8000-000000000001', 'Cap Inside', 0,
+   '55555555-5555-4555-8555-555555555555', 'app', 'approved'),
+  ('cc000000-0000-7000-8000-0000000000e3', 'ee000000-0000-7000-8000-000000000001',
+   'dd000000-0000-7000-8000-000000000001', 'Cap Reclaim', 0,
    '55555555-5555-4555-8555-555555555555', 'app', 'approved');
 
--- Remove A before go-live -> slot is freed, removed_at stamped.
+-- 8.1 removed_at is still stamped on soft-delete (kept as an audit marker).
 update public.guests set status = 'removed'
   where id = 'cc000000-0000-7000-8000-0000000000e1';
 select is(
@@ -319,43 +331,42 @@ select is(
    where id = 'cc000000-0000-7000-8000-0000000000e1' and removed_at is not null), 1,
   '8.1 removed_at stamped on soft-delete');
 
--- Take the event live, then remove B.
+-- 8.2 went_live_at is still stamped on a manual go-live (audit marker, not the rule).
 update public.events set status = 'live'
   where id = 'ee000000-0000-7000-8000-000000000001';
 select isnt((select went_live_at from public.events
              where id = 'ee000000-0000-7000-8000-000000000001'), null,
-  '8.2 went_live_at is stamped when the event goes live');
+  '8.2 went_live_at is still stamped on go-live (audit marker)');
 
+-- 8.3 a removed guest who never checked in frees its slot (not inside -> 0),
+--     regardless of go-live.
+select is(
+  public.guest_personal_contribution(
+    (select g from public.guests g where g.id = 'cc000000-0000-7000-8000-0000000000e1'),
+    false),
+  0, '8.3 a removed guest who is not inside frees its slot (new rule)');
+
+-- 8.4 a guest who is physically inside (non-voided check-in) keeps consuming even
+--     when removed from the list — the anti-fraud guard (#22).
+insert into public.check_ins (guest_id, checked_by)
+values ('cc000000-0000-7000-8000-0000000000e2', '11111111-1111-4111-8111-111111111111');
 update public.guests set status = 'removed'
   where id = 'cc000000-0000-7000-8000-0000000000e2';
 select is(
   public.guest_personal_contribution(
     (select g from public.guests g where g.id = 'cc000000-0000-7000-8000-0000000000e2'),
-    (select went_live_at from public.events
-     where id = 'ee000000-0000-7000-8000-000000000001')), 1,
-  '8.3 a guest removed after go-live still consumes its slot (#22)');
+    true),
+  1, '8.4 a checked-in guest still consumes its slot when removed (anti-fraud, #22)');
 
+-- 8.5 removing a not-inside guest frees its slot from the live consumption total —
+--     capacity opens up (Max/Joeri, 24 jun 2026). Only the inside guest still counts.
+update public.guests set status = 'removed'
+  where id = 'cc000000-0000-7000-8000-0000000000e3';
 select is(
-  public.guest_personal_contribution(
-    (select g from public.guests g where g.id = 'cc000000-0000-7000-8000-0000000000e1'),
-    (select went_live_at from public.events
-     where id = 'ee000000-0000-7000-8000-000000000001')), 0,
-  '8.4 a guest removed before go-live stays freed (#22)');
-
--- Anti-reuse: B's slot cannot be reclaimed by a fresh add once at the limit.
-update public.event_quotas
-  set quota_override = public.user_event_consumption(
-    'ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555')
-  where event_id = 'ee000000-0000-7000-8000-000000000001'
-    and user_id = '55555555-5555-4555-8555-555555555555';
-select pg_temp.login('55555555-5555-4555-8555-555555555555');
-select throws_ok($$
-  insert into public.guests (event_id, tier_id, full_name, plus_ones, added_by, source)
-  values ('ee000000-0000-7000-8000-000000000001',
-          'dd000000-0000-7000-8000-000000000001', 'Hergebruik Poging', 0,
-          '55555555-5555-4555-8555-555555555555', 'door')
-$$, '45001', null, '8.5 cannot reclaim a live-removed slot with a new add');
-reset role;
+  public.user_event_consumption(
+    'ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555'),
+  (select c from cap_base) + 1,
+  '8.5 removing not-inside guests frees their slots; only the still-inside guest counts');
 
 -- ===========================================================================
 -- 9. Quota-request approval (#4/#5): atomic, role-only, writes the override.

@@ -25,6 +25,7 @@ export type PoEventRow = {
   starts_at: string;
   ends_at: string | null;
   status: Database['public']['Enums']['event_status'];
+  cancelled_at: string | null;
   list_locked: boolean;
   venue_name: string;
 };
@@ -43,7 +44,7 @@ export type PoTierRow = Pick<
 export async function fetchEvents(client: Client, venueId: string): Promise<PoEventRow[]> {
   const { data } = await client
     .from('events')
-    .select('id, name, starts_at, ends_at, status, list_locked, venues(name)')
+    .select('id, name, starts_at, ends_at, status, cancelled_at, list_locked, venues(name)')
     .eq('venue_id', venueId)
     .order('starts_at', { ascending: false });
 
@@ -53,6 +54,7 @@ export async function fetchEvents(client: Client, venueId: string): Promise<PoEv
     starts_at: e.starts_at,
     ends_at: e.ends_at,
     status: e.status,
+    cancelled_at: e.cancelled_at,
     list_locked: e.list_locked,
     venue_name: e.venues?.name ?? '',
   }));
@@ -399,6 +401,8 @@ export interface EventEditRow {
   startsAt: string;
   endsAt: string | null;
   status: Database['public']['Enums']['event_status'];
+  /** When set, the event is cancelled (admin-only writes, no door, no requests). */
+  cancelledAt: string | null;
   landingActive: boolean;
   landingSlug: string;
   listLocked: boolean;
@@ -424,7 +428,7 @@ export async function fetchEventForEdit(
     client
       .from('events')
       .select(
-        'id, name, starts_at, ends_at, status, landing_active, landing_slug, list_locked, auto_lock_at, allow_uncheck, venues(name, allow_uncheck)'
+        'id, name, starts_at, ends_at, status, cancelled_at, landing_active, landing_slug, list_locked, auto_lock_at, allow_uncheck, venues(name, allow_uncheck)'
       )
       .eq('id', eventId)
       .maybeSingle(),
@@ -444,6 +448,7 @@ export async function fetchEventForEdit(
     startsAt: e.starts_at,
     endsAt: e.ends_at,
     status: e.status,
+    cancelledAt: e.cancelled_at,
     landingActive: e.landing_active,
     landingSlug: e.landing_slug,
     listLocked: e.list_locked,

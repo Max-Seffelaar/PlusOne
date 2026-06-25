@@ -2,17 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { doorCandidates, pickDoorEvent } from './door-event';
 import type { PoEventRow } from './queries';
 
-type Status = PoEventRow['status'];
-
+// NOW sits 2h after an 18:00 start (inside the 8h live grace) and before the
+// 20:00+ ones, so "live" is purely time-derived now (the status machine is gone).
 const NOW = new Date('2026-06-19T20:00:00Z').getTime();
 
-function row(id: string, status: Status, startsAt: string): PoEventRow {
+function row(
+  id: string,
+  startsAt: string,
+  opts: { cancelled?: boolean; endsAt?: string | null } = {},
+): PoEventRow {
   return {
     id,
     name: `Event ${id}`,
     starts_at: startsAt,
-    ends_at: null,
-    status,
+    ends_at: opts.endsAt ?? null,
+    status: 'open', // vestigial — selection is time + cancelled now
+    cancelled_at: opts.cancelled ? '2026-06-01T00:00:00Z' : null,
     list_locked: false,
     venue_name: 'De Marktkantine',
   };
@@ -23,63 +28,66 @@ describe('pickDoorEvent', () => {
     expect(pickDoorEvent([], NOW)).toBeNull();
   });
 
-  it('returns null when every event is closed', () => {
-    const rows = [row('a', 'closed', '2026-06-10T20:00:00Z'), row('b', 'closed', '2026-06-01T20:00:00Z')];
+  it('returns null when every event is cancelled', () => {
+    const rows = [
+      row('a', '2026-06-10T20:00:00Z', { cancelled: true }),
+      row('b', '2026-06-01T20:00:00Z', { cancelled: true }),
+    ];
     expect(pickDoorEvent(rows, NOW)).toBeNull();
   });
 
-  it('prefers a live event over upcoming ones', () => {
+  it('prefers a live (in-progress) event over upcoming ones', () => {
     const rows = [
-      row('upcoming', 'open', '2026-06-25T20:00:00Z'),
-      row('live', 'live', '2026-06-19T18:00:00Z'),
+      row('upcoming', '2026-06-25T20:00:00Z'),
+      row('live', '2026-06-19T18:00:00Z'),
     ];
     expect(pickDoorEvent(rows, NOW)?.id).toBe('live');
   });
 
   it('picks the soonest upcoming event when none is live', () => {
     const rows = [
-      row('far', 'open', '2026-07-10T20:00:00Z'),
-      row('soon', 'draft', '2026-06-21T20:00:00Z'),
-      row('past', 'closed', '2026-06-01T20:00:00Z'),
+      row('far', '2026-07-10T20:00:00Z'),
+      row('soon', '2026-06-21T20:00:00Z'),
+      row('past', '2026-06-01T20:00:00Z', { cancelled: true }),
     ];
     expect(pickDoorEvent(rows, NOW)?.id).toBe('soon');
   });
 
-  it('falls back to the most recent still-open event when none is upcoming', () => {
+  it('falls back to the most recent started event when none is upcoming', () => {
     const rows = [
-      row('older', 'open', '2026-06-10T20:00:00Z'),
-      row('newer', 'open', '2026-06-18T20:00:00Z'),
-      row('closed', 'closed', '2026-06-19T19:00:00Z'),
+      row('older', '2026-06-10T20:00:00Z'),
+      row('newer', '2026-06-18T20:00:00Z'),
+      row('cancelled', '2026-06-19T19:00:00Z', { cancelled: true }),
     ];
-    // Both open events already started (before NOW); the most recent one wins.
+    // Both non-cancelled events already started (before NOW); the most recent wins.
     expect(pickDoorEvent(rows, NOW)?.id).toBe('newer');
   });
 
   it('maps the chosen row to the lean door-event shape', () => {
-    const rows = [row('live', 'live', '2026-06-19T18:00:00Z')];
+    const rows = [row('live', '2026-06-19T18:00:00Z')];
     expect(pickDoorEvent(rows, NOW)).toEqual({
       id: 'live',
       name: 'Event live',
       venueName: 'De Marktkantine',
-      status: 'live',
+      phase: 'live',
     });
   });
 });
 
 describe('doorCandidates (S1.3 event switcher)', () => {
-  it('drops closed events and orders live first, then soonest start', () => {
+  it('drops cancelled events and orders live first, then soonest start', () => {
     const rows = [
-      row('far', 'open', '2026-07-10T20:00:00Z'),
-      row('closed', 'closed', '2026-06-19T19:00:00Z'),
-      row('liveB', 'live', '2026-06-19T22:00:00Z'),
-      row('soon', 'draft', '2026-06-21T20:00:00Z'),
-      row('liveA', 'live', '2026-06-19T18:00:00Z'),
+      row('far', '2026-07-10T20:00:00Z'),
+      row('cancelled', '2026-06-19T19:00:00Z', { cancelled: true }),
+      row('upcomingB', '2026-06-19T22:00:00Z'),
+      row('soon', '2026-06-21T20:00:00Z'),
+      row('liveA', '2026-06-19T18:00:00Z'),
     ];
-    // Two live events first (soonest start among them), then the rest by start; closed gone.
-    expect(doorCandidates(rows).map((e) => e.id)).toEqual(['liveA', 'liveB', 'soon', 'far']);
+    // liveA is the only in-progress event → first; the rest by soonest start; cancelled gone.
+    expect(doorCandidates(rows, NOW).map((e) => e.id)).toEqual(['liveA', 'upcomingB', 'soon', 'far']);
   });
 
-  it('is empty when every event is closed', () => {
-    expect(doorCandidates([row('a', 'closed', '2026-06-10T20:00:00Z')])).toEqual([]);
+  it('is empty when every event is cancelled', () => {
+    expect(doorCandidates([row('a', '2026-06-10T20:00:00Z', { cancelled: true })], NOW)).toEqual([]);
   });
 });
