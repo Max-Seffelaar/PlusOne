@@ -11,15 +11,35 @@ export function slugify(text: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
+const SUFFIX_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
+
+/** A short random suffix that keeps slugs unique without leaking anything. */
+export function randomSlugSuffix(length = 4): string {
+  let out = '';
+  for (let i = 0; i < length; i += 1) {
+    out += SUFFIX_ALPHABET[Math.floor(Math.random() * SUFFIX_ALPHABET.length)];
+  }
+  return out;
+}
+
 /**
- * Build a landing slug from an event name and its start date.
- * Format: name-yyyy-mm-dd (e.g. "summer-rave-2026-07-12").
- * Falls back to "event" when the name has no usable characters.
- * The slug is generated once at creation and never editable — shared links must not break.
+ * Build a landing slug: {name}-{YYYY-MM-DD}-{random}.
  *
- * @param date ISO date string (YYYY-MM-DD) from starts_at
+ * The date (from the event's starts_at) makes the slug human-readable and
+ * means two events with the same name on different dates never collide.
+ * The random suffix defeats slug enumeration — without it a bot could probe
+ * predictable names to discover valid landing links.
+ *
+ * startsAt must be an ISO datetime string (e.g. "2026-07-15T22:00:00").
+ * suffix is injectable so unit tests are deterministic.
+ * The slug is generated once at creation and never editable afterwards.
  */
-export function buildEventSlug(name: string, date: string): string {
+export function buildEventSlug(
+  name: string,
+  startsAt: string,
+  suffix: string = randomSlugSuffix(),
+): string {
   const base = slugify(name) || 'event';
-  return `${base}-${date}`;
+  const date = startsAt.slice(0, 10); // YYYY-MM-DD
+  return `${base}-${date}-${suffix}`;
 }

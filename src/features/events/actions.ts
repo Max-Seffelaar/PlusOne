@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { getAuthContext } from '@/lib/auth/context';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
+import { buildEventSlug } from './slug';
 import type { EventStatus } from './status';
 import type { Database } from '@/lib/database.types';
 import {
@@ -103,26 +104,29 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
 
-  // landing_slug '' → the BEFORE-INSERT trigger generates name-yyyy-mm-dd
-  // (collision → name-yyyy-mm-dd-2, -3, …), so no retry loop needed.
-  const { data, error } = await supabase
-    .from('events')
-    .insert({
-      venue_id: venueId,
-      name,
-      starts_at: startsAt,
-      ends_at: endsAt ?? null,
-      landing_active: landingActive,
-      landing_slug: '',
-    })
-    .select('id')
-    .single();
+  // Retry on the astronomically rare slug collision with a fresh suffix.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const { data, error } = await supabase
+      .from('events')
+      .insert({
+        venue_id: venueId,
+        name,
+        starts_at: startsAt,
+        ends_at: endsAt ?? null,
+        landing_active: landingActive,
+        landing_slug: buildEventSlug(name, startsAt),
+      })
+      .select('id')
+      .single();
 
-  if (!error && data) {
-    revalidatePath(listPath);
-    return { ok: true, eventId: data.id };
+    if (!error && data) {
+      revalidatePath(listPath);
+      return { ok: true, eventId: data.id };
+    }
+    if (error?.code === '23505') continue; // slug clash → new suffix
+    return mapMutationError(error);
   }
-  return mapMutationError(error);
+  return { ok: false, code: 'slug', message: "Couldn't generate a unique landing link. Try again." };
 }
 
 /** Edit name / start / end (admin or organizer — RLS). */

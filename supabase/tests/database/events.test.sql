@@ -181,21 +181,23 @@ rollback to savepoint b10;
 select is(public.slugify('PLUSONE Launch Night'), 'plusone-launch-night',
   'C1 slugify lowercases and dashes');
 
--- Blank slug -> generated from the name.
+-- Blank slug -> generated as {name}-{date}-{random} (new format).
 insert into public.events (id, venue_id, name, starts_at, landing_slug)
 values ('ee000000-0000-7000-8000-0000000000f2',
         'aa000000-0000-7000-8000-000000000001', 'FRENZY', now(), '');
-select is((select landing_slug from public.events
-           where id = 'ee000000-0000-7000-8000-0000000000f2'), 'frenzy',
-  'C2 blank slug is generated from the name');
+select ok(
+  (select landing_slug from public.events where id = 'ee000000-0000-7000-8000-0000000000f2')
+    like 'frenzy-____-__-__-%',
+  'C2 blank slug is generated as {name}-{date}-{random}');
 
 -- NULL slug -> generated, non-empty (NOT NULL is satisfied by the trigger).
 insert into public.events (id, venue_id, name, starts_at, landing_slug)
 values ('ee000000-0000-7000-8000-0000000000f4',
         'aa000000-0000-7000-8000-000000000001', 'Gala Night', now(), null);
-select is((select landing_slug from public.events
-           where id = 'ee000000-0000-7000-8000-0000000000f4'), 'gala-night',
-  'C3 NULL slug is generated, NOT NULL satisfied');
+select ok(
+  (select landing_slug from public.events where id = 'ee000000-0000-7000-8000-0000000000f4')
+    like 'gala-night-____-__-__-%',
+  'C3 NULL slug is generated with date component, NOT NULL satisfied');
 
 -- Collision -> de-collided with a suffix.
 insert into public.events (id, venue_id, name, starts_at, landing_slug)
