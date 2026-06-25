@@ -15,11 +15,12 @@ export const analytics = {
   noRights: "You don't have rights to view analytics.",
 
   // ── Venue-level KPIs ────────────────────────────────────────────────────────
-  venueTurnoutLabel: 'All events · avg. turnout',
-  turnoutWord: 'turnout',
+  // Feedback (Joeri, 24 jun 2026): "turnout" → Attendance, "Refusals" → Bounced.
+  venueTurnoutLabel: 'All events · avg. attendance',
+  turnoutWord: 'attendance',
   overEvents: 'over {n} events',
-  guestsInside: 'Inside',
-  refusals: 'Refusals',
+  guestsInside: 'Checked in',
+  refusals: 'Bounced',
 
   // ── Per-event picker ────────────────────────────────────────────────────────
   perEvent: 'Per event',
