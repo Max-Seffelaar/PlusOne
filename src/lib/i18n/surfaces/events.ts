@@ -84,6 +84,9 @@ export const events = {
   lockListTitle: 'Lock list',
   lockListOnSub: "Staff can't make changes. Admin, host, and door still can.",
   lockListOffSub: 'Usually at doors.',
+  // Feedback Joeri: explain what locking actually does.
+  lockListNote:
+    'Locking closes the list: no new sign-up requests come in, and staff can no longer add or change guests. Admin, organizer, and door staff can still work the list.',
   allowCheckoutTitle: 'Allow check-out',
   allowCheckoutFollowsSub: 'Follows the venue default ({state})',
   allowCheckoutOnSub: 'On for this event',
