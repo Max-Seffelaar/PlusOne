@@ -55,6 +55,12 @@ export interface Guest {
   inBy?: string;
   /** Linked address-book contact (live data); absent in the mock. */
   contactId?: string | null;
+  /** Owning event id — set on venue-wide ("all guests") reads so a row can deep-link
+   *  to its own event; absent on single-event reads (the screen already has the id). */
+  eventId?: string;
+  /** Owning event name — set only on the venue-wide list so a row can badge which
+   *  event it belongs to; absent (and unbadged) in single-event mode. */
+  eventName?: string;
 }
 
 export interface Contact {

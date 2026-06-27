@@ -35,6 +35,8 @@ export const guests = {
   list: {
     title: 'Guests',
     sub: '{shown} of {total} shown',
+    allScope: 'All events',
+    addPickEvent: 'Pick an event above to add guests.',
     searchPlaceholder: 'Search guests…',
     filterAll: 'All',
     filterWait: 'On the way',

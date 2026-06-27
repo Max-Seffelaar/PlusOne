@@ -6,30 +6,65 @@
  * guests stay visible but dim and, under "Beide", sink below an "AL BINNEN · N"
  * divider. Recreated from the prototype `Deur` screen using the shared kit.
  *
+ * Layout (feedback Max): each guest is ONE dense line whose whole pill is filled
+ * with the tier colour (not a subtle stripe), so the door host scans many more
+ * names per screen. The screen is a SINGLE scroll container — the big title and
+ * the search field scroll away with the list, while the compact headcount + the
+ * Beide/Onderweg/Ingecheckt segment + the tier filters stay pinned (`sticky`).
+ * `SyncBar` (live status) is pinned above this by the parent.
+ *
  * Perf (STAP 3.5b · #1a/#1b): at ~1500 guests the list is virtualized with
  * `@tanstack/react-virtual` — the four sections are flattened into ONE tagged
  * item array (`flattenCheckInItems`) and only the visible window of rows mounts.
- * Search is debounced (the input stays instant; the expensive flatten runs on the
- * settled term). Rendering changes only — the data/outbox flow is untouched.
+ * Because non-virtual content (title, search, sticky header, label) now sits
+ * ABOVE the rows in the SAME scroll container, the virtualizer's `scrollMargin`
+ * is kept equal to the rows-wrapper `offsetTop` and each row is positioned with
+ * `translateY(vi.start - scrollMargin)`. Search is debounced (the input stays
+ * instant; the expensive flatten runs on the settled term).
  */
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { Icon } from '@/components/po/icon';
-import { Avatar, Label, PayChip, StatusDot, Top } from '@/components/po/kit';
+import { Avatar, Label, StatusDot, Top } from '@/components/po/kit';
 import { useDoor } from '../DoorProvider';
 import { tierRole, type DoorGuest } from '../model';
 import { flattenCheckInItems, partsLeft, type CheckInItem, type Filter } from './checkin-items';
-import { TierChip } from './TierChip';
 
 const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
 
 // Distinct estimates per item type so the virtualizer reserves close-to-real
-// space before measurement (header ≈ a thin divider, guest/refused ≈ a tall card).
+// space before measurement (header ≈ a thin divider, guest ≈ a one-line card +
+// its 8px bottom gap, which lives inside the measured element).
 const HEADER_EST = 34;
-const GUEST_EST = 86;
+const GUEST_EST = 62;
+
+const ACCENT = '#B5A6FF';
+
+/** Pick readable ink for a solid tier-colour fill. Tier colours are bright by
+ *  convention (the design bets on dark text — see `TierFilterBar`), but `color`
+ *  is a user-editable arbitrary hex, so guard a dark custom tier. */
+function onTier(hex: string): string {
+  const h = hex.replace('#', '');
+  if (h.length < 6) return '#0B0B0D';
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const L = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return L > 0.5 ? '#0B0B0D' : '#FFFFFF';
+}
+
+/** #RRGGBB → rgba(…, a) for the muted (checked-in) tint over the near-black bg. */
+function tintTier(hex: string, a: number): string {
+  const h = hex.replace('#', '');
+  if (h.length < 6) return `rgba(142, 142, 147, ${a})`;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
 
 function Seg({ value, onChange }: { value: Filter; onChange: (v: Filter) => void }): JSX.Element {
   const items: [Filter, string][] = [
@@ -38,7 +73,7 @@ function Seg({ value, onChange }: { value: Filter; onChange: (v: Filter) => void
     ['in', t.door.filterInside],
   ];
   return (
-    <div className="flex flex-none gap-1.5 px-5 pb-[14px]">
+    <div className="flex gap-1.5 pb-[14px]">
       {items.map(([k, l]) => (
         <button
           key={k}
@@ -70,7 +105,7 @@ function TierFilterBar({
 }): JSX.Element | null {
   if (tiers.length <= 1) return null;
   return (
-    <div className="flex flex-none flex-wrap gap-1.5 px-5 pb-[14px]">
+    <div className="flex flex-wrap gap-1.5 pb-[14px]">
       {tiers.map((tier) => {
         const on = selected.has(tier.id);
         const color = tier.color ?? '#8E8E93';
@@ -102,6 +137,11 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
   // Input stays instant; the heavy flatten runs on the settled term (#1b).
   const dq = useDebouncedValue(q, 140);
 
+  const scrollRef = useRef<HTMLDivElement>(null); // the ONE scroll container
+  const listRef = useRef<HTMLDivElement>(null); // wrapper around the virtual rows
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
+
   // Hooks must run before the early return, so derive against a stable fallback.
   const guests = view?.guests;
   const refused = view?.refused;
@@ -109,6 +149,44 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
     () => flattenCheckInItems(guests ?? [], refused ?? [], f, dq, tierFilter),
     [guests, refused, f, dq, tierFilter],
   );
+  const { items, matchedCount } = flat;
+  const hasItems = items.length > 0;
+
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: (i) => (items[i]?.type === 'header' ? HEADER_EST : GUEST_EST),
+    overscan: 8,
+    scrollMargin,
+    // Stable keys so a check-in flip / reorder re-uses measurements correctly.
+    getItemKey: (i) => items[i]?.key ?? i,
+  });
+
+  // Keep the virtualizer's scrollMargin equal to the rows-wrapper offset, since
+  // the title + search + sticky header now share the scroll container above the
+  // list. useLayoutEffect so the corrected offset lands before the first paint.
+  useLayoutEffect(() => {
+    const scroller = scrollRef.current;
+    const measure = (): void => {
+      if (listRef.current) setScrollMargin(listRef.current.offsetTop);
+    };
+    measure();
+    if (!scroller) return;
+    const ro = new ResizeObserver(measure); // width reflow / chip-bar wrap
+    ro.observe(scroller);
+    // The display font swaps the 34px title's height after first paint → re-read.
+    if (typeof document !== 'undefined' && document.fonts?.ready) void document.fonts.ready.then(measure);
+    return () => ro.disconnect();
+    // Re-measure when the header content height (and thus the list offset) can
+    // change, or when the rows wrapper mounts/unmounts (empty ↔ list).
+  }, [view?.event?.name, view?.event?.venueName, view?.tiers, hasItems]);
+
+  // Search-first: focus the field on open without yanking the scroll position.
+  useEffect(() => {
+    searchRef.current?.focus({ preventScroll: true });
+    scrollRef.current?.scrollTo?.({ top: 0 });
+  }, []);
+
   const toggleTier = (id: string): void =>
     setTierFilter((prev) => {
       const next = new Set(prev);
@@ -119,38 +197,36 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
 
   if (!view) return <ListSkeleton />;
 
+  const renderRow = (item: CheckInItem): JSX.Element => {
+    if (item.type === 'header') return divider(item.label);
+    if (item.type === 'refused') return refusedRow(item.g, undoRefusal);
+    return guestRow(item.g, outboxByGuest, onOpenGuest);
+  };
+
   return (
-    <div className="flex h-full flex-col">
-      <Top
-        big
-        title={t.door.checkinTitle}
-        sub={`${view.event.name}${view.event.venueName ? ` · ${view.event.venueName}` : ''}`}
-      />
-      {/* Both units side by side (S1.3): the big number is gasten (rows — the
-          door's per-name unit), the sub-line is koppen (incl. +1's, #5) so it
-          reconciles with EventView/cockpit. */}
-      <div className="flex flex-none gap-[10px] px-5 pb-[14px]">
-        <div className="flex-1 rounded-[14px] border border-line bg-elev px-[14px] py-[12px]">
-          <div className="font-display text-[26px] font-extrabold leading-none text-text">{view.waitingCount}</div>
-          <div className="mt-1 text-[12px] text-faint">{t.door.statOnTheWay}</div>
-          <div className="mt-0.5 text-[11px] text-ghost">{fmt(t.door.headcountSub, { n: view.waitingHeadcount })}</div>
-        </div>
-        <div className="flex-1 rounded-[14px] bg-acc-dim px-[14px] py-[12px]">
-          <div className="font-display text-[26px] font-extrabold leading-none text-acc">{view.insideCount}</div>
-          <div className="mt-1 text-[12px] text-dim">{t.door.statInside}</div>
-          <div className="mt-0.5 text-[11px] text-faint">{fmt(t.door.headcountSub, { n: view.insideHeadcount })}</div>
-        </div>
+    <div
+      ref={scrollRef}
+      className="po-scroll relative h-full overflow-y-auto"
+      style={{ padding: '0 20px 100px' }}
+    >
+      {/* (a) SCROLL-AWAY: big title + search field */}
+      <div className="-mx-5">
+        <Top
+          big
+          title={t.door.checkinTitle}
+          sub={`${view.event.name}${view.event.venueName ? ` · ${view.event.venueName}` : ''}`}
+        />
       </div>
-      <div className="flex-none px-5 pb-3">
+      <div className="pb-3">
         <div className="flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]">
           <span className="text-faint">
             <Icon name="search" size={19} />
           </span>
           <input
+            ref={searchRef}
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder={t.door.searchPlaceholder}
-            autoFocus
             className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none placeholder:text-faint"
           />
           <button
@@ -163,74 +239,48 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
           </button>
         </div>
       </div>
-      <Seg value={f} onChange={setF} />
-      <TierFilterBar tiers={view.tiers} selected={tierFilter} onToggle={toggleTier} />
-      <VirtualBody
-        flat={flat}
-        q={dq}
-        filter={f}
-        view={view}
-        outboxByGuest={outboxByGuest}
-        onOpenGuest={onOpenGuest}
-        undoRefusal={undoRefusal}
-      />
-    </div>
-  );
-}
 
-/** The scrollable, virtualized list region (its own scroll parent for the virtualizer). */
-function VirtualBody({
-  flat,
-  q,
-  filter,
-  view,
-  outboxByGuest,
-  onOpenGuest,
-  undoRefusal,
-}: {
-  flat: ReturnType<typeof flattenCheckInItems>;
-  q: string;
-  filter: Filter;
-  view: NonNullable<ReturnType<typeof useDoor>['view']>;
-  outboxByGuest: ReturnType<typeof useDoor>['outboxByGuest'];
-  onOpenGuest: (id: string) => void;
-  undoRefusal: (id: string) => void;
-}): JSX.Element {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const { items, matchedCount } = flat;
+      {/* (b) STICKY: compact headcount + segment + tier filters. The opaque bg
+          bleeds full-width (-mx-5) so rows don't peek through the side gutters. */}
+      <div className="sticky top-0 z-20 -mx-5 border-b border-line2 bg-bg px-5 pt-1">
+        {/* Both units side by side (S1.3): the big number is gasten (rows — the
+            door's per-name unit), the sub is koppen (incl. +1's, #5) so it
+            reconciles with EventView/cockpit. */}
+        <div className="mb-[12px] flex items-stretch overflow-hidden rounded-[12px] border border-line bg-elev">
+          <div className="flex min-w-0 flex-1 items-baseline gap-2 px-[14px] py-[10px]">
+            <span className="font-display text-[20px] font-extrabold leading-none text-text">{view.waitingCount}</span>
+            <span className="truncate text-[12px] text-faint">{t.door.statOnTheWay}</span>
+            <span className="ml-auto shrink-0 self-center text-[11px] text-ghost">{view.waitingHeadcount} {t.door.headcountSub}</span>
+          </div>
+          <div className="my-[8px] w-px shrink-0 bg-line2" />
+          <div className="flex min-w-0 flex-1 items-baseline gap-2 bg-acc-dim px-[14px] py-[10px]">
+            <span className="font-display text-[20px] font-extrabold leading-none text-acc">{view.insideCount}</span>
+            <span className="truncate text-[12px] text-dim">{t.door.statInside}</span>
+            <span className="ml-auto shrink-0 self-center text-[11px] text-faint">{view.insideHeadcount} {t.door.headcountSub}</span>
+          </div>
+        </div>
+        <Seg value={f} onChange={setF} />
+        <TierFilterBar tiers={view.tiers} selected={tierFilter} onToggle={toggleTier} />
+      </div>
 
-  const virtualizer = useVirtualizer({
-    count: items.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: (i) => (items[i]?.type === 'header' ? HEADER_EST : GUEST_EST),
-    overscan: 8,
-    // Stable keys so a check-in flip / reorder re-uses measurements correctly.
-    getItemKey: (i) => items[i]?.key ?? i,
-  });
-
-  const renderRow = (item: CheckInItem): JSX.Element => {
-    if (item.type === 'header') return divider(item.label);
-    if (item.type === 'refused') return refusedRow(item.g, undoRefusal);
-    return guestRow(item.g, outboxByGuest, onOpenGuest);
-  };
-
-  return (
-    <div ref={scrollRef} className="po-scroll min-h-0 flex-1 overflow-y-auto" style={{ padding: '0 20px 100px' }}>
-      <Label className="mb-[10px]">
+      {/* (c) LABEL */}
+      <Label className="mb-[10px] mt-2">
         {q
           ? fmt(t.door.resultFound, { n: matchedCount })
-          : filter === 'in'
+          : f === 'in'
             ? fmt(t.door.countCheckedIn, { n: view.insideCount })
-            : filter === 'wait'
+            : f === 'wait'
               ? fmt(t.door.countStillAtDoor, { n: view.waitingCount })
               : t.door.nextAtDoor}
       </Label>
+
+      {/* (d) VIRTUAL ROWS */}
       {items.length === 0 ? (
         <div className="py-[30px] text-center text-[14px] text-faint">
-          {q ? t.door.emptySearch : filter === 'in' ? t.door.emptyNoneInside : t.door.emptyEveryoneIn}
+          {q ? t.door.emptySearch : f === 'in' ? t.door.emptyNoneInside : t.door.emptyEveryoneIn}
         </div>
       ) : (
-        <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
+        <div ref={listRef} style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
           {virtualizer.getVirtualItems().map((vi) => {
             const item = items[vi.index];
             if (!item) return null;
@@ -239,10 +289,16 @@ function VirtualBody({
                 key={vi.key}
                 data-index={vi.index}
                 ref={virtualizer.measureElement}
-                style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${vi.start - scrollMargin}px)`,
+                }}
               >
-                {/* gap between cards lived in `flex gap-[9px]`; reproduce as bottom padding. */}
-                <div className={item.type === 'header' ? '' : 'pb-[9px]'}>{renderRow(item)}</div>
+                {/* gap between cards baked into the measured element (was flex gap). */}
+                <div className={item.type === 'header' ? '' : 'pb-[8px]'}>{renderRow(item)}</div>
               </div>
             );
           })}
@@ -270,60 +326,64 @@ function guestRow(
   const isDuplicate = (outboxByGuest.get(g.id) ?? []).some((e) => e.status === 'duplicate');
   const remaining = partsLeft(g);
   const partly = g.inside && remaining > 0; // deels binnen — groep nog niet compleet
-  const fully = g.inside && remaining === 0; // helemaal binnen
+  const fully = g.inside && remaining === 0; // helemaal binnen → gedimd
+  // Muted (checked-in) row sits on a low-alpha tint over near-black → white ink.
+  const ink = fully ? '#FFFFFF' : onTier(g.tierColor);
   return (
     <button
       type="button"
       onClick={() => onOpenGuest(g.id)}
       className={cn(
-        'flex w-full items-center gap-[13px] rounded-[16px] border p-[13px] text-left',
+        'flex w-full items-center gap-[11px] rounded-[14px] p-[10px] text-left',
         cardPress,
-        // Deels binnen: NIET gedimd + accent-rand (springt eruit). Helemaal
-        // binnen: gedimd. Onderweg: normaal.
-        partly ? 'bg-elev' : fully ? 'border-line2 bg-transparent opacity-[0.55]' : 'border-line bg-elev',
+        fully ? 'border border-line2 opacity-[0.6]' : 'border border-transparent',
       )}
-      // Whole-row tint: a left edge in the guest's tier colour (feedback Joeri).
-      // Inset box-shadow, so it never fights the border shorthand; the fully-in
-      // row's opacity dims it too, keeping "checked-in = muted".
-      style={{ boxShadow: `inset 3px 0 0 ${g.tierColor}`, ...(partly ? { borderColor: 'rgba(181,166,255,0.45)' } : {}) }}
+      // Whole-pill tier fill (feedback Max): waiting/partly = solid tier colour
+      // with contrast-picked ink; partly adds an accent ring; fully-in = a
+      // low-alpha tint so "checked-in = muted" survives.
+      style={
+        fully
+          ? { background: tintTier(g.tierColor, 0.14) }
+          : { background: g.tierColor, ...(partly ? { boxShadow: `inset 0 0 0 2px ${ACCENT}` } : {}) }
+      }
     >
-      <Avatar name={g.name} size={46} accent={!g.inside && g.tierName === 'VIP'} />
-      <div className="min-w-0 flex-1">
-        <div className={cn('truncate font-display text-[17px] font-bold', fully ? 'text-dim' : 'text-text')}>
+      <Avatar name={g.name} size={32} />
+      {/* Everything on ONE line (feedback Max): name, tier, and "by {staff}".
+          Name keeps priority; the attribution shrinks/truncates first. */}
+      <div className="flex min-w-0 flex-1 items-baseline gap-1.5" style={{ color: ink }}>
+        <span className="min-w-0 shrink truncate font-display text-[15px] font-bold">
           {g.name}
-          {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
-        </div>
-        <div className="mt-[5px] flex flex-wrap items-center gap-1.5">
-          <TierChip name={g.tierName} color={g.tierColor} icon={g.tierIcon} />
-          {g.pay && !g.inside && <PayChip pay="pay" />}
-          {isDuplicate && (
-            <span className="rounded-[6px] border border-dashed border-line px-[7px] py-[2px] font-body text-[10px] font-bold tracking-[0.03em] text-faint">
-              {t.door.duplicate}
-            </span>
-          )}
-        </div>
-        <div className="mt-[5px] truncate font-body text-[11.5px]">
-          {partly ? (
-            <span className="font-semibold text-acc">
-              {fmt(t.door.partlyInside, { arrived: 1 + (g.arrived ?? 0), total: 1 + g.plus, n: remaining })}
-            </span>
-          ) : (
-            <span className="text-faint">
-              {t.door.logBy} {g.addedByName}
-              {g.last4 && ` · ••${g.last4}`}
-            </span>
-          )}
-        </div>
+          {g.plus > 0 && <span className="font-semibold opacity-70"> +{g.plus}</span>}
+        </span>
+        <span className="shrink-0 text-[10.5px] font-bold uppercase tracking-[0.03em] opacity-90">{g.tierName}</span>
+        {partly ? (
+          <span className="min-w-0 truncate text-[11px] font-semibold opacity-90" style={{ flexShrink: 3 }}>
+            {fmt(t.door.partlyInside, { arrived: 1 + (g.arrived ?? 0), total: 1 + g.plus, n: remaining })}
+          </span>
+        ) : (
+          <span className="min-w-0 truncate text-[11px] opacity-70" style={{ flexShrink: 3 }}>
+            · {t.door.logBy} {g.addedByName}
+            {g.last4 && ` · ••${g.last4}`}
+          </span>
+        )}
+        {isDuplicate && (
+          <span
+            className="shrink-0 rounded-[5px] px-[5px] py-px text-[9.5px] font-bold opacity-70"
+            style={{ border: `1px solid ${ink}` }}
+          >
+            {t.door.duplicate}
+          </span>
+        )}
       </div>
       {partly ? (
-        <span className="shrink-0 rounded-[8px] bg-acc px-[10px] py-[6px] font-display text-[12px] font-bold text-on-acc">
+        <span className="shrink-0 rounded-[8px] bg-bg px-[9px] py-[5px] font-display text-[12px] font-bold text-text">
           {fmt(t.door.partlyBadge, { n: remaining })}
         </span>
       ) : fully ? (
         <StatusDot status="in" label={false} />
       ) : (
-        <span className="text-acc">
-          <Icon name="chev" size={24} />
+        <span className="shrink-0" style={{ color: ink }}>
+          <Icon name="chev" size={22} />
         </span>
       )}
     </button>
@@ -332,21 +392,21 @@ function guestRow(
 
 function refusedRow(g: DoorGuest, undoRefusal: (id: string) => void): JSX.Element {
   return (
-    <div className="flex items-center gap-[13px] rounded-[16px] border border-line2 bg-transparent p-[13px]">
-      <Avatar name={g.name} size={46} />
+    <div className="flex items-center gap-[11px] rounded-[14px] border border-line2 bg-transparent p-[10px]">
+      <Avatar name={g.name} size={32} />
       <div className="min-w-0 flex-1">
-        <div className="truncate font-display text-[17px] font-bold text-dim">
+        <div className="truncate font-display text-[15.5px] font-bold text-dim">
           {g.name}
           {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
         </div>
-        <div className="mt-[5px] truncate font-body text-[11.5px] text-faint">
+        <div className="mt-[1px] truncate font-body text-[11px] text-faint">
           {g.refusedReason ? fmt(t.door.refusedWithReason, { reason: g.refusedReason }) : t.door.refused}
         </div>
       </div>
       <button
         type="button"
         onClick={() => undoRefusal(g.id)}
-        className="shrink-0 rounded-[10px] border border-acc-soft bg-acc-dim px-[12px] py-[8px] font-display text-[12px] font-bold text-acc transition-[filter,transform] hover:brightness-[1.12] active:scale-[0.97]"
+        className="shrink-0 rounded-[10px] border border-acc-soft bg-acc-dim px-[12px] py-[7px] font-display text-[12px] font-bold text-acc transition-[filter,transform] hover:brightness-[1.12] active:scale-[0.97]"
       >
         {t.door.undo}
       </button>
@@ -355,37 +415,33 @@ function refusedRow(g: DoorGuest, undoRefusal: (id: string) => void): JSX.Elemen
 }
 
 /**
- * Loading skeleton — reserves roughly the same vertical space as the loaded
- * header area (two stat tiles + search field + segment control) so the
- * skeleton→content swap doesn't shift layout (helps the deur-CLS goal).
+ * Loading skeleton — mirrors the new header (title + search + the compact
+ * headcount strip + segment) so the skeleton→content swap doesn't shift layout
+ * (deur-CLS goal). The tier-filter bar is event-dependent (hidden when ≤1 tier),
+ * so it isn't reserved; the big 81px-tiles→loaded jump is what's eliminated.
  */
 function ListSkeleton(): JSX.Element {
   return (
-    <div className="flex h-full flex-col">
-      <Top big title={t.door.checkinTitle} sub={t.door.loadingSub} />
-      {/* stat tiles (height matches the loaded gasten + koppen tiles → no CLS) */}
-      <div className="flex flex-none gap-[10px] px-5 pb-[14px]">
-        <div className="h-[81px] flex-1 animate-pulse rounded-[14px] border border-line bg-elev" />
-        <div className="h-[81px] flex-1 animate-pulse rounded-[14px] bg-acc-dim" />
+    <div className="po-scroll relative h-full overflow-y-auto" style={{ padding: '0 20px 100px' }}>
+      <div className="-mx-5">
+        <Top big title={t.door.checkinTitle} sub={t.door.loadingSub} />
       </div>
-      {/* search field */}
-      <div className="flex-none px-5 pb-3">
+      <div className="pb-3">
         <div className="h-[50px] animate-pulse rounded-field border border-line bg-elev" />
       </div>
-      {/* segment control */}
-      <div className="flex flex-none gap-1.5 px-5 pb-[14px]">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="h-[37px] flex-1 animate-pulse rounded-full border border-line bg-elev" />
-        ))}
-      </div>
-      {/* a few placeholder rows */}
-      <div className="min-h-0 flex-1 overflow-hidden px-5">
-        <div className="mb-[10px] h-[14px] w-[140px] animate-pulse rounded bg-elev2" />
-        <div className="flex flex-col gap-[9px]">
-          {[0, 1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="h-[74px] animate-pulse rounded-[16px] border border-line bg-elev" />
+      <div className="-mx-5 border-b border-line2 bg-bg px-5 pt-1">
+        <div className="mb-[12px] h-[40px] animate-pulse rounded-[12px] border border-line bg-elev" />
+        <div className="flex gap-1.5 pb-[14px]">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-[37px] flex-1 animate-pulse rounded-full border border-line bg-elev" />
           ))}
         </div>
+      </div>
+      <div className="mb-[10px] mt-2 h-[14px] w-[140px] animate-pulse rounded bg-elev2" />
+      <div className="flex flex-col gap-[8px]">
+        {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+          <div key={i} className="h-[54px] animate-pulse rounded-[14px] border border-line bg-elev" />
+        ))}
       </div>
     </div>
   );

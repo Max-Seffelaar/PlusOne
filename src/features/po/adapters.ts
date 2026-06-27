@@ -213,6 +213,10 @@ export interface GuestExtras {
   role: Role;
   /** Display name of who added the guest (profiles join); '' when unknown. */
   addedBy?: string;
+  /** Owning event id/name — set only on the venue-wide ("all guests") read so a
+   *  row can badge + deep-link to its event; omitted in single-event mode. */
+  eventId?: string;
+  eventName?: string;
 }
 
 export function toPoGuest(row: PoGuestRow, extras: GuestExtras): Guest {
@@ -229,6 +233,8 @@ export function toPoGuest(row: PoGuestRow, extras: GuestExtras): Guest {
     addedAt: fmt(row.created_at, { day: 'numeric', month: 'short' }).replace('.', ''),
     status: guestStatusToPo(row.status),
     contactId: row.contact_id,
+    eventId: extras.eventId,
+    eventName: extras.eventName,
     // at/inBy come from check_ins (DoorProvider), not the guests row.
   };
 }
