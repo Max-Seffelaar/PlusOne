@@ -5,7 +5,8 @@
 --
 -- Seed baseline (supabase/seed.sql): event ee..01 is 'open'. Tom (staff, 55..)
 -- consumes 10 of an event-override 12; Lisa (doorhost, 66..) consumes 2 of a
--- venue-default 5; Max (admin, 11..) and Yusuf (organizer, 44..) are exempt.
+-- venue-default 5; Max (admin, 11..) is exempt; Yusuf (organizer/external crew,
+-- 44..) is NOT — he is limited by a 10 event-quota override (86ey21vre).
 -- Tier dd..03 ("VIP + fles op tafel") has max_guests = 10, occupied by 1 (Juri).
 --
 -- Most enforcement tests set the quota knob RELATIVE to live consumption
@@ -28,7 +29,7 @@ begin
 end;
 $fn$;
 
-select plan(41);
+select plan(43);
 
 -- ===========================================================================
 -- 1. Quota math helpers (read-only, as the owner/superuser)
@@ -53,8 +54,8 @@ select is(public.user_is_quota_exempt(
   'ee000000-0000-7000-8000-000000000001', '11111111-1111-4111-8111-111111111111'), true,
   '1.6 admin is quota-exempt');
 select is(public.user_is_quota_exempt(
-  'ee000000-0000-7000-8000-000000000001', '44444444-4444-4444-8444-444444444444'), true,
-  '1.7 event organizer is quota-exempt');
+  'ee000000-0000-7000-8000-000000000001', '44444444-4444-4444-8444-444444444444'), false,
+  '1.7 event organizer / external crew is NOT quota-exempt anymore (86ey21vre)');
 select is(public.user_is_quota_exempt(
   'ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555'), false,
   '1.8 staff is NOT exempt');
@@ -63,6 +64,21 @@ select is(public.user_is_quota_exempt(
   '1.9 doorhost is NOT exempt');
 select is(public.tier_consumption('dd000000-0000-7000-8000-000000000003'), 1,
   '1.10 VIP-fles tier starts at 1 occupied (Juri)');
+select is(public.user_event_quota(
+  'ee000000-0000-7000-8000-000000000001', '44444444-4444-4444-8444-444444444444'), 10,
+  '1.11 organizer / external crew resolves to his event_quotas override (10), not unlimited');
+
+-- External crew are now ENFORCED like staff/doorhost: an organizer add past his
+-- own quota is blocked (it was silently exempt before 86ey21vre). Yusuf has a 10
+-- quota and 0 non-landing consumption, so +10 (11 slots) breaches it.
+select pg_temp.login('44444444-4444-4444-8444-444444444444');
+select throws_ok($$
+  insert into public.guests (event_id, tier_id, full_name, plus_ones, added_by)
+  values ('ee000000-0000-7000-8000-000000000001',
+          'dd000000-0000-7000-8000-000000000001', 'Crew Overflow', 10,
+          '44444444-4444-4444-8444-444444444444')
+$$, '45001', null, '1.12 organizer +10 (11 slots) over his 10-quota is blocked (no longer exempt)');
+reset role;
 
 -- ===========================================================================
 -- 2. +N enforcement on INSERT — "Jan +2" = 3 slots (#22). Knob: 2 free.
@@ -139,7 +155,8 @@ select is(
   '3.2 the landing add did not raise the staffer''s personal consumption (#31)');
 
 -- ===========================================================================
--- 4. Admin & organizer add without a personal limit (role matrix §2).
+-- 4. Admin adds without a personal limit; an organizer / external crew is now
+--    LIMITED by their event quota (role matrix §2 + 86ey21vre).
 -- ===========================================================================
 
 select pg_temp.login('11111111-1111-4111-8111-111111111111');
@@ -149,16 +166,18 @@ select lives_ok($$
           'ee000000-0000-7000-8000-000000000001',
           'dd000000-0000-7000-8000-000000000001', 'Admin Bulk', 50,
           '11111111-1111-4111-8111-111111111111')
-$$, '4.1 admin adds +50 — no personal limit');
+$$, '4.1 admin adds +50 — no personal limit (still exempt)');
 reset role;
 
+-- Yusuf (organizer / external crew) has a 10 quota and 0 consumption; +50 (51
+-- slots) now breaches it (he was exempt before 86ey21vre, migration 20260625120000).
 select pg_temp.login('44444444-4444-4444-8444-444444444444');
-select lives_ok($$
+select throws_ok($$
   insert into public.guests (event_id, tier_id, full_name, plus_ones, added_by)
   values ('ee000000-0000-7000-8000-000000000001',
           'dd000000-0000-7000-8000-000000000001', 'Organizer Bulk', 50,
           '44444444-4444-4444-8444-444444444444')
-$$, '4.2 organizer adds +50 — no personal limit');
+$$, '45001', null, '4.2 organizer / external crew adds +50 — now blocked by their quota');
 reset role;
 
 -- ===========================================================================

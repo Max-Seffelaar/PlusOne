@@ -69,6 +69,10 @@ import {
   deleteTemplateTier,
   createEventFromTemplate,
   createTemplateFromEvent,
+  assignOrganizer,
+  inviteExternalCrew,
+  removeOrganizer,
+  setEventUserQuota,
 } from '@/features/events/actions';
 import type {
   ChangeStatusInput,
@@ -90,6 +94,10 @@ import type {
   DeleteTemplateTierInput,
   CreateEventFromTemplateInput,
   CreateTemplateFromEventInput,
+  AssignOrganizerInput,
+  InviteExternalCrewInput,
+  RemoveOrganizerInput,
+  SetEventUserQuotaInput,
 } from '@/features/events/schemas';
 import { inviteUserAction, revokeInviteAction, acceptInvitesAction } from '@/features/auth/invite-actions';
 import { updateProfileAction, updateEmailAction } from '@/features/auth/profile-actions';
@@ -834,6 +842,56 @@ export function usePoCreateTemplateFromEvent() {
     onSuccess: () => {
       if (venueId) void qc.invalidateQueries({ queryKey: poKeys.templates(venueId) });
     },
+  });
+}
+
+// ── External crew (event_organizers + event_quotas, #6/#24 + 86ey21vre) ──
+// Admin-only writes (RLS; role-only since the #20 2026-06-24 refinement, so no
+// MFA step-up here). Each invalidates the affected event's crew list + the
+// assignable (returning-crew) pool so both refresh after a write.
+
+function invalidateCrew(qc: QueryClient, eventId: string): void {
+  void qc.invalidateQueries({ queryKey: poKeys.crew(eventId) });
+  void qc.invalidateQueries({ queryKey: poKeys.assignableCrew(eventId) });
+}
+
+/** Add a returning external person as crew of an event, with a guest quota. */
+export function usePoAssignCrew(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: AssignOrganizerInput) => throwOnError(await assignOrganizer(input)),
+    onSuccess: () => invalidateCrew(qc, eventId),
+  });
+}
+
+/** Invite a brand-new external crew member by email to one or more events, with a
+ *  guest quota. Provisions a login with no venue access; they activate it on first
+ *  login. Used by the per-event crew screen (eventIds=[id]) and the settings fork. */
+export function usePoInviteExternalCrew() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: InviteExternalCrewInput) => throwOnError(await inviteExternalCrew(input)),
+    onSuccess: (_res, input) => {
+      for (const id of input.eventIds) invalidateCrew(qc, id);
+    },
+  });
+}
+
+/** Set/change an external crew member's per-event guest quota. */
+export function usePoSetCrewQuota(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: SetEventUserQuotaInput) => throwOnError(await setEventUserQuota(input)),
+    onSuccess: () => invalidateCrew(qc, eventId),
+  });
+}
+
+/** Remove a crew scope from an event. The account/user is untouched (#24). */
+export function usePoRemoveCrew(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: RemoveOrganizerInput) => throwOnError(await removeOrganizer(input)),
+    onSuccess: () => invalidateCrew(qc, eventId),
   });
 }
 

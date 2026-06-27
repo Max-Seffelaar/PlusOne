@@ -18,6 +18,10 @@ export const poKeys = {
   eventRecap: (eventId: string) => [...poKeys.all, 'event-recap', eventId] as const,
   guests: (eventId: string) => [...poKeys.all, 'guests', eventId] as const,
   tiers: (eventId: string) => [...poKeys.all, 'tiers', eventId] as const,
+  // External crew (event_organizers, #6/#24) for an event + the assignable
+  // team-member pool for the "add an existing member" path. Both key on the event.
+  crew: (eventId: string) => [...poKeys.all, 'crew', eventId] as const,
+  assignableCrew: (eventId: string) => [...poKeys.all, 'assignable-crew', eventId] as const,
   /** Live event-day stats (per-quarter instroom + peak) for the cockpit (S13). */
   eventStats: (eventId: string) => [...poKeys.all, 'event-stats', eventId] as const,
   /** Active check-in arrivals per guest (actual present koppen + partial) — cockpit (S13). */

@@ -67,17 +67,17 @@ export const settings = {
     mfaNotePre: 'Admin and Finance get ',
     mfaNoteBold: 'mandatory MFA',
     mfaNotePost: '. On first login they set up an authenticator app.',
-    eventScopeLabel: 'Add to events · optional',
+    eventScopeLabel: 'Add to event crew · optional',
     clearSelection: 'Clear selection',
     allEvents: 'All events',
     eventsLoading: 'Loading events…',
     noUpcomingEvents: 'No upcoming events to add to.',
-    organizerNoteBold: 'organizer',
+    organizerNoteBold: 'crew',
     organizerNoteOne:
-      ' of {n} event once the invite is accepted. An organizer manages that event’s guest list.',
+      ' of {n} event once the invite is accepted. Crew help run that event’s guest list and door.',
     organizerNoteMany:
-      ' of {n} events once the invite is accepted. An organizer manages those events’ guest lists.',
-    organizerNotePre: 'Becomes ',
+      ' of {n} events once the invite is accepted. Crew help run those events’ guest lists and doors.',
+    organizerNotePre: 'Joins the ',
     quotaLabel: 'Default quota · optional',
     quotaPlaceholder: 'e.g. 5 guests per event',
     quotaHelp: "Becomes the default quota once the invite is accepted. Leave empty for the venue default.",
@@ -106,6 +106,21 @@ export const settings = {
     savingRoles: 'Saving…',
     saveRoles: 'Save roles',
     removeAccess: 'Revoke access to this venue',
+    // Invite chooser + external-crew branch (86ey21vre). A venue user joins the
+    // whole venue (every event); external crew is event-scoped with a guest quota.
+    chooseTitle: 'Add someone',
+    chooseSub: 'Two kinds of people, two kinds of access.',
+    chooseTeamTitle: 'Venue user · Team',
+    chooseTeamSub: 'Works across your whole venue, on every event. You pick their roles and quota.',
+    chooseCrewTitle: 'External crew',
+    chooseCrewSub: 'A DJ, artist, or guest organizer for specific events only. No access to the rest of the venue.',
+    crewTitle: 'Invite external crew',
+    crewIntro: 'They get a login for the events you pick and can add guests up to a quota — nothing else in your venue.',
+    crewEventsLabel: 'Add to which events?',
+    crewQuotaLabel: 'Guests they can add · optional',
+    crewQuotaPlaceholder: 'e.g. 10 guests',
+    crewQuotaHelp: 'Their personal limit for adding guests to those events. Leave empty for none.',
+    crewSend: 'Send crew invite',
   },
 
   // Quota: per-member default (Rollen / MemberQuotaRow) + per-event (Allowance).
@@ -149,6 +164,9 @@ export const settings = {
     switch: 'Switch',
     addVenue: 'Add a new venue',
     thisVenueFallback: 'this venue',
+    // Shown instead of role chips for a venue the caller only has external-crew
+    // (event-scoped) access to — they're not a venue member there (86ey21vre).
+    crewAccess: 'External crew',
   },
 
   // Venue settings (VenueSettings).

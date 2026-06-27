@@ -20,7 +20,7 @@ import {
   type ParseResult,
 } from '@/features/guests/quick-add-parser';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
-import { usePoEvents, usePoGuests, usePoTiers, usePoQuota, usePoContacts, usePoPersonProfile, usePoPermanentContacts } from '@/features/po/hooks';
+import { usePoEvents, usePoEventForEdit, usePoGuests, usePoTiers, usePoQuota, usePoContacts, usePoPersonProfile, usePoPermanentContacts } from '@/features/po/hooks';
 import {
   usePoAddGuest,
   usePoAddGuestsBulk,
@@ -658,6 +658,10 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const { data: liveGuests = [] } = usePoGuests(evId);
   const reqExtra = usePoRequestExtraSlots(evId);
   const { roles } = usePoIdentity();
+  // An external crew member (event organizer, roles:[]) may add guests to their own
+  // event — they're no longer quota-exempt (86ey21vre), so the old exempt-based gate
+  // missed them. canManage = admin or organizer of THIS event (RLS can_write_guests).
+  const { canManage } = usePoEventForEdit(evId);
 
   const [val, setVal] = useState('');
   const [choice, setChoice] = useState<AmbiguityChoice | null>(null);
@@ -708,8 +712,9 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const overQuota = remaining !== null && cost > remaining;
   // Hide the quick-add for roles that can't create guests (user_manager/finance):
   // RLS would reject the insert with a confusing 42501, so gate the UI instead.
-  // admin/staff/doorhost qualify via role; an event organizer via the exempt flag.
-  const canAdd = exempt || canManageGuests(roles);
+  // admin/staff/doorhost qualify via venue role; an event organizer (external crew)
+  // via canManage (they add up to their quota — quota still gates the insert below).
+  const canAdd = canManageGuests(roles) || canManage;
   const reqShortfall = remaining !== null ? Math.max(1, cost - remaining) : 1;
   const needsAsk = !!isAmbiguous && !choice;
   // Bare name on a multi-tier event: don't silently assign the default — ask which tier.

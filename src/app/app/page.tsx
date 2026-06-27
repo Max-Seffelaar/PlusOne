@@ -5,7 +5,7 @@ import { PlusOneApp } from '@/components/po/app';
 import { PoLiveProvider, type PoIdentity } from '@/features/po/PoLiveProvider';
 import { getOnboardingState } from '@/lib/auth/onboarding';
 import { acceptedCurrentTerms } from '@/lib/auth/consent';
-import { getMyMemberships, getReportingVenues } from '@/lib/auth/memberships';
+import { getMyMemberships, getOrganizerVenues, getReportingVenues } from '@/lib/auth/memberships';
 import { getSessionUser } from '@/lib/auth/context';
 import { resolveActiveVenueId } from '@/lib/auth/active-venue';
 import { createClient } from '@/lib/supabase/server';
@@ -27,9 +27,20 @@ export default async function AppPage(): Promise<JSX.Element> {
   const venues = await getReportingVenues().catch(() => []);
 
   // Identity + active venue for the live-data layer (PoLiveProvider, STAP 3.2).
-  const [user, memberships] = await Promise.all([getSessionUser(), getMyMemberships()]);
-  const activeVenueId = await resolveActiveVenueId(memberships).catch(() => null);
-  const active = memberships.find((m) => m.venueId === activeVenueId) ?? null;
+  // Access set = real memberships PLUS venues the caller can reach as EXTERNAL CREW
+  // only (event-organizer scope, roles:[] — event-scoped access, #24/86ey21vre). A
+  // real membership always wins over a crew scope for the same venue. This lets a
+  // membership-less crew member land on /app scoped to their event's venue, and a
+  // multi-company person switch between every venue they can touch.
+  const [user, memberships, organizerVenues] = await Promise.all([
+    getSessionUser(),
+    getMyMemberships(),
+    getOrganizerVenues().catch(() => []),
+  ]);
+  const memberIds = new Set(memberships.map((m) => m.venueId));
+  const accessVenues = [...memberships, ...organizerVenues.filter((v) => !memberIds.has(v.venueId))];
+  const activeVenueId = await resolveActiveVenueId(accessVenues).catch(() => null);
+  const active = accessVenues.find((m) => m.venueId === activeVenueId) ?? null;
   const identity: PoIdentity = {
     userId: user?.id ?? '',
     venueId: active?.venueId ?? null,
@@ -54,7 +65,9 @@ export default async function AppPage(): Promise<JSX.Element> {
       ? VENUE_ROLES.filter((r) => active.roles.includes(r))
           .map((r) => ROLE_LABELS[r])
           .join(' · ')
-      : 'Member';
+      : active
+        ? 'External crew'
+        : 'Member';
   const userSub = active && requiresMfa(active.roles) ? `${roleLabel} · MFA` : roleLabel;
 
   // First-paint viewport hint (corrected client-side by matchMedia) + the live
@@ -65,7 +78,7 @@ export default async function AppPage(): Promise<JSX.Element> {
     <PoLiveProvider identity={identity}>
       <PlusOneApp
         statsAccess={{ venues: venues.map((v) => ({ venueId: v.venueId, venueName: v.venueName })) }}
-        myVenues={memberships.map((m) => ({ venueId: m.venueId, venueName: m.venueName, roles: m.roles }))}
+        myVenues={accessVenues.map((m) => ({ venueId: m.venueId, venueName: m.venueName, roles: m.roles }))}
         activeVenueId={activeVenueId}
         serverHint={serverHint}
         liveVenueName={active?.venueName ?? undefined}

@@ -34,7 +34,7 @@ import { PhoneFrame, Toast, type TabKey } from './shell';
 import { Top } from './kit';
 import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
 import { Invite, Login, Mfa, Otp, Welcome } from './screens/auth';
-import { EventBeheer, EventEdit, EventView, Events, PastEvent, Tiers } from './screens/events';
+import { Crew, EventBeheer, EventEdit, EventView, Events, PastEvent, Tiers } from './screens/events';
 import { BulkPaste, Contacten, ContactProfile, Lijst, QuickAdd, Vaste } from './screens/guests';
 import { DoorEventPicker, PoDoorTab, type DoorOverlay } from './screens/door';
 import { Allowance, Billing, Gebruikers, Import, Meer, Profile, Rollen, VenueSettings, VenueSwitch } from './screens/settings';
@@ -432,6 +432,9 @@ export function PlusOneApp({
         break;
       case 'tiers':
         screen = <Tiers eventId={p.id} />;
+        break;
+      case 'crew':
+        screen = <Crew eventId={p.id} />;
         break;
       case 'gebruikers':
         screen = <Gebruikers />;

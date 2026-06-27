@@ -47,6 +47,29 @@ export async function getMyMemberships(): Promise<Membership[]> {
   }));
 }
 
+// Venues the caller can reach as EXTERNAL CREW only: they organize ≥1 event there
+// but hold no venue membership (#24 + 86ey21vre). Returned as memberships with an
+// empty roles array, so they appear in the venue switcher and can be the active
+// venue, but every role-gated capability stays off (event-scoped access only). RLS
+// is the boundary: own organizer rows are readable, and the venue/events are visible
+// via organizes_event_at_venue / is_event_organizer.
+export async function getOrganizerVenues(): Promise<Membership[]> {
+  const user = await getSessionUser();
+  if (!user) return [];
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('event_organizers')
+    .select('events!inner(venue_id, venues(name))')
+    .eq('user_id', user.id);
+
+  const byVenue = new Map<string, string>();
+  for (const row of data ?? []) {
+    const ev = row.events;
+    if (ev?.venue_id) byVenue.set(ev.venue_id, ev.venues?.name ?? 'Unknown venue');
+  }
+  return [...byVenue].map(([venueId, venueName]) => ({ venueId, venueName, roles: [] as VenueRole[] }));
+}
+
 // Venues where the caller may see reports & the audit log: admin or finance
 // (spec §2 — "Statistieken & rapportages", "Audit log inzien"). Drives the
 // admin analytics screens and their venue switcher; Finance is read-only.
