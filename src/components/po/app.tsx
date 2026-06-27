@@ -187,6 +187,8 @@ export function PlusOneApp({
   // writer below so the initial {start, []} can't clobber the saved value before
   // this read runs.
   const [navHydrated, setNavHydrated] = useState(false);
+  // Reactive mirror of navHistory.current.length — drives canGoBack in the nav object.
+  const [navHistoryLen, setNavHistoryLen] = useState(0);
   useEffect(() => {
     const saved = loadNavState();
     if (saved) {
@@ -259,6 +261,7 @@ export function PlusOneApp({
     setDoorOverlay(prev.doorOverlay);
     setDoorEventId(prev.doorEventId);
     setDoorSeg(prev.doorSeg);
+    setNavHistoryLen((l) => Math.max(0, l - 1));
     bump();
   };
   const histNav = usePoHistoryNav({ enabled: navHydrated && started, onBack: restorePrevious });
@@ -271,6 +274,7 @@ export function PlusOneApp({
       navGuard.current = false;
     });
     navHistory.current.push(posRef.current);
+    setNavHistoryLen((l) => l + 1);
     histNav.recordNavigate();
     apply();
     bump();
@@ -293,6 +297,7 @@ export function PlusOneApp({
       doorSeg: 'deur',
     }));
     stack.forEach(() => histNav.recordNavigate());
+    setNavHistoryLen(stack.length);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navHydrated]);
 
@@ -324,6 +329,7 @@ export function PlusOneApp({
         setDoorOverlay(null);
       });
     },
+    canGoBack: navHistoryLen > 0,
   };
 
   const auth: AuthNav = {
@@ -369,10 +375,10 @@ export function PlusOneApp({
 
   const ev = (id?: string) => events.find((e) => e.id === id);
 
-  // `isDoorTab` / `doorOverlayOpen` are computed above (history integration). A door
-  // overlay is treated like a pushed screen: it hides the mobile tab bar so the
-  // detail goes full-screen. `tabRoot` = a bare tab with nothing on top.
-  const tabRoot = started && stack.length === 0 && !doorOverlayOpen;
+  // Tab bar is always visible when authenticated, even on pushed/detail screens.
+  // Door overlays (in-tab check-in detail) are the only exception — they run
+  // full-screen within the Deur tab where tab-switching is not useful.
+  const tabRoot = started && !doorOverlayOpen;
 
   let screen: ReactNode;
   if (!started) {
@@ -587,7 +593,7 @@ export function PlusOneApp({
 
   // Wide desktop screens (home dashboard, guest table, stats charts, audit table)
   // opt into the full content width; every other screen keeps the reading column.
-  const activeScreen = top?.name ?? (tabRoot ? tab : '');
+  const activeScreen = top?.name ?? tab;
   const desktopMainMax = WIDE_DESKTOP[activeScreen] ?? 'max-w-[640px]';
 
   return (

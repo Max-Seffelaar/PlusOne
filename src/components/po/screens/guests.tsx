@@ -251,7 +251,7 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title={t.guests.list.title} sub={`${ev.name} · ${fmt(t.guests.list.sub, { shown: gs.length, total: guests.length })}`} right={<IconBtn name="plus" onClick={() => nav.push('quickadd', { id: ev.id })} />} />
+      <Top onBack={nav.canGoBack ? nav.back : undefined} title={t.guests.list.title} sub={`${ev.name} · ${fmt(t.guests.list.sub, { shown: gs.length, total: guests.length })}`} right={<IconBtn name="plus" onClick={() => nav.push('quickadd', { id: ev.id })} />} />
       {/* Toolbar — stacked on mobile, a single row on desktop.
           When guests are selected the toolbar switches to a selection-action bar
           (avoids BottomBar z-index / click issues on desktop). */}

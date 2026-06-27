@@ -37,6 +37,14 @@ export function Templates(): JSX.Element {
   const nav = useNav();
   const { data, isLoading, isError } = usePoTemplates();
   const canManage = usePoCanManageTemplates();
+
+  // Skip the empty-list screen: go straight to "New template" the first time.
+  useEffect(() => {
+    if (!isLoading && !isError && canManage && (data ?? []).length === 0) {
+      nav.push('templateedit', { isNew: true });
+    }
+  }, [isLoading, isError, canManage, data, nav]);
+
   return (
     <div className={col}>
       <Top
@@ -324,6 +332,7 @@ function TemplateTierEditor({ templateId, canManage }: { templateId: string; can
   const [nm, setNm] = useState('');
   const [color, setColor] = useState(TIER_COLORS[0]);
   const [max, setMax] = useState('');
+  const [price, setPrice] = useState('');
   const [aliasText, setAliasText] = useState('');
   const [err, setErr] = useState<string | null>(null);
 
@@ -331,12 +340,18 @@ function TemplateTierEditor({ templateId, canManage }: { templateId: string; can
     if (!nm.trim() || createTier.isPending) return;
     setErr(null);
     const maxNum = Number.parseInt(max, 10);
+    const priceEuros = Number(price.trim().replace(',', '.'));
+    const doorPriceCents =
+      price.trim() !== '' && Number.isFinite(priceEuros) && priceEuros > 0
+        ? Math.round(priceEuros * 100)
+        : null;
     try {
       await createTier.mutateAsync({
         templateId,
         name: nm.trim(),
         color,
         maxGuests: Number.isFinite(maxNum) && maxNum > 0 ? maxNum : null,
+        doorPriceCents,
         aliases: aliasText
           .split(',')
           .map((a) => a.trim())
@@ -345,6 +360,7 @@ function TemplateTierEditor({ templateId, canManage }: { templateId: string; can
       setNm('');
       setColor(TIER_COLORS[0]);
       setMax('');
+      setPrice('');
       setAliasText('');
       setAdding(false);
     } catch (e) {
@@ -389,6 +405,8 @@ function TemplateTierEditor({ templateId, canManage }: { templateId: string; can
           </div>
           <Label className="mb-2">{t.templates.maxLabel}</Label>
           <Field placeholder={t.templates.maxPlaceholder} value={max} onChange={setMax} inputMode="numeric" className="mb-[14px]" />
+          <Label className="mb-2">{t.templates.priceLabel}</Label>
+          <Field icon="money" placeholder={t.templates.pricePlaceholder} value={price} onChange={setPrice} inputMode="numeric" className="mb-[14px]" />
           <Label className="mb-2">{t.templates.aliasesLabel}</Label>
           <Field icon="spark" placeholder={t.templates.aliasesPlaceholder} value={aliasText} onChange={setAliasText} className="mb-[14px]" />
           <Btn
@@ -417,6 +435,9 @@ function TemplateTierEditor({ templateId, canManage }: { templateId: string; can
                 <div className="font-display text-[15.5px] font-bold text-text">{tier.name}</div>
                 <div className="mt-px text-[12px] text-faint">
                   {tier.max_guests ? fmt(t.templates.tierMax, { n: tier.max_guests }) : t.templates.tierNoMax}
+                  {tier.door_price_cents && tier.door_price_cents > 0
+                    ? ' · ' + fmt(t.templates.tierPrice, { n: tier.door_price_cents / 100 })
+                    : ''}
                   {tier.aliases.length > 0 ? ' · ' + tier.aliases.join(', ') : ''}
                 </div>
               </div>

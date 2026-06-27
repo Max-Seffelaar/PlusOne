@@ -138,7 +138,7 @@ export function Meer(): JSX.Element {
     : t.settings.more.billingDefault;
   return (
     <div className={col}>
-      <Top big title={t.settings.more.title} />
+      <Top big title={t.settings.more.title} onBack={nav.canGoBack ? nav.back : undefined} />
       <Scroll bottom={100}>
         <button type="button" onClick={() => nav.push('venueswitch')} className={cn('mb-5 flex w-full items-center gap-[14px] rounded-[18px] border border-line bg-elev p-4 text-left', cardPress)}>
           <Avatar name={displayVenue} size={48} accent />

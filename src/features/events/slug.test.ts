@@ -21,19 +21,25 @@ describe('slugify (mirrors SQL public.slugify)', () => {
 });
 
 describe('buildEventSlug', () => {
-  it('appends the suffix to the slugified name', () => {
-    expect(buildEventSlug('FRENZY', 'x4k9')).toBe('frenzy-x4k9');
-    expect(buildEventSlug('PLUSONE Launch Night', 'ab12')).toBe('plusone-launch-night-ab12');
+  it('produces {name}-{date}-{suffix}', () => {
+    expect(buildEventSlug('FRENZY', '2026-07-15T22:00:00', 'x4k9')).toBe('frenzy-2026-07-15-x4k9');
+    expect(buildEventSlug('PLUSONE Launch Night', '2026-08-01T23:00:00', 'ab12')).toBe(
+      'plusone-launch-night-2026-08-01-ab12',
+    );
+  });
+
+  it('accepts a bare YYYY-MM-DD date string too', () => {
+    expect(buildEventSlug('FRENZY', '2026-07-15', 'x4k9')).toBe('frenzy-2026-07-15-x4k9');
   });
 
   it('falls back to "event" when the name has no usable characters', () => {
-    expect(buildEventSlug('!!!', 'zzzz')).toBe('event-zzzz');
-    expect(buildEventSlug('', 'zzzz')).toBe('event-zzzz');
+    expect(buildEventSlug('!!!', '2026-07-15', 'zzzz')).toBe('event-2026-07-15-zzzz');
+    expect(buildEventSlug('', '2026-07-15', 'zzzz')).toBe('event-2026-07-15-zzzz');
   });
 
   it('uses a random suffix by default', () => {
-    const slug = buildEventSlug('Test');
-    expect(slug).toMatch(/^test-[a-z0-9]{4}$/);
+    const slug = buildEventSlug('Test', '2026-07-15');
+    expect(slug).toMatch(/^test-2026-07-15-[a-z0-9]{4}$/);
   });
 });
 
