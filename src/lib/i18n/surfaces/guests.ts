@@ -22,6 +22,9 @@ export const guests = {
     createBtn: 'Create tier',
     nameLabel: 'Name',
     namePlaceholder: 'e.g. "Regular" or "Guest list"',
+    colorLabel: 'Color',
+    priceLabel: 'Door price · optional',
+    pricePlaceholder: '0.00',
     aliasLabel: 'Alias · optional, feeds the quick-add',
     aliasPlaceholder: 'guest, regular, door…',
     busy: 'Creating…',
@@ -86,6 +89,7 @@ export const guests = {
     inputLabel: 'Type freely: name, +guests, tier',
     inputPlaceholder: 'e.g. "Juri Braakman +2 vip"',
     ambiguityQuestion: 'Not sure what you mean by "{x}". Pick one:',
+    tierPickQuestion: 'Which tier for this guest?',
     choiceDefault: 'Default',
     choiceName: 'Part of the name',
     // Already-on-list (duplicate) handling. The guest's name renders in its own
@@ -129,6 +133,12 @@ export const guests = {
     pickEventSub: 'Which guest list are you adding to?',
     slotOne: 'slot',
     slotMany: 'slots',
+    // Optional contact-info prompt (shown when no email/phone parsed from text)
+    contactPrompt: 'Add email · phone',
+    contactEmailPlaceholder: 'Email address',
+    contactPhonePlaceholder: 'Phone number',
+    contactPhoneError: 'Enter a valid phone number.',
+    contactPromptHint: 'Optional. Saves them to your contacts so you can reuse them next time.',
   },
   // ── Bulk paste (#33) ──────────────────────────────────────────────────────
   bulk: {
@@ -333,10 +343,27 @@ export const guests = {
     thisEvent: 'This event',
     // Name-only guest (not a contact yet) → promote
     saveAsContact: 'Save as contact',
-    guestOnlyNote: 'Not a saved contact yet. Add an email or phone to reuse this person across events and keep their history.',
+    guestOnlyNote: 'Not a saved contact yet. Save to keep their history and find them next time.',
     promoteTitle: 'Save as contact',
-    promoteSub: 'Add an email or phone so you can reuse this person next time.',
-    promoteHint: 'With an email or phone we recognise them on the next list and keep their history. Name-only guests stay one-off.',
+    promoteSub: 'Save this person to your contacts. Email or phone helps find them on the next list.',
+    promoteHint: "With an email or phone number we recognise them next time. Without one, they're saved by name only.",
     promoteSave: 'Save as contact',
+    // Tier change from the person profile
+    changeTier: 'Change tier',
+    changeTierSub: 'Pick a tier for this guest.',
+  },
+  // ── Guest list: multi-select + bulk tier change ───────────────────────────
+  multiSelect: {
+    selectionBar: '{n} selected',
+    selectAll: 'Select all',
+    changeTier: 'Change tier',
+    cancelSelection: 'Cancel',
+    tierSheetTitle: 'Set tier',
+    tierSheetSub: 'Apply to {n} {guests}',
+    tierApply: 'Apply to {n} {guests}',
+    tierBusy: 'Updating…',
+    guestOne: 'guest',
+    guestMany: 'guests',
+    tierFailed: "Couldn't update tier.",
   },
 } as const;

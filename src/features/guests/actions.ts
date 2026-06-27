@@ -8,10 +8,12 @@ import {
   bulkAddSchema,
   updateGuestSchema,
   changeTierSchema,
+  changeTierBulkSchema,
   type AddGuestInput,
   type BulkAddInput,
   type UpdateGuestInput,
   type ChangeTierInput,
+  type ChangeTierBulkInput,
 } from './schemas';
 
 export type ActionResult = { ok: true } | MutationError;
@@ -143,6 +145,28 @@ export async function changeGuestTier(input: ChangeTierInput): Promise<ActionRes
     .maybeSingle();
   if (error) return mapMutationError(error);
   if (data?.event_id) revalidatePath(guestsPath(data.event_id));
+  return { ok: true };
+}
+
+/** Move multiple guests to the same tier in one update (RLS filters to accessible rows). */
+export async function changeGuestsTierBulk(input: ChangeTierBulkInput): Promise<ActionResult> {
+  const parsed = changeTierBulkSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  const { guestIds, tierId, eventId } = parsed.data;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return unauthorized();
+
+  const { error } = await supabase
+    .from('guests')
+    .update({ tier_id: tierId })
+    .in('id', guestIds);
+  if (error) return mapMutationError(error);
+
+  revalidatePath(guestsPath(eventId));
   return { ok: true };
 }
 
