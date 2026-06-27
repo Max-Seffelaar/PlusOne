@@ -369,10 +369,10 @@ export function PlusOneApp({
 
   const ev = (id?: string) => events.find((e) => e.id === id);
 
-  // `isDoorTab` / `doorOverlayOpen` are computed above (history integration). A door
-  // overlay is treated like a pushed screen: it hides the mobile tab bar so the
-  // detail goes full-screen. `tabRoot` = a bare tab with nothing on top.
-  const tabRoot = started && stack.length === 0 && !doorOverlayOpen;
+  // Tab bar is always visible when authenticated, even on pushed/detail screens.
+  // Door overlays (in-tab check-in detail) are the only exception — they run
+  // full-screen within the Deur tab where tab-switching is not useful.
+  const tabRoot = started && !doorOverlayOpen;
 
   let screen: ReactNode;
   if (!started) {
@@ -587,7 +587,7 @@ export function PlusOneApp({
 
   // Wide desktop screens (home dashboard, guest table, stats charts, audit table)
   // opt into the full content width; every other screen keeps the reading column.
-  const activeScreen = top?.name ?? (tabRoot ? tab : '');
+  const activeScreen = top?.name ?? tab;
   const desktopMainMax = WIDE_DESKTOP[activeScreen] ?? 'max-w-[640px]';
 
   return (
