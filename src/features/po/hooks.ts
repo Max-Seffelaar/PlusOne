@@ -46,6 +46,7 @@ import {
   fetchTemplate,
   fetchTemplateTiers,
   fetchOrganizesAtVenue,
+  fetchPoEventActivityStats,
   type EventEditRow,
   type CheckinArrival,
   type RecentCheckinRow,
@@ -56,6 +57,7 @@ import {
   type PoTemplateRow,
   type PoTemplateDetail,
   type PoTemplateTierRow,
+  type EventActivityStats,
 } from './queries';
 import {
   toPoEvent,
@@ -291,6 +293,19 @@ export function usePoEventRecap(eventId: string) {
       ]);
       return toRecap(summary, guests, tiers);
     },
+  });
+}
+
+/** Per-tier + per-member stats for the event Activity section (86ey21vnd). */
+export function usePoEventActivity(
+  eventId: string,
+  options?: { enabled?: boolean; refetchInterval?: number }
+) {
+  return useQuery<EventActivityStats>({
+    queryKey: poKeys.eventActivity(eventId),
+    enabled: !!eventId && (options?.enabled ?? true),
+    refetchInterval: options?.refetchInterval,
+    queryFn: () => fetchPoEventActivityStats(createClient(), eventId),
   });
 }
 

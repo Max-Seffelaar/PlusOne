@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
-import type { EventSummary, TierStat } from '@/features/stats/data';
+import type { EventSummary, TierStat, UserAddition } from '@/features/stats/data';
 import { describeAuditEntry, type AuditLine } from '@/features/audit/translate';
 import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
 import { chunkIds, fetchAllRanged } from '@/lib/supabase/paging';
@@ -393,6 +393,25 @@ export async function fetchPastEventStats(
     client.rpc('event_tier_stats', { p_event_id: eventId }),
   ]);
   return { summary: summary.data ?? null, tiers: tiers.data ?? [] };
+}
+
+export interface EventActivityStats {
+  tiers: TierStat[];
+  members: UserAddition[];
+}
+
+/** Per-tier + per-member stats for the event Activity section (86ey21vnd).
+ *  Both RPCs are SECURITY DEFINER, self-gated on can_read_event_stats
+ *  (admin/finance/organizer); out-of-scope callers receive empty arrays. */
+export async function fetchPoEventActivityStats(
+  client: Client,
+  eventId: string
+): Promise<EventActivityStats> {
+  const [tiers, members] = await Promise.all([
+    client.rpc('event_tier_stats', { p_event_id: eventId }),
+    client.rpc('event_user_additions', { p_event_id: eventId }),
+  ]);
+  return { tiers: tiers.data ?? [], members: members.data ?? [] };
 }
 
 export interface EventEditRow {
