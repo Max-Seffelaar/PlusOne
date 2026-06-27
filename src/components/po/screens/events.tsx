@@ -72,7 +72,7 @@ export function Events(): JSX.Element {
   const months = [...new Set(evs.map((e) => e.month))];
   return (
     <div className={col}>
-      <Top big title={t.events.title} right={<IconBtn name="search" />} />
+      <Top big title={t.events.title} onBack={nav.canGoBack ? nav.back : undefined} right={<IconBtn name="search" />} />
       <div className="flex flex-none items-center gap-2 px-5 pb-[14px]">
         {([['upcoming', t.events.tabUpcoming], ['past', t.events.tabPast]] as const).map(([k, l]) => (
           <button

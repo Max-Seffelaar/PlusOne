@@ -61,6 +61,9 @@ export interface Nav {
   /** Open the Deur tab for a SPECIFIC event (S1.3) — "Check-in" from an event card
    *  must land on that event's door, not the venue-wide auto-pick. */
   openDoor: (eventId: string) => void;
+  /** True when there is in-app navigation history to go back to. Screens can use
+   *  this to show or hide a back button without knowing the full nav state. */
+  canGoBack: boolean;
 }
 
 export type AuthView = 'welcome' | 'login' | 'otp' | 'mfa' | 'invite';
