@@ -10,12 +10,14 @@ import {
   addContactToEventSchema,
   importContactsSchema,
   forgetContactSchema,
+  promoteGuestToContactSchema,
   type UpsertContactInput,
   type TogglePermanentInput,
   type SyncPermanentInput,
   type AddContactToEventInput,
   type ImportContactsInput,
   type ForgetContactInput,
+  type PromoteGuestToContactInput,
 } from './schemas';
 
 export type ActionResult = { ok: true } | MutationError;
@@ -219,4 +221,29 @@ export async function importContacts(input: ImportContactsInput): Promise<Import
     updated: r.updated ?? 0,
     skipped: r.skipped ?? 0,
   };
+}
+
+/**
+ * Explicit promote: create a contact from a name-only guest (no dedup key needed).
+ * Calls the promote_guest_to_contact SECURITY DEFINER RPC (20260625100000).
+ * When the guest already has email/phone the trigger path (updateGuest) is preferred;
+ * this is the fallback for truly name-only guests.
+ */
+export async function promoteGuestToContact(input: PromoteGuestToContactInput): Promise<ActionResult> {
+  const parsed = promoteGuestToContactSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return unauthorized();
+
+  const { error } = await supabase.rpc('promote_guest_to_contact', {
+    p_guest_id: parsed.data.guestId,
+  });
+  if (error) return mapMutationError(error);
+
+  revalidatePath(APP_PATH);
+  return { ok: true };
 }

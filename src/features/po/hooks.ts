@@ -48,6 +48,10 @@ import {
   fetchTemplate,
   fetchTemplateTiers,
   fetchOrganizesAtVenue,
+  fetchEventCrew,
+  fetchAssignableCrew,
+  type PoCrewMember,
+  fetchPoEventActivityStats,
   type EventEditRow,
   type CheckinArrival,
   type RecentCheckinRow,
@@ -58,6 +62,7 @@ import {
   type PoTemplateRow,
   type PoTemplateDetail,
   type PoTemplateTierRow,
+  type EventActivityStats,
 } from './queries';
 import {
   toPoEvent,
@@ -296,6 +301,19 @@ export function usePoEventRecap(eventId: string) {
   });
 }
 
+/** Per-tier + per-member stats for the event Activity section (86ey21vnd). */
+export function usePoEventActivity(
+  eventId: string,
+  options?: { enabled?: boolean; refetchInterval?: number }
+) {
+  return useQuery<EventActivityStats>({
+    queryKey: poKeys.eventActivity(eventId),
+    enabled: !!eventId && (options?.enabled ?? true),
+    refetchInterval: options?.refetchInterval,
+    queryFn: () => fetchPoEventActivityStats(createClient(), eventId),
+  });
+}
+
 /** Tiers for an event, with live occupancy ("used" = entries not removed/denied). */
 export function usePoTiers(eventId: string) {
   return useQuery<Tier[]>({
@@ -369,6 +387,26 @@ export function usePoEventForEdit(eventId: string) {
   });
   const isAdmin = roles.includes('admin');
   return { ...query, isAdmin, canManage: isAdmin || !!query.data?.isOrganizer };
+}
+
+/** External crew (event_organizers, #6/#24) assigned to an event. RLS limits reads
+ *  to members of the event's venue (or the organizer themself). */
+export function usePoCrew(eventId: string) {
+  return useQuery<PoCrewMember[]>({
+    queryKey: poKeys.crew(eventId),
+    enabled: !!eventId,
+    queryFn: () => fetchEventCrew(createClient(), eventId),
+  });
+}
+
+/** Team members who can still be added as crew of this event (for the "add an
+ *  existing member" path); excludes anyone already on the crew. */
+export function usePoAssignableCrew(eventId: string) {
+  return useQuery<PoCrewMember[]>({
+    queryKey: poKeys.assignableCrew(eventId),
+    enabled: !!eventId,
+    queryFn: () => fetchAssignableCrew(createClient(), eventId),
+  });
 }
 
 /** Guests for an event, with each role badge resolved from its tier. */

@@ -43,6 +43,14 @@ insert into public.event_organizers (event_id, user_id) values
   ('ee000000-0000-7000-8000-0000000000f1', '11111111-1111-4111-8111-111111111111'),
   ('ee000000-0000-7000-8000-0000000000f2', '11111111-1111-4111-8111-111111111111');
 
+-- Max is only an ORGANIZER of this venue (not an admin member), and organizers are
+-- no longer quota-exempt (86ey21vre, migration 20260625120000). Give him a generous
+-- per-event quota so the seeded guest inserts below don't trip the fase-7 quota
+-- trigger — this fixture is about retention/anonymization, not quota.
+insert into public.event_quotas (event_id, user_id, quota_override) values
+  ('ee000000-0000-7000-8000-0000000000f1', '11111111-1111-4111-8111-111111111111', 100),
+  ('ee000000-0000-7000-8000-0000000000f2', '11111111-1111-4111-8111-111111111111', 100);
+
 insert into public.guest_tiers (id, event_id, name) values
   ('dd000000-0000-7000-8000-0000000000f1', 'ee000000-0000-7000-8000-0000000000f1', 'VIP'),
   ('dd000000-0000-7000-8000-0000000000f2', 'ee000000-0000-7000-8000-0000000000f1', 'Regular'),

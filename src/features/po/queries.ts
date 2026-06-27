@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
-import type { EventSummary, TierStat } from '@/features/stats/data';
+import type { EventSummary, TierStat, UserAddition } from '@/features/stats/data';
 import { describeAuditEntry, type AuditLine } from '@/features/audit/translate';
 import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
 import { chunkIds, fetchAllRanged } from '@/lib/supabase/paging';
@@ -432,6 +432,25 @@ export async function fetchPastEventStats(
   return { summary: summary.data ?? null, tiers: tiers.data ?? [] };
 }
 
+export interface EventActivityStats {
+  tiers: TierStat[];
+  members: UserAddition[];
+}
+
+/** Per-tier + per-member stats for the event Activity section (86ey21vnd).
+ *  Both RPCs are SECURITY DEFINER, self-gated on can_read_event_stats
+ *  (admin/finance/organizer); out-of-scope callers receive empty arrays. */
+export async function fetchPoEventActivityStats(
+  client: Client,
+  eventId: string
+): Promise<EventActivityStats> {
+  const [tiers, members] = await Promise.all([
+    client.rpc('event_tier_stats', { p_event_id: eventId }),
+    client.rpc('event_user_additions', { p_event_id: eventId }),
+  ]);
+  return { tiers: tiers.data ?? [], members: members.data ?? [] };
+}
+
 export interface EventEditRow {
   id: string;
   name: string;
@@ -567,6 +586,79 @@ export async function fetchTiersWithUsage(
   }
 
   return (tiers ?? []).map((t) => ({ ...t, used: used.get(t.id) ?? 0 }));
+}
+
+// ── External crew (event_organizers, #6/#24) ─────────────────────────────────
+// People scoped to ONE event (a DJ, artist, guest organizer) — surfaced as
+// "External crew", distinct from venue-wide Team. Reads mirror the server
+// getEventOrganizers/getAssignableMembers; RLS limits visibility (members of the
+// event's venue, or the organizer themself) and writes (admin) — these only shape
+// rows for the UI. Client-agnostic like the rest of this module.
+
+export interface PoCrewMember {
+  userId: string;
+  fullName: string;
+  email: string;
+  /** Per-event guest quota (event_quotas.quota_override); 0 = none set. */
+  quota: number;
+}
+
+/** Crew (event_organizers) on an event, with each member's guest quota, name-sorted. */
+export async function fetchEventCrew(client: Client, eventId: string): Promise<PoCrewMember[]> {
+  const [{ data: crew }, { data: quotas }] = await Promise.all([
+    client.from('event_organizers').select('user_id, user_profiles(full_name, email)').eq('event_id', eventId),
+    // event_quotas RLS: admin/finance read all for the venue's events (a member
+    // reads only their own row) — a non-admin viewer just sees 0 here, which is fine.
+    client.from('event_quotas').select('user_id, quota_override').eq('event_id', eventId),
+  ]);
+
+  const quotaByUser = new Map((quotas ?? []).map((q) => [q.user_id, q.quota_override]));
+  return (crew ?? [])
+    .map((row) => ({
+      userId: row.user_id,
+      fullName: row.user_profiles?.full_name ?? '—',
+      email: row.user_profiles?.email ?? '—',
+      quota: quotaByUser.get(row.user_id) ?? 0,
+    }))
+    .sort((a, b) => a.fullName.localeCompare(b.fullName));
+}
+
+/**
+ * The pool for "add a returning external crew member": people who are external
+ * crew on ANY event at this event's venue, EXCLUDING venue Team members (they
+ * already work every event) and anyone already on THIS event. Resolves the event's
+ * venue first (so it works even when that venue isn't the caller's active one).
+ * RLS still decides what's actually visible. (Search is applied client-side.)
+ */
+export async function fetchAssignableCrew(client: Client, eventId: string): Promise<PoCrewMember[]> {
+  const { data: ev } = await client.from('events').select('venue_id').eq('id', eventId).maybeSingle();
+  if (!ev) return [];
+  const venueId = ev.venue_id;
+
+  const [{ data: orgRows }, { data: members }, { data: current }] = await Promise.all([
+    client
+      .from('event_organizers')
+      .select('user_id, user_profiles(full_name, email), events!inner(venue_id)')
+      .eq('events.venue_id', venueId),
+    client.from('venue_memberships').select('user_id').eq('venue_id', venueId),
+    client.from('event_organizers').select('user_id').eq('event_id', eventId),
+  ]);
+
+  const memberIds = new Set((members ?? []).map((m) => m.user_id));
+  const currentIds = new Set((current ?? []).map((c) => c.user_id));
+  const seen = new Set<string>();
+  const pool: PoCrewMember[] = [];
+  for (const r of orgRows ?? []) {
+    if (memberIds.has(r.user_id) || currentIds.has(r.user_id) || seen.has(r.user_id)) continue;
+    seen.add(r.user_id);
+    pool.push({
+      userId: r.user_id,
+      fullName: r.user_profiles?.full_name ?? '—',
+      email: r.user_profiles?.email ?? '—',
+      quota: 0,
+    });
+  }
+  return pool.sort((a, b) => a.fullName.localeCompare(b.fullName));
 }
 
 // ── Event templates (86exyp8gn) ──────────────────────────────────────────────

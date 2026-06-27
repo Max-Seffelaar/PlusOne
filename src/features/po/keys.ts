@@ -21,6 +21,10 @@ export const poKeys = {
    *  venue + the joined event-id set so it re-reads when the event set changes. */
   venueGuests: (venueId: string, eventKey: string) => [...poKeys.all, 'venue-guests', venueId, eventKey] as const,
   tiers: (eventId: string) => [...poKeys.all, 'tiers', eventId] as const,
+  // External crew (event_organizers, #6/#24) for an event + the assignable
+  // team-member pool for the "add an existing member" path. Both key on the event.
+  crew: (eventId: string) => [...poKeys.all, 'crew', eventId] as const,
+  assignableCrew: (eventId: string) => [...poKeys.all, 'assignable-crew', eventId] as const,
   /** Live event-day stats (per-quarter instroom + peak) for the cockpit (S13). */
   eventStats: (eventId: string) => [...poKeys.all, 'event-stats', eventId] as const,
   /** Active check-in arrivals per guest (actual present koppen + partial) — cockpit (S13). */
@@ -63,4 +67,6 @@ export const poKeys = {
     [...poKeys.all, 'audit', venueId, filters] as const,
   auditOptions: (venueId: string) => [...poKeys.all, 'audit-options', venueId] as const,
   guestHistory: (guestId: string) => [...poKeys.all, 'guest-history', guestId] as const,
+  /** Per-tier + per-member stats for the event Activity section (86ey21vnd). */
+  eventActivity: (eventId: string) => [...poKeys.all, 'event-activity', eventId] as const,
 } as const;

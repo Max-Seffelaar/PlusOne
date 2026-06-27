@@ -25,6 +25,7 @@ export type ScreenName =
   | 'aanvragen'
   | 'eventedit'
   | 'tiers'
+  | 'crew'
   | 'gebruikers'
   | 'pastevent'
   | 'venueswitch'

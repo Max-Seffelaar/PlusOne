@@ -163,31 +163,51 @@ export type UpdateTierInput = z.input<typeof updateTierSchema>;
 export const deleteTierSchema = z.object({ tierId: uuid });
 export type DeleteTierInput = z.input<typeof deleteTierSchema>;
 
-// ── Organizers (#6/#24) ──────────────────────────────────────────────────────
+// ── External crew (event_organizers, #6/#24 + 86ey21vre) ─────────────────────
+// "External crew" = event-scoped people (a DJ, artist, guest organizer). They are
+// no longer quota-exempt (migration 20260625120000), so add/invite carry an
+// optional per-event guest quota written to event_quotas.quota_override.
+
+// How many guests an external crew member may add to the event (event_quotas
+// override). Optional on add/invite (omit = no override, i.e. limit 0).
+const crewQuota = z.number().int('Quota must be a whole number').min(0).max(9999);
+
+const crewEmail = z
+  .string()
+  .trim()
+  .min(1, 'Enter an email')
+  .max(254)
+  .email('Invalid email')
+  .transform((v) => v.toLowerCase());
 
 export const assignOrganizerSchema = z.object({
   eventId: uuid,
   userId: uuid,
+  quota: crewQuota.optional(),
 });
 export type AssignOrganizerInput = z.input<typeof assignOrganizerSchema>;
 
-export const inviteOrganizerSchema = z.object({
-  eventId: uuid,
-  email: z
-    .string()
-    .trim()
-    .min(1, 'Enter an email')
-    .max(254)
-    .email('Invalid email')
-    .transform((v) => v.toLowerCase()),
+/** Invite a brand-new external crew member by email, to one or more events. */
+export const inviteExternalCrewSchema = z.object({
+  email: crewEmail,
+  eventIds: z.array(uuid).min(1, 'Pick at least one event'),
+  quota: crewQuota.optional(),
 });
-export type InviteOrganizerInput = z.input<typeof inviteOrganizerSchema>;
+export type InviteExternalCrewInput = z.input<typeof inviteExternalCrewSchema>;
 
 export const removeOrganizerSchema = z.object({
   eventId: uuid,
   userId: uuid,
 });
 export type RemoveOrganizerInput = z.input<typeof removeOrganizerSchema>;
+
+/** Set (or clear) an external crew member's per-event guest quota. */
+export const setEventUserQuotaSchema = z.object({
+  eventId: uuid,
+  userId: uuid,
+  quota: crewQuota,
+});
+export type SetEventUserQuotaInput = z.input<typeof setEventUserQuotaSchema>;
 
 // ── Event templates (86exyp8gn) ──────────────────────────────────────────────
 // A named, reusable per-event-type setup: a tier set + a hard total capacity +

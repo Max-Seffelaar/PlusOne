@@ -126,7 +126,10 @@ insert into public.quotas (venue_id, user_id, default_count) values
   ('aa000000-0000-7000-8000-000000000001', '66666666-6666-4666-8666-666666666666', 5);
 
 insert into public.event_quotas (event_id, user_id, quota_override) values
-  ('ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555', 12);
+  ('ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555', 12),
+  -- Yusuf (organizer / external crew) is no longer quota-exempt (86ey21vre); give
+  -- him an explicit per-event guest limit so the seed reflects the new model.
+  ('ee000000-0000-7000-8000-000000000001', '44444444-4444-4444-8444-444444444444', 10);
 
 insert into public.quota_requests (event_id, user_id, requested_extra) values
   ('ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555', 3);

@@ -412,6 +412,8 @@ export type ContactEventStatus = 'inside' | 'onTheWay' | 'refused';
 
 export interface PoProfileEvent {
   eventId: string;
+  /** Guest row for this appearance — used for tier changes. */
+  guestId: string;
   name: string;
   /** "Sat 14 Dec 2024" (Amsterdam). */
   dateLabel: string;
@@ -512,6 +514,7 @@ export function toPoContactProfile(
       const active = a.checkIns.find((c) => c.voidedAt == null) ?? null;
       return {
         eventId: a.eventId,
+        guestId: a.guestId,
         name: a.eventName,
         dateLabel: capitalize(
           // en-GB renders the weekday+year form as "Sat, 14 Dec 2024" — drop the
