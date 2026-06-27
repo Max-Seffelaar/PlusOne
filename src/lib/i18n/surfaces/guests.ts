@@ -22,6 +22,9 @@ export const guests = {
     createBtn: 'Create tier',
     nameLabel: 'Name',
     namePlaceholder: 'e.g. "Regular" or "Guest list"',
+    colorLabel: 'Color',
+    priceLabel: 'Door price · optional',
+    pricePlaceholder: '0.00',
     aliasLabel: 'Alias · optional, feeds the quick-add',
     aliasPlaceholder: 'guest, regular, door…',
     busy: 'Creating…',
@@ -86,6 +89,7 @@ export const guests = {
     inputLabel: 'Type freely: name, +guests, tier',
     inputPlaceholder: 'e.g. "Juri Braakman +2 vip"',
     ambiguityQuestion: 'Not sure what you mean by "{x}". Pick one:',
+    tierPickQuestion: 'Which tier for this guest?',
     choiceDefault: 'Default',
     choiceName: 'Part of the name',
     // Already-on-list (duplicate) handling. The guest's name renders in its own

@@ -44,8 +44,10 @@ import { venueCapabilities } from '@/features/venues/access';
 import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../context';
 import { Icon, type IconName } from '../icon';
+import PhoneInput from 'react-phone-number-input/input';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, PayChip, RoleChip, Scroll, StatusDot, Stepper, Top } from '../kit';
 import { BottomBar, Sheet } from '../shell';
+import { CountrySelect, type CountryCode } from '../country-select';
 
 const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
@@ -80,22 +82,30 @@ function DupeOption({ on, onClick, title, sub }: { on: boolean; onClick: () => v
 // `canCreate` mirrors the guest_tiers_insert RLS (admin OR event organizer,
 // surfaced via the quota `exempt` flag); everyone else gets a "ask a beheerder"
 // note instead of a button that would only fail with a 42501.
+const TIER_COLORS = ['#B5A6FF', '#9DE0C0', '#E8C98A', '#9FB8E8', '#E89AC0', '#8E8E93'];
+
 function NoTiersBlock({ eventId, canCreate, className }: { eventId: string; canCreate: boolean; className?: string }): JSX.Element {
   const createTier = usePoCreateTier(eventId);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [alias, setAlias] = useState('');
+  const [color, setColor] = useState('#B5A6FF');
+  const [price, setPrice] = useState('');
   const [err, setErr] = useState<string | null>(null);
 
   const submit = async (): Promise<void> => {
     const nm = name.trim();
     if (!nm || createTier.isPending) return;
     setErr(null);
+    const priceNum = Number.parseFloat(price.replace(',', '.'));
+    const doorPriceCents =
+      price.trim() && Number.isFinite(priceNum) && priceNum > 0 ? Math.round(priceNum * 100) : null;
     try {
       await createTier.mutateAsync({
         eventId,
         name: nm,
-        color: '#B5A6FF',
+        color,
+        doorPriceCents: doorPriceCents ?? undefined,
         aliases: alias.split(',').map((a) => a.trim()).filter(Boolean),
       });
       // Success needs no follow-up: the tiers query invalidates → the parent
@@ -129,6 +139,25 @@ function NoTiersBlock({ eventId, canCreate, className }: { eventId: string; canC
           <div>
             <Label className="mb-2">{t.guests.tierCreate.nameLabel}</Label>
             <Field autoFocus placeholder={t.guests.tierCreate.namePlaceholder} value={name} onChange={setName} maxLength={80} />
+          </div>
+          <div>
+            <Label className="mb-2">{t.guests.tierCreate.colorLabel}</Label>
+            <div className="flex gap-[9px]">
+              {TIER_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setColor(c)}
+                  className="h-[30px] w-[30px] cursor-pointer rounded-full transition-[filter] hover:brightness-[1.1]"
+                  style={{ background: c, border: '2px solid ' + (color === c ? '#FFFFFF' : 'transparent') }}
+                  aria-label={c}
+                />
+              ))}
+            </div>
+          </div>
+          <div>
+            <Label className="mb-2">{t.guests.tierCreate.priceLabel}</Label>
+            <Field placeholder={t.guests.tierCreate.pricePlaceholder} value={price} onChange={setPrice} inputMode="numeric" />
           </div>
           <div>
             <Label className="mb-2">{t.guests.tierCreate.aliasLabel}</Label>
@@ -528,8 +557,10 @@ function GuestTable({
                   )}
                   style={{ position: 'absolute', top: 0, left: 0, transform: `translateY(${vi.start}px)` }}
                 >
-                  <td className="!pl-3">
-                    {/* Clicking the checkbox always toggles (enters select mode if needed). */}
+                  <td
+                    className="!pl-3"
+                    onClick={(e) => { e.stopPropagation(); onToggle(g.id); }}
+                  >
                     <button
                       type="button"
                       onClick={(e) => {
@@ -648,7 +679,8 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   // null until the user picks how to handle a name that's already on the list.
   const [dupeMode, setDupeMode] = useState<DupeMode | null>(null);
   const [contactEmail, setContactEmail] = useState('');
-  const [contactPhone, setContactPhone] = useState('');
+  const [contactPhone, setContactPhone] = useState<string | undefined>(undefined);
+  const [contactCountry, setContactCountry] = useState<CountryCode>('NL');
 
   const qaTiers: QuickAddTier[] = tiers.map((t) => ({ id: t.id, name: t.name, aliases: t.aliases }));
   const defaultTierId = resolveDefaultTierId(qaTiers);
@@ -662,7 +694,9 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
 
   const effName = (resolved ? resolved.name : parsed?.name ?? '').trim();
   const effPlus = resolved ? resolved.plusOnes : parsed?.plusOnes ?? 0;
-  const effTierId = resolved?.tierId ?? parsed?.tierId ?? defaultTierId ?? '';
+  // When needsTierPick fires, `choice` is set to the user's pick — so we also
+  // check choice.tierId for non-ambiguous parses (bare name + multi-tier event).
+  const effTierId = resolved?.tierId ?? (choice?.kind === 'tier' ? choice.tierId : undefined) ?? parsed?.tierId ?? defaultTierId ?? '';
   const effTier = tiers.find((t) => t.id === effTierId);
   const cost = 1 + effPlus;
 
@@ -688,11 +722,13 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const canAdd = exempt || canManageGuests(roles);
   const reqShortfall = remaining !== null ? Math.max(1, cost - remaining) : 1;
   const needsAsk = !!isAmbiguous && !choice;
+  // Bare name on a multi-tier event: don't silently assign the default — ask which tier.
+  const needsTierPick = parsed?.status === 'ok' && parsed.matchedVia === 'default' && tiers.length > 1 && !choice && !dupe;
   // Quota only gates the INSERT path; an add/replace on an existing guest is a
   // delta the DB enforces, so don't block it on the new-guest cost.
   const blockForQuota = overQuota && willInsert;
   const canSubmit =
-    !add.isPending && !update.isPending && !!defaultTierId && !!evId && effName !== '' && !needsAsk && !needsDupeChoice && !blockForQuota;
+    !add.isPending && !update.isPending && !!defaultTierId && !!evId && effName !== '' && !needsAsk && !needsTierPick && !needsDupeChoice && !blockForQuota;
 
   const onInput = (v: string): void => {
     setVal(v);
@@ -700,7 +736,8 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
     setDupeMode(null);
     setReqOpen(false);
     setContactEmail('');
-    setContactPhone('');
+    setContactPhone(undefined);
+    setContactCountry('NL');
     reqExtra.reset();
   };
 
@@ -708,7 +745,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
     if (!canSubmit || !effTier) return;
     // Prefer parsed email/phone from the text; fall back to the optional contact fields.
     const emailVal = parsed?.email ?? (contactEmail.trim() || undefined);
-    const phoneVal = parsed?.phone ?? (contactPhone.trim() || undefined);
+    const phoneVal = parsed?.phone ?? contactPhone ?? undefined;
     // Reuse the bulk planner with a single row, so quick + bulk split inserts vs
     // plus-ones updates identically. mode defaults to 'again' when there's no dupe.
     const row: BulkRowInput = {
@@ -763,7 +800,8 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
           setChoice(null);
           setDupeMode(null);
           setContactEmail('');
-          setContactPhone('');
+          setContactPhone(undefined);
+          setContactCountry('NL');
         },
       },
     );
@@ -830,14 +868,14 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                 <div className="mt-[13px] flex flex-wrap gap-[7px]">
                   <PreviewChip icon="user" label={effName || '—'} />
                   {effPlus > 0 && <PreviewChip icon="users" label={`+${effPlus}`} />}
-                  {!needsAsk && effTier && <PreviewChip dot={effTier.color} label={effTier.short} />}
+                  {!needsAsk && !needsTierPick && effTier && <PreviewChip dot={effTier.color} label={effTier.short} />}
                   {needsAsk && parsed.ambiguous && (
                     <MiniChip className="border-dashed border-acc text-text">{'“'}{parsed.ambiguous.text}{'”'} ?</MiniChip>
                   )}
                 </div>
               )}
-              {parsed && !needsAsk && !dupe && effName && !parsed.email && !parsed.phone && (
-                <div className="mt-[10px] flex gap-[8px] border-t border-white/[0.08] pt-[10px]">
+              {parsed && !needsAsk && !needsTierPick && !dupe && effName && !parsed.email && !parsed.phone && (
+                <div className="mt-[10px] flex flex-col gap-[8px] border-t border-white/[0.08] pt-[10px]">
                   <input
                     type="email"
                     inputMode="email"
@@ -845,17 +883,25 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                     value={contactEmail}
                     onChange={(e) => setContactEmail(e.target.value)}
                     placeholder={t.guests.add.contactEmailPlaceholder}
-                    className="min-w-0 flex-1 rounded-[10px] border border-line bg-bg px-[11px] py-[8px] text-[13px] text-text outline-none placeholder:text-faint focus:border-acc"
+                    className="w-full rounded-[10px] border border-line bg-bg px-[11px] py-[8px] text-[13px] text-text outline-none placeholder:text-faint focus:border-acc"
                   />
-                  <input
-                    type="tel"
-                    inputMode="tel"
-                    autoComplete="off"
-                    value={contactPhone}
-                    onChange={(e) => setContactPhone(e.target.value)}
-                    placeholder={t.guests.add.contactPhonePlaceholder}
-                    className="min-w-0 flex-1 rounded-[10px] border border-line bg-bg px-[11px] py-[8px] text-[13px] text-text outline-none placeholder:text-faint focus:border-acc"
-                  />
+                  <div className="flex items-center gap-[8px] rounded-[10px] border border-line bg-bg px-[9px] py-[6px] transition-colors focus-within:border-acc">
+                    <CountrySelect
+                      value={contactCountry}
+                      onChange={(c) => {
+                        setContactCountry(c);
+                        setContactPhone(undefined);
+                      }}
+                    />
+                    <span className="h-4 w-px shrink-0 bg-line" />
+                    <PhoneInput
+                      country={contactCountry}
+                      value={contactPhone}
+                      onChange={setContactPhone}
+                      placeholder={t.guests.add.contactPhonePlaceholder}
+                      className="min-w-0 flex-1 border-none bg-transparent text-[13px] text-text outline-none placeholder:text-faint"
+                    />
+                  </div>
                 </div>
               )}
             </div>
@@ -886,6 +932,28 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                     <span className="flex-1 text-left font-display text-[14.5px] font-bold">{t.guests.add.choiceName}</span>
                     <Icon name="chev" size={16} className="text-ghost" />
                   </button>
+                </div>
+              </div>
+            )}
+
+            {needsTierPick && (
+              <div className="mt-3 rounded-[16px] bg-acc-dim p-[14px]">
+                <div className="mb-[11px] text-[13.5px] leading-[1.45] text-text">
+                  {t.guests.add.tierPickQuestion}
+                </div>
+                <div className="flex flex-col gap-2">
+                  {tiers.map((tier) => (
+                    <button
+                      key={tier.id}
+                      type="button"
+                      onClick={() => setChoice({ kind: 'tier', tierId: tier.id })}
+                      className={cn('flex items-center gap-[10px] rounded-[12px] border border-line bg-bg px-[13px] py-[12px] text-text', press)}
+                    >
+                      <span className="h-[10px] w-[10px] rounded-full" style={{ background: tier.color }} />
+                      <span className="flex-1 text-left font-display text-[14.5px] font-bold">{tier.name}</span>
+                      <Icon name="chev" size={16} className="text-ghost" />
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
