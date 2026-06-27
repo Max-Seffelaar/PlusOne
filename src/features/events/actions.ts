@@ -20,8 +20,9 @@ import {
   updateTierSchema,
   deleteTierSchema,
   assignOrganizerSchema,
-  inviteOrganizerSchema,
+  inviteExternalCrewSchema,
   removeOrganizerSchema,
+  setEventUserQuotaSchema,
   createTemplateSchema,
   updateTemplateSchema,
   deleteTemplateSchema,
@@ -42,8 +43,9 @@ import {
   type UpdateTierInput,
   type DeleteTierInput,
   type AssignOrganizerInput,
-  type InviteOrganizerInput,
+  type InviteExternalCrewInput,
   type RemoveOrganizerInput,
+  type SetEventUserQuotaInput,
   type CreateTemplateInput,
   type UpdateTemplateInput,
   type DeleteTemplateInput,
@@ -73,14 +75,6 @@ function revalidateEvent(id: string): void {
   revalidatePath(listPath);
   revalidatePath(managePath(id));
   revalidatePath(guestsPath(id));
-}
-
-// Sensitive event-scope grants (organizer assign/remove) require AAL2 — RLS
-// enforces it, but we check up front for a precise message (mirrors invite flow).
-function aal2Gate(isAal2: boolean): MutationError | null {
-  return isAal2
-    ? null
-    : { ok: false, code: 'aal2_required', message: 'This action needs MFA. Verify with your authenticator first.' };
 }
 
 function alreadyRegistered(error: { code?: string; status?: number; message?: string }): boolean {
@@ -385,50 +379,65 @@ export async function deleteTier(input: DeleteTierInput): Promise<ActionResult> 
   return { ok: true };
 }
 
-// ── Organizers (#6/#24) ──────────────────────────────────────────────────────
+// ── External crew (event_organizers, #6/#24 + 86ey21vre) ─────────────────────
+// "External crew" = event-scoped people (DJ/artist/guest organizer). Writes are
+// admin role-only (RLS, AAL2 dropped 2026-06-24). They are no longer quota-exempt
+// (migration 20260625120000), so add/invite carry an optional per-event guest
+// quota written to event_quotas.quota_override.
 
-/** Assign an existing user as organizer (admin + AAL2 — RLS). */
+type ServerClient = Awaited<ReturnType<typeof createClient>>;
+
+/** Upsert a crew member's per-event guest quota (event_quotas, PK event+user). */
+async function upsertCrewQuota(supabase: ServerClient, eventId: string, userId: string, quota: number) {
+  return supabase
+    .from('event_quotas')
+    .upsert({ event_id: eventId, user_id: userId, quota_override: quota }, { onConflict: 'event_id,user_id' });
+}
+
+/** Add an existing (external) user as crew of an event, with an optional guest
+ *  quota (admin — RLS; role-only since the #20 refinement 2026-06-24). */
 export async function assignOrganizer(input: AssignOrganizerInput): Promise<ActionResult> {
   const parsed = assignOrganizerSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { eventId, userId } = parsed.data;
+  const { eventId, userId, quota } = parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
-  const gate = aal2Gate(ctx.isAal2);
-  if (gate) return gate;
 
   const { error } = await supabase
     .from('event_organizers')
     .insert({ event_id: eventId, user_id: userId });
   if (error) {
     if (error.code === '23505') {
-      return { ok: false, code: '23505', message: 'This user is already an organizer of this event.' };
+      return { ok: false, code: '23505', message: 'This person is already on this event’s crew.' };
     }
     return mapMutationError(error);
+  }
+  if (quota !== undefined) {
+    const { error: qErr } = await upsertCrewQuota(supabase, eventId, userId, quota);
+    if (qErr) return mapMutationError(qErr);
   }
   revalidateEvent(eventId);
   return { ok: true };
 }
 
 /**
- * Invite a new (possibly external, #24) organizer by e-mail. Mirrors the venue
- * invite flow: the auth identity + a profile row are provisioned server-side
- * (service role — the documented exception, so invite-only OTP login works and
- * the FK resolves), then the event_organizers scope is written through the
- * USER-scoped client so RLS (admin + AAL2) re-validates. No venue membership is
- * created — an external organizer stays out of the venue (#24).
+ * Invite a brand-new external (#24) crew member by e-mail and add them to one or
+ * more events, each with an optional guest quota. Mirrors the venue invite flow:
+ * the auth identity + profile are provisioned server-side (service role — the
+ * documented exception, so invite-only OTP login works and the FK resolves), then
+ * each event_organizers scope + event_quotas override is written through the
+ * USER-scoped client so RLS (admin) re-validates. No venue membership is created —
+ * external crew stay out of the venue (#24).
  */
-export async function inviteOrganizer(input: InviteOrganizerInput): Promise<ActionResult> {
-  const parsed = inviteOrganizerSchema.safeParse(input);
+export async function inviteExternalCrew(input: InviteExternalCrewInput): Promise<ActionResult> {
+  const parsed = inviteExternalCrewSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { eventId, email } = parsed.data;
+  const { email, eventIds, quota } = parsed.data;
 
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
-  const gate = aal2Gate(ctx.isAal2);
-  if (gate) return gate;
 
   const fullName = email.split('@')[0];
   const service = createServiceClient();
@@ -440,22 +449,21 @@ export async function inviteOrganizer(input: InviteOrganizerInput): Promise<Acti
 
   if (createError) {
     if (alreadyRegistered(createError)) {
-      // The account already exists (e.g. at another venue). We deliberately do
-      // not resolve their id server-side; guide the admin to the existing-user
-      // path instead — no enumeration, no service-role profile snooping.
+      // The account already exists. We deliberately don't resolve their id
+      // server-side (no enumeration); steer the admin to the returning-crew list.
       return {
         ok: false,
         code: 'exists',
         message:
-          'This email already has an account. Have them log in once, then link them as an existing user.',
+          'This email already has an account. If they’ve worked here before, add them from the returning-crew list instead.',
       };
     }
-    console.error('inviteOrganizer: createUser failed', createError.message);
+    console.error('inviteExternalCrew: createUser failed', createError.message);
     return { ok: false, code: 'invite', message: "Couldn't create the invite. Try again." };
   }
 
-  const organizerUserId = created?.user?.id;
-  if (!organizerUserId) {
+  const crewUserId = created?.user?.id;
+  if (!crewUserId) {
     return { ok: false, code: 'invite', message: "Couldn't create the invite. Try again." };
   }
 
@@ -463,27 +471,45 @@ export async function inviteOrganizer(input: InviteOrganizerInput): Promise<Acti
   // owns it from first login (decision #24); accept_pending_invites leaves it be.
   const { error: profileError } = await service
     .from('user_profiles')
-    .upsert({ id: organizerUserId, full_name: fullName, email }, { onConflict: 'id', ignoreDuplicates: true });
+    .upsert({ id: crewUserId, full_name: fullName, email }, { onConflict: 'id', ignoreDuplicates: true });
   if (profileError) {
-    console.error('inviteOrganizer: profile upsert failed', profileError.message);
+    console.error('inviteExternalCrew: profile upsert failed', profileError.message);
     return { ok: false, code: 'invite', message: "Couldn't record the invite." };
   }
 
   const supabase = await createClient();
-  const { error } = await supabase
-    .from('event_organizers')
-    .insert({ event_id: eventId, user_id: organizerUserId });
-  if (error) {
-    if (error.code === '23505') {
-      return { ok: false, code: '23505', message: 'This person is already an organizer of this event.' };
+  for (const eventId of eventIds) {
+    const { error } = await supabase
+      .from('event_organizers')
+      .insert({ event_id: eventId, user_id: crewUserId });
+    // A fresh account can't already be crew; tolerate 23505 defensively per event.
+    if (error && error.code !== '23505') return mapMutationError(error);
+    if (quota !== undefined) {
+      const { error: qErr } = await upsertCrewQuota(supabase, eventId, crewUserId, quota);
+      if (qErr) return mapMutationError(qErr);
     }
-    return mapMutationError(error);
+    revalidateEvent(eventId);
   }
+  return { ok: true };
+}
+
+/** Set (or change) an external crew member's per-event guest quota (admin — RLS). */
+export async function setEventUserQuota(input: SetEventUserQuotaInput): Promise<ActionResult> {
+  const parsed = setEventUserQuotaSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  const { eventId, userId, quota } = parsed.data;
+
+  const supabase = await createClient();
+  const ctx = await getAuthContext();
+  if (!ctx) return unauthorized();
+
+  const { error } = await upsertCrewQuota(supabase, eventId, userId, quota);
+  if (error) return mapMutationError(error);
   revalidateEvent(eventId);
   return { ok: true };
 }
 
-/** Remove an organizer scope (admin + AAL2 — RLS). The user/account is untouched (#24). */
+/** Remove a crew scope (admin — RLS, role-only since #20 2026-06-24). The user/account is untouched (#24). */
 export async function removeOrganizer(input: RemoveOrganizerInput): Promise<ActionResult> {
   const parsed = removeOrganizerSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
@@ -492,8 +518,6 @@ export async function removeOrganizer(input: RemoveOrganizerInput): Promise<Acti
   const supabase = await createClient();
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
-  const gate = aal2Gate(ctx.isAal2);
-  if (gate) return gate;
 
   const { error, count } = await supabase
     .from('event_organizers')

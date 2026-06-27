@@ -34,6 +34,7 @@ import {
 } from '@/features/po/hooks';
 import {
   usePoInviteUser,
+  usePoInviteExternalCrew,
   usePoRevokeInvite,
   usePoUpdateMemberRoles,
   usePoRemoveMember,
@@ -113,8 +114,24 @@ export function Meer(): JSX.Element {
   const nav = useNav();
   const { venue, statsVenues, myVenues } = usePo();
   const { venueName, roles } = usePoIdentity();
-  const canAudit = venueCapabilities(roles).viewAudit;
+  const caps = venueCapabilities(roles);
+  const isAdmin = roles.includes('admin');
+  const isFinance = roles.includes('finance');
   const canManageTemplates = usePoCanManageTemplates();
+  const canViewStats = statsVenues.length > 0;
+  // Only surface destinations the member can actually use, so an external-crew /
+  // organizer (roles:[]) sees just their accessible items instead of a wall of
+  // "no rights" rows (S6 feedback). RLS stays the real boundary; these mirror each
+  // target screen's own gate. canManageTemplates = admin OR organizer-at-venue.
+  const showRequests = isAdmin || canManageTemplates;
+  const showEvents = isAdmin || canManageTemplates;
+  const showContacts = caps.viewSettings || canManageTemplates;
+  const showImport = isAdmin || isFinance;
+  const showRegulars = isAdmin || isFinance;
+  const insightsAny = canViewStats || caps.viewAudit || showRequests;
+  const thisVenueAny =
+    showEvents || canManageTemplates || caps.viewSettings || caps.viewQuota || showRegulars || showContacts || showImport;
+  const teamAny = caps.viewTeam || isAdmin;
   const profile = usePoProfile();
   const subQ = usePoSubscription();
   const v = venue;
@@ -149,30 +166,48 @@ export function Meer(): JSX.Element {
         <Label className="mb-1">{t.sections.account}</Label>
         <Row icon="user" title={t.settings.more.profileTitle} sub={t.settings.more.profileSub} onClick={() => nav.push('profile')} />
 
-        <Label className="mb-1 mt-[22px]">{t.sections.insights}</Label>
-        {statsVenues.length > 0 && (
+        {insightsAny && <Label className="mb-1 mt-[22px]">{t.sections.insights}</Label>}
+        {canViewStats && (
           <Row icon="spark" title={t.settings.more.analyticsTitle} sub={t.settings.more.analyticsSub} onClick={() => nav.push('stats')} accent />
         )}
-        {canAudit && (
+        {caps.viewAudit && (
           <Row icon="history" title={t.settings.more.auditTitle} sub={t.settings.more.auditSub} onClick={() => nav.push('audit')} accent />
         )}
-        <Row icon="bell" title={t.settings.more.requestsTitle} sub={t.settings.more.requestsSub} onClick={() => nav.push('aanvragen')} accent />
+        {showRequests && (
+          <Row icon="bell" title={t.settings.more.requestsTitle} sub={t.settings.more.requestsSub} onClick={() => nav.push('aanvragen')} accent />
+        )}
 
-        <Label className="mb-1 mt-[22px]">{t.sections.thisVenue}</Label>
-        <Row icon="cal" title={t.settings.more.eventsTitle} sub={t.settings.more.eventsSub} onClick={() => nav.push('eventbeheer')} />
+        {thisVenueAny && <Label className="mb-1 mt-[22px]">{t.sections.thisVenue}</Label>}
+        {showEvents && (
+          <Row icon="cal" title={t.settings.more.eventsTitle} sub={t.settings.more.eventsSub} onClick={() => nav.push('eventbeheer')} />
+        )}
         {canManageTemplates && (
           <Row icon="grid" title={t.settings.more.templatesTitle} sub={t.settings.more.templatesSub} onClick={() => nav.push('templates')} />
         )}
-        <Row icon="cog" title={t.settings.more.venueSettingsTitle} sub={t.settings.more.venueSettingsSub} onClick={() => nav.push('venuesettings')} />
-        <Row icon="ticket" title={t.settings.more.quotaTitle} sub={t.settings.more.quotaSub} onClick={() => nav.push('allowance')} />
-        <Row icon="star" title={t.settings.more.regularsTitle} sub={t.settings.more.regularsSub} onClick={() => nav.push('vaste')} accent />
-        <Row icon="contact" title={t.settings.more.contactsTitle} sub={t.settings.more.contactsSub} onClick={() => nav.push('contacten')} accent />
-        <Row icon="upload" title={t.settings.more.importTitle} sub={t.settings.more.importSub} onClick={() => nav.push('import')} />
-        <Row icon="spark" title={t.settings.more.billingTitle} sub={billingSub} onClick={() => nav.push('billing')} accent right={<Icon name="chev" size={18} className="text-ghost" />} />
+        {caps.viewSettings && (
+          <Row icon="cog" title={t.settings.more.venueSettingsTitle} sub={t.settings.more.venueSettingsSub} onClick={() => nav.push('venuesettings')} />
+        )}
+        {caps.viewQuota && (
+          <Row icon="ticket" title={t.settings.more.quotaTitle} sub={t.settings.more.quotaSub} onClick={() => nav.push('allowance')} />
+        )}
+        {showRegulars && (
+          <Row icon="star" title={t.settings.more.regularsTitle} sub={t.settings.more.regularsSub} onClick={() => nav.push('vaste')} accent />
+        )}
+        {showContacts && (
+          <Row icon="contact" title={t.settings.more.contactsTitle} sub={t.settings.more.contactsSub} onClick={() => nav.push('contacten')} accent />
+        )}
+        {showImport && (
+          <Row icon="upload" title={t.settings.more.importTitle} sub={t.settings.more.importSub} onClick={() => nav.push('import')} />
+        )}
+        {caps.viewSettings && (
+          <Row icon="spark" title={t.settings.more.billingTitle} sub={billingSub} onClick={() => nav.push('billing')} accent right={<Icon name="chev" size={18} className="text-ghost" />} />
+        )}
 
-        <Label className="mb-1 mt-[22px]">{t.sections.teamAccess}</Label>
-        <Row icon="users" title={t.settings.more.teamTitle} sub={t.settings.more.teamSub} onClick={() => nav.push('gebruikers')} accent />
-        {roles.includes('admin') && (
+        {teamAny && <Label className="mb-1 mt-[22px]">{t.sections.teamAccess}</Label>}
+        {caps.viewTeam && (
+          <Row icon="users" title={t.settings.more.teamTitle} sub={t.settings.more.teamSub} onClick={() => nav.push('gebruikers')} accent />
+        )}
+        {isAdmin && (
           <Row icon="lock" title={t.settings.more.sessionsTitle} sub={t.settings.more.sessionsSub} onClick={() => nav.push('adminsessions')} />
         )}
 
@@ -194,16 +229,33 @@ export function Gebruikers(): JSX.Element {
   const invitesQ = usePoInvites();
   const eventsQ = usePoEvents();
   const inviteUser = usePoInviteUser();
+  const inviteCrew = usePoInviteExternalCrew();
   const revokeInvite = usePoRevokeInvite();
   const mfa = useMfaGate();
 
   const [invite, setInvite] = useState(false);
+  // Invite fork (86ey21vre): 'choose' = pick Team vs External crew (admins only),
+  // then 'team' (venue user) or 'crew' (event-scoped external person).
+  const [inviteKind, setInviteKind] = useState<'choose' | 'team' | 'crew'>('choose');
   const [email, setEmail] = useState('');
   // Nothing pre-selected — the inviter chooses the role(s) deliberately (S4.1/S4.2).
   const [inviteRoles, setInviteRoles] = useState<VenueRole[]>([]);
   const [inviteEvents, setInviteEvents] = useState<string[]>([]);
   const [quota, setQuota] = useState('');
   const [sheetMember, setSheetMember] = useState<PoTeamMember | null>(null);
+
+  const resetInviteForm = (): void => {
+    setEmail('');
+    setInviteRoles([]);
+    setInviteEvents([]);
+    setQuota('');
+  };
+  // Admins choose Team vs External crew; a user_manager can only invite Team.
+  const startInvite = (): void => {
+    resetInviteForm();
+    setInviteKind(callerIsAdmin ? 'choose' : 'team');
+    setInvite(true);
+  };
 
   const toggleInviteRole = (r: VenueRole): void =>
     setInviteRoles((s) => (s.includes(r) ? s.filter((x) => x !== r) : [...s, r]));
@@ -230,23 +282,138 @@ export function Gebruikers(): JSX.Element {
     );
   }
 
-  // ── Invite sub-form ──
+  // ── Invite sub-form (fork: choose → team | crew, 86ey21vre) ──
   if (invite) {
+    // Step 1 — admin chooser: Venue user (Team) vs External crew.
+    if (inviteKind === 'choose') {
+      const chooseCard = cn('mb-3 flex w-full items-center gap-[14px] rounded-[18px] border border-line bg-elev p-4 text-left', cardPress);
+      const chooseIcon = 'flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[12px] border border-line bg-elev2 text-acc';
+      return (
+        <div className={col}>
+          <Top onBack={() => setInvite(false)} title={t.settings.team.chooseTitle} sub={t.settings.team.chooseSub} />
+          <Scroll bottom={24}>
+            <button type="button" onClick={() => setInviteKind('team')} className={chooseCard}>
+              <span className={chooseIcon}>
+                <Icon name="users" size={20} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block font-display text-[16px] font-bold text-text">{t.settings.team.chooseTeamTitle}</span>
+                <span className="mt-0.5 block text-[12.5px] leading-[1.4] text-faint">{t.settings.team.chooseTeamSub}</span>
+              </span>
+              <Icon name="chev" size={18} className="text-ghost" />
+            </button>
+            <button type="button" onClick={() => setInviteKind('crew')} className={chooseCard}>
+              <span className={chooseIcon}>
+                <Icon name="spark" size={20} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block font-display text-[16px] font-bold text-text">{t.settings.team.chooseCrewTitle}</span>
+                <span className="mt-0.5 block text-[12.5px] leading-[1.4] text-faint">{t.settings.team.chooseCrewSub}</span>
+              </span>
+              <Icon name="chev" size={18} className="text-ghost" />
+            </button>
+          </Scroll>
+        </div>
+      );
+    }
+
+    // Step 2a — External crew: email + which events + a guest quota (no roles, no
+    // venue membership). Admin-only write (RLS), so no MFA step-up here.
+    if (inviteKind === 'crew') {
+      const canCrew = /.+@.+\..+/.test(email) && inviteEvents.length > 0 && !inviteCrew.isPending;
+      const submitCrew = (): void =>
+        inviteCrew.mutate(
+          { email: email.trim(), eventIds: inviteEvents, quota: quota === '' ? undefined : Number(quota) },
+          {
+            onSuccess: () => {
+              setInvite(false);
+              resetInviteForm();
+            },
+          },
+        );
+      return (
+        <div className={col}>
+          <Top onBack={() => setInviteKind('choose')} title={t.settings.team.crewTitle} />
+          <Scroll bottom={130}>
+            <Note icon="spark">{t.settings.team.crewIntro}</Note>
+            <Label className="mb-2">{t.settings.team.emailLabel}</Label>
+            <Field icon="contact" placeholder={t.settings.team.emailPlaceholder} value={email} onChange={setEmail} inputMode="email" autoFocus className="mb-[18px]" />
+
+            <div className="mb-[10px] flex items-center justify-between gap-3">
+              <Label>{t.settings.team.crewEventsLabel}</Label>
+              {upcomingEvents.length > 0 && (
+                <button type="button" onClick={toggleAllEvents} className={cn('shrink-0 font-body text-[12px] font-semibold text-acc', press)}>
+                  {allEventsSelected ? t.settings.team.clearSelection : t.settings.team.allEvents}
+                </button>
+              )}
+            </div>
+            {eventsQ.isLoading ? (
+              <Loading text={t.settings.team.eventsLoading} />
+            ) : upcomingEvents.length === 0 ? (
+              <div className="rounded-[13px] border border-dashed border-line bg-elev px-[14px] py-[12px] text-[12.5px] text-faint">
+                {t.settings.team.noUpcomingEvents}
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {upcomingEvents.map((e) => {
+                  const on = inviteEvents.includes(e.id);
+                  return (
+                    <button
+                      key={e.id}
+                      type="button"
+                      onClick={() => toggleInviteEvent(e.id)}
+                      aria-pressed={on}
+                      className={cn(
+                        'inline-flex items-center gap-[8px] rounded-[13px] border px-[13px] py-[10px] text-left font-display text-[13px] font-bold',
+                        on ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev text-dim',
+                        press,
+                      )}
+                    >
+                      <Icon name={on ? 'check' : 'cal'} size={14} sw={2.4} stroke={on ? '#16132B' : undefined} />
+                      <span>{e.name}</span>
+                      <span className={cn('text-[11px] font-semibold', on ? 'text-on-acc/70' : 'text-faint')}>
+                        {e.date} {e.mon}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            <Label className="mb-2 mt-[18px]">{t.settings.team.crewQuotaLabel}</Label>
+            <Field
+              icon="ticket"
+              placeholder={t.settings.team.crewQuotaPlaceholder}
+              value={quota}
+              onChange={(v) => setQuota(v.replace(/[^0-9]/g, '').slice(0, 4))}
+              inputMode="numeric"
+              className="mb-1.5"
+            />
+            <div className="pl-0.5 text-[12px] leading-[1.4] text-faint">{t.settings.team.crewQuotaHelp}</div>
+            <FormError error={inviteCrew.isError ? inviteCrew.error : null} />
+          </Scroll>
+          <BottomBar>
+            <Btn kind="primary" full icon="arrowR" disabled={!canCrew} onClick={submitCrew} className={canCrew ? '' : 'opacity-[0.45]'}>
+              {inviteCrew.isPending ? t.settings.team.sending : t.settings.team.crewSend}
+            </Btn>
+          </BottomBar>
+        </div>
+      );
+    }
+
+    // Step 2b — Venue user (Team): email + roles + quota. No event scope — a Team
+    // member already works every event (86ey21vre).
     const submit = (): void =>
       inviteUser.mutate(
         {
           email: email.trim(),
           roles: inviteRoles,
           defaultQuota: quota === '' ? undefined : Number(quota),
-          eventIds: callerIsAdmin ? inviteEvents : undefined,
         },
         {
           onSuccess: () => {
             setInvite(false);
-            setEmail('');
-            setInviteRoles([]);
-            setInviteEvents([]);
-            setQuota('');
+            resetInviteForm();
           },
           // AAL1 user → open the MFA step-up sheet and retry the invite after.
           onError: (e) => mfa.guard(e, submit),
@@ -254,7 +421,7 @@ export function Gebruikers(): JSX.Element {
       );
     return (
       <div className={col}>
-        <Top onBack={() => setInvite(false)} title={t.settings.team.inviteTitle} />
+        <Top onBack={() => (callerIsAdmin ? setInviteKind('choose') : setInvite(false))} title={t.settings.team.inviteTitle} />
         <Scroll bottom={130}>
           <Label className="mb-2">{t.settings.team.emailLabel}</Label>
           <Field icon="contact" placeholder={t.settings.team.emailPlaceholder} value={email} onChange={setEmail} inputMode="email" autoFocus className="mb-[18px]" />
@@ -266,63 +433,6 @@ export function Gebruikers(): JSX.Element {
               <b>{t.settings.team.mfaNoteBold}</b>
               {t.settings.team.mfaNotePost}
             </Note>
-          )}
-
-          {/* Event-organizer scope (#6/#24) — admin-only, mirrors the invite RLS. */}
-          {callerIsAdmin && (
-            <>
-              <div className="mb-[10px] mt-[18px] flex items-center justify-between gap-3">
-                <Label>{t.settings.team.eventScopeLabel}</Label>
-                {upcomingEvents.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={toggleAllEvents}
-                    className={cn('shrink-0 font-body text-[12px] font-semibold text-acc', press)}
-                  >
-                    {allEventsSelected ? t.settings.team.clearSelection : t.settings.team.allEvents}
-                  </button>
-                )}
-              </div>
-              {eventsQ.isLoading ? (
-                <Loading text={t.settings.team.eventsLoading} />
-              ) : upcomingEvents.length === 0 ? (
-                <div className="rounded-[13px] border border-dashed border-line bg-elev px-[14px] py-[12px] text-[12.5px] text-faint">
-                  {t.settings.team.noUpcomingEvents}
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {upcomingEvents.map((e) => {
-                    const on = inviteEvents.includes(e.id);
-                    return (
-                      <button
-                        key={e.id}
-                        type="button"
-                        onClick={() => toggleInviteEvent(e.id)}
-                        aria-pressed={on}
-                        className={cn(
-                          'inline-flex items-center gap-[8px] rounded-[13px] border px-[13px] py-[10px] text-left font-display text-[13px] font-bold',
-                          on ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev text-dim',
-                          press,
-                        )}
-                      >
-                        <Icon name={on ? 'check' : 'cal'} size={14} sw={2.4} stroke={on ? '#16132B' : undefined} />
-                        <span>{e.name}</span>
-                        <span className={cn('text-[11px] font-semibold', on ? 'text-on-acc/70' : 'text-faint')}>
-                          {e.date} {e.mon}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              {inviteEvents.length > 0 && (
-                <Note icon="cal">
-                  {t.settings.team.organizerNotePre}
-                  <b>{t.settings.team.organizerNoteBold}</b>
-                  {fmt(inviteEvents.length === 1 ? t.settings.team.organizerNoteOne : t.settings.team.organizerNoteMany, { n: inviteEvents.length })}
-                </Note>
-              )}
-            </>
           )}
 
           <Label className="mb-2 mt-[18px]">{t.settings.team.quotaLabel}</Label>
@@ -358,13 +468,13 @@ export function Gebruikers(): JSX.Element {
         onBack={nav.back}
         title={t.settings.team.title}
         sub={fmt(teamCount === 1 ? t.settings.team.subOne : t.settings.team.subMany, { count: teamCount, open: inviteCount })}
-        right={caps.manageTeam ? <IconBtn name="plus" onClick={() => setInvite(true)} /> : undefined}
+        right={caps.manageTeam ? <IconBtn name="plus" onClick={startInvite} /> : undefined}
       />
       <Scroll bottom={24}>
         {(caps.manageTeam || caps.viewQuota) && (
           <div className="lg:mb-[18px] lg:flex lg:gap-3">
             {caps.manageTeam && (
-              <Btn kind="dark" full icon="plus" className="mb-3 lg:mb-0 lg:w-auto" onClick={() => setInvite(true)}>
+              <Btn kind="dark" full icon="plus" className="mb-3 lg:mb-0 lg:w-auto" onClick={startInvite}>
                 {t.settings.team.inviteCta}
               </Btn>
             )}
@@ -744,9 +854,11 @@ export function VenueSwitch(): JSX.Element {
                         {cur && <MiniChip className="border-transparent bg-white/[0.10] text-acc">{t.settings.venueSwitch.current}</MiniChip>}
                       </div>
                       <div className="mt-1 flex flex-wrap gap-1.5">
-                        {v.roles.map((ro) => (
-                          <MiniChip key={ro}>{ROLE_LABELS[ro] ?? ro}</MiniChip>
-                        ))}
+                        {v.roles.length > 0 ? (
+                          v.roles.map((ro) => <MiniChip key={ro}>{ROLE_LABELS[ro] ?? ro}</MiniChip>)
+                        ) : (
+                          <MiniChip>{t.settings.venueSwitch.crewAccess}</MiniChip>
+                        )}
                       </div>
                     </div>
                   </div>

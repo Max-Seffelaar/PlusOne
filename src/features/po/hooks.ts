@@ -46,6 +46,9 @@ import {
   fetchTemplate,
   fetchTemplateTiers,
   fetchOrganizesAtVenue,
+  fetchEventCrew,
+  fetchAssignableCrew,
+  type PoCrewMember,
   type EventEditRow,
   type CheckinArrival,
   type RecentCheckinRow,
@@ -367,6 +370,26 @@ export function usePoEventForEdit(eventId: string) {
   });
   const isAdmin = roles.includes('admin');
   return { ...query, isAdmin, canManage: isAdmin || !!query.data?.isOrganizer };
+}
+
+/** External crew (event_organizers, #6/#24) assigned to an event. RLS limits reads
+ *  to members of the event's venue (or the organizer themself). */
+export function usePoCrew(eventId: string) {
+  return useQuery<PoCrewMember[]>({
+    queryKey: poKeys.crew(eventId),
+    enabled: !!eventId,
+    queryFn: () => fetchEventCrew(createClient(), eventId),
+  });
+}
+
+/** Team members who can still be added as crew of this event (for the "add an
+ *  existing member" path); excludes anyone already on the crew. */
+export function usePoAssignableCrew(eventId: string) {
+  return useQuery<PoCrewMember[]>({
+    queryKey: poKeys.assignableCrew(eventId),
+    enabled: !!eventId,
+    queryFn: () => fetchAssignableCrew(createClient(), eventId),
+  });
 }
 
 /** Guests for an event, with each role badge resolved from its tier. */

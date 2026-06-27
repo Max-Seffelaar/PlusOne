@@ -177,4 +177,58 @@ export const events = {
   upcomingCount: 'Upcoming events · {n}',
   past: 'Past',
   hubCardSub: '{venue} · {n} guests',
+
+  // ── External crew (event_organizers, #6/#24) ─────────────────────────────────
+  // Event-scoped people (a DJ, artist, guest organizer) attached to ONE event —
+  // distinct from venue-wide Team (venue_memberships). Wording: "External crew".
+  crew: {
+    // Entry rows on the event edit + detail screens.
+    rowTitle: 'External crew',
+    rowSub: 'Artists, organizers, and guest crew for this event',
+    rowEmpty: 'No one yet',
+    rowCountOne: '{n} person',
+    rowCountMany: '{n} people',
+    // Crew screen.
+    title: 'External crew',
+    explainer:
+      'Your Team works every event automatically. External crew is added to this one event, like a DJ, artist, or guest organizer — they can add guests (up to a quota you set) and work the door, with no access to the rest of your venue.',
+    listLabel: 'On this crew',
+    loading: 'Loading crew…',
+    loadError: "Couldn't load the crew.",
+    empty: 'No external crew yet. Invite someone, or add a returning face below.',
+    remove: 'Remove',
+    removing: 'Removing…',
+    removeError: "Couldn't remove this person from the crew.",
+    adminOnly: 'Only an admin can add or remove crew.',
+    // Per-member guest quota (how many guests this crew member may add).
+    quotaRowLabel: 'Guests they can add',
+    quotaFieldLabel: 'Guests they can add',
+    quotaHelp: "Their personal limit for adding guests to this event's list.",
+    quotaUnit: 'guests',
+    quotaInputAria: 'Guest quota',
+    quotaLess: 'Fewer',
+    quotaMore: 'More',
+    save: 'Save',
+    saving: 'Saving…',
+    // Add section — two clearly-separated ways.
+    addHeading: 'Add external crew',
+    addExplainer:
+      'Two ways: invite someone new by email (they get a login and can add their own guests), or add a returning person you’ve worked with before.',
+    inviteLabel: 'Invite someone new',
+    inviteHint:
+      'For someone outside your venue, like a DJ or guest organizer. We create a login with no access to the rest of the venue; they activate it on first login.',
+    invitePlaceholder: 'dj@email.com',
+    inviteCta: 'Send invite',
+    inviting: 'Inviting…',
+    inviteDone: 'Added to the crew. No invite email is sent — tell them to sign in at /login with this email.',
+    inviteError: "Couldn't send the invite.",
+    assignLabel: 'Add a returning crew member',
+    assignHint: 'Someone who’s been external crew here before. They keep their login; just set their guest quota.',
+    assignCta: 'Add',
+    assigning: 'Adding…',
+    assignEmpty: 'No returning crew yet. Invite someone by email above.',
+    assignError: "Couldn't add this person to the crew.",
+    searchPlaceholder: 'Search returning crew…',
+    searchEmpty: 'No match. Invite them by email instead.',
+  },
 } as const;
