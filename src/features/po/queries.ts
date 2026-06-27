@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
-import type { EventSummary, TierStat } from '@/features/stats/data';
+import type { EventSummary, TierStat, UserAddition } from '@/features/stats/data';
 import { describeAuditEntry, type AuditLine } from '@/features/audit/translate';
 import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
 import { chunkIds, fetchAllRanged } from '@/lib/supabase/paging';
@@ -395,6 +395,25 @@ export async function fetchPastEventStats(
   return { summary: summary.data ?? null, tiers: tiers.data ?? [] };
 }
 
+export interface EventActivityStats {
+  tiers: TierStat[];
+  members: UserAddition[];
+}
+
+/** Per-tier + per-member stats for the event Activity section (86ey21vnd).
+ *  Both RPCs are SECURITY DEFINER, self-gated on can_read_event_stats
+ *  (admin/finance/organizer); out-of-scope callers receive empty arrays. */
+export async function fetchPoEventActivityStats(
+  client: Client,
+  eventId: string
+): Promise<EventActivityStats> {
+  const [tiers, members] = await Promise.all([
+    client.rpc('event_tier_stats', { p_event_id: eventId }),
+    client.rpc('event_user_additions', { p_event_id: eventId }),
+  ]);
+  return { tiers: tiers.data ?? [], members: members.data ?? [] };
+}
+
 export interface EventEditRow {
   id: string;
   name: string;
@@ -619,7 +638,7 @@ export type PoTemplateDetail = Pick<
 
 export type PoTemplateTierRow = Pick<
   Tables['event_template_tiers']['Row'],
-  'id' | 'name' | 'description' | 'color' | 'max_guests' | 'aliases' | 'position'
+  'id' | 'name' | 'description' | 'color' | 'max_guests' | 'door_price_cents' | 'aliases' | 'position'
 >;
 
 /** Every template of a venue with its tier count, name-sorted. */
@@ -656,7 +675,7 @@ export async function fetchTemplate(client: Client, templateId: string): Promise
 export async function fetchTemplateTiers(client: Client, templateId: string): Promise<PoTemplateTierRow[]> {
   const { data } = await client
     .from('event_template_tiers')
-    .select('id, name, description, color, max_guests, aliases, position')
+    .select('id, name, description, color, max_guests, door_price_cents, aliases, position')
     .eq('template_id', templateId)
     .order('position')
     .order('created_at');

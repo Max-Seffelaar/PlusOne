@@ -93,14 +93,16 @@ insert into public.venue_memberships (venue_id, user_id, roles, job_title) value
   ('aa000000-0000-7000-8000-000000000002', '11111111-1111-4111-8111-111111111111', '{admin}', 'Eigenaar');
 
 -- ---------------------------------------------------------------------------
--- Event (crosses midnight — decision #26) + tiers (decision #8/#33)
+-- Event — always upcoming (starts +5 days, 6h long so it can span midnight, #26)
+-- + tiers (decision #8/#33). Kept now()-relative so a fresh local DB always has
+-- one upcoming event to exercise the Guests tab, crew "add to events" picker, etc.
 -- ---------------------------------------------------------------------------
 
 insert into public.events (id, venue_id, name, starts_at, ends_at, status, landing_slug, landing_active) values
   ('ee000000-0000-7000-8000-000000000001',
    'aa000000-0000-7000-8000-000000000001',
    'PLUSONE Launch Night',
-   '2026-06-20 23:00:00+02', '2026-06-21 05:00:00+02',
+   now() + interval '5 days', now() + interval '5 days' + interval '6 hours',
    'open', 'plusone-launch-night', true);
 
 insert into public.event_organizers (event_id, user_id) values
@@ -233,21 +235,27 @@ from unnest(array[
 -- Check-ins (unique per guest — double-check-in prevention) and one refusal
 -- ---------------------------------------------------------------------------
 
+-- Stamped relative to the event start (now() + 5 days) so the demo event stays
+-- upcoming; the per-row offsets preserve the night's ordering + 15-min gaps so the
+-- instroom buckets and peak stay identical (#26). All three rows share one now(),
+-- so the 41/57/72-min offsets keep their exact 16/15-min spacing.
 insert into public.check_ins
   (guest_id, checked_by, checked_at, client_timestamp, device_id, plus_ones_arrived, offline_synced)
 values
   ('cc000000-0000-7000-8000-000000000002', '66666666-6666-4666-8666-666666666666',
-   '2026-06-20 23:41:00+02', '2026-06-20 23:41:00+02', 'door-ipad-01', 1, false),
+   now() + interval '5 days 41 minutes', now() + interval '5 days 41 minutes',
+   'door-ipad-01', 1, false),
   -- Recorded offline, synced later: client stamp precedes the server stamp
   ('cc000000-0000-7000-8000-000000000003', '66666666-6666-4666-8666-666666666666',
-   '2026-06-20 23:57:00+02', '2026-06-20 23:55:00+02', 'door-ipad-01', 0, true),
-  -- After midnight, still this event (decision #26)
+   now() + interval '5 days 57 minutes', now() + interval '5 days 55 minutes',
+   'door-ipad-01', 0, true),
+  -- Late in the night (would be just after midnight on a 23:00 start), same event (#26)
   ('cc000000-0000-7000-8000-000000000004', '11111111-1111-4111-8111-111111111111',
-   '2026-06-21 00:12:00+02', null, null, 0, false);
+   now() + interval '5 days 72 minutes', null, null, 0, false);
 
 insert into public.refusals (guest_id, refused_by, reason, refused_at, device_id) values
   ('cc000000-0000-7000-8000-000000000005', '66666666-6666-4666-8666-666666666666',
-   'Agressief gedrag bij de deur', '2026-06-21 00:03:00+02', 'door-ipad-01');
+   'Agressief gedrag bij de deur', now() + interval '5 days 63 minutes', 'door-ipad-01');
 
 -- ---------------------------------------------------------------------------
 -- Landing-page requests (decision #12/#28): two open, one decided

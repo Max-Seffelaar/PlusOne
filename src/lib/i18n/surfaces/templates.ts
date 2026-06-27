@@ -57,6 +57,8 @@ export const templates = {
   color: 'Color',
   maxLabel: 'Max in this tier (optional)',
   maxPlaceholder: '∞ no maximum',
+  priceLabel: 'Door price (optional)',
+  pricePlaceholder: 'Free — e.g. 25',
   aliasesLabel: 'Aliases · feed the quick-add',
   aliasesPlaceholder: 'vip, bottle, table…',
   loadingTiers: 'Loading tiers…',
@@ -66,4 +68,5 @@ export const templates = {
   removeTier: 'Remove',
   tierMax: 'max {n}',
   tierNoMax: 'no max',
+  tierPrice: '€{n}',
 } as const;

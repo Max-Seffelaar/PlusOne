@@ -169,6 +169,19 @@ export const events = {
   recapGuestList: 'Guest list',
   exportLabel: 'Export',
 
+  // ── Event activity section (admin/finance, 86ey21vnd) ────────────────────────
+  activityHeading: 'Activity',
+  activityPerTier: 'By tier',
+  activityPerMember: 'By member',
+  activityLog: 'Log',
+  activityNoTiers: 'No tier data.',
+  activityNoMembers: 'No contributions yet.',
+  activityEmpty: 'No activity recorded yet.',
+  activityPpl: 'reg',
+  activityIn: 'in',
+  activityInShort: 'in',
+  activityAddedPpl: '({n} ppl)',
+
   // ── Events & tiers hub ──────────────────────────────────────────────────────
   hubTitle: 'Events & tiers',
   hubSub: 'Create and manage your events',

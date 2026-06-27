@@ -47,10 +47,19 @@ import {
 } from '@/features/po/mutations';
 import type { PoSubscription, PoTeamMember } from '@/features/po/adapters';
 import { useMfaGate, isAal2Error, PoMfaSheet } from '../mfa-gate';
+import PhoneInput from 'react-phone-number-input/input';
+import { parsePhoneNumber } from 'react-phone-number-input';
 import { useNav, usePo } from '../context';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Row, Scroll, ToggleRow, Top } from '../kit';
 import { BottomBar, Sheet } from '../shell';
+import { CountrySelect, type CountryCode } from '../country-select';
+
+function countryFromE164(phone: string | null | undefined): CountryCode {
+  if (!phone) return 'NL';
+  try { return (parsePhoneNumber(phone)?.country as CountryCode | undefined) ?? 'NL'; }
+  catch { return 'NL'; }
+}
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
@@ -146,7 +155,7 @@ export function Meer(): JSX.Element {
     : t.settings.more.billingDefault;
   return (
     <div className={col}>
-      <Top big title={t.settings.more.title} />
+      <Top big title={t.settings.more.title} onBack={nav.canGoBack ? nav.back : undefined} />
       <Scroll bottom={100}>
         <button type="button" onClick={() => nav.push('venueswitch')} className={cn('mb-5 flex w-full items-center gap-[14px] rounded-[18px] border border-line bg-elev p-4 text-left', cardPress)}>
           <Avatar name={displayVenue} size={48} accent />
@@ -1224,7 +1233,8 @@ export function Profile(): JSX.Element {
   const p = profileQ.data ?? null;
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState<string | undefined>(undefined);
+  const [phoneCountry, setPhoneCountry] = useState<CountryCode>('NL');
   const [email, setEmail] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [confirmLogoutAll, setConfirmLogoutAll] = useState(false);
@@ -1236,7 +1246,8 @@ export function Profile(): JSX.Element {
     if (!loaded) {
       setFirstName(p.firstName);
       setLastName(p.lastName);
-      setPhone(p.phone);
+      setPhone(p.phone || undefined);
+      setPhoneCountry(countryFromE164(p.phone));
       setEmail(p.email);
       setLoaded(true);
     }
@@ -1263,7 +1274,7 @@ export function Profile(): JSX.Element {
     );
   }
 
-  const nameChanged = firstName !== p.firstName || lastName !== p.lastName || phone !== p.phone;
+  const nameChanged = firstName !== p.firstName || lastName !== p.lastName || (phone ?? '') !== p.phone;
   const profileValid = firstName.trim() !== '' && lastName.trim() !== '';
   const emailChanged = email.trim().toLowerCase() !== p.email.toLowerCase();
   const sessions = sessionsQ.data ?? [];
@@ -1286,7 +1297,11 @@ export function Profile(): JSX.Element {
         <Label className="mb-2">{t.settings.profile.lastNameLabel}</Label>
         <Field icon="user" value={lastName} onChange={setLastName} placeholder={t.settings.profile.lastNamePlaceholder} className="mb-[14px]" />
         <Label className="mb-2">{t.settings.profile.phoneLabel}</Label>
-        <Field icon="phone" value={phone} onChange={setPhone} inputMode="tel" placeholder={t.settings.profile.phonePlaceholder} className="mb-1.5" />
+        <div className="mb-1.5 flex items-center gap-[11px] rounded-[14px] border border-line bg-elev px-[11px] py-[13px] transition-colors focus-within:border-acc">
+          <CountrySelect value={phoneCountry} onChange={(c) => { setPhoneCountry(c); setPhone(undefined); }} />
+          <span className="h-5 w-px shrink-0 bg-line" />
+          <PhoneInput country={phoneCountry} value={phone} onChange={setPhone} placeholder={t.settings.profile.phonePlaceholder} className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none placeholder:text-faint" />
+        </div>
         <FormError error={updateProfile.isError ? updateProfile.error : null} />
         {updateProfile.isSuccess && !nameChanged && (
           <p className="mt-2 text-[12.5px] text-acc-soft">{t.settings.profile.profileSaved}</p>
@@ -1369,7 +1384,7 @@ export function Profile(): JSX.Element {
           icon="check"
           disabled={!nameChanged || !profileValid || updateProfile.isPending}
           className={!nameChanged || !profileValid ? 'opacity-[0.45]' : ''}
-          onClick={() => updateProfile.mutate({ firstName: firstName.trim(), lastName: lastName.trim(), phone: phone.trim() })}
+          onClick={() => updateProfile.mutate({ firstName: firstName.trim(), lastName: lastName.trim(), phone: phone ?? '' })}
         >
           {updateProfile.isPending ? t.settings.profile.saving : t.settings.profile.save}
         </Btn>

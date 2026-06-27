@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { getAuthContext } from '@/lib/auth/context';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
+import { buildEventSlug } from './slug';
 import type { EventStatus } from './status';
 import type { Database } from '@/lib/database.types';
 import {
@@ -97,26 +98,29 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
 
-  // landing_slug '' → the BEFORE-INSERT trigger generates name-yyyy-mm-dd
-  // (collision → name-yyyy-mm-dd-2, -3, …), so no retry loop needed.
-  const { data, error } = await supabase
-    .from('events')
-    .insert({
-      venue_id: venueId,
-      name,
-      starts_at: startsAt,
-      ends_at: endsAt ?? null,
-      landing_active: landingActive,
-      landing_slug: '',
-    })
-    .select('id')
-    .single();
+  // Retry on the astronomically rare slug collision with a fresh suffix.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const { data, error } = await supabase
+      .from('events')
+      .insert({
+        venue_id: venueId,
+        name,
+        starts_at: startsAt,
+        ends_at: endsAt ?? null,
+        landing_active: landingActive,
+        landing_slug: buildEventSlug(name, startsAt),
+      })
+      .select('id')
+      .single();
 
-  if (!error && data) {
-    revalidatePath(listPath);
-    return { ok: true, eventId: data.id };
+    if (!error && data) {
+      revalidatePath(listPath);
+      return { ok: true, eventId: data.id };
+    }
+    if (error?.code === '23505') continue; // slug clash → new suffix
+    return mapMutationError(error);
   }
-  return mapMutationError(error);
+  return { ok: false, code: 'slug', message: "Couldn't generate a unique landing link. Try again." };
 }
 
 /** Edit name / start / end (admin or organizer — RLS). */
@@ -620,7 +624,7 @@ export async function deleteTemplate(input: DeleteTemplateInput): Promise<Action
 export async function createTemplateTier(input: CreateTemplateTierInput): Promise<ActionResult> {
   const parsed = createTemplateTierSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { templateId, name, description, color, maxGuests, aliases } = parsed.data;
+  const { templateId, name, description, color, maxGuests, doorPriceCents, aliases } = parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
@@ -634,6 +638,7 @@ export async function createTemplateTier(input: CreateTemplateTierInput): Promis
     description,
     color,
     max_guests: maxGuests ?? null,
+    door_price_cents: doorPriceCents ?? null,
     aliases,
   };
   const { error } = await supabase.from('event_template_tiers').insert(row as TemplateTierInsert);
@@ -650,7 +655,7 @@ export async function createTemplateTier(input: CreateTemplateTierInput): Promis
 export async function updateTemplateTier(input: UpdateTemplateTierInput): Promise<ActionResult> {
   const parsed = updateTemplateTierSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { tierId, name, description, color, maxGuests, aliases } = parsed.data;
+  const { tierId, name, description, color, maxGuests, doorPriceCents, aliases } = parsed.data;
 
   const supabase = await createClient();
   const ctx = await getAuthContext();
@@ -661,6 +666,7 @@ export async function updateTemplateTier(input: UpdateTemplateTierInput): Promis
     ...(description !== undefined ? { description } : {}),
     ...(color !== undefined ? { color } : {}),
     ...(maxGuests !== undefined ? { max_guests: maxGuests } : {}),
+    ...(doorPriceCents !== undefined ? { door_price_cents: doorPriceCents } : {}),
     ...(aliases !== undefined ? { aliases } : {}),
   };
   if (Object.keys(patch).length === 0) return { ok: true };

@@ -64,4 +64,6 @@ export const poKeys = {
     [...poKeys.all, 'audit', venueId, filters] as const,
   auditOptions: (venueId: string) => [...poKeys.all, 'audit-options', venueId] as const,
   guestHistory: (guestId: string) => [...poKeys.all, 'guest-history', guestId] as const,
+  /** Per-tier + per-member stats for the event Activity section (86ey21vnd). */
+  eventActivity: (eventId: string) => [...poKeys.all, 'event-activity', eventId] as const,
 } as const;

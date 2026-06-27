@@ -31,9 +31,16 @@ select plan(23);
 -- ---------------------------------------------------------------------------
 
 select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@plusone.test');
+-- create_venue_with_owner is called by NAME with an explicit p_terms_version so each
+-- call binds unambiguously to the current 12-arg signature (20260623160000). The legacy
+-- 6-arg overload may linger in a non-reset local DB, where a positional 6-arg call would
+-- be "function ... is not unique"; the 12-arg-only p_terms_version pins resolution.
 select set_config(
   'test.vid',
-  public.create_venue_with_owner('Onboarding Test', 'Teststraat 1', 'club', 12, null, false)::text,
+  public.create_venue_with_owner(
+    p_name => 'Onboarding Test', p_address => 'Teststraat 1', p_venue_type => 'club',
+    p_retention_months => 12, p_plan_id => null, p_comped => false,
+    p_terms_version => null)::text,
   false
 );
 reset role;
@@ -68,7 +75,10 @@ select is((select count(*)::int from public.audit_log
 -- ---------------------------------------------------------------------------
 
 select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@plusone.test');
-select is(public.create_venue_with_owner('Dup', 'x', 'bar', 12, null, false),
+select is(public.create_venue_with_owner(
+            p_name => 'Dup', p_address => 'x', p_venue_type => 'bar',
+            p_retention_months => 12, p_plan_id => null, p_comped => false,
+            p_terms_version => null),
           current_setting('test.vid')::uuid,
           'T6 a retried create returns the existing in-onboarding venue');
 reset role;
@@ -84,7 +94,10 @@ select is((select count(*)::int from public.venues v
 
 select pg_temp.login(null, 'aal1', null);
 select throws_ok(
-  $$ select public.create_venue_with_owner('NoAuth', 'x', 'club', 12, null, false) $$,
+  $$ select public.create_venue_with_owner(
+       p_name => 'NoAuth', p_address => 'x', p_venue_type => 'club',
+       p_retention_months => 12, p_plan_id => null, p_comped => false,
+       p_terms_version => null) $$,
   '42501', null, 'T8 an unauthenticated caller cannot create a venue');
 reset role;
 
@@ -134,7 +147,10 @@ select is((select (settings #>> '{onboarding,completed}')::boolean from public.v
 select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@plusone.test');
 select set_config(
   'test.vid2',
-  public.create_venue_with_owner('Second Venue', 'x', 'festival', 12, null, false)::text,
+  public.create_venue_with_owner(
+    p_name => 'Second Venue', p_address => 'x', p_venue_type => 'festival',
+    p_retention_months => 12, p_plan_id => null, p_comped => false,
+    p_terms_version => null)::text,
   false
 );
 reset role;
@@ -207,8 +223,10 @@ select is(
 -- columns null — no false consent is ever recorded.
 select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@plusone.test');
 select set_config('test.vid4',
-  public.create_venue_with_owner('No Consent', 'x', 'club', 12, null, false,
-    null, null, null, null, true)::text, false);
+  public.create_venue_with_owner(
+    p_name => 'No Consent', p_address => 'x', p_venue_type => 'club',
+    p_retention_months => 12, p_plan_id => null, p_comped => false,
+    p_complete => true, p_terms_version => null)::text, false);
 reset role;
 
 select is((select terms_version from public.venues where id = current_setting('test.vid4')::uuid),
