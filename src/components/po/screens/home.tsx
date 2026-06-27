@@ -763,6 +763,18 @@ export function Home(): JSX.Element {
           <PendingInvitesBanner />
 
           {/* greeting */}
+          {nav.canGoBack && (
+            <div>
+              <button
+                type="button"
+                onClick={nav.back}
+                aria-label={t.shared.kit.back}
+                className="flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]"
+              >
+                <Icon name="back" size={20} />
+              </button>
+            </div>
+          )}
           <div className="flex flex-wrap items-end gap-4">
             <div className="min-w-0 flex-1">
               <h1 className="font-display text-[27px] font-extrabold leading-[1.02] tracking-[-0.025em] text-text lg:text-[33px]">

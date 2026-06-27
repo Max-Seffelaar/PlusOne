@@ -183,7 +183,7 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
   const openGuest = (id: string): void => nav.push('guest', { id, eventId: ev.id });
   return (
     <div className={col}>
-      <Top onBack={nav.back} title={t.guests.list.title} sub={`${ev.name} · ${fmt(t.guests.list.sub, { shown: gs.length, total: guests.length })}`} right={<IconBtn name="plus" onClick={() => nav.push('quickadd', { id: ev.id })} />} />
+      <Top onBack={nav.canGoBack ? nav.back : undefined} title={t.guests.list.title} sub={`${ev.name} · ${fmt(t.guests.list.sub, { shown: gs.length, total: guests.length })}`} right={<IconBtn name="plus" onClick={() => nav.push('quickadd', { id: ev.id })} />} />
       {/* Toolbar — stacked on mobile, a single row on desktop. */}
       <div className="flex-none px-4 lg:flex lg:items-center lg:gap-3 lg:pb-3">
         <div className="pb-[10px] lg:max-w-[300px] lg:flex-1 lg:pb-0">
