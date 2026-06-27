@@ -8,7 +8,6 @@ import { v7 as uuidv7 } from 'uuid';
 import { cn } from '@/lib/utils';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import type { Guest as GuestT, PoEvent } from '@/lib/po/types';
-import { normalizeImportPhone } from '@/features/contacts/import/parse';
 import type { ContactRole } from '@/features/contacts/schemas';
 import { indexGuestsByName, suspectedDuplicates, planBulkAdd, type DupeMode, type BulkRowInput } from '@/features/guests/bulk-dedupe';
 import {
@@ -45,7 +44,7 @@ import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../context';
 import { Icon, type IconName } from '../icon';
 import PhoneInput from 'react-phone-number-input/input';
-import { isValidPhoneNumber } from 'react-phone-number-input';
+import { isValidPhoneNumber, parsePhoneNumber } from 'react-phone-number-input';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, PayChip, RoleChip, Scroll, StatusDot, Stepper, Top } from '../kit';
 import { BottomBar, Sheet } from '../shell';
 import { CountrySelect, type CountryCode } from '../country-select';
@@ -1848,6 +1847,13 @@ export function ContactProfile({
   );
 }
 
+/** Derive the CountryCode from a stored E.164 phone string; falls back to NL. */
+function countryFromE164(phone: string | null | undefined): CountryCode {
+  if (!phone) return 'NL';
+  try { return (parsePhoneNumber(phone)?.country as CountryCode | undefined) ?? 'NL'; }
+  catch { return 'NL'; }
+}
+
 /** Promote a name-only guest into a contact: add an e-mail/phone (the dedup key)
  *  and the widened auto-link trigger (20260624170000) creates + links the contact
  *  on the guest update. Editing just the name is allowed too (no promote). */
@@ -1870,7 +1876,8 @@ function PromoteSheet({
   const promote = usePoPromoteGuestToContact(eventId);
   const [name, setName] = useState(defaultName);
   const [email, setEmail] = useState(defaultEmail ?? '');
-  const [phone, setPhone] = useState(defaultPhone ?? '');
+  const [phone, setPhone] = useState<string | undefined>(defaultPhone ?? undefined);
+  const [phoneCountry, setPhoneCountry] = useState<CountryCode>(() => countryFromE164(defaultPhone));
   const [err, setErr] = useState<string | null>(null);
 
   const canSave = name.trim() !== '';
@@ -1878,14 +1885,13 @@ function PromoteSheet({
   const save = (): void => {
     setErr(null);
     if (name.trim() === '') return setErr(t.guests.contacts.nameRequired);
-    const hasContact = email.trim() !== '' || phone.trim() !== '';
+    const hasContact = email.trim() !== '' || !!phone;
     if (hasContact) {
       // Has a dedup key — updateGuest triggers the auto-link (20260624170000).
       let phoneVal: string | undefined;
-      const phoneTrim = phone.trim();
-      if (phoneTrim !== '') {
-        phoneVal = normalizeImportPhone(phoneTrim);
-        if (!phoneVal) return setErr(t.guests.contacts.phoneInvalid);
+      if (phone) {
+        if (!isValidPhoneNumber(phone)) return setErr(t.guests.contacts.phoneInvalid);
+        phoneVal = phone; // PhoneInput gives E.164 directly
       }
       update.mutate(
         { guestId, fullName: name.trim(), email: email.trim() || undefined, phone: phoneVal },
@@ -1909,7 +1915,11 @@ function PromoteSheet({
       <Label className="mb-2">{t.guests.contacts.emailLabel}</Label>
       <Field icon="mail" value={email} onChange={setEmail} inputMode="email" placeholder={t.guests.contacts.emailPlaceholder} className="mb-[14px]" />
       <Label className="mb-2">{t.guests.contacts.phoneLabel}</Label>
-      <Field icon="phone" value={phone} onChange={setPhone} inputMode="tel" placeholder={t.guests.contacts.phonePlaceholder} className="mb-[14px]" />
+      <div className="mb-[14px] flex items-center gap-[11px] rounded-[14px] border border-line bg-elev px-[11px] py-[13px] transition-colors focus-within:border-acc">
+        <CountrySelect value={phoneCountry} onChange={(c) => { setPhoneCountry(c); setPhone(undefined); }} />
+        <span className="h-5 w-px shrink-0 bg-line" />
+        <PhoneInput country={phoneCountry} value={phone} onChange={setPhone} placeholder={t.guests.contacts.phonePlaceholder} className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none placeholder:text-faint" />
+      </div>
       <Note icon="contact">{t.guests.contactProfile.promoteHint}</Note>
       {err && (
         <p className="mt-1 text-[12.5px] text-red-300" role="alert">
@@ -1955,7 +1965,8 @@ function ContactEditSheet({
   const upsert = usePoUpsertContact();
   const [name, setName] = useState(contact.name);
   const [email, setEmail] = useState(contact.email ?? '');
-  const [phone, setPhone] = useState(contact.phone ?? '');
+  const [phone, setPhone] = useState<string | undefined>(contact.phone ?? undefined);
+  const [phoneCountry, setPhoneCountry] = useState<CountryCode>(() => countryFromE164(contact.phone));
   const [role, setRole] = useState<ContactRole | ''>(contact.preferredRole ?? '');
   const [err, setErr] = useState<string | null>(null);
 
@@ -1964,10 +1975,9 @@ function ContactEditSheet({
     if (!venueId) return setErr(t.guests.contacts.noVenue);
     if (name.trim() === '') return setErr(t.guests.contacts.nameRequired);
     let phoneVal: string | undefined;
-    const phoneTrim = phone.trim();
-    if (phoneTrim !== '') {
-      phoneVal = normalizeImportPhone(phoneTrim);
-      if (!phoneVal) return setErr(t.guests.contacts.phoneInvalid);
+    if (phone) {
+      if (!isValidPhoneNumber(phone)) return setErr(t.guests.contacts.phoneInvalid);
+      phoneVal = phone; // PhoneInput gives E.164 directly
     }
     upsert.mutate(
       {
@@ -1998,7 +2008,11 @@ function ContactEditSheet({
       <Label className="mb-2">{t.guests.contacts.emailLabel}</Label>
       <Field icon="mail" value={email} onChange={setEmail} inputMode="email" placeholder={t.guests.contacts.emailPlaceholder} className="mb-[14px]" />
       <Label className="mb-2">{t.guests.contacts.phoneLabel}</Label>
-      <Field icon="phone" value={phone} onChange={setPhone} inputMode="tel" placeholder={t.guests.contacts.phonePlaceholder} className="mb-[14px]" />
+      <div className="mb-[14px] flex items-center gap-[11px] rounded-[14px] border border-line bg-elev px-[11px] py-[13px] transition-colors focus-within:border-acc">
+        <CountrySelect value={phoneCountry} onChange={(c) => { setPhoneCountry(c); setPhone(undefined); }} />
+        <span className="h-5 w-px shrink-0 bg-line" />
+        <PhoneInput country={phoneCountry} value={phone} onChange={setPhone} placeholder={t.guests.contacts.phonePlaceholder} className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none placeholder:text-faint" />
+      </div>
       <Label className="mb-2">{t.guests.contacts.tierLabel}</Label>
       <div className="flex flex-wrap gap-2">
         <RolePill label={t.guests.contacts.tierNone} on={role === ''} onClick={() => setRole('')} />
