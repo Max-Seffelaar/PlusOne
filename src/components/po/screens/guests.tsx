@@ -45,6 +45,7 @@ import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../context';
 import { Icon, type IconName } from '../icon';
 import PhoneInput from 'react-phone-number-input/input';
+import { isValidPhoneNumber } from 'react-phone-number-input';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, PayChip, RoleChip, Scroll, StatusDot, Stepper, Top } from '../kit';
 import { BottomBar, Sheet } from '../shell';
 import { CountrySelect, type CountryCode } from '../country-select';
@@ -252,22 +253,43 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
   return (
     <div className={col}>
       <Top onBack={nav.back} title={t.guests.list.title} sub={`${ev.name} · ${fmt(t.guests.list.sub, { shown: gs.length, total: guests.length })}`} right={<IconBtn name="plus" onClick={() => nav.push('quickadd', { id: ev.id })} />} />
-      {/* Toolbar — stacked on mobile, a single row on desktop. */}
+      {/* Toolbar — stacked on mobile, a single row on desktop.
+          When guests are selected the toolbar switches to a selection-action bar
+          (avoids BottomBar z-index / click issues on desktop). */}
       <div className="flex-none px-4 lg:flex lg:items-center lg:gap-3 lg:pb-3">
-        <div className="pb-[10px] lg:max-w-[300px] lg:flex-1 lg:pb-0">
-          <Field icon="search" placeholder={t.guests.list.searchPlaceholder} value={q} onChange={setQ} />
-        </div>
-        <div className="flex gap-2 pb-3 lg:ml-auto lg:pb-0">
-          <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd', { id: ev.id })}>
-            {t.guests.list.addGuest}
-          </Btn>
-          <Btn sm kind="quiet" icon="paste" onClick={() => nav.push('bulk', { id: ev.id })}>
-            {t.guests.list.pasteList}
-          </Btn>
-          <Btn sm kind="quiet" icon="contact" onClick={() => nav.push('contacten', { id: ev.id })}>
-            {t.guests.list.contacts}
-          </Btn>
-        </div>
+        {selected.size > 0 ? (
+          <div className="flex w-full flex-wrap items-center gap-2 pb-3 lg:pb-0">
+            <span className="flex-1 font-display text-[14px] font-bold text-text">
+              {fmt(t.guests.multiSelect.selectionBar, { n: selected.size })}
+            </span>
+            <Btn sm kind="quiet" onClick={() => setSelected(new Set(gs.map((g) => g.id)))}>
+              {t.guests.multiSelect.selectAll}
+            </Btn>
+            <Btn sm kind="primary" icon="ticket" onClick={() => { setBulkErr(null); setBulkTierOpen(true); }}>
+              {t.guests.multiSelect.changeTier}
+            </Btn>
+            <Btn sm kind="ghost" onClick={clearSelection}>
+              {t.guests.multiSelect.cancelSelection}
+            </Btn>
+          </div>
+        ) : (
+          <>
+            <div className="pb-[10px] lg:max-w-[300px] lg:flex-1 lg:pb-0">
+              <Field icon="search" placeholder={t.guests.list.searchPlaceholder} value={q} onChange={setQ} />
+            </div>
+            <div className="flex gap-2 pb-3 lg:ml-auto lg:pb-0">
+              <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd', { id: ev.id })}>
+                {t.guests.list.addGuest}
+              </Btn>
+              <Btn sm kind="quiet" icon="paste" onClick={() => nav.push('bulk', { id: ev.id })}>
+                {t.guests.list.pasteList}
+              </Btn>
+              <Btn sm kind="quiet" icon="contact" onClick={() => nav.push('contacten', { id: ev.id })}>
+                {t.guests.list.contacts}
+              </Btn>
+            </div>
+          </>
+        )}
       </div>
       {isLoading ? (
         <Scroll pad={16} bottom={24}>
@@ -288,30 +310,6 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
           {/* Desktop: virtualized dense table — more rows per screen + a "toegevoegd door" column. */}
           <GuestTable rows={gs} selected={selected} onOpen={openGuest} onToggle={toggleSelect} />
         </>
-      )}
-      {/* Selection BottomBar — replaces the normal empty bar when guests are selected. */}
-      {selected.size > 0 && (
-        <BottomBar>
-          <div className="flex w-full items-center gap-2">
-            <span className="flex-1 font-display text-[14px] font-bold text-text">
-              {fmt(t.guests.multiSelect.selectionBar, { n: selected.size })}
-            </span>
-            <Btn
-              sm
-              kind="primary"
-              icon="ticket"
-              onClick={() => {
-                setBulkErr(null);
-                setBulkTierOpen(true);
-              }}
-            >
-              {t.guests.multiSelect.changeTier}
-            </Btn>
-            <Btn sm kind="ghost" onClick={clearSelection}>
-              {t.guests.multiSelect.cancelSelection}
-            </Btn>
-          </div>
-        </BottomBar>
       )}
       {bulkTierOpen && (
         <BulkTierSheet
@@ -520,7 +518,7 @@ function GuestTable({
     overscan: 12,
     getItemKey: (i) => rows[i]?.id ?? i,
   });
-  const cols = 'grid-cols-[40px_1fr_120px_120px_170px_110px]';
+  const cols = 'grid-cols-[40px_1fr_120px_120px_170px]';
   return (
     <div ref={scrollRef} className="po-scroll hidden min-h-0 flex-1 overflow-y-auto lg:block" style={{ padding: '0 16px 24px' }}>
       <div className="overflow-hidden rounded-[16px] border border-line bg-elev">
@@ -532,7 +530,6 @@ function GuestTable({
               <th>{t.guests.list.colRole}</th>
               <th>{t.guests.list.colPayment}</th>
               <th>{t.guests.list.colAdded}</th>
-              <th className="!pr-4 text-right">{t.guests.list.colStatus}</th>
             </tr>
           </thead>
           <tbody className="block" style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
@@ -597,13 +594,6 @@ function GuestTable({
                   <td>
                     <span className="text-[13px] text-dim">{g.by || '—'}</span>
                     {g.addedAt && <span className="ml-1.5 font-display text-[12px] text-faint">{g.addedAt}</span>}
-                  </td>
-                  <td className="!pr-4 flex justify-end text-right">
-                    {g.status === 'refused' ? (
-                      <span className="rounded-[7px] border border-line2 px-2 py-[3px] font-body text-[11px] font-bold text-faint">{t.guests.list.refused}</span>
-                    ) : (
-                      <StatusDot status={g.status} />
-                    )}
                   </td>
                 </tr>
               );
@@ -681,6 +671,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const [contactEmail, setContactEmail] = useState('');
   const [contactPhone, setContactPhone] = useState<string | undefined>(undefined);
   const [contactCountry, setContactCountry] = useState<CountryCode>('NL');
+  const [contactPhoneErr, setContactPhoneErr] = useState<string | null>(null);
 
   const qaTiers: QuickAddTier[] = tiers.map((t) => ({ id: t.id, name: t.name, aliases: t.aliases }));
   const defaultTierId = resolveDefaultTierId(qaTiers);
@@ -738,6 +729,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
     setContactEmail('');
     setContactPhone(undefined);
     setContactCountry('NL');
+    setContactPhoneErr(null);
     reqExtra.reset();
   };
 
@@ -746,6 +738,11 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
     // Prefer parsed email/phone from the text; fall back to the optional contact fields.
     const emailVal = parsed?.email ?? (contactEmail.trim() || undefined);
     const phoneVal = parsed?.phone ?? contactPhone ?? undefined;
+    if (phoneVal && !isValidPhoneNumber(phoneVal)) {
+      setContactPhoneErr(t.guests.add.contactPhoneError);
+      return;
+    }
+    setContactPhoneErr(null);
     // Reuse the bulk planner with a single row, so quick + bulk split inserts vs
     // plus-ones updates identically. mode defaults to 'again' when there's no dupe.
     const row: BulkRowInput = {
@@ -885,23 +882,27 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                     placeholder={t.guests.add.contactEmailPlaceholder}
                     className="w-full rounded-[10px] border border-line bg-bg px-[11px] py-[8px] text-[13px] text-text outline-none placeholder:text-faint focus:border-acc"
                   />
-                  <div className="flex items-center gap-[8px] rounded-[10px] border border-line bg-bg px-[9px] py-[6px] transition-colors focus-within:border-acc">
+                  <div className={cn('flex items-center gap-[8px] rounded-[10px] border bg-bg px-[9px] py-[6px] transition-colors focus-within:border-acc', contactPhoneErr ? 'border-red-400' : 'border-line')}>
                     <CountrySelect
                       value={contactCountry}
                       onChange={(c) => {
                         setContactCountry(c);
                         setContactPhone(undefined);
+                        setContactPhoneErr(null);
                       }}
                     />
                     <span className="h-4 w-px shrink-0 bg-line" />
                     <PhoneInput
                       country={contactCountry}
                       value={contactPhone}
-                      onChange={setContactPhone}
+                      onChange={(v) => { setContactPhone(v); setContactPhoneErr(null); }}
                       placeholder={t.guests.add.contactPhonePlaceholder}
                       className="min-w-0 flex-1 border-none bg-transparent text-[13px] text-text outline-none placeholder:text-faint"
                     />
                   </div>
+                  {contactPhoneErr && (
+                    <p className="mt-[5px] text-[11.5px] text-red-400" role="alert">{contactPhoneErr}</p>
+                  )}
                 </div>
               )}
             </div>

@@ -137,6 +137,7 @@ export const guests = {
     contactPrompt: 'Add email · phone',
     contactEmailPlaceholder: 'Email address',
     contactPhonePlaceholder: 'Phone number',
+    contactPhoneError: 'Enter a valid phone number.',
     contactPromptHint: 'Optional. Saves them to your contacts so you can reuse them next time.',
   },
   // ── Bulk paste (#33) ──────────────────────────────────────────────────────
@@ -354,6 +355,7 @@ export const guests = {
   // ── Guest list: multi-select + bulk tier change ───────────────────────────
   multiSelect: {
     selectionBar: '{n} selected',
+    selectAll: 'Select all',
     changeTier: 'Change tier',
     cancelSelection: 'Cancel',
     tierSheetTitle: 'Set tier',
