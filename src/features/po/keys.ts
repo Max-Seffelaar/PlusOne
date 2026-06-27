@@ -17,6 +17,9 @@ export const poKeys = {
   eventDetail: (eventId: string) => [...poKeys.all, 'event-detail', eventId] as const,
   eventRecap: (eventId: string) => [...poKeys.all, 'event-recap', eventId] as const,
   guests: (eventId: string) => [...poKeys.all, 'guests', eventId] as const,
+  /** The venue-wide "all guests" list (Guests tab, no event selected); keyed on the
+   *  venue + the joined event-id set so it re-reads when the event set changes. */
+  venueGuests: (venueId: string, eventKey: string) => [...poKeys.all, 'venue-guests', venueId, eventKey] as const,
   tiers: (eventId: string) => [...poKeys.all, 'tiers', eventId] as const,
   /** Live event-day stats (per-quarter instroom + peak) for the cockpit (S13). */
   eventStats: (eventId: string) => [...poKeys.all, 'event-stats', eventId] as const,

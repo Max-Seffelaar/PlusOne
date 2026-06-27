@@ -40,6 +40,10 @@ export type PoTierRow = Pick<
   'id' | 'name' | 'color' | 'max_guests' | 'aliases' | 'door_price_cents'
 >;
 
+/** A guest row that also carries its `event_id` — the venue-wide ("all guests")
+ *  list needs it to badge + deep-link each row to its own event. */
+export type PoVenueGuestRow = PoGuestRow & Pick<Tables['guests']['Row'], 'event_id'>;
+
 /** All events for a venue, newest first (RLS: members read their venue's events). */
 export async function fetchEvents(client: Client, venueId: string): Promise<PoEventRow[]> {
   const { data } = await client
@@ -127,6 +131,39 @@ export async function fetchTiers(client: Client, eventId: string): Promise<PoTie
     .from('guest_tiers')
     .select('id, name, color, max_guests, aliases, door_price_cents')
     .eq('event_id', eventId)
+    .order('name', { ascending: true });
+
+  return data ?? [];
+}
+
+/**
+ * Active guests across MANY events (the venue-wide "all guests" list), oldest
+ * first, each row carrying its `event_id`. Same RLS boundary as `fetchPoGuests`
+ * — staff still see only their own guests, just across every event they touched.
+ * Ranged like the single-event read so a big venue never truncates at 1000 rows.
+ */
+export async function fetchVenueGuests(client: Client, eventIds: string[]): Promise<PoVenueGuestRow[]> {
+  if (eventIds.length === 0) return [];
+  return fetchAllRanged<PoVenueGuestRow>((from, to) =>
+    client
+      .from('guests')
+      .select('id, full_name, plus_ones, status, tier_id, note, note_priority, created_at, contact_id, event_id')
+      .in('event_id', eventIds)
+      .neq('status', 'removed')
+      .order('created_at', { ascending: true })
+      .order('id')
+      .range(from, to),
+  );
+}
+
+/** Tiers across many events (venue-wide role resolution for the "all guests" list).
+ *  Tier ids are globally unique, so the caller maps role by tier id regardless of event. */
+export async function fetchVenueTiers(client: Client, eventIds: string[]): Promise<PoTierRow[]> {
+  if (eventIds.length === 0) return [];
+  const { data } = await client
+    .from('guest_tiers')
+    .select('id, name, color, max_guests, aliases, door_price_cents')
+    .in('event_id', eventIds)
     .order('name', { ascending: true });
 
   return data ?? [];

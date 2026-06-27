@@ -23,6 +23,8 @@ import {
   fetchTiers,
   fetchTiersWithUsage,
   fetchPoGuests,
+  fetchVenueGuests,
+  fetchVenueTiers,
   fetchCheckinArrivals,
   fetchEventQuota,
   fetchGuestRequests,
@@ -382,6 +384,37 @@ export function usePoGuests(eventId: string) {
       ]);
       const roleByTier = new Map(tiers.map((t) => [t.id, tierRole(t.name)]));
       return guests.map((g) => toPoGuest(g, { role: roleByTier.get(g.tier_id) ?? 'Gast' }));
+    },
+  });
+}
+
+/**
+ * The venue-wide "all guests" list (Guests tab, no event selected): every active
+ * guest across the given events, each carrying its event id + name so a row can
+ * badge + deep-link to its own event. RLS stays the boundary (staff see only their
+ * own). Pass `[]` to disable (e.g. when a single event is selected instead).
+ */
+export function useVenueGuests(events: PoEvent[]) {
+  const { venueId } = usePoIdentity();
+  const eventIds = events.map((e) => e.id).sort();
+  const nameById = new Map(events.map((e) => [e.id, e.name]));
+  return useQuery<Guest[]>({
+    queryKey: poKeys.venueGuests(venueId ?? '', eventIds.join(',')),
+    enabled: !!venueId && eventIds.length > 0,
+    queryFn: async () => {
+      const client = createClient();
+      const [guests, tiers] = await Promise.all([
+        fetchVenueGuests(client, eventIds),
+        fetchVenueTiers(client, eventIds),
+      ]);
+      const roleByTier = new Map(tiers.map((t) => [t.id, tierRole(t.name)]));
+      return guests.map((g) =>
+        toPoGuest(g, {
+          role: roleByTier.get(g.tier_id) ?? 'Gast',
+          eventId: g.event_id,
+          eventName: nameById.get(g.event_id) ?? '',
+        }),
+      );
     },
   });
 }

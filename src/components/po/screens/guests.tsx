@@ -21,7 +21,7 @@ import {
   type ParseResult,
 } from '@/features/guests/quick-add-parser';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
-import { usePoEvents, usePoGuests, usePoTiers, usePoQuota, usePoContacts, usePoPersonProfile, usePoPermanentContacts } from '@/features/po/hooks';
+import { usePoEvents, usePoGuests, useVenueGuests, usePoTiers, usePoQuota, usePoContacts, usePoPersonProfile, usePoPermanentContacts } from '@/features/po/hooks';
 import {
   usePoAddGuest,
   usePoAddGuestsBulk,
@@ -225,6 +225,118 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
   );
 }
 
+/** Scope chip for the Guests-tab event picker ("All events" + each event). */
+function ScopeChip({ on, onClick, children }: { on: boolean; onClick: () => void; children: string }): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'shrink-0 whitespace-nowrap rounded-full border px-3 py-[7px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.07]',
+        on ? 'border-transparent bg-text text-bg' : 'border-line bg-transparent text-dim',
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * The Guests TAB — distinct from the pushed single-event `Lijst`. Defaults to ALL
+ * guests across the venue's events (each row badged with its event), with an event
+ * picker to scope to one. Fixes the "tab auto-opened an empty event with no way to
+ * switch" trap (feedback Max): you always land on a populated list. RLS still scopes
+ * staff to their own guests. Add affordances need an event, so they appear only once
+ * one is picked.
+ */
+export function GuestsTab(): JSX.Element {
+  const nav = useNav();
+  const { data: events = [], isLoading: eventsLoading } = usePoEvents();
+  const [scope, setScope] = useState<string | null>(null); // null = all events
+  const [q, setQ] = useState('');
+  // Input stays instant; the expensive filter runs on the settled term (#1b).
+  const dq = useDebouncedValue(q, 140);
+
+  const allMode = scope === null;
+  // Exactly one query is enabled: venue-wide when "all", single-event otherwise.
+  const venue = useVenueGuests(allMode ? events : []);
+  const single = usePoGuests(scope ?? '');
+  const active = allMode ? venue : single;
+  const guests = useMemo(() => active.data ?? [], [active.data]);
+  const gs = useMemo(() => filterGuestList(guests, dq), [guests, dq]);
+  const loading = active.isLoading || (allMode && eventsLoading);
+
+  const scopeEvent = events.find((e) => e.id === scope) ?? null;
+  const countSub = fmt(t.guests.list.sub, { shown: gs.length, total: guests.length });
+  // Each row deep-links to its OWN event (venue-wide rows carry eventId; a scoped
+  // list falls back to the selected event).
+  const openGuest = (id: string): void => {
+    const g = guests.find((x) => x.id === id);
+    nav.push('guest', { id, eventId: g?.eventId ?? scope ?? '' });
+  };
+
+  return (
+    <div className={col}>
+      <Top
+        title={t.guests.list.title}
+        sub={scopeEvent ? `${scopeEvent.name} · ${countSub}` : countSub}
+        right={scopeEvent ? <IconBtn name="plus" onClick={() => nav.push('quickadd', { id: scopeEvent.id })} /> : undefined}
+      />
+      {/* Event scope picker — "All events" + each event; scrolls horizontally. */}
+      <div className="flex-none overflow-x-auto px-4 pb-3">
+        <div className="flex w-max gap-1.5">
+          <ScopeChip on={allMode} onClick={() => setScope(null)}>
+            {t.guests.list.allScope}
+          </ScopeChip>
+          {events.map((e) => (
+            <ScopeChip key={e.id} on={scope === e.id} onClick={() => setScope(e.id)}>
+              {e.name}
+            </ScopeChip>
+          ))}
+        </div>
+      </div>
+      {/* Toolbar — search always; add affordances only once an event is in scope
+          (you can't add a guest without an event to add them to). */}
+      <div className="flex-none px-4 lg:flex lg:items-center lg:gap-3 lg:pb-3">
+        <div className="pb-[10px] lg:max-w-[300px] lg:flex-1 lg:pb-0">
+          <Field icon="search" placeholder={t.guests.list.searchPlaceholder} value={q} onChange={setQ} />
+        </div>
+        {scopeEvent && (
+          <div className="flex gap-2 pb-3 lg:ml-auto lg:pb-0">
+            <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd', { id: scopeEvent.id })}>
+              {t.guests.list.addGuest}
+            </Btn>
+            <Btn sm kind="quiet" icon="paste" onClick={() => nav.push('bulk', { id: scopeEvent.id })}>
+              {t.guests.list.pasteList}
+            </Btn>
+            <Btn sm kind="quiet" icon="contact" onClick={() => nav.push('contacten', { id: scopeEvent.id })}>
+              {t.guests.list.contacts}
+            </Btn>
+          </div>
+        )}
+      </div>
+      {loading ? (
+        <Scroll pad={16} bottom={24}>
+          <Empty text={t.guests.list.loading} />
+        </Scroll>
+      ) : active.isError ? (
+        <Scroll pad={16} bottom={24}>
+          <Empty text={t.guests.list.loadError} />
+        </Scroll>
+      ) : gs.length === 0 ? (
+        <Scroll pad={16} bottom={24}>
+          <Empty text={q ? t.guests.list.emptyFiltered : t.guests.list.empty} />
+        </Scroll>
+      ) : (
+        <>
+          <GuestCardList rows={gs} onOpen={openGuest} />
+          <GuestTable rows={gs} onOpen={openGuest} />
+        </>
+      )}
+    </div>
+  );
+}
+
 // Mobile card ≈ avatar 34 + py-8 + one line (denser, feedback Joeri); desktop row ≈ avatar 36 + py-11.
 const GUEST_CARD_EST = 52;
 const GUEST_ROW_EST = 58;
@@ -256,9 +368,13 @@ function GuestCardList({ rows, onOpen }: { rows: GuestT[]; onOpen: (id: string) 
               <div className="pb-[7px]">
                 <button type="button" onClick={() => onOpen(g.id)} className={cn('flex w-full items-center gap-[10px] rounded-[12px] border border-line bg-elev px-[11px] py-[8px] text-left', cardPress)}>
                   <Avatar name={g.name} size={34} accent={g.role === 'VIP'} />
-                  <span className="min-w-0 flex-1 truncate font-display text-[14.5px] font-bold text-text">
-                    {g.name}
-                    {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate font-display text-[14.5px] font-bold text-text">
+                      {g.name}
+                      {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
+                    </span>
+                    {/* Venue-wide list: which event this guest is on (absent in single-event mode). */}
+                    {g.eventName && <span className="truncate font-body text-[11px] text-faint">{g.eventName}</span>}
                   </span>
                   {g.note && (
                     <span className="shrink-0 text-acc-soft">
@@ -333,6 +449,10 @@ function GuestTable({ rows, onOpen }: { rows: GuestT[]; onOpen: (id: string) => 
                           {g.name}
                           {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
                         </span>
+                        {/* Venue-wide list: which event this guest is on (absent in single-event mode). */}
+                        {g.eventName && (
+                          <span className="mt-0.5 block max-w-[280px] truncate text-[12px] text-faint">{g.eventName}</span>
+                        )}
                         {g.note && (
                           <span className="mt-0.5 block max-w-[280px] truncate text-[12px] text-acc-soft">{g.note}</span>
                         )}

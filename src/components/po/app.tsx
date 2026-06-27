@@ -35,7 +35,7 @@ import { Top } from './kit';
 import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
 import { Invite, Login, Mfa, Otp, Welcome } from './screens/auth';
 import { EventBeheer, EventEdit, EventView, Events, PastEvent, Tiers } from './screens/events';
-import { BulkPaste, Contacten, ContactProfile, Lijst, QuickAdd, Vaste } from './screens/guests';
+import { BulkPaste, Contacten, ContactProfile, GuestsTab, Lijst, QuickAdd, Vaste } from './screens/guests';
 import { DoorEventPicker, PoDoorTab, type DoorOverlay } from './screens/door';
 import { Allowance, Billing, Gebruikers, Import, Meer, Profile, Rollen, VenueSettings, VenueSwitch } from './screens/settings';
 import { VenueCreate } from './screens/onboarding';
@@ -216,9 +216,6 @@ export function PlusOneApp({
   const showDoor = canWorkDoor(roles);
   const { data: liveEvents } = usePoEvents();
   const events = liveEvents ?? [];
-  // The Guests tab lands on the next/active event's list (first upcoming); switch
-  // to another event via the Events tab. Guests is now a first-class destination.
-  const featuredGuestsEvent = events.find((e) => e.when === 'upcoming') ?? null;
   // Non-closed events for the door (live-first). Selection-first (S1.3): an explicit
   // pick (doorEventId, set by "Check-in" from an event card) wins; with exactly one
   // candidate we use it; with several, the user chooses — no auto-pick guess. Only
@@ -480,12 +477,7 @@ export function PlusOneApp({
     }
   } else if (tab === 'start') screen = <Home />;
   else if (tab === 'events') screen = <Events />;
-  else if (tab === 'guests')
-    screen = featuredGuestsEvent ? (
-      <Lijst ev={featuredGuestsEvent} />
-    ) : (
-      <DoorTabState title={t.nav.guests} text={t.guestsTab.empty} />
-    );
+  else if (tab === 'guests') screen = <GuestsTab />;
   else if (tab === 'meer') screen = <Meer />;
   // 'deur' renders via the door branch below when allowed; for a non-door role
   // (showDoor=false) the tab is hidden, so fall back to the home.
