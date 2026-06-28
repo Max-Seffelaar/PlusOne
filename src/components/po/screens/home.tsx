@@ -775,8 +775,8 @@ export function Home(): JSX.Element {
               </button>
             </div>
           )}
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="min-w-0 flex-1">
+          <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end lg:gap-4">
+            <div className="min-w-0 lg:flex-1">
               <h1 className="font-display text-[27px] font-extrabold leading-[1.02] tracking-[-0.025em] text-text lg:text-[33px]">
                 {greetingFor(amsterdamHour(), firstName)}
               </h1>
@@ -801,7 +801,7 @@ export function Home(): JSX.Element {
                 )}
               </div>
             </div>
-            <div className="flex gap-2.5 max-lg:hidden">
+            <div className="flex gap-2.5">
               <Btn sm kind="ghost" icon="plus" onClick={() => setGuestPickOpen(true)}>
                 {t.home.newGuest}
               </Btn>
