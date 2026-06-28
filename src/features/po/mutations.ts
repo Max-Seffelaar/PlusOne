@@ -201,65 +201,69 @@ export function usePoAddGuestsBulk(eventId: string) {
   });
 }
 
-export function usePoUpdateGuest(eventId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: UpdateGuestInput) => throwOnError(await updateGuest(input)),
+// Factory for simple guest mutations: always invalidates guests; pass extraKeys for
+// tiers / contact-profile / contacts as needed.
+function guestMutation<TInput>(
+  qc: QueryClient,
+  eventId: string,
+  mutationFn: (input: TInput) => Promise<unknown>,
+  extraKeys: ReadonlyArray<readonly unknown[]> = [],
+) {
+  return {
+    mutationFn,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
-      // A guest edit can add email/phone → promote it to a contact, and changes the
-      // open person profile (name / note / appearance) — refresh whichever is open.
-      void qc.invalidateQueries({ queryKey: [...poKeys.all, 'contact-profile'] });
-      // …and a promote grows the address book, so refresh the contacts list too.
-      void qc.invalidateQueries({ queryKey: [...poKeys.all, 'contacts'] });
+      for (const key of extraKeys) {
+        void qc.invalidateQueries({ queryKey: key as unknown[] });
+      }
     },
-  });
+  };
+}
+
+const TIERS_KEY = (eventId: string) => [poKeys.tiers(eventId)] as const;
+const CONTACT_PROFILE_KEY = [...poKeys.all, 'contact-profile'] as const;
+const CONTACTS_KEY = [...poKeys.all, 'contacts'] as const;
+
+export function usePoUpdateGuest(eventId: string) {
+  const qc = useQueryClient();
+  // A guest edit can add email/phone → promote to a contact and change the open
+  // person profile; also grows the address book.
+  return useMutation(guestMutation(qc, eventId,
+    async (input: UpdateGuestInput) => throwOnError(await updateGuest(input)),
+    [CONTACT_PROFILE_KEY, CONTACTS_KEY],
+  ));
 }
 
 export function usePoChangeGuestTier(eventId: string) {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: ChangeTierInput) => throwOnError(await changeGuestTier(input)),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
-      void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
-    },
-  });
+  return useMutation(guestMutation(qc, eventId,
+    async (input: ChangeTierInput) => throwOnError(await changeGuestTier(input)),
+    TIERS_KEY(eventId),
+  ));
 }
 
 export function usePoChangeGuestsTierBulk(eventId: string) {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: ChangeTierBulkInput) => throwOnError(await changeGuestsTierBulk(input)),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
-      void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
-    },
-  });
+  return useMutation(guestMutation(qc, eventId,
+    async (input: ChangeTierBulkInput) => throwOnError(await changeGuestsTierBulk(input)),
+    TIERS_KEY(eventId),
+  ));
 }
 
 export function usePoPromoteGuestToContact(eventId: string) {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: PromoteGuestToContactInput) =>
-      throwOnError(await promoteGuestToContact(input)),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
-      void qc.invalidateQueries({ queryKey: [...poKeys.all, 'contact-profile'] });
-      void qc.invalidateQueries({ queryKey: [...poKeys.all, 'contacts'] });
-    },
-  });
+  return useMutation(guestMutation(qc, eventId,
+    async (input: PromoteGuestToContactInput) => throwOnError(await promoteGuestToContact(input)),
+    [CONTACT_PROFILE_KEY, CONTACTS_KEY],
+  ));
 }
 
 export function usePoRemoveGuest(eventId: string) {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (guestId: string) => throwOnError(await removeGuest(guestId)),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
-      void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
-    },
-  });
+  return useMutation(guestMutation(qc, eventId,
+    async (guestId: string) => throwOnError(await removeGuest(guestId)),
+    TIERS_KEY(eventId),
+  ));
 }
 
 // ── Event-dag cockpit check-in/out (S13) ──────────────────────────────────────
