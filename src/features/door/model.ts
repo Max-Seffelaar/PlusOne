@@ -144,9 +144,11 @@ export function buildDoorView(snapshot: DoorSnapshot): DoorView {
   const tierById = new Map(snapshot.tiers.map((t) => [t.id, t]));
   const checkInByGuest = indexCheckIns(snapshot.checkIns);
 
-  // Latest refusal reason per guest (refusals are append-only; last one wins).
+  // Latest refusal reason per guest. Refusals are already in time order: the DB
+  // query uses .order('id') (UUIDv7 = monotonic) and optimistic appends go last,
+  // so a plain iteration where later writes win gives us the most recent reason.
   const reasonByGuest = new Map<string, string>();
-  for (const r of [...snapshot.refusals].sort((a, b) => (a.refused_at < b.refused_at ? -1 : 1))) {
+  for (const r of snapshot.refusals) {
     reasonByGuest.set(r.guest_id, r.reason);
   }
 

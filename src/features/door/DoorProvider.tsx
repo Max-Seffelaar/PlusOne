@@ -38,6 +38,11 @@ import {
 } from './queries';
 import { buildDoorView, buildTasks, type DoorGuest, type DoorTask, type DoorView } from './model';
 
+/** kind + payload pairs for enqueueDoorWrite — envelope fields are filled centrally. */
+type OutboxWrite = {
+  [K in OutboxEntry['kind']]: { kind: K; payload: Extract<OutboxEntry, { kind: K }>['payload'] };
+}[OutboxEntry['kind']];
+
 const QUOTA_KEY = (eventId: string) => ['door-quota', eventId] as const;
 const TOAST_MS = 2600;
 
@@ -123,14 +128,45 @@ export function DoorProvider({
   });
 
   const snapshot = snapshotQuery.data;
-  const view = useMemo(() => (snapshot ? buildDoorView(snapshot) : null), [snapshot]);
+
+  // ── D3: build view + guest lookup map in one pass (O(1) guestById vs O(n) find).
+  // Map includes both active and refused guests so all mutations can resolve names.
+  const { view, guestMap } = useMemo(() => {
+    if (!snapshot) return { view: null, guestMap: new Map<string, DoorGuest>() };
+    const v = buildDoorView(snapshot);
+    return {
+      view: v,
+      guestMap: new Map<string, DoorGuest>([
+        ...v.guests.map((g): [string, DoorGuest] => [g.id, g]),
+        ...v.refused.map((g): [string, DoorGuest] => [g.id, g]),
+      ]),
+    };
+  }, [snapshot]);
+
   const tasks = useMemo(() => (view ? buildTasks(view) : []), [view]);
   const defaultTierId = useMemo(
     () => (snapshot ? resolveDefaultTierId(snapshot.tiers.map((t) => ({ id: t.id, name: t.name, aliases: t.aliases }))) : null),
     [snapshot],
   );
+
+  // Stable refs so mutation callbacks don't need view/guestMap in their dep arrays.
   const viewRef = useRef(view);
   viewRef.current = view;
+  const guestMapRef = useRef(guestMap);
+  guestMapRef.current = guestMap;
+
+  // ── D2: Sets for O(1) realtime dedup (replaces O(n) .some() on the hot path).
+  // Eagerly updated in onRealtimeCheckIn; lazily rebuilt from snapshot after render.
+  const guestIdSetRef = useRef<Set<string>>(new Set());
+  const checkInIdSetRef = useRef<Set<string>>(new Set());
+  const checkInGuestIdSetRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!snapshot) return;
+    guestIdSetRef.current = new Set(snapshot.guests.map((g) => g.id));
+    checkInIdSetRef.current = new Set(snapshot.checkIns.map((c) => c.id));
+    checkInGuestIdSetRef.current = new Set(snapshot.checkIns.map((c) => c.guest_id));
+  }, [snapshot]);
 
   const outboxByGuest = useMemo(() => {
     const map = new Map<string, OutboxEntry[]>();
@@ -204,45 +240,58 @@ export function DoorProvider({
     if (isOnline()) void flush();
   }, [flush]);
 
-  // ── Mutations (optimistic patch + outbox enqueue + flush).
+  // ── 2a: centralised outbox envelope — clientId / status / attempts / createdAt
+  // are always the same boilerplate; kind + payload + patchFn vary per mutation.
+  const enqueueDoorWrite = useCallback(
+    (write: OutboxWrite, patchFn: (s: DoorSnapshot) => DoorSnapshot, toastMsg?: string) => {
+      outbox.enqueue({
+        clientId: uuidv7(),
+        eventId,
+        status: 'pending',
+        attempts: 0,
+        createdAt: new Date().toISOString(),
+        ...write,
+      } as OutboxEntry);
+      patchSnapshot(patchFn);
+      if (toastMsg) showToast(toastMsg);
+      maybeFlush();
+    },
+    [eventId, patchSnapshot, showToast, maybeFlush],
+  );
+
+  // ── Mutations (thin wrappers over enqueueDoorWrite).
+
   const checkIn = useCallback(
     (guestId: string, totalPeople: number) => {
       const ciId = uuidv7();
       const ts = new Date().toISOString();
       const plusArrived = Math.max(0, totalPeople - 1);
-      outbox.enqueue({
-        clientId: uuidv7(),
-        eventId,
-        kind: 'check_in',
-        status: 'pending',
-        attempts: 0,
-        createdAt: ts,
-        payload: { id: ciId, guestId, plusOnesArrived: plusArrived, clientTimestamp: ts },
-      });
-      patchSnapshot((s) => {
-        if (s.checkIns.some((c) => c.guest_id === guestId)) return s;
-        const row: CheckInRow = {
-          id: ciId,
-          guest_id: guestId,
-          event_id: eventId,
-          venue_id: s.event.venueId,
-          checked_by: meId ?? '',
-          checked_at: ts,
-          client_timestamp: ts,
-          device_id: getDeviceId(),
-          plus_ones_arrived: plusArrived,
-          offline_synced: false,
-          created_at: ts,
-          voided_at: null,
-          voided_by: null,
-        };
-        return { ...s, checkIns: [...s.checkIns, row] };
-      });
-      const g = viewRef.current?.guests.find((x) => x.id === guestId);
-      showToast(`${g?.name ?? 'Guest'}${plusArrived > 0 ? ` +${plusArrived}` : ''} · inside ✓`);
-      maybeFlush();
+      const g = guestMapRef.current.get(guestId);
+      enqueueDoorWrite(
+        { kind: 'check_in', payload: { id: ciId, guestId, plusOnesArrived: plusArrived, clientTimestamp: ts } },
+        (s) => {
+          if (s.checkIns.some((c) => c.guest_id === guestId)) return s;
+          const row: CheckInRow = {
+            id: ciId,
+            guest_id: guestId,
+            event_id: eventId,
+            venue_id: s.event.venueId,
+            checked_by: meId ?? '',
+            checked_at: ts,
+            client_timestamp: ts,
+            device_id: getDeviceId(),
+            plus_ones_arrived: plusArrived,
+            offline_synced: false,
+            created_at: ts,
+            voided_at: null,
+            voided_by: null,
+          };
+          return { ...s, checkIns: [...s.checkIns, row] };
+        },
+        `${g?.name ?? 'Guest'}${plusArrived > 0 ? ` +${plusArrived}` : ''} · inside ✓`,
+      );
     },
-    [eventId, meId, patchSnapshot, showToast, maybeFlush],
+    [enqueueDoorWrite, eventId, meId],
   );
 
   // "Nog inchecken": raise plus_ones_arrived for a guest already inside. We read
@@ -250,31 +299,24 @@ export function DoorProvider({
   // target (capped client-side; the trigger caps + keeps it monotonic server-side).
   const topUp = useCallback(
     (guestId: string, addArrived: number) => {
-      const g = viewRef.current?.guests.find((x) => x.id === guestId);
+      const g = guestMapRef.current.get(guestId);
       if (!g || !g.inside) return;
       const current = g.arrived ?? 0;
       const target = Math.min(g.plus, current + Math.max(0, addArrived));
       if (target <= current) return;
       const ts = new Date().toISOString();
-      outbox.enqueue({
-        clientId: uuidv7(),
-        eventId,
-        kind: 'check_in_topup',
-        status: 'pending',
-        attempts: 0,
-        createdAt: ts,
-        payload: { guestId, plusOnesArrived: target, clientTimestamp: ts },
-      });
-      patchSnapshot((s) => ({
-        ...s,
-        checkIns: s.checkIns.map((c) =>
-          c.guest_id === guestId ? { ...c, plus_ones_arrived: Math.max(c.plus_ones_arrived, target) } : c,
-        ),
-      }));
-      showToast(`${g.name} · now ${1 + target} inside`);
-      maybeFlush();
+      enqueueDoorWrite(
+        { kind: 'check_in_topup', payload: { guestId, plusOnesArrived: target, clientTimestamp: ts } },
+        (s) => ({
+          ...s,
+          checkIns: s.checkIns.map((c) =>
+            c.guest_id === guestId ? { ...c, plus_ones_arrived: Math.max(c.plus_ones_arrived, target) } : c,
+          ),
+        }),
+        `${g.name} · now ${1 + target} inside`,
+      );
     },
-    [eventId, patchSnapshot, showToast, maybeFlush],
+    [enqueueDoorWrite],
   );
 
   // "Check-in terugdraaien": soft-void a mistaken check-in (#3 — never deleted).
@@ -282,28 +324,21 @@ export function DoorProvider({
   // from "aanwezig" everywhere. Any door-scoped colleague may do this (RLS).
   const voidCheckIn = useCallback(
     (guestId: string) => {
-      const g = viewRef.current?.guests.find((x) => x.id === guestId);
+      const g = guestMapRef.current.get(guestId);
       if (!g || !g.inside) return;
       const ts = new Date().toISOString();
-      outbox.enqueue({
-        clientId: uuidv7(),
-        eventId,
-        kind: 'check_in_void',
-        status: 'pending',
-        attempts: 0,
-        createdAt: ts,
-        payload: { guestId, clientTimestamp: ts },
-      });
-      patchSnapshot((s) => ({
-        ...s,
-        checkIns: s.checkIns.map((c) =>
-          c.guest_id === guestId ? { ...c, voided_at: ts, voided_by: meId ?? '' } : c,
-        ),
-      }));
-      showToast(`${g.name} · check-in reversed`);
-      maybeFlush();
+      enqueueDoorWrite(
+        { kind: 'check_in_void', payload: { guestId, clientTimestamp: ts } },
+        (s) => ({
+          ...s,
+          checkIns: s.checkIns.map((c) =>
+            c.guest_id === guestId ? { ...c, voided_at: ts, voided_by: meId ?? '' } : c,
+          ),
+        }),
+        `${g.name} · check-in reversed`,
+      );
     },
-    [eventId, meId, patchSnapshot, showToast, maybeFlush],
+    [enqueueDoorWrite, meId],
   );
 
   // "Opnieuw inchecken": revive a voided check-in (clears voided_at, re-sets
@@ -311,165 +346,143 @@ export function DoorProvider({
   // count). Reuses the one row per guest (#11), so no new INSERT/duplicate.
   const reviveCheckIn = useCallback(
     (guestId: string, totalPeople: number) => {
-      const g = viewRef.current?.guests.find((x) => x.id === guestId);
+      const g = guestMapRef.current.get(guestId);
       if (!g || !g.voided) return;
       const plusArrived = Math.min(g.plus, Math.max(0, totalPeople - 1));
       const ts = new Date().toISOString();
-      outbox.enqueue({
-        clientId: uuidv7(),
-        eventId,
-        kind: 'check_in_revive',
-        status: 'pending',
-        attempts: 0,
-        createdAt: ts,
-        payload: { guestId, plusOnesArrived: plusArrived, clientTimestamp: ts },
-      });
-      patchSnapshot((s) => ({
-        ...s,
-        checkIns: s.checkIns.map((c) =>
-          c.guest_id === guestId
-            ? { ...c, voided_at: null, voided_by: null, checked_by: meId ?? '', checked_at: ts, plus_ones_arrived: plusArrived }
-            : c,
-        ),
-      }));
-      showToast(`${g.name}${plusArrived > 0 ? ` +${plusArrived}` : ''} · back inside ✓`);
-      maybeFlush();
+      enqueueDoorWrite(
+        { kind: 'check_in_revive', payload: { guestId, plusOnesArrived: plusArrived, clientTimestamp: ts } },
+        (s) => ({
+          ...s,
+          checkIns: s.checkIns.map((c) =>
+            c.guest_id === guestId
+              ? { ...c, voided_at: null, voided_by: null, checked_by: meId ?? '', checked_at: ts, plus_ones_arrived: plusArrived }
+              : c,
+          ),
+        }),
+        `${g.name}${plusArrived > 0 ? ` +${plusArrived}` : ''} · back inside ✓`,
+      );
     },
-    [eventId, meId, patchSnapshot, showToast, maybeFlush],
+    [enqueueDoorWrite, meId],
   );
 
   const refuse = useCallback(
     (guestId: string, reason: string) => {
       const id = uuidv7();
       const ts = new Date().toISOString();
-      outbox.enqueue({
-        clientId: uuidv7(),
-        eventId,
-        kind: 'refusal',
-        status: 'pending',
-        attempts: 0,
-        createdAt: ts,
-        payload: { id, guestId, reason, clientTimestamp: ts },
-      });
-      const g = viewRef.current?.guests.find((x) => x.id === guestId);
-      patchSnapshot((s) => ({
-        ...s,
-        // Mirror the server trigger optimistically: the guest moves to 'refused'
-        // (→ the "Geweigerd" lijst) and the refusal row carries the reason.
-        guests: s.guests.map((x) => (x.id === guestId ? { ...x, status: 'refused' as const } : x)),
-        refusals: [
-          ...s.refusals,
-          { id, guest_id: guestId, event_id: eventId, venue_id: s.event.venueId, refused_by: meId ?? '', reason, refused_at: ts, client_timestamp: ts, device_id: getDeviceId(), created_at: ts, anonymized_at: null },
-        ],
-      }));
-      showToast(`${g?.name ?? 'Guest'} · refused`);
-      maybeFlush();
+      const g = guestMapRef.current.get(guestId);
+      enqueueDoorWrite(
+        { kind: 'refusal', payload: { id, guestId, reason, clientTimestamp: ts } },
+        (s) => ({
+          ...s,
+          guests: s.guests.map((x) => (x.id === guestId ? { ...x, status: 'refused' as const } : x)),
+          refusals: [
+            ...s.refusals,
+            {
+              id,
+              guest_id: guestId,
+              event_id: eventId,
+              venue_id: s.event.venueId,
+              refused_by: meId ?? '',
+              reason,
+              refused_at: ts,
+              client_timestamp: ts,
+              device_id: getDeviceId(),
+              created_at: ts,
+              anonymized_at: null,
+            },
+          ],
+        }),
+        `${g?.name ?? 'Guest'} · refused`,
+      );
     },
-    [eventId, meId, patchSnapshot, showToast, maybeFlush],
+    [enqueueDoorWrite, eventId, meId],
   );
 
   // "Weigering ongedaan maken": re-admit a mistakenly refused guest. Status goes
   // back to 'approved' (→ onderweg); the refusal row stays as history (#10/#15).
   const undoRefusal = useCallback(
     (guestId: string) => {
-      const ts = new Date().toISOString();
-      const g = viewRef.current?.refused.find((x) => x.id === guestId);
-      outbox.enqueue({
-        clientId: uuidv7(),
-        eventId,
-        kind: 'undo_refusal',
-        status: 'pending',
-        attempts: 0,
-        createdAt: ts,
-        payload: { guestId, clientTimestamp: ts },
-      });
-      patchSnapshot((s) => ({
-        ...s,
-        guests: s.guests.map((x) => (x.id === guestId ? { ...x, status: 'approved' as const } : x)),
-      }));
-      showToast(`${g?.name ?? 'Guest'} · back on the list`);
-      maybeFlush();
+      const g = guestMapRef.current.get(guestId); // map includes refused guests
+      enqueueDoorWrite(
+        { kind: 'undo_refusal', payload: { guestId, clientTimestamp: new Date().toISOString() } },
+        (s) => ({
+          ...s,
+          guests: s.guests.map((x) => (x.id === guestId ? { ...x, status: 'approved' as const } : x)),
+        }),
+        `${g?.name ?? 'Guest'} · back on the list`,
+      );
     },
-    [eventId, patchSnapshot, showToast, maybeFlush],
+    [enqueueDoorWrite],
   );
 
   const addOnSpot = useCallback(
     ({ name, plusOnes, tierId }: AddOnSpotInput) => {
       const id = uuidv7();
       const ts = new Date().toISOString();
-      outbox.enqueue({
-        clientId: uuidv7(),
-        eventId,
-        kind: 'add_guest',
-        status: 'pending',
-        attempts: 0,
-        createdAt: ts,
-        payload: { id, tierId, fullName: name, plusOnes },
-      });
-      patchSnapshot((s) => {
-        const row: GuestRow = {
-          id,
-          event_id: eventId,
-          tier_id: tierId,
-          full_name: name,
-          email: null,
-          phone: null,
-          contact_id: null,
-          plus_ones: plusOnes,
-          note: null,
-          note_priority: 'none',
-          note_acknowledged_by: null,
-          note_acknowledged_at: null,
-          added_by: meId ?? '',
-          source: 'door',
-          status: 'approved',
-          anonymized_at: null,
-          removed_at: null,
-          created_at: ts,
-          updated_at: ts,
-        };
-        return { ...s, guests: [...s.guests, row] };
-      });
-      showToast(`${name}${plusOnes > 0 ? ` +${plusOnes}` : ''} · op de lijst`);
-      maybeFlush();
+      enqueueDoorWrite(
+        { kind: 'add_guest', payload: { id, tierId, fullName: name, plusOnes } },
+        (s) => {
+          const row: GuestRow = {
+            id,
+            event_id: eventId,
+            tier_id: tierId,
+            full_name: name,
+            email: null,
+            phone: null,
+            contact_id: null,
+            plus_ones: plusOnes,
+            note: null,
+            note_priority: 'none',
+            note_acknowledged_by: null,
+            note_acknowledged_at: null,
+            added_by: meId ?? '',
+            source: 'door',
+            status: 'approved',
+            anonymized_at: null,
+            removed_at: null,
+            created_at: ts,
+            updated_at: ts,
+          };
+          return { ...s, guests: [...s.guests, row] };
+        },
+        `${name}${plusOnes > 0 ? ` +${plusOnes}` : ''} · op de lijst`,
+      );
     },
-    [eventId, meId, patchSnapshot, showToast, maybeFlush],
+    [enqueueDoorWrite, eventId, meId],
   );
 
   const ackNote = useCallback(
     (guestId: string, ack: boolean) => {
       const ts = ack ? new Date().toISOString() : null;
-      outbox.enqueue({
-        clientId: uuidv7(),
-        eventId,
-        kind: 'ack_note',
-        status: 'pending',
-        attempts: 0,
-        createdAt: new Date().toISOString(),
-        payload: { guestId, ack },
-      });
-      patchSnapshot((s) => ({
-        ...s,
-        guests: s.guests.map((g) =>
-          g.id === guestId ? { ...g, note_acknowledged_at: ts, note_acknowledged_by: ack ? meId ?? '' : null } : g,
-        ),
-      }));
-      maybeFlush();
+      enqueueDoorWrite(
+        { kind: 'ack_note', payload: { guestId, ack } },
+        (s) => ({
+          ...s,
+          guests: s.guests.map((g) =>
+            g.id === guestId ? { ...g, note_acknowledged_at: ts, note_acknowledged_by: ack ? meId ?? '' : null } : g,
+          ),
+        }),
+        // no toast for ack
+      );
     },
-    [eventId, meId, patchSnapshot, maybeFlush],
+    [enqueueDoorWrite, meId],
   );
 
-  // ── Realtime patches (deduped) → instant colleague check-ins (point 9).
+  // ── D2: Realtime patches — O(1) dedup via pre-built Sets instead of O(n) .some().
+  // Sets are eagerly updated here before patchSnapshot so rapid-fire RT events from
+  // 10 concurrent devices don't scan the full 1750-guest checkIns list on each hit.
   const onRealtimeCheckIn = useCallback(
     (row: CheckInRow) => {
-      patchSnapshot((s) => {
-        if (!s.guests.some((g) => g.id === row.guest_id)) return s; // another event
-        if (s.checkIns.some((c) => c.id === row.id || c.guest_id === row.guest_id)) return s;
-        return { ...s, checkIns: [...s.checkIns, row] };
-      });
+      if (!guestIdSetRef.current.has(row.guest_id)) return; // not our event
+      if (checkInIdSetRef.current.has(row.id) || checkInGuestIdSetRef.current.has(row.guest_id)) return; // already seen
+      checkInIdSetRef.current.add(row.id);
+      checkInGuestIdSetRef.current.add(row.guest_id);
+      patchSnapshot((s) => ({ ...s, checkIns: [...s.checkIns, row] }));
     },
     [patchSnapshot],
   );
+
   const onRealtimeGuest = useCallback(
     (row: GuestRow) => {
       if (row.event_id !== eventId) return;
@@ -486,7 +499,8 @@ export function DoorProvider({
 
   const sync = useDoorSync({ eventId, onSync: flush, onRealtimeCheckIn, onRealtimeGuest });
 
-  const guestById = useCallback((id: string) => viewRef.current?.guests.find((g) => g.id === id), []);
+  // ── D3: O(1) lookup via the map built in the view useMemo above.
+  const guestById = useCallback((id: string) => guestMapRef.current.get(id), []);
 
   const value = useMemo<DoorContextValue>(
     () => ({
