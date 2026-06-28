@@ -3,12 +3,13 @@
 /** Settings cluster: Meer (hub), gebruikers/rollen, toelage, venue switch/beheer,
  *  persoonlijke gegevens + sessies, abonnement & facturen, importeren. */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { createClient } from '@/lib/supabase/client';
 import { account, allowance as allowanceData } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
-import { VENUE_ROLES, ROLE_LABELS, canGrantRoles, requiresMfa, type VenueRole } from '@/features/auth/roles';
+import { VENUE_ROLES, ROLE_LABELS, canGrantRoles, canWorkDoor, requiresMfa, type VenueRole } from '@/features/auth/roles';
 import { venueCapabilities } from '@/features/venues/access';
 import {
   parseCsv,
@@ -121,6 +122,7 @@ function RolePicker({
 // ── MEER (settings tab) ──────────────────────────────────────────────────────
 export function Meer(): JSX.Element {
   const nav = useNav();
+  const router = useRouter();
   const { venue, statsVenues, myVenues } = usePo();
   const { venueName, roles } = usePoIdentity();
   const caps = venueCapabilities(roles);
@@ -137,7 +139,8 @@ export function Meer(): JSX.Element {
   const showContacts = caps.viewSettings || canManageTemplates;
   const showImport = isAdmin || isFinance;
   const showRegulars = isAdmin || isFinance;
-  const insightsAny = canViewStats || caps.viewAudit || showRequests;
+  const showCockpit = canWorkDoor(roles);
+  const insightsAny = showCockpit || canViewStats || caps.viewAudit || showRequests;
   const thisVenueAny =
     showEvents || canManageTemplates || caps.viewSettings || caps.viewQuota || showRegulars || showContacts || showImport;
   const teamAny = caps.viewTeam || isAdmin;
@@ -176,6 +179,9 @@ export function Meer(): JSX.Element {
         <Row icon="user" title={t.settings.more.profileTitle} sub={t.settings.more.profileSub} onClick={() => nav.push('profile')} />
 
         {insightsAny && <Label className="mb-1 mt-[22px]">{t.sections.insights}</Label>}
+        {showCockpit && (
+          <Row icon="flag" title={t.settings.more.cockpitTitle} sub={t.settings.more.cockpitSub} onClick={() => router.push('/eventday')} accent />
+        )}
         {canViewStats && (
           <Row icon="spark" title={t.settings.more.analyticsTitle} sub={t.settings.more.analyticsSub} onClick={() => nav.push('stats')} accent />
         )}

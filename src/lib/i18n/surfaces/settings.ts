@@ -52,6 +52,8 @@ export const settings = {
     importSub: 'Paste, CSV, or phone contacts',
     billingTitle: 'Billing',
     billingDefault: 'Manage your subscription',
+    cockpitTitle: 'Event Day',
+    cockpitSub: 'Live command screen for tonight',
   },
 
   // Team (Gebruikers) + invite sub-form + member sheet.

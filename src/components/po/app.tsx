@@ -8,6 +8,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
+import { useRouter } from 'next/navigation';
 import { venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
 import { usePoDoorCandidates, usePoEvents } from '@/features/po/hooks';
@@ -160,6 +161,7 @@ export function PlusOneApp({
   /** Live role label (+ MFA) for the shell footer. */
   liveUserSub?: string;
 }): JSX.Element {
+  const router = useRouter();
   // /app is gated by real middleware auth, so skip the prototype's mock
   // welcome/login flow and start straight in the authenticated shell.
   const [started, setStarted] = useState(true);
@@ -545,6 +547,9 @@ export function PlusOneApp({
       : []),
     ...(caps.viewTeam
       ? ([{ key: 'gebruikers', section: 'more', label: t.nav.team, icon: 'users', active: currentKey === 'gebruikers', onClick: () => nav.push('gebruikers') }] as ShellNavItem[])
+      : []),
+    ...(showDoor
+      ? ([{ key: 'cockpit', section: 'more', label: t.nav.cockpit, icon: 'flag', active: false, onClick: () => router.push('/eventday') }] as ShellNavItem[])
       : []),
     { key: 'meer', section: 'more', label: t.nav.more, icon: 'dots', active: currentKey === 'meer', onClick: () => nav.setTab('meer') },
   ];
