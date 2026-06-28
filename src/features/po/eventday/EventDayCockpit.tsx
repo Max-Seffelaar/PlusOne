@@ -20,7 +20,7 @@ import { DBtn, DCard } from '@/components/po/desktop/kit';
 import { canWorkDoor } from '@/features/auth/roles';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import type { PoDoorEvent } from '@/features/po/door-event';
-import type { Guest } from '@/lib/po/types';
+import type { Guest, Tier } from '@/lib/po/types';
 import {
   usePoCheckinArrivals,
   usePoDoorCandidates,
@@ -62,9 +62,10 @@ import {
 const press = 'transition-[filter,transform,background,border-color,color] hover:brightness-[1.08] active:scale-[0.985]';
 const DENY_REASON = t.cockpit.denyReason;
 const EMPTY_ARRIVALS: ReadonlyMap<string, { arrived: number; at: string }> = new Map();
-// Stable fallbacks so the memoized `filtered` list doesn't recompute every render
+// Stable fallbacks so the memoized computations don't recompute every render
 // when the query has no data yet (keeps the virtualized list cheap).
 const EMPTY_GUESTS: Guest[] = [];
+const EMPTY_TIERS: Tier[] = [];
 
 // ── Entry gate: pick the event (no auto-guess with >1 live), then mount cockpit ──
 export function EventDayCockpitGate(): JSX.Element {
@@ -136,7 +137,7 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   const canSeeStats = canManage || roles.includes('finance');
 
   const guests = usePoGuests(eventId).data ?? EMPTY_GUESTS;
-  const tiers = usePoTiers(eventId).data ?? [];
+  const tiers = usePoTiers(eventId).data ?? EMPTY_TIERS;
   const stats = usePoEventStats(eventId).data;
   const arrivals = usePoCheckinArrivals(eventId).data ?? EMPTY_ARRIVALS;
   const { realtimeConnected } = usePoEventRealtime(eventId);
@@ -164,9 +165,9 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   // Debounce only the value that drives the expensive filter; the input + the
   // Enter-to-checkin handler keep the live `q` so typing stays instant (#1b).
   const dq = useDebouncedValue(q, 140);
-  const tiles = cockpitTiles(guests, arrivals);
-  const counts = cockpitCounts(guests);
-  const tierRows = perTierLive(guests, tiers, arrivals);
+  const tiles = useMemo(() => cockpitTiles(guests, arrivals), [guests, arrivals]);
+  const counts = useMemo(() => cockpitCounts(guests), [guests]);
+  const tierRows = useMemo(() => perTierLive(guests, tiers, arrivals), [guests, tiers, arrivals]);
   const filtered = useMemo(() => filterCockpit(guests, statF, tierF, dq), [guests, statF, tierF, dq]);
   // Cheap to rebuild per render; role → tier chip display (colour + short label).
   const tierDisplay = new Map(tiers.map((t) => [t.role, { color: t.color, short: t.short }]));
