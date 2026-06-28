@@ -58,6 +58,20 @@ Per Werkwijze v2 (`bouwplan-claude-code.md`): a UI phase now means **building th
 
 The token/behaviour reference is `design-system.md` (repo root). The original Claude Design handoff is not committed — `src/` is the recreation and supersedes it. Rules unchanged: tokens are near-black `#0B0B0D`, one lavender accent `#B5A6FF`, Bricolage Grotesque display + Hanken Grotesk body; recreate visual output, never copy the prototype's internal code structure; where prototype and spec conflict, the spec wins; entrance animations animate `translateY` only, opacity always 1, behind `prefers-reduced-motion`.
 
+## Capacitor-readiness checklist — EVERY new `po` screen (decision #37)
+
+The `po` surface gets wrapped with Capacitor in Phase 3 via the **remote-URL model** (the native webview loads the live app; server actions keep working — so no write-path rewrite). Build every screen so the wrap needs no rewrite:
+
+- [ ] Webview-safe: no browser-only API without a fallback; never **depend** on the service worker (it doesn't run in the webview); guard `navigator`/`window`/`document`.
+- [ ] Reads stay client-side (React Query over the browser client, `src/features/po/hooks`). Online-only writes use the shared `src/features/*` server actions, as today.
+- [ ] Offline-critical (door-adjacent) writes go through the door outbox (`src/features/door`), **never** a server action — so they survive connectivity loss (#25).
+- [ ] No push/notification transport called directly — go through `src/features/notifications` (the `notifications` provider; web-push ↔ FCM/APNs swap lives there).
+- [ ] Auth/redirects use the existing cookie-session + URL-navigation flow (no OAuth popups, no browser-redirect-only logic).
+- [ ] Safe-area/notch tolerant; Android hardware back button handled; `/app` standalone.
+- [ ] No billing/plan-upgrade/checkout surfaced inside the mobile app (keeps us clear of Apple IAP rules).
+
+Open native item (Phase 3, door only): a remote-URL webview needs network to load the shell on a **cold start**. The door's writes are already offline (outbox); if cold-start-offline matters, bundle the (already client-side) door route locally — the rest stays remote-URL. Validate with a spike before native launch.
+
 ## Launch plan & current status
 
 The full launch plan — STAP 0 status report, screen inventory (stable IDs S0–S13), design briefs, and STAP 1–4 — lives in `launchplan-claude-code.md` (repo root; note its viewport-switch/"Strategy A" framing is **superseded** by the surface-unification below). Build state: backend + RLS + audit + quota-engine + door PWA + landing + stats + AVG are done and live. The **surface-unification** (PR #50, 2026-06-21) collapsed the desktop `(app)` dashboard and the mobile `po /app` into **one responsive surface** at `/app`: every login lands there, the `(app)` shell is retired (routes redirect; the `/eventday` cockpit is kept standalone), and the po screens are wired live via `src/features/po/`. Desktop layouts are done for Home, Gastenlijst, Statistieken, Audit, Events and Gebruikers; remaining polish = fold `/eventday` into the desktop Deur view, tablet (641–1023px) layouts, and `/app` deep-linking. Work proceeds in separate sessions, one ClickUp task at a time.
