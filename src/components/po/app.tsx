@@ -96,26 +96,13 @@ const TemplateEdit = dynamic(() => import('./screens/templates').then((m) => m.T
   ssr: false,
 });
 
-/** Desktop content-column width per active screen. Most screens keep the
- *  comfortable reading column (640); data-dense dashboards/tables/charts and the
- *  detail/dashboard screens with a real wide layout opt into the full width
- *  (S3.3). Forms (eventedit/tiers/settings/profile/billing/quickadd/bulk/import)
- *  deliberately stay narrow — they read better in one column. (Mobile is
- *  full-bleed regardless of this.) */
-const WIDE_DESKTOP: Record<string, string> = {
-  start: 'max-w-[1080px]',
-  events: 'max-w-[1080px]',
-  guests: 'max-w-[1080px]',
-  lijst: 'max-w-[1080px]',
-  stats: 'max-w-[1080px]',
-  audit: 'max-w-[1080px]',
-  gebruikers: 'max-w-[1080px]',
-  // Detail / dashboard screens with a two-column or grid desktop layout (S3.3).
-  event: 'max-w-[1080px]',
-  pastevent: 'max-w-[1080px]',
-  eventbeheer: 'max-w-[1080px]',
-  aanvragen: 'max-w-[1080px]',
-};
+/** Data-dense screens that opt into the full 1080px desktop column. Forms and
+ *  detail-entry screens stay at the narrow reading column (640px). Mobile is
+ *  full-bleed regardless. (S3.3) */
+const WIDE_DESKTOP = new Set([
+  'start', 'events', 'guests', 'lijst', 'stats', 'audit', 'gebruikers',
+  'event', 'pastevent', 'eventbeheer', 'aanvragen',
+]);
 
 /** Shown while a pushed event/guest screen waits for its live row to load. */
 function Loading({ onBack }: { onBack: () => void }): JSX.Element {
@@ -518,14 +505,9 @@ export function PlusOneApp({
 
   // Signed-in: responsive shell — desktop sidebar ≥1024px, mobile tabs below it
   // (S0 nav-shell). Screens are unchanged for now; wired live per S1+.
-  const currentKey =
-    top?.name === 'stats'
-      ? 'stats'
-      : top?.name === 'gebruikers'
-        ? 'gebruikers'
-        : top?.name === 'aanvragen'
-          ? 'aanvragen'
-          : tab;
+  // Pushed screens that are also top-level nav items keep that item highlighted.
+  const NAV_PUSHED = new Set(['stats', 'gebruikers', 'aanvragen']);
+  const currentKey = (top && NAV_PUSHED.has(top.name)) ? top.name : tab;
   const caps = venueCapabilities(roles);
   const canViewStats = (statsAccess?.venues.length ?? 0) > 0;
   // Venue-wide approval inbox in the desktop sidebar. Gated on admin — the
@@ -594,7 +576,7 @@ export function PlusOneApp({
   // Wide desktop screens (home dashboard, guest table, stats charts, audit table)
   // opt into the full content width; every other screen keeps the reading column.
   const activeScreen = top?.name ?? tab;
-  const desktopMainMax = WIDE_DESKTOP[activeScreen] ?? 'max-w-[640px]';
+  const desktopMainMax = WIDE_DESKTOP.has(activeScreen) ? 'max-w-[1080px]' : 'max-w-[640px]';
 
   return (
     <PoProvider value={po}>
