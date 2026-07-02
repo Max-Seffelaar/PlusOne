@@ -21,7 +21,6 @@ export const auth = {
   welcomeSub: 'The guest list that runs the door.',
   welcomeLogin: 'Log in',
   welcomeHasInvite: 'I have an invite',
-  welcomeFooter: 'guest list by Mainstage HQ',
 
   // ── Login ────────────────────────────────────────────────────────────────
   loginTitle: 'Log in',
@@ -66,6 +65,16 @@ export const auth = {
   consentBadge: 'Quick thing',
   consentTitle: 'Terms & privacy',
   consentBody: 'Before you continue, please agree to our terms and privacy policy.',
+  // Account-setup variant (T1 #3): a first-time user also fills in their name
+  // (required) + phone (optional, encouraged) on this same screen — one flow.
+  accountBadge: 'Almost in',
+  accountTitle: 'Create your account',
+  accountBody: 'Tell us who you are. Your name shows up for your team and at the door.',
+  accountFirstName: 'First name',
+  accountLastName: 'Last name',
+  accountPhone: 'Phone',
+  accountPhoneNote: 'Optional, but handy so your team can reach you on event night.',
+  accountSubmit: 'Create account',
   consentSignedInAs: 'Signed in as {email}.',
   // Split so the Terms/Privacy words can be links.
   consentPre: 'I agree to the ',

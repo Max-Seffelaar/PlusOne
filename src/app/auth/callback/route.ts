@@ -11,6 +11,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const next = safeNextPath(url.searchParams.get('next'));
 
   const supabase = await createClient();
+
+  // PKCE links land here with ?code= (same-browser flow, verifier cookie
+  // present) — exchange it so the session cookies exist before the gate below.
+  // E-mail links from another browser use /auth/confirm (token_hash) instead.
+  const code = url.searchParams.get('code');
+  if (code) {
+    await supabase.auth.exchangeCodeForSession(code);
+  }
+
   const {
     data: { user },
   } = await supabase.auth.getUser();

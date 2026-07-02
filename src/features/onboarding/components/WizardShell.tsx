@@ -111,7 +111,6 @@ export function WizardShell({
           </span>
         </div>
         {panel}
-        <div className="font-body text-[12px] text-ghost">guest list by Mainstage HQ</div>
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">

@@ -184,12 +184,32 @@ export function PlusOneApp({
   // effectively runs once.
   const { userId, roles } = usePoIdentity();
   useEffect(() => {
-    const saved = loadNavState(userId);
-    if (saved) {
-      setTabState(saved.tab);
-      setStack(saved.stack);
+    // Onboarding hand-off (T1 #5): a fresh venue is an empty venue, so the
+    // wizard lands on /app?new=event and we open event-create directly. The
+    // param is stripped so a refresh doesn't re-trigger it.
+    let newEventIntent = false;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('new') === 'event') {
+        newEventIntent = roles.includes('admin');
+        window.history.replaceState(window.history.state, '', '/app');
+      }
+    } catch {
+      /* no URL access (SSR-safe by the effect, but belt-and-braces) */
+    }
+    if (newEventIntent) {
+      setTabState('events');
+      setStack([{ name: 'eventedit', props: { isNew: true } }]);
+    } else {
+      const saved = loadNavState(userId);
+      if (saved) {
+        setTabState(saved.tab);
+        setStack(saved.stack);
+      }
     }
     setNavHydrated(true);
+    // roles is identity-stable for the life of the mount (like userId).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
   useEffect(() => {
     if (!navHydrated) return;

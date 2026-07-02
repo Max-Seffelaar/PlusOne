@@ -43,7 +43,6 @@ export function Welcome({ auth }: { auth: AuthNav }): JSX.Element {
         <Btn kind="dark" full onClick={() => auth.go('invite')}>
           {t.auth.welcomeHasInvite}
         </Btn>
-        <div className="mt-1.5 text-center font-body text-[12px] text-ghost">{t.auth.welcomeFooter}</div>
       </div>
     </div>
   );

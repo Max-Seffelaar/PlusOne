@@ -37,19 +37,22 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   });
 
   // A signed-in user has no business on the login screen → the one app surface.
-  if (user && pathname === '/login') {
+  // Same for the marketing root: invite links used to strand a logged-in user
+  // on the landing page with an extra "Open the app" click (T1 #1/#5).
+  if (user && (pathname === '/login' || pathname === '/')) {
     const url = request.nextUrl.clone();
     url.pathname = '/app';
     url.search = '';
     return redirectWithCookies(url, response);
   }
 
-  // Unauthenticated access to a protected route → login, remembering the target.
+  // Unauthenticated access to a protected route → login, remembering the target
+  // (query string included, so an intent like /app?new=event survives the trip).
   if (!user && !publicRoute) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     url.search = '';
-    url.searchParams.set('next', pathname);
+    url.searchParams.set('next', pathname + request.nextUrl.search);
     return redirectWithCookies(url, response);
   }
 
@@ -65,7 +68,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     const url = request.nextUrl.clone();
     url.pathname = '/mfa/enroll';
     url.search = '';
-    url.searchParams.set('next', pathname);
+    url.searchParams.set('next', pathname + request.nextUrl.search);
     return redirectWithCookies(url, response);
   }
 
