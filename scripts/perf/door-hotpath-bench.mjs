@@ -52,7 +52,9 @@ function simulateRealtimeOld() {
   const checkIns = [];
   for (let d = 0; d < DEVICES; d++) {
     for (let i = 0; i < GUESTS; i++) {
-      const row = { id: `ci-${i}`, guest_id: guestIds[i] };
+      // Unique id per device (production ids are UUIDv7) — dedup must fall through
+      // to the guest_id check, not short-circuit on a repeated id.
+      const row = { id: `ci-${d}-${i}`, guest_id: guestIds[i] };
       // OLD: linear scan
       if (!guests.some((g) => g.id === row.guest_id)) continue; // wrong-event guard
       if (checkIns.some((c) => c.id === row.id || c.guest_id === row.guest_id)) continue; // dedup
@@ -70,7 +72,7 @@ function simulateRealtimeNew() {
 
   for (let d = 0; d < DEVICES; d++) {
     for (let i = 0; i < GUESTS; i++) {
-      const row = { id: `ci-${i}`, guest_id: guestIds[i] };
+      const row = { id: `ci-${d}-${i}`, guest_id: guestIds[i] };
       // NEW: O(1) Set lookups
       if (!guestIdSet.has(row.guest_id)) continue;
       if (checkInIdSet.has(row.id) || checkInGuestIdSet.has(row.guest_id)) continue;

@@ -805,9 +805,11 @@ export function Home(): JSX.Element {
               <Btn sm kind="ghost" icon="plus" onClick={() => setGuestPickOpen(true)}>
                 {t.home.newGuest}
               </Btn>
-              <Btn sm icon="cal" onClick={() => nav.push('eventedit', { isNew: true })}>
-                {t.home.newEvent}
-              </Btn>
+              {isAdmin && (
+                <Btn sm icon="cal" onClick={() => nav.push('eventedit', { isNew: true })}>
+                  {t.home.newEvent}
+                </Btn>
+              )}
             </div>
           </div>
 

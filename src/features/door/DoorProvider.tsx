@@ -156,17 +156,20 @@ export function DoorProvider({
   guestMapRef.current = guestMap;
 
   // ── D2: Sets for O(1) realtime dedup (replaces O(n) .some() on the hot path).
-  // Eagerly updated in onRealtimeCheckIn; lazily rebuilt from snapshot after render.
+  // Eagerly updated in onRealtimeCheckIn; rebuilt synchronously during render when
+  // a new snapshot lands (not in an effect — an effect leaves a window where a
+  // realtime event arrives before the Sets exist and slips past the dedup guard).
   const guestIdSetRef = useRef<Set<string>>(new Set());
   const checkInIdSetRef = useRef<Set<string>>(new Set());
   const checkInGuestIdSetRef = useRef<Set<string>>(new Set());
+  const dedupSnapshotRef = useRef<typeof snapshot | undefined>(undefined);
 
-  useEffect(() => {
-    if (!snapshot) return;
+  if (snapshot && dedupSnapshotRef.current !== snapshot) {
+    dedupSnapshotRef.current = snapshot;
     guestIdSetRef.current = new Set(snapshot.guests.map((g) => g.id));
     checkInIdSetRef.current = new Set(snapshot.checkIns.map((c) => c.id));
     checkInGuestIdSetRef.current = new Set(snapshot.checkIns.map((c) => c.guest_id));
-  }, [snapshot]);
+  }
 
   const outboxByGuest = useMemo(() => {
     const map = new Map<string, OutboxEntry[]>();
