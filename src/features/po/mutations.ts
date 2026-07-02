@@ -147,10 +147,15 @@ async function patchGuestsOptimistically(
 }
 
 /** Invalidate the whole add-affected subtree: guest list, tier counts, quota. */
+// Venue-wide Guests tab caches guests across events (poKeys.venueGuests). Every
+// guest mutation must invalidate it too — prefix match, so no venueId needed here.
+const VENUE_GUESTS_PREFIX = [...poKeys.all, 'venue-guests'] as const;
+
 function invalidateAfterAdd(qc: QueryClient, eventId: string): void {
   void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
   void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
   void qc.invalidateQueries({ queryKey: poKeys.quota(eventId) });
+  void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
 }
 
 // The settings cluster reuses the EXISTING (prev, FormData) → ActionState server
@@ -213,6 +218,7 @@ function guestMutation<TInput>(
     mutationFn,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+      void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
       for (const key of extraKeys) {
         void qc.invalidateQueries({ queryKey: key as unknown[] });
       }
@@ -234,11 +240,13 @@ export function usePoUpdateGuest(eventId: string) {
   ));
 }
 
+// Tier changes and removals also show on the open person profile (per-event tier
+// row / events list), so contact-profile must refetch along with the tiers.
 export function usePoChangeGuestTier(eventId: string) {
   const qc = useQueryClient();
   return useMutation(guestMutation(qc, eventId,
     async (input: ChangeTierInput) => throwOnError(await changeGuestTier(input)),
-    TIERS_KEY(eventId),
+    [...TIERS_KEY(eventId), CONTACT_PROFILE_KEY],
   ));
 }
 
@@ -246,7 +254,7 @@ export function usePoChangeGuestsTierBulk(eventId: string) {
   const qc = useQueryClient();
   return useMutation(guestMutation(qc, eventId,
     async (input: ChangeTierBulkInput) => throwOnError(await changeGuestsTierBulk(input)),
-    TIERS_KEY(eventId),
+    [...TIERS_KEY(eventId), CONTACT_PROFILE_KEY],
   ));
 }
 
@@ -262,7 +270,7 @@ export function usePoRemoveGuest(eventId: string) {
   const qc = useQueryClient();
   return useMutation(guestMutation(qc, eventId,
     async (guestId: string) => throwOnError(await removeGuest(guestId)),
-    TIERS_KEY(eventId),
+    [...TIERS_KEY(eventId), CONTACT_PROFILE_KEY],
   ));
 }
 
@@ -473,6 +481,7 @@ function invalidateAfterCheckin(qc: QueryClient, eventId: string): void {
   void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
   void qc.invalidateQueries({ queryKey: poKeys.arrivals(eventId) });
   void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
+  void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
 }
 
 // The approval inbox (S5) reads venue-wide and one screen decides requests from

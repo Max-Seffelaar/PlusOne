@@ -8,7 +8,7 @@
  * outbox — desktop is online), lock/approvals through the existing server actions.
  * RLS is the boundary; affordances hide for roles without the right (see below).
  */
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
@@ -169,9 +169,15 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   const counts = useMemo(() => cockpitCounts(guests), [guests]);
   const tierRows = useMemo(() => perTierLive(guests, tiers, arrivals), [guests, tiers, arrivals]);
   const filtered = useMemo(() => filterCockpit(guests, statF, tierF, dq), [guests, statF, tierF, dq]);
-  // Cheap to rebuild per render; role → tier chip display (colour + short label).
-  const tierDisplay = new Map(tiers.map((t) => [t.role, { color: t.color, short: t.short }]));
-  const defaultTierId = tiers.find((t) => t.isDefault)?.id ?? tiers[0]?.id ?? null;
+  // Stable identities so the memo'd CockpitGuestList skips renders while typing.
+  const tierDisplay = useMemo(
+    () => new Map(tiers.map((t) => [t.role, { color: t.color, short: t.short }])),
+    [tiers]
+  );
+  const defaultTierId = useMemo(
+    () => tiers.find((t) => t.isDefault)?.id ?? tiers[0]?.id ?? null,
+    [tiers]
+  );
   const listLocked = editRow?.listLocked ?? false;
   // Effective "uitchecken toestaan" for this event (#3 / S1.1). When false the ✗
   // affordance is disabled here; the RESTRICTIVE check_ins policy rejects it too.
@@ -181,29 +187,30 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   const evQuotaReqs = quotaRequests.filter((r) => r.eventId === eventId);
   const openReqs = evGuestReqs.length + evQuotaReqs.length;
 
-  function notify(msg: string, tone: 'in' | 'out' = 'out'): void {
+  const notify = useCallback((msg: string, tone: 'in' | 'out' = 'out'): void => {
     const entry = { msg, tone };
     setToast(entry);
     window.setTimeout(() => setToast((v) => (v === entry ? null : v)), 3200);
-  }
-  function pushFeed(e: FeedEntry): void {
+  }, []);
+  const pushFeed = useCallback((e: FeedEntry): void => {
     setFeed((f) => [e, ...f].slice(0, 6));
-  }
-  function flash(id: string): void {
+  }, []);
+  const flash = useCallback((id: string): void => {
     setFlashId(id);
     window.setTimeout(() => setFlashId((v) => (v === id ? null : v)), 900);
-  }
+  }, []);
 
-  function doCheckIn(g: Guest, arrived: number): void {
+  const checkInMutate = checkIn.mutate; // stable across renders (React Query guarantee)
+  const doCheckIn = useCallback((g: Guest, arrived: number): void => {
     if (!canCheckIn) return;
-    checkIn.mutate({ guestId: g.id, plusOnes: arrived }, { onError: (e) => notify(e.message) });
+    checkInMutate({ guestId: g.id, plusOnes: arrived }, { onError: (e) => notify(e.message) });
     pushFeed({ kind: 'in', t: amsterdamHM(new Date()), name: g.name, plus: arrived });
     flash(g.id);
     notify(fmt(t.cockpit.toastCheckedIn, { name: g.name, plus: arrived > 0 ? ` +${arrived}` : '', inside: 1 + arrived }), 'in');
-  }
+  }, [canCheckIn, checkInMutate, notify, pushFeed, flash]);
   // ✓ click: a +0 guest checks in at once; a +N guest opens the quantified modal to
   // pick how many of the party arrive now, or to top up an already-in party (S1.2).
-  function onCheckInClick(g: Guest): void {
+  const onCheckInClick = useCallback((g: Guest): void => {
     if (!canCheckIn) return;
     const ps = partyState(g, arrivals);
     if (g.status !== 'in') {
@@ -219,15 +226,15 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
       return;
     }
     setModal({ kind: 'topup', guest: g, value: ps.remaining }); // default: the rest
-  }
+  }, [canCheckIn, arrivals, doCheckIn, notify]);
   // ✗ click: open the quantified check-out modal (symmetric). Disabled when the
   // event does not allow uitchecken (#3 / S1.1) — the button is locked, RLS too.
-  function onVoidClick(g: Guest): void {
+  const onVoidClick = useCallback((g: Guest): void => {
     if (!canCheckIn || !allowUncheck) return;
     const inside = insideHeads(g, arrivals);
     if (inside <= 0) return; // already onderweg
     setModal({ kind: 'checkout', guest: g, value: inside }); // default: the whole party
-  }
+  }, [canCheckIn, allowUncheck, arrivals]);
   function confirmModal(): void {
     if (!modal) return;
     const { kind, guest, value } = modal;
@@ -689,9 +696,10 @@ const COCKPIT_ROW_EST = 73;
  * Virtualized cockpit guest list (STAP 3.5b · #1a). Windows the rows inside the
  * 560px scroll area so ~1500 guests don't all mount; dynamic measurement keeps
  * partial/2-line rows aligned. Rendering only — check-in/out, flash highlight and
- * the empty state are unchanged.
+ * the empty state are unchanged. Memo'd: parent state churn (search keystrokes,
+ * toasts) must not re-render the 1500-row window — all props have stable identities.
  */
-function CockpitGuestList({
+const CockpitGuestList = memo(function CockpitGuestList({
   rows,
   totalGuests,
   arrivals,
@@ -812,7 +820,7 @@ function CockpitGuestList({
       )}
     </div>
   );
-}
+});
 
 function LiveClock(): JSX.Element {
   const [now, setNow] = useState(() => new Date());
