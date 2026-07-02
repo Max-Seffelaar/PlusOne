@@ -49,5 +49,8 @@ export function deviceLabel(ua: string | null | undefined): string {
     : s.includes('windows') ? 'Windows'
     : s.includes('linux') ? 'Linux'
     : '';
+  // Neither token recognized (server-side UA, e.g. an old dev-login session):
+  // "Unknown device" reads better in the sessions list than a bald "Browser".
+  if (browser === 'Browser' && !os) return 'Unknown device';
   return os ? `${browser} · ${os}` : browser;
 }

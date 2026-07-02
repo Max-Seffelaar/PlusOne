@@ -75,7 +75,20 @@ describe('deviceLabel', () => {
   it('degrades gracefully', () => {
     expect(deviceLabel(null)).toBe('Unknown device');
     expect(deviceLabel(undefined)).toBe('Unknown device');
-    // A server-side UA (e.g. dev-login) with no browser/OS token → bare "Browser".
-    expect(deviceLabel('node')).toBe('Browser');
+    // A server-side UA (e.g. dev-login) with no browser/OS token reads as an
+    // unknown device rather than a bald "Browser" row in the sessions list.
+    expect(deviceLabel('node')).toBe('Unknown device');
+    // Real Edge on Windows (contains "Chrome" AND "Edg") stays Edge; real Chrome
+    // on Windows (no "Edg" token) stays Chrome — the #9 walkthrough report.
+    expect(
+      deviceLabel(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0',
+      ),
+    ).toBe('Edge · Windows');
+    expect(
+      deviceLabel(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+      ),
+    ).toBe('Chrome · Windows');
   });
 });

@@ -46,11 +46,11 @@ import {
   usePoUpdateVenueSettings,
   usePoImportContacts,
 } from '@/features/po/mutations';
-import type { PoSubscription, PoTeamMember } from '@/features/po/adapters';
+import { groupPoSessions, type PoSubscription, type PoTeamMember } from '@/features/po/adapters';
 import { useMfaGate, isAal2Error, PoMfaSheet } from '../mfa-gate';
 import PhoneInput from 'react-phone-number-input/input';
 import { parsePhoneNumber } from 'react-phone-number-input';
-import { useNav, usePo } from '../context';
+import { clearNavState, useNav, usePo } from '../context';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Row, Scroll, ToggleRow, Top } from '../kit';
 import { BottomBar, Sheet } from '../shell';
@@ -66,6 +66,16 @@ const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scal
 const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
 const col = 'flex h-full flex-col';
 const iconSm = 'flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border border-line text-faint';
+
+/** Real sign-out (T1 #7/#15): drop the user's persisted nav-state, end the
+ *  Supabase session, land on /login. NB: supabase-js signOut() DEFAULTS to
+ *  scope 'global' — 'local' must be explicit for the this-device variant.
+ *  'global' revokes every session server-side = true "log out everywhere". */
+async function signOutDevice(userId: string, scope: 'local' | 'global'): Promise<void> {
+  clearNavState(userId);
+  await createClient().auth.signOut({ scope });
+  window.location.assign('/login');
+}
 
 /** Inline action error, matching the desktop forms' `text-red-300` treatment. */
 function FormError({ error }: { error: unknown }): JSX.Element | null {
@@ -124,7 +134,8 @@ export function Meer(): JSX.Element {
   const nav = useNav();
   const router = useRouter();
   const { venue, statsVenues, myVenues } = usePo();
-  const { venueName, roles } = usePoIdentity();
+  const { userId, venueName, roles } = usePoIdentity();
+  const [signingOut, setSigningOut] = useState(false);
   const caps = venueCapabilities(roles);
   const isAdmin = roles.includes('admin');
   const isFinance = roles.includes('finance');
@@ -228,6 +239,19 @@ export function Meer(): JSX.Element {
 
         <Label className="mb-1 mt-[22px]">{t.sections.switchVenue}</Label>
         <Row icon="building" title={t.settings.more.venuesTitle} sub={fmt(myVenues.length === 1 ? t.settings.more.venuesSubOne : t.settings.more.venuesSubMany, { n: myVenues.length })} onClick={() => nav.push('venueswitch')} />
+
+        <div className="mt-[22px]">
+          <Row
+            icon="logout"
+            title={signingOut ? t.settings.profile.signingOut : t.settings.profile.signOut}
+            sub={t.settings.profile.signOutSub}
+            onClick={() => {
+              if (signingOut) return;
+              setSigningOut(true);
+              void signOutDevice(userId, 'local');
+            }}
+          />
+        </div>
       </Scroll>
     </div>
   );
@@ -1244,6 +1268,7 @@ export function Profile(): JSX.Element {
   const [email, setEmail] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [confirmLogoutAll, setConfirmLogoutAll] = useState(false);
+  const [signingOut, setSigningOut] = useState<'local' | 'global' | null>(null);
 
   // Prefill the editable fields once the profile arrives (and keep them in sync
   // after a save re-fetches the row).
@@ -1284,7 +1309,11 @@ export function Profile(): JSX.Element {
   const profileValid = firstName.trim() !== '' && lastName.trim() !== '';
   const emailChanged = email.trim().toLowerCase() !== p.email.toLowerCase();
   const sessions = sessionsQ.data ?? [];
+  const current = sessions.find((s) => s.current) ?? null;
   const others = sessions.filter((s) => !s.current);
+  // Identical stale sessions (same device + IP) collapse into one row with a
+  // count — 12 dev-login rows read as one "Chrome · Windows · 5 sessions".
+  const otherGroups = groupPoSessions(others);
   const sessionIcon = (device: string): IconName =>
     /mac|windows|linux/i.test(device) ? 'grid' : 'user';
 
@@ -1349,33 +1378,65 @@ export function Profile(): JSX.Element {
           <Empty text={t.settings.profile.sessionsEmpty} />
         ) : (
           <div className="mb-3 rounded-[18px] border border-line bg-elev px-4 py-0.5">
-            {sessions.map((se, i) => (
-              <div key={se.id} className={cn('flex items-center gap-[12px] py-[13px]', i < sessions.length - 1 && 'border-b border-line2')}>
-                <span className={cn('flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-[11px] border border-line bg-elev2', se.current ? 'text-acc' : 'text-faint')}>
-                  <Icon name={sessionIcon(se.device)} size={17} />
+            {current && (
+              <div className={cn('flex items-center gap-[12px] py-[13px]', otherGroups.length > 0 && 'border-b border-line2')}>
+                <span className="flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-[11px] border border-line bg-elev2 text-acc">
+                  <Icon name={sessionIcon(current.device)} size={17} />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="text-[14px] font-semibold text-text">{se.device}</div>
-                  <div className={cn('mt-0.5 text-[12px]', se.current ? 'text-acc' : 'text-faint')}>
-                    {se.where} · {se.last}
+                  <div className="flex items-center gap-2 text-[14px] font-semibold text-text">
+                    <span className="truncate">{current.device}</span>
+                    <span className="shrink-0 rounded-full bg-acc px-[9px] py-[3px] font-display text-[10.5px] font-bold text-on-acc">
+                      {t.settings.profile.thisDevice}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 text-[12px] text-acc">
+                    {current.where} · {current.last}
                   </div>
                 </div>
-                {!se.current && (
-                  <MiniChip onClick={() => revokeSession.mutate(se.id)}>
-                    {revokeSession.isPending && revokeSession.variables === se.id ? '…' : t.settings.profile.logOut}
-                  </MiniChip>
-                )}
+              </div>
+            )}
+            {otherGroups.map((g, i) => (
+              <div key={g.ids[0]} className={cn('flex items-center gap-[12px] py-[13px]', i < otherGroups.length - 1 && 'border-b border-line2')}>
+                <span className="flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-[11px] border border-line bg-elev2 text-faint">
+                  <Icon name={sessionIcon(g.device)} size={17} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-semibold text-text">
+                    {g.device}
+                    {g.count > 1 && <span className="text-faint"> · {fmt(t.settings.profile.sessionCount, { n: g.count })}</span>}
+                  </div>
+                  <div className="mt-0.5 text-[12px] text-faint">
+                    {g.where} · {g.last}
+                  </div>
+                </div>
+                <MiniChip onClick={() => g.ids.forEach((id) => revokeSession.mutate(id))}>
+                  {revokeSession.isPending && g.ids.includes(revokeSession.variables as string) ? '…' : t.settings.profile.logOut}
+                </MiniChip>
               </div>
             ))}
           </div>
         )}
+        <Btn
+          kind="dark"
+          full
+          icon="logout"
+          className="mb-2"
+          disabled={signingOut !== null}
+          onClick={() => {
+            setSigningOut('local');
+            void signOutDevice(p.userId, 'local');
+          }}
+        >
+          {signingOut === 'local' ? t.settings.profile.signingOut : t.settings.profile.signOut}
+        </Btn>
         {others.length > 0 && (
           <Btn
             kind="ghost"
             full
             icon="logout"
             className="mb-[18px]"
-            disabled={revokeSession.isPending}
+            disabled={revokeSession.isPending || signingOut !== null}
             onClick={() => setConfirmLogoutAll(true)}
           >
             {t.settings.profile.logOutAll}
@@ -1397,22 +1458,19 @@ export function Profile(): JSX.Element {
       </BottomBar>
       {confirmLogoutAll && (
         <Sheet onClose={() => setConfirmLogoutAll(false)} center={false}>
-          <Note icon="warn">
-            {fmt(others.length === 1 ? t.settings.profile.logoutAllConfirmOne : t.settings.profile.logoutAllConfirmMany, { n: others.length })}
-          </Note>
-          <FormError error={revokeSession.isError ? revokeSession.error : null} />
+          <Note icon="warn">{t.settings.profile.logoutAllConfirm}</Note>
           <Btn
             kind="primary"
             full
             icon="logout"
             className="mt-2"
-            disabled={revokeSession.isPending}
+            disabled={signingOut !== null}
             onClick={() => {
-              others.forEach((s) => revokeSession.mutate(s.id));
-              setConfirmLogoutAll(false);
+              setSigningOut('global');
+              void signOutDevice(p.userId, 'global');
             }}
           >
-            {revokeSession.isPending ? t.settings.profile.loggingOut : fmt(others.length === 1 ? t.settings.profile.logoutAllConfirmBtnOne : t.settings.profile.logoutAllConfirmBtnMany, { n: others.length })}
+            {signingOut === 'global' ? t.settings.profile.loggingOut : t.settings.profile.logoutAllConfirmBtn}
           </Btn>
           <Btn kind="ghost" full className="mt-2" onClick={() => setConfirmLogoutAll(false)}>
             {t.settings.common.cancel}
