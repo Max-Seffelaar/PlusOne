@@ -5,7 +5,6 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { getSessionUser } from '@/lib/auth/context';
-import { assertAal2, AuthorizationError } from '@/lib/auth/guards';
 import type { Database } from '@/lib/database.types';
 import { inviteSchema, revokeInviteSchema } from './schemas';
 import { canGrantRoles, type VenueRole } from './roles';
@@ -81,20 +80,8 @@ export async function inviteUserAction(
   const { venueId, email, roles, defaultQuota, eventIds } = parsed.data;
   const typedRoles = roles as VenueRole[];
 
-  try {
-    await assertAal2();
-  } catch (e) {
-    if (e instanceof AuthorizationError) {
-      return {
-        ok: false,
-        error:
-          e.reason === 'aal2_required'
-            ? 'This action needs MFA. Verify with your authenticator first.'
-            : "You're not logged in.",
-      };
-    }
-    throw e;
-  }
+  // MFA is optional (#20 refinement 2026-07-02): no AAL2 assertion — the venue
+  // role check below + RLS (invites_insert, role-only) are the boundary.
 
   // App-layer authority + escalation guard (RLS is the real boundary).
   const callerRoles = await callerRolesAt(venueId, user.id);
@@ -173,31 +160,13 @@ export async function inviteUserAction(
   return { ok: true, message: `Invite sent to ${email}.` };
 }
 
-/** Cancel a pending invite (RLS enforces manager + AAL2 + escalation). */
+/** Cancel a pending invite (RLS enforces manager + escalation, role-only). */
 export async function revokeInviteAction(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
   const parsed = revokeInviteSchema.safeParse({ inviteId: formData.get('inviteId') });
   if (!parsed.success) return { ok: false, error: 'Invalid invite.' };
-
-  // AAL2 — revoking an access grant is sensitive (#20). Return the recognizable
-  // "needs MFA" message so the po step-up sheet opens; RLS (invites_delete)
-  // re-enforces it as the real boundary.
-  try {
-    await assertAal2();
-  } catch (e) {
-    if (e instanceof AuthorizationError) {
-      return {
-        ok: false,
-        error:
-          e.reason === 'aal2_required'
-            ? 'This action needs MFA. Verify with your authenticator first.'
-            : "You're not logged in.",
-      };
-    }
-    throw e;
-  }
 
   const supabase = await createClient();
   const { error, count } = await supabase

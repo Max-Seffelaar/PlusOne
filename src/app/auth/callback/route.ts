@@ -10,7 +10,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const url = new URL(request.url);
   const next = safeNextPath(url.searchParams.get('next'));
 
-  const supabase = await createClient();
+  // Forward the browser UA so a session minted here gets a usable device label
+  // in the active-sessions list (see /auth/confirm).
+  const supabase = await createClient({
+    headers: { 'User-Agent': request.headers.get('user-agent') ?? 'PlusOne' },
+  });
 
   // PKCE links land here with ?code= (same-browser flow, verifier cookie
   // present) — exchange it so the session cookies exist before the gate below.

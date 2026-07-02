@@ -5,11 +5,11 @@
 --   * Audit immutability (#4): audit_log is written ONLY by triggers. App roles
 --     hold SELECT and nothing else — so even an admin with AAL2 (who may READ it)
 --     cannot insert a forged row, alter a diff, or delete history. 42501 each.
---   * AAL2 gate (CLAUDE.md §Auth): post-migration 20260624160000 the second
---     factor is scoped to the genuinely access-granting actions. MEMBERSHIP role
---     changes still need a step-up (an AAL1 admin is refused), but quota grants,
---     event-organizer assignment and audit-log reads are now ROLE-ONLY and
---     succeed at AAL1. RLS keys the kept gate on auth.jwt()->>'aal'.
+--   * MFA optionality (CLAUDE.md §Auth): post-migration 20260702120000 the
+--     second factor is FULLY OPTIONAL — no action requires AAL2 anymore. The
+--     venue-role checks are the boundary: quota grants, event-organizer
+--     assignment, audit-log reads AND membership role changes all succeed at
+--     AAL1 for the right role, and keep failing for the wrong role.
 -- Seed venue aa..01, event ee..01. Everything rolls back.
 
 begin;
@@ -81,9 +81,10 @@ select ok((select count(*)::int from public.audit_log) > 0,
 reset role;
 
 -- ---------------------------------------------------------------------------
--- C. Step-up scope after migration 20260624160000: MEMBERSHIP role grants still
---    need AAL2 (an AAL1 admin is refused — no step-down bypass), but quota grants
---    and event-organizer assignment are now role-only and succeed at AAL1.
+-- C. After migration 20260702120000 MFA is fully optional: quota grants,
+--    MEMBERSHIP role grants and event-organizer assignment are all role-only
+--    and succeed at AAL1. (Deliberate rewrite of the old AAL2-denial cases —
+--    the wrong-ROLE denials live in rls.test.sql.)
 -- ---------------------------------------------------------------------------
 
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal1');
@@ -95,12 +96,13 @@ select is(
                 and user_id = '55555555-5555-4555-8555-555555555555'$$),
   1, 'C1 AAL1 admin may grant quota (role-only, MFA no longer required)');
 
--- Role grant: WITH CHECK STILL needs AAL2 → the insert is rejected (UNCHANGED).
-select throws_ok($$
+-- Role grant: role-only since 20260702120000 → the AAL1 admin may grant.
+-- (Was an AAL2-denial test; deliberately flipped with the optional-MFA decision.)
+select lives_ok($$
   insert into public.venue_memberships (venue_id, user_id, roles)
   values ('aa000000-0000-7000-8000-000000000001',
           '44444444-4444-4444-8444-444444444444', '{staff}')
-$$, '42501', null, 'C2 AAL1 admin still cannot grant a membership (role change keeps AAL2)');
+$$, 'C2 AAL1 admin may grant a membership (role-only, MFA optional)');
 
 -- Organizer assignment is now role-only — an AAL1 admin may assign.
 select lives_ok($$

@@ -1,6 +1,8 @@
 -- pgTAP — Fase 4: invites, acceptance, MFA helper and session RPC's.
 -- Proves the auth-layer DB surface from 20260613180000_auth_invites_sessions.sql
 -- per the role matrix (spec §2) and §5 (sessiebeheer). Allowed AND denied paths.
+-- Since 20260702120000 MFA is fully optional: every action is role-only, so the
+-- old AAL2-denial cases are deliberately rewritten as wrong-ROLE denials.
 --
 -- Seed identities (venue aa..01 = Club Vesper):
 --   Max=admin (also admin @ aa..02), Noor=user_manager, Femke=finance,
@@ -45,7 +47,8 @@ $fn$;
 select plan(46);
 
 -- ---------------------------------------------------------------------------
--- A. invites INSERT — who may invite, AAL2, escalation guard, forge, x-venue
+-- A. invites INSERT — who may invite (role-only since 20260702120000, MFA
+--    optional), escalation guard, forge, x-venue
 -- ---------------------------------------------------------------------------
 
 -- A1: admin (AAL2) invites the organizer's e-mail as staff at venue 1.
@@ -71,13 +74,14 @@ select throws_ok($$
           '22222222-2222-4222-8222-222222222222', now() + interval '7 days')
 $$, '42501', null, 'A3 user_manager cannot invite an admin (escalation)');
 
--- A4: AAL2 is mandatory even for admin.
+-- A4: an admin at AAL1 may invite — MFA is optional since 20260702120000.
+-- (Deliberate rewrite of the old "invite without AAL2 is refused" case.)
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal1', 'admin@plusone.test');
-select throws_ok($$
+select lives_ok($$
   insert into public.invites (venue_id, email, roles, invited_by, expires_at)
   values ('aa000000-0000-7000-8000-000000000001', 'nomfa@plusone.test', '{staff}',
           '11111111-1111-4111-8111-111111111111', now() + interval '7 days')
-$$, '42501', null, 'A4 invite without AAL2 is refused (admin)');
+$$, 'A4 admin at AAL1 creates an invite (MFA optional, role-only)');
 
 -- A5: staff cannot invite at all.
 select pg_temp.login('55555555-5555-4555-8555-555555555555', 'aal2', 'staff@plusone.test');
@@ -110,12 +114,12 @@ $$, '42501', null, 'A7 manager cannot invite into a venue they do not manage');
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2', 'admin@plusone.test');
 select is((select count(*)::int from public.invites
            where venue_id = 'aa000000-0000-7000-8000-000000000001'),
-          2, 'B1 admin sees both venue-1 invites');
+          3, 'B1 admin sees all three venue-1 invites');
 
 select pg_temp.login('33333333-3333-4333-8333-333333333333', 'aal2', 'finance@plusone.test');
 select is((select count(*)::int from public.invites
            where venue_id = 'aa000000-0000-7000-8000-000000000001'),
-          2, 'B2 finance sees the venue invites (read)');
+          3, 'B2 finance sees the venue invites (read)');
 
 select pg_temp.login('55555555-5555-4555-8555-555555555555', 'aal1', 'staff@plusone.test');
 select is((select count(*)::int from public.invites), 0,
@@ -223,23 +227,24 @@ values ('ab000000-0000-7000-8000-0000000000c2',
         '11111111-1111-4111-8111-111111111111', now() + interval '7 days',
         now(), '55555555-5555-4555-8555-555555555555');
 
--- C1: staff cannot revoke (RLS filters the row out → 0 affected).
+-- C1: staff cannot revoke (RLS filters the row out → 0 affected) — the denied
+-- path is the wrong ROLE (AAL2 no longer buys anything, MFA optional).
 select pg_temp.login('55555555-5555-4555-8555-555555555555', 'aal2', 'staff@plusone.test');
 select is(pg_temp.rowcount($$delete from public.invites
                             where id = 'ab000000-0000-7000-8000-0000000000c1'$$),
-          0, 'C1 staff cannot revoke an invite');
+          0, 'C1 staff cannot revoke an invite, even at AAL2');
 
--- C2: admin without AAL2 cannot revoke.
+-- C2: an admin at AAL1 revokes the pending invite — MFA is optional since
+-- 20260702120000. (Deliberate rewrite of "revoke without AAL2 is refused".)
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal1', 'admin@plusone.test');
 select is(pg_temp.rowcount($$delete from public.invites
                             where id = 'ab000000-0000-7000-8000-0000000000c1'$$),
-          0, 'C2 revoke without AAL2 is refused');
+          1, 'C2 admin at AAL1 revokes a pending invite (MFA optional, role-only)');
 
--- C3: admin (AAL2) revokes the pending invite.
-select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2', 'admin@plusone.test');
-select is(pg_temp.rowcount($$delete from public.invites
-                            where id = 'ab000000-0000-7000-8000-0000000000c1'$$),
-          1, 'C3 admin (AAL2) revokes a pending invite');
+-- C3: the revoked invite is gone.
+select is((select count(*)::int from public.invites
+           where id = 'ab000000-0000-7000-8000-0000000000c1'),
+          0, 'C3 the revoked invite no longer exists');
 
 -- C4: an accepted invite is immutable history — even admin cannot delete it.
 select is(pg_temp.rowcount($$delete from public.invites
@@ -270,7 +275,7 @@ select is(public.current_user_requires_mfa(), false, 'E5 user_manager does not r
 reset role;
 
 -- ---------------------------------------------------------------------------
--- F. session RPC's — own vs admin (shared venue + AAL2), revoke
+-- F. session RPC's — own vs admin (shared venue, role-only since 20260702120000), revoke
 -- ---------------------------------------------------------------------------
 
 insert into auth.sessions (id, user_id, created_at, updated_at, aal, user_agent, ip) values
@@ -294,11 +299,12 @@ select is((select count(*)::int
            from public.admin_list_user_sessions('55555555-5555-4555-8555-555555555555')),
           1, 'F3 admin (AAL2) lists a member''s sessions');
 
--- F4: admin without AAL2 is refused.
+-- F4: an admin at AAL1 may list too — MFA is optional since 20260702120000.
+-- (Deliberate rewrite of "admin session list needs AAL2".)
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal1', 'admin@plusone.test');
-select throws_ok($$ select * from public.admin_list_user_sessions(
-                      '55555555-5555-4555-8555-555555555555') $$,
-                 '42501', null, 'F4 admin session list needs AAL2');
+select is((select count(*)::int
+           from public.admin_list_user_sessions('55555555-5555-4555-8555-555555555555')),
+          1, 'F4 admin at AAL1 lists a member''s sessions (MFA optional, role-only)');
 
 -- F5: a non-admin cannot list a colleague's sessions even with AAL2.
 select pg_temp.login('55555555-5555-4555-8555-555555555555', 'aal2', 'staff@plusone.test');
@@ -314,15 +320,15 @@ select is(public.revoke_own_session('55550000-0000-4000-8000-000000000001'), tru
 select is((select count(*)::int from public.list_own_sessions()), 0,
           'F7 the revoked session is gone');
 
--- F8: admin (AAL2) remote-logs-out a member's session; AAL1 is refused.
+-- F8: an admin at AAL1 remote-logs-out a member's session — MFA is optional
+-- since 20260702120000. (Deliberate rewrite of "remote logout needs AAL2".)
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal1', 'admin@plusone.test');
-select throws_ok($$ select public.admin_revoke_session(
-                      '55550000-0000-4000-8000-000000000002') $$,
-                 '42501', null, 'F8 admin remote logout needs AAL2');
-
-select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2', 'admin@plusone.test');
 select is(public.admin_revoke_session('55550000-0000-4000-8000-000000000002'), true,
-          'F9 admin (AAL2) remote-logs-out a member''s session');
+          'F8 admin at AAL1 remote-logs-out a member''s session (role-only)');
+
+-- F9: revoking a session that no longer exists reports false (no-op, no error).
+select is(public.admin_revoke_session('55550000-0000-4000-8000-000000000002'), false,
+          'F9 revoking an already-gone session returns false');
 
 reset role;
 

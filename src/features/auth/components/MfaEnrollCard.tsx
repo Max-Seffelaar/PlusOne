@@ -4,9 +4,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { describeAuthError } from '@/features/auth/errors';
 import { totpSchema } from '@/features/auth/schemas';
+import { snoozeMfaAction } from '@/features/auth/mfa-actions';
 
-// TOTP enrollment (spec §5, decision #20). Shows the QR + manual secret, then
-// verifies a code to immediately raise the session to AAL2.
+// TOTP enrollment (spec §5, decision #20 — OPTIONAL since 2026-07-02). Shown as
+// a skippable RECOMMENDATION: explains why, shows the QR + manual secret, and
+// verifies a code to raise the session to AAL2 — or the user snoozes it
+// ("Ask me in 7 days" / "Don't ask again", user_profiles.mfa_snooze_until).
 export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
   const supabase = createClient();
   const [qr, setQr] = useState<string | null>(null);
@@ -15,7 +18,20 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [snoozing, setSnoozing] = useState<'week' | 'never' | null>(null);
   const started = useRef(false);
+
+  async function skip(choice: 'week' | 'never'): Promise<void> {
+    if (busy || snoozing) return;
+    setSnoozing(choice);
+    const res = await snoozeMfaAction(choice);
+    if (!res.ok) {
+      setSnoozing(null);
+      setError(res.error ?? 'Something went wrong.');
+      return;
+    }
+    window.location.replace(nextPath);
+  }
 
   const startEnrollment = useCallback(async () => {
     setError(null);
@@ -68,10 +84,12 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
 
   return (
     <div className="card w-full max-w-sm">
-      <h1 className="font-display text-2xl font-bold">Set up two-factor</h1>
+      <h1 className="font-display text-2xl font-bold">Protect your account</h1>
       <p className="text-dim mt-1 text-sm">
-        Two-factor is required for your role. Scan the QR code with an authenticator app
-        (e.g. Google Authenticator, 1Password), then enter the code.
+        We recommend enabling two-factor authentication (MFA). Your role can invite people and
+        change access, so a stolen email login could do real damage — a 6-digit code from an
+        authenticator app (e.g. Google Authenticator, 1Password) prevents that. You can skip
+        this if you prefer and turn it on later under Profile.
       </p>
 
       {error && !qr ? (
@@ -138,6 +156,25 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
       ) : (
         <p className="text-dim mt-4 text-sm">Loading QR code…</p>
       )}
+
+      <div className="mt-5 flex flex-col gap-2 border-t border-line2 pt-4">
+        <button
+          type="button"
+          className="btn-dark w-full"
+          disabled={busy || snoozing !== null}
+          onClick={() => void skip('week')}
+        >
+          {snoozing === 'week' ? 'Saving…' : 'Ask me in 7 days'}
+        </button>
+        <button
+          type="button"
+          className="text-faint hover:text-text text-center text-xs"
+          disabled={busy || snoozing !== null}
+          onClick={() => void skip('never')}
+        >
+          {snoozing === 'never' ? 'Saving…' : "Don't ask again"}
+        </button>
+      </div>
     </div>
   );
 }

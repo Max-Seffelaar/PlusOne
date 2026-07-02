@@ -296,22 +296,24 @@ select throws_ok(
 reset role;
 
 -- ---------------------------------------------------------------------------
--- I. memberships — AAL2 for role changes; UM can never touch admin (escalation)
+-- I. memberships — role-only since 20260702120000 (MFA optional; the old
+--    "AAL1 is refused" case is deliberately rewritten: the DENIED path is now
+--    the wrong ROLE); UM can never touch admin (escalation)
 -- ---------------------------------------------------------------------------
 
-select pg_temp.login('22222222-2222-4222-8222-222222222222', 'aal1');
+select pg_temp.login('55555555-5555-4555-8555-555555555555', 'aal2');
 select throws_ok($$
   insert into public.venue_memberships (venue_id, user_id, roles)
   values ('aa000000-0000-7000-8000-000000000001',
           '44444444-4444-4444-8444-444444444444', '{staff}')
-$$, '42501', null, 'I1 role grant without MFA (AAL1) is refused');
+$$, '42501', null, 'I1 staff cannot grant a membership, even at AAL2 (role is the boundary)');
 
-select pg_temp.login('22222222-2222-4222-8222-222222222222', 'aal2');
+select pg_temp.login('22222222-2222-4222-8222-222222222222', 'aal1');
 select lives_ok($$
   insert into public.venue_memberships (venue_id, user_id, roles)
   values ('aa000000-0000-7000-8000-000000000001',
           '44444444-4444-4444-8444-444444444444', '{staff}')
-$$, 'I2 user_manager (AAL2) invites a staff member');
+$$, 'I2 user_manager at AAL1 grants a staff membership (MFA optional)');
 
 select throws_ok($$
   update public.venue_memberships
@@ -320,12 +322,12 @@ select throws_ok($$
     and user_id = '55555555-5555-4555-8555-555555555555'
 $$, '42501', null, 'I3 user_manager cannot escalate anyone to admin');
 
-select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2');
+select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal1');
 select lives_ok($$
   insert into public.venue_memberships (venue_id, user_id, roles)
   values ('aa000000-0000-7000-8000-000000000002',
           '22222222-2222-4222-8222-222222222222', '{admin}')
-$$, 'I4 admin (AAL2) may grant an admin membership');
+$$, 'I4 admin at AAL1 may grant an admin membership (role-only)');
 
 select pg_temp.login('55555555-5555-4555-8555-555555555555');
 select is((select count(*)::int from public.venue_memberships), 1,

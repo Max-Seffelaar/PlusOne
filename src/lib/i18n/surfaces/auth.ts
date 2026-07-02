@@ -47,7 +47,7 @@ export const auth = {
   mfaRolePost: '. Enter the code from your authenticator app.',
   mfaCodePlaceholder: '6-digit code',
   mfaLogIn: 'Log in',
-  mfaNote: 'MFA is required for Admin and Finance. Quota grants, role changes, and the audit log need this step (AAL2).',
+  mfaNote: 'Two-factor is on for your account: enter a code from your authenticator app to finish logging in.',
 
   // ── Invite ───────────────────────────────────────────────────────────────
   inviteLabel: 'Invite',

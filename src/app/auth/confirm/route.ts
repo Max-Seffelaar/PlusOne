@@ -19,7 +19,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  const supabase = await createClient();
+  // Forward the browser's real User-Agent so the session GoTrue records carries
+  // a usable device label ("Chrome · Windows") in the active-sessions list — a
+  // server-side verifyOtp otherwise stamps the Node UA ("Unknown device").
+  const supabase = await createClient({
+    headers: { 'User-Agent': request.headers.get('user-agent') ?? 'PlusOne' },
+  });
   const { error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
 
   if (error) {

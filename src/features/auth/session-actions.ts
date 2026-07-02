@@ -2,7 +2,6 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
-import { assertAal2, AuthorizationError } from '@/lib/auth/guards';
 import { sessionIdSchema } from './schemas';
 
 export interface ActionState {
@@ -30,8 +29,8 @@ export async function revokeOwnSessionAction(
 }
 
 /**
- * Remote-logout for admins (spec §5). AAL2 asserted in the app for good copy;
- * the RPC re-enforces admin-at-a-shared-venue + AAL2 as the real boundary.
+ * Remote-logout for admins (spec §5). The RPC enforces admin-at-a-shared-venue
+ * as the boundary (role-only — MFA is optional since the #20 refinement).
  */
 export async function adminRevokeSessionAction(
   _prev: ActionState,
@@ -39,18 +38,6 @@ export async function adminRevokeSessionAction(
 ): Promise<ActionState> {
   const parsed = sessionIdSchema.safeParse({ sessionId: formData.get('sessionId') });
   if (!parsed.success) return { ok: false, error: 'Invalid session.' };
-
-  try {
-    await assertAal2();
-  } catch (e) {
-    if (e instanceof AuthorizationError) {
-      return {
-        ok: false,
-        error: e.reason === 'aal2_required' ? 'This action needs MFA.' : "You're not logged in.",
-      };
-    }
-    throw e;
-  }
 
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('admin_revoke_session', {
