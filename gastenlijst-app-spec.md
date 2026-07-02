@@ -31,7 +31,7 @@ Multi-tenant SaaS voor gastenlijstbeheer bij venues (clubs, zalen, horeca). Hond
 | 17 | Barman ziet alleen eigen voortgang: "8 van 10 over voor dit event". Geen conversiestatistieken voor staff. |
 | 18 | **Later:** permanente member-QR (wallet, Soho House-stijl) — fraudegevoeligheid vereist eigen ontwerp (roterende codes / foto). |
 | 19 | **Niet bouwen:** no-show → quota-feedback, uitnodigingen versturen vanuit app. |
-| 20 | **Authenticatie:** Supabase Auth, passwordless-first (e-mail OTP), invite-only accounts, MFA volledig optioneel (aanbevolen voor Admin/Finance — verfijnd 2026-07-02, was verplicht), passkeys zodra Supabase-support stable is. Zie §5. |
+| 20 | **Authenticatie:** Supabase Auth, passwordless-first (e-mail OTP), invite-only accounts, **MFA optioneel voor álle rollen — aanbevolen, nooit verplicht (verfijnd 2026-07-01, geshipt 2026-07-02 in migratie `20260702120000`; verplichte enrollment voor Admin/Finance en AAL2-op-gevoelige-acties vervallen — forceren kost klanten)**, passkeys zodra Supabase-support stable is. Zie §5. |
 | 21 | **Soft delete, nooit hard delete.** Gasten krijgen status `removed`; data blijft staan tot AVG-anonimisering, zodat het audit log altijd compleet is. |
 | 22 | **Quota-semantiek:** "Jan +2" telt als 3 plekken. Verwijdering geeft de plek alleen terug zolang het event nog niet live is (anti-hergebruik-fraude). |
 | 23 | **Lijst-lock:** een event-lijst kan vergrendeld worden (door Admin/organisator, typisch bij deuropening). Vergrendeld = staff kan niet meer muteren; alleen Admin, organisator en doorhost (binnen quotum, aan de deur) kunnen nog wijzigen. |
@@ -214,8 +214,7 @@ Niet in applicatiecode, maar via **Postgres-triggers** op `guests`, `quotas`, `e
 | Provider | **Supabase Auth** (geen Clerk/Auth0) | Zit al in de stack, draait in Frankfurt naast de database, sessie-tokens koppelen direct aan Row Level Security. Eén partij = één DPA = minder lek-oppervlak. |
 | Primaire login | **E-mail OTP** (6-cijferige code) | Geen wachtwoord-hashes opgeslagen → niets te lekken, geen credential stuffing, geen wachtwoorddeling onder personeel. OTP werkt betrouwbaarder dan magic links in een PWA (verkeerde browser-context). |
 | Registratie | **Invite-only** | Accounts worden uitsluitend aangemaakt via uitnodiging door Admin/User Manager. Geen open signup → geen fake accounts. |
-| Admin & Finance | **MFA aanbevolen, niet verplicht** (verfijning **2026-07-02**, T1 86ey4j1dz — Max accepteert de security-afweging bewust) | Was: verplichte enrollment + AAL2 op gevoelige acties (verfijning 2026-06-24). Pilot-feedback: geforceerde MFA geeft zóveel frictie dat het klanten kost. Nu: **géén harde gate en géén AAL2-eis in RLS meer** — teamlid uitnodigen, invite intrekken, lid toevoegen/verwijderen/rol wijzigen en remote-logout zijn **role-only** (migratie `20260702120000`). Admin/finance krijgen bij het inloggen een goed uitgelegde, skipbare **aanbeveling** ("Ask me in 7 days" / "Don't ask again", `user_profiles.mfa_snooze_until`). |
-| Overige rollen | **MFA optioneel — zelf in/uit te schakelen** (S4.3) | Elke rol kan vrijwillig 2FA aanzetten (TOTP-enroll: QR + 6-cijferige code) en weer uit. Voor admin/finance toont het profiel "Recommended for your role". |
+| MFA (alle rollen, incl. Admin & Finance) | **Optioneel — aanbevolen, nooit verplicht (verfijnd 2026-07-01, geshipt 2026-07-02)** | Via Supabase native MFA (TOTP: QR + 6-cijferige code), voor iedereen zelf in/uit te schakelen; het profiel toont "Recommended for your role" voor admin/finance (S4.3). **Geen harde gate meer**: niet voor app-toegang en niet voor gevoelige acties — de eerdere verplichte enrollment (Admin/Finance) én de AAL2-RLS-afdwinging op teamlid uitnodigen / invite intrekken / lid toevoegen-verwijderen-rol wijzigen / remote uitloggen (verfijning 2026-06-24) **zijn vervallen; die acties zijn role-only** (migratie `20260702120000_mfa_fully_optional` trekt de checks uit `20260624160000` in). Rationale: MFA forceren geeft zo veel onboarding-frictie dat het klanten kost; passwordless OTP gate't de account-toegang al. In plaats daarvan een **goed uitgelegde, skipbare aanbeveling** bij app-entry: *"We recommend enabling MFA to protect your account. You can skip this if you prefer."* — met "Don't ask again" of "Ask me in 7 days" (`user_profiles.mfa_snooze_until`). Bewust geaccepteerde security-afweging. Backlog-tegenwicht: per-venue policy "require MFA" (taak `86ey4uv97`) zodat een venue het alsnog kan afdwingen — met copy die duidelijk maakt dat de eis van de venue-admin komt. |
 | Passkeys | **Roadmap, zodra stable** | Supabase passkeys zijn sinds mei 2026 in beta (experimentele API). Phishing-resistent einddoel; toevoegen is straks een uitbreiding, geen verbouwing. |
 
 ### Hardening
@@ -247,7 +246,7 @@ Niet in applicatiecode, maar via **Postgres-triggers** op `guests`, `quotas`, `e
 
 ### MVP (fase 1)
 - Multi-venue accountstructuur met memberships en de zes rollen
-- Auth: e-mail OTP, invite-only, MFA optioneel (aanbevolen voor Admin/Finance), sessiebeheer + remote logout
+- Auth: e-mail OTP, invite-only, MFA optioneel-aanbevolen voor alle rollen (#20, verfijnd 2026-07-01), sessiebeheer + remote logout
 - Events + zelf te definiëren gast-tiers
 - Gastenlijst-CRUD met quota-handhaving en quota-verzoekflow
 - Lijst-lock per event + in-app-meldingen (badges) voor openstaande verzoeken
