@@ -71,6 +71,23 @@ describe('deviceLabel', () => {
     // Edge wins over its embedded "Chrome"/"Safari" tokens; ChromeOS is detected.
     expect(deviceLabel('Mozilla/5.0 (Windows NT 10.0) Chrome/120 Safari Edg/120')).toBe('Edge · Windows');
     expect(deviceLabel('Mozilla/5.0 (X11; CrOS x86_64) Chrome/120 Safari')).toBe('Chrome · ChromeOS');
+    // Chromium forks with an embedded "Chrome" token (Max's a10: Opera read as
+    // Chrome) — the fork token wins.
+    expect(
+      deviceLabel(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 OPR/112.0.0.0',
+      ),
+    ).toBe('Opera · Windows');
+    expect(
+      deviceLabel(
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) OPiOS/16.0.0 Mobile/15E148 Safari/9537.53',
+      ),
+    ).toBe('Opera · iPhone');
+    expect(
+      deviceLabel(
+        'Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/25.0 Chrome/121.0.0.0 Mobile Safari/537.36',
+      ),
+    ).toBe('Samsung Internet · Android');
   });
   it('degrades gracefully', () => {
     expect(deviceLabel(null)).toBe('Unknown device');
