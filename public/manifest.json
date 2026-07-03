@@ -34,26 +34,12 @@
       "purpose": "maskable"
     }
   ],
-  "screenshots": [
-    {
-      "src": "/screenshot-mobile.png",
-      "sizes": "540x720",
-      "type": "image/png",
-      "form_factor": "narrow"
-    },
-    {
-      "src": "/screenshot-desktop.png",
-      "sizes": "1280x720",
-      "type": "image/png",
-      "form_factor": "wide"
-    }
-  ],
   "shortcuts": [
     {
-      "name": "Deur-app",
-      "short_name": "Deur",
-      "description": "Check-in bij de deur",
-      "url": "/app/door",
+      "name": "Door",
+      "short_name": "Door",
+      "description": "Check-in at the door",
+      "url": "/app",
       "icons": [
         {
           "src": "/icon-192x192.png",
