@@ -227,17 +227,19 @@ export const settings = {
     loginMethodSub: 'Passwordless · email code (OTP)',
     sessionsLabel: 'Your devices',
     sessionsEmpty: 'No active sessions.',
+    thisDevice: 'This device',
+    sessionCount: '{n} sessions',
     logOut: 'Log out',
     logOutAll: 'Log out everywhere',
+    signOut: 'Sign out',
+    signOutSub: 'Log out on this device',
+    signingOut: 'Signing out…',
     saving: 'Saving…',
     save: 'Save',
-    logoutAllConfirmOne:
-      'You log out {n} other device. It will need to log in again. This device stays logged in.',
-    logoutAllConfirmMany:
-      'You log out {n} other devices. They will need to log in again. This device stays logged in.',
+    logoutAllConfirm:
+      'You log out every device, including this one. You’ll need to log in again everywhere.',
     loggingOut: 'Logging out…',
-    logoutAllConfirmBtnOne: 'Yes, log out {n} device',
-    logoutAllConfirmBtnMany: 'Yes, log out {n} devices',
+    logoutAllConfirmBtn: 'Yes, log out everywhere',
     // MFA card.
     mfaTitle: 'Two-factor authentication',
     mfaSubMandatory: 'Required for your role · authenticator app',

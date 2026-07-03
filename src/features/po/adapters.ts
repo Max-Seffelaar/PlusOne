@@ -796,6 +796,39 @@ export function toPoSession(row: PoSessionRow): PoSession {
   };
 }
 
+/** One row in the deduped sessions list: identical non-current sessions (same
+ *  device label + IP — e.g. the 12 "Chrome · Windows · 172.18.0.1" rows from
+ *  repeated dev logins) collapse into a single row with a count, and "Log out"
+ *  revokes every session in the group (2/7 walkthrough). */
+export interface PoSessionGroup {
+  /** All session ids in the group, newest first (input order preserved). */
+  ids: string[];
+  device: string;
+  where: string;
+  /** Last-seen of the newest session in the group. */
+  last: string;
+  count: number;
+}
+
+/** Collapse identical non-current sessions (device + IP) into groups. Input order
+ *  (newest activity first, per the RPC) is preserved; each group carries the
+ *  newest session's last-seen. Current sessions must be filtered out by the
+ *  caller — they render as their own "This device" row. */
+export function groupPoSessions(sessions: PoSession[]): PoSessionGroup[] {
+  const groups = new Map<string, PoSessionGroup>();
+  for (const s of sessions) {
+    const key = `${s.device}|${s.where}`;
+    const g = groups.get(key);
+    if (g) {
+      g.ids.push(s.id);
+      g.count += 1;
+    } else {
+      groups.set(key, { ids: [s.id], device: s.device, where: s.where, last: s.last, count: 1 });
+    }
+  }
+  return [...groups.values()];
+}
+
 export interface PoProfile {
   userId: string;
   name: string;

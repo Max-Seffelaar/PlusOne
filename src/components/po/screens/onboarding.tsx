@@ -13,6 +13,7 @@ import { t, fmt } from '@/lib/i18n';
 import { createVenueAction, setActiveVenueAction } from '@/features/venues/actions';
 import { VENUE_TYPES, type VenueType } from '@/features/venues/schemas';
 import { TERMS_URL, PRIVACY_URL } from '@/lib/legal';
+import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { clearNavState, useNav } from '../context';
 import { Icon } from '../icon';
 import { Btn, Field, Label, Note, Scroll, Top } from '../kit';
@@ -32,6 +33,7 @@ const TYPE_LABEL: Record<VenueType, string> = {
 
 export function VenueCreate(): JSX.Element {
   const nav = useNav();
+  const { userId } = usePoIdentity();
   const [name, setName] = useState('');
   const [city, setCity] = useState('');
   const [venueType, setVenueType] = useState<VenueType>('club');
@@ -71,7 +73,7 @@ export function VenueCreate(): JSX.Element {
       const fd = new FormData();
       fd.set('venueId', res.venueId);
       await setActiveVenueAction(fd);
-      clearNavState();
+      clearNavState(userId);
       window.location.assign('/app');
     });
   }

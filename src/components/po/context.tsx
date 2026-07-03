@@ -116,7 +116,11 @@ export function useNav(): Nav {
 // (#37): sessionStorage works in native webviews, and every access is guarded so
 // a missing/blocked store just degrades to the old in-memory behaviour.
 
-const NAV_STORAGE_KEY = 'po:nav-state';
+// Keyed per user (T1 #20, 2/7 walkthrough): on a shared device (door tablet) a
+// user switch must not open the app on the previous user's screen, so each user
+// gets their own sessionStorage slot instead of one shared 'po:nav-state'.
+const NAV_STORAGE_PREFIX = 'po:nav-state';
+const navStorageKey = (userId: string): string => `${NAV_STORAGE_PREFIX}:${userId}`;
 const PERSISTED_TABS: readonly TabKey[] = ['start', 'events', 'guests', 'deur', 'meer'];
 
 export interface PersistedNav {
@@ -126,10 +130,12 @@ export interface PersistedNav {
 
 /** Read the persisted nav-state — returns null on SSR, unavailable storage, or a
  *  malformed payload (so a corrupt value can never wedge the app on boot). */
-export function loadNavState(): PersistedNav | null {
+export function loadNavState(userId: string): PersistedNav | null {
   if (typeof window === 'undefined') return null;
   try {
-    const raw = window.sessionStorage.getItem(NAV_STORAGE_KEY);
+    // Drop the pre-user-scoping key so a stale shared value never resurfaces.
+    window.sessionStorage.removeItem(NAV_STORAGE_PREFIX);
+    const raw = window.sessionStorage.getItem(navStorageKey(userId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<PersistedNav>;
     if (!parsed || !PERSISTED_TABS.includes(parsed.tab as TabKey) || !Array.isArray(parsed.stack)) {
@@ -147,23 +153,23 @@ export function loadNavState(): PersistedNav | null {
 }
 
 /** Persist the nav-state; silently no-ops when storage is unavailable. */
-export function saveNavState(state: PersistedNav): void {
+export function saveNavState(userId: string, state: PersistedNav): void {
   if (typeof window === 'undefined') return;
   try {
-    window.sessionStorage.setItem(NAV_STORAGE_KEY, JSON.stringify(state));
+    window.sessionStorage.setItem(navStorageKey(userId), JSON.stringify(state));
   } catch {
     /* private mode / quota / native webview without storage — ignore */
   }
 }
 
 /** Drop the persisted nav-state so the next load starts fresh on the default tab.
- *  Used before a venue-create full-reload: without this, the reload would restore
+ *  Used before a venue-create full-reload (without this, the reload would restore
  *  the venuecreate screen from sessionStorage instead of landing the new owner on
- *  the new venue's Start tab. */
-export function clearNavState(): void {
+ *  the new venue's Start tab) and on sign-out. */
+export function clearNavState(userId: string): void {
   if (typeof window === 'undefined') return;
   try {
-    window.sessionStorage.removeItem(NAV_STORAGE_KEY);
+    window.sessionStorage.removeItem(navStorageKey(userId));
   } catch {
     /* unavailable storage — nothing to clear */
   }

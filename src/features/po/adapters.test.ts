@@ -20,6 +20,7 @@ import {
   toPoTeamMember,
   toPoInvite,
   toPoSession,
+  groupPoSessions,
   toPoProfile,
   toPoVenueSettings,
   toPoSubscription,
@@ -667,6 +668,42 @@ describe('toPoSession', () => {
     expect(se.current).toBe(false);
     expect(se.where).toBe('Unknown location');
     expect(se.last).toContain('23:30');
+  });
+});
+
+describe('groupPoSessions', () => {
+  const s = (id: string, device: string, where: string, last: string) => ({
+    id,
+    device,
+    where,
+    last,
+    current: false,
+  });
+  it('collapses identical device+ip sessions into one group, newest last-seen wins', () => {
+    const groups = groupPoSessions([
+      s('a', 'Chrome · Windows', '172.18.0.1', '2 Jul 14:00'),
+      s('b', 'Chrome · Windows', '172.18.0.1', '1 Jul 09:00'),
+      s('c', 'Safari · iPhone', '84.12.0.1', '30 Jun 22:00'),
+      s('d', 'Chrome · Windows', '172.18.0.1', '29 Jun 11:00'),
+    ]);
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toMatchObject({
+      ids: ['a', 'b', 'd'],
+      count: 3,
+      device: 'Chrome · Windows',
+      last: '2 Jul 14:00', // newest-first input order → first row's last-seen
+    });
+    expect(groups[1]).toMatchObject({ ids: ['c'], count: 1, device: 'Safari · iPhone' });
+  });
+  it('keeps same device on different IPs as separate groups', () => {
+    const groups = groupPoSessions([
+      s('a', 'Chrome · Windows', '1.1.1.1', 'x'),
+      s('b', 'Chrome · Windows', '2.2.2.2', 'y'),
+    ]);
+    expect(groups).toHaveLength(2);
+  });
+  it('returns empty for no sessions', () => {
+    expect(groupPoSessions([])).toEqual([]);
   });
 });
 

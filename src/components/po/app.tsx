@@ -178,18 +178,23 @@ export function PlusOneApp({
   const [navHydrated, setNavHydrated] = useState(false);
   // Reactive mirror of navHistory.current.length — drives canGoBack in the nav object.
   const [navHistoryLen, setNavHistoryLen] = useState(0);
+  // Nav-state is keyed per user (T1 #20): after a user switch on a shared device
+  // the app must not restore the previous user's screen. userId is stable for the
+  // life of this mount (a login/logout is a full page load), so the read still
+  // effectively runs once.
+  const { userId, roles } = usePoIdentity();
   useEffect(() => {
-    const saved = loadNavState();
+    const saved = loadNavState(userId);
     if (saved) {
       setTabState(saved.tab);
       setStack(saved.stack);
     }
     setNavHydrated(true);
-  }, []);
+  }, [userId]);
   useEffect(() => {
     if (!navHydrated) return;
-    saveNavState({ tab, stack });
-  }, [navHydrated, tab, stack]);
+    saveNavState(userId, { tab, stack });
+  }, [navHydrated, userId, tab, stack]);
 
   const bump = (): void => setKey((k) => k + 1);
 
@@ -198,7 +203,6 @@ export function PlusOneApp({
   // rows instead of the in-memory mock. The Deur/Taken tabs are wired live too
   // (STAP 3.5) — they mount the real DoorProvider for the venue's current event.
   const top = stack[stack.length - 1];
-  const { roles } = usePoIdentity();
   // Only door roles (admin / doorhost) see the Deur/Taken tabs — staff/finance/
   // user_manager can't read check_ins/refusals (#17), so the door would look
   // empty/"mock" for them. Organizers use /door/[eventId] directly.
