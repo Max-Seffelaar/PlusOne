@@ -1,0 +1,6 @@
+<h2>Your PlusOne login code</h2>
+<p>Enter this 6-digit code to log in:</p>
+<p style="font-size:24px;font-weight:bold;letter-spacing:4px">{{ .Token }}</p>
+<p>Or log in with one click:</p>
+<p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink&next=/app">Log in to PlusOne</a></p>
+<p style="color:#888;font-size:12px">Didn't request this? You can ignore this email.</p>

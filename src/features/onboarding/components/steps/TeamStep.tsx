@@ -46,6 +46,8 @@ export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
 
   async function finish(): Promise<void> {
     await completeOnboardingAction({ venueId });
+    // Land on Home (Max, 3/7 test round): a fresh owner should arrive at the
+    // dashboard and orient first — not be pushed straight into event creation.
     router.push('/app');
   }
 

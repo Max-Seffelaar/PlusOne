@@ -14,12 +14,6 @@ export default function Home(): JSX.Element {
           >
             Open the app
           </Link>
-          <Link
-            href="/e/frenzy-x4k9"
-            className="inline-flex w-64 items-center justify-center rounded-btn border border-line bg-transparent px-5 py-3 font-display font-bold text-dim transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]"
-          >
-            Landing page (demo)
-          </Link>
         </div>
       </div>
     </main>

@@ -10,7 +10,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const url = new URL(request.url);
   const tokenHash = url.searchParams.get('token_hash');
   const type = url.searchParams.get('type') as EmailOtpType | null;
-  const next = safeNextPath(url.searchParams.get('next'), '/settings/profile');
+  // Invite/magic-link e-mails land in the app flow; only the e-mail-change
+  // confirmation belongs on the profile screen (T1 #1 — one flow, no detour).
+  const fallback = type === 'email_change' ? '/settings/profile' : '/app';
+  const next = safeNextPath(url.searchParams.get('next'), fallback);
 
   if (!tokenHash || !type) {
     return NextResponse.redirect(new URL('/login', request.url));

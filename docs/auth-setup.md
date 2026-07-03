@@ -115,6 +115,11 @@ exchanged from an e-mail click (there is no verifier cookie), so the default
   (`verifyOtp`), which then runs `accept_pending_invites()` and lands them at `/app`.
 - The **"Magic Link"** template (above) already drives the *existing-user* invite
   notification (a user from another venue, #24) — same token_hash / 6-digit code.
+- **Local mirror (since T1 PR b):** both templates are committed under
+  `supabase/templates/` and wired in `config.toml`
+  (`[auth.email.template.invite]` / `[auth.email.template.magic_link]`), so the
+  Mailpit e-mails carry the same clickable `/auth/confirm` links as prod should.
+  Restart the local stack after changing them.
 
 ## 4. MFA / TOTP (Authentication → Multi-Factor)
 

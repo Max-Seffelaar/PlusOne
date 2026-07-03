@@ -41,6 +41,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   // Service role: mint a magic-link token for the seed user.
   const admin = createServiceClient();
+
+  // ?create=1 — mint a FRESH venue-less user on demand (local-only, same hard
+  // gate). This is how you test the new-owner flow (account → company → first
+  // event) repeatably: any made-up address becomes a brand-new account with no
+  // membership, no Mailpit round-trip needed. Existing accounts just log in.
+  if (url.searchParams.get('create') === '1') {
+    const { error: createError } = await admin.auth.admin.createUser({ email, email_confirm: true });
+    if (createError && !/already|exists|registered/i.test(createError.message)) {
+      return NextResponse.redirect(new URL('/login?error=devlogin', request.url));
+    }
+  }
+
   const { data, error: genError } = await admin.auth.admin.generateLink({ type: 'magiclink', email });
   const tokenHash = data?.properties?.hashed_token;
   if (genError || !tokenHash) {

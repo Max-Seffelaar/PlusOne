@@ -10,8 +10,14 @@ schemas = ["public", "graphql_public"]
 
 [auth]
 enabled = true
-site_url = "http://localhost:3000"
-additional_redirect_urls = ["http://localhost:3000/auth/callback", "http://localhost:3000/auth/confirm"]
+# Dev servers claim 7000 first (scripts/dev-env.mjs); 3000 kept for stragglers.
+site_url = "http://localhost:7000"
+additional_redirect_urls = [
+  "http://localhost:7000/auth/callback",
+  "http://localhost:7000/auth/confirm",
+  "http://localhost:3000/auth/callback",
+  "http://localhost:3000/auth/confirm",
+]
 # Invite-only (decision #20): no open signup, no anonymous sessions.
 enable_signup = false
 enable_anonymous_sign_ins = false
@@ -34,6 +40,19 @@ enable_confirmations = true
 otp_length = 6
 otp_expiry = 600
 max_frequency = "5s"
+
+# E-mail templates mirror the REQUIRED prod dashboard templates (docs/auth-setup.md
+# §3): the links go through our own /auth/confirm?token_hash=… route so the
+# SERVER-side session comes up on click — the default {{ .ConfirmationURL }} lands
+# on the site root with fragment tokens the server never sees, stranding invitees
+# on the marketing page (T1 #1).
+[auth.email.template.invite]
+subject = "You've been invited to PlusOne"
+content_path = "./supabase/templates/invite.html"
+
+[auth.email.template.magic_link]
+subject = "Your PlusOne login code"
+content_path = "./supabase/templates/magic_link.html"
 
 # Mandatory MFA for admin/finance is enforced in-app + RLS; the factor type is
 # TOTP (decision #20). Enrollment/verification must be enabled here.
