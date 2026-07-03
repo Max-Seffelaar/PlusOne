@@ -30,7 +30,7 @@ export const settings = {
     profileTitle: 'Profile',
     profileSub: 'Profile, email, and sessions',
     eventsTitle: 'Events & tiers',
-    eventsSub: 'Create events, tiers, and aliases',
+    eventsSub: 'Create events and guest tiers',
     templatesTitle: 'Event templates',
     templatesSub: 'Reusable setups per event type',
     venuesTitle: 'Venues',

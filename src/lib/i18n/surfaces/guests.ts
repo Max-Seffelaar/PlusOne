@@ -16,7 +16,7 @@ export const guests = {
   // Shown by the add flows (quick-add / bulk / contacts) when an event has no
   // tiers yet; an admin/organizer can create the first one inline.
   tierCreate: {
-    intro: 'This event has no tiers yet.',
+    intro: 'This event has no guest tiers yet.',
     introCreate: 'Add one here and you can keep going.',
     introAsk: 'Ask an admin or organizer to add one.',
     createBtn: 'Create tier',
@@ -87,7 +87,7 @@ export const guests = {
     eventDoors: 'doors {time} · {venue}',
     noUpcoming: 'No upcoming event to add to.',
     noRights: "You don't have rights to add guests to this event. Ask an admin or organizer for access.",
-    noTiers: 'This event has no tiers yet. Add one in event settings before you add guests.',
+    noTiers: 'This event has no guest tiers yet. Add one in event settings before you add guests.',
     inputLabel: 'Type freely: name, +guests, tier',
     inputPlaceholder: 'e.g. "Juri Braakman +2 vip"',
     ambiguityQuestion: 'Not sure what you mean by "{x}". Pick one:',
@@ -148,7 +148,7 @@ export const guests = {
     subTo: 'To {event} · one guest per line',
     subFallback: 'One guest per line',
     noUpcoming: 'No upcoming event to add to.',
-    noTiers: 'This event has no tiers yet. Add one in event settings.',
+    noTiers: 'This event has no guest tiers yet. Add one in event settings.',
     placeholder: 'Juri Braakman +2 vip\nNoor de Wit\nSem Aaltink bottle\nLucas van Os +1',
     preview: 'Preview · {n} lines',
     toCheck: '{n} to check',
@@ -266,7 +266,7 @@ export const guests = {
     adjustSave: 'Save · +{n}',
     ticketLabel: 'Ticket / tier',
     loadingTickets: 'Loading tickets…',
-    noTiers: 'This event has no tiers yet. Add one first in event settings.',
+    noTiers: 'This event has no guest tiers yet. Add one first in event settings.',
     peopleLabel: 'Number of people',
     peopleOnlyGuest: 'Just this guest.',
     peopleWithExtra: '{name} + {n} extra {slots} ({total} total).',

@@ -23,6 +23,17 @@ export const shared = {
     loading: 'Loading…',
   },
 
+  // ── Date/time fields (datetime-field.tsx) — desktop calendar + time selects ──
+  datetime: {
+    datePlaceholder: 'Pick a date',
+    dateAria: 'Pick a date',
+    clear: 'Clear',
+    today: 'Today',
+    hourAria: 'Hour',
+    minuteAria: 'Minutes',
+    emptyTime: '--',
+  },
+
   // ── App shell chrome (shell.tsx) ─────────────────────────────────────────
   shell: {
     tabStart: 'Home',

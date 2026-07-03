@@ -62,7 +62,7 @@ export const templates = {
   aliasesLabel: 'Aliases · feed the quick-add',
   aliasesPlaceholder: 'vip, bottle, table…',
   loadingTiers: 'Loading tiers…',
-  emptyTiers: 'No tiers yet. Add one like "VIP" or "Regular".',
+  emptyTiers: 'No guest tiers yet. Add one like "VIP" or "Regular".',
   errCreateTier: "Couldn't add the tier.",
   errDeleteTier: "Couldn't remove the tier.",
   removeTier: 'Remove',

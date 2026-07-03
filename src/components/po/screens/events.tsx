@@ -48,6 +48,7 @@ import { canWorkDoor } from '@/features/auth/roles';
 import { isoToLocalInput, localInputToIso } from '@/features/events/datetime';
 import { formatClock } from '@/features/stats/format';
 import { useNav } from '../context';
+import { DateField, TimeField } from '../datetime-field';
 import { Icon } from '../icon';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, RoleChip, Scroll, ToggleRow, Top } from '../kit';
 import { BottomBar, Sheet } from '../shell';
@@ -185,6 +186,10 @@ export function EventView({ id }: { id?: string }): JSX.Element {
   // External crew count for the admin-only crew row below; only admins can manage
   // it, so a non-admin passes an empty id and the hook stays disabled (no fetch).
   const crewQ = usePoCrew(isAdmin ? id ?? '' : '');
+  // Setup nudge (T2, 1/7): a fresh event has no tiers, so lead the people who can
+  // fix that (admin/organizer) to the setup instead of a wall of zeroed stats.
+  const tiersQ = usePoTiers(id ?? '');
+  const { canManage } = usePoEventForEdit(id ?? '');
 
   if (isLoading) return <ScreenState onBack={nav.back} title={t.events.detailTitle} text={t.events.loading} />;
   if (isError || notFound || !event) {
@@ -196,6 +201,7 @@ export function EventView({ id }: { id?: string }): JSX.Element {
   const pct = ev.guests > 0 ? ev.inside / ev.guests : 0;
   const recent = detail?.recent ?? [];
   const openRequests = detail?.openRequests ?? 0;
+  const needsSetup = canManage && !ev.cancelled && tiersQ.data?.length === 0;
   // Desktop (S3.3): the headline numbers/actions go left, the "needs attention"
   // + "laatst binnen" feed go right. When there's no secondary content the left
   // column reads as a normal centered column instead of a wide thin strip.
@@ -206,6 +212,27 @@ export function EventView({ id }: { id?: string }): JSX.Element {
       {/* Feedback Joeri: the "dots" icon was unreadable — use a clear settings/edit cog. */}
       <Top onBack={nav.back} title={ev.name} sub={`${ev.venue} · ${ev.date} ${ev.mon}`} right={<IconBtn name="cog" onClick={() => nav.push('eventedit', { id: ev.id })} />} />
       <Scroll bottom={28}>
+        {needsSetup && (
+          <div className="mb-3 rounded-[18px] border bg-elev p-4" style={{ borderColor: 'rgba(181,166,255,0.4)' }}>
+            <div className="flex gap-[11px]">
+              <span className="mt-px shrink-0 text-acc">
+                <Icon name="spark" size={19} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="font-display text-[15.5px] font-bold text-text">{t.events.setup.title}</div>
+                <p className="mt-1 text-[12.5px] leading-[1.45] text-faint">{t.events.setup.noTiers}</p>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-[10px]">
+              <Btn kind="primary" sm icon="ticket" onClick={() => nav.push('tiers', { id: ev.id })}>
+                {t.events.setup.addTiers}
+              </Btn>
+              <Btn kind="ghost" sm icon="cog" onClick={() => nav.push('eventedit', { id: ev.id })}>
+                {t.events.setup.settings}
+              </Btn>
+            </div>
+          </div>
+        )}
         <div className={cn(hasSecondary && 'lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start')}>
           <div className={cn(!hasSecondary && 'lg:mx-auto lg:max-w-[680px]')}>
             <div className="mb-3 grid grid-cols-2 gap-[10px]">
@@ -525,11 +552,13 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           setErr(t.events.errNoVenue);
           return;
         }
-        if (templateId) {
-          await createFromTemplate.mutateAsync({ templateId, name: name.trim(), startsAt, endsAt });
-        } else {
-          await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn });
-        }
+        // Continue the flow on the new event's settings (share the link, add
+        // tiers) instead of bouncing back to the list (T2, feedback 1/7).
+        const newId = templateId
+          ? await createFromTemplate.mutateAsync({ templateId, name: name.trim(), startsAt, endsAt })
+          : await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn });
+        nav.replace('eventedit', { id: newId });
+        return;
       } else {
         await updateEvent.mutateAsync({ eventId: editId, name: name.trim(), startsAt, endsAt });
         if (ev && landingOn !== ev.landingActive) {
@@ -639,11 +668,11 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
         <div className="mb-[14px] flex gap-[10px]">
           <div className="flex-1">
             <Label className="mb-2">{t.events.fieldDate}</Label>
-            <Field icon="cal" type="date" value={dateStr} onChange={writable ? setDateStr : undefined} />
+            <DateField value={dateStr} onChange={writable ? setDateStr : undefined} />
           </div>
           <div className="flex-1">
             <Label className="mb-2">{t.events.fieldDoors}</Label>
-            <Field icon="clock" type="time" value={timeStr} onChange={writable ? setTimeStr : undefined} />
+            <TimeField value={timeStr} onChange={writable ? setTimeStr : undefined} />
           </div>
         </div>
 
@@ -652,11 +681,11 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
         <div className="mb-[14px] flex gap-[10px]">
           <div className="flex-1">
             <Label className="mb-2">{t.events.fieldEndDate}</Label>
-            <Field icon="cal" type="date" value={endDateStr} onChange={writable ? setEndDateStr : undefined} />
+            <DateField value={endDateStr} onChange={writable ? setEndDateStr : undefined} />
           </div>
           <div className="flex-1">
             <Label className="mb-2">{t.events.fieldEnd}</Label>
-            <Field icon="clock" type="time" value={endTimeStr} onChange={writable ? setEndTimeStr : undefined} />
+            <TimeField value={endTimeStr} onChange={writable ? setEndTimeStr : undefined} />
           </div>
         </div>
 
@@ -735,11 +764,11 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
                 <div className="flex gap-[10px] pb-[14px]">
                   <div className="flex-1">
                     <Label className="mb-2">{t.events.closesOn}</Label>
-                    <Field icon="cal" type="date" value={autoDate} onChange={writable ? setAutoDate : undefined} />
+                    <DateField value={autoDate} onChange={writable ? setAutoDate : undefined} />
                   </div>
                   <div className="flex-1">
                     <Label className="mb-2">{t.events.closesAt}</Label>
-                    <Field icon="clock" type="time" value={autoTime} onChange={writable ? setAutoTime : undefined} />
+                    <TimeField value={autoTime} onChange={writable ? setAutoTime : undefined} />
                   </div>
                 </div>
               )}

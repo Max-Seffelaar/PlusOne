@@ -37,6 +37,14 @@ export const events = {
   justIn: 'Just in',
   noOneInside: 'No one inside yet.',
   by: 'by {by}',
+  // Setup nudge on a fresh (tier-less) event (T2, 1/7): lead new users to tiers
+  // and the request link instead of a wall of zeroed live stats.
+  setup: {
+    title: 'Finish the setup',
+    noTiers: 'This event has no guest tiers yet. Add a tier like "VIP" or "Guest" so people can go on the list, then share the request link from the event settings.',
+    addTiers: 'Add guest tiers',
+    settings: 'Event settings',
+  },
 
   // ── Event edit / create ─────────────────────────────────────────────────────
   editTitle: 'Edit event',
@@ -66,8 +74,10 @@ export const events = {
   fieldTemplate: 'Template',
   templateBlank: 'No template',
   templateNote: 'Tiers, capacity, and settings come from the template. Name and date stay yours.',
-  tiersRowTitle: 'Tiers & aliases',
-  tiersRowSub: 'Feed the quick-add',
+  // "Tiers & aliases — feed the quick-add" was jargon to new users (T2, 1/7):
+  // plain words for what you actually set up there.
+  tiersRowTitle: 'Guest tiers',
+  tiersRowSub: 'Names, colors & door prices',
   status: 'Status',
   landingPage: 'Landing page',
   landingActiveTitle: 'Request link active',
@@ -118,8 +128,8 @@ export const events = {
   cancelledBadge: 'Cancelled',
   liveBadge: 'Live',
 
-  // ── Tiers & aliases ─────────────────────────────────────────────────────────
-  tiersTitle: 'Tiers & aliases',
+  // ── Guest tiers (formerly "Tiers & aliases") ────────────────────────────────
+  tiersTitle: 'Guest tiers',
   errCreateTier: "Couldn't create the tier.",
   errSaveAlias: "Couldn't save the alias.",
   newTier: 'New tier',
@@ -137,7 +147,7 @@ export const events = {
     'Aliases decide what the quick-add picks up. "bottle" or "champagne" → VIP. The app asks about unknown words, never quietly drops to Regular.',
   loadingTiers: 'Loading tiers…',
   loadTiersError: "Couldn't load tiers. Try again in a moment.",
-  emptyTiers: 'No tiers yet. Add one like "VIP" or "Guest".',
+  emptyTiers: 'No guest tiers yet. Add one like "VIP" or "Guest".',
   tierUsedOfMax: '{used} / {max} used',
   tierUsedNoMax: '{used} · no max',
   tierDefault: 'DEFAULT',

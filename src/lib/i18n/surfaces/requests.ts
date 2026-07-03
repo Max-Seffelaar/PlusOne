@@ -69,7 +69,7 @@ export const requests = {
   assignHeadsNoEvent: '{n} people',
   assignTierQuestion: 'Which tier does this guest go on?',
   assignLoadingTiers: 'Loading tiers…',
-  assignNoTiers: 'This event has no tiers yet. Add one so we can put the guest on the right tier.',
+  assignNoTiers: 'This event has no guest tiers yet. Add one so we can put the guest on the right tier.',
   assignCreateTier: 'Add a tier',
   tierUsedOfMax: '{used}/{max} used',
   tierNoMax: 'No max',
