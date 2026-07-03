@@ -46,10 +46,9 @@ export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
 
   async function finish(): Promise<void> {
     await completeOnboardingAction({ venueId });
-    // Fresh venue = empty venue: land straight in event creation (T1 #5 —
-    // "empty company → first event"); /app opens the create screen and cleans
-    // the param.
-    router.push('/app?new=event');
+    // Land on Home (Max, 3/7 test round): a fresh owner should arrive at the
+    // dashboard and orient first — not be pushed straight into event creation.
+    router.push('/app');
   }
 
   function skip(): void {
