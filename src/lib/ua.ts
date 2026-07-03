@@ -34,8 +34,12 @@ export function isMobileUA(ua: string | null | undefined): boolean {
 export function deviceLabel(ua: string | null | undefined): string {
   if (!ua) return 'Unknown device';
   const s = ua.toLowerCase();
+  // Chromium forks embed "Chrome" in their UA, so the fork tokens (Edg, OPR,
+  // SamsungBrowser) must be checked BEFORE the plain Chrome match.
   const browser =
     s.includes('edg') ? 'Edge'
+    : s.includes('opr/') || s.includes('opera') || s.includes('opios') ? 'Opera'
+    : s.includes('samsungbrowser') ? 'Samsung Internet'
     : s.includes('firefox') || s.includes('fxios') ? 'Firefox'
     : s.includes('chrome') || s.includes('crios') ? 'Chrome'
     : s.includes('safari') ? 'Safari'
