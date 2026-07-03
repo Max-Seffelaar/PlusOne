@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import type { EmailOtpType } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 import { safeNextPath } from '@/features/auth/next-path';
+import { resolveEntryDestination } from '@/features/auth/entry-redirect';
 
 // Handles link-based verification (token_hash), used for the confirmed e-mail
 // change flow (decision #24) and any magic-link fallback. On success the
@@ -25,14 +26,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const supabase = await createClient({
     headers: { 'User-Agent': request.headers.get('user-agent') ?? 'PlusOne' },
   });
-  const { error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
+  const { data, error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
 
-  if (error) {
+  if (error || !data.user) {
     return NextResponse.redirect(new URL('/login?error=link', request.url));
   }
 
   // Pick up any invites that became acceptable on this verified session.
   await supabase.rpc('accept_pending_invites');
 
-  return NextResponse.redirect(new URL(next, request.url));
+  // One redirect straight to where the gates would land them anyway (consent /
+  // onboarding), instead of a 3-hop chain of serverless round-trips.
+  const dest = await resolveEntryDestination(data.user.id, next);
+  return NextResponse.redirect(new URL(dest, request.url));
 }
