@@ -5,7 +5,6 @@ import { cookies } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
 import { getSessionUser, getAuthContext } from '@/lib/auth/context';
 import { getMyMemberships } from '@/lib/auth/memberships';
-import { assertAal2, AuthorizationError } from '@/lib/auth/guards';
 import { ACTIVE_VENUE_COOKIE } from '@/lib/auth/active-venue';
 import { canGrantRoles, type VenueRole } from '@/features/auth/roles';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
@@ -24,24 +23,6 @@ export interface ActionState {
   ok: boolean;
   error?: string;
   message?: string;
-}
-
-const AAL2_MESSAGE = 'This action needs MFA. Verify with your authenticator first.';
-
-// AAL2 assertion mapped to UI copy; rethrows anything that isn't an auth error.
-async function requireAal2(): Promise<ActionState | null> {
-  try {
-    await assertAal2();
-    return null;
-  } catch (e) {
-    if (e instanceof AuthorizationError) {
-      return {
-        ok: false,
-        error: e.reason === 'aal2_required' ? AAL2_MESSAGE : "You're not logged in.",
-      };
-    }
-    throw e;
-  }
 }
 
 // The caller's own roles at a venue (RLS: a user always sees their own
@@ -208,9 +189,6 @@ export async function updateMemberRolesAction(
   const { venueId, userId, roles } = parsed.data;
   const newRoles = roles as VenueRole[];
 
-  const aal2 = await requireAal2();
-  if (aal2) return aal2;
-
   const callerRoles = await callerRolesAt(venueId, user.id);
   const currentRoles = await memberRolesAt(venueId, userId);
   if (!currentRoles) return { ok: false, error: 'Member not found.' };
@@ -237,7 +215,7 @@ export async function updateMemberRolesAction(
 
   if (error || !count) {
     if (error) console.error('updateMemberRoles: update failed', error.message);
-    return { ok: false, error: "Couldn't change the roles (no access, or MFA required)." };
+    return { ok: false, error: "Couldn't change the roles (no access)." };
   }
 
   revalidatePath('/admin/team');
@@ -246,8 +224,8 @@ export async function updateMemberRolesAction(
 
 /**
  * Remove a membership (decision #24): revokes access to THIS venue only — the
- * user account and any other venue/event access stay intact. AAL2 + manager
- * authority + escalation guard (mirrors RLS venue_memberships_delete) + the
+ * user account and any other venue/event access stay intact. Manager authority
+ * + escalation guard (mirrors RLS venue_memberships_delete, role-only) + the
  * last-admin guard. Soft-delete does not apply: a membership is an access grant,
  * not guest history, and DELETE on it is allowed by the schema (decision #21/#24).
  */
@@ -264,9 +242,6 @@ export async function removeMemberAction(
   });
   if (!parsed.success) return { ok: false, error: 'Invalid input.' };
   const { venueId, userId } = parsed.data;
-
-  const aal2 = await requireAal2();
-  if (aal2) return aal2;
 
   const callerRoles = await callerRolesAt(venueId, user.id);
   const targetRoles = await memberRolesAt(venueId, userId);

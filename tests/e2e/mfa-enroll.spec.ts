@@ -12,20 +12,24 @@ test.afterEach(async () => {
   await clearMfaFactors(ADMIN);
 });
 
-// MFA is mandatory for admin (CLAUDE.md §Auth): first login forces enrollment,
-// and verifying the TOTP raises the session to AAL2 so the app opens.
-test('admin is forced to enroll TOTP and then reaches the app at AAL2', async ({ page }) => {
+// MFA is OPTIONAL (#20 refinement 2026-07-02): an admin without a factor gets a
+// skippable RECOMMENDATION on app entry. Enrolling voluntarily still works and
+// lands them in the app at AAL2.
+test('admin sees the MFA recommendation and can enroll voluntarily', async ({ page }) => {
   await otpLogin(page, ADMIN);
 
+  // Recommendation screen (not a hard gate — skip buttons are present).
   await page.waitForURL(/\/mfa\/enroll/, { timeout: 20_000 });
+  await expect(page.getByRole('button', { name: /Ask me in 7 days/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Don't ask again/i })).toBeVisible();
 
   const secret = (await page.getByTestId('totp-secret').textContent())?.trim();
   expect(secret, 'enrollment secret should be shown').toBeTruthy();
 
-  await page.getByLabel('Code uit je app').fill(totp(secret!));
-  await page.getByRole('button', { name: /Activeer MFA/i }).click();
+  await page.getByLabel('Code from your app').fill(totp(secret!));
+  await page.getByRole('button', { name: /^Verify$/i }).click();
 
-  // AAL2 reached → the middleware MFA gate now lets the protected route through.
-  await page.waitForURL('**/dashboard', { timeout: 20_000 });
-  await expect(page).toHaveURL(/\/dashboard/);
+  // Enrolled → session is AAL2 and the app opens.
+  await page.waitForURL('**/app', { timeout: 20_000 });
+  await expect(page).toHaveURL(/\/app/);
 });

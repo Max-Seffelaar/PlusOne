@@ -27,7 +27,8 @@ export const ROLE_LABELS: Record<VenueRole, string> = {
   doorhost: 'Door host',
 };
 
-// Roles for which MFA (AAL2) is mandatory — CLAUDE.md §Auth, spec §5.
+// Roles for which we RECOMMEND MFA (admin/finance). Optional for every role
+// since the #20 refinement (2026-07-02): a skippable nudge, never a gate.
 export const MFA_ROLES: readonly VenueRole[] = ['admin', 'finance'] as const;
 
 // Roles that may invite users / manage memberships (spec §2).
@@ -37,7 +38,7 @@ export function isVenueRole(value: unknown): value is VenueRole {
   return typeof value === 'string' && (VENUE_ROLES as readonly string[]).includes(value);
 }
 
-/** True when holding any of these roles forces MFA enrollment. */
+/** True when holding a role for which we recommend MFA (nudge only, no gate). */
 export function requiresMfa(roles: readonly VenueRole[]): boolean {
   return roles.some((r) => MFA_ROLES.includes(r));
 }

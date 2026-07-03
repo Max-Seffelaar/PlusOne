@@ -543,12 +543,6 @@ export function Gebruikers(): JSX.Element {
                       {tm.rolesLabel} · {fmt(t.settings.team.memberQuota, { n: tm.quota })}
                     </div>
                   </div>
-                  {requiresMfa(tm.roles) && (
-                    <MiniChip className="border-transparent bg-acc-dim text-acc">
-                      <Icon name="shield" size={11} stroke="#B5A6FF" />
-                      MFA
-                    </MiniChip>
-                  )}
                   {caps.manageTeam && (
                     <span className="inline-flex items-center gap-1 rounded-[9px] border border-line2 px-2 py-[5px] font-body text-[12px] font-semibold text-dim">
                       {t.settings.team.manage}
@@ -1130,12 +1124,12 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
   );
 }
 
-// MFA row in the profile's security card (S4.3). A mandatory role (admin/finance)
-// can never disable it; an optional role can voluntarily ENABLE it (reusing the
-// enroll step from mfa-gate: QR + 6-digit code) and disable it again. The verified
-// factor is read client-side from GoTrue (Capacitor-safe, #37), independent of the
-// role-based `mandatory` flag.
-function MfaCard({ mandatory }: { mandatory: boolean }): JSX.Element {
+// MFA row in the profile's security card (S4.3). MFA is OPTIONAL for every role
+// (#20 refinement 2026-07-02): anyone can enable it (reusing the enroll step from
+// mfa-gate: QR + 6-digit code) and disable it again. For admin/finance we still
+// RECOMMEND it (`recommended`, was `mandatory`) — copy + chip only, never a gate.
+// The verified factor is read client-side from GoTrue (Capacitor-safe, #37).
+function MfaCard({ recommended }: { recommended: boolean }): JSX.Element {
   const [hasMfa, setHasMfa] = useState<boolean | null>(null); // null = still loading
   const [enroll, setEnroll] = useState(false);
   const [confirmDisable, setConfirmDisable] = useState(false);
@@ -1155,9 +1149,8 @@ function MfaCard({ mandatory }: { mandatory: boolean }): JSX.Element {
     refresh();
   }, [refresh]);
 
-  // Optional roles only — drop every verified TOTP factor. Requires the session to
-  // be AAL2 (the middleware steps a factor-holder up at login), so it normally
-  // succeeds; on failure we surface a retry hint rather than dead-ending.
+  // Drop every verified TOTP factor. GoTrue requires an AAL2 session to unenroll
+  // a verified factor; on failure we surface a retry hint rather than dead-ending.
   async function disable(): Promise<void> {
     setBusy(true);
     setError(null);
@@ -1179,23 +1172,29 @@ function MfaCard({ mandatory }: { mandatory: boolean }): JSX.Element {
   }
 
   const on = hasMfa === true;
-  const sub = mandatory
-    ? t.settings.profile.mfaSubMandatory
-    : on
-      ? t.settings.profile.mfaSubOn
+  const sub = on
+    ? t.settings.profile.mfaSubOn
+    : recommended
+      ? t.settings.profile.mfaSubRecommended
       : t.settings.profile.mfaSubOff;
-  const chipLabel = mandatory ? t.settings.profile.mfaChipRequired : hasMfa === null ? '…' : on ? t.settings.profile.mfaChipOn : t.settings.profile.mfaChipOff;
+  const chipLabel =
+    hasMfa === null
+      ? '…'
+      : on
+        ? t.settings.profile.mfaChipOn
+        : recommended
+          ? t.settings.profile.mfaChipRecommended
+          : t.settings.profile.mfaChipOff;
 
   return (
     <div className="flex items-start gap-[12px] border-b border-line2 py-[14px]">
-      <span className={cn('mt-px', mandatory || on ? 'text-acc' : 'text-faint')}>
+      <span className={cn('mt-px', recommended || on ? 'text-acc' : 'text-faint')}>
         <Icon name="shield" size={19} />
       </span>
       <div className="flex-1">
         <div className="text-[14.5px] font-semibold text-text">{t.settings.profile.mfaTitle}</div>
         <div className="mt-0.5 text-[12px] leading-[1.4] text-faint">{sub}</div>
-        {/* Optional role: enable / disable. Mandatory but not yet enrolled: activate. */}
-        {hasMfa !== null && !mandatory && (
+        {hasMfa !== null && (
           <button
             type="button"
             onClick={() => (on ? setConfirmDisable(true) : setEnroll(true))}
@@ -1204,17 +1203,8 @@ function MfaCard({ mandatory }: { mandatory: boolean }): JSX.Element {
             {on ? t.settings.profile.mfaDisable : t.settings.profile.mfaEnable}
           </button>
         )}
-        {hasMfa === false && mandatory && (
-          <button
-            type="button"
-            onClick={() => setEnroll(true)}
-            className={cn('mt-[7px] font-body text-[12.5px] font-bold text-acc', press)}
-          >
-            {t.settings.profile.mfaActivateNow}
-          </button>
-        )}
       </div>
-      <MiniChip className={cn('border-transparent', mandatory || on ? 'bg-acc-dim text-acc' : 'bg-elev2 text-faint')}>
+      <MiniChip className={cn('border-transparent', recommended || on ? 'bg-acc-dim text-acc' : 'bg-elev2 text-faint')}>
         {chipLabel}
       </MiniChip>
 
@@ -1359,7 +1349,7 @@ export function Profile(): JSX.Element {
 
         <Label className="mb-[10px] mt-[18px]">{t.settings.profile.securityLabel}</Label>
         <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-4 py-1">
-          <MfaCard mandatory={p.mfaRequired} />
+          <MfaCard recommended={p.mfaRequired} />
           <div className="flex items-center gap-[12px] py-[14px]">
             <span className="text-faint">
               <Icon name="mail" size={19} />

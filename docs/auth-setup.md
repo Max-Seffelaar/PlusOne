@@ -128,13 +128,13 @@ exchanged from an e-mail click (there is no verifier cookie), so the default
 | **TOTP (Authenticator app) enroll** | **ON** | Enrollment flow (`/mfa/enroll`). |
 | **TOTP verify** | **ON** | Step-up + login challenge. |
 
-- MFA **enrollment** is **mandatory for admin & finance** — enforced in-app
-  (`requireAppAccess` → `/mfa/enroll`). **AAL2 is scoped** (since 2026-06-24):
-  required in RLS only for the sensitive access actions — invite / revoke-invite /
-  member add-remove-rolechange / remote-logout — **not** for browsing or for
-  quotas / organizers / audit-log. The app steps the session up in place via the
-  MFA sheet when such an action is attempted (see CLAUDE.md §Auth). The dashboard
-  only needs TOTP enabled; the *mandatory enrollment* part is our code.
+- MFA is **fully optional for every role** (since 2026-07-02, T1 86ey4j1dz;
+  was: mandatory enrollment for admin/finance + AAL2 on sensitive actions).
+  No RLS AAL2 requirements remain (migration `20260702120000_mfa_fully_optional`).
+  Admin/finance get a skippable in-app **recommendation** (`/mfa/enroll` with
+  "Ask me in 7 days" / "Don't ask again" → `user_profiles.mfa_snooze_until`);
+  any role can self-enable/disable from the profile. The dashboard only needs
+  TOTP enroll/verify enabled — everything else is our code.
 - Local mirror: `[auth.mfa.totp] enroll_enabled = true`, `verify_enabled = true`.
 
 ## 5. Rate limits (Authentication → Rate Limits)
@@ -170,5 +170,6 @@ After setting the above on a fresh project:
 1. Public signup blocked: `POST /auth/v1/signup` (anon key) → rejected.
 2. OTP for a non-invited address: returns generically, no account created.
 3. Invite → first OTP login provisions the membership (see `tests/e2e/invite-accept.spec.ts`).
-4. Admin login → forced to `/mfa/enroll`; AAL2-only screens refuse until verified
-   (`tests/e2e/mfa-enroll.spec.ts`, `tests/e2e/aal2-denied.spec.ts`).
+4. Admin login without a factor → skippable `/mfa/enroll` recommendation
+   ("Ask me in 7 days" / "Don't ask again"); after snoozing, the app opens at
+   AAL1 (`tests/e2e/mfa-enroll.spec.ts`, `tests/e2e/aal2-denied.spec.ts`).

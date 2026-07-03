@@ -4,23 +4,31 @@ import { redirect } from 'next/navigation';
 import { PlusOneApp } from '@/components/po/app';
 import { PoLiveProvider, type PoIdentity } from '@/features/po/PoLiveProvider';
 import { getOnboardingState } from '@/lib/auth/onboarding';
+import { recommendMfaIfDue } from '@/lib/auth/guards';
 import { acceptedCurrentTerms } from '@/lib/auth/consent';
 import { getMyMemberships, getOrganizerVenues, getReportingVenues } from '@/lib/auth/memberships';
 import { getSessionUser } from '@/lib/auth/context';
 import { resolveActiveVenueId } from '@/lib/auth/active-venue';
 import { createClient } from '@/lib/supabase/server';
-import { ROLE_LABELS, VENUE_ROLES, requiresMfa } from '@/features/auth/roles';
+import { ROLE_LABELS, VENUE_ROLES } from '@/features/auth/roles';
 import { isMobileUA } from '@/lib/ua';
 
 export const metadata: Metadata = {
   title: 'Guest list · PlusOne',
 };
 
-export default async function AppPage(): Promise<JSX.Element> {
+export default async function AppPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}): Promise<JSX.Element> {
   // Venue-less users go through onboarding first (#40); the wizard is responsive,
   // so it serves mobile web too.
   const state = await getOnboardingState();
   if (state.step !== 'done') redirect('/onboarding');
+
+  // Preserve the ?new=event onboarding intent through the consent/MFA detours.
+  const currentPath = (await searchParams).new === 'event' ? '/app?new=event' : '/app';
 
   // Best-effort: the caller's reporting venues (admin/finance) gate the
   // Statistieken entry in "Meer". Non-admin or no access → empty → hidden.
@@ -58,7 +66,10 @@ export default async function AppPage(): Promise<JSX.Element> {
         .maybeSingle()
     : { data: null };
   // First-login consent gate (#20/#40): accept Terms + Privacy before the app.
-  if (user && !acceptedCurrentTerms(profileRow)) redirect('/consent?next=/app');
+  if (user && !acceptedCurrentTerms(profileRow)) redirect(`/consent?next=${encodeURIComponent(currentPath)}`);
+  // MFA recommendation (optional since #20 refinement 2026-07-02): skippable
+  // nudge for admin/finance without a factor, snooze-aware — never a hard gate.
+  await recommendMfaIfDue(currentPath);
   const userName = profileRow?.full_name || user?.email || 'Account';
   const roleLabel =
     active && active.roles.length > 0
@@ -68,7 +79,7 @@ export default async function AppPage(): Promise<JSX.Element> {
       : active
         ? 'External crew'
         : 'Member';
-  const userSub = active && requiresMfa(active.roles) ? `${roleLabel} · MFA` : roleLabel;
+  const userSub = roleLabel;
 
   // First-paint viewport hint (corrected client-side by matchMedia) + the live
   // active-venue name for the S0 nav-shell header/sidebar.
