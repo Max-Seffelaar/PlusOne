@@ -259,6 +259,7 @@ describe('toPoTier', () => {
     max_guests: 50,
     aliases: ['vip', 'v.i.p.'],
     door_price_cents: null,
+    vat_percent: null,
   };
 
   it('maps a tier row + used count to the po Tier shape (free tier)', () => {
@@ -271,6 +272,7 @@ describe('toPoTier', () => {
       max: 50,
       used: 12,
       doorPrice: 0,
+      vatPercent: null,
       aliases: ['vip', 'v.i.p.'],
     });
   });
@@ -278,6 +280,10 @@ describe('toPoTier', () => {
   it('converts door_price_cents to euros (#34, display only)', () => {
     expect(toPoTier({ ...row, door_price_cents: 2500 }, 0).doorPrice).toBe(25);
     expect(toPoTier({ ...row, door_price_cents: 1250 }, 0).doorPrice).toBe(12.5);
+  });
+
+  it('carries vat_percent through when set (T3, display only)', () => {
+    expect(toPoTier({ ...row, door_price_cents: 2500, vat_percent: 9 }, 0).vatPercent).toBe(9);
   });
 
   it('falls back to the accent colour when the tier has none', () => {
@@ -397,8 +403,8 @@ describe('toPoTeamMember', () => {
 
 describe('optimisticGuest', () => {
   const tiers: Tier[] = [
-    { id: 'vip', name: 'VIP', short: 'VIP', role: 'VIP', color: '#B5A6FF', max: null, used: 0, doorPrice: 0, aliases: [] },
-    { id: 'reg', name: 'Regular', short: 'Gast', role: 'Gast', color: '#8E8E93', max: null, used: 0, doorPrice: 0, aliases: [] },
+    { id: 'vip', name: 'VIP', short: 'VIP', role: 'VIP', color: '#B5A6FF', max: null, used: 0, doorPrice: 0, vatPercent: null, aliases: [] },
+    { id: 'reg', name: 'Regular', short: 'Gast', role: 'Gast', color: '#8E8E93', max: null, used: 0, doorPrice: 0, vatPercent: null, aliases: [] },
   ];
   const now = new Date('2024-12-14T12:00:00Z'); // 13:00 in Amsterdam (CET)
 

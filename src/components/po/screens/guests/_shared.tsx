@@ -3,7 +3,9 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { usePoCreateTier } from '@/features/po/mutations';
-import { t } from '@/lib/i18n';
+import { usePoTiers } from '@/features/po/hooks';
+import { t, fmt } from '@/lib/i18n';
+import { TIER_COLORS, allColorsUsed, nextAvailableColor } from '@/lib/po/tier-colors';
 import { Icon } from '../../icon';
 import { Btn, Field, Label } from '../../kit';
 
@@ -40,16 +42,21 @@ export function DupeOption({ on, onClick, title, sub }: { on: boolean; onClick: 
 // `canCreate` mirrors the guest_tiers_insert RLS (admin OR event organizer,
 // surfaced via the quota `exempt` flag); everyone else gets a "ask a beheerder"
 // note instead of a button that would only fail with a 42501.
-const TIER_COLORS = ['#B5A6FF', '#9DE0C0', '#E8C98A', '#9FB8E8', '#E89AC0', '#8E8E93'];
 
 /** The inline create-a-tier form (name/color/price/alias), shared by
  *  NoTiersBlock (first tier) and AddTierInline (any next tier). */
 function TierCreateFields({ eventId, onDone, onCancel }: { eventId: string; onDone?: () => void; onCancel: () => void }): JSX.Element {
   const createTier = usePoCreateTier(eventId);
+  const { data: tierList } = usePoTiers(eventId);
+  const usedColors = tierList?.map((tr) => tr.color) ?? [];
+  const allUsed = allColorsUsed(usedColors);
+
   const [name, setName] = useState('');
   const [alias, setAlias] = useState('');
-  const [color, setColor] = useState('#B5A6FF');
+  const [color, setColor] = useState(() => nextAvailableColor(usedColors));
+  const [kind, setKind] = useState<'free' | 'paid'>('free');
   const [price, setPrice] = useState('');
+  const [vat, setVat] = useState('9');
   const [err, setErr] = useState<string | null>(null);
 
   const submit = async (): Promise<void> => {
@@ -58,13 +65,20 @@ function TierCreateFields({ eventId, onDone, onCancel }: { eventId: string; onDo
     setErr(null);
     const priceNum = Number.parseFloat(price.replace(',', '.'));
     const doorPriceCents =
-      price.trim() && Number.isFinite(priceNum) && priceNum > 0 ? Math.round(priceNum * 100) : null;
+      kind === 'paid' && price.trim() && Number.isFinite(priceNum) && priceNum > 0 ? Math.round(priceNum * 100) : null;
+    if (kind === 'paid' && doorPriceCents == null) {
+      setErr(t.events.errPaidNeedsPrice);
+      return;
+    }
+    const vatNum = Number.parseFloat(vat.replace(',', '.'));
+    const vatPercent = kind === 'paid' && Number.isFinite(vatNum) ? vatNum : null;
     try {
       await createTier.mutateAsync({
         eventId,
         name: nm,
         color,
-        doorPriceCents: doorPriceCents ?? undefined,
+        doorPriceCents,
+        vatPercent,
         aliases: alias.split(',').map((a) => a.trim()).filter(Boolean),
       });
       onDone?.();
@@ -80,24 +94,59 @@ function TierCreateFields({ eventId, onDone, onCancel }: { eventId: string; onDo
         <Field autoFocus placeholder={t.guests.tierCreate.namePlaceholder} value={name} onChange={setName} maxLength={80} />
       </div>
       <div>
-        <Label className="mb-2">{t.guests.tierCreate.colorLabel}</Label>
-        <div className="flex gap-[9px]">
-          {TIER_COLORS.map((c) => (
+        <Label className="mb-2">{t.events.tierKindLabel}</Label>
+        <div className="flex gap-2">
+          {(['free', 'paid'] as const).map((k) => (
             <button
-              key={c}
+              key={k}
               type="button"
-              onClick={() => setColor(c)}
-              className="h-[30px] w-[30px] cursor-pointer rounded-full transition-[filter] hover:brightness-[1.1]"
-              style={{ background: c, border: '2px solid ' + (color === c ? '#FFFFFF' : 'transparent') }}
-              aria-label={c}
-            />
+              onClick={() => setKind(k)}
+              className={cn(
+                'rounded-full px-[14px] py-[6px] font-display text-[13px] font-bold transition-[filter] hover:brightness-110',
+                kind === k ? 'bg-acc text-on-acc' : 'border border-line bg-elev text-dim',
+              )}
+            >
+              {k === 'free' ? t.events.tierKindFree : t.events.tierKindPaid}
+            </button>
           ))}
         </div>
       </div>
       <div>
-        <Label className="mb-2">{t.guests.tierCreate.priceLabel}</Label>
-        <Field placeholder={t.guests.tierCreate.pricePlaceholder} value={price} onChange={setPrice} inputMode="numeric" />
+        <Label className="mb-2">{t.guests.tierCreate.colorLabel}</Label>
+        <div className="flex flex-wrap gap-[9px]">
+          {TIER_COLORS.map((c) => {
+            const disabled = usedColors.includes(c) && !allUsed;
+            return (
+              <button
+                key={c}
+                type="button"
+                disabled={disabled}
+                aria-disabled={disabled}
+                onClick={() => !disabled && setColor(c)}
+                className={cn(
+                  'h-[30px] w-[30px] rounded-full transition-[filter]',
+                  disabled ? 'cursor-not-allowed opacity-30' : 'cursor-pointer hover:brightness-[1.1]',
+                )}
+                style={{ background: c, border: '2px solid ' + (color === c ? '#FFFFFF' : 'transparent') }}
+                aria-label={fmt(t.events.colorAria, { color: c })}
+              />
+            );
+          })}
+        </div>
+        {allUsed && <p className="mt-2 text-[12px] text-faint">{t.events.colorAllUsedWarning}</p>}
       </div>
+      {kind === 'paid' && (
+        <>
+          <div>
+            <Label className="mb-2">{t.guests.tierCreate.priceLabel}</Label>
+            <Field placeholder={t.guests.tierCreate.pricePlaceholder} value={price} onChange={setPrice} inputMode="numeric" />
+          </div>
+          <div>
+            <Label className="mb-2">{t.events.vatLabel}</Label>
+            <Field placeholder={t.events.vatPlaceholder} value={vat} onChange={setVat} inputMode="numeric" />
+          </div>
+        </>
+      )}
       <div>
         <Label className="mb-2">{t.guests.tierCreate.aliasLabel}</Label>
         <Field icon="spark" placeholder={t.guests.tierCreate.aliasPlaceholder} value={alias} onChange={setAlias} />

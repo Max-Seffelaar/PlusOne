@@ -335,6 +335,8 @@ export function toPoTier(row: PoTierRow, used: number): Tier {
     // Door price (euros) from guest_tiers.door_price_cents (#34 — display only, no
     // payment processing). 0 = free.
     doorPrice: (row.door_price_cents ?? 0) / 100,
+    // Display-only VAT-% (T3, no billing); only meaningful when doorPrice > 0.
+    vatPercent: row.vat_percent,
     aliases: row.aliases ?? [],
   };
 }

@@ -37,7 +37,7 @@ export type PoGuestRow = Pick<
 
 export type PoTierRow = Pick<
   Tables['guest_tiers']['Row'],
-  'id' | 'name' | 'color' | 'max_guests' | 'aliases' | 'door_price_cents'
+  'id' | 'name' | 'color' | 'max_guests' | 'aliases' | 'door_price_cents' | 'vat_percent'
 >;
 
 /** A guest row that also carries its `event_id` — the venue-wide ("all guests")
@@ -129,7 +129,7 @@ export async function fetchEventQuota(
 export async function fetchTiers(client: Client, eventId: string): Promise<PoTierRow[]> {
   const { data } = await client
     .from('guest_tiers')
-    .select('id, name, color, max_guests, aliases, door_price_cents')
+    .select('id, name, color, max_guests, aliases, door_price_cents, vat_percent')
     .eq('event_id', eventId)
     .order('name', { ascending: true });
 
@@ -162,7 +162,7 @@ export async function fetchVenueTiers(client: Client, eventIds: string[]): Promi
   if (eventIds.length === 0) return [];
   const { data } = await client
     .from('guest_tiers')
-    .select('id, name, color, max_guests, aliases, door_price_cents')
+    .select('id, name, color, max_guests, aliases, door_price_cents, vat_percent')
     .in('event_id', eventIds)
     .order('name', { ascending: true });
 
@@ -571,7 +571,7 @@ export async function fetchTiersWithUsage(
   eventId: string
 ): Promise<TierWithUsage[]> {
   const [{ data: tiers }, guests] = await Promise.all([
-    client.from('guest_tiers').select('id, name, color, max_guests, aliases, door_price_cents').eq('event_id', eventId).order('name'),
+    client.from('guest_tiers').select('id, name, color, max_guests, aliases, door_price_cents, vat_percent').eq('event_id', eventId).order('name'),
     // Ranged: occupancy counts every non-removed/denied guest, so a 1500-guest
     // event would otherwise truncate the count at 1000. `.order('id')` keys the paging.
     fetchAllRanged<Pick<Tables['guests']['Row'], 'tier_id' | 'status'>>((from, to) =>
@@ -675,7 +675,7 @@ export type PoTemplateDetail = Pick<
 
 export type PoTemplateTierRow = Pick<
   Tables['event_template_tiers']['Row'],
-  'id' | 'name' | 'description' | 'color' | 'max_guests' | 'door_price_cents' | 'aliases' | 'position'
+  'id' | 'name' | 'description' | 'color' | 'max_guests' | 'door_price_cents' | 'vat_percent' | 'aliases' | 'position'
 >;
 
 /** Every template of a venue with its tier count, name-sorted. */
@@ -712,7 +712,7 @@ export async function fetchTemplate(client: Client, templateId: string): Promise
 export async function fetchTemplateTiers(client: Client, templateId: string): Promise<PoTemplateTierRow[]> {
   const { data } = await client
     .from('event_template_tiers')
-    .select('id, name, description, color, max_guests, door_price_cents, aliases, position')
+    .select('id, name, description, color, max_guests, door_price_cents, vat_percent, aliases, position')
     .eq('template_id', templateId)
     .order('position')
     .order('created_at');

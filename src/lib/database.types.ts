@@ -360,6 +360,7 @@ export type Database = {
           position: number
           template_id: string
           updated_at: string
+          vat_percent: number | null
           venue_id: string
         }
         Insert: {
@@ -374,6 +375,7 @@ export type Database = {
           position?: number
           template_id: string
           updated_at?: string
+          vat_percent?: number | null
           venue_id: string
         }
         Update: {
@@ -388,6 +390,7 @@ export type Database = {
           position?: number
           template_id?: string
           updated_at?: string
+          vat_percent?: number | null
           venue_id?: string
         }
         Relationships: [
@@ -613,6 +616,7 @@ export type Database = {
           max_guests: number | null
           name: string
           updated_at: string
+          vat_percent: number | null
         }
         Insert: {
           aliases?: string[]
@@ -625,6 +629,7 @@ export type Database = {
           max_guests?: number | null
           name: string
           updated_at?: string
+          vat_percent?: number | null
         }
         Update: {
           aliases?: string[]
@@ -637,6 +642,7 @@ export type Database = {
           max_guests?: number | null
           name?: string
           updated_at?: string
+          vat_percent?: number | null
         }
         Relationships: [
           {

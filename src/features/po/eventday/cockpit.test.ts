@@ -36,7 +36,7 @@ function g(partial: Partial<Guest> & { id: string }): Guest {
 }
 
 function tier(role: Role, color: string, short = role): Tier {
-  return { id: `tier-${role}`, name: short, short, role, color, max: null, used: 0, doorPrice: 0, aliases: [] };
+  return { id: `tier-${role}`, name: short, short, role, color, max: null, used: 0, doorPrice: 0, vatPercent: null, aliases: [] };
 }
 
 describe('heads', () => {

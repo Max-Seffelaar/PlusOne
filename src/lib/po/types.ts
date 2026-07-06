@@ -87,6 +87,7 @@ export interface Tier {
   max: number | null;
   used: number;
   doorPrice: number;
+  vatPercent: number | null;
   aliases: string[];
   isDefault?: boolean;
 }
