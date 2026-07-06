@@ -22,6 +22,7 @@ function row(overrides: Partial<AuditFeedRow>): AuditFeedRow {
     subject_name: null,
     old_tier_name: null,
     new_tier_name: null,
+    request_name: null,
     ...overrides,
   };
 }
@@ -152,6 +153,39 @@ describe('describeAuditEntry', () => {
       })
     );
     expect(deny.text).toBe('denied the landing page request from Mara Visser, Vol');
+  });
+
+  it('resolves the requester via request_name when the diff has no name (F1)', () => {
+    // Real decision diffs carry only the changed fields — the feed joins the
+    // live request row into request_name instead.
+    const line = describeAuditEntry(
+      row({
+        entity_type: 'guest_requests',
+        action: 'approve',
+        guest_name: null,
+        request_name: 'Robin Castelijns',
+        diff: { before: { status: 'pending' }, after: { status: 'approved' } },
+      })
+    );
+    expect(line.text).toBe('approved the landing page request from Robin Castelijns');
+  });
+
+  it('marks an auto-approval as done by the request link (F1)', () => {
+    const line = describeAuditEntry(
+      row({
+        entity_type: 'guest_requests',
+        action: 'approve',
+        actor_name: null,
+        guest_name: null,
+        request_name: 'Demo Autogast',
+        diff: {
+          before: { status: 'pending' },
+          after: { status: 'approved', decided_via: 'auto' },
+        },
+      })
+    );
+    expect(line.actor).toBe('System');
+    expect(line.text).toBe('auto-approved the request from Demo Autogast via their request link');
   });
 
   it('describes lock / unlock', () => {

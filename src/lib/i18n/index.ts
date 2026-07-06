@@ -8,6 +8,7 @@ import { settings } from './surfaces/settings';
 import { templates } from './surfaces/templates';
 import { onboarding } from './surfaces/onboarding';
 import { requests } from './surfaces/requests';
+import { links } from './surfaces/links';
 import { audit } from './surfaces/audit';
 import { analytics } from './surfaces/analytics';
 import { auth } from './surfaces/auth';
@@ -36,6 +37,7 @@ export const t = {
   templates,
   onboarding,
   requests,
+  links,
   audit,
   analytics,
   auth,

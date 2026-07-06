@@ -223,6 +223,9 @@ export function Meer(): JSX.Element {
         {showRegulars && (
           <Row icon="star" title={t.settings.more.regularsTitle} sub={t.settings.more.regularsSub} onClick={() => nav.push('vaste')} accent />
         )}
+        {isAdmin && (
+          <Row icon="link" title={t.settings.more.influencersTitle} sub={t.settings.more.influencersSub} onClick={() => nav.push('influencers')} />
+        )}
         {showContacts && (
           <Row icon="contact" title={t.settings.more.contactsTitle} sub={t.settings.more.contactsSub} onClick={() => nav.push('contacten')} accent />
         )}

@@ -1,6 +1,6 @@
 'use server';
 
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
@@ -15,6 +15,15 @@ import {
 } from './schemas';
 
 export type ActionResult = { ok: true } | MutationError;
+
+/**
+ * Submission outcome: the requester gets a bearer status URL (/r/[token]) and,
+ * on an auto-approve link, the "you're on the list" confirmation. Only the
+ * sha256 of the token ever reaches the database.
+ */
+export type SubmitOutcome =
+  | { ok: true; statusToken?: string; autoApproved?: boolean }
+  | MutationError;
 
 // Public aanvraagflow (#12/#28/#31). The submission is the only anon-writable
 // path; its abuse protection (rate limit, honeypot, silent dedup, no event
@@ -41,17 +50,23 @@ async function clientIpHash(): Promise<string> {
  * de-duplicated silently in the DB and still reports ok. A filled honeypot is
  * dropped while pretending success, so a bot learns nothing.
  */
-export async function submitGuestRequest(input: SubmitGuestRequestInput): Promise<ActionResult> {
+export async function submitGuestRequest(input: SubmitGuestRequestInput): Promise<SubmitOutcome> {
   const parsed = submitGuestRequestSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
   const { slug, fullName, email, phone, plusOnes, motivation, birthdate, marketingOptIn, company } =
     parsed.data;
 
-  // Honeypot tripped → behave exactly like a success, but touch nothing.
+  // Honeypot tripped → behave exactly like a success, but touch nothing (no
+  // status token either — a bot has no use for one).
   if (company && company.trim().length > 0) return { ok: true };
 
   const ipHash = await clientIpHash();
   const supabase = await createClient();
+
+  // Bearer token for the /r/[token] status page. Generated here, shown once to
+  // the requester; the DB stores only its sha256 (same stance as ip_hash).
+  const statusToken = randomBytes(32).toString('base64url');
+  const statusTokenHash = createHash('sha256').update(statusToken).digest('hex');
 
   // Optionals collapse to '' — the RPC treats '' as "not provided" (and the
   // generated arg types are non-nullable strings).
@@ -64,6 +79,7 @@ export async function submitGuestRequest(input: SubmitGuestRequestInput): Promis
     p_motivation: motivation ?? '',
     p_ip_hash: ipHash,
     p_marketing_opt_in: marketingOptIn,
+    p_status_token_hash: statusTokenHash,
     ...(birthdate ? { p_birthdate: birthdate } : {}),
   });
   if (error) {
@@ -71,9 +87,10 @@ export async function submitGuestRequest(input: SubmitGuestRequestInput): Promis
     return { ok: false, code: 'error', message: 'Something went wrong. Try again.' };
   }
 
-  switch (data) {
+  const payload = (data ?? {}) as { status?: string; auto_approved?: boolean };
+  switch (payload.status) {
     case 'ok':
-      return { ok: true };
+      return { ok: true, statusToken, autoApproved: payload.auto_approved === true };
     case 'rate_limited':
       return {
         ok: false,

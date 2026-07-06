@@ -857,6 +857,9 @@ describe('toPoGuestRequest', () => {
     created_at: new Date(now.getTime() - 18 * 60_000).toISOString(),
     status: 'pending',
     decision_reason: null,
+    request_link_id: null,
+    decided_via: 'manual',
+    viaLabel: null,
   };
 
   it('maps a pending row, masks the phone to its last 4, and formats the time', () => {
@@ -869,8 +872,25 @@ describe('toPoGuestRequest', () => {
       motivation: 'Vriendin van de DJ',
       at: '18 min ago',
       status: 'pending',
+      decidedVia: 'manual',
+      requestLinkId: null,
+      viaLabel: null,
       denyReason: null,
       flag: undefined,
+    });
+  });
+
+  it('carries the request-link trace: via label + auto-approved status (F1)', () => {
+    const auto = toPoGuestRequest(
+      { ...base, status: 'approved', decided_via: 'auto', request_link_id: 'rl1', viaLabel: 'Jayden Promo' },
+      now
+    );
+    expect(auto).toMatchObject({
+      status: 'approved',
+      decidedVia: 'auto',
+      requestLinkId: 'rl1',
+      viaLabel: 'Jayden Promo',
+      denyReason: null,
     });
   });
 

@@ -17,6 +17,8 @@ export const landing = {
   heroTitle: "You're almost on the list.",
   heroSub: "Drop your name and we'll see you at the door. No QR, no screenshots.",
   doorsAt: 'doors {time}',
+  // Subtle provenance on influencer/label links ("via Jayden").
+  viaLine: 'via {name}',
 
   // ── Form card ────────────────────────────────────────────────────────────
   formTitle: 'Get yourself on the list',
@@ -29,6 +31,9 @@ export const landing = {
 
   plusOnesLabel: 'How many of you',
   plusOnesNote: 'including you',
+  // Capped links (#43, Max 6-7-2026): disclose what can still be approved.
+  spotsLeftNote: '{n} spots left',
+  spotsLeftOne: '1 spot left',
   personSingular: 'person',
   personPlural: 'people',
   stepLessAria: 'Fewer',
@@ -66,9 +71,32 @@ export const landing = {
   successInfo: 'No need to screenshot this. We check you in by name at the door.',
   successReset: 'Add someone else',
 
+  // ── Auto-approved success (the link put them straight on the list) ───────
+  approvedTitle: "You're on the list. Done deal.",
+  approvedReview: ". You're on the list for {event}. Say your name at the door and you're in.",
+
+  // ── Status link (save-for-later) + /r/[token] page ───────────────────────
+  statusSaveTitle: 'Save your status link',
+  statusSaveSub: 'Check where your request stands, anytime.',
+  statusCopy: 'Copy link',
+  statusCopied: 'Copied!',
+  statusPendingTitle: "You're in the queue.",
+  statusPendingBody: '{event} is reviewing your request. Check back here anytime.',
+  statusApprovedTitle: "You're on the list.",
+  statusApprovedBody: 'Say your name at the door of {event} on {date}. No ticket needed, your name is the ticket.',
+  statusApprovedGroup: 'Party of {n} — all under your name.',
+  statusDeniedTitle: 'Not this time.',
+  statusDeniedBody: "Your request for {event} wasn't approved. The door has the final say tonight.",
+  statusNotFoundTitle: 'Nothing here.',
+  statusNotFoundBody: "This status link isn't valid (anymore). Request a spot through the event link.",
+
   // ── Closed / unknown slug ────────────────────────────────────────────────
   closedTitle: 'The list is closed.',
   closedBody: "This sign-up link isn't active anymore. Ask the organizer for a fresh one.",
+
+  // ── Full (a capped link with 0 spots left, #43) ──────────────────────────
+  fullTitle: 'The list is full.',
+  fullBody: 'No spots left on this link. Spots free up when plans change, so try again later.',
 
   // ── Footer ───────────────────────────────────────────────────────────────
   footer: 'Guest list, handled by PlusOne',

@@ -39,7 +39,9 @@ export type ScreenName =
   | 'audit'
   | 'adminsessions'
   | 'templates'
-  | 'templateedit';
+  | 'templateedit'
+  | 'links'
+  | 'influencers';
 
 export interface ScreenProps {
   id?: string;

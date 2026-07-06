@@ -48,14 +48,14 @@ select is(
   public.submit_guest_request(
     p_slug => 'plusone-launch-night', p_full_name => 'Spam Bot',
     p_email => null, p_phone => null, p_plus_ones => 0, p_motivation => null,
-    p_ip_hash => 'ip-spam-A', p_marketing_opt_in => false),
+    p_ip_hash => 'ip-spam-A', p_marketing_opt_in => false) ->> 'status',
   'ok', '1 the 5th request from an IP is still accepted');
 
 select is(
   public.submit_guest_request(
     p_slug => 'plusone-launch-night', p_full_name => 'Spam Bot',
     p_email => null, p_phone => null, p_plus_ones => 0, p_motivation => null,
-    p_ip_hash => 'ip-spam-A', p_marketing_opt_in => false),
+    p_ip_hash => 'ip-spam-A', p_marketing_opt_in => false) ->> 'status',
   'rate_limited', '2 the 6th request from the same IP is rate-limited');
 
 -- ---------------------------------------------------------------------------
@@ -80,14 +80,14 @@ select is(
   public.submit_guest_request(
     p_slug => 'plusone-launch-night', p_full_name => 'Slug Prober',
     p_email => null, p_phone => null, p_plus_ones => 0, p_motivation => null,
-    p_ip_hash => 'ip-probe-burn', p_marketing_opt_in => false),
+    p_ip_hash => 'ip-probe-burn', p_marketing_opt_in => false) ->> 'status',
   'ok', '3 5th attempt from slug-prober (after 4 closed probes) still accepted — budget shared');
 
 select is(
   public.submit_guest_request(
     p_slug => 'plusone-launch-night', p_full_name => 'Slug Prober',
     p_email => null, p_phone => null, p_plus_ones => 0, p_motivation => null,
-    p_ip_hash => 'ip-probe-burn', p_marketing_opt_in => false),
+    p_ip_hash => 'ip-probe-burn', p_marketing_opt_in => false) ->> 'status',
   'rate_limited', '4 6th attempt from slug-prober is rate-limited — closed probes burned quota');
 
 -- ---------------------------------------------------------------------------
@@ -98,7 +98,7 @@ select is(
   public.submit_guest_request(
     p_slug => 'this-slug-does-not-exist', p_full_name => 'Probe',
     p_email => null, p_phone => null, p_plus_ones => 0, p_motivation => null,
-    p_ip_hash => 'ip-probe-C', p_marketing_opt_in => false),
+    p_ip_hash => 'ip-probe-C', p_marketing_opt_in => false) ->> 'status',
   'closed', '5 an unknown slug returns closed (no slug enumeration)');
 
 reset role;
@@ -110,7 +110,7 @@ select is(
   public.submit_guest_request(
     p_slug => 'plusone-launch-night', p_full_name => 'Probe',
     p_email => null, p_phone => null, p_plus_ones => 0, p_motivation => null,
-    p_ip_hash => 'ip-probe-D', p_marketing_opt_in => false),
+    p_ip_hash => 'ip-probe-D', p_marketing_opt_in => false) ->> 'status',
   'closed', '6 a deactivated event returns the SAME closed (no existence leak, #28)');
 
 -- The raw RLS agrees: anon cannot file a request to a deactivated event.

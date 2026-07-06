@@ -23,14 +23,16 @@ import {
   usePoGuestRequests,
   usePoQuotaRequests,
   usePoTiers,
+  usePoVenueLinks,
 } from '@/features/po/hooks';
 import { usePoApproveRequest, usePoDecideQuota, usePoDenyRequest } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import type { PoGuestRequest, PoQuotaRequest } from '@/features/po/adapters';
+import type { PoLinkOption } from '@/features/po/queries';
 import type { Tier } from '@/lib/po/types';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Avatar, Btn, Empty, Label, Note, Top } from '../kit';
+import { Avatar, Btn, Empty, Label, MiniChip, Note, Top } from '../kit';
 import { Sheet } from '../shell';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
@@ -50,6 +52,16 @@ function EventTag({ name }: { name: string }): JSX.Element {
       <Icon name="cal" size={11} stroke="rgba(255,255,255,0.40)" />
       <span className="truncate">{name}</span>
     </div>
+  );
+}
+
+/** "via {influencer/label}" chip on a card — which request link the guest used (F1). */
+function ViaChip({ label, className }: { label: string; className?: string }): JSX.Element {
+  return (
+    <MiniChip className={className}>
+      <Icon name="link" size={11} />
+      {fmt(t.requests.viaChip, { label })}
+    </MiniChip>
   );
 }
 
@@ -74,9 +86,14 @@ export function Aanvragen({
   const [search, setSearch] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [showDenied, setShowDenied] = useState(false);
+  const [showAuto, setShowAuto] = useState(false);
+  // Request-link filter (F1): '' = all links; applies to pending + denied + auto.
+  const [linkSel, setLinkSel] = useState('');
+  const [linkPickerOpen, setLinkPickerOpen] = useState(false);
   const [assign, setAssign] = useState<PoGuestRequest | null>(null);
   const [deny, setDeny] = useState<DenyTarget | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const venueLinks = usePoVenueLinks();
 
   const tiersQuery = usePoTiers(assign?.eventId ?? '');
   const approve = usePoApproveRequest();
@@ -90,14 +107,31 @@ export function Aanvragen({
   const q = search.trim().toLowerCase();
   const matches = (name: string): boolean => !q || name.toLowerCase().includes(q);
 
-  // scope (event) → search filter
-  const scopeG = (sel ? allG.filter((r) => r.eventId === sel) : allG).filter((r) => matches(r.name));
+  // scope (event) → link filter (F1) → search filter
+  const scopeG = (sel ? allG.filter((r) => r.eventId === sel) : allG)
+    .filter((r) => !linkSel || r.requestLinkId === linkSel)
+    .filter((r) => matches(r.name));
   const scopeQ = (sel ? allQ.filter((r) => r.eventId === sel) : allQ).filter((r) => matches(r.who));
   const pendingG = scopeG.filter((r) => r.status === 'pending');
   const deniedG = scopeG.filter((r) => r.status === 'denied');
+  // Read-only trace: requests an auto-approve link put straight on the list.
+  const autoG = scopeG.filter((r) => r.status === 'approved' && r.decidedVia === 'auto');
   const openG = pendingG.length;
   const openQ = scopeQ.length;
   const showAllEvents = !sel;
+
+  // Link-filter options (F1): the current scope's links; the button only renders
+  // when the venue has more than one link at all.
+  const allLinks = venueLinks.data ?? [];
+  const scopeLinks = sel ? allLinks.filter((l) => l.eventId === sel) : allLinks;
+  const showLinkFilter = allLinks.length > 1;
+  const pendingByLink = new Map<string, number>();
+  for (const r of allG) {
+    if (r.status !== 'pending' || !r.requestLinkId) continue;
+    pendingByLink.set(r.requestLinkId, (pendingByLink.get(r.requestLinkId) ?? 0) + 1);
+  }
+  const selLink = allLinks.find((l) => l.id === linkSel) ?? null;
+  const linkLabel = (l: PoLinkOption): string => l.label ?? t.requests.standardLink;
 
   // Event picker list: every event with a request (open or refused) + the
   // selected one, with a per-event "open" count (pending landing + quota).
@@ -118,7 +152,14 @@ export function Aanvragen({
     setSel(id);
     setPickerOpen(false);
     setShowDenied(false);
+    setShowAuto(false);
+    // A link belongs to one event, so an event switch drops the link filter.
+    setLinkSel('');
     setErr(null);
+  };
+  const pickLink = (id: string): void => {
+    setLinkSel(id);
+    setLinkPickerOpen(false);
   };
   const switchTab = (next: Tab): void => {
     setTab(next);
@@ -190,12 +231,12 @@ export function Aanvragen({
     <div className={col}>
       <Top onBack={nav.back} title={t.requests.title} sub={scopeLabel} />
 
-      {/* Event dropdown */}
-      <div className="flex-none px-5 pb-[10px]">
+      {/* Event dropdown + request-link filter (F1) */}
+      <div className="flex flex-none gap-2 px-5 pb-[10px]">
         <button
           type="button"
           onClick={() => setPickerOpen(true)}
-          className="flex w-full items-center gap-[10px] rounded-[14px] border border-line bg-elev px-[14px] py-[12px] text-left transition-colors hover:bg-white/[0.03]"
+          className="flex min-w-0 flex-1 items-center gap-[10px] rounded-[14px] border border-line bg-elev px-[14px] py-[12px] text-left transition-colors hover:bg-white/[0.03]"
         >
           <Icon name="cal" size={18} className="text-acc" />
           <span className="min-w-0 flex-1 truncate font-display text-[14.5px] font-bold text-text">{scopeLabel}</span>
@@ -204,6 +245,23 @@ export function Aanvragen({
           )}
           <Icon name="chevD" size={16} className="text-ghost" />
         </button>
+        {showLinkFilter && (
+          <button
+            type="button"
+            onClick={() => setLinkPickerOpen(true)}
+            aria-label={t.requests.linkFilterAria}
+            className={cn(
+              'flex max-w-[45%] shrink-0 items-center gap-[8px] rounded-[14px] border px-[12px] py-[12px] text-left transition-colors hover:bg-white/[0.03]',
+              linkSel ? 'border-acc/40 bg-acc-dim' : 'border-line bg-elev',
+            )}
+          >
+            <Icon name="link" size={16} className={linkSel ? 'text-acc' : 'text-faint'} />
+            <span className={cn('min-w-0 truncate font-display text-[13.5px] font-bold', linkSel ? 'text-acc' : 'text-dim')}>
+              {selLink ? linkLabel(selLink) : t.requests.linkFilterAll}
+            </span>
+            <Icon name="chevD" size={14} className="text-ghost" />
+          </button>
+        )}
       </div>
 
       {/* Name search */}
@@ -266,7 +324,7 @@ export function Aanvragen({
                   style={{ borderColor: r.flag ? 'rgba(181,166,255,0.4)' : undefined }}
                 >
                   {showAllEvents && <EventTag name={nameById.get(r.eventId) ?? 'Event'} />}
-                  <div className={cn('flex items-center gap-[11px]', r.motivation || r.flag ? 'mb-[11px]' : 'mb-[13px]')}>
+                  <div className={cn('flex items-center gap-[11px]', r.motivation || r.flag || r.viaLabel ? 'mb-[11px]' : 'mb-[13px]')}>
                     <Avatar name={r.name} size={40} />
                     <div className="min-w-0 flex-1">
                       <div className="font-display text-[15.5px] font-bold text-text">
@@ -280,6 +338,11 @@ export function Aanvragen({
                       </div>
                     </div>
                   </div>
+                  {r.viaLabel && (
+                    <div className="mb-[11px]">
+                      <ViaChip label={r.viaLabel} />
+                    </div>
+                  )}
                   {r.flag && (
                     <div className="mb-[11px] inline-flex items-center gap-1.5 rounded-[7px] bg-acc-dim px-[9px] py-1 font-body text-[11.5px] font-bold text-acc">
                       <Icon name="warn" size={12} stroke="#B5A6FF" />
@@ -325,6 +388,11 @@ export function Aanvragen({
                             <div className="truncate text-[12px] text-faint">{r.phoneLast4 ? fmt(t.requests.deniedPhone, { last4: r.phoneLast4, at: r.at }) : r.at}</div>
                           </div>
                         </div>
+                        {r.viaLabel && (
+                          <div className="mb-[9px]">
+                            <ViaChip label={r.viaLabel} />
+                          </div>
+                        )}
                         <div className="mb-[12px] flex items-start gap-[7px] rounded-[9px] bg-elev2 px-[11px] py-[8px] text-[12.5px] leading-[1.4] text-faint">
                           <Icon name="close" size={13} stroke="rgba(255,255,255,0.40)" className="mt-px shrink-0" />
                           <span>{r.denyReason ? fmt(t.requests.declinedReason, { reason: r.denyReason }) : t.requests.declined}</span>
@@ -332,6 +400,49 @@ export function Aanvragen({
                         <Btn sm kind="primary" full icon="check2" disabled={landingBusy} onClick={() => openAssign(r)}>
                           {t.requests.approveAnyway}
                         </Btn>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Auto-approved trace (F1) — read-only: what an auto-approve link put
+                straight on the list. Collapsed by default, no actions. */}
+            {autoG.length > 0 && (
+              <div className="mt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowAuto((s) => !s)}
+                  className="mb-[10px] flex w-full items-center justify-between rounded-[12px] px-1 py-1.5 text-left"
+                >
+                  <Label>{fmt(t.requests.autoApprovedHeading, { n: autoG.length })}</Label>
+                  <Icon name="chevD" size={16} className={cn('text-ghost transition-transform', showAuto && 'rotate-180')} />
+                </button>
+                {showAuto && (
+                  <div className="flex flex-col gap-[11px] lg:grid lg:grid-cols-2 lg:gap-[11px] lg:items-start">
+                    {autoG.map((r) => (
+                      <div key={r.id} className="rounded-[18px] border border-line bg-elev p-[15px]">
+                        {showAllEvents && <EventTag name={nameById.get(r.eventId) ?? 'Event'} />}
+                        <div className="flex items-center gap-[11px]">
+                          <Avatar name={r.name} size={38} />
+                          <div className="min-w-0 flex-1">
+                            <div className="font-display text-[15px] font-bold text-text">
+                              {r.name}
+                              {r.plus > 0 && <span className="text-faint"> +{r.plus}</span>}
+                            </div>
+                            <div className="truncate text-[12px] text-faint">{r.at}</div>
+                          </div>
+                          <span className="inline-flex shrink-0 items-center gap-1.5 text-[12px] font-bold text-acc">
+                            <Icon name="check2" size={13} stroke="#B5A6FF" sw={2.4} />
+                            {t.requests.autoApprovedTag}
+                          </span>
+                        </div>
+                        {r.viaLabel && (
+                          <div className="mt-[9px]">
+                            <ViaChip label={r.viaLabel} />
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -385,6 +496,15 @@ export function Aanvragen({
           sel={sel}
           onPick={pickScope}
           onClose={() => setPickerOpen(false)}
+        />
+      )}
+      {linkPickerOpen && (
+        <LinkPickerSheet
+          links={scopeLinks}
+          counts={pendingByLink}
+          sel={linkSel}
+          onPick={pickLink}
+          onClose={() => setLinkPickerOpen(false)}
         />
       )}
       {assign && (
@@ -456,6 +576,53 @@ function EventPickerSheet({
       <div className="flex flex-col gap-[7px]">
         {row('', t.requests.scopeAll, total, sel === '')}
         {events.map((e) => row(e.id, e.name, counts.get(e.id) ?? 0, sel === e.id))}
+      </div>
+      <button type="button" onClick={onClose} className={cn('mt-4 cursor-pointer self-center border-none bg-transparent font-body text-[13.5px] font-semibold text-faint', press)}>
+        {t.requests.close}
+      </button>
+    </Sheet>
+  );
+}
+
+/** Filter-by-link sheet (F1) — cloned from EventPickerSheet: "All links" + each
+ *  link of the current scope (influencer/label; the default link reads
+ *  "Standard link"), each with its pending count. */
+function LinkPickerSheet({
+  links,
+  counts,
+  sel,
+  onPick,
+  onClose,
+}: {
+  links: PoLinkOption[];
+  counts: Map<string, number>;
+  sel: string;
+  onPick: (id: string) => void;
+  onClose: () => void;
+}): JSX.Element {
+  const total = links.reduce((sum, l) => sum + (counts.get(l.id) ?? 0), 0);
+  const row = (id: string, label: string, count: number, active: boolean): JSX.Element => (
+    <button
+      key={id || 'all'}
+      type="button"
+      onClick={() => onPick(id)}
+      className={cn('flex items-center gap-[11px] rounded-[12px] border px-[13px] py-[12px] text-left', active ? 'border-transparent bg-acc-dim' : 'border-line bg-elev', press)}
+    >
+      <span className="min-w-0 flex-1 truncate font-display text-[14.5px] font-bold text-text">{label}</span>
+      {count > 0 && (
+        <span className="inline-flex h-[20px] min-w-[20px] items-center justify-center rounded-full bg-acc-dim px-[6px] text-[11px] font-extrabold text-acc">{count}</span>
+      )}
+      <span className={cn('flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full border-2', active ? 'border-acc bg-acc' : 'border-ghost bg-transparent')}>
+        {active && <Icon name="check" size={12} stroke="#16132B" sw={3} />}
+      </span>
+    </button>
+  );
+  return (
+    <Sheet onClose={onClose} center={false}>
+      <div className="mb-[14px] font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{t.requests.pickLinkTitle}</div>
+      <div className="po-scroll flex max-h-[55vh] flex-col gap-[7px] overflow-y-auto">
+        {row('', t.requests.linkFilterAll, total, sel === '')}
+        {links.map((l) => row(l.id, l.label ?? t.requests.standardLink, counts.get(l.id) ?? 0, sel === l.id))}
       </div>
       <button type="button" onClick={onClose} className={cn('mt-4 cursor-pointer self-center border-none bg-transparent font-body text-[13.5px] font-semibold text-faint', press)}>
         {t.requests.close}

@@ -32,7 +32,7 @@ select pg_temp.login_anon();
 select is(
   (select public.submit_guest_request(
     'plusone-launch-night', 'Test Aanvrager', 'test-capture@example.test', '',
-    0, '', null, false, '1995-05-05'::date)),
+    0, '', null, false, '1995-05-05'::date) ->> 'status'),
   'ok', 'A1 submission accepted');
 reset role;  -- query contacts/requests as superuser (anon may not read them)
 select is(
@@ -51,7 +51,7 @@ select pg_temp.login_anon();
 select is(
   (select public.submit_guest_request(
     'plusone-launch-night', 'Test Aanvrager Twee', 'test-capture@example.test', '',
-    0, '', null, false, null)),
+    0, '', null, false, null) ->> 'status'),
   'ok', 'B1 duplicate submission still reports ok (silent dedup)');
 reset role;
 select is(
@@ -64,7 +64,7 @@ select is(
 select pg_temp.login_anon();
 select is(
   (select public.submit_guest_request(
-    'plusone-launch-night', 'Naam Only Aanvrager', '', '', 0, '', null, false, null)),
+    'plusone-launch-night', 'Naam Only Aanvrager', '', '', 0, '', null, false, null) ->> 'status'),
   'ok', 'C1 name-only submission accepted');
 reset role;
 select is(

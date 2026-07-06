@@ -36,6 +36,7 @@ function guest(over: Partial<GuestRow> = {}): GuestRow {
     added_by: 'u-max',
     source: 'app',
     status: 'approved',
+    request_link_id: null,
     anonymized_at: null,
     removed_at: null,
     created_at: '2026-06-10T12:00:00Z',

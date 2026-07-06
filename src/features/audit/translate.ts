@@ -152,10 +152,21 @@ function phrase(row: AuditFeedRow): { text: string; entity: string } {
 
     case 'guest_requests': {
       // Landing-page request decisions (#12). The requester is free-text on the
-      // request, not a user_profile, so read the name straight from the diff.
-      const name = str(after?.full_name) ?? str(before?.full_name) ?? 'a request';
+      // request, not a user_profile. A decision diff carries only the changed
+      // fields (no full_name), so the feed resolves the live row's name into
+      // request_name (anonymized requests resolve to their redacted handle).
+      const name =
+        str(after?.full_name) ?? str(before?.full_name) ?? row.request_name ?? 'a request';
       switch (action) {
         case 'approve':
+          // decided_via='auto' = the request link approved it, no human actor
+          // (the feed shows "System" as the actor) — say so explicitly (F1).
+          if (str(after?.decided_via) === 'auto') {
+            return {
+              text: `auto-approved the request from ${name} via their request link`,
+              entity: name,
+            };
+          }
           return { text: `approved the landing page request from ${name}`, entity: name };
         case 'deny': {
           const reason = str(after?.decision_reason);

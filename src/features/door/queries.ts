@@ -120,7 +120,7 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
   // Names needed for the logboek + the current user (for optimistic check-ins).
   const ids = new Set<string>();
   for (const g of guestRows) {
-    ids.add(g.added_by);
+    if (g.added_by) ids.add(g.added_by); // NULL = auto-approved via a request link
     if (g.note_acknowledged_by) ids.add(g.note_acknowledged_by);
   }
   for (const c of checkIns) ids.add(c.checked_by);
