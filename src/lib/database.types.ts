@@ -1465,6 +1465,7 @@ export type Database = {
           id: string | null
           new_tier_name: string | null
           old_tier_name: string | null
+          request_name: string | null
           subject_name: string | null
           subject_user_id: string | null
           venue_id: string | null
@@ -1653,6 +1654,7 @@ export type Database = {
         Args: { p_slug: string }
         Returns: {
           event_name: string
+          spots_left: number
           starts_at: string
           via_label: string
         }[]

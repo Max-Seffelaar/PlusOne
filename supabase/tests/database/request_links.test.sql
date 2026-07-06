@@ -39,7 +39,7 @@ begin
 end;
 $fn$;
 
-select plan(29);
+select plan(30);
 
 -- ---------------------------------------------------------------------------
 -- A. Default link: backfill + create-on-insert + slug sync + generator
@@ -211,6 +211,11 @@ select is(
 select is(
   (select via_label from public.get_landing_event('yusuf-insta-link')),
   'Insta bio', 'D4 a label-only link surfaces its label');
+select is(
+  (select coalesce(spots_left::text, 'null') || ':' from public.get_landing_event('yusuf-insta-link'))
+    || (select spots_left::text from public.get_landing_event('nova-link')),
+  'null:25',
+  'D4b spots_left: uncapped disloses nothing, a capped link its remaining headcount (#43)');
 select is(
   (select count(*)::int from public.get_landing_event('does-not-exist')),
   0, 'D5 an unknown slug resolves to nothing');

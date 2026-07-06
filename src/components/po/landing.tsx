@@ -30,6 +30,9 @@ export interface LandingEvent {
   closes?: string;
   /** Provenance of the request link ("via Jayden") — influencer/label links only. */
   via?: string;
+  /** Remaining approvable headcount on a CAPPED link (0 = full); null/undefined
+   *  = uncapped, nothing about capacity is disclosed (#43, Max 6-7-2026). */
+  spotsLeft?: number | null;
 }
 
 export type SubmitResult =
@@ -280,6 +283,11 @@ export function LandingForm({
   const ok = name.trim().length > 1;
   const first = name.trim().split(' ')[0] || t.landing.nameFallback;
   const heads = 1 + plus;
+  // Capped link (#43): the stepper never offers more heads than the link can
+  // still approve. null/undefined = uncapped.
+  const spotsLeft = event.spotsLeft ?? null;
+  const maxPlus = spotsLeft != null ? Math.max(0, spotsLeft - 1) : Number.POSITIVE_INFINITY;
+  const atCap = plus >= maxPlus;
 
   function submit(): void {
     if (!ok || pending) return;
@@ -354,6 +362,24 @@ export function LandingForm({
     </div>
   );
 
+  // A capped link with nothing left to approve takes no requests (#43): say it,
+  // instead of collecting requests that can only ever stall in the queue.
+  if (spotsLeft === 0 && !sent) {
+    return (
+      <Wrap>
+        {Hero}
+        <div className="rounded-[24px] border border-line bg-elev px-[26px] py-[34px] text-center">
+          <div className="mx-auto mb-5 flex h-[62px] w-[62px] items-center justify-center rounded-[20px] bg-elev2">
+            <Icon name="users" size={30} className="text-faint" />
+          </div>
+          <h2 className="m-0 mb-[10px] font-display text-[26px] font-extrabold tracking-[-0.02em]">{t.landing.fullTitle}</h2>
+          <p className="mx-auto max-w-[330px] text-[15px] leading-[1.55] text-dim">{t.landing.fullBody}</p>
+        </div>
+        <Footer />
+      </Wrap>
+    );
+  }
+
   if (sent) {
     return (
       <Wrap>
@@ -376,13 +402,18 @@ export function LandingForm({
             <Icon name="shield" size={18} stroke="#B5A6FF" />
             <span className="text-[13px] leading-[1.4] text-text">{t.landing.successInfo}</span>
           </div>
-          <button
-            type="button"
-            onClick={reset}
-            className={cn('mt-[18px] cursor-pointer border-none bg-transparent font-body text-[13.5px] font-semibold text-faint', press)}
-          >
-            {t.landing.successReset}
-          </button>
+          {/* No "add someone else" after an instant approval (Max, 6-7-2026):
+              the spot is taken — repeat submissions on an auto-approve link
+              invite duplicates, not friends. */}
+          {!sent.autoApproved && (
+            <button
+              type="button"
+              onClick={reset}
+              className={cn('mt-[18px] cursor-pointer border-none bg-transparent font-body text-[13.5px] font-semibold text-faint', press)}
+            >
+              {t.landing.successReset}
+            </button>
+          )}
         </div>
         <Footer />
       </Wrap>
@@ -408,7 +439,13 @@ export function LandingForm({
         <div className="mb-[14px]">
           <div className="mb-[7px] flex items-center justify-between">
             <span className="text-[12px] font-bold uppercase tracking-[0.04em] text-faint">{t.landing.plusOnesLabel}</span>
-            <span className="text-[11.5px] text-ghost">{t.landing.plusOnesNote}</span>
+            <span className="text-[11.5px] text-ghost">
+              {spotsLeft != null
+                ? spotsLeft === 1
+                  ? t.landing.spotsLeftOne
+                  : fmt(t.landing.spotsLeftNote, { n: spotsLeft })
+                : t.landing.plusOnesNote}
+            </span>
           </div>
           <div className="flex items-center justify-between gap-[14px] rounded-[16px] bg-acc-dim p-[9px]">
             <button type="button" onClick={() => setPlus(Math.max(0, plus - 1))} className={stepBtn} aria-label={t.landing.stepLessAria}>
@@ -418,7 +455,13 @@ export function LandingForm({
               <div className="font-display text-[26px] font-extrabold leading-none">{heads}</div>
               <div className="mt-0.5 text-[11px] text-dim">{heads === 1 ? t.landing.personSingular : t.landing.personPlural}</div>
             </div>
-            <button type="button" onClick={() => setPlus(plus + 1)} className={stepBtn} aria-label={t.landing.stepMoreAria}>
+            <button
+              type="button"
+              onClick={() => setPlus(Math.min(plus + 1, maxPlus))}
+              disabled={atCap}
+              className={cn(stepBtn, atCap && 'cursor-not-allowed opacity-40')}
+              aria-label={t.landing.stepMoreAria}
+            >
               <Icon name="plus" size={20} sw={2.4} stroke="#B5A6FF" />
             </button>
           </div>

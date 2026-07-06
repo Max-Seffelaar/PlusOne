@@ -31,6 +31,9 @@ export const landing = {
 
   plusOnesLabel: 'How many of you',
   plusOnesNote: 'including you',
+  // Capped links (#43, Max 6-7-2026): disclose what can still be approved.
+  spotsLeftNote: '{n} spots left',
+  spotsLeftOne: '1 spot left',
   personSingular: 'person',
   personPlural: 'people',
   stepLessAria: 'Fewer',
@@ -90,6 +93,10 @@ export const landing = {
   // ── Closed / unknown slug ────────────────────────────────────────────────
   closedTitle: 'The list is closed.',
   closedBody: "This sign-up link isn't active anymore. Ask the organizer for a fresh one.",
+
+  // ── Full (a capped link with 0 spots left, #43) ──────────────────────────
+  fullTitle: 'The list is full.',
+  fullBody: 'No spots left on this link. Spots free up when plans change, so try again later.',
 
   // ── Footer ───────────────────────────────────────────────────────────────
   footer: 'Guest list, handled by PlusOne',

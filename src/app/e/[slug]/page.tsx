@@ -62,6 +62,7 @@ export default async function LandingPage({
     date: dateFmt.format(starts),
     time: timeFmt.format(starts),
     via: event.via_label ?? undefined,
+    spotsLeft: event.spots_left,
   };
 
   return <LandingForm event={display} slug={slug} action={submitGuestRequest} />;
