@@ -138,15 +138,32 @@ const doorPriceCents = z
   .nullable()
   .optional();
 
-export const createTierSchema = z.object({
-  eventId: uuid,
-  name: z.string().trim().min(1, 'Enter a name').max(80, 'Name is too long'),
-  description: optionalText(280),
-  color: hexColor.nullable().optional(),
-  maxGuests,
-  doorPriceCents,
-  aliases,
-});
+// Display-only VAT percentage (T3 — no billing). Only meaningful on a paid tier;
+// mirrors the DB's guest_tiers_vat_requires_price constraint.
+const vatPercent = z.number().min(0, 'VAT cannot be negative').max(100, 'VAT is too high').nullable().optional();
+
+const vatRequiresPrice = (v: { doorPriceCents?: number | null; vatPercent?: number | null }, ctx: z.RefinementCtx) => {
+  if (v.vatPercent != null && v.doorPriceCents == null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'VAT only applies to paid tiers',
+      path: ['vatPercent'],
+    });
+  }
+};
+
+export const createTierSchema = z
+  .object({
+    eventId: uuid,
+    name: z.string().trim().min(1, 'Enter a name').max(80, 'Name is too long'),
+    description: optionalText(280),
+    color: hexColor.nullable().optional(),
+    maxGuests,
+    doorPriceCents,
+    vatPercent,
+    aliases,
+  })
+  .superRefine(vatRequiresPrice);
 export type CreateTierInput = z.input<typeof createTierSchema>;
 
 export const updateTierSchema = z.object({
@@ -156,6 +173,7 @@ export const updateTierSchema = z.object({
   color: hexColor.nullable().optional(),
   maxGuests,
   doorPriceCents,
+  vatPercent,
   aliases: aliases.optional(),
 });
 export type UpdateTierInput = z.input<typeof updateTierSchema>;
@@ -255,15 +273,18 @@ export type DeleteTemplateInput = z.input<typeof deleteTemplateSchema>;
 
 // Template tiers — the guest_tier fields, keyed on templateId (no eventId). venue_id
 // is trigger-stamped, never client-supplied.
-export const createTemplateTierSchema = z.object({
-  templateId: uuid,
-  name: z.string().trim().min(1, 'Enter a name').max(80, 'Name is too long'),
-  description: optionalText(280),
-  color: hexColor.nullable().optional(),
-  maxGuests,
-  doorPriceCents,
-  aliases,
-});
+export const createTemplateTierSchema = z
+  .object({
+    templateId: uuid,
+    name: z.string().trim().min(1, 'Enter a name').max(80, 'Name is too long'),
+    description: optionalText(280),
+    color: hexColor.nullable().optional(),
+    maxGuests,
+    doorPriceCents,
+    vatPercent,
+    aliases,
+  })
+  .superRefine(vatRequiresPrice);
 export type CreateTemplateTierInput = z.input<typeof createTemplateTierSchema>;
 
 export const updateTemplateTierSchema = z.object({
@@ -273,6 +294,7 @@ export const updateTemplateTierSchema = z.object({
   color: hexColor.nullable().optional(),
   maxGuests,
   doorPriceCents,
+  vatPercent,
   aliases: aliases.optional(),
 });
 export type UpdateTemplateTierInput = z.input<typeof updateTemplateTierSchema>;

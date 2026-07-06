@@ -47,6 +47,7 @@ import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canWorkDoor } from '@/features/auth/roles';
 import { isoToLocalInput, localInputToIso } from '@/features/events/datetime';
 import { formatClock } from '@/features/stats/format';
+import { TIER_COLORS, nextAvailableColor, allColorsUsed } from '@/lib/po/tier-colors';
 import { useNav } from '../context';
 import { DateField, TimeField } from '../datetime-field';
 import { Icon } from '../icon';
@@ -908,7 +909,6 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
 }
 
 // ── TIERS & aliases (pushed) ─────────────────────────────────────────────────────
-const TIER_COLORS = ['#B5A6FF', '#9DE0C0', '#E8C98A', '#9FB8E8', '#E89AC0', '#8E8E93'];
 
 export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
   const nav = useNav();
@@ -918,15 +918,47 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
   const createTier = usePoCreateTier(id);
   const updateTier = usePoUpdateTier(id);
 
+  const usedColors = tierList?.map((tr) => tr.color) ?? [];
+
   const [adding, setAdding] = useState(false);
   const [nm, setNm] = useState('');
-  const [color, setColor] = useState('#B5A6FF');
+  const [color, setColor] = useState(() => nextAvailableColor(usedColors));
+  const [kind, setKind] = useState<'free' | 'paid'>('free');
   const [max, setMax] = useState('');
   const [price, setPrice] = useState('');
+  const [vat, setVat] = useState('9');
   const [aliasText, setAliasText] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [aliasFor, setAliasFor] = useState<string | null>(null);
   const [newAlias, setNewAlias] = useState('');
+  // Colors used by tiers created this session, before the tiers query refetches
+  // (Save & add another must not immediately re-offer the color just taken).
+  const [justAddedColors, setJustAddedColors] = useState<string[]>([]);
+
+  const usedColorsForPicker = [...usedColors, ...justAddedColors];
+  const allUsed = allColorsUsed(usedColorsForPicker);
+
+  const resetForm = (extraUsed: string[] = []): void => {
+    setNm('');
+    setColor(nextAvailableColor([...usedColors, ...extraUsed]));
+    setKind('free');
+    setMax('');
+    setPrice('');
+    setVat('9');
+    setAliasText('');
+  };
+
+  const openAdd = (): void => {
+    setErr(null);
+    resetForm(justAddedColors);
+    setAdding(true);
+  };
+
+  const closeAdd = (): void => {
+    setErr(null);
+    setJustAddedColors([]);
+    setAdding(false);
+  };
 
   // Arriving on a tier-less event (setup nudge, "Guest tiers" row) opens the
   // create form directly — no extra tap on the + first (retest 3/7, Q10). Once
@@ -940,22 +972,21 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
     }
   }, [isLoading, isError, tierList]);
 
-  const resetForm = (): void => {
-    setNm('');
-    setColor('#B5A6FF');
-    setMax('');
-    setPrice('');
-    setAliasText('');
-  };
-
-  const submit = async (): Promise<void> => {
+  const submit = async (stayOpen: boolean): Promise<void> => {
     if (!nm.trim() || createTier.isPending) return;
     setErr(null);
     const maxNum = Number.parseInt(max, 10);
-    // Door price in euros → cents (#34, display only). Blank/0 = free (null).
+    // Door price in euros → cents (#34, display only). Free tiers stay null.
     const priceNum = Number.parseFloat(price.replace(',', '.'));
     const doorPriceCents =
-      price.trim() && Number.isFinite(priceNum) && priceNum > 0 ? Math.round(priceNum * 100) : null;
+      kind === 'paid' && price.trim() && Number.isFinite(priceNum) && priceNum > 0 ? Math.round(priceNum * 100) : null;
+    if (kind === 'paid' && doorPriceCents == null) {
+      setErr(t.events.errPaidNeedsPrice);
+      return;
+    }
+    const vatNum = Number.parseFloat(vat.replace(',', '.'));
+    const vatPercent = kind === 'paid' && Number.isFinite(vatNum) ? vatNum : null;
+    const usedColor = color;
     try {
       await createTier.mutateAsync({
         eventId: id,
@@ -963,10 +994,18 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
         color,
         maxGuests: Number.isFinite(maxNum) && maxNum > 0 ? maxNum : null,
         doorPriceCents,
+        vatPercent,
         aliases: aliasText.split(',').map((a) => a.trim()).filter(Boolean),
       });
-      resetForm();
-      setAdding(false);
+      if (stayOpen) {
+        const nextJustAdded = [...justAddedColors, usedColor];
+        setJustAddedColors(nextJustAdded);
+        resetForm(nextJustAdded);
+      } else {
+        resetForm();
+        setJustAddedColors([]);
+        setAdding(false);
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : t.events.errCreateTier);
     }
@@ -991,31 +1030,62 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
         onBack={nav.back}
         title={t.events.tiersTitle}
         sub={event?.name}
-        right={<IconBtn name={adding ? 'close' : 'plus'} onClick={() => setAdding((a) => !a)} />}
+        right={<IconBtn name={adding ? 'close' : 'plus'} onClick={() => (adding ? closeAdd() : openAdd())} />}
       />
-      <Scroll bottom={adding ? 120 : 24}>
+      <Scroll bottom={adding ? 160 : 24}>
         {err && <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{err}</div>}
         {adding && (
           <div className="mb-[14px] rounded-[18px] border border-acc bg-elev p-4">
             <Label className="mb-[10px]">{t.events.newTier}</Label>
             <Field placeholder={t.events.tierNamePlaceholder} value={nm} onChange={setNm} autoFocus className="mb-3" />
-            <Label className="mb-2">{t.events.color}</Label>
-            <div className="mb-[14px] flex gap-[9px]">
-              {TIER_COLORS.map((c) => (
+            <Label className="mb-2">{t.events.tierKindLabel}</Label>
+            <div className="mb-[14px] flex gap-2">
+              {(['free', 'paid'] as const).map((k) => (
                 <button
-                  key={c}
+                  key={k}
                   type="button"
-                  onClick={() => setColor(c)}
-                  className="h-[34px] w-[34px] cursor-pointer rounded-full transition-[filter] hover:brightness-[1.1]"
-                  style={{ background: c, border: '2px solid ' + (color === c ? '#FFFFFF' : 'transparent') }}
-                  aria-label={fmt(t.events.colorAria, { color: c })}
-                />
+                  onClick={() => setKind(k)}
+                  className={cn(
+                    'rounded-full px-[14px] py-[6px] font-display text-[13px] font-bold transition-[filter] hover:brightness-110',
+                    kind === k ? 'bg-acc text-on-acc' : 'border border-line bg-elev text-dim',
+                  )}
+                >
+                  {k === 'free' ? t.events.tierKindFree : t.events.tierKindPaid}
+                </button>
               ))}
             </div>
+            <Label className="mb-2">{t.events.color}</Label>
+            <div className="mb-[14px] flex flex-wrap gap-[9px]">
+              {TIER_COLORS.map((c) => {
+                const disabled = usedColorsForPicker.includes(c) && !allUsed && c !== color;
+                return (
+                  <button
+                    key={c}
+                    type="button"
+                    disabled={disabled}
+                    aria-disabled={disabled}
+                    onClick={() => !disabled && setColor(c)}
+                    className={cn(
+                      'h-[34px] w-[34px] rounded-full transition-[filter]',
+                      disabled ? 'cursor-not-allowed opacity-30' : 'cursor-pointer hover:brightness-[1.1]',
+                    )}
+                    style={{ background: c, border: '2px solid ' + (color === c ? '#FFFFFF' : 'transparent') }}
+                    aria-label={fmt(t.events.colorAria, { color: c })}
+                  />
+                );
+              })}
+            </div>
+            {allUsed && <div className="mb-[14px] text-[12px] text-faint">{t.events.colorAllUsedWarning}</div>}
             <Label className="mb-2">{t.events.maxOptional}</Label>
             <Field placeholder={t.events.maxPlaceholder} value={max} onChange={setMax} inputMode="numeric" className="mb-[14px]" />
-            <Label className="mb-2">{t.events.priceOptional}</Label>
-            <Field placeholder={t.events.pricePlaceholder} value={price} onChange={setPrice} inputMode="numeric" className="mb-[14px]" />
+            {kind === 'paid' && (
+              <>
+                <Label className="mb-2">{t.events.priceLabel}</Label>
+                <Field placeholder={t.events.pricePlaceholder} value={price} onChange={setPrice} inputMode="numeric" className="mb-[14px]" />
+                <Label className="mb-2">{t.events.vatLabel}</Label>
+                <Field placeholder={t.events.vatPlaceholder} value={vat} onChange={setVat} inputMode="numeric" className="mb-[14px]" />
+              </>
+            )}
             <Label className="mb-2">{t.events.aliasesFeedLabel}</Label>
             <Field icon="spark" placeholder={t.events.aliasesPlaceholder} value={aliasText} onChange={setAliasText} />
             {aliasText.trim() && (
@@ -1039,7 +1109,16 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
         ) : isError ? (
           <Empty text={t.events.loadTiersError} />
         ) : (tierList ?? []).length === 0 ? (
-          <Empty text={t.events.emptyTiers} />
+          !adding && (
+            <button
+              type="button"
+              onClick={openAdd}
+              className="flex w-full flex-col items-center gap-2 rounded-[18px] border border-dashed border-line bg-elev/40 py-[30px] text-center transition-[filter] hover:brightness-110"
+            >
+              <span className="text-[14px] text-faint">{t.events.emptyTiers}</span>
+              <span className="font-display text-[14px] font-bold text-acc">{t.events.emptyTiersCta}</span>
+            </button>
+          )
         ) : (
           <div className="flex flex-col gap-[11px]">
             {(tierList ?? []).map((tier) => (
@@ -1053,6 +1132,11 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
                   {tier.doorPrice > 0 && (
                     <span className="shrink-0 rounded-[7px] bg-acc-dim px-2 py-[3px] font-display text-[11.5px] font-bold text-acc">
                       €{tier.doorPrice % 1 === 0 ? tier.doorPrice : tier.doorPrice.toFixed(2)}
+                    </span>
+                  )}
+                  {tier.doorPrice > 0 && tier.vatPercent != null && (
+                    <span className="shrink-0 rounded-[7px] border border-line2 bg-transparent px-2 py-[3px] font-display text-[10.5px] font-semibold text-faint">
+                      {fmt(t.events.tierVatChip, { pct: tier.vatPercent % 1 === 0 ? tier.vatPercent : tier.vatPercent.toFixed(1) })}
                     </span>
                   )}
                   {tier.isDefault && <MiniChip>{t.events.tierDefault}</MiniChip>}
@@ -1109,9 +1193,31 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
       </Scroll>
       {adding && (
         <BottomBar>
-          <Btn kind="primary" full icon="check" onClick={() => void submit()} disabled={!nm.trim() || createTier.isPending} className={nm.trim() && !createTier.isPending ? '' : 'opacity-50'}>
-            {createTier.isPending ? t.events.saving : t.events.addTier}
-          </Btn>
+          <div className="flex flex-col gap-2">
+            <Btn
+              kind="primary"
+              full
+              icon="check"
+              onClick={() => void submit(false)}
+              disabled={!nm.trim() || createTier.isPending}
+              className={nm.trim() && !createTier.isPending ? '' : 'opacity-50'}
+            >
+              {createTier.isPending ? t.events.saving : t.events.saveTier}
+            </Btn>
+            <div className="flex gap-2">
+              <Btn
+                kind="dark"
+                className={cn('flex-1', nm.trim() && !createTier.isPending ? '' : 'opacity-50')}
+                onClick={() => void submit(true)}
+                disabled={!nm.trim() || createTier.isPending}
+              >
+                {t.events.saveTierAndNew}
+              </Btn>
+              <Btn kind="ghost" className="flex-1" onClick={closeAdd}>
+                {t.events.cancelTier}
+              </Btn>
+            </div>
+          </div>
         </BottomBar>
       )}
     </div>

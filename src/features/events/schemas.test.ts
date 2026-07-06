@@ -5,11 +5,13 @@ import {
   createTemplateTierSchema,
   createEventFromTemplateSchema,
   createTemplateFromEventSchema,
+  createTierSchema,
 } from './schemas';
 
 // Event templates (86exyp8gn) — the new Zod schemas gate every template input.
 const VENUE = '00000000-0000-7000-8000-000000000001';
 const TEMPLATE = '00000000-0000-7000-8000-0000000000a1';
+const EVENT_ID = '00000000-0000-7000-8000-0000000000e2';
 
 describe('createTemplateSchema', () => {
   it('accepts a minimal template (name only) and defaults landingActive to false', () => {
@@ -60,6 +62,61 @@ describe('createTemplateTierSchema', () => {
 
   it('rejects a non-positive max', () => {
     expect(createTemplateTierSchema.safeParse({ templateId: TEMPLATE, name: 'V', maxGuests: 0 }).success).toBe(false);
+  });
+
+  it('rejects vatPercent on a free (no door price) tier', () => {
+    const r = createTemplateTierSchema.safeParse({ templateId: TEMPLATE, name: 'V', vatPercent: 9 });
+    expect(r.success).toBe(false);
+  });
+
+  it('accepts vatPercent alongside a door price', () => {
+    const r = createTemplateTierSchema.safeParse({
+      templateId: TEMPLATE,
+      name: 'V',
+      doorPriceCents: 2500,
+      vatPercent: 9,
+    });
+    expect(r.success).toBe(true);
+  });
+});
+
+// Tiers (#8, T3 — Free/Paid + VAT-%) ─────────────────────────────────────────
+describe('createTierSchema', () => {
+  it('accepts a free tier with no price or VAT', () => {
+    const r = createTierSchema.safeParse({ eventId: EVENT_ID, name: 'Regular' });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.doorPriceCents).toBeUndefined();
+      expect(r.data.vatPercent).toBeUndefined();
+    }
+  });
+
+  it('accepts a paid tier with a door price and VAT-%', () => {
+    const r = createTierSchema.safeParse({
+      eventId: EVENT_ID,
+      name: 'VIP',
+      doorPriceCents: 2500,
+      vatPercent: 9,
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects VAT-% on a tier with no door price', () => {
+    const r = createTierSchema.safeParse({ eventId: EVENT_ID, name: 'VIP', vatPercent: 9 });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects a VAT-% outside 0–100', () => {
+    expect(
+      createTierSchema.safeParse({ eventId: EVENT_ID, name: 'VIP', doorPriceCents: 2500, vatPercent: 150 }).success,
+    ).toBe(false);
+    expect(
+      createTierSchema.safeParse({ eventId: EVENT_ID, name: 'VIP', doorPriceCents: 2500, vatPercent: -1 }).success,
+    ).toBe(false);
+  });
+
+  it('rejects a negative door price', () => {
+    expect(createTierSchema.safeParse({ eventId: EVENT_ID, name: 'VIP', doorPriceCents: -100 }).success).toBe(false);
   });
 });
 

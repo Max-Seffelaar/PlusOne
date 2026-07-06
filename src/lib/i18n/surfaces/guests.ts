@@ -24,7 +24,7 @@ export const guests = {
     nameLabel: 'Name',
     namePlaceholder: 'e.g. "Regular" or "Guest list"',
     colorLabel: 'Color',
-    priceLabel: 'Door price · optional',
+    priceLabel: 'Door price',
     pricePlaceholder: '0.00',
     aliasLabel: 'Alias · optional, feeds the quick-add',
     aliasPlaceholder: 'guest, regular, door…',
