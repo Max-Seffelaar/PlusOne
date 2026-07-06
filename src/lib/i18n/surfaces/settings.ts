@@ -293,6 +293,10 @@ export const settings = {
     manageOnWeb: 'Manage your subscription on the web version of PLUSONE.',
     checkoutSuccess: "Payment set up — you're all good! ✨",
     checkoutCanceled: 'Checkout canceled — nothing changed.',
+    // Soft-block (fase 13 PR 3): growth actions lock, planned events keep running.
+    blockedTrial: 'Your trial has ended — set up your payment to plan new events and grow your team. Everything already planned keeps running.',
+    blockedCanceled: 'The subscription is canceled — reactivate billing to plan new events and grow your team. Your data and planned events stay untouched.',
+    blockedCta: 'Go to Billing',
   },
 
   // Import (Import).
