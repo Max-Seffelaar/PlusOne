@@ -442,6 +442,7 @@ export function DoorProvider({
             added_by: meId ?? '',
             source: 'door',
             status: 'approved',
+            request_link_id: null,
             anonymized_at: null,
             removed_at: null,
             created_at: ts,

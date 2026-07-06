@@ -122,7 +122,9 @@ function toDoorGuest(
     tierName: role.label,
     tierColor: tier?.color ?? FALLBACK_TIER_COLOR,
     tierIcon: role.icon,
-    addedByName: profiles[g.added_by] ?? 'Unknown',
+    // added_by is NULL only for auto-approved request-link guests (F1) — the
+    // system, not a person, put them on the list.
+    addedByName: g.added_by ? profiles[g.added_by] ?? 'Unknown' : 'Via request link',
     addedAt: formatDate(g.created_at),
     last4: lastFour(g.phone),
     note: g.note,

@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
+import { createHash } from 'node:crypto';
+import { headers } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
 import { submitGuestRequest } from '@/features/requests/actions';
 import { LandingForm, LandingClosed, type LandingEvent } from '@/components/po/landing';
@@ -21,12 +23,22 @@ const timeFmt = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Europe/Amsterdam',
 });
 
+/** Salted ip hash for the pageview throttle — same recipe as the submit action. */
+async function pageviewIpHash(): Promise<string> {
+  const h = await headers();
+  const forwarded = h.get('x-forwarded-for');
+  const ip = (forwarded ? forwarded.split(',')[0] : h.get('x-real-ip') ?? '').trim();
+  const salt = process.env.LANDING_IP_SALT ?? 'plusone-landing-dev-salt';
+  return createHash('sha256').update(`${salt}:${ip || 'no-ip'}`).digest('hex');
+}
+
 /**
- * Public per-event landing page (#12/#28). Resolves the event through the anon
- * RLS boundary: events_select_landing only returns it while landing_active and
- * status<>'closed'. A null result therefore covers "unknown slug" and
- * "deactivated link" identically → the closed page leaks nothing (no
- * enumeration). The form posts to the rate-limited submit_guest_request action.
+ * Public request page (#12/#28). One slug namespace: the slug resolves against
+ * request_links (an event's legacy landing_slug lives on as its default link),
+ * via the anon-safe get_landing_event RPC — unknown, paused, expired,
+ * deactivated and cancelled are indistinguishable, so the closed page leaks
+ * nothing. The render also counts the visit (funnel step 1): server-side,
+ * cookie-less, rate-limited in the RPC.
  */
 export default async function LandingPage({
   params,
@@ -36,19 +48,20 @@ export default async function LandingPage({
   const { slug } = await params;
   const supabase = await createClient();
 
-  const { data: event } = await supabase
-    .from('events')
-    .select('id, name, starts_at')
-    .eq('landing_slug', slug)
-    .maybeSingle();
+  const [{ data: rows }] = await Promise.all([
+    supabase.rpc('get_landing_event', { p_slug: slug }),
+    supabase.rpc('record_link_pageview', { p_slug: slug, p_ip_hash: await pageviewIpHash() }),
+  ]);
 
+  const event = rows?.[0];
   if (!event) return <LandingClosed />;
 
   const starts = new Date(event.starts_at);
   const display: LandingEvent = {
-    name: event.name,
+    name: event.event_name,
     date: dateFmt.format(starts),
     time: timeFmt.format(starts),
+    via: event.via_label ?? undefined,
   };
 
   return <LandingForm event={display} slug={slug} action={submitGuestRequest} />;
