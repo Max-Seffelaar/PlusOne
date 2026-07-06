@@ -43,13 +43,22 @@ function useIsDesktop(): boolean {
     const mq = window.matchMedia('(min-width: 1024px)');
     const update = (): void => setDesktop(mq.matches);
     update();
+    // window resize as a fallback: emulated viewports (DevTools device mode,
+    // some webviews) reflow without firing the media-query change event.
+    window.addEventListener('resize', update);
     // Older webviews only have the deprecated addListener — support both (#37).
     if (typeof mq.addEventListener === 'function') {
       mq.addEventListener('change', update);
-      return () => mq.removeEventListener('change', update);
+      return () => {
+        window.removeEventListener('resize', update);
+        mq.removeEventListener('change', update);
+      };
     }
     mq.addListener(update);
-    return () => mq.removeListener(update);
+    return () => {
+      window.removeEventListener('resize', update);
+      mq.removeListener(update);
+    };
   }, []);
   return desktop;
 }
@@ -135,6 +144,9 @@ export function parseTypedTime(raw: string): string | null {
 }
 
 const dateLabel = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+// Narrow viewports drop the weekday — "16 Jul 2026" keeps the field compact
+// beside the time column (retest 3/7: the row overflowed on phones).
+const dateLabelShort = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
 // Same surface as the kit Field, so the variants are visually identical.
 const fieldShell = 'flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]';
@@ -189,7 +201,7 @@ export function DateField({
         </span>
         <input
           ref={inputRef}
-          value={text ?? (selected ? dateLabel.format(selected) : '')}
+          value={text ?? (selected ? (desktop ? dateLabel : dateLabelShort).format(selected) : '')}
           onChange={(e) => setText(e.target.value)}
           onFocus={() => onChange && setOpen(true)}
           onKeyDown={(e) => {
@@ -210,7 +222,9 @@ export function DateField({
             onChange && 'cursor-pointer focus:cursor-text',
           )}
         />
-        {onChange && <Icon name="chev" size={16} className={cn('shrink-0 text-ghost transition-transform', open && 'rotate-90')} />}
+        {/* The chevron only fits comfortably on desktop; on phones the calendar
+            icon already signals the affordance and every px of width counts. */}
+        {onChange && desktop && <Icon name="chev" size={16} className={cn('shrink-0 text-ghost transition-transform', open && 'rotate-90')} />}
       </div>
       {open && onChange && (
         <>

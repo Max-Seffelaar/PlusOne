@@ -103,7 +103,10 @@ export function Sheet({ onClose, children, center = true }: { onClose: () => voi
     <div className="po-anim-fade absolute inset-0 z-40 flex items-end justify-center bg-[rgba(6,6,8,0.66)] p-4 backdrop-blur-[3px]" onClick={onClose}>
       <div
         className={cn(
-          'po-anim-sheet flex w-full flex-col rounded-sheet border border-line bg-elev p-[22px] shadow-[0_-20px_60px_rgba(0,0,0,0.5)]',
+          // max-h + overflow: tall content (e.g. the inline create-a-tier form in
+          // the add-to-event sheet) scrolls inside the sheet instead of spilling
+          // past the top of the screen (retest 3/7).
+          'po-anim-sheet flex max-h-full w-full flex-col overflow-y-auto rounded-sheet border border-line bg-elev p-[22px] shadow-[0_-20px_60px_rgba(0,0,0,0.5)]',
           center ? 'items-center text-center' : 'items-stretch text-left',
         )}
         onClick={(e) => e.stopPropagation()}

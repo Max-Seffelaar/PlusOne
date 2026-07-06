@@ -693,12 +693,15 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
         <Label className="mb-2">{t.events.fieldVenue}</Label>
         <Field icon="building" value={venueLabel} placeholder={t.events.venuePlaceholder} className="mb-[14px]" />
 
+        {/* min-w-0 lets both columns shrink inside narrow viewports (flex default
+            min-width:auto made the date column push the time field off-screen);
+            the date gets the wider share, the time needs little. */}
         <div className="mb-[14px] flex gap-[10px]">
-          <div className="flex-1">
+          <div className="min-w-0 flex-[1.35]">
             <Label className="mb-2">{t.events.fieldDate}</Label>
             <DateField value={dateStr} onChange={writable ? setDateStr : undefined} />
           </div>
-          <div className="flex-1">
+          <div className="min-w-0 flex-1">
             <Label className="mb-2">{t.events.fieldDoors}</Label>
             <TimeField value={timeStr} onChange={writable ? setTimeStr : undefined} />
           </div>
@@ -707,11 +710,11 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
         {/* End time (optional). Drives the Upcoming/Live/Past phase — a night with
             an end stays "Live" until it actually ends, then rolls to "Past". */}
         <div className="mb-[14px] flex gap-[10px]">
-          <div className="flex-1">
+          <div className="min-w-0 flex-[1.35]">
             <Label className="mb-2">{t.events.fieldEndDate}</Label>
             <DateField value={endDateStr} onChange={writable ? setEndDateStr : undefined} />
           </div>
-          <div className="flex-1">
+          <div className="min-w-0 flex-1">
             <Label className="mb-2">{t.events.fieldEnd}</Label>
             <TimeField value={endTimeStr} onChange={writable ? setEndTimeStr : undefined} />
           </div>
@@ -790,11 +793,11 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
               />
               {autoOn && (
                 <div className="flex gap-[10px] pb-[14px]">
-                  <div className="flex-1">
+                  <div className="min-w-0 flex-[1.35]">
                     <Label className="mb-2">{t.events.closesOn}</Label>
                     <DateField value={autoDate} onChange={writable ? setAutoDate : undefined} />
                   </div>
-                  <div className="flex-1">
+                  <div className="min-w-0 flex-1">
                     <Label className="mb-2">{t.events.closesAt}</Label>
                     <TimeField value={autoTime} onChange={writable ? setAutoTime : undefined} />
                   </div>
