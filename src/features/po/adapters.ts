@@ -24,7 +24,7 @@ import type { EventSummary, TierStat } from '@/features/stats/data';
 import { formatClock, toDateInput } from '@/features/stats/format';
 import { toPerTier, type PerTier } from '@/features/stats/po-adapter';
 import { ROLE_LABELS, VENUE_ROLES, requiresMfa, type VenueRole } from '@/features/auth/roles';
-import { getPlan, isPlanId } from '@/features/billing/plans';
+import { getPlan, isPlanId, trialEndsAt } from '@/features/billing/plans';
 import { deviceLabel } from '@/lib/ua';
 
 // Pure DB-row -> po-component-shape mappers (mirrors src/features/stats/po-adapter.ts).
@@ -905,6 +905,10 @@ export interface PoSubscription {
   renews: string;
   events: string;
   venueLabel: string;
+  /** A Stripe subscription exists — checkout done, portal available. */
+  stripeLinked: boolean;
+  /** End of the 14-day display trial (ISO); null unless status is trialing. */
+  trialEndsAt: string | null;
 }
 
 export function toPoSubscription(
@@ -934,5 +938,7 @@ export function toPoSubscription(
       : '—',
     events: plan?.id === 'indie' ? '1 active event' : 'Unlimited',
     venueLabel: venueName,
+    stripeLinked: !!row.stripe_subscription_id,
+    trialEndsAt: row.status === 'trialing' ? trialEndsAt(row.created_at).toISOString() : null,
   };
 }

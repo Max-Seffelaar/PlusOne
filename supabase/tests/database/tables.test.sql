@@ -27,9 +27,12 @@ select tables_are(
     'contacts', 'contact_event_exclusions',
     -- Event templates (86exyp8gn): reusable per-event-type setups (tiers +
     -- capacity + default settings), seeded onto a new event on create.
-    'event_templates', 'event_template_tiers'
+    'event_templates', 'event_template_tiers',
+    -- Fase 13 (Stripe Billing, #32): webhook idempotency ledger,
+    -- service_role-only.
+    'stripe_webhook_events'
   ],
-  'public schema contains exactly the MVP tables (Fase 1 + invites + landing + adresboek + templates)'
+  'public schema contains exactly the MVP tables (Fase 1 + invites + landing + adresboek + templates + billing)'
 );
 
 -- RLS: on for every table, no exceptions (default-deny without policies) ----

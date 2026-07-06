@@ -13,6 +13,7 @@ import {
   usePoEventForEdit,
   usePoEventRecap,
   usePoEvents,
+  useBillingBlocked,
   usePoTemplates,
   usePoTiers,
   usePoVenueSettings,
@@ -85,6 +86,8 @@ export function Events(): JSX.Element {
   const nav = useNav();
   const [when, setWhen] = useState<'upcoming' | 'past'>('upcoming');
   const { data, isLoading, isError } = usePoEvents();
+  // Soft-block (#32 refinement): hide the growth CTA; the note explains why.
+  const billingLock = useBillingBlocked();
   const evs = (data ?? []).filter((e) => e.when === when);
   const months = [...new Set(evs.map((e) => e.month))];
   return (
@@ -109,10 +112,28 @@ export function Events(): JSX.Element {
         <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd')}>
           {t.events.addGuest}
         </Btn>
-        <Btn sm kind="ghost" icon="cal" onClick={() => nav.push('eventedit', { isNew: true })}>
-          {t.events.newEvent}
-        </Btn>
+        {!billingLock.blocked && (
+          <Btn sm kind="ghost" icon="cal" onClick={() => nav.push('eventedit', { isNew: true })}>
+            {t.events.newEvent}
+          </Btn>
+        )}
       </div>
+      {billingLock.blocked && (
+        <div className="flex-none px-5">
+          <Note icon="warn">
+            {billingLock.reason === 'canceled'
+              ? t.settings.billing.blockedCanceled
+              : t.settings.billing.blockedTrial}{' '}
+            <button
+              type="button"
+              className="cursor-pointer font-bold text-acc underline underline-offset-2"
+              onClick={() => nav.push('billing')}
+            >
+              {t.settings.billing.blockedCta}
+            </button>
+          </Note>
+        </div>
+      )}
       <Scroll bottom={100}>
         {isLoading ? (
           <Empty text={t.events.loadingEvents} />

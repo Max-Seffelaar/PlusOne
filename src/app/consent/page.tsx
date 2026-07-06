@@ -3,17 +3,12 @@ import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/auth/guards';
 import { hasAcceptedCurrentTerms } from '@/lib/auth/consent';
+import { safeNextPath } from '@/features/auth/next-path';
 import { ConsentScreen } from '@/features/auth/components/ConsentScreen';
 
 export const metadata: Metadata = {
   title: 'Terms & privacy · PlusOne',
 };
-
-// Only same-origin relative paths may be returned to (no open redirect).
-function safeNext(next: string | undefined): string {
-  if (next && next.startsWith('/') && !next.startsWith('//')) return next;
-  return '/app';
-}
 
 // First-login consent gate (#20/#40). Reachable by any signed-in user (it sits in
 // front of the app); a user who already accepted the current version is sent on.
@@ -25,7 +20,10 @@ export default async function ConsentPage({
   searchParams: Promise<{ next?: string }>;
 }): Promise<JSX.Element> {
   const user = await requireUser('/consent');
-  const next = safeNext((await searchParams).next);
+  // Shared guard (not a weaker local copy): blocks protocol-relative, scheme,
+  // and backslash-smuggled off-site targets — the `next` here reaches both a
+  // server redirect and the client's window.location.replace.
+  const next = safeNextPath((await searchParams).next);
   if (await hasAcceptedCurrentTerms(user.id)) redirect(next);
 
   // Row may not exist yet for a brand-new invitee (created on submit) — that is

@@ -1301,18 +1301,20 @@ export async function fetchVenueSettings(
 
 export type PoSubscriptionRow = Pick<
   Tables['subscriptions']['Row'],
-  'status' | 'plan_id' | 'current_period_end'
+  'status' | 'plan_id' | 'current_period_end' | 'created_at' | 'stripe_subscription_id'
 >;
 
 /** The venue's subscription entitlement (RLS subscriptions_select_member: any
- *  member reads). Read-only — writes flow through Stripe webhooks only (#32). */
+ *  member reads). Read-only — writes flow through Stripe webhooks only (#32).
+ *  created_at + stripe_subscription_id feed the trial countdown / checkout CTA
+ *  (fase 13 PR 2). */
 export async function fetchSubscription(
   client: Client,
   venueId: string
 ): Promise<PoSubscriptionRow | null> {
   const { data } = await client
     .from('subscriptions')
-    .select('status, plan_id, current_period_end')
+    .select('status, plan_id, current_period_end, created_at, stripe_subscription_id')
     .eq('venue_id', venueId)
     .maybeSingle();
 

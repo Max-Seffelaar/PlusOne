@@ -9,9 +9,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
 import { usePoDoorCandidates, usePoEvents } from '@/features/po/hooks';
+import { poKeys } from '@/features/po/keys';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canWorkDoor } from '@/features/auth/roles';
 import { venueCapabilities } from '@/features/venues/access';
@@ -195,6 +197,60 @@ export function PlusOneApp({
     if (!navHydrated) return;
     saveNavState(userId, { tab, stack });
   }, [navHydrated, userId, tab, stack]);
+
+  // Stripe Checkout return (fase 13, #32): the hosted checkout redirects back to
+  // /app?billing=success|canceled. Strip the flag from the URL immediately (a
+  // refresh must not re-toast) and park it in sessionStorage with a timestamp:
+  // the shell remounts once identity/live data settles, which would wipe a
+  // plain useState toast set on the first mount. Every mount re-reads the
+  // parked flag while it is fresh (< toast duration), so the surviving mount
+  // shows the toast; the flag is deleted when the toast clears (or ignored
+  // once stale, if the user navigated away mid-toast).
+  const qc = useQueryClient();
+  useEffect(() => {
+    const KEY = 'po:billing-return';
+    const TOAST_MS = 4000;
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = params.get('billing');
+    if (fromUrl) {
+      params.delete('billing');
+      const rest = params.toString();
+      window.history.replaceState(window.history.state, '', rest ? `/app?${rest}` : '/app');
+      try {
+        sessionStorage.setItem(KEY, JSON.stringify({ v: fromUrl, ts: Date.now() }));
+      } catch {
+        /* storage unavailable: lose the toast, nothing else depends on it */
+      }
+    }
+    let parked: string | null = null;
+    try {
+      const raw = sessionStorage.getItem(KEY);
+      if (raw) {
+        const { v, ts } = JSON.parse(raw) as { v: string; ts: number };
+        if (Date.now() - ts < TOAST_MS) parked = v;
+        else sessionStorage.removeItem(KEY); // stale leftover from an abandoned visit
+      }
+    } catch {
+      parked = fromUrl;
+    }
+    if (!parked) return;
+    if (activeVenueId) {
+      void qc.invalidateQueries({ queryKey: poKeys.subscription(activeVenueId) });
+    }
+    if (parked === 'success') setToast(t.settings.billing.checkoutSuccess);
+    else if (parked === 'canceled') setToast(t.settings.billing.checkoutCanceled);
+    else return; // portal-return and unknown values: silent refresh only
+    const timer = setTimeout(() => {
+      setToast(null);
+      try {
+        sessionStorage.removeItem(KEY);
+      } catch {
+        /* ignore */
+      }
+    }, TOAST_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs per mount, self-guarded
+  }, []);
 
   const bump = (): void => setKey((k) => k + 1);
 

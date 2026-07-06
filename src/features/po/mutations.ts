@@ -104,6 +104,7 @@ import { updateProfileAction, updateEmailAction } from '@/features/auth/profile-
 import { revokeOwnSessionAction, adminRevokeSessionAction } from '@/features/auth/session-actions';
 import { updateMemberRolesAction, removeMemberAction, updateVenueSettingsAction } from '@/features/venues/actions';
 import { setDefaultQuotaAction } from '@/features/quotas/default-quota-actions';
+import { createCheckoutSessionAction, createPortalSessionAction } from '@/features/billing/actions';
 import type { VenueRole } from '@/features/auth/roles';
 import type { Guest, Tier } from '@/lib/po/types';
 import { poKeys } from './keys';
@@ -1110,6 +1111,37 @@ export function usePoUpdateVenueSettings() {
       void qc.invalidateQueries({ queryKey: poKeys.venueSettings(venueId ?? '') });
       // The venue default feeds each member's effective quota in the team view.
       void qc.invalidateQueries({ queryKey: poKeys.team(venueId ?? '') });
+    },
+  });
+}
+
+// ── Billing (fase 13 PR 2, #32) ──────────────────────────────────────────────
+// Checkout + portal are Stripe-hosted redirects: the action returns a URL and
+// the screen navigates. Browser-only — the Billing screen hides these behind
+// !isNativeShell() (store-tax seam #37).
+
+/** Start Stripe Checkout for the active venue; resolves to the hosted URL. */
+export function usePoBillingCheckout() {
+  const { venueId } = usePoIdentity();
+  return useMutation<string, Error, void>({
+    mutationFn: async () => {
+      if (!venueId) throw new Error('No active venue selected.');
+      const res = await createCheckoutSessionAction({ venueId });
+      if (!res.ok) throw new Error(res.message);
+      return res.url;
+    },
+  });
+}
+
+/** Open the Stripe customer portal (payment method + invoices). */
+export function usePoBillingPortal() {
+  const { venueId } = usePoIdentity();
+  return useMutation<string, Error, void>({
+    mutationFn: async () => {
+      if (!venueId) throw new Error('No active venue selected.');
+      const res = await createPortalSessionAction({ venueId });
+      if (!res.ok) throw new Error(res.message);
+      return res.url;
     },
   });
 }

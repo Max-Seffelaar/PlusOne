@@ -19,3 +19,11 @@ export const completeOnboardingSchema = z.object({
   venueId: uuid,
 });
 export type CompleteOnboardingInput = z.input<typeof completeOnboardingSchema>;
+
+// Checkout/portal take ONLY the venue id — the plan is read server-side from
+// the venue's own subscription row (never trusted from the client), and both
+// URLs are server-built. (#32)
+export const billingSessionSchema = z.object({
+  venueId: uuid,
+});
+export type BillingSessionInput = z.input<typeof billingSessionSchema>;

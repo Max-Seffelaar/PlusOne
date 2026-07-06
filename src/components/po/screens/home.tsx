@@ -20,13 +20,13 @@ import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
-import { usePoHomeEvents, usePoGuestRequests, usePoQuotaRequests, usePoProfile } from '@/features/po/hooks';
+import { usePoHomeEvents, usePoGuestRequests, usePoQuotaRequests, usePoProfile, useBillingBlocked } from '@/features/po/hooks';
 import type { HomeEvent } from '@/features/po/adapters';
 import { eventPhase } from '@/features/po/event-phase';
 import { canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '../context';
 import { Icon, type IconName } from '../icon';
-import { Btn, Scroll } from '../kit';
+import { Btn, Note, Scroll } from '../kit';
 import { Sheet, Toast } from '../shell';
 import { PendingInvitesBanner } from '../pending-invites-banner';
 
@@ -630,6 +630,8 @@ export function Home(): JSX.Element {
   const { roles, venueName } = usePoIdentity();
   const showDoor = canWorkDoor(roles);
   const isAdmin = roles.includes('admin');
+  // Soft-block (#32 refinement): hide growth CTAs; the banner explains why.
+  const billingLock = useBillingBlocked();
 
   const eventsQ = usePoHomeEvents();
   const guestReqQ = usePoGuestRequests();
@@ -805,13 +807,28 @@ export function Home(): JSX.Element {
               <Btn sm kind="ghost" icon="plus" onClick={() => setGuestPickOpen(true)}>
                 {t.home.newGuest}
               </Btn>
-              {isAdmin && (
+              {isAdmin && !billingLock.blocked && (
                 <Btn sm icon="cal" onClick={() => nav.push('eventedit', { isNew: true })}>
                   {t.home.newEvent}
                 </Btn>
               )}
             </div>
           </div>
+
+          {isAdmin && billingLock.blocked && (
+            <Note icon="warn">
+              {billingLock.reason === 'canceled'
+                ? t.settings.billing.blockedCanceled
+                : t.settings.billing.blockedTrial}{' '}
+              <button
+                type="button"
+                className="cursor-pointer font-bold text-acc underline underline-offset-2"
+                onClick={() => nav.push('billing')}
+              >
+                {t.settings.billing.blockedCta}
+              </button>
+            </Note>
+          )}
 
           {/* pulse strip — Requests / Quota tiles deep-link into the inbox */}
           <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
@@ -948,7 +965,7 @@ export function Home(): JSX.Element {
           {board.filter((e) => e.when !== 'past').length === 0 ? (
             <div className="flex flex-col items-center gap-4 py-6 text-center">
               <p className="text-[14px] text-faint">{t.home.noUpcomingToday}</p>
-              {isAdmin && (
+              {isAdmin && !billingLock.blocked && (
                 <Btn sm kind="primary" icon="cal" onClick={() => { setGuestPickOpen(false); nav.push('eventedit', { isNew: true }); }}>
                   {t.home.newEvent}
                 </Btn>

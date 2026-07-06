@@ -7,6 +7,39 @@
 export const PLAN_IDS = ['indie', 'premium', 'pro'] as const;
 export type PlanId = (typeof PLAN_IDS)[number];
 
+/** Trial length in days (#32 refinement 2026-07-06: 14 days, soft block).
+ *  Client-safe here so the UI can render "Trial ends in N days"; the server
+ *  carries the same value into Stripe as trial_end at checkout. */
+export const TRIAL_DAYS = 14;
+
+/** End of a venue's app-side display trial (subscription created_at + 14d). */
+export function trialEndsAt(subscriptionCreatedAt: string | Date): Date {
+  const start = new Date(subscriptionCreatedAt);
+  return new Date(start.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+}
+
+// ── Soft-block decision (#32 refinement: 14-day trial, soft block) ───────────
+// Pure and client-safe: the server gate (gate.ts) and the po UI locks read the
+// SAME rule so they can never disagree. Blocked = canceled, or a lapsed trial
+// that never completed checkout. trialing-with-Stripe is Stripe's clock
+// (trial_end), past_due is dunning's (banner only), comped never blocks.
+
+export interface BillingBlockInput {
+  status: 'trialing' | 'active' | 'past_due' | 'canceled' | 'comped';
+  createdAt: string | Date;
+  stripeSubscriptionId: string | null;
+}
+
+export type BillingBlockReason = 'canceled' | 'trial_expired' | null;
+
+export function billingBlockReason(sub: BillingBlockInput, now: Date = new Date()): BillingBlockReason {
+  if (sub.status === 'canceled') return 'canceled';
+  if (sub.status === 'trialing' && !sub.stripeSubscriptionId && trialEndsAt(sub.createdAt) < now) {
+    return 'trial_expired';
+  }
+  return null;
+}
+
 export interface Plan {
   id: PlanId;
   name: string;
