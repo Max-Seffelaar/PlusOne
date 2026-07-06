@@ -6,8 +6,10 @@ import { updateSession } from '@/lib/supabase/middleware';
 // session, and protected routes additionally enforce the MFA policy here — so
 // it covers every surface (dashboard, app, events), not only the (app) shell.
 const PUBLIC_PATHS = new Set<string>(['/', '/login']);
-// Auth callback/confirm routes and the public per-event landing pages (#12).
-const PUBLIC_PREFIXES = ['/auth/', '/e/'];
+// Auth callback/confirm routes, the public per-event landing pages (#12) and
+// inbound webhooks (#32 — Stripe authenticates via signature, not a session;
+// a login redirect here would make Stripe mark every delivery as failed).
+const PUBLIC_PREFIXES = ['/auth/', '/e/', '/api/webhooks/'];
 
 function isPublic(pathname: string): boolean {
   if (PUBLIC_PATHS.has(pathname)) return true;
