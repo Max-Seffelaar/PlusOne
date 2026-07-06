@@ -50,6 +50,7 @@ export const ICONS = {
   filter: 'M3 5h18l-7 8v5l-4 2v-7z',
   arrowUp: 'M12 19V5M6 11l6-6 6 6',
   inbox: 'M4 13h4l1.5 3h5L16 13h4M4 13l2.5-8h11L20 13v6H4z',
+  qr: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h3v3h-3zM20 14h.01M14 20h.01M20 17h.01M17 20h.01M20 20h.01',
 } as const;
 
 export type IconName = keyof typeof ICONS;

@@ -99,6 +99,18 @@ import type {
   RemoveOrganizerInput,
   SetEventUserQuotaInput,
 } from '@/features/events/schemas';
+import {
+  createInfluencer,
+  updateInfluencer,
+  createRequestLink,
+  updateRequestLink,
+} from '@/features/links/actions';
+import type {
+  CreateInfluencerInput,
+  UpdateInfluencerInput,
+  CreateRequestLinkInput,
+  UpdateRequestLinkInput,
+} from '@/features/links/schemas';
 import { inviteUserAction, revokeInviteAction, acceptInvitesAction } from '@/features/auth/invite-actions';
 import { updateProfileAction, updateEmailAction } from '@/features/auth/profile-actions';
 import { revokeOwnSessionAction, adminRevokeSessionAction } from '@/features/auth/session-actions';
@@ -905,6 +917,80 @@ export function usePoRemoveCrew(eventId: string) {
   return useMutation({
     mutationFn: async (input: RemoveOrganizerInput) => throwOnError(await removeOrganizer(input)),
     onSuccess: () => invalidateCrew(qc, eventId),
+  });
+}
+
+// ── Request links + influencers (Requests-epic F1, 86ey21vjt) ──
+// Wrap the src/features/links server actions (RLS: admin manages influencers,
+// admin/organizer manage links on their event). A link write refreshes the
+// event's link list + the lean venue-wide list + the influencer link counts; an
+// influencer write also refreshes the links + requests caches, since their
+// resolved display names ride along on those rows.
+
+const REQUEST_LINKS_PREFIX = [...poKeys.all, 'request-links'] as const;
+const VENUE_LINKS_PREFIX = [...poKeys.all, 'venue-links'] as const;
+const INFLUENCERS_PREFIX = [...poKeys.all, 'influencers'] as const;
+
+function invalidateLinks(qc: QueryClient, eventId?: string): void {
+  if (eventId) void qc.invalidateQueries({ queryKey: poKeys.requestLinks(eventId) });
+  else void qc.invalidateQueries({ queryKey: REQUEST_LINKS_PREFIX });
+  void qc.invalidateQueries({ queryKey: VENUE_LINKS_PREFIX });
+  void qc.invalidateQueries({ queryKey: INFLUENCERS_PREFIX });
+}
+
+/** Create a request link on an event (server generates the slug). Returns the id. */
+export function usePoCreateLink(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CreateRequestLinkInput): Promise<string | undefined> => {
+      const res = await createRequestLink(input);
+      if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
+      return res.id;
+    },
+    onSuccess: () => invalidateLinks(qc, eventId),
+  });
+}
+
+/** Update / pause / archive a request link. Also refreshes the approvals caches —
+ *  the via-labels and the link filter ride on the link rows. */
+export function usePoUpdateLink(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: UpdateRequestLinkInput) => throwOnError(await updateRequestLink(input)),
+    onSuccess: () => {
+      invalidateLinks(qc, eventId);
+      void qc.invalidateQueries({ queryKey: REQUESTS_KEY });
+    },
+  });
+}
+
+/** Create a venue influencer (admin-only via RLS). Returns the new id so the
+ *  link sheet's inline "+ New" can select it immediately. */
+export function usePoCreateInfluencer() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: CreateInfluencerInput): Promise<string | undefined> => {
+      const res = await createInfluencer(input);
+      if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
+      return res.id;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.influencers(venueId ?? '') }),
+  });
+}
+
+/** Edit / archive a venue influencer. Their name rides on link + request rows,
+ *  so those caches refresh along with the roster. */
+export function usePoUpdateInfluencer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: UpdateInfluencerInput) => throwOnError(await updateInfluencer(input)),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: INFLUENCERS_PREFIX });
+      void qc.invalidateQueries({ queryKey: REQUEST_LINKS_PREFIX });
+      void qc.invalidateQueries({ queryKey: VENUE_LINKS_PREFIX });
+      void qc.invalidateQueries({ queryKey: REQUESTS_KEY });
+    },
   });
 }
 

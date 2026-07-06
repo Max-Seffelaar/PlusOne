@@ -18,6 +18,7 @@ import {
   usePoVenueSettings,
   usePoEventActivity,
   usePoAuditFeed,
+  usePoRequestLinks,
 } from '@/features/po/hooks';
 import type { PoCrewMember } from '@/features/po/queries';
 import type { TierStat, UserAddition } from '@/features/stats/data';
@@ -185,6 +186,8 @@ export function EventView({ id }: { id?: string }): JSX.Element {
   // External crew count for the admin-only crew row below; only admins can manage
   // it, so a non-admin passes an empty id and the hook stays disabled (no fetch).
   const crewQ = usePoCrew(isAdmin ? id ?? '' : '');
+  // Request-links count for the admin-only links row (F1) — same disable pattern.
+  const linksQ = usePoRequestLinks(isAdmin ? id ?? '' : '');
 
   if (isLoading) return <ScreenState onBack={nav.back} title={t.events.detailTitle} text={t.events.loading} />;
   if (isError || notFound || !event) {
@@ -250,6 +253,28 @@ export function EventView({ id }: { id?: string }): JSX.Element {
                       : fmt(crewQ.data?.length === 1 ? t.events.crew.rowCountOne : t.events.crew.rowCountMany, {
                           n: crewQ.data?.length ?? 0,
                         })}
+                  </span>
+                </span>
+                <Icon name="chev" size={18} className="text-ghost" />
+              </button>
+            )}
+            {/* Request links (F1) — admin-only quick entry, mirrors the crew row. */}
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => nav.push('links', { id: ev.id })}
+                className={cn('mt-3 flex w-full items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[13px] text-left', cardPress)}
+              >
+                <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[11px] border border-line bg-elev2 text-acc">
+                  <Icon name="link" size={18} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-body text-[15px] font-semibold text-text">{t.events.linksRowTitle}</span>
+                  <span className="mt-px block text-[12.5px] text-faint">
+                    {(() => {
+                      const n = (linksQ.data ?? []).filter((l) => l.active).length;
+                      return fmt(n === 1 ? t.events.linksRowSubOne : t.events.linksRowSubMany, { n });
+                    })()}
                   </span>
                 </span>
                 <Icon name="chev" size={18} className="text-ghost" />
@@ -438,6 +463,9 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const setListLock = usePoSetListLock(editId);
   const setAutoLock = usePoSetAutoLock(editId);
   const setAllowUncheck = usePoSetAllowUncheck(editId);
+  // Request links (F1): the row under the block shows the live active count.
+  // editId is '' on create, which keeps the hook disabled (no fetch).
+  const linksQ = usePoRequestLinks(editId);
 
   const [name, setName] = useState('');
   // Create-from-template (86exyp8gn): null = blank event (the existing path).
@@ -746,6 +774,30 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
             </div>
           )}
         </div>
+
+        {/* Per-influencer request links (F1) — directly under the block, Tiers/Crew
+            row pattern. The default link's own toggle stays the master above. */}
+        {!isNew && (
+          <button
+            type="button"
+            onClick={() => nav.push('links', { id: editId })}
+            className="-mt-1 mb-[18px] flex w-full items-center gap-[13px] rounded-[14px] border border-line bg-elev px-[14px] py-[15px] text-left transition-colors hover:bg-white/[0.03]"
+          >
+            <span className="flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line bg-elev2 text-acc">
+              <Icon name="link" size={18} />
+            </span>
+            <span className="flex-1">
+              <span className="block font-body text-[15px] font-semibold text-text">{t.events.linksRowTitle}</span>
+              <span className="mt-px block text-[12.5px] text-faint">
+                {(() => {
+                  const n = (linksQ.data ?? []).filter((l) => (l.isDefault ? landingOn : l.active)).length;
+                  return fmt(n === 1 ? t.events.linksRowSubOne : t.events.linksRowSubMany, { n });
+                })()}
+              </span>
+            </span>
+            <Icon name="chev" size={18} className="text-ghost" />
+          </button>
+        )}
 
         {!isNew && (
           <>

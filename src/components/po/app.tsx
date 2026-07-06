@@ -95,6 +95,14 @@ const TemplateEdit = dynamic(() => import('./screens/templates').then((m) => m.T
   loading: ScreenLoading,
   ssr: false,
 });
+const Links = dynamic(() => import('./screens/links').then((m) => m.Links), {
+  loading: ScreenLoading,
+  ssr: false,
+});
+const Influencers = dynamic(() => import('./screens/influencers').then((m) => m.Influencers), {
+  loading: ScreenLoading,
+  ssr: false,
+});
 
 /** Data-dense screens that opt into the full 1080px desktop column. Forms and
  *  detail-entry screens stay at the narrow reading column (640px). Mobile is
@@ -467,6 +475,12 @@ export function PlusOneApp({
         break;
       case 'templateedit':
         screen = <TemplateEdit id={p.id} isNew={p.isNew} />;
+        break;
+      case 'links':
+        screen = <Links eventId={p.id} />;
+        break;
+      case 'influencers':
+        screen = <Influencers />;
         break;
       default:
         screen = null;

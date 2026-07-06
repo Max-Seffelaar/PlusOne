@@ -50,6 +50,12 @@ import {
   fetchOrganizesAtVenue,
   fetchEventCrew,
   fetchAssignableCrew,
+  fetchRequestLinks,
+  fetchVenueRequestLinks,
+  fetchVenueInfluencers,
+  type PoRequestLink,
+  type PoLinkOption,
+  type PoInfluencer,
   type PoCrewMember,
   fetchPoEventActivityStats,
   type EventEditRow,
@@ -610,6 +616,42 @@ export function usePoQuotaRequests() {
       const rows = await fetchQuotaRequests(createClient(), eventIds);
       return rows.map((r) => toPoQuotaRequest(r));
     },
+  });
+}
+
+// ── Request links + influencers (Requests-epic F1, 86ey21vjt) ──
+// Links scope to one event (the Request-links screen + the EventEdit row count);
+// the lean venue-wide list feeds the approvals link filter; influencers scope to
+// the active venue. RLS gates every read — a role without rights gets [].
+
+/** One event's request links with their funnel numbers (default link pinned first). */
+export function usePoRequestLinks(eventId: string) {
+  return useQuery<PoRequestLink[]>({
+    queryKey: poKeys.requestLinks(eventId),
+    enabled: !!eventId,
+    queryFn: () => fetchRequestLinks(createClient(), eventId),
+  });
+}
+
+/** Every non-archived link across the active venue's events (lean, for filters). */
+export function usePoVenueLinks() {
+  const { venueId } = usePoIdentity();
+  const events = usePoEvents();
+  const eventIds = (events.data ?? []).map((e) => e.id);
+  return useQuery<PoLinkOption[]>({
+    queryKey: poKeys.venueLinks(venueId ?? ''),
+    enabled: !!venueId && events.isSuccess,
+    queryFn: () => fetchVenueRequestLinks(createClient(), eventIds),
+  });
+}
+
+/** The active venue's influencer roster (non-archived), with link counts. */
+export function usePoInfluencers() {
+  const { venueId } = usePoIdentity();
+  return useQuery<PoInfluencer[]>({
+    queryKey: poKeys.influencers(venueId ?? ''),
+    enabled: !!venueId,
+    queryFn: () => (venueId ? fetchVenueInfluencers(createClient(), venueId) : Promise.resolve([])),
   });
 }
 

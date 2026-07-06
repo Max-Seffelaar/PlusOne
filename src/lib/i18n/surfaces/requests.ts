@@ -60,6 +60,17 @@ export const requests = {
   deny: 'Deny',
   approveExtra: 'Approve +{n}',
 
+  // ── Request-link filter + via-chip (F1, 86ey21vjt) ──────────────────────────
+  viaChip: 'via {label}',
+  linkFilterAll: 'All links',
+  linkFilterAria: 'Filter by request link',
+  pickLinkTitle: 'Filter by link',
+  standardLink: 'Standard link',
+
+  // ── Auto-approved trace section (F1) ────────────────────────────────────────
+  autoApprovedHeading: 'Auto-approved · {n}',
+  autoApprovedTag: 'Straight on the list',
+
   // ── Event picker sheet ──────────────────────────────────────────────────────
   pickEventTitle: 'Pick an event',
   close: 'Close',

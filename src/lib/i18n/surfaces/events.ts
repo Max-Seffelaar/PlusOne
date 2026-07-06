@@ -69,12 +69,18 @@ export const events = {
   tiersRowTitle: 'Tiers & aliases',
   tiersRowSub: 'Feed the quick-add',
   status: 'Status',
-  landingPage: 'Landing page',
+  // Block retitled with F1 (86ey21vjt): the landing page is now one of several
+  // request links. Key stays `landingPage` so no call sites move.
+  landingPage: 'Request links',
   landingActiveTitle: 'Request link active',
   landingActiveSub: 'Guests can request a spot through the link.',
   copyLinkAria: 'Copy sign-up link',
   copyLinkLabel: 'Copy link',
   copyLinkDone: 'Copied!',
+  // Per-influencer request links row (F1) — mirrors the Tiers/Crew rows.
+  linksRowTitle: 'Request links',
+  linksRowSubOne: '{n} active link · per-influencer tracking',
+  linksRowSubMany: '{n} active links · per-influencer tracking',
   autoCloseTitle: 'Close sign-ups automatically',
   autoCloseOnSub: 'After this, no one can request a spot.',
   autoCloseOffSub: 'Link stays open until you close it.',

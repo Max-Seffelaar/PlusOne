@@ -69,4 +69,10 @@ export const poKeys = {
   guestHistory: (guestId: string) => [...poKeys.all, 'guest-history', guestId] as const,
   /** Per-tier + per-member stats for the event Activity section (86ey21vnd). */
   eventActivity: (eventId: string) => [...poKeys.all, 'event-activity', eventId] as const,
+  // Request links + influencers (Requests-epic F1, 86ey21vjt) — one event's links
+  // with their funnel numbers; the venue-wide lean link list (approvals filter);
+  // the venue's influencer roster. Mutations invalidate by the same prefixes.
+  requestLinks: (eventId: string) => [...poKeys.all, 'request-links', eventId] as const,
+  venueLinks: (venueId: string) => [...poKeys.all, 'venue-links', venueId] as const,
+  influencers: (venueId: string) => [...poKeys.all, 'influencers', venueId] as const,
 } as const;

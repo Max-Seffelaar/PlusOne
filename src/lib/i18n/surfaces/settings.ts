@@ -46,6 +46,8 @@ export const settings = {
     quotaSub: 'Guests per event, per team member',
     regularsTitle: 'Regulars',
     regularsSub: 'Automatically on every guest list',
+    influencersTitle: 'Influencers',
+    influencersSub: 'Promoters with their own request links',
     contactsTitle: 'Contacts',
     contactsSub: 'Reuse saved contacts',
     importTitle: 'Import',

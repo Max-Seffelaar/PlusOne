@@ -276,15 +276,54 @@ export async function fetchOpenRequestCount(client: Client, eventId: string): Pr
 
 export type PoGuestRequestRow = Pick<
   Tables['guest_requests']['Row'],
-  'id' | 'full_name' | 'phone' | 'plus_ones' | 'motivation' | 'created_at' | 'event_id' | 'status' | 'decision_reason'
->;
+  | 'id'
+  | 'full_name'
+  | 'phone'
+  | 'plus_ones'
+  | 'motivation'
+  | 'created_at'
+  | 'event_id'
+  | 'status'
+  | 'decision_reason'
+  | 'request_link_id'
+  | 'decided_via'
+> & {
+  /** Resolved link identity (influencer name ?? label); null for the default
+   *  link, a legacy pre-links request, or an unreadable link (RLS). */
+  viaLabel: string | null;
+};
+
+/** Resolve request_link_id → "via" label (influencer name ?? label) in two
+ *  RLS-safe round-trips (no FK-embed guessing — mirrors fetchQuotaRequests).
+ *  The default link resolves to null: it has no influencer and no label. */
+async function fetchLinkLabels(client: Client, linkIds: string[]): Promise<Map<string, string | null>> {
+  const labels = new Map<string, string | null>();
+  if (linkIds.length === 0) return labels;
+  const { data: links } = await client
+    .from('request_links')
+    .select('id, label, influencer_id')
+    .in('id', linkIds);
+  const rows = links ?? [];
+  const infIds = [...new Set(rows.map((l) => l.influencer_id).filter((x): x is string => !!x))];
+  const influencers = infIds.length
+    ? (await client.from('influencers').select('id, name').in('id', infIds)).data ?? []
+    : [];
+  const nameById = new Map(influencers.map((i) => [i.id, i.name]));
+  for (const l of rows) {
+    labels.set(l.id, (l.influencer_id ? nameById.get(l.influencer_id) : null) ?? l.label ?? null);
+  }
+  return labels;
+}
 
 /**
- * Landing-page requests across the given events — both still-open (pending) and
- * already-DENIED, oldest first. The screen shows the open ones as the queue and
- * the denied ones in an "Afgewezen" section, where an admin can still add the
- * person after all (re-approve, #12). Approved requests are excluded (they're on
- * the list already). RLS limits visibility to admin/finance/organizer.
+ * Landing-page requests across the given events — still-open (pending),
+ * already-DENIED, and AUTO-APPROVED (the read-only trace of what an auto-approve
+ * link let straight onto the list), oldest first. The screen shows the open ones
+ * as the queue, the denied ones in a "Declined" section (an admin can still add
+ * the person after all — re-approve, #12), and the auto-approved ones in their own
+ * collapsed section. Manually-approved requests stay excluded (they're on the
+ * list already, decided by a human). Each row carries its request link resolved
+ * to a "via" label. RLS limits visibility to admin/finance/organizer.
  */
 export async function fetchGuestRequests(
   client: Client,
@@ -293,12 +332,20 @@ export async function fetchGuestRequests(
   if (eventIds.length === 0) return [];
   const { data } = await client
     .from('guest_requests')
-    .select('id, full_name, phone, plus_ones, motivation, created_at, event_id, status, decision_reason')
+    .select(
+      'id, full_name, phone, plus_ones, motivation, created_at, event_id, status, decision_reason, request_link_id, decided_via'
+    )
     .in('event_id', eventIds)
-    .in('status', ['pending', 'denied'])
+    .or('status.in.(pending,denied),and(status.eq.approved,decided_via.eq.auto)')
     .order('created_at', { ascending: true });
 
-  return data ?? [];
+  const rows = data ?? [];
+  const linkIds = [...new Set(rows.map((r) => r.request_link_id).filter((x): x is string => !!x))];
+  const labels = await fetchLinkLabels(client, linkIds);
+  return rows.map((r) => ({
+    ...r,
+    viaLabel: r.request_link_id ? labels.get(r.request_link_id) ?? null : null,
+  }));
 }
 
 export interface PoQuotaRequestRow {
@@ -1449,4 +1496,208 @@ export async function fetchPoAuditFilterOptions(
       .map((m) => ({ id: m.user_id, name: m.user_profiles?.full_name ?? 'Onbekend' }))
       .sort((a, b) => a.name.localeCompare(b.name, 'nl')),
   };
+}
+
+// ── Request links + influencers (Requests-epic F1, 86ey21vjt) ─────────────────
+// Per-influencer/per-channel request links on an event, plus the venue influencer
+// roster. RLS is the boundary: admin (venue) + organizer (own event) read/manage
+// links, admin manages influencers, finance reads, staff/door see nothing — an
+// out-of-scope caller simply gets []. Names are resolved in second round-trips
+// (no FK-embed guessing), mirroring fetchQuotaRequests.
+
+export interface PoRequestLink {
+  id: string;
+  eventId: string;
+  /** Public URL path segment: the link lives at {origin}/e/{slug}. */
+  slug: string;
+  /** The event's legacy landing link — pinned first; its on/off is the event-level
+   *  master toggle (events.landing_active), not this row's `active`. */
+  isDefault: boolean;
+  active: boolean;
+  autoApprove: boolean;
+  influencerId: string | null;
+  /** Resolved influencer display name; null for label-only / default links. */
+  influencerName: string | null;
+  label: string | null;
+  tierId: string | null;
+  maxHeadcount: number | null;
+  expiresAt: string | null;
+  createdAt: string;
+  // Funnel numbers, aggregated client-side from batched reads.
+  /** Total landing pageviews (sum of the daily buckets). */
+  views: number;
+  /** Total requests submitted through the link (any status). */
+  requests: number;
+  /** Requests that made the list (status approved, manual or auto). */
+  approved: number;
+  /** Approved HEADCOUNT on the guest list via this link: sum of 1 + plus_ones
+   *  over non-removed guests — what max_headcount caps. */
+  approvedHeads: number;
+}
+
+/**
+ * One event's request links (archived excluded) with their funnel numbers —
+ * views / requests / approved / approved heads — via four batched reads (links,
+ * pageview buckets, requests, guests), never per-link queries. Default link
+ * first, then oldest-first.
+ */
+export async function fetchRequestLinks(client: Client, eventId: string): Promise<PoRequestLink[]> {
+  const { data: links } = await client
+    .from('request_links')
+    .select(
+      'id, event_id, slug, is_default, active, auto_approve, influencer_id, label, tier_id, max_headcount, expires_at, created_at'
+    )
+    .eq('event_id', eventId)
+    .is('archived_at', null)
+    .order('created_at', { ascending: true });
+
+  const rows = links ?? [];
+  if (rows.length === 0) return [];
+  const linkIds = rows.map((l) => l.id);
+  const infIds = [...new Set(rows.map((l) => l.influencer_id).filter((x): x is string => !!x))];
+
+  const [influencers, pageviews, requests, guests] = await Promise.all([
+    infIds.length
+      ? client.from('influencers').select('id, name').in('id', infIds).then((r) => r.data ?? [])
+      : Promise.resolve([] as { id: string; name: string }[]),
+    client
+      .from('request_link_pageviews_daily')
+      .select('request_link_id, views')
+      .in('request_link_id', linkIds)
+      .then((r) => r.data ?? []),
+    client
+      .from('guest_requests')
+      .select('request_link_id, status')
+      .eq('event_id', eventId)
+      .not('request_link_id', 'is', null)
+      .then((r) => r.data ?? []),
+    // Ranged: a 1500-guest event would truncate the headcount at PostgREST's
+    // 1000-row cap. `.order('id')` keys the paging (same as fetchTiersWithUsage).
+    fetchAllRanged<Pick<Tables['guests']['Row'], 'request_link_id' | 'plus_ones' | 'status'>>((from, to) =>
+      client
+        .from('guests')
+        .select('request_link_id, plus_ones, status')
+        .eq('event_id', eventId)
+        .not('request_link_id', 'is', null)
+        .order('id')
+        .range(from, to)
+    ),
+  ]);
+
+  const nameById = new Map(influencers.map((i) => [i.id, i.name]));
+  const viewsByLink = new Map<string, number>();
+  for (const p of pageviews) {
+    viewsByLink.set(p.request_link_id, (viewsByLink.get(p.request_link_id) ?? 0) + p.views);
+  }
+  const requestsByLink = new Map<string, number>();
+  const approvedByLink = new Map<string, number>();
+  for (const r of requests) {
+    if (!r.request_link_id) continue;
+    requestsByLink.set(r.request_link_id, (requestsByLink.get(r.request_link_id) ?? 0) + 1);
+    if (r.status === 'approved') {
+      approvedByLink.set(r.request_link_id, (approvedByLink.get(r.request_link_id) ?? 0) + 1);
+    }
+  }
+  const headsByLink = new Map<string, number>();
+  for (const g of guests) {
+    if (!g.request_link_id || g.status === 'removed') continue;
+    headsByLink.set(g.request_link_id, (headsByLink.get(g.request_link_id) ?? 0) + 1 + g.plus_ones);
+  }
+
+  return rows
+    .map((l) => ({
+      id: l.id,
+      eventId: l.event_id,
+      slug: l.slug,
+      isDefault: l.is_default,
+      active: l.active,
+      autoApprove: l.auto_approve,
+      influencerId: l.influencer_id,
+      influencerName: l.influencer_id ? nameById.get(l.influencer_id) ?? null : null,
+      label: l.label,
+      tierId: l.tier_id,
+      maxHeadcount: l.max_headcount,
+      expiresAt: l.expires_at,
+      createdAt: l.created_at,
+      views: viewsByLink.get(l.id) ?? 0,
+      requests: requestsByLink.get(l.id) ?? 0,
+      approved: approvedByLink.get(l.id) ?? 0,
+      approvedHeads: headsByLink.get(l.id) ?? 0,
+    }))
+    .sort((a, b) => (a.isDefault === b.isDefault ? a.createdAt.localeCompare(b.createdAt) : a.isDefault ? -1 : 1));
+}
+
+/** A lean venue-wide link option (the approvals link-filter sheet): id + owning
+ *  event + resolved display label. Default links resolve to a null label. */
+export interface PoLinkOption {
+  id: string;
+  eventId: string;
+  isDefault: boolean;
+  /** Influencer name ?? label; null for the default link. */
+  label: string | null;
+}
+
+/** Every non-archived link across the given events (lean — no funnel numbers). */
+export async function fetchVenueRequestLinks(client: Client, eventIds: string[]): Promise<PoLinkOption[]> {
+  if (eventIds.length === 0) return [];
+  const { data } = await client
+    .from('request_links')
+    .select('id, event_id, is_default, label, influencer_id')
+    .in('event_id', eventIds)
+    .is('archived_at', null)
+    .order('created_at', { ascending: true });
+
+  const rows = data ?? [];
+  const infIds = [...new Set(rows.map((l) => l.influencer_id).filter((x): x is string => !!x))];
+  const influencers = infIds.length
+    ? (await client.from('influencers').select('id, name').in('id', infIds)).data ?? []
+    : [];
+  const nameById = new Map(influencers.map((i) => [i.id, i.name]));
+  return rows.map((l) => ({
+    id: l.id,
+    eventId: l.event_id,
+    isDefault: l.is_default,
+    label: (l.influencer_id ? nameById.get(l.influencer_id) : null) ?? l.label ?? null,
+  }));
+}
+
+export interface PoInfluencer {
+  id: string;
+  name: string;
+  handle: string | null;
+  notes: string | null;
+  /** Non-archived request links attached to this influencer (venue-wide). */
+  linkCount: number;
+}
+
+/** The venue's influencer roster (non-archived), name-sorted, with per-influencer
+ *  link counts from one extra batched read. Admin/organizer/finance read (RLS). */
+export async function fetchVenueInfluencers(client: Client, venueId: string): Promise<PoInfluencer[]> {
+  const [{ data: influencers }, { data: links }] = await Promise.all([
+    client
+      .from('influencers')
+      .select('id, name, handle, notes')
+      .eq('venue_id', venueId)
+      .is('archived_at', null)
+      .order('name'),
+    client
+      .from('request_links')
+      .select('influencer_id')
+      .eq('venue_id', venueId)
+      .is('archived_at', null)
+      .not('influencer_id', 'is', null),
+  ]);
+
+  const counts = new Map<string, number>();
+  for (const l of links ?? []) {
+    if (!l.influencer_id) continue;
+    counts.set(l.influencer_id, (counts.get(l.influencer_id) ?? 0) + 1);
+  }
+  return (influencers ?? []).map((i) => ({
+    id: i.id,
+    name: i.name,
+    handle: i.handle,
+    notes: i.notes,
+    linkCount: counts.get(i.id) ?? 0,
+  }));
 }

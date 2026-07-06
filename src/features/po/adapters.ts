@@ -654,8 +654,16 @@ export interface PoGuestRequest {
   motivation: string;
   /** Relative time of submission. */
   at: string;
-  /** Open queue vs already-refused (still re-addable). */
-  status: 'pending' | 'denied';
+  /** Open queue, already-refused (still re-addable), or approved (the query only
+   *  returns AUTO-approved ones — the read-only trace section). */
+  status: 'pending' | 'denied' | 'approved';
+  /** How an approved/denied request was decided (F1): by a human or by an
+   *  auto-approve link. 'manual' for undecided rows (the column's default). */
+  decidedVia: Database['public']['Enums']['decision_source'];
+  /** The request link this came through, or null (legacy / direct). */
+  requestLinkId: string | null;
+  /** Resolved link identity (influencer name ?? label); null for the default link. */
+  viaLabel: string | null;
   /** The refusal reason when status is 'denied'; null otherwise. */
   denyReason: string | null;
   /** Deterministic nudge for a large party (+3 or more); absent otherwise. */
@@ -664,9 +672,10 @@ export interface PoGuestRequest {
 
 export function toPoGuestRequest(row: PoGuestRequestRow, now?: Date): PoGuestRequest {
   const digits = (row.phone ?? '').replace(/[^0-9]/g, '');
-  // request_status is pending | approved | denied; the query only returns the
-  // first and last, but narrow defensively so the screen never mislabels a row.
-  const status: 'pending' | 'denied' = row.status === 'denied' ? 'denied' : 'pending';
+  // request_status is pending | approved | denied — narrow defensively so the
+  // screen never mislabels a row (approved only reaches us for auto-approvals).
+  const status: PoGuestRequest['status'] =
+    row.status === 'denied' ? 'denied' : row.status === 'approved' ? 'approved' : 'pending';
   return {
     id: row.id,
     eventId: row.event_id,
@@ -676,6 +685,9 @@ export function toPoGuestRequest(row: PoGuestRequestRow, now?: Date): PoGuestReq
     motivation: row.motivation ?? '',
     at: relativeTime(row.created_at, now),
     status,
+    decidedVia: row.decided_via,
+    requestLinkId: row.request_link_id,
+    viaLabel: row.viaLabel,
     denyReason: status === 'denied' ? row.decision_reason : null,
     flag: row.plus_ones >= 3 ? `Groot gezelschap (+${row.plus_ones})` : undefined,
   };
