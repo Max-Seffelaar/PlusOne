@@ -20,6 +20,7 @@ export const guests = {
     introCreate: 'Add one here and you can keep going.',
     introAsk: 'Ask an admin or organizer to add one.',
     createBtn: 'Create tier',
+    addBtn: 'Add tier',
     nameLabel: 'Name',
     namePlaceholder: 'e.g. "Regular" or "Guest list"',
     colorLabel: 'Color',

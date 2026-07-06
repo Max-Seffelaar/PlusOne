@@ -1,7 +1,7 @@
 'use client';
 
 /** Events tab + event detail, event CRUD, tier/alias beheer, past-event recap. */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import type { PoEvent } from '@/lib/po/types';
@@ -483,6 +483,9 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const [uncheckOverride, setUncheckOverride] = useState<boolean | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Leaving with unsaved edits asks first (retest 3/7, Q6). Immediate controls
+  // (lock, check-out, cancel) commit on toggle, so they never count as dirty.
+  const [confirmLeave, setConfirmLeave] = useState(false);
 
   // Hydrate the form once the event identity loads / changes (edit mode only).
   useEffect(() => {
@@ -512,6 +515,31 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const writable = isNew ? isAdmin : canManage;
   const venueLabel = isNew ? venueName ?? '' : ev?.venueName ?? '';
   const saving = createEvent.isPending || createFromTemplate.isPending || updateEvent.isPending;
+
+  // Anything the Save button would commit that differs from the loaded state.
+  const dirty = ((): boolean => {
+    if (!writable || saving) return false;
+    if (isNew) return !!(name.trim() || dateStr || timeStr || endDateStr || endTimeStr);
+    if (!ev) return false;
+    const [d0, t0] = splitLocal(ev.startsAt);
+    const [ed0, et0] = splitLocal(ev.endsAt);
+    const [ad0, at0] = splitLocal(ev.autoLockAt);
+    return (
+      name !== ev.name ||
+      dateStr !== d0 ||
+      timeStr !== t0 ||
+      endDateStr !== ed0 ||
+      endTimeStr !== et0 ||
+      landingOn !== ev.landingActive ||
+      autoOn !== !!ev.autoLockAt ||
+      (autoOn && (autoDate !== ad0 || autoTime !== at0))
+    );
+  })();
+
+  const onBack = (): void => {
+    if (dirty) setConfirmLeave(true);
+    else nav.back();
+  };
   // Uitchecken toestaan: effective = override ?? venue default ?? true (#3 / S1.1).
   const venueDefaultUncheck = ev?.venueAllowUncheck ?? true;
   const effectiveUncheck = resolveAllowUncheck(uncheckOverride, venueDefaultUncheck);
@@ -620,7 +648,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title={isNew ? t.events.newEvent : t.events.editTitle} sub={isNew ? undefined : ev?.name} />
+      <Top onBack={onBack} title={isNew ? t.events.newEvent : t.events.editTitle} sub={isNew ? undefined : ev?.name} />
       <Scroll bottom={120}>
         {err && <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{err}</div>}
         {!isNew && ev?.cancelledAt && (
@@ -851,6 +879,27 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           {saving ? t.events.saving : isNew ? t.events.createEvent : t.events.saveEvent}
         </Btn>
       </BottomBar>
+      {confirmLeave && (
+        <Sheet onClose={() => setConfirmLeave(false)} center={false}>
+          <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{t.events.unsaved.title}</div>
+          <div className="mb-4 text-[13.5px] leading-[1.45] text-faint">{t.events.unsaved.body}</div>
+          <div className="flex flex-col gap-2">
+            <Btn kind="primary" full icon="check" onClick={() => setConfirmLeave(false)}>
+              {t.events.unsaved.stay}
+            </Btn>
+            <Btn
+              kind="dark"
+              full
+              onClick={() => {
+                setConfirmLeave(false);
+                nav.back();
+              }}
+            >
+              {t.events.unsaved.discard}
+            </Btn>
+          </div>
+        </Sheet>
+      )}
     </div>
   );
 }
@@ -875,6 +924,18 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
   const [err, setErr] = useState<string | null>(null);
   const [aliasFor, setAliasFor] = useState<string | null>(null);
   const [newAlias, setNewAlias] = useState('');
+
+  // Arriving on a tier-less event (setup nudge, "Guest tiers" row) opens the
+  // create form directly — no extra tap on the + first (retest 3/7, Q10). Once
+  // only, so deliberately closing the form doesn't bounce it back open.
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    if (autoOpened.current || isLoading || isError) return;
+    if ((tierList ?? []).length === 0) {
+      autoOpened.current = true;
+      setAdding(true);
+    }
+  }, [isLoading, isError, tierList]);
 
   const resetForm = (): void => {
     setNm('');

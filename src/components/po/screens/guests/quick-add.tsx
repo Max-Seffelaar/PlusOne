@@ -23,7 +23,7 @@ import { isValidPhoneNumber } from 'react-phone-number-input';
 import { Avatar, Btn, Empty, IconBtn, Label, MiniChip, Top, Scroll } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
 import { CountrySelect, type CountryCode } from '../../country-select';
-import { DupeOption, NoTiersBlock, press, col } from './_shared';
+import { AddTierInline, DupeOption, NoTiersBlock, press, col } from './_shared';
 
 // ── QUICK-ADD (#33) ──────────────────────────────────────────────────────────
 interface JustAdded {
@@ -339,6 +339,11 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                 </div>
               )}
             </div>
+
+            {/* Creating tiers shouldn't be a one-shot (retest 3/7, Q12): the same
+                inline form stays reachable once tiers exist. Same gate as the
+                first-tier block (admin/organizer via the quota exempt flag). */}
+            {exempt && !parsed && <AddTierInline eventId={evId} className="mt-3" />}
 
             {needsAsk && parsed?.ambiguous && (
               <div className="mt-3 rounded-[16px] bg-acc-dim p-[14px]">

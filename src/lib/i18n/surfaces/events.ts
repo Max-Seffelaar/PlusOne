@@ -107,6 +107,13 @@ export const events = {
   saving: 'Saving…',
   createEvent: 'Create event',
   saveEvent: 'Save event',
+  // Leaving the form with unsaved edits (retest 3/7, Q6).
+  unsaved: {
+    title: 'Unsaved changes',
+    body: "You have changes here that aren't saved yet. Leave and discard them?",
+    stay: 'Keep editing',
+    discard: 'Discard & leave',
+  },
   // Save-as-template (86exyp8gn) — snapshot this event's setup into a template.
   saveTemplateLabel: 'Reuse this setup',
   saveTemplateCta: 'Save as template',
