@@ -18,6 +18,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+      // `import 'server-only'` is a compiler-level marker Next provides without
+      // an installed package; stub it so server modules are unit-testable.
+      'server-only': fileURLToPath(new URL('./tests/unit/server-only-stub.ts', import.meta.url)),
     },
   },
 });

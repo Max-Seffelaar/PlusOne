@@ -23,6 +23,7 @@ import {
   usePoUpdateTemplate,
 } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
+import { TIER_COLORS } from '@/lib/po/tier-colors';
 import { useNav } from '../context';
 import { Icon } from '../icon';
 import { Btn, Empty, Field, IconBtn, Label, Note, Scroll, ToggleRow, Top } from '../kit';
@@ -30,7 +31,6 @@ import { BottomBar } from '../shell';
 
 const col = 'flex h-full flex-col';
 const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
-const TIER_COLORS = ['#B5A6FF', '#9DE0C0', '#E8C98A', '#9FB8E8', '#E89AC0', '#8E8E93'];
 
 // ── Templates list ───────────────────────────────────────────────────────────
 export function Templates(): JSX.Element {
@@ -330,9 +330,10 @@ function TemplateTierEditor({ templateId, canManage }: { templateId: string; can
 
   const [adding, setAdding] = useState(false);
   const [nm, setNm] = useState('');
-  const [color, setColor] = useState(TIER_COLORS[0]);
+  const [color, setColor] = useState<string>(TIER_COLORS[0]);
   const [max, setMax] = useState('');
   const [price, setPrice] = useState('');
+  const [vat, setVat] = useState('9');
   const [aliasText, setAliasText] = useState('');
   const [err, setErr] = useState<string | null>(null);
 
@@ -345,6 +346,8 @@ function TemplateTierEditor({ templateId, canManage }: { templateId: string; can
       price.trim() !== '' && Number.isFinite(priceEuros) && priceEuros > 0
         ? Math.round(priceEuros * 100)
         : null;
+    const vatNum = Number.parseFloat(vat.replace(',', '.'));
+    const vatPercent = doorPriceCents != null && Number.isFinite(vatNum) ? vatNum : null;
     try {
       await createTier.mutateAsync({
         templateId,
@@ -352,6 +355,7 @@ function TemplateTierEditor({ templateId, canManage }: { templateId: string; can
         color,
         maxGuests: Number.isFinite(maxNum) && maxNum > 0 ? maxNum : null,
         doorPriceCents,
+        vatPercent,
         aliases: aliasText
           .split(',')
           .map((a) => a.trim())
@@ -361,6 +365,7 @@ function TemplateTierEditor({ templateId, canManage }: { templateId: string; can
       setColor(TIER_COLORS[0]);
       setMax('');
       setPrice('');
+      setVat('9');
       setAliasText('');
       setAdding(false);
     } catch (e) {
@@ -407,6 +412,12 @@ function TemplateTierEditor({ templateId, canManage }: { templateId: string; can
           <Field placeholder={t.templates.maxPlaceholder} value={max} onChange={setMax} inputMode="numeric" className="mb-[14px]" />
           <Label className="mb-2">{t.templates.priceLabel}</Label>
           <Field icon="money" placeholder={t.templates.pricePlaceholder} value={price} onChange={setPrice} inputMode="numeric" className="mb-[14px]" />
+          {price.trim() !== '' && (
+            <>
+              <Label className="mb-2">{t.events.vatLabel}</Label>
+              <Field placeholder={t.events.vatPlaceholder} value={vat} onChange={setVat} inputMode="numeric" className="mb-[14px]" />
+            </>
+          )}
           <Label className="mb-2">{t.templates.aliasesLabel}</Label>
           <Field icon="spark" placeholder={t.templates.aliasesPlaceholder} value={aliasText} onChange={setAliasText} className="mb-[14px]" />
           <Btn
@@ -437,6 +448,9 @@ function TemplateTierEditor({ templateId, canManage }: { templateId: string; can
                   {tier.max_guests ? fmt(t.templates.tierMax, { n: tier.max_guests }) : t.templates.tierNoMax}
                   {tier.door_price_cents && tier.door_price_cents > 0
                     ? ' · ' + fmt(t.templates.tierPrice, { n: tier.door_price_cents / 100 })
+                    : ''}
+                  {tier.door_price_cents && tier.door_price_cents > 0 && tier.vat_percent != null
+                    ? ' · ' + fmt(t.events.tierVatChip, { pct: tier.vat_percent })
                     : ''}
                   {tier.aliases.length > 0 ? ' · ' + tier.aliases.join(', ') : ''}
                 </div>

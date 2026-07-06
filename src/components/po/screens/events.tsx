@@ -1,7 +1,7 @@
 'use client';
 
 /** Events tab + event detail, event CRUD, tier/alias beheer, past-event recap. */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import type { PoEvent } from '@/lib/po/types';
@@ -13,6 +13,7 @@ import {
   usePoEventForEdit,
   usePoEventRecap,
   usePoEvents,
+  useBillingBlocked,
   usePoTemplates,
   usePoTiers,
   usePoVenueSettings,
@@ -48,7 +49,9 @@ import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canWorkDoor } from '@/features/auth/roles';
 import { isoToLocalInput, localInputToIso } from '@/features/events/datetime';
 import { formatClock } from '@/features/stats/format';
+import { TIER_COLORS, nextAvailableColor, allColorsUsed } from '@/lib/po/tier-colors';
 import { useNav } from '../context';
+import { DateField, TimeField } from '../datetime-field';
 import { Icon } from '../icon';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, RoleChip, Scroll, ToggleRow, Top } from '../kit';
 import { BottomBar, Sheet } from '../shell';
@@ -84,6 +87,8 @@ export function Events(): JSX.Element {
   const nav = useNav();
   const [when, setWhen] = useState<'upcoming' | 'past'>('upcoming');
   const { data, isLoading, isError } = usePoEvents();
+  // Soft-block (#32 refinement): hide the growth CTA; the note explains why.
+  const billingLock = useBillingBlocked();
   const evs = (data ?? []).filter((e) => e.when === when);
   const months = [...new Set(evs.map((e) => e.month))];
   return (
@@ -108,10 +113,28 @@ export function Events(): JSX.Element {
         <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd')}>
           {t.events.addGuest}
         </Btn>
-        <Btn sm kind="ghost" icon="cal" onClick={() => nav.push('eventedit', { isNew: true })}>
-          {t.events.newEvent}
-        </Btn>
+        {!billingLock.blocked && (
+          <Btn sm kind="ghost" icon="cal" onClick={() => nav.push('eventedit', { isNew: true })}>
+            {t.events.newEvent}
+          </Btn>
+        )}
       </div>
+      {billingLock.blocked && (
+        <div className="flex-none px-5">
+          <Note icon="warn">
+            {billingLock.reason === 'canceled'
+              ? t.settings.billing.blockedCanceled
+              : t.settings.billing.blockedTrial}{' '}
+            <button
+              type="button"
+              className="cursor-pointer font-bold text-acc underline underline-offset-2"
+              onClick={() => nav.push('billing')}
+            >
+              {t.settings.billing.blockedCta}
+            </button>
+          </Note>
+        </div>
+      )}
       <Scroll bottom={100}>
         {isLoading ? (
           <Empty text={t.events.loadingEvents} />
@@ -188,6 +211,10 @@ export function EventView({ id }: { id?: string }): JSX.Element {
   const crewQ = usePoCrew(isAdmin ? id ?? '' : '');
   // Request-links count for the admin-only links row (F1) — same disable pattern.
   const linksQ = usePoRequestLinks(isAdmin ? id ?? '' : '');
+  // Setup nudge (T2, 1/7): a fresh event has no tiers, so lead the people who can
+  // fix that (admin/organizer) to the setup instead of a wall of zeroed stats.
+  const tiersQ = usePoTiers(id ?? '');
+  const { canManage } = usePoEventForEdit(id ?? '');
 
   if (isLoading) return <ScreenState onBack={nav.back} title={t.events.detailTitle} text={t.events.loading} />;
   if (isError || notFound || !event) {
@@ -199,6 +226,7 @@ export function EventView({ id }: { id?: string }): JSX.Element {
   const pct = ev.guests > 0 ? ev.inside / ev.guests : 0;
   const recent = detail?.recent ?? [];
   const openRequests = detail?.openRequests ?? 0;
+  const needsSetup = canManage && !ev.cancelled && tiersQ.data?.length === 0;
   // Desktop (S3.3): the headline numbers/actions go left, the "needs attention"
   // + "laatst binnen" feed go right. When there's no secondary content the left
   // column reads as a normal centered column instead of a wide thin strip.
@@ -209,6 +237,27 @@ export function EventView({ id }: { id?: string }): JSX.Element {
       {/* Feedback Joeri: the "dots" icon was unreadable — use a clear settings/edit cog. */}
       <Top onBack={nav.back} title={ev.name} sub={`${ev.venue} · ${ev.date} ${ev.mon}`} right={<IconBtn name="cog" onClick={() => nav.push('eventedit', { id: ev.id })} />} />
       <Scroll bottom={28}>
+        {needsSetup && (
+          <div className="mb-3 rounded-[18px] border bg-elev p-4" style={{ borderColor: 'rgba(181,166,255,0.4)' }}>
+            <div className="flex gap-[11px]">
+              <span className="mt-px shrink-0 text-acc">
+                <Icon name="spark" size={19} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="font-display text-[15.5px] font-bold text-text">{t.events.setup.title}</div>
+                <p className="mt-1 text-[12.5px] leading-[1.45] text-faint">{t.events.setup.noTiers}</p>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-[10px]">
+              <Btn kind="primary" sm icon="ticket" onClick={() => nav.push('tiers', { id: ev.id })}>
+                {t.events.setup.addTiers}
+              </Btn>
+              <Btn kind="ghost" sm icon="cog" onClick={() => nav.push('eventedit', { id: ev.id })}>
+                {t.events.setup.settings}
+              </Btn>
+            </div>
+          </div>
+        )}
         <div className={cn(hasSecondary && 'lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start')}>
           <div className={cn(!hasSecondary && 'lg:mx-auto lg:max-w-[680px]')}>
             <div className="mb-3 grid grid-cols-2 gap-[10px]">
@@ -484,6 +533,9 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const [uncheckOverride, setUncheckOverride] = useState<boolean | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Leaving with unsaved edits asks first (retest 3/7, Q6). Immediate controls
+  // (lock, check-out, cancel) commit on toggle, so they never count as dirty.
+  const [confirmLeave, setConfirmLeave] = useState(false);
 
   // Hydrate the form once the event identity loads / changes (edit mode only).
   useEffect(() => {
@@ -513,6 +565,31 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const writable = isNew ? isAdmin : canManage;
   const venueLabel = isNew ? venueName ?? '' : ev?.venueName ?? '';
   const saving = createEvent.isPending || createFromTemplate.isPending || updateEvent.isPending;
+
+  // Anything the Save button would commit that differs from the loaded state.
+  const dirty = ((): boolean => {
+    if (!writable || saving) return false;
+    if (isNew) return !!(name.trim() || dateStr || timeStr || endDateStr || endTimeStr);
+    if (!ev) return false;
+    const [d0, t0] = splitLocal(ev.startsAt);
+    const [ed0, et0] = splitLocal(ev.endsAt);
+    const [ad0, at0] = splitLocal(ev.autoLockAt);
+    return (
+      name !== ev.name ||
+      dateStr !== d0 ||
+      timeStr !== t0 ||
+      endDateStr !== ed0 ||
+      endTimeStr !== et0 ||
+      landingOn !== ev.landingActive ||
+      autoOn !== !!ev.autoLockAt ||
+      (autoOn && (autoDate !== ad0 || autoTime !== at0))
+    );
+  })();
+
+  const onBack = (): void => {
+    if (dirty) setConfirmLeave(true);
+    else nav.back();
+  };
   // Uitchecken toestaan: effective = override ?? venue default ?? true (#3 / S1.1).
   const venueDefaultUncheck = ev?.venueAllowUncheck ?? true;
   const effectiveUncheck = resolveAllowUncheck(uncheckOverride, venueDefaultUncheck);
@@ -553,11 +630,13 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           setErr(t.events.errNoVenue);
           return;
         }
-        if (templateId) {
-          await createFromTemplate.mutateAsync({ templateId, name: name.trim(), startsAt, endsAt });
-        } else {
-          await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn });
-        }
+        // Continue the flow on the new event's settings (share the link, add
+        // tiers) instead of bouncing back to the list (T2, feedback 1/7).
+        const newId = templateId
+          ? await createFromTemplate.mutateAsync({ templateId, name: name.trim(), startsAt, endsAt })
+          : await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn });
+        nav.replace('eventedit', { id: newId });
+        return;
       } else {
         await updateEvent.mutateAsync({ eventId: editId, name: name.trim(), startsAt, endsAt });
         if (ev && landingOn !== ev.landingActive) {
@@ -619,7 +698,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title={isNew ? t.events.newEvent : t.events.editTitle} sub={isNew ? undefined : ev?.name} />
+      <Top onBack={onBack} title={isNew ? t.events.newEvent : t.events.editTitle} sub={isNew ? undefined : ev?.name} />
       <Scroll bottom={120}>
         {err && <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{err}</div>}
         {!isNew && ev?.cancelledAt && (
@@ -664,27 +743,30 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
         <Label className="mb-2">{t.events.fieldVenue}</Label>
         <Field icon="building" value={venueLabel} placeholder={t.events.venuePlaceholder} className="mb-[14px]" />
 
+        {/* min-w-0 lets both columns shrink inside narrow viewports (flex default
+            min-width:auto made the date column push the time field off-screen);
+            the date gets the wider share, the time needs little. */}
         <div className="mb-[14px] flex gap-[10px]">
-          <div className="flex-1">
+          <div className="min-w-0 flex-[1.35]">
             <Label className="mb-2">{t.events.fieldDate}</Label>
-            <Field icon="cal" type="date" value={dateStr} onChange={writable ? setDateStr : undefined} />
+            <DateField value={dateStr} onChange={writable ? setDateStr : undefined} />
           </div>
-          <div className="flex-1">
+          <div className="min-w-0 flex-1">
             <Label className="mb-2">{t.events.fieldDoors}</Label>
-            <Field icon="clock" type="time" value={timeStr} onChange={writable ? setTimeStr : undefined} />
+            <TimeField value={timeStr} onChange={writable ? setTimeStr : undefined} />
           </div>
         </div>
 
         {/* End time (optional). Drives the Upcoming/Live/Past phase — a night with
             an end stays "Live" until it actually ends, then rolls to "Past". */}
         <div className="mb-[14px] flex gap-[10px]">
-          <div className="flex-1">
+          <div className="min-w-0 flex-[1.35]">
             <Label className="mb-2">{t.events.fieldEndDate}</Label>
-            <Field icon="cal" type="date" value={endDateStr} onChange={writable ? setEndDateStr : undefined} />
+            <DateField value={endDateStr} onChange={writable ? setEndDateStr : undefined} />
           </div>
-          <div className="flex-1">
+          <div className="min-w-0 flex-1">
             <Label className="mb-2">{t.events.fieldEnd}</Label>
-            <Field icon="clock" type="time" value={endTimeStr} onChange={writable ? setEndTimeStr : undefined} />
+            <TimeField value={endTimeStr} onChange={writable ? setEndTimeStr : undefined} />
           </div>
         </div>
 
@@ -761,13 +843,13 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
               />
               {autoOn && (
                 <div className="flex gap-[10px] pb-[14px]">
-                  <div className="flex-1">
+                  <div className="min-w-0 flex-[1.35]">
                     <Label className="mb-2">{t.events.closesOn}</Label>
-                    <Field icon="cal" type="date" value={autoDate} onChange={writable ? setAutoDate : undefined} />
+                    <DateField value={autoDate} onChange={writable ? setAutoDate : undefined} />
                   </div>
-                  <div className="flex-1">
+                  <div className="min-w-0 flex-1">
                     <Label className="mb-2">{t.events.closesAt}</Label>
-                    <Field icon="clock" type="time" value={autoTime} onChange={writable ? setAutoTime : undefined} />
+                    <TimeField value={autoTime} onChange={writable ? setAutoTime : undefined} />
                   </div>
                 </div>
               )}
@@ -874,12 +956,32 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           {saving ? t.events.saving : isNew ? t.events.createEvent : t.events.saveEvent}
         </Btn>
       </BottomBar>
+      {confirmLeave && (
+        <Sheet onClose={() => setConfirmLeave(false)} center={false}>
+          <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{t.events.unsaved.title}</div>
+          <div className="mb-4 text-[13.5px] leading-[1.45] text-faint">{t.events.unsaved.body}</div>
+          <div className="flex flex-col gap-2">
+            <Btn kind="primary" full icon="check" onClick={() => setConfirmLeave(false)}>
+              {t.events.unsaved.stay}
+            </Btn>
+            <Btn
+              kind="dark"
+              full
+              onClick={() => {
+                setConfirmLeave(false);
+                nav.back();
+              }}
+            >
+              {t.events.unsaved.discard}
+            </Btn>
+          </div>
+        </Sheet>
+      )}
     </div>
   );
 }
 
 // ── TIERS & aliases (pushed) ─────────────────────────────────────────────────────
-const TIER_COLORS = ['#B5A6FF', '#9DE0C0', '#E8C98A', '#9FB8E8', '#E89AC0', '#8E8E93'];
 
 export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
   const nav = useNav();
@@ -889,32 +991,75 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
   const createTier = usePoCreateTier(id);
   const updateTier = usePoUpdateTier(id);
 
+  const usedColors = tierList?.map((tr) => tr.color) ?? [];
+
   const [adding, setAdding] = useState(false);
   const [nm, setNm] = useState('');
-  const [color, setColor] = useState('#B5A6FF');
+  const [color, setColor] = useState(() => nextAvailableColor(usedColors));
+  const [kind, setKind] = useState<'free' | 'paid'>('free');
   const [max, setMax] = useState('');
   const [price, setPrice] = useState('');
+  const [vat, setVat] = useState('9');
   const [aliasText, setAliasText] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [aliasFor, setAliasFor] = useState<string | null>(null);
   const [newAlias, setNewAlias] = useState('');
+  // Colors used by tiers created this session, before the tiers query refetches
+  // (Save & add another must not immediately re-offer the color just taken).
+  const [justAddedColors, setJustAddedColors] = useState<string[]>([]);
 
-  const resetForm = (): void => {
+  const usedColorsForPicker = [...usedColors, ...justAddedColors];
+  const allUsed = allColorsUsed(usedColorsForPicker);
+
+  const resetForm = (extraUsed: string[] = []): void => {
     setNm('');
-    setColor('#B5A6FF');
+    setColor(nextAvailableColor([...usedColors, ...extraUsed]));
+    setKind('free');
     setMax('');
     setPrice('');
+    setVat('9');
     setAliasText('');
   };
 
-  const submit = async (): Promise<void> => {
+  const openAdd = (): void => {
+    setErr(null);
+    resetForm(justAddedColors);
+    setAdding(true);
+  };
+
+  const closeAdd = (): void => {
+    setErr(null);
+    setJustAddedColors([]);
+    setAdding(false);
+  };
+
+  // Arriving on a tier-less event (setup nudge, "Guest tiers" row) opens the
+  // create form directly — no extra tap on the + first (retest 3/7, Q10). Once
+  // only, so deliberately closing the form doesn't bounce it back open.
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    if (autoOpened.current || isLoading || isError) return;
+    if ((tierList ?? []).length === 0) {
+      autoOpened.current = true;
+      setAdding(true);
+    }
+  }, [isLoading, isError, tierList]);
+
+  const submit = async (stayOpen: boolean): Promise<void> => {
     if (!nm.trim() || createTier.isPending) return;
     setErr(null);
     const maxNum = Number.parseInt(max, 10);
-    // Door price in euros → cents (#34, display only). Blank/0 = free (null).
+    // Door price in euros → cents (#34, display only). Free tiers stay null.
     const priceNum = Number.parseFloat(price.replace(',', '.'));
     const doorPriceCents =
-      price.trim() && Number.isFinite(priceNum) && priceNum > 0 ? Math.round(priceNum * 100) : null;
+      kind === 'paid' && price.trim() && Number.isFinite(priceNum) && priceNum > 0 ? Math.round(priceNum * 100) : null;
+    if (kind === 'paid' && doorPriceCents == null) {
+      setErr(t.events.errPaidNeedsPrice);
+      return;
+    }
+    const vatNum = Number.parseFloat(vat.replace(',', '.'));
+    const vatPercent = kind === 'paid' && Number.isFinite(vatNum) ? vatNum : null;
+    const usedColor = color;
     try {
       await createTier.mutateAsync({
         eventId: id,
@@ -922,10 +1067,18 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
         color,
         maxGuests: Number.isFinite(maxNum) && maxNum > 0 ? maxNum : null,
         doorPriceCents,
+        vatPercent,
         aliases: aliasText.split(',').map((a) => a.trim()).filter(Boolean),
       });
-      resetForm();
-      setAdding(false);
+      if (stayOpen) {
+        const nextJustAdded = [...justAddedColors, usedColor];
+        setJustAddedColors(nextJustAdded);
+        resetForm(nextJustAdded);
+      } else {
+        resetForm();
+        setJustAddedColors([]);
+        setAdding(false);
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : t.events.errCreateTier);
     }
@@ -950,31 +1103,62 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
         onBack={nav.back}
         title={t.events.tiersTitle}
         sub={event?.name}
-        right={<IconBtn name={adding ? 'close' : 'plus'} onClick={() => setAdding((a) => !a)} />}
+        right={<IconBtn name={adding ? 'close' : 'plus'} onClick={() => (adding ? closeAdd() : openAdd())} />}
       />
-      <Scroll bottom={adding ? 120 : 24}>
+      <Scroll bottom={adding ? 160 : 24}>
         {err && <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{err}</div>}
         {adding && (
           <div className="mb-[14px] rounded-[18px] border border-acc bg-elev p-4">
             <Label className="mb-[10px]">{t.events.newTier}</Label>
             <Field placeholder={t.events.tierNamePlaceholder} value={nm} onChange={setNm} autoFocus className="mb-3" />
-            <Label className="mb-2">{t.events.color}</Label>
-            <div className="mb-[14px] flex gap-[9px]">
-              {TIER_COLORS.map((c) => (
+            <Label className="mb-2">{t.events.tierKindLabel}</Label>
+            <div className="mb-[14px] flex gap-2">
+              {(['free', 'paid'] as const).map((k) => (
                 <button
-                  key={c}
+                  key={k}
                   type="button"
-                  onClick={() => setColor(c)}
-                  className="h-[34px] w-[34px] cursor-pointer rounded-full transition-[filter] hover:brightness-[1.1]"
-                  style={{ background: c, border: '2px solid ' + (color === c ? '#FFFFFF' : 'transparent') }}
-                  aria-label={fmt(t.events.colorAria, { color: c })}
-                />
+                  onClick={() => setKind(k)}
+                  className={cn(
+                    'rounded-full px-[14px] py-[6px] font-display text-[13px] font-bold transition-[filter] hover:brightness-110',
+                    kind === k ? 'bg-acc text-on-acc' : 'border border-line bg-elev text-dim',
+                  )}
+                >
+                  {k === 'free' ? t.events.tierKindFree : t.events.tierKindPaid}
+                </button>
               ))}
             </div>
+            <Label className="mb-2">{t.events.color}</Label>
+            <div className="mb-[14px] flex flex-wrap gap-[9px]">
+              {TIER_COLORS.map((c) => {
+                const disabled = usedColorsForPicker.includes(c) && !allUsed && c !== color;
+                return (
+                  <button
+                    key={c}
+                    type="button"
+                    disabled={disabled}
+                    aria-disabled={disabled}
+                    onClick={() => !disabled && setColor(c)}
+                    className={cn(
+                      'h-[34px] w-[34px] rounded-full transition-[filter]',
+                      disabled ? 'cursor-not-allowed opacity-30' : 'cursor-pointer hover:brightness-[1.1]',
+                    )}
+                    style={{ background: c, border: '2px solid ' + (color === c ? '#FFFFFF' : 'transparent') }}
+                    aria-label={fmt(t.events.colorAria, { color: c })}
+                  />
+                );
+              })}
+            </div>
+            {allUsed && <div className="mb-[14px] text-[12px] text-faint">{t.events.colorAllUsedWarning}</div>}
             <Label className="mb-2">{t.events.maxOptional}</Label>
             <Field placeholder={t.events.maxPlaceholder} value={max} onChange={setMax} inputMode="numeric" className="mb-[14px]" />
-            <Label className="mb-2">{t.events.priceOptional}</Label>
-            <Field placeholder={t.events.pricePlaceholder} value={price} onChange={setPrice} inputMode="numeric" className="mb-[14px]" />
+            {kind === 'paid' && (
+              <>
+                <Label className="mb-2">{t.events.priceLabel}</Label>
+                <Field placeholder={t.events.pricePlaceholder} value={price} onChange={setPrice} inputMode="numeric" className="mb-[14px]" />
+                <Label className="mb-2">{t.events.vatLabel}</Label>
+                <Field placeholder={t.events.vatPlaceholder} value={vat} onChange={setVat} inputMode="numeric" className="mb-[14px]" />
+              </>
+            )}
             <Label className="mb-2">{t.events.aliasesFeedLabel}</Label>
             <Field icon="spark" placeholder={t.events.aliasesPlaceholder} value={aliasText} onChange={setAliasText} />
             {aliasText.trim() && (
@@ -998,7 +1182,16 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
         ) : isError ? (
           <Empty text={t.events.loadTiersError} />
         ) : (tierList ?? []).length === 0 ? (
-          <Empty text={t.events.emptyTiers} />
+          !adding && (
+            <button
+              type="button"
+              onClick={openAdd}
+              className="flex w-full flex-col items-center gap-2 rounded-[18px] border border-dashed border-line bg-elev/40 py-[30px] text-center transition-[filter] hover:brightness-110"
+            >
+              <span className="text-[14px] text-faint">{t.events.emptyTiers}</span>
+              <span className="font-display text-[14px] font-bold text-acc">{t.events.emptyTiersCta}</span>
+            </button>
+          )
         ) : (
           <div className="flex flex-col gap-[11px]">
             {(tierList ?? []).map((tier) => (
@@ -1012,6 +1205,11 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
                   {tier.doorPrice > 0 && (
                     <span className="shrink-0 rounded-[7px] bg-acc-dim px-2 py-[3px] font-display text-[11.5px] font-bold text-acc">
                       €{tier.doorPrice % 1 === 0 ? tier.doorPrice : tier.doorPrice.toFixed(2)}
+                    </span>
+                  )}
+                  {tier.doorPrice > 0 && tier.vatPercent != null && (
+                    <span className="shrink-0 rounded-[7px] border border-line2 bg-transparent px-2 py-[3px] font-display text-[10.5px] font-semibold text-faint">
+                      {fmt(t.events.tierVatChip, { pct: tier.vatPercent % 1 === 0 ? tier.vatPercent : tier.vatPercent.toFixed(1) })}
                     </span>
                   )}
                   {tier.isDefault && <MiniChip>{t.events.tierDefault}</MiniChip>}
@@ -1068,9 +1266,31 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
       </Scroll>
       {adding && (
         <BottomBar>
-          <Btn kind="primary" full icon="check" onClick={() => void submit()} disabled={!nm.trim() || createTier.isPending} className={nm.trim() && !createTier.isPending ? '' : 'opacity-50'}>
-            {createTier.isPending ? t.events.saving : t.events.addTier}
-          </Btn>
+          <div className="flex flex-col gap-2">
+            <Btn
+              kind="primary"
+              full
+              icon="check"
+              onClick={() => void submit(false)}
+              disabled={!nm.trim() || createTier.isPending}
+              className={nm.trim() && !createTier.isPending ? '' : 'opacity-50'}
+            >
+              {createTier.isPending ? t.events.saving : t.events.saveTier}
+            </Btn>
+            <div className="flex gap-2">
+              <Btn
+                kind="dark"
+                className={cn('flex-1', nm.trim() && !createTier.isPending ? '' : 'opacity-50')}
+                onClick={() => void submit(true)}
+                disabled={!nm.trim() || createTier.isPending}
+              >
+                {t.events.saveTierAndNew}
+              </Btn>
+              <Btn kind="ghost" className="flex-1" onClick={closeAdd}>
+                {t.events.cancelTier}
+              </Btn>
+            </div>
+          </div>
         </BottomBar>
       )}
     </div>

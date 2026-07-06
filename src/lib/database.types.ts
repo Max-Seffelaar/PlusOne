@@ -385,6 +385,7 @@ export type Database = {
           position: number
           template_id: string
           updated_at: string
+          vat_percent: number | null
           venue_id: string
         }
         Insert: {
@@ -399,6 +400,7 @@ export type Database = {
           position?: number
           template_id: string
           updated_at?: string
+          vat_percent?: number | null
           venue_id: string
         }
         Update: {
@@ -413,6 +415,7 @@ export type Database = {
           position?: number
           template_id?: string
           updated_at?: string
+          vat_percent?: number | null
           venue_id?: string
         }
         Relationships: [
@@ -654,6 +657,7 @@ export type Database = {
           max_guests: number | null
           name: string
           updated_at: string
+          vat_percent: number | null
         }
         Insert: {
           aliases?: string[]
@@ -666,6 +670,7 @@ export type Database = {
           max_guests?: number | null
           name: string
           updated_at?: string
+          vat_percent?: number | null
         }
         Update: {
           aliases?: string[]
@@ -678,6 +683,7 @@ export type Database = {
           max_guests?: number | null
           name?: string
           updated_at?: string
+          vat_percent?: number | null
         }
         Relationships: [
           {
@@ -1246,6 +1252,35 @@ export type Database = {
           },
         ]
       }
+      stripe_webhook_events: {
+        Row: {
+          id: string
+          processed_at: string
+          type: string
+          venue_id: string | null
+        }
+        Insert: {
+          id: string
+          processed_at?: string
+          type: string
+          venue_id?: string | null
+        }
+        Update: {
+          id?: string
+          processed_at?: string
+          type?: string
+          venue_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stripe_webhook_events_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       subscriptions: {
         Row: {
           created_at: string
@@ -1519,6 +1554,19 @@ export type Database = {
         }[]
       }
       admin_revoke_session: { Args: { p_session_id: string }; Returns: boolean }
+      apply_stripe_subscription_update: {
+        Args: {
+          p_current_period_end?: string
+          p_event_id: string
+          p_event_type: string
+          p_plan_id?: string
+          p_status?: Database["public"]["Enums"]["subscription_status"]
+          p_stripe_customer_id?: string
+          p_stripe_subscription_id?: string
+          p_venue_id?: string
+        }
+        Returns: boolean
+      }
       approve_guest_request: {
         Args: { p_request_id: string; p_tier_id: string }
         Returns: string
@@ -1789,6 +1837,10 @@ export type Database = {
         Returns: undefined
       }
       slugify: { Args: { p_text: string }; Returns: string }
+      stamp_stripe_customer: {
+        Args: { p_stripe_customer_id: string; p_venue_id: string }
+        Returns: undefined
+      }
       submit_guest_request: {
         Args: {
           p_birthdate?: string

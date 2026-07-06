@@ -30,7 +30,7 @@ export const settings = {
     profileTitle: 'Profile',
     profileSub: 'Profile, email, and sessions',
     eventsTitle: 'Events & tiers',
-    eventsSub: 'Create events, tiers, and aliases',
+    eventsSub: 'Create events and guest tiers',
     templatesTitle: 'Event templates',
     templatesSub: 'Reusable setups per event type',
     venuesTitle: 'Venues',
@@ -284,6 +284,21 @@ export const settings = {
     paymentNote: 'Payments by SEPA Direct Debit & iDEAL. We never store your IBAN. The payment provider handles that.',
     invoicesLabel: 'Invoices',
     invoicesSoon: 'Invoices and the billing portal show up here once billing goes live.',
+    invoicesPortal: 'Your invoices live in the billing portal — open it with the button above.',
+    // Checkout & portal (fase 13 PR 2). Browser-only; the native app stays read-only.
+    setupPayment: 'Set up payment',
+    reactivate: 'Reactivate subscription',
+    managePortal: 'Manage payment & invoices',
+    redirecting: 'One sec…',
+    trialEndsIn: 'Trial ends in {days} days — set up your payment to keep things running.',
+    trialEnded: 'Your trial has ended. Set up your payment to keep everything running.',
+    manageOnWeb: 'Manage your subscription on the web version of PLUSONE.',
+    checkoutSuccess: "Payment set up — you're all good! ✨",
+    checkoutCanceled: 'Checkout canceled — nothing changed.',
+    // Soft-block (fase 13 PR 3): growth actions lock, planned events keep running.
+    blockedTrial: 'Your trial has ended — set up your payment to plan new events and grow your team. Everything already planned keeps running.',
+    blockedCanceled: 'The subscription is canceled — reactivate billing to plan new events and grow your team. Your data and planned events stay untouched.',
+    blockedCta: 'Go to Billing',
   },
 
   // Import (Import).

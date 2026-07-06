@@ -32,6 +32,7 @@ import {
   usePoContactKeys,
   usePoEvents,
   usePoCanManageTemplates,
+  useBillingBlocked,
 } from '@/features/po/hooks';
 import {
   usePoInviteUser,
@@ -45,9 +46,12 @@ import {
   usePoRevokeOwnSession,
   usePoUpdateVenueSettings,
   usePoImportContacts,
+  usePoBillingCheckout,
+  usePoBillingPortal,
 } from '@/features/po/mutations';
 import { groupPoSessions, type PoSubscription, type PoTeamMember } from '@/features/po/adapters';
 import { useMfaGate, isAal2Error, PoMfaSheet } from '../mfa-gate';
+import { isNativeShell } from '@/lib/platform';
 import PhoneInput from 'react-phone-number-input/input';
 import { parsePhoneNumber } from 'react-phone-number-input';
 import { clearNavState, useNav, usePo } from '../context';
@@ -292,6 +296,8 @@ export function Gebruikers(): JSX.Element {
     setInviteEvents([]);
     setQuota('');
   };
+  // Soft-block (#32 refinement): no team growth on canceled/lapsed-trial venues.
+  const billingLock = useBillingBlocked();
   // Admins choose Team vs External crew; a user_manager can only invite Team.
   const startInvite = (): void => {
     resetInviteForm();
@@ -510,12 +516,26 @@ export function Gebruikers(): JSX.Element {
         onBack={nav.back}
         title={t.settings.team.title}
         sub={fmt(teamCount === 1 ? t.settings.team.subOne : t.settings.team.subMany, { count: teamCount, open: inviteCount })}
-        right={caps.manageTeam ? <IconBtn name="plus" onClick={startInvite} /> : undefined}
+        right={caps.manageTeam && !billingLock.blocked ? <IconBtn name="plus" onClick={startInvite} /> : undefined}
       />
       <Scroll bottom={24}>
+        {caps.manageTeam && billingLock.blocked && (
+          <Note icon="warn">
+            {billingLock.reason === 'canceled'
+              ? t.settings.billing.blockedCanceled
+              : t.settings.billing.blockedTrial}{' '}
+            <button
+              type="button"
+              className="cursor-pointer font-bold text-acc underline underline-offset-2"
+              onClick={() => nav.push('billing')}
+            >
+              {t.settings.billing.blockedCta}
+            </button>
+          </Note>
+        )}
         {(caps.manageTeam || caps.viewQuota) && (
           <div className="lg:mb-[18px] lg:flex lg:gap-3">
-            {caps.manageTeam && (
+            {caps.manageTeam && !billingLock.blocked && (
               <Btn kind="dark" full icon="plus" className="mb-3 lg:mb-0 lg:w-auto" onClick={startInvite}>
                 {t.settings.team.inviteCta}
               </Btn>
@@ -1474,10 +1494,11 @@ export function Profile(): JSX.Element {
   );
 }
 
-// ── ABONNEMENT & FACTUREN (pushed) — Billing stub, live read-only ────────────
-// Reads the venue entitlement from features/billing (the subscriptions row) and
-// nothing else: no Stripe call, no checkout, no invoices yet (Fase 13, #32). Any
-// member may view (RLS subscriptions_select_member).
+// ── ABONNEMENT & FACTUREN (pushed) — live, with checkout/portal (fase 13 PR 2) ─
+// Any member views the entitlement (RLS subscriptions_select_member); an ADMIN
+// in the BROWSER additionally gets the Stripe-hosted checkout and portal
+// redirects. The native shell stays read-only without even a link — store-tax
+// seam (#32/#37, isNativeShell).
 const SUB_STATUS: Record<PoSubscription['status'], { label: string; chip: string }> = {
   trialing: { label: t.settings.billing.statusTrialing, chip: 'bg-acc-dim text-acc' },
   active: { label: t.settings.billing.statusActive, chip: 'bg-acc-dim text-acc' },
@@ -1508,8 +1529,29 @@ export function Billing(): JSX.Element {
   );
 }
 
+/** Whole days until the trial ends; negative = already lapsed. */
+function trialDaysLeft(trialEndsAt: string): number {
+  return Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+}
+
 function BillingBody({ sub }: { sub: PoSubscription }): JSX.Element {
   const st = SUB_STATUS[sub.status] ?? { label: sub.status.toUpperCase(), chip: 'bg-elev2 text-faint' };
+  const { roles } = usePoIdentity();
+  const isAdmin = roles.includes('admin');
+  const native = isNativeShell();
+  const checkout = usePoBillingCheckout();
+  const portal = usePoBillingPortal();
+
+  // Checkout applies while no Stripe subscription exists (fresh trial, lapsed
+  // trial, canceled). comped is pilot territory — no self-service billing.
+  const needsCheckout = !sub.stripeLinked && sub.status !== 'comped';
+  const daysLeft = sub.trialEndsAt ? trialDaysLeft(sub.trialEndsAt) : null;
+
+  const go = (m: { mutateAsync: () => Promise<string> }) => (): void => {
+    void m.mutateAsync().then((url) => window.location.assign(url));
+  };
+  const busy = checkout.isPending || portal.isPending;
+
   return (
     <>
       <div className="mb-[14px] rounded-[18px] bg-acc-dim p-5">
@@ -1537,6 +1579,39 @@ function BillingBody({ sub }: { sub: PoSubscription }): JSX.Element {
       {sub.status === 'past_due' && (
         <Note icon="warn">{t.settings.billing.pastDueBanner}</Note>
       )}
+      {needsCheckout && sub.status === 'trialing' && daysLeft != null && (
+        <Note icon={daysLeft >= 0 ? 'clock' : 'warn'}>
+          {daysLeft >= 0
+            ? fmt(t.settings.billing.trialEndsIn, { days: String(Math.max(daysLeft, 0)) })
+            : t.settings.billing.trialEnded}
+        </Note>
+      )}
+
+      {isAdmin && !native && (
+        <div className="mb-[18px] mt-1 flex flex-col gap-2.5">
+          {needsCheckout && (
+            <Btn kind="primary" full icon="card" disabled={busy} onClick={go(checkout)}>
+              {checkout.isPending
+                ? t.settings.billing.redirecting
+                : sub.status === 'canceled'
+                  ? t.settings.billing.reactivate
+                  : t.settings.billing.setupPayment}
+            </Btn>
+          )}
+          {sub.stripeLinked && (
+            <Btn kind="dark" full icon="note" disabled={busy} onClick={go(portal)}>
+              {portal.isPending ? t.settings.billing.redirecting : t.settings.billing.managePortal}
+            </Btn>
+          )}
+          <FormError error={checkout.error ?? portal.error} />
+        </div>
+      )}
+      {native && (
+        <div className="mb-[18px] mt-1 flex items-start gap-[7px] pl-0.5 text-[12px] text-faint">
+          <Icon name="shield" size={13} className="text-ghost" />
+          <span className="leading-[1.45]">{t.settings.billing.manageOnWeb}</span>
+        </div>
+      )}
 
       <Label className="mb-[10px]">{t.settings.billing.paymentMethodLabel}</Label>
       <div className="mb-2 flex items-center gap-[13px] rounded-[18px] border border-line bg-elev p-4">
@@ -1555,7 +1630,11 @@ function BillingBody({ sub }: { sub: PoSubscription }): JSX.Element {
 
       <Label className="mb-[10px]">{t.settings.billing.invoicesLabel}</Label>
       <div className="rounded-[18px] border border-dashed border-line bg-elev p-5 text-center">
-        <div className="text-[13.5px] leading-[1.5] text-faint">{t.settings.billing.invoicesSoon}</div>
+        <div className="text-[13.5px] leading-[1.5] text-faint">
+          {sub.stripeLinked && !native
+            ? t.settings.billing.invoicesPortal
+            : t.settings.billing.invoicesSoon}
+        </div>
       </div>
     </>
   );

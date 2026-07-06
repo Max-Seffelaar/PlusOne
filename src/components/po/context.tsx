@@ -59,6 +59,10 @@ export interface StackEntry {
 
 export interface Nav {
   push: (name: ScreenName, props?: ScreenProps) => void;
+  /** Swap the current screen without adding a back step. For after-create flows:
+   *  "New event" → replace with the created event's settings, so back returns to
+   *  where the flow started instead of the stale create form. */
+  replace: (name: ScreenName, props?: ScreenProps) => void;
   back: () => void;
   setTab: (t: TabKey) => void;
   /** Open the Deur tab for a SPECIFIC event (S1.3) — "Check-in" from an event card

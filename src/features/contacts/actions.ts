@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
+import { assertVenueBillingActive } from '@/features/billing/gate';
 import {
   upsertContactSchema,
   togglePermanentSchema,
@@ -198,6 +199,11 @@ export async function importContacts(input: ImportContactsInput): Promise<Import
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return unauthorized();
+
+  // Soft-block (#32 refinement): no bulk data-in on a canceled venue / lapsed
+  // unpaid trial; existing contacts stay readable and usable.
+  const billingBlocked = await assertVenueBillingActive(venueId);
+  if (billingBlocked) return billingBlocked;
 
   const payload = rows.map((r) => ({
     full_name: r.fullName,

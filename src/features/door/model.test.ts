@@ -12,6 +12,7 @@ function tier(over: Partial<TierRow> = {}): TierRow {
     max_guests: null,
     aliases: [],
     door_price_cents: null,
+    vat_percent: null,
     created_at: '2026-06-01T00:00:00Z',
     updated_at: '2026-06-01T00:00:00Z',
     ...over,

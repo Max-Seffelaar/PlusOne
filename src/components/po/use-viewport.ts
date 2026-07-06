@@ -19,8 +19,17 @@ export function useViewport(serverHint = false): boolean {
     const mql = window.matchMedia(MOBILE_QUERY);
     const update = (): void => setIsMobile(mql.matches);
     update();
+    // window resize as a fallback (T14 / retest 3/7): emulated viewports
+    // (DevTools device mode) and some webviews reflow WITHOUT firing the
+    // media-query change event — a device-mode reload could even measure the
+    // pre-emulation desktop width and then stay stuck in the wrong shell.
+    // The resize event does fire in those cases, so listen to both.
+    window.addEventListener('resize', update);
     mql.addEventListener('change', update);
-    return () => mql.removeEventListener('change', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      mql.removeEventListener('change', update);
+    };
   }, []);
 
   return isMobile;

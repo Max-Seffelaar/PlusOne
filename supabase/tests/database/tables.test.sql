@@ -30,9 +30,12 @@ select tables_are(
     'event_templates', 'event_template_tiers',
     -- Requests-epic F1 (86ey21vjt): influencer attribution + N request links
     -- per event + cookie-less pageview counters.
-    'influencers', 'request_links', 'request_link_pageviews_daily'
+    'influencers', 'request_links', 'request_link_pageviews_daily',
+    -- Fase 13 (Stripe Billing, #32): webhook idempotency ledger,
+    -- service_role-only.
+    'stripe_webhook_events'
   ],
-  'public schema contains exactly the MVP tables (Fase 1 + invites + landing + adresboek + templates + request links)'
+  'public schema contains exactly the MVP tables (Fase 1 + invites + landing + adresboek + templates + request links + billing)' 
 );
 
 -- RLS: on for every table, no exceptions (default-deny without policies) ----

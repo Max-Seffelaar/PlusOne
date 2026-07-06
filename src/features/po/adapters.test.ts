@@ -259,6 +259,7 @@ describe('toPoTier', () => {
     max_guests: 50,
     aliases: ['vip', 'v.i.p.'],
     door_price_cents: null,
+    vat_percent: null,
   };
 
   it('maps a tier row + used count to the po Tier shape (free tier)', () => {
@@ -271,6 +272,7 @@ describe('toPoTier', () => {
       max: 50,
       used: 12,
       doorPrice: 0,
+      vatPercent: null,
       aliases: ['vip', 'v.i.p.'],
     });
   });
@@ -278,6 +280,10 @@ describe('toPoTier', () => {
   it('converts door_price_cents to euros (#34, display only)', () => {
     expect(toPoTier({ ...row, door_price_cents: 2500 }, 0).doorPrice).toBe(25);
     expect(toPoTier({ ...row, door_price_cents: 1250 }, 0).doorPrice).toBe(12.5);
+  });
+
+  it('carries vat_percent through when set (T3, display only)', () => {
+    expect(toPoTier({ ...row, door_price_cents: 2500, vat_percent: 9 }, 0).vatPercent).toBe(9);
   });
 
   it('falls back to the accent colour when the tier has none', () => {
@@ -397,8 +403,8 @@ describe('toPoTeamMember', () => {
 
 describe('optimisticGuest', () => {
   const tiers: Tier[] = [
-    { id: 'vip', name: 'VIP', short: 'VIP', role: 'VIP', color: '#B5A6FF', max: null, used: 0, doorPrice: 0, aliases: [] },
-    { id: 'reg', name: 'Regular', short: 'Gast', role: 'Gast', color: '#8E8E93', max: null, used: 0, doorPrice: 0, aliases: [] },
+    { id: 'vip', name: 'VIP', short: 'VIP', role: 'VIP', color: '#B5A6FF', max: null, used: 0, doorPrice: 0, vatPercent: null, aliases: [] },
+    { id: 'reg', name: 'Regular', short: 'Gast', role: 'Gast', color: '#8E8E93', max: null, used: 0, doorPrice: 0, vatPercent: null, aliases: [] },
   ];
   const now = new Date('2024-12-14T12:00:00Z'); // 13:00 in Amsterdam (CET)
 
@@ -772,11 +778,14 @@ describe('toPoVenueSettings', () => {
 });
 
 describe('toPoSubscription', () => {
+  // created_at/stripe_subscription_id feed the trial countdown + checkout CTA
+  // (fase 13 PR 2); base rows below are the common "fresh venue, no Stripe" shape.
+  const base = { created_at: '2026-07-01T00:00:00Z', stripe_subscription_id: null };
   it('returns null when there is no subscription row', () => {
     expect(toPoSubscription(null, 'LOFI')).toBeNull();
   });
   it('resolves the plan via the catalog and formats the renewal', () => {
-    const row: PoSubscriptionRow = { status: 'active', plan_id: 'premium', current_period_end: '2025-01-01T00:00:00Z' };
+    const row: PoSubscriptionRow = { ...base, status: 'active', plan_id: 'premium', current_period_end: '2025-01-01T00:00:00Z', stripe_subscription_id: 'sub_x' };
     expect(toPoSubscription(row, 'LOFI')).toEqual({
       plan: 'Premium',
       priceLabel: '€49',
@@ -785,19 +794,32 @@ describe('toPoSubscription', () => {
       renews: '1 Jan 2025',
       events: 'Unlimited',
       venueLabel: 'LOFI',
+      stripeLinked: true,
+      trialEndsAt: null,
     });
   });
   it('handles an unknown/absent plan and no renewal date', () => {
-    const row: PoSubscriptionRow = { status: 'trialing', plan_id: null, current_period_end: null };
+    const row: PoSubscriptionRow = { ...base, status: 'trialing', plan_id: null, current_period_end: null };
     expect(toPoSubscription(row, 'LOFI')).toMatchObject({ plan: 'No subscription', priceLabel: '—', renews: '—', status: 'trialing' });
   });
   it('labels an indie plan as a single active event', () => {
-    const row: PoSubscriptionRow = { status: 'comped', plan_id: 'indie', current_period_end: null };
+    const row: PoSubscriptionRow = { ...base, status: 'comped', plan_id: 'indie', current_period_end: null };
     expect(toPoSubscription(row, 'LOFI')).toMatchObject({ plan: 'Indie', priceLabel: 'Free', events: '1 active event' });
   });
   it('humanises an out-of-catalog plan id (e.g. the seed pilot/comped venue)', () => {
-    const row: PoSubscriptionRow = { status: 'comped', plan_id: 'pilot', current_period_end: null };
+    const row: PoSubscriptionRow = { ...base, status: 'comped', plan_id: 'pilot', current_period_end: null };
     expect(toPoSubscription(row, 'Club Vesper')).toMatchObject({ plan: 'Pilot', priceLabel: '—', status: 'comped' });
+  });
+  it('computes the trial end exactly 14 days after creation (trialing only)', () => {
+    const row: PoSubscriptionRow = { ...base, status: 'trialing', plan_id: 'premium', current_period_end: null };
+    expect(toPoSubscription(row, 'LOFI')).toMatchObject({
+      stripeLinked: false,
+      trialEndsAt: '2026-07-15T00:00:00.000Z',
+    });
+  });
+  it('reports no trial end for non-trialing statuses', () => {
+    const row: PoSubscriptionRow = { ...base, status: 'canceled', plan_id: 'premium', current_period_end: null };
+    expect(toPoSubscription(row, 'LOFI')).toMatchObject({ trialEndsAt: null });
   });
 });
 

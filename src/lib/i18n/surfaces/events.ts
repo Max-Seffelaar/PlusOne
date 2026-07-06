@@ -37,6 +37,14 @@ export const events = {
   justIn: 'Just in',
   noOneInside: 'No one inside yet.',
   by: 'by {by}',
+  // Setup nudge on a fresh (tier-less) event (T2, 1/7): lead new users to tiers
+  // and the request link instead of a wall of zeroed live stats.
+  setup: {
+    title: 'Finish the setup',
+    noTiers: 'This event has no guest tiers yet. Add a tier like "VIP" or "Guest" so people can go on the list, then share the request link from the event settings.',
+    addTiers: 'Add guest tiers',
+    settings: 'Event settings',
+  },
 
   // ── Event edit / create ─────────────────────────────────────────────────────
   editTitle: 'Edit event',
@@ -66,8 +74,10 @@ export const events = {
   fieldTemplate: 'Template',
   templateBlank: 'No template',
   templateNote: 'Tiers, capacity, and settings come from the template. Name and date stay yours.',
-  tiersRowTitle: 'Tiers & aliases',
-  tiersRowSub: 'Feed the quick-add',
+  // "Tiers & aliases — feed the quick-add" was jargon to new users (T2, 1/7):
+  // plain words for what you actually set up there.
+  tiersRowTitle: 'Guest tiers',
+  tiersRowSub: 'Names, colors & door prices',
   status: 'Status',
   // Block retitled with F1 (86ey21vjt): the landing page is now one of several
   // request links. Key stays `landingPage` so no call sites move.
@@ -103,6 +113,13 @@ export const events = {
   saving: 'Saving…',
   createEvent: 'Create event',
   saveEvent: 'Save event',
+  // Leaving the form with unsaved edits (retest 3/7, Q6).
+  unsaved: {
+    title: 'Unsaved changes',
+    body: "You have changes here that aren't saved yet. Leave and discard them?",
+    stay: 'Keep editing',
+    discard: 'Discard & leave',
+  },
   // Save-as-template (86exyp8gn) — snapshot this event's setup into a template.
   saveTemplateLabel: 'Reuse this setup',
   saveTemplateCta: 'Save as template',
@@ -124,33 +141,44 @@ export const events = {
   cancelledBadge: 'Cancelled',
   liveBadge: 'Live',
 
-  // ── Tiers & aliases ─────────────────────────────────────────────────────────
-  tiersTitle: 'Tiers & aliases',
+  // ── Guest tiers (formerly "Tiers & aliases") ────────────────────────────────
+  tiersTitle: 'Guest tiers',
   errCreateTier: "Couldn't create the tier.",
   errSaveAlias: "Couldn't save the alias.",
   newTier: 'New tier',
   tierNamePlaceholder: 'Name, e.g. "Backstage"',
   color: 'Color',
   colorAria: 'Color {color}',
+  colorAllUsedWarning: 'All colors are in use — picking one will reuse it.',
   maxOptional: 'Max (optional)',
   maxPlaceholder: '∞ no maximum',
-  // Paid tiers (#34 — display only, no payment processing). Blank = free.
-  priceOptional: 'Door price (optional)',
-  pricePlaceholder: 'Free — e.g. 25',
+  // Paid tiers (#34 — display only, no payment processing). Free/Paid toggle (T3).
+  tierKindLabel: 'Tier type',
+  tierKindFree: 'Free',
+  tierKindPaid: 'Paid',
+  priceLabel: 'Door price',
+  pricePlaceholder: 'e.g. 25',
+  errPaidNeedsPrice: 'Enter a door price for a paid tier',
+  vatLabel: 'VAT % · display only',
+  vatPlaceholder: '9',
+  tierVatChip: '{pct}% VAT',
   aliasesFeedLabel: 'Aliases · feed the quick-add',
   aliasesPlaceholder: 'backstage, bs, prod…',
   aliasesNote:
     'Aliases decide what the quick-add picks up. "bottle" or "champagne" → VIP. The app asks about unknown words, never quietly drops to Regular.',
   loadingTiers: 'Loading tiers…',
   loadTiersError: "Couldn't load tiers. Try again in a moment.",
-  emptyTiers: 'No tiers yet. Add one like "VIP" or "Guest".',
+  emptyTiers: 'No guest tiers yet. Add one like "VIP" or "Guest".',
+  emptyTiersCta: '+ Add your first tier',
   tierUsedOfMax: '{used} / {max} used',
   tierUsedNoMax: '{used} · no max',
   tierDefault: 'DEFAULT',
   aliases: 'Aliases',
   aliasInputPlaceholder: 'alias…',
   aliasAdd: 'alias',
-  addTier: 'Add tier',
+  saveTier: 'Save',
+  saveTierAndNew: 'Save & add another',
+  cancelTier: 'Cancel',
 
   // ── Past-event recap ────────────────────────────────────────────────────────
   recapTitle: 'Recap',

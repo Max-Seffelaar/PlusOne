@@ -860,6 +860,29 @@ export function usePoSubscription() {
   });
 }
 
+/**
+ * Soft-block state of the active venue (#32 refinement, fase 13 PR 3): true
+ * when growth actions (new events, invites, import) are blocked — canceled, or
+ * a lapsed trial that never completed checkout. UX-layer mirror of the server
+ * gate (assertVenueBillingActive): the screens lock the affordances, the
+ * server actions enforce. Loading/absent subscription reads as NOT blocked —
+ * the server gate has the final word.
+ */
+export function useBillingBlocked(): { blocked: boolean; reason: 'canceled' | 'trial_expired' | null } {
+  const { data: sub } = usePoSubscription();
+  if (!sub) return { blocked: false, reason: null };
+  if (sub.status === 'canceled') return { blocked: true, reason: 'canceled' };
+  if (
+    sub.status === 'trialing' &&
+    !sub.stripeLinked &&
+    sub.trialEndsAt &&
+    new Date(sub.trialEndsAt).getTime() < Date.now()
+  ) {
+    return { blocked: true, reason: 'trial_expired' };
+  }
+  return { blocked: false, reason: null };
+}
+
 // ── Audit log (S10) reads ────────────────────────────────────────────────────
 
 export interface PoAal2State {
