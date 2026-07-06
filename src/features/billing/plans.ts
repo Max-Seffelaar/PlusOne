@@ -7,6 +7,17 @@
 export const PLAN_IDS = ['indie', 'premium', 'pro'] as const;
 export type PlanId = (typeof PLAN_IDS)[number];
 
+/** Trial length in days (#32 refinement 2026-07-06: 14 days, soft block).
+ *  Client-safe here so the UI can render "Trial ends in N days"; the server
+ *  carries the same value into Stripe as trial_end at checkout. */
+export const TRIAL_DAYS = 14;
+
+/** End of a venue's app-side display trial (subscription created_at + 14d). */
+export function trialEndsAt(subscriptionCreatedAt: string | Date): Date {
+  const start = new Date(subscriptionCreatedAt);
+  return new Date(start.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+}
+
 export interface Plan {
   id: PlanId;
   name: string;

@@ -282,6 +282,17 @@ export const settings = {
     paymentNote: 'Payments by SEPA Direct Debit & iDEAL. We never store your IBAN. The payment provider handles that.',
     invoicesLabel: 'Invoices',
     invoicesSoon: 'Invoices and the billing portal show up here once billing goes live.',
+    invoicesPortal: 'Your invoices live in the billing portal — open it with the button above.',
+    // Checkout & portal (fase 13 PR 2). Browser-only; the native app stays read-only.
+    setupPayment: 'Set up payment',
+    reactivate: 'Reactivate subscription',
+    managePortal: 'Manage payment & invoices',
+    redirecting: 'One sec…',
+    trialEndsIn: 'Trial ends in {days} days — set up your payment to keep things running.',
+    trialEnded: 'Your trial has ended. Set up your payment to keep everything running.',
+    manageOnWeb: 'Manage your subscription on the web version of PLUSONE.',
+    checkoutSuccess: "Payment set up — you're all good! ✨",
+    checkoutCanceled: 'Checkout canceled — nothing changed.',
   },
 
   // Import (Import).
