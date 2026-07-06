@@ -6,6 +6,7 @@ import {
   isPlanId,
   getPlan,
   planPriceLabel,
+  billingBlockReason,
 } from './plans';
 
 describe('plan catalog', () => {
@@ -54,5 +55,52 @@ describe('getPlan / planPriceLabel', () => {
     expect(planPriceLabel(getPlan('indie'))).toBe('Free');
     expect(planPriceLabel(getPlan('premium'))).toBe('€49/mo');
     expect(planPriceLabel(getPlan('pro'))).toBe('On request');
+  });
+});
+
+describe('billingBlockReason (soft-block, #32 refinement)', () => {
+  const NOW = new Date('2026-07-20T12:00:00Z');
+  const fresh = '2026-07-10T00:00:00Z'; // trial ends 24 Jul — still running
+  const lapsed = '2026-07-01T00:00:00Z'; // trial ended 15 Jul — lapsed
+
+  it('never blocks active/comped/past_due (dunning owns past_due)', () => {
+    for (const status of ['active', 'past_due', 'comped'] as const) {
+      expect(
+        billingBlockReason({ status, createdAt: lapsed, stripeSubscriptionId: null }, NOW)
+      ).toBeNull();
+    }
+  });
+
+  it('blocks a canceled venue', () => {
+    expect(
+      billingBlockReason({ status: 'canceled', createdAt: fresh, stripeSubscriptionId: 'sub_x' }, NOW)
+    ).toBe('canceled');
+  });
+
+  it('does not block a running trial', () => {
+    expect(
+      billingBlockReason({ status: 'trialing', createdAt: fresh, stripeSubscriptionId: null }, NOW)
+    ).toBeNull();
+  });
+
+  it('blocks a lapsed trial without checkout', () => {
+    expect(
+      billingBlockReason({ status: 'trialing', createdAt: lapsed, stripeSubscriptionId: null }, NOW)
+    ).toBe('trial_expired');
+  });
+
+  it('leaves a lapsed trial WITH a Stripe subscription to Stripe (trial_end)', () => {
+    expect(
+      billingBlockReason({ status: 'trialing', createdAt: lapsed, stripeSubscriptionId: 'sub_x' }, NOW)
+    ).toBeNull();
+  });
+
+  it('flips exactly at the 14-day boundary', () => {
+    const createdAt = '2026-07-06T12:00:00Z';
+    const justBefore = new Date('2026-07-20T11:59:59Z');
+    const justAfter = new Date('2026-07-20T12:00:01Z');
+    const sub = { status: 'trialing' as const, createdAt, stripeSubscriptionId: null };
+    expect(billingBlockReason(sub, justBefore)).toBeNull();
+    expect(billingBlockReason(sub, justAfter)).toBe('trial_expired');
   });
 });

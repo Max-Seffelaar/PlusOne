@@ -32,6 +32,7 @@ import {
   usePoContactKeys,
   usePoEvents,
   usePoCanManageTemplates,
+  useBillingBlocked,
 } from '@/features/po/hooks';
 import {
   usePoInviteUser,
@@ -292,6 +293,8 @@ export function Gebruikers(): JSX.Element {
     setInviteEvents([]);
     setQuota('');
   };
+  // Soft-block (#32 refinement): no team growth on canceled/lapsed-trial venues.
+  const billingLock = useBillingBlocked();
   // Admins choose Team vs External crew; a user_manager can only invite Team.
   const startInvite = (): void => {
     resetInviteForm();
@@ -510,12 +513,26 @@ export function Gebruikers(): JSX.Element {
         onBack={nav.back}
         title={t.settings.team.title}
         sub={fmt(teamCount === 1 ? t.settings.team.subOne : t.settings.team.subMany, { count: teamCount, open: inviteCount })}
-        right={caps.manageTeam ? <IconBtn name="plus" onClick={startInvite} /> : undefined}
+        right={caps.manageTeam && !billingLock.blocked ? <IconBtn name="plus" onClick={startInvite} /> : undefined}
       />
       <Scroll bottom={24}>
+        {caps.manageTeam && billingLock.blocked && (
+          <Note icon="warn">
+            {billingLock.reason === 'canceled'
+              ? t.settings.billing.blockedCanceled
+              : t.settings.billing.blockedTrial}{' '}
+            <button
+              type="button"
+              className="cursor-pointer font-bold text-acc underline underline-offset-2"
+              onClick={() => nav.push('billing')}
+            >
+              {t.settings.billing.blockedCta}
+            </button>
+          </Note>
+        )}
         {(caps.manageTeam || caps.viewQuota) && (
           <div className="lg:mb-[18px] lg:flex lg:gap-3">
-            {caps.manageTeam && (
+            {caps.manageTeam && !billingLock.blocked && (
               <Btn kind="dark" full icon="plus" className="mb-3 lg:mb-0 lg:w-auto" onClick={startInvite}>
                 {t.settings.team.inviteCta}
               </Btn>

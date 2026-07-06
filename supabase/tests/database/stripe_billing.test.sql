@@ -38,7 +38,7 @@ begin
 end;
 $fn$;
 
-select plan(25);
+select plan(28);
 
 -- ---------------------------------------------------------------------------
 -- A. Privileges: ledger + RPCs are service_role-only
@@ -199,6 +199,31 @@ reset role;
 -- ledger insert so a retry (after stamp_stripe_customer) can succeed.
 select is((select count(*)::int from public.stripe_webhook_events where id = 'evt_orphan'),
   0, 'T22 a failed apply leaves the event unprocessed');
+
+-- ---------------------------------------------------------------------------
+-- H'. Customer-mismatch guard (20260706130000, security-review follow-up):
+-- a checkout event that names a venue (client_reference_id) but carries a
+-- DIFFERENT customer than the one already linked must raise, roll back its
+-- ledger insert, and change nothing — a Payment Link outsider can never
+-- hijack a venue's billing linkage.
+-- ---------------------------------------------------------------------------
+
+select pg_temp.login_service();
+select throws_ok($$
+  select public.apply_stripe_subscription_update(
+    'evt_hijack', 'checkout.session.completed',
+    p_venue_id => 'aa000000-0000-7000-8000-000000000002',
+    p_stripe_customer_id => 'cus_attacker',
+    p_stripe_subscription_id => 'sub_attacker') $$,
+  '45010', null, 'T26 a venue-matched event with a foreign customer is refused');
+reset role;
+
+select is((select stripe_customer_id from public.subscriptions
+           where venue_id = 'aa000000-0000-7000-8000-000000000002'),
+  'cus_markt', 'T27 the linked customer is untouched after the hijack attempt');
+
+select is((select count(*)::int from public.stripe_webhook_events where id = 'evt_hijack'),
+  0, 'T28 the refused event is not marked processed');
 
 -- ---------------------------------------------------------------------------
 -- I. Audit (decision #4): subscription changes are logged, actor null = system

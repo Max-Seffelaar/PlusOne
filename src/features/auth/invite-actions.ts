@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { getSessionUser } from '@/lib/auth/context';
 import type { Database } from '@/lib/database.types';
+import { assertVenueBillingActive } from '@/features/billing/gate';
 import { inviteSchema, revokeInviteSchema } from './schemas';
 import { canGrantRoles, type VenueRole } from './roles';
 
@@ -88,6 +89,10 @@ export async function inviteUserAction(
   if (!canGrantRoles(callerRoles, typedRoles)) {
     return { ok: false, error: "You can't grant these roles here." };
   }
+  // Soft-block (#32 refinement): a canceled venue / lapsed unpaid trial grows
+  // no team; existing members keep working.
+  const billingBlocked = await assertVenueBillingActive(venueId);
+  if (billingBlocked) return { ok: false, error: billingBlocked.message };
   // Event-organizer scope is an admin-only grant (mirrors assignOrganizer, #6/#24);
   // RLS (invites_insert) re-enforces this, but check up front for a clear message.
   if (eventIds.length > 0 && !callerRoles.includes('admin')) {
