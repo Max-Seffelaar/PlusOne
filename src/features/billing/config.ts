@@ -8,8 +8,9 @@ import 'server-only';
 
 import type { PlanId } from './plans';
 
-/** App-side trial length (days) — mirrored into Stripe via trial_end at checkout. */
-export const TRIAL_DAYS = 14;
+// Trial length lives in plans.ts (client-safe, the UI renders the countdown);
+// re-exported here for server callers that already import the config.
+export { TRIAL_DAYS } from './plans';
 
 /** Pinned Stripe API version (stripe@18 default); bump deliberately with the SDK. */
 export const STRIPE_API_VERSION = '2025-08-27.basil' as const;
