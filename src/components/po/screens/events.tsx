@@ -391,21 +391,36 @@ function TemplateChip({ label, active, onClick }: { label: string; active: boole
   );
 }
 
-/** Save an existing event's setup (tiers + capacity + settings) as a reusable template. */
-function SaveAsTemplate({ eventId }: { eventId: string }): JSX.Element {
+/** Save an existing event's setup (tiers + capacity + settings) as a reusable template.
+ *  Reports a typed-but-unsaved name via onDraftChange so the parent's leave-guard can
+ *  catch it — "Save event" does NOT save the template (T4, 1/7). */
+function SaveAsTemplate({
+  eventId,
+  onDraftChange,
+}: {
+  eventId: string;
+  onDraftChange?: (dirty: boolean) => void;
+}): JSX.Element {
   const createTpl = usePoCreateTemplateFromEvent();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
-  const [msg, setMsg] = useState<string | null>(null);
+  const [savedName, setSavedName] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  const draft = open && !!name.trim();
+  useEffect(() => {
+    onDraftChange?.(draft);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft]);
 
   const submit = async (): Promise<void> => {
     if (!name.trim() || createTpl.isPending) return;
     setErr(null);
-    setMsg(null);
+    setSavedName(null);
     try {
-      await createTpl.mutateAsync({ eventId, name: name.trim() });
-      setMsg(t.events.saveTemplateDone);
+      const tplName = name.trim();
+      await createTpl.mutateAsync({ eventId, name: tplName });
+      setSavedName(tplName);
       setName('');
       setOpen(false);
     } catch (e) {
@@ -459,12 +474,30 @@ function SaveAsTemplate({ eventId }: { eventId: string }): JSX.Element {
             icon="grid"
             onClick={() => {
               setOpen(true);
-              setMsg(null);
+              setSavedName(null);
             }}
           >
             {t.events.saveTemplateCta}
           </Btn>
-          {msg && <p className="mt-2 text-[12.5px] text-acc-soft">{msg}</p>}
+          {/* Unmissable saved-state: a card with the template's name + where to
+              find it, not a one-line footnote (T4, 1/7 — "felt saved, couldn't
+              find it back"). */}
+          {savedName && (
+            <div
+              className="mt-2 flex items-start gap-[10px] rounded-[14px] border bg-acc-dim p-[13px]"
+              style={{ borderColor: 'rgba(181,166,255,0.4)' }}
+            >
+              <span className="mt-px text-acc">
+                <Icon name="check" size={18} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="font-body text-[14px] font-bold text-text">
+                  {fmt(t.events.saveTemplateDoneTitle, { name: savedName })}
+                </div>
+                <div className="mt-0.5 text-[12.5px] leading-[1.45] text-faint">{t.events.saveTemplateDoneBody}</div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
@@ -508,6 +541,9 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   // Leaving with unsaved edits asks first (retest 3/7, Q6). Immediate controls
   // (lock, check-out, cancel) commit on toggle, so they never count as dirty.
   const [confirmLeave, setConfirmLeave] = useState(false);
+  // A typed-but-unsaved template name (SaveAsTemplate) — "Save event" and back
+  // must not silently discard it (T4, 1/7).
+  const [tplDraft, setTplDraft] = useState(false);
 
   // Hydrate the form once the event identity loads / changes (edit mode only).
   useEffect(() => {
@@ -539,7 +575,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const saving = createEvent.isPending || createFromTemplate.isPending || updateEvent.isPending;
 
   // Anything the Save button would commit that differs from the loaded state.
-  const dirty = ((): boolean => {
+  const fieldsDirty = ((): boolean => {
     if (!writable || saving) return false;
     if (isNew) return !!(name.trim() || dateStr || timeStr || endDateStr || endTimeStr);
     if (!ev) return false;
@@ -557,6 +593,9 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
       (autoOn && (autoDate !== ad0 || autoTime !== at0))
     );
   })();
+  // The template draft is dirty too — it has its OWN save button, which "Save
+  // event" does not press for you.
+  const dirty = fieldsDirty || (!isNew && writable && tplDraft);
 
   const onBack = (): void => {
     if (dirty) setConfirmLeave(true);
@@ -618,7 +657,10 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           await setAutoLock.mutateAsync({ eventId: editId, autoLockAt: autoIso });
         }
       }
-      nav.back();
+      // Event fields are saved, but a typed template name is not — hold the
+      // screen and ask instead of silently dropping it (T4, 1/7).
+      if (tplDraft) setConfirmLeave(true);
+      else nav.back();
     } catch (e) {
       setErr(e instanceof Error ? e.message : t.events.errSaveFailed);
     }
@@ -869,7 +911,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
             </div>
           </>
         )}
-        {!isNew && writable && <SaveAsTemplate eventId={editId} />}
+        {!isNew && writable && <SaveAsTemplate eventId={editId} onDraftChange={setTplDraft} />}
 
         {!isNew && isAdmin && (
           <>
@@ -907,7 +949,9 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
       {confirmLeave && (
         <Sheet onClose={() => setConfirmLeave(false)} center={false}>
           <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{t.events.unsaved.title}</div>
-          <div className="mb-4 text-[13.5px] leading-[1.45] text-faint">{t.events.unsaved.body}</div>
+          <div className="mb-4 text-[13.5px] leading-[1.45] text-faint">
+            {tplDraft && !fieldsDirty ? t.events.unsaved.bodyTemplate : t.events.unsaved.body}
+          </div>
           <div className="flex flex-col gap-2">
             <Btn kind="primary" full icon="check" onClick={() => setConfirmLeave(false)}>
               {t.events.unsaved.stay}

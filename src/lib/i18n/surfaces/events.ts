@@ -70,9 +70,10 @@ export const events = {
   fieldDoors: 'Doors',
   fieldEndDate: 'End date',
   fieldEnd: 'End',
-  // Template picker (create-from-template, 86exyp8gn).
-  fieldTemplate: 'Template',
-  templateBlank: 'No template',
+  // Template picker (create-from-template, 86exyp8gn). "Start from" + "Blank
+  // event" make the blank-vs-seed choice explicit (T4, 1/7).
+  fieldTemplate: 'Start from',
+  templateBlank: 'Blank event',
   templateNote: 'Tiers, capacity, and settings come from the template. Name and date stay yours.',
   // "Tiers & aliases — feed the quick-add" was jargon to new users (T2, 1/7):
   // plain words for what you actually set up there.
@@ -107,10 +108,13 @@ export const events = {
   saving: 'Saving…',
   createEvent: 'Create event',
   saveEvent: 'Save event',
-  // Leaving the form with unsaved edits (retest 3/7, Q6).
+  // Leaving the form with unsaved edits (retest 3/7, Q6). bodyTemplate covers a
+  // typed-but-unsaved template name (T4, 1/7) — the trap where "Save event"
+  // felt like it saved the template too.
   unsaved: {
     title: 'Unsaved changes',
     body: "You have changes here that aren't saved yet. Leave and discard them?",
+    bodyTemplate: "Your template isn't saved yet — it needs its own Save template tap. Leave and discard it?",
     stay: 'Keep editing',
     discard: 'Discard & leave',
   },
@@ -121,7 +125,8 @@ export const events = {
   saveTemplatePlaceholder: 'Template name, e.g. "Lofi — open air"',
   saveTemplateConfirm: 'Save template',
   saveTemplateCancel: 'Cancel',
-  saveTemplateDone: 'Saved as a template.',
+  saveTemplateDoneTitle: '"{name}" is saved.',
+  saveTemplateDoneBody: 'Pick it under Start from on your next event, or manage it via More → Event templates.',
   saveTemplateError: "Couldn't save the template.",
 
   // ── Cancel event (replaces the retired status machine) ────────────────────────
