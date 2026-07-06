@@ -45,7 +45,7 @@ declare r text; i int;
 begin
   for i in 1..p_n loop
     r := public.submit_guest_request(
-      'plusone-launch-night', 'RL ' || i, null, null, 0, null, p_ip, false);
+      'plusone-launch-night', 'RL ' || i, null, null, 0, null, p_ip, false) ->> 'status';
   end loop;
   return r;
 end;
@@ -59,10 +59,10 @@ select plan(24);
 
 select pg_temp.login_anon();
 select is(
-  public.submit_guest_request('plusone-launch-night', 'Dup Tester', 'dup@x.test', null, 0, null, 'ip-a', false),
+  public.submit_guest_request('plusone-launch-night', 'Dup Tester', 'dup@x.test', null, 0, null, 'ip-a', false) ->> 'status',
   'ok', 'A1 anon files a landing request → ok');
 select is(
-  public.submit_guest_request('plusone-launch-night', 'Dup Tester 2', 'dup@x.test', null, 1, null, 'ip-a', false),
+  public.submit_guest_request('plusone-launch-night', 'Dup Tester 2', 'dup@x.test', null, 1, null, 'ip-a', false) ->> 'status',
   'ok', 'A2 a duplicate (same e-mail) is silently accepted (no leak, #28)');
 
 reset role;
@@ -72,7 +72,7 @@ select is(
 
 select pg_temp.login_anon();
 select is(
-  public.submit_guest_request('this-slug-does-not-exist', 'Ghost Aanvrager', null, null, 0, null, 'ip-a', false),
+  public.submit_guest_request('this-slug-does-not-exist', 'Ghost Aanvrager', null, null, 0, null, 'ip-a', false) ->> 'status',
   'closed', 'A4 unknown/closed slug → closed (unknown and inactive are identical: no enumeration)');
 reset role;
 select is(
@@ -81,20 +81,20 @@ select is(
 
 select pg_temp.login_anon();
 select is(
-  public.submit_guest_request('plusone-launch-night', 'A', null, null, 0, null, 'ip-a', false),
+  public.submit_guest_request('plusone-launch-night', 'A', null, null, 0, null, 'ip-a', false) ->> 'status',
   'invalid', 'A6 a too-short name is rejected server-side');
 
 -- Rate limit: a fresh IP, window max = 5 (tightened in 20260625100000). The 5th
 -- still passes, the 6th trips.
 select is(pg_temp.submit_n(5, 'ip-rl'), 'ok', 'A7a five submissions within the window stay ok');
 select is(
-  public.submit_guest_request('plusone-launch-night', 'RL Over', null, null, 0, null, 'ip-rl', false),
+  public.submit_guest_request('plusone-launch-night', 'RL Over', null, null, 0, null, 'ip-rl', false) ->> 'status',
   'rate_limited', 'A7b the 6th submission from the same IP is rate-limited');
 
 -- Marketing opt-in (8b): the consent flag is persisted as given.
 select pg_temp.login_anon();
 select is(
-  public.submit_guest_request('plusone-launch-night', 'Marketing Janus', 'market@x.test', null, 0, null, 'ip-mk', true),
+  public.submit_guest_request('plusone-launch-night', 'Marketing Janus', 'market@x.test', null, 0, null, 'ip-mk', true) ->> 'status',
   'ok', 'A8 a submission with marketing consent → ok');
 reset role;
 select is(

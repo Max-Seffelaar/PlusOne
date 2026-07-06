@@ -84,7 +84,7 @@ update public.events set landing_active = true
   where id = 'ee000000-0000-7000-8000-000000000001';
 select is(public.submit_guest_request(
   (select landing_slug from public.events where id = 'ee000000-0000-7000-8000-000000000001'),
-  'Cap Submitter', null, null, 0, null, null), 'ok',
+  'Cap Submitter', null, null, 0, null, null, false) ->> 'status', 'ok',
   '9 a request to an active, non-cancelled event is accepted');
 
 -- ── Cancel the event ──
@@ -108,7 +108,7 @@ reset role;
 -- ── 13: a cancelled event stops taking public requests (no enumeration) ──
 select is(public.submit_guest_request(
   (select landing_slug from public.events where id = 'ee000000-0000-7000-8000-000000000001'),
-  'Cap Submitter Two', null, null, 0, null, null), 'closed',
+  'Cap Submitter Two', null, null, 0, null, null, false) ->> 'status', 'closed',
   '13 a cancelled event stops taking public requests');
 
 select * from finish();

@@ -7,6 +7,31 @@ export type Json =
   | Json[]
 
 export type Database = {
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       audit_log: {
@@ -536,6 +561,7 @@ export type Database = {
           created_at: string
           decided_at: string | null
           decided_by: string | null
+          decided_via: Database["public"]["Enums"]["decision_source"]
           decision_reason: string | null
           dedupe_key: string | null
           email: string | null
@@ -546,7 +572,9 @@ export type Database = {
           motivation: string | null
           phone: string | null
           plus_ones: number
+          request_link_id: string | null
           status: Database["public"]["Enums"]["request_status"]
+          status_token_hash: string | null
         }
         Insert: {
           anonymized_at?: string | null
@@ -554,6 +582,7 @@ export type Database = {
           created_at?: string
           decided_at?: string | null
           decided_by?: string | null
+          decided_via?: Database["public"]["Enums"]["decision_source"]
           decision_reason?: string | null
           dedupe_key?: string | null
           email?: string | null
@@ -564,7 +593,9 @@ export type Database = {
           motivation?: string | null
           phone?: string | null
           plus_ones?: number
+          request_link_id?: string | null
           status?: Database["public"]["Enums"]["request_status"]
+          status_token_hash?: string | null
         }
         Update: {
           anonymized_at?: string | null
@@ -572,6 +603,7 @@ export type Database = {
           created_at?: string
           decided_at?: string | null
           decided_by?: string | null
+          decided_via?: Database["public"]["Enums"]["decision_source"]
           decision_reason?: string | null
           dedupe_key?: string | null
           email?: string | null
@@ -582,7 +614,9 @@ export type Database = {
           motivation?: string | null
           phone?: string | null
           plus_ones?: number
+          request_link_id?: string | null
           status?: Database["public"]["Enums"]["request_status"]
+          status_token_hash?: string | null
         }
         Relationships: [
           {
@@ -597,6 +631,13 @@ export type Database = {
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "guest_requests_request_link_id_fkey"
+            columns: ["request_link_id"]
+            isOneToOne: false
+            referencedRelation: "request_links"
             referencedColumns: ["id"]
           },
         ]
@@ -650,7 +691,7 @@ export type Database = {
       }
       guests: {
         Row: {
-          added_by: string
+          added_by: string | null
           anonymized_at: string | null
           contact_id: string | null
           created_at: string
@@ -665,13 +706,14 @@ export type Database = {
           phone: string | null
           plus_ones: number
           removed_at: string | null
+          request_link_id: string | null
           source: Database["public"]["Enums"]["guest_source"]
           status: Database["public"]["Enums"]["guest_status"]
           tier_id: string
           updated_at: string
         }
         Insert: {
-          added_by: string
+          added_by?: string | null
           anonymized_at?: string | null
           contact_id?: string | null
           created_at?: string
@@ -686,13 +728,14 @@ export type Database = {
           phone?: string | null
           plus_ones?: number
           removed_at?: string | null
+          request_link_id?: string | null
           source?: Database["public"]["Enums"]["guest_source"]
           status?: Database["public"]["Enums"]["guest_status"]
           tier_id: string
           updated_at?: string
         }
         Update: {
-          added_by?: string
+          added_by?: string | null
           anonymized_at?: string | null
           contact_id?: string | null
           created_at?: string
@@ -707,6 +750,7 @@ export type Database = {
           phone?: string | null
           plus_ones?: number
           removed_at?: string | null
+          request_link_id?: string | null
           source?: Database["public"]["Enums"]["guest_source"]
           status?: Database["public"]["Enums"]["guest_status"]
           tier_id?: string
@@ -742,11 +786,82 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "guests_request_link_id_fkey"
+            columns: ["request_link_id"]
+            isOneToOne: false
+            referencedRelation: "request_links"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "guests_tier_id_event_id_fkey"
             columns: ["tier_id", "event_id"]
             isOneToOne: false
             referencedRelation: "guest_tiers"
             referencedColumns: ["id", "event_id"]
+          },
+        ]
+      }
+      influencers: {
+        Row: {
+          archived_at: string | null
+          created_at: string
+          created_by: string
+          handle: string | null
+          id: string
+          name: string
+          notes: string | null
+          stats_token_hash: string | null
+          updated_at: string
+          user_id: string | null
+          venue_id: string
+        }
+        Insert: {
+          archived_at?: string | null
+          created_at?: string
+          created_by: string
+          handle?: string | null
+          id?: string
+          name: string
+          notes?: string | null
+          stats_token_hash?: string | null
+          updated_at?: string
+          user_id?: string | null
+          venue_id: string
+        }
+        Update: {
+          archived_at?: string | null
+          created_at?: string
+          created_by?: string
+          handle?: string | null
+          id?: string
+          name?: string
+          notes?: string | null
+          stats_token_hash?: string | null
+          updated_at?: string
+          user_id?: string | null
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "influencers_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "influencers_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "influencers_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1002,6 +1117,128 @@ export type Database = {
           },
           {
             foreignKeyName: "refusals_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      request_link_pageviews_daily: {
+        Row: {
+          day: string
+          request_link_id: string
+          updated_at: string
+          views: number
+        }
+        Insert: {
+          day: string
+          request_link_id: string
+          updated_at?: string
+          views?: number
+        }
+        Update: {
+          day?: string
+          request_link_id?: string
+          updated_at?: string
+          views?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "request_link_pageviews_daily_request_link_id_fkey"
+            columns: ["request_link_id"]
+            isOneToOne: false
+            referencedRelation: "request_links"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      request_links: {
+        Row: {
+          active: boolean
+          archived_at: string | null
+          auto_approve: boolean
+          created_at: string
+          created_by: string | null
+          event_id: string
+          expires_at: string | null
+          id: string
+          influencer_id: string | null
+          is_default: boolean
+          label: string | null
+          max_headcount: number | null
+          slug: string
+          tier_id: string | null
+          updated_at: string
+          venue_id: string
+        }
+        Insert: {
+          active?: boolean
+          archived_at?: string | null
+          auto_approve?: boolean
+          created_at?: string
+          created_by?: string | null
+          event_id: string
+          expires_at?: string | null
+          id?: string
+          influencer_id?: string | null
+          is_default?: boolean
+          label?: string | null
+          max_headcount?: number | null
+          slug: string
+          tier_id?: string | null
+          updated_at?: string
+          venue_id: string
+        }
+        Update: {
+          active?: boolean
+          archived_at?: string | null
+          auto_approve?: boolean
+          created_at?: string
+          created_by?: string | null
+          event_id?: string
+          expires_at?: string | null
+          id?: string
+          influencer_id?: string | null
+          is_default?: boolean
+          label?: string | null
+          max_headcount?: number | null
+          slug?: string
+          tier_id?: string | null
+          updated_at?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "request_links_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "request_links_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "request_links_influencer_id_fkey"
+            columns: ["influencer_id"]
+            isOneToOne: false
+            referencedRelation: "influencers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "request_links_tier_id_event_id_fkey"
+            columns: ["tier_id", "event_id"]
+            isOneToOne: false
+            referencedRelation: "guest_tiers"
+            referencedColumns: ["id", "event_id"]
+          },
+          {
+            foreignKeyName: "request_links_venue_id_fkey"
             columns: ["venue_id"]
             isOneToOne: false
             referencedRelation: "venues"
@@ -1295,6 +1532,10 @@ export type Database = {
       can_read_venue_stats: { Args: { p_venue_id: string }; Returns: boolean }
       can_view_profile: { Args: { p_profile_id: string }; Returns: boolean }
       can_write_guests: { Args: { p_event_id: string }; Returns: boolean }
+      consume_public_throttle: {
+        Args: { p_key: string; p_max: number; p_window_min: number }
+        Returns: boolean
+      }
       create_event_from_template: {
         Args: {
           p_ends_at?: string
@@ -1308,35 +1549,23 @@ export type Database = {
         Args: { p_event_id: string; p_name: string }
         Returns: string
       }
-      create_venue_with_owner:
-        | {
-            Args: {
-              p_address: string
-              p_comped?: boolean
-              p_name: string
-              p_plan_id?: string
-              p_retention_months: number
-              p_venue_type: string
-            }
-            Returns: string
-          }
-        | {
-            Args: {
-              p_address: string
-              p_city?: string
-              p_comped?: boolean
-              p_complete?: boolean
-              p_finance_email?: string
-              p_kvk_number?: string
-              p_name: string
-              p_plan_id?: string
-              p_retention_months: number
-              p_terms_version?: string
-              p_vat_number?: string
-              p_venue_type: string
-            }
-            Returns: string
-          }
+      create_venue_with_owner: {
+        Args: {
+          p_address: string
+          p_city?: string
+          p_comped?: boolean
+          p_complete?: boolean
+          p_finance_email?: string
+          p_kvk_number?: string
+          p_name: string
+          p_plan_id?: string
+          p_retention_months: number
+          p_terms_version?: string
+          p_vat_number?: string
+          p_venue_type: string
+        }
+        Returns: string
+      }
       current_user_requires_mfa: { Args: never; Returns: boolean }
       event_allows_uncheck: { Args: { p_event_id: string }; Returns: boolean }
       event_capacity_consumption: {
@@ -1420,6 +1649,18 @@ export type Database = {
       }
       event_venue: { Args: { p_event_id: string }; Returns: string }
       forget_contact: { Args: { p_contact_id: string }; Returns: Json }
+      get_landing_event: {
+        Args: { p_slug: string }
+        Returns: {
+          event_name: string
+          starts_at: string
+          via_label: string
+        }[]
+      }
+      get_request_status: {
+        Args: { p_ip_hash: string; p_token_hash: string }
+        Returns: Json
+      }
       guest_capacity_contribution: {
         Args: {
           g: Database["public"]["Tables"]["guests"]["Row"]
@@ -1456,6 +1697,14 @@ export type Database = {
         Returns: boolean
       }
       is_venue_member: { Args: { p_venue_id: string }; Returns: boolean }
+      is_venue_organizer: { Args: { p_venue_id: string }; Returns: boolean }
+      link_headcount_contribution: {
+        Args: {
+          g: Database["public"]["Tables"]["guests"]["Row"]
+          p_is_inside: boolean
+        }
+        Returns: number
+      }
       list_own_sessions: {
         Args: never
         Returns: {
@@ -1481,6 +1730,10 @@ export type Database = {
         Args: { p_guest_id: string }
         Returns: undefined
       }
+      record_link_pageview: {
+        Args: { p_ip_hash: string; p_slug: string }
+        Returns: undefined
+      }
       redact_anonymized_audit_pii: {
         Args: { p_guest_ids: string[] }
         Returns: number
@@ -1498,6 +1751,11 @@ export type Database = {
         Returns: Json
       }
       request_device_id: { Args: never; Returns: string }
+      request_link_consumption: { Args: { p_link_id: string }; Returns: number }
+      request_link_open: {
+        Args: { l: Database["public"]["Tables"]["request_links"]["Row"] }
+        Returns: boolean
+      }
       resolve_tier_for_contact: {
         Args: {
           p_event_id: string
@@ -1529,33 +1787,21 @@ export type Database = {
         Returns: undefined
       }
       slugify: { Args: { p_text: string }; Returns: string }
-      submit_guest_request:
-        | {
-            Args: {
-              p_email: string
-              p_full_name: string
-              p_ip_hash: string
-              p_motivation: string
-              p_phone: string
-              p_plus_ones: number
-              p_slug: string
-            }
-            Returns: string
-          }
-        | {
-            Args: {
-              p_birthdate?: string
-              p_email: string
-              p_full_name: string
-              p_ip_hash: string
-              p_marketing_opt_in: boolean
-              p_motivation: string
-              p_phone: string
-              p_plus_ones: number
-              p_slug: string
-            }
-            Returns: string
-          }
+      submit_guest_request: {
+        Args: {
+          p_birthdate?: string
+          p_email: string
+          p_full_name: string
+          p_ip_hash: string
+          p_marketing_opt_in: boolean
+          p_motivation: string
+          p_phone: string
+          p_plus_ones: number
+          p_slug: string
+          p_status_token_hash?: string
+        }
+        Returns: Json
+      }
       sync_permanent_guests_into_event: {
         Args: { p_event_id: string }
         Returns: number
@@ -1628,6 +1874,7 @@ export type Database = {
     Enums: {
       contact_role: "vip" | "all_access" | "artist" | "press" | "crew" | "guest"
       contact_source: "manual" | "import" | "guest_request" | "guest_list"
+      decision_source: "manual" | "auto"
       event_status: "draft" | "open" | "live" | "closed"
       guest_source: "app" | "landing" | "door" | "permanent"
       guest_status:
@@ -1771,10 +2018,14 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       contact_role: ["vip", "all_access", "artist", "press", "crew", "guest"],
       contact_source: ["manual", "import", "guest_request", "guest_list"],
+      decision_source: ["manual", "auto"],
       event_status: ["draft", "open", "live", "closed"],
       guest_source: ["app", "landing", "door", "permanent"],
       guest_status: [
@@ -1798,3 +2049,4 @@ export const Constants = {
     },
   },
 } as const
+

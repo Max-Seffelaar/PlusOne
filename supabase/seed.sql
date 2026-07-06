@@ -280,3 +280,42 @@ values
 update public.guests
   set contact_id = 'c0000000-0000-7000-8000-000000000003'
   where id = 'cc000000-0000-7000-8000-000000000002';
+
+-- ---------------------------------------------------------------------------
+-- Requests-epic F1 (86ey21vjt): one influencer + an auto-approve request link
+-- with a headcount cap, some pageviews, and attribution on the existing seed
+-- requests — so the Aanvraaglinks screen, the via-badges and the funnel numbers
+-- are non-empty on a fresh local DB. (The event's default link is created by
+-- trigger on the events insert above.)
+-- ---------------------------------------------------------------------------
+
+insert into public.influencers (id, venue_id, name, handle, created_by) values
+  ('1f000000-0000-7000-8000-000000000001', 'aa000000-0000-7000-8000-000000000001',
+   'Jayden Promo', '@jayden.010', '11111111-1111-4111-8111-111111111111');
+
+insert into public.request_links
+  (id, event_id, influencer_id, slug, tier_id, max_headcount, auto_approve, created_by)
+values
+  ('2c000000-0000-7000-8000-000000000001', 'ee000000-0000-7000-8000-000000000001',
+   '1f000000-0000-7000-8000-000000000001', 'launch-night-jayden',
+   'dd000000-0000-7000-8000-000000000001', 25, true,
+   '11111111-1111-4111-8111-111111111111');
+
+-- The two open seed requests came in via Jayden's link; the denied one via the
+-- default link (matching the migration backfill for pre-existing requests).
+update public.guest_requests
+  set request_link_id = '2c000000-0000-7000-8000-000000000001'
+  where id in ('bb000000-0000-7000-8000-000000000001',
+               'bb000000-0000-7000-8000-000000000002');
+update public.guest_requests gr
+  set request_link_id = rl.id
+  from public.request_links rl
+  where rl.event_id = gr.event_id and rl.is_default
+    and gr.id = 'bb000000-0000-7000-8000-000000000003';
+
+-- A few days of pageviews on both links (funnel step 1).
+insert into public.request_link_pageviews_daily (request_link_id, day, views)
+select rl.id, (current_date - offs), v
+from public.request_links rl
+cross join lateral (values (2, 18), (1, 33), (0, 12)) as pv(offs, v)
+where rl.slug in ('plusone-launch-night', 'launch-night-jayden');
