@@ -295,6 +295,12 @@ export function PlusOneApp({
     push: (name: ScreenName, props = {}) => {
       navigate(() => setStack((s) => [...s, { name, props }]));
     },
+    // No navigate() wrapper: the current position is swapped, not stacked, so the
+    // physical back button still restores the position the flow started from.
+    replace: (name: ScreenName, props = {}) => {
+      setStack((s) => (s.length === 0 ? [{ name, props }] : [...s.slice(0, -1), { name, props }]));
+      bump();
+    },
     // The physical back button and the in-app chevron share one path via the History API.
     back: () => {
       histNav.goBack();
