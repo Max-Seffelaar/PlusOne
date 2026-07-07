@@ -258,18 +258,45 @@ function findPlusOnes(normTokens: string[]): PlusOnes {
  * (there is no is_default column — typically the tier named "Regular" or the
  * first tier). Returns status 'needs_name' when no name remains.
  */
-// E-mail / phone embedded in a line ("Max max@x.nl 0612345678 +2 vip") are pulled
-// out as whole TOKENS — a token with "@" is the e-mail; a mostly-digit token with
-// ≥8 digits is the phone — BEFORE +N/tier parsing. That way a phone's digits are
-// never read as plus-ones and never land in the name. Permissive on purpose:
-// capture, not validation (the schema bounds length; #9 keeps the fields optional).
-// (Phone numbers written with spaces between groups are not auto-captured; paste
-// them contiguous, e.g. "+31612345678".)
+// E-mail / phone in a line are pulled out BEFORE +N/tier parsing, at two levels:
+//   • CELL level — a whole CSV column ("Naam, e-mail, 06 12 34 56 78, vip") that
+//     is wholly an e-mail or a phone (spaces/dashes allowed inside the cell).
+//   • TOKEN level — an inline whitespace token in a delimiter-free line
+//     ("Max max@x.nl 0612345678 +2 vip").
+// Either way a phone's digits are never read as plus-ones and never land in the
+// name. Permissive on purpose: capture, not validation (the schema bounds length;
+// #9 keeps the fields optional).
 const EMAIL_TOKEN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_TOKEN = /^\+?[\d().-]*\d[\d().-]*$/;
+// Whole-cell phone: only phone-ish chars, incl. internal spaces ("06 12 34 56 78").
+const CELL_PHONE = /^\+?[\d\s().-]*\d[\d\s().-]*$/;
 
 function digitCount(token: string): number {
   return token.replace(/\D/g, '').length;
+}
+
+/** Pull an e-mail / phone column out of the CSV cells (spaced phones allowed). */
+function extractContactCells(cells: string[]): {
+  kept: string[];
+  email: string | null;
+  phone: string | null;
+} {
+  let email: string | null = null;
+  let phone: string | null = null;
+  const kept: string[] = [];
+  for (const c of cells) {
+    if (!email && EMAIL_TOKEN.test(c)) {
+      email = c;
+      continue;
+    }
+    const digits = digitCount(c);
+    if (!phone && CELL_PHONE.test(c) && digits >= 8 && digits <= 15) {
+      phone = c.replace(/\s+/g, ''); // store contiguous
+      continue;
+    }
+    kept.push(c);
+  }
+  return { kept, email, phone };
 }
 
 function extractContactTokens(tokens: string[]): {
@@ -303,10 +330,20 @@ export function parseQuickAdd(
   const defaultTier = tiers.find((t) => t.id === defaultTierId);
   const defaultTierName = defaultTier?.name ?? '';
 
-  // Tokenize (split "+" off neighbours so "Jan+2" works), then pull the e-mail
-  // and phone tokens out before +N/tier parsing.
-  const rawTokens = raw.replace(/\+/g, ' +').split(/\s+/).filter(Boolean);
-  const { kept: originalTokens, email, phone } = extractContactTokens(rawTokens);
+  // (1) Split into columns on CSV-style delimiters (comma / semicolon / tab) when
+  // present, so a pasted "Naam, e-mail, 06 12 34 56 78, vip" row classifies each
+  // column (a spaced phone in its own cell is still captured). A delimiter-free
+  // line is a single cell — the #33 whitespace grammar, unchanged.
+  const cells = raw.split(/[,;\t]/).map((c) => c.trim()).filter(Boolean);
+  const { kept: contentCells, email: cellEmail, phone: cellPhone } = extractContactCells(cells);
+
+  // (2) Tokenize the remaining columns on whitespace (split "+" off neighbours so
+  // "Jan+2" works), then pull any INLINE e-mail/phone token out too (a single
+  // delimiter-free cell like "Max max@x.nl 0612345678 +2 vip"). Cell matches win.
+  const rawTokens = contentCells.join(' ').replace(/\+/g, ' +').split(/\s+/).filter(Boolean);
+  const { kept: originalTokens, email: tokEmail, phone: tokPhone } = extractContactTokens(rawTokens);
+  const email = cellEmail ?? tokEmail;
+  const phone = cellPhone ?? tokPhone;
   const normTokens = originalTokens.map(normalize);
 
   const base = (over: Partial<ParseResult>): ParseResult => {

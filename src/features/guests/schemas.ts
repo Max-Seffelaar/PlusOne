@@ -5,7 +5,11 @@ import { z } from 'zod';
 // fields stay optional). plus_ones is bounded defensively.
 
 const uuid = z.string().uuid();
-const fullName = z.string().trim().min(1, 'Name is required').max(200);
+// 500 (was 200) — matches the contacts import cap (Max, T12 1/7). A real guest
+// line (name + tier word + +N, or a pasted "name, email, phone, tier" row) stays
+// well under 500; the old 200 let one long pasted line hard-fail the whole
+// quick-add / bulk / door batch with "String must contain at most 200".
+const fullName = z.string().trim().min(1, 'Name is required').max(500);
 const plusOnes = z.number().int().min(0).max(50);
 
 /** Empty string from a form field -> null (optional, dataminimalisatie #9). */

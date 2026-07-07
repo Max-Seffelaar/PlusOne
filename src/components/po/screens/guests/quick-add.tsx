@@ -299,6 +299,8 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                   <PreviewChip icon="user" label={effName || '—'} />
                   {effPlus > 0 && <PreviewChip icon="users" label={`+${effPlus}`} />}
                   {!needsAsk && !needsTierPick && effTier && <PreviewChip dot={effTier.color} label={effTier.short} />}
+                  {parsed.email && <PreviewChip icon="mail" label={parsed.email} />}
+                  {parsed.phone && <PreviewChip icon="phone" label={parsed.phone} />}
                   {needsAsk && parsed.ambiguous && (
                     <MiniChip className="border-dashed border-acc text-text">{'"'}{parsed.ambiguous.text}{'"'} ?</MiniChip>
                   )}

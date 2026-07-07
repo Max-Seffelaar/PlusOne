@@ -575,6 +575,81 @@ function resolveRow(r: ParseResult, choice: AmbiguityChoice | undefined, default
   return { name: r.name, plusOnes: r.plusOnes, tierId: r.tierId ?? defaultTierId, needsChoice: false };
 }
 
+// ── Per-row inline fix (parity with the contacts import, T12) ─────────────────
+// A pasted e-mail/phone that is broken (Jesse's "name#mail.com", Mila's
+// "06-ABC-4567", an obfuscated "x at y dot z", a too-short "020") is silently
+// left in the name by the #33 parser. We recover it from the raw line so it lands
+// in the editor FLAGGED — the user fixes it inline, or removes the row. Nothing is
+// silently dropped or mangled.
+const BULK_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const BULK_NAME_MAX = 500;
+
+interface RowFix {
+  name?: string;
+  email?: string;
+  phone?: string;
+}
+
+/** digits only. */
+function bulkDigits(v: string): number {
+  return v.replace(/\D/g, '').length;
+}
+/** A plausible guest phone: 8–15 digits, phone-ish chars only. */
+function isValidBulkPhone(v: string): boolean {
+  return /^[+()\-\s./0-9]+$/.test(v) && bulkDigits(v) >= 8 && bulkDigits(v) <= 15;
+}
+/** A CSV cell that is an e-mail ATTEMPT (so it can be flagged, not hidden). */
+function isEmailAttempt(cell: string): boolean {
+  if (/@/.test(cell)) return true;
+  if (!/\s/.test(cell) && /#/.test(cell) && /\.[a-z]{2,}$/i.test(cell)) return true; // name#mail.com
+  if (/\bat\b/i.test(cell) && /\bdot\b/i.test(cell)) return true; // x at y dot z
+  return false;
+}
+/** A CSV cell clearly meant as a phone but not a valid one (letters, too short…). */
+function isPhoneAttempt(cell: string): boolean {
+  return /\d/.test(cell) && bulkDigits(cell) >= 3 && /^[+()\-\s./0-9A-Za-z]+$/.test(cell) && !isValidBulkPhone(cell);
+}
+/** Remove a captured/attempted fragment from the parser's name string. */
+function stripFragment(name: string, frag: string): string {
+  return name.replace(frag, '').replace(/\s{2,}/g, ' ').trim();
+}
+
+export interface BulkRowView {
+  name: string;
+  email: string;
+  phone: string;
+  /** null = valid; else why it can't be added yet. */
+  error: string | null;
+}
+
+/** Recover broken contact info from the raw line, apply the user's inline edit,
+ *  then validate exactly like addGuestSchema (name ≤500, e-mail/phone shape). */
+export function buildBulkRow(r: ParseResult, resolvedName: string, ed: RowFix | undefined): BulkRowView {
+  let name = resolvedName;
+  let email = r.email ?? '';
+  let phone = r.phone ?? '';
+  for (const c of r.raw.split(/[,;\t]/).map((x) => x.trim()).filter(Boolean)) {
+    if (c === r.email || c === r.phone) continue;
+    if (!email && isEmailAttempt(c)) {
+      email = c; // keep the raw broken value so it stays flagged for the user to fix
+      name = stripFragment(name, c);
+    } else if (!phone && isPhoneAttempt(c)) {
+      phone = c;
+      name = stripFragment(name, c);
+    }
+  }
+  name = (ed?.name ?? name).trim();
+  email = (ed?.email ?? email).trim();
+  phone = (ed?.phone ?? phone).trim();
+
+  let error: string | null = null;
+  if (name === '') error = t.guests.bulk.errName;
+  else if (name.length > BULK_NAME_MAX) error = fmt(t.guests.bulk.errNameLong, { n: name.length });
+  else if (email !== '' && !BULK_EMAIL_RE.test(email)) error = t.guests.bulk.errEmail;
+  else if (phone !== '' && !isValidBulkPhone(phone)) error = t.guests.bulk.errPhone;
+  return { name, email, phone, error };
+}
+
 export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
   const nav = useNav();
   const { data: liveEvents = [] } = usePoEvents();
@@ -593,29 +668,53 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
 
   const [text, setText] = useState('');
   const [choices, setChoices] = useState<Record<number, AmbiguityChoice>>({});
+  const [edits, setEdits] = useState<Record<number, RowFix>>({});
+  const [removed, setRemoved] = useState<Record<number, boolean>>({});
+  const [open, setOpen] = useState<Record<number, boolean>>({});
   const [dupeMode, setDupeMode] = useState<DupeMode>('add');
   const [busy, setBusy] = useState(false);
   const [orchErr, setOrchErr] = useState<string | null>(null);
 
+  // A fresh paste clears every stale per-row choice / inline edit / removal.
+  const resetRows = (): void => {
+    setChoices({});
+    setEdits({});
+    setRemoved({});
+    setOpen({});
+  };
+
   const rows = defaultTierId ? parseBulk(text, qaTiers, defaultTierId) : [];
   const resolvedRows = rows.map((r, i) => resolveRow(r, choices[i], defaultTierId ?? ''));
-  const total = totalSlots(resolvedRows.map((r) => ({ plusOnes: r.plusOnes })));
-  const doubtful = resolvedRows.filter((r) => r.needsChoice || r.name === '').length;
-  const ready = rows.length - doubtful;
+  // Per-row editable view: recovers a broken e-mail/phone from the raw line and
+  // validates name/e-mail/phone (parity with the contacts import, T12).
+  const views = rows.map((r, i) => buildBulkRow(r, resolvedRows[i].name, edits[i]));
+  const activeIdx = rows.map((_, i) => i).filter((i) => !removed[i]);
+  const flaggedCount = activeIdx.filter((i) => views[i].error).length;
+  const doubtful = activeIdx.filter((i) => resolvedRows[i].needsChoice).length;
+  const removedCount = rows.length - activeIdx.length;
+  const total = totalSlots(activeIdx.map((i) => ({ plusOnes: resolvedRows[i].plusOnes })));
+  const ready = activeIdx.filter((i) => !views[i].error && !resolvedRows[i].needsChoice).length;
+
+  const editRow = (i: number, field: keyof RowFix, value: string): void => {
+    setEdits((e) => ({ ...e, [i]: { ...e[i], [field]: value } }));
+    setOpen((o) => (o[i] ? o : { ...o, [i]: true }));
+  };
+  const toggleRow = (i: number): void => setOpen((o) => ({ ...o, [i]: !o[i] }));
+  const removeRow = (i: number): void => setRemoved((r) => ({ ...r, [i]: true }));
 
   const byName = useMemo(
     () => indexGuestsByName(evGuests.map((g) => ({ id: g.id, name: g.name, plusOnes: g.plus }))),
     [evGuests],
   );
-  const plannable: BulkRowInput[] = resolvedRows
-    .map((r, i) => ({ name: r.name, plusOnes: r.plusOnes, tierId: r.tierId, email: rows[i]?.email ?? undefined, phone: rows[i]?.phone ?? undefined }))
-    .filter((r) => r.name !== '');
+  const plannable: BulkRowInput[] = activeIdx
+    .filter((i) => !views[i].error && !resolvedRows[i].needsChoice && views[i].name !== '')
+    .map((i) => ({ name: views[i].name, plusOnes: resolvedRows[i].plusOnes, tierId: resolvedRows[i].tierId, email: views[i].email || undefined, phone: views[i].phone || undefined }));
   const dupNames = suspectedDuplicates(plannable, byName);
 
   const exempt = quota?.exempt ?? false;
   const remaining = exempt ? null : quota?.remaining ?? null;
   const overQuota = remaining !== null && total > remaining;
-  const canConfirm = !busy && rows.length > 0 && doubtful === 0 && !overQuota && !!defaultTierId && !!evId;
+  const canConfirm = !busy && activeIdx.length > 0 && doubtful === 0 && flaggedCount === 0 && !overQuota && !!defaultTierId && !!evId;
 
   const confirm = async (): Promise<void> => {
     if (!canConfirm) return;
@@ -634,7 +733,7 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
         await update.mutateAsync({ guestId: u.guestId, plusOnes: u.plusOnes });
       }
       setText('');
-      setChoices({});
+      resetRows();
       nav.back();
     } catch (e) {
       setOrchErr(e instanceof Error ? e.message : t.guests.bulk.addFailed);
@@ -657,7 +756,7 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
               value={text}
               onChange={(e) => {
                 setText(e.target.value);
-                setChoices({});
+                resetRows();
               }}
               rows={5}
               placeholder={t.guests.bulk.placeholder}
@@ -665,39 +764,73 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
             />
             {rows.length > 0 && (
               <>
-                <div className="mb-[10px] flex items-center justify-between">
-                  <Label>{fmt(t.guests.bulk.preview, { n: rows.length })}</Label>
-                  {doubtful > 0 && <MiniChip className="border-acc text-acc">{fmt(t.guests.bulk.toCheck, { n: doubtful })}</MiniChip>}
+                <div className="mb-[10px] flex items-center justify-between gap-2">
+                  <Label>{fmt(t.guests.bulk.preview, { n: activeIdx.length })}</Label>
+                  <div className="flex flex-wrap justify-end gap-1.5">
+                    {flaggedCount > 0 && <MiniChip className="border-transparent bg-red-300/15 text-red-300">{fmt(t.guests.bulk.needsFixCount, { n: flaggedCount })}</MiniChip>}
+                    {doubtful > 0 && <MiniChip className="border-acc text-acc">{fmt(t.guests.bulk.toCheck, { n: doubtful })}</MiniChip>}
+                  </div>
                 </div>
+                {flaggedCount > 0 && (
+                  <div className="mb-3 flex gap-[11px] rounded-[13px] border border-red-300/40 bg-red-300/10 p-[13px]">
+                    <span className="mt-px shrink-0 text-red-300"><Icon name="warn" size={17} /></span>
+                    <div className="text-[12.5px] leading-[1.45] text-text">
+                      <span className="font-semibold">{t.guests.bulk.needsFixTitle}</span>
+                      <div className="mt-0.5 text-faint">{fmt(flaggedCount === 1 ? t.guests.bulk.needsFixOne : t.guests.bulk.needsFixMany, { n: flaggedCount })}</div>
+                    </div>
+                  </div>
+                )}
                 <div className="flex flex-col gap-2">
                   {rows.map((r, i) => {
+                    if (removed[i]) return null;
                     const res = resolvedRows[i];
+                    const view = views[i];
                     const ask = res.needsChoice;
-                    const tier = tiers.find((t) => t.id === res.tierId);
+                    const err = view.error;
+                    const showEditor = !!err || !!open[i];
+                    const tier = tiers.find((tt) => tt.id === res.tierId);
+                    const onList = !ask && !err && byName.has(view.name.trim().toLowerCase());
                     return (
-                      <div key={i} className={cn('rounded-[14px] border bg-elev p-[12px]', ask ? 'border-acc' : 'border-line')}>
-                        <div className="flex items-center gap-[11px]">
-                          <Avatar name={res.name || r.raw} size={34} accent={tier?.role === 'VIP'} />
-                          <div className="min-w-0 flex-1">
-                            <div className="font-display text-[14.5px] font-bold text-text">
-                              {res.name || r.raw}
-                              {res.plusOnes > 0 && <span className="text-faint"> +{res.plusOnes}</span>}
+                      <div key={i} className={cn('rounded-[14px] border bg-elev', err ? 'border-red-300/45' : ask ? 'border-acc' : 'border-line')}>
+                        <div className="flex items-center gap-[11px] p-[12px]">
+                          <button type="button" onClick={() => toggleRow(i)} className={cn('flex min-w-0 flex-1 items-center gap-[11px] text-left', press)}>
+                            <Avatar name={view.name || r.raw} size={34} accent={tier?.role === 'VIP'} />
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate font-display text-[14.5px] font-bold text-text">
+                                {view.name || r.raw}
+                                {res.plusOnes > 0 && <span className="text-faint"> +{res.plusOnes}</span>}
+                              </div>
+                              <div className={cn('mt-0.5 truncate text-[11.5px]', err ? 'text-red-300' : ask ? 'text-acc' : 'text-faint')}>
+                                {err ? err : ask ? fmt(t.guests.bulk.rowUnknown, { x: r.ambiguous?.text ?? '' }) : tier?.short ?? '—'}
+                              </div>
+                              {!err && (view.email || view.phone) && (
+                                <div className="mt-0.5 flex items-center gap-[5px] text-[11px] text-faint">
+                                  <Icon name={view.email ? 'mail' : 'phone'} size={11} className="shrink-0" />
+                                  <span className="truncate">{[view.email, view.phone].filter(Boolean).join(' · ')}</span>
+                                </div>
+                              )}
                             </div>
-                            <div className={cn('mt-0.5 text-[11.5px]', ask ? 'text-acc' : 'text-faint')}>
-                              {ask ? fmt(t.guests.bulk.rowUnknown, { x: r.ambiguous?.text ?? '' }) : tier?.short ?? '—'}
-                            </div>
-                          </div>
-                          {!ask &&
-                            (byName.has(res.name.trim().toLowerCase()) ? (
-                              <MiniChip className="border-acc text-acc">{t.guests.bulk.rowAlreadyOnList}</MiniChip>
-                            ) : (
-                              <span className="text-acc">
-                                <Icon name="check2" size={17} stroke="#B5A6FF" sw={2.2} />
-                              </span>
-                            ))}
+                          </button>
+                          {err ? (
+                            <span className="shrink-0 rounded-[7px] bg-red-300/15 px-2 py-[3px] text-[10.5px] font-bold text-red-300">{t.guests.bulk.rowInvalid}</span>
+                          ) : ask ? null : onList ? (
+                            <MiniChip className="border-acc text-acc">{t.guests.bulk.rowAlreadyOnList}</MiniChip>
+                          ) : (
+                            <span className="text-acc"><Icon name="check2" size={17} stroke="#B5A6FF" sw={2.2} /></span>
+                          )}
+                          <button type="button" onClick={() => removeRow(i)} aria-label={t.guests.bulk.removeRow} className={cn('-mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-[9px] text-faint', press)}>
+                            <Icon name="close" size={15} />
+                          </button>
                         </div>
+                        {showEditor && (
+                          <div className="flex flex-col gap-2 border-t border-line px-[12px] pb-[12px] pt-[11px]">
+                            <Field icon="user" placeholder={t.guests.bulk.fieldName} value={view.name} onChange={(v) => editRow(i, 'name', v)} />
+                            <Field icon="mail" placeholder={t.guests.bulk.fieldEmail} value={view.email} onChange={(v) => editRow(i, 'email', v)} type="email" inputMode="email" />
+                            <Field icon="phone" placeholder={t.guests.bulk.fieldPhone} value={view.phone} onChange={(v) => editRow(i, 'phone', v)} type="tel" inputMode="tel" />
+                          </div>
+                        )}
                         {ask && r.ambiguous && (
-                          <div className="mt-[11px] flex flex-wrap gap-[7px]">
+                          <div className="flex flex-wrap gap-[7px] px-[12px] pb-[12px]">
                             {r.ambiguous.suggestions.map((s) => (
                               <button
                                 key={s.tierId}
@@ -728,6 +861,12 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
                     );
                   })}
                 </div>
+                {removedCount > 0 && (
+                  <div className="mt-2 flex items-center justify-center gap-2 text-[12px] text-faint">
+                    <span>{fmt(t.guests.bulk.removedLine, { n: removedCount })}</span>
+                    <button type="button" onClick={() => setRemoved({})} className={cn('font-semibold text-acc', press)}>{t.guests.bulk.undo}</button>
+                  </div>
+                )}
                 {dupNames.length > 0 && (
                   <div className="mt-4 rounded-[16px] border border-acc bg-acc-dim p-[14px]">
                     <div className="mb-1 flex items-center gap-2">
@@ -775,11 +914,13 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
         <Btn kind="primary" full icon="check" onClick={() => void confirm()} className={canConfirm ? '' : 'opacity-[0.45]'}>
           {busy
             ? t.guests.bulk.busy
-            : doubtful > 0
-              ? fmt(t.guests.bulk.submitOpen, { ready, open: doubtful })
-              : dupNames.length > 0
-                ? fmt(t.guests.bulk.submitProcess, { ready, lines: ready === 1 ? t.guests.bulk.lineOne : t.guests.bulk.lineMany })
-                : fmt(t.guests.bulk.submitAdd, { ready, guests: ready === 1 ? t.guests.bulk.guestOne : t.guests.bulk.guestMany })}
+            : flaggedCount > 0
+              ? fmt(flaggedCount === 1 ? t.guests.bulk.fixFirstOne : t.guests.bulk.fixFirstMany, { n: flaggedCount })
+              : doubtful > 0
+                ? fmt(t.guests.bulk.submitOpen, { ready, open: doubtful })
+                : dupNames.length > 0
+                  ? fmt(t.guests.bulk.submitProcess, { ready, lines: ready === 1 ? t.guests.bulk.lineOne : t.guests.bulk.lineMany })
+                  : fmt(t.guests.bulk.submitAdd, { ready, guests: ready === 1 ? t.guests.bulk.guestOne : t.guests.bulk.guestMany })}
         </Btn>
       </BottomBar>
     </div>

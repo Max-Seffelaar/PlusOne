@@ -168,6 +168,26 @@ export const guests = {
     quotaLine: '{total} {slots} · {remaining} left in your quota',
     quotaBlocked: ' — the whole batch is blocked',
     addFailed: "Couldn't add.",
+    // Per-row inline fix (parity with the contacts import): a broken e-mail/phone
+    // or an over-long name is flagged + fixable in the preview, never silently
+    // mangled into the name or dropped.
+    rowInvalid: 'NEEDS FIX',
+    needsFixTitle: 'A few rows need a quick fix',
+    needsFixOne: '{n} row has a wrong e-mail/phone or is too long. Fix it below or remove it — nothing is added until it’s sorted.',
+    needsFixMany: '{n} rows have a wrong e-mail/phone or are too long. Fix them below or remove them — nothing is added until they’re sorted.',
+    needsFixCount: '{n} to fix',
+    errName: 'Add a name',
+    errNameLong: 'Name is too long ({n}/500) — shorten it',
+    errEmail: 'Check the e-mail address',
+    errPhone: 'Check the phone number',
+    fieldName: 'Name',
+    fieldEmail: 'E-mail (optional)',
+    fieldPhone: 'Phone (optional)',
+    removeRow: 'Remove row',
+    removedLine: '{n} removed',
+    undo: 'Undo',
+    fixFirstOne: 'Fix {n} row first',
+    fixFirstMany: 'Fix {n} rows first',
     // Submit button states
     busy: 'Working…',
     submitOpen: 'Add {ready} · {open} open',
