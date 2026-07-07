@@ -1931,6 +1931,20 @@ export type Database = {
           views: number
         }[]
       }
+      venue_label_link_funnel: {
+        Args: { p_from?: string; p_to?: string; p_venue_id: string }
+        Returns: {
+          approved_heads: number
+          checked_in_heads: number
+          event_id: string
+          event_name: string
+          is_default: boolean
+          label: string
+          link_id: string
+          requests: number
+          views: number
+        }[]
+      }
       venue_refusal_reasons: {
         Args: { p_from?: string; p_to?: string; p_venue_id: string }
         Returns: {

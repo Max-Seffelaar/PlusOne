@@ -30,7 +30,7 @@ begin
 end;
 $fn$;
 
-select plan(14);
+select plan(16);
 
 -- Fixture: approve Robin (+1) through Jayden's link and check him in with his
 -- plus-one → approved_heads 2, checked_in_heads 2 on that link.
@@ -89,6 +89,11 @@ select is(
   (select count(*)::int from public.venue_influencer_leaderboard(
      'aa000000-0000-7000-8000-000000000001', now() + interval '30 days')),
   0, 'B3 the starts_at window filters events out of range');
+select is(
+  (select is_default from public.venue_label_link_funnel(
+     'aa000000-0000-7000-8000-000000000001')
+   where event_name = 'PLUSONE Launch Night' limit 1),
+  true, 'B4 label-only links list INDIVIDUALLY (S15 "No influencer"), incl. the default link');
 reset role;
 
 -- ---------------------------------------------------------------------------
@@ -108,6 +113,11 @@ select is(
   (select jsonb_array_length(public.get_influencer_stats(
      encode(extensions.digest('tok-if-test', 'sha256'), 'hex'), 'ip-if-a') -> 'events')),
   1, 'C2 one per-event block for the one event with their links');
+select is(
+  (select public.get_influencer_stats(
+     encode(extensions.digest('tok-if-test', 'sha256'), 'hex'), 'ip-if-a') -> 'events' -> 0 ->> 'slug'),
+  'launch-night-jayden',
+  'C2b each event block carries THEIR link slug (S16 copy/QR of their own URL)');
 select ok(
   not (public.get_influencer_stats(encode(extensions.digest('tok-if-test', 'sha256'), 'hex'), 'ip-if-a')
        ?| array['full_name', 'email', 'phone', 'guests']),

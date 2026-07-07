@@ -26,7 +26,7 @@ import {
 // nothing / violates the policy. All input is Zod-parsed; errors map to generic
 // copy via mapMutationError.
 
-export type LinkActionResult = { ok: true; id?: string } | MutationError;
+export type LinkActionResult = { ok: true; id?: string; slug?: string } | MutationError;
 
 export async function createInfluencer(input: CreateInfluencerInput): Promise<LinkActionResult> {
   const parsed = createInfluencerSchema.safeParse(input);
@@ -114,9 +114,9 @@ export async function createRequestLink(input: CreateRequestLinkInput): Promise<
     const { data, error } = await supabase
       .from('request_links')
       .insert(row as LinkInsert)
-      .select('id')
+      .select('id, slug')
       .single();
-    if (!error) return { ok: true, id: data.id };
+    if (!error) return { ok: true, id: data.id, slug: data.slug };
     lastError = mapMutationError(error);
     if (error.code !== '23505') break; // only retry slug collisions
   }

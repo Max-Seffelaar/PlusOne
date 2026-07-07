@@ -163,6 +163,62 @@ as $$
 $$;
 
 -- ---------------------------------------------------------------------------
+-- 2b. Internal: label-only links, venue-wide ("No influencer" section, S15)
+-- ---------------------------------------------------------------------------
+-- The design lists label-only links INDIVIDUALLY ("Instagram bio", "WhatsApp
+-- broadcast", …) rather than as one bucket — incl. the events' default links
+-- (label NULL → the UI shows them as the standard link). Same window semantics
+-- as the leaderboard; SECURITY INVOKER.
+
+create function public.venue_label_link_funnel(
+  p_venue_id uuid,
+  p_from     timestamptz default null,
+  p_to       timestamptz default null
+)
+returns table (
+  link_id           uuid,
+  label             text,
+  is_default        boolean,
+  event_id          uuid,
+  event_name        text,
+  views             bigint,
+  requests          bigint,
+  approved_heads    bigint,
+  checked_in_heads  bigint
+)
+language sql
+stable
+security invoker
+set search_path = ''
+as $$
+  select
+    rl.id,
+    rl.label,
+    rl.is_default,
+    e.id,
+    e.name,
+    coalesce((select sum(p.views) from public.request_link_pageviews_daily p
+              where p.request_link_id = rl.id), 0)::bigint,
+    coalesce((select count(*) from public.guest_requests gr
+              where gr.request_link_id = rl.id), 0)::bigint,
+    coalesce((select sum(case when gu.status in ('pending', 'approved', 'checked_in')
+                              then 1 + gu.plus_ones else 0 end)
+              from public.guests gu where gu.request_link_id = rl.id), 0)::bigint,
+    coalesce((select sum(1 + ci.plus_ones_arrived)
+              from public.guests gu
+              join public.check_ins ci on ci.guest_id = gu.id and ci.voided_at is null
+              where gu.request_link_id = rl.id), 0)::bigint
+  from public.request_links rl
+  join public.events e on e.id = rl.event_id
+  where rl.venue_id = p_venue_id
+    and rl.influencer_id is null
+    and rl.archived_at is null
+    and (p_from is null or e.starts_at >= p_from)
+    and (p_to   is null or e.starts_at <  p_to)
+  order by 9 desc, 8 desc;
+$$;
+
+-- ---------------------------------------------------------------------------
 -- 3. Public: the influencer's secret stats page (/i/[token])
 -- ---------------------------------------------------------------------------
 -- Bearer-token read, same discipline as get_request_status: throttle FIRST
@@ -196,12 +252,19 @@ begin
 
   select v.name into v_venue from public.venues v where v.id = v_inf.venue_id;
 
-  -- Per event (their links only), newest first. Aggregates by construction.
+  -- Per event (their links only), newest first. Aggregates by construction —
+  -- plus THEIR most recent link slug so the page can offer copy/QR of their own
+  -- share URL (S16 design; the slug is the token-holder's own link, safe).
   with per_event as (
     select
       e.id,
       e.name,
       e.starts_at,
+      e.ends_at,
+      (select rl2.slug from public.request_links rl2
+        where rl2.influencer_id = v_inf.id and rl2.event_id = e.id
+          and rl2.archived_at is null
+        order by rl2.created_at desc limit 1) as slug,
       coalesce(sum((select sum(p.views) from public.request_link_pageviews_daily p
                     where p.request_link_id = rl.id)), 0)::bigint as views,
       coalesce(sum((select count(*) from public.guest_requests gr
@@ -217,12 +280,14 @@ begin
     join public.events e on e.id = rl.event_id
     where rl.influencer_id = v_inf.id
       and rl.archived_at is null
-    group by e.id, e.name, e.starts_at
+    group by e.id, e.name, e.starts_at, e.ends_at
   )
   select
     coalesce(jsonb_agg(jsonb_build_object(
       'event_name', pe.name,
       'starts_at', pe.starts_at,
+      'ends_at', pe.ends_at,
+      'slug', pe.slug,
       'views', pe.views,
       'requests', pe.requests,
       'approved_heads', pe.approved_heads,
@@ -257,12 +322,14 @@ $$;
 revoke execute on function
   public.event_link_funnel(uuid),
   public.venue_influencer_leaderboard(uuid, timestamptz, timestamptz),
+  public.venue_label_link_funnel(uuid, timestamptz, timestamptz),
   public.get_influencer_stats(text, text)
 from public, anon, authenticated, service_role;
 
 grant execute on function
   public.event_link_funnel(uuid),
-  public.venue_influencer_leaderboard(uuid, timestamptz, timestamptz)
+  public.venue_influencer_leaderboard(uuid, timestamptz, timestamptz),
+  public.venue_label_link_funnel(uuid, timestamptz, timestamptz)
 to authenticated, service_role;
 
 grant execute on function public.get_influencer_stats(text, text)
