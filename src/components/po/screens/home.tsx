@@ -111,17 +111,20 @@ function PulseTile({
   value,
   action,
   onClick,
+  className,
 }: {
   icon: IconName;
   label: string;
   value: string | number;
   action?: boolean;
   onClick?: () => void;
+  className?: string;
 }): JSX.Element {
   const cls = cn(
     'flex min-w-0 flex-1 flex-col rounded-[18px] border p-[16px_18px] text-left',
     action ? 'border-transparent bg-acc-dim' : 'border-line bg-elev',
-    onClick && press
+    onClick && press,
+    className
   );
   const inner = (
     <>
@@ -643,6 +646,7 @@ export function Home(): JSX.Element {
   const [page, setPage] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
   const [guestPickOpen, setGuestPickOpen] = useState(false);
+  const [guestQuery, setGuestQuery] = useState('');
   // Lock is optimistic-local for now (the DB lock mutation lives on the event /
   // cockpit; wiring it here is a follow-up). Tracked per event id.
   const [lockOverride, setLockOverride] = useState<Record<string, boolean>>({});
@@ -694,7 +698,6 @@ export function Home(): JSX.Element {
 
   const pulse = useMemo(
     () => ({
-      onList: board.reduce((s, e) => s + e.onList, 0),
       requests: guestReqQ.data?.length ?? 0,
       quota: quotaReqQ.data?.length ?? 0,
       live: board.filter((e) => e.live).length,
@@ -742,6 +745,13 @@ export function Home(): JSX.Element {
       .sort((a, b) => b.startsAtMs - a.startsAtMs);
   }, [board, query]);
 
+  // Guest-picker sheet: non-past events, filtered by its own search box.
+  const pickable = useMemo(() => board.filter((e) => e.when !== 'past').sort(sortUpcoming), [board]);
+  const pickMatches = useMemo(() => {
+    const q = guestQuery.trim().toLowerCase();
+    return q ? pickable.filter((e) => (e.name + ' ' + e.venue).toLowerCase().includes(q)) : pickable;
+  }, [pickable, guestQuery]);
+
   // Alias used in EmptyBoard + pagination (upcoming section only).
   const list = upcomingList;
 
@@ -784,8 +794,6 @@ export function Home(): JSX.Element {
               </h1>
               <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[13.5px] text-faint">
                 <span className="font-semibold text-dim">{venueName ?? 'Venue'}</span>
-                <span className="text-ghost">·</span>
-                <span>{fmt(t.home.metaEventsToday, { n: pulse.today })}</span>
                 {pulse.upcoming > 0 && (
                   <>
                     <span className="text-ghost">·</span>
@@ -804,14 +812,16 @@ export function Home(): JSX.Element {
               </div>
             </div>
             <div className="flex gap-2.5">
-              <Btn sm kind="ghost" icon="plus" onClick={() => setGuestPickOpen(true)}>
+              <Btn
+                sm
+                icon="plus"
+                onClick={() => {
+                  setGuestQuery('');
+                  setGuestPickOpen(true);
+                }}
+              >
                 {t.home.newGuest}
               </Btn>
-              {isAdmin && !billingLock.blocked && (
-                <Btn sm icon="cal" onClick={() => nav.push('eventedit', { isNew: true })}>
-                  {t.home.newEvent}
-                </Btn>
-              )}
             </div>
           </div>
 
@@ -831,8 +841,7 @@ export function Home(): JSX.Element {
           )}
 
           {/* pulse strip — Requests / Quota tiles deep-link into the inbox */}
-          <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
-            <PulseTile icon="users" label={t.home.pulseOnList} value={kfmt(pulse.onList)} />
+          <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-3">
             <PulseTile
               icon="inbox"
               label={t.home.pulseRequests}
@@ -847,7 +856,13 @@ export function Home(): JSX.Element {
               action={pulse.quota > 0}
               onClick={() => nav.push('aanvragen', { tab: 'quota' })}
             />
-            <PulseTile icon="spark" label={t.home.pulseLive} value={pulse.live} onClick={() => nav.setTab('events')} />
+            <PulseTile
+              icon="spark"
+              label={t.home.pulseLive}
+              value={pulse.live}
+              onClick={() => nav.setTab('events')}
+              className="max-lg:col-span-2"
+            />
           </div>
 
           {/* combined graph — requested vs on-the-list, per event */}
@@ -962,7 +977,7 @@ export function Home(): JSX.Element {
           <h2 className="mb-4 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">
             {t.home.pickEventForGuest}
           </h2>
-          {board.filter((e) => e.when !== 'past').length === 0 ? (
+          {pickable.length === 0 ? (
             <div className="flex flex-col items-center gap-4 py-6 text-center">
               <p className="text-[14px] text-faint">{t.home.noUpcomingToday}</p>
               {isAdmin && !billingLock.blocked && (
@@ -972,33 +987,45 @@ export function Home(): JSX.Element {
               )}
             </div>
           ) : (
-            <div className="flex flex-col gap-2">
-              {board
-                .filter((e) => e.when !== 'past')
-                .sort(sortUpcoming)
-                .map((e) => (
-                  <button
-                    key={e.id}
-                    type="button"
-                    onClick={() => {
-                      setGuestPickOpen(false);
-                      nav.push('quickadd', { id: e.id });
-                    }}
-                    className={cn(
-                      'flex w-full items-center gap-3 rounded-[16px] border border-line bg-elev px-4 py-3 text-left',
-                      press
-                    )}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-display text-[15.5px] font-bold text-text">{e.name}</div>
-                      <div className="mt-0.5 text-[12.5px] text-faint">
-                        {e.date} · {fmt(t.home.doorAt, { time: e.door })}
+            <>
+              <div className="mb-3 flex w-full items-center gap-[11px] rounded-[14px] border border-line bg-bg px-[15px] py-[11px]">
+                <Icon name="search" size={19} className="shrink-0 text-faint" />
+                <input
+                  value={guestQuery}
+                  onChange={(e) => setGuestQuery(e.target.value)}
+                  placeholder={t.home.searchEvents}
+                  className="min-w-0 flex-1 bg-transparent font-body text-[16px] text-text outline-none placeholder:text-faint"
+                />
+              </div>
+              {pickMatches.length === 0 ? (
+                <p className="py-5 text-center text-[14px] text-faint">{t.home.emptyFilteredTitle}</p>
+              ) : (
+                <div className="flex w-full flex-col gap-2">
+                  {pickMatches.map((e) => (
+                    <button
+                      key={e.id}
+                      type="button"
+                      onClick={() => {
+                        setGuestPickOpen(false);
+                        nav.push('quickadd', { id: e.id });
+                      }}
+                      className={cn(
+                        'flex w-full items-center gap-3 rounded-[16px] border border-line bg-elev px-4 py-3 text-left',
+                        press
+                      )}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-display text-[15.5px] font-bold text-text">{e.name}</div>
+                        <div className="mt-0.5 text-[12.5px] text-faint">
+                          {e.date} · {fmt(t.home.doorAt, { time: e.door })}
+                        </div>
                       </div>
-                    </div>
-                    <StatusChip e={e} />
-                  </button>
-                ))}
-            </div>
+                      <StatusChip e={e} />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </Sheet>
       )}

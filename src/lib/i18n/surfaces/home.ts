@@ -83,12 +83,10 @@ export const home = {
   loadError: "Couldn't load the overview. Try again in a moment.",
 
   // ── S14 · mission-control board (multi-event dashboard) ──
-  metaEventsToday: '{n} today',
   metaUpcoming: '{n} upcoming',
   metaDoorsOpen: 'doors open',
   newGuest: 'New guest',
   // pulse strip
-  pulseOnList: 'On the list',
   pulseRequests: 'Open requests',
   pulseQuota: 'Quota requests',
   pulseLive: 'Events live',
