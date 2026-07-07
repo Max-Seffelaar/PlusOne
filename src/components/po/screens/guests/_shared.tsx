@@ -5,13 +5,34 @@ import { cn } from '@/lib/utils';
 import { usePoCreateTier } from '@/features/po/mutations';
 import { usePoTiers } from '@/features/po/hooks';
 import { t, fmt } from '@/lib/i18n';
-import { TIER_COLORS, allColorsUsed, nextAvailableColor } from '@/lib/po/tier-colors';
+import { TIER_COLORS, DEFAULT_TIER_COLOR, allColorsUsed, nextAvailableColor, tierInk } from '@/lib/po/tier-colors';
 import { Icon } from '../../icon';
 import { Btn, Field, Label } from '../../kit';
 
 export const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
 export const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 export const col = 'flex h-full flex-col';
+
+/**
+ * Solid tier-fill pill for a guest row — the SAME visual language as the door
+ * check-in list (feedback 1/7: "bij guests zie je de kleur niet, alleen de tier —
+ * dat moet wel, net als bij de deur"). Shows the REAL tier name (not the lossy
+ * `tierRole` taxonomy that collapsed everything to "GAST"): the pill is filled
+ * with the tier's own color and the label uses readable ink for that fill. Falls
+ * back to the accent + a supplied label when a row carries no tier color/name
+ * (mock data, or a deleted tier).
+ */
+export function TierPill({ name, color, fallback }: { name?: string; color?: string; fallback?: string }): JSX.Element {
+  const bg = color ?? DEFAULT_TIER_COLOR;
+  return (
+    <span
+      className="inline-flex max-w-[140px] items-center gap-[5px] truncate rounded-[7px] px-2 py-[3px] font-body text-[11px] font-bold tracking-[0.01em]"
+      style={{ background: bg, color: tierInk(bg) }}
+    >
+      <span className="truncate">{name ?? fallback ?? 'Guest'}</span>
+    </span>
+  );
+}
 
 /** Radio-style option row for the "already on the list" choice (bulk add). */
 export function DupeOption({ on, onClick, title, sub }: { on: boolean; onClick: () => void; title: string; sub: string }): JSX.Element {

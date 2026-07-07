@@ -61,6 +61,7 @@ import { Icon, type IconName } from '../icon';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Row, Scroll, ToggleRow, Top } from '../kit';
 import { BottomBar, Sheet } from '../shell';
 import { CountrySelect, type CountryCode } from '../country-select';
+import { armRegularsFilter } from './guests';
 
 function countryFromE164(phone: string | null | undefined): CountryCode {
   if (!phone) return 'NL';
@@ -225,7 +226,7 @@ export function Meer(): JSX.Element {
           <Row icon="ticket" title={t.settings.more.quotaTitle} sub={t.settings.more.quotaSub} onClick={() => nav.push('allowance')} />
         )}
         {showRegulars && (
-          <Row icon="star" title={t.settings.more.regularsTitle} sub={t.settings.more.regularsSub} onClick={() => nav.push('vaste')} accent />
+          <Row icon="star" title={t.settings.more.regularsTitle} sub={t.settings.more.regularsSub} onClick={() => { armRegularsFilter(); nav.setTab('guests'); }} accent />
         )}
         {isAdmin && (
           <Row icon="link" title={t.settings.more.influencersTitle} sub={t.settings.more.influencersSub} onClick={() => nav.push('influencers')} />

@@ -424,6 +424,14 @@ export function usePoAssignableCrew(eventId: string) {
   });
 }
 
+/** Newest-first ordering for the guest list (feedback 1/7: a just-added guest must
+ *  be visible at the top, not buried oldest-first). The reads page oldest-first
+ *  (created_at asc, id) for deterministic ranged paging, so we reverse-sort here on
+ *  the same keys. Non-mutating (returns a fresh array). */
+function sortGuestsNewestFirst<T extends { created_at: string; id: string }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
+}
+
 /** Guests for an event, with each role badge resolved from its tier. */
 export function usePoGuests(eventId: string) {
   return useQuery<Guest[]>({
@@ -436,10 +444,11 @@ export function usePoGuests(eventId: string) {
         fetchTiers(client, eventId),
       ]);
       const tierById = new Map(tiers.map((t) => [t.id, t]));
-      return guests.map((g) =>
+      return sortGuestsNewestFirst(guests).map((g) =>
         toPoGuest(g, {
           role: tierRole(tierById.get(g.tier_id)?.name ?? ''),
           tierName: tierById.get(g.tier_id)?.name,
+          tierColor: tierById.get(g.tier_id)?.color ?? undefined,
         }),
       );
     },
@@ -466,10 +475,11 @@ export function useVenueGuests(events: PoEvent[]) {
         fetchVenueTiers(client, eventIds),
       ]);
       const tierById = new Map(tiers.map((t) => [t.id, t]));
-      return guests.map((g) =>
+      return sortGuestsNewestFirst(guests).map((g) =>
         toPoGuest(g, {
           role: tierRole(tierById.get(g.tier_id)?.name ?? ''),
           tierName: tierById.get(g.tier_id)?.name,
+          tierColor: tierById.get(g.tier_id)?.color ?? undefined,
           eventId: g.event_id,
           eventName: nameById.get(g.event_id) ?? '',
         }),

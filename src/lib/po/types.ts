@@ -49,6 +49,9 @@ export interface Guest {
    *  so anything that filters/groups/labels by tier must use these instead. */
   tierId?: string;
   tierName?: string;
+  /** The tier's color (live data). Drives the door-style tier pill in the guest
+   *  list; absent in the mock → the pill falls back to the accent. */
+  tierColor?: string;
   pay: PayStatus;
   plus: number;
   note: string;

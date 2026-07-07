@@ -1791,6 +1791,10 @@ export type Database = {
           user_agent: string
         }[]
       }
+      mark_guest_regular: {
+        Args: { p_guest_id: string }
+        Returns: undefined
+      }
       mark_onboarding_complete: {
         Args: { p_venue_id: string }
         Returns: undefined
