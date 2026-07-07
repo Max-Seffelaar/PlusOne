@@ -38,8 +38,16 @@ export const analytics = {
   tierLabel: 'Inside vs. on the list, by tier',
   noTierData: 'No tier data.',
   addedByLabel: 'Added by',
+  // The unit is locked to heads (guest + plus-ones), labelled so rows vs. heads
+  // is never ambiguous (T9).
+  addedByUnit: 'In heads (guest + plus-ones)',
   noOneAdded: 'No one has added guests yet.',
-  userInOfAdded: '{in} inside of {added}',
+  // Per member: "12 checked in" · "· 3 removed" (only when > 0) · free/paid split
+  // (only shown when the event uses a paid tier — paid tiers are display-only).
+  memberCheckedIn: '{in} checked in',
+  memberRemoved: '{n} removed',
+  memberFreePaid: '{free} free · {paid} paid',
+  addedWord: 'added',
 
   // ── Footer note ─────────────────────────────────────────────────────────────
   footerNote: 'Every number hangs on the event, not the calendar day. Inside = checked in at the door.',

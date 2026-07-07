@@ -1691,8 +1691,12 @@ export type Database = {
         Returns: {
           added: number
           added_headcount: number
+          added_free_headcount: number
+          removed_headcount: number
           full_name: string
           present: number
+          present_headcount: number
+          present_free_headcount: number
           user_id: string
         }[]
       }

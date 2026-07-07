@@ -99,6 +99,9 @@ export function Stats(): JSX.Element {
   const perKwartier = eventStats ? toPerKwartier(eventStats.perQuarter) : [];
   const perTier = eventStats ? toPerTier(eventStats.tiers) : [];
   const perUser = eventStats ? toPerUser(eventStats.users) : [];
+  // Only surface the free/paid split when the event actually uses a paid tier —
+  // for an all-free venue "0 paid" on every row is noise. Paid = display-only (#T3).
+  const anyPaid = perUser.some((u) => u.addedPaid > 0);
   const maxK = Math.max(1, ...perKwartier.map((x) => x.n));
   const maxT = Math.max(1, ...perTier.map((x) => x.aangemeld));
   const selectedEvent = events.find((e) => e.id === eventId) ?? null;
@@ -225,7 +228,8 @@ export function Stats(): JSX.Element {
                 )}
               </div>
 
-              <Label className="mb-[10px]">{t.analytics.addedByLabel}</Label>
+              <Label className="mb-[3px]">{t.analytics.addedByLabel}</Label>
+              <div className="mb-[10px] text-[11.5px] text-faint">{t.analytics.addedByUnit}</div>
               <div className="mb-[14px] rounded-[18px] border border-line bg-elev px-[14px] py-0.5">
                 {perUser.length === 0 ? (
                   <div className="py-[14px] text-center text-[13px] text-faint">{t.analytics.noOneAdded}</div>
@@ -238,11 +242,28 @@ export function Stats(): JSX.Element {
                       <Avatar name={u.who} size={36} />
                       <div className="min-w-0 flex-1">
                         <div className="font-display text-[14.5px] font-bold text-text">{u.who}</div>
-                        <div className="mt-0.5 text-[12px] text-faint">
-                          {fmt(t.analytics.userInOfAdded, { in: u.in, added: u.added })}
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12px] text-faint">
+                          <span>{fmt(t.analytics.memberCheckedIn, { in: u.in })}</span>
+                          {u.removed > 0 && (
+                            <>
+                              <span className="text-ghost">·</span>
+                              <span>{fmt(t.analytics.memberRemoved, { n: u.removed })}</span>
+                            </>
+                          )}
+                          {anyPaid && (
+                            <>
+                              <span className="text-ghost">·</span>
+                              <span>{fmt(t.analytics.memberFreePaid, { free: u.addedFree, paid: u.addedPaid })}</span>
+                            </>
+                          )}
                         </div>
                       </div>
-                      <div className="font-display text-[18px] font-extrabold text-text">{u.added}</div>
+                      <div className="shrink-0 text-right">
+                        <div className="font-display text-[18px] font-extrabold leading-none text-text">{u.added}</div>
+                        <div className="mt-[3px] text-[10px] font-bold uppercase tracking-[0.03em] text-faint">
+                          {t.analytics.addedWord}
+                        </div>
+                      </div>
                     </div>
                   ))
                 )}

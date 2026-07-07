@@ -69,11 +69,32 @@ describe('toPerTier', () => {
 });
 
 describe('toPerUser', () => {
-  it('maps full_name/added/present to who/added/in', () => {
+  it('maps to heads-based per-member stats and derives paid from free (T9)', () => {
     const users: UserAddition[] = [
-      { added: 42, added_headcount: 50, full_name: 'Max Seffelaar', present: 33, user_id: 'u1' },
+      {
+        added: 42,
+        added_headcount: 50,
+        removed_headcount: 4,
+        full_name: 'Max Seffelaar',
+        present: 33,
+        present_headcount: 38,
+        added_free_headcount: 30,
+        present_free_headcount: 22,
+        user_id: 'u1',
+      },
     ];
-    expect(toPerUser(users)).toEqual([{ who: 'Max Seffelaar', added: 42, in: 33 }]);
+    expect(toPerUser(users)).toEqual([
+      {
+        who: 'Max Seffelaar',
+        added: 50, // heads, gross incl. removed — not the 42 rows
+        removed: 4,
+        in: 38,
+        addedFree: 30,
+        addedPaid: 20, // 50 − 30
+        inFree: 22,
+        inPaid: 16, // 38 − 22
+      },
+    ]);
   });
 });
 
