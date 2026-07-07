@@ -36,14 +36,15 @@ const nextConfig = {
     unoptimized: true,
   },
   // The desktop "(app)" dashboard shell was retired — there is one responsive
-  // surface now (po `/app`). Its old routes fold into /app. NOTE: /eventday is
-  // deliberately NOT redirected — it stays as the live Event-dag cockpit.
+  // surface now (po `/app`). Its old routes fold into /app. /eventday followed
+  // in the T9 fold: the Event-dag cockpit is now the desktop Deur tab inside /app.
   redirects: async () => [
     { source: '/dashboard', destination: '/app', permanent: false },
     { source: '/events', destination: '/app', permanent: false },
     { source: '/events/:path*', destination: '/app', permanent: false },
     { source: '/admin/:path*', destination: '/app', permanent: false },
     { source: '/settings/:path*', destination: '/app', permanent: false },
+    { source: '/eventday', destination: '/app', permanent: false },
   ],
   headers: async () => {
     const headers = [

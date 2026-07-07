@@ -25,7 +25,6 @@ export const en = {
     requests: 'Requests',
     team: 'Team',
     more: 'More',
-    cockpit: 'Event Day',
   },
   door: {
     checkinTitle: 'Check-in',

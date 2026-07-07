@@ -20,7 +20,6 @@ export const cockpit = {
   pageTitle: 'Event day',
   pageSub: '{name} · live at the door',
   switchEvent: 'Switch event',
-  openDoorApp: 'Open door app',
 
   // ── LIVE strip ───────────────────────────────────────────────────────────
   liveBadge: 'LIVE AT THE DOOR',

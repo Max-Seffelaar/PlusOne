@@ -9,7 +9,6 @@
  * RLS is the boundary; affordances hide for roles without the right (see below).
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { useRouter } from 'next/navigation';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
@@ -68,9 +67,17 @@ const EMPTY_GUESTS: Guest[] = [];
 const EMPTY_TIERS: Tier[] = [];
 
 // ── Entry gate: pick the event (no auto-guess with >1 live), then mount cockpit ──
-export function EventDayCockpitGate(): JSX.Element {
+// The chosen event is CONTROLLED by the /app shell (doorEventId), so the desktop
+// cockpit and the mobile door tab share one choice — "Check-in" from an event card
+// (nav.openDoor) lands the cockpit on that event too (T9 fold, S1.3).
+export function EventDayCockpitGate({
+  chosenId,
+  onChoose,
+}: {
+  chosenId: string | null;
+  onChoose: (id: string | null) => void;
+}): JSX.Element {
   const { data: candidates = [], isLoading } = usePoDoorCandidates();
-  const [chosenId, setChosenId] = useState<string | null>(null);
   // Selection-first (S1.3): a deliberate pick wins; with exactly one event use it;
   // with several, the user chooses which event-dag to drive — no auto-guess.
   const resolvedId = chosenId ?? (candidates.length === 1 ? candidates[0].id : null);
@@ -93,7 +100,7 @@ export function EventDayCockpitGate(): JSX.Element {
     return (
       <EventDayCockpit
         event={event}
-        onChangeEvent={candidates.length > 1 ? () => setChosenId(null) : undefined}
+        onChangeEvent={candidates.length > 1 ? () => onChoose(null) : undefined}
       />
     );
   }
@@ -103,7 +110,7 @@ export function EventDayCockpitGate(): JSX.Element {
       <DCard className="overflow-hidden p-0">
         <DoorEventPicker
           events={candidates}
-          onPick={setChosenId}
+          onPick={onChoose}
           title={t.cockpit.pickEventTitle}
           sub={t.cockpit.pickEventSub}
         />
@@ -127,7 +134,6 @@ export function EventDayCockpitGate(): JSX.Element {
 // ── The cockpit ───────────────────────────────────────────────────────────────
 function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChangeEvent?: () => void }): JSX.Element {
   const eventId = event.id;
-  const router = useRouter();
   const { roles } = usePoIdentity();
 
   const edit = usePoEventForEdit(eventId);
@@ -318,11 +324,6 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
           {onChangeEvent && (
             <DBtn kind="ghost" icon="cal" onClick={onChangeEvent}>
               {t.cockpit.switchEvent}
-            </DBtn>
-          )}
-          {canCheckIn && (
-            <DBtn kind="ghost" icon="door" onClick={() => router.push(`/door/${eventId}`)}>
-              {t.cockpit.openDoorApp}
             </DBtn>
           )}
         </div>
