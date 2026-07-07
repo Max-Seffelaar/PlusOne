@@ -17,6 +17,7 @@ import { Icon, type IconName } from '@/components/po/icon';
 import { Avatar, Label } from '@/components/po/kit';
 import { DBtn, DCard } from '@/components/po/desktop/kit';
 import { canWorkDoor } from '@/features/auth/roles';
+import { useNav } from '@/components/po/context';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import type { PoDoorEvent } from '@/features/po/door-event';
 import type { Guest, Tier } from '@/lib/po/types';
@@ -106,15 +107,15 @@ export function EventDayCockpitGate({
   }
 
   if (candidates.length > 1) {
+    // No DCard wrapper: the picker renders the shared Home event cards (their own
+    // card chrome) — nesting them inside another card doubles the borders.
     return (
-      <DCard className="overflow-hidden p-0">
-        <DoorEventPicker
-          events={candidates}
-          onPick={onChoose}
-          title={t.cockpit.pickEventTitle}
-          sub={t.cockpit.pickEventSub}
-        />
-      </DCard>
+      <DoorEventPicker
+        events={candidates}
+        onPick={onChoose}
+        title={t.cockpit.pickEventTitle}
+        sub={t.cockpit.pickEventSub}
+      />
     );
   }
 
@@ -134,6 +135,7 @@ export function EventDayCockpitGate({
 // ── The cockpit ───────────────────────────────────────────────────────────────
 function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChangeEvent?: () => void }): JSX.Element {
   const eventId = event.id;
+  const nav = useNav(); // in-shell since the T9 fold — pushes QuickAdd over the Door tab
   const { roles } = usePoIdentity();
 
   const edit = usePoEventForEdit(eventId);
@@ -324,6 +326,11 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
           {onChangeEvent && (
             <DBtn kind="ghost" icon="cal" onClick={onChangeEvent}>
               {t.cockpit.switchEvent}
+            </DBtn>
+          )}
+          {canCheckIn && (
+            <DBtn icon="plus" onClick={() => nav.push('quickadd', { id: eventId })}>
+              {t.events.addGuest}
             </DBtn>
           )}
         </div>
