@@ -31,6 +31,7 @@ import {
   usePoContactKeys,
   usePoEvents,
   usePoCanManageTemplates,
+  usePoGuestRequests,
   useBillingBlocked,
 } from '@/features/po/hooks';
 import {
@@ -48,7 +49,7 @@ import {
   usePoBillingCheckout,
   usePoBillingPortal,
 } from '@/features/po/mutations';
-import { groupPoSessions, type PoSubscription, type PoTeamMember } from '@/features/po/adapters';
+import { groupPoSessions, isOpenGuestRequest, type PoSubscription, type PoTeamMember } from '@/features/po/adapters';
 import { useMfaGate, isAal2Error, PoMfaSheet } from '../mfa-gate';
 import { isNativeShell } from '@/lib/platform';
 import PhoneInput from 'react-phone-number-input/input';
@@ -148,6 +149,10 @@ export function Meer(): JSX.Element {
   // "no rights" rows (S6 feedback). RLS stays the real boundary; these mirror each
   // target screen's own gate. canManageTemplates = admin OR organizer-at-venue.
   const showRequests = isAdmin || canManageTemplates;
+  // Open-requests count for the row badge — same source + shared definition as the
+  // More-tab badge and Home tile, so the count matches everywhere (T9). This makes
+  // the tab's "2" legible: it points at THIS row.
+  const openRequestCount = (usePoGuestRequests().data ?? []).filter(isOpenGuestRequest).length;
   const showEvents = isAdmin || canManageTemplates;
   const showContacts = caps.viewSettings || canManageTemplates;
   const showImport = isAdmin || isFinance;
@@ -202,7 +207,20 @@ export function Meer(): JSX.Element {
           <Row icon="history" title={t.settings.more.auditTitle} sub={t.settings.more.auditSub} onClick={() => nav.push('audit')} accent />
         )}
         {showRequests && (
-          <Row icon="bell" title={t.settings.more.requestsTitle} sub={t.settings.more.requestsSub} onClick={() => nav.push('aanvragen')} accent />
+          <Row
+            icon="bell"
+            title={t.settings.more.requestsTitle}
+            sub={t.settings.more.requestsSub}
+            onClick={() => nav.push('aanvragen')}
+            accent
+            right={
+              openRequestCount > 0 ? (
+                <span className="inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-acc px-[7px] font-display text-[12px] font-extrabold text-on-acc">
+                  {openRequestCount}
+                </span>
+              ) : undefined
+            }
+          />
         )}
 
         {thisVenueAny && <Label className="mb-1 mt-[22px]">{t.sections.thisVenue}</Label>}
