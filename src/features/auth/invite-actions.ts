@@ -7,7 +7,7 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { getSessionUser } from '@/lib/auth/context';
 import type { Database } from '@/lib/database.types';
 import { assertVenueBillingActive } from '@/features/billing/gate';
-import { inviteSchema, revokeInviteSchema } from './schemas';
+import { inviteSchema, revokeInviteSchema, resendInviteSchema } from './schemas';
 import { canGrantRoles, type VenueRole } from './roles';
 
 export interface ActionState {
@@ -47,6 +47,33 @@ function alreadyRegistered(error: { code?: string; status?: number; message?: st
     error.status === 422 ||
     Boolean(error.message && /already|exists|registered/i.test(error.message))
   );
+}
+
+/**
+ * Notify an invitee by e-mail (shared by invite + resend). For a NEW address
+ * inviteUserByEmail provisions the account and sends the "You've been invited"
+ * mail in one step; an already-registered address gets a magic-link login
+ * instead (invite-only — no public signups, #20). The invite ROW is what grants
+ * access, so a transient send failure for an EXISTING user must never block:
+ * we only report failure when the address could not be provisioned at all.
+ */
+async function sendInviteEmail(email: string): Promise<{ ok: boolean }> {
+  const service = createServiceClient();
+  const { error: inviteMailError } = await service.auth.admin.inviteUserByEmail(email, {
+    data: { full_name: email.split('@')[0] },
+  });
+  if (inviteMailError && alreadyRegistered(inviteMailError)) {
+    const mailer = createAnonClient();
+    const { error: otpError } = await mailer.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: false },
+    });
+    if (otpError) console.error('sendInviteEmail: existing-user notify failed', otpError.message);
+  } else if (inviteMailError) {
+    console.error('sendInviteEmail: inviteUserByEmail failed', inviteMailError.message);
+    return { ok: false };
+  }
+  return { ok: true };
 }
 
 /**
@@ -100,28 +127,10 @@ export async function inviteUserAction(
   }
 
   // 1) Provision the auth identity AND notify the invitee by e-mail (invite-only,
-  //    no public signups — #20). For a NEW address inviteUserByEmail creates the
-  //    account and sends the "You've been invited" mail in one step. An already-
-  //    registered address (e.g. a user from another venue, #24) can't be
-  //    re-invited, so we send them a magic-link login instead. Either way the
-  //    invite ROW written below is what actually grants access on first login —
-  //    the e-mail is only the notification, so a transient send failure for an
-  //    existing user must not block the invite.
-  const service = createServiceClient();
-  const { error: inviteMailError } = await service.auth.admin.inviteUserByEmail(email, {
-    data: { full_name: email.split('@')[0] },
-  });
-  if (inviteMailError && alreadyRegistered(inviteMailError)) {
-    const mailer = createAnonClient();
-    const { error: otpError } = await mailer.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: false },
-    });
-    if (otpError) console.error('inviteUser: existing-user notify failed', otpError.message);
-  } else if (inviteMailError) {
-    console.error('inviteUser: inviteUserByEmail failed', inviteMailError.message);
-    return { ok: false, error: "Couldn't send the invite. Try again." };
-  }
+  //    no public signups — #20). The invite ROW written below is what actually
+  //    grants access on first login — the e-mail is only the notification.
+  const sent = await sendInviteEmail(email);
+  if (!sent.ok) return { ok: false, error: "Couldn't send the invite. Try again." };
 
   // 2) Record the invite through the user-scoped client → RLS enforces
   //    manager-role + AAL2 + escalation + invited_by = self once more.
@@ -185,6 +194,54 @@ export async function revokeInviteAction(
 
   revalidatePath('/admin/team');
   return { ok: true, message: 'Invite canceled.' };
+}
+
+/**
+ * Resend a pending invite (T8, 86ey4j1mu): give it a fresh 7-day expiry and
+ * e-mail the invitee again. The expiry bump runs through the USER-scoped client
+ * so RLS (invites_update_resend — manager role, pending only, escalation guard,
+ * ≤30 days; migration 20260707113000) is the boundary; the audit trigger records
+ * the update. Works for expired invites too — a resend re-opens the window.
+ */
+export async function resendInviteAction(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const user = await getSessionUser();
+  if (!user) return { ok: false, error: "You're not logged in." };
+
+  const parsed = resendInviteSchema.safeParse({ inviteId: formData.get('inviteId') });
+  if (!parsed.success) return { ok: false, error: 'Invalid invite.' };
+
+  // Read through RLS: only a manager/finance of the invite's venue sees the row.
+  const supabase = await createClient();
+  const { data: invite } = await supabase
+    .from('invites')
+    .select('id, email, venue_id, accepted_at')
+    .eq('id', parsed.data.inviteId)
+    .maybeSingle();
+  if (!invite) return { ok: false, error: "Couldn't find the invite." };
+  if (invite.accepted_at) {
+    return { ok: false, error: 'This invite was already accepted.' };
+  }
+  // Same soft-block as inviting (#32): a canceled/lapsed venue grows no team.
+  const billingBlocked = await assertVenueBillingActive(invite.venue_id);
+  if (billingBlocked) return { ok: false, error: billingBlocked.message };
+
+  const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const { error, count } = await supabase
+    .from('invites')
+    .update({ expires_at: expiresAt }, { count: 'exact' })
+    .eq('id', invite.id);
+  if (error || !count) {
+    return { ok: false, error: "Couldn't resend the invite (no access)." };
+  }
+
+  const sent = await sendInviteEmail(invite.email);
+  if (!sent.ok) return { ok: false, error: "Couldn't send the invite e-mail. Try again." };
+
+  revalidatePath('/admin/team');
+  return { ok: true, message: `Invite re-sent to ${invite.email}.` };
 }
 
 /** Accept the caller's own pending invites (used by the banner). */
