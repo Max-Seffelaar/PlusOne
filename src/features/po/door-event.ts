@@ -18,8 +18,11 @@ export interface PoDoorEvent {
   id: string;
   name: string;
   venueName: string;
-  /** Time-derived phase; drives the switcher's "· live" / "· open" hint. */
+  /** Time-derived phase; drives the switcher's live hint + the cockpit badge. */
   phase: EventPhase;
+  /** ISO start, for the auto-open window (start − 1h). */
+  startsAt: string;
+  endsAt: string | null;
 }
 
 function toDoorEvent(row: PoEventRow, nowMs: number): PoDoorEvent {
@@ -28,7 +31,27 @@ function toDoorEvent(row: PoEventRow, nowMs: number): PoDoorEvent {
     name: row.name,
     venueName: row.venue_name,
     phase: eventPhase(row.starts_at, row.ends_at, nowMs),
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
   };
+}
+
+/** How long before doors the cockpit starts auto-opening (T6: start − 1 uur). */
+export const AUTO_OPEN_LEAD_MS = 60 * 60 * 1000;
+
+/**
+ * The event the desktop shell should auto-open the Event-day cockpit for on the
+ * FIRST visit of a session (T6, decided 1/7): exactly ONE candidate inside its
+ * door window (start − 1h through event end — candidates already exclude ended
+ * events) → that event's id. Zero or several in-window (simultaneous nights) →
+ * null: no guessing, the user lands normally.
+ */
+export function autoOpenDoorEvent(candidates: PoDoorEvent[], nowMs: number): string | null {
+  const inWindow = candidates.filter((c) => {
+    const start = Date.parse(c.startsAt);
+    return !Number.isNaN(start) && nowMs >= start - AUTO_OPEN_LEAD_MS;
+  });
+  return inWindow.length === 1 ? inWindow[0].id : null;
 }
 
 /**

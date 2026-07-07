@@ -12,6 +12,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
 import { usePoDoorCandidates, usePoEvents } from '@/features/po/hooks';
+import { autoOpenDoorEvent } from '@/features/po/door-event';
 import { poKeys } from '@/features/po/keys';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canWorkDoor } from '@/features/auth/roles';
@@ -292,6 +293,38 @@ export function PlusOneApp({
   const doorCandidates = doorCandidatesQuery.data ?? [];
   const resolvedDoorId = doorEventId ?? (doorCandidates.length === 1 ? doorCandidates[0].id : null);
   const resolvedDoorName = doorCandidates.find((e) => e.id === resolvedDoorId)?.name ?? '';
+
+  // T6 auto-open (decided 1/7): on the FIRST visit of this browser session (per
+  // user), when the desktop shell (≥1024px) has exactly ONE event inside its door
+  // window (start − 1h through event end), land straight on the Door tab — the
+  // Event-day cockpit. Two or more simultaneous nights → no guessing, land
+  // normally. It runs ONCE per session (sessionStorage flag), so deliberately
+  // navigating away never pushes the user back; a mid-session refresh doesn't
+  // re-trigger either. Plain state set — no history entry: this replaces the
+  // landing, it isn't a step the back button should undo.
+  const autoOpenTried = useRef(false);
+  useEffect(() => {
+    if (autoOpenTried.current || !navHydrated || isMobile || !showDoor) return;
+    const cands = doorCandidatesQuery.data;
+    if (!cands) return; // evaluate once, but only when the candidates have loaded
+    autoOpenTried.current = true;
+    const KEY = `po:eventday-auto:${userId}`;
+    try {
+      if (sessionStorage.getItem(KEY)) return;
+      sessionStorage.setItem(KEY, '1');
+    } catch {
+      return; // no sessionStorage → skip rather than re-push on every mount
+    }
+    const id = autoOpenDoorEvent(cands, Date.now());
+    if (!id) return;
+    setTabState('deur');
+    setDoorSeg('deur');
+    setDoorEventId(id);
+    setStack([]);
+    setDoorOverlay(null);
+    bump();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot landing tweak
+  }, [navHydrated, isMobile, showDoor, doorCandidatesQuery.data, userId]);
 
   // ── Browser/OS back-button ↔ in-app navigation (full history integration) ─────
   // /app is a single URL with its own in-memory navigation, so the physical back

@@ -19,10 +19,12 @@ export const cockpit = {
   // ── Page header ──────────────────────────────────────────────────────────
   pageTitle: 'Event day',
   pageSub: '{name} · live at the door',
+  pageSubUpcoming: '{name} · doors not open yet',
   switchEvent: 'Switch event',
 
   // ── LIVE strip ───────────────────────────────────────────────────────────
   liveBadge: 'LIVE AT THE DOOR',
+  upcomingBadge: 'UPCOMING',
   doorTime: 'doors {time}',
   lockTitleManage: 'Lock or unlock the list',
   lockTitleNoRights: 'Admin or organizer only',

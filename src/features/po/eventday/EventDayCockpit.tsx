@@ -320,7 +320,9 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <h1 className="font-display text-[22px] font-extrabold tracking-[-0.02em] text-text">{t.cockpit.pageTitle}</h1>
-          <div className="truncate text-[13px] text-faint">{fmt(t.cockpit.pageSub, { name: event.name })}</div>
+          <div className="truncate text-[13px] text-faint">
+            {fmt(event.phase === 'live' ? t.cockpit.pageSub : t.cockpit.pageSubUpcoming, { name: event.name })}
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {onChangeEvent && (
@@ -342,10 +344,20 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
         style={{ background: 'radial-gradient(120% 160% at 0% 0%, rgba(181,166,255,0.13), #161618 58%)' }}
       >
         <div className="flex flex-wrap items-center gap-4">
-          <span className="inline-flex items-center gap-[7px] rounded-full bg-acc-dim px-3 py-1.5 font-body text-[12px] font-extrabold tracking-[0.04em] text-acc">
-            <span className={cn('h-[7px] w-[7px] rounded-full bg-acc', realtimeConnected && 'animate-pulse')} />
-            {t.cockpit.liveBadge}
-          </span>
+          {/* Phase-aware (T6 test 8): the LIVE badge only when the event is actually
+              running; before doors it reads UPCOMING. The dot pulses only while the
+              realtime subscription is really connected. */}
+          {event.phase === 'live' ? (
+            <span className="inline-flex items-center gap-[7px] rounded-full bg-acc-dim px-3 py-1.5 font-body text-[12px] font-extrabold tracking-[0.04em] text-acc">
+              <span className={cn('h-[7px] w-[7px] rounded-full bg-acc', realtimeConnected && 'animate-pulse')} />
+              {t.cockpit.liveBadge}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-[7px] rounded-full border border-line px-3 py-1.5 font-body text-[12px] font-extrabold tracking-[0.04em] text-faint">
+              <span className="h-[7px] w-[7px] rounded-full bg-ghost" />
+              {t.cockpit.upcomingBadge}
+            </span>
+          )}
           <div className="min-w-0">
             <div className="truncate font-display text-[23px] font-extrabold tracking-[-0.02em] text-text">{event.name}</div>
             <div className="text-[13px] text-faint">

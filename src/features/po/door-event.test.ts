@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { doorCandidates, pickDoorEvent } from './door-event';
+import { autoOpenDoorEvent, doorCandidates, pickDoorEvent } from './door-event';
 import type { PoEventRow } from './queries';
 
 // NOW sits 2h after an 18:00 start (inside the 8h live grace) and before the
@@ -70,6 +70,8 @@ describe('pickDoorEvent', () => {
       name: 'Event live',
       venueName: 'De Marktkantine',
       phase: 'live',
+      startsAt: '2026-06-19T18:00:00Z',
+      endsAt: null,
     });
   });
 });
@@ -100,5 +102,39 @@ describe('doorCandidates (S1.3 event switcher)', () => {
   it('is empty when every event is cancelled or past', () => {
     expect(doorCandidates([row('a', '2026-06-10T20:00:00Z', { cancelled: true })], NOW)).toEqual([]);
     expect(doorCandidates([row('b', '2026-06-01T20:00:00Z')], NOW)).toEqual([]);
+  });
+});
+
+describe('autoOpenDoorEvent (T6 auto-open, window = start − 1h through end)', () => {
+  const cands = (...starts: [string, string][]) =>
+    doorCandidates(starts.map(([id, s]) => row(id, s)), NOW);
+
+  it('returns the single event inside its window (already live)', () => {
+    expect(autoOpenDoorEvent(cands(['live', '2026-06-19T18:00:00Z']), NOW)).toBe('live');
+  });
+
+  it('returns the single event within the 1h pre-doors lead', () => {
+    // Doors 20:30, NOW 20:00 → inside start − 1h.
+    expect(autoOpenDoorEvent(cands(['soon', '2026-06-19T20:30:00Z']), NOW)).toBe('soon');
+  });
+
+  it('ignores events starting more than 1h from now', () => {
+    expect(autoOpenDoorEvent(cands(['later', '2026-06-19T22:00:00Z']), NOW)).toBeNull();
+  });
+
+  it('returns null with two simultaneous in-window events (no guessing)', () => {
+    expect(
+      autoOpenDoorEvent(cands(['a', '2026-06-19T18:00:00Z'], ['b', '2026-06-19T20:30:00Z']), NOW)
+    ).toBeNull();
+  });
+
+  it('still auto-opens the one in-window event when a far-future event also exists', () => {
+    expect(
+      autoOpenDoorEvent(cands(['tonight', '2026-06-19T18:00:00Z'], ['nextweek', '2026-06-26T20:00:00Z']), NOW)
+    ).toBe('tonight');
+  });
+
+  it('returns null when there are no candidates', () => {
+    expect(autoOpenDoorEvent([], NOW)).toBeNull();
   });
 });
