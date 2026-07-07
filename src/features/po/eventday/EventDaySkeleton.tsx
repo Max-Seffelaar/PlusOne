@@ -1,19 +1,15 @@
 /**
- * Static, server-renderable skeleton of the Event-dag cockpit (#2b a).
+ * Static skeleton of the Event-dag cockpit (#2b a, kept through the T9 fold).
  *
- * The cockpit itself (`EventDayCockpit`) is fully client-rendered behind the
- * `'use client'` PoLiveProvider boundary, so without this the initial HTML for
- * /eventday carried no meaningful content → a white screen until JS hydrated
- * (FCP == LCP ≈ 3.56s). This component is intentionally NOT `'use client'`: it
- * renders on the server (it is wired as the `next/dynamic` `loading` fallback for
- * the cockpit gate, which Next emits into the initial HTML), so the browser paints
- * the cockpit's frame — page header, LIVE strip, the 4 KPI tiles and the two-column
- * list/side frame — immediately. FCP now lands on this skeleton (≪ LCP) and, because
- * the geometry matches the real cockpit (same spacing, rounded-[20px], 4-tile grid),
- * the client hydration swaps in live data with no layout jump.
+ * The cockpit (`EventDayCockpit`) is fully client-rendered and code-split; this
+ * skeleton is the `next/dynamic` loading fallback while its lazy chunk fetches,
+ * so the desktop Deur tab paints the cockpit's frame — page header, LIVE strip,
+ * the 4 KPI tiles and the two-column list/side frame — immediately. Because the
+ * geometry matches the real cockpit (same spacing, rounded-[20px], 4-tile grid),
+ * live data swaps in with no layout jump.
  *
  * Pure presentational, no recharts (the cockpit uses CSS bars). Tokens/classes are
- * copied — not imported from the client `DCard` — to keep this a plain server module.
+ * copied — not imported from the client `DCard` — so it stays a plain module.
  */
 
 const card = 'rounded-[20px] border border-line bg-elev';
