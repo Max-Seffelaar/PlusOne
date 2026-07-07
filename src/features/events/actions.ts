@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
+import { alreadyRegistered, sendInviteEmail } from '@/features/auth/invite-mail';
 import { getAuthContext } from '@/lib/auth/context';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
 import { assertVenueBillingActive } from '@/features/billing/gate';
@@ -24,6 +25,7 @@ import {
   assignOrganizerSchema,
   inviteExternalCrewSchema,
   removeOrganizerSchema,
+  resendCrewInviteSchema,
   setEventUserQuotaSchema,
   createTemplateSchema,
   updateTemplateSchema,
@@ -47,6 +49,7 @@ import {
   type AssignOrganizerInput,
   type InviteExternalCrewInput,
   type RemoveOrganizerInput,
+  type ResendCrewInviteInput,
   type SetEventUserQuotaInput,
   type CreateTemplateInput,
   type UpdateTemplateInput,
@@ -77,14 +80,6 @@ function revalidateEvent(id: string): void {
   revalidatePath(listPath);
   revalidatePath(managePath(id));
   revalidatePath(guestsPath(id));
-}
-
-function alreadyRegistered(error: { code?: string; status?: number; message?: string }): boolean {
-  return (
-    error.code === 'email_exists' ||
-    error.status === 422 ||
-    Boolean(error.message && /already|exists|registered/i.test(error.message))
-  );
 }
 
 // ── Event CRUD ──────────────────────────────────────────────────────────────
@@ -453,10 +448,11 @@ export async function inviteExternalCrew(input: InviteExternalCrewInput): Promis
 
   const fullName = email.split('@')[0];
   const service = createServiceClient();
-  const { data: created, error: createError } = await service.auth.admin.createUser({
-    email,
-    email_confirm: true,
-    user_metadata: { full_name: fullName },
+  // inviteUserByEmail provisions the account AND sends the "You've been
+  // invited" mail in one step (T8 fix — createUser sent no e-mail at all, so
+  // external crew never heard about their access).
+  const { data: created, error: createError } = await service.auth.admin.inviteUserByEmail(email, {
+    data: { full_name: fullName },
   });
 
   if (createError) {
@@ -518,6 +514,63 @@ export async function setEventUserQuota(input: SetEventUserQuotaInput): Promise<
   const { error } = await upsertCrewQuota(supabase, eventId, userId, quota);
   if (error) return mapMutationError(error);
   revalidateEvent(eventId);
+  return { ok: true };
+}
+
+/**
+ * Resend an external crew member's invite (T8, 86ey4j1mu): e-mail them a fresh
+ * login link. Crew access was already granted directly (event_organizers), so
+ * unlike a venue invite there is nothing to extend — the mail is the whole
+ * resend. No DB write, so the boundary is the app-layer check: the caller must
+ * be an ADMIN of the venue (mirrors all crew writes) and the target must be
+ * crew on one of that venue's events — both read through the USER-scoped
+ * client, so RLS backs the evidence.
+ */
+export async function resendCrewInvite(input: ResendCrewInviteInput): Promise<ActionResult> {
+  const parsed = resendCrewInviteSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  const { venueId, userId } = parsed.data;
+
+  const supabase = await createClient();
+  const ctx = await getAuthContext();
+  if (!ctx) return unauthorized();
+
+  const { data: membership } = await supabase
+    .from('venue_memberships')
+    .select('roles')
+    .eq('venue_id', venueId)
+    .eq('user_id', ctx.user.id)
+    .maybeSingle();
+  if (!membership?.roles.includes('admin')) return unauthorized();
+
+  const { data: crewRow } = await supabase
+    .from('event_organizers')
+    .select('user_id, events!inner(venue_id)')
+    .eq('user_id', userId)
+    .eq('events.venue_id', venueId)
+    .limit(1)
+    .maybeSingle();
+  if (!crewRow) {
+    return { ok: false, code: 'noop', message: "This person isn't crew at this venue." };
+  }
+
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('email')
+    .eq('id', userId)
+    .maybeSingle();
+  if (!profile?.email) {
+    return { ok: false, code: 'noop', message: "Couldn't find this person's e-mail." };
+  }
+
+  // Invite-first, magic-link fallback (shared with the venue-invite resend).
+  // The order matters: a crew member who never accepted is an UNCONFIRMED
+  // account, and signInWithOtp refuses those ("Signups not allowed") — only a
+  // re-invite reaches them; a confirmed account takes the magic-link path.
+  const sent = await sendInviteEmail(profile.email);
+  if (!sent.ok) {
+    return { ok: false, code: 'invite', message: "Couldn't send the e-mail. Try again." };
+  }
   return { ok: true };
 }
 

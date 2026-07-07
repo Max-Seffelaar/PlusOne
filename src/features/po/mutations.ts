@@ -72,6 +72,7 @@ import {
   assignOrganizer,
   inviteExternalCrew,
   removeOrganizer,
+  resendCrewInvite,
   setEventUserQuota,
 } from '@/features/events/actions';
 import type {
@@ -113,7 +114,7 @@ import type {
   CreateRequestLinkInput,
   UpdateRequestLinkInput,
 } from '@/features/links/schemas';
-import { inviteUserAction, revokeInviteAction, acceptInvitesAction } from '@/features/auth/invite-actions';
+import { inviteUserAction, revokeInviteAction, resendInviteAction, acceptInvitesAction } from '@/features/auth/invite-actions';
 import { updateProfileAction, updateEmailAction } from '@/features/auth/profile-actions';
 import { revokeOwnSessionAction, adminRevokeSessionAction } from '@/features/auth/session-actions';
 import { updateMemberRolesAction, removeMemberAction, updateVenueSettingsAction } from '@/features/venues/actions';
@@ -881,6 +882,9 @@ export function usePoCreateTemplateFromEvent() {
 function invalidateCrew(qc: QueryClient, eventId: string): void {
   void qc.invalidateQueries({ queryKey: poKeys.crew(eventId) });
   void qc.invalidateQueries({ queryKey: poKeys.assignableCrew(eventId) });
+  // The venue-wide crew section on the Team screen (T8) — prefix, since crew
+  // mutations key on the event and don't know the venue id.
+  void qc.invalidateQueries({ queryKey: [...poKeys.all, 'venue-crew'] });
 }
 
 /** Add a returning external person as crew of an event, with a guest quota. */
@@ -920,6 +924,16 @@ export function usePoRemoveCrew(eventId: string) {
   return useMutation({
     mutationFn: async (input: RemoveOrganizerInput) => throwOnError(await removeOrganizer(input)),
     onSuccess: () => invalidateCrew(qc, eventId),
+  });
+}
+
+/** Re-mail an external crew member their login link (T8). Access was already
+ *  granted, so nothing changes server-side — no invalidation needed. */
+export function usePoResendCrewInvite() {
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (userId: string) =>
+      throwOnError(await resendCrewInvite({ venueId: venueId ?? '', userId })),
   });
 }
 
@@ -1077,6 +1091,21 @@ export function usePoRevokeInvite() {
       const fd = new FormData();
       fd.set('inviteId', inviteId);
       return throwOnActionError(await revokeInviteAction(NO_PREV, fd));
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.invites(venueId ?? '') }),
+  });
+}
+
+/** Resend a pending/expired invite (T8): fresh 7-day expiry + a new e-mail.
+ *  Invalidates the invite list so an expired invite flips back to pending. */
+export function usePoResendInvite() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (inviteId: string) => {
+      const fd = new FormData();
+      fd.set('inviteId', inviteId);
+      return throwOnActionError(await resendInviteAction(NO_PREV, fd));
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.invites(venueId ?? '') }),
   });
