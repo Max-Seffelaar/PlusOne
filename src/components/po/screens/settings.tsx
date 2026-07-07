@@ -200,6 +200,9 @@ export function Meer(): JSX.Element {
         {canViewStats && (
           <Row icon="spark" title={t.settings.more.analyticsTitle} sub={t.settings.more.analyticsSub} onClick={() => nav.push('stats')} accent />
         )}
+        {canViewStats && (
+          <Row icon="link" title={t.settings.more.promoTitle} sub={t.settings.more.promoSub} onClick={() => nav.push('promo')} accent />
+        )}
         {caps.viewAudit && (
           <Row icon="history" title={t.settings.more.auditTitle} sub={t.settings.more.auditSub} onClick={() => nav.push('audit')} accent />
         )}

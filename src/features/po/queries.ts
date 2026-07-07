@@ -1670,6 +1670,9 @@ export interface PoInfluencer {
   notes: string | null;
   /** Non-archived request links attached to this influencer (venue-wide). */
   linkCount: number;
+  /** A stats-page token is stamped (only its sha256 is stored — the URL itself
+   *  is shown once at mint time, F2). Drives Create vs Renew in the edit sheet. */
+  hasStatsToken: boolean;
 }
 
 /** The venue's influencer roster (non-archived), name-sorted, with per-influencer
@@ -1678,7 +1681,7 @@ export async function fetchVenueInfluencers(client: Client, venueId: string): Pr
   const [{ data: influencers }, { data: links }] = await Promise.all([
     client
       .from('influencers')
-      .select('id, name, handle, notes')
+      .select('id, name, handle, notes, stats_token_hash')
       .eq('venue_id', venueId)
       .is('archived_at', null)
       .order('name'),
@@ -1701,5 +1704,123 @@ export async function fetchVenueInfluencers(client: Client, venueId: string): Pr
     handle: i.handle,
     notes: i.notes,
     linkCount: counts.get(i.id) ?? 0,
+    hasStatsToken: i.stats_token_hash != null,
+  }));
+}
+
+// ── Promotion dashboard (Requests-epic F2, 86ey6b3fe — S15) ───────────────────
+// Three RPC-backed reads: the per-event link funnel (overview tiles + section 2),
+// the venue-wide influencer leaderboard, and the label-only link funnel. The
+// functions self-guard on role (admin/finance/organizer) and RLS bounds the rest;
+// an out-of-scope caller gets []. Errors throw so React Query surfaces isError.
+
+/** The shared views → requests → approved → checked-in funnel numbers. */
+export interface PoFunnel {
+  views: number;
+  requests: number;
+  approvedHeads: number;
+  checkedInHeads: number;
+}
+
+export interface PoLinkFunnelRow extends PoFunnel {
+  linkId: string;
+  slug: string;
+  isDefault: boolean;
+  label: string | null;
+  influencerId: string | null;
+  influencerName: string | null;
+  active: boolean;
+  autoApprove: boolean;
+  maxHeadcount: number | null;
+  expiresAt: string | null;
+}
+
+/** Every request link on one event with its full funnel (event_link_funnel). */
+export async function fetchEventLinkFunnel(client: Client, eventId: string): Promise<PoLinkFunnelRow[]> {
+  const { data, error } = await client.rpc('event_link_funnel', { p_event_id: eventId });
+  if (error) throw error;
+  return (data ?? []).map((r) => ({
+    linkId: r.link_id,
+    slug: r.slug,
+    isDefault: r.is_default,
+    label: r.label ?? null,
+    influencerId: r.influencer_id ?? null,
+    influencerName: r.influencer_name ?? null,
+    active: r.active,
+    autoApprove: r.auto_approve,
+    maxHeadcount: r.max_headcount ?? null,
+    expiresAt: r.expires_at ?? null,
+    views: r.views,
+    requests: r.requests,
+    approvedHeads: r.approved_heads,
+    checkedInHeads: r.checked_in_heads,
+  }));
+}
+
+export interface PoLeaderboardRow extends PoFunnel {
+  influencerId: string;
+  name: string;
+  handle: string | null;
+  linksCount: number;
+  eventsCount: number;
+}
+
+/** The venue-wide influencer leaderboard (checked-in desc), optionally bounded to
+ *  a from/to window. The RPC's influencer-less bucket row is skipped — label-only
+ *  links get their own section via fetchVenueLabelFunnel. */
+export async function fetchInfluencerLeaderboard(
+  client: Client,
+  venueId: string,
+  fromIso: string | null
+): Promise<PoLeaderboardRow[]> {
+  const { data, error } = await client.rpc('venue_influencer_leaderboard', {
+    p_venue_id: venueId,
+    ...(fromIso ? { p_from: fromIso } : {}),
+  });
+  if (error) throw error;
+  return (data ?? [])
+    .filter((r) => r.influencer_id != null)
+    .map((r) => ({
+      influencerId: r.influencer_id,
+      name: r.influencer_name,
+      handle: r.handle ?? null,
+      linksCount: r.links_count,
+      eventsCount: r.events_count,
+      views: r.views,
+      requests: r.requests,
+      approvedHeads: r.approved_heads,
+      checkedInHeads: r.checked_in_heads,
+    }));
+}
+
+export interface PoLabelFunnelRow extends PoFunnel {
+  linkId: string;
+  label: string | null;
+  isDefault: boolean;
+  eventId: string;
+  eventName: string;
+}
+
+/** Label-only (unattributed) links across the venue, with their funnels. */
+export async function fetchVenueLabelFunnel(
+  client: Client,
+  venueId: string,
+  fromIso: string | null
+): Promise<PoLabelFunnelRow[]> {
+  const { data, error } = await client.rpc('venue_label_link_funnel', {
+    p_venue_id: venueId,
+    ...(fromIso ? { p_from: fromIso } : {}),
+  });
+  if (error) throw error;
+  return (data ?? []).map((r) => ({
+    linkId: r.link_id,
+    label: r.label ?? null,
+    isDefault: r.is_default,
+    eventId: r.event_id,
+    eventName: r.event_name,
+    views: r.views,
+    requests: r.requests,
+    approvedHeads: r.approved_heads,
+    checkedInHeads: r.checked_in_heads,
   }));
 }

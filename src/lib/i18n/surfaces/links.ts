@@ -105,4 +105,23 @@ export const links = {
   archiveInfluencerConfirmText:
     'Archive {name}? Their links keep working; they just leave this list.',
   archiveInfluencerConfirmCta: 'Yes, archive',
+
+  // ── Stats link block (F2 — the influencer's private /i/[token] page) ────────
+  statsLinkLabel: 'Stats link',
+  statsLinkExplainer:
+    'Their private stats page — every view, request and check-in from their links.',
+  statsLinkCreate: 'Create stats link',
+  statsLinkRenew: 'Renew link',
+  statsLinkActive: 'Stats link is live. Renewing replaces it; the old URL stops working.',
+  statsLinkNone: 'No stats link yet.',
+  statsLinkWarning: "Copy it now — it won't be shown again.",
+  statsLinkCopy: 'Copy',
+  statsLinkCopied: 'Copied!',
+  statsLinkWorking: 'One moment…',
+  statsLinkRevoke: 'Revoke',
+  statsLinkRevokeConfirmText:
+    'Revoke the stats link? Their page goes dead immediately; you can always create a new one.',
+  statsLinkRevokeConfirmCta: 'Yes, revoke',
+  statsLinkRevoked: 'Stats link revoked.',
+  errStatsLink: "Couldn't update the stats link.",
 } as const;

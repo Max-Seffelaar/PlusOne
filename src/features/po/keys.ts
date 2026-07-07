@@ -75,4 +75,12 @@ export const poKeys = {
   requestLinks: (eventId: string) => [...poKeys.all, 'request-links', eventId] as const,
   venueLinks: (venueId: string) => [...poKeys.all, 'venue-links', venueId] as const,
   influencers: (venueId: string) => [...poKeys.all, 'influencers', venueId] as const,
+  // Promotion dashboard (F2, 86ey6b3fe) — the per-event link funnel plus the two
+  // venue-wide range-scoped reads (leaderboard + label-only links). Link writes
+  // invalidate the ['po','link-funnel'] / ['po','promo'] prefixes.
+  linkFunnel: (eventId: string) => [...poKeys.all, 'link-funnel', eventId] as const,
+  promoLeaderboard: (venueId: string, range: string) =>
+    [...poKeys.all, 'promo', venueId, 'leaderboard', range] as const,
+  promoLabelFunnel: (venueId: string, range: string) =>
+    [...poKeys.all, 'promo', venueId, 'labels', range] as const,
 } as const;

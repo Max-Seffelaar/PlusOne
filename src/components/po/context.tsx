@@ -41,7 +41,8 @@ export type ScreenName =
   | 'templates'
   | 'templateedit'
   | 'links'
-  | 'influencers';
+  | 'influencers'
+  | 'promo';
 
 export interface ScreenProps {
   id?: string;

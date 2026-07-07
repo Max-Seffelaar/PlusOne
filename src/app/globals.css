@@ -139,6 +139,65 @@ html {
   }
 }
 
+/* Promotion loading funnel + public stats page (S15/S16). The pulse/sweep/dots
+   loops are functional loading indicators (like the Spinner), not entrance
+   animations; the global prefers-reduced-motion rule above still disables them.
+   The floaty check is a subtle idle loop on the "link is live" confirmation. */
+.po-promo-bar {
+  animation: po-promo-pulse 1.6s ease-in-out infinite;
+}
+@keyframes po-promo-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.po-promo-sweep {
+  animation: po-promo-sweep 1.3s ease-in-out infinite;
+}
+@keyframes po-promo-sweep {
+  0% {
+    transform: translateX(-140%);
+  }
+  100% {
+    transform: translateX(360%);
+  }
+}
+.po-promo-dot {
+  animation: po-promo-dots 1.4s infinite;
+}
+@keyframes po-promo-dots {
+  0%,
+  15% {
+    opacity: 0;
+  }
+  45% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.po-promo-floaty {
+  animation: po-promo-floaty 2.4s ease-in-out infinite;
+}
+@keyframes po-promo-floaty {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+/* MiniFunnel bar growth (S16) — width transition, opacity untouched. */
+.po-bar-fill {
+  transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 @layer components {
   .btn-primary {
     @apply bg-acc text-on-acc font-display font-bold rounded-btn px-4 py-2 transition-all hover:brightness-110 active:scale-95 disabled:opacity-50;
