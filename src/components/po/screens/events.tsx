@@ -87,6 +87,9 @@ export function Events(): JSX.Element {
   const nav = useNav();
   const [when, setWhen] = useState<'upcoming' | 'past'>('upcoming');
   const { data, isLoading, isError } = usePoEvents();
+  // Creating events is admin-only (T7 regression check on PR #100): hide the
+  // CTA for other roles instead of sending them into a read-only editor.
+  const isAdmin = usePoIdentity().roles.includes('admin');
   // Soft-block (#32 refinement): hide the growth CTA; the note explains why.
   const billingLock = useBillingBlocked();
   const evs = (data ?? []).filter((e) => e.when === when);
@@ -113,13 +116,13 @@ export function Events(): JSX.Element {
         <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd')}>
           {t.events.addGuest}
         </Btn>
-        {!billingLock.blocked && (
+        {isAdmin && !billingLock.blocked && (
           <Btn sm kind="ghost" icon="cal" onClick={() => nav.push('eventedit', { isNew: true })}>
             {t.events.newEvent}
           </Btn>
         )}
       </div>
-      {billingLock.blocked && (
+      {isAdmin && billingLock.blocked && (
         <div className="flex-none px-5">
           <Note icon="warn">
             {billingLock.reason === 'canceled'
@@ -1949,6 +1952,9 @@ function EventActivitySection({
 export function EventBeheer(): JSX.Element {
   const nav = useNav();
   const { data, isLoading, isError } = usePoEvents();
+  // Same gate as the Events tab: create-event is admin-only + billing-blocked.
+  const isAdmin = usePoIdentity().roles.includes('admin');
+  const billingLock = useBillingBlocked();
   const upcoming = (data ?? []).filter((e) => e.when === 'upcoming');
   const past = (data ?? []).filter((e) => e.when === 'past');
   const evRow = (e: PoEvent, dim: boolean): JSX.Element => (
@@ -1976,18 +1982,20 @@ export function EventBeheer(): JSX.Element {
     <div className={col}>
       <Top onBack={nav.back} title={t.events.hubTitle} sub={t.events.hubSub} />
       <Scroll bottom={24}>
-        <button type="button" onClick={() => nav.push('eventedit', { isNew: true })} className={cn('mb-5 flex w-full items-center gap-[13px] rounded-[16px] bg-acc p-4 text-left', press)}>
-          <span className="flex h-[40px] w-[40px] items-center justify-center rounded-[12px] bg-on-acc/[0.14] text-on-acc">
-            <Icon name="plus" size={22} sw={2.4} />
-          </span>
-          <span className="flex-1">
-            <span className="block font-display text-[16px] font-extrabold text-on-acc">{t.events.hubNewEvent}</span>
-            <span className="mt-px block text-[12.5px] text-on-acc/70">{t.events.hubNewEventSub}</span>
-          </span>
-          <span className="text-on-acc">
-            <Icon name="arrowR" size={20} />
-          </span>
-        </button>
+        {isAdmin && !billingLock.blocked && (
+          <button type="button" onClick={() => nav.push('eventedit', { isNew: true })} className={cn('mb-5 flex w-full items-center gap-[13px] rounded-[16px] bg-acc p-4 text-left', press)}>
+            <span className="flex h-[40px] w-[40px] items-center justify-center rounded-[12px] bg-on-acc/[0.14] text-on-acc">
+              <Icon name="plus" size={22} sw={2.4} />
+            </span>
+            <span className="flex-1">
+              <span className="block font-display text-[16px] font-extrabold text-on-acc">{t.events.hubNewEvent}</span>
+              <span className="mt-px block text-[12.5px] text-on-acc/70">{t.events.hubNewEventSub}</span>
+            </span>
+            <span className="text-on-acc">
+              <Icon name="arrowR" size={20} />
+            </span>
+          </button>
+        )}
         {isLoading ? (
           <Empty text={t.events.loadingEvents} />
         ) : isError ? (

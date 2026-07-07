@@ -8,11 +8,11 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
-import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
 import { usePoDoorCandidates, usePoEvents } from '@/features/po/hooks';
+import { autoOpenDoorEvent } from '@/features/po/door-event';
 import { poKeys } from '@/features/po/keys';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canWorkDoor } from '@/features/auth/roles';
@@ -36,6 +36,8 @@ import { usePoHistoryNav } from './history-nav';
 import { PhoneFrame, Toast, type TabKey } from './shell';
 import { Top } from './kit';
 import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
+import { useViewport } from './use-viewport';
+import { EventDaySkeleton } from '@/features/po/eventday/EventDaySkeleton';
 import { Invite, Login, Mfa, Otp, Welcome } from './screens/auth';
 import { Crew, EventBeheer, EventEdit, EventView, Events, PastEvent, Tiers } from './screens/events';
 import { BulkPaste, Contacten, ContactProfile, GuestsTab, Lijst, QuickAdd, Vaste } from './screens/guests';
@@ -109,13 +111,21 @@ const Promo = dynamic(() => import('./screens/promo').then((m) => m.Promo), {
   loading: ScreenLoading,
   ssr: false,
 });
+// Desktop Deur view (T9 fold): the Event-dag cockpit, previously the standalone
+// /eventday route, now renders INSIDE the shell as the ≥1024px variant of the
+// Door tab. Lazy — mobile/door-only visitors never pull the cockpit chunk; the
+// geometry-matched skeleton keeps the frame steady while it fetches.
+const EventDayCockpitGate = dynamic(
+  () => import('@/features/po/eventday/EventDayCockpit').then((m) => m.EventDayCockpitGate),
+  { loading: () => <EventDaySkeleton />, ssr: false },
+);
 
 /** Data-dense screens that opt into the full 1080px desktop column. Forms and
  *  detail-entry screens stay at the narrow reading column (640px). Mobile is
  *  full-bleed regardless. (S3.3) */
 const WIDE_DESKTOP = new Set([
   'start', 'events', 'guests', 'lijst', 'stats', 'audit', 'gebruikers',
-  'event', 'pastevent', 'eventbeheer', 'aanvragen',
+  'event', 'pastevent', 'eventbeheer', 'aanvragen', 'deur',
 ]);
 
 /** Shown while a pushed event/guest screen waits for its live row to load. */
@@ -162,7 +172,9 @@ export function PlusOneApp({
   /** Live role label (+ MFA) for the shell footer. */
   liveUserSub?: string;
 }): JSX.Element {
-  const router = useRouter();
+  // Same breakpoint/source as ResponsiveShell — picks the door branch's variant
+  // below (≥1024px = Event-dag cockpit, <1024px = the outbox-backed door tab).
+  const isMobile = useViewport(serverHint);
   // /app is gated by real middleware auth, so skip the prototype's mock
   // welcome/login flow and start straight in the authenticated shell.
   const [started, setStarted] = useState(true);
@@ -285,6 +297,38 @@ export function PlusOneApp({
   const doorCandidates = doorCandidatesQuery.data ?? [];
   const resolvedDoorId = doorEventId ?? (doorCandidates.length === 1 ? doorCandidates[0].id : null);
   const resolvedDoorName = doorCandidates.find((e) => e.id === resolvedDoorId)?.name ?? '';
+
+  // T6 auto-open (decided 1/7): on the FIRST visit of this browser session (per
+  // user), when the desktop shell (≥1024px) has exactly ONE event inside its door
+  // window (start − 1h through event end), land straight on the Door tab — the
+  // Event-day cockpit. Two or more simultaneous nights → no guessing, land
+  // normally. It runs ONCE per session (sessionStorage flag), so deliberately
+  // navigating away never pushes the user back; a mid-session refresh doesn't
+  // re-trigger either. Plain state set — no history entry: this replaces the
+  // landing, it isn't a step the back button should undo.
+  const autoOpenTried = useRef(false);
+  useEffect(() => {
+    if (autoOpenTried.current || !navHydrated || isMobile || !showDoor) return;
+    const cands = doorCandidatesQuery.data;
+    if (!cands) return; // evaluate once, but only when the candidates have loaded
+    autoOpenTried.current = true;
+    const KEY = `po:eventday-auto:${userId}`;
+    try {
+      if (sessionStorage.getItem(KEY)) return;
+      sessionStorage.setItem(KEY, '1');
+    } catch {
+      return; // no sessionStorage → skip rather than re-push on every mount
+    }
+    const id = autoOpenDoorEvent(cands, Date.now());
+    if (!id) return;
+    setTabState('deur');
+    setDoorSeg('deur');
+    setDoorEventId(id);
+    setStack([]);
+    setDoorOverlay(null);
+    bump();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot landing tweak
+  }, [navHydrated, isMobile, showDoor, doorCandidatesQuery.data, userId]);
 
   // ── Browser/OS back-button ↔ in-app navigation (full history integration) ─────
   // /app is a single URL with its own in-memory navigation, so the physical back
@@ -620,9 +664,6 @@ export function PlusOneApp({
     ...(caps.viewTeam
       ? ([{ key: 'gebruikers', section: 'more', label: t.nav.team, icon: 'users', active: currentKey === 'gebruikers', onClick: () => nav.push('gebruikers') }] as ShellNavItem[])
       : []),
-    ...(showDoor
-      ? ([{ key: 'cockpit', section: 'more', label: t.nav.cockpit, icon: 'flag', active: false, onClick: () => router.push('/eventday') }] as ShellNavItem[])
-      : []),
     { key: 'meer', section: 'more', label: t.nav.more, icon: 'dots', active: currentKey === 'meer', onClick: () => nav.setTab('meer') },
   ];
   // Mobile bottom tabs — non-door roles drop Deur/Taken (default would show all).
@@ -630,13 +671,29 @@ export function PlusOneApp({
     ? ['start', 'events', 'guests', 'deur', 'meer']
     : ['start', 'events', 'guests', 'meer'];
 
-  // Door branch: mount the real DoorProvider (offline outbox + realtime) for the
-  // venue's current event and render the shared door components. Kept mounted
-  // across Deur↔Taken (both are door tabs) so realtime/cache survive the switch;
-  // unmounts when leaving for another tab. No event resolvable → empty state.
+  // Door branch, desktop (≥1024px): the Event-dag cockpit (T9 fold — this was the
+  // standalone /eventday route until it lost the app menu; now it lives inside the
+  // shell). Online-only by design (no outbox): reads via React Query + realtime,
+  // check-in through the door gateway — exactly as /eventday worked. The event
+  // choice is the SHARED doorEventId, so "Check-in" from an event card lands here
+  // and a viewport resize keeps the same event.
+  const cockpitBranch: ReactNode = (
+    <div className="flex h-full flex-col">
+      <div className="po-scroll min-h-0 flex-1 overflow-y-auto px-[38px] pb-7 pt-[30px]">
+        <EventDayCockpitGate chosenId={doorEventId} onChoose={setDoorEventId} />
+      </div>
+    </div>
+  );
+
+  // Door branch, mobile: mount the real DoorProvider (offline outbox + realtime)
+  // for the venue's current event and render the shared door components. Kept
+  // mounted across Deur↔Taken (both are door tabs) so realtime/cache survive the
+  // switch; unmounts when leaving for another tab. No event resolvable → empty state.
   const doorTitle = doorSeg === 'taken' ? t.door.tasksTitle : t.door.checkinTitle;
   let doorBranch: ReactNode;
-  if (resolvedDoorId) {
+  if (!isMobile) {
+    doorBranch = cockpitBranch;
+  } else if (resolvedDoorId) {
     doorBranch = (
       <DoorQueryProvider>
         <DoorProvider eventId={resolvedDoorId}>

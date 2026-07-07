@@ -9,7 +9,6 @@
  * RLS is the boundary; affordances hide for roles without the right (see below).
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { useRouter } from 'next/navigation';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
@@ -18,6 +17,7 @@ import { Icon, type IconName } from '@/components/po/icon';
 import { Avatar, Label } from '@/components/po/kit';
 import { DBtn, DCard } from '@/components/po/desktop/kit';
 import { canWorkDoor } from '@/features/auth/roles';
+import { useNav } from '@/components/po/context';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import type { PoDoorEvent } from '@/features/po/door-event';
 import type { Guest, Tier } from '@/lib/po/types';
@@ -68,9 +68,17 @@ const EMPTY_GUESTS: Guest[] = [];
 const EMPTY_TIERS: Tier[] = [];
 
 // ── Entry gate: pick the event (no auto-guess with >1 live), then mount cockpit ──
-export function EventDayCockpitGate(): JSX.Element {
+// The chosen event is CONTROLLED by the /app shell (doorEventId), so the desktop
+// cockpit and the mobile door tab share one choice — "Check-in" from an event card
+// (nav.openDoor) lands the cockpit on that event too (T9 fold, S1.3).
+export function EventDayCockpitGate({
+  chosenId,
+  onChoose,
+}: {
+  chosenId: string | null;
+  onChoose: (id: string | null) => void;
+}): JSX.Element {
   const { data: candidates = [], isLoading } = usePoDoorCandidates();
-  const [chosenId, setChosenId] = useState<string | null>(null);
   // Selection-first (S1.3): a deliberate pick wins; with exactly one event use it;
   // with several, the user chooses which event-dag to drive — no auto-guess.
   const resolvedId = chosenId ?? (candidates.length === 1 ? candidates[0].id : null);
@@ -93,21 +101,21 @@ export function EventDayCockpitGate(): JSX.Element {
     return (
       <EventDayCockpit
         event={event}
-        onChangeEvent={candidates.length > 1 ? () => setChosenId(null) : undefined}
+        onChangeEvent={candidates.length > 1 ? () => onChoose(null) : undefined}
       />
     );
   }
 
   if (candidates.length > 1) {
+    // No DCard wrapper: the picker renders the shared Home event cards (their own
+    // card chrome) — nesting them inside another card doubles the borders.
     return (
-      <DCard className="overflow-hidden p-0">
-        <DoorEventPicker
-          events={candidates}
-          onPick={setChosenId}
-          title={t.cockpit.pickEventTitle}
-          sub={t.cockpit.pickEventSub}
-        />
-      </DCard>
+      <DoorEventPicker
+        events={candidates}
+        onPick={onChoose}
+        title={t.cockpit.pickEventTitle}
+        sub={t.cockpit.pickEventSub}
+      />
     );
   }
 
@@ -127,7 +135,7 @@ export function EventDayCockpitGate(): JSX.Element {
 // ── The cockpit ───────────────────────────────────────────────────────────────
 function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChangeEvent?: () => void }): JSX.Element {
   const eventId = event.id;
-  const router = useRouter();
+  const nav = useNav(); // in-shell since the T9 fold — pushes QuickAdd over the Door tab
   const { roles } = usePoIdentity();
 
   const edit = usePoEventForEdit(eventId);
@@ -170,8 +178,9 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   const tierRows = useMemo(() => perTierLive(guests, tiers, arrivals), [guests, tiers, arrivals]);
   const filtered = useMemo(() => filterCockpit(guests, statF, tierF, dq), [guests, statF, tierF, dq]);
   // Stable identities so the memo'd CockpitGuestList skips renders while typing.
+  // Keyed by the REAL tier id (1/7): same-role tiers stay distinguishable.
   const tierDisplay = useMemo(
-    () => new Map(tiers.map((t) => [t.role, { color: t.color, short: t.short }])),
+    () => new Map(tiers.map((t) => [t.id, { color: t.color, name: t.name }])),
     [tiers]
   );
   const defaultTierId = useMemo(
@@ -312,7 +321,9 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <h1 className="font-display text-[22px] font-extrabold tracking-[-0.02em] text-text">{t.cockpit.pageTitle}</h1>
-          <div className="truncate text-[13px] text-faint">{fmt(t.cockpit.pageSub, { name: event.name })}</div>
+          <div className="truncate text-[13px] text-faint">
+            {fmt(event.phase === 'live' ? t.cockpit.pageSub : t.cockpit.pageSubUpcoming, { name: event.name })}
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {onChangeEvent && (
@@ -321,8 +332,8 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
             </DBtn>
           )}
           {canCheckIn && (
-            <DBtn kind="ghost" icon="door" onClick={() => router.push(`/door/${eventId}`)}>
-              {t.cockpit.openDoorApp}
+            <DBtn icon="plus" onClick={() => nav.push('quickadd', { id: eventId })}>
+              {t.events.addGuest}
             </DBtn>
           )}
         </div>
@@ -334,10 +345,20 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
         style={{ background: 'radial-gradient(120% 160% at 0% 0%, rgba(181,166,255,0.13), #161618 58%)' }}
       >
         <div className="flex flex-wrap items-center gap-4">
-          <span className="inline-flex items-center gap-[7px] rounded-full bg-acc-dim px-3 py-1.5 font-body text-[12px] font-extrabold tracking-[0.04em] text-acc">
-            <span className={cn('h-[7px] w-[7px] rounded-full bg-acc', realtimeConnected && 'animate-pulse')} />
-            {t.cockpit.liveBadge}
-          </span>
+          {/* Phase-aware (T6 test 8): the LIVE badge only when the event is actually
+              running; before doors it reads UPCOMING. The dot pulses only while the
+              realtime subscription is really connected. */}
+          {event.phase === 'live' ? (
+            <span className="inline-flex items-center gap-[7px] rounded-full bg-acc-dim px-3 py-1.5 font-body text-[12px] font-extrabold tracking-[0.04em] text-acc">
+              <span className={cn('h-[7px] w-[7px] rounded-full bg-acc', realtimeConnected && 'animate-pulse')} />
+              {t.cockpit.liveBadge}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-[7px] rounded-full border border-line px-3 py-1.5 font-body text-[12px] font-extrabold tracking-[0.04em] text-faint">
+              <span className="h-[7px] w-[7px] rounded-full bg-ghost" />
+              {t.cockpit.upcomingBadge}
+            </span>
+          )}
           <div className="min-w-0">
             <div className="truncate font-display text-[23px] font-extrabold tracking-[-0.02em] text-text">{event.name}</div>
             <div className="text-[13px] text-faint">
@@ -450,7 +471,7 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                 {t.cockpit.allTiers}
               </TierChip>
               {tierRows.map((t) => (
-                <TierChip key={t.role} on={tierF === t.role} onClick={() => setTierF(t.role)}>
+                <TierChip key={t.tierId} on={tierF === t.tierId} onClick={() => setTierF(t.tierId)}>
                   <span className="h-2 w-2 rounded-full" style={{ background: t.color }} />
                   {t.tier}
                 </TierChip>
@@ -713,7 +734,7 @@ const CockpitGuestList = memo(function CockpitGuestList({
   rows: Guest[];
   totalGuests: number;
   arrivals: ReadonlyMap<string, { arrived: number; at: string }>;
-  tierDisplay: Map<string, { color: string; short: string }>;
+  tierDisplay: Map<string, { color: string; name: string }>;
   flashId: string | null;
   canCheckIn: boolean;
   allowUncheck: boolean;
@@ -741,7 +762,7 @@ const CockpitGuestList = memo(function CockpitGuestList({
             const g = rows[vi.index];
             if (!g) return null;
             const isIn = g.status === 'in';
-            const td = tierDisplay.get(g.role);
+            const td = tierDisplay.get(g.tierId ?? '');
             const arr = arrivals.get(g.id);
             const arrivedCount = arr ? arr.arrived : g.plus;
             const partial = isIn && arrivedCount < g.plus;
@@ -777,7 +798,7 @@ const CockpitGuestList = memo(function CockpitGuestList({
                         className="h-2 w-2 rounded-full"
                         style={{ background: td?.color ?? 'rgba(255,255,255,0.26)' }}
                       />
-                      {td?.short ?? g.role}
+                      {td?.name ?? g.tierName ?? g.role}
                     </span>
                   </div>
                   <div>
@@ -958,7 +979,7 @@ function PerTierBars({ rows }: { rows: ReturnType<typeof perTierLive> }): JSX.El
   return (
     <div className="flex flex-col gap-[15px]">
       {rows.map((t) => (
-        <div key={t.role}>
+        <div key={t.tierId}>
           <div className="mb-[7px] flex justify-between">
             <span className="inline-flex items-center gap-2 text-[13.5px] font-semibold text-text">
               <span className="h-2 w-2 rounded-full" style={{ background: t.color }} />

@@ -37,6 +37,23 @@ import {
   type QuotaStatus,
 } from './queries';
 import { buildDoorView, buildTasks, type DoorGuest, type DoorTask, type DoorView } from './model';
+import type { Filter } from './components/checkin-items';
+
+/**
+ * Check-in list filters (search / segment / tier chips). They live HERE, not in
+ * CheckInList, because opening a guest to check them in pushes a detail screen
+ * and the pop REMOUNTS the list — local state would snap the segment back to
+ * "All" mid-shift (feedback Joeri 1/7). Scoped to the provider's event via the
+ * eventId guard below so a filter never leaks into another event, and kept
+ * in-memory only (local-first — no server state for door filtering).
+ */
+export interface DoorListFilters {
+  q: string;
+  f: Filter;
+  tierIds: Set<string>;
+}
+
+const DEFAULT_LIST_FILTERS: DoorListFilters = { q: '', f: 'both', tierIds: new Set() };
 
 /** kind + payload pairs for enqueueDoorWrite — envelope fields are filled centrally. */
 type OutboxWrite = {
@@ -67,6 +84,9 @@ interface DoorContextValue {
   pendingCount: number;
   /** guest_id → its outbox entries (for the "duplicaat" marker). */
   outboxByGuest: Map<string, OutboxEntry[]>;
+  /** Check-in list filters — survive the guest-detail push/pop (see above). */
+  listFilters: DoorListFilters;
+  setListFilters: (patch: Partial<DoorListFilters>) => void;
   guestById: (id: string) => DoorGuest | undefined;
   checkIn: (guestId: string, totalPeople: number) => void;
   /** Raise an already-checked-in guest's arrivals by `addArrived` ("nog inchecken"). */
@@ -102,6 +122,22 @@ export function DoorProvider({
   const queryClient = useQueryClient();
   const [meId, setMeId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  // List filters, tagged with the event they belong to: the provider stays
+  // mounted across an event switch (same tree position), so a stale tag means
+  // "different event → start from the defaults" instead of leaking filters.
+  const [listFiltersFor, setListFiltersFor] = useState<{ eventId: string; filters: DoorListFilters }>({
+    eventId,
+    filters: DEFAULT_LIST_FILTERS,
+  });
+  const listFilters = listFiltersFor.eventId === eventId ? listFiltersFor.filters : DEFAULT_LIST_FILTERS;
+  const setListFilters = useCallback(
+    (patch: Partial<DoorListFilters>) =>
+      setListFiltersFor((prev) => ({
+        eventId,
+        filters: { ...(prev.eventId === eventId ? prev.filters : DEFAULT_LIST_FILTERS), ...patch },
+      })),
+    [eventId],
+  );
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Outbox: load once, subscribe for re-render.
@@ -518,6 +554,8 @@ export function DoorProvider({
       toast,
       pendingCount,
       outboxByGuest,
+      listFilters,
+      setListFilters,
       guestById,
       checkIn,
       topUp,
@@ -528,7 +566,7 @@ export function DoorProvider({
       addOnSpot,
       ackNote,
     }),
-    [eventId, view, tasks, quotaQuery.data, defaultTierId, sync, toast, pendingCount, outboxByGuest, guestById, checkIn, topUp, voidCheckIn, reviveCheckIn, refuse, undoRefusal, addOnSpot, ackNote],
+    [eventId, view, tasks, quotaQuery.data, defaultTierId, sync, toast, pendingCount, outboxByGuest, listFilters, setListFilters, guestById, checkIn, topUp, voidCheckIn, reviveCheckIn, refuse, undoRefusal, addOnSpot, ackNote],
   );
 
   return <DoorContext.Provider value={value}>{children}</DoorContext.Provider>;
