@@ -23,6 +23,8 @@ export const settings = {
     sectionBilling: 'Billing',
     analyticsTitle: 'Analytics',
     analyticsSub: 'Turnout, arrivals, and additions',
+    promoTitle: 'Promotion',
+    promoSub: 'Who pulls people through the door',
     auditTitle: 'Audit log',
     auditSub: 'Who did what, when',
     requestsTitle: 'Requests',

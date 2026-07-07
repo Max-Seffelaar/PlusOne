@@ -105,6 +105,8 @@ import {
   updateInfluencer,
   createRequestLink,
   updateRequestLink,
+  rotateInfluencerStatsToken,
+  revokeInfluencerStatsToken,
 } from '@/features/links/actions';
 import type {
   CreateInfluencerInput,
@@ -945,22 +947,39 @@ export function usePoResendCrewInvite() {
 const REQUEST_LINKS_PREFIX = [...poKeys.all, 'request-links'] as const;
 const VENUE_LINKS_PREFIX = [...poKeys.all, 'venue-links'] as const;
 const INFLUENCERS_PREFIX = [...poKeys.all, 'influencers'] as const;
+// Promotion dashboard reads (F2): the per-event funnel + the venue-wide
+// leaderboard/label sections re-read after any link/influencer write.
+const LINK_FUNNEL_PREFIX = [...poKeys.all, 'link-funnel'] as const;
+const PROMO_PREFIX = [...poKeys.all, 'promo'] as const;
 
 function invalidateLinks(qc: QueryClient, eventId?: string): void {
-  if (eventId) void qc.invalidateQueries({ queryKey: poKeys.requestLinks(eventId) });
-  else void qc.invalidateQueries({ queryKey: REQUEST_LINKS_PREFIX });
+  if (eventId) {
+    void qc.invalidateQueries({ queryKey: poKeys.requestLinks(eventId) });
+    void qc.invalidateQueries({ queryKey: poKeys.linkFunnel(eventId) });
+  } else {
+    void qc.invalidateQueries({ queryKey: REQUEST_LINKS_PREFIX });
+    void qc.invalidateQueries({ queryKey: LINK_FUNNEL_PREFIX });
+  }
   void qc.invalidateQueries({ queryKey: VENUE_LINKS_PREFIX });
   void qc.invalidateQueries({ queryKey: INFLUENCERS_PREFIX });
+  void qc.invalidateQueries({ queryKey: PROMO_PREFIX });
 }
 
-/** Create a request link on an event (server generates the slug). Returns the id. */
+/** What a link create hands back to the UI: the row id (for the highlight) and
+ *  the server-generated slug (the done-step shows the live URL immediately). */
+export interface CreatedLink {
+  id?: string;
+  slug?: string;
+}
+
+/** Create a request link on an event (server generates the slug). */
 export function usePoCreateLink(eventId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: CreateRequestLinkInput): Promise<string | undefined> => {
+    mutationFn: async (input: CreateRequestLinkInput): Promise<CreatedLink> => {
       const res = await createRequestLink(input);
       if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
-      return res.id;
+      return { id: res.id, slug: res.slug };
     },
     onSuccess: () => invalidateLinks(qc, eventId),
   });
@@ -1006,6 +1025,30 @@ export function usePoUpdateInfluencer() {
       void qc.invalidateQueries({ queryKey: VENUE_LINKS_PREFIX });
       void qc.invalidateQueries({ queryKey: REQUESTS_KEY });
     },
+  });
+}
+
+/** Mint / rotate an influencer's private stats-page token (F2, /i/[token]).
+ *  Returns the bearer token ONCE — only its sha256 lands in the database, so the
+ *  sheet must show the URL immediately and never again. Admin-only via RLS. */
+export function usePoRotateStatsToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (influencerId: string): Promise<string> => {
+      const res = await rotateInfluencerStatsToken(influencerId);
+      if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
+      return res.token;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: INFLUENCERS_PREFIX }),
+  });
+}
+
+/** Revoke an influencer's stats URL — their /i/[token] page goes generically dead. */
+export function usePoRevokeStatsToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (influencerId: string) => throwOnError(await revokeInfluencerStatsToken(influencerId)),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: INFLUENCERS_PREFIX }),
   });
 }
 

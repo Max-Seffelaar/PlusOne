@@ -112,6 +112,25 @@ export function Stats(): JSX.Element {
         right={<IconBtn name="refresh" onClick={() => setReloadKey((k) => k + 1)} />}
       />
       <Scroll bottom={28} className={cn(loading && 'opacity-60 transition-opacity')}>
+        {/* Cross-link to the Promotion dashboard (S15) — link funnels per
+            influencer live there, not in the generic analytics. */}
+        <button
+          type="button"
+          onClick={() => nav.push('promo')}
+          className={cn(
+            'mb-4 flex w-full items-center gap-[11px] rounded-[14px] border border-line bg-elev px-[14px] py-[12px] text-left',
+            'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]',
+          )}
+        >
+          <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-acc-dim text-acc">
+            <Icon name="link" size={17} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block font-display text-[14.5px] font-bold text-text">{t.promo.title}</span>
+            <span className="block text-[12px] text-faint">{t.promo.hubSub}</span>
+          </span>
+          <Icon name="chev" size={18} className="text-ghost" />
+        </button>
         {/* Org-level KPIs — meaningful without selecting an event. Stacked on
             mobile (hero + a 2-up row); a single 3-across band on desktop. */}
         <div className="mb-5 flex flex-col gap-[10px] lg:grid lg:grid-cols-[1.3fr_1fr_1fr] lg:items-stretch lg:gap-3">

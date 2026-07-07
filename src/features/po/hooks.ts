@@ -54,9 +54,15 @@ import {
   fetchRequestLinks,
   fetchVenueRequestLinks,
   fetchVenueInfluencers,
+  fetchEventLinkFunnel,
+  fetchInfluencerLeaderboard,
+  fetchVenueLabelFunnel,
   type PoRequestLink,
   type PoLinkOption,
   type PoInfluencer,
+  type PoLinkFunnelRow,
+  type PoLeaderboardRow,
+  type PoLabelFunnelRow,
   type PoCrewMember,
   fetchPoEventActivityStats,
   type EventEditRow,
@@ -661,6 +667,54 @@ export function usePoInfluencers() {
     queryKey: poKeys.influencers(venueId ?? ''),
     enabled: !!venueId,
     queryFn: () => (venueId ? fetchVenueInfluencers(createClient(), venueId) : Promise.resolve([])),
+  });
+}
+
+// ── Promotion dashboard (Requests-epic F2, 86ey6b3fe — S15) ──
+// The RPCs self-guard on role (admin/finance/organizer); everyone else gets [].
+
+export type PromoRange = '30' | '90' | 'all';
+
+/** now − N days as ISO, or null for the all-time window. Computed at fetch time
+ *  (inside queryFn) so a cached key doesn't freeze the window edge. */
+function promoRangeFrom(range: PromoRange): string | null {
+  if (range === 'all') return null;
+  const days = range === '30' ? 30 : 90;
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+/** Every request link on one event with its full funnel (overview + section 2). */
+export function usePoLinkFunnel(eventId: string) {
+  return useQuery<PoLinkFunnelRow[]>({
+    queryKey: poKeys.linkFunnel(eventId),
+    enabled: !!eventId,
+    queryFn: () => fetchEventLinkFunnel(createClient(), eventId),
+  });
+}
+
+/** The venue-wide influencer leaderboard for a range (checked-in desc). */
+export function usePoPromoLeaderboard(range: PromoRange) {
+  const { venueId } = usePoIdentity();
+  return useQuery<PoLeaderboardRow[]>({
+    queryKey: poKeys.promoLeaderboard(venueId ?? '', range),
+    enabled: !!venueId,
+    queryFn: () =>
+      venueId
+        ? fetchInfluencerLeaderboard(createClient(), venueId, promoRangeFrom(range))
+        : Promise.resolve([]),
+  });
+}
+
+/** Label-only (unattributed) links across the venue for a range. */
+export function usePoPromoLabelFunnel(range: PromoRange) {
+  const { venueId } = usePoIdentity();
+  return useQuery<PoLabelFunnelRow[]>({
+    queryKey: poKeys.promoLabelFunnel(venueId ?? '', range),
+    enabled: !!venueId,
+    queryFn: () =>
+      venueId
+        ? fetchVenueLabelFunnel(createClient(), venueId, promoRangeFrom(range))
+        : Promise.resolve([]),
   });
 }
 
