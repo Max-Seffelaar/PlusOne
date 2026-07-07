@@ -11,6 +11,7 @@
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import type { HomeEvent } from '@/features/po/adapters';
+import { isOpenGuestRequest } from '@/features/po/adapters';
 import { eventPhase } from '@/features/po/event-phase';
 import { Icon, type IconName } from './icon';
 import { Btn } from './kit';
@@ -55,13 +56,15 @@ export interface BoardEvent {
  */
 export function toBoardEvents(
   events: HomeEvent[],
-  guestReqs: { eventId: string }[],
+  guestReqs: { eventId: string; status: string }[],
   quotaReqs: { eventId: string }[],
   lockOverride: Record<string, boolean>,
   nowMs: number
 ): BoardEvent[] {
+  // Only OPEN (pending) requests count toward the card badge — shared predicate
+  // so the board, the Home pulse tile, and the Requests screen never disagree (T9).
   const reqBy = new Map<string, number>();
-  for (const r of guestReqs) reqBy.set(r.eventId, (reqBy.get(r.eventId) ?? 0) + 1);
+  for (const r of guestReqs) if (isOpenGuestRequest(r)) reqBy.set(r.eventId, (reqBy.get(r.eventId) ?? 0) + 1);
   const quotaBy = new Map<string, number>();
   for (const r of quotaReqs) quotaBy.set(r.eventId, (quotaBy.get(r.eventId) ?? 0) + 1);
   const today = dayKey(nowMs);

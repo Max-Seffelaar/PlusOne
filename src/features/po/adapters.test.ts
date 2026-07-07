@@ -13,6 +13,7 @@ import {
   contactRoleToPo,
   relativeTime,
   toPoGuestRequest,
+  isOpenGuestRequest,
   toPoQuotaRequest,
   toRecap,
   toRecapGuest,
@@ -909,6 +910,17 @@ describe('toPoGuestRequest', () => {
 
   it('does not mask a phone too short to yield 4 digits', () => {
     expect(toPoGuestRequest({ ...base, phone: '12' }, now).phoneLast4).toBeNull();
+  });
+});
+
+describe('isOpenGuestRequest', () => {
+  // The T9 regression: only a pending request is "open". A declined or
+  // auto-approved one must NOT count — that was the Home "1 open" vs inbox
+  // "clear" mismatch. Every counter (board, pulse, inbox) shares this predicate.
+  it('counts only pending as open', () => {
+    expect(isOpenGuestRequest({ status: 'pending' })).toBe(true);
+    expect(isOpenGuestRequest({ status: 'denied' })).toBe(false);
+    expect(isOpenGuestRequest({ status: 'approved' })).toBe(false);
   });
 });
 

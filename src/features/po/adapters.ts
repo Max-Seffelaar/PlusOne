@@ -672,6 +672,17 @@ export interface PoGuestRequest {
   flag?: string;
 }
 
+/**
+ * The single definition of an "open" landing request, shared by Home's board
+ * counter + event-card inbox badge (toBoardEvents), the Home pulse strip, and the
+ * Requests screen. Only `pending` is open — `denied` and (auto-)`approved` are
+ * settled history. This is the T9 fix: before it, the board counted the whole
+ * list (pending + denied + auto-approved) while the Requests screen counted
+ * pending only, so a declined request read as "1 open" on Home while the inbox
+ * said "clear". One predicate keeps every counter in lock-step.
+ */
+export const isOpenGuestRequest = (r: { status: string }): boolean => r.status === 'pending';
+
 export function toPoGuestRequest(row: PoGuestRequestRow, now?: Date): PoGuestRequest {
   const digits = (row.phone ?? '').replace(/[^0-9]/g, '');
   // request_status is pending | approved | denied — narrow defensively so the

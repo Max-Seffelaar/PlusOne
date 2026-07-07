@@ -27,6 +27,7 @@ import {
 } from '@/features/po/hooks';
 import { usePoApproveRequest, usePoDecideQuota, usePoDenyRequest } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
+import { isOpenGuestRequest } from '@/features/po/adapters';
 import type { PoGuestRequest, PoQuotaRequest } from '@/features/po/adapters';
 import type { PoLinkOption } from '@/features/po/queries';
 import type { Tier } from '@/lib/po/types';
@@ -112,7 +113,7 @@ export function Aanvragen({
     .filter((r) => !linkSel || r.requestLinkId === linkSel)
     .filter((r) => matches(r.name));
   const scopeQ = (sel ? allQ.filter((r) => r.eventId === sel) : allQ).filter((r) => matches(r.who));
-  const pendingG = scopeG.filter((r) => r.status === 'pending');
+  const pendingG = scopeG.filter(isOpenGuestRequest);
   const deniedG = scopeG.filter((r) => r.status === 'denied');
   // Read-only trace: requests an auto-approve link put straight on the list.
   const autoG = scopeG.filter((r) => r.status === 'approved' && r.decidedVia === 'auto');
@@ -127,7 +128,7 @@ export function Aanvragen({
   const showLinkFilter = allLinks.length > 1;
   const pendingByLink = new Map<string, number>();
   for (const r of allG) {
-    if (r.status !== 'pending' || !r.requestLinkId) continue;
+    if (!isOpenGuestRequest(r) || !r.requestLinkId) continue;
     pendingByLink.set(r.requestLinkId, (pendingByLink.get(r.requestLinkId) ?? 0) + 1);
   }
   const selLink = allLinks.find((l) => l.id === linkSel) ?? null;
@@ -139,7 +140,7 @@ export function Aanvragen({
   if (sel) reqEventIds.add(sel);
   const pickerEvents = events.filter((e) => reqEventIds.has(e.id));
   const openByEvent = new Map<string, number>();
-  for (const r of allG) if (r.status === 'pending') openByEvent.set(r.eventId, (openByEvent.get(r.eventId) ?? 0) + 1);
+  for (const r of allG) if (isOpenGuestRequest(r)) openByEvent.set(r.eventId, (openByEvent.get(r.eventId) ?? 0) + 1);
   for (const r of allQ) openByEvent.set(r.eventId, (openByEvent.get(r.eventId) ?? 0) + 1);
   const totalOpen = [...openByEvent.values()].reduce((a, b) => a + b, 0);
 
