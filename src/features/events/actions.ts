@@ -27,6 +27,7 @@ import {
   removeOrganizerSchema,
   resendCrewInviteSchema,
   setEventUserQuotaSchema,
+  setEventDefaultMemberQuotaSchema,
   createTemplateSchema,
   updateTemplateSchema,
   deleteTemplateSchema,
@@ -51,6 +52,7 @@ import {
   type RemoveOrganizerInput,
   type ResendCrewInviteInput,
   type SetEventUserQuotaInput,
+  type SetEventDefaultMemberQuotaInput,
   type CreateTemplateInput,
   type UpdateTemplateInput,
   type DeleteTemplateInput,
@@ -103,6 +105,9 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const { data, error } = await supabase
       .from('events')
+      // default_member_quota is trigger-seeded from the venue default
+      // (events_set_default_member_quota); omit it from the row and cast so the
+      // NOT-NULL Insert type doesn't demand a client-supplied value (T10).
       .insert({
         venue_id: venueId,
         name,
@@ -110,7 +115,7 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
         ends_at: endsAt ?? null,
         landing_active: landingActive,
         landing_slug: buildEventSlug(name, startsAt),
-      })
+      } as Database['public']['Tables']['events']['Insert'])
       .select('id')
       .single();
 
@@ -498,6 +503,32 @@ export async function inviteExternalCrew(input: InviteExternalCrewInput): Promis
     }
     revalidateEvent(eventId);
   }
+  return { ok: true };
+}
+
+/**
+ * Set an event's per-event default member quota — the value the add-crew flow
+ * prefills (T10, 86ey4j1p5). Admin OR event organizer (RLS
+ * events_update_admin_organizer is the boundary); the events audit trigger logs
+ * the before/after. Changing one event's default never touches another event.
+ */
+export async function setEventDefaultMemberQuota(
+  input: SetEventDefaultMemberQuotaInput,
+): Promise<ActionResult> {
+  const parsed = setEventDefaultMemberQuotaSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  const { eventId, quota } = parsed.data;
+
+  const supabase = await createClient();
+  const ctx = await getAuthContext();
+  if (!ctx) return unauthorized();
+
+  const { error } = await supabase
+    .from('events')
+    .update({ default_member_quota: quota })
+    .eq('id', eventId);
+  if (error) return mapMutationError(error);
+  revalidateEvent(eventId);
   return { ok: true };
 }
 

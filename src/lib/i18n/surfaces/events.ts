@@ -58,6 +58,7 @@ export const events = {
   errSaveFailed: "Couldn't save. Try again.",
   errLockFailed: "Couldn't lock or unlock the list.",
   errUncheckFailed: "Couldn't change the check-out setting.",
+  errQuotaFailed: "Couldn't change the default quota.",
   errStatusFailed: "Couldn't change the status.",
   errCancelFailed: "Couldn't update the event.",
   noteAdminsOnly: 'Only admins can create events.',
@@ -82,6 +83,13 @@ export const events = {
   tiersRowTitle: 'Guest tiers',
   tiersRowSub: 'Names, colors & door prices',
   status: 'Status',
+  // Per-event default member quota (T10) — seeds the add-crew prefill.
+  quotaLabel: 'Guest list',
+  quotaTitle: 'Default quota per member',
+  quotaSub: 'Prefilled when you add crew — override per person',
+  quotaLess: 'Fewer',
+  quotaMore: 'More',
+
   // Block retitled with F1 (86ey21vjt): the landing page is now one of several
   // request links. Key stays `landingPage` so no call sites move.
   landingPage: 'Request links',

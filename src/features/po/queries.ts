@@ -519,6 +519,8 @@ export interface EventEditRow {
   allowUncheckOverride: boolean | null;
   /** The venue/company default, so the form can label what "volg standaard" resolves to. */
   venueAllowUncheck: boolean;
+  /** Per-event default member quota (T10) — seeds the add-crew prefill; editable per event. */
+  defaultMemberQuota: number;
 }
 
 /** A single event with the editable fields + the caller's organizer scope (EventEdit). */
@@ -531,7 +533,7 @@ export async function fetchEventForEdit(
     client
       .from('events')
       .select(
-        'id, name, starts_at, ends_at, status, cancelled_at, landing_active, landing_slug, list_locked, auto_lock_at, allow_uncheck, venues(name, allow_uncheck)'
+        'id, name, starts_at, ends_at, status, cancelled_at, landing_active, landing_slug, list_locked, auto_lock_at, allow_uncheck, default_member_quota, venues(name, allow_uncheck)'
       )
       .eq('id', eventId)
       .maybeSingle(),
@@ -561,6 +563,7 @@ export async function fetchEventForEdit(
     allowUncheck: resolveAllowUncheck(e.allow_uncheck, venueAllowUncheck),
     allowUncheckOverride: e.allow_uncheck,
     venueAllowUncheck,
+    defaultMemberQuota: e.default_member_quota,
   };
 }
 

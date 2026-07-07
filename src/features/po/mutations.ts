@@ -74,6 +74,7 @@ import {
   removeOrganizer,
   resendCrewInvite,
   setEventUserQuota,
+  setEventDefaultMemberQuota,
 } from '@/features/events/actions';
 import type {
   ChangeStatusInput,
@@ -99,6 +100,7 @@ import type {
   InviteExternalCrewInput,
   RemoveOrganizerInput,
   SetEventUserQuotaInput,
+  SetEventDefaultMemberQuotaInput,
 } from '@/features/events/schemas';
 import {
   createInfluencer,
@@ -739,6 +741,17 @@ export function usePoSetAllowUncheck(eventId: string) {
   const invalidate = useInvalidateEvent();
   return useMutation({
     mutationFn: async (input: SetAllowUncheckInput) => throwOnError(await setEventAllowUncheck(input)),
+    onSuccess: () => invalidate(eventId),
+  });
+}
+
+/** Set the event's per-event default member quota (T10). Invalidates the event so
+ *  the editor stepper AND the Crew add-flow prefill (both read poKeys.event) refresh. */
+export function usePoSetEventDefaultMemberQuota(eventId: string) {
+  const invalidate = useInvalidateEvent();
+  return useMutation({
+    mutationFn: async (input: SetEventDefaultMemberQuotaInput) =>
+      throwOnError(await setEventDefaultMemberQuota(input)),
     onSuccess: () => invalidate(eventId),
   });
 }

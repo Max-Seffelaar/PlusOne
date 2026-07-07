@@ -8,6 +8,7 @@
  */
 import { Fragment, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import { Icon, type IconName } from './icon';
 import { TabBar, type TabKey } from './shell';
 import { useViewport } from './use-viewport';
@@ -36,6 +37,7 @@ export function ResponsiveShell({
   venueName,
   venueSub,
   onOpenVenue,
+  onOpenProfile,
   userName,
   userSub,
   mainMaxClass = 'max-w-[640px]',
@@ -52,6 +54,8 @@ export function ResponsiveShell({
   venueName: string;
   venueSub?: string;
   onOpenVenue: () => void;
+  /** Open the signed-in user's profile settings (desktop footer click, T10). */
+  onOpenProfile: () => void;
   userName: string;
   userSub: string;
   /** Desktop content-column width (Tailwind max-w-* class). Wide dashboard
@@ -125,7 +129,12 @@ export function ResponsiveShell({
 
         <div className="flex-1" />
 
-        <div className="flex items-center gap-[11px] rounded-[12px] border border-line bg-elev p-[10px]">
+        <button
+          type="button"
+          onClick={onOpenProfile}
+          aria-label={t.settings.profile.title}
+          className="flex w-full items-center gap-[11px] rounded-[12px] border border-line bg-elev p-[10px] text-left transition-[filter] hover:brightness-[1.1] active:scale-[0.99]"
+        >
           <span className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-full bg-elev2 font-display text-[13px] font-bold text-text">
             {userName.slice(0, 1).toUpperCase()}
           </span>
@@ -136,7 +145,8 @@ export function ResponsiveShell({
               {userSub}
             </span>
           </span>
-        </div>
+          <Icon name="chev" size={16} className="flex-none text-ghost" />
+        </button>
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">

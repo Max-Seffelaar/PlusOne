@@ -16,7 +16,6 @@ import {
   useBillingBlocked,
   usePoTemplates,
   usePoTiers,
-  usePoVenueSettings,
   usePoEventActivity,
   usePoAuditFeed,
   usePoRequestLinks,
@@ -39,6 +38,7 @@ import {
   usePoCreateTier,
   usePoSetAllowUncheck,
   usePoSetAutoLock,
+  usePoSetEventDefaultMemberQuota,
   usePoSetLandingActive,
   usePoSetListLock,
   usePoUpdateEvent,
@@ -59,6 +59,7 @@ import { BottomBar, Sheet } from '../shell';
 const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 const col = 'flex h-full flex-col';
+const iconSm = 'flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border border-line text-faint';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function Stat({ v, l, acc, big }: { v: number; l: string; acc?: boolean; big?: boolean }): JSX.Element {
@@ -548,6 +549,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const setListLock = usePoSetListLock(editId);
   const setAutoLock = usePoSetAutoLock(editId);
   const setAllowUncheck = usePoSetAllowUncheck(editId);
+  const setDefaultQuota = usePoSetEventDefaultMemberQuota(editId);
   // Request links (F1): the row under the block shows the live active count.
   // editId is '' on create, which keeps the hook disabled (no fetch).
   const linksQ = usePoRequestLinks(editId);
@@ -570,6 +572,9 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   // Per-event "uitchecken toestaan" override: true/false force it, null inherits
   // the venue default (#3 / S1.1). An immediate operational control like the lock.
   const [uncheckOverride, setUncheckOverride] = useState<boolean | null>(null);
+  // Per-event default member quota (T10) — seeds the add-crew prefill. Immediate
+  // save like the lock/check-out controls, so it never counts toward form-dirty.
+  const [quotaDefault, setQuotaDefault] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   // Leaving with unsaved edits asks first (retest 3/7, Q6). Immediate controls
@@ -592,6 +597,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     setLandingOn(ev.landingActive);
     setLocked(ev.listLocked);
     setUncheckOverride(ev.allowUncheckOverride);
+    setQuotaDefault(ev.defaultMemberQuota);
     const [ad, at] = splitLocal(ev.autoLockAt);
     setAutoOn(!!ev.autoLockAt);
     setAutoDate(ad);
@@ -730,6 +736,22 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
       await setCancelled.mutateAsync({ eventId: editId, cancelled: next });
     } catch (e) {
       setErr(e instanceof Error ? e.message : t.events.errCancelFailed);
+    }
+  };
+
+  // Per-event default member quota — immediate save with optimistic local state,
+  // clamped at 0. Reverts on failure like the lock/check-out controls (T10).
+  const changeQuota = async (next: number): Promise<void> => {
+    const clamped = Math.max(0, next);
+    const prev = quotaDefault;
+    if (clamped === prev) return;
+    setQuotaDefault(clamped);
+    setErr(null);
+    try {
+      await setDefaultQuota.mutateAsync({ eventId: editId, quota: clamped });
+    } catch (e) {
+      setQuotaDefault(prev);
+      setErr(e instanceof Error ? e.message : t.events.errQuotaFailed);
     }
   };
 
@@ -873,6 +895,47 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
             </span>
             <Icon name="chev" size={18} className="text-ghost" />
           </button>
+        )}
+
+        {/* Per-event default member quota (T10). Seeded from the venue default at
+            creation; editable here per event. Immediate-save stepper. */}
+        {!isNew && (
+          <>
+            <Label className="mb-[10px]">{t.events.quotaLabel}</Label>
+            <div className="mb-[18px] rounded-[16px] border border-line bg-elev px-[14px] py-1">
+              <div className="flex items-center gap-[12px] py-[14px]">
+                <div className="flex-1">
+                  <div className="text-[14.5px] font-semibold text-text">{t.events.quotaTitle}</div>
+                  <div className="mt-0.5 text-[12px] text-faint">{t.events.quotaSub}</div>
+                </div>
+                {writable ? (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void changeQuota(quotaDefault - 1)}
+                      disabled={setDefaultQuota.isPending || quotaDefault <= 0}
+                      className={cn(iconSm, press, quotaDefault <= 0 && 'opacity-40')}
+                      aria-label={t.events.quotaLess}
+                    >
+                      <Icon name="minus" size={16} />
+                    </button>
+                    <span className="min-w-[22px] text-center font-display text-[18px] font-extrabold text-text">{quotaDefault}</span>
+                    <button
+                      type="button"
+                      onClick={() => void changeQuota(quotaDefault + 1)}
+                      disabled={setDefaultQuota.isPending}
+                      className={cn(iconSm, press, 'text-acc')}
+                      aria-label={t.events.quotaMore}
+                    >
+                      <Icon name="plus" size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <span className="font-display text-[18px] font-extrabold text-text">{quotaDefault}</span>
+                )}
+              </div>
+            </div>
+          </>
         )}
 
         <Label className="mb-[10px]">{t.events.landingPage}</Label>
@@ -1474,8 +1537,11 @@ export function Crew({ eventId }: { eventId?: string }): JSX.Element {
   const crewQ = usePoCrew(id);
   // The returning-crew pool is only needed for the admin "add" path.
   const poolQ = usePoAssignableCrew(isAdmin ? id : '');
-  const venueSettings = usePoVenueSettings();
-  const defaultQuota = venueSettings.data?.defaultPersonalQuota ?? 5;
+  // Prefill new crew quotas from THIS event's default (T10) — not the venue
+  // default. The event value is seeded from the venue default at creation and
+  // then editable per event, so two events can carry different defaults.
+  const edit = usePoEventForEdit(id);
+  const defaultQuota = edit.data?.defaultMemberQuota ?? 0;
   const invite = usePoInviteExternalCrew();
 
   const [addOpen, setAddOpen] = useState(false);
@@ -1485,11 +1551,11 @@ export function Crew({ eventId }: { eventId?: string }): JSX.Element {
   const [notice, setNotice] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  // Prefill the invite quota with the venue default once it loads.
+  // Prefill the invite quota with the event's default once it loads.
   useEffect(() => {
-    if (venueSettings.data) setInviteQuota((q) => (q === '' ? String(defaultQuota) : q));
+    if (edit.data) setInviteQuota((q) => (q === '' ? String(defaultQuota) : q));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [venueSettings.data]);
+  }, [edit.data]);
 
   const crew = crewQ.data ?? [];
   const pool = (poolQ.data ?? []).filter((m) => {

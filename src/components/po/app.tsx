@@ -11,7 +11,7 @@ import dynamic from 'next/dynamic';
 import { useQueryClient } from '@tanstack/react-query';
 import { venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
-import { usePoDoorCandidates, usePoEvents, usePoGuestRequests } from '@/features/po/hooks';
+import { usePoCanManageTemplates, usePoDoorCandidates, usePoEvents, usePoGuestRequests } from '@/features/po/hooks';
 import { isOpenGuestRequest } from '@/features/po/adapters';
 import { autoOpenDoorEvent } from '@/features/po/door-event';
 import { poKeys } from '@/features/po/keys';
@@ -288,6 +288,9 @@ export function PlusOneApp({
   // user_manager can't read check_ins/refusals (#17), so the door would look
   // empty/"mock" for them. Organizers use /door/[eventId] directly.
   const showDoor = canWorkDoor(roles);
+  // Contacts desktop-nav gate (T10). Called here (before any early return) so the
+  // hook order stays stable; the gate itself is computed with `caps` further down.
+  const canManageTemplates = usePoCanManageTemplates();
   const { data: liveEvents } = usePoEvents();
   const events = liveEvents ?? [];
   // Non-closed events for the door (live-first). Selection-first (S1.3): an explicit
@@ -643,9 +646,13 @@ export function PlusOneApp({
   // Signed-in: responsive shell — desktop sidebar ≥1024px, mobile tabs below it
   // (S0 nav-shell). Screens are unchanged for now; wired live per S1+.
   // Pushed screens that are also top-level nav items keep that item highlighted.
-  const NAV_PUSHED = new Set(['stats', 'gebruikers', 'aanvragen', 'promo']);
+  const NAV_PUSHED = new Set(['stats', 'gebruikers', 'aanvragen', 'promo', 'contacten']);
   const currentKey = (top && NAV_PUSHED.has(top.name)) ? top.name : tab;
   const caps = venueCapabilities(roles);
+  // Contacts is a desktop-menu item (T10) — the venue address book. Same gate as
+  // the mobile More-hub row (admin/finance settings-view OR a venue organizer).
+  // On mobile it stays under More: the bottom bar uses the fixed mobileTabs list.
+  const canViewContacts = caps.viewSettings || canManageTemplates;
   const canViewStats = (statsAccess?.venues.length ?? 0) > 0;
   // Venue-wide approval inbox in the desktop sidebar. Gated on admin — the
   // reliable venue-level decider (organizers act per-event, finance is read-only).
@@ -655,6 +662,9 @@ export function PlusOneApp({
     { key: 'start', section: 'main', label: t.nav.home, icon: 'grid', active: currentKey === 'start', onClick: () => nav.setTab('start') },
     { key: 'events', section: 'main', label: t.nav.events, icon: 'cal', active: currentKey === 'events', onClick: () => nav.setTab('events') },
     { key: 'guests', section: 'main', label: t.nav.guests, icon: 'user', active: currentKey === 'guests', onClick: () => nav.setTab('guests') },
+    ...(canViewContacts
+      ? ([{ key: 'contacten', section: 'main', label: t.nav.contacts, icon: 'contact', active: currentKey === 'contacten', onClick: () => nav.push('contacten') }] as ShellNavItem[])
+      : []),
     ...(showDoor
       ? ([{ key: 'deur', section: 'main', label: t.nav.door, icon: 'door', active: currentKey === 'deur', onClick: () => nav.setTab('deur') }] as ShellNavItem[])
       : []),
@@ -752,6 +762,7 @@ export function PlusOneApp({
         navItems={navItems}
         venueName={liveVenueName ?? venue.name}
         onOpenVenue={() => nav.push('venueswitch')}
+        onOpenProfile={() => nav.push('profile')}
         userName={liveUserName ?? t.common.account}
         userSub={liveUserSub ?? ''}
         mainMaxClass={desktopMainMax}

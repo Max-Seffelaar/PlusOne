@@ -25,6 +25,14 @@
       "autoPort": false
     },
     {
+      "name": "dev9500",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["dev"],
+      "env": { "PORT": "9500" },
+      "port": 9500,
+      "autoPort": false
+    },
+    {
       "name": "dev8080",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["dev"],
