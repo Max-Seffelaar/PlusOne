@@ -429,8 +429,13 @@ export function usePoGuests(eventId: string) {
         fetchPoGuests(client, eventId),
         fetchTiers(client, eventId),
       ]);
-      const roleByTier = new Map(tiers.map((t) => [t.id, tierRole(t.name)]));
-      return guests.map((g) => toPoGuest(g, { role: roleByTier.get(g.tier_id) ?? 'Gast' }));
+      const tierById = new Map(tiers.map((t) => [t.id, t]));
+      return guests.map((g) =>
+        toPoGuest(g, {
+          role: tierRole(tierById.get(g.tier_id)?.name ?? ''),
+          tierName: tierById.get(g.tier_id)?.name,
+        }),
+      );
     },
   });
 }
@@ -454,10 +459,11 @@ export function useVenueGuests(events: PoEvent[]) {
         fetchVenueGuests(client, eventIds),
         fetchVenueTiers(client, eventIds),
       ]);
-      const roleByTier = new Map(tiers.map((t) => [t.id, tierRole(t.name)]));
+      const tierById = new Map(tiers.map((t) => [t.id, t]));
       return guests.map((g) =>
         toPoGuest(g, {
-          role: roleByTier.get(g.tier_id) ?? 'Gast',
+          role: tierRole(tierById.get(g.tier_id)?.name ?? ''),
+          tierName: tierById.get(g.tier_id)?.name,
           eventId: g.event_id,
           eventName: nameById.get(g.event_id) ?? '',
         }),

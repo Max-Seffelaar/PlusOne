@@ -212,6 +212,8 @@ export function toPoHome(
 export interface GuestExtras {
   /** Role badge, resolved from the guest's tier by the caller. */
   role: Role;
+  /** Real tier name (guest_tiers.name) — the role badge is lossy, this isn't. */
+  tierName?: string;
   /** Display name of who added the guest (profiles join); '' when unknown. */
   addedBy?: string;
   /** Owning event id/name — set only on the venue-wide ("all guests") read so a
@@ -225,6 +227,8 @@ export function toPoGuest(row: PoGuestRow, extras: GuestExtras): Guest {
     id: row.id,
     name: row.full_name,
     role: extras.role,
+    tierId: row.tier_id,
+    tierName: extras.tierName,
     // Payment isn't modelled in the core schema (no ticketing, #10) — UI default.
     pay: 'free',
     plus: row.plus_ones,
@@ -308,10 +312,13 @@ export interface OptimisticAddArgs {
  * invalidation. Pure (the clock is injectable) so it's unit-tested directly.
  */
 export function optimisticGuest(args: OptimisticAddArgs, tiers: Tier[], now: Date = new Date()): Guest {
+  const tier = tiers.find((t) => t.id === args.tierId);
   return {
     id: args.id ?? `optimistic-${args.fullName}`,
     name: args.fullName,
-    role: tiers.find((t) => t.id === args.tierId)?.role ?? 'Gast',
+    role: tier?.role ?? 'Gast',
+    tierId: args.tierId,
+    tierName: tier?.name,
     pay: 'free',
     plus: args.plusOnes ?? 0,
     note: '',

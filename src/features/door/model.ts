@@ -65,7 +65,10 @@ export interface DoorTask {
 
 const FALLBACK_TIER_COLOR = '#8E8E93';
 
-/** Map a free-form tier name to a RoleChip glyph + short label (design-system). */
+/** Map a free-form tier name to a RoleChip glyph + short label (design-system).
+ *  Since the 1/7 feedback the door renders the REAL tier name everywhere (two
+ *  tiers matching "vip" must stay distinguishable) — this taxonomy only picks
+ *  the ICON; the label is a fallback for a guest whose tier row is missing. */
 export function tierRole(name: string): { label: string; icon: IconName } {
   const n = name.toLowerCase();
   if (n.includes('vip')) return { label: 'VIP', icon: 'crown' };
@@ -119,7 +122,9 @@ function toDoorGuest(
     name: g.full_name,
     plus: g.plus_ones,
     tierId: g.tier_id,
-    tierName: role.label,
+    // The REAL tier name — custom tiers keep their identity ("VIP + fles op
+    // tafel" ≠ "VIP", feedback 1/7). tierRole only supplies the icon now.
+    tierName: tier?.name ?? role.label,
     tierColor: tier?.color ?? FALLBACK_TIER_COLOR,
     tierIcon: role.icon,
     // added_by is NULL only for auto-approved request-link guests (F1) — the

@@ -105,9 +105,10 @@ export function cockpitCounts(guests: Guest[]): CockpitCounts {
 }
 
 export interface TierLiveRow {
-  /** The po Role this row groups (guests carry a role badge, not a tier id). */
-  role: string;
-  /** Short tier label for the chip / panel. */
+  /** The REAL guest_tiers id this row groups (feedback 1/7: the role badge is a
+   *  lossy taxonomy — two "vip"-ish tiers must stay two rows/chips). */
+  tierId: string;
+  /** Real tier name for the chip / panel. */
   tier: string;
   color: string;
   /** On-list headcount for this tier (excl. refused). */
@@ -120,28 +121,26 @@ export interface TierLiveRow {
 
 /**
  * Present-vs-on-list per tier, derived live from the guest list so the right-hand
- * panel updates the instant a check-in lands — no stats RPC needed. Guests carry a
- * role badge (resolved from their tier name by `tierRole`), not a tier id, so we
- * group by role; tiers that collapse to the same role share a row (last tier's
- * colour/label wins), which matches how the prototype keyed `tierByRole`.
+ * panel updates the instant a check-in lands — no stats RPC needed. Grouped by the
+ * real tier id (guests carry `tierId` since the 1/7 feedback), so every tier keeps
+ * its own identity — the old role-badge grouping merged same-role tiers into one
+ * row and dropped tiers from the filter.
  */
 export function perTierLive(
   guests: Guest[],
   tiers: Tier[],
   arrivals: ArrivalsByGuest = new Map()
 ): TierLiveRow[] {
-  const display = new Map<string, { color: string; short: string }>();
-  for (const t of tiers) display.set(t.role, { color: t.color, short: t.short });
   const list = onList(guests);
 
   const rows: TierLiveRow[] = [];
-  for (const [role, disp] of display) {
-    const gs = list.filter((g) => g.role === role);
+  for (const t of tiers) {
+    const gs = list.filter((g) => g.tierId === t.id);
     if (gs.length === 0) continue;
     rows.push({
-      role,
-      tier: disp.short,
-      color: disp.color,
+      tierId: t.id,
+      tier: t.name,
+      color: t.color,
       aangemeld: gs.reduce((a, g) => a + heads(g), 0),
       binnen: gs.filter((g) => g.status === 'in').reduce((a, g) => a + arrivedHeads(g, arrivals), 0),
       entries: gs.length,
@@ -152,7 +151,8 @@ export function perTierLive(
 
 export type StatusFilter = 'all' | 'wait' | 'in';
 
-/** The cockpit list after the status segment, tier chip and search box. */
+/** The cockpit list after the status segment, tier chip (a real tier id, or
+ *  'all') and search box. */
 export function filterCockpit(
   guests: Guest[],
   statF: StatusFilter,
@@ -164,7 +164,7 @@ export function filterCockpit(
     if (g.status === 'refused') return false;
     if (statF === 'in' && g.status !== 'in') return false;
     if (statF === 'wait' && g.status !== 'wait') return false;
-    if (tierF !== 'all' && g.role !== tierF) return false;
+    if (tierF !== 'all' && g.tierId !== tierF) return false;
     if (q && !fuzzyMatch(q, g.name)) return false;
     return true;
   });
