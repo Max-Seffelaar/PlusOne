@@ -225,12 +225,15 @@ describe('toPoGuest', () => {
     contact_id: 'c1',
   };
 
-  it('maps a guest row + extras to the po Guest shape', () => {
-    const g = toPoGuest(row, { role: 'VIP', addedBy: 'Max' });
+  it('maps a guest row + extras to the po Guest shape (incl. the real tier name + color)', () => {
+    const g = toPoGuest(row, { role: 'VIP', addedBy: 'Max', tierName: 'VIP — bottle', tierColor: '#FFD700' });
     expect(g).toMatchObject({
       id: 'g1',
       name: 'Lieke Hofman',
       role: 'VIP',
+      tierId: 't1',
+      tierName: 'VIP — bottle',
+      tierColor: '#FFD700',
       pay: 'free',
       plus: 2,
       note: 'Tafel 4 reserveren',
@@ -420,6 +423,7 @@ describe('optimisticGuest', () => {
       role: 'VIP',
       tierId: 'vip',
       tierName: 'VIP',
+      tierColor: '#B5A6FF',
       pay: 'free',
       plus: 2,
       note: '',

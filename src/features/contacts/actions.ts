@@ -12,6 +12,7 @@ import {
   importContactsSchema,
   forgetContactSchema,
   promoteGuestToContactSchema,
+  markGuestRegularSchema,
   type UpsertContactInput,
   type TogglePermanentInput,
   type SyncPermanentInput,
@@ -19,6 +20,7 @@ import {
   type ImportContactsInput,
   type ForgetContactInput,
   type PromoteGuestToContactInput,
+  type MarkGuestRegularInput,
 } from './schemas';
 
 export type ActionResult = { ok: true } | MutationError;
@@ -246,6 +248,31 @@ export async function promoteGuestToContact(input: PromoteGuestToContactInput): 
   if (!user) return unauthorized();
 
   const { error } = await supabase.rpc('promote_guest_to_contact', {
+    p_guest_id: parsed.data.guestId,
+  });
+  if (error) return mapMutationError(error);
+
+  revalidatePath(APP_PATH);
+  return { ok: true };
+}
+
+/**
+ * Mark one guest as a "regular" (T11): star the guest's contact, auto-promoting a
+ * name-only guest to a contact first. The mark_guest_regular RPC (20260707150000)
+ * self-guards admin/organizer of the guest's venue and does the promote+star in one
+ * call. Called once per selected guest by the bulk "mark as regular" flow.
+ */
+export async function markGuestRegular(input: MarkGuestRegularInput): Promise<ActionResult> {
+  const parsed = markGuestRegularSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return unauthorized();
+
+  const { error } = await supabase.rpc('mark_guest_regular', {
     p_guest_id: parsed.data.guestId,
   });
   if (error) return mapMutationError(error);

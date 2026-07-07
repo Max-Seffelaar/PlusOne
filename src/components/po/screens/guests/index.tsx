@@ -22,21 +22,23 @@ import {
   type ParseResult,
 } from '@/features/guests/quick-add-parser';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
-import { usePoEvents, usePoGuests, useVenueGuests, usePoTiers, usePoQuota, usePoPermanentContacts } from '@/features/po/hooks';
+import { usePoEvents, usePoGuests, useVenueGuests, usePoTiers, usePoQuota, usePoPermanentContacts, usePoCanManageTemplates } from '@/features/po/hooks';
 import {
   usePoAddGuestsBulk,
   usePoUpdateGuest,
   usePoToggleContactPermanent,
   usePoSyncPermanent,
   usePoChangeGuestsTierBulk,
+  usePoMarkGuestsRegular,
 } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, PayChip, RoleChip, Scroll, StatusDot, Top } from '../../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, PayChip, Scroll, StatusDot, Top } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
-import { DupeOption, NoTiersBlock, press, col, cardPress } from './_shared';
+import { DupeOption, NoTiersBlock, TierPill, press, col, cardPress } from './_shared';
+import { useGuestSelection, GuestBulkBar, BulkAddToEventSheet, type BulkAddCandidate } from './bulk-add';
 
 export { QuickAdd } from './quick-add';
 export { ContactProfile, Contacten } from './profile';
@@ -49,31 +51,83 @@ function filterGuestList(guests: GuestT[], q: string): GuestT[] {
   return term ? guests.filter((g) => g.name.toLowerCase().includes(term)) : guests;
 }
 
+// Regulars is a FILTER inside the Guests tab now (feedback 1/7: "geen los
+// More-scherm"), not a separate screen. The More cluster still has a "Regulars"
+// entry — it switches to the Guests tab and pre-arms this filter via a one-shot
+// sessionStorage flag (Capacitor-safe: guarded, degrades to no-op). Set from
+// settings.tsx, consumed once by GuestsTab on mount.
+const GUESTS_REGULARS_FLAG = 'po:guests-regulars';
+
+/** Set the one-shot "open Guests on the Regulars filter" flag (called before
+ *  switching to the Guests tab from the More cluster). */
+export function armRegularsFilter(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(GUESTS_REGULARS_FLAG, '1');
+  } catch {
+    /* private mode / no storage — the tab just opens unfiltered */
+  }
+}
+
+/** Read + clear the flag (once), so a later manual visit to Guests isn't filtered. */
+function consumeRegularsFlag(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    if (window.sessionStorage.getItem(GUESTS_REGULARS_FLAG)) {
+      window.sessionStorage.removeItem(GUESTS_REGULARS_FLAG);
+      return true;
+    }
+  } catch {
+    /* unavailable storage */
+  }
+  return false;
+}
+
 export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
   const nav = useNav();
   const { data: guests = [], isLoading, isError } = usePoGuests(ev.id);
   const { data: tiers = [] } = usePoTiers(ev.id);
+  const { data: allEvents = [] } = usePoEvents();
+  const upcoming = useMemo(() => allEvents.filter((e) => e.when === 'upcoming'), [allEvents]);
   const changeBulkTier = usePoChangeGuestsTierBulk(ev.id);
+  const markRegular = usePoMarkGuestsRegular();
+  const canManageRegulars = usePoCanManageTemplates();
   const [q, setQ] = useState('');
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const { selected, toggle, clear, selectAll } = useGuestSelection();
   const [bulkTierOpen, setBulkTierOpen] = useState(false);
+  const [bulkAddOpen, setBulkAddOpen] = useState(false);
   const [bulkErr, setBulkErr] = useState<string | null>(null);
+  const [regularMsg, setRegularMsg] = useState<string | null>(null);
   const dq = useDebouncedValue(q, 140);
   const gs = useMemo(() => filterGuestList(guests, dq), [guests, dq]);
 
-  const toggleSelect = (id: string): void =>
-    setSelected((s) => {
-      const next = new Set(s);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  const clearSelection = (): void => setSelected(new Set());
+  const selectedPeople: BulkAddCandidate[] = useMemo(
+    () => guests.filter((g) => selected.has(g.id)).map((g) => ({ key: g.id, name: g.name, contactId: g.contactId ?? null, plus: g.plus })),
+    [guests, selected],
+  );
 
   const openGuest = (id: string): void => nav.push('guest', { id, eventId: ev.id });
   const onCardAct = (id: string): void => {
-    if (selected.size > 0) toggleSelect(id);
+    if (selected.size > 0) toggle(id);
     else openGuest(id);
+  };
+
+  const runMarkRegular = (): void => {
+    setRegularMsg(null);
+    markRegular.mutate(
+      { guestIds: Array.from(selected) },
+      {
+        onSuccess: (res) => {
+          setRegularMsg(
+            res.failed > 0
+              ? fmt(t.guests.multiSelect.regularPartial, { done: res.done, failed: res.failed })
+              : fmt(t.guests.multiSelect.regularDone, { n: res.done }),
+          );
+          clear();
+        },
+        onError: (e) => setRegularMsg(e instanceof Error ? e.message : t.guests.multiSelect.regularFailed),
+      },
+    );
   };
 
   const applyBulkTier = (tierId: string): void => {
@@ -81,12 +135,8 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
     changeBulkTier.mutate(
       { guestIds: Array.from(selected), tierId, eventId: ev.id },
       {
-        onSuccess: () => {
-          clearSelection();
-          setBulkTierOpen(false);
-        },
-        onError: (e) =>
-          setBulkErr(e instanceof Error ? e.message : t.guests.multiSelect.tierFailed),
+        onSuccess: () => { clear(); setBulkTierOpen(false); },
+        onError: (e) => setBulkErr(e instanceof Error ? e.message : t.guests.multiSelect.tierFailed),
       },
     );
   };
@@ -96,20 +146,15 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
       <Top onBack={nav.canGoBack ? nav.back : undefined} title={t.guests.list.title} sub={`${ev.name} · ${fmt(t.guests.list.sub, { shown: gs.length, total: guests.length })}`} right={<IconBtn name="plus" onClick={() => nav.push('quickadd', { id: ev.id })} />} />
       <div className="flex-none px-4 lg:flex lg:items-center lg:gap-3 lg:pb-3">
         {selected.size > 0 ? (
-          <div className="flex w-full flex-wrap items-center gap-2 pb-3 lg:pb-0">
-            <span className="flex-1 font-display text-[14px] font-bold text-text">
-              {fmt(t.guests.multiSelect.selectionBar, { n: selected.size })}
-            </span>
-            <Btn sm kind="quiet" onClick={() => setSelected(new Set(gs.map((g) => g.id)))}>
-              {t.guests.multiSelect.selectAll}
-            </Btn>
-            <Btn sm kind="primary" icon="ticket" onClick={() => { setBulkErr(null); setBulkTierOpen(true); }}>
-              {t.guests.multiSelect.changeTier}
-            </Btn>
-            <Btn sm kind="ghost" onClick={clearSelection}>
-              {t.guests.multiSelect.cancelSelection}
-            </Btn>
-          </div>
+          <GuestBulkBar
+            count={selected.size}
+            onSelectAll={() => selectAll(gs.map((g) => g.id))}
+            onChangeTier={() => { setBulkErr(null); setBulkTierOpen(true); }}
+            onMarkRegular={canManageRegulars ? runMarkRegular : null}
+            onAddToEvent={() => setBulkAddOpen(true)}
+            onCancel={clear}
+            markBusy={markRegular.isPending}
+          />
         ) : (
           <>
             <div className="pb-[10px] lg:max-w-[300px] lg:flex-1 lg:pb-0">
@@ -129,6 +174,17 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
           </>
         )}
       </div>
+      {regularMsg && (
+        <div className="flex-none px-4 pb-2">
+          <div className="flex items-center gap-2 rounded-[11px] border border-acc bg-acc-dim px-[12px] py-[9px] text-[12.5px] text-text">
+            <Icon name="star" size={14} stroke="#B5A6FF" fill="#B5A6FF" />
+            <span className="flex-1">{regularMsg}</span>
+            <button type="button" onClick={() => setRegularMsg(null)} aria-label={t.guests.contacts.cancel}>
+              <Icon name="close" size={14} className="text-faint" />
+            </button>
+          </div>
+        </div>
+      )}
       {isLoading ? (
         <Scroll pad={16} bottom={24}>
           <Empty text={t.guests.list.loading} />
@@ -143,8 +199,14 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
         </Scroll>
       ) : (
         <>
-          <GuestCardList rows={gs} selected={selected} onAct={onCardAct} onToggle={toggleSelect} />
-          <GuestTable rows={gs} selected={selected} onOpen={openGuest} onToggle={toggleSelect} />
+          <GuestCardList rows={gs} selected={selected} onAct={onCardAct} onToggle={toggle} />
+          <GuestTable
+            rows={gs}
+            selected={selected}
+            onOpen={openGuest}
+            onToggle={toggle}
+            onToggleAll={() => (gs.length > 0 && gs.every((g) => selected.has(g.id)) ? clear() : selectAll(gs.map((g) => g.id)))}
+          />
         </>
       )}
       {bulkTierOpen && (
@@ -157,15 +219,18 @@ export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
           onClose={() => setBulkTierOpen(false)}
         />
       )}
+      {bulkAddOpen && (
+        <BulkAddToEventSheet
+          people={selectedPeople}
+          upcoming={upcoming}
+          defaultEventId={ev.id}
+          onClose={() => setBulkAddOpen(false)}
+          onDone={clear}
+        />
+      )}
     </div>
   );
 }
-
-/** Stable empties so GuestsTab can reuse the multi-select list components without
- *  its own selection state — the Guests TAB is browse-only; bulk actions live on
- *  the event-scoped `Lijst` (reached from an event). */
-const EMPTY_SELECTION: Set<string> = new Set();
-const noop = (): void => {};
 
 /** Scope chip for the Guests-tab event picker ("All events" + each event). */
 function ScopeChip({ on, onClick, children }: { on: boolean; onClick: () => void; children: string }): JSX.Element {
@@ -196,6 +261,7 @@ export function GuestsTab(): JSX.Element {
   const { data: events = [], isLoading: eventsLoading } = usePoEvents();
   const [scope, setScope] = useState<string | null>(null);
   const [q, setQ] = useState('');
+  const [regularsOnly, setRegularsOnly] = useState(consumeRegularsFlag);
   const dq = useDebouncedValue(q, 140);
 
   const allMode = scope === null;
@@ -203,15 +269,77 @@ export function GuestsTab(): JSX.Element {
   const single = usePoGuests(scope ?? '');
   const active = allMode ? venue : single;
   const guests = useMemo(() => active.data ?? [], [active.data]);
-  const gs = useMemo(() => filterGuestList(guests, dq), [guests, dq]);
+
+  // Regulars = guests whose linked contact is starred permanent (#11). Manager-only
+  // read (RLS); staff get [] → the filter simply yields nothing for them.
+  const { data: permanentContacts = [] } = usePoPermanentContacts();
+  const permanentIds = useMemo(() => new Set(permanentContacts.map((c) => c.id)), [permanentContacts]);
+  const gs = useMemo(() => {
+    const searched = filterGuestList(guests, dq);
+    return regularsOnly ? searched.filter((g) => g.contactId && permanentIds.has(g.contactId)) : searched;
+  }, [guests, dq, regularsOnly, permanentIds]);
   const loading = active.isLoading || (allMode && eventsLoading);
 
   const scopeEvent = events.find((e) => e.id === scope) ?? null;
+  const upcoming = useMemo(() => events.filter((e) => e.when === 'upcoming'), [events]);
   const countSub = fmt(t.guests.list.sub, { shown: gs.length, total: guests.length });
+
+  // ── Multi-select + bulk actions ──
+  const { selected, toggle, clear, selectAll } = useGuestSelection();
+  const markRegular = usePoMarkGuestsRegular();
+  const canManageRegulars = usePoCanManageTemplates();
+  const changeBulkTier = usePoChangeGuestsTierBulk(scope ?? '');
+  const { data: scopeTiers = [] } = usePoTiers(scope ?? '');
+  const [bulkTierOpen, setBulkTierOpen] = useState(false);
+  const [bulkAddOpen, setBulkAddOpen] = useState(false);
+  const [bulkErr, setBulkErr] = useState<string | null>(null);
+  const [regularMsg, setRegularMsg] = useState<string | null>(null);
+
+  const selectedPeople: BulkAddCandidate[] = useMemo(
+    () => guests.filter((g) => selected.has(g.id)).map((g) => ({ key: g.id, name: g.name, contactId: g.contactId ?? null, plus: g.plus })),
+    [guests, selected],
+  );
+
   const openGuest = (id: string): void => {
     const g = guests.find((x) => x.id === id);
     nav.push('guest', { id, eventId: g?.eventId ?? scope ?? '' });
   };
+  const onCardAct = (id: string): void => {
+    if (selected.size > 0) toggle(id);
+    else openGuest(id);
+  };
+
+  const runMarkRegular = (): void => {
+    setRegularMsg(null);
+    markRegular.mutate(
+      { guestIds: Array.from(selected) },
+      {
+        onSuccess: (res) => {
+          setRegularMsg(
+            res.failed > 0
+              ? fmt(t.guests.multiSelect.regularPartial, { done: res.done, failed: res.failed })
+              : fmt(t.guests.multiSelect.regularDone, { n: res.done }),
+          );
+          clear();
+        },
+        onError: (e) => setRegularMsg(e instanceof Error ? e.message : t.guests.multiSelect.regularFailed),
+      },
+    );
+  };
+
+  const applyBulkTier = (tierId: string): void => {
+    if (!scope) return;
+    setBulkErr(null);
+    changeBulkTier.mutate(
+      { guestIds: Array.from(selected), tierId, eventId: scope },
+      {
+        onSuccess: () => { clear(); setBulkTierOpen(false); },
+        onError: (e) => setBulkErr(e instanceof Error ? e.message : t.guests.multiSelect.tierFailed),
+      },
+    );
+  };
+
+  const hasSelection = selected.size > 0;
 
   return (
     <div className={col}>
@@ -221,7 +349,7 @@ export function GuestsTab(): JSX.Element {
         right={scopeEvent ? <IconBtn name="plus" onClick={() => nav.push('quickadd', { id: scopeEvent.id })} /> : undefined}
       />
       <div className="flex-none overflow-x-auto px-4 pb-3">
-        <div className="flex w-max gap-1.5">
+        <div className="flex w-max items-center gap-1.5">
           <ScopeChip on={allMode} onClick={() => setScope(null)}>
             {t.guests.list.allScope}
           </ScopeChip>
@@ -230,26 +358,67 @@ export function GuestsTab(): JSX.Element {
               {e.name}
             </ScopeChip>
           ))}
+          <span className="mx-1 h-4 w-px shrink-0 bg-line" />
+          <button
+            type="button"
+            onClick={() => setRegularsOnly((v) => !v)}
+            aria-pressed={regularsOnly}
+            className={cn(
+              'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-[7px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.07]',
+              regularsOnly ? 'border-transparent bg-acc-dim text-acc' : 'border-line bg-transparent text-dim',
+            )}
+          >
+            <Icon name="star" size={12} fill={regularsOnly ? '#B5A6FF' : 'none'} stroke={regularsOnly ? '#B5A6FF' : 'currentColor'} />
+            {t.guests.list.regularsFilter}
+          </button>
         </div>
       </div>
       <div className="flex-none px-4 lg:flex lg:items-center lg:gap-3 lg:pb-3">
-        <div className="pb-[10px] lg:max-w-[300px] lg:flex-1 lg:pb-0">
-          <Field icon="search" placeholder={t.guests.list.searchPlaceholder} value={q} onChange={setQ} />
-        </div>
-        {scopeEvent && (
-          <div className="flex gap-2 pb-3 lg:ml-auto lg:pb-0">
-            <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd', { id: scopeEvent.id })}>
-              {t.guests.list.addGuest}
-            </Btn>
-            <Btn sm kind="quiet" icon="paste" onClick={() => nav.push('bulk', { id: scopeEvent.id })}>
-              {t.guests.list.pasteList}
-            </Btn>
-            <Btn sm kind="quiet" icon="contact" onClick={() => nav.push('contacten', { id: scopeEvent.id })}>
-              {t.guests.list.contacts}
-            </Btn>
-          </div>
+        {hasSelection ? (
+          <GuestBulkBar
+            count={selected.size}
+            onSelectAll={() => selectAll(gs.map((g) => g.id))}
+            onChangeTier={scopeEvent ? () => { setBulkErr(null); setBulkTierOpen(true); } : null}
+            onMarkRegular={canManageRegulars ? runMarkRegular : null}
+            onAddToEvent={() => setBulkAddOpen(true)}
+            onCancel={clear}
+            markBusy={markRegular.isPending}
+          />
+        ) : (
+          <>
+            <div className="pb-[10px] lg:max-w-[300px] lg:flex-1 lg:pb-0">
+              <Field icon="search" placeholder={t.guests.list.searchPlaceholder} value={q} onChange={setQ} />
+            </div>
+            {scopeEvent && (
+              <div className="flex gap-2 pb-3 lg:ml-auto lg:pb-0">
+                <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd', { id: scopeEvent.id })}>
+                  {t.guests.list.addGuest}
+                </Btn>
+                <Btn sm kind="quiet" icon="paste" onClick={() => nav.push('bulk', { id: scopeEvent.id })}>
+                  {t.guests.list.pasteList}
+                </Btn>
+                <Btn sm kind="quiet" icon="contact" onClick={() => nav.push('contacten', { id: scopeEvent.id })}>
+                  {t.guests.list.contacts}
+                </Btn>
+              </div>
+            )}
+          </>
         )}
       </div>
+      {regularMsg && (
+        <div className="flex-none px-4 pb-2">
+          <div className="flex items-center gap-2 rounded-[11px] border border-acc bg-acc-dim px-[12px] py-[9px] text-[12.5px] text-text">
+            <Icon name="star" size={14} stroke="#B5A6FF" fill="#B5A6FF" />
+            <span className="flex-1">{regularMsg}</span>
+            <button type="button" onClick={() => setRegularMsg(null)} aria-label={t.guests.contacts.cancel}>
+              <Icon name="close" size={14} className="text-faint" />
+            </button>
+          </div>
+        </div>
+      )}
+      {hasSelection && !scopeEvent && (
+        <div className="flex-none px-4 pb-2 text-[11.5px] text-faint">{t.guests.multiSelect.changeTierAllScope}</div>
+      )}
       {loading ? (
         <Scroll pad={16} bottom={24}>
           <Empty text={t.guests.list.loading} />
@@ -260,13 +429,38 @@ export function GuestsTab(): JSX.Element {
         </Scroll>
       ) : gs.length === 0 ? (
         <Scroll pad={16} bottom={24}>
-          <Empty text={q ? t.guests.list.emptyFiltered : t.guests.list.empty} />
+          <Empty text={regularsOnly ? t.guests.list.emptyRegulars : q ? t.guests.list.emptyFiltered : t.guests.list.empty} />
         </Scroll>
       ) : (
         <>
-          <GuestCardList rows={gs} selected={EMPTY_SELECTION} onAct={openGuest} onToggle={noop} />
-          <GuestTable rows={gs} selected={EMPTY_SELECTION} onOpen={openGuest} onToggle={noop} />
+          <GuestCardList rows={gs} selected={selected} onAct={onCardAct} onToggle={toggle} />
+          <GuestTable
+            rows={gs}
+            selected={selected}
+            onOpen={openGuest}
+            onToggle={toggle}
+            onToggleAll={() => (gs.length > 0 && gs.every((g) => selected.has(g.id)) ? clear() : selectAll(gs.map((g) => g.id)))}
+          />
         </>
+      )}
+      {bulkTierOpen && scopeEvent && (
+        <BulkTierSheet
+          count={selected.size}
+          tiers={scopeTiers}
+          isPending={changeBulkTier.isPending}
+          err={bulkErr}
+          onPick={applyBulkTier}
+          onClose={() => setBulkTierOpen(false)}
+        />
+      )}
+      {bulkAddOpen && (
+        <BulkAddToEventSheet
+          people={selectedPeople}
+          upcoming={upcoming}
+          defaultEventId={scope ?? undefined}
+          onClose={() => setBulkAddOpen(false)}
+          onDone={clear}
+        />
       )}
     </div>
   );
@@ -425,7 +619,7 @@ function GuestCardList({
                     </span>
                   )}
                   {g.pay === 'pay' && !isSelected && <PayChip pay="pay" />}
-                  <RoleChip role={g.role} />
+                  <TierPill name={g.tierName} color={g.tierColor} fallback={g.role} />
                   {g.status === 'refused' ? (
                     <span className="shrink-0 rounded-[7px] border border-line2 px-2 py-[3px] font-body text-[11px] font-bold text-faint">{t.guests.list.refused}</span>
                   ) : (
@@ -453,11 +647,13 @@ function GuestTable({
   selected,
   onOpen,
   onToggle,
+  onToggleAll,
 }: {
   rows: GuestT[];
   selected: Set<string>;
   onOpen: (id: string) => void;
   onToggle: (id: string) => void;
+  onToggleAll: () => void;
 }): JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -468,13 +664,33 @@ function GuestTable({
     getItemKey: (i) => rows[i]?.id ?? i,
   });
   const cols = 'grid-cols-[40px_1fr_120px_120px_170px]';
+  const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
   return (
     <div ref={scrollRef} className="po-scroll hidden min-h-0 flex-1 overflow-y-auto lg:block" style={{ padding: '0 16px 24px' }}>
       <div className="overflow-hidden rounded-[16px] border border-line bg-elev">
         <table className="w-full border-collapse text-left">
           <thead className="sticky top-0 z-[1]">
             <tr className={cn('grid bg-elev2', cols, '[&>th]:px-3 [&>th]:py-[11px] [&>th]:font-body [&>th]:text-[11px] [&>th]:font-bold [&>th]:uppercase [&>th]:tracking-[0.04em] [&>th]:text-faint')}>
-              <th className="!pl-3" />
+              <th className="!pl-3">
+                <button
+                  type="button"
+                  // Toggle on pointerdown, not click: in the virtualized table a
+                  // focus-shift scrolls the body (top rows sit under the sticky
+                  // header) and re-renders the rows between mousedown and mouseup,
+                  // which cancels the trusted click. pointerdown fires first, so the
+                  // action always lands; onClick handles keyboard only (detail 0). (T11)
+                  onPointerDown={(e) => { e.preventDefault(); onToggleAll(); }}
+                  onClick={(e) => { if (e.detail === 0) onToggleAll(); }}
+                  aria-label={allSelected ? 'Deselect all' : 'Select all'}
+                  aria-pressed={allSelected}
+                  className={cn(
+                    'flex h-[18px] w-[18px] items-center justify-center rounded-[5px] border-2 transition-colors',
+                    allSelected ? 'border-acc bg-acc' : 'border-ghost bg-transparent hover:border-dim',
+                  )}
+                >
+                  {allSelected && <Icon name="check2" size={11} stroke="#0B0B0D" sw={2.8} />}
+                </button>
+              </th>
               <th>{t.guests.list.colGuest}</th>
               <th>{t.guests.list.colRole}</th>
               <th>{t.guests.list.colPayment}</th>
@@ -505,18 +721,20 @@ function GuestTable({
                 >
                   <td
                     className="!pl-3"
-                    onClick={(e) => { e.stopPropagation(); onToggle(g.id); }}
+                    // Toggle on pointerdown (see the header checkbox): the trusted
+                    // click gets cancelled by the virtualized re-render, pointerdown
+                    // does not. Covers clicks on the whole 40px column, not just the
+                    // 20px dot. onClick handles keyboard focus only. (T11)
+                    onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); onToggle(g.id); }}
+                    onClick={(e) => { e.stopPropagation(); }}
                   >
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onToggle(g.id);
-                      }}
+                      onClick={(e) => { e.stopPropagation(); if (e.detail === 0) onToggle(g.id); }}
                       aria-label={isSelected ? 'Deselect' : 'Select'}
                       className={cn(
                         'flex h-[20px] w-[20px] items-center justify-center rounded-full border-2 transition-colors',
-                        isSelected ? 'border-acc bg-acc' : 'border-ghost bg-transparent opacity-25 group-hover:opacity-100',
+                        isSelected ? 'border-acc bg-acc' : 'border-ghost bg-transparent hover:border-dim',
                       )}
                     >
                       {isSelected && <Icon name="check2" size={10} stroke="#0B0B0D" sw={2.8} />}
@@ -540,12 +758,14 @@ function GuestTable({
                     </div>
                   </td>
                   <td>
-                    <RoleChip role={g.role} />
+                    <TierPill name={g.tierName} color={g.tierColor} fallback={g.role} />
                   </td>
                   <td>{g.pay === 'pay' ? <PayChip pay="pay" /> : <span className="text-[12.5px] text-faint">—</span>}</td>
                   <td>
-                    <span className="text-[13px] text-dim">{g.by || '—'}</span>
-                    {g.addedAt && <span className="ml-1.5 font-display text-[12px] text-faint">{g.addedAt}</span>}
+                    {/* No leading em-dash when the adder is unknown (fixes the
+                        "—27 Jun" artifact): show the name + date, or the date alone. */}
+                    {g.by && <span className="text-[13px] text-dim">{g.by}</span>}
+                    {g.addedAt && <span className={cn('font-display text-[12px] text-faint', g.by && 'ml-1.5')}>{g.addedAt}</span>}
                   </td>
                 </tr>
               );

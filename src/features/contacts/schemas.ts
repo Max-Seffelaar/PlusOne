@@ -89,6 +89,13 @@ export const promoteGuestToContactSchema = z.object({
 });
 export type PromoteGuestToContactInput = z.input<typeof promoteGuestToContactSchema>;
 
+/** Bulk "mark as regular" (T11): star the guest's contact, auto-promoting a
+ *  name-only guest to a contact first. Calls mark_guest_regular (20260707150000). */
+export const markGuestRegularSchema = z.object({
+  guestId: uuid,
+});
+export type MarkGuestRegularInput = z.input<typeof markGuestRegularSchema>;
+
 /**
  * On-request erasure ("forget me", AVG art. 17 / #29): anonymize one contact +
  * all its linked guests immediately. Admin + AAL2 is enforced in the DB function

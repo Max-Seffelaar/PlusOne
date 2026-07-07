@@ -34,6 +34,7 @@ import { Avatar, Label, StatusDot, Top } from '@/components/po/kit';
 import { useDoor } from '../DoorProvider';
 import type { DoorGuest } from '../model';
 import { flattenCheckInItems, partsLeft, type CheckInItem, type Filter } from './checkin-items';
+import { tierInk as onTier, tintTier } from '@/lib/po/tier-colors';
 
 const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
 
@@ -44,29 +45,6 @@ const HEADER_EST = 34;
 const GUEST_EST = 62;
 
 const ACCENT = '#B5A6FF';
-
-/** Pick readable ink for a solid tier-colour fill. Tier colours are bright by
- *  convention (the design bets on dark text — see `TierFilterBar`), but `color`
- *  is a user-editable arbitrary hex, so guard a dark custom tier. */
-function onTier(hex: string): string {
-  const h = hex.replace('#', '');
-  if (h.length < 6) return '#0B0B0D';
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  const L = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return L > 0.5 ? '#0B0B0D' : '#FFFFFF';
-}
-
-/** #RRGGBB → rgba(…, a) for the muted (checked-in) tint over the near-black bg. */
-function tintTier(hex: string, a: number): string {
-  const h = hex.replace('#', '');
-  if (h.length < 6) return `rgba(142, 142, 147, ${a})`;
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${a})`;
-}
 
 function Seg({ value, onChange }: { value: Filter; onChange: (v: Filter) => void }): JSX.Element {
   const items: [Filter, string][] = [

@@ -37,6 +37,7 @@ import {
   upsertContact,
   forgetContact,
   promoteGuestToContact,
+  markGuestRegular,
   type ImportResult,
   type SyncResult,
 } from '@/features/contacts/actions';
@@ -125,6 +126,7 @@ import { createCheckoutSessionAction, createPortalSessionAction } from '@/featur
 import type { VenueRole } from '@/features/auth/roles';
 import type { Guest, Tier } from '@/lib/po/types';
 import { poKeys } from './keys';
+import { classifyAddResult, type BulkAddRowResult } from './bulk';
 import { optimisticGuest, type OptimisticAddArgs } from './adapters';
 import { usePoIdentity } from './PoLiveProvider';
 import { supabaseGateway } from '@/features/door/outbox/gateway';
@@ -274,6 +276,104 @@ export function usePoChangeGuestsTierBulk(eventId: string) {
     async (input: ChangeTierBulkInput) => throwOnError(await changeGuestsTierBulk(input)),
     [...TIERS_KEY(eventId), CONTACT_PROFILE_KEY],
   ));
+}
+
+// ── Guests-tab bulk actions (T11) ────────────────────────────────────────────
+// Both loop the EXISTING per-row server actions (RLS + quota engine stay the
+// boundary) and report per row, then invalidate the venue-wide list + contacts.
+// Not atomic across rows by design: "add to event" reports each person's outcome
+// (added / already / quota / locked), so a partial success is the expected shape.
+
+export interface BulkMarkRegularResult {
+  done: number;
+  failed: number;
+}
+
+/** Mark N selected guests as regulars — stars each guest's contact, auto-promoting
+ *  a name-only guest to a contact first (mark_guest_regular). Reports how many
+ *  succeeded. Manager-only (the RPC self-guards admin/organizer). */
+export function usePoMarkGuestsRegular() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation<BulkMarkRegularResult, Error, { guestIds: string[] }>({
+    mutationFn: async ({ guestIds }) => {
+      let done = 0;
+      let failed = 0;
+      for (const guestId of guestIds) {
+        const res = await markGuestRegular({ guestId });
+        if (res.ok) done += 1;
+        else failed += 1;
+      }
+      if (done === 0 && failed > 0) throw new Error('Could not mark these guests as regulars.');
+      return { done, failed };
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
+      void qc.invalidateQueries({ queryKey: CONTACT_PROFILE_KEY });
+      invalidateContacts(qc, venueId);
+    },
+  });
+}
+
+/** One person to bulk-add to a target event. `contactId` present → add via the
+ *  address book (respects the "removal" exclusion clear); name-only → a fresh
+ *  guest by name. `alreadyOn` is pre-checked against the target event's list. */
+export interface BulkAddPerson {
+  /** Row key (guest id or contact id) — also the result key. */
+  key: string;
+  name: string;
+  contactId: string | null;
+  plusOnes: number;
+  alreadyOn: boolean;
+}
+
+export interface BulkAddToEventInput {
+  targetEventId: string;
+  tierId: string;
+  /** The target event's list is locked — lets a 42501 be reported as "locked". */
+  targetLocked: boolean;
+  people: BulkAddPerson[];
+}
+
+/**
+ * Add N selected people (guests or contacts) to another event, reporting each
+ * row's outcome (added / already on list / quota / tier full / list locked /
+ * error). Skips people already on the target event without a wasted round-trip.
+ */
+export function usePoBulkAddToEvent() {
+  const qc = useQueryClient();
+  return useMutation<BulkAddRowResult[], Error, BulkAddToEventInput>({
+    mutationFn: async ({ targetEventId, tierId, targetLocked, people }) => {
+      const results: BulkAddRowResult[] = [];
+      for (const p of people) {
+        if (p.alreadyOn) {
+          results.push({ key: p.key, name: p.name, outcome: 'already' });
+          continue;
+        }
+        const res = p.contactId
+          ? await addContactToEvent({
+              contactId: p.contactId,
+              eventId: targetEventId,
+              tierId,
+              plusOnes: p.plusOnes || undefined,
+            })
+          : await addGuest({
+              id: uuidv7(),
+              eventId: targetEventId,
+              tierId,
+              fullName: p.name,
+              plusOnes: p.plusOnes,
+              source: 'app',
+            });
+        results.push({ key: p.key, name: p.name, outcome: classifyAddResult(res, targetLocked) });
+      }
+      return results;
+    },
+    onSuccess: (_res, input) => {
+      invalidateAfterAdd(qc, input.targetEventId);
+      void qc.invalidateQueries({ queryKey: CONTACT_PROFILE_KEY });
+    },
+  });
 }
 
 export function usePoPromoteGuestToContact(eventId: string) {

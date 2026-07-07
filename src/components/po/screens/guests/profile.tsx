@@ -26,6 +26,7 @@ import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Rol
 import { Sheet } from '../../shell';
 import { CountrySelect, type CountryCode } from '../../country-select';
 import { NoTiersBlock, press, col } from './_shared';
+import { useGuestSelection, BulkAddToEventSheet, type BulkAddCandidate } from './bulk-add';
 
 // ── GUEST detail / check-in log row ─────────────────────────────────────────
 function LogRow({ icon, label, who, when, accent, last }: { icon: IconName; label: string; who: string; when?: string; accent?: boolean; last?: boolean }): JSX.Element {
@@ -73,11 +74,18 @@ export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
   const [addingFor, setAddingFor] = useState<PoContact | null>(null);
   const [confirmStar, setConfirmStar] = useState<PoContact | null>(null);
   const [added, setAdded] = useState<Set<string>>(new Set());
+  const { selected, toggle: toggleSel, clear: clearSel, selectAll: selectAllSel } = useGuestSelection();
+  const [bulkAddOpen, setBulkAddOpen] = useState(false);
 
   const term = q.trim().toLowerCase();
   const cs = term
     ? contacts.filter((c) => c.name.toLowerCase().includes(term) || (c.phoneLast4 ?? '').includes(term))
     : contacts;
+
+  const hasSel = selected.size > 0;
+  const selectedPeople: BulkAddCandidate[] = cs
+    .filter((c) => selected.has(c.id))
+    .map((c) => ({ key: c.id, name: c.name, contactId: c.id, plus: 0 }));
 
   const onStarClick = (c: PoContact): void => {
     if (c.vast) toggleVast.mutate({ contactId: c.id, isPermanent: false });
@@ -95,7 +103,24 @@ export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
         right={<IconBtn name="upload" onClick={() => nav.push('import')} />}
       />
       <div className="flex-none px-4 pb-3">
-        <Field icon="search" placeholder={t.guests.contacts.searchPlaceholder} value={q} onChange={setQ} inputMode="text" />
+        {hasSel ? (
+          <div className="flex w-full flex-wrap items-center gap-2">
+            <span className="flex-1 whitespace-nowrap font-display text-[14px] font-bold text-text">
+              {fmt(t.guests.multiSelect.selectionBar, { n: selected.size })}
+            </span>
+            <Btn sm kind="quiet" onClick={() => selectAllSel(cs.map((c) => c.id))}>
+              {t.guests.multiSelect.selectAll}
+            </Btn>
+            <Btn sm kind="primary" icon="plus" onClick={() => setBulkAddOpen(true)}>
+              {t.guests.multiSelect.addToEvent}
+            </Btn>
+            <Btn sm kind="ghost" onClick={clearSel}>
+              {t.guests.multiSelect.cancelSelection}
+            </Btn>
+          </div>
+        ) : (
+          <Field icon="search" placeholder={t.guests.contacts.searchPlaceholder} value={q} onChange={setQ} inputMode="text" />
+        )}
       </div>
       <Scroll pad={16} bottom={24}>
         {isLoading ? (
@@ -112,9 +137,19 @@ export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
           <div className="flex flex-col gap-[9px]">
             {cs.map((c) => {
               const isAdded = added.has(c.id);
+              const isSel = selected.has(c.id);
               const starring = toggleVast.isPending && toggleVast.variables?.contactId === c.id;
               return (
-                <div key={c.id} className="flex items-center gap-[10px] rounded-[16px] border border-line bg-elev p-[12px]">
+                <div key={c.id} className={cn('flex items-center gap-[10px] rounded-[16px] border p-[12px]', isSel ? 'border-acc bg-acc-dim' : 'border-line bg-elev')}>
+                  <button
+                    type="button"
+                    onClick={() => toggleSel(c.id)}
+                    aria-pressed={isSel}
+                    aria-label={fmt(t.guests.contacts.openAria, { name: c.name })}
+                    className={cn('flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border-2 transition-colors', isSel ? 'border-acc bg-acc' : 'border-ghost bg-transparent')}
+                  >
+                    {isSel && <Icon name="check2" size={12} stroke="#0B0B0D" sw={2.8} />}
+                  </button>
                   <Avatar name={c.name} size={42} accent={c.vast} />
                   <button type="button" onClick={() => nav.push('contactprofile', { id: c.id })} aria-label={fmt(t.guests.contacts.openAria, { name: c.name })} className={cn('min-w-0 flex-1 text-left', press)}>
                     <div className="font-display text-[15.5px] font-bold text-text">{c.name}</div>
@@ -161,6 +196,15 @@ export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
             setAdded((s) => new Set(s).add(id));
             setAddingFor(null);
           }}
+        />
+      )}
+      {bulkAddOpen && (
+        <BulkAddToEventSheet
+          people={selectedPeople}
+          upcoming={upcoming}
+          defaultEventId={eventId}
+          onClose={() => setBulkAddOpen(false)}
+          onDone={clearSel}
         />
       )}
     </div>
@@ -829,6 +873,7 @@ function AddToEventSheet({
   const { data: evGuests = [], isLoading: guestsLoading } = usePoGuests(evId);
   const onList = evGuests.find((g) => g.contactId === contact.id) ?? null;
   const update = usePoUpdateGuest(evId);
+  const changeTier = usePoChangeGuestTier(evId);
 
   const [tierId, setTierId] = useState<string>('');
   const [plus, setPlus] = useState(0); // new guest: extra plekken (total = 1 + plus)
@@ -849,7 +894,14 @@ function AddToEventSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tiers]);
 
-  const busy = add.isPending || update.isPending;
+  // Already on this event → seed the ticket picker with their CURRENT tier, so the
+  // sheet can also change it (feedback 1/7: change tier straight from add-to-event).
+  useEffect(() => {
+    if (onList?.tierId) setTierId(onList.tierId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onList?.id]);
+
+  const busy = add.isPending || update.isPending || changeTier.isPending;
   const finishOk = (): void => onAdded(contact.id);
 
   // New guest on this event: ticket + plus-ones via add_contact_to_event.
@@ -865,13 +917,18 @@ function AddToEventSheet({
   // Already on this event: never silently no-op — set a new plus-ones total or add
   // to the existing count (the user's choice), via a plain guest update.
   const finalPlus = onList ? (mode === 'add' ? onList.plus + amount : amount) : 0;
-  const submitAdjust = (): void => {
+  const tierChanged = !!onList && !!tierId && tierId !== onList.tierId;
+  const submitAdjust = async (): Promise<void> => {
     if (!onList) return;
     setErr(null);
-    update.mutate(
-      { guestId: onList.id, plusOnes: finalPlus },
-      { onSuccess: finishOk, onError: (e) => setErr(e instanceof Error ? e.message : t.guests.contacts.saveFailed) },
-    );
+    try {
+      // Change the tier first (if picked a different one), then the +N total.
+      if (tierChanged) await changeTier.mutateAsync({ guestId: onList.id, tierId });
+      await update.mutateAsync({ guestId: onList.id, plusOnes: finalPlus });
+      finishOk();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : t.guests.contacts.saveFailed);
+    }
   };
 
   const switchMode = (m: 'add' | 'set'): void => {
@@ -931,6 +988,27 @@ function AddToEventSheet({
                 )}
                 {t.guests.contacts.dupeSuffix}
               </Note>
+              {tiers.length > 1 && (
+                <>
+                  <Label className="mb-2">{t.guests.contacts.ticketLabel}</Label>
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    {tiers.map((tier) => {
+                      const on = tier.id === tierId;
+                      return (
+                        <button
+                          key={tier.id}
+                          type="button"
+                          onClick={() => setTierId(tier.id)}
+                          className={cn('inline-flex items-center gap-[7px] rounded-[11px] border px-[12px] py-[9px] font-display text-[13px] font-bold', press, on ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev text-text')}
+                        >
+                          <span className="h-[9px] w-[9px] rounded-full" style={{ background: tier.color }} />
+                          {tier.short}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
               <Label className="mb-2">{t.guests.contacts.whatToDo}</Label>
               <div className="mb-3 flex gap-2">
                 <RolePill label={t.guests.contacts.modeAdd} on={mode === 'add'} onClick={() => switchMode('add')} />
@@ -957,8 +1035,8 @@ function AddToEventSheet({
                   {err}
                 </p>
               )}
-              <Btn kind="primary" full icon="check" className="mt-2" disabled={busy} onClick={submitAdjust}>
-                {update.isPending ? t.guests.contacts.saving : fmt(t.guests.contacts.adjustSave, { n: finalPlus })}
+              <Btn kind="primary" full icon="check" className="mt-2" disabled={busy} onClick={() => void submitAdjust()}>
+                {busy ? t.guests.contacts.saving : fmt(t.guests.contacts.adjustSave, { n: finalPlus })}
               </Btn>
             </>
           ) : (

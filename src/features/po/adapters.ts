@@ -214,6 +214,8 @@ export interface GuestExtras {
   role: Role;
   /** Real tier name (guest_tiers.name) — the role badge is lossy, this isn't. */
   tierName?: string;
+  /** The tier's color (guest_tiers.color) — drives the door-style tier pill. */
+  tierColor?: string;
   /** Display name of who added the guest (profiles join); '' when unknown. */
   addedBy?: string;
   /** Owning event id/name — set only on the venue-wide ("all guests") read so a
@@ -229,6 +231,7 @@ export function toPoGuest(row: PoGuestRow, extras: GuestExtras): Guest {
     role: extras.role,
     tierId: row.tier_id,
     tierName: extras.tierName,
+    tierColor: extras.tierColor,
     // Payment isn't modelled in the core schema (no ticketing, #10) — UI default.
     pay: 'free',
     plus: row.plus_ones,
@@ -319,6 +322,7 @@ export function optimisticGuest(args: OptimisticAddArgs, tiers: Tier[], now: Dat
     role: tier?.role ?? 'Gast',
     tierId: args.tierId,
     tierName: tier?.name,
+    tierColor: tier?.color,
     pay: 'free',
     plus: args.plusOnes ?? 0,
     note: '',
