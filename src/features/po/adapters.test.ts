@@ -415,6 +415,8 @@ describe('optimisticGuest', () => {
       id: 'g-1',
       name: 'Juri Braakman',
       role: 'VIP',
+      tierId: 'vip',
+      tierName: 'VIP',
       pay: 'free',
       plus: 2,
       note: '',

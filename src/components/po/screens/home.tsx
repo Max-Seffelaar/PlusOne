@@ -27,7 +27,7 @@ import { Icon, type IconName } from '../icon';
 import { Btn, Note, Scroll } from '../kit';
 import { Sheet, Toast } from '../shell';
 import { PendingInvitesBanner } from '../pending-invites-banner';
-import { EventRow, StatusChip, kfmt, toBoardEvents, type BoardEvent } from '../event-row';
+import { EventRow, StatusChip, toBoardEvents, type BoardEvent } from '../event-row';
 
 const TZ = 'Europe/Amsterdam';
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';

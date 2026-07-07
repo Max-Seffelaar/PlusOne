@@ -23,6 +23,10 @@ function g(partial: Partial<Guest> & { id: string }): Guest {
     id: partial.id,
     name: partial.name ?? 'Naam',
     role: partial.role ?? 'Gast',
+    // Live guests carry the real tier id; default it from the role so the
+    // fixtures line up with tier()'s `tier-${role}` ids.
+    tierId: partial.tierId ?? `tier-${partial.role ?? 'Gast'}`,
+    tierName: partial.tierName,
     pay: 'free',
     plus: partial.plus ?? 0,
     note: partial.note ?? '',
@@ -135,7 +139,7 @@ describe('cockpitCounts', () => {
 });
 
 describe('perTierLive', () => {
-  it('groups by role with present/registered koppen, drops empty tiers', () => {
+  it('groups by tier id with present/registered koppen, drops empty tiers', () => {
     const tiers = [tier('VIP', '#fff', 'VIP'), tier('Gast', '#aaa', 'Gast'), tier('Crew', '#0f0', 'Crew')];
     const guests = [
       g({ id: '1', role: 'VIP', status: 'in', plus: 1 }), // VIP 2 in / 2 aangemeld
@@ -144,11 +148,29 @@ describe('perTierLive', () => {
       g({ id: '4', role: 'VIP', status: 'refused', plus: 4 }), // excluded
     ];
     const rows = perTierLive(guests, tiers);
-    expect(rows.map((r) => r.role)).toEqual(['VIP', 'Gast']); // Crew has no guests → dropped
-    const vip = rows.find((r) => r.role === 'VIP')!;
+    expect(rows.map((r) => r.tierId)).toEqual(['tier-VIP', 'tier-Gast']); // Crew has no guests → dropped
+    const vip = rows.find((r) => r.tierId === 'tier-VIP')!;
     expect(vip).toMatchObject({ binnen: 2, aangemeld: 2, color: '#fff', tier: 'VIP', entries: 1 });
-    const gast = rows.find((r) => r.role === 'Gast')!;
+    const gast = rows.find((r) => r.tierId === 'tier-Gast')!;
     expect(gast).toMatchObject({ binnen: 3, aangemeld: 4, entries: 2 });
+  });
+
+  it('keeps two same-role tiers as two distinct rows with their real names (feedback 1/7)', () => {
+    // Both collapse to the VIP role — the old role-keyed grouping merged them
+    // into one row (last label won) and the "VIP" chip vanished from the filter.
+    const tiers: Tier[] = [
+      { ...tier('VIP', '#fff'), id: 't-vip', name: 'VIP', short: 'VIP' },
+      { ...tier('VIP', '#f0f'), id: 't-vip-fles', name: 'VIP + fles op tafel', short: 'VIP + fles op tafel' },
+    ];
+    const guests = [
+      g({ id: '1', tierId: 't-vip', status: 'in', plus: 0 }),
+      g({ id: '2', tierId: 't-vip-fles', status: 'wait', plus: 1 }),
+    ];
+    const rows = perTierLive(guests, tiers);
+    expect(rows.map((r) => r.tier)).toEqual(['VIP', 'VIP + fles op tafel']);
+    expect(rows.map((r) => r.tierId)).toEqual(['t-vip', 't-vip-fles']);
+    expect(rows[0]).toMatchObject({ binnen: 1, aangemeld: 1 });
+    expect(rows[1]).toMatchObject({ binnen: 0, aangemeld: 2 });
   });
 });
 
@@ -161,9 +183,9 @@ describe('filterCockpit', () => {
   it('always hides refused', () => {
     expect(filterCockpit(guests, 'all', 'all', '').map((x) => x.id)).toEqual(['1', '2']);
   });
-  it('filters by status segment and tier', () => {
+  it('filters by status segment and tier (real tier id)', () => {
     expect(filterCockpit(guests, 'in', 'all', '').map((x) => x.id)).toEqual(['2']);
-    expect(filterCockpit(guests, 'all', 'VIP', '').map((x) => x.id)).toEqual(['1']);
+    expect(filterCockpit(guests, 'all', 'tier-VIP', '').map((x) => x.id)).toEqual(['1']);
   });
   it('fuzzy-matches the search box (subsequence)', () => {
     expect(filterCockpit(guests, 'all', 'all', 'jrbr').map((x) => x.id)).toEqual(['1']);

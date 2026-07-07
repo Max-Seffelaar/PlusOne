@@ -16,6 +16,7 @@ import { Icon, type IconName } from '@/components/po/icon';
 import { Avatar, Btn, IconBtn, Label, PayChip, Scroll, Stepper, Top } from '@/components/po/kit';
 import { BottomBar, Sheet } from '@/components/po/shell';
 import { useDoor } from '../DoorProvider';
+import { tierRole } from '../model';
 import { TierChip } from './TierChip';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
@@ -85,7 +86,9 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
       />
       <Scroll bottom={20}>
         <div className="flex flex-col items-center px-0 pb-[18px] pt-1.5 text-center">
-          <Avatar name={g.name} size={84} accent={g.tierName === 'VIP'} />
+          {/* tierName is the real tier name now — vip-ness for the accent ring
+              comes from the tierRole taxonomy ("VIP + fles op tafel" counts). */}
+          <Avatar name={g.name} size={84} accent={tierRole(g.tierName).label === 'VIP'} />
           <h2 className="mb-0 mt-4 whitespace-nowrap font-display text-[28px] font-extrabold tracking-[-0.02em] text-text">{g.name}</h2>
           <div className="mt-3 flex flex-wrap items-center justify-center gap-[7px]">
             <TierChip name={g.tierName} color={g.tierColor} icon={g.tierIcon} />

@@ -63,17 +63,25 @@ export function AddOnSpot({ onBack }: { onBack: () => void }): JSX.Element {
 
   const parsed = defaultTierId && val.trim() ? parseQuickAdd(val, tiers, defaultTierId) : null;
   const needsAsk = parsed?.status === 'ambiguous' && !choice;
+  // Bare name on a multi-tier event: don't silently drop the guest on the default
+  // tier — ask which tier, exactly like the po quick-add (feedback 1/7: "the +
+  // doesn't always show the tier selection").
+  const needsTierPick = parsed?.status === 'ok' && parsed.matchedVia === 'default' && tiers.length > 1 && !choice;
   const resolved =
     parsed && defaultTierId && parsed.status !== 'needs_name'
       ? parsed.status === 'ambiguous'
         ? choice
           ? resolveAmbiguity(parsed, choice, defaultTierId)
           : null
-        : { name: parsed.name, plusOnes: parsed.plusOnes, tierId: parsed.tierId ?? defaultTierId }
+        : {
+            name: parsed.name,
+            plusOnes: parsed.plusOnes,
+            tierId: (choice?.kind === 'tier' ? choice.tierId : undefined) ?? parsed.tierId ?? defaultTierId,
+          }
       : null;
   const cost = parsed ? parsed.slots : 0;
   const overQuota = !exempt && left != null && cost > left;
-  const canCommit = !!resolved && !needsAsk && !overQuota;
+  const canCommit = !!resolved && !needsAsk && !needsTierPick && !overQuota;
 
   const commit = (): void => {
     if (!resolved || !canCommit) return;
@@ -112,7 +120,7 @@ export function AddOnSpot({ onBack }: { onBack: () => void }): JSX.Element {
             <div className="mt-[13px] flex flex-wrap gap-[7px]">
               <PreviewChip icon="user" label={parsed.name || '—'} />
               {parsed.plusOnes > 0 && <PreviewChip icon="users" label={`+${parsed.plusOnes}`} />}
-              {!needsAsk && resolved && <PreviewChip dot={tierColor(resolved.tierId)} label={tierLabel(resolved.tierId)} />}
+              {!needsAsk && !needsTierPick && resolved && <PreviewChip dot={tierColor(resolved.tierId)} label={tierLabel(resolved.tierId)} />}
               {needsAsk && parsed.ambiguous && <MiniChip className="border-dashed border-acc text-text">“{parsed.ambiguous.text}” ?</MiniChip>}
             </div>
           )}
@@ -142,7 +150,8 @@ export function AddOnSpot({ onBack }: { onBack: () => void }): JSX.Element {
                 className="flex items-center gap-[10px] rounded-[12px] border border-line bg-bg px-[13px] py-[12px] text-text transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]"
               >
                 <span className="h-[10px] w-[10px] rounded-full" style={{ background: tierColor(defaultTierId ?? '') }} />
-                <span className="flex-1 text-left font-display text-[14.5px] font-bold">{t.door.tierRegular}</span>
+                {/* Real default-tier name, not a hardcoded "Regular" (1/7). */}
+                <span className="flex-1 text-left font-display text-[14.5px] font-bold">{tierLabel(defaultTierId ?? '')}</span>
                 <Icon name="chev" size={16} className="text-ghost" />
               </button>
               <button
@@ -158,7 +167,27 @@ export function AddOnSpot({ onBack }: { onBack: () => void }): JSX.Element {
           </div>
         )}
 
-        {parsed && !needsAsk && !exempt && left != null && (
+        {needsTierPick && (
+          <div className="mt-3 rounded-[16px] bg-acc-dim p-[14px]">
+            <div className="mb-[11px] text-[13.5px] leading-[1.45] text-text">{t.guests.add.tierPickQuestion}</div>
+            <div className="flex flex-col gap-2">
+              {(view?.tiers ?? []).map((tier) => (
+                <button
+                  key={tier.id}
+                  type="button"
+                  onClick={() => setChoice({ kind: 'tier', tierId: tier.id })}
+                  className="flex items-center gap-[10px] rounded-[12px] border border-line bg-bg px-[13px] py-[12px] text-text transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]"
+                >
+                  <span className="h-[10px] w-[10px] rounded-full" style={{ background: tier.color ?? '#8E8E93' }} />
+                  <span className="flex-1 text-left font-display text-[14.5px] font-bold">{tier.name}</span>
+                  <Icon name="chev" size={16} className="text-ghost" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {parsed && !needsAsk && !needsTierPick && !exempt && left != null && (
           <div className={cn('mt-3 flex items-center gap-[9px] rounded-[13px] px-[14px] py-[11px]', overQuota ? 'border border-acc bg-white/[0.04]' : 'border border-line bg-elev')}>
             <Icon name="ticket" size={17} stroke={overQuota ? '#B5A6FF' : 'rgba(255,255,255,0.40)'} />
             <span className="flex-1 text-[13.5px] text-text">

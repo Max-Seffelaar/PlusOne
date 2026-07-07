@@ -8,10 +8,12 @@
  *
  * Layout (feedback Max): each guest is ONE dense line whose whole pill is filled
  * with the tier colour (not a subtle stripe), so the door host scans many more
- * names per screen. The screen is a SINGLE scroll container — the big title and
- * the search field scroll away with the list, while the compact headcount + the
- * Beide/Onderweg/Ingecheckt segment + the tier filters stay pinned (`sticky`).
- * `SyncBar` (live status) is pinned above this by the parent.
+ * names per screen. The screen is a SINGLE scroll container — the big title, the
+ * compact headcount, the Beide/Onderweg/Ingecheckt segment and the tier filters
+ * all scroll away with the list; ONLY the search field stays pinned (`sticky` —
+ * feedback Joeri 1/7: search must survive any scroll depth, the filters may go).
+ * `SyncBar` (live status) is pinned above this by the parent. The filter state
+ * itself lives in DoorProvider so the guest-detail push/pop doesn't reset it.
  *
  * Perf (STAP 3.5b · #1a/#1b): at ~1500 guests the list is virtualized with
  * `@tanstack/react-virtual` — the four sections are flattened into ONE tagged
@@ -30,7 +32,7 @@ import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { Icon } from '@/components/po/icon';
 import { Avatar, Label, StatusDot, Top } from '@/components/po/kit';
 import { useDoor } from '../DoorProvider';
-import { tierRole, type DoorGuest } from '../model';
+import type { DoorGuest } from '../model';
 import { flattenCheckInItems, partsLeft, type CheckInItem, type Filter } from './checkin-items';
 
 const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
@@ -120,8 +122,10 @@ function TierFilterBar({
             )}
             style={on ? { background: color } : undefined}
           >
+            {/* Real tier name (not the tierRole taxonomy): two "vip"-ish tiers
+                must stay two distinguishable chips (feedback 1/7). */}
             <span className="h-2 w-2 rounded-full" style={{ background: on ? 'rgba(11,11,13,0.55)' : color }} />
-            {tierRole(tier.name).label}
+            {tier.name}
           </button>
         );
       })}
@@ -130,10 +134,12 @@ function TierFilterBar({
 }
 
 export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) => void; onAdd: () => void }): JSX.Element {
-  const { view, outboxByGuest, undoRefusal } = useDoor();
-  const [q, setQ] = useState('');
-  const [f, setF] = useState<Filter>('both');
-  const [tierFilter, setTierFilter] = useState<Set<string>>(() => new Set());
+  const { view, outboxByGuest, undoRefusal, listFilters, setListFilters } = useDoor();
+  // Filters live in the provider: checking someone in pushes a guest detail and
+  // the pop remounts this list — provider state keeps "On the way" selected.
+  const { q, f, tierIds: tierFilter } = listFilters;
+  const setQ = (next: string): void => setListFilters({ q: next });
+  const setF = (next: Filter): void => setListFilters({ f: next });
   // Input stays instant; the heavy flatten runs on the settled term (#1b).
   const dq = useDebouncedValue(q, 140);
 
@@ -187,13 +193,12 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
     scrollRef.current?.scrollTo?.({ top: 0 });
   }, []);
 
-  const toggleTier = (id: string): void =>
-    setTierFilter((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const toggleTier = (id: string): void => {
+    const next = new Set(tierFilter);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setListFilters({ tierIds: next });
+  };
 
   if (!view) return <ListSkeleton />;
 
@@ -209,7 +214,7 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
       className="po-scroll relative h-full overflow-y-auto"
       style={{ padding: '0 20px 100px' }}
     >
-      {/* (a) SCROLL-AWAY: big title + search field */}
+      {/* (a) SCROLL-AWAY: big title */}
       <div className="-mx-5">
         <Top
           big
@@ -217,7 +222,11 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
           sub={`${view.event.name}${view.event.venueName ? ` · ${view.event.venueName}` : ''}`}
         />
       </div>
-      <div className="pb-3">
+
+      {/* (b) STICKY: the search field — the ONE element that stays pinned at any
+          scroll depth (feedback Joeri 1/7). The opaque bg bleeds full-width
+          (-mx-5) so rows don't peek through the side gutters while scrolling. */}
+      <div className="sticky top-0 z-20 -mx-5 bg-bg px-5 pb-3 pt-1">
         <div className="flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]">
           <span className="text-faint">
             <Icon name="search" size={19} />
@@ -240,9 +249,9 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
         </div>
       </div>
 
-      {/* (b) STICKY: compact headcount + segment + tier filters. The opaque bg
-          bleeds full-width (-mx-5) so rows don't peek through the side gutters. */}
-      <div className="sticky top-0 z-20 -mx-5 border-b border-line2 bg-bg px-5 pt-1">
+      {/* (c) SCROLL-AWAY: compact headcount + segment + tier filters — they
+          scroll off with the list and come back at the top. */}
+      <div>
         {/* Both units side by side (S1.3): the big number is gasten (rows — the
             door's per-name unit), the sub is koppen (incl. +1's, #5) so it
             reconciles with EventView/cockpit. */}
@@ -263,7 +272,7 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
         <TierFilterBar tiers={view.tiers} selected={tierFilter} onToggle={toggleTier} />
       </div>
 
-      {/* (c) LABEL */}
+      {/* (d) LABEL */}
       <Label className="mb-[10px] mt-2">
         {q
           ? fmt(t.door.resultFound, { n: matchedCount })
@@ -274,7 +283,7 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
               : t.door.nextAtDoor}
       </Label>
 
-      {/* (d) VIRTUAL ROWS */}
+      {/* (e) VIRTUAL ROWS */}
       {items.length === 0 ? (
         <div className="py-[30px] text-center text-[14px] text-faint">
           {q ? t.door.emptySearch : f === 'in' ? t.door.emptyNoneInside : t.door.emptyEveryoneIn}
@@ -355,7 +364,9 @@ function guestRow(
           {g.name}
           {g.plus > 0 && <span className="font-semibold opacity-70"> +{g.plus}</span>}
         </span>
-        <span className="shrink-0 text-[10.5px] font-bold uppercase tracking-[0.03em] opacity-90">{g.tierName}</span>
+        {/* Real tier name; bounded + truncated so a long custom tier ("VIP + fles
+            op tafel") can't push the guest's name off the one-line pill. */}
+        <span className="max-w-[45%] shrink-0 truncate text-[10.5px] font-bold uppercase tracking-[0.03em] opacity-90">{g.tierName}</span>
         {partly ? (
           <span className="min-w-0 truncate text-[11px] font-semibold opacity-90" style={{ flexShrink: 3 }}>
             {fmt(t.door.partlyInside, { arrived: 1 + (g.arrived ?? 0), total: 1 + g.plus, n: remaining })}
@@ -426,10 +437,10 @@ function ListSkeleton(): JSX.Element {
       <div className="-mx-5">
         <Top big title={t.door.checkinTitle} sub={t.door.loadingSub} />
       </div>
-      <div className="pb-3">
+      <div className="pb-3 pt-1">
         <div className="h-[50px] animate-pulse rounded-field border border-line bg-elev" />
       </div>
-      <div className="-mx-5 border-b border-line2 bg-bg px-5 pt-1">
+      <div>
         <div className="mb-[12px] h-[40px] animate-pulse rounded-[12px] border border-line bg-elev" />
         <div className="flex gap-1.5 pb-[14px]">
           {[0, 1, 2].map((i) => (

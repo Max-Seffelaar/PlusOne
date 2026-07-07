@@ -203,10 +203,13 @@ describe('buildDoorView', () => {
     expect(view.refused).toHaveLength(0);
   });
 
-  it('applies the tier colour from guest_tiers', () => {
+  it('applies the tier colour + REAL tier name from guest_tiers (feedback 1/7)', () => {
     const view = buildDoorView(snapshot({ guests: [guest({ tier_id: 't-vip' })] }));
     expect(view.guests[0].tierColor).toBe('#B5A6FF');
-    expect(view.guests[0].tierName).toBe('VIP');
+    // The full custom name — NOT the collapsed tierRole label ("VIP"), so two
+    // vip-ish tiers stay distinguishable at the door. Icon still via tierRole.
+    expect(view.guests[0].tierName).toBe('VIP — fles op tafel');
+    expect(view.guests[0].tierIcon).toBe('crown');
   });
 });
 
