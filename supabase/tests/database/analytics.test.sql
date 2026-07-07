@@ -24,7 +24,7 @@ begin
 end;
 $fn$;
 
-select plan(48);
+select plan(58);
 
 -- ===========================================================================
 -- 1. Event summary — correct headline numbers (admin, AAL2)
@@ -74,17 +74,50 @@ select is((select registered from public.event_tier_stats('ee000000-0000-7000-80
            where tier_name = 'VIP + fles op tafel'), 1, '3.5 fles tier has 1 registered (Juri)');
 
 -- ===========================================================================
--- 4. Toevoegingen per gebruiker
+-- 4. Per-member stats (T9) — HEADS, gross incl. removed, attributed to added_by
 -- ===========================================================================
 
 select is((select count(*)::int from public.event_user_additions('ee000000-0000-7000-8000-000000000001')),
-  3, '4.1 three adders');
+  3, '4.1 three adders (Yusuf''s only guest is pending → not an adder)');
+
+-- Max: 20 rows / 27 heads (Juri +2, Sanne +1, Daan, Esra, + 16 bulk); none
+-- removed; 3 checked in = 4 heads arrived (Sanne arrived +1).
 select is((select added from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
-           where full_name = 'Max de Vries'), 20, '4.2 Max added 20');
+           where full_name = 'Max de Vries'), 20, '4.2 Max added = 20 rows');
+select is((select added_headcount from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
+           where full_name = 'Max de Vries'), 27, '4.3 Max added = 27 heads (Σ 1 + plus_ones)');
+select is((select removed_headcount from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
+           where full_name = 'Max de Vries'), 0, '4.4 Max removed = 0 heads');
+select is((select present_headcount from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
+           where full_name = 'Max de Vries'), 4, '4.5 Max checked-in = 4 heads (Sanne +1, Daan, Esra)');
+
+-- Tom now gains the removed Pieter (+2): 8 rows / 13 heads, of which 3 removed.
 select is((select added from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
-           where full_name = 'Tom Bakker'), 7, '4.3 Tom added 7');
-select is((select added from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
-           where full_name = 'Lisa van den Berg'), 1, '4.4 Lisa added 1 (door-add Joep)');
+           where full_name = 'Tom Bakker'), 8, '4.6 Tom added = 8 rows (incl. removed Pieter)');
+select is((select added_headcount from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
+           where full_name = 'Tom Bakker'), 13, '4.7 Tom added = 13 heads (gross, incl. removed)');
+select is((select removed_headcount from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
+           where full_name = 'Tom Bakker'), 3, '4.8 Tom removed = 3 heads (Pieter 1 + 2)');
+select is((select present_headcount from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
+           where full_name = 'Tom Bakker'), 0, '4.9 Tom checked-in = 0 (Bram refused, Pieter removed)');
+
+-- Lisa: her door-add Joep (+1) → 2 heads.
+select is((select added_headcount from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
+           where full_name = 'Lisa van den Berg'), 2, '4.10 Lisa added = 2 heads (door-add Joep +1)');
+
+-- Free/paid split. The seed tiers carry no price → everything is free.
+select is((select added_free_headcount from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
+           where full_name = 'Max de Vries'), 27, '4.11 all seed tiers free → Max added-free = 27');
+select is((select present_free_headcount from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
+           where full_name = 'Max de Vries'), 4, '4.12 all seed tiers free → Max present-free = 4');
+
+-- Make VIP a paid tier: Max's VIP heads (Sanne 2 + bulk VIP #10/#15/#20 = 3) = 5.
+update public.guest_tiers set door_price_cents = 1500
+where id = 'dd000000-0000-7000-8000-000000000002';
+select is((select added_free_headcount from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
+           where full_name = 'Max de Vries'), 22, '4.13 VIP paid → Max added-free = 22 (27 − 5 VIP heads)');
+select is((select present_free_headcount from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
+           where full_name = 'Max de Vries'), 2, '4.14 VIP paid → Max present-free = 2 (Daan + Esra; Sanne now paid)');
 
 -- ===========================================================================
 -- 5. Weigeringen met reden

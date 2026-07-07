@@ -21,6 +21,8 @@ export interface ShellNavItem {
   /** Desktop grouping: 'main' = the primary tabs, 'more' = promoted More items
    *  (Analytics/Team/…) shown below a divider since the sidebar has the room. */
   section?: 'main' | 'more';
+  /** Count pill on the right of the row (e.g. open requests) — omitted/0 hides it. */
+  badge?: number;
 }
 
 export function ResponsiveShell({
@@ -111,6 +113,11 @@ export function ResponsiveShell({
               >
                 <Icon name={it.icon} size={19} sw={it.active ? 2.2 : 1.9} />
                 {it.label}
+                {it.badge != null && it.badge > 0 && (
+                  <span className="ml-auto inline-flex h-[20px] min-w-[20px] items-center justify-center rounded-full bg-acc px-[6px] font-body text-[11px] font-extrabold text-on-acc">
+                    {it.badge}
+                  </span>
+                )}
               </button>
             </Fragment>
           ))}

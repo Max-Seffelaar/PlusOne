@@ -11,7 +11,8 @@ import dynamic from 'next/dynamic';
 import { useQueryClient } from '@tanstack/react-query';
 import { venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
-import { usePoDoorCandidates, usePoEvents } from '@/features/po/hooks';
+import { usePoDoorCandidates, usePoEvents, usePoGuestRequests } from '@/features/po/hooks';
+import { isOpenGuestRequest } from '@/features/po/adapters';
 import { autoOpenDoorEvent } from '@/features/po/door-event';
 import { poKeys } from '@/features/po/keys';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
@@ -295,6 +296,11 @@ export function PlusOneApp({
   // the chosen event's guests are ever loaded, so dozens of live events stay cheap.
   const doorCandidatesQuery = usePoDoorCandidates();
   const doorCandidates = doorCandidatesQuery.data ?? [];
+  // Open-requests count for the nav badge (desktop sidebar + mobile More). Reuses
+  // the venue-wide guest-requests query that Home already loads (shared React
+  // Query key → no extra polling); OPEN = pending only, the shared definition, so
+  // this badge matches Home's tile and the event-card badge exactly (T9).
+  const openRequestCount = (usePoGuestRequests().data ?? []).filter(isOpenGuestRequest).length;
   const resolvedDoorId = doorEventId ?? (doorCandidates.length === 1 ? doorCandidates[0].id : null);
   const resolvedDoorName = doorCandidates.find((e) => e.id === resolvedDoorId)?.name ?? '';
 
@@ -653,7 +659,7 @@ export function PlusOneApp({
       ? ([{ key: 'deur', section: 'main', label: t.nav.door, icon: 'door', active: currentKey === 'deur', onClick: () => nav.setTab('deur') }] as ShellNavItem[])
       : []),
     ...(canDecideRequests
-      ? ([{ key: 'aanvragen', section: 'more', label: t.nav.requests, icon: 'inbox', active: currentKey === 'aanvragen', onClick: () => nav.push('aanvragen') }] as ShellNavItem[])
+      ? ([{ key: 'aanvragen', section: 'more', label: t.nav.requests, icon: 'inbox', active: currentKey === 'aanvragen', onClick: () => nav.push('aanvragen'), badge: openRequestCount }] as ShellNavItem[])
       : []),
     ...(canViewStats
       ? ([{ key: 'stats', section: 'more', label: t.nav.analytics, icon: 'spark', active: currentKey === 'stats', onClick: () => nav.push('stats') }] as ShellNavItem[])
@@ -740,6 +746,9 @@ export function PlusOneApp({
         mobileTab={tab}
         setMobileTab={nav.setTab}
         mobileTabs={mobileTabs}
+        // Requests lives under the More hub on mobile, so its open-count rides on
+        // the More tab — same source + admin gate as the desktop sidebar badge (T9).
+        mobileBadges={{ meer: canDecideRequests ? openRequestCount : 0 }}
         navItems={navItems}
         venueName={liveVenueName ?? venue.name}
         onOpenVenue={() => nav.push('venueswitch')}

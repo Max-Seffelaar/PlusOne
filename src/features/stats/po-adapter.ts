@@ -19,8 +19,19 @@ export interface PerTier {
 }
 export interface PerUser {
   who: string;
+  /** Heads added (gross, INCLUDING later-removed): the unit is heads (1 + plus-ones). */
   added: number;
+  /** Heads later removed (a subset of `added`). */
+  removed: number;
+  /** Heads that actually arrived (checked in). */
   in: number;
+  /** Free/paid split of the added heads (paid = added − free). Informational —
+   *  paid tiers are display-only (#T3). */
+  addedFree: number;
+  addedPaid: number;
+  /** Free/paid split of the checked-in heads. */
+  inFree: number;
+  inPaid: number;
 }
 
 /** Check-ins per 15-min bucket → { t: "23:30", n: 38 } (bucket order preserved). */
@@ -37,9 +48,23 @@ export function toPerTier(tiers: TierStat[]): PerTier[] {
   }));
 }
 
-/** Additions per user → { who, added, in }. */
+/**
+ * Additions per member → heads-based per-user stats (T9). The unit is HEADS
+ * (1 + plus-ones) throughout — `added` is the gross count including later-removed
+ * guests, `removed` the subset now off the list, `in` the heads that arrived.
+ * Paid is derived from free (paid = total − free) so a NULL never leaks negative.
+ */
 export function toPerUser(users: UserAddition[]): PerUser[] {
-  return users.map((u) => ({ who: u.full_name, added: u.added, in: u.present }));
+  return users.map((u) => ({
+    who: u.full_name,
+    added: u.added_headcount,
+    removed: u.removed_headcount,
+    in: u.present_headcount,
+    addedFree: u.added_free_headcount,
+    addedPaid: u.added_headcount - u.added_free_headcount,
+    inFree: u.present_free_headcount,
+    inPaid: u.present_headcount - u.present_free_headcount,
+  }));
 }
 
 export interface EventKpis {

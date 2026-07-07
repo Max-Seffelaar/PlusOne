@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { usePoHomeEvents, usePoGuestRequests, usePoQuotaRequests, usePoProfile, useBillingBlocked } from '@/features/po/hooks';
+import { isOpenGuestRequest } from '@/features/po/adapters';
 import { canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '../context';
 import { Icon, type IconName } from '../icon';
@@ -435,7 +436,7 @@ export function Home(): JSX.Element {
 
   const pulse = useMemo(
     () => ({
-      requests: guestReqQ.data?.length ?? 0,
+      requests: (guestReqQ.data ?? []).filter(isOpenGuestRequest).length,
       quota: quotaReqQ.data?.length ?? 0,
       live: board.filter((e) => e.live).length,
       today: board.filter((e) => e.when === 'today').length,
