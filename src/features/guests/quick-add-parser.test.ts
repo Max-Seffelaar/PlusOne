@@ -301,3 +301,40 @@ describe('e-mail + phone capture (#9)', () => {
     expect(b).toMatchObject({ name: 'Noor', phone: '0612345678', tierId: 'vip' });
   });
 });
+
+describe('CSV-style columns (comma / semicolon / tab-separated paste)', () => {
+  it('reads a comma-separated "name, email, phone, tier" row', () => {
+    const r = parse('Anouk Smit, anouk@mail.com, 0612345601, vip');
+    expect(r.name).toBe('Anouk Smit');
+    expect(r.email).toBe('anouk@mail.com');
+    expect(r.phone).toBe('0612345601');
+    expect(r.tierId).toBe('vip');
+  });
+
+  it('captures a phone written with spaces between groups (own column)', () => {
+    const r = parse('Femke Bakker, femke@mail.com, 06 12 34 56 01, fles');
+    expect(r.phone).toBe('0612345601');
+    expect(r.email).toBe('femke@mail.com');
+    expect(r.name).toBe('Femke Bakker');
+    expect(r.tierId).toBe('fles');
+  });
+
+  it('handles semicolon and tab delimiters', () => {
+    expect(parse('Pim; pim@mail.com; 0612345602; vip')).toMatchObject({ name: 'Pim', email: 'pim@mail.com', phone: '0612345602', tierId: 'vip' });
+    expect(parse('Roos\t0612345603\tvip')).toMatchObject({ name: 'Roos', phone: '0612345603', tierId: 'vip' });
+  });
+
+  it('a comma-separated name-only row stays a bare name (default tier)', () => {
+    const r = parse('Koen Hendriks');
+    expect(r.name).toBe('Koen Hendriks');
+    expect(r.email).toBeNull();
+    expect(r.phone).toBeNull();
+    expect(r.matchedVia).toBe('default');
+  });
+
+  it('parses a full pasted CSV block line by line', () => {
+    const [a, b] = parseBulk('Anouk Smit, anouk@mail.com, 0612345601, vip\nKoen Hendriks', TIERS, DEFAULT);
+    expect(a).toMatchObject({ name: 'Anouk Smit', email: 'anouk@mail.com', phone: '0612345601', tierId: 'vip' });
+    expect(b).toMatchObject({ name: 'Koen Hendriks', tierId: 'regular' });
+  });
+});

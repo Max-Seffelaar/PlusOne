@@ -6,7 +6,11 @@ import { z } from 'zod';
 // guard shape.
 
 const uuid = z.string().uuid();
-const fullName = z.string().trim().min(1, 'Name is required').max(200);
+// 500 (was 200): a real import row is voornaam + achternaam + phone + email +
+// tier + tickets, which stays well under 500. The old 200 cap let one long,
+// descriptive pasted line fail the WHOLE batch (T12 feedback 1/7). The import
+// preview now flags + lets the user fix over-long rows before commit.
+const fullName = z.string().trim().min(1, 'Name is required').max(500);
 
 /** Mirrors the prototype Role union; a preference hint that drives tier mapping. */
 export const contactRole = z.enum(['vip', 'all_access', 'artist', 'press', 'crew', 'guest']);
