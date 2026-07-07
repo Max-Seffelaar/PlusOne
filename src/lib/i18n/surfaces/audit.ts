@@ -1,8 +1,8 @@
 /**
  * Audit-log surface copy (S10, #15) — the immutable logbook chrome: titles, the
- * MFA gate, the immutability note, table headers, filter sheet, and the per-guest
- * timeline. The log SENTENCES themselves (e.g. "Mara added Juri (+2).") are built
- * in the shared features/audit/translate.ts and are NOT in this catalogus.
+ * immutability note, table headers, filter sheet, and the per-guest timeline.
+ * The log SENTENCES themselves (e.g. "Mara added Juri (+2).") are built in the
+ * shared features/audit/translate.ts and are NOT in this catalogus.
  *
  * Source deck: copy-deck.md §8 (Audit log). Voice: zero wink, trust-first
  * (tone-of-voice.md). Sentence case, numerals, no em-dash habit, glossary terms
@@ -17,16 +17,12 @@ export const audit = {
   filterAria: 'Filter',
 
   // ── Immutability note ───────────────────────────────────────────────────────
-  immutableNote:
-    'Immutable logbook — written by database triggers, never by app code (#15). Access needs an admin or finance role plus MFA.',
-
-  // ── MFA gate ────────────────────────────────────────────────────────────────
-  loading: 'Loading…',
-  mfaTitle: 'Verify it\'s you',
-  mfaBody: 'Opening the immutable logbook needs a two-step verified session.',
-  mfaVerify: 'Verify',
+  // MFA dropped from this copy: audit-log access is role-only (admin/finance),
+  // not AAL2-gated — see migration 20260624160000_mfa_scope_sensitive_actions.
+  immutableNote: 'Immutable logbook — written by database triggers, never by app code. Access needs an admin or finance role.',
 
   // ── List states ─────────────────────────────────────────────────────────────
+  loading: 'Loading…',
   loadError: "Couldn't load the audit log.",
   emptyFiltered: 'No results for these filters.',
   empty: 'Nothing logged yet.',

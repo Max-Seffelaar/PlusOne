@@ -34,7 +34,7 @@ export const requests = {
 
   // ── Landing-page (guest-list) queue ─────────────────────────────────────────
   landingNote:
-    'Guest-list requests fall outside your own quota (#31). Approving one costs you no spot, but it still counts toward the tier max.',
+    'Guest-list requests fall outside your own quota. Approving one costs you no spot, but it still counts toward the tier max.',
   emptyLandingSearch: 'No open requests for "{q}".',
   emptyLanding: 'No requests right now. The line\'s clear.',
   cardPhoneVia: 'phone •••• {last4} · via landing page · {at}',

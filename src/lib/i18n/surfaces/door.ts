@@ -112,7 +112,7 @@ export const door = {
 
   // ── Add on the spot (AddOnSpot) ──────────────────────────────────────────
   addTitle: 'Add guest',
-  addSubNoQuota: 'no personal quota',
+  addSubNoQuota: 'no limit for your role',
   addSubQuotaLeft: 'your quota · {n} of {m} left',
   addSubFallback: 'at the door',
   addInputLabel: 'Type freely: name, +guests, tier',

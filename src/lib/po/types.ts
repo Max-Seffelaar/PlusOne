@@ -7,7 +7,7 @@
  * from `src/lib/database.types.ts` and these become a thin view layer.
  */
 
-export type Role = 'VIP' | 'All Access' | 'Artist' | 'Pers' | 'Crew' | 'Gast';
+export type Role = 'VIP' | 'All Access' | 'Artist' | 'Press' | 'Crew' | 'Guest';
 
 /** `paid` = settled up front, `free` = comp, `pay` = must settle at the door. */
 export type PayStatus = 'paid' | 'free' | 'pay';
