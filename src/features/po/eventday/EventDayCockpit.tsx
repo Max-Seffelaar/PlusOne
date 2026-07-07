@@ -170,8 +170,9 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   const tierRows = useMemo(() => perTierLive(guests, tiers, arrivals), [guests, tiers, arrivals]);
   const filtered = useMemo(() => filterCockpit(guests, statF, tierF, dq), [guests, statF, tierF, dq]);
   // Stable identities so the memo'd CockpitGuestList skips renders while typing.
+  // Keyed by the REAL tier id (1/7): same-role tiers stay distinguishable.
   const tierDisplay = useMemo(
-    () => new Map(tiers.map((t) => [t.role, { color: t.color, short: t.short }])),
+    () => new Map(tiers.map((t) => [t.id, { color: t.color, name: t.name }])),
     [tiers]
   );
   const defaultTierId = useMemo(
@@ -450,7 +451,7 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                 {t.cockpit.allTiers}
               </TierChip>
               {tierRows.map((t) => (
-                <TierChip key={t.role} on={tierF === t.role} onClick={() => setTierF(t.role)}>
+                <TierChip key={t.tierId} on={tierF === t.tierId} onClick={() => setTierF(t.tierId)}>
                   <span className="h-2 w-2 rounded-full" style={{ background: t.color }} />
                   {t.tier}
                 </TierChip>
@@ -713,7 +714,7 @@ const CockpitGuestList = memo(function CockpitGuestList({
   rows: Guest[];
   totalGuests: number;
   arrivals: ReadonlyMap<string, { arrived: number; at: string }>;
-  tierDisplay: Map<string, { color: string; short: string }>;
+  tierDisplay: Map<string, { color: string; name: string }>;
   flashId: string | null;
   canCheckIn: boolean;
   allowUncheck: boolean;
@@ -741,7 +742,7 @@ const CockpitGuestList = memo(function CockpitGuestList({
             const g = rows[vi.index];
             if (!g) return null;
             const isIn = g.status === 'in';
-            const td = tierDisplay.get(g.role);
+            const td = tierDisplay.get(g.tierId ?? '');
             const arr = arrivals.get(g.id);
             const arrivedCount = arr ? arr.arrived : g.plus;
             const partial = isIn && arrivedCount < g.plus;
@@ -777,7 +778,7 @@ const CockpitGuestList = memo(function CockpitGuestList({
                         className="h-2 w-2 rounded-full"
                         style={{ background: td?.color ?? 'rgba(255,255,255,0.26)' }}
                       />
-                      {td?.short ?? g.role}
+                      {td?.name ?? g.tierName ?? g.role}
                     </span>
                   </div>
                   <div>
@@ -958,7 +959,7 @@ function PerTierBars({ rows }: { rows: ReturnType<typeof perTierLive> }): JSX.El
   return (
     <div className="flex flex-col gap-[15px]">
       {rows.map((t) => (
-        <div key={t.role}>
+        <div key={t.tierId}>
           <div className="mb-[7px] flex justify-between">
             <span className="inline-flex items-center gap-2 text-[13.5px] font-semibold text-text">
               <span className="h-2 w-2 rounded-full" style={{ background: t.color }} />
