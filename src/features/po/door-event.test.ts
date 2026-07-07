@@ -87,7 +87,18 @@ describe('doorCandidates (S1.3 event switcher)', () => {
     expect(doorCandidates(rows, NOW).map((e) => e.id)).toEqual(['liveA', 'upcomingB', 'soon', 'far']);
   });
 
-  it('is empty when every event is cancelled', () => {
+  it('drops finished (past) events — the picker only offers live/future events', () => {
+    const rows = [
+      row('endedExplicit', '2026-06-18T20:00:00Z', { endsAt: '2026-06-19T02:00:00Z' }),
+      row('graceElapsed', '2026-06-19T08:00:00Z'), // no end; 8h grace over by NOW (20:00)
+      row('liveA', '2026-06-19T18:00:00Z'),
+      row('upcomingB', '2026-06-19T22:00:00Z'),
+    ];
+    expect(doorCandidates(rows, NOW).map((e) => e.id)).toEqual(['liveA', 'upcomingB']);
+  });
+
+  it('is empty when every event is cancelled or past', () => {
     expect(doorCandidates([row('a', '2026-06-10T20:00:00Z', { cancelled: true })], NOW)).toEqual([]);
+    expect(doorCandidates([row('b', '2026-06-01T20:00:00Z')], NOW)).toEqual([]);
   });
 });

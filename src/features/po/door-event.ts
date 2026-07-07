@@ -34,16 +34,19 @@ function toDoorEvent(row: PoEventRow, nowMs: number): PoDoorEvent {
 /**
  * Every event the door/cockpit may work, ordered the way a switcher should show
  * them: live first, then soonest start. Cancelled events are read-only and never a
- * check-in target (#9/#26), so they are dropped. Drives the Deur-tab event switcher
- * (S1.3) — the user can deliberately pick when several events are live.
+ * check-in target (#9/#26), and finished ("past") events are no door to work either
+ * (Max, 7 jul 2026: the picker must only offer live/future events) — both are
+ * dropped. Drives the Deur-tab event switcher (S1.3) — the user can deliberately
+ * pick when several events are live. A past event stays reachable via its direct
+ * /door/[eventId] URL if a late check-out is ever needed.
  */
 export function doorCandidates(rows: PoEventRow[], nowMs: number): PoDoorEvent[] {
   const startMs = (r: PoEventRow): number => new Date(r.starts_at).getTime();
-  const isLive = (r: PoEventRow): boolean => eventPhase(r.starts_at, r.ends_at, nowMs) === 'live';
+  const phase = (r: PoEventRow): EventPhase => eventPhase(r.starts_at, r.ends_at, nowMs);
   return rows
-    .filter((r) => r.cancelled_at == null)
+    .filter((r) => r.cancelled_at == null && phase(r) !== 'past')
     .sort((a, b) => {
-      const live = (isLive(a) ? 0 : 1) - (isLive(b) ? 0 : 1);
+      const live = (phase(a) === 'live' ? 0 : 1) - (phase(b) === 'live' ? 0 : 1);
       return live !== 0 ? live : startMs(a) - startMs(b);
     })
     .map((r) => toDoorEvent(r, nowMs));

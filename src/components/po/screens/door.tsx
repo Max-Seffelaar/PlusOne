@@ -63,7 +63,7 @@ export function DoorEventPicker({
               <span className="mt-0.5 flex items-center gap-1.5 text-[12.5px] text-faint">
                 {e.phase === 'live' && <span className="h-1.5 w-1.5 rounded-full bg-acc" />}
                 {e.venueName}
-                {e.phase === 'live' ? ' · live' : ' · open'}
+                {e.phase === 'live' && ' · live'}
               </span>
             </span>
             <span className="rounded-full bg-acc px-[14px] py-[8px] font-display text-[13px] font-bold text-on-acc">Open</span>
