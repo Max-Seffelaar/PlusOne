@@ -13,11 +13,14 @@
  * behind a full-screen detail), NOT the po nav stack — the door owns its own
  * navigation inside its provider.
  */
+import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import { Toast } from '../shell';
+import { EventRow, toBoardEvents } from '../event-row';
 import { useDoor } from '@/features/door/DoorProvider';
 import type { PoDoorEvent } from '@/features/po/door-event';
+import { usePoGuestRequests, usePoHomeEvents, usePoQuotaRequests } from '@/features/po/hooks';
 import { CheckInList } from '@/features/door/components/CheckInList';
 import { Taken as DoorTaken } from '@/features/door/components/Taken';
 import { GuestDetail } from '@/features/door/components/GuestDetail';
@@ -26,12 +29,23 @@ import { SyncBar } from '@/features/door/components/SyncBar';
 
 export type DoorOverlay = { kind: 'guest'; id: string } | { kind: 'add' } | null;
 
+// Stable empty override so the picker's board memo doesn't recompute per render.
+const NO_LOCK_OVERRIDE: Record<string, boolean> = {};
+
 /**
  * Event picker for the Deur/Taken tabs + the cockpit (S1.3). The door surfaces no
  * longer auto-pick when several events are live/open: the user first chooses which
- * event they are working. Only the CHOSEN event's guests are ever loaded (this list
- * carries none), so a venue with dozens of live events stays cheap. Rendered inside
- * the /app shell, so the bottom-tab menu stays visible while choosing.
+ * event they are working. Only the CHOSEN event's guests are ever loaded, so a
+ * venue with dozens of live events stays cheap. Rendered inside the /app shell,
+ * so the menu stays visible while choosing.
+ *
+ * Renders the SAME EventRow card as the Home board (Max, 7 jul 2026 — one shared
+ * component, ../event-row, so a card change shows up on both surfaces) but in
+ * pick-only form: no requests/settings/lock buttons and no clickable counts —
+ * in this context EVERY click must lead to the door, never to the event
+ * settings (Max, 7 jul 2026 follow-up). The `events` prop (door candidates:
+ * live/future only) stays the source of truth for which events appear and in
+ * what order; the home-events bundle only enriches the rows with counts/dates.
  */
 export function DoorEventPicker({
   events,
@@ -44,33 +58,41 @@ export function DoorEventPicker({
   title?: string;
   sub?: string;
 }): JSX.Element {
+  const eventsQ = usePoHomeEvents();
+  const guestReqQ = usePoGuestRequests();
+  const quotaReqQ = usePoQuotaRequests();
+
+  const rows = useMemo(() => {
+    const board = toBoardEvents(
+      eventsQ.data?.events ?? [],
+      guestReqQ.data ?? [],
+      quotaReqQ.data ?? [],
+      NO_LOCK_OVERRIDE,
+      Date.now()
+    );
+    const byId = new Map(board.map((b) => [b.id, b]));
+    // Candidate order wins (live first, then soonest — door-event.ts).
+    return events.map((e) => byId.get(e.id)).filter((b): b is NonNullable<typeof b> => b != null);
+  }, [events, eventsQ.data, guestReqQ.data, quotaReqQ.data]);
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex-none px-5 pb-3 pt-6">
         <h1 className="font-display text-[24px] font-extrabold tracking-[-0.02em] text-text">{title}</h1>
         <p className="mt-1 text-[13px] text-faint">{sub}</p>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-[10px] overflow-y-auto px-5 pb-6">
-        {events.map((e) => (
-          <button
-            key={e.id}
-            type="button"
-            onClick={() => onPick(e.id)}
-            className="flex items-center gap-[13px] rounded-[16px] border border-line bg-elev p-[15px] text-left transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]"
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block font-display text-[16px] font-bold text-text">{e.name}</span>
-              <span className="mt-0.5 flex items-center gap-1.5 text-[12.5px] text-faint">
-                {e.phase === 'live' && <span className="h-1.5 w-1.5 rounded-full bg-acc" />}
-                {e.venueName}
-                {e.phase === 'live' ? ' · live' : ' · open'}
-              </span>
-            </span>
-            <span className="rounded-full bg-acc px-[14px] py-[8px] font-display text-[13px] font-bold text-on-acc">Open</span>
-          </button>
-        ))}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 pb-6">
+        {events.length > 0 && rows.length === 0 && eventsQ.isLoading ? (
+          <div className="rounded-[20px] border border-line bg-elev p-6 text-center text-[13.5px] text-faint">
+            {t.common.loading}
+          </div>
+        ) : (
+          rows.map((e) => (
+            <EventRow key={e.id} e={e} showDoor={false} onOpen={() => onPick(e.id)} onDoor={() => onPick(e.id)} />
+          ))
+        )}
         {events.length === 0 && (
-          <div className="rounded-[16px] border border-line bg-elev p-6 text-center text-[13.5px] text-faint">
+          <div className="rounded-[20px] border border-line bg-elev p-6 text-center text-[13.5px] text-faint">
             No open or live event to work the door for.
           </div>
         )}
