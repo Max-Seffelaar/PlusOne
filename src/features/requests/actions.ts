@@ -1,9 +1,9 @@
 'use server';
 
 import { createHash, randomBytes } from 'node:crypto';
-import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import { landingClientIpHash } from './ip-hash';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
 import {
   submitGuestRequestSchema,
@@ -31,20 +31,6 @@ export type SubmitOutcome =
 // submit_guest_request RPC (rate limit + dedup) — RLS stays the hard boundary.
 
 /**
- * SHA-256 of the client IP with a server-side salt, so the throttle table never
- * stores a reversible IP (CLAUDE.md §security: no PII in logs/stores). Behind
- * Vercel `x-forwarded-for` is always set; the 'no-ip' fallback only bites in
- * local/dev and still degrades gracefully.
- */
-async function clientIpHash(): Promise<string> {
-  const h = await headers();
-  const forwarded = h.get('x-forwarded-for');
-  const ip = (forwarded ? forwarded.split(',')[0] : h.get('x-real-ip') ?? '').trim();
-  const salt = process.env.LANDING_IP_SALT ?? 'plusone-landing-dev-salt';
-  return createHash('sha256').update(`${salt}:${ip || 'no-ip'}`).digest('hex');
-}
-
-/**
  * File a landing-page request (anon). Returns a generic result that never
  * reveals whether the guest/e-mail already exists (#28): a duplicate is
  * de-duplicated silently in the DB and still reports ok. A filled honeypot is
@@ -60,7 +46,7 @@ export async function submitGuestRequest(input: SubmitGuestRequestInput): Promis
   // status token either — a bot has no use for one).
   if (company && company.trim().length > 0) return { ok: true };
 
-  const ipHash = await clientIpHash();
+  const ipHash = await landingClientIpHash();
   const supabase = await createClient();
 
   // Bearer token for the /r/[token] status page. Generated here, shown once to

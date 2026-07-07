@@ -455,33 +455,37 @@ reset role;
 -- ---------------------------------------------------------------------------
 
 select pg_temp.login_anon();
+-- M1 anon resolves an active landing link via get_landing_event — the ONLY anon
+-- path now that the direct events read is retired (C3).
 select is(
-  (select count(id)::int from public.events
-   where landing_slug = 'plusone-launch-night'),
-  1, 'M1 anon sees an event with an active landing link');
+  (select count(*)::int from public.get_landing_event('plusone-launch-night', 'ip-m1')),
+  1, 'M1 anon resolves an active landing link through the RPC');
+-- M2 anon has no direct read on the events table at all (C3: no enumeration).
 select throws_ok(
-  $$ select list_locked from public.events
-     where landing_slug = 'plusone-launch-night' $$,
-  '42501', null, 'M2 anon cannot read internal event columns (lock state)');
-select lives_ok($$
-  insert into public.guest_requests (event_id, full_name, motivation)
-  values ('ee000000-0000-7000-8000-000000000001',
-          'Anon Aanvrager', 'Via de landingpage')
-$$, 'M3 anon files a landing request');
+  $$ select id from public.events where landing_slug = 'plusone-launch-night' $$,
+  '42501', null, 'M2 anon cannot read the events table directly (C3)');
+-- M3 anon files a landing request through the throttled RPC (direct anon INSERT
+-- is revoked, C2); the row still lands for the organizer (N1 below).
+select is(
+  public.submit_guest_request(
+    'plusone-launch-night', 'Anon Aanvrager', null, null, 0, 'Via de landingpage',
+    'ip-m3', false) ->> 'status',
+  'ok', 'M3 anon files a landing request via the RPC (#12/#28)');
 
 reset role;
 update public.events set landing_active = false
 where id = 'ee000000-0000-7000-8000-000000000001';
 
 select pg_temp.login_anon();
+-- M4 a deactivated event resolves to nothing through the RPC (#28).
 select is(
-  (select count(id)::int from public.events
-   where landing_slug = 'plusone-launch-night'),
+  (select count(*)::int from public.get_landing_event('plusone-launch-night', 'ip-m4')),
   0, 'M4 deactivated landing link hides the event (#28)');
-select throws_ok($$
-  insert into public.guest_requests (event_id, full_name)
-  values ('ee000000-0000-7000-8000-000000000001', 'Te Laat')
-$$, null, null, 'M5 deactivated landing link refuses new requests');
+-- M5 a deactivated event refuses new requests (closed, indistinguishable, #28).
+select is(
+  public.submit_guest_request(
+    'plusone-launch-night', 'Te Laat', null, null, 0, null, 'ip-m5', false) ->> 'status',
+  'closed', 'M5 deactivated landing link refuses new requests (#28)');
 
 reset role;
 update public.events set landing_active = true

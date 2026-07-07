@@ -85,11 +85,11 @@ select throws_ok($$
           'dd000000-0000-7000-8000-000000000001', 'Anon Insert',
           '11111111-1111-4111-8111-111111111111')
 $$, '42501', null, 'A5 anon cannot insert guests');
--- The single allowed anon read: an event whose landing link is active.
-select is(
-  (select count(id)::int from public.events
-   where landing_slug = 'plusone-launch-night'),
-  1, 'A6 anon sees ONLY an active landing event (the one anon surface)');
+-- C3: anon has NO direct read on events — the landing surface is the
+-- get_landing_event RPC only, so cross-venue event enumeration is impossible.
+select throws_ok(
+  $$ select count(id) from public.events where landing_slug = 'plusone-launch-night' $$,
+  '42501', null, 'A6 anon cannot read the events table directly (C3: no enumeration surface)');
 
 reset role;
 
