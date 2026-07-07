@@ -106,5 +106,9 @@ export const revokeInviteSchema = z.object({
   inviteId: uuidSchema,
 });
 
+export const resendInviteSchema = z.object({
+  inviteId: uuidSchema,
+});
+
 export type InviteInput = z.infer<typeof inviteSchema>;
 export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>;

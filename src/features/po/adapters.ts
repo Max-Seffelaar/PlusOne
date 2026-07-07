@@ -10,6 +10,7 @@ import type {
   PoQuotaRequestRow,
   RecapGuestRow,
   PoInviteRow,
+  PoVenueCrewRow,
   PoMyInviteRow,
   PoMemberRow,
   PoProfileRow,
@@ -211,6 +212,8 @@ export function toPoHome(
 export interface GuestExtras {
   /** Role badge, resolved from the guest's tier by the caller. */
   role: Role;
+  /** Real tier name (guest_tiers.name) — the role badge is lossy, this isn't. */
+  tierName?: string;
   /** Display name of who added the guest (profiles join); '' when unknown. */
   addedBy?: string;
   /** Owning event id/name — set only on the venue-wide ("all guests") read so a
@@ -224,6 +227,8 @@ export function toPoGuest(row: PoGuestRow, extras: GuestExtras): Guest {
     id: row.id,
     name: row.full_name,
     role: extras.role,
+    tierId: row.tier_id,
+    tierName: extras.tierName,
     // Payment isn't modelled in the core schema (no ticketing, #10) — UI default.
     pay: 'free',
     plus: row.plus_ones,
@@ -307,10 +312,13 @@ export interface OptimisticAddArgs {
  * invalidation. Pure (the clock is injectable) so it's unit-tested directly.
  */
 export function optimisticGuest(args: OptimisticAddArgs, tiers: Tier[], now: Date = new Date()): Guest {
+  const tier = tiers.find((t) => t.id === args.tierId);
   return {
     id: args.id ?? `optimistic-${args.fullName}`,
     name: args.fullName,
-    role: tiers.find((t) => t.id === args.tierId)?.role ?? 'Gast',
+    role: tier?.role ?? 'Gast',
+    tierId: args.tierId,
+    tierName: tier?.name,
     pay: 'free',
     plus: args.plusOnes ?? 0,
     note: '',
@@ -760,6 +768,8 @@ export function toPoTeamMember(row: PoMemberRow, quota: number): PoTeamMember {
   };
 }
 
+export type PoInviteStatus = 'pending' | 'expired' | 'accepted';
+
 export interface PoInvite {
   id: string;
   email: string;
@@ -767,15 +777,49 @@ export interface PoInvite {
   rolesLabel: string;
   /** Formatted invite date ("3 dec"). */
   sentAt: string;
+  /** Accepted wins; an un-accepted invite past its expiry is expired (T8). */
+  status: PoInviteStatus;
 }
 
-export function toPoInvite(row: PoInviteRow): PoInvite {
+export function toPoInvite(row: PoInviteRow, now: number = Date.now()): PoInvite {
+  const status: PoInviteStatus = row.accepted_at
+    ? 'accepted'
+    : new Date(row.expires_at).getTime() <= now
+      ? 'expired'
+      : 'pending';
   return {
     id: row.id,
     email: row.email,
     roles: row.roles,
     rolesLabel: rolesLabel(row.roles),
     sentAt: fmt(row.created_at, { day: 'numeric', month: 'short' }).replace('.', ''),
+    status,
+  };
+}
+
+/** A venue-wide External-crew row for the Team screen's second section (T8). */
+export interface PoVenueCrewMember {
+  userId: string;
+  name: string;
+  email: string;
+  /** "Eventname" or "Eventname +2" — soonest event first. */
+  eventsLabel: string;
+  eventCount: number;
+  /** False until the person completes a first login — renders as a pending
+   *  invite with a resend action. */
+  hasAccepted: boolean;
+}
+
+export function toPoVenueCrewMember(row: PoVenueCrewRow): PoVenueCrewMember {
+  const [first] = row.event_names;
+  const extra = row.event_names.length - 1;
+  return {
+    userId: row.user_id,
+    name: row.full_name,
+    email: row.email,
+    eventsLabel: first ? (extra > 0 ? `${first} +${extra}` : first) : '—',
+    eventCount: row.event_names.length,
+    hasAccepted: row.terms_accepted_at !== null,
   };
 }
 

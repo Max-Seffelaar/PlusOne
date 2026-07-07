@@ -12,9 +12,15 @@ import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import type { PoInfluencer } from '@/features/po/queries';
 import { usePoInfluencers } from '@/features/po/hooks';
-import { usePoCreateInfluencer, usePoUpdateInfluencer } from '@/features/po/mutations';
+import {
+  usePoCreateInfluencer,
+  usePoRevokeStatsToken,
+  usePoRotateStatsToken,
+  usePoUpdateInfluencer,
+} from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { useNav } from '../context';
+import { Icon } from '../icon';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, Note, Scroll, Top } from '../kit';
 import { Sheet } from '../shell';
 
@@ -83,6 +89,127 @@ export function Influencers(): JSX.Element {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * Stats-link management (F2, /i/[token]) — mints/rotates the influencer's private
+ * stats-page URL. The bearer token is returned ONCE (only its sha256 is stored),
+ * so the full URL shows exactly once with a copy button; Renew replaces the old
+ * URL, Revoke kills the page. Admin-only via RLS (the sheet is admin-gated).
+ */
+function StatsLinkBlock({ influencer }: { influencer: PoInfluencer }): JSX.Element {
+  const rotate = usePoRotateStatsToken();
+  const revoke = usePoRevokeStatsToken();
+  // The prop is a snapshot — track token presence locally after rotate/revoke.
+  const [hasToken, setHasToken] = useState(influencer.hasStatsToken);
+  const [freshUrl, setFreshUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const [revoked, setRevoked] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const busy = rotate.isPending || revoke.isPending;
+
+  const mint = async (): Promise<void> => {
+    setErr(null);
+    setRevoked(false);
+    try {
+      const token = await rotate.mutateAsync(influencer.id);
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      setFreshUrl(`${origin}/i/${token}`);
+      setHasToken(true);
+      setCopied(false);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : t.links.errStatsLink);
+    }
+  };
+
+  const doRevoke = async (): Promise<void> => {
+    setErr(null);
+    try {
+      await revoke.mutateAsync(influencer.id);
+      setHasToken(false);
+      setFreshUrl(null);
+      setConfirmRevoke(false);
+      setRevoked(true);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : t.links.errStatsLink);
+    }
+  };
+
+  const copy = async (): Promise<void> => {
+    if (!freshUrl) return;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(freshUrl);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1800);
+      }
+    } catch {
+      // Clipboard blocked — the URL stays visible/selectable in the row.
+    }
+  };
+
+  return (
+    <>
+      <Label className="mb-2">{t.links.statsLinkLabel}</Label>
+      <div className="mb-4 rounded-[16px] border border-line bg-elev p-[14px]">
+        <div className="mb-3 text-[12.5px] leading-[1.45] text-dim">{t.links.statsLinkExplainer}</div>
+        {freshUrl ? (
+          <>
+            <div className="mb-2 flex items-center gap-[9px]">
+              <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[12.5px] text-dim">
+                {freshUrl}
+              </span>
+              <button
+                type="button"
+                onClick={() => void copy()}
+                aria-label={t.links.copyAria}
+                className={cn(
+                  'flex shrink-0 items-center gap-1.5 rounded-[10px] border px-3 py-[7px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.2]',
+                  copied ? 'border-acc/40 bg-acc-dim text-acc' : 'border-line text-dim',
+                )}
+              >
+                <Icon name={copied ? 'check' : 'link'} size={15} />
+                {copied ? t.links.statsLinkCopied : t.links.statsLinkCopy}
+              </button>
+            </div>
+            <div className="mb-3 flex items-center gap-1.5 text-[12px] font-semibold text-acc-soft">
+              <Icon name="warn" size={13} stroke="#B5A6FF" />
+              {t.links.statsLinkWarning}
+            </div>
+          </>
+        ) : (
+          <div className="mb-3 text-[12px] text-faint">
+            {revoked ? t.links.statsLinkRevoked : hasToken ? t.links.statsLinkActive : t.links.statsLinkNone}
+          </div>
+        )}
+        <div className="flex gap-2">
+          <Btn sm kind="dark" full disabled={busy} onClick={() => void mint()}>
+            {rotate.isPending ? t.links.statsLinkWorking : hasToken ? t.links.statsLinkRenew : t.links.statsLinkCreate}
+          </Btn>
+          {hasToken && !confirmRevoke && (
+            <Btn sm kind="ghost" full disabled={busy} onClick={() => setConfirmRevoke(true)}>
+              {t.links.statsLinkRevoke}
+            </Btn>
+          )}
+        </div>
+        {confirmRevoke && (
+          <div className="mt-3 rounded-[13px] border border-[#E89AC0]/40 p-[13px]">
+            <div className="mb-2.5 text-[12.5px] leading-[1.45] text-dim">{t.links.statsLinkRevokeConfirmText}</div>
+            <div className="flex gap-2">
+              <Btn sm kind="dark" full disabled={busy} onClick={() => void doRevoke()}>
+                {revoke.isPending ? t.links.statsLinkWorking : t.links.statsLinkRevokeConfirmCta}
+              </Btn>
+              <Btn sm kind="ghost" full onClick={() => setConfirmRevoke(false)}>
+                {t.links.cancel}
+              </Btn>
+            </div>
+          </div>
+        )}
+        {err && <div className="mt-2 text-[13px] font-semibold text-[#E89AC0]">{err}</div>}
+      </div>
+    </>
   );
 }
 
@@ -158,6 +285,7 @@ function InfluencerSheet({
       <Field icon="spark" placeholder={t.links.handlePlaceholder} value={handle} onChange={setHandle} className="mb-3" />
       <Label className="mb-2">{t.links.notesLabel}</Label>
       <Field icon="note" placeholder={t.links.notesPlaceholder} value={notes} onChange={setNotes} className="mb-4" />
+      {influencer && <StatsLinkBlock influencer={influencer} />}
       {err && <ErrLine msg={err} />}
       <Btn kind="primary" full icon="check" disabled={busy} onClick={() => void save()} className={busy ? 'opacity-50' : ''}>
         {busy ? t.links.saving : influencer ? t.links.saveCta : t.links.addCta}

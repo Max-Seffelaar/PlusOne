@@ -35,7 +35,8 @@ import {
   fetchVenueMembers,
   fetchMemberQuotas,
   fetchVenueSettings,
-  fetchPendingInvites,
+  fetchVenueInvites,
+  fetchVenueCrew,
   fetchMyPendingInvites,
   fetchOwnSessions,
   fetchUserSessions,
@@ -53,9 +54,15 @@ import {
   fetchRequestLinks,
   fetchVenueRequestLinks,
   fetchVenueInfluencers,
+  fetchEventLinkFunnel,
+  fetchInfluencerLeaderboard,
+  fetchVenueLabelFunnel,
   type PoRequestLink,
   type PoLinkOption,
   type PoInfluencer,
+  type PoLinkFunnelRow,
+  type PoLeaderboardRow,
+  type PoLabelFunnelRow,
   type PoCrewMember,
   fetchPoEventActivityStats,
   type EventEditRow,
@@ -83,6 +90,7 @@ import {
   tierRole,
   toPoTeamMember,
   toPoInvite,
+  toPoVenueCrewMember,
   toPoMyInvite,
   toPoSession,
   toPoProfile,
@@ -95,6 +103,7 @@ import {
   type PoRecap,
   type PoTeamMember,
   type PoInvite,
+  type PoVenueCrewMember,
   type PoMyInvite,
   type PoSession,
   type PoProfile,
@@ -426,8 +435,13 @@ export function usePoGuests(eventId: string) {
         fetchPoGuests(client, eventId),
         fetchTiers(client, eventId),
       ]);
-      const roleByTier = new Map(tiers.map((t) => [t.id, tierRole(t.name)]));
-      return guests.map((g) => toPoGuest(g, { role: roleByTier.get(g.tier_id) ?? 'Gast' }));
+      const tierById = new Map(tiers.map((t) => [t.id, t]));
+      return guests.map((g) =>
+        toPoGuest(g, {
+          role: tierRole(tierById.get(g.tier_id)?.name ?? ''),
+          tierName: tierById.get(g.tier_id)?.name,
+        }),
+      );
     },
   });
 }
@@ -451,10 +465,11 @@ export function useVenueGuests(events: PoEvent[]) {
         fetchVenueGuests(client, eventIds),
         fetchVenueTiers(client, eventIds),
       ]);
-      const roleByTier = new Map(tiers.map((t) => [t.id, tierRole(t.name)]));
+      const tierById = new Map(tiers.map((t) => [t.id, t]));
       return guests.map((g) =>
         toPoGuest(g, {
-          role: roleByTier.get(g.tier_id) ?? 'Gast',
+          role: tierRole(tierById.get(g.tier_id)?.name ?? ''),
+          tierName: tierById.get(g.tier_id)?.name,
           eventId: g.event_id,
           eventName: nameById.get(g.event_id) ?? '',
         }),
@@ -655,6 +670,54 @@ export function usePoInfluencers() {
   });
 }
 
+// ── Promotion dashboard (Requests-epic F2, 86ey6b3fe — S15) ──
+// The RPCs self-guard on role (admin/finance/organizer); everyone else gets [].
+
+export type PromoRange = '30' | '90' | 'all';
+
+/** now − N days as ISO, or null for the all-time window. Computed at fetch time
+ *  (inside queryFn) so a cached key doesn't freeze the window edge. */
+function promoRangeFrom(range: PromoRange): string | null {
+  if (range === 'all') return null;
+  const days = range === '30' ? 30 : 90;
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+/** Every request link on one event with its full funnel (overview + section 2). */
+export function usePoLinkFunnel(eventId: string) {
+  return useQuery<PoLinkFunnelRow[]>({
+    queryKey: poKeys.linkFunnel(eventId),
+    enabled: !!eventId,
+    queryFn: () => fetchEventLinkFunnel(createClient(), eventId),
+  });
+}
+
+/** The venue-wide influencer leaderboard for a range (checked-in desc). */
+export function usePoPromoLeaderboard(range: PromoRange) {
+  const { venueId } = usePoIdentity();
+  return useQuery<PoLeaderboardRow[]>({
+    queryKey: poKeys.promoLeaderboard(venueId ?? '', range),
+    enabled: !!venueId,
+    queryFn: () =>
+      venueId
+        ? fetchInfluencerLeaderboard(createClient(), venueId, promoRangeFrom(range))
+        : Promise.resolve([]),
+  });
+}
+
+/** Label-only (unattributed) links across the venue for a range. */
+export function usePoPromoLabelFunnel(range: PromoRange) {
+  const { venueId } = usePoIdentity();
+  return useQuery<PoLabelFunnelRow[]>({
+    queryKey: poKeys.promoLabelFunnel(venueId ?? '', range),
+    enabled: !!venueId,
+    queryFn: () =>
+      venueId
+        ? fetchVenueLabelFunnel(createClient(), venueId, promoRangeFrom(range))
+        : Promise.resolve([]),
+  });
+}
+
 // ── Address book reads (S3 Adresboek + Import, STAP 3.4/3.8) ──
 // Scope to the active venue; RLS limits direct contacts reads to admin / finance /
 // organizer, so staff/doorhost get [] and the screen renders its empty state.
@@ -765,7 +828,8 @@ export function usePoTeam() {
   });
 }
 
-/** Open invitations for the active venue. */
+/** The venue's invitations — pending, expired AND accepted, so the Team screen
+ *  shows an accepted-status per invite (T8). */
 export function usePoInvites() {
   const { venueId } = usePoIdentity();
   return useQuery<PoInvite[]>({
@@ -773,8 +837,23 @@ export function usePoInvites() {
     enabled: !!venueId,
     queryFn: async () => {
       if (!venueId) return [];
-      const rows = await fetchPendingInvites(createClient(), venueId);
-      return rows.map(toPoInvite);
+      const rows = await fetchVenueInvites(createClient(), venueId);
+      return rows.map((r) => toPoInvite(r));
+    },
+  });
+}
+
+/** Venue-wide external crew (event-scoped organizers, deduped, members
+ *  excluded) — the Team screen's second section (T8). */
+export function usePoVenueCrew() {
+  const { venueId } = usePoIdentity();
+  return useQuery<PoVenueCrewMember[]>({
+    queryKey: poKeys.venueCrew(venueId ?? ''),
+    enabled: !!venueId,
+    queryFn: async () => {
+      if (!venueId) return [];
+      const rows = await fetchVenueCrew(createClient(), venueId);
+      return rows.map(toPoVenueCrewMember);
     },
   });
 }

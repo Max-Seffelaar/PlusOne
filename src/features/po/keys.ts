@@ -25,6 +25,9 @@ export const poKeys = {
   // team-member pool for the "add an existing member" path. Both key on the event.
   crew: (eventId: string) => [...poKeys.all, 'crew', eventId] as const,
   assignableCrew: (eventId: string) => [...poKeys.all, 'assignable-crew', eventId] as const,
+  /** Venue-wide external crew (Team screen section 2, T8). Crew mutations key on
+   *  the event, so they invalidate the ['po','venue-crew'] PREFIX. */
+  venueCrew: (venueId: string) => [...poKeys.all, 'venue-crew', venueId] as const,
   /** Live event-day stats (per-quarter instroom + peak) for the cockpit (S13). */
   eventStats: (eventId: string) => [...poKeys.all, 'event-stats', eventId] as const,
   /** Active check-in arrivals per guest (actual present koppen + partial) — cockpit (S13). */
@@ -75,4 +78,12 @@ export const poKeys = {
   requestLinks: (eventId: string) => [...poKeys.all, 'request-links', eventId] as const,
   venueLinks: (venueId: string) => [...poKeys.all, 'venue-links', venueId] as const,
   influencers: (venueId: string) => [...poKeys.all, 'influencers', venueId] as const,
+  // Promotion dashboard (F2, 86ey6b3fe) — the per-event link funnel plus the two
+  // venue-wide range-scoped reads (leaderboard + label-only links). Link writes
+  // invalidate the ['po','link-funnel'] / ['po','promo'] prefixes.
+  linkFunnel: (eventId: string) => [...poKeys.all, 'link-funnel', eventId] as const,
+  promoLeaderboard: (venueId: string, range: string) =>
+    [...poKeys.all, 'promo', venueId, 'leaderboard', range] as const,
+  promoLabelFunnel: (venueId: string, range: string) =>
+    [...poKeys.all, 'promo', venueId, 'labels', range] as const,
 } as const;

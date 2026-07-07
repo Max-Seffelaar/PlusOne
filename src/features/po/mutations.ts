@@ -72,6 +72,7 @@ import {
   assignOrganizer,
   inviteExternalCrew,
   removeOrganizer,
+  resendCrewInvite,
   setEventUserQuota,
 } from '@/features/events/actions';
 import type {
@@ -104,6 +105,8 @@ import {
   updateInfluencer,
   createRequestLink,
   updateRequestLink,
+  rotateInfluencerStatsToken,
+  revokeInfluencerStatsToken,
 } from '@/features/links/actions';
 import type {
   CreateInfluencerInput,
@@ -111,7 +114,7 @@ import type {
   CreateRequestLinkInput,
   UpdateRequestLinkInput,
 } from '@/features/links/schemas';
-import { inviteUserAction, revokeInviteAction, acceptInvitesAction } from '@/features/auth/invite-actions';
+import { inviteUserAction, revokeInviteAction, resendInviteAction, acceptInvitesAction } from '@/features/auth/invite-actions';
 import { updateProfileAction, updateEmailAction } from '@/features/auth/profile-actions';
 import { revokeOwnSessionAction, adminRevokeSessionAction } from '@/features/auth/session-actions';
 import { updateMemberRolesAction, removeMemberAction, updateVenueSettingsAction } from '@/features/venues/actions';
@@ -879,6 +882,9 @@ export function usePoCreateTemplateFromEvent() {
 function invalidateCrew(qc: QueryClient, eventId: string): void {
   void qc.invalidateQueries({ queryKey: poKeys.crew(eventId) });
   void qc.invalidateQueries({ queryKey: poKeys.assignableCrew(eventId) });
+  // The venue-wide crew section on the Team screen (T8) — prefix, since crew
+  // mutations key on the event and don't know the venue id.
+  void qc.invalidateQueries({ queryKey: [...poKeys.all, 'venue-crew'] });
 }
 
 /** Add a returning external person as crew of an event, with a guest quota. */
@@ -921,6 +927,16 @@ export function usePoRemoveCrew(eventId: string) {
   });
 }
 
+/** Re-mail an external crew member their login link (T8). Access was already
+ *  granted, so nothing changes server-side — no invalidation needed. */
+export function usePoResendCrewInvite() {
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (userId: string) =>
+      throwOnError(await resendCrewInvite({ venueId: venueId ?? '', userId })),
+  });
+}
+
 // ── Request links + influencers (Requests-epic F1, 86ey21vjt) ──
 // Wrap the src/features/links server actions (RLS: admin manages influencers,
 // admin/organizer manage links on their event). A link write refreshes the
@@ -931,22 +947,39 @@ export function usePoRemoveCrew(eventId: string) {
 const REQUEST_LINKS_PREFIX = [...poKeys.all, 'request-links'] as const;
 const VENUE_LINKS_PREFIX = [...poKeys.all, 'venue-links'] as const;
 const INFLUENCERS_PREFIX = [...poKeys.all, 'influencers'] as const;
+// Promotion dashboard reads (F2): the per-event funnel + the venue-wide
+// leaderboard/label sections re-read after any link/influencer write.
+const LINK_FUNNEL_PREFIX = [...poKeys.all, 'link-funnel'] as const;
+const PROMO_PREFIX = [...poKeys.all, 'promo'] as const;
 
 function invalidateLinks(qc: QueryClient, eventId?: string): void {
-  if (eventId) void qc.invalidateQueries({ queryKey: poKeys.requestLinks(eventId) });
-  else void qc.invalidateQueries({ queryKey: REQUEST_LINKS_PREFIX });
+  if (eventId) {
+    void qc.invalidateQueries({ queryKey: poKeys.requestLinks(eventId) });
+    void qc.invalidateQueries({ queryKey: poKeys.linkFunnel(eventId) });
+  } else {
+    void qc.invalidateQueries({ queryKey: REQUEST_LINKS_PREFIX });
+    void qc.invalidateQueries({ queryKey: LINK_FUNNEL_PREFIX });
+  }
   void qc.invalidateQueries({ queryKey: VENUE_LINKS_PREFIX });
   void qc.invalidateQueries({ queryKey: INFLUENCERS_PREFIX });
+  void qc.invalidateQueries({ queryKey: PROMO_PREFIX });
 }
 
-/** Create a request link on an event (server generates the slug). Returns the id. */
+/** What a link create hands back to the UI: the row id (for the highlight) and
+ *  the server-generated slug (the done-step shows the live URL immediately). */
+export interface CreatedLink {
+  id?: string;
+  slug?: string;
+}
+
+/** Create a request link on an event (server generates the slug). */
 export function usePoCreateLink(eventId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: CreateRequestLinkInput): Promise<string | undefined> => {
+    mutationFn: async (input: CreateRequestLinkInput): Promise<CreatedLink> => {
       const res = await createRequestLink(input);
       if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
-      return res.id;
+      return { id: res.id, slug: res.slug };
     },
     onSuccess: () => invalidateLinks(qc, eventId),
   });
@@ -995,6 +1028,30 @@ export function usePoUpdateInfluencer() {
   });
 }
 
+/** Mint / rotate an influencer's private stats-page token (F2, /i/[token]).
+ *  Returns the bearer token ONCE — only its sha256 lands in the database, so the
+ *  sheet must show the URL immediately and never again. Admin-only via RLS. */
+export function usePoRotateStatsToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (influencerId: string): Promise<string> => {
+      const res = await rotateInfluencerStatsToken(influencerId);
+      if (!res.ok) throw new Error(res.message ?? 'Er ging iets mis.');
+      return res.token;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: INFLUENCERS_PREFIX }),
+  });
+}
+
+/** Revoke an influencer's stats URL — their /i/[token] page goes generically dead. */
+export function usePoRevokeStatsToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (influencerId: string) => throwOnError(await revokeInfluencerStatsToken(influencerId)),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: INFLUENCERS_PREFIX }),
+  });
+}
+
 // ── Settings cluster writes (STAP 3.7/3.8) ──
 
 export interface PoInviteInput {
@@ -1034,6 +1091,21 @@ export function usePoRevokeInvite() {
       const fd = new FormData();
       fd.set('inviteId', inviteId);
       return throwOnActionError(await revokeInviteAction(NO_PREV, fd));
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.invites(venueId ?? '') }),
+  });
+}
+
+/** Resend a pending/expired invite (T8): fresh 7-day expiry + a new e-mail.
+ *  Invalidates the invite list so an expired invite flips back to pending. */
+export function usePoResendInvite() {
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (inviteId: string) => {
+      const fd = new FormData();
+      fd.set('inviteId', inviteId);
+      return throwOnActionError(await resendInviteAction(NO_PREV, fd));
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.invites(venueId ?? '') }),
   });

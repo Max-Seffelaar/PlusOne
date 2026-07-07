@@ -6,14 +6,25 @@ import type { DoorView } from '../model';
 import type { DoorGuest } from '../model';
 
 // ── Mock the door context so we can feed a 1500-guest view without a provider ──
+// listFilters/setListFilters mirror the provider contract with a real useState
+// (called inside the component render, so hook rules hold) — typing in the
+// search box must still re-render the list.
 const view: { current: DoorView | null } = { current: null };
-vi.mock('../DoorProvider', () => ({
-  useDoor: () => ({
-    view: view.current,
-    outboxByGuest: new Map(),
-    undoRefusal: vi.fn(),
-  }),
-}));
+vi.mock('../DoorProvider', async () => {
+  const { useState } = await import('react');
+  return {
+    useDoor: () => {
+      const [listFilters, setFilters] = useState({ q: '', f: 'both' as const, tierIds: new Set<string>() });
+      return {
+        view: view.current,
+        outboxByGuest: new Map(),
+        undoRefusal: vi.fn(),
+        listFilters,
+        setListFilters: (patch: Partial<typeof listFilters>) => setFilters((prev) => ({ ...prev, ...patch })),
+      };
+    },
+  };
+});
 
 // Import AFTER the mock so the component picks up the mocked useDoor.
 import { CheckInList } from './CheckInList';

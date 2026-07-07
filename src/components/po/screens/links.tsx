@@ -385,7 +385,7 @@ function LinkSheet({
       if (!link) {
         const infName =
           whoKind === 'new' ? newName.trim() : influencers.find((i) => i.id === influencerId)?.name ?? '';
-        const newId = await createLink.mutateAsync({
+        const created = await createLink.mutateAsync({
           eventId,
           influencerId,
           label: labelVal,
@@ -395,7 +395,7 @@ function LinkSheet({
           autoApprove,
           expiresAt: expiresAt ?? undefined,
         });
-        onSaved(newId);
+        onSaved(created.id);
       } else {
         await update.mutateAsync({
           linkId: link.id,

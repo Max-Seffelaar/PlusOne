@@ -108,6 +108,10 @@ const Influencers = dynamic(() => import('./screens/influencers').then((m) => m.
   loading: ScreenLoading,
   ssr: false,
 });
+const Promo = dynamic(() => import('./screens/promo').then((m) => m.Promo), {
+  loading: ScreenLoading,
+  ssr: false,
+});
 // Desktop Deur view (T9 fold): the Event-dag cockpit, previously the standalone
 // /eventday route, now renders INSIDE the shell as the ≥1024px variant of the
 // Door tab. Lazy — mobile/door-only visitors never pull the cockpit chunk; the
@@ -594,6 +598,9 @@ export function PlusOneApp({
       case 'influencers':
         screen = <Influencers />;
         break;
+      case 'promo':
+        screen = <Promo />;
+        break;
       default:
         screen = null;
     }
@@ -636,7 +643,7 @@ export function PlusOneApp({
   // Signed-in: responsive shell — desktop sidebar ≥1024px, mobile tabs below it
   // (S0 nav-shell). Screens are unchanged for now; wired live per S1+.
   // Pushed screens that are also top-level nav items keep that item highlighted.
-  const NAV_PUSHED = new Set(['stats', 'gebruikers', 'aanvragen']);
+  const NAV_PUSHED = new Set(['stats', 'gebruikers', 'aanvragen', 'promo']);
   const currentKey = (top && NAV_PUSHED.has(top.name)) ? top.name : tab;
   const caps = venueCapabilities(roles);
   const canViewStats = (statsAccess?.venues.length ?? 0) > 0;
@@ -656,6 +663,9 @@ export function PlusOneApp({
       : []),
     ...(canViewStats
       ? ([{ key: 'stats', section: 'more', label: t.nav.analytics, icon: 'spark', active: currentKey === 'stats', onClick: () => nav.push('stats') }] as ShellNavItem[])
+      : []),
+    ...(canViewStats
+      ? ([{ key: 'promo', section: 'more', label: t.nav.promotion, icon: 'link', active: currentKey === 'promo', onClick: () => nav.push('promo') }] as ShellNavItem[])
       : []),
     ...(caps.viewTeam
       ? ([{ key: 'gebruikers', section: 'more', label: t.nav.team, icon: 'users', active: currentKey === 'gebruikers', onClick: () => nav.push('gebruikers') }] as ShellNavItem[])
@@ -719,7 +729,14 @@ export function PlusOneApp({
   // Wide desktop screens (home dashboard, guest table, stats charts, audit table)
   // opt into the full content width; every other screen keeps the reading column.
   const activeScreen = top?.name ?? tab;
-  const desktopMainMax = WIDE_DESKTOP.has(activeScreen) ? 'max-w-[1080px]' : 'max-w-[640px]';
+  // Promotion (S15) is a single centered 760px column by design — between the
+  // reading column and the full dashboard width.
+  const desktopMainMax =
+    activeScreen === 'promo'
+      ? 'max-w-[820px]'
+      : WIDE_DESKTOP.has(activeScreen)
+        ? 'max-w-[1080px]'
+        : 'max-w-[640px]';
 
   return (
     <PoProvider value={po}>

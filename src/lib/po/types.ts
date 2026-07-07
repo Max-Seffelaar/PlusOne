@@ -44,6 +44,11 @@ export interface Guest {
   id: string;
   name: string;
   role: Role;
+  /** Real guest_tiers identity (live data; absent in the mock). The role badge
+   *  above is a lossy taxonomy — two "vip"-ish tiers collapse to the same Role —
+   *  so anything that filters/groups/labels by tier must use these instead. */
+  tierId?: string;
+  tierName?: string;
   pay: PayStatus;
   plus: number;
   note: string;

@@ -9,6 +9,8 @@ import { templates } from './surfaces/templates';
 import { onboarding } from './surfaces/onboarding';
 import { requests } from './surfaces/requests';
 import { links } from './surfaces/links';
+import { promo } from './surfaces/promo';
+import { influencerStats } from './surfaces/influencerstats';
 import { audit } from './surfaces/audit';
 import { analytics } from './surfaces/analytics';
 import { auth } from './surfaces/auth';
@@ -38,6 +40,8 @@ export const t = {
   onboarding,
   requests,
   links,
+  promo,
+  influencerStats,
   audit,
   analytics,
   auth,
