@@ -19,6 +19,7 @@ import {
   rolesLabel,
   toPoTeamMember,
   toPoInvite,
+  toPoVenueCrewMember,
   toPoSession,
   groupPoSessions,
   toPoProfile,
@@ -34,6 +35,7 @@ import type {
   RecapGuestRow,
   PoMemberRow,
   PoInviteRow,
+  PoVenueCrewRow,
   PoSessionRow,
   PoProfileRow,
   PoVenueSettingsRow,
@@ -647,11 +649,55 @@ describe('toPoInvite', () => {
     roles: ['doorhost'],
     expires_at: '2025-01-10T12:00:00Z',
     created_at: '2024-12-03T12:00:00Z',
+    accepted_at: null,
   };
+  const before = Date.parse('2025-01-01T12:00:00Z');
+  const after = Date.parse('2025-02-01T12:00:00Z');
+
   it('formats the sent date (Amsterdam) and labels roles', () => {
-    const iv = toPoInvite(row);
+    const iv = toPoInvite(row, before);
     expect(iv).toMatchObject({ id: 'i1', email: 'nieuw@venue.nl', roles: ['doorhost'], rolesLabel: 'Door host' });
     expect(iv.sentAt).toBe('3 Dec');
+  });
+
+  // T8: the status drives the Team screen's accepted/expired chips + resend.
+  it('derives pending / expired / accepted', () => {
+    expect(toPoInvite(row, before).status).toBe('pending');
+    expect(toPoInvite(row, after).status).toBe('expired');
+    // Accepted wins, even past the expiry date.
+    expect(toPoInvite({ ...row, accepted_at: '2025-01-05T12:00:00Z' }, after).status).toBe('accepted');
+  });
+});
+
+describe('toPoVenueCrewMember', () => {
+  const row: PoVenueCrewRow = {
+    user_id: 'u1',
+    full_name: 'Yusuf Demir',
+    email: 'organizer@plusone.test',
+    event_names: ['Launch Night', 'NYE', 'Spring Break'],
+    terms_accepted_at: null,
+  };
+
+  it('labels events as "first +N" and flags a never-logged-in crew invite', () => {
+    const cm = toPoVenueCrewMember(row);
+    expect(cm).toMatchObject({
+      userId: 'u1',
+      name: 'Yusuf Demir',
+      eventsLabel: 'Launch Night +2',
+      eventCount: 3,
+      hasAccepted: false,
+    });
+  });
+
+  it('single event shows plain; a first login (terms accepted) flips hasAccepted', () => {
+    const cm = toPoVenueCrewMember({
+      ...row,
+      event_names: ['Launch Night'],
+      terms_accepted_at: '2026-07-01T10:00:00Z',
+    });
+    expect(cm.eventsLabel).toBe('Launch Night');
+    expect(cm.eventCount).toBe(1);
+    expect(cm.hasAccepted).toBe(true);
   });
 });
 

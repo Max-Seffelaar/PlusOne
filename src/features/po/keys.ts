@@ -25,6 +25,9 @@ export const poKeys = {
   // team-member pool for the "add an existing member" path. Both key on the event.
   crew: (eventId: string) => [...poKeys.all, 'crew', eventId] as const,
   assignableCrew: (eventId: string) => [...poKeys.all, 'assignable-crew', eventId] as const,
+  /** Venue-wide external crew (Team screen section 2, T8). Crew mutations key on
+   *  the event, so they invalidate the ['po','venue-crew'] PREFIX. */
+  venueCrew: (venueId: string) => [...poKeys.all, 'venue-crew', venueId] as const,
   /** Live event-day stats (per-quarter instroom + peak) for the cockpit (S13). */
   eventStats: (eventId: string) => [...poKeys.all, 'event-stats', eventId] as const,
   /** Active check-in arrivals per guest (actual present koppen + partial) — cockpit (S13). */

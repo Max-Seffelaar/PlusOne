@@ -25,6 +25,7 @@ import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import {
   usePoTeam,
   usePoInvites,
+  usePoVenueCrew,
   usePoSessions,
   usePoProfile,
   usePoVenueSettings,
@@ -38,6 +39,8 @@ import {
   usePoInviteUser,
   usePoInviteExternalCrew,
   usePoRevokeInvite,
+  usePoResendInvite,
+  usePoResendCrewInvite,
   usePoUpdateMemberRoles,
   usePoRemoveMember,
   usePoSetDefaultQuota,
@@ -273,10 +276,13 @@ export function Gebruikers(): JSX.Element {
 
   const team = usePoTeam();
   const invitesQ = usePoInvites();
+  const crewQ = usePoVenueCrew();
   const eventsQ = usePoEvents();
   const inviteUser = usePoInviteUser();
   const inviteCrew = usePoInviteExternalCrew();
   const revokeInvite = usePoRevokeInvite();
+  const resendInvite = usePoResendInvite();
+  const resendCrew = usePoResendCrewInvite();
   const mfa = useMfaGate();
 
   const [invite, setInvite] = useState(false);
@@ -509,13 +515,17 @@ export function Gebruikers(): JSX.Element {
 
   // ── List view ──
   const teamCount = team.data?.length ?? 0;
+  const crewCount = crewQ.data?.length ?? 0;
   const inviteCount = invitesQ.data?.length ?? 0;
+  // "Open" in the header = not yet accepted (the list itself also shows
+  // accepted invites, with their status, per T8).
+  const openInviteCount = (invitesQ.data ?? []).filter((iv) => iv.status !== 'accepted').length;
   return (
     <div className={col}>
       <Top
         onBack={nav.back}
         title={t.settings.team.title}
-        sub={fmt(teamCount === 1 ? t.settings.team.subOne : t.settings.team.subMany, { count: teamCount, open: inviteCount })}
+        sub={fmt(teamCount === 1 ? t.settings.team.subOne : t.settings.team.subMany, { count: teamCount, open: openInviteCount })}
         right={caps.manageTeam && !billingLock.blocked ? <IconBtn name="plus" onClick={startInvite} /> : undefined}
       />
       <Scroll bottom={24}>
@@ -592,41 +602,100 @@ export function Gebruikers(): JSX.Element {
             })}
           </div>
         )}
-        <Label className="mb-[10px]">{t.settings.team.invitesLabel}</Label>
+        {/* External crew — event-scoped people, venue-wide (T8). Read for every
+            viewTeam role; the resend is admin-only, mirroring all crew writes. */}
+        <Label className="mb-[10px]">{t.settings.team.crewLabel}</Label>
+        {crewQ.isLoading ? (
+          <Loading />
+        ) : crewQ.isError ? (
+          <Empty text={t.settings.team.crewLoadError} />
+        ) : crewCount === 0 ? (
+          <Empty text={t.settings.team.crewEmpty} />
+        ) : (
+          <div className="mb-5 flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px]">
+            {(crewQ.data ?? []).map((cm) => {
+              const busy = resendCrew.isPending && resendCrew.variables === cm.userId;
+              const sent = resendCrew.isSuccess && resendCrew.variables === cm.userId;
+              return (
+                <div key={cm.userId} className="flex items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[13px]">
+                  <Avatar name={cm.name} size={42} />
+                  <div className="min-w-0 flex-1">
+                    <div className="font-display text-[15px] font-bold text-text">{cm.name}</div>
+                    <div className="mt-0.5 truncate text-[12px] text-faint">
+                      {fmt(t.settings.team.crewOn, { events: cm.eventsLabel })}
+                    </div>
+                    {!cm.hasAccepted && (
+                      <div className="mt-0.5 text-[12px] font-semibold text-acc">{t.settings.team.crewPending}</div>
+                    )}
+                  </div>
+                  {!cm.hasAccepted && callerIsAdmin && (
+                    <MiniChip onClick={() => resendCrew.mutate(cm.userId)}>
+                      {busy ? t.settings.team.resending : sent ? t.settings.team.resent : t.settings.team.resend}
+                    </MiniChip>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <FormError error={resendCrew.isError ? resendCrew.error : null} />
+
+        <Label className="mb-[10px] mt-5">{t.settings.team.invitesLabel}</Label>
         {invitesQ.isLoading ? (
           <Loading />
         ) : inviteCount === 0 ? (
           <Empty text={t.settings.team.invitesEmpty} />
         ) : (
           <div className="flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px]">
-            {(invitesQ.data ?? []).map((iv) => (
-              <div key={iv.id} className="flex items-center gap-[12px] rounded-[16px] border border-dashed border-line bg-elev p-[13px]">
-                <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[13px] border border-line bg-elev2 text-faint">
-                  <Icon name="contact" size={18} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="overflow-hidden text-ellipsis whitespace-nowrap font-body text-[14px] font-semibold text-text">{iv.email}</div>
-                  <div className="mt-0.5 text-[12px] text-faint">
-                    {fmt(t.settings.team.invitedRoles, { roles: iv.rolesLabel, when: iv.sentAt })}
+            {(invitesQ.data ?? []).map((iv) => {
+              const accepted = iv.status === 'accepted';
+              const resendBusy = resendInvite.isPending && resendInvite.variables === iv.id;
+              const resendDone = resendInvite.isSuccess && resendInvite.variables === iv.id;
+              return (
+                <div key={iv.id} className="flex items-center gap-[12px] rounded-[16px] border border-dashed border-line bg-elev p-[13px]">
+                  <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[13px] border border-line bg-elev2 text-faint">
+                    <Icon name={accepted ? 'check' : 'contact'} size={18} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="overflow-hidden text-ellipsis whitespace-nowrap font-body text-[14px] font-semibold text-text">{iv.email}</div>
+                    <div className="mt-0.5 text-[12px] text-faint">
+                      {iv.status === 'expired' && (
+                        <span className="font-semibold text-red-300">{t.settings.team.statusExpired} · </span>
+                      )}
+                      {fmt(t.settings.team.invitedRoles, { roles: iv.rolesLabel, when: iv.sentAt })}
+                    </div>
                   </div>
+                  {accepted ? (
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-[9px] border border-acc/40 bg-acc/10 px-2 py-[5px] font-body text-[12px] font-semibold text-acc">
+                      <Icon name="check" size={13} sw={2.6} />
+                      {t.settings.team.statusAccepted}
+                    </span>
+                  ) : (
+                    caps.manageTeam && (
+                      <div className="flex shrink-0 items-center gap-[6px]">
+                        <MiniChip onClick={() => resendInvite.mutate(iv.id)}>
+                          {resendBusy ? t.settings.team.resending : resendDone ? t.settings.team.resent : t.settings.team.resend}
+                        </MiniChip>
+                        <MiniChip
+                          onClick={() => {
+                            // AAL1 → open the MFA step-up sheet and retry the revoke after.
+                            const doRevoke = (): void =>
+                              revokeInvite.mutate(iv.id, { onError: (e) => mfa.guard(e, doRevoke) });
+                            doRevoke();
+                          }}
+                        >
+                          {revokeInvite.isPending && revokeInvite.variables === iv.id ? t.settings.team.revoking : t.settings.team.revoke}
+                        </MiniChip>
+                      </div>
+                    )
+                  )}
                 </div>
-                {caps.manageTeam && (
-                  <MiniChip
-                    onClick={() => {
-                      // AAL1 → open the MFA step-up sheet and retry the revoke after.
-                      const doRevoke = (): void =>
-                        revokeInvite.mutate(iv.id, { onError: (e) => mfa.guard(e, doRevoke) });
-                      doRevoke();
-                    }}
-                  >
-                    {revokeInvite.isPending && revokeInvite.variables === iv.id ? t.settings.team.revoking : t.settings.team.revoke}
-                  </MiniChip>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
         <FormError error={revokeInvite.isError && !isAal2Error(revokeInvite.error) ? revokeInvite.error : null} />
+        <FormError error={resendInvite.isError ? resendInvite.error : null} />
       </Scroll>
       {sheetMember && <MemberSheet member={sheetMember} callerRoles={roles} onClose={() => setSheetMember(null)} />}
       {mfa.sheet}
