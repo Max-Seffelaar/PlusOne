@@ -13,11 +13,10 @@
  * behind a full-screen detail), NOT the po nav stack — the door owns its own
  * navigation inside its provider.
  */
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
-import { t, fmt } from '@/lib/i18n';
+import { t } from '@/lib/i18n';
 import { Toast } from '../shell';
-import { useNav } from '../context';
 import { EventRow, toBoardEvents } from '../event-row';
 import { useDoor } from '@/features/door/DoorProvider';
 import type { PoDoorEvent } from '@/features/po/door-event';
@@ -30,6 +29,9 @@ import { SyncBar } from '@/features/door/components/SyncBar';
 
 export type DoorOverlay = { kind: 'guest'; id: string } | { kind: 'add' } | null;
 
+// Stable empty override so the picker's board memo doesn't recompute per render.
+const NO_LOCK_OVERRIDE: Record<string, boolean> = {};
+
 /**
  * Event picker for the Deur/Taken tabs + the cockpit (S1.3). The door surfaces no
  * longer auto-pick when several events are live/open: the user first chooses which
@@ -38,11 +40,12 @@ export type DoorOverlay = { kind: 'guest'; id: string } | { kind: 'add' } | null
  * so the menu stays visible while choosing.
  *
  * Renders the SAME EventRow card as the Home board (Max, 7 jul 2026 — one shared
- * component, ../event-row, so a card change shows up on both surfaces). The
- * `events` prop (door candidates: live/future only) stays the source of truth for
- * which events appear and in what order; the home-events bundle only enriches the
- * rows with counts/date/lock state. Open + the door icon both pick the event;
- * Requests/Edit push their screens like on Home.
+ * component, ../event-row, so a card change shows up on both surfaces) but in
+ * pick-only form: no requests/settings/lock buttons and no clickable counts —
+ * in this context EVERY click must lead to the door, never to the event
+ * settings (Max, 7 jul 2026 follow-up). The `events` prop (door candidates:
+ * live/future only) stays the source of truth for which events appear and in
+ * what order; the home-events bundle only enriches the rows with counts/dates.
  */
 export function DoorEventPicker({
   events,
@@ -55,33 +58,22 @@ export function DoorEventPicker({
   title?: string;
   sub?: string;
 }): JSX.Element {
-  const nav = useNav();
   const eventsQ = usePoHomeEvents();
   const guestReqQ = usePoGuestRequests();
   const quotaReqQ = usePoQuotaRequests();
-  // Lock is optimistic-local, mirroring Home's card behaviour exactly.
-  const [lockOverride, setLockOverride] = useState<Record<string, boolean>>({});
-  const [toast, setToast] = useState<string | null>(null);
 
   const rows = useMemo(() => {
     const board = toBoardEvents(
       eventsQ.data?.events ?? [],
       guestReqQ.data ?? [],
       quotaReqQ.data ?? [],
-      lockOverride,
+      NO_LOCK_OVERRIDE,
       Date.now()
     );
     const byId = new Map(board.map((b) => [b.id, b]));
     // Candidate order wins (live first, then soonest — door-event.ts).
     return events.map((e) => byId.get(e.id)).filter((b): b is NonNullable<typeof b> => b != null);
-  }, [events, eventsQ.data, guestReqQ.data, quotaReqQ.data, lockOverride]);
-
-  const onLock = (e: { id: string; locked: boolean; name: string }): void => {
-    const next = !e.locked;
-    setLockOverride((m) => ({ ...m, [e.id]: next }));
-    setToast(fmt(next ? t.home.toastListLocked : t.home.toastListOpen, { name: e.name }));
-    window.setTimeout(() => setToast(null), 2200);
-  };
+  }, [events, eventsQ.data, guestReqQ.data, quotaReqQ.data]);
 
   return (
     <div className="flex h-full flex-col">
@@ -96,16 +88,7 @@ export function DoorEventPicker({
           </div>
         ) : (
           rows.map((e) => (
-            <EventRow
-              key={e.id}
-              e={e}
-              showDoor
-              onOpen={() => onPick(e.id)}
-              onDoor={() => onPick(e.id)}
-              onReq={(tab) => nav.push('aanvragen', { id: e.id, tab })}
-              onEdit={() => nav.push('eventedit', { id: e.id })}
-              onLock={() => onLock(e)}
-            />
+            <EventRow key={e.id} e={e} showDoor={false} onOpen={() => onPick(e.id)} onDoor={() => onPick(e.id)} />
           ))
         )}
         {events.length === 0 && (
@@ -114,7 +97,6 @@ export function DoorEventPicker({
           </div>
         )}
       </div>
-      {toast && <Toast>{toast}</Toast>}
     </div>
   );
 }

@@ -209,6 +209,13 @@ function ActionBtn({
   );
 }
 
+/**
+ * The away-navigating affordances (requests inbox, event settings, lock) are
+ * OPTIONAL: a caller that omits the handler gets a card without that button.
+ * Home passes all of them (the full operations card); the door's event picker
+ * passes none — there, every click must lead to the door, never to the event
+ * settings (Max, 7 jul 2026).
+ */
 export function EventRow({
   e,
   showDoor,
@@ -222,15 +229,15 @@ export function EventRow({
   showDoor: boolean;
   onOpen: () => void;
   onDoor: () => void;
-  onReq: (tab: 'landing' | 'quota') => void;
-  onEdit: () => void;
-  onLock: () => void;
+  onReq?: (tab: 'landing' | 'quota') => void;
+  onEdit?: () => void;
+  onLock?: () => void;
 }): JSX.Element {
   const counts = (
     <div className="ev-counts flex shrink-0 flex-wrap gap-2 lg:items-center lg:gap-[26px]">
       <Count value={kfmt(e.onList)} label={t.home.cOnList} />
-      <Count value={e.requests} label={t.home.cRequests} action={e.requests > 0} onClick={() => onReq('landing')} />
-      <Count value={e.quota} label={t.home.cQuota} action={e.quota > 0} onClick={() => onReq('quota')} />
+      <Count value={e.requests} label={t.home.cRequests} action={e.requests > 0} onClick={onReq && (() => onReq('landing'))} />
+      <Count value={e.quota} label={t.home.cQuota} action={e.quota > 0} onClick={onReq && (() => onReq('quota'))} />
       {e.live && <Count value={`${e.inside} · ${e.turnout}%`} label={t.home.cInside} live />}
     </div>
   );
@@ -240,14 +247,16 @@ export function EventRow({
         {t.home.aOpen}
       </Btn>
       {showDoor && <ActionBtn icon="door" title={t.home.aDoor} onClick={onDoor} />}
-      <ActionBtn icon="inbox" title={t.home.aRequests} badge={e.requests} onClick={() => onReq('landing')} />
-      <ActionBtn icon="cog" title={t.home.aEdit} onClick={onEdit} />
-      <ActionBtn
-        icon="lock"
-        title={e.locked ? t.home.aUnlock : t.home.aLock}
-        on={e.locked}
-        onClick={onLock}
-      />
+      {onReq && <ActionBtn icon="inbox" title={t.home.aRequests} badge={e.requests} onClick={() => onReq('landing')} />}
+      {onEdit && <ActionBtn icon="cog" title={t.home.aEdit} onClick={onEdit} />}
+      {onLock && (
+        <ActionBtn
+          icon="lock"
+          title={e.locked ? t.home.aUnlock : t.home.aLock}
+          on={e.locked}
+          onClick={onLock}
+        />
+      )}
     </div>
   );
   const meta = (
