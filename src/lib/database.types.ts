@@ -1637,6 +1637,25 @@ export type Database = {
           headcount: number
         }[]
       }
+      event_link_funnel: {
+        Args: { p_event_id: string }
+        Returns: {
+          active: boolean
+          approved_heads: number
+          auto_approve: boolean
+          checked_in_heads: number
+          expires_at: string
+          influencer_id: string
+          influencer_name: string
+          is_default: boolean
+          label: string
+          link_id: string
+          max_headcount: number
+          requests: number
+          slug: string
+          views: number
+        }[]
+      }
       event_quota_status: {
         Args: { p_event_id: string }
         Returns: {
@@ -1698,6 +1717,10 @@ export type Database = {
       }
       event_venue: { Args: { p_event_id: string }; Returns: string }
       forget_contact: { Args: { p_contact_id: string }; Returns: Json }
+      get_influencer_stats: {
+        Args: { p_ip_hash: string; p_token_hash: string }
+        Returns: Json
+      }
       get_landing_event: {
         Args: { p_slug: string }
         Returns: {
@@ -1892,6 +1915,20 @@ export type Database = {
           registered_headcount: number
           starts_at: string
           status: Database["public"]["Enums"]["event_status"]
+        }[]
+      }
+      venue_influencer_leaderboard: {
+        Args: { p_from?: string; p_to?: string; p_venue_id: string }
+        Returns: {
+          approved_heads: number
+          checked_in_heads: number
+          events_count: number
+          handle: string
+          influencer_id: string
+          influencer_name: string
+          links_count: number
+          requests: number
+          views: number
         }[]
       }
       venue_refusal_reasons: {

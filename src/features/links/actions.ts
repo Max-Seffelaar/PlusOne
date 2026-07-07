@@ -1,5 +1,6 @@
 'use server';
 
+import { createHash, randomBytes } from 'node:crypto';
 import { createClient } from '@/lib/supabase/server';
 import type { Database } from '@/lib/database.types';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
@@ -148,4 +149,56 @@ export async function updateRequestLink(input: UpdateRequestLinkInput): Promise<
   const { error } = await supabase.from('request_links').update(patch).eq('id', linkId);
   if (error) return mapMutationError(error);
   return { ok: true, id: linkId };
+}
+
+/**
+ * Mint (or re-mint) the influencer's secret stats-URL token (F2, /i/[token]).
+ * The bearer token is generated here and returned ONCE; only its sha256 lands
+ * in the database (same stance as the guest status tokens). Rotating kills the
+ * previous URL. RLS bounds the update to venue admins; the write is audited by
+ * the influencers trigger.
+ */
+export async function rotateInfluencerStatsToken(
+  influencerId: string
+): Promise<{ ok: true; token: string } | MutationError> {
+  if (!/^[0-9a-f-]{36}$/i.test(influencerId)) return invalidInput();
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return unauthorized();
+
+  const token = randomBytes(32).toString('base64url');
+  const tokenHash = createHash('sha256').update(token).digest('hex');
+
+  const { data, error } = await supabase
+    .from('influencers')
+    .update({ stats_token_hash: tokenHash })
+    .eq('id', influencerId)
+    .select('id');
+  if (error) return mapMutationError(error);
+  // RLS silently matches nothing for non-admins — surface that as no-rights.
+  if (!data || data.length === 0) {
+    return { ok: false, code: '42501', message: "You don't have rights for this (or MFA is required)." };
+  }
+  return { ok: true, token };
+}
+
+/** Revoke the influencer's stats URL (the /i/[token] link goes generically dead). */
+export async function revokeInfluencerStatsToken(influencerId: string): Promise<LinkActionResult> {
+  if (!/^[0-9a-f-]{36}$/i.test(influencerId)) return invalidInput();
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return unauthorized();
+
+  const { error } = await supabase
+    .from('influencers')
+    .update({ stats_token_hash: null })
+    .eq('id', influencerId);
+  if (error) return mapMutationError(error);
+  return { ok: true, id: influencerId };
 }
