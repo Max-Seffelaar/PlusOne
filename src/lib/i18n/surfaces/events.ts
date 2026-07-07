@@ -71,10 +71,12 @@ export const events = {
   fieldEndDate: 'End date',
   fieldEnd: 'End',
   // Template picker (create-from-template, 86exyp8gn). "Start from" + "Blank
-  // event" make the blank-vs-seed choice explicit (T4, 1/7).
+  // event" make the blank-vs-seed choice explicit; chips collapse past 4 and
+  // the note says what YOU still fill in (T4, 1/7 + retest).
   fieldTemplate: 'Start from',
   templateBlank: 'Blank event',
-  templateNote: 'Tiers, capacity, and settings come from the template. Name and date stay yours.',
+  templateShowAll: 'Show all ({n})',
+  templateNote: 'Just give your event a name, date, and doors time — the tiers, capacity, and settings come from the template.',
   // "Tiers & aliases — feed the quick-add" was jargon to new users (T2, 1/7):
   // plain words for what you actually set up there.
   tiersRowTitle: 'Guest tiers',

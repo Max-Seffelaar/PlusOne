@@ -524,6 +524,9 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const [name, setName] = useState('');
   // Create-from-template (86exyp8gn): null = blank event (the existing path).
   const [templateId, setTemplateId] = useState<string | null>(null);
+  // Collapse the template chips past 4 — a venue with 10+ templates would drown
+  // the form otherwise (retest T4, Q4).
+  const [tplListExpanded, setTplListExpanded] = useState(false);
   const [dateStr, setDateStr] = useState('');
   const [timeStr, setTimeStr] = useState('');
   const [endDateStr, setEndDateStr] = useState('');
@@ -729,27 +732,48 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           </Note>
         )}
 
-        {isNew && isAdmin && (templates.data?.length ?? 0) > 0 && (
-          <>
-            <Label className="mb-2">{t.events.fieldTemplate}</Label>
-            <div className="mb-[14px] flex flex-wrap gap-2">
-              <TemplateChip label={t.events.templateBlank} active={!templateId} onClick={() => setTemplateId(null)} />
-              {(templates.data ?? []).map((tpl) => (
-                <TemplateChip
-                  key={tpl.id}
-                  label={tpl.name}
-                  active={templateId === tpl.id}
-                  onClick={() => setTemplateId(tpl.id)}
-                />
-              ))}
-            </div>
-            {templateId && (
-              <div className="mb-[14px]">
-                <Note icon="spark">{t.events.templateNote}</Note>
-              </div>
-            )}
-          </>
-        )}
+        {isNew &&
+          isAdmin &&
+          (templates.data?.length ?? 0) > 0 &&
+          ((): JSX.Element => {
+            const all = templates.data ?? [];
+            // Collapsed = first 4 (name-sorted), plus the selection if it lives
+            // further down so the active chip never disappears.
+            const shown = tplListExpanded ? all : all.slice(0, 4);
+            const selected = templateId ? all.find((tpl) => tpl.id === templateId) : undefined;
+            if (selected && !shown.some((tpl) => tpl.id === selected.id)) shown.push(selected);
+            const hidden = all.length - shown.length;
+            return (
+              <>
+                <Label className="mb-2">{t.events.fieldTemplate}</Label>
+                <div className="mb-[14px] flex flex-wrap gap-2">
+                  <TemplateChip label={t.events.templateBlank} active={!templateId} onClick={() => setTemplateId(null)} />
+                  {shown.map((tpl) => (
+                    <TemplateChip
+                      key={tpl.id}
+                      label={tpl.name}
+                      active={templateId === tpl.id}
+                      onClick={() => setTemplateId(tpl.id)}
+                    />
+                  ))}
+                  {hidden > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setTplListExpanded(true)}
+                      className="rounded-full border border-dashed border-line px-[13px] py-[7px] font-display text-[12.5px] font-bold text-faint transition-colors hover:brightness-110"
+                    >
+                      {fmt(t.events.templateShowAll, { n: all.length })}
+                    </button>
+                  )}
+                </div>
+                {templateId && (
+                  <div className="mb-[14px]">
+                    <Note icon="spark">{t.events.templateNote}</Note>
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
         <Label className="mb-2">{t.events.fieldName}</Label>
         <Field placeholder={t.events.namePlaceholder} value={name} onChange={writable ? setName : undefined} className="mb-[14px]" />
