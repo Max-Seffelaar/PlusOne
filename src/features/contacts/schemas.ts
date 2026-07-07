@@ -126,6 +126,15 @@ export const addContactToEventSchema = z.object({
 });
 export type AddContactToEventInput = z.input<typeof addContactToEventSchema>;
 
+/** Add many contacts to one event in one go — the post-import "add these people
+ *  to an event" step (#3). Optional tierId overrides the per-contact resolution. */
+export const addContactsToEventSchema = z.object({
+  eventId: uuid,
+  contactIds: z.array(uuid).min(1, 'No contacts to add').max(2000, 'Too many contacts'),
+  tierId: uuid.optional(),
+});
+export type AddContactsToEventInput = z.input<typeof addContactsToEventSchema>;
+
 /** Bulk import (paste / CSV / phone-contacts) into the address book (#10). */
 export const importContactsSchema = z.object({
   venueId: uuid,

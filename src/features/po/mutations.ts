@@ -32,6 +32,7 @@ import type { DecideQuotaRequestInput, QuotaRequestInput } from '@/features/quot
 import {
   importContacts,
   addContactToEvent,
+  addContactsToEvent,
   syncPermanentGuests,
   toggleContactPermanent,
   upsertContact,
@@ -39,11 +40,13 @@ import {
   promoteGuestToContact,
   markGuestRegular,
   type ImportResult,
+  type AddContactsToEventResult,
   type SyncResult,
 } from '@/features/contacts/actions';
 import type {
   ImportContactsInput,
   AddContactToEventInput,
+  AddContactsToEventInput,
   SyncPermanentInput,
   TogglePermanentInput,
   UpsertContactInput,
@@ -753,6 +756,22 @@ export function usePoImportContacts() {
   return useMutation<ImportResult, Error, ImportContactsInput>({
     mutationFn: async (input) => throwOnError(await importContacts(input)),
     onSuccess: () => invalidateContacts(qc, venueId),
+  });
+}
+
+/**
+ * Add a batch of just-imported contacts to one event in one step (#3). Idempotent
+ * + self-guarded admin/organizer in the RPC; returns {added, already, skipped}
+ * for the result card. Invalidates the target event's guest subtree like any add.
+ */
+export function usePoAddContactsToEvent() {
+  const qc = useQueryClient();
+  return useMutation<AddContactsToEventResult, Error, AddContactsToEventInput>({
+    mutationFn: async (input) => throwOnError(await addContactsToEvent(input)),
+    onSuccess: (_res, input) => {
+      invalidateAfterAdd(qc, input.eventId);
+      void qc.invalidateQueries({ queryKey: [...poKeys.all, 'contact-profile'] });
+    },
   });
 }
 
