@@ -219,6 +219,13 @@ export const removeOrganizerSchema = z.object({
 });
 export type RemoveOrganizerInput = z.input<typeof removeOrganizerSchema>;
 
+/** Resend an external crew member's login mail (T8) — venue-scoped. */
+export const resendCrewInviteSchema = z.object({
+  venueId: uuid,
+  userId: uuid,
+});
+export type ResendCrewInviteInput = z.input<typeof resendCrewInviteSchema>;
+
 /** Set (or clear) an external crew member's per-event guest quota. */
 export const setEventUserQuotaSchema = z.object({
   eventId: uuid,

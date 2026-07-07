@@ -35,7 +35,8 @@ import {
   fetchVenueMembers,
   fetchMemberQuotas,
   fetchVenueSettings,
-  fetchPendingInvites,
+  fetchVenueInvites,
+  fetchVenueCrew,
   fetchMyPendingInvites,
   fetchOwnSessions,
   fetchUserSessions,
@@ -83,6 +84,7 @@ import {
   tierRole,
   toPoTeamMember,
   toPoInvite,
+  toPoVenueCrewMember,
   toPoMyInvite,
   toPoSession,
   toPoProfile,
@@ -95,6 +97,7 @@ import {
   type PoRecap,
   type PoTeamMember,
   type PoInvite,
+  type PoVenueCrewMember,
   type PoMyInvite,
   type PoSession,
   type PoProfile,
@@ -771,7 +774,8 @@ export function usePoTeam() {
   });
 }
 
-/** Open invitations for the active venue. */
+/** The venue's invitations — pending, expired AND accepted, so the Team screen
+ *  shows an accepted-status per invite (T8). */
 export function usePoInvites() {
   const { venueId } = usePoIdentity();
   return useQuery<PoInvite[]>({
@@ -779,8 +783,23 @@ export function usePoInvites() {
     enabled: !!venueId,
     queryFn: async () => {
       if (!venueId) return [];
-      const rows = await fetchPendingInvites(createClient(), venueId);
-      return rows.map(toPoInvite);
+      const rows = await fetchVenueInvites(createClient(), venueId);
+      return rows.map((r) => toPoInvite(r));
+    },
+  });
+}
+
+/** Venue-wide external crew (event-scoped organizers, deduped, members
+ *  excluded) — the Team screen's second section (T8). */
+export function usePoVenueCrew() {
+  const { venueId } = usePoIdentity();
+  return useQuery<PoVenueCrewMember[]>({
+    queryKey: poKeys.venueCrew(venueId ?? ''),
+    enabled: !!venueId,
+    queryFn: async () => {
+      if (!venueId) return [];
+      const rows = await fetchVenueCrew(createClient(), venueId);
+      return rows.map(toPoVenueCrewMember);
     },
   });
 }
