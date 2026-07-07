@@ -234,6 +234,18 @@ export const setEventUserQuotaSchema = z.object({
 });
 export type SetEventUserQuotaInput = z.input<typeof setEventUserQuotaSchema>;
 
+/**
+ * Set an event's per-event default member quota (T10, 86ey4j1p5). This is the
+ * value the add-crew flow prefills; it is seeded from the venue default at event
+ * creation and then editable per event. Reuses the same 0..9999 bound as a crew
+ * quota override.
+ */
+export const setEventDefaultMemberQuotaSchema = z.object({
+  eventId: uuid,
+  quota: crewQuota,
+});
+export type SetEventDefaultMemberQuotaInput = z.input<typeof setEventDefaultMemberQuotaSchema>;
+
 // ── Event templates (86exyp8gn) ──────────────────────────────────────────────
 // A named, reusable per-event-type setup: a tier set + a hard total capacity +
 // default event settings, seeded onto a new event on create. Reuses the tier

@@ -6,6 +6,7 @@ import {
   createEventFromTemplateSchema,
   createTemplateFromEventSchema,
   createTierSchema,
+  setEventDefaultMemberQuotaSchema,
 } from './schemas';
 
 // Event templates (86exyp8gn) — the new Zod schemas gate every template input.
@@ -154,5 +155,23 @@ describe('createTemplateFromEventSchema', () => {
   it('rejects an empty name and a non-uuid event id', () => {
     expect(createTemplateFromEventSchema.safeParse({ eventId: EVENT, name: '  ' }).success).toBe(false);
     expect(createTemplateFromEventSchema.safeParse({ eventId: 'nope', name: 'X' }).success).toBe(false);
+  });
+});
+
+// Per-event default member quota (T10, 86ey4j1p5) ─────────────────────────────
+describe('setEventDefaultMemberQuotaSchema', () => {
+  it('accepts a whole quota of 0 and reasonable positives', () => {
+    expect(setEventDefaultMemberQuotaSchema.safeParse({ eventId: EVENT_ID, quota: 0 }).success).toBe(true);
+    expect(setEventDefaultMemberQuotaSchema.safeParse({ eventId: EVENT_ID, quota: 25 }).success).toBe(true);
+  });
+
+  it('rejects a negative, fractional, or absurdly large quota', () => {
+    expect(setEventDefaultMemberQuotaSchema.safeParse({ eventId: EVENT_ID, quota: -1 }).success).toBe(false);
+    expect(setEventDefaultMemberQuotaSchema.safeParse({ eventId: EVENT_ID, quota: 2.5 }).success).toBe(false);
+    expect(setEventDefaultMemberQuotaSchema.safeParse({ eventId: EVENT_ID, quota: 10000 }).success).toBe(false);
+  });
+
+  it('rejects a non-uuid event id', () => {
+    expect(setEventDefaultMemberQuotaSchema.safeParse({ eventId: 'nope', quota: 5 }).success).toBe(false);
   });
 });

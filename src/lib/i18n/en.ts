@@ -18,6 +18,7 @@ export const en = {
     home: 'Home',
     events: 'Events',
     guests: 'Guests',
+    contacts: 'Contacts',
     door: 'Door',
     checkin: 'Check-in',
     tasks: 'Tasks',

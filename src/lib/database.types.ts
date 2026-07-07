@@ -7,31 +7,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       audit_log: {
@@ -486,6 +461,7 @@ export type Database = {
           cancelled_at: string | null
           capacity: number | null
           created_at: string
+          default_member_quota: number
           ends_at: string | null
           id: string
           landing_active: boolean
@@ -506,6 +482,7 @@ export type Database = {
           cancelled_at?: string | null
           capacity?: number | null
           created_at?: string
+          default_member_quota: number
           ends_at?: string | null
           id?: string
           landing_active?: boolean
@@ -526,6 +503,7 @@ export type Database = {
           cancelled_at?: string | null
           capacity?: number | null
           created_at?: string
+          default_member_quota?: number
           ends_at?: string | null
           id?: string
           landing_active?: boolean
@@ -1709,13 +1687,13 @@ export type Database = {
         Args: { p_event_id: string }
         Returns: {
           added: number
-          added_headcount: number
           added_free_headcount: number
-          removed_headcount: number
+          added_headcount: number
           full_name: string
           present: number
-          present_headcount: number
           present_free_headcount: number
+          present_headcount: number
+          removed_headcount: number
           user_id: string
         }[]
       }
@@ -2127,9 +2105,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       contact_role: ["vip", "all_access", "artist", "press", "crew", "guest"],

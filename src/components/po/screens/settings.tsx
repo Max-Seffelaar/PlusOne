@@ -1197,21 +1197,39 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
         </div>
 
         <Label className="mb-[10px]">{t.settings.venue.companyLabel}</Label>
+        {/* Persistent per-field labels (T10): once a value is filled the placeholder
+            vanishes, so the label — not the placeholder — is what tells you the field. */}
+        <Label className="mb-2">{t.settings.venue.companyNameFieldLabel}</Label>
         <Field icon="building" value={form.companyName} onChange={editStr('companyName')} placeholder={t.settings.venue.companyNamePlaceholder} className="mb-[14px]" />
         {/* min-w-0 lets each field shrink below its content so the 2-col row never
             overflows the viewport at ≤390px (the btw-nummer overflow, S4.2). */}
         <div className="mb-[14px] flex gap-2">
-          <Field icon="grid" value={form.kvkNumber} onChange={editStr('kvkNumber', (v) => v.replace(/[^0-9]/g, '').slice(0, 8))} inputMode="numeric" placeholder={t.settings.venue.kvkPlaceholder} className="min-w-0 flex-1" />
-          <Field value={form.vatNumber} onChange={editStr('vatNumber')} placeholder={t.settings.venue.vatPlaceholder} className="min-w-0 flex-1" />
+          <div className="min-w-0 flex-1">
+            <Label className="mb-2">{t.settings.venue.kvkFieldLabel}</Label>
+            <Field icon="grid" value={form.kvkNumber} onChange={editStr('kvkNumber', (v) => v.replace(/[^0-9]/g, '').slice(0, 8))} inputMode="numeric" placeholder={t.settings.venue.kvkPlaceholder} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <Label className="mb-2">{t.settings.venue.vatFieldLabel}</Label>
+            <Field value={form.vatNumber} onChange={editStr('vatNumber')} placeholder={t.settings.venue.vatPlaceholder} />
+          </div>
         </div>
+        <Label className="mb-2">{t.settings.venue.billingEmailFieldLabel}</Label>
         <Field icon="mail" value={form.financeEmail} onChange={editStr('financeEmail')} inputMode="email" placeholder={t.settings.venue.billingEmailPlaceholder} className="mb-[18px]" />
 
         <Label className="mb-[10px]">{t.settings.venue.addressLabel}</Label>
+        <Label className="mb-2">{t.settings.venue.streetFieldLabel}</Label>
         <Field icon="pin" value={form.addressLine} onChange={editStr('addressLine')} placeholder={t.settings.venue.streetPlaceholder} className="mb-[14px]" />
         <div className="mb-[14px] flex gap-2">
-          <Field value={form.postalCode} onChange={editStr('postalCode')} placeholder={t.settings.venue.postalPlaceholder} className="min-w-0 flex-1" />
-          <Field value={form.city} onChange={editStr('city')} placeholder={t.settings.venue.cityPlaceholder} className="min-w-0 flex-[1.4]" />
+          <div className="min-w-0 flex-1">
+            <Label className="mb-2">{t.settings.venue.postalFieldLabel}</Label>
+            <Field value={form.postalCode} onChange={editStr('postalCode')} placeholder={t.settings.venue.postalPlaceholder} />
+          </div>
+          <div className="min-w-0 flex-[1.4]">
+            <Label className="mb-2">{t.settings.venue.cityFieldLabel}</Label>
+            <Field value={form.city} onChange={editStr('city')} placeholder={t.settings.venue.cityPlaceholder} />
+          </div>
         </div>
+        <Label className="mb-2">{t.settings.venue.countryFieldLabel}</Label>
         <Field value={form.country} onChange={editStr('country')} placeholder={t.settings.venue.countryPlaceholder} className="mb-1.5" />
 
         <FormError error={save.isError ? save.error : null} />
