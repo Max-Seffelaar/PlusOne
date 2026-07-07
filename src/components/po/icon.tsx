@@ -102,7 +102,7 @@ export const ROLE_ICON: Record<string, IconName> = {
   VIP: 'crown',
   'All Access': 'shield',
   Artist: 'star',
-  Pers: 'note',
+  Press: 'note',
   Crew: 'users',
-  Gast: 'user',
+  Guest: 'user',
 };

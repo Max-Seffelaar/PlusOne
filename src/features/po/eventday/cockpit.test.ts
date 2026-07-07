@@ -22,10 +22,10 @@ function g(partial: Partial<Guest> & { id: string }): Guest {
   return {
     id: partial.id,
     name: partial.name ?? 'Naam',
-    role: partial.role ?? 'Gast',
+    role: partial.role ?? 'Guest',
     // Live guests carry the real tier id; default it from the role so the
     // fixtures line up with tier()'s `tier-${role}` ids.
-    tierId: partial.tierId ?? `tier-${partial.role ?? 'Gast'}`,
+    tierId: partial.tierId ?? `tier-${partial.role ?? 'Guest'}`,
     tierName: partial.tierName,
     pay: 'free',
     plus: partial.plus ?? 0,
@@ -140,18 +140,18 @@ describe('cockpitCounts', () => {
 
 describe('perTierLive', () => {
   it('groups by tier id with present/registered koppen, drops empty tiers', () => {
-    const tiers = [tier('VIP', '#fff', 'VIP'), tier('Gast', '#aaa', 'Gast'), tier('Crew', '#0f0', 'Crew')];
+    const tiers = [tier('VIP', '#fff', 'VIP'), tier('Guest', '#aaa', 'Guest'), tier('Crew', '#0f0', 'Crew')];
     const guests = [
       g({ id: '1', role: 'VIP', status: 'in', plus: 1 }), // VIP 2 in / 2 aangemeld
-      g({ id: '2', role: 'Gast', status: 'wait', plus: 0 }), // Gast 0 in / 1 aangemeld
-      g({ id: '3', role: 'Gast', status: 'in', plus: 2 }), // Gast +3 in
+      g({ id: '2', role: 'Guest', status: 'wait', plus: 0 }), // Guest 0 in / 1 registered
+      g({ id: '3', role: 'Guest', status: 'in', plus: 2 }), // Guest +3 in
       g({ id: '4', role: 'VIP', status: 'refused', plus: 4 }), // excluded
     ];
     const rows = perTierLive(guests, tiers);
-    expect(rows.map((r) => r.tierId)).toEqual(['tier-VIP', 'tier-Gast']); // Crew has no guests → dropped
+    expect(rows.map((r) => r.tierId)).toEqual(['tier-VIP', 'tier-Guest']); // Crew has no guests → dropped
     const vip = rows.find((r) => r.tierId === 'tier-VIP')!;
     expect(vip).toMatchObject({ binnen: 2, aangemeld: 2, color: '#fff', tier: 'VIP', entries: 1 });
-    const gast = rows.find((r) => r.tierId === 'tier-Gast')!;
+    const gast = rows.find((r) => r.tierId === 'tier-Guest')!;
     expect(gast).toMatchObject({ binnen: 3, aangemeld: 4, entries: 2 });
   });
 
@@ -177,8 +177,8 @@ describe('perTierLive', () => {
 describe('filterCockpit', () => {
   const guests = [
     g({ id: '1', name: 'Juri Braakman', role: 'VIP', status: 'wait' }),
-    g({ id: '2', name: 'Sanne de Vries', role: 'Gast', status: 'in' }),
-    g({ id: '3', name: 'Refused Rick', role: 'Gast', status: 'refused' }),
+    g({ id: '2', name: 'Sanne de Vries', role: 'Guest', status: 'in' }),
+    g({ id: '3', name: 'Refused Rick', role: 'Guest', status: 'refused' }),
   ];
   it('always hides refused', () => {
     expect(filterCockpit(guests, 'all', 'all', '').map((x) => x.id)).toEqual(['1', '2']);

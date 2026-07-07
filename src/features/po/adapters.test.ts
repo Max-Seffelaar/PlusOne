@@ -163,10 +163,10 @@ describe('tierRole', () => {
     expect(tierRole('Artist')).toBe('Artist');
     expect(tierRole('All Access')).toBe('All Access');
     expect(tierRole('AA')).toBe('All Access');
-    expect(tierRole('Pers')).toBe('Pers');
-    expect(tierRole('Press')).toBe('Pers');
+    expect(tierRole('Pers')).toBe('Press');
+    expect(tierRole('Press')).toBe('Press');
     expect(tierRole('Crew')).toBe('Crew');
-    expect(tierRole('Regulier')).toBe('Gast');
+    expect(tierRole('Regulier')).toBe('Guest');
   });
 });
 
@@ -248,7 +248,7 @@ describe('toPoGuest', () => {
   it('defaults addedBy/note and maps a waiting guest', () => {
     const g = toPoGuest(
       { ...row, note: null, note_priority: 'none', status: 'pending' },
-      { role: 'Gast' }
+      { role: 'Guest' }
     );
     expect(g.by).toBe('');
     expect(g.note).toBe('');
@@ -311,7 +311,7 @@ describe('toRecapGuest', () => {
     expect(g).toEqual({ name: 'Anouk Smit', plus: 2, role: 'VIP', at: expect.any(String), by: 'Max' });
   });
 
-  it('leaves time/by undefined and defaults the role to Gast when unknown', () => {
+  it('leaves time/by undefined and defaults the role to Guest when unknown', () => {
     const g = toRecapGuest({
       id: 'g2',
       full_name: 'Bram Jansen',
@@ -323,7 +323,7 @@ describe('toRecapGuest', () => {
     });
     expect(g.at).toBeUndefined();
     expect(g.by).toBeUndefined();
-    expect(g.role).toBe('Gast');
+    expect(g.role).toBe('Guest');
   });
 });
 
@@ -410,7 +410,7 @@ describe('toPoTeamMember', () => {
 describe('optimisticGuest', () => {
   const tiers: Tier[] = [
     { id: 'vip', name: 'VIP', short: 'VIP', role: 'VIP', color: '#B5A6FF', max: null, used: 0, doorPrice: 0, vatPercent: null, aliases: [] },
-    { id: 'reg', name: 'Regular', short: 'Gast', role: 'Gast', color: '#8E8E93', max: null, used: 0, doorPrice: 0, vatPercent: null, aliases: [] },
+    { id: 'reg', name: 'Regular', short: 'Guest', role: 'Guest', color: '#8E8E93', max: null, used: 0, doorPrice: 0, vatPercent: null, aliases: [] },
   ];
   const now = new Date('2024-12-14T12:00:00Z'); // 13:00 in Amsterdam (CET)
 
@@ -434,23 +434,23 @@ describe('optimisticGuest', () => {
     });
   });
 
-  it('defaults role to Gast for an unknown tier, plus to 0, and synthesises an id', () => {
+  it('defaults role to Guest for an unknown tier, plus to 0, and synthesises an id', () => {
     const g = optimisticGuest({ tierId: 'nope', fullName: 'Noor de Wit' }, tiers, now);
-    expect(g.role).toBe('Gast');
+    expect(g.role).toBe('Guest');
     expect(g.plus).toBe(0);
     expect(g.id).toBe('optimistic-Noor de Wit');
   });
 });
 
 describe('contactRoleToPo', () => {
-  it('maps each contact_role to its po badge and null to Gast', () => {
+  it('maps each contact_role to its po badge and null to Guest', () => {
     expect(contactRoleToPo('vip')).toBe('VIP');
     expect(contactRoleToPo('all_access')).toBe('All Access');
     expect(contactRoleToPo('artist')).toBe('Artist');
-    expect(contactRoleToPo('press')).toBe('Pers');
+    expect(contactRoleToPo('press')).toBe('Press');
     expect(contactRoleToPo('crew')).toBe('Crew');
-    expect(contactRoleToPo('guest')).toBe('Gast');
-    expect(contactRoleToPo(null)).toBe('Gast');
+    expect(contactRoleToPo('guest')).toBe('Guest');
+    expect(contactRoleToPo(null)).toBe('Guest');
   });
 });
 
@@ -481,9 +481,9 @@ describe('toPoContact', () => {
       preferredRole: 'vip',
     });
   });
-  it('yields null phoneLast4 when there is no usable phone and Gast for a null role', () => {
+  it('yields null phoneLast4 when there is no usable phone and Guest for a null role', () => {
     const c = toPoContact({ ...base, phone: null, preferred_role: null, is_permanent: false, eventCount: 0 });
-    expect(c).toMatchObject({ role: 'Gast', vast: false, events: 0, phoneLast4: null, preferredRole: null });
+    expect(c).toMatchObject({ role: 'Guest', vast: false, events: 0, phoneLast4: null, preferredRole: null });
   });
   it('strips non-digits before taking the last 4', () => {
     expect(toPoContact({ ...base, phone: '06 12 34 56 78' }).phoneLast4).toBe('5678');
@@ -589,7 +589,7 @@ describe('toPoContactProfile', () => {
       name: 'LOFI',
       tier: null,
       tierColor: '#B5A6FF', // default accent when the tier has no colour
-      role: 'Gast',
+      role: 'Guest',
       status: 'refused',
       presentHeads: null,
       registeredHeads: 1,
@@ -957,7 +957,7 @@ describe('toPoGuestRequest', () => {
 
   it('flags a large party (+3 or more) and tolerates a null phone/motivation', () => {
     const r = toPoGuestRequest({ ...base, phone: null, motivation: null, plus_ones: 3 }, now);
-    expect(r).toMatchObject({ phoneLast4: null, motivation: '', flag: 'Groot gezelschap (+3)' });
+    expect(r).toMatchObject({ phoneLast4: null, motivation: '', flag: 'Large group (+3)' });
   });
 
   it('does not mask a phone too short to yield 4 digits', () => {

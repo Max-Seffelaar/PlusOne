@@ -46,7 +46,7 @@ export function GuestRequestsInbox({
       </div>
 
       <p className="text-sm text-dim">
-        Requests fall <b>outside</b> your own quota (#31). Approving one costs you no spot,
+        Requests fall <b>outside</b> your own quota. Approving one costs you no spot,
         but still counts toward the tier max.
       </p>
 

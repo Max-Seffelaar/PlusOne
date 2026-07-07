@@ -67,9 +67,9 @@ export function tierRole(name: string): Role {
   if (n.includes('vip')) return 'VIP';
   if (n.includes('artist') || n.includes('artiest')) return 'Artist';
   if (n.includes('access') || n === 'aa') return 'All Access';
-  if (n.includes('pers') || n.includes('press')) return 'Pers';
+  if (n.includes('pers') || n.includes('press')) return 'Press';
   if (n.includes('crew')) return 'Crew';
-  return 'Gast';
+  return 'Guest';
 }
 
 export interface EventCounts {
@@ -319,7 +319,7 @@ export function optimisticGuest(args: OptimisticAddArgs, tiers: Tier[], now: Dat
   return {
     id: args.id ?? `optimistic-${args.fullName}`,
     name: args.fullName,
-    role: tier?.role ?? 'Gast',
+    role: tier?.role ?? 'Guest',
     tierId: args.tierId,
     tierName: tier?.name,
     tierColor: tier?.color,
@@ -365,14 +365,14 @@ const CONTACT_ROLE_TO_PO: Record<ContactRoleEnum, Role> = {
   vip: 'VIP',
   all_access: 'All Access',
   artist: 'Artist',
-  press: 'Pers',
+  press: 'Press',
   crew: 'Crew',
-  guest: 'Gast',
+  guest: 'Guest',
 };
 
-/** A contact's preferred_role → the po Role badge (null → "Gast"). */
+/** A contact's preferred_role → the po Role badge (null → "Guest"). */
 export function contactRoleToPo(role: ContactRoleEnum | null): Role {
-  return role ? CONTACT_ROLE_TO_PO[role] : 'Gast';
+  return role ? CONTACT_ROLE_TO_PO[role] : 'Guest';
 }
 
 export interface PoContact {
@@ -612,7 +612,7 @@ export function toPoContactProfile(
     name: header.fullName,
     // A real contact badges from its preferred_role; a name-only guest has none,
     // so fall back to the tier role of its (single) appearance.
-    role: isContact ? contactRoleToPo(header.preferredRole) : events[0]?.role ?? 'Gast',
+    role: isContact ? contactRoleToPo(header.preferredRole) : events[0]?.role ?? 'Guest',
     vast: header.isPermanent,
     email: header.email,
     phone: header.phone,
@@ -714,7 +714,7 @@ export function toPoGuestRequest(row: PoGuestRequestRow, now?: Date): PoGuestReq
     requestLinkId: row.request_link_id,
     viaLabel: row.viaLabel,
     denyReason: status === 'denied' ? row.decision_reason : null,
-    flag: row.plus_ones >= 3 ? `Groot gezelschap (+${row.plus_ones})` : undefined,
+    flag: row.plus_ones >= 3 ? `Large group (+${row.plus_ones})` : undefined,
   };
 }
 

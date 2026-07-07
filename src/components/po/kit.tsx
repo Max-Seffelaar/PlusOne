@@ -54,7 +54,7 @@ export function Pill({ children, on, icon }: { children: ReactNode; on?: boolean
 
 // ── RoleChip ────────────────────────────────────────────────────────────────
 export function RoleChip({ role }: { role: string }): JSX.Element {
-  const gast = role === 'Gast';
+  const gast = role === 'Guest';
   return (
     <span
       className={cn(

@@ -83,7 +83,7 @@ export const guests = {
   add: {
     title: 'Add guest',
     subNoEvent: 'No event selected',
-    subUnlimited: 'No personal quota',
+    subUnlimited: 'No limit for your role',
     subQuota: 'Your quota · {n} of {m} left',
     subFallback: 'add guest',
     eventLabel: 'Event',
