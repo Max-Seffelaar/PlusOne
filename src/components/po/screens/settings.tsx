@@ -32,6 +32,7 @@ import {
   usePoSubscription,
   usePoContactKeys,
   usePoEvents,
+  usePoTiers,
   usePoCanManageTemplates,
   usePoGuestRequests,
   useBillingBlocked,
@@ -50,6 +51,7 @@ import {
   usePoRevokeOwnSession,
   usePoUpdateVenueSettings,
   usePoImportContacts,
+  usePoAddContactsToEvent,
   usePoBillingCheckout,
   usePoBillingPortal,
 } from '@/features/po/mutations';
@@ -1858,6 +1860,7 @@ export function Import(): JSX.Element {
           <Note icon="contact">
             {t.settings.import.doneNote}
           </Note>
+          {result.ids.length > 0 && <AddImportedToEvent contactIds={result.ids} />}
         </Scroll>
         <BottomBar>
           <Btn
@@ -2020,6 +2023,107 @@ export function Import(): JSX.Element {
           </Btn>
         </BottomBar>
       )}
+    </div>
+  );
+}
+
+// ── Import → add to an event (#3) ────────────────────────────────────────────
+// After importing, offer to put the whole batch on an event in one step — the
+// "which event do you want to add these people to?" flow. Tier = "Auto (by each
+// person's role)" by default (the RPC resolves per contact), or a single tier for
+// everyone. Reuses the venue-scoped add_contacts_to_event RPC (admin/organizer).
+function AddImportedToEvent({ contactIds }: { contactIds: string[] }): JSX.Element | null {
+  const { data: events = [] } = usePoEvents();
+  const upcoming = events.filter((e) => e.when === 'upcoming');
+  const [evId, setEvId] = useState<string>('');
+  const curEv = upcoming.find((e) => e.id === evId) ?? upcoming[0];
+  const effEvId = curEv?.id ?? '';
+  const { data: tiers = [] } = usePoTiers(effEvId);
+  // '' = Auto (omit tierId → per-contact role resolution); else an override tier.
+  const [tierId, setTierId] = useState<string>('');
+  const add = usePoAddContactsToEvent();
+  const done = add.data && add.data.ok ? add.data : null;
+
+  if (upcoming.length === 0) return null; // nothing to add to
+
+  if (done) {
+    return (
+      <div className="mt-4 flex items-center gap-[11px] rounded-[16px] border border-line bg-elev p-4">
+        <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[12px] bg-acc-dim text-acc">
+          <Icon name="check2" size={20} stroke="#B5A6FF" sw={2.4} />
+        </span>
+        <div className="min-w-0">
+          <div className="font-display text-[14.5px] font-bold text-text">{fmt(t.settings.import.toEventDoneTitle, { event: curEv?.name ?? '' })}</div>
+          <div className="mt-0.5 text-[12.5px] text-faint">{fmt(t.settings.import.toEventDoneSummary, { added: done.added, already: done.already, skipped: done.skipped })}</div>
+        </div>
+      </div>
+    );
+  }
+
+  const commit = (): void => {
+    if (!effEvId || add.isPending) return;
+    add.mutate({ eventId: effEvId, contactIds, tierId: tierId || undefined });
+  };
+
+  return (
+    <div className="mt-5 rounded-[18px] border border-line bg-elev p-4">
+      <div className="mb-1 font-display text-[16px] font-extrabold text-text">{t.settings.import.toEventTitle}</div>
+      <div className="mb-3 text-[12.5px] leading-[1.45] text-faint">
+        {fmt(contactIds.length === 1 ? t.settings.import.toEventSubOne : t.settings.import.toEventSubMany, { n: contactIds.length })}
+      </div>
+
+      <Label className="mb-[7px]">{t.settings.import.toEventEventLabel}</Label>
+      <div className="po-scroll mb-3 flex gap-2 overflow-x-auto">
+        {upcoming.map((e) => {
+          const on = e.id === effEvId;
+          return (
+            <button
+              key={e.id}
+              type="button"
+              onClick={() => setEvId(e.id)}
+              className={cn('inline-flex shrink-0 items-center gap-[9px] rounded-[12px] border px-[12px] py-[9px] text-left', press, on ? 'border-transparent bg-acc-dim' : 'border-line bg-bg')}
+            >
+              <span className="w-[30px] shrink-0 text-center">
+                <span className="block font-display text-[15px] font-extrabold leading-none text-text">{e.date}</span>
+                <span className="block text-[8.5px] font-bold tracking-[0.05em] text-faint">{e.mon}</span>
+              </span>
+              <span className="font-display text-[13.5px] font-bold text-text">{e.name}</span>
+              {on && <Icon name="check2" size={15} stroke="#B5A6FF" sw={2.4} />}
+            </button>
+          );
+        })}
+      </div>
+
+      <Label className="mb-[7px]">{t.settings.import.toEventTierLabel}</Label>
+      <div className="mb-4 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setTierId('')}
+          className={cn('inline-flex items-center gap-[7px] rounded-full border px-[13px] py-[8px] font-display text-[12.5px] font-bold', press, tierId === '' ? 'border-transparent bg-acc text-on-acc' : 'border-line text-dim')}
+        >
+          <Icon name="spark" size={14} />
+          {t.settings.import.toEventTierAuto}
+        </button>
+        {tiers.map((tier) => {
+          const on = tier.id === tierId;
+          return (
+            <button
+              key={tier.id}
+              type="button"
+              onClick={() => setTierId(tier.id)}
+              className={cn('inline-flex items-center gap-[7px] rounded-full border px-[13px] py-[8px] font-display text-[12.5px] font-bold', press, on ? 'border-transparent bg-acc text-on-acc' : 'border-line text-dim')}
+            >
+              <span className="h-[9px] w-[9px] rounded-full" style={{ background: tier.color }} />
+              {tier.name}
+            </button>
+          );
+        })}
+      </div>
+
+      {add.isError && <FormError error={add.error} />}
+      <Btn kind="primary" full icon="check" disabled={!effEvId || add.isPending} className={!effEvId || add.isPending ? 'opacity-[0.45]' : ''} onClick={commit}>
+        {add.isPending ? t.settings.import.toEventAdding : fmt(t.settings.import.toEventAdd, { event: curEv?.name ?? '' })}
+      </Btn>
     </div>
   );
 }

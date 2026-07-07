@@ -374,5 +374,17 @@ export const settings = {
     undo: 'Undo',
     fixFirstOne: 'Fix {n} row first',
     fixFirstMany: 'Fix {n} rows first',
+    // Post-import "add these people to an event" step (#3).
+    toEventTitle: 'Add these people to an event?',
+    toEventSubOne: '{n} contact is ready. Pick an event and a tier.',
+    toEventSubMany: '{n} contacts are ready. Pick an event and a tier.',
+    toEventEventLabel: 'Event',
+    toEventTierLabel: 'Which tier?',
+    toEventTierAuto: 'Auto · by each person’s role',
+    toEventAdd: 'Add to {event}',
+    toEventAdding: 'Adding…',
+    toEventError: "Couldn't add them to the event.",
+    toEventDoneTitle: 'Added to {event}',
+    toEventDoneSummary: '{added} added · {already} already on the list · {skipped} skipped',
   },
 } as const;

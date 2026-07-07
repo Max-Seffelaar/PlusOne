@@ -9,6 +9,7 @@ import {
   togglePermanentSchema,
   syncPermanentSchema,
   addContactToEventSchema,
+  addContactsToEventSchema,
   importContactsSchema,
   forgetContactSchema,
   promoteGuestToContactSchema,
@@ -17,6 +18,7 @@ import {
   type TogglePermanentInput,
   type SyncPermanentInput,
   type AddContactToEventInput,
+  type AddContactsToEventInput,
   type ImportContactsInput,
   type ForgetContactInput,
   type PromoteGuestToContactInput,
@@ -26,9 +28,15 @@ import {
 export type ActionResult = { ok: true } | MutationError;
 /** Sync reports how many house guests it added (for the toast). */
 export type SyncResult = { ok: true; added: number } | MutationError;
-/** Import reports per-row outcome for the toast. */
+/** Import reports per-row outcome for the toast, plus the ids of every touched
+ *  contact so the UI can offer to add exactly them to an event (#3). */
 export type ImportResult =
-  | { ok: true; inserted: number; updated: number; skipped: number }
+  | { ok: true; inserted: number; updated: number; skipped: number; ids: string[] }
+  | MutationError;
+
+/** Bulk add-to-event reports per-contact outcome for the result card. */
+export type AddContactsToEventResult =
+  | { ok: true; added: number; already: number; skipped: number }
   | MutationError;
 
 // Every action: verify the session server-side, validate with Zod, then mutate
@@ -221,14 +229,45 @@ export async function importContacts(input: ImportContactsInput): Promise<Import
   });
   if (error) return mapMutationError(error);
 
-  const r = (data ?? {}) as { inserted?: number; updated?: number; skipped?: number };
+  const r = (data ?? {}) as { inserted?: number; updated?: number; skipped?: number; ids?: string[] };
   revalidatePath(APP_PATH);
   return {
     ok: true,
     inserted: r.inserted ?? 0,
     updated: r.updated ?? 0,
     skipped: r.skipped ?? 0,
+    ids: Array.isArray(r.ids) ? r.ids : [],
   };
+}
+
+/**
+ * Add many contacts to one event in one step — the post-import "add these people
+ * to an event" flow (#3). Optional tierId overrides the per-contact tier
+ * resolution (preferred_role → this event's tier, else default). The RPC
+ * self-guards admin/organizer + list-lock; the quota engine charges per contact.
+ */
+export async function addContactsToEvent(input: AddContactsToEventInput): Promise<AddContactsToEventResult> {
+  const parsed = addContactsToEventSchema.safeParse(input);
+  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
+  const { eventId, contactIds, tierId } = parsed.data;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return unauthorized();
+
+  const { data, error } = await supabase.rpc('add_contacts_to_event', {
+    p_event_id: eventId,
+    p_contact_ids: contactIds,
+    ...(tierId ? { p_tier_id: tierId } : {}),
+  });
+  if (error) return mapMutationError(error);
+
+  const r = (data ?? {}) as { added?: number; already?: number; skipped?: number };
+  revalidatePath(APP_PATH);
+  revalidatePath(`/events/${eventId}/guests`);
+  return { ok: true, added: r.added ?? 0, already: r.already ?? 0, skipped: r.skipped ?? 0 };
 }
 
 /**

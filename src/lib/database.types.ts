@@ -7,6 +7,31 @@ export type Json =
   | Json[]
 
 export type Database = {
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       audit_log: {
@@ -1519,6 +1544,14 @@ export type Database = {
         }
         Returns: string
       }
+      add_contacts_to_event: {
+        Args: {
+          p_contact_ids: string[]
+          p_event_id: string
+          p_tier_id?: string
+        }
+        Returns: Json
+      }
       admin_list_user_sessions: {
         Args: { p_target: string }
         Returns: {
@@ -1773,10 +1806,7 @@ export type Database = {
           user_agent: string
         }[]
       }
-      mark_guest_regular: {
-        Args: { p_guest_id: string }
-        Returns: undefined
-      }
+      mark_guest_regular: { Args: { p_guest_id: string }; Returns: undefined }
       mark_onboarding_complete: {
         Args: { p_venue_id: string }
         Returns: undefined
@@ -2109,6 +2139,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       contact_role: ["vip", "all_access", "artist", "press", "crew", "guest"],
