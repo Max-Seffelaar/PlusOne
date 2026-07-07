@@ -1,12 +1,10 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
-import { createServiceClient } from '@/lib/supabase/service';
 import { getSessionUser } from '@/lib/auth/context';
-import type { Database } from '@/lib/database.types';
 import { assertVenueBillingActive } from '@/features/billing/gate';
+import { sendInviteEmail } from './invite-mail';
 import { inviteSchema, revokeInviteSchema, resendInviteSchema } from './schemas';
 import { canGrantRoles, type VenueRole } from './roles';
 
@@ -17,16 +15,6 @@ export interface ActionState {
 }
 
 const INVITE_TTL_DAYS = 7;
-
-// Bare anon client (no session cookies) used only to send a login-link e-mail to
-// an already-registered invitee — never touches the caller's own session.
-function createAnonClient() {
-  return createSupabaseClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-  );
-}
 
 // Loads the caller's roles at a venue (RLS: the user always sees their own
 // membership). Empty when not a member.
@@ -41,40 +29,6 @@ async function callerRolesAt(venueId: string, userId: string): Promise<VenueRole
   return data?.roles ?? [];
 }
 
-function alreadyRegistered(error: { code?: string; status?: number; message?: string }): boolean {
-  return (
-    error.code === 'email_exists' ||
-    error.status === 422 ||
-    Boolean(error.message && /already|exists|registered/i.test(error.message))
-  );
-}
-
-/**
- * Notify an invitee by e-mail (shared by invite + resend). For a NEW address
- * inviteUserByEmail provisions the account and sends the "You've been invited"
- * mail in one step; an already-registered address gets a magic-link login
- * instead (invite-only — no public signups, #20). The invite ROW is what grants
- * access, so a transient send failure for an EXISTING user must never block:
- * we only report failure when the address could not be provisioned at all.
- */
-async function sendInviteEmail(email: string): Promise<{ ok: boolean }> {
-  const service = createServiceClient();
-  const { error: inviteMailError } = await service.auth.admin.inviteUserByEmail(email, {
-    data: { full_name: email.split('@')[0] },
-  });
-  if (inviteMailError && alreadyRegistered(inviteMailError)) {
-    const mailer = createAnonClient();
-    const { error: otpError } = await mailer.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: false },
-    });
-    if (otpError) console.error('sendInviteEmail: existing-user notify failed', otpError.message);
-  } else if (inviteMailError) {
-    console.error('sendInviteEmail: inviteUserByEmail failed', inviteMailError.message);
-    return { ok: false };
-  }
-  return { ok: true };
-}
 
 /**
  * Invite a user to a venue with a set of roles (decision #20/#24). Security
@@ -128,9 +82,12 @@ export async function inviteUserAction(
 
   // 1) Provision the auth identity AND notify the invitee by e-mail (invite-only,
   //    no public signups — #20). The invite ROW written below is what actually
-  //    grants access on first login — the e-mail is only the notification.
+  //    grants access on first login — the e-mail is only the notification, so a
+  //    transient notify failure for an EXISTING account must not block here.
   const sent = await sendInviteEmail(email);
-  if (!sent.ok) return { ok: false, error: "Couldn't send the invite. Try again." };
+  if (!sent.ok && sent.reason === 'provision') {
+    return { ok: false, error: "Couldn't send the invite. Try again." };
+  }
 
   // 2) Record the invite through the user-scoped client → RLS enforces
   //    manager-role + AAL2 + escalation + invited_by = self once more.

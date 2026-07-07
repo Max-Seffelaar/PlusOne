@@ -1,9 +1,9 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
+import { alreadyRegistered, sendInviteEmail } from '@/features/auth/invite-mail';
 import { getAuthContext } from '@/lib/auth/context';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
 import { assertVenueBillingActive } from '@/features/billing/gate';
@@ -80,14 +80,6 @@ function revalidateEvent(id: string): void {
   revalidatePath(listPath);
   revalidatePath(managePath(id));
   revalidatePath(guestsPath(id));
-}
-
-function alreadyRegistered(error: { code?: string; status?: number; message?: string }): boolean {
-  return (
-    error.code === 'email_exists' ||
-    error.status === 422 ||
-    Boolean(error.message && /already|exists|registered/i.test(error.message))
-  );
 }
 
 // ── Event CRUD ──────────────────────────────────────────────────────────────
@@ -571,20 +563,12 @@ export async function resendCrewInvite(input: ResendCrewInviteInput): Promise<Ac
     return { ok: false, code: 'noop', message: "Couldn't find this person's e-mail." };
   }
 
-  // Bare anon client (no session cookies): sends the magic-link login mail
-  // without ever touching the caller's own session. Invite-only stays intact
-  // (shouldCreateUser: false — the account already exists).
-  const mailer = createSupabaseClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-  );
-  const { error: otpError } = await mailer.auth.signInWithOtp({
-    email: profile.email,
-    options: { shouldCreateUser: false },
-  });
-  if (otpError) {
-    console.error('resendCrewInvite: notify failed', otpError.message);
+  // Invite-first, magic-link fallback (shared with the venue-invite resend).
+  // The order matters: a crew member who never accepted is an UNCONFIRMED
+  // account, and signInWithOtp refuses those ("Signups not allowed") — only a
+  // re-invite reaches them; a confirmed account takes the magic-link path.
+  const sent = await sendInviteEmail(profile.email);
+  if (!sent.ok) {
     return { ok: false, code: 'invite', message: "Couldn't send the e-mail. Try again." };
   }
   return { ok: true };
