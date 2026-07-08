@@ -467,6 +467,7 @@ export function DoorProvider({
           const row: GuestRow = {
             id,
             event_id: eventId,
+            venue_id: s.event.venueId,
             tier_id: tierId,
             full_name: fullName,
             email: null,

@@ -178,6 +178,51 @@ When you finish building/wiring a screen, end with a **test handoff** so Max can
 
 Number them so Max can answer "1 ✅, 2 ❌ — …" and paste it straight back as feedback per component.
 
+## Scale & front-end discipline (2026-07 review — enforce on every PR)
+
+Established by the full-app review + scale audit (`engineering-review-2026-07.md`,
+`perf-scale-audit-megaevent.md`). These are hard rules, not preferences — they exist because the
+fast-parallel-PR workflow created the exact debt they prevent.
+
+**Scale (a query that works at 150 rows must work at 25 000 and after 400 events):**
+- **Never pass an unbounded id list to PostgREST `.in()`.** A venue-wide read must filter by
+  `venue_id` in SQL (`events!inner(venue_id)` embed, a denormalized `venue_id`, or an aggregate
+  RPC) — **never** `.in('event_id', <all venue event ids>)`. That URL crosses the ~8 KB gateway
+  limit at ~205 events and hard-fails 414 for every venue within a year. **Fixed 2026-07-09**
+  (migration `20260708120000_venue_scope_denormalization.sql` — `guests`/`guest_requests`/
+  `quota_requests`/`guest_tiers` now carry `venue_id`; `request_links` already did); this rule
+  is what keeps it fixed. Applies to reads AND writes (`.in('id', [hundreds])` 414s too — chunk
+  to ≤120 ids if a list is truly unavoidable).
+- **Aggregate on the database, not the client.** Headcounts/stats over many rows = a `GROUP BY`
+  RPC returning ~one row per group, not "download every guest row and sum in JS" (K8, fixed via
+  `venue_event_headcounts` — SECURITY INVOKER, not DEFINER, so headcounts stay role-relative:
+  a staff member's tile is still scoped to their own added guests, never a blanket bypass).
+- **Reads must be windowed at large N.** The door snapshot is ~0.55 kB/guest; at 25k that's 13.6 MB
+  over 32 sequential round-trips. Load a working set + search server-side; don't ship the whole event.
+- **Don't re-fetch a large snapshot on every mutation** — rely on the optimistic patch + realtime +
+  the 60 s safety sync (K9).
+- Local numbers are a floor: the service client bypasses RLS and loopback hides the Vercel `fra1` ↔
+  Supabase `eu-west-1` latency. Realtime concurrency + RLS-read CPU are **hosted-only** to measure
+  (`scripts/perf/realtime-loadtest-hosted.mjs`, throwaway project — never prod).
+
+**Front-end (one canonical model, thin view-models, primitives in the kit):**
+- **One canonical domain type per entity** (`src/features/po/domain/`: `Guest`/`Event`/`Tier`/…).
+  Screen/feature shapes are `Pick<>`/projection *view-models* of it — **do not** invent a new
+  `interface XGuest` per screen. (Today Guest has 8 shapes, Event 7 — that is the anti-pattern.)
+- **Exactly one adapter per entity** (DB row → domain). No second "optimistic" or per-screen mapper;
+  no re-deriving `tierRole` or re-formatting dates in a fifth place (one `format.ts`).
+- **Share a base query; vary shape with React-Query `select`.** New "fetch the same table, slightly
+  different columns/scope" = a scope param on the existing fetcher, not a new `fetchX` (FE-3 — done
+  for guests/tiers: `fetchGuests`/`fetchTiers` now take a `{eventId}|{venueId}` scope; the crew trio
+  already followed this pattern before the review, so it was left as-is).
+- **New UI primitive → it goes in `kit.tsx`** (or `shell.tsx`), exported, used everywhere. Do not
+  hand-roll `press`/`cardPress`/segmented-tabs/confirm-sheets/chips in a screen. If the kit lacks it,
+  add it to the kit in the same PR.
+- **No mock-data imports in shipped screens.** `src/lib/po/data.ts` fixtures are for types/tests, not
+  render paths (K1/K2/K3). A screen that can render `data.ts` in prod is a bug.
+- **Screen files stay under ~800 LOC.** `events.tsx` (2090) / `settings.tsx` (1976) are refactor
+  targets, not a template — extract sub-screens/sheets into their own files.
+
 ## What NOT to do
 
 - Do not add auth providers, password login, or third-party auth services.

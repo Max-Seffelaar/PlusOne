@@ -23,9 +23,7 @@ import {
   fetchRecentCheckins,
   fetchTiers,
   fetchTiersWithUsage,
-  fetchPoGuests,
-  fetchVenueGuests,
-  fetchVenueTiers,
+  fetchGuests,
   fetchCheckinArrivals,
   fetchEventQuota,
   fetchGuestRequests,
@@ -136,8 +134,12 @@ export function usePoEvents() {
     queryFn: async () => {
       if (!venueId) return [];
       const client = createClient();
-      const rows = await fetchEvents(client, venueId);
-      const heads = await fetchEventHeadcounts(client, rows.map((r) => r.id));
+      // SCALE-5: both reads take just the venueId now (no more eventIds handoff
+      // from fetchEvents into fetchEventHeadcounts), so they run in parallel.
+      const [rows, heads] = await Promise.all([
+        fetchEvents(client, venueId),
+        fetchEventHeadcounts(client, venueId),
+      ]);
       return rows.map((r) => {
         const c = heads.get(r.id) ?? { registered: 0, present: 0 };
         return toPoEvent(r, { guests: c.registered, inside: c.present });
@@ -176,11 +178,10 @@ export function usePoHomeEvents() {
     queryFn: async () => {
       if (!venueId) return { events: [], defaultId: null };
       const client = createClient();
-      const rows = await fetchEvents(client, venueId);
-      const heads = await fetchEventHeadcounts(
-        client,
-        rows.map((r) => r.id)
-      );
+      const [rows, heads] = await Promise.all([
+        fetchEvents(client, venueId),
+        fetchEventHeadcounts(client, venueId),
+      ]);
       const now = Date.now();
       const events: HomeEvent[] = rows
         .filter((r) => r.cancelled_at == null)
@@ -442,8 +443,8 @@ export function usePoGuests(eventId: string) {
     queryFn: async () => {
       const client = createClient();
       const [guests, tiers] = await Promise.all([
-        fetchPoGuests(client, eventId),
-        fetchTiers(client, eventId),
+        fetchGuests(client, { eventId }),
+        fetchTiers(client, { eventId }),
       ]);
       const tierById = new Map(tiers.map((t) => [t.id, t]));
       return sortGuestsNewestFirst(guests).map((g) =>
@@ -459,22 +460,23 @@ export function usePoGuests(eventId: string) {
 
 /**
  * The venue-wide "all guests" list (Guests tab, no event selected): every active
- * guest across the given events, each carrying its event id + name so a row can
- * badge + deep-link to its own event. RLS stays the boundary (staff see only their
- * own). Pass `[]` to disable (e.g. when a single event is selected instead).
+ * guest at the venue, each carrying its event id + name so a row can badge +
+ * deep-link to its own event. Scoped by venue_id (SCALE-5 — was an eventIds
+ * list derived from `events`, which 414s past ~205 events); `events` is kept
+ * only to resolve each row's event NAME. RLS stays the boundary (staff see only
+ * their own). Pass `[]` to disable (e.g. when a single event is selected instead).
  */
 export function useVenueGuests(events: PoEvent[]) {
   const { venueId } = usePoIdentity();
-  const eventIds = events.map((e) => e.id).sort();
   const nameById = new Map(events.map((e) => [e.id, e.name]));
   return useQuery<Guest[]>({
-    queryKey: poKeys.venueGuests(venueId ?? '', eventIds.join(',')),
-    enabled: !!venueId && eventIds.length > 0,
+    queryKey: poKeys.venueGuests(venueId ?? ''),
+    enabled: !!venueId && events.length > 0,
     queryFn: async () => {
       const client = createClient();
       const [guests, tiers] = await Promise.all([
-        fetchVenueGuests(client, eventIds),
-        fetchVenueTiers(client, eventIds),
+        fetchGuests(client, { venueId: venueId ?? '' }),
+        fetchTiers(client, { venueId: venueId ?? '' }),
       ]);
       const tierById = new Map(tiers.map((t) => [t.id, t]));
       return sortGuestsNewestFirst(guests).map((g) =>
@@ -614,23 +616,23 @@ export function usePoQuota(eventId: string) {
 }
 
 // ── Approvals reads (S5 Aanvragen, STAP 3.6) ──
-// Read VENUE-WIDE across all of the active venue's events (ids from usePoEvents,
-// already RLS-scoped to the venue), so the inbox can show "Alle events" + an
-// event picker. RLS still gates the requests themselves: a role without rights
-// gets [], so the screen shows an empty tab rather than an error. The mutation
-// hooks invalidate the [...all,'requests'] / [...all,'quota-requests'] prefix,
-// which matches these venue keys, so a decided request drops off on success.
+// Read VENUE-WIDE (one venue_id, SCALE-5 — was an `.in(eventIds)` list sourced
+// from usePoEvents, which both 414s past ~205 events AND forced a second
+// venue-wide query to resolve before this one could even fire), so the inbox
+// can show "Alle events" + an event picker. RLS still gates the requests
+// themselves: a role without rights gets [], so the screen shows an empty tab
+// rather than an error. The mutation hooks invalidate the [...all,'requests'] /
+// [...all,'quota-requests'] prefix, which matches these venue keys, so a
+// decided request drops off on success.
 
 /** Pending landing-page guest requests across the active venue's events. */
 export function usePoGuestRequests() {
   const { venueId } = usePoIdentity();
-  const events = usePoEvents();
-  const eventIds = (events.data ?? []).map((e) => e.id);
   return useQuery<PoGuestRequest[]>({
     queryKey: poKeys.requests(venueId ?? ''),
-    enabled: !!venueId && events.isSuccess,
+    enabled: !!venueId,
     queryFn: async () => {
-      const rows = await fetchGuestRequests(createClient(), eventIds);
+      const rows = await fetchGuestRequests(createClient(), venueId ?? '');
       return rows.map((r) => toPoGuestRequest(r));
     },
   });
@@ -639,13 +641,11 @@ export function usePoGuestRequests() {
 /** Pending quota requests across the active venue's events. */
 export function usePoQuotaRequests() {
   const { venueId } = usePoIdentity();
-  const events = usePoEvents();
-  const eventIds = (events.data ?? []).map((e) => e.id);
   return useQuery<PoQuotaRequest[]>({
     queryKey: poKeys.quotaRequests(venueId ?? ''),
-    enabled: !!venueId && events.isSuccess,
+    enabled: !!venueId,
     queryFn: async () => {
-      const rows = await fetchQuotaRequests(createClient(), eventIds);
+      const rows = await fetchQuotaRequests(createClient(), venueId ?? '');
       return rows.map((r) => toPoQuotaRequest(r));
     },
   });
@@ -668,12 +668,10 @@ export function usePoRequestLinks(eventId: string) {
 /** Every non-archived link across the active venue's events (lean, for filters). */
 export function usePoVenueLinks() {
   const { venueId } = usePoIdentity();
-  const events = usePoEvents();
-  const eventIds = (events.data ?? []).map((e) => e.id);
   return useQuery<PoLinkOption[]>({
     queryKey: poKeys.venueLinks(venueId ?? ''),
-    enabled: !!venueId && events.isSuccess,
-    queryFn: () => fetchVenueRequestLinks(createClient(), eventIds),
+    enabled: !!venueId,
+    queryFn: () => fetchVenueRequestLinks(createClient(), venueId ?? ''),
   });
 }
 

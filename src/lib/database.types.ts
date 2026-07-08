@@ -7,31 +7,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       audit_log: {
@@ -581,6 +556,7 @@ export type Database = {
           request_link_id: string | null
           status: Database["public"]["Enums"]["request_status"]
           status_token_hash: string | null
+          venue_id: string
         }
         Insert: {
           anonymized_at?: string | null
@@ -602,6 +578,7 @@ export type Database = {
           request_link_id?: string | null
           status?: Database["public"]["Enums"]["request_status"]
           status_token_hash?: string | null
+          venue_id: string
         }
         Update: {
           anonymized_at?: string | null
@@ -623,6 +600,7 @@ export type Database = {
           request_link_id?: string | null
           status?: Database["public"]["Enums"]["request_status"]
           status_token_hash?: string | null
+          venue_id?: string
         }
         Relationships: [
           {
@@ -646,6 +624,13 @@ export type Database = {
             referencedRelation: "request_links"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "guest_requests_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
         ]
       }
       guest_tiers: {
@@ -661,6 +646,7 @@ export type Database = {
           name: string
           updated_at: string
           vat_percent: number | null
+          venue_id: string
         }
         Insert: {
           aliases?: string[]
@@ -674,6 +660,7 @@ export type Database = {
           name: string
           updated_at?: string
           vat_percent?: number | null
+          venue_id: string
         }
         Update: {
           aliases?: string[]
@@ -687,6 +674,7 @@ export type Database = {
           name?: string
           updated_at?: string
           vat_percent?: number | null
+          venue_id?: string
         }
         Relationships: [
           {
@@ -694,6 +682,13 @@ export type Database = {
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "guest_tiers_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
             referencedColumns: ["id"]
           },
         ]
@@ -720,6 +715,7 @@ export type Database = {
           status: Database["public"]["Enums"]["guest_status"]
           tier_id: string
           updated_at: string
+          venue_id: string
         }
         Insert: {
           added_by?: string | null
@@ -742,6 +738,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["guest_status"]
           tier_id: string
           updated_at?: string
+          venue_id: string
         }
         Update: {
           added_by?: string | null
@@ -764,6 +761,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["guest_status"]
           tier_id?: string
           updated_at?: string
+          venue_id?: string
         }
         Relationships: [
           {
@@ -807,6 +805,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "guest_tiers"
             referencedColumns: ["id", "event_id"]
+          },
+          {
+            foreignKeyName: "guests_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -971,6 +976,7 @@ export type Database = {
           requested_extra: number
           status: Database["public"]["Enums"]["request_status"]
           user_id: string
+          venue_id: string
         }
         Insert: {
           created_at?: string
@@ -983,6 +989,7 @@ export type Database = {
           requested_extra: number
           status?: Database["public"]["Enums"]["request_status"]
           user_id: string
+          venue_id: string
         }
         Update: {
           created_at?: string
@@ -995,6 +1002,7 @@ export type Database = {
           requested_extra?: number
           status?: Database["public"]["Enums"]["request_status"]
           user_id?: string
+          venue_id?: string
         }
         Relationships: [
           {
@@ -1016,6 +1024,13 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quota_requests_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
             referencedColumns: ["id"]
           },
         ]
@@ -1609,23 +1624,35 @@ export type Database = {
         Args: { p_event_id: string; p_name: string }
         Returns: string
       }
-      create_venue_with_owner: {
-        Args: {
-          p_address: string
-          p_city?: string
-          p_comped?: boolean
-          p_complete?: boolean
-          p_finance_email?: string
-          p_kvk_number?: string
-          p_name: string
-          p_plan_id?: string
-          p_retention_months: number
-          p_terms_version?: string
-          p_vat_number?: string
-          p_venue_type: string
-        }
-        Returns: string
-      }
+      create_venue_with_owner:
+        | {
+            Args: {
+              p_address: string
+              p_comped?: boolean
+              p_name: string
+              p_plan_id?: string
+              p_retention_months: number
+              p_venue_type: string
+            }
+            Returns: string
+          }
+        | {
+            Args: {
+              p_address: string
+              p_city?: string
+              p_comped?: boolean
+              p_complete?: boolean
+              p_finance_email?: string
+              p_kvk_number?: string
+              p_name: string
+              p_plan_id?: string
+              p_retention_months: number
+              p_terms_version?: string
+              p_vat_number?: string
+              p_venue_type: string
+            }
+            Returns: string
+          }
       current_user_requires_mfa: { Args: never; Returns: boolean }
       event_allows_uncheck: { Args: { p_event_id: string }; Returns: boolean }
       event_capacity_consumption: {
@@ -1918,6 +1945,14 @@ export type Database = {
         Returns: boolean
       }
       uuid_generate_v7: { Args: never; Returns: string }
+      venue_event_headcounts: {
+        Args: { p_venue_id: string }
+        Returns: {
+          event_id: string
+          present: number
+          registered: number
+        }[]
+      }
       venue_event_rollup: {
         Args: { p_from?: string; p_to?: string; p_venue_id: string }
         Returns: {
@@ -2139,9 +2174,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       contact_role: ["vip", "all_access", "artist", "press", "crew", "guest"],

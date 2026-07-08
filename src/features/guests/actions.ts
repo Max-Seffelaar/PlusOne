@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import type { Database } from '@/lib/database.types';
 import {
   mapMutationError,
   unauthorized,
@@ -46,6 +47,8 @@ export async function addGuest(input: AddGuestInput): Promise<ActionResult> {
   if (!user) return unauthorized();
 
   // added_by MUST be the actor — RLS pins it, we never accept it from the client (#27).
+  // venue_id is populated by the set_event_scope BEFORE INSERT trigger
+  // (migration 20260708120000); cast over the omitted column.
   const { error } = await supabase.from('guests').insert({
     ...(id ? { id } : {}),
     event_id: eventId,
@@ -56,7 +59,7 @@ export async function addGuest(input: AddGuestInput): Promise<ActionResult> {
     phone,
     source,
     added_by: user.id,
-  });
+  } as Database['public']['Tables']['guests']['Insert']);
   if (error) return mapMutationError(error);
 
   revalidatePath(guestsPath(eventId));
@@ -90,7 +93,9 @@ export async function addGuestsBulk(input: BulkAddInput): Promise<ActionResult> 
     added_by: user.id,
   }));
 
-  const { error } = await supabase.from('guests').insert(rows);
+  // venue_id is populated by the set_event_scope BEFORE INSERT trigger
+  // (migration 20260708120000); cast over the omitted column.
+  const { error } = await supabase.from('guests').insert(rows as Database['public']['Tables']['guests']['Insert'][]);
   if (error) return mapMutationError(error);
 
   revalidatePath(guestsPath(eventId));

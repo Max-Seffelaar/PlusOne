@@ -5,7 +5,7 @@
  * proves the #0a ranged-reads fix against the REAL source functions:
  *   - BEFORE: a raw single `.select()` (no `.range()`) truncates at 1000 rows
  *     (Content-Range 0-999/1500) — the bug.
- *   - AFTER : fetchDoorSnapshot / fetchPoGuests / fetchEventHeadcounts /
+ *   - AFTER : fetchDoorSnapshot / fetchGuests / fetchEventHeadcounts /
  *     fetchCheckinArrivals return the FULL 1500.
  *
  * Teardown is NOT done here (hard DELETE is revoked even for service_role,
@@ -54,7 +54,7 @@ async function loadSource() {
     return {
       server,
       fetchDoorSnapshot: door.fetchDoorSnapshot,
-      fetchPoGuests: po.fetchPoGuests,
+      fetchGuests: po.fetchGuests,
       fetchEventHeadcounts: po.fetchEventHeadcounts,
       fetchCheckinArrivals: po.fetchCheckinArrivals,
     };
@@ -124,10 +124,10 @@ async function prove(admin, src) {
   const snapshot = await src.fetchDoorSnapshot(admin, EVENT_ID);
   log('AFTER', `fetchDoorSnapshot.guests = ${snapshot.guests.length}`);
 
-  const poGuests = await src.fetchPoGuests(admin, EVENT_ID);
-  log('AFTER', `fetchPoGuests = ${poGuests.length}`);
+  const poGuests = await src.fetchGuests(admin, { eventId: EVENT_ID });
+  log('AFTER', `fetchGuests = ${poGuests.length}`);
 
-  const heads = await src.fetchEventHeadcounts(admin, [EVENT_ID]);
+  const heads = await src.fetchEventHeadcounts(admin, VENUE_ID);
   const hc = heads.get(EVENT_ID);
   log('AFTER', `fetchEventHeadcounts.registered = ${hc?.registered} koppen (1500 + 300×+2 = 1800 expected)`);
 

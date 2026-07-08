@@ -6,6 +6,7 @@ function tier(over: Partial<TierRow> = {}): TierRow {
   return {
     id: 't-reg',
     event_id: 'ev1',
+    venue_id: 'v1',
     name: 'Regular',
     description: null,
     color: '#8A8A93',
@@ -23,6 +24,7 @@ function guest(over: Partial<GuestRow> = {}): GuestRow {
   return {
     id: 'g1',
     event_id: 'ev1',
+    venue_id: 'v1',
     tier_id: 't-reg',
     full_name: 'Tess Bakker',
     email: null,

@@ -64,32 +64,41 @@ export async function fetchEvents(client: Client, venueId: string): Promise<PoEv
   }));
 }
 
+export type GuestScope = { eventId: string } | { venueId: string };
+
 /**
- * Active guests for an event (soft-deleted excluded), oldest first.
+ * Active guests (soft-deleted excluded), oldest first, scoped to ONE event OR
+ * an entire venue (SCALE-5/FE-3 — this is the single fetcher that used to be
+ * `fetchPoGuests`/`fetchVenueGuests`; a venue-wide read now sends ONE venue_id,
+ * never an event-id list that can blow Kong's URI length past ~205 events).
  *
  * This is the po surface's canonical guest read, lifted out of the desktop
  * `(app)/events/[eventId]/guests/page.tsx` inline select so both the desktop
  * Server Component and the mobile Client Components share one query shape
  * (STAP 3.4). Both run through the USER-scoped client, so RLS stays the
- * boundary — staff see only their own guests, an out-of-scope id yields [].
+ * boundary — staff see only their own guests, an out-of-scope scope yields [].
  * The desktop page keeps its own richer select (email/phone/source for the
  * edit form, removed rows shown struck-through); this lean projection is
- * exactly what `toPoGuest` needs.
+ * exactly what `toPoGuest` needs. `event_id` is always selected (cheap) so the
+ * venue-wide "all guests" list can badge + deep-link each row to its own event;
+ * single-event callers simply don't use it.
+ *
+ * Ranged: a 1500-guest event/venue would truncate at PostgREST's 1000-row cap,
+ * hiding the rest. `created_at` isn't unique, so `.order('id')` is the
+ * tiebreaker that makes the page order deterministic (no overlap/skip across
+ * `.range()` windows).
  */
-export async function fetchPoGuests(client: Client, eventId: string): Promise<PoGuestRow[]> {
-  // Ranged: a 1500-guest list would truncate at PostgREST's 1000-row cap, hiding
-  // the rest. `created_at` isn't unique, so `.order('id')` is the tiebreaker that
-  // makes the page order deterministic (no overlap/skip across `.range()` windows).
-  return fetchAllRanged<PoGuestRow>((from, to) =>
-    client
+export async function fetchGuests(client: Client, scope: GuestScope): Promise<PoVenueGuestRow[]> {
+  return fetchAllRanged<PoVenueGuestRow>((from, to) => {
+    const query = client
       .from('guests')
-      .select('id, full_name, plus_ones, status, tier_id, note, note_priority, created_at, contact_id')
-      .eq('event_id', eventId)
+      .select('id, full_name, plus_ones, status, tier_id, note, note_priority, created_at, contact_id, event_id')
       .neq('status', 'removed')
       .order('created_at', { ascending: true })
       .order('id')
-      .range(from, to),
-  );
+      .range(from, to);
+    return 'eventId' in scope ? query.eq('event_id', scope.eventId) : query.eq('venue_id', scope.venueId);
+  });
 }
 
 export interface PoQuotaStatus {
@@ -125,47 +134,22 @@ export async function fetchEventQuota(
   };
 }
 
-/** Tiers for an event (RLS: members read their venue's tiers). */
-export async function fetchTiers(client: Client, eventId: string): Promise<PoTierRow[]> {
-  const { data } = await client
-    .from('guest_tiers')
-    .select('id, name, color, max_guests, aliases, door_price_cents, vat_percent')
-    .eq('event_id', eventId)
-    .order('name', { ascending: true });
-
-  return data ?? [];
-}
+export type TierScope = { eventId: string } | { venueId: string };
 
 /**
- * Active guests across MANY events (the venue-wide "all guests" list), oldest
- * first, each row carrying its `event_id`. Same RLS boundary as `fetchPoGuests`
- * — staff still see only their own guests, just across every event they touched.
- * Ranged like the single-event read so a big venue never truncates at 1000 rows.
+ * Tiers of an event, or every tier at a venue (the venue-wide "all guests" list
+ * resolves a guest's role by tier id regardless of event — tier ids are
+ * globally unique). Same scope shape as `fetchGuests` (SCALE-5/FE-3): a
+ * venue-wide read sends ONE venue_id, never an event-id list. RLS: members
+ * read their venue's tiers.
  */
-export async function fetchVenueGuests(client: Client, eventIds: string[]): Promise<PoVenueGuestRow[]> {
-  if (eventIds.length === 0) return [];
-  return fetchAllRanged<PoVenueGuestRow>((from, to) =>
-    client
-      .from('guests')
-      .select('id, full_name, plus_ones, status, tier_id, note, note_priority, created_at, contact_id, event_id')
-      .in('event_id', eventIds)
-      .neq('status', 'removed')
-      .order('created_at', { ascending: true })
-      .order('id')
-      .range(from, to),
-  );
-}
-
-/** Tiers across many events (venue-wide role resolution for the "all guests" list).
- *  Tier ids are globally unique, so the caller maps role by tier id regardless of event. */
-export async function fetchVenueTiers(client: Client, eventIds: string[]): Promise<PoTierRow[]> {
-  if (eventIds.length === 0) return [];
-  const { data } = await client
+export async function fetchTiers(client: Client, scope: TierScope): Promise<PoTierRow[]> {
+  const query = client
     .from('guest_tiers')
     .select('id, name, color, max_guests, aliases, door_price_cents, vat_percent')
-    .in('event_id', eventIds)
     .order('name', { ascending: true });
 
+  const { data } = await ('eventId' in scope ? query.eq('event_id', scope.eventId) : query.eq('venue_id', scope.venueId));
   return data ?? [];
 }
 
@@ -177,37 +161,22 @@ export interface EventHeadcount {
 }
 
 /**
- * Registered + present headcounts for many events in ONE query — the Events /
- * EventBeheer cards show these without an RPC per row. Aggregated client-side
- * from the guests rows RLS already lets the caller read.
+ * Registered + present headcounts for every event at a venue, in ONE aggregate
+ * RPC (K8/SCALE-5 — this used to download every on-list guest ROW of every
+ * event and sum client-side, `.in('event_id', eventIds)`, which both shipped
+ * far more data than needed and 414'd past ~205 events). `venue_event_headcounts`
+ * is SECURITY INVOKER (no bypass): it runs under the caller's own
+ * `guests_select` visibility, so a staff member's tile still only counts their
+ * own added guests, exactly like the row-by-row read it replaces.
  */
 export async function fetchEventHeadcounts(
   client: Client,
-  eventIds: string[]
+  venueId: string
 ): Promise<Map<string, EventHeadcount>> {
   const counts = new Map<string, EventHeadcount>();
-  if (eventIds.length === 0) return counts;
-
-  // Ranged: this sums guests across MANY events, so the combined row set can pass
-  // 1000 even when each event is small. No natural order here → `.order('id')` is
-  // both the sort and the unique tiebreaker the ranged paging needs.
-  const data = await fetchAllRanged<Pick<Tables['guests']['Row'], 'event_id' | 'plus_ones' | 'status'>>(
-    (from, to) =>
-      client
-        .from('guests')
-        .select('event_id, plus_ones, status')
-        .in('event_id', eventIds)
-        .in('status', ON_LIST)
-        .order('id')
-        .range(from, to),
-  );
-
-  for (const g of data) {
-    const cur = counts.get(g.event_id) ?? { registered: 0, present: 0 };
-    const heads = 1 + g.plus_ones;
-    cur.registered += heads;
-    if (g.status === 'checked_in') cur.present += heads;
-    counts.set(g.event_id, cur);
+  const { data } = await client.rpc('venue_event_headcounts', { p_venue_id: venueId });
+  for (const row of data ?? []) {
+    counts.set(row.event_id, { registered: row.registered, present: row.present });
   }
   return counts;
 }
@@ -267,12 +236,12 @@ export async function fetchOpenRequestCount(client: Client, eventId: string): Pr
 
 // ── Approvals reads (S5 Aanvragen, STAP 3.6) ──────────────────────────────────
 // Pending landing-page guest requests (#12/#31) + pending quota requests (#5),
-// read VENUE-WIDE across a set of event ids so the inbox can show "Alle events"
-// + an event picker. The caller passes the venue's visible event ids (from
-// usePoEvents, already RLS-scoped); RLS stays the boundary on the requests
-// themselves — admin sees every event's, an organizer only their own events'.
-// Each row carries its event_id so the screen can group/filter and target the
-// right event's tiers on approval. An empty id list short-circuits to [].
+// read VENUE-WIDE (one venue_id, SCALE-5 — was an `.in(eventIds)` list sourced
+// from usePoEvents, which 414s past ~205 events) so the inbox can show "Alle
+// events" + an event picker. RLS stays the boundary on the requests themselves
+// — admin sees every event's, an organizer only their own events'. Each row
+// carries its event_id so the screen can group/filter and target the right
+// event's tiers on approval.
 
 export type PoGuestRequestRow = Pick<
   Tables['guest_requests']['Row'],
@@ -327,15 +296,14 @@ async function fetchLinkLabels(client: Client, linkIds: string[]): Promise<Map<s
  */
 export async function fetchGuestRequests(
   client: Client,
-  eventIds: string[]
+  venueId: string
 ): Promise<PoGuestRequestRow[]> {
-  if (eventIds.length === 0) return [];
   const { data } = await client
     .from('guest_requests')
     .select(
       'id, full_name, phone, plus_ones, motivation, created_at, event_id, status, decision_reason, request_link_id, decided_via'
     )
-    .in('event_id', eventIds)
+    .eq('venue_id', venueId)
     .or('status.in.(pending,denied),and(status.eq.approved,decided_via.eq.auto)')
     .order('created_at', { ascending: true });
 
@@ -366,13 +334,12 @@ export interface PoQuotaRequestRow {
  */
 export async function fetchQuotaRequests(
   client: Client,
-  eventIds: string[]
+  venueId: string
 ): Promise<PoQuotaRequestRow[]> {
-  if (eventIds.length === 0) return [];
   const { data: reqs } = await client
     .from('quota_requests')
     .select('id, event_id, requested_extra, motivation, created_at, user_id')
-    .in('event_id', eventIds)
+    .eq('venue_id', venueId)
     .eq('status', 'pending')
     .order('created_at', { ascending: true });
 
@@ -1720,13 +1687,16 @@ export interface PoLinkOption {
   label: string | null;
 }
 
-/** Every non-archived link across the given events (lean — no funnel numbers). */
-export async function fetchVenueRequestLinks(client: Client, eventIds: string[]): Promise<PoLinkOption[]> {
-  if (eventIds.length === 0) return [];
+/**
+ * Every non-archived link at a venue (lean — no funnel numbers). `request_links`
+ * already carries `venue_id`, so this never needed the eventIds indirection
+ * (SCALE-5) — one venue_id, no `usePoEvents()` dependency at all.
+ */
+export async function fetchVenueRequestLinks(client: Client, venueId: string): Promise<PoLinkOption[]> {
   const { data } = await client
     .from('request_links')
     .select('id, event_id, is_default, label, influencer_id')
-    .in('event_id', eventIds)
+    .eq('venue_id', venueId)
     .is('archived_at', null)
     .order('created_at', { ascending: true });
 
