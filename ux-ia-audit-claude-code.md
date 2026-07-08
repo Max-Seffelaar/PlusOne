@@ -68,8 +68,68 @@ nav-stack, geen per-scherm URL's. Buiten de shell: `/door(+/[eventId])`, publiek
 ### Losse routes
 | Route | Doet | Let op |
 |---|---|---|
-| `/door` + `/door/[eventId]` | Standalone deur-app: **zelfde** CheckInList/Taken/GuestDetail/AddOnSpot-componenten als de Door-tab, maar in een eigen `DoorShell` met PhoneFrame, **mock-statusbalk "9:41"** en eigen tab-bar | enige deur-ingang voor organizers; nergens vanuit `/app` gelinkt |
+| `/door` + `/door/[eventId]` | Standalone deur-app: **zelfde** CheckInList/Taken/GuestDetail/AddOnSpot-componenten als de Door-tab, maar in een eigen `DoorShell` met PhoneFrame, **mock-statusbalk "9:41"** en eigen tab-bar | enige deur-ingang voor organizers; nergens vanuit `/app` gelinkt. **Besluit 8/7: de dubbele implementatie wordt geschrapt (G2)** — de *URL* blijft bestaan als deep-link/PWA-ingang (bookmark op deur-devices, Capacitor-deep-link, organizer-toegang), maar hij mount voortaan dezelfde Door-modus als de tab; de aparte `DoorShell`-boom + mock-statusbalk verdwijnen |
 | `/e/[slug]` `/i/[token]` `/r/[token]` | Publiek: request-form, influencer-stats, gast-status | buiten scope van dit plan |
+
+---
+
+## §1b — Rollenmatrix: wat mag welk user-type (toegevoegd op verzoek Max, 8/7)
+
+Zes user-types: **vijf venue-rollen** (een user kan er meerdere tegelijk hebben) + de **organizer**,
+die géén venue-rol is maar een *externe* per-event-toekenning (`event_organizers` — "External crew"
+in de Team-UI). Bron: `src/features/auth/roles.ts` + `src/features/venues/access.ts` (spiegelen
+1-op-1 de RLS-policies) + live geverifieerd per rol.
+
+Legenda: **✓** = mag · **👁** = alleen lezen · **eigen** = alleen eigen items · **—** = mag niet
+(en hoort het dan ook niet als actieve knop te zien) · **°** = besluit 8/7, nog te bouwen.
+
+| Actie | Admin | User manager | Finance | Staff | Door host | Organizer (extern, per event) |
+|---|---|---|---|---|---|---|
+| **EVENTS** | | | | | | |
+| Events + recap bekijken | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Event aanmaken (ook uit template) | ✓ | — | — | — | — | — |
+| Event bewerken (details, tiers, links, crew-rij) | ✓ | — | 👁 | — | — | ✓ eigen event |
+| Event annuleren / heropenen | ✓ | — | — | — | — | — |
+| Templates beheren | ✓ | — | — | — | — | ✓ |
+| **GASTEN** | | | | | | |
+| Gastenlijst zien | ✓ alle | — (ziet er 0) | 👁 alle | eigen | ✓ alle | ✓ eigen event |
+| Gast toevoegen (quick/bulk) | ✓ zonder limiet | — | — | ✓ binnen eigen quota | ✓ binnen eigen quota | ✓ zonder limiet, eigen event |
+| Gast bewerken / tier wijzigen / verwijderen | ✓ alle | — | — | eigen | aan de deur | ✓ eigen event |
+| Extra quota-slots aanvragen | n.v.t. (exempt) | — | — | ✓ | ✓ | n.v.t. (exempt) |
+| Contacts (adresboek) + Regulars beheren | ✓ | — | ✓ | — | — | 👁 + add-to-event |
+| Import (CSV/plak/telefoon) | ✓ | — | ✓ | — | — | — |
+| Contact vergeten (AVG) | ✓ | — | — | — | — | — |
+| **DEUR** | | | | | | |
+| Check-in / weigeren / terugdraaien / taken | ✓ | — | — | — | ✓ | ✓ eigen event ° (RLS staat het al toe; de UI-route is K-6/M2) |
+| Add on the spot | ✓ | — | — | — | ✓ binnen quota | ✓ eigen event |
+| Lijst locken / unlocken | ✓ | — | — | — | — | ✓ eigen event |
+| **REQUESTS** | | | | | | |
+| Landing-/quota-requests beslissen | ✓ | — | — | — | — | ✓ eigen event |
+| Requests-inbox inzien | ✓ | — | 👁 zonder knoppen ° | eigen status ° | — | ✓ eigen event |
+| **INZICHT** | | | | | | |
+| Analytics | ✓ | — | ✓ | — | — | — |
+| Promotion-dashboard | ✓ | — | ✓ | — | — | — ° (besluit 8/7: alleen venue-leden; extern alleen per-event Links) |
+| Request-links per event beheren | ✓ | — | 👁 | — | — | ✓ eigen event |
+| Influencer-roster + stats-tokens | ✓ | — | — | — | — | — |
+| Audit log | ✓ | — | ✓ | — | — | — |
+| **BEHEER** | | | | | | |
+| Team zien | ✓ | ✓ | 👁 | — | — | — |
+| Leden uitnodigen / rollen wijzigen / verwijderen | ✓ | ✓ (géén admin-rol uitdelen) | — | — | — | — |
+| External crew beheren (incl. crew-quota) | ✓ | — | — | — | — | — |
+| Default quota per lid instellen | ✓ | — | 👁 | — | — | — |
+| Per-event quota instellen | ✓ | — | 👁 | — | — | — |
+| Venue settings (naam, AVG, BTW/KVK) | ✓ | — | 👁 | — | — | — |
+| Billing lezen | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| Billing checkout / portal | ✓ (alleen browser, nooit native) | — | — | — | — | — |
+| Team-devices remote uitloggen | ✓ | — | — | — | — | — |
+| Eigen profiel + eigen sessies + MFA | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Venue switchen / nieuwe venue aanmaken | ✓ | ✓ | ✓ | ✓ | ✓ | switch ✓ / create ✓ |
+
+**Waar de UI vandaag van deze matrix afwijkt** (de rechten-knelpunten uit §3):
+staff ziet actieve Approve/Deny op requests (K-4) · finance ziet beslis-knoppen (K-5) ·
+user_manager krijgt "New guest" + RLS-nullen als "0" (K-7) · doorhost ziet request-tegels en loopt
+dood op gast-profielen (K-8) · organizer mist elke deur-route in `/app` (K-6) · organizer krijgt de
+"Events & tiers"-beheerhub te zien waarin hij niets kan (K-3).
 
 ---
 
@@ -181,9 +241,10 @@ heeft — deels bewust, deels gat (zie K-13). i18n heeft er twee namespaces voor
 ### Cijfers die per oppervlak verschillen
 - **K-10 · Cockpit telt anders dan de rest.** Zelfde event, zelfde moment (live gemeten):
   mobiele deur **33 people on the way + 4 inside = 37** en EventView **"37 people on the list"**,
-  maar de cockpit zegt **"TURNOUT 4 / 38 people" en 34 on the way**. De cockpit telt vermoedelijk de
-  geweigerde gast (Bram, refused) mee. Precies het vertrouwensprobleem dat T9 voor de
-  request-badge oploste, maar dan voor headcounts.
+  maar de cockpit zegt **"TURNOUT 4 / 38 people" en 34 on the way**. Welke telregel precies afwijkt
+  (refused-behandeling, partial-party, +1-telling) is nog niet uitgezocht — de fix is hoe dan ook
+  dat álle oppervlakken één gedeelde selector gebruiken (zie de canonieke telregels onder §5.2).
+  Precies het vertrouwensprobleem dat T9 voor de request-badge oploste, maar dan voor headcounts.
 - **K-11 · Twee persoons-vocabulaires.** Contacts gebruikt een eigen rolchip-taxonomie
   (GUEST / VIP / ALL ACCESS / ARTIST / PRESS / CREW) die niet overeenkomt met de venue-tiernamen;
   dezelfde persoon heet "GUEST" in Contacts en "Regular" op de lijst. (Guests-tab-variant hiervan =
@@ -283,40 +344,62 @@ als paneel of expliciet "mobiel-only" gedocumenteerd.
 | W5 | Eigen icoon voor Billing (nu zelfde `spark` als Analytics) | `settings.tsx:262` |
 | W6 | i18n: dubbele filter-labels `door.*`/`cockpit.*` naar één gedeelde set (alleen catalogus-interne dedupe, geen zichtbare wijziging) | agent-bevinding §2-I |
 
-### 5.2 Middelgroot (elk vereist een besluit van Max vóór bouw)
+### 5.2 Middelgroot — mét besluiten van Max (8/7)
 
-| # | Verbetering | Te beslissen |
+| # | Verbetering | Besluit 8/7 |
 |---|---|---|
-| M1 | **Show-and-block weg op Requests**: knoppen verbergen/disablen voor rollen zonder beslisrecht; staff-variant wordt "jouw aanvragen"-status; foutcopy zonder onterecht MFA-excuus (K-4/K-5) | akkoord op rol-matrix per ingang |
-| M2 | **Organizer → Door**: Door-tab (of Event-Day-rij + EventView-knop) tonen voor event-organizers (K-6) | tab vs alleen contextuele knop |
-| M3 | **Doorhost-doodlopers**: gast-profiel als name-only weergave voor deur-rollen i.p.v. foutscherm; request-tegels verbergen voor rollen zonder request-zicht (K-8) | profiel-lite vs verbergen |
-| M4 | **Headcount-definitie cockpit gelijktrekken** met deur/EventView (refused buiten "on the way"; één selector) (K-10) | welke definitie is canoniek |
-| M5 | **Sidebar/More dedupe**: de 6 dubbele More-rijen op desktop weg; Requests-gate overal gelijk (K-2, §2-F) | welke kant wint (sidebar of More) |
-| M6 | **EventView slanker**: LOG inklappen tot "View activity →" (Audit-scherm met event-filter voorgefilterd); BY TIER/BY MEMBER alleen nog in Analytics of alleen in EventView — niet beide (K-3-aanpalend, §2-E) | waar wonen per-event-stats |
-| M7 | **EventBeheer opheffen**: edit-actie op de Events-lijstkaarten; More-rij "Events & tiers" → weg of alias naar Events-tab (K-3) | redirect vs verwijderen |
-| M8 | **"Quota per event" (Allowance) schrappen** en de More-rij naar EventEdit's quota-sectie laten wijzen — subsumeert de mock-bug (K-12, ClickUp K1) | schrappen vs alsnog live bedraden |
-| M9 | **user_manager-doodloper**: "New guest" verbergen voor rollen zonder guest-write; RLS-nullen als "—" of uitleg i.p.v. "0" (K-7) | hoe agressief verbergen |
-| M10 | **Add-guest zichtbaar op "All events"-scope** in de Guests-tab (opent de bestaande event-picker) (K-16) | — |
-| M11 | **Past-event consistent**: Home-"Edit" op afgelopen events → recap (met edit-optie dáár) (K-15) | mag een past event überhaupt bewerkbaar blijven? |
-| M12 | **Venue-switch één ingang** (header-picker); More-rij weg, "1 venue"-rij verbergen (§2-H) | — |
-| M13 | **EventEdit "Request links"-sectie hernoemen** (bv. "Sign-up link") zodat de term niet dubbel is met de Links-beheerrij (K-19) | naam |
-| M14 | **Links-kaarten + checked-in** (zelfde funnel als Promo) (K-20) | — |
-| M15 | **Vaste-scherm + dode case verwijderen** (K-14; onzichtbare cleanup, geen designwinst → daarom hier) | — |
-| M16 | **`/door` mock-statusbalk "9:41" weg** (PhoneFrame-artefact; check PWA-safe-area eerst) (K-13) | — |
-| M17 | **"Event Day"-More-rij**: weg op mobiel of hernoemen; desktop-rij vervalt bij M5 (K-9) | — |
+| M1 | **Show-and-block weg op Requests**: knoppen verbergen voor rollen zonder beslisrecht; foutcopy zonder onterecht MFA-excuus (K-4/K-5) | ✅ Akkoord. Staff krijgt **alleen een status-weergave van z'n eigen aanvragen** (geen venue-inbox); finance 👁 zonder knoppen (nog te bevestigen, zie §7-punt 5) |
+| M2 | **Organizer → Door** (K-6) | ✅ Akkoord: **volwaardige Door-tab** voor de event-organizer. Géén losse "Open door"-knop — die is eerder bewust geschrapt (T6) en komt niet terug |
+| M3 | **Doorhost-doodlopers**: gast-profiel als name-only weergave i.p.v. foutscherm; request-tegels verbergen voor rollen zonder request-zicht (K-8) | ✅ Akkoord |
+| M4 | **Headcount-definitie gelijktrekken**: één gedeelde selector voor alle oppervlakken (K-10) | ✅ Akkoord + definitie **hieronder vastgelegd** zodat het niet meer mis kan gaan |
+| M5 | **Sidebar/More dedupe**: de 6 dubbele More-rijen op desktop weg; Requests-gate overal gelijk (K-2, §2-F) | ✅ Akkoord |
+| M6 | **EventView slanker** (§2-E) | ✅ Akkoord, in deze vorm: **"View activity →" navigeert naar de Audit-pagina, automatisch voorgefilterd op dat event**; het inline LOG verdwijnt van EventView (te druk, audit is voor de meeste gebruikers niet belangrijk). Waar BY TIER/BY MEMBER wonen: zie §7-punt 4 |
+| M7 | **EventBeheer opheffen** (K-3) — *toelichting: er zijn nu twee event-lijsten. De Events-tab (kaart-tap = bekijken) én More → "Events & tiers" (zelfde events, maar kaart-tap = bewerken). Voorstel: die tweede lijst weg; de Events-tab krijgt een edit-actie op de kaart, en de More-rij verdwijnt (of wijst tijdelijk naar de Events-tab). Niemand verliest iets — je kunt alles wat de hub kan straks vanaf de Events-tab* | ⏳ Wacht op besluit na deze toelichting (zie §7-punt 2) |
+| M8 | **"Quota per event" (Allowance) live bedraden** (K-12, ClickUp K1) | ✅ Besluit: **live bedraden** (niet schrappen). NB: per-event quota instellen kán vandaag al — venue-breed default in EventEdit ("Default quota per member") en per persoon via quota-request-approval of Crew; wat ontbreekt is dít scherm: per-event **per-teamlid** overrides in één overzicht. Dat wordt nu echt gebouwd |
+| M9 | **user_manager-doodloper**: "New guest" verbergen voor rollen zonder guest-write; RLS-nullen als "—" i.p.v. "0" (K-7) | ✅ Akkoord |
+| M10 | **Add-guest óók op "All events"-scope** in de Guests-tab — *toelichting: sta je in de Guests-tab op de standaard-scope "All events", dan is er nu géén enkele toevoeg-knop; die verschijnt pas als je eerst een event-chip kiest. Voorstel: de knop altijd tonen; op "All events" opent hij eerst de bestaande event-picker (zoals Home's "New guest") en daarna de gewone add-flow* (K-16) | ⏳ Wacht op besluit na deze toelichting (zie §7-punt 3) |
+| M11 | **Past events op Home beperken** (K-15, herzien) | ✅ Besluit aangepast: Home toont alleen de events van de **afgelopen week**; alles ouder woont uitsluitend onder Events → Past-filter. Past events **blijven gewoon bewerkbaar** en de recap krijgt ook **"Save as template"** (zie §7-besluit) |
+| M12 | **Venue-switch één ingang** (header-picker); More-rij weg, "1 venue"-rij verbergen (§2-H) | ✅ Akkoord + **na een switch land je direct op Home van de nieuwe venue**, niet terug op de switcher (subsumeert ClickUp C24: `clearNavState` vóór de reload) |
+| M13 | **EventEdit "Request links"-sectie hernoemen** zodat de term niet dubbel is met de Links-beheerrij (K-19) | ✅ Akkoord; naam wordt Engels, voorstel **"Sign-up link"** |
+| M14 | **Links-kaarten + checked-in** (zelfde funnel als Promo) (K-20) | ✅ Akkoord |
+| M15 | **Vaste-scherm + dode case verwijderen** (K-14) | ✅ Akkoord |
+| M16 | **`/door` mock-statusbalk "9:41" weg** (K-13; check PWA-safe-area; vervalt grotendeels vanzelf bij G2) | ✅ Akkoord |
+| M17 | **"Event Day"-More-rij weg/hernoemen** (K-9; desktop-rij vervalt bij M5) | ✅ Akkoord |
 
-### 5.3 Grote herstructurering (alleen voorstel; eigen sessies)
+#### Canonieke telregels (vastgelegd bij M4-akkoord, 8/7 — geldt voor élk oppervlak)
 
-| # | Voorstel | Waarom groot |
+Eén gedeelde selector (client + waar nodig dezelfde formule in SQL-views) levert deze getallen;
+géén scherm telt ooit zelf:
+
+- **On the list** = som van `1 + plus_ones` over alle gasten van het event met status ≠ `removed`
+  en ≠ `refused` (in **heads**, plus-ones inbegrepen).
+- **Inside** = aantal ingecheckte heads (bij partial check-in tellen alleen de daadwerkelijk
+  ingecheckte heads).
+- **On the way** = On the list − Inside.
+- **Refused/Bounced** telt in géén van de bovenstaande mee; het is uitsluitend het aparte cijfer.
+- **Attendance / turnout** = Inside ÷ On the list (0% bij lege lijst).
+- Waar zowel *gasten* (rijen) als *heads* (mensen) getoond worden, worden ze altijd expliciet
+  gelabeld ("24 guests · 33 people") — nooit door elkaar.
+
+Deur (mobiel), cockpit, EventView, Home-kaarten, Analytics en de publieke statuspagina gebruiken
+deze definities. Bij de bouw van M4 wordt de afwijkende cockpit-telling (K-10) tegen deze regels
+uitgezocht en gelijkgetrokken; de regels verhuizen dan ook naar `gastenlijst-app-spec.md`
+(decision-tabel) zodat ze vastliggen.
+
+### 5.3 Grote herstructurering — mét besluiten van Max (8/7)
+
+| # | Voorstel | Besluit 8/7 |
 |---|---|---|
-| G1 | **Eén canoniek nav-model + `/app` deep-linking**: elke bestemming een URL, sidebar-items worden echte bestemmingen, `NAV_PUSHED`/`currentKey`-kludge weg (juni-T2+T14; K-1) | raakt nav-stack, history-integratie (PR #67-werk), Capacitor-deep-links (Fase 17 S4) |
-| G2 | **Deur-consolidatie afronden**: `/door/[id]` mount de po Door-modus; DoorShell weg; feature-matrix cockpit↔mobiel expliciet (Refuse/reverse naar desktop) (K-13, juni-T10) | outbox-guardrail, PWA-entry, door-mesh-plan raakt dezelfde bestanden |
-| G3 | **Promotion-domein hergroeperen**: Promo + Links + Influencers → één Promotion-gebied (venue-overzicht · per-event · roster); create-link-flow één component; gating los van `canViewStats`, organizer ziet de resultaten van zijn eigen event (§2-G, K-6-aanpalend) | schermfusies + rechtenmodel |
-| G4 | **Guests/Lijst-fusie + één persoonsmodel**: Lijst wordt de event-gescopete staat van de Guests-tab; één vocabulaire/rolchip; profiel role-aware (K-11, §2-B/C; bouwt op FE-1/FE-2/FE-3) | raakt vrijwel alle gastenschermen |
+| G1 | **Eén canoniek nav-model + `/app` deep-linking** (juni-T2+T14; K-1). *In gewone taal: de hele app leeft nu op één URL (`/app`); schermen bestaan alleen in het geheugen van de browser-tab. Daardoor (a) kun je geen scherm delen/bookmarken ("stuur me de link van dat event" kan niet), (b) moesten sidebar-items als Analytics/Team als "nep-tabs" worden vastgeplakt met een trucje in de code, en (c) gedraagt terug/highlight zich per item nét anders. Het voorstel: elk scherm krijgt een echte URL (`/app/events/[id]`, `/app/analytics`, …). Dan wordt de sidebar gewoon een lijst links, verdwijnt het trucje, werkt de terugknop overal hetzelfde, en zijn schermen deelbaar — ook nodig voor de native app (deep links, Fase 17 S4)* | ⏳ Wacht op go/no-go na deze toelichting (zie §7-punt 1) |
+| G2 | **Deur-consolidatie afronden**: `/door/[id]` wordt een dunne route die exact de po Door-modus mount; de dubbele `DoorShell`-boom (+ mock-statusbalk) wordt **geschrapt** — antwoord op Max' vraag "kunnen we er niet één schrappen": ja, dít schrapt hem, alleen de URL blijft (PWA/bookmark/organizer-ingang) | ✅ Akkoord. Plus besluit vraag 3: **cockpit krijgt volledige deur-pariteit** (Refuse, reverse-check-in, Tasks, Add-on-spot — gelijk aan de deur-functionaliteit) |
+| G3 | **Promotion-domein hergroeperen**: Promo + Links + Influencers → één Promotion-gebied (venue-overzicht · per-event · roster); create-link-flow één component (§2-G) | ✅ Akkoord. Gating-besluit (vraag 6): **alleen venue-leden** zien het Promotion-dashboard; een externe organizer (event-scoped) niet — die houdt alleen het per-event Links-beheer van zíjn event |
+| G4 | **Guests/Lijst-fusie + één persoonsmodel**: Lijst wordt de event-gescopete staat van de Guests-tab; één vocabulaire/rolchip; profiel role-aware (K-11, §2-B/C; bouwt op FE-1/FE-2/FE-3) | ✅ Akkoord |
 
-**Aanbevolen volgorde na akkoord:** W1–W6 in één kleine PR → M1+M9+M3 (rechten-hygiëne, samen één
-thema) → M5+M7+M8+M12+M17 (menu-opruiming) → M4+M6 (cijfers/event-detail) → daarna G-kandidaten
-per stuk plannen.
+**Aanbevolen volgorde (bijgewerkt na de besluiten):** W1–W6 in één kleine PR → M1+M9+M3
+(rechten-hygiëne, één thema) → M5+M12+M15+M17 (menu-opruiming) → M4 (telregels) + M6+M11+M13+M14
+(event-detail & promotie-polish) → M2 (organizer-Door; kan ook met G2 mee) → M8 (Allowance live,
+eigen taak met migratie-check) → M16+G2 samen (deur), daarna G3/G4; G1 zodra Max 'go' geeft
+(logisch vóór de Capacitor-wrap).
 
 ---
 
@@ -353,17 +436,49 @@ aangemaakt; dat gebeurt pas na akkoord op de prioritering.*
 
 ---
 
-## §7 — Open vragen voor Max
+## §7 — Besluitenlog 8/7 + resterende open punten
 
-1. **Requests-model per rol** (M1): mag staff überhaupt de venue-inbox zien, of alleen een eigen
-   "mijn aanvragen"-status? En finance: kijken zonder knoppen, of helemaal geen inbox?
-2. **Organizer & Door** (M2): volwaardige Door-tab voor event-organizers, of alleen een
-   "Open door"-knop op hun EventView?
-3. **Cockpit-pariteit** (G2): moeten Refuse en reverse-check-in naar desktop, of is de cockpit
-   bewust "kijken + in/uit" en blijft corrigeren mobiel?
-4. **Per-event-stats**: wonen die in EventView (en verdwijnt de Analytics-drilldown) of in
-   Analytics (en linkt EventView ernaartoe)? (M6)
-5. **Past events bewerken**: helemaal read-only na afloop (op cancel/reinstate na), of blijft
-   EventEdit bereikbaar via de recap? (M11)
-6. **Influencers/Promotion-gating** (G3): wie mag het Promotion-dashboard zien — ook de organizer
-   voor zíjn event?
+### Beslist (Max, 8/7)
+- **Rollenmatrix toegevoegd** als §1b (op verzoek).
+- **W1–W6, M1–M6, M8, M9, M11–M17, G2, G3, G4: akkoord** (details/verfijningen in de tabellen).
+- Vraag 1 · staff & Requests → **alleen eigen aanvragen-status**, geen venue-inbox.
+- Vraag 2 · organizer & Door → **volwaardige Door-tab**; geen losse "Open door"-knop (die is
+  eerder bewust geschrapt, T6).
+- Vraag 3 · cockpit → **volledige pariteit met de deur-functionaliteit** (Refuse, reverse, Tasks,
+  Add-on-spot komen naar desktop).
+- Vraag 5 · past events → **blijven bewerkbaar** ná afloop, en de recap krijgt **"Save as
+  template"**. Op Home staan alleen de past events van de **afgelopen week**; ouder = alleen
+  Events → Past (M11).
+- Vraag 6 · Promotion-gating → organizer is inderdaad een **externe** user (event-scoped
+  "External crew"); het Promotion-dashboard is **alleen voor venue-leden**; extern alleen
+  per-event Links.
+- M4-telregels → **vastgelegd in dit doc** (onder §5.2); verhuizen bij de bouw ook naar de
+  spec-decision-tabel.
+
+### Nog open (wachten op Max)
+1. **G1 go/no-go** — canonieke nav + echte URL's per scherm; toelichting in §5.3. Advies: doen,
+   uiterlijk vóór de Capacitor-wrap (deep links zijn daar toch nodig).
+2. **M7 go/no-go** — de tweede event-lijst ("Events & tiers" in More) opheffen; toelichting in de
+   M7-rij. Advies: doen; edit-actie verhuist naar de Events-tab-kaarten, er verdwijnt geen
+   functionaliteit.
+3. **M10 go/no-go** — add-guest-knop ook tonen op "All events"-scope (opent eerst de
+   event-picker); toelichting in de M10-rij.
+4. **Waar wonen BY TIER / BY MEMBER per-event-stats** (rest van M6/vraag 4). Twee opties:
+   **(a)** op het event zelf (EventView/recap) en de Analytics-drilldown vervalt → Analytics wordt
+   klein: alleen venue-brede trends; **(b)** alleen in Analytics, EventView linkt ernaartoe.
+   *Advies: (a)* — je kijkt per event, dus de cijfers horen bij het event; dat lost meteen op dat
+   Analytics nu "lastig" voelt: die pagina hoeft dan alleen nog venue-trends te tonen (opkomst over
+   tijd, per-lid totalen) en mag verder krimpen tot er echte wow-KPI's zijn.
+5. **Finance & Requests-inbox bevestigen** (uitloper M1/vraag 1): finance de inbox laten *zien*
+   zonder beslis-knoppen (past bij "finance ziet alles read-only"), of helemaal geen inbox?
+   Advies: 👁 zonder knoppen.
+6. **Vraag-2-nasleep · event-statussen**: Max schreef *"alle statussen van events en het live gaan
+   van events zouden weg moeten zijn — ik weet niet waar je dit gevonden hebt."* Ter verificatie
+   wat er vandaag daadwerkelijk in de build zit (er is géén handmatige status meer — de status-
+   machine is 24/6 vervangen door **tijd-afgeleide** fases): (a) "UPCOMING"/"LIVE"-chips op
+   event-kaarten en de cockpit-badge (afgeleid van doors/eindtijd, T9-fold), (b) de Home-pulse-tegel
+   "EVENTS LIVE", (c) "Check-in"/Door-sneltoetsen op Home-kaarten (`home.tsx:650`) en EventView
+   (`events.tsx:283`) die de Door-tab voor dát event openen — iets anders dan de geschrapte
+   "Open door app"-knop uit de cockpit (T6). **Open vraag: moeten deze afgeleide badges en/of de
+   Check-in-sneltoetsen ook weg, of berustte dit op een misverstand en blijven ze?** Advies:
+   laten staan — de deur moet met één tik te openen zijn vanaf een event-kaart (door speed).
