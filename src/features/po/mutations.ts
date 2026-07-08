@@ -1308,6 +1308,18 @@ export function usePoSetDefaultQuota() {
   });
 }
 
+/** Set (or clear back to base) a member's per-event quota override (Allowance
+ *  screen). Role-only RLS (admin) since the #20 2026-06-24 refinement — reuses
+ *  the same event_quotas write path as external-crew quota. */
+export function usePoSetAllowance(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { userId: string; quota: number }) =>
+      throwOnError(await setEventUserQuota({ eventId, userId: input.userId, quota: input.quota })),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: poKeys.allowance(eventId) }),
+  });
+}
+
 /** Update the caller's own name + phone. */
 export function usePoUpdateProfile() {
   const qc = useQueryClient();

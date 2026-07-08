@@ -36,6 +36,7 @@ import {
   fetchVenueMembers,
   fetchMemberQuotas,
   fetchVenueSettings,
+  fetchEventQuotaOverrides,
   fetchVenueInvites,
   fetchVenueCrew,
   fetchMyPendingInvites,
@@ -840,6 +841,39 @@ export function usePoTeam() {
       const quotaByUser = new Map(quotas.map((q) => [q.user_id, q.default_count]));
       const venueDefault = settings?.default_personal_quota ?? 0;
       return members.map((m) => toPoTeamMember(m, quotaByUser.get(m.user_id) ?? venueDefault));
+    },
+  });
+}
+
+export interface PoAllowanceMember extends PoTeamMember {
+  /** This event's override (event_quotas.quota_override); equals `quota` (the
+   *  venue-default base) when no override is set for this event. */
+  override: number;
+}
+
+/** Every team member's default quota + this event's override, for the Allowance
+ *  screen (per-event quota, event_quotas). Mirrors usePoTeam plus one more read. */
+export function usePoEventAllowance(eventId: string | null) {
+  const { venueId } = usePoIdentity();
+  return useQuery<PoAllowanceMember[]>({
+    queryKey: poKeys.allowance(eventId ?? ''),
+    enabled: !!venueId && !!eventId,
+    queryFn: async () => {
+      if (!venueId || !eventId) return [];
+      const client = createClient();
+      const [members, quotas, settings, overrides] = await Promise.all([
+        fetchVenueMembers(client, venueId),
+        fetchMemberQuotas(client, venueId),
+        fetchVenueSettings(client, venueId),
+        fetchEventQuotaOverrides(client, eventId),
+      ]);
+      const quotaByUser = new Map(quotas.map((q) => [q.user_id, q.default_count]));
+      const overrideByUser = new Map(overrides.map((o) => [o.user_id, o.quota_override]));
+      const venueDefault = settings?.default_personal_quota ?? 0;
+      return members.map((m) => {
+        const base = quotaByUser.get(m.user_id) ?? venueDefault;
+        return { ...toPoTeamMember(m, base), override: overrideByUser.get(m.user_id) ?? base };
+      });
     },
   });
 }

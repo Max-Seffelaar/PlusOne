@@ -1316,6 +1316,22 @@ export async function fetchMemberQuotas(client: Client, venueId: string): Promis
   return data ?? [];
 }
 
+export type PoEventQuotaOverrideRow = { user_id: string; quota_override: number };
+
+/** This event's per-member quota overrides (event_quotas), keyed by user. RLS:
+ *  admin/finance read all for the venue's events, a member reads only their own row. */
+export async function fetchEventQuotaOverrides(
+  client: Client,
+  eventId: string
+): Promise<PoEventQuotaOverrideRow[]> {
+  const { data } = await client
+    .from('event_quotas')
+    .select('user_id, quota_override')
+    .eq('event_id', eventId);
+
+  return data ?? [];
+}
+
 export type PoSessionRow = {
   session_id: string;
   created_at: string;

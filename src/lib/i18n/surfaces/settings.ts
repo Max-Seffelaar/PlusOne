@@ -19,6 +19,8 @@ export const settings = {
   more: {
     title: 'More',
     switchSub: '{name} · switch venue',
+    /** Shown instead of a name while the profile loads or on a load error — never a placeholder person. */
+    nameFallback: 'your account',
     sectionVenue: 'This venue',
     sectionBilling: 'Billing',
     analyticsTitle: 'Analytics',
@@ -165,6 +167,8 @@ export const settings = {
     overrideMinus: '{n} override',
     spots: 'spots',
     saveAllowance: 'Save quota',
+    pickEventTitle: 'Pick an event',
+    noUpcomingEvents: 'No upcoming events to set an allowance for.',
   },
 
   // Switch venue (VenueSwitch).

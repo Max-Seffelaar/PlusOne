@@ -199,13 +199,6 @@ export interface Invoice {
   method: string;
 }
 
-export interface AllowanceRow {
-  name: string;
-  role: string;
-  base: number;
-  override: number;
-}
-
 export interface RecapGuest {
   name: string;
   plus: number;
