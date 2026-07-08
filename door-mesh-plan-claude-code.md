@@ -2,6 +2,27 @@
 
 > **Voor de uitvoerende sessie:** dit plan is goedgekeurd door Max (2026-07-07) en ontworpen om per PR (0 t/m 4, in volgorde) in aparte sessies uitgevoerd te worden — één ClickUp-taak per sessie, per PR een eigen branch vanaf `main`. Alle regels uit `CLAUDE.md` gelden onverkort (security-checklist, Definition of Done, per-screen test-handoff). De regelnummer-verwijzingen (bijv. `DoorProvider.tsx:284`) zijn geverifieerd d.d. 2026-07-07 — verifieer ze opnieuw vóór het editen; de structuur is leidend, niet het exacte nummer. Bij twijfel of conflict met de spec: flaggen, niet stil afwijken.
 
+## ⏸️ Status: GEPARKEERD (besluit Max 2026-07-08) + activerings-trigger
+
+De hele reeks (PR 0–4) is **uitgesteld tot het aantoonbaar de moeite waard is**. Niet bouwen
+zonder dat de trigger hieronder is afgegaan of Max expliciet heractiveert.
+
+- **Trigger (besluit 8/7):** heractiveren bij **≥5 klanten (actieve venues)** *óf* zodra **één
+  venue structureel met 2–3+ deur-devices per avond** draait — de waarde van het mesh schaalt met
+  multi-device deurgebruik, niet met klantaantal op zich.
+- **Detectie wordt gemeten, niet gegokt:** bij de PostHog-bouw wordt een **insight + alert**
+  ingericht op multi-device deurgebruik (`door_checkin` per venue per event-avond, breakdown op
+  device) én op het aantal actieve venues → alert naar Max = het startsein voor deze reeks.
+  ClickUp-taak: `86ey7e3pm` ("PostHog — mesh-trigger alert"); hangt aan de PostHog-bouw
+  (`86ey3x371`), die ná de UX/IA-reeks komt (G1 eerst — zie `ux-ia-audit-claude-code.md`).
+- **Sequencing-winst:** UX/IA-**G2** (deur-consolidatie, `86ey7dzzg`) bouwt éérst; dit mesh-plan
+  rebased daarna op de geconsolideerde deur-architectuur (de regelnummer-verwijzingen hieronder
+  MOETEN dan sowieso opnieuw geverifieerd worden — `DoorShell` bestaat na G2 niet meer).
+- **Open punt (default: wacht mee):** PR 0 (SW cold-start + hotspot-SOP) en de losse
+  wake-lock-taak `86ey6x56p` zijn strikt genomen geen mesh en ook single-device nuttig; ze mógen
+  eerder los (bijv. bij G2 of de Capacitor N4-spike) — alleen na expliciete bevestiging van Max,
+  tot die tijd wachten ze mee.
+
 ## Context
 
 Venues met instabiel internet zijn een reële doelgroep; de deur moet blijven werken als internet wegvalt. Max' praktijkbeeld: **soms 4+ devices tegelijk** aan de deur, en alle vier de pijnpunten tellen: (1) dubbel inchecken over devices heen voorkomen, (2) lijst kunnen laden zonder internet, (3) kloppende live tellers, (4) algemene robuustheid. Dit plan beoordeelt het WebRTC-idee en werkt het uit tot een gefaseerd bouwplan.
