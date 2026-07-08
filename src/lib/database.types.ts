@@ -1737,7 +1737,7 @@ export type Database = {
         Returns: Json
       }
       get_landing_event: {
-        Args: { p_slug: string }
+        Args: { p_ip_hash: string; p_slug: string }
         Returns: {
           event_name: string
           spots_left: number

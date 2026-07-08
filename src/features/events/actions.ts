@@ -451,6 +451,35 @@ export async function inviteExternalCrew(input: InviteExternalCrewInput): Promis
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
 
+  // C1 (security review 7/7): authorize BEFORE any service-role side effect.
+  // Provisioning an auth account + sending the invite mail must never run for a
+  // caller who isn't an admin of the venue(s) owning the target events — else any
+  // authenticated user could drive an invite-only bypass, spam mail, and probe
+  // account existence. Mirror resendCrewInvite: read through the USER-scoped
+  // client so RLS backs the evidence. A non-admin, or an event id in a venue the
+  // caller can't see, fails here generically (no oracle) — before line 470's
+  // inviteUserByEmail.
+  const supabase = await createClient();
+  const uniqueEventIds = [...new Set(eventIds)];
+  const { data: targetEvents, error: eventsError } = await supabase
+    .from('events')
+    .select('id, venue_id')
+    .in('id', uniqueEventIds);
+  if (eventsError) return mapMutationError(eventsError);
+  if (!targetEvents || targetEvents.length !== uniqueEventIds.length) return unauthorized();
+
+  const venueIds = [...new Set(targetEvents.map((e) => e.venue_id))];
+  const { data: adminMemberships, error: membershipError } = await supabase
+    .from('venue_memberships')
+    .select('venue_id, roles')
+    .eq('user_id', ctx.user.id)
+    .in('venue_id', venueIds);
+  if (membershipError) return mapMutationError(membershipError);
+  const adminVenues = new Set(
+    (adminMemberships ?? []).filter((m) => m.roles.includes('admin')).map((m) => m.venue_id),
+  );
+  if (!venueIds.every((v) => adminVenues.has(v))) return unauthorized();
+
   const fullName = email.split('@')[0];
   const service = createServiceClient();
   // inviteUserByEmail provisions the account AND sends the "You've been
@@ -490,7 +519,6 @@ export async function inviteExternalCrew(input: InviteExternalCrewInput): Promis
     return { ok: false, code: 'invite', message: "Couldn't record the invite." };
   }
 
-  const supabase = await createClient();
   for (const eventId of eventIds) {
     const { error } = await supabase
       .from('event_organizers')

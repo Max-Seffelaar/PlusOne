@@ -94,9 +94,9 @@ select ok(
 );
 
 select ok(
-  has_table_privilege('anon', 'public.guest_requests', 'INSERT')
+  not has_table_privilege('anon', 'public.guest_requests', 'INSERT')
   and not has_table_privilege('anon', 'public.guests', 'SELECT'),
-  'anon may only file landing requests, never read guests'
+  'anon has no direct guest_requests INSERT (C2: submissions go through the throttled RPC) and never reads guests'
 );
 
 -- Fase 8: the throttle table is reachable ONLY through the SECURITY DEFINER

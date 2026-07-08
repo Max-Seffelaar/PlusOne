@@ -200,31 +200,31 @@ select throws_ok(
 
 select pg_temp.login_anon();
 select is(
-  (select event_name from public.get_landing_event('plusone-launch-night')),
+  (select event_name from public.get_landing_event('plusone-launch-night', 'ip-rl')),
   'PLUSONE Launch Night', 'D1 the legacy /e slug resolves through its default link');
 select is(
-  (select via_label from public.get_landing_event('plusone-launch-night')),
+  (select via_label from public.get_landing_event('plusone-launch-night', 'ip-rl')),
   null, 'D2 the default link carries no via-label');
 select is(
-  (select via_label from public.get_landing_event('nova-link')),
+  (select via_label from public.get_landing_event('nova-link', 'ip-rl')),
   'Nova Promo', 'D3 an influencer link surfaces the influencer as via-label');
 select is(
-  (select via_label from public.get_landing_event('yusuf-insta-link')),
+  (select via_label from public.get_landing_event('yusuf-insta-link', 'ip-rl')),
   'Insta bio', 'D4 a label-only link surfaces its label');
 select is(
-  (select coalesce(spots_left::text, 'null') || ':' from public.get_landing_event('yusuf-insta-link'))
-    || (select spots_left::text from public.get_landing_event('nova-link')),
+  (select coalesce(spots_left::text, 'null') || ':' from public.get_landing_event('yusuf-insta-link', 'ip-rl'))
+    || (select spots_left::text from public.get_landing_event('nova-link', 'ip-rl')),
   'null:25',
   'D4b spots_left: uncapped disloses nothing, a capped link its remaining headcount (#43)');
 select is(
-  (select count(*)::int from public.get_landing_event('does-not-exist')),
+  (select count(*)::int from public.get_landing_event('does-not-exist', 'ip-rl')),
   0, 'D5 an unknown slug resolves to nothing');
 
 reset role;
 update public.request_links set active = false where slug = 'nova-link';
 select pg_temp.login_anon();
 select is(
-  (select count(*)::int from public.get_landing_event('nova-link')),
+  (select count(*)::int from public.get_landing_event('nova-link', 'ip-rl')),
   0, 'D6 a paused link is indistinguishable from an unknown one');
 
 reset role;
@@ -233,7 +233,7 @@ update public.events set landing_active = false
   where id = 'ee000000-0000-7000-8000-000000000001';
 select pg_temp.login_anon();
 select is(
-  (select count(*)::int from public.get_landing_event('nova-link')),
+  (select count(*)::int from public.get_landing_event('nova-link', 'ip-rl')),
   0, 'D7 the event master switch (landing_active) closes every link of the event');
 reset role;
 update public.events set landing_active = true

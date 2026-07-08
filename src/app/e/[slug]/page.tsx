@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
-import { createHash } from 'node:crypto';
-import { headers } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
 import { submitGuestRequest } from '@/features/requests/actions';
+import { landingClientIpHash } from '@/features/requests/ip-hash';
 import { LandingForm, LandingClosed, type LandingEvent } from '@/components/po/landing';
 
 export const metadata: Metadata = {
@@ -23,15 +22,6 @@ const timeFmt = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Europe/Amsterdam',
 });
 
-/** Salted ip hash for the pageview throttle — same recipe as the submit action. */
-async function pageviewIpHash(): Promise<string> {
-  const h = await headers();
-  const forwarded = h.get('x-forwarded-for');
-  const ip = (forwarded ? forwarded.split(',')[0] : h.get('x-real-ip') ?? '').trim();
-  const salt = process.env.LANDING_IP_SALT ?? 'plusone-landing-dev-salt';
-  return createHash('sha256').update(`${salt}:${ip || 'no-ip'}`).digest('hex');
-}
-
 /**
  * Public request page (#12/#28). One slug namespace: the slug resolves against
  * request_links (an event's legacy landing_slug lives on as its default link),
@@ -48,9 +38,12 @@ export default async function LandingPage({
   const { slug } = await params;
   const supabase = await createClient();
 
+  // One salted IP hash feeds both the landing resolve (C4: now throttled — a
+  // slug oracle otherwise) and the pageview counter.
+  const ipHash = await landingClientIpHash();
   const [{ data: rows }] = await Promise.all([
-    supabase.rpc('get_landing_event', { p_slug: slug }),
-    supabase.rpc('record_link_pageview', { p_slug: slug, p_ip_hash: await pageviewIpHash() }),
+    supabase.rpc('get_landing_event', { p_slug: slug, p_ip_hash: ipHash }),
+    supabase.rpc('record_link_pageview', { p_slug: slug, p_ip_hash: ipHash }),
   ]);
 
   const event = rows?.[0];
