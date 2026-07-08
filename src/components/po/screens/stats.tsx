@@ -19,7 +19,13 @@ import {
   type VenueStats,
 } from '@/features/stats/data';
 import { formatDay } from '@/features/stats/format';
-import { eventKpis, toPerKwartier, toPerTier, toPerUser, venueKpis } from '@/features/stats/po-adapter';
+import {
+  eventKpis,
+  toPerKwartier,
+  toPerTier,
+  toPerUser,
+  venueKpis,
+} from '@/features/stats/po-adapter';
 import { useNav, usePo } from '../context';
 import { Icon } from '../icon';
 import { Avatar, Empty, IconBtn, Label, Scroll, Top } from '../kit';
@@ -42,6 +48,11 @@ export function Stats(): JSX.Element {
   const [pickOpen, setPickOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  // A real fetch failure (network/transient DB/RPC error) vs. a legitimate
+  // empty result — data.ts throws on the former (C25), so this state is only
+  // ever set on an actual error, never on a role-gated empty result.
+  const [error, setError] = useState(false);
+  const [eventError, setEventError] = useState(false);
 
   // Venue-level stats + events when the venue changes or on manual refresh.
   useEffect(() => {
@@ -49,6 +60,7 @@ export function Stats(): JSX.Element {
     const client = createClient();
     let alive = true;
     setLoading(true);
+    setError(false);
     void Promise.all([
       fetchVenueStats(client, activeVenueId, null, null),
       fetchVenueEvents(client, activeVenueId),
@@ -58,6 +70,9 @@ export function Stats(): JSX.Element {
         setVenueStats(vs);
         setEvents(evs);
         setEventId((cur) => (evs.some((e) => e.id === cur) ? cur : (evs[0]?.id ?? null)));
+      })
+      .catch(() => {
+        if (alive) setError(true);
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -71,13 +86,19 @@ export function Stats(): JSX.Element {
   useEffect(() => {
     if (!eventId) {
       setEventStats(null);
+      setEventError(false);
       return;
     }
     const client = createClient();
     let alive = true;
-    void fetchEventStats(client, eventId).then((s) => {
-      if (alive) setEventStats(s);
-    });
+    setEventError(false);
+    void fetchEventStats(client, eventId)
+      .then((s) => {
+        if (alive) setEventStats(s);
+      })
+      .catch(() => {
+        if (alive) setEventError(true);
+      });
     return () => {
       alive = false;
     };
@@ -122,173 +143,260 @@ export function Stats(): JSX.Element {
           onClick={() => nav.push('promo')}
           className={cn(
             'mb-4 flex w-full items-center gap-[11px] rounded-[14px] border border-line bg-elev px-[14px] py-[12px] text-left',
-            'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]',
+            'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]'
           )}
         >
           <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-acc-dim text-acc">
             <Icon name="link" size={17} />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block font-display text-[14.5px] font-bold text-text">{t.promo.title}</span>
+            <span className="block font-display text-[14.5px] font-bold text-text">
+              {t.promo.title}
+            </span>
             <span className="block text-[12px] text-faint">{t.promo.hubSub}</span>
           </span>
           <Icon name="chev" size={18} className="text-ghost" />
         </button>
-        {/* Org-level KPIs — meaningful without selecting an event. Stacked on
-            mobile (hero + a 2-up row); a single 3-across band on desktop. */}
-        <div className="mb-5 flex flex-col gap-[10px] lg:grid lg:grid-cols-[1.3fr_1fr_1fr] lg:items-stretch lg:gap-3">
-          <div className="rounded-[18px] bg-acc-dim p-[18px]">
-            <Label className="mb-[10px] text-acc-soft">{t.analytics.venueTurnoutLabel}</Label>
-            <div className="flex items-end gap-[10px]">
-              <div className="font-display text-[54px] font-extrabold leading-[0.9] text-text">{vk.attendancePct}</div>
-              <div className="pb-1.5">
-                <div className="text-[14px] font-semibold text-text">{t.analytics.turnoutWord}</div>
-                <div className="text-[12.5px] text-dim">{fmt(t.analytics.overEvents, { n: vk.events })}</div>
-              </div>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-[10px] lg:contents">
-            <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px] lg:flex lg:flex-col lg:justify-center">
-              <div className="font-display text-[30px] font-extrabold leading-none text-acc">{vk.presentHeadcount}</div>
-              <div className="mt-1 text-[12.5px] text-dim">{t.analytics.guestsInside}</div>
-            </div>
-            <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px] lg:flex lg:flex-col lg:justify-center">
-              <div className="font-display text-[30px] font-extrabold leading-none text-text">{vk.refused}</div>
-              <div className="mt-1 text-[12.5px] text-faint">{t.analytics.refusals}</div>
-            </div>
-          </div>
-        </div>
 
-        {/* Per-event detail. */}
-        <Label className="mb-[10px]">{t.analytics.perEvent}</Label>
-        <button
-          type="button"
-          onClick={() => setPickOpen(true)}
-          disabled={events.length === 0}
-          className={cn(
-            'mb-4 flex w-full items-center gap-[10px] rounded-[14px] border border-line bg-elev px-[14px] py-[13px] text-left',
-            press,
-            events.length === 0 && 'opacity-50'
-          )}
-        >
-          <span className="h-2 w-2 shrink-0 rounded-full bg-acc" />
-          <span className="min-w-0 flex-1 truncate font-display text-[14.5px] font-bold text-text">
-            {selectedEvent ? selectedEvent.name : events.length === 0 ? t.analytics.noEventsYet : t.analytics.pickEvent}
-          </span>
-          {selectedEvent && <span className="shrink-0 text-[12.5px] text-faint">{formatDay(selectedEvent.startsAt)}</span>}
-          <Icon name="chevD" size={16} className="text-ghost" />
-        </button>
-
-        {!selectedEvent ? null : !eventStats ? (
-          <Empty text={t.analytics.loading} />
+        {error ? (
+          <div className="mb-4 rounded-[18px] border border-line bg-elev px-4 py-[22px] text-center">
+            <Empty text={t.analytics.fetchError} />
+            <button
+              type="button"
+              onClick={() => setReloadKey((k) => k + 1)}
+              className={cn(
+                'mt-1 inline-flex items-center justify-center rounded-[12px] bg-acc px-[18px] py-[10px] font-display text-[13.5px] font-bold text-ink',
+                press
+              )}
+            >
+              {t.analytics.retry}
+            </button>
+          </div>
         ) : (
-          // Desktop: two balanced columns (KPIs + instroom · tier + per-user).
-          // Mobile: the two column wrappers are plain blocks, so the original
-          // single-column order (KPIs → instroom → tier → per-user) is preserved.
-          <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-4">
-            <div>
-              <div className="mb-4 grid grid-cols-2 gap-[10px]">
-                <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
-                  <div className="font-display text-[24px] font-extrabold text-text">{ek.peak ?? '—'}</div>
-                  <div className="mt-[3px] text-[12px] text-faint">
-                    {ek.peakCount > 0 ? fmt(t.analytics.peakWithCount, { n: ek.peakCount }) : t.analytics.peakLabel}
+          <>
+            {/* Org-level KPIs — meaningful without selecting an event. Stacked on
+                mobile (hero + a 2-up row); a single 3-across band on desktop. */}
+            <div className="mb-5 flex flex-col gap-[10px] lg:grid lg:grid-cols-[1.3fr_1fr_1fr] lg:items-stretch lg:gap-3">
+              <div className="rounded-[18px] bg-acc-dim p-[18px]">
+                <Label className="mb-[10px] text-acc-soft">{t.analytics.venueTurnoutLabel}</Label>
+                <div className="flex items-end gap-[10px]">
+                  <div className="font-display text-[54px] font-extrabold leading-[0.9] text-text">
+                    {vk.attendancePct}
+                  </div>
+                  <div className="pb-1.5">
+                    <div className="text-[14px] font-semibold text-text">
+                      {t.analytics.turnoutWord}
+                    </div>
+                    <div className="text-[12.5px] text-dim">
+                      {fmt(t.analytics.overEvents, { n: vk.events })}
+                    </div>
                   </div>
                 </div>
-                <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
-                  <div className="font-display text-[24px] font-extrabold text-text">{ek.noShows}</div>
-                  <div className="mt-[3px] text-[12px] text-faint">{fmt(t.analytics.noShowLabel, { pct: ek.noShowPct })}</div>
+              </div>
+              <div className="grid grid-cols-2 gap-[10px] lg:contents">
+                <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px] lg:flex lg:flex-col lg:justify-center">
+                  <div className="font-display text-[30px] font-extrabold leading-none text-acc">
+                    {vk.presentHeadcount}
+                  </div>
+                  <div className="mt-1 text-[12.5px] text-dim">{t.analytics.guestsInside}</div>
+                </div>
+                <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px] lg:flex lg:flex-col lg:justify-center">
+                  <div className="font-display text-[30px] font-extrabold leading-none text-text">
+                    {vk.refused}
+                  </div>
+                  <div className="mt-1 text-[12.5px] text-faint">{t.analytics.refusals}</div>
                 </div>
               </div>
+            </div>
 
-              <Label className="mb-[10px]">{t.analytics.arrivalsLabel}</Label>
-              <div className="mb-4 rounded-[18px] border border-line bg-elev p-4">
-                {perKwartier.length === 0 ? (
-                  <div className="py-[18px] text-center text-[13px] text-faint">{t.analytics.noCheckins}</div>
-                ) : (
-                  <div className="flex h-[120px] items-end gap-[5px]">
-                    {perKwartier.map((b) => (
-                      <div key={b.t} className="flex flex-1 flex-col items-center gap-1.5">
-                        <div className="font-display text-[10px] font-bold text-dim">{b.n}</div>
+            {/* Per-event detail. */}
+            <Label className="mb-[10px]">{t.analytics.perEvent}</Label>
+            <button
+              type="button"
+              onClick={() => setPickOpen(true)}
+              disabled={events.length === 0}
+              className={cn(
+                'mb-4 flex w-full items-center gap-[10px] rounded-[14px] border border-line bg-elev px-[14px] py-[13px] text-left',
+                press,
+                events.length === 0 && 'opacity-50'
+              )}
+            >
+              <span className="h-2 w-2 shrink-0 rounded-full bg-acc" />
+              <span className="min-w-0 flex-1 truncate font-display text-[14.5px] font-bold text-text">
+                {selectedEvent
+                  ? selectedEvent.name
+                  : events.length === 0
+                    ? t.analytics.noEventsYet
+                    : t.analytics.pickEvent}
+              </span>
+              {selectedEvent && (
+                <span className="shrink-0 text-[12.5px] text-faint">
+                  {formatDay(selectedEvent.startsAt)}
+                </span>
+              )}
+              <Icon name="chevD" size={16} className="text-ghost" />
+            </button>
+
+            {!selectedEvent ? null : eventError ? (
+              <div className="mb-4 rounded-[18px] border border-line bg-elev px-4 py-[22px] text-center">
+                <Empty text={t.analytics.fetchError} />
+                <button
+                  type="button"
+                  onClick={() => setReloadKey((k) => k + 1)}
+                  className={cn(
+                    'mt-1 inline-flex items-center justify-center rounded-[12px] bg-acc px-[18px] py-[10px] font-display text-[13.5px] font-bold text-ink',
+                    press
+                  )}
+                >
+                  {t.analytics.retry}
+                </button>
+              </div>
+            ) : !eventStats ? (
+              <Empty text={t.analytics.loading} />
+            ) : (
+              // Desktop: two balanced columns (KPIs + instroom · tier + per-user).
+              // Mobile: the two column wrappers are plain blocks, so the original
+              // single-column order (KPIs → instroom → tier → per-user) is preserved.
+              <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-4">
+                <div>
+                  <div className="mb-4 grid grid-cols-2 gap-[10px]">
+                    <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
+                      <div className="font-display text-[24px] font-extrabold text-text">
+                        {ek.peak ?? '—'}
+                      </div>
+                      <div className="mt-[3px] text-[12px] text-faint">
+                        {ek.peakCount > 0
+                          ? fmt(t.analytics.peakWithCount, { n: ek.peakCount })
+                          : t.analytics.peakLabel}
+                      </div>
+                    </div>
+                    <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
+                      <div className="font-display text-[24px] font-extrabold text-text">
+                        {ek.noShows}
+                      </div>
+                      <div className="mt-[3px] text-[12px] text-faint">
+                        {fmt(t.analytics.noShowLabel, { pct: ek.noShowPct })}
+                      </div>
+                    </div>
+                  </div>
+
+                  <Label className="mb-[10px]">{t.analytics.arrivalsLabel}</Label>
+                  <div className="mb-4 rounded-[18px] border border-line bg-elev p-4">
+                    {perKwartier.length === 0 ? (
+                      <div className="py-[18px] text-center text-[13px] text-faint">
+                        {t.analytics.noCheckins}
+                      </div>
+                    ) : (
+                      <div className="flex h-[120px] items-end gap-[5px]">
+                        {perKwartier.map((b) => (
+                          <div key={b.t} className="flex flex-1 flex-col items-center gap-1.5">
+                            <div className="font-display text-[10px] font-bold text-dim">{b.n}</div>
+                            <div
+                              className={cn(
+                                'w-full rounded-[5px] border',
+                                b.n === maxK ? 'border-transparent bg-acc' : 'border-line bg-elev2'
+                              )}
+                              style={{ height: (b.n / maxK) * 80 }}
+                            />
+                            <div className="font-display text-[9px] text-faint">{b.t}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="mb-[10px]">{t.analytics.tierLabel}</Label>
+                  <div className="mb-4 rounded-[18px] border border-line bg-elev p-4">
+                    {perTier.length === 0 ? (
+                      <div className="py-[14px] text-center text-[13px] text-faint">
+                        {t.analytics.noTierData}
+                      </div>
+                    ) : (
+                      perTier.map((row, i) => (
+                        <div key={row.tier} className={i < perTier.length - 1 ? 'mb-[13px]' : ''}>
+                          <div className="mb-1.5 flex justify-between">
+                            <span className="text-[13px] font-semibold text-text">{row.tier}</span>
+                            <span className="font-display text-[12px] text-faint">
+                              <b className="text-acc">{row.binnen}</b>/{row.aangemeld}
+                            </span>
+                          </div>
+                          <div className="relative h-[8px] overflow-hidden rounded-[5px] bg-elev2">
+                            <div
+                              className="absolute inset-0 bg-white/[0.08]"
+                              style={{ width: (row.aangemeld / maxT) * 100 + '%' }}
+                            />
+                            <div
+                              className="absolute inset-0 rounded-[5px] bg-acc"
+                              style={{ width: (row.binnen / maxT) * 100 + '%' }}
+                            />
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <Label className="mb-[3px]">{t.analytics.addedByLabel}</Label>
+                  <div className="mb-[10px] text-[11.5px] text-faint">
+                    {t.analytics.addedByUnit}
+                  </div>
+                  <div className="mb-[14px] rounded-[18px] border border-line bg-elev px-[14px] py-0.5">
+                    {perUser.length === 0 ? (
+                      <div className="py-[14px] text-center text-[13px] text-faint">
+                        {t.analytics.noOneAdded}
+                      </div>
+                    ) : (
+                      perUser.map((u, i) => (
                         <div
+                          key={`${u.who}-${i}`}
                           className={cn(
-                            'w-full rounded-[5px] border',
-                            b.n === maxK ? 'border-transparent bg-acc' : 'border-line bg-elev2'
+                            'flex items-center gap-[12px] py-[11px]',
+                            i < perUser.length - 1 && 'border-b border-line2'
                           )}
-                          style={{ height: (b.n / maxK) * 80 }}
-                        />
-                        <div className="font-display text-[9px] text-faint">{b.t}</div>
-                      </div>
-                    ))}
+                        >
+                          <Avatar name={u.who} size={36} />
+                          <div className="min-w-0 flex-1">
+                            <div className="font-display text-[14.5px] font-bold text-text">
+                              {u.who}
+                            </div>
+                            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12px] text-faint">
+                              <span>{fmt(t.analytics.memberCheckedIn, { in: u.in })}</span>
+                              {u.removed > 0 && (
+                                <>
+                                  <span className="text-ghost">·</span>
+                                  <span>{fmt(t.analytics.memberRemoved, { n: u.removed })}</span>
+                                </>
+                              )}
+                              {anyPaid && (
+                                <>
+                                  <span className="text-ghost">·</span>
+                                  <span>
+                                    {fmt(t.analytics.memberFreePaid, {
+                                      free: u.addedFree,
+                                      paid: u.addedPaid,
+                                    })}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <div className="font-display text-[18px] font-extrabold leading-none text-text">
+                              {u.added}
+                            </div>
+                            <div className="mt-[3px] text-[10px] font-bold uppercase tracking-[0.03em] text-faint">
+                              {t.analytics.addedWord}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
                   </div>
-                )}
+                </div>
               </div>
-            </div>
-
-            <div>
-              <Label className="mb-[10px]">{t.analytics.tierLabel}</Label>
-              <div className="mb-4 rounded-[18px] border border-line bg-elev p-4">
-                {perTier.length === 0 ? (
-                  <div className="py-[14px] text-center text-[13px] text-faint">{t.analytics.noTierData}</div>
-                ) : (
-                  perTier.map((row, i) => (
-                    <div key={row.tier} className={i < perTier.length - 1 ? 'mb-[13px]' : ''}>
-                      <div className="mb-1.5 flex justify-between">
-                        <span className="text-[13px] font-semibold text-text">{row.tier}</span>
-                        <span className="font-display text-[12px] text-faint">
-                          <b className="text-acc">{row.binnen}</b>/{row.aangemeld}
-                        </span>
-                      </div>
-                      <div className="relative h-[8px] overflow-hidden rounded-[5px] bg-elev2">
-                        <div className="absolute inset-0 bg-white/[0.08]" style={{ width: (row.aangemeld / maxT) * 100 + '%' }} />
-                        <div className="absolute inset-0 rounded-[5px] bg-acc" style={{ width: (row.binnen / maxT) * 100 + '%' }} />
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              <Label className="mb-[3px]">{t.analytics.addedByLabel}</Label>
-              <div className="mb-[10px] text-[11.5px] text-faint">{t.analytics.addedByUnit}</div>
-              <div className="mb-[14px] rounded-[18px] border border-line bg-elev px-[14px] py-0.5">
-                {perUser.length === 0 ? (
-                  <div className="py-[14px] text-center text-[13px] text-faint">{t.analytics.noOneAdded}</div>
-                ) : (
-                  perUser.map((u, i) => (
-                    <div
-                      key={`${u.who}-${i}`}
-                      className={cn('flex items-center gap-[12px] py-[11px]', i < perUser.length - 1 && 'border-b border-line2')}
-                    >
-                      <Avatar name={u.who} size={36} />
-                      <div className="min-w-0 flex-1">
-                        <div className="font-display text-[14.5px] font-bold text-text">{u.who}</div>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12px] text-faint">
-                          <span>{fmt(t.analytics.memberCheckedIn, { in: u.in })}</span>
-                          {u.removed > 0 && (
-                            <>
-                              <span className="text-ghost">·</span>
-                              <span>{fmt(t.analytics.memberRemoved, { n: u.removed })}</span>
-                            </>
-                          )}
-                          {anyPaid && (
-                            <>
-                              <span className="text-ghost">·</span>
-                              <span>{fmt(t.analytics.memberFreePaid, { free: u.addedFree, paid: u.addedPaid })}</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <div className="font-display text-[18px] font-extrabold leading-none text-text">{u.added}</div>
-                        <div className="mt-[3px] text-[10px] font-bold uppercase tracking-[0.03em] text-faint">
-                          {t.analytics.addedWord}
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
+            )}
+          </>
         )}
 
         <div className="px-1 text-[11.5px] leading-[1.5] text-faint">{t.analytics.footerNote}</div>
@@ -312,7 +420,9 @@ export function Stats(): JSX.Element {
                   e.id === eventId ? 'border-transparent bg-acc-dim' : 'border-line bg-elev'
                 )}
               >
-                <span className="min-w-0 truncate font-display text-[14.5px] font-bold text-text">{e.name}</span>
+                <span className="min-w-0 truncate font-display text-[14.5px] font-bold text-text">
+                  {e.name}
+                </span>
                 <span className="shrink-0 text-[12.5px] text-faint">{formatDay(e.startsAt)}</span>
               </button>
             ))}

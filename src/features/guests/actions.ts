@@ -2,7 +2,13 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
-import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
+import {
+  mapMutationError,
+  unauthorized,
+  invalidInput,
+  notFound,
+  type MutationError,
+} from '@/lib/db-errors';
 import {
   addGuestSchema,
   bulkAddSchema,
@@ -114,13 +120,14 @@ export async function updateGuest(input: UpdateGuestInput): Promise<ActionResult
   };
   if (Object.keys(patch).length === 0) return { ok: true };
 
-  const { data, error } = await supabase
+  const { data, error, count } = await supabase
     .from('guests')
-    .update(patch)
+    .update(patch, { count: 'exact' })
     .eq('id', guestId)
     .select('event_id')
     .maybeSingle();
   if (error) return mapMutationError(error);
+  if (!count) return notFound();
   if (data?.event_id) revalidatePath(guestsPath(data.event_id));
   return { ok: true };
 }
@@ -137,13 +144,14 @@ export async function changeGuestTier(input: ChangeTierInput): Promise<ActionRes
   } = await supabase.auth.getUser();
   if (!user) return unauthorized();
 
-  const { data, error } = await supabase
+  const { data, error, count } = await supabase
     .from('guests')
-    .update({ tier_id: tierId })
+    .update({ tier_id: tierId }, { count: 'exact' })
     .eq('id', guestId)
     .select('event_id')
     .maybeSingle();
   if (error) return mapMutationError(error);
+  if (!count) return notFound();
   if (data?.event_id) revalidatePath(guestsPath(data.event_id));
   return { ok: true };
 }
@@ -180,13 +188,14 @@ export async function removeGuest(guestId: string): Promise<ActionResult> {
   } = await supabase.auth.getUser();
   if (!user) return unauthorized();
 
-  const { data, error } = await supabase
+  const { data, error, count } = await supabase
     .from('guests')
-    .update({ status: 'removed' })
+    .update({ status: 'removed' }, { count: 'exact' })
     .eq('id', guestId)
     .select('event_id')
     .maybeSingle();
   if (error) return mapMutationError(error);
+  if (!count) return notFound();
   if (data?.event_id) revalidatePath(guestsPath(data.event_id));
   return { ok: true };
 }

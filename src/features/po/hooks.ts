@@ -10,6 +10,7 @@ import { createClient } from '@/lib/supabase/client';
 import type { Guest, PoEvent, Tier } from '@/lib/po/types';
 import type { AuditLine } from '@/features/audit/translate';
 import { poKeys } from './keys';
+import { VENUE_GUESTS_PREFIX } from './mutations';
 import { doorCandidates, pickDoorEvent, type PoDoorEvent } from './door-event';
 import { eventPhase } from './event-phase';
 import {
@@ -563,6 +564,11 @@ export function usePoEventRealtime(eventId: string): { realtimeConnected: boolea
         void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
         void qc.invalidateQueries({ queryKey: poKeys.arrivals(eventId) });
         void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
+        // A peer's check-in/void also touches the venue-wide All-Guests tab and
+        // the event-detail header (headcount) — neither was invalidated by
+        // anything else on this path (C19).
+        void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
+        void qc.invalidateQueries({ queryKey: poKeys.eventDetail(eventId) });
       };
 
       channel = client

@@ -23,6 +23,7 @@ import { DoorQueryProvider } from '@/features/door/DoorQueryProvider';
 import { setActiveVenueAction } from '@/features/venues/actions';
 import {
   PoProvider,
+  clearNavState,
   loadNavState,
   saveNavState,
   type AuthNav,
@@ -487,7 +488,16 @@ export function PlusOneApp({
     setToast(t.venue.switching);
     const fd = new FormData();
     fd.set('venueId', venueId);
-    void setActiveVenueAction(fd).then(() => window.location.assign('/app'));
+    void setActiveVenueAction(fd)
+      .then(() => {
+        clearNavState(userId);
+        window.location.assign('/app');
+      })
+      .catch(() => {
+        // Switch failed (network blip / server error) — stay on the old venue,
+        // whose nav-state is still valid, and clear the hanging "switching" toast.
+        setToast(null);
+      });
   };
 
   const ev = (id?: string) => events.find((e) => e.id === id);
