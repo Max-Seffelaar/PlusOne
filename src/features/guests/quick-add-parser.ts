@@ -337,13 +337,19 @@ export function parseQuickAdd(
   const cells = raw.split(/[,;\t]/).map((c) => c.trim()).filter(Boolean);
   const { kept: contentCells, email: cellEmail, phone: cellPhone } = extractContactCells(cells);
 
-  // (2) Tokenize the remaining columns on whitespace (split "+" off neighbours so
-  // "Jan+2" works), then pull any INLINE e-mail/phone token out too (a single
-  // delimiter-free cell like "Max max@x.nl 0612345678 +2 vip"). Cell matches win.
-  const rawTokens = contentCells.join(' ').replace(/\+/g, ' +').split(/\s+/).filter(Boolean);
-  const { kept: originalTokens, email: tokEmail, phone: tokPhone } = extractContactTokens(rawTokens);
+  // (2) Pull any INLINE e-mail/phone token out of the remaining columns FIRST, on
+  // plain whitespace tokens — before the "+" is split off its neighbours. Doing
+  // this after the +-split would tear a plus-addressed email in two ("jan+vip@x.nl"
+  // -> "jan" + "+vip@x.nl", the latter still matching EMAIL_TOKEN on its own and
+  // swallowing the mailbox tag). A single delimiter-free cell like
+  // "Max max@x.nl 0612345678 +2 vip" is still handled; cell matches win.
+  const plainTokens = contentCells.join(' ').split(/\s+/).filter(Boolean);
+  const { kept: survivorTokens, email: tokEmail, phone: tokPhone } = extractContactTokens(plainTokens);
   const email = cellEmail ?? tokEmail;
   const phone = cellPhone ?? tokPhone;
+
+  // (3) NOW split "+" off its neighbours ("Jan+2" -> "Jan" "+2") on what's left.
+  const originalTokens = survivorTokens.join(' ').replace(/\+/g, ' +').split(/\s+/).filter(Boolean);
   const normTokens = originalTokens.map(normalize);
 
   const base = (over: Partial<ParseResult>): ParseResult => {

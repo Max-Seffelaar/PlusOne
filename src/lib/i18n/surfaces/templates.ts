@@ -46,6 +46,7 @@ export const templates = {
   deleteTemplate: 'Delete template',
   errName: 'Enter a template name.',
   errNoVenue: 'No active venue found.',
+  errAutoLockHours: 'Enter a valid number of hours (e.g. 1.5).',
   errSave: "Couldn't save the template.",
   errDelete: "Couldn't delete the template.",
   noteViewOnly: 'Only admins and organizers can manage templates.',

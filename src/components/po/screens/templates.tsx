@@ -23,6 +23,7 @@ import {
   usePoUpdateTemplate,
 } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
+import { parseAutoLockOffsetMinutes } from '@/features/events/auto-lock-hours';
 import { TIER_COLORS } from '@/lib/po/tier-colors';
 import { useNav } from '../context';
 import { Icon } from '../icon';
@@ -142,7 +143,8 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
   const saving = createTemplate.isPending || updateTemplate.isPending;
 
   // Capacity → positive int or null; auto-lock hours → negative minute offset
-  // (lock X hours BEFORE doors) or null.
+  // (lock X hours BEFORE doors) or null. Hours parsing is validated up front in
+  // save() (C23), so an invalid/empty value here can only mean "no auto-lock".
   const buildSettings = (): {
     capacity: number | null;
     allowUncheck: boolean | null;
@@ -150,14 +152,12 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
     autoLockOffsetMinutes: number | null;
   } => {
     const capNum = capacity.trim() === '' ? NaN : Number.parseInt(capacity, 10);
-    const hoursNum = Number(autoHours);
-    const offset =
-      autoOn && autoHours.trim() !== '' && Number.isFinite(hoursNum) ? -Math.round(hoursNum * 60) : null;
+    const offset = autoOn ? parseAutoLockOffsetMinutes(autoHours) : null;
     return {
       capacity: Number.isFinite(capNum) && capNum > 0 ? capNum : null,
       allowUncheck,
       landingActive: landingOn,
-      autoLockOffsetMinutes: offset,
+      autoLockOffsetMinutes: offset ?? null,
     };
   };
 
@@ -165,6 +165,10 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
     setErr(null);
     if (!name.trim()) {
       setErr(t.templates.errName);
+      return;
+    }
+    if (autoOn && parseAutoLockOffsetMinutes(autoHours) === undefined) {
+      setErr(t.templates.errAutoLockHours);
       return;
     }
     try {
