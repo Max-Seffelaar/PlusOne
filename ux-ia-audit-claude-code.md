@@ -105,7 +105,7 @@ Legenda: **✓** = mag · **👁** = alleen lezen · **eigen** = alleen eigen it
 | Lijst locken / unlocken | ✓ | — | — | — | — | ✓ eigen event |
 | **REQUESTS** | | | | | | |
 | Landing-/quota-requests beslissen | ✓ | — | — | — | — | ✓ eigen event |
-| Requests-inbox inzien | ✓ | — | 👁 zonder knoppen ° | eigen status ° | — | ✓ eigen event |
+| Requests-inbox inzien | ✓ | — | 👁 zonder knoppen ° (besloten 8/7: finance = alles read-only) | eigen status ° | — | ✓ eigen event |
 | **INZICHT** | | | | | | |
 | Analytics | ✓ | — | ✓ | — | — | — |
 | Promotion-dashboard | ✓ | — | ✓ | — | — | — ° (besluit 8/7: alleen venue-leden; extern alleen per-event Links) |
@@ -350,7 +350,7 @@ als paneel of expliciet "mobiel-only" gedocumenteerd.
 
 | # | Verbetering | Besluit 8/7 |
 |---|---|---|
-| M1 | **Show-and-block weg op Requests**: knoppen verbergen voor rollen zonder beslisrecht; foutcopy zonder onterecht MFA-excuus (K-4/K-5) | ✅ Akkoord. Staff krijgt **alleen een status-weergave van z'n eigen aanvragen** (geen venue-inbox); finance 👁 zonder knoppen (nog te bevestigen, zie §7-punt 5) |
+| M1 | **Show-and-block weg op Requests**: knoppen verbergen voor rollen zonder beslisrecht; foutcopy zonder onterecht MFA-excuus (K-4/K-5) | ✅ Akkoord. Staff krijgt **alleen een status-weergave van z'n eigen aanvragen** (geen venue-inbox); **finance = alles read-only** (inbox zichtbaar, géén beslis-knoppen — besloten 8/7) |
 | M2 | **Organizer → Door** (K-6) | ✅ Akkoord: **volwaardige Door-tab** voor de event-organizer. Géén losse "Open door"-knop — die is eerder bewust geschrapt (T6) en komt niet terug |
 | M3 | **Doorhost-doodlopers**: gast-profiel als name-only weergave i.p.v. foutscherm; request-tegels verbergen voor rollen zonder request-zicht (K-8) | ✅ Akkoord |
 | M4 | **Headcount-definitie gelijktrekken**: één gedeelde selector voor alle oppervlakken (K-10) | ✅ Akkoord + definitie **hieronder vastgelegd** zodat het niet meer mis kan gaan |
@@ -471,7 +471,30 @@ aangemaakt; dat gebeurt pas na akkoord op de prioritering.*
   zelfde per-event-view, één gedeeld component). Uitwerking in de M6-rij.
 - **Vraag 2 · badges/Check-in-sneltoetsen: staan laten** — misverstand opgehelderd, all good.
 
-### Nog open (wachten op Max)
-1. **Finance & Requests-inbox bevestigen** (uitloper M1/vraag 1): finance de inbox laten *zien*
-   zonder beslis-knoppen (past bij "finance ziet alles read-only"), of helemaal geen inbox?
-   Advies: 👁 zonder knoppen.
+### Derde besluitronde (Max, 8/7) — plan compleet
+- **Analytics-model (M6-uitwerking): akkoord.**
+- **Finance = alles read-only** — inbox zichtbaar zonder beslis-knoppen. Daarmee is **alles beslist**;
+  er zijn geen open punten meer.
+
+### ClickUp-taken (klaargezet 8/7, lijst `901818739469` — volgorde = bouwvolgorde)
+
+| Taak | Dekt | ID |
+|---|---|---|
+| UX/IA 8/7 — W1-W6: Consistency-wins (één kleine PR) | W1–W6 | `86ey7dz69` |
+| UX/IA 8/7 — Rechten-hygiëne: role-hide i.p.v. show-and-block | M1+M9+M3 | `86ey7dz91` |
+| UX/IA 8/7 — Menu-opruiming | M5+M7+M12+M15+M17 | `86ey7dzb6` |
+| UX/IA 8/7 — M4: Canonieke telregels + één headcount-selector | M4 (K-10) | `86ey7dzdc` |
+| UX/IA 8/7 — M6: Event-stats naar event-home + Analytics event-first | M6 | `86ey7dzmp` |
+| UX/IA 8/7 — Guests & event-polish | M10+M11+M13+M14 | `86ey7dzpk` |
+| UX/IA 8/7 — M2: Door-tab voor event-organizers | M2 (K-6) | `86ey7dzqv` |
+| UX/IA 8/7 — M8: "Quota per event" live bedraden | M8 (implementeert Review-K1) | `86ey7dzt6` |
+| UX/IA 8/7 — G2: Deur-consolidatie afronden | G2+M16 | `86ey7dzzg` |
+| UX/IA 8/7 — G1: Canonieke nav + /app deep-linking | G1 | `86ey7e024` |
+| UX/IA 8/7 — G3: Promotion-domein hergroeperen | G3 | `86ey7e03j` |
+| UX/IA 8/7 — G4: Guests/Lijst-fusie + één persoonsmodel | G4 | `86ey7e079` |
+
+Kruisverwijzingen geplaatst zodat niets dubbel loopt: comment op Review-**K1** `86ey6xf4p`
+("live bedraden — niet verwijderen in de P5-purge; loopt via M8-taak") en op **C24** `86ey6xerx`
+(overlap met M12: wie eerst bouwt, de ander bouwt voort). W3/W4 kunnen meeliften op **T13**
+`86ey4j1q2` (i18n-sweep, in progress). Werkwijze blijft: **één ClickUp-taak per sessie**, elke
+taak verwijst naar de betreffende secties van dit doc als bron van waarheid.
