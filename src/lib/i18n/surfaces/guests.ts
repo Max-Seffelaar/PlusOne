@@ -236,6 +236,7 @@ export const guests = {
     saveFailed: "Couldn't save.",
     saving: 'Saving…',
     save: 'Save',
+    saveSuccess: 'Saved.',
     // Role options (contact roles)
     roleVip: 'VIP',
     roleAllAccess: 'All Access',
@@ -373,6 +374,7 @@ export const guests = {
     promoteSub: 'Save this person to your contacts. Email or phone helps find them on the next list.',
     promoteHint: "With an email or phone number we recognise them next time. Without one, they're saved by name only.",
     promoteSave: 'Save as contact',
+    promoteSuccess: 'Saved as contact.',
     // Tier change from the person profile
     changeTier: 'Change tier',
     changeTierSub: 'Pick a tier for this guest.',
