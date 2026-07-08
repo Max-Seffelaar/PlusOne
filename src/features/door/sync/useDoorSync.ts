@@ -135,7 +135,12 @@ export function useDoorSync({ eventId, onSync, onRealtimeCheckIn, onRealtimeGues
 
       channel = client
         .channel(`door:${eventId}`)
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'check_ins', filter: `event_id=eq.${eventId}` }, (payload) => {
+        // `event: '*'` — not INSERT-only. Voids, revives and top-ups are UPDATEs;
+        // binding INSERT-only left a peer's void unpropagated so the headcount
+        // stayed inflated until the 60s safety sync (C11). The provider patches
+        // the matching row in place on an UPDATE.
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'check_ins', filter: `event_id=eq.${eventId}` }, (payload) => {
+          if (!payload.new || Object.keys(payload.new).length === 0) return; // DELETE (never happens — soft-void only) / empty
           onCheckInRef.current(payload.new as CheckInRow);
           setNow(Date.now());
         })

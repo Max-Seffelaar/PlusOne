@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { DoorProvider } from '@/features/door/DoorProvider';
 import { DoorShell } from '@/features/door/components/DoorShell';
+import { DoorErrorBoundary } from '@/features/door/components/DoorErrorBoundary';
 
 // The door experience for one event. Access is enforced here (doorhost/admin at
 // the venue, or organizer of the event) AND by RLS on every query/mutation.
@@ -49,8 +50,10 @@ export default async function DoorEventPage({
   if (!canWorkDoor) notFound();
 
   return (
-    <DoorProvider eventId={eventId}>
-      <DoorShell />
-    </DoorProvider>
+    <DoorErrorBoundary>
+      <DoorProvider eventId={eventId}>
+        <DoorShell />
+      </DoorProvider>
+    </DoorErrorBoundary>
   );
 }

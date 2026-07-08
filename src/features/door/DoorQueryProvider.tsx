@@ -12,12 +12,23 @@ import { createIdbPersister } from './offline/persister';
 
 const WEEK_MS = 1000 * 60 * 60 * 24 * 7;
 
+/**
+ * Schema version for the persisted door snapshot. BUMP THIS whenever the shape of
+ * the cached DoorSnapshot (queries.ts) changes — a mismatched buster makes
+ * PersistQueryClient DROP the persisted cache instead of restoring a stale-shaped
+ * one that could linger offline for up to a week and crash the door (C14).
+ */
+const DOOR_CACHE_BUSTER = 'door-snapshot-v1';
+
 export function DoorQueryProvider({ children }: { children: ReactNode }): JSX.Element {
   const [client] = useState(() => createDoorQueryClient());
   const [persister] = useState(() => createIdbPersister());
 
   return (
-    <PersistQueryClientProvider client={client} persistOptions={{ persister, maxAge: WEEK_MS }}>
+    <PersistQueryClientProvider
+      client={client}
+      persistOptions={{ persister, maxAge: WEEK_MS, buster: DOOR_CACHE_BUSTER }}
+    >
       {children}
     </PersistQueryClientProvider>
   );

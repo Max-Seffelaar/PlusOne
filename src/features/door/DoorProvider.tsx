@@ -457,16 +457,18 @@ export function DoorProvider({
 
   const addOnSpot = useCallback(
     ({ name, plusOnes, tierId }: AddOnSpotInput) => {
+      const fullName = name.trim();
+      if (!fullName) return; // never queue a nameless guest (C12 — defence in depth)
       const id = uuidv7();
       const ts = new Date().toISOString();
       enqueueDoorWrite(
-        { kind: 'add_guest', payload: { id, tierId, fullName: name, plusOnes } },
+        { kind: 'add_guest', payload: { id, tierId, fullName, plusOnes } },
         (s) => {
           const row: GuestRow = {
             id,
             event_id: eventId,
             tier_id: tierId,
-            full_name: name,
+            full_name: fullName,
             email: null,
             phone: null,
             contact_id: null,
@@ -486,7 +488,7 @@ export function DoorProvider({
           };
           return { ...s, guests: [...s.guests, row] };
         },
-        `${name}${plusOnes > 0 ? ` +${plusOnes}` : ''} · op de lijst`,
+        `${fullName}${plusOnes > 0 ? ` +${plusOnes}` : ''} · op de lijst`,
       );
     },
     [enqueueDoorWrite, eventId, meId],
@@ -515,7 +517,18 @@ export function DoorProvider({
   const onRealtimeCheckIn = useCallback(
     (row: CheckInRow) => {
       if (!guestIdSetRef.current.has(row.guest_id)) return; // not our event
-      if (checkInIdSetRef.current.has(row.id) || checkInGuestIdSetRef.current.has(row.guest_id)) return; // already seen
+      if (checkInIdSetRef.current.has(row.id)) {
+        // Known row → this is an UPDATE (a peer's void / revive / top-up). Patch
+        // it in place so voided_at / plus_ones_arrived propagate within ~1s
+        // instead of waiting for the 60s safety sync (C11). The model derives
+        // "inside" from voided_at, so this flips the headcount immediately.
+        patchSnapshot((s) => ({
+          ...s,
+          checkIns: s.checkIns.map((c) => (c.id === row.id ? row : c)),
+        }));
+        return;
+      }
+      if (checkInGuestIdSetRef.current.has(row.guest_id)) return; // first-wins: another row already covers this guest
       checkInIdSetRef.current.add(row.id);
       checkInGuestIdSetRef.current.add(row.guest_id);
       patchSnapshot((s) => ({ ...s, checkIns: [...s.checkIns, row] }));

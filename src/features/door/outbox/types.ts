@@ -110,6 +110,17 @@ export function isPending(e: OutboxEntry): boolean {
   return e.status === 'pending';
 }
 
+/**
+ * On load, an entry left in `syncing` means a drain was killed mid-flight (the
+ * PWA was closed, the tab crashed, the phone died). No code path ever completes
+ * it, so without this the check-in is silently lost and the sync badge sticks at
+ * ≥1 forever. Reset every such entry to `pending` so the next drain replays it —
+ * safe because every replay is an idempotent upsert (#25). (C8)
+ */
+export function resumeStuckEntries(entries: OutboxEntry[]): OutboxEntry[] {
+  return entries.map((e) => (e.status === 'syncing' ? ({ ...e, status: 'pending' } as OutboxEntry) : e));
+}
+
 /** Entries a manual force-sync retries, including terminal-looking errors. */
 export function isRetryable(e: OutboxEntry): boolean {
   return e.status === 'pending' || e.status === 'error';

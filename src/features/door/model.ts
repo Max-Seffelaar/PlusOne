@@ -87,12 +87,19 @@ export function lastFour(phone: string | null): string | null {
   return digits.length >= 4 ? digits.slice(-4) : digits || null;
 }
 
+// Pin the door's date/time display to the venue's wall clock. Without an explicit
+// timeZone these render in the DEVICE's local zone, so a door phone set to a
+// non-CET timezone (or a traveller's laptop) shows check-in times that disagree
+// with the cockpit standing beside it (C28). The whole product renders in
+// Europe/Amsterdam; the door was the one place that didn't.
+const DOOR_TZ = 'Europe/Amsterdam';
+
 export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  return new Date(iso).toLocaleDateString('en-GB', { timeZone: DOOR_TZ, day: 'numeric', month: 'short' });
 }
 
 export function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleTimeString('en-GB', { timeZone: DOOR_TZ, hour: '2-digit', minute: '2-digit' });
 }
 
 /** Earliest check-in per guest (the first wins, decision #11). */

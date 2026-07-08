@@ -19,14 +19,28 @@ import { REALTIME_EVENTS_PER_SECOND } from '@/lib/supabase/client';
 
 const DEVICE_KEY = 'plusone-device-id';
 
+// In-memory fallback when localStorage is unavailable (see getDeviceId). Stable
+// for the life of the tab; a reload gets a fresh id, which only softens the
+// "which device checked in?" audit hint — it never breaks a write.
+let memoryDeviceId: string | null = null;
+
 export function getDeviceId(): string {
   if (typeof window === 'undefined') return 'server';
-  let id = window.localStorage.getItem(DEVICE_KEY);
-  if (!id) {
-    id = uuidv7();
-    window.localStorage.setItem(DEVICE_KEY, id);
+  // localStorage throws (not just returns null) when storage is blocked — Safari
+  // "block all cookies", a hardened/embedded webview, private mode at quota. This
+  // runs during client construction and inside effects, so an unguarded throw
+  // white-screened the whole door surface (C13). Fall back to an in-memory id.
+  try {
+    let id = window.localStorage.getItem(DEVICE_KEY);
+    if (!id) {
+      id = uuidv7();
+      window.localStorage.setItem(DEVICE_KEY, id);
+    }
+    return id;
+  } catch {
+    if (!memoryDeviceId) memoryDeviceId = uuidv7();
+    return memoryDeviceId;
   }
-  return id;
 }
 
 let cached: SupabaseClient<Database> | null = null;
