@@ -3,12 +3,23 @@
 // name and date; the database BEFORE-INSERT trigger is the backstop (fills a slug
 // when blank) and the unique index is the authority on collisions.
 
+const TZ = 'Europe/Amsterdam';
+
 /** Lowercase, non-alphanumerics → single '-', trimmed. Matches SQL slugify(). */
 export function slugify(text: string): string {
   return text
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
+}
+
+/**
+ * The event's calendar day in Europe/Amsterdam, not the server/UTC day (C21):
+ * a 00:00–02:00 start is still "last night" in UTC when CEST/CET is ahead, so
+ * a naive UTC slice bakes the previous day into the permanent slug.
+ */
+function amsterdamDay(startsAt: string): string {
+  return new Date(startsAt).toLocaleDateString('en-CA', { timeZone: TZ });
 }
 
 const SUFFIX_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -30,7 +41,8 @@ export function randomSlugSuffix(length = 4): string {
  * The random suffix defeats slug enumeration — without it a bot could probe
  * predictable names to discover valid landing links.
  *
- * startsAt must be an ISO datetime string (e.g. "2026-07-15T22:00:00").
+ * startsAt must be a UTC ISO instant (e.g. "2026-07-15T22:00:00Z") — the date
+ * component is taken from its Europe/Amsterdam calendar day, not a UTC slice.
  * suffix is injectable so unit tests are deterministic.
  * The slug is generated once at creation and never editable afterwards.
  */
@@ -40,6 +52,6 @@ export function buildEventSlug(
   suffix: string = randomSlugSuffix(),
 ): string {
   const base = slugify(name) || 'event';
-  const date = startsAt.slice(0, 10); // YYYY-MM-DD
+  const date = amsterdamDay(startsAt);
   return `${base}-${date}-${suffix}`;
 }

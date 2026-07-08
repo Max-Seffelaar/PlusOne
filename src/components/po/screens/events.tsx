@@ -693,7 +693,13 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
         if (ev && landingOn !== ev.landingActive) {
           await setLandingActive.mutateAsync({ eventId: editId, active: landingOn });
         }
-        if (autoIso !== (ev?.autoLockAt ?? null)) {
+        // Compare through splitLocal, not the raw ISO strings: `autoIso` comes
+        // from toISOString() ("…Z") while `ev.autoLockAt` comes back from
+        // PostgREST ("…+00:00") — same instant, different string, so a naive
+        // !== was always true and fired a redundant write on every save (C22).
+        const [autoDate0, autoTime0] = splitLocal(ev?.autoLockAt ?? null);
+        const [autoDateNew, autoTimeNew] = splitLocal(autoIso);
+        if (autoDateNew !== autoDate0 || autoTimeNew !== autoTime0) {
           await setAutoLock.mutateAsync({ eventId: editId, autoLockAt: autoIso });
         }
       }

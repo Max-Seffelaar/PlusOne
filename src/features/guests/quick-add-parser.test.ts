@@ -289,6 +289,21 @@ describe('e-mail + phone capture (#9)', () => {
     expect(r.tierId).toBe('fles');
   });
 
+  it('keeps a plus-addressed email whole instead of tearing it apart at the "+" (C20)', () => {
+    const r = parse('Jan jan+vip@x.nl');
+    expect(r.email).toBe('jan+vip@x.nl');
+    expect(r.name).toBe('Jan');
+    expect(r.plusOnes).toBe(0);
+  });
+
+  it('a plus-addressed email still leaves room for a real trailing +N and tier', () => {
+    const r = parse('Jan jan+vip@x.nl +2 vip');
+    expect(r.email).toBe('jan+vip@x.nl');
+    expect(r.name).toBe('Jan');
+    expect(r.plusOnes).toBe(2);
+    expect(r.tierId).toBe('vip');
+  });
+
   it('leaves email/phone null when absent', () => {
     const r = parse('Juri +2');
     expect(r.email).toBeNull();
