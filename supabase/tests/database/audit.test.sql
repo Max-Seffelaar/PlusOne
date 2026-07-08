@@ -580,8 +580,11 @@ select is_empty($$
     where n.nspname = 'public' and c.relname = x.t and tr.tgname = 'audit_' || x.t)
 $$, 'M1 all eight audited tables have their audit trigger');
 
-select has_trigger('public', 'events', 'audit_events_lock',
-  'M2 events carries the lock/unlock audit trigger');
+-- Consolidated (C7, 20260708100000): the three per-column events audit
+-- triggers (lock/unlock, allow_uncheck, default_member_quota) are now one
+-- trigger with a combined WHEN clause, not three near-identical ones.
+select has_trigger('public', 'events', 'audit_events',
+  'M2 events carries the consolidated audit trigger (lock/unlock + allow_uncheck + default_member_quota)');
 
 select * from finish();
 

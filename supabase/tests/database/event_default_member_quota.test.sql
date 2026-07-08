@@ -7,9 +7,11 @@
 --   * writes follow the existing events RLS — admin AND event organizer can change
 --     an event's default, a plain staff member cannot ("quota = admin/organizer").
 --   * C7 (review 2026-07-07, 20260708100000): a default_member_quota change now
---     writes EXACTLY ONE audit_log row (via the new audit_events_default_member_quota
---     trigger); a write RLS rejects produces ZERO rows — fraud-resistance means
---     everything audited, and previously this column was silently unlogged.
+--     writes EXACTLY ONE audit_log row (via the consolidated audit_events
+--     trigger, which folded in the two pre-existing single-column lock/
+--     allow_uncheck triggers); a write RLS rejects produces ZERO rows —
+--     fraud-resistance means everything audited, and previously this column
+--     was silently unlogged.
 -- Seed baseline (supabase/seed.sql): venue 1 (aa…01) default_personal_quota = 5,
 -- venue 2 (aa…02) = 4; event ee…01 is in venue 1; user 44…44 is an event organizer
 -- of ee…01 (no membership), 55…55 is a plain {staff} member of venue 1. Rolls back.

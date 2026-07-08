@@ -16,11 +16,18 @@
 --     20260707140000_event_default_member_quota.sql claiming "the generic events
 --     audit trigger already diffs every column, so changes are audited with no
 --     extra work" is simply wrong (fraud-resistance requires everything audited,
---     CLAUDE.md). Fix: add a third WHEN-gated trigger, mirroring
---     audit_events_allow_uncheck exactly (same audit_trigger() body already
---     labels any non-lock/unlock events UPDATE as a plain 'update' carrying the
---     JSONB diff — no function change needed). Also correct the misleading
---     column comment (comment-only, not an edit of the applied migration file).
+--     CLAUDE.md).
+--
+--     Fix: rather than bolting on a THIRD near-identical single-column trigger
+--     (the exact copy-forward shape K10 exists to stop), consolidate all three
+--     audited events columns into ONE trigger with a combined WHEN clause.
+--     audit_events_lock and audit_events_allow_uncheck live in already-applied
+--     migrations and are never edited — this migration DROPs and replaces them
+--     (forward-only DDL, same principle as `create or replace function`; the
+--     trigger NAME/shape is schema, not migration history). audit_trigger()
+--     itself needs no change: it already derives lock/unlock vs. plain 'update'
+--     from whichever columns actually changed. The next audited events column
+--     extends the one WHEN clause below, not a fourth trigger.
 
 -- ---------------------------------------------------------------------------
 -- C6 — restore the voided-check-in exclusion in event_user_additions
@@ -86,14 +93,22 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- C7 — audit events.default_member_quota changes
+-- C7 — audit events.default_member_quota changes + consolidate the events
+-- audit triggers into one (was 2, would have become 3 — now stays 1)
 -- ---------------------------------------------------------------------------
 
-create trigger audit_events_default_member_quota
+drop trigger audit_events_lock on public.events;
+drop trigger audit_events_allow_uncheck on public.events;
+
+create trigger audit_events
   after update on public.events
   for each row
-  when (old.default_member_quota is distinct from new.default_member_quota)
+  when (
+    old.list_locked is distinct from new.list_locked
+    or old.allow_uncheck is distinct from new.allow_uncheck
+    or old.default_member_quota is distinct from new.default_member_quota
+  )
   execute function public.audit_trigger();
 
 comment on column public.events.default_member_quota is
-  'Per-event default guest quota for a newly added crew member (seeds event_quotas.quota_override in the add-crew flow). Seeded from venues.default_personal_quota at event creation, then editable per event (T10, 86ey4j1p5). Audited via the dedicated audit_events_default_member_quota trigger (C7, 20260708100000) — the generic events audit trigger is WHEN-gated per column and does NOT diff every column by default.';
+  'Per-event default guest quota for a newly added crew member (seeds event_quotas.quota_override in the add-crew flow). Seeded from venues.default_personal_quota at event creation, then editable per event (T10, 86ey4j1p5). Audited via the consolidated audit_events trigger (C7, 20260708100000) — the generic events audit trigger is WHEN-gated per column and does NOT diff every column by default.';

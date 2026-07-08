@@ -271,8 +271,8 @@ export async function setAutoLock(input: SetAutoLockInput): Promise<ActionResult
  * the setting for this event; null inherits the venue (company) default. An
  * immediate operational control like setListLock — not part of the form save. RLS
  * (admin/organizer events update) is the boundary; the change is audited
- * (audit_events_allow_uncheck) and the effective value gates the door/cockpit void
- * write via the RESTRICTIVE check_ins policy.
+ * (the consolidated audit_events trigger, C7 20260708100000) and the effective
+ * value gates the door/cockpit void write via the RESTRICTIVE check_ins policy.
  */
 export async function setEventAllowUncheck(input: SetAllowUncheckInput): Promise<ActionResult> {
   const parsed = setAllowUncheckSchema.safeParse(input);
