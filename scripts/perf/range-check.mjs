@@ -1,7 +1,7 @@
 /**
  * Integration check for the ranged-paging fix (#0a).
  *
- * Proves that `fetchDoorSnapshot` and `fetchPoGuests` return ALL guests of an
+ * Proves that `fetchDoorSnapshot` and `fetchGuests` return ALL guests of an
  * event even past PostgREST's 1000-row cap — the pre-fix single-`.select()` code
  * would have returned exactly 1000 and silently dropped the rest at the door.
  *
@@ -55,7 +55,7 @@ async function loadSource() {
   try {
     const door = await server.ssrLoadModule('@/features/door/queries.ts');
     const po = await server.ssrLoadModule('@/features/po/queries.ts');
-    return { fetchDoorSnapshot: door.fetchDoorSnapshot, fetchPoGuests: po.fetchPoGuests, server };
+    return { fetchDoorSnapshot: door.fetchDoorSnapshot, fetchGuests: po.fetchGuests, server };
   } catch (err) {
     await server.close();
     throw err;
@@ -67,7 +67,7 @@ async function main() {
     throw new Error('SUPABASE_SERVICE_ROLE_KEY is required (test-only service client).');
   }
 
-  const { fetchDoorSnapshot, fetchPoGuests, server } = await loadSource();
+  const { fetchDoorSnapshot, fetchGuests, server } = await loadSource();
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -138,11 +138,11 @@ async function main() {
       );
     }
 
-    const poGuests = await fetchPoGuests(admin, eventId);
-    log('assert', `fetchPoGuests → ${poGuests.length} guests`);
+    const poGuests = await fetchGuests(admin, { eventId });
+    log('assert', `fetchGuests → ${poGuests.length} guests`);
     if (poGuests.length !== GUEST_COUNT) {
       throw new Error(
-        `fetchPoGuests returned ${poGuests.length}, expected ${GUEST_COUNT} (truncation bug).`,
+        `fetchGuests returned ${poGuests.length}, expected ${GUEST_COUNT} (truncation bug).`,
       );
     }
 

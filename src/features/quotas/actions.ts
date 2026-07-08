@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import type { Database } from '@/lib/database.types';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
 import { quotaRequestSchema, decideQuotaRequestSchema, type QuotaRequestInput, type DecideQuotaRequestInput } from './schemas';
 
@@ -24,12 +25,14 @@ export async function requestExtraSlots(input: QuotaRequestInput): Promise<Actio
   } = await supabase.auth.getUser();
   if (!user) return unauthorized();
 
+  // venue_id is populated by the set_event_scope BEFORE INSERT trigger
+  // (migration 20260708120000); cast over the omitted column.
   const { error } = await supabase.from('quota_requests').insert({
     event_id: eventId,
     user_id: user.id, // RLS pins this to the actor
     requested_extra: requestedExtra,
     motivation,
-  });
+  } as Database['public']['Tables']['quota_requests']['Insert']);
   if (error) return mapMutationError(error);
 
   revalidatePath(`/events/${eventId}/guests`);

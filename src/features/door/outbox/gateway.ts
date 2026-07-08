@@ -9,12 +9,13 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 
 // event_id is supplied explicitly by the door (replay.ts passes entry.eventId,
-// like add_guest); venue_id is derived server-side by the set_checkin_scope
-// BEFORE INSERT trigger (migration 20260622140000), so it is omitted here and
-// cast over at the insert call below.
+// like add_guest); venue_id is derived server-side by a BEFORE INSERT trigger
+// (check_ins/refusals: set_checkin_scope, migration 20260622140000; guests:
+// set_event_scope, migration 20260708120000), so it is omitted here and cast
+// over at the insert call below.
 export type CheckInRow = Omit<Database['public']['Tables']['check_ins']['Insert'], 'venue_id'>;
 export type RefusalRow = Omit<Database['public']['Tables']['refusals']['Insert'], 'venue_id'>;
-export type GuestRow = Database['public']['Tables']['guests']['Insert'];
+export type GuestRow = Omit<Database['public']['Tables']['guests']['Insert'], 'venue_id'>;
 
 /** The fields of a PostgrestError the outbox cares about. */
 export interface DbError {
@@ -92,7 +93,10 @@ export function supabaseGateway(client: SupabaseClient<Database>): DoorGateway {
     undoRefusal: async (guestId) => ({
       error: (await client.from('guests').update({ status: 'approved' }).eq('id', guestId).eq('status', 'refused')).error,
     }),
-    insertGuest: async (row) => ({ error: (await client.from('guests').insert(row)).error }),
+    // venue_id is populated by the set_event_scope trigger; cast over the omitted column.
+    insertGuest: async (row) => ({
+      error: (await client.from('guests').insert(row as Database['public']['Tables']['guests']['Insert'])).error,
+    }),
     ackNote: async (guestId, ack, uid) => {
       if (ack) {
         // Only the first acknowledgement sticks; a later device replay no-ops.

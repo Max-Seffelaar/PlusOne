@@ -301,6 +301,8 @@ export async function createTier(input: CreateTierInput): Promise<ActionResult> 
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
 
+  // venue_id is populated by the set_event_scope BEFORE INSERT trigger
+  // (migration 20260708120000); cast over the omitted column.
   const { error } = await supabase.from('guest_tiers').insert({
     event_id: eventId,
     name,
@@ -310,7 +312,7 @@ export async function createTier(input: CreateTierInput): Promise<ActionResult> 
     door_price_cents: doorPriceCents ?? null,
     vat_percent: vatPercent ?? null,
     aliases,
-  });
+  } as Database['public']['Tables']['guest_tiers']['Insert']);
   if (error) {
     if (error.code === '23505') {
       return { ok: false, code: '23505', message: 'A tier with this name already exists.' };
