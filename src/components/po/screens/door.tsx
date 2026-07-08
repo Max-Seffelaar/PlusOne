@@ -26,6 +26,7 @@ import { Taken as DoorTaken } from '@/features/door/components/Taken';
 import { GuestDetail } from '@/features/door/components/GuestDetail';
 import { AddOnSpot } from '@/features/door/components/AddOnSpot';
 import { SyncBar } from '@/features/door/components/SyncBar';
+import { DoorErrorBoundary } from '@/features/door/components/DoorErrorBoundary';
 
 export type DoorOverlay = { kind: 'guest'; id: string } | { kind: 'add' } | null;
 
@@ -155,7 +156,7 @@ export function PoDoorTab({
   const navKey = overlay ? overlay.kind + ('id' in overlay ? overlay.id : '') : tab;
 
   return (
-    <>
+    <DoorErrorBoundary>
       <SyncBar />
       {!overlay && onChangeEvent && currentEventName && (
         <DoorEventBar name={currentEventName} onChange={onChangeEvent} />
@@ -181,6 +182,6 @@ export function PoDoorTab({
         {screen}
       </div>
       {toast && <Toast>{toast}</Toast>}
-    </>
+    </DoorErrorBoundary>
   );
 }

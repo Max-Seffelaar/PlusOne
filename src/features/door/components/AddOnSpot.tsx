@@ -81,7 +81,11 @@ export function AddOnSpot({ onBack }: { onBack: () => void }): JSX.Element {
       : null;
   const cost = parsed ? parsed.slots : 0;
   const overQuota = !exempt && left != null && cost > left;
-  const canCommit = !!resolved && !needsAsk && !needsTierPick && !overQuota;
+  // A tier-prefix-only line ("champa" for tier "champagne") parses to a valid
+  // tier with an EMPTY name — committing it would add a nameless guest that the
+  // outbox path never re-validates (C12). Require a real name.
+  const hasName = !!resolved && resolved.name.trim().length > 0;
+  const canCommit = hasName && !needsAsk && !needsTierPick && !overQuota;
 
   const commit = (): void => {
     if (!resolved || !canCommit) return;

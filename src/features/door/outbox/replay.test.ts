@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { DbError, DoorGateway } from './gateway';
-import { classifyError, drainOutbox, replayEntry, type DrainDeps } from './replay';
-import type { OutboxEntry } from './types';
+import { classifyError, drainOutbox, MAX_ATTEMPTS, replayEntry, type DrainDeps } from './replay';
+import { resumeStuckEntries, type OutboxEntry } from './types';
 
 const UID = '66666666-6666-4666-8666-666666666666';
 const DEVICE = 'door-test-01';
@@ -34,6 +34,8 @@ const CAPACITY_FULL: DbError = {
   message: 'Capaciteit bereikt: dit zou 1801 van 1800 plekken voor dit event gebruiken.',
 };
 const NETWORK: DbError = { code: undefined, message: 'Failed to fetch' };
+const RLS_DENY: DbError = { code: '42501', message: 'permission denied for table check_ins' };
+const UNKNOWN_CODE: DbError = { code: 'XX999', message: 'unexpected postgres error' };
 
 describe('classifyError', () => {
   it('treats no error as synced', () => {
@@ -55,8 +57,22 @@ describe('classifyError', () => {
     expect(classifyError(CAPACITY_FULL)).toEqual({ status: 'error', message: CAPACITY_FULL.message });
   });
 
-  it('treats unknown/network errors as transient (retry)', () => {
-    expect(classifyError(NETWORK).status).toBe('pending');
+  it('treats a code-less (network) error as a pure transient retry, not a coded reject', () => {
+    const r = classifyError(NETWORK);
+    expect(r.status).toBe('pending');
+    expect(r.codedReject).toBeFalsy();
+  });
+
+  it('classifies structurally-terminal codes (FK / RLS / CHECK / NOT-NULL) as terminal errors (C9)', () => {
+    for (const code of ['23503', '42501', '23514', '23502']) {
+      expect(classifyError({ code, message: 'x' }).status).toBe('error');
+    }
+  });
+
+  it('flags an unrecognised CODED rejection as a coded reject that retries (C9)', () => {
+    const r = classifyError(UNKNOWN_CODE);
+    expect(r.status).toBe('pending');
+    expect(r.codedReject).toBe(true);
   });
 });
 
@@ -321,5 +337,58 @@ describe('drainOutbox', () => {
     expect(summary).toMatchObject({ processed: 2, duplicates: 1, synced: 1, interrupted: false });
     expect(store.entries[0].status).toBe('duplicate');
     expect(store.entries[1].status).toBe('synced');
+  });
+
+  // C9 — a permanently-failing head must not wedge the writes behind it.
+  it('does not wedge the queue on a terminal-coded head: it errors and the tail still syncs (C9)', async () => {
+    const store = fakeStore([
+      checkInEntry({ clientId: 'a', payload: { id: 'a', guestId: 'g1', plusOnesArrived: 0, clientTimestamp: 't' } }),
+      checkInEntry({ clientId: 'b', payload: { id: 'b', guestId: 'g2', plusOnesArrived: 0, clientTimestamp: 't' } }),
+    ]);
+    const gw: DoorGateway = {
+      ...gatewayReturning(null),
+      insertCheckIn: async (row) => ({ error: row.guest_id === 'g1' ? RLS_DENY : null }),
+    };
+    const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
+    expect(summary).toMatchObject({ processed: 2, errors: 1, synced: 1, interrupted: false });
+    expect(store.entries[0].status).toBe('error'); // dead on arrival, not stuck pending
+    expect(store.entries[1].status).toBe('synced'); // the write behind it still went through
+  });
+
+  it('skips past an unrecognised coded reject without pausing, so the tail syncs the same drain (C9)', async () => {
+    const store = fakeStore([
+      checkInEntry({ clientId: 'a', payload: { id: 'a', guestId: 'g1', plusOnesArrived: 0, clientTimestamp: 't' } }),
+      checkInEntry({ clientId: 'b', payload: { id: 'b', guestId: 'g2', plusOnesArrived: 0, clientTimestamp: 't' } }),
+    ]);
+    const gw: DoorGateway = {
+      ...gatewayReturning(null),
+      insertCheckIn: async (row) => ({ error: row.guest_id === 'g1' ? UNKNOWN_CODE : null }),
+    };
+    const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
+    expect(summary.interrupted).toBe(false); // alive connection — do not pause
+    expect(store.entries[0].status).toBe('pending'); // retried later, still queued
+    expect(store.entries[0].attempts).toBe(1);
+    expect(store.entries[1].status).toBe('synced'); // not blocked behind the bad entry
+  });
+
+  it('dead-letters an unrecognised coded reject after MAX_ATTEMPTS instead of retrying forever (C9)', async () => {
+    const store = fakeStore([
+      checkInEntry({ clientId: 'a', attempts: MAX_ATTEMPTS - 1, payload: { id: 'a', guestId: 'g1', plusOnesArrived: 0, clientTimestamp: 't' } }),
+    ]);
+    const summary = await drainOutbox({ ...store, gateway: gatewayReturning(UNKNOWN_CODE), uid: UID, deviceId: DEVICE });
+    expect(summary).toMatchObject({ deadLettered: 1, errors: 1, interrupted: false });
+    expect(store.entries[0].status).toBe('error');
+    expect(store.entries[0].attempts).toBe(MAX_ATTEMPTS);
+  });
+
+  // C8 — an entry stranded in `syncing` by a mid-drain kill is resumed and replays.
+  it('replays a killed-mid-drain entry: resumeStuckEntries → pending → synced (C8)', async () => {
+    const store = fakeStore(resumeStuckEntries([checkInEntry({ clientId: 'a', status: 'syncing' })]));
+    expect(store.entries[0].status).toBe('pending'); // revived on load
+    const insertCheckIn = vi.fn(async () => ({ error: null }));
+    const summary = await drainOutbox({ ...store, gateway: { ...gatewayReturning(null), insertCheckIn }, uid: UID, deviceId: DEVICE });
+    expect(insertCheckIn).toHaveBeenCalledTimes(1); // the once-orphaned check-in is re-sent
+    expect(summary.synced).toBe(1);
+    expect(store.entries[0].status).toBe('synced');
   });
 });

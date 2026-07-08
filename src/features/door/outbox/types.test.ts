@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hasUnsynced, isPending, isRetryable, type OutboxEntry, type OutboxStatus } from './types';
+import { hasUnsynced, isPending, isRetryable, resumeStuckEntries, type OutboxEntry, type OutboxStatus } from './types';
 
 /** A check-in entry with a given status (the kind is irrelevant to the predicates). */
 function entry(status: OutboxStatus): OutboxEntry {
@@ -48,5 +48,23 @@ describe('hasUnsynced (sync-bar dot)', () => {
   it('treats a terminal error as settled, not unsynced (it needs a manual retry)', () => {
     // An error doesn't keep the auto-sync dot lit — it surfaces its own message.
     expect(hasUnsynced([entry('error')])).toBe(false);
+  });
+});
+
+describe('resumeStuckEntries (C8 — mid-drain kill recovery)', () => {
+  it('resets syncing → pending so a stranded entry replays', () => {
+    const out = resumeStuckEntries([entry('syncing')]);
+    expect(out[0].status).toBe('pending');
+  });
+
+  it('leaves every other status untouched', () => {
+    for (const s of ['pending', 'synced', 'duplicate', 'error'] as const) {
+      expect(resumeStuckEntries([entry(s)])[0].status).toBe(s);
+    }
+  });
+
+  it('preserves the entry payload/id when reviving', () => {
+    const [out] = resumeStuckEntries([entry('syncing')]);
+    expect(out).toMatchObject({ clientId: 'c-syncing', kind: 'check_in', payload: { guestId: 'g1' } });
   });
 });

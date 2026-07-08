@@ -5,7 +5,7 @@
  * drained together. Persisted to IndexedDB so a reload never loses queued work.
  */
 import { idbGet, idbSet } from '../offline/idb';
-import type { OutboxEntry } from './types';
+import { resumeStuckEntries, type OutboxEntry } from './types';
 
 const KEY = 'door-outbox';
 /** Stable empty reference for SSR / first paint (useSyncExternalStore needs it). */
@@ -19,8 +19,13 @@ class OutboxStore {
   /** Load persisted entries once (called from the provider on mount). */
   async init(): Promise<void> {
     if (this.loaded) return;
-    this.entries = (await idbGet<OutboxEntry[]>(KEY)) ?? [];
+    const persisted = (await idbGet<OutboxEntry[]>(KEY)) ?? [];
+    // Revive entries stranded in `syncing` by a mid-drain kill (C8). Persist the
+    // normalization immediately so a second crash before the first drain can't
+    // re-orphan them.
+    this.entries = resumeStuckEntries(persisted);
     this.loaded = true;
+    if (persisted.some((e) => e.status === 'syncing')) void idbSet(KEY, this.entries);
     this.emit();
   }
 

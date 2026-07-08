@@ -9,15 +9,38 @@
  * while the guest stays "binnen" because they are, in fact, inside.
  *
  * Quota / tier-full / capacity rejections (45001/45002/45005) are terminal
- * `error`s that carry the trigger's Dutch message. Everything else (network, 5xx)
- * is transient and falls back to `pending` so the next drain retries.
+ * `error`s that carry the trigger's Dutch message. So are structurally-invalid
+ * writes — FK / permission / CHECK / NOT-NULL violations — which would NEVER
+ * succeed on retry and must not wedge the FIFO head (C9). A CODED rejection we
+ * don't specifically recognise is transient-for-now but flagged so repeated
+ * failures dead-letter instead of blocking the queue forever. Only a CODE-LESS
+ * failure (network / offline) is a pure transient that pauses the whole drain.
  */
 import type { DbError, DoorGateway } from './gateway';
 import { isPending, type OutboxEntry, type OutboxStatus } from './types';
 
+/**
+ * Postgres error codes that mean "this write is structurally wrong and will
+ * never be accepted" — foreign-key violation, insufficient privilege (an RLS
+ * deny, e.g. writing to a locked list), CHECK violation, NOT-NULL violation.
+ * Classified terminal so the drain skips past them (C9).
+ */
+const TERMINAL_CODES = new Set(['23503', '42501', '23514', '23502']);
+
+/** A coded reject retries this many times before it is dead-lettered (C9). */
+export const MAX_ATTEMPTS = 5;
+
 export interface ReplayResult {
   status: OutboxStatus;
   message?: string;
+  /**
+   * True when a `pending` result came from a CODED server rejection we don't
+   * specifically handle (not a code-less network failure). The connection is
+   * alive, so the drain skips past it rather than pausing — and it dead-letters
+   * once it has failed MAX_ATTEMPTS times, so a single bad write can't wedge the
+   * queue forever (C9).
+   */
+  codedReject?: boolean;
 }
 
 export function classifyError(error: DbError | null): ReplayResult {
@@ -34,7 +57,13 @@ export function classifyError(error: DbError | null): ReplayResult {
   if (code === '45001') return { status: 'error', message: error.message ?? 'Quota full for this event.' };
   if (code === '45002') return { status: 'error', message: error.message ?? 'This tier is full.' };
   if (code === '45005') return { status: 'error', message: error.message ?? 'This event is at capacity.' };
-  // Network / server / transient RLS hiccup → retry on the next drain.
+  if (TERMINAL_CODES.has(code)) {
+    return { status: 'error', message: error.message ?? 'This action was rejected and will not retry.' };
+  }
+  // A coded rejection we don't recognise: retry for now, but flag it so the drain
+  // can skip past it and dead-letter it if it keeps failing (C9).
+  if (code) return { status: 'pending', message: error.message ?? 'Rejected. Retrying.', codedReject: true };
+  // No code = network / offline → pause the whole drain and retry when back online.
   return { status: 'pending', message: error.message ?? 'Connection failed. Retrying.' };
 }
 
@@ -129,38 +158,74 @@ export interface DrainSummary {
   synced: number;
   duplicates: number;
   errors: number;
-  /** A transient failure stopped the drain early (likely offline). */
+  /** Coded rejects that gave up after MAX_ATTEMPTS and were dead-lettered (C9). */
+  deadLettered: number;
+  /** A code-less (network/offline) failure paused the drain early. */
   interrupted: boolean;
 }
 
 /**
- * Replay every pending entry in FIFO order. A transient failure stops the drain
- * (the entry stays `pending`) so we don't hammer a dead connection; the next
- * online/visibility event resumes it.
+ * Replay every pending entry in FIFO order.
+ *
+ *  - A code-less failure (network/offline) pauses the drain — every later entry
+ *    would fail too, so we don't hammer a dead connection; the next
+ *    online/visibility event resumes the whole queue.
+ *  - A CODED rejection we don't recognise does NOT pause the drain: the
+ *    connection is alive and one bad write must never wedge the entries behind it
+ *    (C9). It stays `pending` and is retried on later drains, until it has failed
+ *    MAX_ATTEMPTS times, when it is dead-lettered to `error` and skipped for good.
+ *  - Terminal errors (quota/tier/capacity + FK/RLS/CHECK/NOT-NULL) settle to
+ *    `error` immediately and the drain moves on.
  */
 export async function drainOutbox(deps: DrainDeps): Promise<DrainSummary> {
-  const summary: DrainSummary = { processed: 0, synced: 0, duplicates: 0, errors: 0, interrupted: false };
+  const summary: DrainSummary = {
+    processed: 0,
+    synced: 0,
+    duplicates: 0,
+    errors: 0,
+    deadLettered: 0,
+    interrupted: false,
+  };
   for (const entry of deps.list().filter(isPending)) {
     deps.update(entry.clientId, { status: 'syncing' });
     let result: ReplayResult;
     try {
       result = await replayEntry(deps.gateway, entry, deps.uid, deps.deviceId);
     } catch (e) {
+      // A thrown fetch = the network is down → pure transient, pause the drain.
       result = { status: 'pending', message: e instanceof Error ? e.message : 'Unknown error' };
     }
-    deps.update(entry.clientId, {
-      status: result.status,
-      message: result.message,
-      attempts: entry.attempts + 1,
-    });
+    const attempts = entry.attempts + 1;
+
+    if (result.status === 'pending') {
+      if (result.codedReject) {
+        if (attempts >= MAX_ATTEMPTS) {
+          // Given up: dead-letter so it stops blocking the queue. Surfaced as a
+          // terminal `error` with its message; the drain keeps going.
+          deps.update(entry.clientId, { status: 'error', message: result.message, attempts });
+          summary.processed++;
+          summary.errors++;
+          summary.deadLettered++;
+          continue;
+        }
+        // Alive connection, one bad entry — leave it pending and skip past it so
+        // the writes behind it still sync (C9).
+        deps.update(entry.clientId, { status: 'pending', message: result.message, attempts });
+        summary.processed++;
+        continue;
+      }
+      // Code-less network/offline failure → pause; the whole queue retries later.
+      deps.update(entry.clientId, { status: 'pending', message: result.message, attempts });
+      summary.processed++;
+      summary.interrupted = true;
+      break;
+    }
+
+    deps.update(entry.clientId, { status: result.status, message: result.message, attempts });
     summary.processed++;
     if (result.status === 'synced') summary.synced++;
     if (result.status === 'duplicate') summary.duplicates++;
     if (result.status === 'error') summary.errors++;
-    if (result.status === 'pending') {
-      summary.interrupted = true;
-      break;
-    }
   }
   return summary;
 }

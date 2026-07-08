@@ -63,6 +63,11 @@ export function supabaseGateway(client: SupabaseClient<Database>): DoorGateway {
     }),
     // Re-checkin: clear the void and re-set arrivals fresh (the revive-aware
     // trigger does not hold the pre-void count). One row per guest, so no INSERT.
+    // `.not('voided_at','is',null)` scopes the UPDATE to a genuinely voided row:
+    // without it, the cockpit's 23505→revive fallback would overwrite a peer's
+    // ACTIVE checked_by/checked_at and corrupt the first-wins audit + instroom
+    // bucket (C10). A 0-row match (the guest is already active) leaves the peer's
+    // row untouched and returns no error → a harmless no-op = synced.
     reviveCheckIn: async (guestId, plusOnesArrived, uid) => ({
       error: (
         await client
@@ -75,6 +80,7 @@ export function supabaseGateway(client: SupabaseClient<Database>): DoorGateway {
             plus_ones_arrived: plusOnesArrived,
           })
           .eq('guest_id', guestId)
+          .not('voided_at', 'is', null)
       ).error,
     }),
     insertRefusal: async (row) => ({
