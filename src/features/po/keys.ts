@@ -49,6 +49,8 @@ export const poKeys = {
   // Settings cluster — team/quota + invites scope to a venue, sessions/profile to
   // the caller, venue-settings + subscription to a venue.
   team: (venueId: string) => [...poKeys.all, 'team', venueId] as const,
+  /** Per-event quota overrides (Allowance screen, event_quotas), keyed on the event. */
+  allowance: (eventId: string) => [...poKeys.all, 'allowance', eventId] as const,
   invites: (venueId: string) => [...poKeys.all, 'invites', venueId] as const,
   /** Invites addressed to the signed-in user (incoming "accept invite" banner). */
   myInvites: () => [...poKeys.all, 'my-invites'] as const,
