@@ -1,17 +1,18 @@
 'use client';
 
-/** Admin sessies & remote logout (po) — mobile parity with the desktop
- *  /admin/sessions. Admin-only + AAL2; the admin_* RPCs re-enforce both, so this
- *  only renders the right state. Pick a teamlid → bekijk hun actieve apparaten →
- *  log op afstand uit. Reads via the browser client (admin_list_user_sessions),
- *  writes via the shared adminRevokeSessionAction. Reached from the Meer hub. */
+/** Admin sessions & remote logout (po) — mobile parity with the desktop
+ *  /admin/sessions. Admin-only, role-only (the admin_* RPCs dropped their AAL2
+ *  check in the #20 2026-07-02 "MFA fully optional" refinement — no hard gate
+ *  anywhere), so this only renders the right state. Pick a team member → see
+ *  their active devices → log out remotely. Reads via the browser client
+ *  (admin_list_user_sessions), writes via the shared adminRevokeSessionAction.
+ *  Reached from the Meer hub. */
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
-import { usePoAal2, usePoTeam, usePoUserSessions } from '@/features/po/hooks';
+import { usePoTeam, usePoUserSessions } from '@/features/po/hooks';
 import { usePoAdminRevokeSession } from '@/features/po/mutations';
 import type { PoTeamMember } from '@/features/po/adapters';
-import { useMfaGate } from '../mfa-gate';
 import { useNav } from '../context';
 import { Icon, type IconName } from '../icon';
 import { Avatar, Btn, Empty, Label, MiniChip, Note, Scroll, Top } from '../kit';
@@ -35,8 +36,6 @@ export function AdminSessions(): JSX.Element {
   const nav = useNav();
   const { roles, venueName } = usePoIdentity();
   const isAdmin = roles.includes('admin');
-  const aal = usePoAal2();
-  const mfa = useMfaGate();
   const [selected, setSelected] = useState<PoTeamMember | null>(null);
 
   // No admin role → never attempt (the RPC refuses anyway).
@@ -47,37 +46,6 @@ export function AdminSessions(): JSX.Element {
         <Scroll bottom={28}>
           <Empty text="Only admins can manage team members' sessions." />
         </Scroll>
-      </div>
-    );
-  }
-
-  // AAL2 gate — listing/revoking another member's sessions requires MFA.
-  if (!aal.isAal2) {
-    return (
-      <div className={col}>
-        <Top onBack={nav.back} title="Team sessions" sub={venueName ?? undefined} />
-        <Scroll bottom={28}>
-          <Note icon="shield">
-            Managing sessions and logging out team members remotely needs an MFA-verified session.
-          </Note>
-          {aal.loading ? (
-            <Empty text="Loading…" />
-          ) : (
-            <div className="rounded-[18px] border border-acc-dim bg-acc-dim p-5">
-              <div className="mb-1 flex items-center gap-[10px]">
-                <Icon name="shield" size={20} stroke="#B5A6FF" />
-                <span className="font-display text-[16px] font-bold text-text">MFA required</span>
-              </div>
-              <div className="mb-4 text-[13px] leading-[1.5] text-dim">
-                Verify with your authenticator to manage a team member&apos;s devices.
-              </div>
-              <Btn kind="primary" full icon="shield" onClick={() => mfa.start(() => aal.recheck())}>
-                Verify with MFA
-              </Btn>
-            </div>
-          )}
-        </Scroll>
-        {mfa.sheet}
       </div>
     );
   }

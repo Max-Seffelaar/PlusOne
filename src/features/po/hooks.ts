@@ -4,7 +4,7 @@
 // the active venue/event scope, then map rows -> po component shapes via the pure
 // adapters. No screen calls these yet (STAP 3.2 is infra); STAP 3.3/3.4 swap each
 // screen's mock import for the matching hook, preserving the component API.
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 import type { Guest, PoEvent, Tier } from '@/lib/po/types';
@@ -979,39 +979,6 @@ export function useBillingBlocked(): { blocked: boolean; reason: 'canceled' | 't
 }
 
 // ── Audit log (S10) reads ────────────────────────────────────────────────────
-
-export interface PoAal2State {
-  /** True until the first assurance-level check resolves. */
-  loading: boolean;
-  /** The browser session has reached AAL2 (MFA-verified). */
-  isAal2: boolean;
-  /** Re-check after an in-app MFA step-up upgrades the session. */
-  recheck: () => void;
-}
-
-/**
- * AAL2 (MFA) status of the current browser session — sensitive reads like the
- * audit log require it (#15/#20). Read straight from GoTrue
- * (getAuthenticatorAssuranceLevel), so it is client-only and Capacitor-safe (#37);
- * the screen calls `recheck` after the in-app step-up sheet upgrades the session.
- */
-export function usePoAal2(): PoAal2State {
-  const [state, setState] = useState<{ loading: boolean; isAal2: boolean }>({
-    loading: true,
-    isAal2: false,
-  });
-  const recheck = useCallback(() => {
-    setState((s) => ({ ...s, loading: true }));
-    void createClient()
-      .auth.mfa.getAuthenticatorAssuranceLevel()
-      .then(({ data }) => setState({ loading: false, isAal2: data?.currentLevel === 'aal2' }))
-      .catch(() => setState({ loading: false, isAal2: false }));
-  }, []);
-  useEffect(() => {
-    recheck();
-  }, [recheck]);
-  return { ...state, recheck };
-}
 
 /**
  * The active venue's audit feed (S10), filtered + capped in the database. Gated

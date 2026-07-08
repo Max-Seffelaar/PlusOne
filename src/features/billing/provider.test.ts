@@ -89,7 +89,11 @@ describe('stripe SDK confinement (decision #32 — abstraction is mandatory)', (
         }
         if (!/\.tsx?$/.test(entry.name) || /\.(test|spec)\.tsx?$/.test(entry.name)) continue;
         const src = readFileSync(full, 'utf8');
-        if (/from\s+['"]stripe['"]/.test(src) || /require\(['"]stripe['"]\)/.test(src)) {
+        if (
+          /from\s+['"]stripe['"]/.test(src) ||
+          /require\(['"]stripe['"]\)/.test(src) ||
+          /import\(\s*['"]stripe['"]\s*\)/.test(src)
+        ) {
           if (!full.includes(path.join('features', 'billing'))) {
             offenders.push(path.relative(SRC, full));
           }
