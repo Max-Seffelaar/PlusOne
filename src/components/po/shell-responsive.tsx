@@ -101,7 +101,7 @@ export function ResponsiveShell({
           <Icon name="chevD" size={16} className="text-ghost" />
         </button>
 
-        <nav className="flex flex-col gap-[3px]">
+        <nav className="po-scroll flex min-h-0 flex-1 flex-col gap-[3px] overflow-y-auto">
           {navItems.map((it, i) => (
             <Fragment key={it.key}>
               {it.section === 'more' && navItems[i - 1]?.section !== 'more' && (
@@ -111,7 +111,7 @@ export function ResponsiveShell({
                 type="button"
                 onClick={it.onClick}
                 className={cn(
-                  'flex w-full items-center gap-3 rounded-[12px] px-3 py-[11px] text-left font-display text-[14.5px] font-bold transition-[filter] hover:brightness-[1.1]',
+                  'flex w-full flex-none items-center gap-3 rounded-[12px] px-3 py-[11px] text-left font-display text-[14.5px] font-bold transition-[filter] hover:brightness-[1.1]',
                   it.active ? 'bg-acc-dim text-acc' : 'text-dim',
                 )}
               >
@@ -127,13 +127,11 @@ export function ResponsiveShell({
           ))}
         </nav>
 
-        <div className="flex-1" />
-
         <button
           type="button"
           onClick={onOpenProfile}
           aria-label={t.settings.profile.title}
-          className="flex w-full items-center gap-[11px] rounded-[12px] border border-line bg-elev p-[10px] text-left transition-[filter] hover:brightness-[1.1] active:scale-[0.99]"
+          className="mt-3 flex w-full flex-none items-center gap-[11px] rounded-[12px] border border-line bg-elev p-[10px] text-left transition-[filter] hover:brightness-[1.1] active:scale-[0.99]"
         >
           <span className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-full bg-elev2 font-display text-[13px] font-bold text-text">
             {userName.slice(0, 1).toUpperCase()}
