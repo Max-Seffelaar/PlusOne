@@ -13,6 +13,8 @@ export const analytics = {
   // ── Header / access ─────────────────────────────────────────────────────────
   title: 'Analytics',
   noRights: "You don't have rights to view analytics.",
+  fetchError: "Couldn't load statistics. Check your connection and try again.",
+  retry: 'Try again',
 
   // ── Venue-level KPIs ────────────────────────────────────────────────────────
   // Feedback (Joeri, 24 jun 2026): "turnout" → Attendance, "Refusals" → Bounced.
@@ -50,5 +52,6 @@ export const analytics = {
   addedWord: 'added',
 
   // ── Footer note ─────────────────────────────────────────────────────────────
-  footerNote: 'Every number hangs on the event, not the calendar day. Inside = checked in at the door.',
+  footerNote:
+    'Every number hangs on the event, not the calendar day. Inside = checked in at the door.',
 } as const;

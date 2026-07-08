@@ -172,7 +172,9 @@ async function patchGuestsOptimistically(
 /** Invalidate the whole add-affected subtree: guest list, tier counts, quota. */
 // Venue-wide Guests tab caches guests across events (poKeys.venueGuests). Every
 // guest mutation must invalidate it too — prefix match, so no venueId needed here.
-const VENUE_GUESTS_PREFIX = [...poKeys.all, 'venue-guests'] as const;
+// Exported so realtime invalidation (hooks.ts usePoEventRealtime, C19) can reuse
+// the same prefix instead of drifting out of sync with a second copy.
+export const VENUE_GUESTS_PREFIX = [...poKeys.all, 'venue-guests'] as const;
 
 function invalidateAfterAdd(qc: QueryClient, eventId: string): void {
   void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
@@ -229,8 +231,9 @@ export function usePoAddGuestsBulk(eventId: string) {
   });
 }
 
-// Factory for simple guest mutations: always invalidates guests; pass extraKeys for
-// tiers / contact-profile / contacts as needed.
+// Factory for simple guest mutations: always invalidates guests + quota (a plus_ones
+// change or a removal frees/consumes a slot, #22); pass extraKeys for tiers /
+// contact-profile / contacts as needed.
 function guestMutation<TInput>(
   qc: QueryClient,
   eventId: string,
@@ -241,6 +244,7 @@ function guestMutation<TInput>(
     mutationFn,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+      void qc.invalidateQueries({ queryKey: poKeys.quota(eventId) });
       void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
       for (const key of extraKeys) {
         void qc.invalidateQueries({ queryKey: key as unknown[] });
@@ -622,6 +626,9 @@ export function usePoApproveRequest() {
       if (input.eventId) {
         void qc.invalidateQueries({ queryKey: poKeys.guests(input.eventId) });
         void qc.invalidateQueries({ queryKey: poKeys.tiers(input.eventId) });
+        // An approved landing request becomes a guest — the venue-wide All-Guests
+        // tab must refresh too, not just the per-event list (C17).
+        void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
       }
     },
   });
@@ -699,6 +706,10 @@ export function usePoForgetContact() {
     onSuccess: () => {
       invalidateContacts(qc, venueId);
       void qc.invalidateQueries({ queryKey: [...poKeys.all, 'guests'] });
+      // The venue-wide All-Guests tab is a SEPARATE cache from the per-event guests
+      // lists above — without this the erased contact's real name lingers there
+      // after a GDPR "forget" (C18).
+      void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
     },
   });
 }
@@ -1156,6 +1167,10 @@ export function usePoUpdateInfluencer() {
       void qc.invalidateQueries({ queryKey: REQUEST_LINKS_PREFIX });
       void qc.invalidateQueries({ queryKey: VENUE_LINKS_PREFIX });
       void qc.invalidateQueries({ queryKey: REQUESTS_KEY });
+      // Their name also rides on the Promotion dashboard's funnel/leaderboard rows
+      // (G2) — mirrors invalidateLinks() below.
+      void qc.invalidateQueries({ queryKey: LINK_FUNNEL_PREFIX });
+      void qc.invalidateQueries({ queryKey: PROMO_PREFIX });
     },
   });
 }

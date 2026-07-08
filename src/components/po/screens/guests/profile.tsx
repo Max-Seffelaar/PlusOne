@@ -23,7 +23,7 @@ import { Icon, type IconName } from '../../icon';
 import PhoneInput from 'react-phone-number-input/input';
 import { isValidPhoneNumber, parsePhoneNumber } from 'react-phone-number-input';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, RoleChip, Scroll, Stepper, Top } from '../../kit';
-import { Sheet } from '../../shell';
+import { Sheet, Toast } from '../../shell';
 import { CountrySelect, type CountryCode } from '../../country-select';
 import { NoTiersBlock, press, col } from './_shared';
 import { useGuestSelection, BulkAddToEventSheet, type BulkAddCandidate } from './bulk-add';
@@ -302,6 +302,14 @@ export function ContactProfile({
   const [tierPicking, setTierPicking] = useState(false);
   const [tierGuestId, setTierGuestId] = useState<string | null>(null);
   const [tierErr, setTierErr] = useState<string | null>(null);
+  // A successful contact save (edit or promote) previously closed the sheet with
+  // no confirmation — the user couldn't tell it actually happened.
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const id = setTimeout(() => setToast(null), 2200);
+    return () => clearTimeout(id);
+  }, [toast]);
 
   if (isLoading) {
     return (
@@ -347,7 +355,7 @@ export function ContactProfile({
   const promoteEventId = originEventId || p.events[0]?.eventId || '';
 
   return (
-    <div className={col}>
+    <div className={cn(col, 'relative')}>
       <Top
         onBack={nav.back}
         title={t.guests.contactProfile.title}
@@ -499,6 +507,10 @@ export function ContactProfile({
         <ContactEditSheet
           contact={contact}
           onClose={() => setEditing(false)}
+          onSaved={() => {
+            setEditing(false);
+            setToast(t.guests.contacts.saveSuccess);
+          }}
           onForget={() => {
             setEditing(false);
             setForgetting(true);
@@ -523,6 +535,10 @@ export function ContactProfile({
           defaultEmail={p.email}
           defaultPhone={p.phone}
           onClose={() => setPromoting(false)}
+          onSaved={() => {
+            setPromoting(false);
+            setToast(t.guests.contactProfile.promoteSuccess);
+          }}
         />
       )}
       {tierPicking && tierGuestId && (
@@ -558,6 +574,7 @@ export function ContactProfile({
           </Btn>
         </Sheet>
       )}
+      {toast && <Toast>{toast}</Toast>}
     </div>
   );
 }
@@ -579,6 +596,7 @@ function PromoteSheet({
   defaultEmail,
   defaultPhone,
   onClose,
+  onSaved,
 }: {
   guestId: string;
   eventId: string;
@@ -586,6 +604,7 @@ function PromoteSheet({
   defaultEmail: string | null;
   defaultPhone: string | null;
   onClose: () => void;
+  onSaved: () => void;
 }): JSX.Element {
   const update = usePoUpdateGuest(eventId);
   const promote = usePoPromoteGuestToContact(eventId);
@@ -610,13 +629,13 @@ function PromoteSheet({
       }
       update.mutate(
         { guestId, fullName: name.trim(), email: email.trim() || undefined, phone: phoneVal },
-        { onSuccess: onClose, onError: (e) => setErr(e instanceof Error ? e.message : t.guests.contacts.saveFailed) },
+        { onSuccess: onSaved, onError: (e) => setErr(e instanceof Error ? e.message : t.guests.contacts.saveFailed) },
       );
     } else {
       // Name-only: use the SECURITY DEFINER RPC that creates a name-only contact.
       promote.mutate(
         { guestId },
-        { onSuccess: onClose, onError: (e) => setErr(e instanceof Error ? e.message : t.guests.contacts.saveFailed) },
+        { onSuccess: onSaved, onError: (e) => setErr(e instanceof Error ? e.message : t.guests.contacts.saveFailed) },
       );
     }
   };
@@ -669,10 +688,12 @@ function RolePill({ label, on, onClick }: { label: string; on: boolean; onClick:
 function ContactEditSheet({
   contact,
   onClose,
+  onSaved,
   onForget,
 }: {
   contact: PoContact;
   onClose: () => void;
+  onSaved: () => void;
   onForget: (c: PoContact) => void;
 }): JSX.Element {
   const { venueId, roles } = usePoIdentity();
@@ -705,7 +726,7 @@ function ContactEditSheet({
         note: contact.note ?? undefined,
         preferredRole: role || undefined,
       },
-      { onSuccess: onClose, onError: (e) => setErr(e instanceof Error ? e.message : t.guests.contacts.saveFailed) },
+      { onSuccess: onSaved, onError: (e) => setErr(e instanceof Error ? e.message : t.guests.contacts.saveFailed) },
     );
   };
 

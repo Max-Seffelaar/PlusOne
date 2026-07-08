@@ -36,6 +36,15 @@ export async function fetchEventStats(client: Client, eventId: string): Promise<
     client.rpc('event_refusal_reasons', { p_event_id: eventId }),
   ]);
 
+  // A real fetch failure (network/transient DB/RPC exception) must never be
+  // coerced into an empty result — that's indistinguishable from the
+  // legitimate role-gated empty result the SECURITY DEFINER functions return
+  // for an out-of-scope id (see file header). Throw generic (C25); the caller
+  // renders an error state instead of silent zeros.
+  if (summary.error || perQuarter.error || tiers.error || users.error || refusals.error) {
+    throw new Error('Failed to load statistics.');
+  }
+
   return {
     summary: summary.data ?? null,
     perQuarter: perQuarter.data ?? [],
@@ -73,6 +82,13 @@ export async function fetchVenueStats(
     client.rpc('venue_refusal_reasons', args),
   ]);
 
+  // See fetchEventStats above: a real error must throw, never fall back to an
+  // empty shape (C25) — that would be indistinguishable from the legitimate
+  // role-gated empty result.
+  if (summary.error || rollup.error || users.error || refusals.error) {
+    throw new Error('Failed to load statistics.');
+  }
+
   return {
     summary: summary.data ?? null,
     rollup: rollup.data ?? [],
@@ -90,11 +106,15 @@ export interface PickerEvent {
 
 // Events for the stats event-picker (RLS: members read their venue's events).
 export async function fetchVenueEvents(client: Client, venueId: string): Promise<PickerEvent[]> {
-  const { data } = await client
+  const { data, error } = await client
     .from('events')
     .select('id, name, starts_at, status')
     .eq('venue_id', venueId)
     .order('starts_at', { ascending: false });
+
+  // See fetchEventStats above: a real fetch error must throw, not render as
+  // "no events yet" (C25).
+  if (error) throw new Error('Failed to load statistics.');
 
   return (data ?? []).map((e) => ({
     id: e.id,

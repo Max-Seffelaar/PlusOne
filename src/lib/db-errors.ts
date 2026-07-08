@@ -69,3 +69,10 @@ export const invalidInput = (message = 'Check the details you entered.'): Mutati
   code: 'invalid',
   message,
 });
+
+/** RLS silently filtered the row out of the write (0 rows, no Postgrest error) — not a false success. */
+export const notFound = (): MutationError => ({
+  ok: false,
+  code: 'not_found',
+  message: "Couldn't save this change (no access, or it no longer exists).",
+});

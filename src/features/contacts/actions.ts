@@ -47,6 +47,22 @@ export type AddContactsToEventResult =
 
 const APP_PATH = '/app';
 
+/** Both dedup unique indexes are venue-scoped (contacts_venue_email_uidx /
+ *  contacts_venue_phone_uidx, migration 20260615110000) — the collision is
+ *  always against another contact in the SAME venue, never cross-venue.
+ *  mapMutationError's generic "This already exists." doesn't say which field,
+ *  so a 23505 here is special-cased before falling through to it. */
+function mapContactUniqueError(error: { code?: string; message?: string }): MutationError | null {
+  if (error.code !== '23505') return null;
+  if (error.message?.includes('contacts_venue_email_uidx')) {
+    return { ok: false, code: '23505', message: 'Another contact in this venue already uses that email address.' };
+  }
+  if (error.message?.includes('contacts_venue_phone_uidx')) {
+    return { ok: false, code: '23505', message: 'Another contact in this venue already uses that phone number.' };
+  }
+  return null;
+}
+
 /** Create or edit a single address-book contact (manager-only via RLS). */
 export async function upsertContact(input: UpsertContactInput): Promise<ActionResult> {
   const parsed = upsertContactSchema.safeParse(input);
@@ -72,7 +88,7 @@ export async function upsertContact(input: UpsertContactInput): Promise<ActionRe
       ...(isPermanent !== undefined ? { is_permanent: isPermanent } : {}),
     };
     const { error } = await supabase.from('contacts').update(patch).eq('id', id);
-    if (error) return mapMutationError(error);
+    if (error) return mapContactUniqueError(error) ?? mapMutationError(error);
   } else {
     const { error } = await supabase.from('contacts').insert({
       venue_id: venueId,
@@ -85,7 +101,7 @@ export async function upsertContact(input: UpsertContactInput): Promise<ActionRe
       is_permanent: isPermanent ?? false,
       created_by: user.id,
     });
-    if (error) return mapMutationError(error);
+    if (error) return mapContactUniqueError(error) ?? mapMutationError(error);
   }
 
   revalidatePath(APP_PATH);
