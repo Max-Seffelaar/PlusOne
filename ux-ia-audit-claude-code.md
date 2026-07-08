@@ -476,6 +476,14 @@ aangemaakt; dat gebeurt pas na akkoord op de prioritering.*
 - **Finance = alles read-only** — inbox zichtbaar zonder beslis-knoppen. Daarmee is **alles beslist**;
   er zijn geen open punten meer.
 
+### Aanpalende besluiten (Max, 8/7 — zelfde gesprek, buiten audit-scope)
+- **Volgorde bevestigd: eerst de UX/IA-reeks, dan pas de PostHog-bouw** (PostHog is nog plan-only —
+  zo landt de event-taxonomy op de definitieve IA en meet je geen schermen die net verdwijnen).
+- **Door-mesh-reeks (PR 0–4) geparkeerd** tot ≥5 klanten óf structureel multi-device deurgebruik;
+  de trigger wordt **gemeten** via een PostHog-alert (taak `86ey7e3pm`). Status + details bovenin
+  `door-mesh-plan-claude-code.md`. Gevolg voor dit plan: **G2 kan vrij bouwen** (geen
+  mesh-afstemming meer nodig); het mesh rebased later op de geconsolideerde deur.
+
 ### ClickUp-taken (klaargezet 8/7, lijst `901818739469` — volgorde = bouwvolgorde)
 
 | Taak | Dekt | ID |
