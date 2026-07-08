@@ -6,6 +6,12 @@
 --   * the non-negative CHECK holds;
 --   * writes follow the existing events RLS — admin AND event organizer can change
 --     an event's default, a plain staff member cannot ("quota = admin/organizer").
+--   * C7 (review 2026-07-07, 20260708100000): a default_member_quota change now
+--     writes EXACTLY ONE audit_log row (via the consolidated audit_events
+--     trigger, which folded in the two pre-existing single-column lock/
+--     allow_uncheck triggers); a write RLS rejects produces ZERO rows —
+--     fraud-resistance means everything audited, and previously this column
+--     was silently unlogged.
 -- Seed baseline (supabase/seed.sql): venue 1 (aa…01) default_personal_quota = 5,
 -- venue 2 (aa…02) = 4; event ee…01 is in venue 1; user 44…44 is an event organizer
 -- of ee…01 (no membership), 55…55 is a plain {staff} member of venue 1. Rolls back.
@@ -23,7 +29,13 @@ begin
 end;
 $fn$;
 
-select plan(7);
+select plan(11);
+
+create function pg_temp.audit_n(p_entity uuid, p_action text)
+returns int language sql as $fn$
+  select count(*)::int from public.audit_log
+  where entity_id = p_entity and action = p_action;
+$fn$;
 
 -- ── 1: the seed event (venue 1, default 5) got its per-event default from the
 --      trigger at insert time ─────────────────────────────────────────────────
@@ -68,6 +80,18 @@ select is(
   7::smallint,
   '5 an admin can change an event''s default_member_quota');
 
+-- C7: the admin's change (5 -> 7) wrote exactly one audit row, action 'update',
+-- diffing the actual before/after value.
+select is(
+  pg_temp.audit_n('ee000000-0000-7000-8000-000000000001', 'update'), 1,
+  '5b the default_member_quota change writes exactly one audit_log row (C7)');
+select is(
+  (select diff -> 'after' ->> 'default_member_quota' from public.audit_log
+   where entity_id = 'ee000000-0000-7000-8000-000000000001' and action = 'update'
+   order by created_at desc limit 1),
+  '7',
+  '5c the audit row diff carries the new default_member_quota value (7)');
+
 select pg_temp.login('55555555-5555-4555-8555-555555555555');   -- {staff} member
 update public.events set default_member_quota = 99
   where id = 'ee000000-0000-7000-8000-000000000001';
@@ -77,6 +101,12 @@ select is(
   7::smallint,
   '6 a staff member CANNOT change it (RLS leaves the value at 7)');
 
+-- C7 denied case: a write RLS rejects must NOT forge an audit row — the count
+-- stays at 1 (no second row for staff's no-op attempt).
+select is(
+  pg_temp.audit_n('ee000000-0000-7000-8000-000000000001', 'update'), 1,
+  '6b a denied write produces ZERO new audit rows (still 1, C7)');
+
 select pg_temp.login('44444444-4444-4444-8444-444444444444');   -- event organizer of ee…01
 update public.events set default_member_quota = 8
   where id = 'ee000000-0000-7000-8000-000000000001';
@@ -85,6 +115,11 @@ select is(
   (select default_member_quota from public.events where id = 'ee000000-0000-7000-8000-000000000001'),
   8::smallint,
   '7 an event organizer can change it (quota = admin/organizer)');
+
+-- C7: the organizer's change (7 -> 8) added a SECOND audit row (now 2 total).
+select is(
+  pg_temp.audit_n('ee000000-0000-7000-8000-000000000001', 'update'), 2,
+  '7b the organizer''s change adds its own audit row (2 total, C7)');
 
 select * from finish();
 rollback;

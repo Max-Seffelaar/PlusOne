@@ -24,7 +24,7 @@ begin
 end;
 $fn$;
 
-select plan(58);
+select plan(62);
 
 -- ===========================================================================
 -- 1. Event summary — correct headline numbers (admin, AAL2)
@@ -246,6 +246,50 @@ select ok(has_function_privilege('authenticated', 'public.event_stats_summary(uu
   '10.5 authenticated can execute event stats');
 select ok(not has_function_privilege('anon', 'public.venue_stats_summary(uuid, timestamptz, timestamptz)', 'EXECUTE'),
   '10.6 anon cannot execute venue stats');
+
+-- ===========================================================================
+-- 11. C6 (review 2026-07-07) — a voided check-in must count as present
+--     NOWHERE, including the per-member breakdown (event_user_additions had
+--     dropped the `where c.voided_at is null` filter its predecessor carried).
+-- ===========================================================================
+
+select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2');
+
+create temp table _c6(hc0 int, hc1 int, hc2 int, pr0 int, pr1 int, pr2 int);
+insert into _c6(hc0, pr0)
+  select present_headcount, present from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
+  where full_name = 'Max de Vries';
+
+insert into public.guests (id, event_id, tier_id, full_name, plus_ones, added_by)
+values ('cc000000-0000-7000-8000-00000000c601', 'ee000000-0000-7000-8000-000000000001',
+        'dd000000-0000-7000-8000-000000000001', 'C6 Void Gast', 1, '11111111-1111-4111-8111-111111111111');
+insert into public.check_ins (guest_id, checked_by, plus_ones_arrived)
+values ('cc000000-0000-7000-8000-00000000c601', '11111111-1111-4111-8111-111111111111', 1);
+
+update _c6 set hc1 = (select present_headcount from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
+                       where full_name = 'Max de Vries'),
+               pr1 = (select present from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
+                      where full_name = 'Max de Vries');
+
+select is((select hc1 - hc0 from _c6), 2,
+  '11.1 the new (non-voided) check-in adds 2 heads (1 + 1 plus_one) to Max''s present_headcount');
+select is((select pr1 - pr0 from _c6), 1,
+  '11.2 the new (non-voided) check-in adds 1 to Max''s present count');
+
+update public.check_ins set voided_at = now(), voided_by = '11111111-1111-4111-8111-111111111111'
+  where guest_id = 'cc000000-0000-7000-8000-00000000c601';
+
+update _c6 set hc2 = (select present_headcount from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
+                       where full_name = 'Max de Vries'),
+               pr2 = (select present from public.event_user_additions('ee000000-0000-7000-8000-000000000001')
+                      where full_name = 'Max de Vries');
+
+select is((select hc2 from _c6), (select hc0 from _c6),
+  '11.3 voiding the check-in drops present_headcount back to baseline (C6 fix)');
+select is((select pr2 from _c6), (select pr0 from _c6),
+  '11.4 voiding the check-in drops present back to baseline (C6 fix)');
+
+reset role;
 
 select * from finish();
 
