@@ -161,20 +161,26 @@ export async function createCheckoutSessionAction(
       : DEFAULT_PLAN_ID;
 
   const origin = await appOrigin();
-  const result = await billing.createCheckoutSession({
-    venueId,
-    planId,
-    company: {
-      name: venue.company_name ?? venue.name,
-      vatNumber: venue.vat_number ?? null,
-      financeEmail: venue.finance_email ?? null,
-    },
-    customerEmail: ctx.user.email ?? '',
-    existingCustomerId: sub.stripe_customer_id ?? null,
-    trialEnd: sub.status === 'trialing' ? trialEndsAt(sub.created_at) : null,
-    successUrl: `${origin}/app?billing=success`,
-    cancelUrl: `${origin}/app?billing=canceled`,
-  });
+  let result: Awaited<ReturnType<typeof billing.createCheckoutSession>>;
+  try {
+    result = await billing.createCheckoutSession({
+      venueId,
+      planId,
+      company: {
+        name: venue.company_name ?? venue.name,
+        vatNumber: venue.vat_number ?? null,
+        financeEmail: venue.finance_email ?? null,
+      },
+      customerEmail: ctx.user.email ?? '',
+      existingCustomerId: sub.stripe_customer_id ?? null,
+      trialEnd: sub.status === 'trialing' ? trialEndsAt(sub.created_at) : null,
+      successUrl: `${origin}/app?billing=success`,
+      cancelUrl: `${origin}/app?billing=canceled`,
+    });
+  } catch (err) {
+    console.error('createCheckoutSession threw', { venueId, err });
+    return billingErr('unavailable', "Billing isn't live yet. Try again later.");
+  }
 
   if (!result.ok) {
     return result.reason === 'free_plan'
@@ -226,10 +232,16 @@ export async function createPortalSessionAction(
   }
 
   const origin = await appOrigin();
-  const result = await billing.createPortalSession({
-    customerId: sub.stripe_customer_id,
-    returnUrl: `${origin}/app?billing=portal-return`,
-  });
+  let result: Awaited<ReturnType<typeof billing.createPortalSession>>;
+  try {
+    result = await billing.createPortalSession({
+      customerId: sub.stripe_customer_id,
+      returnUrl: `${origin}/app?billing=portal-return`,
+    });
+  } catch (err) {
+    console.error('createPortalSession threw', { venueId, err });
+    return billingErr('unavailable', "Billing isn't live yet. Try again later.");
+  }
   if (!result.ok) return billingErr('unavailable', "Billing isn't live yet. Try again later.");
   return { ok: true, url: result.url };
 }

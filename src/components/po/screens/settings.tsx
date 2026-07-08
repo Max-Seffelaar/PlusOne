@@ -1757,8 +1757,14 @@ function BillingBody({ sub }: { sub: PoSubscription }): JSX.Element {
   const needsCheckout = !sub.stripeLinked && sub.status !== 'comped';
   const daysLeft = sub.trialEndsAt ? trialDaysLeft(sub.trialEndsAt) : null;
 
+  // The mutation itself already tracks the rejection (mutation.error, read by
+  // the FormError below) — the .catch here only stops the redirect and
+  // silences the unhandled-rejection warning; it does nothing else.
   const go = (m: { mutateAsync: () => Promise<string> }) => (): void => {
-    void m.mutateAsync().then((url) => window.location.assign(url));
+    void m.mutateAsync().then(
+      (url) => window.location.assign(url),
+      () => {},
+    );
   };
   const busy = checkout.isPending || portal.isPending;
 
