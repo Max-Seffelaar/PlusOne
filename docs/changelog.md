@@ -8,6 +8,33 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-09 — Prod-ready 9/7 task 05: Supabase Pro + restore drill + runbook
+
+Backups moved from "hope" to "tested plan" (ClickUp `86ey7q72b`). Max upgraded the
+prod project (`tolxwgqhppdcvnogdpel`) to **Pro** → automated **daily backups, 7-day
+retention** now running. No code — docs + a live drill.
+
+- **Live restore drill (PASSED).** Used Supabase's **"Restore to a new project"
+  (BETA)** to clone the 2026-07-09 00:48 UTC physical backup into a throwaway
+  project — **zero impact on prod** (the in-place "Restore" button was deliberately
+  avoided; it overwrites). Verified in the clone: row counts intact (5 venues / 8
+  events / 18 guests / 10 auth.users / 5 subscriptions / 75 audit_log rows), **RLS
+  enabled on every public table**, the full audit + quota trigger stack present
+  (`audit_*` + `enforce_guest_quota`/`enforce_event_capacity`/`check_ins_cap_arrivals`/
+  `guard_guest_attribution`), and +N quota math correct on spot-check. Clone deleted
+  immediately after (it bills separately, inherits prod compute).
+- **`docs/backup-restore.md`** — Method A (restore-to-new-project, preferred) +
+  Method B (logical `db dump` → scratch project, fallback), the verification SQL
+  block, the in-place incident-restore procedure (with the overwrite/downtime
+  warning), and a running **drill log** (this run recorded).
+- **`docs/runbook.md`** — one-page 00:30 incident runbook: triage table (app down →
+  Vercel rollback; DB → restore; login → Auth/SMTP; door not syncing → offline
+  outbox is expected; billing/webhook → non-urgent, idempotent replay), "rollback
+  is the default first move", and a who-to-inform section. Two `<FILL IN>`s left for
+  Max: prod domain + Vercel project name, and pilot-venue contacts.
+- **PITR decision:** verified pricing (~$100/mo for 7-day) and **parked until ≥25
+  venues** — daily backups cover the "Now" milestone. Recorded in `backup-restore.md`.
+
 ## 2026-07-09 — Prod-ready 9/7 task 03: migration-collision hooks
 
 Two mechanical guards replace the prose-only "never edit an applied migration /
