@@ -8,6 +8,35 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-09 — Prod-ready 9/7 task 12: incident-response skill
+
+Built with the `skill-creator` skill (draft → dry-run test agent → fix from feedback,
+skipped the full eval-harness loop — single subjective orchestration skill, not worth
+the machinery). **`.claude/skills/incident-response/SKILL.md`** (tracked in git —
+`.claude/settings.json`/`launch.json` are, `settings.local.json` isn't): triggers on
+"prod is down" / "errors in prod" / door check-in failures / etc., reads
+`docs/runbook.md` first, then pulls live diagnostics per source availability (Sentry
+MCP → `sentry-cli` skill fallback; no Vercel/Supabase MCP exists here, so CLI-if-linked
+→ dashboard fallback for both), and synthesizes a triage summary: what's broken,
+confidence + evidence, door-live-vs-not framing, rollback-first recommendation, who to
+inform from the runbook.
+
+- **Dry-run test surfaced a real bug, not just a skill gap:** `docs/runbook.md`'s
+  key-facts table had a stale Vercel project (`plus-one-the-operators` /
+  `…-the-operators.vercel.app`) — the actual project is **`plus-one`**
+  (`plus-one-phi.vercel.app`, org `the-operators`, verified via `vercel project ls`).
+  Fixed in the same PR since a wrong project name in the "First 60 seconds" table is
+  actively harmful during a real incident.
+- **Skill fixes from the test agent's feedback:** Sentry MCP tools need an org
+  slug/region first (`find_organizations`/`find_projects`) — the skill now says so
+  instead of assuming `search_issues` just works; Vercel/Supabase CLI fallbacks now
+  say to confirm the CLI is actually authenticated/linked (`vercel whoami`,
+  `supabase projects list`) before trusting silence-on-error as "nothing's wrong";
+  added an explicit "all sources clean → say so, don't force a rollback, ask for a
+  sharper repro" branch, since the test run's real triage genuinely came back clean.
+- Sentry/Betterstack MCP auth wasn't available in this session — the skill is written
+  so it degrades to CLI/dashboard pointers rather than assuming those connectors exist.
+
 ## 2026-07-09 — Tractie/Attio 9/7: program plan (discussion session, no code)
 
 Discussion session Max ↔ Claude on new-customer traction + Attio CRM. Output:
