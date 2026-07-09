@@ -400,7 +400,10 @@ export function ContactProfile({
         </div>
 
         {/* Actions: a saved contact edits / adds-to-event / stars; a name-only guest
-            gets a "Save as contact" promote (add email/phone) instead. */}
+            gets a "Save as contact" promote (add email/phone) instead; a
+            RESTRICTED guest (already a contact, just unreadable to this role —
+            M3, K-8) gets neither: no promote CTA (it's already a contact), no
+            edit/add (those need the contacts row too), just a plain note. */}
         {p.isContact ? (
           <>
             <div className="mb-4 flex gap-2">
@@ -420,6 +423,8 @@ export function ContactProfile({
               </div>
             )}
           </>
+        ) : p.restricted ? (
+          <Note icon="shield">{t.guests.contactProfile.restrictedNote}</Note>
         ) : (
           <>
             <div className="mb-3">

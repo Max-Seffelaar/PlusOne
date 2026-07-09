@@ -76,6 +76,48 @@ export function canWorkDoor(roles: readonly VenueRole[]): boolean {
   return roles.some((r) => DOOR_ROLES.includes(r));
 }
 
+// Venue roles that read guests at all — mirrors the guests-select RLS: admin/
+// finance/doorhost read every guest, staff their own additions. A pure
+// user_manager (no other role) always gets zero rows back, regardless of the
+// event's real headcount — the UI must show that as "—", not "0" (M9, K-7).
+export const GUEST_READ_ROLES: readonly VenueRole[] = ['admin', 'finance', 'staff', 'doorhost'] as const;
+
+/** True when any held role can read SOME guests (a "0" readout is then real data). */
+export function canSeeGuestCounts(roles: readonly VenueRole[]): boolean {
+  return roles.some((r) => GUEST_READ_ROLES.includes(r));
+}
+
+// ── Requests inbox (S5 Aanvragen) — mirrors guest_requests_select /
+// quota_requests_select's venue-role arm ({admin,finance}) and
+// quota_requests_decide_admin / guest_requests_decide's role arm (admin only).
+// The organizer arm of those policies is event-scoped, not a venue role, and is
+// handled separately (M2). Staff/doorhost may also read quota_requests via the
+// `user_id = auth.uid()` RLS arm (their OWN submissions only, never the shared
+// inbox) — staff gets a status view of those; doorhost's Home entry point is
+// hidden outright (M3, K-8), by product decision rather than an RLS gap.
+
+/** Roles that see the shared, venue-wide requests inbox (M1, K-4/K-5). */
+export const REQUEST_INBOX_ROLES: readonly VenueRole[] = ['admin', 'finance'] as const;
+
+export function canSeeRequestInbox(roles: readonly VenueRole[]): boolean {
+  return roles.some((r) => REQUEST_INBOX_ROLES.includes(r));
+}
+
+/** Only admin may approve/deny a request (M1, K-4/K-5) — finance is read-only. */
+export function canDecideRequests(roles: readonly VenueRole[]): boolean {
+  return roles.includes('admin');
+}
+
+/** Staff without inbox rights gets a status view of their OWN quota requests. */
+export function canSeeOwnRequests(roles: readonly VenueRole[]): boolean {
+  return roles.includes('staff') && !canSeeRequestInbox(roles);
+}
+
+/** Any request visibility at all — drives whether Home shows the request tiles. */
+export function canSeeAnyRequests(roles: readonly VenueRole[]): boolean {
+  return canSeeRequestInbox(roles) || canSeeOwnRequests(roles);
+}
+
 /**
  * Escalation guard — mirrors RLS `invites_insert` / `venue_memberships_insert`:
  * a caller may grant a set of roles only if they manage the venue, and only an

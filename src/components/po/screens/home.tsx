@@ -22,7 +22,7 @@ import { t, fmt } from '@/lib/i18n';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { usePoHomeEvents, usePoGuestRequests, usePoQuotaRequests, usePoProfile, useBillingBlocked, usePoCanManageTemplates } from '@/features/po/hooks';
 import { isOpenGuestRequest } from '@/features/po/adapters';
-import { canWorkDoor } from '@/features/auth/roles';
+import { canManageGuests, canSeeGuestCounts, canSeeRequestInbox, canSeeOwnRequests, canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '../context';
 import { Icon, type IconName } from '../icon';
 import { Btn, Note, Scroll, press } from '../kit';
@@ -398,13 +398,27 @@ export function Home(): JSX.Element {
   const { roles, venueName } = usePoIdentity();
   const showDoor = canWorkDoor(roles);
   const isAdmin = roles.includes('admin');
+  // We can't see event-organizer scope in `roles` (it's an event_organizers row,
+  // not a venue_membership — same gap noted in Contacten/screens/guests/profile.tsx).
+  // `canManageTemplates` (M5, 8/7) is the real fetchOrganizesAtVenue query for
+  // that gap — use it everywhere below instead of guessing from an empty roles
+  // array, so an organizer's guest-write/read/request rights on their own event
+  // (matrix: "✓ eigen event") are positively detected, not assumed.
+  const canManageTemplates = usePoCanManageTemplates();
+  // Role-hide, not show-and-block (M9, K-7): a role with no guest-write never
+  // gets the "New guest" doodloop — quick-add would just refuse the insert.
+  const showNewGuest = canManageGuests(roles) || canManageTemplates;
+  // A role that can't read ANY guests (pure user_manager) gets "—" on the
+  // headcount readouts instead of a fake "0" (M9, K-7).
+  const seeGuestCounts = canSeeGuestCounts(roles) || canManageTemplates;
+  // Role-hide the request pulse tiles for roles with no request visibility at
+  // all — doorhost/user_manager (M3, K-8); staff still gets its own-status tile;
+  // an organizer sees the full inbox for their own event (M5 gate + M1 extends
+  // it with finance/staff instead of leaving them at "everyone" or "admin only").
+  const seeRequestInbox = canSeeRequestInbox(roles) || canManageTemplates;
+  const showRequestTiles = seeRequestInbox || canSeeOwnRequests(roles);
   // Soft-block (#32 refinement): hide growth CTAs; the banner explains why.
   const billingLock = useBillingBlocked();
-  // Requests/Quota deep-links (M5, 8/7): same gate as the sidebar's Requests
-  // item and the More hub's Requests row (admin or an organizer-at-this-venue)
-  // — was "everyone" here, the third gate the audit flagged as inconsistent.
-  const canManageTemplates = usePoCanManageTemplates();
-  const canDecideRequests = isAdmin || canManageTemplates;
 
   const eventsQ = usePoHomeEvents();
   const guestReqQ = usePoGuestRequests();
@@ -553,18 +567,20 @@ export function Home(): JSX.Element {
                 )}
               </div>
             </div>
-            <div className="flex gap-2.5">
-              <Btn
-                sm
-                icon="plus"
-                onClick={() => {
-                  setGuestQuery('');
-                  setGuestPickOpen(true);
-                }}
-              >
-                {t.home.newGuest}
-              </Btn>
-            </div>
+            {showNewGuest && (
+              <div className="flex gap-2.5">
+                <Btn
+                  sm
+                  icon="plus"
+                  onClick={() => {
+                    setGuestQuery('');
+                    setGuestPickOpen(true);
+                  }}
+                >
+                  {t.home.newGuest}
+                </Btn>
+              </div>
+            )}
           </div>
 
           {isAdmin && billingLock.blocked && (
@@ -582,28 +598,34 @@ export function Home(): JSX.Element {
             </Note>
           )}
 
-          {/* pulse strip — Requests / Quota tiles deep-link into the inbox */}
+          {/* pulse strip — Requests / Quota tiles deep-link into the inbox. Role-hide
+              (M3/M9, K-7/K-8): doorhost/user_manager have no request surface at
+              all, so both tiles disappear; staff sees only its own quota status. */}
           <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-3">
-            <PulseTile
-              icon="inbox"
-              label={t.home.pulseRequests}
-              value={pulse.requests}
-              action={canDecideRequests && pulse.requests > 0}
-              onClick={canDecideRequests ? () => nav.push('aanvragen', { tab: 'landing' }) : undefined}
-            />
-            <PulseTile
-              icon="ticket"
-              label={t.home.pulseQuota}
-              value={pulse.quota}
-              action={canDecideRequests && pulse.quota > 0}
-              onClick={canDecideRequests ? () => nav.push('aanvragen', { tab: 'quota' }) : undefined}
-            />
+            {seeRequestInbox && (
+              <PulseTile
+                icon="inbox"
+                label={t.home.pulseRequests}
+                value={pulse.requests}
+                action={pulse.requests > 0}
+                onClick={() => nav.push('aanvragen', { tab: 'landing' })}
+              />
+            )}
+            {showRequestTiles && (
+              <PulseTile
+                icon="ticket"
+                label={seeRequestInbox ? t.home.pulseQuota : t.home.pulseQuotaOwn}
+                value={pulse.quota}
+                action={pulse.quota > 0}
+                onClick={() => nav.push('aanvragen', { tab: 'quota' })}
+              />
+            )}
             <PulseTile
               icon="spark"
               label={t.home.pulseLive}
               value={pulse.live}
               onClick={() => nav.setTab('events')}
-              className="max-lg:col-span-2"
+              className={!showRequestTiles ? 'col-span-2 lg:col-span-3' : seeRequestInbox ? 'max-lg:col-span-2' : undefined}
             />
           </div>
 
@@ -650,9 +672,10 @@ export function Home(): JSX.Element {
                       key={e.id}
                       e={e}
                       showDoor={showDoor}
+                      guestCountsVisible={seeGuestCounts}
                       onOpen={() => nav.push('event', { id: e.id })}
                       onDoor={() => nav.openDoor(e.id)}
-                      onReq={canDecideRequests ? (tab) => nav.push('aanvragen', { id: e.id, tab }) : undefined}
+                      onReq={showRequestTiles ? (tab) => nav.push('aanvragen', { id: e.id, tab }) : undefined}
                       onEdit={() => nav.push('eventedit', { id: e.id })}
                       onLock={() => onLock(e)}
                     />
@@ -688,9 +711,10 @@ export function Home(): JSX.Element {
                     key={e.id}
                     e={e}
                     showDoor={false}
+                    guestCountsVisible={seeGuestCounts}
                     onOpen={() => nav.push('pastevent', { id: e.id })}
                     onDoor={() => nav.openDoor(e.id)}
-                    onReq={canDecideRequests ? (tab) => nav.push('aanvragen', { id: e.id, tab }) : undefined}
+                    onReq={showRequestTiles ? (tab) => nav.push('aanvragen', { id: e.id, tab }) : undefined}
                     onEdit={() => nav.push('eventedit', { id: e.id })}
                     onLock={() => onLock(e)}
                   />

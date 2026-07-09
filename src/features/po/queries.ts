@@ -985,6 +985,12 @@ export interface PersonProfileData extends ContactProfileData {
   isContact: boolean;
   /** For a name-only guest: the guest row to edit to promote it; null otherwise. */
   promoteGuestId: string | null;
+  /** True when the guest IS linked to a contact, but the caller can't read that
+   *  contacts row (RLS: admin/finance/organizer only — staff/doorhost can't).
+   *  The profile still renders name-only, synthesised from the guest row they
+   *  CAN read (M3, K-8) — never the "not found" dead end, and never a "Save as
+   *  contact" promote CTA (it's already a contact, just not visible to them). */
+  restricted: boolean;
 }
 
 // The embeds come back typed as to-one OR to-many by the generated client (same as
@@ -1136,14 +1142,19 @@ const EMPTY_PERSON: PersonProfileData = {
   actorNames: {},
   isContact: false,
   promoteGuestId: null,
+  restricted: false,
 };
 
 /**
  * Resolve the unified person profile from a contact id OR a guest id. A guest that
- * is already linked to a contact resolves to the full cross-event contact profile;
- * a name-only guest resolves to a single-appearance profile (isContact false) the
- * caller can promote by adding an e-mail/phone. header is null when nothing is
- * visible (RLS) or found — the screen then shows its not-found state.
+ * is already linked to a contact resolves to the full cross-event contact profile
+ * — UNLESS the caller can't read `contacts` (RLS: admin/finance/organizer only),
+ * in which case it falls back to the name-only single-appearance profile below
+ * instead of a dead end (M3, K-8: a doorhost/staff tap on any guest must open
+ * SOME profile, never "not available"). A genuinely name-only guest resolves to
+ * that same shape (isContact false) so the caller can promote it by adding an
+ * e-mail/phone. header is null only when the guest itself doesn't exist / isn't
+ * visible — the screen then shows its not-found state.
  */
 export async function fetchPersonProfile(
   client: Client,
@@ -1151,7 +1162,7 @@ export async function fetchPersonProfile(
 ): Promise<PersonProfileData> {
   if (args.contactId) {
     const data = await fetchContactProfile(client, args.contactId);
-    return { ...data, isContact: data.header != null, promoteGuestId: null };
+    return { ...data, isContact: data.header != null, promoteGuestId: null, restricted: false };
   }
   if (args.guestId) {
     const { data: g } = await client
@@ -1160,12 +1171,14 @@ export async function fetchPersonProfile(
       .eq('id', args.guestId)
       .maybeSingle();
     if (!g) return EMPTY_PERSON;
-    // Already a contact → the full cross-event profile.
+    // Already a contact AND the caller can read it → the full cross-event profile.
     if (g.contact_id) {
       const data = await fetchContactProfile(client, g.contact_id);
-      return { ...data, isContact: true, promoteGuestId: null };
+      if (data.header) return { ...data, isContact: true, promoteGuestId: null, restricted: false };
     }
-    // Name-only guest → a one-appearance profile, synthesised from the guest row.
+    // Name-only guest, OR a linked guest whose contact record RLS hides from this
+    // caller → a one-appearance profile synthesised from the guest row (readable
+    // via the guests RLS, which is far more permissive than contacts).
     const appearances = await fetchGuestAppearance(client, g.id);
     const actorNames = await fetchActorNames(client, actorIds(appearances));
     return {
@@ -1184,7 +1197,10 @@ export async function fetchPersonProfile(
       appearances,
       actorNames,
       isContact: false,
-      promoteGuestId: g.id,
+      // A restricted (already-linked) guest never offers the "Save as contact"
+      // promote flow — it's already a contact, just not visible to this caller.
+      promoteGuestId: g.contact_id ? null : g.id,
+      restricted: !!g.contact_id,
     };
   }
   return EMPTY_PERSON;

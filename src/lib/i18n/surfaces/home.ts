@@ -89,6 +89,9 @@ export const home = {
   // pulse strip
   pulseRequests: 'Open requests',
   pulseQuota: 'Quota requests',
+  // Staff/doorhost own-status tile (M1/M3, K-4/K-8): their venue-wide inbox is
+  // hidden, so the label reflects "your own", not everyone's.
+  pulseQuotaOwn: 'Your quota requests',
   pulseLive: 'Events live',
   deltaToday: 'today',
   // graph (one combined chart — requested vs on-the-list, per event)
