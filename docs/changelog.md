@@ -38,6 +38,7 @@ Findings written up in `docs/mail-deliverability.md`.
   (2) confirm the Resend plan's daily/monthly caps before venue scale (≥5–25), since
   every login is a send; (3) optional DMARC `rua=` for report visibility, tighten to
   `p=quarantine` later.
+
 ## 2026-07-09 — Prod-ready 9/7 task 11: Legal drafts (DPA + ToS + privacy policy + subprocessors)
 
 English-language legal drafts for the paid product, in `docs/legal/` (ClickUp
