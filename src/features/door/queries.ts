@@ -20,6 +20,10 @@ export type CheckInRow = Database['public']['Tables']['check_ins']['Row'];
 export type RefusalRow = Database['public']['Tables']['refusals']['Row'];
 export type EventStatus = Database['public']['Enums']['event_status'];
 
+// FE-1 note: kept as its own type rather than a Pick<PoEvent, ...> projection —
+// this is the live door snapshot's event metadata (venueId for optimistic
+// check_in/refusal rows, the raw status enum, listLocked/allowUncheck), not a
+// display shape; PoEvent has none of those fields to pick from.
 export interface DoorEventMeta {
   id: string;
   /** Denormalised venue scope, for optimistic check_in/refusal rows (the door

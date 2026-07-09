@@ -158,15 +158,18 @@ describe('notePriorityToFlag', () => {
 });
 
 describe('tierRole', () => {
+  // FE-2: tierRole now lives in src/lib/po/tier.ts (shared with door/model.ts,
+  // which also asserts it — see model.test.ts) and returns {role, icon, label};
+  // this suite only cares about `.role`.
   it('derives the role badge from the tier name', () => {
-    expect(tierRole('VIP')).toBe('VIP');
-    expect(tierRole('Artist')).toBe('Artist');
-    expect(tierRole('All Access')).toBe('All Access');
-    expect(tierRole('AA')).toBe('All Access');
-    expect(tierRole('Pers')).toBe('Press');
-    expect(tierRole('Press')).toBe('Press');
-    expect(tierRole('Crew')).toBe('Crew');
-    expect(tierRole('Regulier')).toBe('Guest');
+    expect(tierRole('VIP').role).toBe('VIP');
+    expect(tierRole('Artist').role).toBe('Artist');
+    expect(tierRole('All Access').role).toBe('All Access');
+    expect(tierRole('AA').role).toBe('All Access');
+    expect(tierRole('Pers').role).toBe('Press');
+    expect(tierRole('Press').role).toBe('Press');
+    expect(tierRole('Crew').role).toBe('Crew');
+    expect(tierRole('Regulier').role).toBe('Guest');
   });
 });
 
