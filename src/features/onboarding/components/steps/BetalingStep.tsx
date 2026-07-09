@@ -8,11 +8,9 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Icon, type IconName } from '@/components/po/icon';
-import { Btn, Label } from '@/components/po/kit';
+import { Btn, Label, press } from '@/components/po/kit';
 import { getPlan, planPriceLabel, type PlanId } from '@/features/billing/plans';
 import { WizardShell, WizardPanel } from '../WizardShell';
-
-const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 
 type Method = 'ideal' | 'sepa';
 const METHODS: { id: Method; label: string; sub: string; icon: IconName }[] = [

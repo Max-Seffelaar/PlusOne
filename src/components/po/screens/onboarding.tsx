@@ -16,10 +16,9 @@ import { TERMS_URL, PRIVACY_URL } from '@/lib/legal';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { clearNavState, useNav } from '../context';
 import { Icon } from '../icon';
-import { Btn, Field, Label, Note, Scroll, Top } from '../kit';
+import { Btn, Field, Label, Note, Scroll, Top, press } from '../kit';
 import { BottomBar } from '../shell';
 
-const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 const col = 'flex h-full flex-col';
 
 const vc = t.onboarding.venueCreate;

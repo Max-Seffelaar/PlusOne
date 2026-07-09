@@ -7,10 +7,11 @@ import { usePoTiers } from '@/features/po/hooks';
 import { t, fmt } from '@/lib/i18n';
 import { TIER_COLORS, DEFAULT_TIER_COLOR, allColorsUsed, nextAvailableColor, tierInk } from '@/lib/po/tier-colors';
 import { Icon } from '../../icon';
-import { Btn, Field, Label } from '../../kit';
+import { Btn, Field, Label, press, cardPress } from '../../kit';
 
-export const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
-export const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
+// FE-4: press/cardPress now live in kit.tsx — re-exported here so the many
+// guests/* screens importing them from './_shared' don't need to change.
+export { press, cardPress };
 export const col = 'flex h-full flex-col';
 
 /**

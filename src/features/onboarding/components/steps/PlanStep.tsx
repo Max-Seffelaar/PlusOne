@@ -6,12 +6,10 @@
 import { useState, useTransition } from 'react';
 import { cn } from '@/lib/utils';
 import { Icon } from '@/components/po/icon';
-import { Btn } from '@/components/po/kit';
+import { Btn, press } from '@/components/po/kit';
 import { setVenuePlanAction } from '@/features/billing/actions';
 import { PLANS, DEFAULT_PLAN_ID, planPriceLabel, type PlanId } from '@/features/billing/plans';
 import { WizardShell, WizardPanel } from '../WizardShell';
-
-const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 
 export function PlanStep({
   venueId,

@@ -15,9 +15,7 @@ import { isOpenGuestRequest } from '@/features/po/adapters';
 import { eventPhase } from '@/features/po/event-phase';
 import { TZ, formatTime, formatWeekdayDate } from '@/features/po/format';
 import { Icon, type IconName } from './icon';
-import { Btn } from './kit';
-
-const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
+import { Btn, press } from './kit';
 
 // FE-2: these three used to hand-roll their own Intl.DateTimeFormat + TZ const
 // (drifted from adapters.ts's/door's equivalents) — now thin aliases over the

@@ -28,11 +28,10 @@ import {
 } from '@/features/stats/po-adapter';
 import { useNav, usePo } from '../context';
 import { Icon } from '../icon';
-import { Avatar, Empty, IconBtn, Label, Scroll, Top } from '../kit';
+import { Avatar, Empty, IconBtn, Label, Scroll, Top, press } from '../kit';
 import { Sheet } from '../shell';
 
 const col = 'flex h-full flex-col';
-const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 
 export function Stats(): JSX.Element {
   const nav = useNav();

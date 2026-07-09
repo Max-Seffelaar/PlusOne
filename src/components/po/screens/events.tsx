@@ -53,12 +53,10 @@ import { TIER_COLORS, nextAvailableColor, allColorsUsed } from '@/lib/po/tier-co
 import { useNav } from '../context';
 import { DateField, TimeField } from '../datetime-field';
 import { Icon } from '../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, Scroll, ToggleRow, Top } from '../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, Scroll, ToggleRow, Top, press, cardPress } from '../kit';
 import { BottomBar, Sheet } from '../shell';
 import { TierPill } from './guests/_shared';
 
-const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
-const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 const col = 'flex h-full flex-col';
 const iconSm = 'flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border border-line text-faint';
 
