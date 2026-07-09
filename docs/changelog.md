@@ -8,6 +8,39 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-09 — K11 real tier names + K6 dead auth-mock deletion (PR #164)
+
+Review-backlog cleanup: 2 of 3 requested tasks shipped, 1 parked per the milestone-gating
+rule after confirming with Max.
+
+- **K11** (86ey6xf7t, Med): the guests-list already rendered real `guest_tiers.name`/color
+  via `TierPill` from earlier work; the past-event recap and a name-only guest's profile
+  header still collapsed the tier through `tierRole()`'s lossy 6-word substring taxonomy
+  ("Members"/"Table 5"/etc. all → "GUEST"). Fixed both: `fetchRecapGuests` now selects
+  `guest_tiers.color` too, `RecapGuestRow`/`RecapGuest` carry `tierColor`, and both spots
+  render `TierPill` instead of `RoleChip`. Overlaps with **FE-2** (86ey6ypfw) — only the
+  render half is done; FE-2's `tierRole` de-dup (adapters.ts vs door/model.ts),
+  `optimisticGuest`/`toPoGuest` fold, and the shared date-format module are still open.
+  Cross-referenced on both ClickUp tasks so neither redoes the other's half.
+- **K6** (86ey6xfbx, Low): `started` in `app.tsx` was initialized `true` and never set
+  `false`, so the entire pre-login mock flow (Welcome/Login/Otp/Mfa/Invite screens, the
+  `PhoneFrame` wrapper, `AuthView`/`AuthNav` plumbing) was dead — real auth is middleware +
+  `/login` + `/mfa`. Deleted `screens/auth.tsx` (192 lines) + ~50 lines of unreachable
+  branches/state/types from `app.tsx`/`context.tsx`.
+- **K9 parked, not built:** door `flush()`'s redundant snapshot re-download is tagged
+  `milestone-25` and explicitly folds into the parked scale-track (CLAUDE.md: "scale-track
+  remainder ≥25"). Flagged the milestone-tag conflict to Max before starting; he confirmed
+  park-it. Left untouched in ClickUp under ≥25.
+- Verification: `pnpm run type-check` clean, `pnpm exec vitest run` 653/653 passing
+  (adapters.test.ts updated for the new `RecapGuestRow`/`RecapGuest` shape), `pnpm run
+  lint` clean (pre-existing unrelated a11y warnings only). Manually verified live too (dev
+  server + local Supabase seed): a name-only guest's profile now shows the real `TierPill`
+  ("Regular") instead of the collapsed "GUEST" `RoleChip`.
+- **Gotcha:** this worktree had no `node_modules` — needed a `pnpm install` before
+  typecheck/test/lint would run at all (worktrees aren't pre-provisioned).
+
+---
+
 ## 2026-07-09 — Prod-ready 9/7 task 13: Test-quality audit (UI-success-only tests)
 
 One lens (per the task): do tests assert **database state**, or only that the UI said
