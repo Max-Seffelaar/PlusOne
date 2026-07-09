@@ -8,6 +8,48 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-09 — Prod-ready 9/7 task 13: Test-quality audit (UI-success-only tests)
+
+One lens (per the task): do tests assert **database state**, or only that the UI said
+`ok:true`? C15 proved an `ok:true` assertion is worthless when RLS silently drops the
+write. Audited all 60 Vitest files + the write paths against the pgTAP suite.
+
+- **Headline: the suite is in good shape.** No assertion-free tests exist. The naive
+  "assert ok:true and nothing else" pattern is largely absent: `guests/actions.test.ts`
+  fakes the affected-row `count` and asserts `count 0 → not_found` (the C15 guard itself);
+  `door/outbox/replay.test.ts` + `gateway.test.ts` assert argument-pinning and the
+  `.not()/.is()` safety filters; `po/mutations.test.tsx` asserts React-Query cache keys
+  (mocking the actions is correct there). The pgTAP layer carries the real DB-state truth —
+  guest quota, list-lock, check-in/void/revive, approvals, contacts, Stripe all have
+  SELECT-back **and** RLS-deny assertions.
+- **The one real gap found + fixed — `changeGuestsTierBulk`.** The C15 `{count:'exact'}` +
+  `notFound()` guard (PR #136) was applied to `updateGuest`/`changeGuestTier`/`removeGuest`
+  but **never extended to the bulk path**: it did a blind `.update().in('id', ids)` and
+  returned `ok:true` regardless — a silent total failure when RLS filters every row (staff
+  moving guests they don't own, or a locked list). It was also the **only staff-reachable**
+  unguarded write, and had **no test anywhere** (only a mocked `ok:true` in
+  `mutations.test.tsx`). Fixed: added `{count:'exact'}`+`.select('id')`+`if(!count)
+  return notFound()` to `src/features/guests/actions.ts`; added a Vitest C15 regression
+  block (extended the fake client to be thenable for the direct-await bulk path); added
+  **`supabase/tests/database/guest_bulk_tier_change.test.sql`** (7 assertions) proving the
+  DB truth the guard relies on — admin move lands (SELECT-back), staff move of others'
+  guests changes **0 rows**, staff move of own guests lands, list-locked staff move changes
+  **0 rows**.
+- **Flagged, NOT fixed (low real-world exposure — a consistency/defense-in-depth backlog,
+  not a live bug):** 21 other server actions do an `.update()`/`.delete()`/`.upsert()` and
+  return `ok:true` without a count guard (`events` settings + templates + tiers, `links`
+  updates, `contacts` upsert/toggle-permanent, `requests` deny, `quotas` deny). **All are
+  admin/organizer-only paths acting on their own venue — RLS won't silently filter the
+  actor's own rows**, so the C15 false-success can't trigger the way it does for staff. Two
+  minor pgTAP coverage gaps also noted: tier CREATE/UPDATE/DELETE has no role-matrix RLS
+  test (only VAT-constraint validation), and refusal INSERT has no direct SELECT-back
+  (covered at argument level by `replay.test.ts`). Left for a dedicated follow-up if the
+  guard is ever standardised across all mutations.
+- **Verification:** Vitest 656 green (3 new), new pgTAP file 7/7 green, `type-check` +
+  `lint` clean. No migration (test + a 3-line action guard only).
+
+---
+
 ## 2026-07-09 — Prod-ready 9/7 task 10: Mail deliverability research (OTP = login availability)
 
 Investigation task — "login is 100% e-mail-OTP, so mail-in-spam = login down." Goal:

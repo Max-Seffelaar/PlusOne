@@ -173,11 +173,17 @@ export async function changeGuestsTierBulk(input: ChangeTierBulkInput): Promise<
   } = await supabase.auth.getUser();
   if (!user) return unauthorized();
 
-  const { error } = await supabase
+  // C15 guard, extended to the bulk path: a `.update().in()` that RLS filters to
+  // zero rows returns NO error — returning ok:true would be a silent total
+  // failure (locked list, or staff moving guests they don't own). `count:'exact'`
+  // surfaces it. count > 0 (some rows filtered) is an accepted partial success.
+  const { error, count } = await supabase
     .from('guests')
-    .update({ tier_id: tierId })
-    .in('id', guestIds);
+    .update({ tier_id: tierId }, { count: 'exact' })
+    .in('id', guestIds)
+    .select('id');
   if (error) return mapMutationError(error);
+  if (!count) return notFound();
 
   revalidatePath(guestsPath(eventId));
   return { ok: true };
