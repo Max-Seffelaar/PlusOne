@@ -30,6 +30,32 @@ the list as "planned — 30-day notice before activation" so venues sign once.
   before publication/signature; placeholder checklist in `docs/legal/README.md`
   (entity, KvK, address, domain, court district).
 
+## 2026-07-09 — Tractie/Attio 9/7: program plan (discussion session, no code)
+
+Discussion session Max ↔ Claude on new-customer traction + Attio CRM. Output:
+**`docs/attio-crm-plan.md`** (PR #157, merged) + ClickUp Doc "Tractie & Attio CRM —
+plan 9/7" + 6 tasks "Tractie/Attio 9/7 — 01…06" in list `901818739469`. Nothing built.
+
+- **Data map finding:** every lifecycle signal already exists (invites sent/accepted,
+  profile/venue/event created_at, first check-in, subscription transitions, audit-log
+  activity proxy) — except `events.created_by` (migration in task 01). Deliberately NO
+  last-login tracking; max `audit_log` per venue is the activity proxy.
+- **Key decisions (Max):** two-field Attio model (`Sales stage` manual/sales-owned,
+  `product_lifecycle` synced hourly, assert-only, never touches sales fields); lifecycle
+  ladder `invited → signed_up → venue_created → onboarded → first_event →
+  first_door_night → active → paying/comped` + `at_risk`/`churned`; People-sync = ALL
+  team roles (requires Attio DPA + privacy-statement update before go-live, task 06);
+  digest → Slack + persisted `founder_digests`; platform-admin via audited SECURITY
+  DEFINER RPCs (no blanket RLS rewrite); **support impersonation built now** (Max's
+  call, against read-only-first advice) with hard guardrails — audit actor stays the
+  support admin, ≤60 min time-box, start/stop audit actions, visible banner.
+- **Parked at ≥25 venues:** auto-invite on signed contract (would break one-way sync
+  + needs a venue-less "platform invite" concept). Interim: Attio workflow → Slack ping
+  (task 06); later a one-click audited invite button on the founder dashboard (phase 04).
+- **Gates:** tasks 02 (service_role cron sync) and 05 (impersonation) are high-risk →
+  fresh-session `/code-review` + `/security-review`. No Attio MCP connector exists;
+  integration = own REST client behind a `CrmProvider` interface (billing pattern).
+
 ## 2026-07-09 — Prod-ready 9/7 task 08: Sentry review-gate fixes
 
 Fresh-session `/code-review` + `/security-review` on PR #155 found the scrub layer
