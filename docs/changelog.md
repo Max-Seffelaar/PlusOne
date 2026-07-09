@@ -8,6 +8,28 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-09 — Prod-ready 9/7 task 11: Legal drafts (DPA + ToS + privacy policy + subprocessors)
+
+English-language legal drafts for the paid product, in `docs/legal/` (ClickUp
+`86ey7q7c2`). All four grounded in the real dataflows, not boilerplate: retention =
+`venues.retention_months` 1–60 (default 12), event-anchored, daily 03:30 UTC
+`run_privacy_retention()` with structure-preserving audit-diff redaction;
+`forget_contact()` as the Art. 17 self-service path; RLS/audit/soft-delete as the
+Annex 3 TOMs; Sentry scrub guarantees stated as written (no request/IP/query
+strings, UUID-only user, EU region `de.sentry.io`); Stripe = SEPA+iDEAL, no
+card/IBAN storage; Better Stack explicitly listed as NOT a subprocessor (public
+health endpoint only). Planned subprocessors (Attio, GA, PostHog, Resend) are in
+the list as "planned — 30-day notice before activation" so venues sign once.
+
+- Structure per Weeztix inspo (task links): dual-role privacy policy
+  (controller vs processor split), standard/planned subprocessor tables, B2B
+  ToS with liability cap + Art. 28 hook.
+- Docs mirror to Google Drive `Plus one - guestlist app/02_Legal/`
+  (`Terms_and_Conditions` + `Privacy_AVG_GDPR`) as editable Google Docs.
+- **DRAFT status is explicit in every file** — Dutch lawyer review is mandatory
+  before publication/signature; placeholder checklist in `docs/legal/README.md`
+  (entity, KvK, address, domain, court district).
+
 ## 2026-07-09 — Prod-ready 9/7 task 08: Sentry review-gate fixes
 
 Fresh-session `/code-review` + `/security-review` on PR #155 found the scrub layer
