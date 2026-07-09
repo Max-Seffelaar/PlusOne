@@ -300,31 +300,6 @@ export const guests = {
     slotOne: 'slot',
     slotMany: 'slots',
   },
-  // ── Permanent (regular) guests ────────────────────────────────────────────
-  permanent: {
-    title: 'Regulars',
-    sub: '{n} {guests}',
-    guestOne: 'guest',
-    guestMany: 'guests',
-    blurb: 'These guests land on every new guest list automatically. Set it once, then forget it.',
-    resultNoneAdded: 'Everyone was already on {event} (or removed there by hand).',
-    resultAllAdded: 'Added all {total} {guests} to {event}.',
-    resultPartial: '{added} of {total} added to {event}. The rest were already on (or removed by hand).',
-    syncFailed: "Couldn't sync.",
-    addNow: 'Add to an event now',
-    addNowBusy: 'Adding…',
-    loading: 'Loading…',
-    noRights: 'You don’t have rights to manage regulars. Only an admin, finance, or organizer sees the address book.',
-    loadError: "Couldn't load the regulars.",
-    empty: 'No regulars yet. Star them in the contacts list.',
-    autoRole: 'auto · {role}',
-    removeRegular: 'Remove from regulars',
-    syncTitle: 'Sync with event',
-    syncSub: 'Add the regulars to an event. Guests you removed by hand stay out.',
-    noUpcoming: 'No upcoming event.',
-    guestOneLabel: 'guest',
-    guestManyLabel: 'guests',
-  },
   // ── Contact profile (address-book detail) ─────────────────────────────────
   // Tap a contact in the address book to open this read-only profile: their
   // events, tiers, +1 counts, and a derived activity timeline. Derived-only — no

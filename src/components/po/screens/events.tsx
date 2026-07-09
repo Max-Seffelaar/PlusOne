@@ -4,10 +4,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
-import type { PoEvent } from '@/lib/po/types';
 import {
   usePoCrew,
   usePoAssignableCrew,
+  usePoCanManageTemplates,
   usePoEvent,
   usePoEventDetail,
   usePoEventForEdit,
@@ -94,6 +94,11 @@ export function Events(): JSX.Element {
   const isAdmin = usePoIdentity().roles.includes('admin');
   // Soft-block (#32 refinement): hide the growth CTA; the note explains why.
   const billingLock = useBillingBlocked();
+  // Card-level edit affordance (M7 — replaces the deleted "Events & tiers" More
+  // hub): same screen-level gate the old hub used (admin OR organizes any event
+  // at this venue); EventEdit itself still enforces true per-event write rights.
+  const canManageTemplates = usePoCanManageTemplates();
+  const canEditEvents = isAdmin || canManageTemplates;
   const evs = (data ?? []).filter((e) => e.when === when);
   const months = [...new Set(evs.map((e) => e.month))];
   return (
@@ -155,41 +160,53 @@ export function Events(): JSX.Element {
                 {evs
                   .filter((e) => e.month === m)
                   .map((e) => (
-                    <button
-                      key={e.id}
-                      type="button"
-                      onClick={() => nav.push(e.when === 'past' ? 'pastevent' : 'event', { id: e.id })}
-                      className={cn('flex items-center gap-[14px] rounded-[18px] border border-line bg-elev p-[14px] text-left', cardPress)}
-                    >
-                      <div className="w-[52px] shrink-0 text-center">
-                        <div className={cn('font-display text-[24px] font-extrabold leading-none', e.accent ? 'text-acc' : 'text-text')}>{e.date}</div>
-                        <div className="mt-0.5 text-[11px] font-bold tracking-[0.05em] text-faint">{e.mon}</div>
-                      </div>
-                      <div className="w-px self-stretch bg-line2" />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <div className="overflow-hidden text-ellipsis whitespace-nowrap font-display text-[17px] font-bold text-text">{e.name}</div>
-                          {e.cancelled ? (
-                            <span className="shrink-0 rounded-full bg-[#E89AC0]/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#E89AC0]">
-                              {t.events.cancelledBadge}
-                            </span>
-                          ) : e.phase === 'live' ? (
-                            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-acc-dim px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-acc">
-                              <span className="h-1.5 w-1.5 rounded-full bg-acc" />
-                              {t.events.liveBadge}
-                            </span>
-                          ) : null}
+                    <div key={e.id} className={cn('flex items-center gap-2 rounded-[18px] border border-line bg-elev p-[14px]', cardPress)}>
+                      <button
+                        type="button"
+                        onClick={() => nav.push(e.when === 'past' ? 'pastevent' : 'event', { id: e.id })}
+                        className="flex min-w-0 flex-1 items-center gap-[14px] text-left"
+                      >
+                        <div className="w-[52px] shrink-0 text-center">
+                          <div className={cn('font-display text-[24px] font-extrabold leading-none', e.accent ? 'text-acc' : 'text-text')}>{e.date}</div>
+                          <div className="mt-0.5 text-[11px] font-bold tracking-[0.05em] text-faint">{e.mon}</div>
                         </div>
-                        <div className="mt-[3px] flex items-center gap-1.5 text-[13px] text-faint">
-                          <Icon name="clock" size={13} stroke="rgba(255,255,255,0.40)" />
-                          {fmt(t.events.cardDoors, { time: e.time, venue: e.venue })}
+                        <div className="w-px self-stretch bg-line2" />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <div className="overflow-hidden text-ellipsis whitespace-nowrap font-display text-[17px] font-bold text-text">{e.name}</div>
+                            {e.cancelled ? (
+                              <span className="shrink-0 rounded-full bg-[#E89AC0]/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#E89AC0]">
+                                {t.events.cancelledBadge}
+                              </span>
+                            ) : e.phase === 'live' ? (
+                              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-acc-dim px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-acc">
+                                <span className="h-1.5 w-1.5 rounded-full bg-acc" />
+                                {t.events.liveBadge}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="mt-[3px] flex items-center gap-1.5 text-[13px] text-faint">
+                            <Icon name="clock" size={13} stroke="rgba(255,255,255,0.40)" />
+                            {fmt(t.events.cardDoors, { time: e.time, venue: e.venue })}
+                          </div>
                         </div>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <div className="font-display text-[16px] font-bold text-text">{e.guests}</div>
-                        <div className="text-[11px] text-faint">{when === 'past' ? (e.guests > 0 ? Math.round((e.inside / e.guests) * 100) : 0) + t.events.cardTurnoutSuffix : t.events.cardGuests}</div>
-                      </div>
-                    </button>
+                        <div className="shrink-0 text-right">
+                          <div className="font-display text-[16px] font-bold text-text">{e.guests}</div>
+                          <div className="text-[11px] text-faint">{when === 'past' ? (e.guests > 0 ? Math.round((e.inside / e.guests) * 100) : 0) + t.events.cardTurnoutSuffix : t.events.cardGuests}</div>
+                        </div>
+                      </button>
+                      {canEditEvents && e.when !== 'past' && (
+                        <button
+                          type="button"
+                          title={t.home.aEdit}
+                          aria-label={t.home.aEdit}
+                          onClick={() => nav.push('eventedit', { id: e.id })}
+                          className={cn('flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[11px] border border-line text-faint', press)}
+                        >
+                          <Icon name="cog" size={17} />
+                        </button>
+                      )}
+                    </div>
                   ))}
               </div>
             </div>
@@ -2021,77 +2038,3 @@ function EventActivitySection({
   );
 }
 
-// ── EVENTS & TIERS hub (pushed) ──────────────────────────────────────────────────
-export function EventBeheer(): JSX.Element {
-  const nav = useNav();
-  const { data, isLoading, isError } = usePoEvents();
-  // Same gate as the Events tab: create-event is admin-only + billing-blocked.
-  const isAdmin = usePoIdentity().roles.includes('admin');
-  const billingLock = useBillingBlocked();
-  const upcoming = (data ?? []).filter((e) => e.when === 'upcoming');
-  const past = (data ?? []).filter((e) => e.when === 'past');
-  const evRow = (e: PoEvent, dim: boolean): JSX.Element => (
-    <button
-      key={e.id}
-      type="button"
-      onClick={() => nav.push(dim ? 'pastevent' : 'eventedit', { id: e.id })}
-      className={cn('flex w-full items-center gap-[13px] rounded-[16px] border border-line bg-elev p-[13px] text-left', cardPress, dim && 'opacity-[0.72]')}
-    >
-      <span className="w-[44px] shrink-0 text-center">
-        <span className={cn('block font-display text-[20px] font-extrabold leading-none', e.accent ? 'text-acc' : 'text-text')}>{e.date}</span>
-        <span className="mt-0.5 block text-[9.5px] font-bold tracking-[0.05em] text-faint">{e.mon}</span>
-      </span>
-      <span className="w-px self-stretch bg-line2" />
-      <span className="min-w-0 flex-1">
-        <span className="block font-display text-[15.5px] font-bold text-text">{e.name}</span>
-        <span className="mt-px block text-[12.5px] text-faint">
-          {fmt(t.events.hubCardSub, { venue: e.venue, n: e.guests })}
-        </span>
-      </span>
-      <Icon name="chev" size={18} className="text-ghost" />
-    </button>
-  );
-  return (
-    <div className={col}>
-      <Top onBack={nav.back} title={t.events.hubTitle} sub={t.events.hubSub} />
-      <Scroll bottom={24}>
-        {isAdmin && !billingLock.blocked && (
-          <button type="button" onClick={() => nav.push('eventedit', { isNew: true })} className={cn('mb-5 flex w-full items-center gap-[13px] rounded-[16px] bg-acc p-4 text-left', press)}>
-            <span className="flex h-[40px] w-[40px] items-center justify-center rounded-[12px] bg-on-acc/[0.14] text-on-acc">
-              <Icon name="plus" size={22} sw={2.4} />
-            </span>
-            <span className="flex-1">
-              <span className="block font-display text-[16px] font-extrabold text-on-acc">{t.events.hubNewEvent}</span>
-              <span className="mt-px block text-[12.5px] text-on-acc/70">{t.events.hubNewEventSub}</span>
-            </span>
-            <span className="text-on-acc">
-              <Icon name="arrowR" size={20} />
-            </span>
-          </button>
-        )}
-        {isLoading ? (
-          <Empty text={t.events.loadingEvents} />
-        ) : isError ? (
-          <Empty text={t.events.loadEventsError} />
-        ) : (
-          <>
-            <Label className="mb-[10px]">{fmt(t.events.upcomingCount, { n: upcoming.length })}</Label>
-            {upcoming.length === 0 ? (
-              <div className="mb-5">
-                <Empty text={t.events.emptyUpcoming} />
-              </div>
-            ) : (
-              <div className="mb-5 flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px]">{upcoming.map((e) => evRow(e, false))}</div>
-            )}
-            <Label className="mb-[10px]">{t.events.past}</Label>
-            {past.length === 0 ? (
-              <Empty text={t.events.emptyPast} />
-            ) : (
-              <div className="flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px]">{past.map((e) => evRow(e, true))}</div>
-            )}
-          </>
-        )}
-      </Scroll>
-    </div>
-  );
-}

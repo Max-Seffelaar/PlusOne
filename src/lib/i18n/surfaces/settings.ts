@@ -33,13 +33,8 @@ export const settings = {
     requestsSub: 'Quota requests and landing page requests',
     profileTitle: 'Profile',
     profileSub: 'Profile, email, and sessions',
-    eventsTitle: 'Events & tiers',
-    eventsSub: 'Create events and guest tiers',
     templatesTitle: 'Event templates',
     templatesSub: 'Reusable setups per event type',
-    venuesTitle: 'Venues',
-    venuesSubOne: '{n} venue · switch',
-    venuesSubMany: '{n} venues · switch',
     venueSettingsTitle: 'Venue settings',
     venueSettingsSub: 'Name, data retention, defaults',
     teamTitle: 'Team',
@@ -58,8 +53,6 @@ export const settings = {
     importSub: 'Paste, CSV, or phone contacts',
     billingTitle: 'Billing',
     billingDefault: 'Manage your subscription',
-    cockpitTitle: 'Event Day',
-    cockpitSub: 'Live command screen for tonight',
   },
 
   // Team (Gebruikers) + invite sub-form + member sheet.
