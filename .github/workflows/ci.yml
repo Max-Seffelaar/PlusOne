@@ -60,7 +60,7 @@ jobs:
       - name: Run e2e smoke (Playwright)
         run: pnpm e2e:smoke
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-traces
@@ -76,7 +76,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: http://localhost:55321
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: build-output
