@@ -1,4 +1,6 @@
 /** @type {import('next').NextConfig} */
+const { withSentryConfig } = require('@sentry/nextjs');
+
 // PWA disabled for now — will re-enable in fase 9 (door app)
 // const withPWA = require('next-pwa')({
 //   dest: 'public',
@@ -76,5 +78,26 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig;
-// Re-enable PWA in fase 9: module.exports = withPWA(nextConfig);
+// Sentry wraps the config last (D2): same-origin tunnel + build-time source-map
+// upload. No secrets here — hardcoded org/project fallbacks keep CI/local builds
+// working without env; the Vercel marketplace integration injects the real
+// SENTRY_ORG/SENTRY_PROJECT/SENTRY_AUTH_TOKEN and env wins.
+// When PWA returns in fase 9 it goes INSIDE this wrap:
+//   module.exports = withSentryConfig(withPWA(nextConfig), {...})
+module.exports = withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG || 'plus-one-hs', // fase 7.2 — verify the real org slug
+  project: process.env.SENTRY_PROJECT || 'javascript-nextjs',
+  authToken: process.env.SENTRY_AUTH_TOKEN, // build-time only, NEVER NEXT_PUBLIC
+  silent: !process.env.CI,
+  telemetry: false,
+  widenClientFileUpload: true,
+  tunnelRoute: '/monitoring', // D2 — same-origin ingest (needs the middleware exclusion)
+  webpack: {
+    treeshake: { removeDebugLogging: true }, // strips Sentry debug logs from the bundle
+    automaticVercelMonitors: false, // no cron monitors in v1
+  },
+  sourcemaps: {
+    deleteSourcemapsAfterUpload: true, // never serve .map files publicly
+    disable: !process.env.SENTRY_AUTH_TOKEN, // no token (CI/local) → upload skips silently
+  },
+});

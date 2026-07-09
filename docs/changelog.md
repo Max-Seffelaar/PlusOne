@@ -8,6 +8,104 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-09 — Prod-ready 9/7 task 08: Sentry review-gate fixes
+
+Fresh-session `/code-review` + `/security-review` on PR #155 found the scrub layer
+covered only `.message` fields while PII rides four vectors. All findings were
+verified against real code paths, not the PR's comments. Fixes (same PR):
+
+- **[blocking] Breadcrumb `data.url` leak.** A contact/guest name search runs over
+  the BROWSER Supabase client (`fetchContacts` → `.ilike('full_name', '%Jan%')`),
+  so the name lands in a fetch-breadcrumb `data.url` — which `scrubEvent` never
+  touched (it mapped only `breadcrumb.message`). `scrub.ts` now strips query
+  strings from any http(s) URL (`URL_QUERY_RE` in `scrubText`) and shallow-scrubs
+  `breadcrumb.data` / `span.data` string values (`scrubData`). **Verified live via
+  the MCP:** a real fetch breadcrumb arrived as `…/contacts?[filtered]` — the name
+  never reached Sentry.
+- **[should-fix] Transactions bypassed the scrub.** `beforeSend` runs on errors
+  only; the 0.05 prod trace sample shipped span URLs unscrubbed. Added
+  `beforeSendTransaction: scrubTransaction` (deletes `request`, scrubs span
+  description + data URLs) to all three configs. Generic over `Event` because
+  `@sentry/nextjs` doesn't re-export `TransactionEvent`.
+- **[should-fix] Server/edge dropped no console breadcrumbs.** Only the client had
+  `beforeBreadcrumb`; a server `console.error('…', guestObj)` could ride along.
+  Added `beforeBreadcrumb: scrubBreadcrumb` to `sentry.server.config.ts` +
+  `sentry.edge.config.ts`.
+- **[should-fix] Middleware matcher prefix-bypass.** `monitoring` in the negative
+  lookahead excluded any `/monitoring*` path — a future `/monitoring-dashboard`
+  would skip auth entirely. Tightened to `monitoring(?:/|$)`. **Verified:**
+  `/monitoring` still tunnels (401, not redirected), `/monitoring-dashboard` now
+  307s to `/login`.
+- **[nit] `sentry-test` server action** now returns early in prod (the action id
+  survives the bundle even though the page 404s); scrub header comment corrected
+  to stop overclaiming (`extra`/`contexts` are backstop-only shallow-scrubbed).
+
+Suites: Vitest 650/650 (was 645; +5 scrub cases), type-check + lint clean, build
+passes tokenless. Test issues resolved; DSN removed from `.env.local`.
+
+## 2026-07-09 — Prod-ready 9/7 task 08: Sentry error monitoring (code)
+
+Implemented `sentry-implementatieplan.md` phases 1–6 (all code) for
+`@sentry/nextjs@^10` (installed 10.64.0). Error monitoring + readable stack
+traces + release tracking, PII-scrubbed, EU-region, no session replay. ClickUp
+`86ey7q790`. **High-risk surface (middleware + auth) — needs a fresh-session
+`/code-review` before merge per CLAUDE.md review gates.**
+
+- **Build/config** — `next.config.js` wrapped with `withSentryConfig` (D2:
+  `tunnelRoute: '/monitoring'` same-origin ingest, CSP untouched; source-map
+  upload disabled without `SENTRY_AUTH_TOKEN` so CI/local builds pass tokenless).
+  `src/middleware.ts` matcher now excludes `monitoring` — the plan's #1 silent
+  failure mode (auth-gate 307'ing every envelope to `/login`).
+- **SDK config** — `src/instrumentation.ts` (server/edge dispatch +
+  `onRequestError`), `src/instrumentation-client.ts` (offline transport for the
+  door, `beforeSend`/`beforeBreadcrumb` scrub, `enabled: Boolean(dsn)` so it's
+  dormant without a DSN), `sentry.server.config.ts`, `sentry.edge.config.ts`,
+  `src/app/global-error.tsx` (root crash screen, shows no `error.message`).
+- **PII scrub** — `src/lib/observability/scrub.ts` (type-only Sentry import;
+  redacts emails, phones, and Postgres `Key (col)=(value)` details — the #1 PII
+  vector) + `scrub.test.ts` (9 tests) + `capture.ts` (the "unexpected only" gate:
+  drops AbortError + offline TypeErrors).
+- **Diagnostic context** — `PoLiveProvider` wires `QueryCache`/`MutationCache`
+  `onError` → `captureUnexpectedError` + `setUser({id})`/venue+roles tags;
+  `app.tsx` tags the active po screen (one URL, in-memory nav) + a nav
+  breadcrumb; `DoorProvider` sets the same user/venue context. Server actions
+  untouched (D10 — expected `MutationError` returns are never reported).
+- **Test harness** — `src/app/sentry-test/` (page 404s in prod, three triggers:
+  client throw, server-action throw, `captureMessage`).
+- **Verified locally:** `type-check` + `lint` clean; Vitest 645/645 green;
+  `pnpm build` succeeds **without** `SENTRY_AUTH_TOKEN` (CI parity, upload
+  skipped); production `next start` smoke — `POST /monitoring` returns 401 (tunnel
+  handler) and is **not** 307'd to `/login`, while `/app` and `/sentry-test`
+  still 307 to `/login` (middleware exclusion proven, protection intact).
+- **Verified LIVE against the real Sentry project** (`plus-one-hs/javascript-nextjs`,
+  `de.sentry.io`) with the real DSN in a `local-smoke` env, then retrieved every
+  event back through the **Sentry MCP** (the task's "loop bewijzen" step): all 5
+  triggers ingested (client throw, server-action throw, captureMessage, a PII
+  error, an app-surface error). Confirmed via the MCP: envelopes tunnel to
+  `/monitoring?…&r=de` (200, same-origin); **PII scrubbed** — `Key (email)=(…)` →
+  `Key ([redacted])=([redacted])`, `+31 6 …` → `[phone]`; **no Request section**;
+  `user` = bare UUID (no email/name); app-surface event carried `po.screen=start`,
+  `roles=doorhost,staff`, `venue.id=…`; `release` = git SHA; `environment=local-smoke`.
+  Stack traces + natural-language `search_issues` + **Seer** all worked (Seer
+  pinpointed `src/app/sentry-test/actions.ts:6`). Test issues resolved; the
+  temporary DSN was removed from the gitignored `.env.local`. Residual note for
+  fase 7.6: Sentry adds a coarse `user.geo` from the connecting IP **after**
+  `beforeSend` — enable "Prevent Storing of IP Addresses" to drop it too.
+- **v10 API notes for the reviewer:** `makeFetchTransport`/
+  `makeBrowserOfflineTransport`/`captureRouterTransitionStart` are client-only
+  exports (a Node `require()` shows them `undefined` — a red herring; they
+  resolve in the browser bundle via `@sentry/nextjs` client → `@sentry/react` →
+  `@sentry/browser`). `disableLogger`/`automaticVercelMonitors` are deprecated in
+  v10 → moved under `webpack.{treeshake.removeDebugLogging, automaticVercelMonitors}`.
+- **Remaining (not in this PR):** Max's fase 7 (Sentry EU account/org + project +
+  Vercel marketplace integration + `NEXT_PUBLIC_SENTRY_DSN` + alert rules) and the
+  live smoke/preview/offline/alert verification (fase 8.3–8.7, need a real DSN),
+  then the Sentry-MCP hookup — **DONE in this session** (MCP live, round-trip
+  proven above). **Slug resolved:** the real project is `javascript-nextjs` (not
+  the plan's `plusone-guestlist`); the `next.config.js` fallback was corrected to
+  match. Env from the Vercel integration wins on prod either way; the fallback
+  only matters tokenless.
+
 ## 2026-07-09 — Prod-ready 9/7 task 05: Supabase Pro + restore drill + runbook
 
 Backups moved from "hope" to "tested plan" (ClickUp `86ey7q72b`). Max upgraded the
