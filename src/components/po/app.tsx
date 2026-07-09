@@ -1,8 +1,9 @@
 'use client';
 
 /**
- * po app shell — a single client tree with an in-memory nav stack + auth flow,
- * rendered through the responsive shell. Events / Gastenlijst / adresboek read
+ * po app shell — a single client tree with an in-memory nav stack, rendered
+ * through the responsive shell (auth is real middleware + /login + /mfa,
+ * outside this tree). Events / Gastenlijst / adresboek read
  * live Supabase data; the Deur/Taken tabs mount the real DoorProvider (offline
  * outbox + realtime), so there is no in-memory door state here anymore.
  */
@@ -27,8 +28,6 @@ import {
   clearNavState,
   loadNavState,
   saveNavState,
-  type AuthNav,
-  type AuthView,
   type Nav,
   type PoApp,
   type PoVenueMembership,
@@ -36,12 +35,11 @@ import {
   type StackEntry,
 } from './context';
 import { usePoHistoryNav } from './history-nav';
-import { PhoneFrame, Toast, type TabKey } from './shell';
+import { Toast, type TabKey } from './shell';
 import { Top } from './kit';
 import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
 import { useViewport } from './use-viewport';
 import { EventDaySkeleton } from '@/features/po/eventday/EventDaySkeleton';
-import { Invite, Login, Mfa, Otp, Welcome } from './screens/auth';
 import { Crew, EventBeheer, EventEdit, EventView, Events, PastEvent, Tiers } from './screens/events';
 import { BulkPaste, Contacten, ContactProfile, GuestsTab, Lijst, QuickAdd, Vaste } from './screens/guests';
 import { DoorEventPicker, PoDoorTab, type DoorOverlay } from './screens/door';
@@ -178,11 +176,6 @@ export function PlusOneApp({
   // Same breakpoint/source as ResponsiveShell — picks the door branch's variant
   // below (≥1024px = Event-dag cockpit, <1024px = the outbox-backed door tab).
   const isMobile = useViewport(serverHint);
-  // /app is gated by real middleware auth, so skip the prototype's mock
-  // welcome/login flow and start straight in the authenticated shell.
-  const [started, setStarted] = useState(true);
-  const [authView, setAuthView] = useState<AuthView>('welcome');
-  const [authProps, setAuthProps] = useState<{ email?: string }>({});
   const [tab, setTabState] = useState<TabKey>('start');
   const [stack, setStack] = useState<StackEntry[]>([]);
   // Door check-in overlay (guest detail / add-on-spot) for the Deur/Taken tabs.
@@ -361,7 +354,7 @@ export function PlusOneApp({
   // the current position + one same-URL history entry, and a real back fires popstate
   // → we restore the previous snapshot. So back undoes pushed screens AND tab switches
   // in reverse (Android-style), only exiting the app at the very first position.
-  const isDoorTab = showDoor && started && stack.length === 0 && tab === 'deur';
+  const isDoorTab = showDoor && stack.length === 0 && tab === 'deur';
   const doorOverlayOpen = isDoorTab && doorOverlay !== null;
 
   const navHistory = useRef<NavPos[]>([]);
@@ -389,7 +382,7 @@ export function PlusOneApp({
     setNavHistoryLen((l) => Math.max(0, l - 1));
     bump();
   };
-  const histNav = usePoHistoryNav({ enabled: navHydrated && started, onBack: restorePrevious });
+  const histNav = usePoHistoryNav({ enabled: navHydrated, onBack: restorePrevious });
 
   // A forward navigation: remember where we are, add a history entry, then change.
   const navigate = (apply: () => void): void => {
@@ -463,18 +456,6 @@ export function PlusOneApp({
     canGoBack: navHistoryLen > 0,
   };
 
-  const auth: AuthNav = {
-    go: (v, props) => {
-      setAuthView(v);
-      setAuthProps(props ?? {});
-      bump();
-    },
-    start: () => {
-      setStarted(true);
-      bump();
-    },
-  };
-
   // Door-overlay navigation (Deur/Taken tabs): opening the overlay is a forward step
   // (it hides the tab bar like a pushed screen); closing routes through back so the
   // physical button and the overlay's own close button share one path.
@@ -518,16 +499,10 @@ export function PlusOneApp({
   // Tab bar is always visible when authenticated, even on pushed/detail screens.
   // Door overlays (in-tab check-in detail) are the only exception — they run
   // full-screen within the Deur tab where tab-switching is not useful.
-  const tabRoot = started && !doorOverlayOpen;
+  const tabRoot = !doorOverlayOpen;
 
   let screen: ReactNode;
-  if (!started) {
-    if (authView === 'login') screen = <Login auth={auth} />;
-    else if (authView === 'otp') screen = <Otp auth={auth} email={authProps.email} />;
-    else if (authView === 'mfa') screen = <Mfa auth={auth} />;
-    else if (authView === 'invite') screen = <Invite auth={auth} />;
-    else screen = <Welcome auth={auth} />;
-  } else if (top) {
+  if (top) {
     const p = top.props;
     switch (top.name) {
       case 'event':
@@ -656,15 +631,6 @@ export function PlusOneApp({
       {toast && <Toast>{toast}</Toast>}
     </>
   );
-
-  // Auth flow (pre-login): keep the centered phone frame.
-  if (!started) {
-    return (
-      <PoProvider value={po}>
-        <PhoneFrame>{body}</PhoneFrame>
-      </PoProvider>
-    );
-  }
 
   // Signed-in: responsive shell — desktop sidebar ≥1024px, mobile tabs below it
   // (S0 nav-shell). Screens are unchanged for now; wired live per S1+.

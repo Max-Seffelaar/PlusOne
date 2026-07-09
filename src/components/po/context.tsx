@@ -74,13 +74,6 @@ export interface Nav {
   canGoBack: boolean;
 }
 
-export type AuthView = 'welcome' | 'login' | 'otp' | 'mfa' | 'invite';
-
-export interface AuthNav {
-  go: (v: AuthView, props?: { email?: string }) => void;
-  start: () => void;
-}
-
 /** A venue the signed-in user belongs to (live membership), for the switcher (#1). */
 export interface PoVenueMembership {
   venueId: string;
