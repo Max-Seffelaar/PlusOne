@@ -38,6 +38,12 @@ test('core flow: create event → add guest → door check-in, asserted in the d
   // The dev server may compile these routes on first hit (CI runs `next dev`).
   test.setTimeout(240_000);
 
+  // On a fresh DB the admin has no TOTP factor, so /app would redirect once to
+  // the skippable /mfa/enroll recommendation (MFA is fully optional, #20
+  // refinement). Snooze it up front — the enroll nudge is not this smoke's
+  // subject. No-op locally, where dev:mfa stamps a factor.
+  await db.from('user_profiles').update({ mfa_snooze_until: 'infinity' }).eq('id', ADMIN_ID);
+
   // ── 1. Dev-login as the admin, land on /app (desktop sidebar ≥1024px). ──────
   await page.goto(`/auth/dev-login?email=${ADMIN_EMAIL}&next=/app`);
   // First login on a fresh DB hits the terms/privacy gate (#20/#40) once.
