@@ -37,11 +37,32 @@ jobs:
         with:
           version: latest
 
-      - name: Start local database
-        run: supabase db start
+      # Full stack (db + auth + rest), not just `db start`: the e2e smoke needs
+      # GoTrue for dev-login and PostgREST for the app + DB assertions. Services
+      # disabled in supabase/config.toml (analytics, edge runtime…) stay off.
+      - name: Start local Supabase stack
+        run: supabase start
 
       - name: Run database tests (pgTAP)
         run: supabase test db
+
+      # STAP 4.3 — core-flow smoke with DB-state assertions (86ey7q6ze). One
+      # deliberately small spec; Playwright boots `pnpm dev` itself (PORT=3000).
+      - name: Provision .env.local from the running stack
+        run: node scripts/dev-env.mjs
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run e2e smoke (Playwright)
+        run: pnpm e2e:smoke
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: test-results/
+          if-no-files-found: ignore
 
       - name: Build
         run: pnpm build
