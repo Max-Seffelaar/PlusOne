@@ -366,6 +366,8 @@ export interface RecapGuestRow {
   plus_ones: number;
   status: GuestRowStatus;
   tierName: string | null;
+  /** guest_tiers.color — drives the door-style tier pill in the recap list. */
+  tierColor: string | null;
   addedByName: string | null;
   /** Latest non-voided check-in instant (ISO), or null when never arrived. */
   checkedAt: string | null;
@@ -379,7 +381,7 @@ type RecapGuestRaw = {
   full_name: string;
   plus_ones: number;
   status: GuestRowStatus;
-  guest_tiers: { name: string } | { name: string }[] | null;
+  guest_tiers: { name: string; color: string | null } | { name: string; color: string | null }[] | null;
   added_by_profile: { full_name: string } | { full_name: string }[] | null;
   check_ins: { checked_at: string; voided_at: string | null }[] | { checked_at: string; voided_at: string | null } | null;
 };
@@ -395,7 +397,7 @@ export async function fetchRecapGuests(client: Client, eventId: string): Promise
     client
       .from('guests')
       .select(
-        'id, full_name, plus_ones, status, guest_tiers(name), added_by_profile:user_profiles!guests_added_by_fkey(full_name), check_ins(checked_at, voided_at)'
+        'id, full_name, plus_ones, status, guest_tiers(name, color), added_by_profile:user_profiles!guests_added_by_fkey(full_name), check_ins(checked_at, voided_at)'
       )
       .eq('event_id', eventId)
       .in('status', ON_LIST)
@@ -415,7 +417,7 @@ export async function fetchRecapGuests(client: Client, eventId: string): Promise
       .map((c) => c.checked_at)
       .sort()
       .at(-1);
-    const tier = [g.guest_tiers].flat().filter(Boolean)[0] as { name: string } | undefined;
+    const tier = [g.guest_tiers].flat().filter(Boolean)[0] as { name: string; color: string | null } | undefined;
     const addedBy = [g.added_by_profile].flat().filter(Boolean)[0] as { full_name: string } | undefined;
     return {
       id: g.id,
@@ -423,6 +425,7 @@ export async function fetchRecapGuests(client: Client, eventId: string): Promise
       plus_ones: g.plus_ones,
       status: g.status,
       tierName: tier?.name ?? null,
+      tierColor: tier?.color ?? null,
       addedByName: addedBy?.full_name ?? null,
       checkedAt: checkedAt ?? null,
     };

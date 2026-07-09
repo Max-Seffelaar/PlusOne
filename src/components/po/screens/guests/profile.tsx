@@ -25,7 +25,7 @@ import { isValidPhoneNumber, parsePhoneNumber } from 'react-phone-number-input';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, RoleChip, Scroll, Stepper, Top } from '../../kit';
 import { Sheet, Toast } from '../../shell';
 import { CountrySelect, type CountryCode } from '../../country-select';
-import { NoTiersBlock, press, col } from './_shared';
+import { NoTiersBlock, TierPill, press, col } from './_shared';
 import { useGuestSelection, BulkAddToEventSheet, type BulkAddCandidate } from './bulk-add';
 
 // ── GUEST detail / check-in log row ─────────────────────────────────────────
@@ -381,7 +381,14 @@ export function ContactProfile({
           <Avatar name={p.name} size={84} accent={p.vast} />
           <h2 className="mb-0 mt-4 font-display text-[26px] font-extrabold tracking-[-0.02em] text-text">{p.name}</h2>
           <div className="mt-3 flex flex-wrap items-center justify-center gap-[7px]">
-            <RoleChip role={p.role} />
+            {/* A real contact badges from its own preferred_role (a genuine
+                category, not a tier-name collapse); a name-only guest has no
+                such field, so show the real tier of its (single) appearance. */}
+            {p.isContact ? (
+              <RoleChip role={p.role} />
+            ) : (
+              <TierPill name={p.events[0]?.tier ?? undefined} color={p.events[0]?.tierColor} fallback={p.role} />
+            )}
             {p.vast && (
               <span className="inline-flex items-center gap-[5px] rounded-[7px] border border-transparent bg-acc-dim px-2 py-[3px] font-body text-[11px] font-bold uppercase tracking-[0.04em] text-acc">
                 <Icon name="star" size={11} fill="#B5A6FF" stroke="#B5A6FF" />
