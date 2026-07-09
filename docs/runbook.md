@@ -43,8 +43,8 @@ is already down and you've rehearsed it against a restored copy.
 
 | Thing | Value |
 |---|---|
-| Prod domain | `plus-one-the-operators.vercel.app` (app at `/app`) |
-| Vercel project | `plus-one-the-operators` (region `fra1`) |
+| Prod domain | `plus-one-phi.vercel.app` (app at `/app`) |
+| Vercel project | `plus-one` (org `the-operators`, region `fra1`) |
 | Supabase project | `tolxwgqhppdcvnogdpel` (`eu-west-1`, Pro, daily backups 7d) |
 | Auth mail | Supabase Auth (check Auth → SMTP; watch default-SMTP rate limits) |
 | Status pages | [Vercel](https://www.vercel-status.com) · [Supabase](https://status.supabase.com) |
