@@ -18,7 +18,7 @@ import { isOpenGuestRequest } from '@/features/po/adapters';
 import { autoOpenDoorEvent } from '@/features/po/door-event';
 import { poKeys } from '@/features/po/keys';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
-import { canWorkDoor } from '@/features/auth/roles';
+import { canSeeAnyRequests, canWorkDoor } from '@/features/auth/roles';
 import { venueCapabilities } from '@/features/venues/access';
 import { DoorProvider } from '@/features/door/DoorProvider';
 import { DoorQueryProvider } from '@/features/door/DoorQueryProvider';
@@ -643,10 +643,14 @@ export function PlusOneApp({
   // On mobile it stays under More: the bottom bar uses the fixed mobileTabs list.
   const canViewContacts = caps.viewSettings || canManageTemplates;
   const canViewStats = (statsAccess?.venues.length ?? 0) > 0;
-  // Venue-wide approval inbox in the desktop sidebar. Gated on admin — the
-  // reliable venue-level decider (organizers act per-event, finance is read-only).
-  // Everyone still reaches requests via Home's clickable tiles / per-event cards.
-  const canDecideRequests = roles.includes('admin');
+  // Requests row in the sidebar/More hub — was admin-only, so finance/staff had
+  // NO nav route and could only reach the inbox via Home's tiles (K-5: "dezelfde
+  // functie is per ingang anders gegate"). Now the same visibility rule as every
+  // other entry point: inbox roles (admin/finance) OR staff's own-status view
+  // (M1). roles.length === 0 is almost certainly an organizer (event_organizers
+  // isn't visible in `roles` — same gap as Contacten) — don't hide from them
+  // either; full organizer framing is M2 (K-6).
+  const showRequestsNavItem = roles.length === 0 || canSeeAnyRequests(roles);
   const navItems: ShellNavItem[] = [
     { key: 'start', section: 'main', label: t.nav.home, icon: 'grid', active: currentKey === 'start', onClick: () => nav.setTab('start') },
     { key: 'events', section: 'main', label: t.nav.events, icon: 'cal', active: currentKey === 'events', onClick: () => nav.setTab('events') },
@@ -657,7 +661,7 @@ export function PlusOneApp({
     ...(showDoor
       ? ([{ key: 'deur', section: 'main', label: t.nav.door, icon: 'door', active: currentKey === 'deur', onClick: () => nav.setTab('deur') }] as ShellNavItem[])
       : []),
-    ...(canDecideRequests
+    ...(showRequestsNavItem
       ? ([{ key: 'aanvragen', section: 'more', label: t.nav.requests, icon: 'inbox', active: currentKey === 'aanvragen', onClick: () => nav.push('aanvragen'), badge: openRequestCount }] as ShellNavItem[])
       : []),
     ...(canViewStats
@@ -746,8 +750,8 @@ export function PlusOneApp({
         setMobileTab={nav.setTab}
         mobileTabs={mobileTabs}
         // Requests lives under the More hub on mobile, so its open-count rides on
-        // the More tab — same source + admin gate as the desktop sidebar badge (T9).
-        mobileBadges={{ meer: canDecideRequests ? openRequestCount : 0 }}
+        // the More tab — same source + gate as the desktop sidebar badge (T9).
+        mobileBadges={{ meer: showRequestsNavItem ? openRequestCount : 0 }}
         navItems={navItems}
         venueName={liveVenueName ?? venue.name}
         onOpenVenue={() => nav.push('venueswitch')}

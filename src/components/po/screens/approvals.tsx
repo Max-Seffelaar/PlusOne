@@ -28,6 +28,7 @@ import {
 import { usePoApproveRequest, usePoDecideQuota, usePoDenyRequest } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { isOpenGuestRequest } from '@/features/po/adapters';
+import { canDecideRequests, canSeeOwnRequests, canSeeRequestInbox } from '@/features/auth/roles';
 import type { PoGuestRequest, PoQuotaRequest } from '@/features/po/adapters';
 import type { PoLinkOption } from '@/features/po/queries';
 import type { Tier } from '@/lib/po/types';
@@ -66,6 +67,18 @@ function ViaChip({ label, className }: { label: string; className?: string }): J
   );
 }
 
+/** Replaces the Approve/Decline row for a viewer without decide rights
+ *  (finance read-only, staff own-status — M1, K-4/K-5): a status readout, never
+ *  a button that would just dead-end on an RLS refusal. */
+function PendingBadge(): JSX.Element {
+  return (
+    <div className="flex items-center justify-center gap-[7px] rounded-full border border-line bg-elev2 py-[10px] font-display text-[13px] font-bold text-faint">
+      <Icon name="clock" size={14} className="text-faint" />
+      {t.requests.pendingReviewBadge}
+    </div>
+  );
+}
+
 export function Aanvragen({
   eventId,
   initialTab,
@@ -76,7 +89,21 @@ export function Aanvragen({
   initialTab?: Tab;
 }): JSX.Element {
   const nav = useNav();
-  const { venueId } = usePoIdentity();
+  const { venueId, roles } = usePoIdentity();
+  // Role-hide, not show-and-block (M1, K-4/K-5): admin decides, finance reads
+  // the same venue-wide inbox with no buttons, staff sees only its own
+  // submissions with no buttons, everyone else has no request surface here.
+  // An empty `roles` is almost certainly an organizer — event_organizers isn't
+  // visible in this array (same gap as Contacten/screens/guests/profile.tsx) —
+  // so give them the pre-existing full-inbox behavior instead of a NEW dead end;
+  // RLS already decides what an organizer's approve/deny actually does. Proper
+  // organizer framing (their own event only, quota decide is admin-only in RLS
+  // today) is M2 (K-6), not this task.
+  const noVenueRole = roles.length === 0;
+  const canDecide = noVenueRole || canDecideRequests(roles);
+  const seeInbox = noVenueRole || canSeeRequestInbox(roles);
+  const ownOnly = !seeInbox && canSeeOwnRequests(roles);
+  const noAccess = !seeInbox && !ownOnly;
   const eventsQuery = usePoEvents();
   const events = eventsQuery.data ?? [];
   const gReqs = usePoGuestRequests();
@@ -84,6 +111,9 @@ export function Aanvragen({
 
   const [sel, setSel] = useState<string>(eventId ?? ''); // '' = Alle events
   const [tab, setTab] = useState<Tab>(initialTab ?? 'landing');
+  // Own-status mode has one tab (staff never has landing requests of their own —
+  // guest_requests_select RLS excludes them outright), so it never leaves 'quota'.
+  const effectiveTab: Tab = ownOnly ? 'quota' : tab;
   const [search, setSearch] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [showDenied, setShowDenied] = useState(false);
@@ -225,12 +255,26 @@ export function Aanvragen({
     );
   }
 
+  // Role-hide (M3, K-8): a role with no inbox and no own-submissions arm (e.g.
+  // doorhost/user_manager) reaching this screen directly gets a plain no-access
+  // state rather than an empty inbox that looks broken.
+  if (noAccess) {
+    return (
+      <div className={col}>
+        <Top onBack={nav.back} title={t.requests.title} />
+        <div className="po-scroll min-h-0 flex-1 overflow-y-auto px-5 pb-[28px]">
+          <Empty text={t.requests.noAccess} />
+        </div>
+      </div>
+    );
+  }
+
   const scopeLabel = sel ? nameById.get(sel) ?? t.requests.scopeEventFallback : t.requests.scopeAll;
   const scopeCount = sel ? openByEvent.get(sel) ?? 0 : totalOpen;
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title={t.requests.title} sub={scopeLabel} />
+      <Top onBack={nav.back} title={ownOnly ? t.requests.ownTitle : t.requests.title} sub={scopeLabel} />
 
       {/* Event dropdown + request-link filter (F1) */}
       <div className="flex flex-none gap-2 px-5 pb-[10px]">
@@ -284,25 +328,28 @@ export function Aanvragen({
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex flex-none gap-1.5 px-5 pb-[14px]">
-        {([['landing', t.requests.tabLanding, openG], ['quota', t.requests.tabQuota, openQ]] as const).map(([k, l, n]) => (
-          <button
-            key={k}
-            type="button"
-            onClick={() => switchTab(k)}
-            className={cn(
-              'inline-flex flex-1 cursor-pointer items-center justify-center gap-[7px] rounded-full border py-[10px] font-display text-[13px] font-bold transition-[filter] hover:brightness-[1.07]',
-              tab === k ? 'border-transparent bg-text text-bg' : 'border-line bg-transparent text-dim',
-            )}
-          >
-            {l}
-            {n > 0 && (
-              <span className={cn('inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-[5px] text-[11px] font-extrabold', tab === k ? 'bg-acc text-on-acc' : 'bg-acc-dim text-acc')}>{n}</span>
-            )}
-          </button>
-        ))}
-      </div>
+      {/* Tabs — own-status mode has only quota requests (staff never has landing
+          requests of its own), so the switcher is pointless and hidden. */}
+      {!ownOnly && (
+        <div className="flex flex-none gap-1.5 px-5 pb-[14px]">
+          {([['landing', t.requests.tabLanding, openG], ['quota', t.requests.tabQuota, openQ]] as const).map(([k, l, n]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => switchTab(k)}
+              className={cn(
+                'inline-flex flex-1 cursor-pointer items-center justify-center gap-[7px] rounded-full border py-[10px] font-display text-[13px] font-bold transition-[filter] hover:brightness-[1.07]',
+                effectiveTab === k ? 'border-transparent bg-text text-bg' : 'border-line bg-transparent text-dim',
+              )}
+            >
+              {l}
+              {n > 0 && (
+                <span className={cn('inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-[5px] text-[11px] font-extrabold', effectiveTab === k ? 'bg-acc text-on-acc' : 'bg-acc-dim text-acc')}>{n}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="po-scroll min-h-0 flex-1 overflow-y-auto px-5 pb-[28px]">
         {err && !assign && !deny && <ErrLine msg={err} />}
@@ -311,9 +358,9 @@ export function Aanvragen({
           <Empty text={t.requests.loading} />
         ) : isError ? (
           <Empty text={t.requests.loadError} />
-        ) : tab === 'landing' ? (
+        ) : effectiveTab === 'landing' ? (
           <div className="flex flex-col gap-[11px]">
-            <Note icon="user">{t.requests.landingNote}</Note>
+            <Note icon="user">{canDecide ? t.requests.landingNote : t.requests.readOnlyNote}</Note>
             {openG === 0 ? (
               <Empty text={q ? fmt(t.requests.emptyLandingSearch, { q: search.trim() }) : t.requests.emptyLanding} />
             ) : (
@@ -351,14 +398,18 @@ export function Aanvragen({
                     </div>
                   )}
                   {r.motivation && <div className="mb-[13px] pl-0.5 text-[13.5px] leading-[1.45] text-dim">“{r.motivation}”</div>}
-                  <div className="flex gap-2">
-                    <Btn sm kind="dark" full icon="close" disabled={landingBusy} onClick={() => openDeny({ kind: 'landing', id: r.id, name: r.name, eventId: r.eventId })}>
-                      {t.requests.decline}
-                    </Btn>
-                    <Btn sm kind="primary" full icon="check2" disabled={landingBusy} onClick={() => openAssign(r)}>
-                      {t.requests.approveAdd}
-                    </Btn>
-                  </div>
+                  {canDecide ? (
+                    <div className="flex gap-2">
+                      <Btn sm kind="dark" full icon="close" disabled={landingBusy} onClick={() => openDeny({ kind: 'landing', id: r.id, name: r.name, eventId: r.eventId })}>
+                        {t.requests.decline}
+                      </Btn>
+                      <Btn sm kind="primary" full icon="check2" disabled={landingBusy} onClick={() => openAssign(r)}>
+                        {t.requests.approveAdd}
+                      </Btn>
+                    </div>
+                  ) : (
+                    <PendingBadge />
+                  )}
                 </div>
               ))}
               </div>
@@ -398,9 +449,15 @@ export function Aanvragen({
                           <Icon name="close" size={13} stroke="rgba(255,255,255,0.40)" className="mt-px shrink-0" />
                           <span>{r.denyReason ? fmt(t.requests.declinedReason, { reason: r.denyReason }) : t.requests.declined}</span>
                         </div>
-                        <Btn sm kind="primary" full icon="check2" disabled={landingBusy} onClick={() => openAssign(r)}>
-                          {t.requests.approveAnyway}
-                        </Btn>
+                        {canDecide ? (
+                          <Btn sm kind="primary" full icon="check2" disabled={landingBusy} onClick={() => openAssign(r)}>
+                            {t.requests.approveAnyway}
+                          </Btn>
+                        ) : (
+                          <div className="rounded-full border border-line bg-elev2 py-[10px] text-center font-body text-[12.5px] font-semibold text-faint">
+                            {t.requests.declined}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -453,9 +510,9 @@ export function Aanvragen({
           </div>
         ) : (
           <div className="flex flex-col gap-[11px]">
-            <Note icon="users">{t.requests.quotaNote}</Note>
+            <Note icon="users">{ownOnly ? t.requests.ownQuotaNote : canDecide ? t.requests.quotaNote : t.requests.readOnlyNote}</Note>
             {openQ === 0 ? (
-              <Empty text={q ? fmt(t.requests.emptyQuotaSearch, { q: search.trim() }) : t.requests.emptyQuota} />
+              <Empty text={q ? fmt(t.requests.emptyQuotaSearch, { q: search.trim() }) : ownOnly ? t.requests.ownEmptyQuota : t.requests.emptyQuota} />
             ) : (
               <div className="flex flex-col gap-[11px] lg:grid lg:grid-cols-2 lg:gap-[11px] lg:items-start">
               {scopeQ.map((r) => (
@@ -473,14 +530,18 @@ export function Aanvragen({
                     </div>
                   </div>
                   {r.reason && <div className="mb-[13px] pl-0.5 text-[13.5px] leading-[1.45] text-dim">“{r.reason}”</div>}
-                  <div className="flex gap-2">
-                    <Btn sm kind="dark" full icon="close" disabled={quotaBusy} onClick={() => openDeny({ kind: 'quota', id: r.id, name: r.who, eventId: r.eventId })}>
-                      {t.requests.deny}
-                    </Btn>
-                    <Btn sm kind="primary" full icon="check2" disabled={quotaBusy} onClick={() => void approveQuota(r)}>
-                      {fmt(t.requests.approveExtra, { n: r.extra })}
-                    </Btn>
-                  </div>
+                  {canDecide ? (
+                    <div className="flex gap-2">
+                      <Btn sm kind="dark" full icon="close" disabled={quotaBusy} onClick={() => openDeny({ kind: 'quota', id: r.id, name: r.who, eventId: r.eventId })}>
+                        {t.requests.deny}
+                      </Btn>
+                      <Btn sm kind="primary" full icon="check2" disabled={quotaBusy} onClick={() => void approveQuota(r)}>
+                        {fmt(t.requests.approveExtra, { n: r.extra })}
+                      </Btn>
+                    </div>
+                  ) : (
+                    <PendingBadge />
+                  )}
                 </div>
               ))}
               </div>

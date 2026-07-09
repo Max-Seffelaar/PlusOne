@@ -8,6 +8,62 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-09 — UX/IA 8/7 rechten-hygiëne: role-hide i.p.v. show-and-block (M1+M9+M3)
+
+Ticket 86ey7dz91. UI-laag only — RLS ongemoeid, geen migraties. Fixt K-4/K-5/K-7/K-8 uit
+`ux-ia-audit-claude-code.md`.
+
+- **New role gates in `src/features/auth/roles.ts`** (unit-tested, `roles.test.ts`):
+  `canSeeGuestCounts` (mirrors guests-select RLS — admin/finance/staff/doorhost; a pure
+  `user_manager` always gets zero rows), `canSeeRequestInbox` (admin/finance —
+  guest_requests_select/quota_requests_select's venue-role arm), `canDecideRequests`
+  (admin only — quota_requests_decide_admin/guest_requests_decide's role arm),
+  `canSeeOwnRequests` (staff without inbox rights — the `user_id = auth.uid()` RLS arm),
+  `canSeeAnyRequests`.
+- **M1 (K-4/K-5) — `approvals.tsx`:** Approve/Decline/Deny buttons only render for
+  `canDecideRequests`. Finance gets the full venue-wide inbox read-only (`PendingBadge`
+  instead of buttons, a `readOnlyNote` instead of the decide-framed note). Staff without
+  inbox rights gets a single-tab "Your requests" own-status view (no tabs, no venue
+  framing, `ownQuotaNote`/`ownEmptyQuota` copy) — landing tab never applies to staff since
+  `guest_requests_select` RLS excludes them outright. A role with neither gets a plain
+  "no access" state instead of an empty-looking inbox. Fixed the stale MFA-excuse copy
+  ("...or MFA is required") in `db-errors.ts` + `links/actions.ts` +
+  `requests.approveQuotaFailed` — no AAL2/MFA requirement exists anywhere in RLS
+  (decision #20).
+- **M9 (K-7) — `home.tsx`/`event-row.tsx`:** "New guest" CTA hidden for roles without
+  `canManageGuests`. `EventRow` gets a `guestCountsVisible` prop; when false (pure
+  `user_manager`) the on-the-list/inside readouts show "—" instead of a fake "0".
+- **M3 (K-8) — `queries.ts`/`profile.tsx`:** `fetchPersonProfile`'s guestId branch now
+  falls back to the name-only guest-row profile when the guest IS contact-linked but the
+  caller can't read `contacts` (RLS: admin/finance/organizer only) — new `restricted` flag
+  threaded through `PersonProfileData`/`PoContactProfile`. The profile screen shows a plain
+  `restrictedNote` instead of the dead-end "not available" error AND instead of a "Save as
+  contact" CTA (it's already a contact, just not visible). Home's request pulse tiles
+  hidden entirely for roles with zero request visibility (doorhost/user_manager).
+- **Regression caught during live verification, fixed same session:** the new gates are
+  all keyed off `roles: VenueRole[]`, which is empty for a pure event-organizer (their
+  rights come from `event_organizers`, not `venue_memberships` — same gap already noted in
+  `Contacten`). Naively hiding on `roles.length === 0` broke organizer's Home entirely
+  (New guest, request tiles, real guest counts all vanished) and would have made
+  `approvals.tsx` dead-end them with "no access" where they previously had (RLS-correct,
+  if imperfect) working access. Fixed by treating an empty `roles` array as "give the
+  benefit of the doubt, preserve prior behavior" in `home.tsx` and `approvals.tsx` — never
+  newly hide/block for a role we can't positively identify. Full organizer-aware framing is
+  explicitly deferred to M2 (K-6), a separate ClickUp task.
+- **Bonus fix, same root cause as K-5:** `app.tsx`'s sidebar/More "Requests" nav item was
+  hard-coded `roles.includes('admin')` — finance/staff had zero nav route and could only
+  reach the inbox via Home's tiles ("dezelfde functie is per ingang anders gegate", exactly
+  what K-5 flagged). Renamed to `showRequestsNavItem` = `canSeeAnyRequests` (+ the same
+  empty-roles carve-out for organizer).
+- Verification: `pnpm exec tsc --noEmit` clean, `pnpm lint` clean (pre-existing a11y
+  warning only), `pnpm exec vitest run` 664/664 passing (12 new tests in `roles.test.ts`).
+  Live-verified via dev-login as admin/manager/finance/staff/door/organizer — see the
+  ClickUp comment for the full per-role walkthrough and test handoff.
+- **Gotcha:** this worktree had no `node_modules` — `pnpm install` needed before
+  typecheck/lint/test would run.
+
+---
+
 ## 2026-07-09 — K11 real tier names + K6 dead auth-mock deletion (PR #164)
 
 Review-backlog cleanup: 2 of 3 requested tasks shipped, 1 parked per the milestone-gating

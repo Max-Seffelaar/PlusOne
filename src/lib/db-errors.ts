@@ -43,10 +43,12 @@ export function mapMutationError(error: PostgrestLikeError | null | undefined): 
       // These DB messages are crafted UI copy with safe numbers only.
       return { ok: false, code, message: error?.message ?? 'Not allowed.' };
     case INSUFFICIENT_PRIVILEGE:
+      // No AAL2/MFA requirement exists anywhere in RLS (decision #20, 2026-07-02)
+      // — privilege here is role-only, so the copy never invents an MFA excuse.
       return {
         ok: false,
         code,
-        message: "You don't have rights for this (or MFA is required).",
+        message: "You don't have rights for this.",
       };
     case UNIQUE_VIOLATION:
       return { ok: false, code, message: 'This already exists.' };

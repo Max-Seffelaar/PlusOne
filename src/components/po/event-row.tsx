@@ -222,6 +222,7 @@ function ActionBtn({
 export function EventRow({
   e,
   showDoor,
+  guestCountsVisible = true,
   onOpen,
   onDoor,
   onReq,
@@ -230,6 +231,9 @@ export function EventRow({
 }: {
   e: BoardEvent;
   showDoor: boolean;
+  /** False for a role that can't read ANY guests (pure user_manager) — the
+   *  headcount readouts show "—" instead of a fake "0" (M9, K-7). */
+  guestCountsVisible?: boolean;
   onOpen: () => void;
   onDoor: () => void;
   onReq?: (tab: 'landing' | 'quota') => void;
@@ -238,10 +242,10 @@ export function EventRow({
 }): JSX.Element {
   const counts = (
     <div className="ev-counts flex shrink-0 flex-wrap gap-2 lg:items-center lg:gap-[26px]">
-      <Count value={kfmt(e.onList)} label={t.home.cOnList} />
+      <Count value={guestCountsVisible ? kfmt(e.onList) : '—'} label={t.home.cOnList} />
       <Count value={e.requests} label={t.home.cRequests} action={e.requests > 0} onClick={onReq && (() => onReq('landing'))} />
       <Count value={e.quota} label={t.home.cQuota} action={e.quota > 0} onClick={onReq && (() => onReq('quota'))} />
-      {e.live && <Count value={`${e.inside} · ${e.turnout}%`} label={t.home.cInside} live />}
+      {e.live && guestCountsVisible && <Count value={`${e.inside} · ${e.turnout}%`} label={t.home.cInside} live />}
     </div>
   );
   const actions = (

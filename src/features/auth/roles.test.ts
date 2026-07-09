@@ -1,5 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { requiresMfa, canGrantRoles, mergeRoles, isManager, hasRole, canManageGuests } from './roles';
+import {
+  requiresMfa,
+  canGrantRoles,
+  mergeRoles,
+  isManager,
+  hasRole,
+  canManageGuests,
+  canSeeGuestCounts,
+  canSeeRequestInbox,
+  canDecideRequests,
+  canSeeOwnRequests,
+  canSeeAnyRequests,
+} from './roles';
 
 describe('requiresMfa', () => {
   it('is true for admin and finance', () => {
@@ -27,6 +39,63 @@ describe('canManageGuests (mirrors RLS can_write_guests)', () => {
     expect(canManageGuests(['finance'])).toBe(false);
     expect(canManageGuests(['user_manager', 'finance'])).toBe(false);
     expect(canManageGuests([])).toBe(false);
+  });
+});
+
+describe('canSeeGuestCounts (mirrors guests-select RLS — M9, K-7)', () => {
+  it('is true for admin, finance, staff, doorhost', () => {
+    expect(canSeeGuestCounts(['admin'])).toBe(true);
+    expect(canSeeGuestCounts(['finance'])).toBe(true);
+    expect(canSeeGuestCounts(['staff'])).toBe(true);
+    expect(canSeeGuestCounts(['doorhost'])).toBe(true);
+  });
+  it('is false for a pure user_manager (RLS always returns zero rows)', () => {
+    expect(canSeeGuestCounts(['user_manager'])).toBe(false);
+    expect(canSeeGuestCounts([])).toBe(false);
+  });
+  it('is true when user_manager is combined with a guest-read role', () => {
+    expect(canSeeGuestCounts(['user_manager', 'staff'])).toBe(true);
+  });
+});
+
+describe('requests role-hide (M1/M3, K-4/K-5/K-8)', () => {
+  it('canSeeRequestInbox: admin and finance only', () => {
+    expect(canSeeRequestInbox(['admin'])).toBe(true);
+    expect(canSeeRequestInbox(['finance'])).toBe(true);
+    expect(canSeeRequestInbox(['staff'])).toBe(false);
+    expect(canSeeRequestInbox(['doorhost'])).toBe(false);
+    expect(canSeeRequestInbox(['user_manager'])).toBe(false);
+    expect(canSeeRequestInbox([])).toBe(false);
+  });
+
+  it('canDecideRequests: admin only — finance is read-only (K-5)', () => {
+    expect(canDecideRequests(['admin'])).toBe(true);
+    expect(canDecideRequests(['finance'])).toBe(false);
+    expect(canDecideRequests(['staff'])).toBe(false);
+    expect(canDecideRequests(['doorhost'])).toBe(false);
+    expect(canDecideRequests(['admin', 'finance'])).toBe(true);
+  });
+
+  it('canSeeOwnRequests: staff without inbox rights only — never doorhost/user_manager (K-8)', () => {
+    expect(canSeeOwnRequests(['staff'])).toBe(true);
+    expect(canSeeOwnRequests(['doorhost'])).toBe(false);
+    expect(canSeeOwnRequests(['user_manager'])).toBe(false);
+    expect(canSeeOwnRequests([])).toBe(false);
+  });
+
+  it('canSeeOwnRequests is false once a staff member also has inbox rights', () => {
+    // Admin's full inbox wins — no separate "own requests" framing needed.
+    expect(canSeeOwnRequests(['staff', 'admin'])).toBe(false);
+    expect(canSeeOwnRequests(['staff', 'finance'])).toBe(false);
+  });
+
+  it('canSeeAnyRequests: inbox roles + staff, never doorhost/user_manager alone', () => {
+    expect(canSeeAnyRequests(['admin'])).toBe(true);
+    expect(canSeeAnyRequests(['finance'])).toBe(true);
+    expect(canSeeAnyRequests(['staff'])).toBe(true);
+    expect(canSeeAnyRequests(['doorhost'])).toBe(false);
+    expect(canSeeAnyRequests(['user_manager'])).toBe(false);
+    expect(canSeeAnyRequests([])).toBe(false);
   });
 });
 
