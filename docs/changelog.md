@@ -38,6 +38,82 @@ Findings written up in `docs/mail-deliverability.md`.
   (2) confirm the Resend plan's daily/monthly caps before venue scale (≥5–25), since
   every login is a send; (3) optional DMARC `rua=` for report visibility, tighten to
   `p=quarantine` later.
+## 2026-07-09 — Prod-ready 9/7 task 11: Legal drafts (DPA + ToS + privacy policy + subprocessors)
+
+English-language legal drafts for the paid product, in `docs/legal/` (ClickUp
+`86ey7q7c2`). All four grounded in the real dataflows, not boilerplate: retention =
+`venues.retention_months` 1–60 (default 12), event-anchored, daily 03:30 UTC
+`run_privacy_retention()` with structure-preserving audit-diff redaction;
+`forget_contact()` as the Art. 17 self-service path; RLS/audit/soft-delete as the
+Annex 3 TOMs; Sentry scrub guarantees stated as written (no request/IP/query
+strings, UUID-only user, EU region `de.sentry.io`); Stripe = SEPA+iDEAL, no
+card/IBAN storage; Better Stack explicitly listed as NOT a subprocessor (public
+health endpoint only). Planned subprocessors (Attio, GA, PostHog, Resend) are in
+the list as "planned — 30-day notice before activation" so venues sign once.
+
+- Structure per Weeztix inspo (task links): dual-role privacy policy
+  (controller vs processor split), standard/planned subprocessor tables, B2B
+  ToS with liability cap + Art. 28 hook.
+- Docs mirror to Google Drive `Plus one - guestlist app/02_Legal/`
+  (`Terms_and_Conditions` + `Privacy_AVG_GDPR`) as editable Google Docs.
+- **DRAFT status is explicit in every file** — Dutch lawyer review is mandatory
+  before publication/signature; placeholder checklist in `docs/legal/README.md`
+  (entity, KvK, address, domain, court district).
+
+## 2026-07-09 — Prod-ready 9/7 task 12: incident-response skill
+
+Built with the `skill-creator` skill (draft → dry-run test agent → fix from feedback,
+skipped the full eval-harness loop — single subjective orchestration skill, not worth
+the machinery). **`.claude/skills/incident-response/SKILL.md`** (tracked in git —
+`.claude/settings.json`/`launch.json` are, `settings.local.json` isn't): triggers on
+"prod is down" / "errors in prod" / door check-in failures / etc., reads
+`docs/runbook.md` first, then pulls live diagnostics per source availability (Sentry
+MCP → `sentry-cli` skill fallback; no Vercel/Supabase MCP exists here, so CLI-if-linked
+→ dashboard fallback for both), and synthesizes a triage summary: what's broken,
+confidence + evidence, door-live-vs-not framing, rollback-first recommendation, who to
+inform from the runbook.
+
+- **Dry-run test surfaced a real bug, not just a skill gap:** `docs/runbook.md`'s
+  key-facts table had a stale Vercel project (`plus-one-the-operators` /
+  `…-the-operators.vercel.app`) — the actual project is **`plus-one`**
+  (`plus-one-phi.vercel.app`, org `the-operators`, verified via `vercel project ls`).
+  Fixed in the same PR since a wrong project name in the "First 60 seconds" table is
+  actively harmful during a real incident.
+- **Skill fixes from the test agent's feedback:** Sentry MCP tools need an org
+  slug/region first (`find_organizations`/`find_projects`) — the skill now says so
+  instead of assuming `search_issues` just works; Vercel/Supabase CLI fallbacks now
+  say to confirm the CLI is actually authenticated/linked (`vercel whoami`,
+  `supabase projects list`) before trusting silence-on-error as "nothing's wrong";
+  added an explicit "all sources clean → say so, don't force a rollback, ask for a
+  sharper repro" branch, since the test run's real triage genuinely came back clean.
+- Sentry/Betterstack MCP auth wasn't available in this session — the skill is written
+  so it degrades to CLI/dashboard pointers rather than assuming those connectors exist.
+
+## 2026-07-09 — Tractie/Attio 9/7: program plan (discussion session, no code)
+
+Discussion session Max ↔ Claude on new-customer traction + Attio CRM. Output:
+**`docs/attio-crm-plan.md`** (PR #157, merged) + ClickUp Doc "Tractie & Attio CRM —
+plan 9/7" + 6 tasks "Tractie/Attio 9/7 — 01…06" in list `901818739469`. Nothing built.
+
+- **Data map finding:** every lifecycle signal already exists (invites sent/accepted,
+  profile/venue/event created_at, first check-in, subscription transitions, audit-log
+  activity proxy) — except `events.created_by` (migration in task 01). Deliberately NO
+  last-login tracking; max `audit_log` per venue is the activity proxy.
+- **Key decisions (Max):** two-field Attio model (`Sales stage` manual/sales-owned,
+  `product_lifecycle` synced hourly, assert-only, never touches sales fields); lifecycle
+  ladder `invited → signed_up → venue_created → onboarded → first_event →
+  first_door_night → active → paying/comped` + `at_risk`/`churned`; People-sync = ALL
+  team roles (requires Attio DPA + privacy-statement update before go-live, task 06);
+  digest → Slack + persisted `founder_digests`; platform-admin via audited SECURITY
+  DEFINER RPCs (no blanket RLS rewrite); **support impersonation built now** (Max's
+  call, against read-only-first advice) with hard guardrails — audit actor stays the
+  support admin, ≤60 min time-box, start/stop audit actions, visible banner.
+- **Parked at ≥25 venues:** auto-invite on signed contract (would break one-way sync
+  + needs a venue-less "platform invite" concept). Interim: Attio workflow → Slack ping
+  (task 06); later a one-click audited invite button on the founder dashboard (phase 04).
+- **Gates:** tasks 02 (service_role cron sync) and 05 (impersonation) are high-risk →
+  fresh-session `/code-review` + `/security-review`. No Attio MCP connector exists;
+  integration = own REST client behind a `CrmProvider` interface (billing pattern).
 
 ## 2026-07-09 — Prod-ready 9/7 task 08: Sentry review-gate fixes
 
