@@ -30,22 +30,26 @@ or rule out theories — not to replace judgment.
      errors with an auth failure, fall back to the `sentry-cli` skill (`sentry issue
      list`, `sentry issue explain`) — don't just give up on Sentry data because the
      first path failed.
-   - **Vercel** — there's no Vercel MCP connected in this environment as of writing.
-     Don't invent one. If the `vercel` CLI is installed, confirm it's actually usable
-     first (`vercel whoami`) before relying on it — an unauthenticated or unlinked CLI
-     fails silently-ish and you don't want to mistake "command errored" for "nothing's
-     wrong". If it works, `vercel ls`/`vercel inspect`/`vercel logs` on the `plus-one`
-     project (see the runbook's key-facts table) tell you about recent deploys. If
-     it's not set up, tell Max to check the Vercel dashboard instead.
-   - **Supabase** — same story, no Supabase MCP connected. If the `supabase` CLI is
-     set up, check it's linked (`supabase projects list`) before trusting its output.
-     Working CLI → `supabase db query --linked` against the project ref in the
-     runbook's key-facts table. Not set up → point Max at Supabase Studio (Database
-     health / Logs / Auth logs) instead.
+   - **Vercel** — check for `mcp__*` tools tied to a Vercel connector first (none was
+     installed as of writing, but connectors get added between sessions — don't
+     assume). If there isn't one, fall back to the `vercel` CLI: confirm it's actually
+     usable first (`vercel whoami`) before relying on it — an unauthenticated or
+     unlinked CLI fails silently-ish and you don't want to mistake "command errored"
+     for "nothing's wrong". Working CLI → `vercel ls`/`vercel inspect`/`vercel logs` on
+     the `plus-one` project (see the runbook's key-facts table) for recent deploys.
+     Neither available → tell Max to check the Vercel dashboard instead.
+   - **Supabase** — check for Supabase MCP tools (`mcp__*supabase*`, e.g. `get_logs`,
+     `get_project`, `list_tables`, `execute_sql`, `get_advisors`). If connected, use
+     `get_logs` (service: `api`/`postgres`/`auth`/etc.) against the project ref from
+     the runbook's key-facts table for the last 24h, and `get_advisors` for
+     security/performance flags — much faster than guessing which table to query. If
+     the MCP isn't there, fall back the same way as Vercel: `supabase` CLI if linked
+     (`supabase projects list` to check, then `supabase db query --linked`), else
+     point Max at Supabase Studio (Database health / Logs / Auth logs).
 
-   If a tool you expect turns out to be there, use it — this list is "as of writing,"
-   not a hard ceiling. The point is to actually pull data rather than assume a tool
-   exists or doesn't.
+   None of this tool availability is fixed — it changes as connectors get added or
+   authorized between sessions. Always check what's actually there this run rather
+   than trusting what a past run (or this skill's wording) assumed.
 
 3. **Lead the diagnosis, don't just dump data.** Synthesize what the runbook says with
    whatever you found into a short triage summary:
