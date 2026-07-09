@@ -33,7 +33,7 @@ jobs:
       # pgTAP RLS/trigger tests run against a real local Postgres started by the
       # Supabase CLI (migrations applied from supabase/migrations + seed).
       - name: Setup Supabase CLI
-        uses: supabase/setup-cli@v1
+        uses: supabase/setup-cli@v3
         with:
           version: latest
 
