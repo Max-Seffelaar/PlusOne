@@ -85,6 +85,18 @@ blocking in CI (ClickUp `86ey7q6ze`).
 - **Consent gate gotcha:** first login on a fresh DB lands on `/consent` (terms +
   privacy, #20/#40) before `/app` — the spec accepts it conditionally. Any future
   e2e spec doing a first login needs the same step.
+- **Fresh-DB-only failures the first CI runs caught** (exactly the drift class
+  this smoke exists for — local runs were green both times):
+  1. **CI Node 20 → 22:** `supabase-js ≥2.108` needs native WebSocket — on Node
+     20 the client CONSTRUCTOR throws (`realtime-js` websocket-factory), hitting
+     the e2e helpers and any server-side client. Node ≥22 is now a CI given.
+  2. **MFA enroll nudge:** a fresh admin has no TOTP factor, so `/app` redirects
+     once to the skippable `/mfa/enroll` recommendation — the spec pre-sets
+     `user_profiles.mfa_snooze_until` in setup (no-op locally where dev:mfa
+     stamps a factor).
+  Also: a **CONFLICTING PR runs no Actions at all** (GitHub can't build the
+  merge ref → the `pull_request` workflow silently never starts — it looks like
+  CI is stuck; rebase first).
 - **Known debt (out of scope, deliberately):** the four pre-existing specs
   (`door-offline`, `venue-dashboard`, `login`, `mfa-enroll`, …) predate the
   English-UI migration and the `(app)`→`/app` surface unification (Dutch strings,
