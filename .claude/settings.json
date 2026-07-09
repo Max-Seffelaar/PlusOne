@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/hooks/check-applied-migration.mjs",
+            "timeout": 15,
+            "statusMessage": "Checking migration isn't already applied on origin/main…"
+          }
+        ]
+      }
+    ]
+  }
+}
