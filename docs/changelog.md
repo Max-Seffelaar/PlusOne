@@ -8,6 +8,37 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-09 — Prod-ready 9/7 task 10: Mail deliverability research (OTP = login availability)
+
+Investigation task — "login is 100% e-mail-OTP, so mail-in-spam = login down." Goal:
+find what sends prod mail, whether the sending domain is authenticated, and where OTP
+mail lands. **Result: 🟢 green, verified in prod — no fixes needed for launch.**
+Findings written up in `docs/mail-deliverability.md`.
+
+- **What sends prod mail:** Resend (custom SMTP under Supabase Auth, not the built-in
+  shared mailer), from **`theoperators.nl`** via Amazon SES **eu-west-1**. Resend domain
+  status = **verified**, sending enabled. A *borrowed* Operators domain "for now" — a
+  dedicated PlusOne domain stays F3/branding (86ey6b3hv).
+- **DNS auth verified** (DoH, bypassing the ISP resolver that hijacks lookups): DKIM
+  `resend._domainkey` published ✅, SPF `send.theoperators.nl = include:amazonses.com` ✅,
+  bounce MX `feedback-smtp.eu-west-1.amazonses.com` ✅, DMARC present (`p=none`, no `rua`).
+  SPF+DKIM align → passes DMARC → inbox.
+- **Proven delivery (Resend MCP):** **11/11 emails delivered, 0 bounced, 0 complained**,
+  including **Gmail and Hotmail** recipients + business domains. Real invites + sign-in
+  links to actual testers.
+- **Proven from the sending side (Supabase MCP):** 24h auth logs show **zero SMTP/send
+  errors**; 10 users / 7 confirmed / 3 signed-in-7d. The only mail-ish log lines are
+  user-side (expired link, mistyped TOTP), not delivery failures. A "550" in the logs
+  was a false positive (digits inside a timestamp, not an SMTP reject).
+- **Verification tooling milestone:** first task using the newly-connected **Supabase**
+  and **Resend** MCPs to read live prod state directly (they hot-load only after a
+  session reconnect, not mid-session).
+- **Open / scale-time (not blocking):** (1) borrowed Operators domain couples PlusOne
+  login deliverability to another brand's reputation — real fix is F3 dedicated domain;
+  (2) confirm the Resend plan's daily/monthly caps before venue scale (≥5–25), since
+  every login is a send; (3) optional DMARC `rua=` for report visibility, tighten to
+  `p=quarantine` later.
+
 ## 2026-07-09 — Prod-ready 9/7 task 11: Legal drafts (DPA + ToS + privacy policy + subprocessors)
 
 English-language legal drafts for the paid product, in `docs/legal/` (ClickUp
