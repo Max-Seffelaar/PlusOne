@@ -26,16 +26,13 @@ import { usePoEvents, usePoGuests, useVenueGuests, usePoTiers, usePoQuota, usePo
 import {
   usePoAddGuestsBulk,
   usePoUpdateGuest,
-  usePoToggleContactPermanent,
-  usePoSyncPermanent,
   usePoChangeGuestsTierBulk,
   usePoMarkGuestsRegular,
 } from '@/features/po/mutations';
-import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, PayChip, Scroll, StatusDot, Top } from '../../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, PayChip, Scroll, StatusDot, Top } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
 import { DupeOption, NoTiersBlock, TierPill, press, col, cardPress } from './_shared';
 import { useGuestSelection, GuestBulkBar, BulkAddToEventSheet, type BulkAddCandidate } from './bulk-add';
@@ -1143,146 +1140,6 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
                   : fmt(t.guests.bulk.submitAdd, { ready, guests: ready === 1 ? t.guests.bulk.guestOne : t.guests.bulk.guestMany })}
         </Btn>
       </BottomBar>
-    </div>
-  );
-}
-
-// ── PERMANENTE GASTEN (pushed) ───────────────────────────────────────────────
-export function Vaste(): JSX.Element {
-  const nav = useNav();
-  const { roles } = usePoIdentity();
-  const canView = roles.includes('admin') || roles.includes('finance');
-  const { data: list = [], isLoading, isError } = usePoPermanentContacts();
-  const toggleVast = usePoToggleContactPermanent();
-  const sync = usePoSyncPermanent();
-  const { data: liveEvents = [] } = usePoEvents();
-  const upcoming = liveEvents.filter((e) => e.when === 'upcoming');
-  const permanent = list ?? [];
-  const noRights = !isLoading && !isError && !canView && permanent.length === 0;
-
-  const [pick, setPick] = useState(false);
-  const [result, setResult] = useState<{ event: string; added: number; total: number } | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
-  const runSync = (evId: string, evName: string): void => {
-    setErrorMsg(null);
-    setResult(null);
-    const total = permanent.length;
-    sync.mutate(
-      { eventId: evId },
-      {
-        onSuccess: (res) => {
-          setPick(false);
-          setResult({ event: evName, added: res.ok ? res.added : 0, total });
-        },
-        onError: (e) => setErrorMsg(e instanceof Error ? e.message : t.guests.permanent.syncFailed),
-      },
-    );
-  };
-
-  return (
-    <div className={col}>
-      <Top
-        onBack={nav.back}
-        title={t.guests.permanent.title}
-        sub={fmt(t.guests.permanent.sub, { n: permanent.length, guests: permanent.length === 1 ? t.guests.permanent.guestOne : t.guests.permanent.guestMany })}
-        right={<IconBtn name="plus" onClick={() => nav.push('contacten')} />}
-      />
-      <Scroll bottom={24}>
-        <div className="mb-4 flex gap-[12px] rounded-[16px] bg-acc-dim p-[15px]">
-          <Icon name="star" size={20} stroke="#B5A6FF" fill="#B5A6FF" />
-          <div className="text-[13.5px] leading-[1.45] text-text">
-            {t.guests.permanent.blurb}
-          </div>
-        </div>
-
-        {result && (
-          <div className="mb-3 flex items-center gap-[9px] rounded-[13px] border border-acc bg-acc-dim px-[14px] py-[11px] text-[13px] text-text">
-            <Icon name="check" size={16} stroke="#B5A6FF" />
-            <span className="flex-1">
-              {result.added === 0
-                ? fmt(t.guests.permanent.resultNoneAdded, { event: result.event })
-                : result.added === result.total
-                  ? fmt(t.guests.permanent.resultAllAdded, { total: result.total, guests: result.total === 1 ? t.guests.permanent.guestOneLabel : t.guests.permanent.guestManyLabel, event: result.event })
-                  : fmt(t.guests.permanent.resultPartial, { added: result.added, total: result.total, event: result.event })}
-            </span>
-          </div>
-        )}
-        {errorMsg && (
-          <div className="mb-3 flex items-center gap-[9px] rounded-[13px] border border-acc bg-acc-dim px-[14px] py-[11px] text-[13px] text-text">
-            <Icon name="warn" size={16} stroke="#B5A6FF" />
-            <span className="flex-1">{errorMsg}</span>
-          </div>
-        )}
-
-        {!isLoading && !isError && permanent.length > 0 && (
-          <Btn kind="dark" full icon="cal" className="mb-4" disabled={sync.isPending} onClick={() => setPick(true)}>
-            {sync.isPending ? t.guests.permanent.addNowBusy : t.guests.permanent.addNow}
-          </Btn>
-        )}
-
-        {isLoading ? (
-          <Empty text={t.guests.permanent.loading} />
-        ) : noRights ? (
-          <Note icon="shield">
-            {t.guests.permanent.noRights}
-          </Note>
-        ) : isError ? (
-          <Empty text={t.guests.permanent.loadError} />
-        ) : permanent.length === 0 ? (
-          <Empty text={t.guests.permanent.empty} />
-        ) : (
-          <div className="flex flex-col gap-[9px]">
-            {permanent.map((c) => {
-              const removing = toggleVast.isPending && toggleVast.variables?.contactId === c.id;
-              return (
-                <div key={c.id} className="flex items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[12px]">
-                  <Avatar name={c.name} size={42} accent />
-                  <div className="flex-1">
-                    <div className="font-display text-[15.5px] font-bold text-text">{c.name}</div>
-                    <div className="mt-[3px] text-[12px] text-faint">{fmt(t.guests.permanent.autoRole, { role: c.role })}</div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => toggleVast.mutate({ contactId: c.id, isPermanent: false })}
-                    disabled={removing}
-                    title={t.guests.permanent.removeRegular}
-                    className={cn('flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line text-faint', press)}
-                  >
-                    <Icon name="close" size={16} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Scroll>
-
-      {pick && (
-        <Sheet onClose={() => setPick(false)} center={false}>
-          <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{t.guests.permanent.syncTitle}</div>
-          <div className="mb-4 text-[13px] text-faint">{t.guests.permanent.syncSub}</div>
-          {upcoming.length === 0 ? (
-            <Empty text={t.guests.permanent.noUpcoming} />
-          ) : (
-            <div className="flex flex-col gap-2">
-              {upcoming.map((e) => (
-                <button key={e.id} type="button" disabled={sync.isPending} onClick={() => runSync(e.id, e.name)} className={cn('flex items-center gap-[12px] rounded-[12px] border border-line bg-elev px-[13px] py-[12px] text-left', press)}>
-                  <span className="w-[38px] shrink-0 text-center">
-                    <span className="block font-display text-[16px] font-extrabold leading-none text-text">{e.date}</span>
-                    <span className="block text-[9px] font-bold tracking-[0.05em] text-faint">{e.mon}</span>
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-display text-[14.5px] font-bold text-text">{e.name}</span>
-                    <span className="block text-[11.5px] text-faint">{e.venue}</span>
-                  </span>
-                  <Icon name="chev" size={16} className="text-ghost" />
-                </button>
-              ))}
-            </div>
-          )}
-        </Sheet>
-      )}
     </div>
   );
 }

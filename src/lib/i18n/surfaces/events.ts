@@ -231,15 +231,6 @@ export const events = {
   activityInShort: 'in',
   activityAddedPpl: '({n} ppl)',
 
-  // ── Events & tiers hub ──────────────────────────────────────────────────────
-  hubTitle: 'Events & tiers',
-  hubSub: 'Create and manage your events',
-  hubNewEvent: 'New event',
-  hubNewEventSub: 'Name, date, tiers, and landing page',
-  upcomingCount: 'Upcoming events · {n}',
-  past: 'Past',
-  hubCardSub: '{venue} · {n} guests',
-
   // ── External crew (event_organizers, #6/#24) ─────────────────────────────────
   // Event-scoped people (a DJ, artist, guest organizer) attached to ONE event —
   // distinct from venue-wide Team (venue_memberships). Wording: "External crew".

@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { createClient } from '@/lib/supabase/client';
 import type { Venue } from '@/lib/po/types';
-import { VENUE_ROLES, ROLE_LABELS, canGrantRoles, canWorkDoor, requiresMfa, type VenueRole } from '@/features/auth/roles';
+import { VENUE_ROLES, ROLE_LABELS, canGrantRoles, requiresMfa, type VenueRole } from '@/features/auth/roles';
 import { venueCapabilities } from '@/features/venues/access';
 import {
   parseCsv,
@@ -143,7 +143,7 @@ function RolePicker({
 // ── MEER (settings tab) ──────────────────────────────────────────────────────
 export function Meer(): JSX.Element {
   const nav = useNav();
-  const { venue, statsVenues, myVenues } = usePo();
+  const { venue, statsVenues, isMobile } = usePo();
   const { userId, venueName, roles } = usePoIdentity();
   const [signingOut, setSigningOut] = useState(false);
   const caps = venueCapabilities(roles);
@@ -160,15 +160,21 @@ export function Meer(): JSX.Element {
   // More-tab badge and Home tile, so the count matches everywhere (T9). This makes
   // the tab's "2" legible: it points at THIS row.
   const openRequestCount = (usePoGuestRequests().data ?? []).filter(isOpenGuestRequest).length;
-  const showEvents = isAdmin || canManageTemplates;
   const showContacts = caps.viewSettings || canManageTemplates;
   const showImport = isAdmin || isFinance;
   const showRegulars = isAdmin || isFinance;
-  const showCockpit = canWorkDoor(roles);
-  const insightsAny = showCockpit || canViewStats || caps.viewAudit || showRequests;
+  // M5 (8/7): Analytics/Promotion/Requests/Team/Contacts already live in the
+  // desktop sidebar — showing them again here would be the exact duplication
+  // the audit flagged (§2-A). Mobile has no sidebar, so it keeps all five.
+  const showStatsRow = isMobile && canViewStats;
+  const showPromoRow = isMobile && canViewStats;
+  const showRequestsRow = isMobile && showRequests;
+  const showContactsRow = isMobile && showContacts;
+  const showTeamRow = isMobile && caps.viewTeam;
+  const insightsAny = showStatsRow || showPromoRow || caps.viewAudit || showRequestsRow;
   const thisVenueAny =
-    showEvents || canManageTemplates || caps.viewSettings || caps.viewQuota || showRegulars || showContacts || showImport;
-  const teamAny = caps.viewTeam || isAdmin;
+    canManageTemplates || caps.viewSettings || caps.viewQuota || showRegulars || showContactsRow || showImport;
+  const teamAny = showTeamRow || isAdmin;
   const profile = usePoProfile();
   const subQ = usePoSubscription();
   const v = venue;
@@ -185,38 +191,40 @@ export function Meer(): JSX.Element {
     <div className={col}>
       <Top big title={t.settings.more.title} onBack={nav.canGoBack ? nav.back : undefined} />
       <Scroll bottom={100}>
-        <button type="button" onClick={() => nav.push('venueswitch')} className={cn('mb-5 flex w-full items-center gap-[14px] rounded-[18px] border border-line bg-elev p-4 text-left', cardPress)}>
-          <Avatar name={displayVenue} size={48} accent />
-          <div className="min-w-0 flex-1">
-            <div className="font-display text-[18px] font-bold text-text">{displayVenue}</div>
-            <div className="text-[12.5px] text-faint">{fmt(t.settings.more.switchSub, { name: profile.data?.name ?? t.settings.more.nameFallback })}</div>
-          </div>
-          <span className="inline-flex items-center gap-[7px]">
-            {planLabel && (
-              <span className="rounded-full bg-acc px-[11px] py-[5px] font-display text-[11px] font-bold text-on-acc">{planLabel}</span>
-            )}
-            <span className="text-ghost">
-              <Icon name="swap" size={18} />
+        {/* Venue-switch entry (M12): the desktop sidebar already has a fixed
+         *  header-picker, so this card is only needed on mobile, which has no
+         *  persistent header — it's mobile's sole ingang into venueswitch. */}
+        {isMobile && (
+          <button type="button" onClick={() => nav.push('venueswitch')} className={cn('mb-5 flex w-full items-center gap-[14px] rounded-[18px] border border-line bg-elev p-4 text-left', cardPress)}>
+            <Avatar name={displayVenue} size={48} accent />
+            <div className="min-w-0 flex-1">
+              <div className="font-display text-[18px] font-bold text-text">{displayVenue}</div>
+              <div className="text-[12.5px] text-faint">{fmt(t.settings.more.switchSub, { name: profile.data?.name ?? t.settings.more.nameFallback })}</div>
+            </div>
+            <span className="inline-flex items-center gap-[7px]">
+              {planLabel && (
+                <span className="rounded-full bg-acc px-[11px] py-[5px] font-display text-[11px] font-bold text-on-acc">{planLabel}</span>
+              )}
+              <span className="text-ghost">
+                <Icon name="swap" size={18} />
+              </span>
             </span>
-          </span>
-        </button>
+          </button>
+        )}
         <Label className="mb-1">{t.sections.account}</Label>
         <Row icon="user" title={t.settings.more.profileTitle} sub={t.settings.more.profileSub} onClick={() => nav.push('profile')} />
 
         {insightsAny && <Label className="mb-1 mt-[22px]">{t.sections.insights}</Label>}
-        {showCockpit && (
-          <Row icon="flag" title={t.settings.more.cockpitTitle} sub={t.settings.more.cockpitSub} onClick={() => nav.setTab('deur')} accent />
-        )}
-        {canViewStats && (
+        {showStatsRow && (
           <Row icon="spark" title={t.settings.more.analyticsTitle} sub={t.settings.more.analyticsSub} onClick={() => nav.push('stats')} accent />
         )}
-        {canViewStats && (
+        {showPromoRow && (
           <Row icon="link" title={t.settings.more.promoTitle} sub={t.settings.more.promoSub} onClick={() => nav.push('promo')} accent />
         )}
         {caps.viewAudit && (
           <Row icon="history" title={t.settings.more.auditTitle} sub={t.settings.more.auditSub} onClick={() => nav.push('audit')} accent />
         )}
-        {showRequests && (
+        {showRequestsRow && (
           <Row
             icon="bell"
             title={t.settings.more.requestsTitle}
@@ -234,9 +242,6 @@ export function Meer(): JSX.Element {
         )}
 
         {thisVenueAny && <Label className="mb-1 mt-[22px]">{t.sections.thisVenue}</Label>}
-        {showEvents && (
-          <Row icon="cal" title={t.settings.more.eventsTitle} sub={t.settings.more.eventsSub} onClick={() => nav.push('eventbeheer')} />
-        )}
         {canManageTemplates && (
           <Row icon="grid" title={t.settings.more.templatesTitle} sub={t.settings.more.templatesSub} onClick={() => nav.push('templates')} />
         )}
@@ -252,7 +257,7 @@ export function Meer(): JSX.Element {
         {isAdmin && (
           <Row icon="link" title={t.settings.more.influencersTitle} sub={t.settings.more.influencersSub} onClick={() => nav.push('influencers')} />
         )}
-        {showContacts && (
+        {showContactsRow && (
           <Row icon="contact" title={t.settings.more.contactsTitle} sub={t.settings.more.contactsSub} onClick={() => nav.push('contacten')} accent />
         )}
         {showImport && (
@@ -263,15 +268,12 @@ export function Meer(): JSX.Element {
         )}
 
         {teamAny && <Label className="mb-1 mt-[22px]">{t.sections.teamAccess}</Label>}
-        {caps.viewTeam && (
+        {showTeamRow && (
           <Row icon="users" title={t.settings.more.teamTitle} sub={t.settings.more.teamSub} onClick={() => nav.push('gebruikers')} accent />
         )}
         {isAdmin && (
           <Row icon="lock" title={t.settings.more.sessionsTitle} sub={t.settings.more.sessionsSub} onClick={() => nav.push('adminsessions')} />
         )}
-
-        <Label className="mb-1 mt-[22px]">{t.sections.switchVenue}</Label>
-        <Row icon="building" title={t.settings.more.venuesTitle} sub={fmt(myVenues.length === 1 ? t.settings.more.venuesSubOne : t.settings.more.venuesSubMany, { n: myVenues.length })} onClick={() => nav.push('venueswitch')} />
 
         <div className="mt-[22px]">
           <Row

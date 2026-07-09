@@ -89,7 +89,7 @@ export async function getContacts(venueId: string, search?: string): Promise<Con
   }));
 }
 
-/** Permanent contacts only (the "Vaste" screen). */
+/** Permanent contacts only (the Guests tab's "Regulars" filter). */
 export async function getPermanentContacts(venueId: string): Promise<ContactRow[]> {
   return (await getContacts(venueId)).filter((c) => c.isPermanent);
 }

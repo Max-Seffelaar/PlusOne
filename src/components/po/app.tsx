@@ -40,8 +40,8 @@ import { Top } from './kit';
 import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
 import { useViewport } from './use-viewport';
 import { EventDaySkeleton } from '@/features/po/eventday/EventDaySkeleton';
-import { Crew, EventBeheer, EventEdit, EventView, Events, PastEvent, Tiers } from './screens/events';
-import { BulkPaste, Contacten, ContactProfile, GuestsTab, Lijst, QuickAdd, Vaste } from './screens/guests';
+import { Crew, EventEdit, EventView, Events, PastEvent, Tiers } from './screens/events';
+import { BulkPaste, Contacten, ContactProfile, GuestsTab, Lijst, QuickAdd } from './screens/guests';
 import { DoorEventPicker, PoDoorTab, type DoorOverlay } from './screens/door';
 import { Allowance, Billing, Gebruikers, Import, Meer, Profile, Rollen, VenueSettings, VenueSwitch } from './screens/settings';
 import { VenueCreate } from './screens/onboarding';
@@ -126,7 +126,7 @@ const EventDayCockpitGate = dynamic(
  *  full-bleed regardless. (S3.3) */
 const WIDE_DESKTOP = new Set([
   'start', 'events', 'guests', 'lijst', 'stats', 'audit', 'gebruikers',
-  'event', 'pastevent', 'eventbeheer', 'aanvragen', 'deur',
+  'event', 'pastevent', 'aanvragen', 'deur',
 ]);
 
 /** Shown while a pushed event/guest screen waits for its live row to load. */
@@ -524,9 +524,6 @@ export function PlusOneApp({
       case 'contactprofile':
         screen = <ContactProfile contactId={p.id} />;
         break;
-      case 'vaste':
-        screen = <Vaste />;
-        break;
       case 'rollen':
         screen = <Rollen />;
         break;
@@ -575,9 +572,6 @@ export function PlusOneApp({
       case 'allowance':
         screen = <Allowance />;
         break;
-      case 'eventbeheer':
-        screen = <EventBeheer />;
-        break;
       case 'stats':
         screen = <Stats />;
         break;
@@ -621,6 +615,7 @@ export function PlusOneApp({
     activeVenueId,
     switchToVenue,
     nav,
+    isMobile,
   };
 
   const body = (
@@ -643,10 +638,11 @@ export function PlusOneApp({
   // On mobile it stays under More: the bottom bar uses the fixed mobileTabs list.
   const canViewContacts = caps.viewSettings || canManageTemplates;
   const canViewStats = (statsAccess?.venues.length ?? 0) > 0;
-  // Venue-wide approval inbox in the desktop sidebar. Gated on admin — the
-  // reliable venue-level decider (organizers act per-event, finance is read-only).
-  // Everyone still reaches requests via Home's clickable tiles / per-event cards.
-  const canDecideRequests = roles.includes('admin');
+  // Venue-wide approval inbox: admin or an organizer-at-this-venue (M5, 8/7 —
+  // the same gate as the More hub's Requests row and Home's Requests/Quota
+  // tiles, so every entry point agrees on who reaches the inbox). Finance/staff
+  // get a read-only or own-status view once M1 (rechten-hygiëne) lands.
+  const canDecideRequests = roles.includes('admin') || canManageTemplates;
   const navItems: ShellNavItem[] = [
     { key: 'start', section: 'main', label: t.nav.home, icon: 'grid', active: currentKey === 'start', onClick: () => nav.setTab('start') },
     { key: 'events', section: 'main', label: t.nav.events, icon: 'cal', active: currentKey === 'events', onClick: () => nav.setTab('events') },

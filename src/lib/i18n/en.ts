@@ -42,7 +42,6 @@ export const en = {
     thisVenue: 'This venue',
     teamAccess: 'Team & access',
     insights: 'Insights',
-    switchVenue: 'Switch venue',
   },
   guestsTab: {
     empty: 'No events yet. Create an event to start a guest list.',

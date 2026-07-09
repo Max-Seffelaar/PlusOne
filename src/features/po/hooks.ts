@@ -756,7 +756,7 @@ export function usePoContacts(search = '') {
   });
 }
 
-/** Permanent contacts only (the "Vaste" screen) — derived from the unsearched list. */
+/** Permanent contacts only (the Guests tab's "Regulars" filter) — derived from the unsearched list. */
 export function usePoPermanentContacts() {
   const query = usePoContacts('');
   return { ...query, data: query.data?.filter((c) => c.vast) };

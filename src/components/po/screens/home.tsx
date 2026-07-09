@@ -20,7 +20,7 @@ import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
-import { usePoHomeEvents, usePoGuestRequests, usePoQuotaRequests, usePoProfile, useBillingBlocked } from '@/features/po/hooks';
+import { usePoHomeEvents, usePoGuestRequests, usePoQuotaRequests, usePoProfile, useBillingBlocked, usePoCanManageTemplates } from '@/features/po/hooks';
 import { isOpenGuestRequest } from '@/features/po/adapters';
 import { canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '../context';
@@ -400,6 +400,11 @@ export function Home(): JSX.Element {
   const isAdmin = roles.includes('admin');
   // Soft-block (#32 refinement): hide growth CTAs; the banner explains why.
   const billingLock = useBillingBlocked();
+  // Requests/Quota deep-links (M5, 8/7): same gate as the sidebar's Requests
+  // item and the More hub's Requests row (admin or an organizer-at-this-venue)
+  // — was "everyone" here, the third gate the audit flagged as inconsistent.
+  const canManageTemplates = usePoCanManageTemplates();
+  const canDecideRequests = isAdmin || canManageTemplates;
 
   const eventsQ = usePoHomeEvents();
   const guestReqQ = usePoGuestRequests();
@@ -583,15 +588,15 @@ export function Home(): JSX.Element {
               icon="inbox"
               label={t.home.pulseRequests}
               value={pulse.requests}
-              action={pulse.requests > 0}
-              onClick={() => nav.push('aanvragen', { tab: 'landing' })}
+              action={canDecideRequests && pulse.requests > 0}
+              onClick={canDecideRequests ? () => nav.push('aanvragen', { tab: 'landing' }) : undefined}
             />
             <PulseTile
               icon="ticket"
               label={t.home.pulseQuota}
               value={pulse.quota}
-              action={pulse.quota > 0}
-              onClick={() => nav.push('aanvragen', { tab: 'quota' })}
+              action={canDecideRequests && pulse.quota > 0}
+              onClick={canDecideRequests ? () => nav.push('aanvragen', { tab: 'quota' }) : undefined}
             />
             <PulseTile
               icon="spark"
@@ -647,7 +652,7 @@ export function Home(): JSX.Element {
                       showDoor={showDoor}
                       onOpen={() => nav.push('event', { id: e.id })}
                       onDoor={() => nav.openDoor(e.id)}
-                      onReq={(tab) => nav.push('aanvragen', { id: e.id, tab })}
+                      onReq={canDecideRequests ? (tab) => nav.push('aanvragen', { id: e.id, tab }) : undefined}
                       onEdit={() => nav.push('eventedit', { id: e.id })}
                       onLock={() => onLock(e)}
                     />
@@ -685,7 +690,7 @@ export function Home(): JSX.Element {
                     showDoor={false}
                     onOpen={() => nav.push('pastevent', { id: e.id })}
                     onDoor={() => nav.openDoor(e.id)}
-                    onReq={(tab) => nav.push('aanvragen', { id: e.id, tab })}
+                    onReq={canDecideRequests ? (tab) => nav.push('aanvragen', { id: e.id, tab }) : undefined}
                     onEdit={() => nav.push('eventedit', { id: e.id })}
                     onLock={() => onLock(e)}
                   />
