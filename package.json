@@ -14,6 +14,7 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "e2e": "playwright test",
+    "e2e:smoke": "playwright test tests/e2e/core-flow.spec.ts",
     "e2e:ui": "playwright test --ui",
     "db:reset": "supabase db reset",
     "db:fresh": "supabase db reset && node scripts/dev-mfa.mjs",

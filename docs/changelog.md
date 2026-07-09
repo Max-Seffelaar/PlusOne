@@ -90,6 +90,50 @@ inform from the runbook.
 - Sentry/Betterstack MCP auth wasn't available in this session — the skill is written
   so it degrades to CLI/dashboard pointers rather than assuming those connectors exist.
 
+## 2026-07-09 — Prod-ready 9/7 task 04: Playwright e2e smoke with DB-state assertions (STAP 4.3)
+
+The long-open e2e-kernflow gap (`docs/test-report.md` point 3; the old task 86exzefwq
+was marked complete but never built) is closed with ONE deliberately small spec, now
+blocking in CI (ClickUp `86ey7q6ze`).
+
+- **`tests/e2e/core-flow.spec.ts`** — dev-login as `admin@plusone.test` → create an
+  event on the Events tab → add a guest via quick-add (first tier created inline —
+  fresh events are tier-less) → check the guest in on `/door/[eventId]`. Every step
+  is asserted **directly in the database** via the service-role client, never via UI
+  text: event row at the right venue, guest row (`added_by` + `status`), `check_ins`
+  row (`checked_by` = session user), and the trigger-written `audit_log` rows
+  (`create` for the guest, `check_in` for the check-in, actor + event scoped). This
+  catches exactly the C15 class (UI says ok, RLS silently dropped the write) and C7
+  (audit silently missing). Passes locally in ~19s, re-run safe (unique names).
+- **CI (`.github/workflows/ci.yml`):** `supabase db start` → **`supabase start`**
+  (the smoke needs GoTrue for dev-login + PostgREST; config.toml keeps analytics/
+  edge-runtime off), then provision `.env.local` via `scripts/dev-env.mjs`, install
+  Chromium, and run the new **`pnpm e2e:smoke`** script. Playwright traces upload
+  as an artifact on failure. Only the smoke spec runs in CI (see gotcha below).
+- **`playwright.config.ts` fix:** the config waited on port 3000 while `pnpm dev`
+  (scripts/dev-env.mjs, added later) claims 7000/70xx — every e2e run would hang.
+  The webServer now pins `PORT=3000`.
+- **Consent gate gotcha:** first login on a fresh DB lands on `/consent` (terms +
+  privacy, #20/#40) before `/app` — the spec accepts it conditionally. Any future
+  e2e spec doing a first login needs the same step.
+- **Fresh-DB-only failures the first CI runs caught** (exactly the drift class
+  this smoke exists for — local runs were green both times):
+  1. **CI Node 20 → 22:** `supabase-js ≥2.108` needs native WebSocket — on Node
+     20 the client CONSTRUCTOR throws (`realtime-js` websocket-factory), hitting
+     the e2e helpers and any server-side client. Node ≥22 is now a CI given.
+  2. **MFA enroll nudge:** a fresh admin has no TOTP factor, so `/app` redirects
+     once to the skippable `/mfa/enroll` recommendation — the spec pre-sets
+     `user_profiles.mfa_snooze_until` in setup (no-op locally where dev:mfa
+     stamps a factor).
+  Also: a **CONFLICTING PR runs no Actions at all** (GitHub can't build the
+  merge ref → the `pull_request` workflow silently never starts — it looks like
+  CI is stuck; rebase first).
+- **Known debt (out of scope, deliberately):** the four pre-existing specs
+  (`door-offline`, `venue-dashboard`, `login`, `mfa-enroll`, …) predate the
+  English-UI migration and the `(app)`→`/app` surface unification (Dutch strings,
+  `/dashboard` waits, AAL2 expectations) and will fail if run — that's why CI runs
+  `e2e:smoke`, not `e2e`. Reviving or pruning them is its own task.
+
 ## 2026-07-09 — Tractie/Attio 9/7: program plan (discussion session, no code)
 
 Discussion session Max ↔ Claude on new-customer traction + Attio CRM. Output:
@@ -213,7 +257,6 @@ traces + release tracking, PII-scrubbed, EU-region, no session replay. ClickUp
   the plan's `plusone-guestlist`); the `next.config.js` fallback was corrected to
   match. Env from the Vercel integration wins on prod either way; the fallback
   only matters tokenless.
-
 ## 2026-07-09 — Prod-ready 9/7 task 05: Supabase Pro + restore drill + runbook
 
 Backups moved from "hope" to "tested plan" (ClickUp `86ey7q72b`). Max upgraded the

@@ -46,5 +46,8 @@ export default defineConfig({
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    // scripts/dev-env.mjs picks a per-worktree 70xx port unless PORT pins it —
+    // without this the server starts on 7000 while Playwright waits on 3000.
+    env: { PORT: String(PORT) },
   },
 });
