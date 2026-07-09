@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # pnpm dependencies. Update PRs are gated by the existing blocking CI
+  # (lint-and-test, branch protection on main) — a red update PR just doesn't
+  # merge, no separate gate needed.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      development-dependencies:
+        dependency-type: "development"
+      production-dependencies:
+        dependency-type: "production"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

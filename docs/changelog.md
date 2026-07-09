@@ -37,6 +37,22 @@ migration-path matching).
   `lint-and-test` required check on `main`) remains the actual backstop —
   these hooks exist to catch the mistake locally, before a PR round-trip.
 
+## 2026-07-09 — Prod-ready 9/7 — 09: uptime monitor + Dependabot
+
+- **`GET /api/health`** ([src/app/api/health/route.ts](../src/app/api/health/route.ts)) — public route (middleware
+  exempts `/api/health`), service-role round-trip against `venues` (head-only) so a hung
+  Postgres connection trips it too, not just a live Next.js process. 200 `{status:'ok'}` /
+  503 `{status:'error'}`.
+- **BetterStack** is the uptime monitor (chosen on alert quality, not MCP tooling) — dashboard
+  setup is external to code, runbook at `docs/uptime-setup.md` (1-minute HTTP check against
+  `/api/health`, push-to-phone alert policy). Not yet configured — Max does the one-time
+  dashboard signup.
+- **Dependabot** (`.github/dependabot.yml`): weekly npm + github-actions update PRs, grouped
+  by dev/prod dependency-type. No new gate needed — the existing blocking `lint-and-test`
+  branch protection already fails a red update PR closed.
+- CLAUDE.md: dropped the stale "Stripe webhook = the app's only API route" claim (billing
+  section) now that `/api/health` exists.
+
 ## 2026-07-09 — Prod-ready program start + scale fixes
 
 - **Prod-ready program (ClickUp "Prod-ready 9/7 —" 01–13, `86ey7q6vf`…`86ey7q7ev`).**
