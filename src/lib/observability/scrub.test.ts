@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Breadcrumb, ErrorEvent } from '@sentry/nextjs';
-import { scrubBreadcrumb, scrubEvent, scrubText } from './scrub';
+import type { Breadcrumb, ErrorEvent, Event } from '@sentry/nextjs';
+import { scrubBreadcrumb, scrubEvent, scrubText, scrubTransaction } from './scrub';
 
 // Minimal EventHint stand-in — scrubEvent ignores it (the param is `_hint`).
 const noHint = {} as never;
@@ -24,6 +24,18 @@ describe('scrubText', () => {
 
   it('leaves quota messages with short numbers untouched', () => {
     expect(scrubText('Quota vol: 2 van 2 gebruikt')).toBe('Quota vol: 2 van 2 gebruikt');
+  });
+
+  it('strips the query string from a URL (PostgREST name filter — the #1 breadcrumb leak)', () => {
+    expect(
+      scrubText('https://x.supabase.co/rest/v1/contacts?full_name=ilike.%Jan%20Jansen%&select=*'),
+    ).toBe('https://x.supabase.co/rest/v1/contacts?[filtered]');
+  });
+
+  it('leaves a URL without a query string untouched', () => {
+    expect(scrubText('GET https://x.supabase.co/rest/v1/contacts')).toBe(
+      'GET https://x.supabase.co/rest/v1/contacts',
+    );
   });
 });
 
@@ -52,6 +64,47 @@ describe('scrubEvent', () => {
     } as ErrorEvent;
     const out = scrubEvent(event, noHint);
     expect(out.breadcrumbs?.[0]?.message).toBe('looked up [email]');
+  });
+
+  it('strips a name filter from a fetch breadcrumb data.url and drops console breadcrumbs', () => {
+    const event = {
+      breadcrumbs: [
+        { category: 'fetch', data: { url: 'https://x.supabase.co/rest/v1/contacts?full_name=ilike.%Jan%' } },
+        { category: 'console', message: 'guest {full_name: Jan Jansen}' },
+      ],
+    } as unknown as ErrorEvent;
+    const out = scrubEvent(event, noHint);
+    // Console breadcrumb dropped; fetch survives with its query stripped.
+    expect(out.breadcrumbs).toHaveLength(1);
+    expect((out.breadcrumbs?.[0]?.data as { url: string }).url).toBe(
+      'https://x.supabase.co/rest/v1/contacts?[filtered]',
+    );
+  });
+
+  it('shallow-scrubs event.extra string values', () => {
+    const event = { extra: { note: 'contact jan@x.nl', count: 3 } } as unknown as ErrorEvent;
+    const out = scrubEvent(event, noHint);
+    expect(out.extra).toEqual({ note: 'contact [email]', count: 3 });
+  });
+});
+
+describe('scrubTransaction', () => {
+  it('deletes the request and scrubs span description + data URLs', () => {
+    const event = {
+      request: { url: 'https://x.supabase.co/rest/v1/contacts?full_name=ilike.%Jan%' },
+      spans: [
+        {
+          description: 'GET https://x.supabase.co/rest/v1/contacts?full_name=ilike.%Jan%',
+          data: { 'http.url': 'https://x.supabase.co/rest/v1/guests?email=eq.jan@x.nl' },
+        },
+      ],
+    } as unknown as Event;
+    const out = scrubTransaction(event, noHint);
+    expect(out.request).toBeUndefined();
+    expect(out.spans?.[0]?.description).toBe('GET https://x.supabase.co/rest/v1/contacts?[filtered]');
+    expect((out.spans?.[0]?.data as Record<string, string>)['http.url']).toBe(
+      'https://x.supabase.co/rest/v1/guests?[filtered]',
+    );
   });
 });
 

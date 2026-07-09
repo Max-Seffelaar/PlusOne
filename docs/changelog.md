@@ -8,6 +8,41 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-09 — Prod-ready 9/7 task 08: Sentry review-gate fixes
+
+Fresh-session `/code-review` + `/security-review` on PR #155 found the scrub layer
+covered only `.message` fields while PII rides four vectors. All findings were
+verified against real code paths, not the PR's comments. Fixes (same PR):
+
+- **[blocking] Breadcrumb `data.url` leak.** A contact/guest name search runs over
+  the BROWSER Supabase client (`fetchContacts` → `.ilike('full_name', '%Jan%')`),
+  so the name lands in a fetch-breadcrumb `data.url` — which `scrubEvent` never
+  touched (it mapped only `breadcrumb.message`). `scrub.ts` now strips query
+  strings from any http(s) URL (`URL_QUERY_RE` in `scrubText`) and shallow-scrubs
+  `breadcrumb.data` / `span.data` string values (`scrubData`). **Verified live via
+  the MCP:** a real fetch breadcrumb arrived as `…/contacts?[filtered]` — the name
+  never reached Sentry.
+- **[should-fix] Transactions bypassed the scrub.** `beforeSend` runs on errors
+  only; the 0.05 prod trace sample shipped span URLs unscrubbed. Added
+  `beforeSendTransaction: scrubTransaction` (deletes `request`, scrubs span
+  description + data URLs) to all three configs. Generic over `Event` because
+  `@sentry/nextjs` doesn't re-export `TransactionEvent`.
+- **[should-fix] Server/edge dropped no console breadcrumbs.** Only the client had
+  `beforeBreadcrumb`; a server `console.error('…', guestObj)` could ride along.
+  Added `beforeBreadcrumb: scrubBreadcrumb` to `sentry.server.config.ts` +
+  `sentry.edge.config.ts`.
+- **[should-fix] Middleware matcher prefix-bypass.** `monitoring` in the negative
+  lookahead excluded any `/monitoring*` path — a future `/monitoring-dashboard`
+  would skip auth entirely. Tightened to `monitoring(?:/|$)`. **Verified:**
+  `/monitoring` still tunnels (401, not redirected), `/monitoring-dashboard` now
+  307s to `/login`.
+- **[nit] `sentry-test` server action** now returns early in prod (the action id
+  survives the bundle even though the page 404s); scrub header comment corrected
+  to stop overclaiming (`extra`/`contexts` are backstop-only shallow-scrubbed).
+
+Suites: Vitest 650/650 (was 645; +5 scrub cases), type-check + lint clean, build
+passes tokenless. Test issues resolved; DSN removed from `.env.local`.
+
 ## 2026-07-09 — Prod-ready 9/7 task 08: Sentry error monitoring (code)
 
 Implemented `sentry-implementatieplan.md` phases 1–6 (all code) for

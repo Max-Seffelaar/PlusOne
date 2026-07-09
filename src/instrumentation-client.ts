@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/nextjs';
-import { scrubEvent, scrubBreadcrumb } from '@/lib/observability/scrub';
+import { scrubEvent, scrubBreadcrumb, scrubTransaction } from '@/lib/observability/scrub';
 
 const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
 const environment =
@@ -16,6 +16,7 @@ Sentry.init({
   // Door page is offline-first: queue envelopes in IndexedDB, flush on reconnect.
   transport: Sentry.makeBrowserOfflineTransport(Sentry.makeFetchTransport),
   beforeSend: scrubEvent,
+  beforeSendTransaction: scrubTransaction,
   beforeBreadcrumb: scrubBreadcrumb,
   // NO replayIntegration — see "Replay als v2-optie" (AVG).
 });
