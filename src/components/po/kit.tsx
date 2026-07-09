@@ -305,9 +305,24 @@ export function Top({
   );
 }
 
-export function IconBtn({ name, onClick }: { name: IconName; onClick?: () => void }): JSX.Element {
+export function IconBtn({
+  name,
+  onClick,
+  ariaLabel,
+}: {
+  name: IconName;
+  onClick?: () => void;
+  /** Accessible name (also shown as a hover tooltip) for icon-only buttons with no visible label. */
+  ariaLabel?: string;
+}): JSX.Element {
   return (
-    <button type="button" onClick={onClick} className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text', press)}>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={ariaLabel}
+      title={ariaLabel}
+      className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text', press)}
+    >
       <Icon name={name} size={19} />
     </button>
   );

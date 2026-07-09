@@ -95,4 +95,12 @@ export const shared = {
     searchAria: 'Search a country',
     empty: 'No country found',
   },
+
+  // ── Check-in status filter chips — shared by door.ts + cockpit.ts (the door
+  //    PWA and the desktop Event-day cockpit filter the same three states) ───
+  checkinFilters: {
+    all: 'All',
+    onTheWay: 'On the way',
+    inside: 'Inside',
+  },
 } as const;

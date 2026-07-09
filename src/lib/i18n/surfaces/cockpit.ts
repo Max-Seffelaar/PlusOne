@@ -8,6 +8,8 @@
  * Composed into the central dictionary (`../en.ts`) — read as `t.cockpit.<key>`,
  * fill {placeholders} with `fmt`.
  */
+import { shared } from './shared';
+
 export const cockpit = {
   // ── Entry gate (EventDayCockpitGate) ─────────────────────────────────────
   pickEventTitle: 'Pick the event',
@@ -51,9 +53,10 @@ export const cockpit = {
   searchCheckIn: 'Quick check-in. Type a name and press Enter…',
   searchPlaceholder: 'Search a guest…',
   clearAria: 'Clear',
-  filterAll: 'All',
-  filterOnTheWay: 'On the way',
-  filterInside: 'Inside',
+  // Shared with door.ts (t.door.filter*) — one source of truth.
+  filterAll: shared.checkinFilters.all,
+  filterOnTheWay: shared.checkinFilters.onTheWay,
+  filterInside: shared.checkinFilters.inside,
   allTiers: 'All tiers',
   colGuest: 'Guest',
   colTier: 'Tier',

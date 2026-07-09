@@ -200,6 +200,49 @@ describe('describeAuditEntry', () => {
   it('falls back to "System" for a null actor', () => {
     expect(describeAuditEntry(row({ actor_name: null })).actor).toBe('System');
   });
+
+  it('describes request_links actions (W3)', () => {
+    const created = describeAuditEntry(
+      row({
+        entity_type: 'request_links',
+        action: 'create',
+        guest_name: null,
+        diff: { before: null, after: { label: 'Instagram bio' } },
+      })
+    );
+    expect(created.text).toBe('created the request link "Instagram bio"');
+    expect(created.entity).toBe('Instagram bio');
+
+    const createdDefault = describeAuditEntry(
+      row({
+        entity_type: 'request_links',
+        action: 'create',
+        guest_name: null,
+        diff: { before: null, after: { label: null, is_default: true } },
+      })
+    );
+    expect(createdDefault.text).toBe('created a request link');
+
+    const paused = describeAuditEntry(
+      row({
+        entity_type: 'request_links',
+        action: 'update',
+        guest_name: null,
+        diff: { before: { active: true, label: 'Instagram bio' }, after: { active: false, label: 'Instagram bio' } },
+      })
+    );
+    expect(paused.text).toBe('paused the request link "Instagram bio"');
+
+    const archived = describeAuditEntry(
+      row({
+        entity_type: 'request_links',
+        action: 'update',
+        guest_name: null,
+        diff: { before: { archived_at: null }, after: { archived_at: '2026-07-09T21:00:00Z' } },
+      })
+    );
+    expect(archived.text).toBe('archived a request link');
+  });
 });
 
 describe('formatWhen', () => {

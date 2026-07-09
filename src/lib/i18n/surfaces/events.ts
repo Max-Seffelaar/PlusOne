@@ -229,7 +229,7 @@ export const events = {
   activityPpl: 'reg',
   activityIn: 'in',
   activityInShort: 'in',
-  activityAddedPpl: '({n} ppl)',
+  activityAddedPpl: ' ({n} ppl)',
 
   // ── Events & tiers hub ──────────────────────────────────────────────────────
   hubTitle: 'Events & tiers',

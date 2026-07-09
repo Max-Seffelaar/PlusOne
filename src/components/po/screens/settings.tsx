@@ -261,7 +261,7 @@ export function Meer(): JSX.Element {
           <Row icon="upload" title={t.settings.more.importTitle} sub={t.settings.more.importSub} onClick={() => nav.push('import')} />
         )}
         {caps.viewSettings && (
-          <Row icon="spark" title={t.settings.more.billingTitle} sub={billingSub} onClick={() => nav.push('billing')} accent right={<Icon name="chev" size={18} className="text-ghost" />} />
+          <Row icon="card" title={t.settings.more.billingTitle} sub={billingSub} onClick={() => nav.push('billing')} accent right={<Icon name="chev" size={18} className="text-ghost" />} />
         )}
 
         {teamAny && <Label className="mb-1 mt-[22px]">{t.sections.teamAccess}</Label>}

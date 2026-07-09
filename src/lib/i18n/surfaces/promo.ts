@@ -23,7 +23,7 @@ export const promo = {
   convLinks: '{n} links on this event',
 
   // ── Section 1 — leaderboard ─────────────────────────────────────────────────
-  deliversKicker: 'Section 1',
+  deliversKicker: 'Leaderboard',
   deliversTitle: 'Who actually delivers',
   deliversSub: 'Ranked by checked-in headcount, across every event',
   range30: '30 days',
@@ -43,13 +43,13 @@ export const promo = {
   pageNextAria: 'Next page',
 
   // ── Section 1 · unattributed — label-only links ─────────────────────────────
-  noInfKicker: 'Section 1 · unattributed',
+  noInfKicker: 'Unattributed',
   noInfTitle: 'No influencer',
   noInfSub: 'Label-only links you shared yourself',
   labelOnlySub: 'Label-only link',
 
   // ── Section 2 — per-event funnel ────────────────────────────────────────────
-  perEventKicker: 'Section 2',
+  perEventKicker: 'Per event',
   perEventTitle: 'Per-event funnel',
   perEventSub: 'Every request link on {event}',
   newLink: 'New link',

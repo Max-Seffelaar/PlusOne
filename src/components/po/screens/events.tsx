@@ -240,7 +240,7 @@ export function EventView({ id }: { id?: string }): JSX.Element {
   return (
     <div className={col}>
       {/* Feedback Joeri: the "dots" icon was unreadable — use a clear settings/edit cog. */}
-      <Top onBack={nav.back} title={ev.name} sub={`${ev.venue} · ${ev.date} ${ev.mon}`} right={<IconBtn name="cog" onClick={() => nav.push('eventedit', { id: ev.id })} />} />
+      <Top onBack={nav.back} title={ev.name} sub={`${ev.venue} · ${ev.date} ${ev.mon}`} right={<IconBtn name="cog" ariaLabel={t.events.editTitle} onClick={() => nav.push('eventedit', { id: ev.id })} />} />
       <Scroll bottom={28}>
         {needsSetup && (
           <div className="mb-3 rounded-[18px] border bg-elev p-4" style={{ borderColor: 'rgba(181,166,255,0.4)' }}>
