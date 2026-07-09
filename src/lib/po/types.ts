@@ -202,7 +202,12 @@ export interface Invoice {
 export interface RecapGuest {
   name: string;
   plus: number;
+  /** Kept for the avatar accent (VIP-ish) only — the badge renders the real tier. */
   role: Role;
+  /** Real tier name (guest_tiers.name) — the role badge is lossy, this isn't. */
+  tierName?: string;
+  /** The tier's color (guest_tiers.color) — drives the door-style tier pill. */
+  tierColor?: string;
   at?: string;
   by?: string;
 }

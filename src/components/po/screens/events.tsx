@@ -53,8 +53,9 @@ import { TIER_COLORS, nextAvailableColor, allColorsUsed } from '@/lib/po/tier-co
 import { useNav } from '../context';
 import { DateField, TimeField } from '../datetime-field';
 import { Icon } from '../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, RoleChip, Scroll, ToggleRow, Top } from '../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, Scroll, ToggleRow, Top } from '../kit';
 import { BottomBar, Sheet } from '../shell';
+import { TierPill } from './guests/_shared';
 
 const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
@@ -1764,7 +1765,7 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
                     {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
                   </div>
                   <div className="mt-1">
-                    <RoleChip role={g.role} />
+                    <TierPill name={g.tierName} color={g.tierColor} fallback={g.role} />
                   </div>
                 </div>
                 <span className="inline-flex items-center gap-1.5 font-display text-[13px] font-bold text-acc">

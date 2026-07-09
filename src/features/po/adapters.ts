@@ -253,6 +253,8 @@ export function toRecapGuest(g: RecapGuestRow): RecapGuest {
     name: g.full_name,
     plus: g.plus_ones,
     role: tierRole(g.tierName ?? ''),
+    tierName: g.tierName ?? undefined,
+    tierColor: g.tierColor ?? undefined,
     at: g.checkedAt ? formatClock(g.checkedAt) : undefined,
     by: g.addedByName ?? undefined,
   };

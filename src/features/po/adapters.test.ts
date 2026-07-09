@@ -298,31 +298,43 @@ describe('toPoTier', () => {
 });
 
 describe('toRecapGuest', () => {
-  it('maps role from the tier, check-in time, and who-added', () => {
+  it('maps role from the tier, check-in time, and who-added, and carries the real tier name/color', () => {
     const g = toRecapGuest({
       id: 'g1',
       full_name: 'Anouk Smit',
       plus_ones: 2,
       status: 'checked_in',
       tierName: 'VIP — fles op tafel',
+      tierColor: '#FFD700',
       addedByName: 'Max',
       checkedAt: '2024-11-09T22:14:00Z',
     });
-    expect(g).toEqual({ name: 'Anouk Smit', plus: 2, role: 'VIP', at: expect.any(String), by: 'Max' });
+    expect(g).toEqual({
+      name: 'Anouk Smit',
+      plus: 2,
+      role: 'VIP',
+      tierName: 'VIP — fles op tafel',
+      tierColor: '#FFD700',
+      at: expect.any(String),
+      by: 'Max',
+    });
   });
 
-  it('leaves time/by undefined and defaults the role to Guest when unknown', () => {
+  it('leaves time/by/tier undefined and defaults the role to Guest when unknown', () => {
     const g = toRecapGuest({
       id: 'g2',
       full_name: 'Bram Jansen',
       plus_ones: 0,
       status: 'approved',
       tierName: null,
+      tierColor: null,
       addedByName: null,
       checkedAt: null,
     });
     expect(g.at).toBeUndefined();
     expect(g.by).toBeUndefined();
+    expect(g.tierName).toBeUndefined();
+    expect(g.tierColor).toBeUndefined();
     expect(g.role).toBe('Guest');
   });
 });
@@ -340,9 +352,9 @@ describe('toRecap', () => {
     registered_headcount: 7,
   };
   const guests: RecapGuestRow[] = [
-    { id: 'a', full_name: 'Late Arrival', plus_ones: 1, status: 'checked_in', tierName: 'VIP', addedByName: 'Max', checkedAt: '2024-11-09T23:50:00Z' },
-    { id: 'b', full_name: 'Early Arrival', plus_ones: 0, status: 'checked_in', tierName: 'Crew', addedByName: 'Sanne', checkedAt: '2024-11-09T22:10:00Z' },
-    { id: 'c', full_name: 'No Show', plus_ones: 0, status: 'approved', tierName: 'Regular', addedByName: 'Joris', checkedAt: null },
+    { id: 'a', full_name: 'Late Arrival', plus_ones: 1, status: 'checked_in', tierName: 'VIP', tierColor: '#FFD700', addedByName: 'Max', checkedAt: '2024-11-09T23:50:00Z' },
+    { id: 'b', full_name: 'Early Arrival', plus_ones: 0, status: 'checked_in', tierName: 'Crew', tierColor: '#B5A6FF', addedByName: 'Sanne', checkedAt: '2024-11-09T22:10:00Z' },
+    { id: 'c', full_name: 'No Show', plus_ones: 0, status: 'approved', tierName: 'Regular', tierColor: null, addedByName: 'Joris', checkedAt: null },
   ];
   const tiers: TierStat[] = [
     { color: '#B5A6FF', present: 2, present_headcount: 5, registered: 3, registered_headcount: 7, tier_id: 't1', tier_name: 'VIP' },
