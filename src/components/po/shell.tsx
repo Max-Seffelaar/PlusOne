@@ -10,6 +10,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import { Icon, type IconName } from './icon';
+import { Btn } from './kit';
 
 export type TabKey = 'start' | 'events' | 'guests' | 'deur' | 'meer';
 
@@ -114,6 +115,70 @@ export function Sheet({ onClose, children, center = true }: { onClose: () => voi
         {children}
       </div>
     </div>
+  );
+}
+
+/**
+ * FE-4: the "title + body + 2 buttons" confirm-dialog skeleton reinvented as
+ * `ForgetConfirmSheet`/`PermanentConfirmSheet` (guests/profile.tsx) — the icon
+ * badge + title header and the confirm/cancel button pair are identical each
+ * time, so those are the ONLY parts this owns; everything between (body copy,
+ * a Note, an error line) stays screen-specific via `children`.
+ */
+export function ConfirmSheet({
+  icon,
+  iconFilled,
+  tone = 'accent',
+  title,
+  children,
+  confirmLabel,
+  confirmIcon,
+  confirmDisabled,
+  onConfirm,
+  cancelLabel,
+  onClose,
+}: {
+  icon: IconName;
+  /** Solid fill instead of outline (e.g. the "make permanent" star). */
+  iconFilled?: boolean;
+  tone?: 'accent' | 'danger';
+  title: ReactNode;
+  children?: ReactNode;
+  confirmLabel: ReactNode;
+  confirmIcon?: IconName;
+  confirmDisabled?: boolean;
+  onConfirm: () => void;
+  cancelLabel: string;
+  onClose: () => void;
+}): JSX.Element {
+  return (
+    <Sheet onClose={onClose} center={false}>
+      <div className="mb-3 flex items-center gap-[12px]">
+        <span
+          className={cn(
+            'flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-[13px]',
+            tone === 'danger' ? 'bg-red-500/15 text-red-300' : 'bg-acc-dim text-acc',
+          )}
+        >
+          <Icon name={icon} size={22} stroke="currentColor" fill={iconFilled ? 'currentColor' : 'none'} />
+        </span>
+        <div className="font-display text-[18px] font-bold text-text">{title}</div>
+      </div>
+      {children}
+      <Btn
+        full
+        kind={tone === 'danger' ? 'danger' : 'primary'}
+        icon={confirmIcon ?? icon}
+        className={cn('mt-4', tone === 'danger' && 'disabled:opacity-60')}
+        disabled={confirmDisabled}
+        onClick={onConfirm}
+      >
+        {confirmLabel}
+      </Btn>
+      <Btn full kind="ghost" className="mt-2" onClick={onClose}>
+        {cancelLabel}
+      </Btn>
+    </Sheet>
   );
 }
 

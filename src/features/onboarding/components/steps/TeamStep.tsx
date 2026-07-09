@@ -7,12 +7,10 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { Field, Label, Note, Btn } from '@/components/po/kit';
+import { Field, Label, Note, Btn, press } from '@/components/po/kit';
 import { inviteUserAction } from '@/features/auth/invite-actions';
 import { completeOnboardingAction } from '@/features/billing/actions';
 import { WizardShell, WizardPanel } from '../WizardShell';
-
-const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 
 type Role = 'user_manager' | 'staff';
 interface Row {

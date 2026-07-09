@@ -10,36 +10,10 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import { Icon } from '@/components/po/icon';
-import { Avatar, Label, Scroll, Top } from '@/components/po/kit';
+import { Avatar, Label, Scroll, Top, Seg, press } from '@/components/po/kit';
 import { useDoor } from '../DoorProvider';
 
-const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 type Filter = 'open' | 'done' | 'all';
-
-function Seg({ value, onChange }: { value: Filter; onChange: (v: Filter) => void }): JSX.Element {
-  const items: [Filter, string][] = [
-    ['open', t.door.tasksFilterOpen],
-    ['done', t.door.tasksFilterDone],
-    ['all', t.door.tasksFilterAll],
-  ];
-  return (
-    <div className="flex flex-none gap-1.5 px-5 pb-[14px]">
-      {items.map(([k, l]) => (
-        <button
-          key={k}
-          type="button"
-          onClick={() => onChange(k)}
-          className={cn(
-            'flex-1 cursor-pointer rounded-full border py-[9px] font-display text-[13px] font-bold transition-[filter] hover:brightness-[1.07]',
-            value === k ? 'border-transparent bg-text text-bg' : 'border-line bg-transparent text-dim',
-          )}
-        >
-          {l}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 export function Taken({ onOpenGuest }: { onOpenGuest: (id: string) => void }): JSX.Element {
   const { tasks, ackNote } = useDoor();
@@ -78,7 +52,16 @@ export function Taken({ onOpenGuest }: { onOpenGuest: (id: string) => void }): J
           <div className="text-[12px] text-faint">{t.door.tasksStatDone}</div>
         </div>
       </div>
-      <Seg value={f} onChange={setF} />
+      <Seg
+        value={f}
+        onChange={setF}
+        items={[
+          ['open', t.door.tasksFilterOpen],
+          ['done', t.door.tasksFilterDone],
+          ['all', t.door.tasksFilterAll],
+        ]}
+        className="flex-none px-5 pb-[14px]"
+      />
       <Scroll pad={20} bottom={100}>
         <div className="flex flex-col gap-[9px]">
           {list.map(({ guest, high, done }) => (

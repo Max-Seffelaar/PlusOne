@@ -64,7 +64,7 @@ import PhoneInput from 'react-phone-number-input/input';
 import { parsePhoneNumber } from 'react-phone-number-input';
 import { clearNavState, useNav, usePo } from '../context';
 import { Icon, type IconName } from '../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Row, Scroll, ToggleRow, Top } from '../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Row, Scroll, ToggleRow, Top, press, cardPress } from '../kit';
 import { BottomBar, Sheet } from '../shell';
 import { CountrySelect, type CountryCode } from '../country-select';
 import { armRegularsFilter } from './guests';
@@ -75,8 +75,6 @@ function countryFromE164(phone: string | null | undefined): CountryCode {
   catch { return 'NL'; }
 }
 
-const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
-const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
 const col = 'flex h-full flex-col';
 const iconSm = 'flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border border-line text-faint';
 

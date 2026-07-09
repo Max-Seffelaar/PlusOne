@@ -14,8 +14,7 @@ import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { Icon, type IconName } from '@/components/po/icon';
-import { Avatar, Label } from '@/components/po/kit';
-import { DBtn, DCard } from '@/components/po/desktop/kit';
+import { Avatar, Label, Btn, Card, pressDesktop } from '@/components/po/kit';
 import { canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '@/components/po/context';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
@@ -59,7 +58,7 @@ import {
   type StatusFilter,
 } from './cockpit';
 
-const press = 'transition-[filter,transform,background,border-color,color] hover:brightness-[1.08] active:scale-[0.985]';
+const press = pressDesktop;
 const DENY_REASON = t.cockpit.denyReason;
 const EMPTY_ARRIVALS: ReadonlyMap<string, { arrived: number; at: string }> = new Map();
 // Stable fallbacks so the memoized computations don't recompute every render
@@ -107,7 +106,7 @@ export function EventDayCockpitGate({
   }
 
   if (candidates.length > 1) {
-    // No DCard wrapper: the picker renders the shared Home event cards (their own
+    // No Card wrapper: the picker renders the shared Home event cards (their own
     // card chrome) — nesting them inside another card doubles the borders.
     return (
       <DoorEventPicker
@@ -120,7 +119,7 @@ export function EventDayCockpitGate({
   }
 
   return (
-    <DCard className="flex flex-col items-center gap-3 px-6 py-16 text-center">
+    <Card className="flex flex-col items-center gap-3 px-6 py-16 text-center">
       <span className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-line bg-elev2 text-faint">
         <Icon name="door" size={22} />
       </span>
@@ -128,7 +127,7 @@ export function EventDayCockpitGate({
       <div className="max-w-sm text-[13.5px] text-faint">
         {t.cockpit.noLiveEventSub}
       </div>
-    </DCard>
+    </Card>
   );
 }
 
@@ -327,14 +326,14 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {onChangeEvent && (
-            <DBtn kind="ghost" icon="cal" onClick={onChangeEvent}>
+            <Btn desktop kind="ghost" icon="cal" onClick={onChangeEvent}>
               {t.cockpit.switchEvent}
-            </DBtn>
+            </Btn>
           )}
           {canCheckIn && (
-            <DBtn icon="plus" onClick={() => nav.push('quickadd', { id: eventId })}>
+            <Btn desktop icon="plus" onClick={() => nav.push('quickadd', { id: eventId })}>
               {t.events.addGuest}
-            </DBtn>
+            </Btn>
           )}
         </div>
       </div>
@@ -421,7 +420,7 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
       {/* main grid */}
       <div className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] items-start gap-4">
         {/* cockpit list */}
-        <DCard className="overflow-hidden p-0">
+        <Card className="overflow-hidden p-0">
           <div className="flex flex-col gap-[13px] border-b border-line2 p-[18px]">
             <div className="flex flex-wrap items-center gap-[10px]">
               <div className="inline-flex min-w-[240px] flex-1 items-center gap-[9px] rounded-[12px] border border-line bg-bg px-[14px] py-[11px]">
@@ -516,12 +515,12 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
               </span>
             )}
           </div>
-        </DCard>
+        </Card>
 
         {/* right column */}
         <div className="flex flex-col gap-4">
           {canManage && (
-            <DCard className="p-[22px]">
+            <Card className="p-[22px]">
               <div className="mb-1 flex items-center justify-between">
                 <div className="font-display text-[17px] font-bold text-text">{t.cockpit.approvalsTitle}</div>
                 {openReqs > 0 && (
@@ -596,15 +595,15 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                   )}
                 </div>
               )}
-            </DCard>
+            </Card>
           )}
 
           {/* aanwezig per tier */}
-          <DCard className="p-[22px]">
+          <Card className="p-[22px]">
             <div className="mb-1 font-display text-[17px] font-bold text-text">{t.cockpit.perTierTitle}</div>
             <div className="mb-[18px] text-[12.5px] text-faint">{t.cockpit.perTierSub}</div>
             <PerTierBars rows={tierRows} />
-          </DCard>
+          </Card>
 
           {/* instroom per kwartier */}
           {canSeeStats && <KwartierCard perKwartier={stats?.perKwartier ?? []} />}
@@ -679,12 +678,12 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                 </div>
                 <div className="mt-3 text-center text-[12.5px] text-faint">{confirmLine}</div>
                 <div className="mt-4 flex gap-2">
-                  <DBtn kind="ghost" className="flex-1 justify-center" onClick={() => setModal(null)}>
+                  <Btn desktop kind="ghost" className="flex-1 justify-center" onClick={() => setModal(null)}>
                     {t.cockpit.modalCancel}
-                  </DBtn>
-                  <DBtn kind={isOut ? 'dark' : undefined} className="flex-1 justify-center" onClick={confirmModal}>
+                  </Btn>
+                  <Btn desktop kind={isOut ? 'dark' : undefined} className="flex-1 justify-center" onClick={confirmModal}>
                     {confirmBtn}
-                  </DBtn>
+                  </Btn>
                 </div>
               </div>
             </div>
@@ -861,7 +860,7 @@ function LiveClock(): JSX.Element {
 
 function Tile({ v, l, s, accent }: { v: string | number; l: string; s: string; accent?: boolean }): JSX.Element {
   return (
-    <DCard className="p-[18px]">
+    <Card className="p-[18px]">
       <div
         className={cn(
           'font-display text-[34px] font-extrabold leading-none tabular-nums tracking-[-0.02em]',
@@ -872,7 +871,7 @@ function Tile({ v, l, s, accent }: { v: string | number; l: string; s: string; a
       </div>
       <div className="mt-3 text-[14px] font-semibold text-text">{l}</div>
       <div className="mt-0.5 text-[12.5px] text-faint">{s}</div>
-    </DCard>
+    </Card>
   );
 }
 
@@ -1016,7 +1015,7 @@ function KwartierCard({ perKwartier }: { perKwartier: { t: string; n: number }[]
   const curIdx = currentBucketIndex(perKwartier, now);
 
   return (
-    <DCard className="p-[22px]">
+    <Card className="p-[22px]">
       <div className="mb-[18px] flex items-start justify-between">
         <div>
           <div className="font-display text-[17px] font-bold text-text">{t.cockpit.arrivalsTitle}</div>
@@ -1060,6 +1059,6 @@ function KwartierCard({ perKwartier }: { perKwartier: { t: string; n: number }[]
           })}
         </div>
       )}
-    </DCard>
+    </Card>
   );
 }

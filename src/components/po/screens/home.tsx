@@ -25,13 +25,12 @@ import { isOpenGuestRequest } from '@/features/po/adapters';
 import { canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '../context';
 import { Icon, type IconName } from '../icon';
-import { Btn, Note, Scroll } from '../kit';
+import { Btn, Note, Scroll, press } from '../kit';
 import { Sheet, Toast } from '../shell';
 import { PendingInvitesBanner } from '../pending-invites-banner';
 import { EventRow, StatusChip, toBoardEvents, type BoardEvent } from '../event-row';
 
 const TZ = 'Europe/Amsterdam';
-const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 const PAGE_SIZE = 7;
 
 /** Current hour in the product TZ (#26) — stable across SSR/CSR. */

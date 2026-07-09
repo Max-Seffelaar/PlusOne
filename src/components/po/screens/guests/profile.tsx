@@ -23,7 +23,7 @@ import { Icon, type IconName } from '../../icon';
 import PhoneInput from 'react-phone-number-input/input';
 import { isValidPhoneNumber, parsePhoneNumber } from 'react-phone-number-input';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, RoleChip, Scroll, Stepper, Top } from '../../kit';
-import { Sheet, Toast } from '../../shell';
+import { ConfirmSheet, Sheet, Toast } from '../../shell';
 import { CountrySelect, type CountryCode } from '../../country-select';
 import { NoTiersBlock, TierPill, press, col } from './_shared';
 import { useGuestSelection, BulkAddToEventSheet, type BulkAddCandidate } from './bulk-add';
@@ -811,15 +811,17 @@ function ForgetConfirmSheet({ contact, onClose }: { contact: PoContact; onClose:
   };
 
   return (
-    <Sheet onClose={onClose} center={false}>
-      <div className="mb-3 flex items-center gap-[12px]">
-        <span className="flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-[13px] bg-red-500/15 text-red-300">
-          <Icon name="warn" size={22} stroke="currentColor" />
-        </span>
-        <div className="font-display text-[18px] font-bold text-text">
-          {fmt(t.guests.contacts.forgetTitle, { name: contact.name })}
-        </div>
-      </div>
+    <ConfirmSheet
+      icon="warn"
+      tone="danger"
+      title={fmt(t.guests.contacts.forgetTitle, { name: contact.name })}
+      confirmIcon="shield"
+      confirmLabel={forget.isPending ? t.guests.contacts.forgetBusy : t.guests.contacts.forgetConfirm}
+      confirmDisabled={forget.isPending}
+      onConfirm={run}
+      cancelLabel={t.guests.contacts.cancel}
+      onClose={onClose}
+    >
       <p className="text-[13px] leading-[1.5] text-dim">
         {fmt(t.guests.contacts.forgetBody, { name: contact.name })}
       </p>
@@ -830,22 +832,7 @@ function ForgetConfirmSheet({ contact, onClose }: { contact: PoContact; onClose:
           {err}
         </p>
       )}
-      <button
-        type="button"
-        onClick={run}
-        disabled={forget.isPending}
-        className={cn(
-          'mt-4 flex w-full items-center justify-center gap-2 rounded-[14px] bg-red-500/90 py-[13px] font-display text-[14.5px] font-bold text-white disabled:opacity-60',
-          press,
-        )}
-      >
-        <Icon name="shield" size={17} stroke="currentColor" />
-        {forget.isPending ? t.guests.contacts.forgetBusy : t.guests.contacts.forgetConfirm}
-      </button>
-      <Btn kind="ghost" full className="mt-2" onClick={onClose}>
-        {t.guests.contacts.cancel}
-      </Btn>
-    </Sheet>
+    </ConfirmSheet>
   );
 }
 
@@ -853,23 +840,20 @@ function ForgetConfirmSheet({ contact, onClose }: { contact: PoContact; onClose:
 function PermanentConfirmSheet({ contact, onClose }: { contact: PoContact; onClose: () => void }): JSX.Element {
   const toggle = usePoToggleContactPermanent();
   return (
-    <Sheet onClose={onClose} center={false}>
-      <div className="mb-3 flex items-center gap-[12px]">
-        <span className="flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-[13px] bg-acc-dim text-acc">
-          <Icon name="star" size={22} stroke="#B5A6FF" fill="#B5A6FF" />
-        </span>
-        <div className="font-display text-[18px] font-bold text-text">{fmt(t.guests.contacts.makeRegularTitle, { name: contact.name })}</div>
-      </div>
+    <ConfirmSheet
+      icon="star"
+      iconFilled
+      title={fmt(t.guests.contacts.makeRegularTitle, { name: contact.name })}
+      confirmLabel={toggle.isPending ? t.guests.contacts.makeRegularBusy : t.guests.contacts.makeRegularConfirm}
+      confirmDisabled={toggle.isPending}
+      onConfirm={() => toggle.mutate({ contactId: contact.id, isPermanent: true }, { onSuccess: onClose })}
+      cancelLabel={t.guests.contacts.cancel}
+      onClose={onClose}
+    >
       <Note icon="star">
         <b>{contact.name}</b> {fmt(t.guests.contacts.makeRegularNote, { new: t.guests.contacts.makeRegularNoteNew })}
       </Note>
-      <Btn full kind="primary" icon="star" className="mt-1" disabled={toggle.isPending} onClick={() => toggle.mutate({ contactId: contact.id, isPermanent: true }, { onSuccess: onClose })}>
-        {toggle.isPending ? t.guests.contacts.makeRegularBusy : t.guests.contacts.makeRegularConfirm}
-      </Btn>
-      <Btn full kind="ghost" className="mt-2" onClick={onClose}>
-        {t.guests.contacts.cancel}
-      </Btn>
-    </Sheet>
+    </ConfirmSheet>
   );
 }
 
