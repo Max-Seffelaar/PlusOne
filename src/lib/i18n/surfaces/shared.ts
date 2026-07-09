@@ -45,21 +45,6 @@ export const shared = {
     stageHint: 'Click through the flow. Type a name at Check-in.',
   },
 
-  // ── Desktop kit — audit action chips (desktop/kit.tsx) ────────────────────
-  actions: {
-    checkIn: 'Check-in',
-    refuse: 'Refusal',
-    tier: 'Tier',
-    lock: 'Lock',
-    unlock: 'Unlock',
-    quota: 'Quota',
-    create: 'Added',
-    delete: 'Removed',
-    approve: 'Approved',
-    deny: 'Denied',
-    update: 'Change',
-  },
-
   // ── In-app MFA step-up sheet (mfa-gate.tsx) ───────────────────────────────
   mfaGate: {
     title: 'Two-factor',

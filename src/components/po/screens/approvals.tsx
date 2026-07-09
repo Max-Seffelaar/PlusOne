@@ -33,10 +33,9 @@ import type { PoLinkOption } from '@/features/po/queries';
 import type { Tier } from '@/lib/po/types';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Avatar, Btn, Empty, Label, MiniChip, Note, Top } from '../kit';
+import { Avatar, Btn, Empty, Label, MiniChip, Note, Top, press } from '../kit';
 import { Sheet } from '../shell';
 
-const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 const col = 'flex h-full flex-col';
 
 type Tab = 'landing' | 'quota';

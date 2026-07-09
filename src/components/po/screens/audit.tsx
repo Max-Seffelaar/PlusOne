@@ -23,11 +23,10 @@ import {
 } from '@/features/po/audit-presenter';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, Note, Scroll, Top } from '../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, Note, Scroll, Top, press } from '../kit';
 import { Sheet } from '../shell';
 
 const col = 'flex h-full flex-col';
-const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 
 interface FilterState {
   eventId?: string;

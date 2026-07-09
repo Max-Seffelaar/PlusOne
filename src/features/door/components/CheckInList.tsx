@@ -30,13 +30,11 @@ import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { Icon } from '@/components/po/icon';
-import { Avatar, Label, StatusDot, Top } from '@/components/po/kit';
+import { Avatar, Label, StatusDot, Top, Seg, cardPress } from '@/components/po/kit';
 import { useDoor } from '../DoorProvider';
 import type { DoorGuest } from '../model';
 import { flattenCheckInItems, partsLeft, type CheckInItem, type Filter } from './checkin-items';
 import { tierInk as onTier, tintTier } from '@/lib/po/tier-colors';
-
-const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
 
 // Distinct estimates per item type so the virtualizer reserves close-to-real
 // space before measurement (header ≈ a thin divider, guest ≈ a one-line card +
@@ -45,31 +43,6 @@ const HEADER_EST = 34;
 const GUEST_EST = 62;
 
 const ACCENT = '#B5A6FF';
-
-function Seg({ value, onChange }: { value: Filter; onChange: (v: Filter) => void }): JSX.Element {
-  const items: [Filter, string][] = [
-    ['both', t.door.filterAll],
-    ['wait', t.door.filterOnTheWay],
-    ['in', t.door.filterInside],
-  ];
-  return (
-    <div className="flex gap-1.5 pb-[14px]">
-      {items.map(([k, l]) => (
-        <button
-          key={k}
-          type="button"
-          onClick={() => onChange(k)}
-          className={cn(
-            'flex-1 cursor-pointer rounded-full border py-[9px] font-display text-[13px] font-bold transition-[filter] hover:brightness-[1.07]',
-            value === k ? 'border-transparent bg-text text-bg' : 'border-line bg-transparent text-dim',
-          )}
-        >
-          {l}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 /** Optional per-tier filter chips (feedback Joeri): tap a tier to narrow the list
  *  to it; multiple chips OR together; none selected = all. Hidden when an event
@@ -246,7 +219,16 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
             <span className="ml-auto shrink-0 self-center text-[11px] text-faint">{view.insideHeadcount} {t.door.headcountSub}</span>
           </div>
         </div>
-        <Seg value={f} onChange={setF} />
+        <Seg
+          value={f}
+          onChange={setF}
+          items={[
+            ['both', t.door.filterAll],
+            ['wait', t.door.filterOnTheWay],
+            ['in', t.door.filterInside],
+          ]}
+          className="pb-[14px]"
+        />
         <TierFilterBar tiers={view.tiers} selected={tierFilter} onToggle={toggleTier} />
       </div>
 
