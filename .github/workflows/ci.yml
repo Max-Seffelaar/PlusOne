@@ -19,7 +19,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 22+: supabase-js ≥2.108 needs native WebSocket (Node 20 throws in
+          # the client constructor — hit by the e2e helpers AND any server-side
+          # client the dev server creates).
+          node-version: 22
           cache: 'pnpm'
 
       - run: pnpm install --frozen-lockfile
