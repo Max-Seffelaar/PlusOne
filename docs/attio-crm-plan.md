@@ -111,6 +111,17 @@ Max decided to build this now. Non-negotiable design constraints:
 Order: 01 → 02 → 03 → 04 → 05. 02 and 05 are high-risk surfaces (review gates apply).
 Dependencies: 03 needs 01; the dashboard part of 03's record view lands with 04.
 
+## Parked (with milestone)
+
+- **Auto-invite on signed agreement (≥25 venues).** Attio `Sales stage = contract signed` →
+  webhook → signature-verified endpoint → existing `sendInviteEmail` flow. Deliberately not
+  built now: it breaks the one-way direction (C4), requires a new "platform invite" concept
+  (current invites are venue-scoped; a fresh customer has no venue yet), and adds an inbound
+  account-creation surface for a task that is manual seconds at current volume. Interim:
+  (a) Attio workflow pings Slack on contract-signed ("send invite to X") — zero code, task 06;
+  (b) from phase 04 the founder dashboard can grow a one-click, audited "invite customer"
+  button.
+
 ## Out of scope (explicitly)
 
 - Two-way sync / writing sales data back into the app.
