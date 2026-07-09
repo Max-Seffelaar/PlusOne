@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { useQueryClient } from '@tanstack/react-query';
+import * as Sentry from '@sentry/nextjs';
 import { venues } from '@/lib/po/data';
 import type { Venue } from '@/lib/po/types';
 import { usePoCanManageTemplates, usePoDoorCandidates, usePoEvents, usePoGuestRequests } from '@/features/po/hooks';
@@ -289,6 +290,18 @@ export function PlusOneApp({
   // user_manager can't read check_ins/refusals (#17), so the door would look
   // empty/"mock" for them. Organizers use /door/[eventId] directly.
   const showDoor = canWorkDoor(roles);
+
+  // Sentry po-screen context (fase 4.2): the whole app lives on one URL (/app)
+  // with an in-memory nav stack, so route breadcrumbs say nothing about the
+  // active screen. Tag it (+ a navigation breadcrumb) centrally from the derived
+  // active screen id — every push/tab/back/replace flows through here. Screen ids
+  // are internal constants, so this is PII-free.
+  const activeScreenId = top?.name ?? tab;
+  useEffect(() => {
+    Sentry.setTag('po.screen', activeScreenId);
+    Sentry.addBreadcrumb({ category: 'navigation', message: activeScreenId, level: 'info' });
+  }, [activeScreenId]);
+
   // Contacts desktop-nav gate (T10). Called here (before any early return) so the
   // hook order stays stable; the gate itself is computed with `caps` further down.
   const canManageTemplates = usePoCanManageTemplates();

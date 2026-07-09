@@ -4,8 +4,10 @@
 // /app surface plus the caller's identity (user + active venue), resolved
 // server-side in app/page.tsx and passed in. NOT persisted — the door keeps its
 // own offline/outbox QueryClient (DoorProvider) and we never duplicate it (#25).
-import { createContext, useContext, useState, type ReactNode } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import * as Sentry from '@sentry/nextjs';
+import { captureUnexpectedError } from '@/lib/observability/capture';
 import type { VenueRole } from '@/features/auth/roles';
 
 export interface PoIdentity {
@@ -25,6 +27,20 @@ export function usePoIdentity(): PoIdentity {
 
 function createPoQueryClient(): QueryClient {
   return new QueryClient({
+    // Report unexpected query/mutation failures to Sentry (the "unexpected only"
+    // gate lives in captureUnexpectedError — offline/abort are filtered out).
+    // retry: 1 → onError fires once after the final retry, so no duplicate events;
+    // query errors are not rethrown to render, so no double-report via boundaries.
+    queryCache: new QueryCache({
+      onError: (error, query) =>
+        captureUnexpectedError(error, {
+          source: 'query',
+          key: String(query.queryKey[0] ?? ''),
+        }),
+    }),
+    mutationCache: new MutationCache({
+      onError: (error) => captureUnexpectedError(error, { source: 'mutation' }),
+    }),
     defaultOptions: {
       queries: {
         staleTime: 1000 * 30,
@@ -45,6 +61,16 @@ export function PoLiveProvider({
 }): JSX.Element {
   // One client per mount (App Router pattern: never share across requests).
   const [client] = useState(createPoQueryClient);
+
+  // Diagnostic context for every Sentry event on the /app surface. UUIDs + roles
+  // are NOT guest PII (the guest is never the signed-in user); email/ip are never
+  // set (AVG). Cleared on unmount so a logout doesn't leak identity into the next.
+  useEffect(() => {
+    Sentry.setUser({ id: identity.userId });
+    Sentry.setTag('venue.id', identity.venueId ?? 'none');
+    Sentry.setTag('roles', identity.roles.join(','));
+    return () => Sentry.setUser(null);
+  }, [identity.userId, identity.venueId, identity.roles]);
 
   return (
     <QueryClientProvider client={client}>
