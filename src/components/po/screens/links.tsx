@@ -25,11 +25,9 @@ import { poKeys } from '@/features/po/keys';
 import { localInputToIso, isoToLocalInput } from '@/features/events/datetime';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Scroll, Toggle, ToggleRow, Top } from '../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Scroll, Toggle, ToggleRow, Top, press, cardPress } from '../kit';
 import { Sheet } from '../shell';
 
-const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
-const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
 const col = 'flex h-full flex-col';
 
 function ErrLine({ msg }: { msg: string }): JSX.Element {

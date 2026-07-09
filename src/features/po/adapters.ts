@@ -22,7 +22,8 @@ import type {
   ContactAppearance,
 } from './queries';
 import type { EventSummary, TierStat } from '@/features/stats/data';
-import { formatClock, toDateInput } from '@/features/stats/format';
+import { formatInTz as fmt, formatClock, toDateInput } from './format';
+import { tierRole } from '@/lib/po/tier';
 import { toPerTier, type PerTier } from '@/features/stats/po-adapter';
 import { ROLE_LABELS, VENUE_ROLES, requiresMfa, type VenueRole } from '@/features/auth/roles';
 import { getPlan, isPlanId, trialEndsAt } from '@/features/billing/plans';
@@ -39,11 +40,6 @@ import { deviceLabel } from '@/lib/ua';
 type NotePriority = Database['public']['Enums']['note_priority'];
 type GuestRowStatus = Database['public']['Enums']['guest_status'];
 
-const TZ = 'Europe/Amsterdam';
-
-function fmt(iso: string, opts: Intl.DateTimeFormatOptions): string {
-  return new Intl.DateTimeFormat('en-GB', { timeZone: TZ, ...opts }).format(new Date(iso));
-}
 function capitalize(s: string): string {
   return s.length > 0 ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 }
@@ -61,16 +57,10 @@ export function notePriorityToFlag(priority: NotePriority): Priority | null {
   return priority === 'high' ? 'high' : priority === 'low' ? 'low' : null;
 }
 
-/** Best-effort tier-name -> role badge, mirroring the mock's role labels. */
-export function tierRole(name: string): Role {
-  const n = name.toLowerCase();
-  if (n.includes('vip')) return 'VIP';
-  if (n.includes('artist') || n.includes('artiest')) return 'Artist';
-  if (n.includes('access') || n === 'aa') return 'All Access';
-  if (n.includes('pers') || n.includes('press')) return 'Press';
-  if (n.includes('crew')) return 'Crew';
-  return 'Guest';
-}
+// tierRole moved to src/lib/po/tier.ts (FE-2) — this used to duplicate
+// door/model.ts's version (same taxonomy, different return shape); re-exported
+// here so existing importers of './adapters' don't need to change.
+export { tierRole } from '@/lib/po/tier';
 
 export interface EventCounts {
   /** Registered headcount (1 + plus-ones), aggregated by the caller. */
@@ -157,6 +147,11 @@ function daysUntilEvent(startsAt: string, nowMs: number): number {
  * NOT from event_stats_summary — that RPC is admin/finance/organizer-gated, so a
  * doorhost would read 0. RLS still scopes the rows, so a staff member's counts are
  * their own slice, consistent with the rest of the app.
+ *
+ * FE-1 note: this is the shared DB-row-level input to `toPoHome` (below) AND
+ * `toBoardEvents` (event-row.tsx) — a row + counts, not a rival domain type to
+ * `PoEvent`. Both mappers derive their own presentation shape from it, so
+ * there's nothing to collapse into a `Pick<PoEvent, ...>` here.
  */
 export type HomeEvent = PoEventRow & {
   /** On-list headcount (1 + plus-ones over approved/checked-in). */
@@ -224,6 +219,11 @@ export interface GuestExtras {
   eventName?: string;
 }
 
+// Payment isn't modelled in the core schema (no ticketing, #10) — every guest
+// defaults to 'free'. Shared with optimisticGuest below so an in-flight add
+// never visibly changes look the moment the server row replaces it.
+const DEFAULT_GUEST_PAY: Guest['pay'] = 'free';
+
 export function toPoGuest(row: PoGuestRow, extras: GuestExtras): Guest {
   return {
     id: row.id,
@@ -232,8 +232,7 @@ export function toPoGuest(row: PoGuestRow, extras: GuestExtras): Guest {
     tierId: row.tier_id,
     tierName: extras.tierName,
     tierColor: extras.tierColor,
-    // Payment isn't modelled in the core schema (no ticketing, #10) — UI default.
-    pay: 'free',
+    pay: DEFAULT_GUEST_PAY,
     plus: row.plus_ones,
     note: row.note ?? '',
     flag: notePriorityToFlag(row.note_priority),
@@ -252,7 +251,7 @@ export function toRecapGuest(g: RecapGuestRow): RecapGuest {
   return {
     name: g.full_name,
     plus: g.plus_ones,
-    role: tierRole(g.tierName ?? ''),
+    role: tierRole(g.tierName ?? '').role,
     tierName: g.tierName ?? undefined,
     tierColor: g.tierColor ?? undefined,
     at: g.checkedAt ? formatClock(g.checkedAt) : undefined,
@@ -310,11 +309,16 @@ export interface OptimisticAddArgs {
   plusOnes?: number;
 }
 
+// FE-2: takes genuinely different input than toPoGuest (a client draft vs. a DB
+// row) — plusOnes/status aren't shared, so it isn't folded into one function —
+// but `pay` MUST stay the same literal default in both (DEFAULT_GUEST_PAY,
+// declared above toPoGuest), else an optimistic row would visibly change look
+// the moment the server row replaces it.
+
 /**
- * A transient po Guest for an in-flight add (optimistic UI, STAP 3.4). It mirrors
- * `toPoGuest`'s defaults — role from the tier, pay 'free', status 'wait' — so the
- * optimistic row is visually identical to the server row that replaces it on
- * invalidation. Pure (the clock is injectable) so it's unit-tested directly.
+ * A transient po Guest for an in-flight add (optimistic UI, STAP 3.4). Status is
+ * always 'wait' — an optimistic row is by definition pre-server-confirmation.
+ * Pure (the clock is injectable) so it's unit-tested directly.
  */
 export function optimisticGuest(args: OptimisticAddArgs, tiers: Tier[], now: Date = new Date()): Guest {
   const tier = tiers.find((t) => t.id === args.tierId);
@@ -325,7 +329,7 @@ export function optimisticGuest(args: OptimisticAddArgs, tiers: Tier[], now: Dat
     tierId: args.tierId,
     tierName: tier?.name,
     tierColor: tier?.color,
-    pay: 'free',
+    pay: DEFAULT_GUEST_PAY,
     plus: args.plusOnes ?? 0,
     note: '',
     flag: null,
@@ -342,7 +346,7 @@ export function toPoTier(row: PoTierRow, used: number): Tier {
     id: row.id,
     name: row.name,
     short: row.name,
-    role: tierRole(row.name),
+    role: tierRole(row.name).role,
     color: row.color ?? DEFAULT_TIER_COLOR,
     max: row.max_guests,
     used,
@@ -548,7 +552,7 @@ export function toPoContactProfile(
         ),
         tier: a.tierName,
         tierColor: a.tierColor ?? DEFAULT_TIER_COLOR,
-        role: tierRole(a.tierName ?? ''),
+        role: tierRole(a.tierName ?? '').role,
         status: profileEventStatus(a.status),
         plusOnes: a.plusOnes,
         presentHeads: active ? 1 + active.arrived : null,

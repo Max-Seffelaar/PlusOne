@@ -20,18 +20,17 @@ import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
-import { usePoHomeEvents, usePoGuestRequests, usePoQuotaRequests, usePoProfile, useBillingBlocked } from '@/features/po/hooks';
+import { usePoHomeEvents, usePoGuestRequests, usePoQuotaRequests, usePoProfile, useBillingBlocked, usePoCanManageTemplates } from '@/features/po/hooks';
 import { isOpenGuestRequest } from '@/features/po/adapters';
 import { canManageGuests, canSeeGuestCounts, canSeeRequestInbox, canSeeOwnRequests, canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '../context';
 import { Icon, type IconName } from '../icon';
-import { Btn, Note, Scroll } from '../kit';
+import { Btn, Note, Scroll, press } from '../kit';
 import { Sheet, Toast } from '../shell';
 import { PendingInvitesBanner } from '../pending-invites-banner';
 import { EventRow, StatusChip, toBoardEvents, type BoardEvent } from '../event-row';
 
 const TZ = 'Europe/Amsterdam';
-const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 const PAGE_SIZE = 7;
 
 /** Current hour in the product TZ (#26) — stable across SSR/CSR. */
@@ -401,20 +400,22 @@ export function Home(): JSX.Element {
   const isAdmin = roles.includes('admin');
   // We can't see event-organizer scope in `roles` (it's an event_organizers row,
   // not a venue_membership — same gap noted in Contacten/screens/guests/profile.tsx).
-  // An empty roles array reaching Home with real venue/event data is therefore
-  // almost certainly an organizer, who DOES have guest-write/read/request rights
-  // on their own event (matrix: "✓ eigen event"). Only hide below for a role we
-  // POSITIVELY know lacks the capability — never for "no venue role at all".
-  const noVenueRole = roles.length === 0;
+  // `canManageTemplates` (M5, 8/7) is the real fetchOrganizesAtVenue query for
+  // that gap — use it everywhere below instead of guessing from an empty roles
+  // array, so an organizer's guest-write/read/request rights on their own event
+  // (matrix: "✓ eigen event") are positively detected, not assumed.
+  const canManageTemplates = usePoCanManageTemplates();
   // Role-hide, not show-and-block (M9, K-7): a role with no guest-write never
   // gets the "New guest" doodloop — quick-add would just refuse the insert.
-  const showNewGuest = noVenueRole || canManageGuests(roles);
+  const showNewGuest = canManageGuests(roles) || canManageTemplates;
   // A role that can't read ANY guests (pure user_manager) gets "—" on the
   // headcount readouts instead of a fake "0" (M9, K-7).
-  const seeGuestCounts = noVenueRole || canSeeGuestCounts(roles);
+  const seeGuestCounts = canSeeGuestCounts(roles) || canManageTemplates;
   // Role-hide the request pulse tiles for roles with no request visibility at
-  // all — doorhost/user_manager (M3, K-8); staff still gets its own-status tile.
-  const seeRequestInbox = noVenueRole || canSeeRequestInbox(roles);
+  // all — doorhost/user_manager (M3, K-8); staff still gets its own-status tile;
+  // an organizer sees the full inbox for their own event (M5 gate + M1 extends
+  // it with finance/staff instead of leaving them at "everyone" or "admin only").
+  const seeRequestInbox = canSeeRequestInbox(roles) || canManageTemplates;
   const showRequestTiles = seeRequestInbox || canSeeOwnRequests(roles);
   // Soft-block (#32 refinement): hide growth CTAs; the banner explains why.
   const billingLock = useBillingBlocked();

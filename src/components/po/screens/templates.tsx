@@ -27,11 +27,10 @@ import { parseAutoLockOffsetMinutes } from '@/features/events/auto-lock-hours';
 import { TIER_COLORS } from '@/lib/po/tier-colors';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Btn, Empty, Field, IconBtn, Label, Note, Scroll, ToggleRow, Top } from '../kit';
+import { Btn, Empty, Field, IconBtn, Label, Note, Scroll, ToggleRow, Top, cardPress } from '../kit';
 import { BottomBar } from '../shell';
 
 const col = 'flex h-full flex-col';
-const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
 
 // ── Templates list ───────────────────────────────────────────────────────────
 export function Templates(): JSX.Element {

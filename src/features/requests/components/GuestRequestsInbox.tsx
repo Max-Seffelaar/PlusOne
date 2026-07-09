@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { approveGuestRequest, denyGuestRequest } from '../actions';
+import { formatShortDate } from '@/features/po/format';
 
 export interface PendingGuestRequest {
   id: string;
@@ -106,15 +107,11 @@ function RequestRow({
           {request.plusOnes > 0 && <span className="text-acc"> +{request.plusOnes}</span>}
           <span className="text-faint"> · {heads} {heads === 1 ? 'person' : 'people'}</span>
         </p>
-        <span className="text-xs text-faint">
-          {new Date(request.createdAt).toLocaleDateString('en-GB')}
-        </span>
+        <span className="text-xs text-faint">{formatShortDate(request.createdAt)}</span>
       </div>
       {contact && <p className="text-sm text-dim">{contact}</p>}
       {request.birthdate && (
-        <p className="text-sm text-faint">
-          Born {new Date(request.birthdate).toLocaleDateString('en-GB')}
-        </p>
+        <p className="text-sm text-faint">Born {formatShortDate(request.birthdate)}</p>
       )}
       {request.motivation && <p className="text-sm text-dim">“{request.motivation}”</p>}
 

@@ -11,7 +11,13 @@ import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import { Icon, type IconName, ROLE_ICON } from './icon';
 
-const press = 'transition-[filter,transform,background,border-color] hover:brightness-[1.07] active:scale-[0.975]';
+// FE-4: the canonical press/cardPress feels — 26 files hand-rolled a local copy
+// of one of these (some already drifted to 0.94/0.985/1.09); exported so a
+// screen imports instead of retyping the Tailwind string. `pressDesktop` is the
+// desktop-density variant (was desktop/kit.tsx's local `press`).
+export const press = 'transition-[filter,transform,background,border-color] hover:brightness-[1.07] active:scale-[0.975]';
+export const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
+export const pressDesktop = 'transition-[filter,transform,background,border-color,color] hover:brightness-[1.08] active:scale-[0.985]';
 
 export function initials(name: string): string {
   return name
@@ -96,12 +102,13 @@ export function PayChip({ pay }: { pay: string }): JSX.Element | null {
 }
 
 // ── Btn ─────────────────────────────────────────────────────────────────────
-type BtnKind = 'primary' | 'dark' | 'ghost' | 'quiet';
+type BtnKind = 'primary' | 'dark' | 'ghost' | 'quiet' | 'danger';
 const BTN_KINDS: Record<BtnKind, string> = {
   primary: 'bg-acc text-on-acc border-transparent',
   dark: 'bg-elev2 text-text border-line',
   ghost: 'bg-transparent text-text border-line',
   quiet: 'bg-transparent text-dim border-line2',
+  danger: 'bg-red-500/90 text-white border-transparent',
 };
 
 export function Btn({
@@ -115,6 +122,7 @@ export function Btn({
   disabled,
   className,
   style,
+  desktop,
 }: {
   children: ReactNode;
   kind?: BtnKind;
@@ -126,6 +134,9 @@ export function Btn({
   disabled?: boolean;
   className?: string;
   style?: CSSProperties;
+  /** Desktop density (was desktop/kit.tsx's `DBtn`): tighter radius + the
+   *  desktop press feel. Same API otherwise — a screen never needs two imports. */
+  desktop?: boolean;
 }): JSX.Element {
   return (
     <button
@@ -133,8 +144,9 @@ export function Btn({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'inline-flex cursor-pointer items-center justify-center gap-[9px] whitespace-nowrap rounded-btn border font-display font-bold tracking-[-0.01em]',
-        press,
+        'inline-flex cursor-pointer items-center justify-center gap-[9px] whitespace-nowrap border font-display font-bold tracking-[-0.01em]',
+        desktop ? 'rounded-[12px]' : 'rounded-btn',
+        desktop ? pressDesktop : press,
         'disabled:pointer-events-none',
         sm ? 'px-4 py-[10px] text-[14px]' : 'px-5 py-[15px] text-[16px]',
         full ? 'w-full' : 'w-auto',
@@ -146,6 +158,46 @@ export function Btn({
       {icon && <Icon name={icon} size={sm ? 16 : 19} sw={2.1} />}
       {children}
     </button>
+  );
+}
+
+// ── Card ────────────────────────────────────────────────────────────────────
+// Was desktop/kit.tsx's `DCard` — the only "card" primitive in the app (not
+// actually desktop-specific), folded in under FE-4.
+export function Card({ children, className }: { children: ReactNode; className?: string }): JSX.Element {
+  return <div className={cn('rounded-[20px] border border-line bg-elev transition-colors', className)}>{children}</div>;
+}
+
+// ── Seg (segmented toggle) ───────────────────────────────────────────────────
+// Was copy-pasted in door/CheckInList.tsx + door/Taken.tsx (byte-identical
+// button markup, different Filter type + labels each time).
+export function Seg<T extends string>({
+  value,
+  onChange,
+  items,
+  className,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  items: readonly (readonly [T, string])[];
+  className?: string;
+}): JSX.Element {
+  return (
+    <div className={cn('flex gap-1.5', className)}>
+      {items.map(([k, l]) => (
+        <button
+          key={k}
+          type="button"
+          onClick={() => onChange(k)}
+          className={cn(
+            'flex-1 cursor-pointer rounded-full border py-[9px] font-display text-[13px] font-bold transition-[filter] hover:brightness-[1.07]',
+            value === k ? 'border-transparent bg-text text-bg' : 'border-line bg-transparent text-dim',
+          )}
+        >
+          {l}
+        </button>
+      ))}
+    </div>
   );
 }
 

@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { decideQuotaRequest } from '../actions';
+import { formatShortDate } from '@/features/po/format';
 
 export interface PendingRequest {
   id: string;
@@ -74,9 +75,7 @@ function RequestRow({ eventId, request }: { eventId: string; request: PendingReq
           {request.requesterName}{' '}
           <span className="text-acc">+{request.requestedExtra}</span>
         </p>
-        <span className="text-xs text-faint">
-          {new Date(request.createdAt).toLocaleDateString('en-GB')}
-        </span>
+        <span className="text-xs text-faint">{formatShortDate(request.createdAt)}</span>
       </div>
       {request.motivation && <p className="text-sm text-dim">{request.motivation}</p>}
 

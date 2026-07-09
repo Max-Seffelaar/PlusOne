@@ -17,7 +17,6 @@ export type ScreenName =
   | 'guest'
   | 'contacten'
   | 'contactprofile'
-  | 'vaste'
   | 'rollen'
   | 'import'
   | 'quickadd'
@@ -34,7 +33,6 @@ export type ScreenName =
   | 'profile'
   | 'billing'
   | 'allowance'
-  | 'eventbeheer'
   | 'stats'
   | 'audit'
   | 'adminsessions'
@@ -93,6 +91,10 @@ export interface PoApp {
    *  query re-scopes to the new venue (#1). A no-op for the already-active venue. */
   switchToVenue: (venueId: string) => void;
   nav: Nav;
+  /** Current viewport (S0 breakpoint, ≥1024px = desktop). Lets a screen hide
+   *  chrome that's redundant with the desktop sidebar (M12/M5: one venue-switch
+   *  entry — the sidebar's header-picker — instead of a second one in More). */
+  isMobile: boolean;
 }
 
 const PoContext = createContext<PoApp | null>(null);

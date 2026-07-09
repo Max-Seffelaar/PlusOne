@@ -13,13 +13,11 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { Icon, type IconName } from '@/components/po/icon';
-import { Avatar, Btn, IconBtn, Label, PayChip, Scroll, Stepper, Top } from '@/components/po/kit';
+import { Avatar, Btn, IconBtn, Label, PayChip, Scroll, Stepper, Top, press } from '@/components/po/kit';
 import { BottomBar, Sheet } from '@/components/po/shell';
 import { useDoor } from '../DoorProvider';
 import { tierRole } from '../model';
 import { TierChip } from './TierChip';
-
-const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 
 function LogRow({
   icon,

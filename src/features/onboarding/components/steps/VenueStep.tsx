@@ -4,14 +4,11 @@
  *  Admin and we advance to the plan step with the new venue id. */
 import { useState, useTransition } from 'react';
 import { cn } from '@/lib/utils';
-import { Field, Label } from '@/components/po/kit';
-import { Btn } from '@/components/po/kit';
+import { Field, Label, Btn, press } from '@/components/po/kit';
 import { createVenueAction } from '@/features/venues/actions';
 import { VENUE_TYPES, type VenueType } from '@/features/venues/schemas';
 import { TERMS_URL, PRIVACY_URL } from '@/lib/legal';
 import { WizardShell, WizardPanel } from '../WizardShell';
-
-const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 
 const TYPE_LABEL: Record<VenueType, string> = {
   club: 'Club',

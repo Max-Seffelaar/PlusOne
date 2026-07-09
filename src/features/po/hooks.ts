@@ -449,7 +449,7 @@ export function usePoGuests(eventId: string) {
       const tierById = new Map(tiers.map((t) => [t.id, t]));
       return sortGuestsNewestFirst(guests).map((g) =>
         toPoGuest(g, {
-          role: tierRole(tierById.get(g.tier_id)?.name ?? ''),
+          role: tierRole(tierById.get(g.tier_id)?.name ?? '').role,
           tierName: tierById.get(g.tier_id)?.name,
           tierColor: tierById.get(g.tier_id)?.color ?? undefined,
         }),
@@ -481,7 +481,7 @@ export function useVenueGuests(events: PoEvent[]) {
       const tierById = new Map(tiers.map((t) => [t.id, t]));
       return sortGuestsNewestFirst(guests).map((g) =>
         toPoGuest(g, {
-          role: tierRole(tierById.get(g.tier_id)?.name ?? ''),
+          role: tierRole(tierById.get(g.tier_id)?.name ?? '').role,
           tierName: tierById.get(g.tier_id)?.name,
           tierColor: tierById.get(g.tier_id)?.color ?? undefined,
           eventId: g.event_id,
@@ -756,7 +756,7 @@ export function usePoContacts(search = '') {
   });
 }
 
-/** Permanent contacts only (the "Vaste" screen) — derived from the unsearched list. */
+/** Permanent contacts only (the Guests tab's "Regulars" filter) — derived from the unsearched list. */
 export function usePoPermanentContacts() {
   const query = usePoContacts('');
   return { ...query, data: query.data?.filter((c) => c.vast) };

@@ -40,8 +40,8 @@ import { Top } from './kit';
 import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
 import { useViewport } from './use-viewport';
 import { EventDaySkeleton } from '@/features/po/eventday/EventDaySkeleton';
-import { Crew, EventBeheer, EventEdit, EventView, Events, PastEvent, Tiers } from './screens/events';
-import { BulkPaste, Contacten, ContactProfile, GuestsTab, Lijst, QuickAdd, Vaste } from './screens/guests';
+import { Crew, EventEdit, EventView, Events, PastEvent, Tiers } from './screens/events';
+import { BulkPaste, Contacten, ContactProfile, GuestsTab, Lijst, QuickAdd } from './screens/guests';
 import { DoorEventPicker, PoDoorTab, type DoorOverlay } from './screens/door';
 import { Allowance, Billing, Gebruikers, Import, Meer, Profile, Rollen, VenueSettings, VenueSwitch } from './screens/settings';
 import { VenueCreate } from './screens/onboarding';
@@ -126,7 +126,7 @@ const EventDayCockpitGate = dynamic(
  *  full-bleed regardless. (S3.3) */
 const WIDE_DESKTOP = new Set([
   'start', 'events', 'guests', 'lijst', 'stats', 'audit', 'gebruikers',
-  'event', 'pastevent', 'eventbeheer', 'aanvragen', 'deur',
+  'event', 'pastevent', 'aanvragen', 'deur',
 ]);
 
 /** Shown while a pushed event/guest screen waits for its live row to load. */
@@ -524,9 +524,6 @@ export function PlusOneApp({
       case 'contactprofile':
         screen = <ContactProfile contactId={p.id} />;
         break;
-      case 'vaste':
-        screen = <Vaste />;
-        break;
       case 'rollen':
         screen = <Rollen />;
         break;
@@ -575,9 +572,6 @@ export function PlusOneApp({
       case 'allowance':
         screen = <Allowance />;
         break;
-      case 'eventbeheer':
-        screen = <EventBeheer />;
-        break;
       case 'stats':
         screen = <Stats />;
         break;
@@ -621,6 +615,7 @@ export function PlusOneApp({
     activeVenueId,
     switchToVenue,
     nav,
+    isMobile,
   };
 
   const body = (
@@ -645,12 +640,13 @@ export function PlusOneApp({
   const canViewStats = (statsAccess?.venues.length ?? 0) > 0;
   // Requests row in the sidebar/More hub — was admin-only, so finance/staff had
   // NO nav route and could only reach the inbox via Home's tiles (K-5: "dezelfde
-  // functie is per ingang anders gegate"). Now the same visibility rule as every
-  // other entry point: inbox roles (admin/finance) OR staff's own-status view
-  // (M1). roles.length === 0 is almost certainly an organizer (event_organizers
-  // isn't visible in `roles` — same gap as Contacten) — don't hide from them
-  // either; full organizer framing is M2 (K-6).
-  const showRequestsNavItem = roles.length === 0 || canSeeAnyRequests(roles);
+  // functie is per ingang anders gegate"). M5 (8/7) unified this gate across the
+  // More hub / sidebar / Home tiles as "admin or an organizer-at-this-venue"
+  // (`canManageTemplates`, a real fetchOrganizesAtVenue query — not a roles-array
+  // heuristic) with a note that finance/staff land once M1 (rechten-hygiëne)
+  // lands. That's now: canSeeAnyRequests adds finance (read-only inbox) and
+  // staff (own-status view) on top of the same organizer signal.
+  const showRequestsNavItem = canManageTemplates || canSeeAnyRequests(roles);
   const navItems: ShellNavItem[] = [
     { key: 'start', section: 'main', label: t.nav.home, icon: 'grid', active: currentKey === 'start', onClick: () => nav.setTab('start') },
     { key: 'events', section: 'main', label: t.nav.events, icon: 'cal', active: currentKey === 'events', onClick: () => nav.setTab('events') },

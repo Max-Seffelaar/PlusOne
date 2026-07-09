@@ -15,11 +15,10 @@ import { usePoAdminRevokeSession } from '@/features/po/mutations';
 import type { PoTeamMember } from '@/features/po/adapters';
 import { useNav } from '../context';
 import { Icon, type IconName } from '../icon';
-import { Avatar, Btn, Empty, Label, MiniChip, Note, Scroll, Top } from '../kit';
+import { Avatar, Btn, Empty, Label, MiniChip, Note, Scroll, Top, press } from '../kit';
 import { Sheet } from '../shell';
 
 const col = 'flex h-full flex-col';
-const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 const sessionIcon = (device: string): IconName => (/mac|windows|linux/i.test(device) ? 'grid' : 'user');
 
 function FormError({ error }: { error: unknown }): JSX.Element | null {

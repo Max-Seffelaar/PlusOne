@@ -21,11 +21,9 @@ import {
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, Note, Scroll, Top } from '../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, Note, Scroll, Top, press, cardPress } from '../kit';
 import { Sheet } from '../shell';
 
-const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
-const cardPress = 'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]';
 const col = 'flex h-full flex-col';
 
 function ErrLine({ msg }: { msg: string }): JSX.Element {

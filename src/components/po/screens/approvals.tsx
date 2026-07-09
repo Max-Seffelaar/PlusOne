@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import {
+  usePoCanManageTemplates,
   usePoEvents,
   usePoGuestRequests,
   usePoQuotaRequests,
@@ -34,10 +35,9 @@ import type { PoLinkOption } from '@/features/po/queries';
 import type { Tier } from '@/lib/po/types';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Avatar, Btn, Empty, Label, MiniChip, Note, Top } from '../kit';
+import { Avatar, Btn, Empty, Label, MiniChip, Note, Top, press } from '../kit';
 import { Sheet } from '../shell';
 
-const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 const col = 'flex h-full flex-col';
 
 type Tab = 'landing' | 'quota';
@@ -93,15 +93,16 @@ export function Aanvragen({
   // Role-hide, not show-and-block (M1, K-4/K-5): admin decides, finance reads
   // the same venue-wide inbox with no buttons, staff sees only its own
   // submissions with no buttons, everyone else has no request surface here.
-  // An empty `roles` is almost certainly an organizer — event_organizers isn't
-  // visible in this array (same gap as Contacten/screens/guests/profile.tsx) —
-  // so give them the pre-existing full-inbox behavior instead of a NEW dead end;
-  // RLS already decides what an organizer's approve/deny actually does. Proper
-  // organizer framing (their own event only, quota decide is admin-only in RLS
-  // today) is M2 (K-6), not this task.
-  const noVenueRole = roles.length === 0;
-  const canDecide = noVenueRole || canDecideRequests(roles);
-  const seeInbox = noVenueRole || canSeeRequestInbox(roles);
+  // `canManageTemplates` (M5, 8/7 — the real fetchOrganizesAtVenue query, same
+  // gate as the sidebar/More Requests row and Home's tiles) covers the
+  // event-organizer arm that `roles` can't see (event_organizers isn't a
+  // venue_membership — same gap as Contacten/screens/guests/profile.tsx). RLS
+  // still decides what an organizer's approve/deny actually does — quota-decide
+  // is admin-only in RLS today; full per-request-type organizer framing is M2
+  // (K-6), not this task.
+  const canManageTemplates = usePoCanManageTemplates();
+  const canDecide = canManageTemplates || canDecideRequests(roles);
+  const seeInbox = canManageTemplates || canSeeRequestInbox(roles);
   const ownOnly = !seeInbox && canSeeOwnRequests(roles);
   const noAccess = !seeInbox && !ownOnly;
   const eventsQuery = usePoEvents();

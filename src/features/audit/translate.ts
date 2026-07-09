@@ -9,6 +9,7 @@
 // shown bold separately, `text` is the past-tense phrase after it.
 
 import type { Database } from '@/lib/database.types';
+import { formatShortDate, formatTime, toDateInput } from '@/features/po/format';
 
 export type AuditFeedRow = Database['public']['Views']['audit_feed']['Row'];
 
@@ -241,17 +242,12 @@ export function describeAuditEntry(row: AuditFeedRow): AuditLine {
 }
 
 const DAY_MS = 86_400_000;
-const NL_TZ = 'Europe/Amsterdam';
 
-// Calendar day in Amsterdam (the product's TZ) as YYYY-MM-DD, so server and
-// client agree regardless of where they run (no hydration drift — the string is
-// computed once on the server and rendered verbatim).
-function nlDayKey(d: Date): string {
-  return d.toLocaleDateString('en-CA', { timeZone: NL_TZ });
-}
-function nlTime(d: Date): string {
-  return d.toLocaleTimeString('en-GB', { timeZone: NL_TZ, hour: '2-digit', minute: '2-digit' });
-}
+// FE-2: calendar-day/time helpers used to hand-roll their own Amsterdam-pinned
+// Intl calls (nlDayKey/nlTime) — now use the shared date module (toDateInput/
+// formatTime), so server and client still agree regardless of where they run
+// (no hydration drift — the string is computed once on the server and
+// rendered verbatim).
 
 /**
  * "Today 23:14" / "Yesterday 16:02" / "12 Jun 23:14" — Today/Yesterday for the
@@ -263,12 +259,12 @@ export function formatWhen(iso: string, now: Date = new Date()): string {
   if (!iso) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  const time = nlTime(d);
-  const dayKey = nlDayKey(d);
-  const todayKey = nlDayKey(now);
-  const yesterdayKey = nlDayKey(new Date(now.getTime() - DAY_MS));
+  const time = formatTime(iso);
+  const dayKey = toDateInput(iso);
+  const todayKey = toDateInput(now.toISOString());
+  const yesterdayKey = toDateInput(new Date(now.getTime() - DAY_MS).toISOString());
 
   if (dayKey === todayKey) return `Today ${time}`;
   if (dayKey === yesterdayKey) return `Yesterday ${time}`;
-  return `${d.toLocaleDateString('en-GB', { timeZone: NL_TZ, day: 'numeric', month: 'short' })} ${time}`;
+  return `${formatShortDate(iso)} ${time}`;
 }
