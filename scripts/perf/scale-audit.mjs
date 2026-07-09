@@ -57,22 +57,22 @@
  *     node scripts/perf/scale-audit.mjs fleet
  */
 import { createServer } from 'vite';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 import { v7 as uuidv7 } from 'uuid';
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:55321';
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+export const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'http://127.0.0.1:55321';
+export const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const VENUE_ID = 'aa000000-0000-7000-8000-000000000001'; // Club Vesper (seed)
-const ADMIN_USER_ID = '11111111-1111-4111-8111-111111111111'; // seed admin profile
+export const VENUE_ID = 'aa000000-0000-7000-8000-000000000001'; // Club Vesper (seed)
+export const ADMIN_USER_ID = '11111111-1111-4111-8111-111111111111'; // seed admin profile
 
 // Fixed ids in a dedicated namespace so a rerun is idempotent and reaping is easy.
-const MEGA = { event: 'fe000000-0000-7000-8000-000000025000', tier: 'fe000000-0000-7000-8000-0000000750a0', count: 25000, slug: 'scale-audit-mega-25k' };
-const MID = { event: 'fe000000-0000-7000-8000-000000002500', tier: 'fe000000-0000-7000-8000-0000000750b0', count: 2500, slug: 'scale-audit-mid-2500' };
+export const MEGA = { event: 'fe000000-0000-7000-8000-000000025000', tier: 'fe000000-0000-7000-8000-0000000750a0', count: 25000, slug: 'scale-audit-mega-25k' };
+export const MID = { event: 'fe000000-0000-7000-8000-000000002500', tier: 'fe000000-0000-7000-8000-0000000750b0', count: 2500, slug: 'scale-audit-mid-2500' };
 
-const SCANNERS = 45; // concurrent door devices on the mega-event
-const CHECKINS_PER_SCANNER = 60; // 45 × 60 = 2700 check-ins in the burst
+export const SCANNERS = 45; // concurrent door devices on the mega-event
+export const CHECKINS_PER_SCANNER = 60; // 45 × 60 = 2700 check-ins in the burst
 
 // Fleet axis: one long-lived venue with MANY events (the events-per-venue axis
 // SCALE-5 broke). A handful of the fleet's events also get a guest_request +
@@ -80,17 +80,17 @@ const CHECKINS_PER_SCANNER = 60; // 45 × 60 = 2700 check-ins in the burst
 // return, not just an empty (still-passing-but-uninteresting) []. Every event
 // auto-gets a default request_link via the existing landing-page trigger, so
 // fetchVenueRequestLinks is exercised on ALL 400 with no extra seeding.
-const FLEET = { venue: 'fe000000-0000-7000-8000-00000000f1ee', events: 400, guestsPer: 5, withRequests: 5, tierBase: 'fe020000-0000-7000-8000-', eventBase: 'fe010000-0000-7000-8000-' };
-const pad12 = (n) => String(n).padStart(12, '0');
+export const FLEET = { venue: 'fe000000-0000-7000-8000-00000000f1ee', events: 400, guestsPer: 5, withRequests: 5, tierBase: 'fe020000-0000-7000-8000-', eventBase: 'fe010000-0000-7000-8000-' };
+export const pad12 = (n) => String(n).padStart(12, '0');
 
 const mode = process.argv[2] ?? 'all';
-const fmtN = (n) => n.toLocaleString('en-US');
-const fmtKB = (b) => `${(b / 1024).toFixed(0)} kB`;
-const fmtMB = (b) => `${(b / 1024 / 1024).toFixed(2)} MB`;
-function log(step, msg) { console.log(`[scale] ${step.padEnd(9)} ${msg}`); }
+export const fmtN = (n) => n.toLocaleString('en-US');
+export const fmtKB = (b) => `${(b / 1024).toFixed(0)} kB`;
+export const fmtMB = (b) => `${(b / 1024 / 1024).toFixed(2)} MB`;
+export function log(step, msg) { console.log(`[scale] ${step.padEnd(9)} ${msg}`); }
 
 // ── fetch meter: count requests + bytes + longest URL during a measured block ──
-function makeMeter() {
+export function makeMeter() {
   const orig = globalThis.fetch;
   let requests = 0;
   let bytes = 0;
@@ -110,7 +110,7 @@ function makeMeter() {
     stop: () => { globalThis.fetch = orig; return { requests, bytes, maxUrl, errors }; },
   };
 }
-async function meter(label, fn) {
+export async function meter(label, fn) {
   const m = makeMeter();
   const t0 = performance.now();
   let out;
@@ -120,12 +120,12 @@ async function meter(label, fn) {
   const { requests, bytes, maxUrl, errors } = m.stop();
   return { label, ms, requests, bytes, maxUrl, errors, out, threw };
 }
-function percentile(sorted, p) {
+export function percentile(sorted, p) {
   if (!sorted.length) return 0;
   return sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))];
 }
 
-async function loadSource() {
+export async function loadSource() {
   const server = await createServer({
     configFile: false, appType: 'custom', logLevel: 'silent',
     server: { middlewareMode: true, hmr: false },
@@ -134,6 +134,7 @@ async function loadSource() {
   try {
     const door = await server.ssrLoadModule('@/features/door/queries.ts');
     const po = await server.ssrLoadModule('@/features/po/queries.ts');
+    const paging = await server.ssrLoadModule('@/lib/supabase/paging.ts');
     return {
       server,
       fetchDoorSnapshot: door.fetchDoorSnapshot,
@@ -145,11 +146,15 @@ async function loadSource() {
       fetchQuotaRequests: po.fetchQuotaRequests,
       fetchVenueRequestLinks: po.fetchVenueRequestLinks,
       fetchCheckinArrivals: po.fetchCheckinArrivals,
+      // Unchanged by #143 — the BEFORE-shape reproductions in
+      // scale-beforeafter.mjs page through `.in(eventIds)` results the same
+      // way the real pre-fix functions did.
+      fetchAllRanged: paging.fetchAllRanged,
     };
   } catch (err) { await server.close(); throw err; }
 }
 
-async function seedEvent(admin, ev) {
+export async function seedEvent(admin, ev) {
   const existing = await admin.from('guests').select('id', { count: 'exact', head: true }).eq('event_id', ev.event);
   if ((existing.count ?? 0) >= ev.count) { log('seed', `${ev.slug} already has ${existing.count} guests — skip`); return; }
   await admin.from('events').upsert({
@@ -179,12 +184,12 @@ async function seedEvent(admin, ev) {
   log('seed', `${ev.slug}: inserted ${fmtN(inserted)} guests`);
 }
 
-async function seed(admin) {
+export async function seed(admin) {
   await seedEvent(admin, MEGA);
   await seedEvent(admin, MID);
 }
 
-async function measure(admin, src) {
+export async function measure(admin, src) {
   console.log('\n── READS ──────────────────────────────────────────────────────');
   const rows = [];
   const snap25 = await meter('door snapshot @25k', () => src.fetchDoorSnapshot(admin, MEGA.event));
@@ -219,7 +224,7 @@ async function measure(admin, src) {
   return { snap25, heads };
 }
 
-async function burst(admin) {
+export async function burst(admin) {
   console.log(`\n── WRITE BURST — ${SCANNERS} concurrent scanners × ${CHECKINS_PER_SCANNER} check-ins ──`);
   // Pull uncheck-in-ed guest ids for the mega event (ranged, need > 2700).
   const need = SCANNERS * CHECKINS_PER_SCANNER;
@@ -268,7 +273,7 @@ async function burst(admin) {
   return { throughput: ok / elapsed, p95: percentile(durations, 95) };
 }
 
-async function seedFleet(admin) {
+export async function seedFleet(admin) {
   const { error: vErr } = await admin.from('venues').upsert({ id: FLEET.venue, name: '__scale__ fleet (many events)', slug: 'scale-fleet-venue' }, { onConflict: 'id' });
   if (vErr) throw new Error(`fleet venue: ${vErr.message}`);
   // ADMIN_USER_ID has no relationship to this synthetic venue by default, so the
@@ -329,7 +334,7 @@ async function seedFleet(admin) {
  * post-fix every check is a short, fixed-size `venue_id=eq.<uuid>` (or an RPC
  * call), regardless of how many events the venue has.
  */
-async function measureFleet(admin, src) {
+export async function measureFleet(admin, src) {
   console.log(`\n── FLEET — 1 venue × ${FLEET.events} events (events-per-venue axis, SCALE-5/K8/FE-3) ──`);
   const checks = [
     ['fetchEvents', () => src.fetchEvents(admin, FLEET.venue)],
@@ -366,7 +371,7 @@ async function measureFleet(admin, src) {
     : `every venue-wide read completed at ${eventIds.length} events with a short, fixed-size request — no 414 (SCALE-5/K8 fixed).`);
 }
 
-async function teardownFleet(admin) {
+export async function teardownFleet(admin) {
   const { data: evs } = await admin.from('events').select('id').eq('venue_id', FLEET.venue);
   const eventIds = (evs ?? []).map((r) => r.id);
   for (const eventId of eventIds) {
@@ -377,7 +382,7 @@ async function teardownFleet(admin) {
   log('teardown', `fleet: soft-removed guests on ${eventIds.length} events — shells + venue + requests persist; \`pnpm db:fresh\` fully purges.`);
 }
 
-async function teardown(admin) {
+export async function teardown(admin) {
   console.log('\n── TEARDOWN ───────────────────────────────────────────────────');
   await teardownFleet(admin);
   for (const ev of [MEGA, MID]) {
@@ -427,4 +432,9 @@ async function main() {
     if (server) await server.close();
   }
 }
-main().catch((err) => { console.error(`[scale] FAILED — ${err?.message ?? err}`); process.exitCode = 1; });
+// Only auto-run when executed directly (`node scale-audit.mjs …`) — importing
+// this module (scale-beforeafter.mjs reuses its seed/measure/burst/teardown
+// infra) must not trigger a second run against the shared local DB.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  main().catch((err) => { console.error(`[scale] FAILED — ${err?.message ?? err}`); process.exitCode = 1; });
+}
