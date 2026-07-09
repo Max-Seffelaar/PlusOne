@@ -8,6 +8,34 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-09 — Before/after A/B of the venue-scope read fix (#143 — SCALE-5/K8/FE-3, PR #165)
+
+Same-machine, same-seed verification that the venue-scope fix (PR #143) is real, not just
+plausible from reading the diff. Extracted the exact pre-fix `.in(eventIds)` query shapes
+from `e93d3dc^` and re-ran them back-to-back against the current source functions in one
+run, so only the query shape differs.
+
+- **Fleet (1 venue × 400 events):** all six venue-wide reads (`fetchGuests`, `fetchTiers`,
+  `fetchEventHeadcounts`, `fetchGuestRequests`, `fetchQuotaRequests`,
+  `fetchVenueRequestLinks`) genuinely **414'd** pre-fix when actually executed (15.7–15.9
+  KB URLs) — not a projection from URL-length math. All six pass post-fix with short,
+  fixed-size requests (46×–277× shorter URL).
+- **Mega (1 venue, one 25 000-guest event):** `fetchEventHeadcounts` dropped from 28
+  requests / 2.34 MB (client-side sum over every guest row) to 1 request / 252 bytes (the
+  `venue_event_headcounts` RPC) — ~9 700× fewer bytes.
+- **Write throughput unaffected** (control): 1 013 check-ins/sec across 45 concurrent
+  scanners, 0 errors — at/above the prior 872/sec baseline, confirming this was a
+  read-only fix with no regression.
+- **Honest caveat:** the door's cold-load payload at 25k guests is **untouched** by this
+  fix (~13.6 MB) — that's SCALE-1/K9, a separate item that hasn't shipped.
+- `scripts/perf/scale-audit.mjs`'s seed/measure/burst/teardown helpers are now exported
+  (entrypoint-guarded so importing doesn't trigger its own run) so the new companion
+  `scripts/perf/scale-beforeafter.mjs` reuses them instead of duplicating seeding logic.
+- Full delta table in `perf-before-after-2026-07.md` (repo root). Measurement only — no
+  application code changed.
+
+---
+
 ## 2026-07-09 — K11 real tier names + K6 dead auth-mock deletion (PR #164)
 
 Review-backlog cleanup: 2 of 3 requested tasks shipped, 1 parked per the milestone-gating
