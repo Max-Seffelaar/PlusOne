@@ -8,6 +8,55 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-09 — Prod-ready 9/7 task 08: Sentry error monitoring (code)
+
+Implemented `sentry-implementatieplan.md` phases 1–6 (all code) for
+`@sentry/nextjs@^10` (installed 10.64.0). Error monitoring + readable stack
+traces + release tracking, PII-scrubbed, EU-region, no session replay. ClickUp
+`86ey7q790`. **High-risk surface (middleware + auth) — needs a fresh-session
+`/code-review` before merge per CLAUDE.md review gates.**
+
+- **Build/config** — `next.config.js` wrapped with `withSentryConfig` (D2:
+  `tunnelRoute: '/monitoring'` same-origin ingest, CSP untouched; source-map
+  upload disabled without `SENTRY_AUTH_TOKEN` so CI/local builds pass tokenless).
+  `src/middleware.ts` matcher now excludes `monitoring` — the plan's #1 silent
+  failure mode (auth-gate 307'ing every envelope to `/login`).
+- **SDK config** — `src/instrumentation.ts` (server/edge dispatch +
+  `onRequestError`), `src/instrumentation-client.ts` (offline transport for the
+  door, `beforeSend`/`beforeBreadcrumb` scrub, `enabled: Boolean(dsn)` so it's
+  dormant without a DSN), `sentry.server.config.ts`, `sentry.edge.config.ts`,
+  `src/app/global-error.tsx` (root crash screen, shows no `error.message`).
+- **PII scrub** — `src/lib/observability/scrub.ts` (type-only Sentry import;
+  redacts emails, phones, and Postgres `Key (col)=(value)` details — the #1 PII
+  vector) + `scrub.test.ts` (9 tests) + `capture.ts` (the "unexpected only" gate:
+  drops AbortError + offline TypeErrors).
+- **Diagnostic context** — `PoLiveProvider` wires `QueryCache`/`MutationCache`
+  `onError` → `captureUnexpectedError` + `setUser({id})`/venue+roles tags;
+  `app.tsx` tags the active po screen (one URL, in-memory nav) + a nav
+  breadcrumb; `DoorProvider` sets the same user/venue context. Server actions
+  untouched (D10 — expected `MutationError` returns are never reported).
+- **Test harness** — `src/app/sentry-test/` (page 404s in prod, three triggers:
+  client throw, server-action throw, `captureMessage`).
+- **Verified locally:** `type-check` + `lint` clean; Vitest 645/645 green;
+  `pnpm build` succeeds **without** `SENTRY_AUTH_TOKEN` (CI parity, upload
+  skipped); production `next start` smoke — `POST /monitoring` returns 401 (tunnel
+  handler) and is **not** 307'd to `/login`, while `/app` and `/sentry-test`
+  still 307 to `/login` (middleware exclusion proven, protection intact).
+- **v10 API notes for the reviewer:** `makeFetchTransport`/
+  `makeBrowserOfflineTransport`/`captureRouterTransitionStart` are client-only
+  exports (a Node `require()` shows them `undefined` — a red herring; they
+  resolve in the browser bundle via `@sentry/nextjs` client → `@sentry/react` →
+  `@sentry/browser`). `disableLogger`/`automaticVercelMonitors` are deprecated in
+  v10 → moved under `webpack.{treeshake.removeDebugLogging, automaticVercelMonitors}`.
+- **Remaining (not in this PR):** Max's fase 7 (Sentry EU account/org + project +
+  Vercel marketplace integration + `NEXT_PUBLIC_SENTRY_DSN` + alert rules) and the
+  live smoke/preview/offline/alert verification (fase 8.3–8.7, need a real DSN),
+  then the Sentry-MCP hookup (`claude plugin install`, OAuth to `mcp.sentry.dev`) +
+  one MCP round-trip. **Slug check:** the ClickUp wizard command names project
+  `javascript-nextjs`; the plan + the `next.config.js` fallback use
+  `plusone-guestlist` — reconcile when creating the Sentry project (env from the
+  Vercel integration wins either way; the fallback only matters tokenless).
+
 ## 2026-07-09 — Prod-ready 9/7 task 03: migration-collision hooks
 
 Two mechanical guards replace the prose-only "never edit an applied migration /

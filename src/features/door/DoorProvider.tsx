@@ -19,6 +19,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import * as Sentry from '@sentry/nextjs';
 import { v7 as uuidv7 } from 'uuid';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
 import { getDeviceId, getDoorClient } from './offline/device';
@@ -164,6 +165,17 @@ export function DoorProvider({
   });
 
   const snapshot = snapshotQuery.data;
+
+  // Sentry diagnostic context for the door surface (fase 4.3): UUID user + venue
+  // tag, same as PoLiveProvider. UUIDs are not guest PII; email/ip are never set.
+  // The door pathway itself (outbox/replay) stays untouched — its classified
+  // outcomes (45xxx business, offline, duplicate) are all expected = noise.
+  const doorVenueId = snapshot?.event.venueId ?? null;
+  useEffect(() => {
+    if (!meId) return;
+    Sentry.setUser({ id: meId });
+    Sentry.setTag('venue.id', doorVenueId ?? 'none');
+  }, [meId, doorVenueId]);
 
   // ── D3: build view + guest lookup map in one pass (O(1) guestById vs O(n) find).
   // Map includes both active and refused guests so all mutations can resolve names.

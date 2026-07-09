@@ -60,8 +60,12 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 }
 
 export const config = {
-  // Run on everything except Next internals and static assets.
+  // Run on everything except Next internals and static assets. `monitoring` is
+  // the Sentry tunnel route (D2): it MUST stay excluded — otherwise the auth-gate
+  // 307's every ingest envelope to /login and no event ever arrives (the plan's
+  // #1 silent failure mode). Matcher-level, not PUBLIC_PREFIXES, so no pointless
+  // Supabase session refresh runs per envelope.
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|service-worker.js|workbox-|icons/|apple-touch-icon.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt|woff2?)$).*)',
+    '/((?!_next/static|_next/image|monitoring|favicon.ico|manifest.json|sw.js|service-worker.js|workbox-|icons/|apple-touch-icon.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt|woff2?)$).*)',
   ],
 };
