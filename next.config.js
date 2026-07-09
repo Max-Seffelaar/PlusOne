@@ -86,7 +86,7 @@ const nextConfig = {
 //   module.exports = withSentryConfig(withPWA(nextConfig), {...})
 module.exports = withSentryConfig(nextConfig, {
   org: process.env.SENTRY_ORG || 'plus-one-hs', // fase 7.2 — verify the real org slug
-  project: process.env.SENTRY_PROJECT || 'plusone-guestlist',
+  project: process.env.SENTRY_PROJECT || 'javascript-nextjs',
   authToken: process.env.SENTRY_AUTH_TOKEN, // build-time only, NEVER NEXT_PUBLIC
   silent: !process.env.CI,
   telemetry: false,

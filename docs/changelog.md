@@ -42,6 +42,20 @@ traces + release tracking, PII-scrubbed, EU-region, no session replay. ClickUp
   skipped); production `next start` smoke — `POST /monitoring` returns 401 (tunnel
   handler) and is **not** 307'd to `/login`, while `/app` and `/sentry-test`
   still 307 to `/login` (middleware exclusion proven, protection intact).
+- **Verified LIVE against the real Sentry project** (`plus-one-hs/javascript-nextjs`,
+  `de.sentry.io`) with the real DSN in a `local-smoke` env, then retrieved every
+  event back through the **Sentry MCP** (the task's "loop bewijzen" step): all 5
+  triggers ingested (client throw, server-action throw, captureMessage, a PII
+  error, an app-surface error). Confirmed via the MCP: envelopes tunnel to
+  `/monitoring?…&r=de` (200, same-origin); **PII scrubbed** — `Key (email)=(…)` →
+  `Key ([redacted])=([redacted])`, `+31 6 …` → `[phone]`; **no Request section**;
+  `user` = bare UUID (no email/name); app-surface event carried `po.screen=start`,
+  `roles=doorhost,staff`, `venue.id=…`; `release` = git SHA; `environment=local-smoke`.
+  Stack traces + natural-language `search_issues` + **Seer** all worked (Seer
+  pinpointed `src/app/sentry-test/actions.ts:6`). Test issues resolved; the
+  temporary DSN was removed from the gitignored `.env.local`. Residual note for
+  fase 7.6: Sentry adds a coarse `user.geo` from the connecting IP **after**
+  `beforeSend` — enable "Prevent Storing of IP Addresses" to drop it too.
 - **v10 API notes for the reviewer:** `makeFetchTransport`/
   `makeBrowserOfflineTransport`/`captureRouterTransitionStart` are client-only
   exports (a Node `require()` shows them `undefined` — a red herring; they
@@ -51,11 +65,11 @@ traces + release tracking, PII-scrubbed, EU-region, no session replay. ClickUp
 - **Remaining (not in this PR):** Max's fase 7 (Sentry EU account/org + project +
   Vercel marketplace integration + `NEXT_PUBLIC_SENTRY_DSN` + alert rules) and the
   live smoke/preview/offline/alert verification (fase 8.3–8.7, need a real DSN),
-  then the Sentry-MCP hookup (`claude plugin install`, OAuth to `mcp.sentry.dev`) +
-  one MCP round-trip. **Slug check:** the ClickUp wizard command names project
-  `javascript-nextjs`; the plan + the `next.config.js` fallback use
-  `plusone-guestlist` — reconcile when creating the Sentry project (env from the
-  Vercel integration wins either way; the fallback only matters tokenless).
+  then the Sentry-MCP hookup — **DONE in this session** (MCP live, round-trip
+  proven above). **Slug resolved:** the real project is `javascript-nextjs` (not
+  the plan's `plusone-guestlist`); the `next.config.js` fallback was corrected to
+  match. Env from the Vercel integration wins on prod either way; the fallback
+  only matters tokenless.
 
 ## 2026-07-09 — Prod-ready 9/7 task 03: migration-collision hooks
 
