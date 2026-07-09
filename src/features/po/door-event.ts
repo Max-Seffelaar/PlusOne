@@ -14,6 +14,10 @@
 import type { PoEventRow } from './queries';
 import { eventPhase, type EventPhase } from './event-phase';
 
+// FE-1 note: kept as its own type rather than a Pick<PoEvent, ...> projection —
+// PoEvent doesn't carry raw `startsAt`/`endsAt` ISO instants (it only has them
+// pre-formatted for display as time/date/mon/month), but the auto-open
+// time-window math above needs the raw instants to do arithmetic on.
 export interface PoDoorEvent {
   id: string;
   name: string;

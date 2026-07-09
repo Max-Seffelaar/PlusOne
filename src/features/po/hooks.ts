@@ -449,7 +449,7 @@ export function usePoGuests(eventId: string) {
       const tierById = new Map(tiers.map((t) => [t.id, t]));
       return sortGuestsNewestFirst(guests).map((g) =>
         toPoGuest(g, {
-          role: tierRole(tierById.get(g.tier_id)?.name ?? ''),
+          role: tierRole(tierById.get(g.tier_id)?.name ?? '').role,
           tierName: tierById.get(g.tier_id)?.name,
           tierColor: tierById.get(g.tier_id)?.color ?? undefined,
         }),
@@ -481,7 +481,7 @@ export function useVenueGuests(events: PoEvent[]) {
       const tierById = new Map(tiers.map((t) => [t.id, t]));
       return sortGuestsNewestFirst(guests).map((g) =>
         toPoGuest(g, {
-          role: tierRole(tierById.get(g.tier_id)?.name ?? ''),
+          role: tierRole(tierById.get(g.tier_id)?.name ?? '').role,
           tierName: tierById.get(g.tier_id)?.name,
           tierColor: tierById.get(g.tier_id)?.color ?? undefined,
           eventId: g.event_id,

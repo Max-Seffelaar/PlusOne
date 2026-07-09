@@ -7,6 +7,8 @@
  */
 import type { IconName } from '@/components/po/icon';
 import type { CheckInRow, DoorEventMeta, DoorSnapshot, GuestRow, TierRow } from './queries';
+import { formatShortDate, formatTime } from '@/features/po/format';
+import { tierRole } from '@/lib/po/tier';
 
 export type NotePriority = 'none' | 'low' | 'high';
 
@@ -65,21 +67,14 @@ export interface DoorTask {
 
 const FALLBACK_TIER_COLOR = '#8E8E93';
 
-/** Map a free-form tier name to a RoleChip glyph + short label (design-system).
- *  Since the 1/7 feedback the door renders the REAL tier name everywhere (two
- *  tiers matching "vip" must stay distinguishable) — this taxonomy only picks
- *  the ICON; the label is a fallback for a guest whose tier row is missing. */
-export function tierRole(name: string): { label: string; icon: IconName } {
-  const n = name.toLowerCase();
-  if (n.includes('vip')) return { label: 'VIP', icon: 'crown' };
-  if (n.includes('all access') || n.includes('allaccess') || n.includes('access'))
-    return { label: 'All Access', icon: 'shield' };
-  if (n.includes('artist') || n.includes('artiest') || n.includes('dj')) return { label: 'Artist', icon: 'star' };
-  if (n.includes('pers') || n.includes('press') || n.includes('media')) return { label: 'Press', icon: 'note' };
-  if (n.includes('crew') || n.includes('prod') || n.includes('staff')) return { label: 'Crew', icon: 'users' };
-  // Free-form tier: show its own (short) name, generic glyph.
-  return { label: name.length > 0 && name.length <= 16 ? name : 'Guest', icon: 'user' };
-}
+// tierRole moved to src/lib/po/tier.ts (FE-2) — this used to duplicate
+// adapters.ts's version (same taxonomy, different return shape); re-exported
+// here so existing importers of './model' (GuestDetail.tsx, model.test.ts)
+// don't need to change. Since the 1/7 feedback the door renders the REAL tier
+// name everywhere (two tiers matching "vip" must stay distinguishable) — this
+// taxonomy only picks the ICON; `.label` is a fallback for a guest whose tier
+// row is missing.
+export { tierRole };
 
 export function lastFour(phone: string | null): string | null {
   if (!phone) return null;
@@ -91,16 +86,10 @@ export function lastFour(phone: string | null): string | null {
 // timeZone these render in the DEVICE's local zone, so a door phone set to a
 // non-CET timezone (or a traveller's laptop) shows check-in times that disagree
 // with the cockpit standing beside it (C28). The whole product renders in
-// Europe/Amsterdam; the door was the one place that didn't.
-const DOOR_TZ = 'Europe/Amsterdam';
-
-export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { timeZone: DOOR_TZ, day: 'numeric', month: 'short' });
-}
-
-export function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('en-GB', { timeZone: DOOR_TZ, hour: '2-digit', minute: '2-digit' });
-}
+// Europe/Amsterdam; the door was the one place that didn't — formatShortDate/
+// formatTime (imported above, FE-2's src/features/po/format.ts) are the shared,
+// pinned source now; no local formatDate/formatTime wrapper needed (neither
+// had any importer outside this file).
 
 /** Earliest check-in per guest (the first wins, decision #11). */
 export function indexCheckIns(checkIns: CheckInRow[]): Map<string, CheckInRow> {
@@ -137,7 +126,7 @@ function toDoorGuest(
     // added_by is NULL only for auto-approved request-link guests (F1) — the
     // system, not a person, put them on the list.
     addedByName: g.added_by ? profiles[g.added_by] ?? 'Unknown' : 'Via request link',
-    addedAt: formatDate(g.created_at),
+    addedAt: formatShortDate(g.created_at),
     last4: lastFour(g.phone),
     note: g.note,
     notePriority: g.note_priority,

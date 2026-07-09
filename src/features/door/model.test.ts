@@ -108,13 +108,16 @@ describe('lastFour (#27)', () => {
 });
 
 describe('tierRole', () => {
+  // FE-2: tierRole now lives in src/lib/po/tier.ts (shared with adapters.ts,
+  // which also asserts it — see adapters.test.ts) and returns {role, icon,
+  // label}; this suite additionally cares about `.icon`/`.label`.
   it('maps known tiers to a glyph + short label', () => {
-    expect(tierRole('VIP — fles op tafel')).toEqual({ label: 'VIP', icon: 'crown' });
-    expect(tierRole('All Access')).toEqual({ label: 'All Access', icon: 'shield' });
-    expect(tierRole('Crew & productie')).toEqual({ label: 'Crew', icon: 'users' });
+    expect(tierRole('VIP — fles op tafel')).toEqual({ role: 'VIP', label: 'VIP', icon: 'crown' });
+    expect(tierRole('All Access')).toEqual({ role: 'All Access', label: 'All Access', icon: 'shield' });
+    expect(tierRole('Crew & productie')).toEqual({ role: 'Crew', label: 'Crew', icon: 'users' });
   });
   it('keeps a short free-form name as-is', () => {
-    expect(tierRole('Regular')).toEqual({ label: 'Regular', icon: 'user' });
+    expect(tierRole('Regular')).toEqual({ role: 'Guest', label: 'Regular', icon: 'user' });
   });
 });
 

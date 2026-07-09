@@ -13,25 +13,32 @@ import { t, fmt } from '@/lib/i18n';
 import type { HomeEvent } from '@/features/po/adapters';
 import { isOpenGuestRequest } from '@/features/po/adapters';
 import { eventPhase } from '@/features/po/event-phase';
+import { TZ, formatTime, formatWeekdayDate } from '@/features/po/format';
 import { Icon, type IconName } from './icon';
 import { Btn } from './kit';
 
-const TZ = 'Europe/Amsterdam';
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]';
 
-export const fmtTime = (iso: string): string =>
-  new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false }).format(
-    new Date(iso)
-  );
-export const fmtDate = (iso: string): string =>
-  new Intl.DateTimeFormat('en-GB', { timeZone: TZ, weekday: 'short', day: 'numeric', month: 'short' }).format(
-    new Date(iso)
-  );
-export const dayKey = (iso: string | number): string =>
-  new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ });
+// FE-2: these three used to hand-roll their own Intl.DateTimeFormat + TZ const
+// (drifted from adapters.ts's/door's equivalents) — now thin aliases over the
+// shared, pinned formatters. Kept as named exports (not inlined at call sites)
+// since screens import fmtTime/fmtDate/dayKey from here, not from format.ts.
+export const fmtTime = formatTime;
+export const fmtDate = formatWeekdayDate;
+export const dayKey = (iso: string | number): string => new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ });
 export const kfmt = (n: number): string => (n >= 1000 ? (n / 1000).toFixed(1).replace('.0', '') + 'k' : String(n));
 
-/** The flattened per-event row the board (and the door picker) renders from. */
+/**
+ * The flattened per-event row the board (and the door picker) renders from.
+ *
+ * FE-1 note: NOT collapsed into `Pick<PoEvent, ...>` despite the name overlap on
+ * `date`/`when` — those two fields mean something DIFFERENT here than on
+ * `PoEvent` (PoEvent.date is a bare day-of-month digit; BoardEvent.date is a
+ * full weekday+day+month string. PoEvent.when is 'upcoming'|'past'; BoardEvent
+ * adds the 'today' bucket the board needs). Aliasing them would silently
+ * misrepresent what the field holds — verified during the FE-1 audit, kept
+ * deliberately separate rather than forced into a shared shape.
+ */
 export interface BoardEvent {
   id: string;
   name: string;
