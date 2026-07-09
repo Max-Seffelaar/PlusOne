@@ -106,6 +106,33 @@ traces + release tracking, PII-scrubbed, EU-region, no session replay. ClickUp
   match. Env from the Vercel integration wins on prod either way; the fallback
   only matters tokenless.
 
+## 2026-07-09 — Prod-ready 9/7 task 05: Supabase Pro + restore drill + runbook
+
+Backups moved from "hope" to "tested plan" (ClickUp `86ey7q72b`). Max upgraded the
+prod project (`tolxwgqhppdcvnogdpel`) to **Pro** → automated **daily backups, 7-day
+retention** now running. No code — docs + a live drill.
+
+- **Live restore drill (PASSED).** Used Supabase's **"Restore to a new project"
+  (BETA)** to clone the 2026-07-09 00:48 UTC physical backup into a throwaway
+  project — **zero impact on prod** (the in-place "Restore" button was deliberately
+  avoided; it overwrites). Verified in the clone: row counts intact (5 venues / 8
+  events / 18 guests / 10 auth.users / 5 subscriptions / 75 audit_log rows), **RLS
+  enabled on every public table**, the full audit + quota trigger stack present
+  (`audit_*` + `enforce_guest_quota`/`enforce_event_capacity`/`check_ins_cap_arrivals`/
+  `guard_guest_attribution`), and +N quota math correct on spot-check. Clone deleted
+  immediately after (it bills separately, inherits prod compute).
+- **`docs/backup-restore.md`** — Method A (restore-to-new-project, preferred) +
+  Method B (logical `db dump` → scratch project, fallback), the verification SQL
+  block, the in-place incident-restore procedure (with the overwrite/downtime
+  warning), and a running **drill log** (this run recorded).
+- **`docs/runbook.md`** — one-page 00:30 incident runbook: triage table (app down →
+  Vercel rollback; DB → restore; login → Auth/SMTP; door not syncing → offline
+  outbox is expected; billing/webhook → non-urgent, idempotent replay), "rollback
+  is the default first move", and a who-to-inform section. Two `<FILL IN>`s left for
+  Max: prod domain + Vercel project name, and pilot-venue contacts.
+- **PITR decision:** verified pricing (~$100/mo for 7-day) and **parked until ≥25
+  venues** — daily backups cover the "Now" milestone. Recorded in `backup-restore.md`.
+
 ## 2026-07-09 — Prod-ready 9/7 task 03: migration-collision hooks
 
 Two mechanical guards replace the prose-only "never edit an applied migration /
@@ -134,6 +161,22 @@ migration-path matching).
   blocking on an unrelated network/fetch problem. Blocking CI (task 02, the
   `lint-and-test` required check on `main`) remains the actual backstop —
   these hooks exist to catch the mistake locally, before a PR round-trip.
+
+## 2026-07-09 — Prod-ready 9/7 — 09: uptime monitor + Dependabot
+
+- **`GET /api/health`** ([src/app/api/health/route.ts](../src/app/api/health/route.ts)) — public route (middleware
+  exempts `/api/health`), service-role round-trip against `venues` (head-only) so a hung
+  Postgres connection trips it too, not just a live Next.js process. 200 `{status:'ok'}` /
+  503 `{status:'error'}`.
+- **BetterStack** is the uptime monitor (chosen on alert quality, not MCP tooling) — dashboard
+  setup is external to code, runbook at `docs/uptime-setup.md` (1-minute HTTP check against
+  `/api/health`, push-to-phone alert policy). Not yet configured — Max does the one-time
+  dashboard signup.
+- **Dependabot** (`.github/dependabot.yml`): weekly npm + github-actions update PRs, grouped
+  by dev/prod dependency-type. No new gate needed — the existing blocking `lint-and-test`
+  branch protection already fails a red update PR closed.
+- CLAUDE.md: dropped the stale "Stripe webhook = the app's only API route" claim (billing
+  section) now that `/api/health` exists.
 
 ## 2026-07-09 — Prod-ready program start + scale fixes
 

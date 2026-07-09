@@ -5,7 +5,7 @@ import { updateSession } from '@/lib/supabase/middleware';
 // explicitly here (bouwplan Fase 4 §6). Anything not public requires a verified
 // session, and protected routes additionally enforce the MFA policy here — so
 // it covers every surface (dashboard, app, events), not only the (app) shell.
-const PUBLIC_PATHS = new Set<string>(['/', '/login']);
+const PUBLIC_PATHS = new Set<string>(['/', '/login', '/api/health']);
 // Auth callback/confirm routes, the public per-event landing pages (#12), the
 // bearer-token status (/r, #28) + influencer stats (/i, F2) pages — the token IS
 // the auth there, a login redirect would break them for guests/influencers —
