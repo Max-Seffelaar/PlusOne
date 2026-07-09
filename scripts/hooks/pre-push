@@ -1,0 +1,10 @@
+#!/bin/sh
+# Migration timestamp-collision guard, run by git before every push.
+# Installed via `core.hooksPath scripts/hooks` (see scripts/setup-git-hooks.mjs,
+# wired into `pnpm install` via the postinstall script).
+#
+# Caveat: bypassable with `git push --no-verify`. Blocking CI (Prod-ready 9/7
+# task 02, the `lint-and-test` required check) is the real backstop.
+repo_root="$(git rev-parse --show-toplevel)"
+node "$repo_root/scripts/hooks/check-migration-collisions.mjs"
+exit $?

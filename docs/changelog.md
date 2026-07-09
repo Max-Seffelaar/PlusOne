@@ -8,6 +8,35 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-09 — Prod-ready 9/7 task 03: migration-collision hooks
+
+Two mechanical guards replace the prose-only "never edit an applied migration /
+pick a unique timestamp" rules in CLAUDE.md "Conventions" (ClickUp `86ey7q6xq`).
+Shared pure logic in `scripts/hooks/lib/migration-guard.mjs`, unit-tested in
+`tests/unit/migration-guard.test.ts` (8 tests, timestamp-collision +
+migration-path matching).
+
+- **Git `pre-push` hook** (`scripts/hooks/pre-push` → `check-migration-collisions.mjs`):
+  blocks the push if a new local migration in `supabase/migrations/` shares its
+  14-digit timestamp prefix with a migration already on `origin/main` — the
+  exact collision class that broke `db push`/`db reset` once before. Installed
+  via `git config core.hooksPath scripts/hooks`, set automatically by
+  `scripts/setup-git-hooks.mjs` on every `pnpm install` (new `postinstall`
+  script) — no manual setup step per machine/worktree.
+- **Claude Code `PreToolUse` hook** (`.claude/settings.json`, matcher
+  `Write|Edit` → `check-applied-migration.mjs`): denies an Edit/Write on any
+  `supabase/migrations/*.sql` file that already exists in the `origin/main`
+  git tree, mechanically enforcing "never edit an applied migration — write a
+  new one."
+- **Caveat (by design, not a gap to close later):** both guards only see what
+  the last `git fetch` knows about `origin/main`, and are trivially
+  bypassable — `git push --no-verify` for the git hook, editing the file
+  outside Claude Code (or disabling the hook) for the Claude Code one. They
+  fail open (allow) whenever `origin/main` can't be resolved, rather than
+  blocking on an unrelated network/fetch problem. Blocking CI (task 02, the
+  `lint-and-test` required check on `main`) remains the actual backstop —
+  these hooks exist to catch the mistake locally, before a PR round-trip.
+
 ## 2026-07-09 — Prod-ready program start + scale fixes
 
 - **Prod-ready program (ClickUp "Prod-ready 9/7 —" 01–13, `86ey7q6vf`…`86ey7q7ev`).**
