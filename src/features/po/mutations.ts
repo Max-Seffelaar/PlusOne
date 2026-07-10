@@ -33,7 +33,6 @@ import {
   importContacts,
   addContactToEvent,
   addContactsToEvent,
-  syncPermanentGuests,
   toggleContactPermanent,
   upsertContact,
   forgetContact,
@@ -41,13 +40,11 @@ import {
   markGuestRegular,
   type ImportResult,
   type AddContactsToEventResult,
-  type SyncResult,
 } from '@/features/contacts/actions';
 import type {
   ImportContactsInput,
   AddContactToEventInput,
   AddContactsToEventInput,
-  SyncPermanentInput,
   TogglePermanentInput,
   UpsertContactInput,
   ForgetContactInput,
@@ -741,19 +738,6 @@ export function usePoAddContactToEvent() {
       // The contact gained an appearance — refresh any open profile (S2 detail).
       void qc.invalidateQueries({ queryKey: [...poKeys.all, 'contact-profile'] });
     },
-  });
-}
-
-/**
- * Sync the venue's permanent contacts onto an event (#11). Idempotent; the RPC
- * skips contacts manually removed from this event ("respect the removal") and
- * self-guards admin/organizer + list-lock. Returns how many were added.
- */
-export function usePoSyncPermanent() {
-  const qc = useQueryClient();
-  return useMutation<SyncResult, Error, SyncPermanentInput>({
-    mutationFn: async (input) => throwOnError(await syncPermanentGuests(input)),
-    onSuccess: (_res, input) => invalidateAfterAdd(qc, input.eventId),
   });
 }
 
