@@ -7,7 +7,7 @@
  */
 import type { IconName } from '@/components/po/icon';
 import type { CheckInRow, DoorEventMeta, DoorSnapshot, GuestRow, TierRow } from './queries';
-import { formatShortDate, formatTime } from '@/features/po/format';
+import { formatShortDate, formatDateTime } from '@/features/po/format';
 import { tierRole } from '@/lib/po/tier';
 
 export type NotePriority = 'none' | 'low' | 'high';
@@ -135,7 +135,7 @@ function toDoorGuest(
     inside: active,
     voided: ci != null && ci.voided_at != null,
     pay: false,
-    inAt: active ? formatTime(ci.checked_at) : undefined,
+    inAt: active ? formatDateTime(ci.checked_at) : undefined,
     inByName: active ? profiles[ci.checked_by] ?? 'Door' : undefined,
     arrived: active ? ci.plus_ones_arrived : undefined,
     refused: g.status === 'refused',

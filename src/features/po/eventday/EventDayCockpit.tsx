@@ -15,6 +15,7 @@ import { t, fmt } from '@/lib/i18n';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { Icon, type IconName } from '@/components/po/icon';
 import { Avatar, Label, Btn, Card, pressDesktop } from '@/components/po/kit';
+import { formatDateTime } from '@/features/po/format';
 import { canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '@/components/po/context';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
@@ -765,7 +766,11 @@ const CockpitGuestList = memo(function CockpitGuestList({
             const arr = arrivals.get(g.id);
             const arrivedCount = arr ? arr.arrived : g.plus;
             const partial = isIn && arrivedCount < g.plus;
-            const atLabel = arr?.at ? amsterdamHM(new Date(arr.at)) : g.at;
+            // Date + time (not just "18:07"): the event can cross midnight (#26),
+            // so a bare time would make a post-midnight arrival read as earlier
+            // than a 23:50 one.
+            const atIso = arr?.at ?? g.at;
+            const atLabel = atIso ? formatDateTime(atIso) : undefined;
             return (
               <div
                 key={vi.key}
