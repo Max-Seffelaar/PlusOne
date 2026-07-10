@@ -10,5 +10,13 @@
       "argsIgnorePattern": "^_"
     }],
     "@typescript-eslint/no-empty-object-type": "off"
-  }
+  },
+  "overrides": [
+    {
+      "files": ["src/components/po/screens/**/*.tsx"],
+      "rules": {
+        "max-lines": ["warn", { "max": 850, "skipBlankLines": true, "skipComments": true }]
+      }
+    }
+  ]
 }

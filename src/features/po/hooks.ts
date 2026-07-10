@@ -811,6 +811,7 @@ export function usePoPersonProfile(args: {
       return toPoContactProfile(data.header, data.appearances, data.actorNames, {
         isContact: data.isContact,
         promoteGuestId: data.promoteGuestId,
+        restricted: data.restricted,
         originEventId,
       });
     },

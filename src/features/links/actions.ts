@@ -180,7 +180,7 @@ export async function rotateInfluencerStatsToken(
   if (error) return mapMutationError(error);
   // RLS silently matches nothing for non-admins — surface that as no-rights.
   if (!data || data.length === 0) {
-    return { ok: false, code: '42501', message: "You don't have rights for this (or MFA is required)." };
+    return { ok: false, code: '42501', message: "You don't have rights for this." };
   }
   return { ok: true, token };
 }

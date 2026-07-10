@@ -15,6 +15,8 @@ export const requests = {
   scopeAll: 'All events',
   scopeEventFallback: 'Event',
   noVenue: 'No active venue selected.',
+  noAccess: "You don't have access to requests.",
+  ownTitle: 'Your requests',
 
   // ── Search ──────────────────────────────────────────────────────────────────
   searchPlaceholder: 'Search by name…',
@@ -30,7 +32,14 @@ export const requests = {
   loadError: "Couldn't load the requests. Try again in a moment.",
   approveFailed: "Couldn't approve.",
   declineFailed: "Couldn't decline.",
-  approveQuotaFailed: "Couldn't approve. This may need MFA.",
+  approveQuotaFailed: "Couldn't approve. Try again.",
+  // ── Read-only / own-status framing (M1, K-4/K-5) — finance sees the venue
+  // inbox with no decide buttons; staff sees only their own submissions.
+  pendingReviewBadge: 'Pending review',
+  readOnlyNote: "You can see every request here, but only an admin can decide. Reason: fraud resistance — every approval needs a single accountable decider.",
+  ownQuotaNote:
+    "Extra slots you've asked for at this venue. An admin decides — once they do, the request drops off this list.",
+  ownEmptyQuota: 'No pending requests. Ask for extra slots from the add-guest screen when you run out.',
 
   // ── Landing-page (guest-list) queue ─────────────────────────────────────────
   landingNote:

@@ -500,6 +500,10 @@ export interface PoContactProfile {
   isContact: boolean;
   /** Name-only guest: the guest row to edit to promote it; null when a contact. */
   promoteGuestId: string | null;
+  /** True when this guest IS a contact, but the caller's role can't read the
+   *  contacts row (RLS) — the profile fell back to name-only (M3, K-8). Drives a
+   *  plain "not visible to your role" note instead of the "Save as contact" CTA. */
+  restricted: boolean;
   // Raw fields the edit / add-to-event sheets reuse (mirror PoContact), so the
   // profile can drive those writes without a second contacts read.
   phoneLast4: string | null;
@@ -523,7 +527,12 @@ export function toPoContactProfile(
   header: ContactProfileHeader,
   appearances: ContactAppearance[],
   actorNames: Record<string, string>,
-  opts: { isContact?: boolean; promoteGuestId?: string | null; originEventId?: string | null } = {}
+  opts: {
+    isContact?: boolean;
+    promoteGuestId?: string | null;
+    originEventId?: string | null;
+    restricted?: boolean;
+  } = {}
 ): PoContactProfile {
   const isContact = opts.isContact ?? true;
   const originEventId = opts.originEventId ?? null;
@@ -635,6 +644,7 @@ export function toPoContactProfile(
     timeline,
     isContact,
     promoteGuestId: opts.promoteGuestId ?? null,
+    restricted: opts.restricted ?? false,
     phoneLast4: digits.length >= 4 ? digits.slice(-4) : null,
     birthdate: header.birthdate,
     preferredRole: header.preferredRole,

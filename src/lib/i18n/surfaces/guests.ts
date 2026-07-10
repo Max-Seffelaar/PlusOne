@@ -345,6 +345,9 @@ export const guests = {
     // Name-only guest (not a contact yet) → promote
     saveAsContact: 'Save as contact',
     guestOnlyNote: 'Not a saved contact yet. Save to keep their history and find them next time.',
+    // Restricted: already a contact, but this role can't read the address book
+    // (M3, K-8) — a plain note instead of a dead-end error or a promote CTA.
+    restrictedNote: "This person is a saved contact. Full contact details aren't visible to your role — an admin, finance, or the event organizer can see more.",
     promoteTitle: 'Save as contact',
     promoteSub: 'Save this person to your contacts. Email or phone helps find them on the next list.',
     promoteHint: "With an email or phone number we recognise them next time. Without one, they're saved by name only.",
