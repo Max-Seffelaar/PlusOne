@@ -29,7 +29,6 @@ vi.mock('@/features/contacts/actions', () => ({
   importContacts: vi.fn(),
   addContactToEvent: vi.fn(),
   addContactsToEvent: vi.fn(),
-  syncPermanentGuests: vi.fn(),
   toggleContactPermanent: vi.fn(),
   upsertContact: vi.fn(),
   forgetContact: vi.fn(async () => ({ ok: true })),

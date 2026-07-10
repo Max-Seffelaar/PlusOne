@@ -110,12 +110,6 @@ export const forgetContactSchema = z.object({
 });
 export type ForgetContactInput = z.input<typeof forgetContactSchema>;
 
-/** Sync the venue's permanent contacts onto one event (#11). */
-export const syncPermanentSchema = z.object({
-  eventId: uuid,
-});
-export type SyncPermanentInput = z.input<typeof syncPermanentSchema>;
-
 /** Add a single contact from the address book to an event (Adresboek "+"). The
  *  optional plus-ones ("hoeveel extra plekken?") is bounded like a normal guest add. */
 export const addContactToEventSchema = z.object({

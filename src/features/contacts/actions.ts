@@ -7,7 +7,6 @@ import { assertVenueBillingActive } from '@/features/billing/gate';
 import {
   upsertContactSchema,
   togglePermanentSchema,
-  syncPermanentSchema,
   addContactToEventSchema,
   addContactsToEventSchema,
   importContactsSchema,
@@ -16,7 +15,6 @@ import {
   markGuestRegularSchema,
   type UpsertContactInput,
   type TogglePermanentInput,
-  type SyncPermanentInput,
   type AddContactToEventInput,
   type AddContactsToEventInput,
   type ImportContactsInput,
@@ -26,8 +24,6 @@ import {
 } from './schemas';
 
 export type ActionResult = { ok: true } | MutationError;
-/** Sync reports how many house guests it added (for the toast). */
-export type SyncResult = { ok: true; added: number } | MutationError;
 /** Import reports per-row outcome for the toast, plus the ids of every touched
  *  contact so the UI can offer to add exactly them to an event (#3). */
 export type ImportResult =
@@ -154,32 +150,6 @@ export async function toggleContactPermanent(input: TogglePermanentInput): Promi
 
   revalidatePath(APP_PATH);
   return { ok: true };
-}
-
-/**
- * Sync the venue's permanent contacts onto an event (#11). Idempotent and
- * re-runnable; skips contacts manually removed from this event ("respect the
- * removal"). The RPC self-guards admin/organizer + list-lock.
- */
-export async function syncPermanentGuests(input: SyncPermanentInput): Promise<SyncResult> {
-  const parsed = syncPermanentSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { eventId } = parsed.data;
-
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return unauthorized();
-
-  const { data, error } = await supabase.rpc('sync_permanent_guests_into_event', {
-    p_event_id: eventId,
-  });
-  if (error) return mapMutationError(error);
-
-  revalidatePath(APP_PATH);
-  revalidatePath(`/events/${eventId}/guests`);
-  return { ok: true, added: data ?? 0 };
 }
 
 /**
