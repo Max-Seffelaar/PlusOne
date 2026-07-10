@@ -229,7 +229,7 @@ export const events = {
   activityPpl: 'reg',
   activityIn: 'in',
   activityInShort: 'in',
-  activityAddedPpl: '({n} ppl)',
+  activityAddedPpl: ' ({n} ppl)',
 
   // ── External crew (event_organizers, #6/#24) ─────────────────────────────────
   // Event-scoped people (a DJ, artist, guest organizer) attached to ONE event —

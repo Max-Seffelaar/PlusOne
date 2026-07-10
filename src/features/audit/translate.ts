@@ -181,6 +181,25 @@ function phrase(row: AuditFeedRow): { text: string; entity: string } {
       }
     }
 
+    case 'request_links': {
+      const label = str(after?.label) ?? str(before?.label);
+      const desc = label ? `the request link "${label}"` : 'a request link';
+      if (action === 'create') return { text: `created ${desc}`, entity: label ?? 'a request link' };
+      if (after && 'archived_at' in after) {
+        return {
+          text: str(after.archived_at) ? `archived ${desc}` : `restored ${desc}`,
+          entity: label ?? 'a request link',
+        };
+      }
+      if (after && 'active' in after) {
+        return {
+          text: `${after.active === true ? 're-activated' : 'paused'} ${desc}`,
+          entity: label ?? 'a request link',
+        };
+      }
+      return { text: `updated ${desc}`, entity: label ?? 'a request link' };
+    }
+
     case 'venue_memberships': {
       const roles = roleList(after?.roles);
       const oldRoles = roleList(before?.roles);

@@ -327,7 +327,7 @@ export function GuestsTab(): JSX.Element {
       <Top
         title={t.guests.list.title}
         sub={scopeEvent ? `${scopeEvent.name} · ${countSub}` : countSub}
-        right={scopeEvent ? <IconBtn name="plus" onClick={() => nav.push('quickadd', { id: scopeEvent.id })} /> : undefined}
+        right={scopeEvent ? <IconBtn name="plus" ariaLabel={t.guests.list.addGuest} onClick={() => nav.push('quickadd', { id: scopeEvent.id })} /> : undefined}
       />
       <div className="flex-none overflow-x-auto px-4 pb-3">
         <div className="flex w-max items-center gap-1.5">

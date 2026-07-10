@@ -8,6 +8,8 @@
  * Composed into the central dictionary (`../en.ts`) — components read these as
  * `t.door.<key>` and fill {placeholders} with `fmt`.
  */
+import { shared } from './shared';
+
 export const door = {
   // ── Check-in list (CheckInList) ──────────────────────────────────────────
   checkinTitle: 'Check-in',
@@ -17,9 +19,10 @@ export const door = {
   headcountSub: 'people',
   searchPlaceholder: 'Search a name…',
   addOnSpotAria: 'Add on the spot',
-  filterAll: 'All',
-  filterOnTheWay: 'On the way',
-  filterInside: 'Inside',
+  // Shared with cockpit.ts (t.cockpit.filter*) — one source of truth.
+  filterAll: shared.checkinFilters.all,
+  filterOnTheWay: shared.checkinFilters.onTheWay,
+  filterInside: shared.checkinFilters.inside,
   resultFound: '{n} found',
   countCheckedIn: '{n} checked in',
   countStillAtDoor: '{n} still at the door',
