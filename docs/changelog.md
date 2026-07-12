@@ -8,6 +8,51 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-12 — UX/IA G3: Promotion hub (Promo + Links + Influencers regrouped) + M14
+
+Built per the pre-written plan (`promotion-regroup-plan-claude-code.md`, now stamped
+"gebouwd" — it sat uncommitted in sibling worktree `interesting-rhodes-e3fe08` and is
+committed with this PR). G1 had landed (#186); M14 had not, so per the plan's own logic
+M14 rode along instead of being built twice. ClickUp `86ey7e03j`.
+
+- **One Promotion area** at `/app/promotion` (`src/components/po/screens/promotion/`):
+  hub with Seg tabs **Overview** (old promo.tsx minus its per-event section — the funnel
+  card now links through to Per event) / **Per event** (old links.tsx + event picker +
+  **M14: checked-in on every link card** via `usePoLinkFunnel`, the same
+  `event_link_funnel` RPC the Overview reads) / **Roster** (old influencers.tsx).
+  Old files (`promo.tsx` 627, `links.tsx` 659, `influencers.tsx` 320,
+  `promo-create-link.tsx` 300) deleted; every new file well under the 800-LOC guideline.
+- **Create-link-flow deduplicated (G3-0):** one `CreateLinkFlow` (form → done-screen with
+  explicit copy step, the plan's recommended UX) behind both the Overview CTA and the
+  per-event links screen; `LinkSheet` is edit-only now. The third near-identical tier
+  picker (approvals `AssignSheet`) and the two link ones fold into a new **kit primitive
+  `TierPicker`** (radio rows, color dot + capacity hint; surface copy stays at call sites).
+- **Gating decoupled per vraag 6:** the hub nav item + deep link are venue-member-only
+  (`statsVenues`, i.e. admin/finance reporting access; direct hit without access = plain
+  no-access state, M3-style role-hide). The standalone `/app/events/[id]/links`
+  (ScreenName `'links'`) deliberately survives OUTSIDE the hub so an external organizer
+  keeps managing his own event's links from EventView/EventEdit. The More-hub
+  Influencers row (admin-only, duplicated what Promotion already offers since
+  admin ⊂ canViewStats) is removed; Promo row + Stats cross-link now push `'promotion'`.
+- **Routing:** ScreenNames `'promo'`/`'influencers'` replaced by `'promotion'`
+  (`props.tab: overview|events|roster`, `'overview'` is the URL-less default like
+  aanvragen's `'landing'`); `/app/promo` and `/app/influencers` parse as legacy aliases
+  to the matching hub tab (round-trip + alias tests in `routes.test.ts`).
+- **Verification:** tsc + lint clean; vitest 727 green (5 billing/realtime timeouts under
+  full-suite load pass in isolation — pre-existing flake). Live preview as admin: hub +
+  all three tabs render, Overview live data, per-event cards show "… · 0 in" (M14) and
+  capacity, CreateLinkFlow renders with who-chips + rich TierPicker; staff login confirmed
+  role-hide (no Promotion nav item) and the server action's rights error surfaces
+  gracefully in the sheet. **Caveat:** mid-session a concurrent session shared the preview
+  browser profile + local DB (cookie flips admin→staff→manager, a DB reset that revived
+  the consent gate, minutes-long compiles), so create-flow completion, the Roster tab
+  body, the standalone links route and the organizer flow were NOT click-verified live —
+  they're the moved/shared code paths above and are covered in the per-screen test
+  handoff. Lesson repeated: **check who's using the stack before a test pass** (the
+  "one DB owner" rule exists for exactly this).
+
+---
+
 ## 2026-07-12 — G1 follow-up: door sub-nav still hit the server (fresh-eyes re-review)
 
 A second fresh-session review found the G1 layout split (below) did NOT actually fix the

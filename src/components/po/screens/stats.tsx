@@ -139,7 +139,7 @@ export function Stats(): JSX.Element {
             influencer live there, not in the generic analytics. */}
         <button
           type="button"
-          onClick={() => nav.push('promo')}
+          onClick={() => nav.push('promotion')}
           className={cn(
             'mb-4 flex w-full items-center gap-[11px] rounded-[14px] border border-line bg-elev px-[14px] py-[12px] text-left',
             'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]'

@@ -26,6 +26,8 @@ export const links = {
 
   // Card mini-stats + actions.
   stats: '{views} views · {requests} requests · {approved} approved',
+  /** Checked-in headcount via this link (M14) — appended once the funnel loads. */
+  statsIn: ' · {n} in',
   statsCap: ' · {heads}/{max}',
   copyAria: 'Copy link URL',
   qrAria: 'Show QR code',

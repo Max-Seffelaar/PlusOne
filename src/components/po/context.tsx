@@ -42,16 +42,17 @@ export type ScreenName =
   | 'templates'
   | 'templateedit'
   | 'links'
-  | 'influencers'
-  | 'promo';
+  | 'promotion';
 
 export interface ScreenProps {
   id?: string;
   /** Event scope for the guest detail (props.id there is the guest id). */
   eventId?: string;
   isNew?: boolean;
-  /** Approvals (aanvragen) deep-link: which queue to open first. */
-  tab?: 'landing' | 'quota';
+  /** Sub-screen deep-link: aanvragen's queue ('landing' | 'quota') or the
+   *  Promotion hub's tab ('overview' | 'events' | 'roster'). Like 'landing',
+   *  'overview' is its screen's URL-less default — callers omit it. */
+  tab?: 'landing' | 'quota' | 'overview' | 'events' | 'roster';
 }
 
 export interface Nav {

@@ -108,10 +108,12 @@ export function screenPath(name: ScreenName, props: ScreenProps = {}): string {
       return '/app/templates';
     case 'templateedit':
       return isNew ? '/app/templates/new' : `/app/templates/${id}`;
-    case 'influencers':
-      return '/app/influencers';
-    case 'promo':
-      return '/app/promo';
+    // Promotion hub (G3): 'overview' is the URL-less default tab — an explicit
+    // {tab:'overview'} builds the same URL as {} (mirrors aanvragen's 'landing').
+    case 'promotion':
+      if (tab === 'roster') return '/app/promotion/roster';
+      if (tab === 'events') return id ? `/app/promotion/events/${id}` : '/app/promotion/events';
+      return '/app/promotion';
   }
 }
 
@@ -242,8 +244,19 @@ export function parseAppUrl(pathname: string, search: URLSearchParams): ParsedTa
     return { kind: 'screen', name: 'templateedit', props: { id: second } };
   }
 
-  if (first === 'influencers') return { kind: 'screen', name: 'influencers', props: {} };
-  if (first === 'promo') return { kind: 'screen', name: 'promo', props: {} };
+  if (first === 'promotion') {
+    if (second === 'roster') return { kind: 'screen', name: 'promotion', props: { tab: 'roster' } };
+    if (second === 'events') {
+      return third
+        ? { kind: 'screen', name: 'promotion', props: { tab: 'events', id: third } }
+        : { kind: 'screen', name: 'promotion', props: { tab: 'events' } };
+    }
+    return { kind: 'screen', name: 'promotion', props: {} };
+  }
+  // Pre-G3 bookmarks: the standalone Promo dashboard and Influencers screens
+  // folded into the Promotion hub — old URLs degrade to the matching tab.
+  if (first === 'promo') return { kind: 'screen', name: 'promotion', props: {} };
+  if (first === 'influencers') return { kind: 'screen', name: 'promotion', props: { tab: 'roster' } };
   if (first === 'more') return { kind: 'tab', tab: 'meer' };
 
   return { kind: 'tab', tab: 'start' };
