@@ -314,7 +314,7 @@ export function Profile(): JSX.Element {
           disabled={signingOut !== null}
           onClick={() => {
             setSigningOut('local');
-            void signOutDevice(p.userId, 'local');
+            void signOutDevice('local');
           }}
         >
           {signingOut === 'local' ? t.settings.profile.signingOut : t.settings.profile.signOut}
@@ -356,7 +356,7 @@ export function Profile(): JSX.Element {
             disabled={signingOut !== null}
             onClick={() => {
               setSigningOut('global');
-              void signOutDevice(p.userId, 'global');
+              void signOutDevice('global');
             }}
           >
             {signingOut === 'global' ? t.settings.profile.loggingOut : t.settings.profile.logoutAllConfirmBtn}

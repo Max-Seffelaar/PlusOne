@@ -20,10 +20,19 @@ const PHONE_RE = /\+?\d[\d\s\-()]{6,}\d/g;
 // Query string on any http(s) URL — PostgREST filters (?full_name=ilike.%Jan%,
 // ?email=eq.…) carry guest data a name-blind pattern scrubber can't catch.
 const URL_QUERY_RE = /(https?:\/\/[^\s"'?]+)\?[^\s"']*/g;
+// Same, for a root-relative in-app URL (G1: Sentry's browser-tracing navigation
+// breadcrumbs record `to`/`from` as relative paths — e.g. `/app/door?guest=…`
+// or `/app/guests/x?event=…` — not just absolute fetch URLs, so those carry
+// the same query-string PII risk). Requires 2+ path segments before the `?` so
+// a stray "word/word?" in free-form message text can't false-positive; a bare
+// single-segment path (`/app?billing=success`) never carries PII (only a
+// success/canceled flag), so it's deliberately left alone.
+const RELATIVE_URL_QUERY_RE = /(\/[\w.-]+(?:\/[\w.-]+)+)\?[^\s"']*/g;
 
 export function scrubText(input: string): string {
   return input
     .replace(URL_QUERY_RE, '$1?[filtered]')
+    .replace(RELATIVE_URL_QUERY_RE, '$1?[filtered]')
     .replace(PG_KEY_DETAIL_RE, 'Key ([redacted])=([redacted])')
     .replace(EMAIL_RE, '[email]')
     .replace(PHONE_RE, '[phone]');

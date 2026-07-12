@@ -17,7 +17,7 @@ De codebase is **~85% wrap-klaar; geen blockers** voor het remote-URL-model:
 | Auth | ✅ webview-safe | OTP + magic-link via `/auth/confirm?token_hash=…` (pure HTTP-redirects, geen popups), `@supabase/ssr`-cookies, e-mailtemplates op `{{ .SiteURL }}` |
 | Deur offline | ✅ | IndexedDB (TanStack-persister + outbox in `src/features/door/`), nergens SW-afhankelijk; sign-out wist IDB |
 | PWA-shell | ✅ | Manifest compleet (maskable icons 192/512), handgeschreven app-shell-SW, prod-only registratie |
-| Backbutton | ⚠️ voorbereid | `src/components/po/history-nav.ts` is expliciet ontworpen voor een `@capacitor/app` `backButton`-listener → `goBack()`; nog niet bedraad (N3) |
+| Backbutton | ⚠️ voorbereid | G1 (real per-screen URLs, `src/components/po/routes.ts`) verving de oude in-memory stack + `history-nav.ts` (verwijderd) door de Next.js router zelf — elke `nav.push`/`setTab`/overlay-open is nu een echte `router.push`. Hook-point voor N3: `@capacitor/app`'s `backButton`-listener → `router.back()` (of `window.history.back()`), met een exit-regel op de `/app`-root (`pathname === '/app'` → app minimaliseren i.p.v. verder terug). Nog niet bedraad (N3) |
 | Safe-area | ⚠️ bijna | `env(safe-area-inset-bottom)` zit al in de shells; `viewport-fit=cover` ontbreekt in de root layout (N1) |
 | Notifications | ⚠️ alleen seam | `src/features/notifications/provider.ts` = `NoopNotificationProvider`; geen tokens-tabel, geen dispatch, geen adapter (N2+N5) |
 | Kleine gaten | ⚠️ | clipboard-fallback in `events.tsx`; CSP-check bij wrap (N1/N3) |
@@ -79,7 +79,7 @@ Effort in Claude Code-sessies (de werkeenheid van dit project). **NOW** = pre-tr
 |---|------|-----|--------|------|-------------|
 | N1 | Webview-prep fixes | NOW | 1 | — | Clipboard-fallback (`events.tsx`), `viewport-fit=cover` in de root layout, CSP-wrap-notes, sanity-pass op de CLAUDE.md-Capacitor-checklist. |
 | N2 | Push-backend | NOW | 2 | M3 (alleen voor echte send) | Migraties `push_tokens` + `notification_outbox`, AFTER-triggers op `quota_requests`/`guest_requests`, pg_net-wiring, revocatie-RPC-uitbreiding, `supabase/functions/push-dispatch` (FCM v1 + token-pruning), pg_cron-retry, pgTAP, types regenereren. Pipeline **live-maar-slapend**, testbaar tegen gemockte FCM. |
-| N3 | Capacitor-scaffold + Android | NOW | 1–2 | N1 | `capacitor.config.ts` met `server.url` = prod, `android/`+`ios/` gecommit, `@capacitor/app` backButton → `history-nav.goBack()`, statusbar/splash-basis, safe-area-check, CSP-fix alleen als de bridge geblokt wordt. **Android-debugbuild op Max' Windows-machine valideert het hele model.** |
+| N3 | Capacitor-scaffold + Android | NOW | 1–2 | N1 | `capacitor.config.ts` met `server.url` = prod, `android/`+`ios/` gecommit, `@capacitor/app` backButton → `router.back()` (G1: de po-router, niet meer `history-nav.ts`), statusbar/splash-basis, safe-area-check, CSP-fix alleen als de bridge geblokt wordt. **Android-debugbuild op Max' Windows-machine valideert het hele model.** |
 | N4 | Deur cold-start-spike | NOW | 1 | N3 | Schriftelijke go/no-go: is remote-URL cold-start-offline acceptabel voor de deur, of bundelen we alleen de (al client-side) deur-route lokaal? Geen productiecode. |
 | N5 | Push-client + native adapter | NOW | 1 | N2+N3 | `CapacitorPushProvider`, runtime-selectie, permission-UX, register/unregister-lifecycle, tap-navigatie. Werkende push op Android; iOS volgt in S1. |
 | S1 | iOS-build + cloud-CI | SHIP | 1 + Max | M1, M3, N3 | `codemagic.yaml`, managed signing, TestFlight + Play internal track, APNs-via-FCM geverifieerd op echte iPhone. |
@@ -116,7 +116,7 @@ Web-push-adapter · scheduled/reminder-pushes · notification-preferences-matrix
 
 - `src/features/notifications/provider.ts` — de seam waar alle push-werk aan hangt
 - `src/features/auth/session-actions.ts` — revocatie-RPC's uitbreiden voor token-invalidatie
-- `src/components/po/history-nav.ts` — backButton-wiring-target
+- `src/components/po/app.tsx` — backButton-wiring-target (G1: `useRouter()`/`router.back()`; `history-nav.ts` bestaat niet meer, verwijderd toen elk scherm een echte URL kreeg)
 - `next.config.js` — CSP/headers bij wrap + AASA/assetlinks-serving
 - `src/app/auth/dev-login/route.ts` — template voor de prod review-login-route
 - `supabase/templates/` — e-mail-deep-links (`{{ .SiteURL }}`)

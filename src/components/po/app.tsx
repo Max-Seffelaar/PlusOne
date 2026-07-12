@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * po app shell — a single client tree with an in-memory nav stack, rendered
+ * po app shell — a single client tree with real per-screen URLs (G1), rendered
  * through the responsive shell (auth is real middleware + /login + /mfa,
  * outside this tree). Events / Gastenlijst / adresboek read
  * live Supabase data; the Deur/Taken tabs mount the real DoorProvider (offline
@@ -9,6 +9,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
 import { usePoCanManageTemplates, usePoDoorCandidates, usePoEvents, usePoGuestRequests } from '@/features/po/hooks';
@@ -16,23 +17,14 @@ import { isOpenGuestRequest } from '@/features/po/adapters';
 import { autoOpenDoorEvent } from '@/features/po/door-event';
 import { poKeys } from '@/features/po/keys';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
+import { useAppShellData } from './app-shell-data';
 import { canSeeAnyRequests, canWorkDoor } from '@/features/auth/roles';
 import { venueCapabilities } from '@/features/venues/access';
 import { DoorProvider } from '@/features/door/DoorProvider';
 import { DoorQueryProvider } from '@/features/door/DoorQueryProvider';
 import { setActiveVenueAction } from '@/features/venues/actions';
-import {
-  PoProvider,
-  clearNavState,
-  loadNavState,
-  saveNavState,
-  type Nav,
-  type PoApp,
-  type PoVenueMembership,
-  type ScreenName,
-  type StackEntry,
-} from './context';
-import { usePoHistoryNav } from './history-nav';
+import { PoProvider, type Nav, type PoApp, type ScreenName, type ScreenProps } from './context';
+import { doorPath, parseAppUrl, screenPath, tabPath, type DoorSeg, type ParsedTarget } from './routes';
 import { Toast, type TabKey } from './shell';
 import { Top } from './kit';
 import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
@@ -45,17 +37,6 @@ import { Allowance, Billing, Gebruikers, Import, Meer, Profile, Rollen, VenueSet
 import { VenueCreate } from './screens/onboarding';
 import { Home } from './screens/home';
 import { t } from '@/lib/i18n';
-
-/** A captured po navigation position. Restoring one sets every nav-relevant piece,
- *  so a single back step can return to a different TAB — not just pop the current
- *  tab's pushed stack. The back button retraces a sequence of these (#37). */
-type NavPos = {
-  tab: TabKey;
-  stack: StackEntry[];
-  doorOverlay: DoorOverlay;
-  doorEventId: string | null;
-  doorSeg: 'deur' | 'taken';
-};
 
 /**
  * Code-split (#2a): the heavy/rare screens below each live in their own module
@@ -127,6 +108,108 @@ const WIDE_DESKTOP = new Set([
   'event', 'pastevent', 'aanvragen', 'deur',
 ]);
 
+/** Which top-level nav entry a pushed screen visually belongs to (G1): drives
+ *  the desktop sidebar's `active` highlight and — collapsed onto the 5 mobile
+ *  bottom tabs by `mobileTabForScreen` below — which tab stays lit while a
+ *  pushed screen is open. Replaces the old NAV_PUSHED/currentKey lookup: real
+ *  URLs don't carry "which tab you pushed from", so this is a static, per-screen
+ *  mapping instead of a runtime-preserved `tab` value.
+ *
+ *  `guest` always maps to 'guests', matching its real URL taxonomy
+ *  (`/app/guests/:id`, never nested under an event) — NOT `props.eventId ? …`.
+ *  `eventId` there is the "originating event pinned on top" display scope
+ *  (passed by both the Guests-tab list AND an event's guest list, since every
+ *  guest belongs to some event), not a signal for which nav item pushed the
+ *  screen; branching nav highlighting on it was wrong in both directions (a
+ *  Guests-tab guest always has a truthy eventId → wrongly highlighted Events,
+ *  while the past-event recap's guest links omit eventId → wrongly highlighted
+ *  Guests). There's no reliable "who pushed this" signal without threading a
+ *  new field through routes.ts purely for cosmetics — not worth it. */
+function navKeyForScreen(name: ScreenName, _props: ScreenProps): string {
+  switch (name) {
+    case 'event':
+    case 'eventedit':
+    case 'lijst':
+    case 'tiers':
+    case 'crew':
+    case 'allowance':
+    case 'links':
+    case 'quickadd':
+    case 'bulk':
+    case 'pastevent':
+      return 'events';
+    case 'guest':
+      return 'guests';
+    case 'contacten':
+    case 'contactprofile':
+      return 'contacten';
+    case 'aanvragen':
+      return 'aanvragen';
+    case 'stats':
+      return 'stats';
+    case 'promo':
+      return 'promo';
+    case 'gebruikers':
+      return 'gebruikers';
+    default:
+      // rollen, import, venueswitch, venuesettings, venuecreate, profile,
+      // billing, audit, adminsessions, templates, templateedit, influencers —
+      // all live under the More hub on both mobile and desktop.
+      return 'meer';
+  }
+}
+
+/** Mobile only has 5 real bottom tabs — collapse every desktop-only sidebar
+ *  entry (Contacts/Requests/Analytics/Promotion/Team) onto "Meer", matching
+ *  where those screens actually live in the mobile nav. */
+const MOBILE_TABS: ReadonlySet<string> = new Set(['start', 'events', 'guests', 'deur', 'meer']);
+function mobileTabForScreen(name: ScreenName, props: ScreenProps): TabKey {
+  const key = navKeyForScreen(name, props);
+  return (MOBILE_TABS.has(key) ? key : 'meer') as TabKey;
+}
+
+/** Best-effort parent path for a screen with no real browser-history entry to
+ *  pop (G1 review): a cold deep link — fresh tab, bookmark, or the consent/MFA
+ *  `next=` round-trip — has nothing "before" it in THIS tab's history, so
+ *  `router.back()` would either no-op or leave the app/land on an unrelated
+ *  prior page. `back()`/`closeOverlay` fall through to pushing this instead.
+ *  Event-nested screens zoom out one level (to their event, or its guest
+ *  list); everything else falls back to its tab, via the same
+ *  `mobileTabForScreen` mapping the sidebar/bottom-tab highlight uses. */
+function parentPathFor(target: ParsedTarget): string {
+  if (target.kind === 'tab') return tabPath('start');
+  if (target.kind === 'door') {
+    return target.overlay ? doorPath({ seg: target.seg, eventId: target.eventId ?? undefined }) : tabPath('start');
+  }
+  const { name, props } = target;
+  switch (name) {
+    case 'eventedit':
+      return props.isNew ? tabPath('events') : screenPath('event', { id: props.id });
+    case 'lijst':
+    case 'tiers':
+    case 'crew':
+    case 'links':
+      return screenPath('event', { id: props.id });
+    case 'quickadd':
+    case 'bulk':
+      return props.id ? screenPath('lijst', { id: props.id }) : tabPath('events');
+    case 'event':
+    case 'pastevent':
+      return tabPath('events');
+    case 'guest':
+      return props.eventId ? screenPath('lijst', { id: props.eventId }) : tabPath('guests');
+    case 'contactprofile':
+      return tabPath('guests');
+    case 'templateedit':
+      return screenPath('templates', {});
+    default:
+      // mobileTabForScreen's declared return type includes 'deur', but
+      // navKeyForScreen never yields it for a `kind: 'screen'` target (that
+      // key is reserved for `kind: 'door'`, handled above) — safe to narrow.
+      return tabPath(mobileTabForScreen(name, props) as Exclude<TabKey, 'deur'>);
+  }
+}
+
 /** Shown while a pushed event/guest screen waits for its live row to load. */
 function Loading({ onBack }: { onBack: () => void }): JSX.Element {
   return (
@@ -148,72 +231,94 @@ function DoorTabState({ title, text }: { title: string; text: string }): JSX.Ele
   );
 }
 
-export function PlusOneApp({
-  statsAccess,
-  myVenues = [],
-  activeVenueId = null,
-  serverHint = false,
-  liveVenueName,
-  liveUserName,
-  liveUserSub,
-}: {
-  statsAccess?: { venues: { venueId: string; venueName: string }[] };
-  /** The caller's real venue memberships (live), for the venue switcher (#1). */
-  myVenues?: PoVenueMembership[];
-  /** The active (cookie-resolved) venue id, or null. */
-  activeVenueId?: string | null;
-  /** Server UA hint for the first-paint viewport switch (corrected by matchMedia). */
-  serverHint?: boolean;
-  /** Live active-venue name from the session (shell display); generic fallback otherwise. */
-  liveVenueName?: string;
-  /** Live signed-in user's display name (shell footer). */
-  liveUserName?: string;
-  /** Live role label (+ MFA) for the shell footer. */
-  liveUserSub?: string;
-}): JSX.Element {
+// Tracks whether a real, poppable history entry has been pushed yet THIS
+// browser-tab session (e2e-review fix). A cold deep link (fresh tab,
+// bookmark, the consent/MFA `next=` round-trip) starts with nothing to pop —
+// `router.back()` there would no-op or leave the app. `back()`/`closeOverlay`
+// check this before deciding between a real `router.back()` and a computed
+// parent path. `router.replace` never sets it: swapping the current entry
+// doesn't create anything new to go back to.
+//
+// MODULE-level, not a `useRef` inside `PlusOneApp`: every `router.push`/
+// `replace`-driven navigation on this fully-dynamic catch-all route remounts
+// `PlusOneApp` entirely (confirmed empirically — a mount/unmount probe fired
+// on every single navigation, including plain screen-to-screen pushes). A
+// `useRef` is scoped to the component INSTANCE, so it reset to its initial
+// `false` on every navigation and `back()` NEVER took the real-history
+// branch — the e2e core-flow test caught this: clicking Back after creating
+// an event landed on the event's own detail page (the cold-deep-link
+// fallback's target) instead of the events list a real `router.back()` would
+// have reached. A plain module variable survives the remount (same JS module
+// instance across client-side navigations) and only resets on an actual full
+// page load — exactly the "cold deep link" signal this needs. Door sub-nav
+// (`pushDoorState`) doesn't have this problem — it bypasses `router.push`
+// entirely, so it never triggers the remount in the first place.
+let hasPushedThisSession = false;
+
+export function PlusOneApp(): JSX.Element {
+  // Server-resolved display data (venue list, stats access, live names) — set
+  // once by the /app layout (G1), not re-fetched per screen navigation.
+  const {
+    statsAccess,
+    myVenues,
+    activeVenueId,
+    serverHint,
+    liveVenueName,
+    liveUserName,
+    liveUserSub,
+  } = useAppShellData();
   // Same breakpoint/source as ResponsiveShell — picks the door branch's variant
   // below (≥1024px = Event-dag cockpit, <1024px = the outbox-backed door tab).
   const isMobile = useViewport(serverHint);
-  const [tab, setTabState] = useState<TabKey>('start');
-  const [stack, setStack] = useState<StackEntry[]>([]);
-  // Door check-in overlay (guest detail / add-on-spot) for the Deur/Taken tabs.
-  // The state lives here (not inside DoorProvider) so the mobile tab bar can hide
-  // behind a full-screen door detail (isTabRoot below); the door components that
-  // read it render inside the provider, via <PoDoorTab>.
-  const [doorOverlay, setDoorOverlay] = useState<DoorOverlay>(null);
-  // S1.3: when the user opens "Check-in" from a specific event card, that event id
-  // overrides the venue-wide auto-pick for the Deur/Taken tabs. null = auto-pick.
-  const [doorEventId, setDoorEventId] = useState<string | null>(null);
-  // Merged Door tab: Check-in ('deur') / Tasks ('taken') segment (was two tabs).
-  const [doorSeg, setDoorSeg] = useState<'deur' | 'taken'>('deur');
-  const [toast, setToast] = useState<string | null>(null);
-  const [key, setKey] = useState(0);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  // The live URL IS the nav state (G1) — no in-memory stack, no sessionStorage
+  // restore-after-refresh hack. Every screen/tab/door-overlay derives from this
+  // single parse of the current pathname + query string.
+  const target = parseAppUrl(pathname, searchParams);
+  const doorSeg = target.kind === 'door' ? target.seg : 'deur';
+  const doorEventIdFromUrl = target.kind === 'door' ? target.eventId : null;
+  const doorOverlay: DoorOverlay = target.kind === 'door' ? target.overlay : null;
+  const searchParamsStr = searchParams.toString();
 
-  // Restore the tab + nav stack after a browser refresh (S3.2). Runs once on
-  // mount (never during SSR), so there's no hydration mismatch; the persisted
-  // screen replaces the default Start on the next frame. `navHydrated` gates the
-  // writer below so the initial {start, []} can't clobber the saved value before
-  // this read runs.
-  const [navHydrated, setNavHydrated] = useState(false);
-  // Reactive mirror of navHistory.current.length — drives canGoBack in the nav object.
-  const [navHistoryLen, setNavHistoryLen] = useState(0);
-  // Nav-state is keyed per user (T1 #20): after a user switch on a shared device
-  // the app must not restore the previous user's screen. userId is stable for the
-  // life of this mount (a login/logout is a full page load), so the read still
-  // effectively runs once.
+  // Door sub-state override (G1 fresh-review fix). `router.push`/`replace` on
+  // this dynamic route hits the server for a fresh RSC payload on ANY
+  // search-param change — Next's client router keys cached page data by the
+  // full search string, and the search-param-aliasing optimization that would
+  // avoid this needs a `loading.tsx` this route doesn't have — regardless of
+  // page.tsx reading no searchParams itself. Confirmed live: opening a guest
+  // overlay produced a real `GET .../door?guest=…&_rsc=…` request. That breaks
+  // the door's offline invariant (#25) for every overlay open/close and
+  // segment switch, and even online turns what used to be instant into a
+  // blocking round-trip. Fix: drive door sub-state through raw
+  // `window.history.pushState/replaceState` (`pushDoorState`/`replaceDoorState`
+  // below) instead — no server involved — and shadow the URL-derived door
+  // fields with this local override until Next's OWN hooks report a genuine
+  // change (a real router-driven navigation, or a browser back/forward
+  // popstate, which Next resyncs on its own regardless of who pushed the
+  // entry) — the effect below clears the shadow at that point so the
+  // URL becomes authoritative again. Desktop's cockpit is unaffected (it's
+  // online-only by design, no outbox, and never sets this override).
+  const [doorOverride, setDoorOverride] = useState<{
+    seg: DoorSeg;
+    eventId: string | null;
+    overlay: DoorOverlay;
+  } | null>(null);
+  useEffect(() => {
+    setDoorOverride(null);
+  }, [pathname, searchParamsStr]);
+  const doorState = doorOverride ?? { seg: doorSeg, eventId: doorEventIdFromUrl, overlay: doorOverlay };
+
+  const [toast, setToast] = useState<string | null>(null);
+  // Retriggers the CSS entrance animation on every navigation (any URL change).
+  // A derived key, not a bumped useState — a state+effect pair here meant every
+  // navigation mounted the new screen once with the OLD key, then the effect
+  // fired and remounted it again under a bumped key, so screen mount effects
+  // ran twice per navigation (review fix).
+  const key = `${pathname}?${searchParamsStr}`;
+
   const { userId, roles } = usePoIdentity();
-  useEffect(() => {
-    const saved = loadNavState(userId);
-    if (saved) {
-      setTabState(saved.tab);
-      setStack(saved.stack);
-    }
-    setNavHydrated(true);
-  }, [userId]);
-  useEffect(() => {
-    if (!navHydrated) return;
-    saveNavState(userId, { tab, stack });
-  }, [navHydrated, userId, tab, stack]);
 
   // Stripe Checkout return (fase 13, #32): the hosted checkout redirects back to
   // /app?billing=success|canceled. Strip the flag from the URL immediately (a
@@ -232,7 +337,9 @@ export function PlusOneApp({
     if (fromUrl) {
       params.delete('billing');
       const rest = params.toString();
-      window.history.replaceState(window.history.state, '', rest ? `/app?${rest}` : '/app');
+      // G1: every screen has its own path now — strip just the `billing` flag,
+      // keep whatever path Stripe redirected back to (not always bare `/app`).
+      window.history.replaceState(window.history.state, '', rest ? `${window.location.pathname}?${rest}` : window.location.pathname);
       try {
         sessionStorage.setItem(KEY, JSON.stringify({ v: fromUrl, ts: Date.now() }));
       } catch {
@@ -269,28 +376,29 @@ export function PlusOneApp({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs per mount, self-guarded
   }, []);
 
-  const bump = (): void => setKey((k) => k + 1);
-
   // Live data for the /app surface (STAP 3.4 + the events-live id-passing slice
   // of 3.3): the Events tab, event detail, and Gastenlijst resolve real Supabase
   // rows instead of the in-memory mock. The Deur/Taken tabs are wired live too
   // (STAP 3.5) — they mount the real DoorProvider for the venue's current event.
-  const top = stack[stack.length - 1];
   // Only door roles (admin / doorhost) see the Deur/Taken tabs — staff/finance/
   // user_manager can't read check_ins/refusals (#17), so the door would look
   // empty/"mock" for them. Organizers use /door/[eventId] directly.
   const showDoor = canWorkDoor(roles);
+  const isDoorTab = showDoor && target.kind === 'door';
 
-  // Sentry po-screen context (fase 4.2): the whole app lives on one URL (/app)
-  // with an in-memory nav stack, so route breadcrumbs say nothing about the
-  // active screen. Tag it (+ a navigation breadcrumb) centrally from the derived
-  // active screen id — every push/tab/back/replace flows through here. Screen ids
-  // are internal constants, so this is PII-free.
-  const activeScreenId = top?.name ?? tab;
+  // The active screen/tab key, used for Sentry breadcrumbs + the desktop column
+  // width. Screen ids are internal constants (PII-free) — never the raw path,
+  // which can carry real entity ids.
+  const activeScreenKey: string =
+    target.kind === 'screen' ? target.name : target.kind === 'door' ? 'deur' : target.tab;
+
+  // Sentry po-screen context (fase 4.2): tag the active screen + a navigation
+  // breadcrumb centrally, from the URL-derived key — every push/tab/back/replace
+  // flows through the router, so this fires on every real navigation for free.
   useEffect(() => {
-    Sentry.setTag('po.screen', activeScreenId);
-    Sentry.addBreadcrumb({ category: 'navigation', message: activeScreenId, level: 'info' });
-  }, [activeScreenId]);
+    Sentry.setTag('po.screen', activeScreenKey);
+    Sentry.addBreadcrumb({ category: 'navigation', message: activeScreenKey, level: 'info' });
+  }, [activeScreenKey]);
 
   // Contacts desktop-nav gate (T10). Called here (before any early return) so the
   // hook order stays stable; the gate itself is computed with `caps` further down.
@@ -298,9 +406,10 @@ export function PlusOneApp({
   const { data: liveEvents } = usePoEvents();
   const events = liveEvents ?? [];
   // Non-closed events for the door (live-first). Selection-first (S1.3): an explicit
-  // pick (doorEventId, set by "Check-in" from an event card) wins; with exactly one
-  // candidate we use it; with several, the user chooses — no auto-pick guess. Only
-  // the chosen event's guests are ever loaded, so dozens of live events stay cheap.
+  // pick (doorEventIdFromUrl, the `?event=` on the door URL, set by "Check-in" from
+  // an event card) wins; with exactly one candidate we use it; with several, the
+  // user chooses — no auto-pick guess. Only the chosen event's guests are ever
+  // loaded, so dozens of live events stay cheap.
   const doorCandidatesQuery = usePoDoorCandidates();
   const doorCandidates = doorCandidatesQuery.data ?? [];
   // Open-requests count for the nav badge (desktop sidebar + mobile More). Reuses
@@ -308,22 +417,95 @@ export function PlusOneApp({
   // Query key → no extra polling); OPEN = pending only, the shared definition, so
   // this badge matches Home's tile and the event-card badge exactly (T9).
   const openRequestCount = (usePoGuestRequests().data ?? []).filter(isOpenGuestRequest).length;
-  const resolvedDoorId = doorEventId ?? (doorCandidates.length === 1 ? doorCandidates[0].id : null);
+  const requestedDoorId = doorState.eventId ?? (doorCandidates.length === 1 ? doorCandidates[0].id : null);
+  // Validate the requested id against the real candidate list once it has
+  // loaded (G1 review fix — the desktop cockpit already does this via
+  // `candidates.find(...)`). Without it, a stale `?event=` — e.g. left over
+  // from a venue switch, or reached via the browser's own back/forward —
+  // would mount DoorProvider for an event that isn't even this venue's, since
+  // an id alone can't be told apart from a foreign one without checking. Skip
+  // the check while candidates are still loading so an explicit id from the
+  // URL doesn't flash "no event" before the list arrives.
+  const resolvedDoorId =
+    requestedDoorId && (doorCandidatesQuery.isLoading || doorCandidates.some((e) => e.id === requestedDoorId))
+      ? requestedDoorId
+      : null;
   const resolvedDoorName = doorCandidates.find((e) => e.id === resolvedDoorId)?.name ?? '';
+  // If a requested id isn't in the loaded candidate list, the list itself
+  // might just be stale rather than the id being genuinely foreign — e.g.
+  // another staff member created/started the event moments ago, or this
+  // client's own mutation fired before the invalidation above landed.
+  // Refetch once per id before accepting the rejection (G1 review fix; pairs
+  // with the doorCandidates invalidation added to the event mutations, which
+  // only covers changes made from THIS client).
+  const staleDoorRefetchRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!requestedDoorId || doorCandidatesQuery.isLoading || doorCandidatesQuery.isFetching) return;
+    if (doorCandidates.some((e) => e.id === requestedDoorId)) return;
+    if (staleDoorRefetchRef.current === requestedDoorId) return; // already retried this one
+    staleDoorRefetchRef.current = requestedDoorId;
+    void doorCandidatesQuery.refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- doorCandidatesQuery itself (incl. .refetch) is intentionally omitted: it's a new object each render, and including it would refire this every render instead of only when the inputs actually change
+  }, [requestedDoorId, doorCandidatesQuery.isLoading, doorCandidatesQuery.isFetching, doorCandidates]);
+
+  // One navigation per user gesture: several po cards are clickable rows that ALSO
+  // contain action buttons (Home event card = `onClick={onOpen}` on the card + an
+  // Open/edit/lock button inside). A button tap bubbles to the row, firing the handler
+  // twice → two router.push calls. This guard drops a second navigation in the same
+  // synchronous dispatch; the inner (real) target wins.
+  const navGuard = useRef(false);
+  const guarded = (apply: () => void): void => {
+    if (navGuard.current) return;
+    navGuard.current = true;
+    queueMicrotask(() => {
+      navGuard.current = false;
+    });
+    apply();
+  };
+
+  const pushUrl = (url: string): void => {
+    hasPushedThisSession = true;
+    router.push(url);
+  };
+
+  // Mobile door sub-nav (guest/add overlay, Deur↔Taken segment, event
+  // override) — raw History API, entirely bypassing `router.push/replace`
+  // (see the `doorOverride` comment above for why). `pushDoorState` marks a
+  // real poppable entry same as `pushUrl`; `replaceDoorState` doesn't, same
+  // as a plain `router.replace`.
+  type DoorState = { seg: DoorSeg; eventId: string | null; overlay: DoorOverlay };
+  const pushDoorState = (next: DoorState): void => {
+    hasPushedThisSession = true;
+    setDoorOverride(next);
+    window.history.pushState(window.history.state, '', doorPath(next));
+  };
+  const replaceDoorState = (next: DoorState): void => {
+    setDoorOverride(next);
+    window.history.replaceState(window.history.state, '', doorPath(next));
+  };
 
   // T6 auto-open (decided 1/7): on the FIRST visit of this browser session (per
   // user), when the desktop shell (≥1024px) has exactly ONE event inside its door
-  // window (start − 1h through event end), land straight on the Door tab — the
-  // Event-day cockpit. Two or more simultaneous nights → no guessing, land
-  // normally. It runs ONCE per session (sessionStorage flag), so deliberately
-  // navigating away never pushes the user back; a mid-session refresh doesn't
-  // re-trigger either. Plain state set — no history entry: this replaces the
-  // landing, it isn't a step the back button should undo.
+  // window (start − 1h through event end) AND the user landed on the bare Start
+  // tab, replace it with the Door tab — the Event-day cockpit. Two or more
+  // simultaneous nights → no guessing, land normally. It runs ONCE per session
+  // (sessionStorage flag), so deliberately navigating away never pushes the user
+  // back; a mid-session refresh doesn't re-trigger either. A `router.replace` —
+  // no history entry: this replaces the landing, it isn't a step the back button
+  // should undo. Gated to the Start tab (G1): a deep link into another screen on
+  // the first visit must never be hijacked into the cockpit.
   const autoOpenTried = useRef(false);
   useEffect(() => {
-    if (autoOpenTried.current || !navHydrated || isMobile || !showDoor) return;
+    if (autoOpenTried.current || isMobile || !showDoor) return;
     const cands = doorCandidatesQuery.data;
-    if (!cands) return; // evaluate once, but only when the candidates have loaded
+    if (!cands) return; // wait for candidates before consuming the one evaluation
+    // Consume the one-shot evaluation NOW, regardless of which tab this turns
+    // out to be (G1 review fix): stamping this only inside the Start-tab branch
+    // left the flag armed for a session whose first landing was a deep link
+    // elsewhere, so a later deliberate tap on Home would still get hijacked
+    // into the cockpit. Evaluating once — on whatever screen loads first —
+    // and THEN checking Start below preserves "never hijack a first-visit deep
+    // link" while actually enforcing "once per session".
     autoOpenTried.current = true;
     const KEY = `po:eventday-auto:${userId}`;
     try {
@@ -332,133 +514,67 @@ export function PlusOneApp({
     } catch {
       return; // no sessionStorage → skip rather than re-push on every mount
     }
+    if (!(target.kind === 'tab' && target.tab === 'start')) return;
     const id = autoOpenDoorEvent(cands, Date.now());
     if (!id) return;
-    setTabState('deur');
-    setDoorSeg('deur');
-    setDoorEventId(id);
-    setStack([]);
-    setDoorOverlay(null);
-    bump();
+    router.replace(doorPath({ seg: 'deur', eventId: id }));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot landing tweak
-  }, [navHydrated, isMobile, showDoor, doorCandidatesQuery.data, userId]);
+  }, [isMobile, showDoor, doorCandidatesQuery.data, userId, target]);
 
-  // ── Browser/OS back-button ↔ in-app navigation (full history integration) ─────
-  // /app is a single URL with its own in-memory navigation, so the physical back
-  // button (browser, mouse, Android system/gesture) must retrace the journey instead
-  // of leaving the app. We keep a stack of position snapshots (navHistory): EVERY
-  // forward navigation — push a screen, switch a tab, open the door overlay — records
-  // the current position + one same-URL history entry, and a real back fires popstate
-  // → we restore the previous snapshot. So back undoes pushed screens AND tab switches
-  // in reverse (Android-style), only exiting the app at the very first position.
-  const isDoorTab = showDoor && stack.length === 0 && tab === 'deur';
-  const doorOverlayOpen = isDoorTab && doorOverlay !== null;
-
-  const navHistory = useRef<NavPos[]>([]);
-  // The current position, recaptured each render so a forward navigation remembers
-  // exactly where it left from (which tab + stack + door state).
-  const posRef = useRef<NavPos>({ tab, stack, doorOverlay, doorEventId, doorSeg });
-  posRef.current = { tab, stack, doorOverlay, doorEventId, doorSeg };
-  // One navigation per user gesture: several po cards are clickable rows that ALSO
-  // contain action buttons (Home event card = `onClick={onOpen}` on the card + an
-  // Open/edit/lock button inside). A button tap bubbles to the row, firing the handler
-  // twice → two history entries → two back presses per screen. This guard drops a
-  // second navigation in the same synchronous dispatch; the inner (real) target wins.
-  const navGuard = useRef(false);
-
-  // A real back (physical button or the in-app chevron): restore the previous
-  // position. A no-op when empty → the browser then leaves /app and the app exits.
-  const restorePrevious = (): void => {
-    const prev = navHistory.current.pop();
-    if (!prev) return;
-    setTabState(prev.tab);
-    setStack(prev.stack);
-    setDoorOverlay(prev.doorOverlay);
-    setDoorEventId(prev.doorEventId);
-    setDoorSeg(prev.doorSeg);
-    setNavHistoryLen((l) => Math.max(0, l - 1));
-    bump();
-  };
-  const histNav = usePoHistoryNav({ enabled: navHydrated, onBack: restorePrevious });
-
-  // A forward navigation: remember where we are, add a history entry, then change.
-  const navigate = (apply: () => void): void => {
-    if (navGuard.current) return;
-    navGuard.current = true;
-    queueMicrotask(() => {
-      navGuard.current = false;
-    });
-    navHistory.current.push(posRef.current);
-    setNavHistoryLen((l) => l + 1);
-    histNav.recordNavigate();
-    apply();
-    bump();
-  };
-
-  // Rebuild the back-path within the restored tab after a refresh into a deep screen
-  // (pre-refresh tab-switch history isn't persisted — acceptable): one snapshot + one
-  // history entry per stack prefix, so the back button works immediately. The ref
-  // guard keeps it idempotent under React StrictMode's double-invoke (no double entries).
-  const reconstructed = useRef(false);
-  useEffect(() => {
-    if (!navHydrated || reconstructed.current) return;
-    reconstructed.current = true;
-    if (stack.length === 0) return;
-    navHistory.current = stack.map((_, i): NavPos => ({
-      tab,
-      stack: stack.slice(0, i),
-      doorOverlay: null,
-      doorEventId: null,
-      doorSeg: 'deur',
-    }));
-    stack.forEach(() => histNav.recordNavigate());
-    setNavHistoryLen(stack.length);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navHydrated]);
+  const doorOverlayOpen = isDoorTab && doorState.overlay !== null;
 
   const nav: Nav = {
-    push: (name: ScreenName, props = {}) => {
-      navigate(() => setStack((s) => [...s, { name, props }]));
-    },
-    // No navigate() wrapper: the current position is swapped, not stacked, so the
-    // physical back button still restores the position the flow started from.
-    replace: (name: ScreenName, props = {}) => {
-      setStack((s) => (s.length === 0 ? [{ name, props }] : [...s.slice(0, -1), { name, props }]));
-      bump();
-    },
-    // The physical back button and the in-app chevron share one path via the History API.
-    back: () => {
-      histNav.goBack();
-    },
-    setTab: (t: TabKey) => {
-      // Re-tapping the current tab at its root is a true no-op — don't add a back step.
-      if (t === tab && stack.length === 0 && doorOverlay === null) return;
-      navigate(() => {
-        setTabState(t);
-        setStack([]);
-        setDoorOverlay(null);
-        setDoorEventId(null); // a manual tab tap returns the door to its auto-pick (S1.3)
-      });
-    },
+    push: (name: ScreenName, props = {}) => guarded(() => pushUrl(screenPath(name, props))),
+    // No history entry: the current position is swapped, not stacked. For
+    // after-create flows: "New event" → replace with the created event's
+    // settings, so back returns to where the flow started instead of the stale
+    // create form.
+    replace: (name: ScreenName, props = {}) => guarded(() => router.replace(screenPath(name, props))),
+    // Real history to pop (pushed earlier this session) → let the browser go
+    // back. Otherwise (cold deep link) → zoom out to the screen's parent
+    // instead of no-op'ing or leaving the app. `replace`, NOT `pushUrl`: a
+    // fallback that pushed would leave the ORIGINAL deep-linked screen sitting
+    // right behind the parent in history, and — since it also latched
+    // hasPushedThisSession — the very next back() would take the real-history
+    // branch and pop straight back into that stale child, oscillating
+    // child↔parent forever instead of climbing. `replace` swaps in place and
+    // never latches, so a second cold back() computes a fresh parent from the
+    // new (parent) target and keeps ascending (review fix).
+    back: () => guarded(() => (hasPushedThisSession ? router.back() : router.replace(parentPathFor(target)))),
+    setTab: (t: TabKey) =>
+      guarded(() => {
+        if (t === 'deur') {
+          // Re-tapping Deur while already on its root (no overlay) is a no-op.
+          // Checks doorState (override-aware), not target.overlay — the
+          // latter can be stale while a raw-history door override is active.
+          if (target.kind === 'door' && doorState.overlay === null) return;
+          pushUrl(doorPath());
+          return;
+        }
+        // Re-tapping the current tab at its root is a true no-op.
+        if (target.kind === 'tab' && target.tab === t) return;
+        pushUrl(tabPath(t));
+      }),
     // "Check-in" from a specific event: open the Deur tab for THAT event (S1.3).
-    openDoor: (eventId: string) => {
-      navigate(() => {
-        setDoorEventId(eventId);
-        setTabState('deur');
-        setDoorSeg('deur');
-        setStack([]);
-        setDoorOverlay(null);
-      });
-    },
-    canGoBack: navHistoryLen > 0,
+    openDoor: (eventId: string) => guarded(() => pushUrl(doorPath({ seg: 'deur', eventId }))),
+    // A real per-screen URL: every pushed screen has a parent to go back to
+    // (a real history entry, or the computed fallback above).
+    canGoBack: target.kind === 'screen',
   };
 
-  // Door-overlay navigation (Deur/Taken tabs): opening the overlay is a forward step
-  // (it hides the tab bar like a pushed screen); closing routes through back so the
-  // physical button and the overlay's own close button share one path.
-  const openGuest = (id: string): void => navigate(() => setDoorOverlay({ kind: 'guest', id }));
-  const openAdd = (): void => navigate(() => setDoorOverlay({ kind: 'add' }));
-  const closeOverlay = (): void => histNav.goBack();
+  // Door-overlay navigation (Deur/Taken tabs): opening the overlay is a forward
+  // step (it hides the tab bar like a pushed screen) — a real history entry, so
+  // the physical back button and the overlay's own close button share one path.
+  // Raw history (pushDoorState), not pushUrl/router.push — see doorOverride.
+  const openGuest = (id: string): void =>
+    guarded(() => pushDoorState({ seg: doorState.seg, eventId: doorState.eventId, overlay: { kind: 'guest', id } }));
+  const openAdd = (): void =>
+    guarded(() => pushDoorState({ seg: doorState.seg, eventId: doorState.eventId, overlay: { kind: 'add' } }));
+  // Same cold-deep-link fallback as nav.back() — a directly-linked overlay
+  // (e.g. a shared door URL) has no history to pop either. `replace`, not
+  // `pushUrl`, for the same non-latching reason as `nav.back()` above.
+  const closeOverlay = (): void =>
+    guarded(() => (hasPushedThisSession ? router.back() : router.replace(parentPathFor(target))));
 
   // Switch the ACTIVE venue for real (#1): write the server cookie, then full-reload
   // so app/page.tsx re-resolves the identity and every live query re-scopes to the
@@ -473,12 +589,10 @@ export function PlusOneApp({
     fd.set('venueId', venueId);
     void setActiveVenueAction(fd)
       .then(() => {
-        clearNavState(userId);
         window.location.assign('/app');
       })
       .catch(() => {
-        // Switch failed (network blip / server error) — stay on the old venue,
-        // whose nav-state is still valid, and clear the hanging "switching" toast.
+        // Switch failed (network blip / server error) — stay on the old venue.
         setToast(null);
       });
   };
@@ -491,9 +605,9 @@ export function PlusOneApp({
   const tabRoot = !doorOverlayOpen;
 
   let screen: ReactNode;
-  if (top) {
-    const p = top.props;
-    switch (top.name) {
+  if (target.kind === 'screen') {
+    const p = target.props;
+    switch (target.name) {
       case 'event':
         screen = <EventView id={p.id} />;
         break;
@@ -588,13 +702,26 @@ export function PlusOneApp({
       default:
         screen = null;
     }
-  } else if (tab === 'start') screen = <Home />;
-  else if (tab === 'events') screen = <Events />;
-  else if (tab === 'guests') screen = <GuestsTab />;
-  else if (tab === 'meer') screen = <Meer />;
-  // 'deur' renders via the door branch below when allowed; for a non-door role
-  // (showDoor=false) the tab is hidden, so fall back to the home.
-  else screen = <Home />;
+  } else if (target.kind === 'tab') {
+    switch (target.tab) {
+      case 'start':
+        screen = <Home />;
+        break;
+      case 'events':
+        screen = <Events />;
+        break;
+      case 'guests':
+        screen = <GuestsTab />;
+        break;
+      case 'meer':
+        screen = <Meer />;
+        break;
+    }
+  } else {
+    // A 'door' URL for a non-door role (unreachable via the nav UI — the tab is
+    // hidden — but a stray/typed URL should degrade gracefully, not blank).
+    screen = <Home />;
+  }
 
   const po: PoApp = {
     statsVenues: statsAccess?.venues ?? [],
@@ -616,9 +743,10 @@ export function PlusOneApp({
 
   // Signed-in: responsive shell — desktop sidebar ≥1024px, mobile tabs below it
   // (S0 nav-shell). Screens are unchanged for now; wired live per S1+.
-  // Pushed screens that are also top-level nav items keep that item highlighted.
-  const NAV_PUSHED = new Set(['stats', 'gebruikers', 'aanvragen', 'promo', 'contacten']);
-  const currentKey = (top && NAV_PUSHED.has(top.name)) ? top.name : tab;
+  const currentKey =
+    target.kind === 'tab' ? target.tab : target.kind === 'door' ? 'deur' : navKeyForScreen(target.name, target.props);
+  const mobileTab: TabKey =
+    target.kind === 'tab' ? target.tab : target.kind === 'door' ? 'deur' : mobileTabForScreen(target.name, target.props);
   const caps = venueCapabilities(roles);
   // Contacts is a desktop-menu item (T10) — the venue address book. Same gate as
   // the mobile More-hub row (admin/finance settings-view OR a venue organizer).
@@ -667,12 +795,15 @@ export function PlusOneApp({
   // standalone /eventday route until it lost the app menu; now it lives inside the
   // shell). Online-only by design (no outbox): reads via React Query + realtime,
   // check-in through the door gateway — exactly as /eventday worked. The event
-  // choice is the SHARED doorEventId, so "Check-in" from an event card lands here
-  // and a viewport resize keeps the same event.
+  // choice rides on the `?event=` query param, so "Check-in" from an event card
+  // lands here and a viewport resize keeps the same event.
   const cockpitBranch: ReactNode = (
     <div className="flex h-full flex-col">
       <div className="po-scroll min-h-0 flex-1 overflow-y-auto px-[38px] pb-7 pt-[30px]">
-        <EventDayCockpitGate chosenId={doorEventId} onChoose={setDoorEventId} />
+        <EventDayCockpitGate
+          chosenId={doorEventIdFromUrl}
+          onChoose={(id) => guarded(() => router.replace(doorPath({ seg: 'deur', eventId: id })))}
+        />
       </div>
     </div>
   );
@@ -681,7 +812,9 @@ export function PlusOneApp({
   // for the venue's current event and render the shared door components. Kept
   // mounted across Deur↔Taken (both are door tabs) so realtime/cache survive the
   // switch; unmounts when leaving for another tab. No event resolvable → empty state.
-  const doorTitle = doorSeg === 'taken' ? t.door.tasksTitle : t.door.checkinTitle;
+  // doorState, not doorSeg/doorOverlay — override-aware (only ever reached on
+  // mobile, where a raw-history override may be active).
+  const doorTitle = doorState.seg === 'taken' ? t.door.tasksTitle : t.door.checkinTitle;
   let doorBranch: ReactNode;
   if (!isMobile) {
     doorBranch = cockpitBranch;
@@ -690,14 +823,18 @@ export function PlusOneApp({
       <DoorQueryProvider>
         <DoorProvider eventId={resolvedDoorId}>
           <PoDoorTab
-            tab={doorSeg}
-            onTab={setDoorSeg}
-            overlay={doorOverlay}
+            tab={doorState.seg}
+            onTab={(seg) => guarded(() => replaceDoorState({ seg, eventId: doorState.eventId, overlay: doorState.overlay }))}
+            overlay={doorState.overlay}
             openGuest={openGuest}
             openAdd={openAdd}
             closeOverlay={closeOverlay}
             currentEventName={doorCandidates.length > 1 ? resolvedDoorName : undefined}
-            onChangeEvent={doorCandidates.length > 1 ? () => setDoorEventId(null) : undefined}
+            onChangeEvent={
+              doorCandidates.length > 1
+                ? () => guarded(() => replaceDoorState({ seg: doorState.seg, eventId: null, overlay: doorState.overlay }))
+                : undefined
+            }
           />
         </DoorProvider>
       </DoorQueryProvider>
@@ -707,20 +844,21 @@ export function PlusOneApp({
   } else if (doorCandidates.length > 1) {
     // Several live/open events and nothing picked yet → choose first (S1.3). The
     // /app shell keeps the bottom-tab menu visible around this picker.
-    doorBranch = <DoorEventPicker events={doorCandidates} onPick={setDoorEventId} />;
+    doorBranch = (
+      <DoorEventPicker events={doorCandidates} onPick={(id) => guarded(() => replaceDoorState({ seg: doorState.seg, eventId: id, overlay: null }))} />
+    );
   } else {
     doorBranch = <DoorTabState title={doorTitle} text={t.door.noEvent} />;
   }
 
   // Wide desktop screens (home dashboard, guest table, stats charts, audit table)
   // opt into the full content width; every other screen keeps the reading column.
-  const activeScreen = top?.name ?? tab;
   // Promotion (S15) is a single centered 760px column by design — between the
   // reading column and the full dashboard width.
   const desktopMainMax =
-    activeScreen === 'promo'
+    activeScreenKey === 'promo'
       ? 'max-w-[820px]'
-      : WIDE_DESKTOP.has(activeScreen)
+      : WIDE_DESKTOP.has(activeScreenKey)
         ? 'max-w-[1080px]'
         : 'max-w-[640px]';
 
@@ -729,7 +867,7 @@ export function PlusOneApp({
       <ResponsiveShell
         serverHint={serverHint}
         isTabRoot={tabRoot}
-        mobileTab={tab}
+        mobileTab={mobileTab}
         setMobileTab={nav.setTab}
         mobileTabs={mobileTabs}
         // Requests lives under the More hub on mobile, so its open-count rides on
