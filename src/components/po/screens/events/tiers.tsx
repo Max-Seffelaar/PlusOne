@@ -10,7 +10,6 @@ import { TIER_COLORS, nextAvailableColor, allColorsUsed } from '@/lib/po/tier-co
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
 import { Btn, Empty, Field, IconBtn, Label, MiniChip, Note, Scroll, Top } from '../../kit';
-import { BottomBar } from '../../shell';
 import { col } from './shared';
 
 // ── TIERS & aliases (pushed) ─────────────────────────────────────────────────────
@@ -137,7 +136,7 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
         sub={event?.name}
         right={<IconBtn name={adding ? 'close' : 'plus'} onClick={() => (adding ? closeAdd() : openAdd())} />}
       />
-      <Scroll bottom={adding ? 160 : 24}>
+      <Scroll bottom={24}>
         {err && <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{err}</div>}
         {adding && (
           <div className="mb-[14px] rounded-[18px] border border-acc bg-elev p-4">
@@ -206,6 +205,34 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
                   ))}
               </div>
             )}
+            {/* Save actions live IN the card, right under the fields: a pinned
+                bottom bar hides behind the mobile keyboard and forced a scroll
+                past every existing tier to reach Save (feedback Max 10/7). */}
+            <div className="mt-4 flex flex-col gap-2">
+              <Btn
+                kind="primary"
+                full
+                icon="check"
+                onClick={() => void submit(false)}
+                disabled={!nm.trim() || createTier.isPending}
+                className={nm.trim() && !createTier.isPending ? '' : 'opacity-50'}
+              >
+                {createTier.isPending ? t.events.saving : t.events.saveTier}
+              </Btn>
+              <div className="flex gap-2">
+                <Btn
+                  kind="dark"
+                  className={cn('flex-1', nm.trim() && !createTier.isPending ? '' : 'opacity-50')}
+                  onClick={() => void submit(true)}
+                  disabled={!nm.trim() || createTier.isPending}
+                >
+                  {t.events.saveTierAndNew}
+                </Btn>
+                <Btn kind="ghost" className="flex-1" onClick={closeAdd}>
+                  {t.events.cancelTier}
+                </Btn>
+              </div>
+            </div>
           </div>
         )}
         <Note icon="spark">{t.events.aliasesNote}</Note>
@@ -296,35 +323,6 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
           </div>
         )}
       </Scroll>
-      {adding && (
-        <BottomBar>
-          <div className="flex flex-col gap-2">
-            <Btn
-              kind="primary"
-              full
-              icon="check"
-              onClick={() => void submit(false)}
-              disabled={!nm.trim() || createTier.isPending}
-              className={nm.trim() && !createTier.isPending ? '' : 'opacity-50'}
-            >
-              {createTier.isPending ? t.events.saving : t.events.saveTier}
-            </Btn>
-            <div className="flex gap-2">
-              <Btn
-                kind="dark"
-                className={cn('flex-1', nm.trim() && !createTier.isPending ? '' : 'opacity-50')}
-                onClick={() => void submit(true)}
-                disabled={!nm.trim() || createTier.isPending}
-              >
-                {t.events.saveTierAndNew}
-              </Btn>
-              <Btn kind="ghost" className="flex-1" onClick={closeAdd}>
-                {t.events.cancelTier}
-              </Btn>
-            </div>
-          </div>
-        </BottomBar>
-      )}
     </div>
   );
 }
