@@ -1,15 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { describeAuthError } from '@/features/auth/errors';
 import { totpSchema } from '@/features/auth/schemas';
 import { snoozeMfaAction } from '@/features/auth/mfa-actions';
 
 // TOTP enrollment (spec §5, decision #20 — OPTIONAL since 2026-07-02). Shown as
-// a skippable RECOMMENDATION: explains why, shows the QR + manual secret, and
-// verifies a code to raise the session to AAL2 — or the user snoozes it
-// ("Ask me in 7 days" / "Don't ask again", user_profiles.mfa_snooze_until).
+// a skippable, ask-first RECOMMENDATION (UX/IA 9/7, 2026-07-09): step 1 is the
+// explanation with three actions — no QR yet, nothing is enrolled just from
+// viewing the screen. The QR + manual secret + verification only appear after
+// the user actively opts in ("Set up now"), which is when enrollment starts.
+// Skipping writes a snooze ("Ask me in 7 days" / "Don't ask again",
+// user_profiles.mfa_snooze_until).
 export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
   const supabase = createClient();
   const [qr, setQr] = useState<string | null>(null);
@@ -18,8 +21,10 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // True once "Set up now" was clicked — switches the card from the ask-first
+  // step 1 (explanation only) to step 2 (QR + verification).
+  const [enrolling, setEnrolling] = useState(false);
   const [snoozing, setSnoozing] = useState<'week' | 'never' | null>(null);
-  const started = useRef(false);
 
   async function skip(choice: 'week' | 'never'): Promise<void> {
     if (busy || snoozing) return;
@@ -33,7 +38,8 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
     window.location.replace(nextPath);
   }
 
-  const startEnrollment = useCallback(async () => {
+  async function startEnrollment(): Promise<void> {
+    setEnrolling(true);
     setError(null);
     // Clean up abandoned, unverified TOTP factors so re-enrolling is idempotent.
     const { data: factors } = await supabase.auth.mfa.listFactors();
@@ -51,13 +57,7 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
     setFactorId(data.id);
     setQr(data.totp.qr_code);
     setSecret(data.totp.secret);
-  }, [supabase]);
-
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    void startEnrollment();
-  }, [startEnrollment]);
+  }
 
   async function verify(): Promise<void> {
     if (!factorId) return;
@@ -92,7 +92,15 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
         this if you prefer and turn it on later under Profile.
       </p>
 
-      {error && !qr ? (
+      {!enrolling ? (
+        <button
+          type="button"
+          className="btn-primary mt-4 w-full"
+          onClick={() => void startEnrollment()}
+        >
+          Set up now — takes 2 minutes
+        </button>
+      ) : error && !qr ? (
         <div className="mt-4">
           <p className="mb-3 text-sm text-red-300" role="alert">
             {error}

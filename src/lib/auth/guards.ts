@@ -17,17 +17,27 @@ export async function requireUser(currentPath?: string): Promise<User> {
   return user;
 }
 
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
 /**
  * MFA is fully OPTIONAL (decision #20 refinement, 2026-07-02 — T1 PR c). For
  * roles where we still RECOMMEND it (admin/finance, `requiresMfa`) and no factor
  * is enrolled, redirect once to the skippable recommendation screen — unless the
  * user snoozed it ("Ask me in 7 days" → timestamp, "Don't ask again" → far
  * future) via user_profiles.mfa_snooze_until. Never a hard gate.
+ *
+ * Ask-first (UX/IA 9/7, decided 2026-07-09): never nudge on a brand-new account
+ * (< 24h old, by `user.created_at`) — a fresh invitee experiences the app first,
+ * the security recommendation comes later. Self-service enroll (Profile) is
+ * unaffected.
  */
 export async function recommendMfaIfDue(currentPath: string, ctx?: AuthContext | null): Promise<void> {
   const resolved = ctx ?? (await getAuthContext());
   if (!resolved) return;
   if (!resolved.requiresMfa || resolved.hasVerifiedTotp) return;
+
+  const accountAgeMs = Date.now() - new Date(resolved.user.created_at).getTime();
+  if (Number.isNaN(accountAgeMs) || accountAgeMs < ONE_DAY_MS) return;
 
   const supabase = await createClient();
   const { data } = await supabase
@@ -55,9 +65,11 @@ export async function requireAppAccess(currentPath?: string): Promise<AuthContex
   const ctx = await getAuthContext();
   if (!ctx) redirect(loginRedirect(currentPath));
 
-  await recommendMfaIfDue(currentPath ?? '/app', ctx);
   // First-login consent gate (#20/#40): accept Terms + Privacy before the app.
+  // Runs BEFORE the MFA recommendation (UX/IA 9/7) — a fresh invitee sees the
+  // terms first, a security nudge is not the first thing they meet.
   await requireConsent(ctx.user.id, currentPath ?? '/app');
+  await recommendMfaIfDue(currentPath ?? '/app', ctx);
   return ctx;
 }
 

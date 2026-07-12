@@ -8,6 +8,41 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-12 — UX/IA 9/7: MFA-nudge softened to ask-first (86ey7qkkb)
+
+MFA stays fully optional (#20 unchanged) — only the presentation softened, per Max's
+2026-07-09 decision. Three changes, all in one PR:
+
+- **A · Two-step enroll screen** ([MfaEnrollCard.tsx](../src/features/auth/components/MfaEnrollCard.tsx)):
+  step 1 is the explanation + three actions ("Set up now — takes 2 minutes" / "Ask me in 7
+  days" / "Don't ask again") with **no QR visible**. `supabase.auth.mfa.enroll()` moved off
+  the mount `useEffect` onto the "Set up now" click — no more half-created factors for
+  someone who only glanced at the screen.
+- **B · Order fix** ([guards.ts](../src/lib/auth/guards.ts) `requireAppAccess`): `requireConsent`
+  now runs before `recommendMfaIfDue` (was reversed) — a fresh invitee sees terms/privacy
+  before a security nudge.
+- **C · Not on session one:** `recommendMfaIfDue` returns early when the account is <24h old
+  (`user.created_at`), no migration needed. Self-service enroll via Profile is unaffected.
+
+Landed on top of 8 PRs that merged to `main` mid-session (G1 canonical-nav refactor moved the
+`/app` guard call from `src/app/app/page.tsx` into `src/app/app/layout.tsx` — confirmed that
+call site already ran consent-before-MFA, so no additional fix needed there). Rebased with a
+stash/fast-forward/pop; the only textual overlap was CLAUDE.md, auto-merged cleanly.
+
+New unit tests (`src/lib/auth/guards.test.ts`, 6 cases) cover every due-logic branch: young
+account, >24h no factor (redirects), snoozed, snoozed-forever, verified factor, role doesn't
+require MFA. Full suite green post-rebase (728 tests), typecheck clean, lint clean.
+
+Manually verified live against the local stack: dev-logged in as `finance@plusone.test`
+(fresh seed account, no TOTP factor) — landed straight on `/app` with no MFA redirect,
+confirming the 24h skip. Navigating directly to `/mfa/enroll` showed step 1 with no QR;
+clicking "Set up now" produced a real QR + manual secret + 6-digit verify form via Supabase's
+local GoTrue. Note: the shared local Supabase stack was mid-reset by another concurrent
+session during testing (containers cycling, tables briefly absent) — waited it out rather
+than racing it, per the "one DB owner" rule.
+
+---
+
 ## 2026-07-12 — G1 follow-up: door sub-nav still hit the server (fresh-eyes re-review)
 
 A second fresh-session review found the G1 layout split (below) did NOT actually fix the

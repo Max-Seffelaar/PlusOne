@@ -135,6 +135,11 @@ exchanged from an e-mail click (there is no verifier cookie), so the default
   "Ask me in 7 days" / "Don't ask again" → `user_profiles.mfa_snooze_until`);
   any role can self-enable/disable from the profile. The dashboard only needs
   TOTP enroll/verify enabled — everything else is our code.
+- **Ask-first** (2026-07-09, UX/IA 9/7): the recommendation never fires on an
+  account <24h old (`user.created_at`) and never before the terms/privacy
+  consent gate. To exercise it locally, backdate the test user's
+  `auth.users.created_at` by >24h. `/mfa/enroll` itself is two-step — the QR
+  only appears after clicking "Set up now".
 - Local mirror: `[auth.mfa.totp] enroll_enabled = true`, `verify_enabled = true`.
 
 ## 5. Rate limits (Authentication → Rate Limits)
