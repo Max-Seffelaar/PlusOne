@@ -29,6 +29,10 @@ import { AddTierInline, DupeOption, NoTiersBlock, press, col } from './_shared';
 
 // ── QUICK-ADD (#33) ──────────────────────────────────────────────────────────
 interface JustAdded {
+  /** Unique render key: the guest id is NOT unique in this list — an insert
+   *  followed by an add/replace on the same guest logs two rows for one id,
+   *  which duplicated React keys (retest Max 12/7). */
+  rowId: string;
   id: string;
   name: string;
   plus: number;
@@ -203,7 +207,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
         {
           onSuccess: () => {
             setAdded((a) => [
-              { id: u.guestId, name: effName, plus: u.plusOnes, tierShort: effTier.short, vip: effTier.role === 'VIP', updated: true },
+              { rowId: uuidv7(), id: u.guestId, name: effName, plus: u.plusOnes, tierShort: effTier.short, vip: effTier.role === 'VIP', updated: true },
               ...a,
             ]);
             setVal('');
@@ -219,7 +223,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
     // optimistic row and the inserted row share an id (#25) — the list reconciles
     // without a flash when invalidation refetches.
     const id = uuidv7();
-    const snapshot: JustAdded = { id, name: effName, plus: effPlus, tierShort: effTier.short, vip: effTier.role === 'VIP' };
+    const snapshot: JustAdded = { rowId: uuidv7(), id, name: effName, plus: effPlus, tierShort: effTier.short, vip: effTier.role === 'VIP' };
     add.mutate(
       {
         id,
@@ -525,7 +529,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                 <Label className="mx-0.5 mb-[10px] mt-[22px]">{fmt(t.guests.add.justAdded, { n: added.length })}</Label>
                 <div className="flex flex-col gap-2">
                   {added.map((g) => (
-                    <div key={g.id} className="flex items-center gap-[11px] rounded-[14px] border border-line bg-elev p-[11px]">
+                    <div key={g.rowId} className="flex items-center gap-[11px] rounded-[14px] border border-line bg-elev p-[11px]">
                       <Avatar name={g.name} size={36} accent={g.vip} />
                       <div className="min-w-0 flex-1">
                         <div className="font-display text-[14.5px] font-bold text-text">
