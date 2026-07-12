@@ -101,6 +101,35 @@ export async function fetchGuests(client: Client, scope: GuestScope): Promise<Po
   });
 }
 
+export interface ExistingEventGuest {
+  id: string;
+  name: string;
+  plusOnes: number;
+}
+
+/**
+ * Authoritative duplicate lookup for the add flows (86ey8w7ek): is `name`
+ * already on this event's list? One indexed point query (RPC
+ * `find_event_guest_by_name`, SECURITY INVOKER → RLS-scoped exactly like the
+ * list read: staff only match their own guests), so it stays instant at
+ * thousands of guests and works before/without the guest list having loaded.
+ * `removed` rows never match (#21). Throws on failure — callers decide their
+ * fallback; a silent null here would let duplicates through unnoticed.
+ */
+export async function findEventGuestByName(
+  client: Client,
+  eventId: string,
+  name: string
+): Promise<ExistingEventGuest | null> {
+  const { data, error } = await client.rpc('find_event_guest_by_name', {
+    p_event_id: eventId,
+    p_name: name,
+  });
+  if (error) throw error;
+  const row = data?.[0];
+  return row ? { id: row.id, name: row.full_name, plusOnes: row.plus_ones } : null;
+}
+
 export interface PoQuotaStatus {
   /** Personal slot allowance for this event; -1 when exempt (admin/organizer). */
   quota: number;

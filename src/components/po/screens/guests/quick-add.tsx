@@ -3,7 +3,9 @@
 import { useState, useMemo } from 'react';
 import { v7 as uuidv7 } from 'uuid';
 import { cn } from '@/lib/utils';
-import { indexGuestsByName, planBulkAdd, type DupeMode, type BulkRowInput } from '@/features/guests/bulk-dedupe';
+import { indexGuestsByName, planBulkAdd, type DupeMode, type BulkRowInput, type ExistingGuest } from '@/features/guests/bulk-dedupe';
+import { findEventGuestByName } from '@/features/po/queries';
+import { createClient } from '@/lib/supabase/client';
 import {
   parseQuickAdd,
   resolveAmbiguity,
@@ -39,7 +41,6 @@ interface JustAdded {
 /** The fields that reset together whenever the user types a new name. */
 interface QuickAddForm {
   choice: AmbiguityChoice | null;
-  dupeMode: DupeMode | null;
   reqOpen: boolean;
   contactEmail: string;
   contactPhone: string | undefined;
@@ -49,7 +50,6 @@ interface QuickAddForm {
 
 const FORM_RESET: QuickAddForm = {
   choice: null,
-  dupeMode: null,
   reqOpen: false,
   contactEmail: '',
   contactPhone: undefined,
@@ -97,13 +97,17 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const [added, setAdded] = useState<JustAdded[]>([]);
   const [evPick, setEvPick] = useState(false);
   const [reqMotiv, setReqMotiv] = useState('');
+  // Authoritative duplicate hit (server lookup at submit) + the blocking
+  // overlay that forces a conscious add/replace/again/cancel decision.
+  const [dupeHit, setDupeHit] = useState<ExistingGuest | null>(null);
+  const [dupeOpen, setDupeOpen] = useState(false);
+  const [dupeChecking, setDupeChecking] = useState(false);
 
   // Destructure for ergonomic use in the render body below.
-  const { choice, dupeMode, reqOpen, contactEmail, contactPhone, contactCountry, contactPhoneErr } = form;
+  const { choice, reqOpen, contactEmail, contactPhone, contactCountry, contactPhoneErr } = form;
 
   // Per-field setters that keep the rest of the form intact.
   const setChoice = (v: AmbiguityChoice | null) => setForm((f) => ({ ...f, choice: v }));
-  const setDupeMode = (v: DupeMode | null) => setForm((f) => ({ ...f, dupeMode: v }));
   const setReqOpen = (v: boolean) => setForm((f) => ({ ...f, reqOpen: v }));
   const setContactEmail = (v: string) => setForm((f) => ({ ...f, contactEmail: v }));
   const setContactPhone = (v: string | undefined) => setForm((f) => ({ ...f, contactPhone: v }));
@@ -128,18 +132,16 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const effTier = tiers.find((t) => t.id === effTierId);
   const cost = 1 + effPlus;
 
-  // Duplicate detection (S2.2): does the typed name already match a guest on this
-  // event? Same name-only match + 3-choice as bulk-paste (planBulkAdd), so the
-  // pattern is identical across quick + bulk. (The address book keeps its own
-  // 2-choice — a known contact has no "different person, same name" case.)
+  // Client-side duplicate HINT (S2.2): the RLS-scoped guest list, when it has
+  // loaded, drives the early UI hints (hide contact fields / quota box for a
+  // likely-update). The AUTHORITATIVE check is the indexed server lookup in
+  // commit() — this index is also its offline/error fallback, so a big or
+  // still-loading list can never let a duplicate slip through (86ey8w7ek).
   const byName = useMemo(
     () => indexGuestsByName(liveGuests.map((g) => ({ id: g.id, name: g.name, plusOnes: g.plus }))),
     [liveGuests],
   );
-  const dupe = effName ? byName.get(effName.trim().toLowerCase()) ?? null : null;
-  // A dupe forces an explicit choice before submit; 'again' (insert) vs add/replace (update).
-  const needsDupeChoice = !!dupe && dupeMode === null;
-  const willInsert = !dupe || dupeMode === 'again';
+  const clientDupe = effName ? byName.get(effName.trim().toLowerCase()) ?? null : null;
 
   const exempt = quota?.exempt ?? false;
   const remaining = exempt ? null : quota?.remaining ?? null;
@@ -152,37 +154,38 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const reqShortfall = remaining !== null ? Math.max(1, cost - remaining) : 1;
   const needsAsk = !!isAmbiguous && !choice;
   // Bare name on a multi-tier event: don't silently assign the default — ask which tier.
-  const needsTierPick = parsed?.status === 'ok' && parsed.matchedVia === 'default' && tiers.length > 1 && !choice && !dupe;
-  // Quota only gates the INSERT path; an add/replace on an existing guest is a
-  // delta the DB enforces, so don't block it on the new-guest cost.
-  const blockForQuota = overQuota && willInsert;
+  const needsTierPick = parsed?.status === 'ok' && parsed.matchedVia === 'default' && tiers.length > 1 && !choice && !clientDupe;
+  // Quota only gates the INSERT path; a likely add/replace on an existing guest
+  // is a delta the DB enforces, so don't block it on the new-guest cost. (When
+  // the dupe only surfaces server-side, "add anyway" is quota-gated in the
+  // overlay itself and by the DB.)
+  const blockForQuota = overQuota && !clientDupe;
 
   const canSubmit = ((): boolean => {
-    if (add.isPending || update.isPending) return false;
+    if (add.isPending || update.isPending || dupeChecking) return false;
     if (!defaultTierId || !evId) return false;
     if (!effName) return false;
-    if (needsAsk || needsTierPick || needsDupeChoice) return false;
+    if (needsAsk || needsTierPick) return false;
     return !blockForQuota;
   })();
 
   const onInput = (v: string): void => {
     setVal(v);
     setForm(FORM_RESET);
+    setDupeHit(null);
+    setDupeOpen(false);
     reqExtra.reset();
   };
 
-  const commit = (): void => {
-    if (!canSubmit || !effTier) return;
+  /** Run the actual mutation for a decided duplicate mode ('again' when no dupe). */
+  const executePlan = (existing: ExistingGuest | null, mode: DupeMode): void => {
+    if (!effTier) return;
     // Prefer parsed email/phone from the text; fall back to the optional contact fields.
     const emailVal = parsed?.email ?? (contactEmail.trim() || undefined);
     const phoneVal = parsed?.phone ?? contactPhone ?? undefined;
-    if (phoneVal && !isValidPhoneNumber(phoneVal)) {
-      setContactPhoneErr(t.guests.add.contactPhoneError);
-      return;
-    }
-    setContactPhoneErr(null);
     // Reuse the bulk planner with a single row, so quick + bulk split inserts vs
-    // plus-ones updates identically. mode defaults to 'again' when there's no dupe.
+    // plus-ones updates identically. The map holds ONLY the authoritative hit —
+    // never the (possibly stale/partial) client list.
     const row: BulkRowInput = {
       name: effName,
       plusOnes: effPlus,
@@ -190,7 +193,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
       email: emailVal,
       phone: phoneVal,
     };
-    const plan = planBulkAdd([row], byName, dupeMode ?? 'again');
+    const plan = planBulkAdd([row], indexGuestsByName(existing ? [existing] : []), mode);
 
     // Update path: erbij optellen / nieuw aantal on the matched existing guest.
     if (plan.updates.length > 0) {
@@ -204,7 +207,8 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
               ...a,
             ]);
             setVal('');
-            setForm((f) => ({ ...f, choice: null, dupeMode: null }));
+            setForm((f) => ({ ...f, choice: null }));
+            setDupeHit(null);
           },
         },
       );
@@ -232,9 +236,47 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
           setAdded((a) => [snapshot, ...a]);
           setVal('');
           setForm(FORM_RESET);
+          setDupeHit(null);
         },
       },
     );
+  };
+
+  const commit = async (): Promise<void> => {
+    if (!canSubmit || !effTier) return;
+    const phoneVal = parsed?.phone ?? contactPhone ?? undefined;
+    if (phoneVal && !isValidPhoneNumber(phoneVal)) {
+      setContactPhoneErr(t.guests.add.contactPhoneError);
+      return;
+    }
+    setContactPhoneErr(null);
+    // Authoritative server-side duplicate check AT SUBMIT (86ey8w7ek): one
+    // indexed point lookup, so it holds at thousands of guests and before the
+    // list read has landed. A hit opens the blocking overlay — adding a
+    // duplicate is always a conscious decision, never a race. If the lookup
+    // fails (offline door tablet), the client index is the fallback.
+    setDupeChecking(true);
+    let existing: ExistingGuest | null = null;
+    try {
+      existing = await findEventGuestByName(createClient(), evId, effName);
+    } catch {
+      existing = clientDupe;
+    } finally {
+      setDupeChecking(false);
+    }
+    if (existing) {
+      setDupeHit(existing);
+      setDupeOpen(true);
+      return;
+    }
+    executePlan(null, 'again');
+  };
+
+  /** Overlay decision → close and execute immediately (one tap, no second submit). */
+  const chooseDupe = (mode: DupeMode): void => {
+    if (!dupeHit) return;
+    setDupeOpen(false);
+    executePlan(dupeHit, mode);
   };
 
   const sub = !curEv
@@ -289,7 +331,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                 value={val}
                 onChange={(e) => onInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && canSubmit) commit();
+                  if (e.key === 'Enter' && canSubmit) void commit();
                 }}
                 placeholder={t.guests.add.inputPlaceholder}
                 className="w-full border-none bg-transparent font-display text-[18px] font-bold tracking-[-0.01em] text-text outline-none placeholder:text-faint"
@@ -306,7 +348,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                   )}
                 </div>
               )}
-              {parsed && !needsAsk && !needsTierPick && !dupe && effName && !parsed.email && !parsed.phone && (
+              {parsed && !needsAsk && !needsTierPick && !clientDupe && effName && !parsed.email && !parsed.phone && (
                 <div className="mt-[10px] flex flex-col gap-[8px] border-t border-white/[0.08] pt-[10px]">
                   <input
                     type="email"
@@ -399,34 +441,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
               </div>
             )}
 
-            {!needsAsk && dupe && (
-              <div className="mt-3 rounded-[16px] border border-acc bg-acc-dim p-[14px]">
-                <div className="mb-1 flex items-center gap-2">
-                  <Icon name="warn" size={16} stroke="#B5A6FF" />
-                  <Label className="text-acc-soft">{t.guests.add.dupeTitle}</Label>
-                </div>
-                <div className="mb-3 text-[12.5px] leading-[1.45] text-text">
-                  <b>{dupe.name}</b>
-                  {dupe.plusOnes > 0 ? (
-                    <>
-                      {t.guests.add.dupeOnListWith}
-                      <b>+{dupe.plusOnes}</b>
-                      {fmt(t.guests.add.dupeOnListSlots, { slots: dupe.plusOnes === 1 ? t.guests.add.slotOne : t.guests.add.slotMany })}
-                    </>
-                  ) : (
-                    t.guests.add.dupeOnListNoExtra
-                  )}
-                  {t.guests.add.dupeWhatToDo}
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <DupeOption on={dupeMode === 'add'} onClick={() => setDupeMode('add')} title={t.guests.add.dupeAddTitle} sub={fmt(t.guests.add.dupeAddSub, { total: dupe.plusOnes + effPlus, current: dupe.plusOnes })} />
-                  <DupeOption on={dupeMode === 'replace'} onClick={() => setDupeMode('replace')} title={t.guests.add.dupeReplaceTitle} sub={fmt(t.guests.add.dupeReplaceSub, { n: effPlus, current: dupe.plusOnes })} />
-                  <DupeOption on={dupeMode === 'again'} onClick={() => setDupeMode('again')} title={t.guests.add.dupeAgainTitle} sub={t.guests.add.dupeAgainSub} />
-                </div>
-              </div>
-            )}
-
-            {parsed && !needsAsk && !dupe && !exempt && remaining !== null && (
+            {parsed && !needsAsk && !clientDupe && !exempt && remaining !== null && (
               <div className={cn('mt-3 flex items-center gap-[9px] rounded-[13px] px-[14px] py-[11px]', overQuota ? 'border border-acc bg-white/[0.04]' : 'border border-line bg-elev')}>
                 <Icon name="ticket" size={17} stroke={overQuota ? '#B5A6FF' : 'rgba(255,255,255,0.40)'} />
                 <span className="flex-1 text-[13.5px] text-text">
@@ -439,7 +454,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
               </div>
             )}
 
-            {!dupe && overQuota && parsed && !needsAsk ? (
+            {!clientDupe && overQuota && parsed && !needsAsk ? (
               reqExtra.isSuccess ? (
                 <div className="mt-[10px] flex items-center gap-[9px] rounded-[13px] border border-acc bg-acc-dim px-[14px] py-[11px] text-[13px] text-text">
                   <Icon name="check" size={16} stroke="#B5A6FF" />
@@ -532,16 +547,57 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
         )}
       </Scroll>
       <BottomBar>
-        <Btn kind="primary" full icon="plus" onClick={commit} className={canSubmit ? '' : 'opacity-[0.45]'}>
-          {add.isPending || update.isPending
+        <Btn kind="primary" full icon="plus" onClick={() => void commit()} className={canSubmit ? '' : 'opacity-[0.45]'}>
+          {add.isPending || update.isPending || dupeChecking
             ? t.guests.add.submitBusy
             : !parsed
               ? t.guests.add.submitTypeName
-              : dupe && (dupeMode === 'add' || dupeMode === 'replace')
-                ? fmt(t.guests.add.submitUpdate, { name: effName })
-                : fmt(t.guests.add.submitAdd, { name: effName || t.guests.add.submitFallbackName, plus: effPlus ? ' +' + effPlus : '' })}
+              : fmt(t.guests.add.submitAdd, { name: effName || t.guests.add.submitFallbackName, plus: effPlus ? ' +' + effPlus : '' })}
         </Btn>
       </BottomBar>
+
+      {/* Blocking duplicate overlay (86ey8w7ek): submit found this name on the
+          list (authoritative server check) → force a conscious decision. Each
+          option executes immediately; Cancel keeps the typed input to edit. */}
+      {dupeOpen && dupeHit && (
+        <Sheet onClose={() => setDupeOpen(false)} center={false}>
+          <div className="mb-1 flex items-center gap-2">
+            <Icon name="warn" size={17} stroke="#B5A6FF" />
+            <div className="font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{t.guests.add.dupeTitle}</div>
+          </div>
+          <div className="mb-4 text-[13px] leading-[1.5] text-faint">
+            <b className="text-text">{dupeHit.name}</b>
+            {dupeHit.plusOnes > 0 ? (
+              <>
+                {t.guests.add.dupeOnListWith}
+                <b className="text-text">+{dupeHit.plusOnes}</b>
+                {fmt(t.guests.add.dupeOnListSlots, { slots: dupeHit.plusOnes === 1 ? t.guests.add.slotOne : t.guests.add.slotMany })}
+              </>
+            ) : (
+              t.guests.add.dupeOnListNoExtra
+            )}
+            {t.guests.add.dupeWhatToDo}
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <DupeOption on={false} onClick={() => chooseDupe('add')} title={t.guests.add.dupeAddTitle} sub={fmt(t.guests.add.dupeAddSub, { total: dupeHit.plusOnes + effPlus, current: dupeHit.plusOnes })} />
+            <DupeOption on={false} onClick={() => chooseDupe('replace')} title={t.guests.add.dupeReplaceTitle} sub={fmt(t.guests.add.dupeReplaceSub, { n: effPlus, current: dupeHit.plusOnes })} />
+            {/* A fresh insert still costs 1+N slots — over quota it stays a
+                request-extra-slots path, not a sneaky way around the block. */}
+            {!overQuota && (
+              <DupeOption on={false} onClick={() => chooseDupe('again')} title={t.guests.add.dupeAgainTitle} sub={t.guests.add.dupeAgainSub} />
+            )}
+          </div>
+          {overQuota && (
+            <div className="mt-2 flex items-center gap-[8px] rounded-[12px] border border-line bg-elev px-[13px] py-[10px] text-[12.5px] text-faint">
+              <Icon name="ticket" size={15} className="text-acc" />
+              <span className="flex-1">{t.guests.add.dupeAgainTitle}: {t.guests.add.quotaFull}</span>
+            </div>
+          )}
+          <Btn kind="ghost" full className="mt-3" onClick={() => setDupeOpen(false)}>
+            {t.guests.add.cancel}
+          </Btn>
+        </Sheet>
+      )}
 
       {evPick && (
         <Sheet onClose={() => setEvPick(false)} center={false}>

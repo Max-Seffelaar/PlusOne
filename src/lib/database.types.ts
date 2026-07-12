@@ -1758,6 +1758,14 @@ export type Database = {
         }[]
       }
       event_venue: { Args: { p_event_id: string }; Returns: string }
+      find_event_guest_by_name: {
+        Args: { p_event_id: string; p_name: string }
+        Returns: {
+          full_name: string
+          id: string
+          plus_ones: number
+        }[]
+      }
       forget_contact: { Args: { p_contact_id: string }; Returns: Json }
       get_influencer_stats: {
         Args: { p_ip_hash: string; p_token_hash: string }
