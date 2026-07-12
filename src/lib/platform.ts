@@ -13,3 +13,15 @@ export function isNativeShell(): boolean {
   const cap = (window as { Capacitor?: CapacitorGlobal }).Capacitor;
   return Boolean(cap?.isNativePlatform?.());
 }
+
+/**
+ * True when the primary input is a precise pointer (mouse/trackpad). Used to
+ * decide whether auto-focusing a text field is helpful (desktop) or harmful
+ * (mobile/webview, where focus() pops the on-screen keyboard). Guarded for SSR
+ * and webviews without matchMedia (#37): defaults to false — never auto-open a
+ * keyboard when unsure.
+ */
+export function hasFinePointer(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  return window.matchMedia('(pointer: fine)').matches;
+}
