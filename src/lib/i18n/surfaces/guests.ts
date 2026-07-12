@@ -378,7 +378,7 @@ export const guests = {
     guestMany: 'guests',
     tierFailed: "Couldn't update tier.",
   },
-  // ── Bulk add-to-event (from the Guests tab, the Lijst and Contacts) ────────
+  // ── Bulk add-to-event (from the Guests tab, venue-wide or event-pinned, and Contacts) ──
   bulkAdd: {
     title: 'Add {n} to an event',
     pickEvent: 'Pick the event and tier for everyone.',

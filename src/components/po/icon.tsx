@@ -96,13 +96,3 @@ export function Icon({
     </svg>
   );
 }
-
-/** Per-role glyphs for the RoleChip (VIP=crown, All Access=shield, …). */
-export const ROLE_ICON: Record<string, IconName> = {
-  VIP: 'crown',
-  'All Access': 'shield',
-  Artist: 'star',
-  Press: 'note',
-  Crew: 'users',
-  Guest: 'user',
-};

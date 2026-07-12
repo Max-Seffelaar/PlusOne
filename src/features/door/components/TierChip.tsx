@@ -1,4 +1,4 @@
-/** RoleChip variant coloured by the guest's tier (decision #27: tier colour + icon). */
+/** A tier-name chip coloured by the guest's tier (decision #27: tier colour + icon). */
 import { Icon, type IconName } from '@/components/po/icon';
 
 export function TierChip({ name, color, icon }: { name: string; color: string; icon: IconName }): JSX.Element {

@@ -2,9 +2,9 @@
 
 // Shared multi-select + bulk-action pieces for the guest surfaces (T11):
 // the selection hook, the action bar, and the "add N people to an event" sheet
-// with its per-row result view. Lives in its own module so the Guests tab, the
-// event Lijst (index.tsx) AND the Contacts screen (profile.tsx) can all use it
-// without an index↔profile circular import.
+// with its per-row result view. Lives in its own module so the Guests tab
+// (index.tsx, both venue-wide and pinned to a single event) AND the Contacts
+// screen (profile.tsx) can all use it without an index↔profile circular import.
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { PoEvent } from '@/lib/po/types';
@@ -18,8 +18,8 @@ import { Btn, Empty, Label } from '../../kit';
 import { Sheet } from '../../shell';
 import { NoTiersBlock, press } from './_shared';
 
-/** Selection state shared by the guest surfaces (venue-wide Guests tab + the
- *  event-scoped Lijst). */
+/** Selection state shared by the guest surfaces (the Guests tab, venue-wide or
+ *  pinned to a single event). */
 export function useGuestSelection() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const toggle = (id: string): void =>
@@ -94,7 +94,7 @@ export interface BulkAddCandidate {
 
 /** Pick a target event + tier, add every selected person, and show a per-row
  *  result (added / already on the list / quota / tier full / locked). Used by the
- *  Guests tab, the event Lijst and the Contacts screen. */
+ *  Guests tab (venue-wide or event-pinned) and the Contacts screen. */
 export function BulkAddToEventSheet({
   people,
   upcoming,

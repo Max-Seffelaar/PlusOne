@@ -9,7 +9,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
-import { Icon, type IconName, ROLE_ICON } from './icon';
+import { Icon, type IconName } from './icon';
 
 // FE-4: the canonical press/cardPress feels — 26 files hand-rolled a local copy
 // of one of these (some already drifted to 0.94/0.985/1.09); exported so a
@@ -54,22 +54,6 @@ export function Pill({ children, on, icon }: { children: ReactNode; on?: boolean
     >
       {icon && <Icon name={icon} size={12} sw={2} />}
       {children}
-    </span>
-  );
-}
-
-// ── RoleChip ────────────────────────────────────────────────────────────────
-export function RoleChip({ role }: { role: string }): JSX.Element {
-  const gast = role === 'Guest';
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-[5px] rounded-[7px] border border-line bg-elev2 px-2 py-[3px] font-body text-[11px] font-bold uppercase tracking-[0.04em]',
-        gast ? 'text-faint' : 'text-text',
-      )}
-    >
-      <Icon name={ROLE_ICON[role] ?? 'user'} size={11} sw={2} stroke={gast ? 'rgba(255,255,255,0.40)' : '#C9BEFF'} />
-      {role.toUpperCase()}
     </span>
   );
 }
