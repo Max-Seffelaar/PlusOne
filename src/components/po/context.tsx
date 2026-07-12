@@ -2,13 +2,13 @@
 
 /**
  * Navigation + shared app state for the po surface. Holds the in-memory nav stack
- * and the active venue. The door check-in state used to live here too; it now
- * comes from the real DoorProvider (TanStack Query + offline outbox + realtime)
- * under the Deur/Taken tabs, so it is no longer duplicated here (#25).
+ * plus the caller's live venue memberships and active-venue id (identity itself
+ * comes from PoLiveProvider). The door check-in state used to live here too; it
+ * now comes from the real DoorProvider (TanStack Query + offline outbox +
+ * realtime) under the Deur/Taken tabs, so it is no longer duplicated here (#25).
  */
 import { createContext, useContext } from 'react';
 import type { TabKey } from './shell';
-import type { Venue } from '@/lib/po/types';
 import type { VenueRole } from '@/features/auth/roles';
 
 export type ScreenName =
@@ -80,8 +80,6 @@ export interface PoVenueMembership {
 }
 
 export interface PoApp {
-  venue: Venue;
-  switchVenue: (v: Venue) => void;
   statsVenues: { venueId: string; venueName: string }[];
   /** The caller's real venue memberships (live) — drives the venue switcher. */
   myVenues: PoVenueMembership[];

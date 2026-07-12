@@ -11,8 +11,6 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { useQueryClient } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
-import { venues } from '@/lib/po/data';
-import type { Venue } from '@/lib/po/types';
 import { usePoCanManageTemplates, usePoDoorCandidates, usePoEvents, usePoGuestRequests } from '@/features/po/hooks';
 import { isOpenGuestRequest } from '@/features/po/adapters';
 import { autoOpenDoorEvent } from '@/features/po/door-event';
@@ -46,7 +44,7 @@ import { DoorEventPicker, PoDoorTab, type DoorOverlay } from './screens/door';
 import { Allowance, Billing, Gebruikers, Import, Meer, Profile, Rollen, VenueSettings, VenueSwitch } from './screens/settings';
 import { VenueCreate } from './screens/onboarding';
 import { Home } from './screens/home';
-import { t, fmt } from '@/lib/i18n';
+import { t } from '@/lib/i18n';
 
 /** A captured po navigation position. Restoring one sets every nav-relevant piece,
  *  so a single back step can return to a different TAB — not just pop the current
@@ -166,7 +164,7 @@ export function PlusOneApp({
   activeVenueId?: string | null;
   /** Server UA hint for the first-paint viewport switch (corrected by matchMedia). */
   serverHint?: boolean;
-  /** Live active-venue name from the session (shell display); mock fallback otherwise. */
+  /** Live active-venue name from the session (shell display); generic fallback otherwise. */
   liveVenueName?: string;
   /** Live signed-in user's display name (shell footer). */
   liveUserName?: string;
@@ -188,7 +186,6 @@ export function PlusOneApp({
   const [doorEventId, setDoorEventId] = useState<string | null>(null);
   // Merged Door tab: Check-in ('deur') / Tasks ('taken') segment (was two tabs).
   const [doorSeg, setDoorSeg] = useState<'deur' | 'taken'>('deur');
-  const [venue, setVenueState] = useState<Venue>(() => venues.find((v) => v.current) ?? venues[0]);
   const [toast, setToast] = useState<string | null>(null);
   const [key, setKey] = useState(0);
 
@@ -463,14 +460,6 @@ export function PlusOneApp({
   const openAdd = (): void => navigate(() => setDoorOverlay({ kind: 'add' }));
   const closeOverlay = (): void => histNav.goBack();
 
-  const switchVenue = (v: Venue): void => {
-    setVenueState(v);
-    setDoorEventId(null); // the override belongs to the old venue's events (S1.3)
-    setToast(fmt(t.venue.switched, { name: v.name }));
-    setTimeout(() => setToast(null), 2200);
-    nav.back();
-  };
-
   // Switch the ACTIVE venue for real (#1): write the server cookie, then full-reload
   // so app/page.tsx re-resolves the identity and every live query re-scopes to the
   // new venue. (Local state alone can't re-scope server-resolved identity.)
@@ -558,7 +547,7 @@ export function PlusOneApp({
         screen = <VenueSwitch />;
         break;
       case 'venuesettings':
-        screen = <VenueSettings venue={venue} />;
+        screen = <VenueSettings />;
         break;
       case 'venuecreate':
         screen = <VenueCreate />;
@@ -608,8 +597,6 @@ export function PlusOneApp({
   else screen = <Home />;
 
   const po: PoApp = {
-    venue,
-    switchVenue,
     statsVenues: statsAccess?.venues ?? [],
     myVenues,
     activeVenueId,
@@ -749,7 +736,7 @@ export function PlusOneApp({
         // the More tab — same source + gate as the desktop sidebar badge (T9).
         mobileBadges={{ meer: showRequestsNavItem ? openRequestCount : 0 }}
         navItems={navItems}
-        venueName={liveVenueName ?? venue.name}
+        venueName={liveVenueName ?? t.settings.venueSwitch.thisVenueFallback}
         onOpenVenue={() => nav.push('venueswitch')}
         onOpenProfile={() => nav.push('profile')}
         userName={liveUserName ?? t.common.account}
