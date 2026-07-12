@@ -50,6 +50,7 @@ import {
   fetchTemplate,
   fetchTemplateTiers,
   fetchOrganizesAtVenue,
+  fetchOrganizesOpenEventAtVenue,
   fetchEventCrew,
   fetchAssignableCrew,
   fetchRequestLinks,
@@ -111,6 +112,7 @@ import {
 } from './adapters';
 import { normalizeEmail, normalizePhoneToDigits } from '@/features/contacts/import/parse';
 import { usePoIdentity } from './PoLiveProvider';
+import { canWorkDoor } from '@/features/auth/roles';
 import { fetchEventStats } from '@/features/stats/data';
 import {
   eventKpis,
@@ -419,6 +421,24 @@ export function usePoCanManageTemplates(): boolean {
       venueId && userId ? fetchOrganizesAtVenue(createClient(), venueId, userId) : Promise.resolve(false),
   });
   return isAdmin || data === true;
+}
+
+/**
+ * Whether the caller organizes a still-workable event at the active venue (M2,
+ * K-6) — drives the Deur-tab gate for an external crew member with no venue
+ * role. `canWorkDoor(roles)` short-circuits admin/doorhost so they never pay
+ * for the extra read.
+ */
+export function usePoIsDoorOrganizer(): boolean {
+  const { venueId, userId, roles } = usePoIdentity();
+  const skip = canWorkDoor(roles);
+  const { data } = useQuery<boolean>({
+    queryKey: [...poKeys.all, 'is-door-organizer', venueId ?? ''],
+    enabled: !!venueId && !!userId && !skip,
+    queryFn: () =>
+      venueId && userId ? fetchOrganizesOpenEventAtVenue(createClient(), venueId, userId, Date.now()) : Promise.resolve(false),
+  });
+  return skip || data === true;
 }
 
 /**

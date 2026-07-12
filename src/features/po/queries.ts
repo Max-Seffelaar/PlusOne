@@ -4,6 +4,7 @@ import type { EventSummary, TierStat } from '@/features/stats/data';
 import { describeAuditEntry, type AuditLine } from '@/features/audit/translate';
 import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
 import { chunkIds, fetchAllRanged } from '@/lib/supabase/paging';
+import { eventPhase } from '@/features/po/event-phase';
 
 // Client-agnostic po reads (mirrors src/features/stats/data.ts): every function
 // takes the caller's Supabase client, so a Server Component can prefetch with the
@@ -866,6 +867,33 @@ export async function fetchOrganizesAtVenue(client: Client, venueId: string, use
     .eq('user_id', userId)
     .eq('events.venue_id', venueId);
   return (count ?? 0) > 0;
+}
+
+/**
+ * Whether the caller organizes a still-workable event at this venue — a live/
+ * upcoming, non-cancelled event (M2, K-6): an external crew member with no venue
+ * role otherwise has no in-app route to a door surface, even though RLS
+ * (`can_check_in`) already lets them work the door of their own event. Phase is
+ * computed client-side (`eventPhase`, #26 — the DB has no "past" status), mirroring
+ * `doorCandidates`' own filter so this answers exactly "would the Deur-tab have
+ * something to show them".
+ */
+export async function fetchOrganizesOpenEventAtVenue(
+  client: Client,
+  venueId: string,
+  userId: string,
+  nowMs: number
+): Promise<boolean> {
+  if (!userId || !venueId) return false;
+  const { data } = await client
+    .from('event_organizers')
+    .select('events!inner(venue_id, starts_at, ends_at, cancelled_at)')
+    .eq('user_id', userId)
+    .eq('events.venue_id', venueId);
+  return (data ?? []).some((row) => {
+    const event = row.events;
+    return event.cancelled_at == null && eventPhase(event.starts_at, event.ends_at, nowMs) !== 'past';
+  });
 }
 
 // ── Address book reads (S3 Adresboek + Import) ──
