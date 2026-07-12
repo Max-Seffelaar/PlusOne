@@ -1,14 +1,15 @@
 /**
  * No-mock-data-import guard (FE-5 CI guardrail half).
  *
- * `src/lib/po/data.ts` holds the PLUSONE mobile-prototype MOCK fixtures — fine
+ * `src/lib/po/data.ts` held the PLUSONE mobile-prototype MOCK fixtures — fine
  * for types/tests, never for a shipped render path (CLAUDE.md "Front-end
- * discipline": "No mock-data imports in shipped screens. `src/lib/po/data.ts`
- * fixtures are for types/tests, not render paths."). This scans every
- * `.ts`/`.tsx` under the shipped `po` screens + features directories and fails
- * if any of them import the `data.ts` MODULE itself — a real regression class,
- * since the mock venues/events/guests arrays look plausible enough to slot in
- * during a rushed screen edit.
+ * discipline"). The last fixture (the mock venue list) was removed 2026-07-12
+ * and the module deleted with it; this guard keeps it from coming back: it
+ * scans every `.ts`/`.tsx` under the shipped `po` components + features
+ * directories (the whole component tree, not just screens/ — the app shell
+ * itself was the last offender) and fails if any of them import the `data`
+ * MODULE specifier — a real regression class, since prototype fixture arrays
+ * look plausible enough to slot in during a rushed screen edit.
  *
  * Type-only imports from the separate `src/lib/po/types.ts` module (the actual
  * domain types, used throughout screens/features) are unaffected — this only
@@ -20,7 +21,7 @@ import { describe, expect, it } from 'vitest';
 
 const ROOT = process.cwd();
 const SCAN_DIRS = [
-  path.join(ROOT, 'src', 'components', 'po', 'screens'),
+  path.join(ROOT, 'src', 'components', 'po'),
   path.join(ROOT, 'src', 'features', 'po'),
 ];
 
@@ -61,8 +62,8 @@ describe('no mock-data imports in shipped po screens/features', () => {
 
     expect(
       offenders,
-      `These files import the mock-data module (src/lib/po/data.ts) from a shipped ` +
-        `render path: ${offenders.join(', ')}. Mock fixtures are for types/tests only ` +
+      `These files import the deleted mock-data module (src/lib/po/data.ts) from a ` +
+        `shipped render path: ${offenders.join(', ')}. The prototype fixtures are gone ` +
         `— read live data through src/features/po instead (see CLAUDE.md "Front-end ` +
         'discipline"). Type-only imports from src/lib/po/types.ts are unaffected.',
     ).toEqual([]);

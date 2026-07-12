@@ -89,7 +89,7 @@ Established by `engineering-review-2026-07.md` + `perf-scale-audit-megaevent.md`
 - **Exactly one adapter per entity** (DB row → domain); no per-screen mappers, one `format.ts`.
 - **Share a base query; vary shape with React-Query `select`.** Same-table-different-scope = a scope param on the existing fetcher (`fetchGuests`/`fetchTiers` take `{eventId}|{venueId}`), not a new `fetchX`.
 - **New UI primitive → `kit.tsx`** (or `shell.tsx`), exported, used everywhere. If the kit lacks it, add it to the kit in the same PR.
-- **No mock-data imports in shipped screens.** `src/lib/po/data.ts` fixtures are for types/tests, not render paths.
+- **No mock-data imports in shipped screens.** The prototype fixture module (formerly src/lib/po/data.ts) is deleted — screens read live data via `src/features/po`; `tests/unit/no-mock-data-imports.test.ts` fails CI if a fixture import reappears in a shipped path.
 - **Screen files stay under ~800 LOC** — `events.tsx`/`settings.tsx` are refactor targets, not a template.
 
 ## Current state (2026-07-09)

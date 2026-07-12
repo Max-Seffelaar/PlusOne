@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
-import type { Venue } from '@/lib/po/types';
 import { ROLE_LABELS } from '@/features/auth/roles';
 import { venueCapabilities } from '@/features/venues/access';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
@@ -84,7 +83,7 @@ export function VenueSwitch(): JSX.Element {
 // Name + AVG retention + venue-default quota + the company/legal/finance/address
 // profile (mirrors the desktop VenueSettingsForm). Admin edits; finance reads
 // (RLS venues_update_admin). The action re-checks admin server-side.
-export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
+export function VenueSettings(): JSX.Element {
   const nav = useNav();
   const { roles, venueName } = usePoIdentity();
   const caps = venueCapabilities(roles);
@@ -136,7 +135,7 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
   if (!caps.viewSettings) {
     return (
       <div className={col}>
-        <Top onBack={nav.back} title={t.settings.venue.title} sub={venueName ?? venue.name} />
+        <Top onBack={nav.back} title={t.settings.venue.title} sub={venueName} />
         <Scroll bottom={24}>
           <Empty text={t.settings.venue.viewNoRights} />
         </Scroll>
@@ -146,7 +145,7 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
   if ((settingsQ.isLoading || !loaded) && !settingsQ.isError) {
     return (
       <div className={col}>
-        <Top onBack={nav.back} title={t.settings.venue.title} sub={venueName ?? venue.name} />
+        <Top onBack={nav.back} title={t.settings.venue.title} sub={venueName} />
         <Scroll bottom={24}>
           <Empty text={t.settings.venue.loading} />
         </Scroll>
@@ -156,7 +155,7 @@ export function VenueSettings({ venue }: { venue: Venue }): JSX.Element {
   if (!s) {
     return (
       <div className={col}>
-        <Top onBack={nav.back} title={t.settings.venue.title} sub={venueName ?? venue.name} />
+        <Top onBack={nav.back} title={t.settings.venue.title} sub={venueName} />
         <Scroll bottom={24}>
           <Empty text={t.settings.venue.loadError} />
         </Scroll>

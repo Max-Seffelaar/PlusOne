@@ -8,6 +8,32 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-12 — Mock venue state + dead switchVenue removed from the po shell (last mock fixture gone)
+
+Dead-code removal in the `/app` shell; behavior-neutral (verified live: sidebar header,
+Meer venue card, venue switcher, venue settings all render live data as before).
+
+- **`app.tsx` no longer imports the mock fixtures.** The shell initialized `venue` state
+  from `src/lib/po/data.ts` (`venues.find((v) => v.current)`) — the last mock-data import
+  in a shipped render path (the FE-5 guard scanned `screens/` + `features/po` but not the
+  component root, so the shell itself slipped through). Every remaining read of
+  `po.venue` was just `venue.name` as a display fallback that live identity already
+  covers: shell `venueName` → `liveVenueName ?? t.settings.venueSwitch.thisVenueFallback`;
+  Meer's venue card + `VenueSettings`' sub → `usePoIdentity().venueName` (sub simply
+  omitted while null). `VenueSettings` lost its (unused-beyond-the-fallback) `venue` prop.
+- **Dead `switchVenue` removed** from `app.tsx` + the `PoApp` context type. It was the
+  prototype's local-state switcher (toast + setState) with zero callers — the real path
+  is `switchToVenue` (server cookie + full reload, #1), which stays. Dead i18n copy went
+  with it (`venue.switched`, `home.switchVenue`).
+- **`src/lib/po/data.ts` deleted, `Venue` interface deleted** (`src/lib/po/types.ts`) —
+  both were orphaned by the above; nothing in src/tests imported them anymore.
+- **Guard tightened + CLAUDE.md updated:** `tests/unit/no-mock-data-imports.test.ts` now
+  scans ALL of `src/components/po` (not just `screens/`), and the front-end-discipline
+  bullet reflects the module's removal (phantom-path guard forced the same-PR update).
+- Suite: type-check clean, lint clean, vitest 671/671 green. No high-risk surface touched.
+
+---
+
 ## 2026-07-09 — Before/after A/B of the venue-scope read fix (#143 — SCALE-5/K8/FE-3, PR #165)
 
 Same-machine, same-seed verification that the venue-scope fix (PR #143) is real, not just

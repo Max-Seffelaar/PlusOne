@@ -19,7 +19,6 @@ export const home = {
 
   title: 'Overview',
   refresh: 'Refresh',
-  switchVenue: 'Switch venue',
 
   // Event card
   listLocked: 'List locked',
