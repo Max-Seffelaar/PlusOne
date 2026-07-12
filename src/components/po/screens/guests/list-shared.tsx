@@ -4,6 +4,7 @@ import { useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
 import type { Guest as GuestT } from '@/lib/po/types';
+import { DEFAULT_TIER_COLOR, tierInk, tintTier } from '@/lib/po/tier-colors';
 import { t, fmt } from '@/lib/i18n';
 import { Icon } from '../../icon';
 import { Avatar, Btn, PayChip, StatusDot } from '../../kit';
@@ -140,6 +141,14 @@ export function GuestCardList({
           const g = rows[vi.index];
           if (!g) return null;
           const isSelected = selected.has(g.id);
+          // Door visual language (feedback Max 10/7): the WHOLE card is filled
+          // with the tier colour — no per-row status circles. Checked-in rows
+          // sink to the door's low-alpha tint ("checked-in = muted") with a
+          // small check badge; refused rows stay neutral with their chip.
+          const isIn = g.status === 'in';
+          const isRefused = g.status === 'refused';
+          const tierBg = g.tierColor ?? DEFAULT_TIER_COLOR;
+          const ink = isRefused ? undefined : isIn ? '#FFFFFF' : tierInk(tierBg);
           return (
             <div
               key={vi.key}
@@ -158,8 +167,18 @@ export function GuestCardList({
                   className={cn(
                     'flex w-full items-center gap-[10px] rounded-[12px] border px-[11px] py-[8px] text-left',
                     cardPress,
-                    isSelected ? 'border-acc bg-acc-dim' : 'border-line bg-elev',
+                    isRefused ? 'border-line bg-elev' : isIn ? 'border-line2 opacity-[0.6]' : 'border-transparent',
                   )}
+                  // Selection keeps the tier fill and signals with the door's
+                  // inset accent ring, so multi-select doesn't flip the palette.
+                  style={
+                    isRefused
+                      ? undefined
+                      : {
+                          background: isIn ? tintTier(tierBg, 0.14) : tierBg,
+                          ...(isSelected ? { boxShadow: 'inset 0 0 0 2px #B5A6FF' } : {}),
+                        }
+                  }
                 >
                   {selected.size > 0 ? (
                     <span className={cn(
@@ -171,24 +190,38 @@ export function GuestCardList({
                   ) : (
                     <Avatar name={g.name} size={34} accent={g.role === 'VIP'} />
                   )}
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate font-display text-[14.5px] font-bold text-text">
+                  <span className="flex min-w-0 flex-1 flex-col" style={ink ? { color: ink } : undefined}>
+                    <span className={cn('truncate font-display text-[14.5px] font-bold', isRefused && 'text-text')}>
                       {g.name}
-                      {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
+                      {g.plus > 0 && <span className={cn('font-semibold', isRefused ? 'text-faint' : 'opacity-70')}> +{g.plus}</span>}
                     </span>
-                    {g.eventName && <span className="truncate font-body text-[11px] text-faint">{g.eventName}</span>}
+                    {g.eventName && (
+                      <span className={cn('truncate font-body text-[11px]', isRefused ? 'text-faint' : 'opacity-70')}>{g.eventName}</span>
+                    )}
                   </span>
                   {g.note && !isSelected && (
-                    <span className="shrink-0 text-acc-soft">
+                    <span className={cn('shrink-0', isRefused && 'text-acc-soft')} style={ink ? { color: ink, opacity: 0.9 } : undefined}>
                       <Icon name="note" size={13} />
                     </span>
                   )}
                   {g.pay === 'pay' && !isSelected && <PayChip pay="pay" />}
-                  <TierPill name={g.tierName} color={g.tierColor} fallback={g.role} />
-                  {g.status === 'refused' ? (
-                    <span className="shrink-0 rounded-[7px] border border-line2 px-2 py-[3px] font-body text-[11px] font-bold text-faint">{t.guests.list.refused}</span>
+                  {isRefused ? (
+                    <>
+                      <TierPill name={g.tierName} color={g.tierColor} fallback={g.role} />
+                      <span className="shrink-0 rounded-[7px] border border-line2 px-2 py-[3px] font-body text-[11px] font-bold text-faint">{t.guests.list.refused}</span>
+                    </>
                   ) : (
-                    <StatusDot status={g.status} label={false} />
+                    <>
+                      {/* Real tier name inline (door style) — the fill already IS
+                          the tier, a second coloured pill on top would be noise. */}
+                      <span
+                        className="max-w-[40%] shrink-0 truncate text-[10.5px] font-bold uppercase tracking-[0.03em] opacity-90"
+                        style={ink ? { color: ink } : undefined}
+                      >
+                        {g.tierName ?? g.role}
+                      </span>
+                      {isIn && <StatusDot status="in" label={false} />}
+                    </>
                   )}
                 </button>
               </div>
