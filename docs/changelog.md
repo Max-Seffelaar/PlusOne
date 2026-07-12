@@ -8,6 +8,47 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-12 — Testronde Max 10/7: 8 taken → 5 PR's + prod-schema-drift gevonden (PR #179–#183)
+
+Max' mobiele testronde op prod (10/7, 8 ClickUp-taken met screenshots) uitgewerkt tot
+root causes, de taken herschreven met acceptatiecriteria, en 5 PR's gebouwd.
+
+- **Root cause van de "alles 0" bugs (86ey8w7w2 + 86ey8w7bm): prod mist migratie
+  `20260708120000_venue_scope_denormalization`.** De prod-migratiehistorie stopt bij
+  `20260708110000` (read-only bevestigd via MCP `list_migrations`); de gedeployde app
+  leest `guests.venue_id` + de `venue_event_headcounts` RPC die daar niet bestaan. De
+  query-laag slikte de errors stil in (`const { data } = …`) → door-picker 0/0/0, lege
+  requests-inbox, event-stats 0 — terwijl event-scoped reads gewoon werkten. **Prod-push:
+  go gegeven 12/7, draait direct na de merge-trein** (flow in taak 86ey8w7w2); de A/B-test van
+  9/7 draaide op een throwaway-project, niet op prod — vandaar dat dit niet eerder opviel.
+- **PR #179 — door-fixes (86ey8w759 + 86ey8w7u4):** check-in-lijst focuste het zoekveld
+  bij elke remount → keyboard-pop na elke check-in op mobiel; auto-focus nu alleen op
+  fine-pointer (nieuwe `hasFinePointer()` seam in `src/lib/platform.ts`). Stepper "how
+  many are coming in?" verhuisd naar de BottomBar naast de Check-in knop — past altijd
+  samen in het viewport.
+- **PR #180 — gastenlijst-rijen (86ey8w7kf):** statusbolletjes weg; mobiele kaarten in de
+  deur-taal (solid tier fill + `tierInk`, ingecheckt = `tintTier` 0.14 + check-badge,
+  multi-select = inset accent-ring).
+- **PR #181 — tiers (86ey8w7r2):** Save-acties uit de (achter het keyboard verdwijnende)
+  BottomBar naar de New-tier card zelf.
+- **PR #182 — duplicate safeguard (86ey8w7ek, migratie `20260712120000`):** dupe-check was
+  client-side over de volledige lijst (te laat bij duizenden gasten; server had géén
+  safeguard). Nu: partial index `(event_id, lower(full_name))` excl. `removed` + RPC
+  `find_event_guest_by_name` (SECURITY INVOKER, RLS-scoped) + blocking overlay op submit
+  (+N optellen / vervangen / toch toevoegen / annuleren — besluit Max 12/7). pgTAP 11
+  tests; volledige suite 936/936 groen op verse reset. **Review gate: migratie → fresh
+  /code-review vóór merge.**
+- **PR #183 — event-pagina admin (86ey8w79x + code-helft 86ey8w7bm):** tegel "On the way"
+  → "On the list"; badge telt nu óók pending quota-requests (waren onzichtbaar → badge
+  vs. inbox mismatch) met deep-link naar de juiste tab; request-links funnel (clicks ·
+  requests · approved) zichtbaar; activity-log gepagineerd (50 + Show more); en de
+  venue-scoped po-reads **gooien errors** i.p.v. stil 0/[] te renderen — zodat Sentry
+  schema-drift zoals hierboven voortaan direct vangt.
+- Gotcha: `preview_screenshot` timet out in deze omgeving; verifiëren ging via
+  `preview_eval` bounding-boxes/DOM-asserts.
+
+---
+
 ## 2026-07-12 — Mock venue state + dead switchVenue removed from the po shell (last mock fixture gone)
 
 Dead-code removal in the `/app` shell; behavior-neutral (verified live: sidebar header,
