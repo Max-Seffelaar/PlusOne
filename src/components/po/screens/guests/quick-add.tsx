@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { v7 as uuidv7 } from 'uuid';
 import { cn } from '@/lib/utils';
-import { indexGuestsByName, planBulkAdd, type DupeMode, type BulkRowInput, type ExistingGuest } from '@/features/guests/bulk-dedupe';
+import { indexGuestsByName, type DupeMode, type ExistingGuest } from '@/features/guests/bulk-dedupe';
 import { findEventGuestByName } from '@/features/po/queries';
 import { createClient } from '@/lib/supabase/client';
+import { captureUnexpectedError } from '@/lib/observability/capture';
 import {
   parseQuickAdd,
   resolveAmbiguity,
@@ -106,6 +107,12 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const [dupeHit, setDupeHit] = useState<ExistingGuest | null>(null);
   const [dupeOpen, setDupeOpen] = useState(false);
   const [dupeChecking, setDupeChecking] = useState(false);
+  // Editing the input invalidates an in-flight lookup: its hit/miss describes
+  // the OLD text, and acting on it could insert a typo'd name and wipe the
+  // correction. The ref latch also blocks a same-frame double submit (Enter +
+  // tap) that the async `dupeChecking` state can't catch yet.
+  const commitSeq = useRef(0);
+  const committingRef = useRef(false);
 
   // Destructure for ergonomic use in the render body below.
   const { choice, reqOpen, contactEmail, contactPhone, contactCountry, contactPhoneErr } = form;
@@ -159,18 +166,17 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const needsAsk = !!isAmbiguous && !choice;
   // Bare name on a multi-tier event: don't silently assign the default — ask which tier.
   const needsTierPick = parsed?.status === 'ok' && parsed.matchedVia === 'default' && tiers.length > 1 && !choice && !clientDupe;
-  // Quota only gates the INSERT path; a likely add/replace on an existing guest
-  // is a delta the DB enforces, so don't block it on the new-guest cost. (When
-  // the dupe only surfaces server-side, "add anyway" is quota-gated in the
-  // overlay itself and by the DB.)
-  const blockForQuota = overQuota && !clientDupe;
-
+  // Quota gates the INSERT path only, and insert-vs-update is only known for
+  // sure AFTER the server lookup — so quota never disables the button (an
+  // over-quota add/replace on an existing guest must stay reachable even
+  // before the guest list has loaded, and a stale hint must not wave an
+  // over-quota insert through). commit() blocks the confirmed-insert path
+  // while over quota; the DB (#22) is the real boundary either way.
   const canSubmit = ((): boolean => {
     if (add.isPending || update.isPending || dupeChecking) return false;
     if (!defaultTierId || !evId) return false;
     if (!effName) return false;
-    if (needsAsk || needsTierPick) return false;
-    return !blockForQuota;
+    return !(needsAsk || needsTierPick);
   })();
 
   const onInput = (v: string): void => {
@@ -178,6 +184,11 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
     setForm(FORM_RESET);
     setDupeHit(null);
     setDupeOpen(false);
+    commitSeq.current++;
+    // A success chip or error banner from the PREVIOUS name must not linger
+    // under (or mask) whatever this attempt produces.
+    add.reset();
+    update.reset();
     reqExtra.reset();
   };
 
@@ -187,27 +198,25 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
     // Prefer parsed email/phone from the text; fall back to the optional contact fields.
     const emailVal = parsed?.email ?? (contactEmail.trim() || undefined);
     const phoneVal = parsed?.phone ?? contactPhone ?? undefined;
-    // Reuse the bulk planner with a single row, so quick + bulk split inserts vs
-    // plus-ones updates identically. The map holds ONLY the authoritative hit —
-    // never the (possibly stale/partial) client list.
-    const row: BulkRowInput = {
-      name: effName,
-      plusOnes: effPlus,
-      tierId: effTierId,
-      email: emailVal,
-      phone: phoneVal,
-    };
-    const plan = planBulkAdd([row], indexGuestsByName(existing ? [existing] : []), mode);
 
-    // Update path: erbij optellen / nieuw aantal on the matched existing guest.
-    if (plan.updates.length > 0) {
-      const u = plan.updates[0];
+    // Update path (erbij optellen / nieuw aantal): keyed off the AUTHORITATIVE
+    // hit's id, never a by-name re-match — Postgres lower(trim()) and JS
+    // toLowerCase() fold some codepoints differently (Turkish İ), and a
+    // re-match miss would silently degrade a confirmed replace into a
+    // duplicate insert. Typed email/phone ride along instead of vanishing.
+    if (existing && mode !== 'again') {
+      const plusOnes = mode === 'add' ? existing.plusOnes + effPlus : effPlus;
       update.mutate(
-        { guestId: u.guestId, plusOnes: u.plusOnes },
+        {
+          guestId: existing.id,
+          plusOnes,
+          ...(emailVal !== undefined ? { email: emailVal } : {}),
+          ...(phoneVal !== undefined ? { phone: phoneVal } : {}),
+        },
         {
           onSuccess: () => {
             setAdded((a) => [
-              { rowId: uuidv7(), id: u.guestId, name: effName, plus: u.plusOnes, tierShort: effTier.short, vip: effTier.role === 'VIP', updated: true },
+              { rowId: uuidv7(), id: existing.id, name: effName, plus: plusOnes, tierShort: effTier.short, vip: effTier.role === 'VIP', updated: true },
               ...a,
             ]);
             setVal('');
@@ -247,7 +256,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   };
 
   const commit = async (): Promise<void> => {
-    if (!canSubmit || !effTier) return;
+    if (!canSubmit || !effTier || committingRef.current) return;
     const phoneVal = parsed?.phone ?? contactPhone ?? undefined;
     if (phoneVal && !isValidPhoneNumber(phoneVal)) {
       setContactPhoneErr(t.guests.add.contactPhoneError);
@@ -258,21 +267,33 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
     // indexed point lookup, so it holds at thousands of guests and before the
     // list read has landed. A hit opens the blocking overlay — adding a
     // duplicate is always a conscious decision, never a race. If the lookup
-    // fails (offline door tablet), the client index is the fallback.
+    // fails, the client index is the fallback — offline stays quiet, but a
+    // deploy-skew failure (RPC missing) must reach Sentry, or the safeguard
+    // would be silently inert in prod.
+    committingRef.current = true;
+    const seq = commitSeq.current;
     setDupeChecking(true);
     let existing: ExistingGuest | null = null;
     try {
       existing = await findEventGuestByName(createClient(), evId, effName);
-    } catch {
+    } catch (e) {
+      captureUnexpectedError(e, { source: 'query', key: 'find_event_guest_by_name' });
       existing = clientDupe;
     } finally {
       setDupeChecking(false);
+      committingRef.current = false;
     }
+    // Input edited while the lookup was in flight: this hit/miss describes the
+    // OLD text — acting on it would insert the typo and wipe the correction.
+    if (seq !== commitSeq.current) return;
     if (existing) {
       setDupeHit(existing);
       setDupeOpen(true);
       return;
     }
+    // Confirmed insert while over quota stays blocked — the quota card and the
+    // request-extra-slots flow are on screen in exactly this state (#22).
+    if (overQuota) return;
     executePlan(null, 'again');
   };
 

@@ -11,10 +11,13 @@
 -- two different guests may legitimately share a name — the UI asks ("add
 -- anyway"), the database only needs to answer fast.
 
--- Case-insensitive name lookup per event. Partial: `removed` rows never count
--- as duplicates (soft delete #21) and stay out of the index.
+-- Case-insensitive, whitespace-tolerant name lookup per event. btrim on BOTH
+-- sides (input AND stored column — full_name has no whitespace constraint, so
+-- padded legacy rows are real and must stay findable; review finding 12/7).
+-- Partial: `removed` rows never count as duplicates (soft delete #21) and
+-- stay out of the index.
 create index guests_event_lower_name_idx
-  on public.guests (event_id, lower(full_name))
+  on public.guests (event_id, lower(btrim(full_name)))
   where status <> 'removed';
 
 -- SECURITY INVOKER on purpose: the lookup runs under the caller's own
@@ -31,7 +34,7 @@ as $$
   select g.id, g.full_name, g.plus_ones
     from public.guests g
    where g.event_id = p_event_id
-     and lower(g.full_name) = lower(trim(p_name))
+     and lower(btrim(g.full_name)) = lower(btrim(p_name))
      and g.status <> 'removed'
    order by g.created_at, g.id
    limit 1;

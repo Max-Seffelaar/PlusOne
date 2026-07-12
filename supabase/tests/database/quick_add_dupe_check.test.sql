@@ -22,16 +22,22 @@ begin
 end;
 $fn$;
 
-select plan(11);
+select plan(15);
 
 -- IDs from the seed: admin=1111 UM=2222 staff(Tom)=5555 ·
--- event(open, venue1)=ee..01 · tier=dd..01.
+-- event(open, venue1)=ee..01 · tier=dd..01 · venue2=aa..02.
 
 -- 0. Schema shape -------------------------------------------------------------
 select has_function('public', 'find_event_guest_by_name', array['uuid', 'text'],
   '0a lookup RPC exists');
 select has_index('public', 'guests', 'guests_event_lower_name_idx',
-  '0b partial lower(full_name) index exists');
+  '0b partial lower(btrim(full_name)) index exists');
+-- Regression tripwire: the whole design hangs on the caller's OWN RLS applying
+-- inside the function — flipping it to DEFINER must fail loudly here.
+select is(
+  (select p.prosecdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'find_event_guest_by_name'),
+  false, '0c RPC is SECURITY INVOKER, not DEFINER');
 
 -- 1. Fixtures (admin adds one guest with +2) ----------------------------------
 select pg_temp.login('11111111-1111-4111-8111-111111111111'); -- admin
@@ -110,6 +116,48 @@ select is(
   (select count(*)::int from public.find_event_guest_by_name(
      'ee000000-0000-7000-8000-000000000001', 'Admin Andermans Gast') ),
   0, '4c user_manager matches nothing (denied)');
+
+-- 5. Padded stored names still match (btrim on the COLUMN too) ----------------
+-- full_name carries no whitespace constraint, so padded rows are real; trimming
+-- only the input would make them invisible to the safeguard.
+select pg_temp.login('11111111-1111-4111-8111-111111111111'); -- admin
+insert into public.guests (id, event_id, tier_id, full_name, plus_ones, added_by, source, status)
+  values ('cc000000-0000-7000-8000-00000000d005', 'ee000000-0000-7000-8000-000000000001',
+          'dd000000-0000-7000-8000-000000000001', '  Gepadde Gast  ', 0,
+          '11111111-1111-4111-8111-111111111111', 'app', 'approved');
+select is(
+  (select d.id from public.find_event_guest_by_name(
+     'ee000000-0000-7000-8000-000000000001', 'gepadde gast') d),
+  'cc000000-0000-7000-8000-00000000d005'::uuid,
+  '5a a whitespace-padded stored name still matches');
+
+-- 6. anon cannot execute the lookup at all ------------------------------------
+select set_config('role', 'anon', true);
+select throws_ok(
+  $$select * from public.find_event_guest_by_name(
+      'ee000000-0000-7000-8000-000000000001', 'Dupe Check Gast')$$,
+  '42501', null, '6a anon is denied EXECUTE on the RPC');
+select set_config('role', 'postgres', true);
+
+-- 7. Cross-venue probe leaks nothing ------------------------------------------
+-- An event + guest in venue2 (created past RLS as postgres); staff of venue1
+-- probing it must get empty rows — not an error that confirms existence.
+insert into public.events (id, venue_id, name, starts_at, ends_at, status, landing_slug, landing_active)
+  values ('ee000000-0000-7000-8000-00000000d0e2', 'aa000000-0000-7000-8000-000000000002',
+          'Venue2 Probe Event', now() + interval '7 days', now() + interval '7 days 4 hours',
+          'open', 'venue2-probe-event', false);
+insert into public.guest_tiers (id, event_id, name, color, aliases)
+  values ('dd000000-0000-7000-8000-00000000d0e2', 'ee000000-0000-7000-8000-00000000d0e2',
+          'Venue2 Tier', '#111111', '{}');
+insert into public.guests (id, event_id, tier_id, full_name, plus_ones, added_by, source, status)
+  values ('cc000000-0000-7000-8000-00000000d006', 'ee000000-0000-7000-8000-00000000d0e2',
+          'dd000000-0000-7000-8000-00000000d0e2', 'Venue2 Geheime Gast', 0,
+          '11111111-1111-4111-8111-111111111111', 'app', 'approved');
+select pg_temp.login('55555555-5555-4555-8555-555555555555'); -- staff of venue1 only
+select is(
+  (select count(*)::int from public.find_event_guest_by_name(
+     'ee000000-0000-7000-8000-00000000d0e2', 'Venue2 Geheime Gast') ),
+  0, '7a staff of another venue matches nothing on a cross-venue event');
 
 select * from finish();
 rollback;
