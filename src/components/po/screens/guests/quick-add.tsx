@@ -517,10 +517,13 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
               )
             ) : null}
 
-            {add.isError && (
+            {/* Update errors too: an overlay add/replace that the quota engine
+                rejects (#22) failed SILENTLY — only insert errors rendered
+                (found on the 12/7 retest: doorhost at 5/5 → +1 vanished). */}
+            {(add.isError || update.isError) && (
               <div className="mt-3 flex items-center gap-[9px] rounded-[13px] border border-acc bg-acc-dim px-[14px] py-[11px] text-[13px] text-text">
                 <Icon name="warn" size={16} stroke="#B5A6FF" />
-                <span className="flex-1">{add.error?.message}</span>
+                <span className="flex-1">{(add.isError ? add.error?.message : update.error?.message) ?? t.guests.bulk.addFailed}</span>
               </div>
             )}
 
