@@ -25,6 +25,7 @@ export const events = {
   loading: 'Loading…',
   eventUnavailable: "This event isn't available anymore.",
   statOnTheWay: 'On the way',
+  statOnList: 'On the list',
   statInside: 'Inside',
   turnout: 'Attendance',
   peopleOnList: '{n} people on the list · plus-ones included',
@@ -102,6 +103,8 @@ export const events = {
   linksRowTitle: 'Request links',
   linksRowSubOne: '{n} active link · per-influencer tracking',
   linksRowSubMany: '{n} active links · per-influencer tracking',
+  // Funnel summary over the event's active links (86ey8w79x).
+  linksRowFunnel: '{views} clicks · {req} requests · {ok} approved',
   autoCloseTitle: 'Close sign-ups automatically',
   autoCloseOnSub: 'After this, no one can request a spot.',
   autoCloseOffSub: 'Link stays open until you close it.',

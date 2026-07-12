@@ -27,8 +27,12 @@ import { GuestDetail } from '@/features/door/components/GuestDetail';
 import { AddOnSpot } from '@/features/door/components/AddOnSpot';
 import { SyncBar } from '@/features/door/components/SyncBar';
 import { DoorErrorBoundary } from '@/features/door/components/DoorErrorBoundary';
+import type { DoorOverlayState } from '../routes';
 
-export type DoorOverlay = { kind: 'guest'; id: string } | { kind: 'add' } | null;
+// Single source of truth is routes.ts (the URL scheme owns this shape — it's
+// literally what `?guest=`/`?add=` parse into); re-exported here under its
+// original name since screens/door.tsx was where callers already imported it.
+export type DoorOverlay = DoorOverlayState;
 
 // Stable empty override so the picker's board memo doesn't recompute per render.
 const NO_LOCK_OVERRIDE: Record<string, boolean> = {};

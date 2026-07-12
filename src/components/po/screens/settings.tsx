@@ -27,8 +27,8 @@ export { Import } from './settings/import';
 // ── MEER (settings tab) ──────────────────────────────────────────────────────
 export function Meer(): JSX.Element {
   const nav = useNav();
-  const { venue, statsVenues, isMobile } = usePo();
-  const { userId, venueName, roles } = usePoIdentity();
+  const { statsVenues, isMobile } = usePo();
+  const { venueName, roles } = usePoIdentity();
   const [signingOut, setSigningOut] = useState(false);
   const caps = venueCapabilities(roles);
   const isAdmin = roles.includes('admin');
@@ -61,10 +61,9 @@ export function Meer(): JSX.Element {
   const teamAny = showTeamRow || isAdmin;
   const profile = usePoProfile();
   const subQ = usePoSubscription();
-  const v = venue;
-  // Live active-venue name + plan for the header card; the switcher is now wired to
-  // the caller's real memberships (usePo().myVenues), not the mock prototype data.
-  const displayVenue = venueName ?? v.name;
+  // Live active-venue name + plan for the header card; the switcher is wired to
+  // the caller's real memberships (usePo().myVenues).
+  const displayVenue = venueName ?? t.settings.venueSwitch.thisVenueFallback;
   const planLabel = subQ.data?.plan ?? null;
   const billingSub = subQ.data
     ? subQ.data.priceLabel.startsWith('€')
@@ -167,7 +166,7 @@ export function Meer(): JSX.Element {
             onClick={() => {
               if (signingOut) return;
               setSigningOut(true);
-              void signOutDevice(userId, 'local');
+              void signOutDevice('local');
             }}
           />
         </div>

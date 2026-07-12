@@ -1,14 +1,17 @@
 'use client';
 
 /**
- * Navigation + shared app state for the po surface. Holds the in-memory nav stack
- * and the active venue. The door check-in state used to live here too; it now
- * comes from the real DoorProvider (TanStack Query + offline outbox + realtime)
- * under the Deur/Taken tabs, so it is no longer duplicated here (#25).
+ * Navigation + shared app state for the po surface. The nav stack used to be
+ * in-memory (a `StackEntry[]` + sessionStorage restore hack); every screen now
+ * has a real URL (G1, `./routes.ts`), so the URL itself is the persisted state
+ * and this file only holds the `Nav` interface + shared app state — the
+ * caller's live venue memberships and active-venue id (identity itself comes
+ * from PoLiveProvider). The door check-in state used to live here too; it now
+ * comes from the real DoorProvider (TanStack Query + offline outbox +
+ * realtime) under the Deur/Taken tabs, so it is no longer duplicated here (#25).
  */
 import { createContext, useContext } from 'react';
 import type { TabKey } from './shell';
-import type { Venue } from '@/lib/po/types';
 import type { VenueRole } from '@/features/auth/roles';
 
 export type ScreenName =
@@ -51,11 +54,6 @@ export interface ScreenProps {
   tab?: 'landing' | 'quota';
 }
 
-export interface StackEntry {
-  name: ScreenName;
-  props: ScreenProps;
-}
-
 export interface Nav {
   push: (name: ScreenName, props?: ScreenProps) => void;
   /** Swap the current screen without adding a back step. For after-create flows:
@@ -80,8 +78,6 @@ export interface PoVenueMembership {
 }
 
 export interface PoApp {
-  venue: Venue;
-  switchVenue: (v: Venue) => void;
   statsVenues: { venueId: string; venueName: string }[];
   /** The caller's real venue memberships (live) — drives the venue switcher. */
   myVenues: PoVenueMembership[];
@@ -109,70 +105,4 @@ export function usePo(): PoApp {
 
 export function useNav(): Nav {
   return usePo().nav;
-}
-
-// ── Nav-state persistence (S3.2) ─────────────────────────────────────────────
-// The po nav stack is in-memory, so a browser refresh used to drop you back on
-// Start. We persist the current tab + stack to sessionStorage (survives reload,
-// clears on tab-close) so a refresh keeps you on the same screen. Capacitor-safe
-// (#37): sessionStorage works in native webviews, and every access is guarded so
-// a missing/blocked store just degrades to the old in-memory behaviour.
-
-// Keyed per user (T1 #20, 2/7 walkthrough): on a shared device (door tablet) a
-// user switch must not open the app on the previous user's screen, so each user
-// gets their own sessionStorage slot instead of one shared 'po:nav-state'.
-const NAV_STORAGE_PREFIX = 'po:nav-state';
-const navStorageKey = (userId: string): string => `${NAV_STORAGE_PREFIX}:${userId}`;
-const PERSISTED_TABS: readonly TabKey[] = ['start', 'events', 'guests', 'deur', 'meer'];
-
-export interface PersistedNav {
-  tab: TabKey;
-  stack: StackEntry[];
-}
-
-/** Read the persisted nav-state — returns null on SSR, unavailable storage, or a
- *  malformed payload (so a corrupt value can never wedge the app on boot). */
-export function loadNavState(userId: string): PersistedNav | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    // Drop the pre-user-scoping key so a stale shared value never resurfaces.
-    window.sessionStorage.removeItem(NAV_STORAGE_PREFIX);
-    const raw = window.sessionStorage.getItem(navStorageKey(userId));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<PersistedNav>;
-    if (!parsed || !PERSISTED_TABS.includes(parsed.tab as TabKey) || !Array.isArray(parsed.stack)) {
-      return null;
-    }
-    // Shallow-validate each entry; drop anything that isn't a {name, props}.
-    const stack = parsed.stack.filter(
-      (e): e is StackEntry =>
-        !!e && typeof (e as StackEntry).name === 'string' && typeof (e as StackEntry).props === 'object'
-    );
-    return { tab: parsed.tab as TabKey, stack };
-  } catch {
-    return null;
-  }
-}
-
-/** Persist the nav-state; silently no-ops when storage is unavailable. */
-export function saveNavState(userId: string, state: PersistedNav): void {
-  if (typeof window === 'undefined') return;
-  try {
-    window.sessionStorage.setItem(navStorageKey(userId), JSON.stringify(state));
-  } catch {
-    /* private mode / quota / native webview without storage — ignore */
-  }
-}
-
-/** Drop the persisted nav-state so the next load starts fresh on the default tab.
- *  Used before a venue-create full-reload (without this, the reload would restore
- *  the venuecreate screen from sessionStorage instead of landing the new owner on
- *  the new venue's Start tab) and on sign-out. */
-export function clearNavState(userId: string): void {
-  if (typeof window === 'undefined') return;
-  try {
-    window.sessionStorage.removeItem(navStorageKey(userId));
-  } catch {
-    /* unavailable storage — nothing to clear */
-  }
 }

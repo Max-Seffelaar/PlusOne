@@ -10,7 +10,7 @@ import { TIER_COLORS, nextAvailableColor, allColorsUsed } from '@/lib/po/tier-co
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
 import { Btn, Empty, Field, IconBtn, Label, MiniChip, Note, Scroll, Top } from '../../kit';
-import { BottomBar } from '../../shell';
+import { Sheet } from '../../shell';
 import { col } from './shared';
 
 // ── TIERS & aliases (pushed) ─────────────────────────────────────────────────────
@@ -137,77 +137,8 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
         sub={event?.name}
         right={<IconBtn name={adding ? 'close' : 'plus'} onClick={() => (adding ? closeAdd() : openAdd())} />}
       />
-      <Scroll bottom={adding ? 160 : 24}>
-        {err && <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{err}</div>}
-        {adding && (
-          <div className="mb-[14px] rounded-[18px] border border-acc bg-elev p-4">
-            <Label className="mb-[10px]">{t.events.newTier}</Label>
-            <Field placeholder={t.events.tierNamePlaceholder} value={nm} onChange={setNm} autoFocus className="mb-3" />
-            <Label className="mb-2">{t.events.tierKindLabel}</Label>
-            <div className="mb-[14px] flex gap-2">
-              {(['free', 'paid'] as const).map((k) => (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => setKind(k)}
-                  className={cn(
-                    'rounded-full px-[14px] py-[6px] font-display text-[13px] font-bold transition-[filter] hover:brightness-110',
-                    kind === k ? 'bg-acc text-on-acc' : 'border border-line bg-elev text-dim',
-                  )}
-                >
-                  {k === 'free' ? t.events.tierKindFree : t.events.tierKindPaid}
-                </button>
-              ))}
-            </div>
-            <Label className="mb-2">{t.events.color}</Label>
-            <div className="mb-[14px] flex flex-wrap gap-[9px]">
-              {TIER_COLORS.map((c) => {
-                const disabled = usedColorsForPicker.includes(c) && !allUsed && c !== color;
-                return (
-                  <button
-                    key={c}
-                    type="button"
-                    disabled={disabled}
-                    aria-disabled={disabled}
-                    onClick={() => !disabled && setColor(c)}
-                    className={cn(
-                      'h-[34px] w-[34px] rounded-full transition-[filter]',
-                      disabled ? 'cursor-not-allowed opacity-30' : 'cursor-pointer hover:brightness-[1.1]',
-                    )}
-                    style={{ background: c, border: '2px solid ' + (color === c ? '#FFFFFF' : 'transparent') }}
-                    aria-label={fmt(t.events.colorAria, { color: c })}
-                  />
-                );
-              })}
-            </div>
-            {allUsed && <div className="mb-[14px] text-[12px] text-faint">{t.events.colorAllUsedWarning}</div>}
-            <Label className="mb-2">{t.events.maxOptional}</Label>
-            <Field placeholder={t.events.maxPlaceholder} value={max} onChange={setMax} inputMode="numeric" className="mb-[14px]" />
-            {kind === 'paid' && (
-              <>
-                <Label className="mb-2">{t.events.priceLabel}</Label>
-                <Field placeholder={t.events.pricePlaceholder} value={price} onChange={setPrice} inputMode="numeric" className="mb-[14px]" />
-                <Label className="mb-2">{t.events.vatLabel}</Label>
-                <Field placeholder={t.events.vatPlaceholder} value={vat} onChange={setVat} inputMode="numeric" className="mb-[14px]" />
-              </>
-            )}
-            <Label className="mb-2">{t.events.aliasesFeedLabel}</Label>
-            <Field icon="spark" placeholder={t.events.aliasesPlaceholder} value={aliasText} onChange={setAliasText} />
-            {aliasText.trim() && (
-              <div className="mt-[10px] flex flex-wrap gap-1.5">
-                {aliasText
-                  .split(',')
-                  .map((a) => a.trim())
-                  .filter(Boolean)
-                  .map((a) => (
-                    <span key={a} className="rounded-[8px] border border-line bg-elev2 px-[9px] py-[5px] font-mono text-[12px] text-dim">
-                      {a}
-                    </span>
-                  ))}
-              </div>
-            )}
-          </div>
-        )}
+      <Scroll bottom={24}>
+        {err && !adding && <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{err}</div>}
         <Note icon="spark">{t.events.aliasesNote}</Note>
         {isLoading ? (
           <Empty text={t.events.loadingTiers} />
@@ -296,35 +227,104 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
           </div>
         )}
       </Scroll>
-      {adding && (
-        <BottomBar>
-          <div className="flex flex-col gap-2">
-            <Btn
-              kind="primary"
-              full
-              icon="check"
-              onClick={() => void submit(false)}
-              disabled={!nm.trim() || createTier.isPending}
-              className={nm.trim() && !createTier.isPending ? '' : 'opacity-50'}
-            >
-              {createTier.isPending ? t.events.saving : t.events.saveTier}
-            </Btn>
-            <div className="flex gap-2">
-              <Btn
-                kind="dark"
-                className={cn('flex-1', nm.trim() && !createTier.isPending ? '' : 'opacity-50')}
-                onClick={() => void submit(true)}
-                disabled={!nm.trim() || createTier.isPending}
-              >
-                {t.events.saveTierAndNew}
-              </Btn>
-              <Btn kind="ghost" className="flex-1" onClick={closeAdd}>
-                {t.events.cancelTier}
-              </Btn>
+        {/* New-tier form is a real MODAL (feedback Max 12/7): fill in and save in
+            one focused sheet — never scroll past the existing tiers, and the
+            actions sit right under the fields even with the keyboard open. */}
+        {adding && (
+          <Sheet onClose={closeAdd} center={false}>
+            <div className="mb-3 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{t.events.newTier}</div>
+            <Field placeholder={t.events.tierNamePlaceholder} value={nm} onChange={setNm} autoFocus className="mb-3" />
+            <Label className="mb-2">{t.events.tierKindLabel}</Label>
+            <div className="mb-[14px] flex gap-2">
+              {(['free', 'paid'] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setKind(k)}
+                  className={cn(
+                    'rounded-full px-[14px] py-[6px] font-display text-[13px] font-bold transition-[filter] hover:brightness-110',
+                    kind === k ? 'bg-acc text-on-acc' : 'border border-line bg-elev text-dim',
+                  )}
+                >
+                  {k === 'free' ? t.events.tierKindFree : t.events.tierKindPaid}
+                </button>
+              ))}
             </div>
-          </div>
-        </BottomBar>
-      )}
+            <Label className="mb-2">{t.events.color}</Label>
+            <div className="mb-[14px] flex flex-wrap gap-[9px]">
+              {TIER_COLORS.map((c) => {
+                const disabled = usedColorsForPicker.includes(c) && !allUsed && c !== color;
+                return (
+                  <button
+                    key={c}
+                    type="button"
+                    disabled={disabled}
+                    aria-disabled={disabled}
+                    onClick={() => !disabled && setColor(c)}
+                    className={cn(
+                      'h-[34px] w-[34px] rounded-full transition-[filter]',
+                      disabled ? 'cursor-not-allowed opacity-30' : 'cursor-pointer hover:brightness-[1.1]',
+                    )}
+                    style={{ background: c, border: '2px solid ' + (color === c ? '#FFFFFF' : 'transparent') }}
+                    aria-label={fmt(t.events.colorAria, { color: c })}
+                  />
+                );
+              })}
+            </div>
+            {allUsed && <div className="mb-[14px] text-[12px] text-faint">{t.events.colorAllUsedWarning}</div>}
+            <Label className="mb-2">{t.events.maxOptional}</Label>
+            <Field placeholder={t.events.maxPlaceholder} value={max} onChange={setMax} inputMode="numeric" className="mb-[14px]" />
+            {kind === 'paid' && (
+              <>
+                <Label className="mb-2">{t.events.priceLabel}</Label>
+                <Field placeholder={t.events.pricePlaceholder} value={price} onChange={setPrice} inputMode="numeric" className="mb-[14px]" />
+                <Label className="mb-2">{t.events.vatLabel}</Label>
+                <Field placeholder={t.events.vatPlaceholder} value={vat} onChange={setVat} inputMode="numeric" className="mb-[14px]" />
+              </>
+            )}
+            <Label className="mb-2">{t.events.aliasesFeedLabel}</Label>
+            <Field icon="spark" placeholder={t.events.aliasesPlaceholder} value={aliasText} onChange={setAliasText} />
+            {aliasText.trim() && (
+              <div className="mt-[10px] flex flex-wrap gap-1.5">
+                {aliasText
+                  .split(',')
+                  .map((a) => a.trim())
+                  .filter(Boolean)
+                  .map((a) => (
+                    <span key={a} className="rounded-[8px] border border-line bg-elev2 px-[9px] py-[5px] font-mono text-[12px] text-dim">
+                      {a}
+                    </span>
+                  ))}
+              </div>
+            )}
+            {err && <p className="mt-3 text-[13px] font-semibold text-[#E89AC0]" role="alert">{err}</p>}
+            <div className="mt-4 flex flex-col gap-2">
+              <Btn
+                kind="primary"
+                full
+                icon="check"
+                onClick={() => void submit(false)}
+                disabled={!nm.trim() || createTier.isPending}
+                className={nm.trim() && !createTier.isPending ? '' : 'opacity-50'}
+              >
+                {createTier.isPending ? t.events.saving : t.events.saveTier}
+              </Btn>
+              <div className="flex gap-2">
+                <Btn
+                  kind="dark"
+                  className={cn('flex-1', nm.trim() && !createTier.isPending ? '' : 'opacity-50')}
+                  onClick={() => void submit(true)}
+                  disabled={!nm.trim() || createTier.isPending}
+                >
+                  {t.events.saveTierAndNew}
+                </Btn>
+                <Btn kind="ghost" className="flex-1" onClick={closeAdd}>
+                  {t.events.cancelTier}
+                </Btn>
+              </div>
+            </div>
+          </Sheet>
+        )}
     </div>
   );
 }

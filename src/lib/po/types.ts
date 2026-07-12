@@ -153,16 +153,6 @@ export interface Invite {
   at: string;
 }
 
-export interface Venue {
-  id: string;
-  name: string;
-  city: string;
-  plan: string;
-  roles: string[];
-  events: number;
-  current?: boolean;
-}
-
 export interface Profile {
   name: string;
   email: string;

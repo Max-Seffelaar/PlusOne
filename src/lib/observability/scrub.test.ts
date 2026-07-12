@@ -37,6 +37,23 @@ describe('scrubText', () => {
       'GET https://x.supabase.co/rest/v1/contacts',
     );
   });
+
+  it('strips the query string from a root-relative in-app URL (G1 nav breadcrumbs)', () => {
+    expect(scrubText('/app/door?guest=019f4760-d67a-7025-8a08-ab2b4b06cebc')).toBe(
+      '/app/door?[filtered]',
+    );
+    expect(scrubText('/app/guests/019f4760-d67a-7025-8a08-ab2b4b06cebc?event=e1')).toBe(
+      '/app/guests/019f4760-d67a-7025-8a08-ab2b4b06cebc?[filtered]',
+    );
+  });
+
+  it('leaves a bare single-segment path query untouched (no PII there — just a status flag)', () => {
+    expect(scrubText('/app?billing=success')).toBe('/app?billing=success');
+  });
+
+  it('does not false-positive on ordinary prose containing a slash and a question mark', () => {
+    expect(scrubText('need help — see docs/faq, why?')).toBe('need help — see docs/faq, why?');
+  });
 });
 
 describe('scrubEvent', () => {

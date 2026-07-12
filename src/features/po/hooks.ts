@@ -18,6 +18,7 @@ import {
   fetchEventForEdit,
   fetchEventHeadcounts,
   fetchOpenRequestCount,
+  fetchOpenQuotaRequestCount,
   fetchPastEventStats,
   fetchRecapGuests,
   fetchRecentCheckins,
@@ -292,6 +293,9 @@ export interface PoEventDetail {
   recent: RecentCheckinRow[];
   /** Open (pending) guest requests ("Aandacht nodig"). */
   openRequests: number;
+  /** Open (pending) quota requests — counted with the guest requests in the
+   *  admin badge (86ey8w7bm: they were invisible on the event page). */
+  openQuotaRequests: number;
 }
 
 /** Live secondary data for the event-detail screen (recent check-ins + open requests). */
@@ -301,11 +305,12 @@ export function usePoEventDetail(eventId: string) {
     enabled: !!eventId,
     queryFn: async () => {
       const client = createClient();
-      const [recent, openRequests] = await Promise.all([
+      const [recent, openRequests, openQuotaRequests] = await Promise.all([
         fetchRecentCheckins(client, eventId, 3),
         fetchOpenRequestCount(client, eventId),
+        fetchOpenQuotaRequestCount(client, eventId),
       ]);
-      return { recent, openRequests };
+      return { recent, openRequests, openQuotaRequests };
     },
   });
 }

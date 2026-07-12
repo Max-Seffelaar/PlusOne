@@ -7,18 +7,16 @@ import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import { createClient } from '@/lib/supabase/client';
 import { VENUE_ROLES, ROLE_LABELS, type VenueRole } from '@/features/auth/roles';
-import { clearNavState } from '../../context';
 import { Icon } from '../../icon';
 import { press } from '../../kit';
 
 export const col = 'flex h-full flex-col';
 
-/** Real sign-out (T1 #7/#15): drop the user's persisted nav-state, end the
- *  Supabase session, land on /login. NB: supabase-js signOut() DEFAULTS to
- *  scope 'global' — 'local' must be explicit for the this-device variant.
- *  'global' revokes every session server-side = true "log out everywhere". */
-export async function signOutDevice(userId: string, scope: 'local' | 'global'): Promise<void> {
-  clearNavState(userId);
+/** Real sign-out (T1 #7/#15): end the Supabase session, land on /login. NB:
+ *  supabase-js signOut() DEFAULTS to scope 'global' — 'local' must be explicit
+ *  for the this-device variant. 'global' revokes every session server-side =
+ *  true "log out everywhere". */
+export async function signOutDevice(scope: 'local' | 'global'): Promise<void> {
   await createClient().auth.signOut({ scope });
   window.location.assign('/login');
 }
