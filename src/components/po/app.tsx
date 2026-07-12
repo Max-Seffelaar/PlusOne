@@ -231,6 +231,30 @@ function DoorTabState({ title, text }: { title: string; text: string }): JSX.Ele
   );
 }
 
+// Tracks whether a real, poppable history entry has been pushed yet THIS
+// browser-tab session (e2e-review fix). A cold deep link (fresh tab,
+// bookmark, the consent/MFA `next=` round-trip) starts with nothing to pop —
+// `router.back()` there would no-op or leave the app. `back()`/`closeOverlay`
+// check this before deciding between a real `router.back()` and a computed
+// parent path. `router.replace` never sets it: swapping the current entry
+// doesn't create anything new to go back to.
+//
+// MODULE-level, not a `useRef` inside `PlusOneApp`: every `router.push`/
+// `replace`-driven navigation on this fully-dynamic catch-all route remounts
+// `PlusOneApp` entirely (confirmed empirically — a mount/unmount probe fired
+// on every single navigation, including plain screen-to-screen pushes). A
+// `useRef` is scoped to the component INSTANCE, so it reset to its initial
+// `false` on every navigation and `back()` NEVER took the real-history
+// branch — the e2e core-flow test caught this: clicking Back after creating
+// an event landed on the event's own detail page (the cold-deep-link
+// fallback's target) instead of the events list a real `router.back()` would
+// have reached. A plain module variable survives the remount (same JS module
+// instance across client-side navigations) and only resets on an actual full
+// page load — exactly the "cold deep link" signal this needs. Door sub-nav
+// (`pushDoorState`) doesn't have this problem — it bypasses `router.push`
+// entirely, so it never triggers the remount in the first place.
+let hasPushedThisSession = false;
+
 export function PlusOneApp(): JSX.Element {
   // Server-resolved display data (venue list, stats access, live names) — set
   // once by the /app layout (G1), not re-fetched per screen navigation.
@@ -439,16 +463,8 @@ export function PlusOneApp(): JSX.Element {
     apply();
   };
 
-  // Tracks whether THIS mount has pushed a real, poppable history entry yet
-  // (G1 review fix). A cold deep link (fresh tab, bookmark, the consent/MFA
-  // `next=` round-trip) starts with nothing to pop — `router.back()` there
-  // would no-op or leave the app. `back()`/`closeOverlay` below check this
-  // before deciding between a real `router.back()` and a computed parent path.
-  // `router.replace` never sets it: swapping the current entry doesn't create
-  // anything new to go back to.
-  const hasHistoryRef = useRef(false);
   const pushUrl = (url: string): void => {
-    hasHistoryRef.current = true;
+    hasPushedThisSession = true;
     router.push(url);
   };
 
@@ -459,7 +475,7 @@ export function PlusOneApp(): JSX.Element {
   // as a plain `router.replace`.
   type DoorState = { seg: DoorSeg; eventId: string | null; overlay: DoorOverlay };
   const pushDoorState = (next: DoorState): void => {
-    hasHistoryRef.current = true;
+    hasPushedThisSession = true;
     setDoorOverride(next);
     window.history.pushState(window.history.state, '', doorPath(next));
   };
@@ -514,17 +530,17 @@ export function PlusOneApp(): JSX.Element {
     // settings, so back returns to where the flow started instead of the stale
     // create form.
     replace: (name: ScreenName, props = {}) => guarded(() => router.replace(screenPath(name, props))),
-    // Real history to pop (pushed earlier this mount) → let the browser go
+    // Real history to pop (pushed earlier this session) → let the browser go
     // back. Otherwise (cold deep link) → zoom out to the screen's parent
     // instead of no-op'ing or leaving the app. `replace`, NOT `pushUrl`: a
     // fallback that pushed would leave the ORIGINAL deep-linked screen sitting
     // right behind the parent in history, and — since it also latched
-    // hasHistoryRef — the very next back() would take the real-history branch
-    // and pop straight back into that stale child, oscillating child↔parent
-    // forever instead of climbing. `replace` swaps in place and never
-    // latches, so a second cold back() computes a fresh parent from the new
-    // (parent) target and keeps ascending (review fix).
-    back: () => guarded(() => (hasHistoryRef.current ? router.back() : router.replace(parentPathFor(target)))),
+    // hasPushedThisSession — the very next back() would take the real-history
+    // branch and pop straight back into that stale child, oscillating
+    // child↔parent forever instead of climbing. `replace` swaps in place and
+    // never latches, so a second cold back() computes a fresh parent from the
+    // new (parent) target and keeps ascending (review fix).
+    back: () => guarded(() => (hasPushedThisSession ? router.back() : router.replace(parentPathFor(target)))),
     setTab: (t: TabKey) =>
       guarded(() => {
         if (t === 'deur') {
@@ -558,7 +574,7 @@ export function PlusOneApp(): JSX.Element {
   // (e.g. a shared door URL) has no history to pop either. `replace`, not
   // `pushUrl`, for the same non-latching reason as `nav.back()` above.
   const closeOverlay = (): void =>
-    guarded(() => (hasHistoryRef.current ? router.back() : router.replace(parentPathFor(target))));
+    guarded(() => (hasPushedThisSession ? router.back() : router.replace(parentPathFor(target))));
 
   // Switch the ACTIVE venue for real (#1): write the server cookie, then full-reload
   // so app/page.tsx re-resolves the identity and every live query re-scopes to the
