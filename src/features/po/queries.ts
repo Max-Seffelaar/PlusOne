@@ -174,7 +174,11 @@ export async function fetchEventHeadcounts(
   venueId: string
 ): Promise<Map<string, EventHeadcount>> {
   const counts = new Map<string, EventHeadcount>();
-  const { data } = await client.rpc('venue_event_headcounts', { p_venue_id: venueId });
+  // Throw, don't swallow: a silently-eaten error here rendered every stat tile
+  // as a plausible-looking 0 for days when prod missed the RPC's migration
+  // (12/7). React Query's error state + Sentry must see schema drift.
+  const { data, error } = await client.rpc('venue_event_headcounts', { p_venue_id: venueId });
+  if (error) throw error;
   for (const row of data ?? []) {
     counts.set(row.event_id, { registered: row.registered, present: row.present });
   }
@@ -225,11 +229,30 @@ export async function fetchRecentCheckins(
 
 /** Count of open (pending) guest requests for an event — the "Aandacht nodig" nudge. */
 export async function fetchOpenRequestCount(client: Client, eventId: string): Promise<number> {
-  const { count } = await client
+  const { count, error } = await client
     .from('guest_requests')
     .select('id', { count: 'exact', head: true })
     .eq('event_id', eventId)
     .eq('status', 'pending');
+  if (error) throw error;
+
+  return count ?? 0;
+}
+
+/**
+ * Count of open (pending) quota requests for an event. Counted alongside the
+ * guest requests in the event-detail nudge (86ey8w7bm): they were invisible
+ * there, so the badge and the approvals inbox disagreed. RLS keeps this
+ * role-relative (a non-admin only counts their own requests) — the screen
+ * additionally gates the combined badge to admins.
+ */
+export async function fetchOpenQuotaRequestCount(client: Client, eventId: string): Promise<number> {
+  const { count, error } = await client
+    .from('quota_requests')
+    .select('id', { count: 'exact', head: true })
+    .eq('event_id', eventId)
+    .eq('status', 'pending');
+  if (error) throw error;
 
   return count ?? 0;
 }
@@ -298,7 +321,7 @@ export async function fetchGuestRequests(
   client: Client,
   venueId: string
 ): Promise<PoGuestRequestRow[]> {
-  const { data } = await client
+  const { data, error } = await client
     .from('guest_requests')
     .select(
       'id, full_name, phone, plus_ones, motivation, created_at, event_id, status, decision_reason, request_link_id, decided_via'
@@ -306,6 +329,7 @@ export async function fetchGuestRequests(
     .eq('venue_id', venueId)
     .or('status.in.(pending,denied),and(status.eq.approved,decided_via.eq.auto)')
     .order('created_at', { ascending: true });
+  if (error) throw error;
 
   const rows = data ?? [];
   const linkIds = [...new Set(rows.map((r) => r.request_link_id).filter((x): x is string => !!x))];
@@ -336,12 +360,13 @@ export async function fetchQuotaRequests(
   client: Client,
   venueId: string
 ): Promise<PoQuotaRequestRow[]> {
-  const { data: reqs } = await client
+  const { data: reqs, error } = await client
     .from('quota_requests')
     .select('id, event_id, requested_extra, motivation, created_at, user_id')
     .eq('venue_id', venueId)
     .eq('status', 'pending')
     .order('created_at', { ascending: true });
+  if (error) throw error;
 
   const rows = reqs ?? [];
   const ids = [...new Set(rows.map((r) => r.user_id))];

@@ -281,6 +281,11 @@ function EventAuditEntry({ line }: { line: AuditLine }): JSX.Element {
   );
 }
 
+// Audit feed paging (86ey8w79x): first window stays small; "Show more" widens
+// the server-side cap in steps — an event with hundreds of guests must never
+// ship its whole log to render this section.
+const FEED_PAGE = 50;
+
 export function EventActivitySection({
   eventId,
   isLive,
@@ -291,12 +296,13 @@ export function EventActivitySection({
   const { roles } = usePoIdentity();
   const canAudit = venueCapabilities(roles).viewAudit;
   const interval = isLive ? 15_000 : undefined;
+  const [feedLimit, setFeedLimit] = useState(FEED_PAGE);
   const { data: activity, isLoading: statsLoading } = usePoEventActivity(eventId, {
     enabled: canAudit,
     refetchInterval: canAudit ? interval : undefined,
   });
   const { data: feed, isLoading: feedLoading } = usePoAuditFeed(
-    { eventId, limit: 50 },
+    { eventId, limit: feedLimit },
     { enabled: canAudit, refetchInterval: canAudit ? interval : undefined }
   );
 
@@ -305,6 +311,8 @@ export function EventActivitySection({
   const tiers = activity?.tiers ?? [];
   const members = activity?.members ?? [];
   const lines = feed ?? [];
+  // A full window means there may be more; a short read means we've seen it all.
+  const maybeMore = lines.length >= feedLimit;
 
   return (
     <div className="mt-6 border-t border-line pt-5">
@@ -335,11 +343,18 @@ export function EventActivitySection({
       ) : lines.length === 0 ? (
         <Empty text={t.events.activityEmpty} />
       ) : (
-        <ul className="divide-y divide-line2">
-          {lines.map((line) => (
-            <EventAuditEntry key={line.id} line={line} />
-          ))}
-        </ul>
+        <>
+          <ul className="divide-y divide-line2">
+            {lines.map((line) => (
+              <EventAuditEntry key={line.id} line={line} />
+            ))}
+          </ul>
+          {maybeMore && (
+            <Btn kind="ghost" full sm className="mt-3" onClick={() => setFeedLimit((n) => n + FEED_PAGE)}>
+              {t.events.activityShowMore}
+            </Btn>
+          )}
+        </>
       )}
     </div>
   );
