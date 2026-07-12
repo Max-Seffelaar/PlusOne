@@ -90,10 +90,11 @@ export const events = {
   quotaLess: 'Fewer',
   quotaMore: 'More',
 
-  // Block retitled with F1 (86ey21vjt): the landing page is now one of several
-  // request links. Key stays `landingPage` so no call sites move.
-  landingPage: 'Request links',
-  landingActiveTitle: 'Request link active',
+  // Renamed from "Request links" (UX/IA M13, K-19): the separate links-management
+  // row below (linksRowTitle) already owns that term — this block is just the
+  // event's own landing toggle + slug. Key stays `landingPage` so no call sites move.
+  landingPage: 'Sign-up link',
+  landingActiveTitle: 'Sign-up link active',
   landingActiveSub: 'Guests can request a spot through the link.',
   copyLinkAria: 'Copy sign-up link',
   copyLinkLabel: 'Copy link',

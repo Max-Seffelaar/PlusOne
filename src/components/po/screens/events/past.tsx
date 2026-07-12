@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
-import { usePoEvent, usePoEventRecap, usePoEventActivity, usePoAuditFeed } from '@/features/po/hooks';
+import { usePoEvent, usePoEventForEdit, usePoEventRecap, usePoEventActivity, usePoAuditFeed } from '@/features/po/hooks';
 import type { TierStat, UserAddition } from '@/features/stats/data';
 import type { AuditLine } from '@/features/audit/translate';
 import { formatWhen } from '@/features/audit/translate';
@@ -16,6 +16,7 @@ import { Icon } from '../../icon';
 import { Avatar, Btn, Empty, IconBtn, Label, Scroll, Top } from '../../kit';
 import { TierPill } from '../guests/_shared';
 import { col, ScreenState } from './shared';
+import { SaveAsTemplate } from './edit';
 
 // ── PAST EVENT recap (pushed) ────────────────────────────────────────────────────
 const RECAP_CAP = 8;
@@ -24,6 +25,8 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
   const nav = useNav();
   const { event, isLoading: evLoading, isError: evError, notFound } = usePoEvent(id ?? '');
   const { data: r, isLoading: rLoading, isError: rError } = usePoEventRecap(id ?? '');
+  // Past events stay editable (M11); "Save as template" reuses that same right.
+  const { canManage } = usePoEventForEdit(id ?? '');
   const [showAllIn, setShowAllIn] = useState(false);
   const [showAllNo, setShowAllNo] = useState(false);
 
@@ -183,6 +186,7 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
             {t.events.exportLabel}
           </Btn>
         </div>
+        {id && canManage && <SaveAsTemplate eventId={id} />}
         </div>
         </div>
         {id && <EventActivitySection eventId={id} />}

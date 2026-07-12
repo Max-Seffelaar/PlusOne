@@ -1602,6 +1602,8 @@ export interface PoRequestLink {
   /** Approved HEADCOUNT on the guest list via this link: sum of 1 + plus_ones
    *  over non-removed guests — what max_headcount caps. */
   approvedHeads: number;
+  /** Checked-in HEADCOUNT via this link — same funnel step Promo shows (M14). */
+  checkedInHeads: number;
 }
 
 /**
@@ -1668,9 +1670,13 @@ export async function fetchRequestLinks(client: Client, eventId: string): Promis
     }
   }
   const headsByLink = new Map<string, number>();
+  const checkedInByLink = new Map<string, number>();
   for (const g of guests) {
     if (!g.request_link_id || g.status === 'removed') continue;
     headsByLink.set(g.request_link_id, (headsByLink.get(g.request_link_id) ?? 0) + 1 + g.plus_ones);
+    if (g.status === 'checked_in') {
+      checkedInByLink.set(g.request_link_id, (checkedInByLink.get(g.request_link_id) ?? 0) + 1 + g.plus_ones);
+    }
   }
 
   return rows
@@ -1692,6 +1698,7 @@ export async function fetchRequestLinks(client: Client, eventId: string): Promis
       requests: requestsByLink.get(l.id) ?? 0,
       approved: approvedByLink.get(l.id) ?? 0,
       approvedHeads: headsByLink.get(l.id) ?? 0,
+      checkedInHeads: checkedInByLink.get(l.id) ?? 0,
     }))
     .sort((a, b) => (a.isDefault === b.isDefault ? a.createdAt.localeCompare(b.createdAt) : a.isDefault ? -1 : 1));
 }
