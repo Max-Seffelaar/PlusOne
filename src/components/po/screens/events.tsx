@@ -201,10 +201,14 @@ export function EventView({ id }: { id?: string }): JSX.Element {
   }
 
   const ev = event;
-  const onweg = Math.max(0, ev.guests - ev.inside);
   const pct = ev.guests > 0 ? ev.inside / ev.guests : 0;
   const recent = detail?.recent ?? [];
-  const openRequests = detail?.openRequests ?? 0;
+  // Admins see BOTH request kinds in the nudge (86ey8w7bm: quota requests were
+  // invisible here, so the badge and the inbox disagreed). Non-admins keep the
+  // guest-request count only — quota approval isn't theirs to handle.
+  const openGuestReq = detail?.openRequests ?? 0;
+  const openQuotaReq = isAdmin ? detail?.openQuotaRequests ?? 0 : 0;
+  const openRequests = openGuestReq + openQuotaReq;
   const needsSetup = canManage && !ev.cancelled && tiersQ.data?.length === 0;
   // Desktop (S3.3): the headline numbers/actions go left, the "needs attention"
   // + "laatst binnen" feed go right. When there's no secondary content the left
@@ -239,8 +243,10 @@ export function EventView({ id }: { id?: string }): JSX.Element {
         )}
         <div className={cn(hasSecondary && 'lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start')}>
           <div className={cn(!hasSecondary && 'lg:mx-auto lg:max-w-[680px]')}>
+            {/* "On the way" made no sense on the event overview (feedback Max
+                10/7) — the list size is what you plan against. */}
             <div className="mb-3 grid grid-cols-2 gap-[10px]">
-              <Stat big v={onweg} l={t.events.statOnTheWay} />
+              <Stat big v={ev.guests} l={t.events.statOnList} />
               <Stat big v={ev.inside} l={t.events.statInside} acc />
             </div>
             <div className="mb-3 rounded-[18px] border border-line bg-elev p-4">
@@ -304,6 +310,22 @@ export function EventView({ id }: { id?: string }): JSX.Element {
                       return fmt(n === 1 ? t.events.linksRowSubOne : t.events.linksRowSubMany, { n });
                     })()}
                   </span>
+                  {/* Funnel over ALL the event's links (86ey8w79x): the numbers
+                      were already fetched for the row, just never shown. */}
+                  {(() => {
+                    const links = linksQ.data ?? [];
+                    if (!links.some((l) => l.active)) return null;
+                    const sum = links.reduce(
+                      (a, l) => ({ views: a.views + l.views, req: a.req + l.requests, ok: a.ok + l.approved }),
+                      { views: 0, req: 0, ok: 0 },
+                    );
+                    if (sum.views === 0 && sum.req === 0 && sum.ok === 0) return null;
+                    return (
+                      <span className="mt-0.5 block text-[12.5px] font-semibold text-acc-soft">
+                        {fmt(t.events.linksRowFunnel, { views: sum.views, req: sum.req, ok: sum.ok })}
+                      </span>
+                    );
+                  })()}
                 </span>
                 <Icon name="chev" size={18} className="text-ghost" />
               </button>
@@ -317,7 +339,9 @@ export function EventView({ id }: { id?: string }): JSX.Element {
                   <div className="mb-[18px] flex flex-col gap-[9px]">
                     <button
                       type="button"
-                      onClick={() => nav.push('aanvragen', { id: ev.id })}
+                      // Land on the tab that actually has the work: quota-only
+                      // opens the quota tab instead of an empty landing queue.
+                      onClick={() => nav.push('aanvragen', { id: ev.id, ...(openGuestReq === 0 && openQuotaReq > 0 ? { tab: 'quota' } : {}) })}
                       className={cn('flex w-full gap-[12px] rounded-[14px] border bg-elev p-[13px] text-left', cardPress)}
                       style={{ borderColor: 'rgba(181,166,255,0.4)' }}
                     >
