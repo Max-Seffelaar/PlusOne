@@ -56,11 +56,16 @@ export function ConsentScreen({
   }
 
   return (
+    // Centering via m-auto on the CHILD, not justify-center on the scroll
+    // container: justify-center + overflow-y-auto clips the top half of
+    // overflowing content unreachably (classic flexbox bug) — on a short
+    // mobile viewport the account-setup variant (extra name/phone fields +
+    // keyboard) lost its heading and checkbox off the top edge.
     <div
-      className="flex min-h-[100dvh] flex-col items-center justify-center overflow-y-auto px-6 py-10"
+      className="flex min-h-[100dvh] flex-col items-center overflow-y-auto px-6"
       style={{ background: AUTH_GRADIENT }}
     >
-      <div className="w-full max-w-[460px]">
+      <div className="m-auto w-full max-w-[460px] py-10">
         <span className="mb-6 inline-flex items-center gap-[7px] rounded-full bg-acc-dim px-3 py-[6px] font-body text-[12.5px] font-bold text-acc">
           <Icon name="shield" size={14} sw={2.6} />
           {needsDetails ? t.auth.accountBadge : t.auth.consentBadge}
