@@ -15,6 +15,7 @@ export interface AppShellData {
   myVenues: PoVenueMembership[];
   activeVenueId: string | null;
   serverHint: boolean;
+  /** Live active-venue name from the session (shell display); generic fallback otherwise. */
   liveVenueName?: string;
   liveUserName?: string;
   liveUserSub?: string;

@@ -12,8 +12,6 @@ import dynamic from 'next/dynamic';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
-import { venues } from '@/lib/po/data';
-import type { Venue } from '@/lib/po/types';
 import { usePoCanManageTemplates, usePoDoorCandidates, usePoEvents, usePoGuestRequests } from '@/features/po/hooks';
 import { isOpenGuestRequest } from '@/features/po/adapters';
 import { autoOpenDoorEvent } from '@/features/po/door-event';
@@ -38,7 +36,7 @@ import { DoorEventPicker, PoDoorTab, type DoorOverlay } from './screens/door';
 import { Allowance, Billing, Gebruikers, Import, Meer, Profile, Rollen, VenueSettings, VenueSwitch } from './screens/settings';
 import { VenueCreate } from './screens/onboarding';
 import { Home } from './screens/home';
-import { t, fmt } from '@/lib/i18n';
+import { t } from '@/lib/i18n';
 
 /**
  * Code-split (#2a): the heavy/rare screens below each live in their own module
@@ -288,7 +286,6 @@ export function PlusOneApp(): JSX.Element {
   }, [pathname, searchParamsStr]);
   const doorState = doorOverride ?? { seg: doorSeg, eventId: doorEventIdFromUrl, overlay: doorOverlay };
 
-  const [venue, setVenueState] = useState<Venue>(() => venues.find((v) => v.current) ?? venues[0]);
   const [toast, setToast] = useState<string | null>(null);
   // Retriggers the CSS entrance animation on every navigation (any URL change).
   // A derived key, not a bumped useState — a state+effect pair here meant every
@@ -563,13 +560,6 @@ export function PlusOneApp(): JSX.Element {
   const closeOverlay = (): void =>
     guarded(() => (hasHistoryRef.current ? router.back() : router.replace(parentPathFor(target))));
 
-  const switchVenue = (v: Venue): void => {
-    setVenueState(v);
-    setToast(fmt(t.venue.switched, { name: v.name }));
-    setTimeout(() => setToast(null), 2200);
-    nav.back();
-  };
-
   // Switch the ACTIVE venue for real (#1): write the server cookie, then full-reload
   // so app/page.tsx re-resolves the identity and every live query re-scopes to the
   // new venue. (Local state alone can't re-scope server-resolved identity.)
@@ -655,7 +645,7 @@ export function PlusOneApp(): JSX.Element {
         screen = <VenueSwitch />;
         break;
       case 'venuesettings':
-        screen = <VenueSettings venue={venue} />;
+        screen = <VenueSettings />;
         break;
       case 'venuecreate':
         screen = <VenueCreate />;
@@ -718,8 +708,6 @@ export function PlusOneApp(): JSX.Element {
   }
 
   const po: PoApp = {
-    venue,
-    switchVenue,
     statsVenues: statsAccess?.venues ?? [],
     myVenues,
     activeVenueId,
@@ -870,7 +858,7 @@ export function PlusOneApp(): JSX.Element {
         // the More tab — same source + gate as the desktop sidebar badge (T9).
         mobileBadges={{ meer: showRequestsNavItem ? openRequestCount : 0 }}
         navItems={navItems}
-        venueName={liveVenueName ?? venue.name}
+        venueName={liveVenueName ?? t.settings.venueSwitch.thisVenueFallback}
         onOpenVenue={() => nav.push('venueswitch')}
         onOpenProfile={() => nav.push('profile')}
         userName={liveUserName ?? t.common.account}

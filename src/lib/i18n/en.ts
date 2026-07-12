@@ -34,7 +34,6 @@ export const en = {
     noEvent: 'No event to check in to yet. Create or open one first.',
   },
   venue: {
-    switched: 'Switched to {name}',
     switching: 'Switching…',
   },
   sections: {
