@@ -8,6 +8,120 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-12 — G1 follow-up: door sub-nav still hit the server (fresh-eyes re-review)
+
+A second fresh-session review found the G1 layout split (below) did NOT actually fix the
+offline invariant it claimed to: a live network trace showed `GET .../door?guest=…&_rsc=…`
+firing on every guest-overlay open. Root cause — confirmed against the installed
+`next@15.5.19` — Next's client router keys cached page data by the FULL search string on a
+dynamic route regardless of whether `page.tsx` reads `searchParams`; the optimization that
+would avoid this needs a `loading.tsx`, which this route doesn't have. So query-param
+navigation via `router.push`/`replace` always hits the server here, not just when
+`searchParams` is read server-side as the first pass assumed.
+
+- **`src/components/po/app.tsx`** — door sub-state (guest/add overlay, Deur↔Taken segment,
+  event override) now goes through raw `window.history.pushState`/`replaceState`
+  (`pushDoorState`/`replaceDoorState`), bypassing `router.push`/`replace` entirely — no
+  server round-trip. Since Next's `usePathname`/`useSearchParams` don't reactively track
+  raw History API calls, a local `doorOverride` state shadows the URL-derived door fields;
+  an effect keyed on `[pathname, searchParams]` clears it whenever Next's own hooks report
+  a real change (a genuine router-driven nav, or a browser back/forward popstate, which
+  Next resyncs on its own regardless of who pushed the entry) so the URL becomes
+  authoritative again. `routes.ts`'s URL shapes are unchanged. The desktop cockpit is
+  untouched (online-only by design, never sets this override).
+- Two bugs found in the FIRST round's fix code, both corrected: (1) the cold-deep-link
+  `back()`/`closeOverlay` fallback pushed the parent path AND latched `hasHistoryRef`,
+  so a second back() popped straight back into the original (now-orphaned) deep-linked
+  screen instead of climbing further — child↔parent oscillation, overlay close going dead
+  after one cycle. Fixed: the fallback now `router.replace`s without latching, so repeated
+  cold-back keeps ascending. (2) `resolvedDoorId`'s validation against `doorCandidates`
+  (added in the first round) checked a query that mutations never invalidated — "Check-in"
+  on a just-created/just-started event was wrongly rejected until a full reload. Fixed:
+  `poKeys.doorCandidates` is now invalidated alongside `poKeys.events` in every event
+  mutation (`src/features/po/mutations.ts`), plus a one-shot refetch in `app.tsx` when a
+  requested id isn't found in the currently-loaded list (covers changes made by other
+  clients, not just this one).
+- Also from this pass: the animation `key` was a bumped `useState`+`useEffect` pair,
+  meaning every navigation mounted the new screen once and then remounted it again one
+  tick later under a bumped key — screen mount effects ran twice per nav. Replaced with a
+  key derived directly from `pathname`/`searchParams`.
+- **Verification:** confirmed the `_rsc` fetch live in the preview BEFORE this fix (network
+  log, guest-overlay open); typecheck, lint, and the full suite (721/722 — same pre-existing
+  phantom-path failure pending `git add`) all green after. Could NOT re-confirm the fix live
+  afterward — the preview environment stopped rendering the mobile shell (`isMobile` stuck
+  false regardless of confirmed-correct `matchMedia`/viewport state, across multiple fresh
+  server instances) partway through this session, an apparent tooling/harness issue
+  unrelated to this change (`use-viewport.ts` itself is untouched). Flagging honestly rather
+  than claiming a live re-verification that didn't actually happen — the fix is verified by
+  code-level reasoning (traced the History API/popstate/Next-resync mechanics against
+  `next@15.5.19`'s documented behavior) plus the type/lint/test suite, not by a second
+  successful click-through.
+
+---
+
+## 2026-07-12 — UX/IA 8/7 G1: canonical nav + real `/app` deep-linking (86ey7e024)
+
+Replaced the `po` app's in-memory nav stack (`StackEntry[]` + a hand-rolled browser-history
+bridge in the now-deleted `history-nav.ts` + a sessionStorage restore-after-refresh hack)
+with real, bookmarkable per-screen URLs — every one of the 28 screens, every tab, and the
+door's overlay/segment sub-state now lives on its own path/query string instead of behind
+one static `/app`.
+
+- **`src/components/po/routes.ts`** (new) — the canonical URL scheme: `screenPath`/
+  `tabPath`/`doorPath` build a URL for a `nav.push`/`replace` call, `parseAppUrl` is the
+  inverse (used by `app.tsx` on every render to derive the active screen from
+  `usePathname()`/`useSearchParams()`). `routes.test.ts` round-trips every screen.
+- **`src/app/app/page.tsx` → `src/app/app/[[...segments]]/page.tsx`** — a catch-all route so
+  every screen's path actually resolves. `context.tsx`'s `StackEntry`/nav-state
+  sessionStorage helpers were deleted (the URL itself is now the persisted state) and
+  `Nav`'s `push`/`replace`/`back`/`setTab`/`openDoor` in `app.tsx` are thin `useRouter()`
+  wrappers around `routes.ts`.
+- **Architecture split (fresh-session `/code-review high` before merge — required per
+  CLAUDE.md's review-gate for auth-adjacent surfaces):** the review's three HIGH findings
+  shared one root cause — the original single `page.tsx` read the `searchParams` prop
+  itself (for the consent/MFA `next=` round-trip), which forces Next.js to dynamically
+  re-render and re-fetch over the network on every query-string-only navigation (door
+  overlay open/close, event picks). That remounted `PoLiveProvider`'s QueryClient on every
+  screen change AND made the door overlay's open/close fail outright when offline (RSC
+  fetch → hard navigation → wrong service-worker shell), breaking the door's offline
+  invariant (#25). Fix: split into **`src/app/app/layout.tsx`** (identity/venue resolution,
+  onboarding/consent/MFA gates, `PoLiveProvider` — runs once, stays mounted across
+  navigations, never reads `searchParams` by Next.js design) + a trivial `page.tsx` that
+  does zero server data work. Trade-off, documented in the layout: since it sits above the
+  dynamic segment it can't reconstruct the exact deep link for the one-time consent/MFA
+  `next=` redirect, so that redirect targets bare `/app` instead of the requested screen —
+  acceptable for a gate that fires once, on first login only. Shell display data
+  (`statsAccess`/`myVenues`/etc.) now flows layout → `page.tsx` via a new client context,
+  `src/components/po/app-shell-data.tsx`, rather than as page props.
+- **Other findings fixed in the same pass:** `navKeyForScreen`'s guest/pastevent sidebar
+  highlight (the eventId-presence heuristic didn't correlate with actual origin — dropped
+  it, `guest` always maps to `guests` now); `back()`/`canGoBack`/the door overlay's close
+  button no-op'd or could leave the app on a cold deep link (fresh tab, bookmark, the
+  consent/MFA round-trip) — added a `parentPathFor` fallback + a `hasHistoryRef` mount-scoped
+  flag so `back()` only trusts `router.back()` once this mount has actually pushed
+  something; `parseAppUrl`/`screenPath` round-trip gaps for id-less `allowance` (now a
+  top-level `/app/allowance` — it self-picks its event, was never actually event-scoped)
+  and `quickadd`/`bulk` (same self-picking pattern, now `/app/add`/`/app/bulk` when no id);
+  the T6 auto-open-door effect now consumes its one-shot session flag on the FIRST
+  evaluation regardless of tab (previously only stamped inside the Start-tab branch, so a
+  session whose first landing was a deep link elsewhere stayed armed and could hijack a
+  later deliberate tap on Home); `resolvedDoorId` (mobile) now validates against the real
+  `doorCandidates` list before mounting `DoorProvider`, matching what the desktop cockpit
+  already did (a stale `?event=` — e.g. after a venue switch — could otherwise mount the
+  wrong venue's event); `safeNextPath` now rejects dot-segment traversal
+  (`/app/../login`); the layout added a defense-in-depth `getSessionUser()` check, since
+  the catch-all route now matches paths (e.g. `/app/anything.txt`) that used to 404 before
+  every screen had a real URL, and the middleware matcher's static-extension exclusion
+  skips auth for those.
+- `capacitor-plan-claude-code.md` updated: the Android hardware-back-button hook point is
+  now `router.back()` in `app.tsx`, not the deleted `history-nav.ts`.
+- Suites green (routes round-trip, `next-path` guard, full typecheck). The
+  `claude-md-references.test.ts` phantom-path guard will fail locally until `routes.ts`/
+  `layout.tsx`/`app-shell-data.tsx` are staged — expected for any new untracked file, not a
+  regression; resolves once committed.
+
+---
+
 ## 2026-07-09 — Before/after A/B of the venue-scope read fix (#143 — SCALE-5/K8/FE-3, PR #165)
 
 Same-machine, same-seed verification that the venue-scope fix (PR #143) is real, not just

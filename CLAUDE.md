@@ -54,10 +54,11 @@ The full functional spec lives in `gastenlijst-app-spec.md` (repo root). Decisio
 **The UI layer is implemented in `src/` and is the source of truth — reuse and extend it, never regenerate a screen.** A UI phase means building the backend under an existing screen and replacing mock data with live Supabase data while preserving the component API (Werkwijze v2, `bouwplan-claude-code.md`).
 
 - **One responsive surface:** the `po` app at `/app` (`ResponsiveShell` — mobile bottom-tabs <1024px, desktop sidebar ≥1024px). Every authenticated entry lands on `/app`; the old `(app)` dashboard routes (incl. `/eventday`) redirect there. The Event-dag cockpit is the desktop variant of the Deur tab.
-- `src/components/po/` — kit (`kit.tsx`, `icon.tsx`, `shell.tsx`), shell + nav (`app.tsx`, `context.tsx`), screens under `src/components/po/screens/`. Data via `src/features/po/` (React Query reads over the browser client + `src/features/*` server actions for writes). Desktop density per-screen via the `WIDE_DESKTOP` map in `app.tsx`.
+- `src/components/po/` — kit (`kit.tsx`, `icon.tsx`, `shell.tsx`), shell + nav (`app.tsx`, `context.tsx`, `routes.ts`), screens under `src/components/po/screens/`. Data via `src/features/po/` (React Query reads over the browser client + `src/features/*` server actions for writes). Desktop density per-screen via the `WIDE_DESKTOP` map in `app.tsx`.
+- **Every screen has a real, bookmarkable URL (G1)** — `src/components/po/routes.ts` is the canonical `screenPath`/`tabPath`/`doorPath` ↔ `parseAppUrl` scheme; `app.tsx` derives the active screen from `usePathname()`/`useSearchParams()` on every render (no in-memory nav stack, no sessionStorage restore-after-refresh hack). Identity/venue resolution + `PoLiveProvider` live in `src/app/app/layout.tsx`, which stays mounted across screen navigations — `[[...segments]]/page.tsx` itself does zero server data work (no `searchParams` read) so query-string-only navigation (door overlay, event picks) stays fully client-side; this matters for the door's offline invariant (#25), not just performance.
 - **Never duplicate the door's offline outbox** — the Deur tab reuses `DoorProvider.tsx` (`src/features/door`).
 - Tokens/behaviour reference: `design-system.md` (repo root). Near-black `#0B0B0D`, one lavender accent `#B5A6FF`, Bricolage Grotesque display + Hanken Grotesk body. Entrance animations animate `translateY` only, opacity always 1, behind `prefers-reduced-motion`. Where prototype and spec conflict, the spec wins.
-- Remaining polish: tablet (641–1023px) layouts and `/app` deep-linking.
+- Remaining polish: tablet (641–1023px) layouts.
 
 ## Capacitor-readiness checklist — EVERY new `po` screen (decision #37)
 
@@ -96,7 +97,7 @@ Established by `engineering-review-2026-07.md` + `perf-scale-audit-megaevent.md`
 
 Live on prod: backend + RLS + audit + quota engine + door PWA (offline outbox) + landing + stats + AVG retention + billing (pilots `comped`) + the unified responsive `/app` surface. Suites green: Vitest 434 + pgTAP 529 on a fresh reset. **Branch protection on `main` is on** (`lint-and-test` required, admins included). Full history: `docs/changelog.md`.
 
-Open work (ClickUp list `901818739469`, one task per session): **Prod-ready 9/7** program 01–13 (this file's slim-down = 01; Sentry, uptime, hooks, e2e smoke, restore drill, legal, incident skill…), **UX/IA 8/7** tasks (12, build order fixed, after the prod-ready core), P6 + K6/K11 review leftovers, tablet layouts, `/app` deep-linking. Parked by milestone: door mesh (≥5 venues), scale-track remainder (≥25), PostHog (after G1).
+Open work (ClickUp list `901818739469`, one task per session): **Prod-ready 9/7** program 01–13 (this file's slim-down = 01; Sentry, uptime, hooks, e2e smoke, restore drill, legal, incident skill…), **UX/IA 8/7** tasks (12, build order fixed, after the prod-ready core), P6 + K6/K11 review leftovers, tablet layouts. Parked by milestone: door mesh (≥5 venues), scale-track remainder (≥25), PostHog (after G1 — G1 itself shipped, see Design & surface above).
 
 ## Env & prod-push
 

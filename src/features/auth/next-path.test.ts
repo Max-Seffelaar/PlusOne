@@ -21,6 +21,14 @@ describe('safeNextPath (open-redirect guard)', () => {
     expect(safeNextPath('/a\\b')).toBe('/app');
   });
 
+  it('blocks dot-segment traversal', () => {
+    expect(safeNextPath('/app/../login')).toBe('/app');
+    expect(safeNextPath('/app/..%2Flogin')).toBe('/app/..%2Flogin'); // encoded — not a literal segment, harmless
+    expect(safeNextPath('/../auth/callback')).toBe('/app');
+    expect(safeNextPath('/app/events/..')).toBe('/app');
+    expect(safeNextPath('/app?next=/../login')).toBe('/app?next=/../login'); // traversal only matters in the path, not the query value
+  });
+
   it('never bounces back to login or auth routes', () => {
     expect(safeNextPath('/login')).toBe('/app');
     expect(safeNextPath('/auth/callback')).toBe('/app');

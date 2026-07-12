@@ -16,6 +16,11 @@ export function safeNextPath(raw: string | null | undefined, fallback = DEFAULT_
   if (raw.startsWith('//')) return fallback;
   if (raw.includes('://')) return fallback;
   if (raw.includes('\\')) return fallback;
+  // Reject dot-segment traversal (e.g. `/app/../login`) — same-origin only, so
+  // not an open redirect, but it would otherwise normalize onto a route this
+  // guard is specifically meant to deny-list (below).
+  const pathOnly = raw.split(/[?#]/)[0];
+  if (pathOnly.split('/').includes('..')) return fallback;
   // Never bounce back to the login or auth routes.
   if (raw === '/login' || raw.startsWith('/auth/')) return fallback;
   return raw;

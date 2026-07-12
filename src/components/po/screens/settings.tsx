@@ -28,7 +28,7 @@ export { Import } from './settings/import';
 export function Meer(): JSX.Element {
   const nav = useNav();
   const { venue, statsVenues, isMobile } = usePo();
-  const { userId, venueName, roles } = usePoIdentity();
+  const { venueName, roles } = usePoIdentity();
   const [signingOut, setSigningOut] = useState(false);
   const caps = venueCapabilities(roles);
   const isAdmin = roles.includes('admin');
@@ -167,7 +167,7 @@ export function Meer(): JSX.Element {
             onClick={() => {
               if (signingOut) return;
               setSigningOut(true);
-              void signOutDevice(userId, 'local');
+              void signOutDevice('local');
             }}
           />
         </div>

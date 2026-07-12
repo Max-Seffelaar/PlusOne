@@ -774,13 +774,22 @@ export function usePoAddContactsToEvent() {
 // Event field/status/lock/landing edits invalidate the single event AND the
 // venue list (its headcount/status card). Tier edits invalidate the event's tiers.
 
-/** Invalidate both the single-event cache and the venue's events list. */
+/** Invalidate both the single-event cache and the venue's events list. Also
+ *  the door-candidates list (G1 review fix): it's a SEPARATE query key
+ *  (`usePoDoorCandidates`, its own derived shape/cache entry, not just a view
+ *  over poKeys.events), so status/schedule changes here — including creating
+ *  or starting an event — never reached it before. That left "Check-in" on a
+ *  just-changed event rejected (resolvedDoorId validates against this list,
+ *  #13) until an unrelated refetch happened to run or a full reload. */
 function useInvalidateEvent() {
   const qc = useQueryClient();
   const { venueId } = usePoIdentity();
   return (eventId: string) => {
     void qc.invalidateQueries({ queryKey: poKeys.event(eventId) });
-    if (venueId) void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
+    if (venueId) {
+      void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
+      void qc.invalidateQueries({ queryKey: poKeys.doorCandidates(venueId) });
+    }
   };
 }
 
@@ -794,7 +803,10 @@ export function usePoCreateEvent() {
       return res.eventId;
     },
     onSuccess: () => {
-      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
+      if (venueId) {
+        void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
+        void qc.invalidateQueries({ queryKey: poKeys.doorCandidates(venueId) });
+      }
     },
   });
 }
@@ -980,7 +992,10 @@ export function usePoCreateEventFromTemplate() {
       return res.eventId;
     },
     onSuccess: () => {
-      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
+      if (venueId) {
+        void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
+        void qc.invalidateQueries({ queryKey: poKeys.doorCandidates(venueId) });
+      }
     },
   });
 }

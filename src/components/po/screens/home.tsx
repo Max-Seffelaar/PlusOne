@@ -608,7 +608,12 @@ export function Home(): JSX.Element {
                 label={t.home.pulseRequests}
                 value={pulse.requests}
                 action={pulse.requests > 0}
-                onClick={() => nav.push('aanvragen', { tab: 'landing' })}
+                // 'landing' is aanvragen's own default (approvals.tsx: `initialTab ?? 'landing'`)
+                // — omit it rather than pass it explicitly, so the URL for the
+                // default view stays /app/requests (routes.ts's round-trip
+                // invariant: a field only gets an explicit value when the URL
+                // itself encodes it).
+                onClick={() => nav.push('aanvragen')}
               />
             )}
             {showRequestTiles && (
@@ -675,7 +680,9 @@ export function Home(): JSX.Element {
                       guestCountsVisible={seeGuestCounts}
                       onOpen={() => nav.push('event', { id: e.id })}
                       onDoor={() => nav.openDoor(e.id)}
-                      onReq={showRequestTiles ? (tab) => nav.push('aanvragen', { id: e.id, tab }) : undefined}
+                      // 'landing' is the default tab — omit it so the URL matches
+                      // the plain /app/requests?event= form (routes.ts invariant).
+                      onReq={showRequestTiles ? (tab) => nav.push('aanvragen', tab === 'quota' ? { id: e.id, tab } : { id: e.id }) : undefined}
                       onEdit={() => nav.push('eventedit', { id: e.id })}
                       onLock={() => onLock(e)}
                     />
@@ -714,7 +721,9 @@ export function Home(): JSX.Element {
                     guestCountsVisible={seeGuestCounts}
                     onOpen={() => nav.push('pastevent', { id: e.id })}
                     onDoor={() => nav.openDoor(e.id)}
-                    onReq={showRequestTiles ? (tab) => nav.push('aanvragen', { id: e.id, tab }) : undefined}
+                    // 'landing' is the default tab — omit it so the URL matches
+                    // the plain /app/requests?event= form (routes.ts invariant).
+                    onReq={showRequestTiles ? (tab) => nav.push('aanvragen', tab === 'quota' ? { id: e.id, tab } : { id: e.id }) : undefined}
                     onEdit={() => nav.push('eventedit', { id: e.id })}
                     onLock={() => onLock(e)}
                   />
