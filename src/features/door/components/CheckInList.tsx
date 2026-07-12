@@ -29,6 +29,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { hasFinePointer } from '@/lib/platform';
 import { Icon } from '@/components/po/icon';
 import { Avatar, Label, StatusDot, Top, Seg, cardPress } from '@/components/po/kit';
 import { useDoor } from '../DoorProvider';
@@ -139,8 +140,11 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
   }, [view?.event?.name, view?.event?.venueName, view?.tiers, hasItems]);
 
   // Search-first: focus the field on open without yanking the scroll position.
+  // Desktop (fine pointer) only — on touch devices focus() pops the on-screen
+  // keyboard, which also fired after every check-in (this list remounts when
+  // GuestDetail navigates back). The door host taps search when they need it.
   useEffect(() => {
-    searchRef.current?.focus({ preventScroll: true });
+    if (hasFinePointer()) searchRef.current?.focus({ preventScroll: true });
     scrollRef.current?.scrollTo?.({ top: 0 });
   }, []);
 

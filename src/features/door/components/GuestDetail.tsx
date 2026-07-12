@@ -181,17 +181,9 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
           ))}
 
         {!g.inside && (
-          <>
-            <Label className="mb-[9px]">{g.voided ? t.door.reCheckInTitle : t.door.howManyComingIn}</Label>
-            <div className="mb-4">
-              {/* Cap at the guest's allotment (1 + their +N): you can never check in
-                  more people than were on the list. The DB clamps too (#22). */}
-              <Stepper value={plus + 1} max={1 + g.plus} onChange={(v) => setPlus(Math.min(g.plus, Math.max(0, v - 1)))} />
-            </div>
-            <Btn kind="ghost" full icon="close" onClick={() => setRefuseOpen(true)}>
-              {t.door.refuseBtn}
-            </Btn>
-          </>
+          <Btn kind="ghost" full icon="close" onClick={() => setRefuseOpen(true)}>
+            {t.door.refuseBtn}
+          </Btn>
         )}
       </Scroll>
 
@@ -203,22 +195,34 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
             {g.inByName ? <span className="font-body text-[12.5px] font-semibold text-faint">· {fmt(t.door.inBy, { name: g.inByName })}</span> : null}
           </div>
         ) : (
-          <Btn
-            kind="primary"
-            full
-            icon="check"
-            onClick={() => {
-              if (g.voided) reviveCheckIn(g.id, total);
-              else checkIn(g.id, total);
-              onBack();
-            }}
-          >
-            {fmt(t.door.checkInStepper, {
-              label: g.voided ? t.door.reCheckIn : t.door.checkIn,
-              n: total,
-              unit: total === 1 ? t.door.personSingular : t.door.personPlural,
-            })}
-          </Btn>
+          <>
+            {/* Stepper lives WITH the confirm button in the fixed bottom block so
+                "how many?" + Check-in always fit the viewport together — with a
+                long LOG above, the in-body stepper sank below the fold on mobile
+                (feedback Max 10/7). */}
+            <Label className="mb-[9px]">{g.voided ? t.door.reCheckInTitle : t.door.howManyComingIn}</Label>
+            <div className="mb-3">
+              {/* Cap at the guest's allotment (1 + their +N): you can never check in
+                  more people than were on the list. The DB clamps too (#22). */}
+              <Stepper value={plus + 1} max={1 + g.plus} onChange={(v) => setPlus(Math.min(g.plus, Math.max(0, v - 1)))} />
+            </div>
+            <Btn
+              kind="primary"
+              full
+              icon="check"
+              onClick={() => {
+                if (g.voided) reviveCheckIn(g.id, total);
+                else checkIn(g.id, total);
+                onBack();
+              }}
+            >
+              {fmt(t.door.checkInStepper, {
+                label: g.voided ? t.door.reCheckIn : t.door.checkIn,
+                n: total,
+                unit: total === 1 ? t.door.personSingular : t.door.personPlural,
+              })}
+            </Btn>
+          </>
         )}
       </BottomBar>
 

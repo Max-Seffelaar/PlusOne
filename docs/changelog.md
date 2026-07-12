@@ -18,8 +18,8 @@ root causes, de taken herschreven met acceptatiecriteria, en 5 PR's gebouwd.
   `20260708110000` (read-only bevestigd via MCP `list_migrations`); de gedeployde app
   leest `guests.venue_id` + de `venue_event_headcounts` RPC die daar niet bestaan. De
   query-laag slikte de errors stil in (`const { data } = …`) → door-picker 0/0/0, lege
-  requests-inbox, event-stats 0 — terwijl event-scoped reads gewoon werkten. **De
-  prod-push is GEPARKEERD op Max' go** (flow staat in taak 86ey8w7w2); de A/B-test van
+  requests-inbox, event-stats 0 — terwijl event-scoped reads gewoon werkten. **Prod-push:
+  go gegeven 12/7, draait direct na de merge-trein** (flow in taak 86ey8w7w2); de A/B-test van
   9/7 draaide op een throwaway-project, niet op prod — vandaar dat dit niet eerder opviel.
 - **PR #179 — door-fixes (86ey8w759 + 86ey8w7u4):** check-in-lijst focuste het zoekveld
   bij elke remount → keyboard-pop na elke check-in op mobiel; auto-focus nu alleen op
@@ -46,6 +46,32 @@ root causes, de taken herschreven met acceptatiecriteria, en 5 PR's gebouwd.
   schema-drift zoals hierboven voortaan direct vangt.
 - Gotcha: `preview_screenshot` timet out in deze omgeving; verifiëren ging via
   `preview_eval` bounding-boxes/DOM-asserts.
+
+---
+
+## 2026-07-12 — Mock venue state + dead switchVenue removed from the po shell (last mock fixture gone)
+
+Dead-code removal in the `/app` shell; behavior-neutral (verified live: sidebar header,
+Meer venue card, venue switcher, venue settings all render live data as before).
+
+- **`app.tsx` no longer imports the mock fixtures.** The shell initialized `venue` state
+  from `src/lib/po/data.ts` (`venues.find((v) => v.current)`) — the last mock-data import
+  in a shipped render path (the FE-5 guard scanned `screens/` + `features/po` but not the
+  component root, so the shell itself slipped through). Every remaining read of
+  `po.venue` was just `venue.name` as a display fallback that live identity already
+  covers: shell `venueName` → `liveVenueName ?? t.settings.venueSwitch.thisVenueFallback`;
+  Meer's venue card + `VenueSettings`' sub → `usePoIdentity().venueName` (sub simply
+  omitted while null). `VenueSettings` lost its (unused-beyond-the-fallback) `venue` prop.
+- **Dead `switchVenue` removed** from `app.tsx` + the `PoApp` context type. It was the
+  prototype's local-state switcher (toast + setState) with zero callers — the real path
+  is `switchToVenue` (server cookie + full reload, #1), which stays. Dead i18n copy went
+  with it (`venue.switched`, `home.switchVenue`).
+- **`src/lib/po/data.ts` deleted, `Venue` interface deleted** (`src/lib/po/types.ts`) —
+  both were orphaned by the above; nothing in src/tests imported them anymore.
+- **Guard tightened + CLAUDE.md updated:** `tests/unit/no-mock-data-imports.test.ts` now
+  scans ALL of `src/components/po` (not just `screens/`), and the front-end-discipline
+  bullet reflects the module's removal (phantom-path guard forced the same-PR update).
+- Suite: type-check clean, lint clean, vitest 671/671 green. No high-risk surface touched.
 
 ---
 
