@@ -8,6 +8,63 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-12 — M6: event-stats to event-home, Analytics event-first, LOG→Audit
+
+UX/IA 8/7 task M6 ([86ey7dzmp](https://app.clickup.com/t/9018914367/86ey7dzmp), `ux-ia-audit-claude-code.md`
+§2-E/§5.2/§7-Q4), PR [#188](https://github.com/Max-Seffelaar/PlusOne/pull/188), branch
+`claude/affectionate-shannon-602e85`.
+
+§2-E had flagged the same per-event stats rendered on three surfaces (EventView's Activity
+section, Analytics' per-event drill-down, the cockpit) via two separate data paths for
+tier/member numbers — `fetchPoEventActivityStats` (`event_tier_stats`/`event_user_additions`
+RPCs, raw rows) vs `fetchEventStats`+`po-adapter.ts` (same two RPCs plus summary/perQuarter,
+adapted view-models). Max's 8/7 decision: EventView/PastEvent's Activity section is the
+canonical "event-home"; Analytics becomes event-first and reuses the *same* component
+(K-10-les — no second render).
+
+- New `src/components/po/screens/events/stats-panel.tsx` (`EventStatsPanel`) — KPIs
+  (peak/no-shows), arrivals chart, by-tier, by-member. Moved verbatim out of `stats.tsx`'s
+  old per-event JSX block (richer than the old Activity tables, which it replaces).
+- `usePoEventActivity` (`hooks.ts`) repurposed to wrap `fetchEventStats` +
+  `eventKpis`/`toPerKwartier`/`toPerTier`/`toPerUser` instead of the narrower
+  `fetchPoEventActivityStats` (now deleted from `queries.ts`, along with `EventActivityStats`).
+  One fetch, one shape (`EventStatsDetail`), used by both surfaces.
+- `EventActivitySection` (`past.tsx`, shared by EventView + PastEvent): the inline audit-log
+  list is gone — a "View activity" button does `nav.push('audit', { id: eventId })`, landing
+  on the Audit screen pre-filtered to the event (`AuditLog`'s `eventId` prop already supported
+  this; the wiring in `app.tsx` predates this PR).
+- `stats.tsx` (Analytics): dropped the venue-wide KPI hero cards (`fetchVenueStats`/`venueKpis`)
+  for a static "venue trends coming later" note; the per-event block is now just
+  `<EventStatsPanel eventId={selectedEvent.id} />`. The manual refresh button now invalidates
+  `poKeys.eventActivity(eventId)` via `useQueryClient` instead of re-running the removed
+  venue-stats effect.
+- i18n: `events.ts` lost the `activityPerTier`/`activityPerMember`/`activityLog`/… keys, gained
+  `viewActivity`; `analytics.ts` lost the venue-KPI keys, gained `venueTrendsLater`.
+
+**Merge conflict, not a rebase nit:** `origin/main` had moved on with PR #186 (G1 — canonical
+nav, URL-based `/app` deep-linking, `context.tsx`/`routes.ts` rewrite) and PR #183 (event-detail
+fixes from the 10/7 test round) while this branch was in flight. #183 had *paginated* the exact
+inline log this task deletes (`FEED_PAGE`/`Show more`, ClickUp 86ey8w79x) — a real conflict in
+`past.tsx` and `events.ts`, resolved in favor of the M6 decision (removal supersedes the
+paging band-aid; #183's other changes — stat-tile relabel, quota-request badge, link-funnel
+row, error-throwing fetches — are unrelated files/regions and merged clean). G1's route table
+already generalized exactly the `nav.push('audit', { id })` pattern used here
+(`screenPath`/`parseAppUrl` in `routes.ts`) — no adjustment needed, `routes.test.ts` covers the
+round-trip.
+
+**Verification:** `pnpm lint` clean, `tsc --noEmit` 0 errors, `vitest run` 722/722 green
+(post-merge; was 671 pre-merge, +51 from G1/#183's own new tests). **Live browser verification
+NOT completed** — the preview harness's `/app/[[...segments]]` bundle (~6500 modules) never
+finished loading across 4 separate fresh dev-server attempts in this session (`main-app.js` +
+the segments `page.js` stayed pending indefinitely in the network log while every smaller
+chunk — CSS, webpack runtime, the lighter `/consent`/`/mfa/enroll` page bundles — loaded and
+rendered fine). No compile error, no console error, no server-side error surfaced; looked like
+a stalled large-chunk transfer specific to this session's preview environment, not a code
+defect. PR is up with this caveat explicit in the test-plan checklist; needs a manual pass
+before merge.
+
+---
+
 ## 2026-07-12 — G1 follow-up: door sub-nav still hit the server (fresh-eyes re-review)
 
 A second fresh-session review found the G1 layout split (below) did NOT actually fix the
