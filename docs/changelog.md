@@ -19,10 +19,13 @@ MFA stays fully optional (#20 unchanged) — only the presentation softened, per
   the mount `useEffect` onto the "Set up now" click — no more half-created factors for
   someone who only glanced at the screen.
 - **B · Order fix** ([guards.ts](../src/lib/auth/guards.ts) `requireAppAccess`): `requireConsent`
-  now runs before `recommendMfaIfDue` (was reversed) — a fresh invitee sees terms/privacy
-  before a security nudge.
-- **C · Not on session one:** `recommendMfaIfDue` returns early when the account is <24h old
-  (`user.created_at`), no migration needed. Self-service enroll via Profile is unaffected.
+  now runs before `recommendMfaIfDue` (was reversed). **Correction (fresh-session review):**
+  `requireAppAccess` turned out to have zero live call sites — the real `/app` guard
+  (`src/app/app/layout.tsx`) already ran consent-before-MFA inline, unchanged, so this fix had
+  no live effect. Kept as the documented order for `requireAppAccess` (reserved for a future
+  route), with an explicit comment on both sides noting the duplication.
+- **C · Not on session one:** `recommendMfaIfDue` returns early until 24h after the account's
+  first real session, no migration needed. Self-service enroll via Profile is unaffected.
 
 Landed on top of 8 PRs that merged to `main` mid-session (G1 canonical-nav refactor moved the
 `/app` guard call from `src/app/app/page.tsx` into `src/app/app/layout.tsx` — confirmed that
@@ -40,6 +43,33 @@ clicking "Set up now" produced a real QR + manual secret + 6-digit verify form v
 local GoTrue. Note: the shared local Supabase stack was mid-reset by another concurrent
 session during testing (containers cycling, tables briefly absent) — waited it out rather
 than racing it, per the "one DB owner" rule.
+
+**Fresh-session `/code-review` + `/security-review` (high-risk surface gate, `guards.ts`
+touches auth/middleware) — 0 blockers, 4 findings, all fixed before merge:**
+
+- **Should-fix — wrong anchor for "not on session one":** `user.created_at` is stamped when
+  the invite is *sent* (`inviteUserByEmail` creates the auth row immediately), not on first
+  login — so a crew member invited Monday and accepting Thursday still got nudged on their
+  very first real session, defeating the point of C. Re-anchored `recommendMfaIfDue` on
+  `user_profiles.terms_accepted_at` instead (fetched in the same query as the snooze check, no
+  extra round trip); null (not yet consented) fails open. Not a regression — main nudged
+  everyone unconditionally — but the fix only worked for same-day accepters before this.
+- **Should-fix — B was dead code:** see the correction on bullet B above; comments added on
+  both `requireAppAccess` and `layout.tsx` cross-referencing each other so this doesn't
+  surprise the next reader.
+- **Minor bug — double-click race:** removing the old mount-`useEffect`'s `started` ref
+  guard (needed for A) left `startEnrollment` re-entrant — a fast double-click on "Set up
+  now", or "Try again" while a slow prior attempt was still in flight, could fire two
+  concurrent `enroll()` calls; worst case the user scans the first QR while state settles on
+  the second factor's ID, and verification fails with a confusing "invalid code". Fixed with
+  an `enrollInFlight` ref guard (a state check alone can't catch same-tick clicks).
+- **Note, pre-existing, not fixed here:** `/mfa/*` is only `requireUser`-gated, not
+  consent-gated, so a deep link could let an un-consented user enroll/snooze before accepting
+  terms. Predates this PR; flagged for a follow-up, not blocking.
+
+Unit tests updated to match the new anchor (`terms_accepted_at` via the mocked query instead
+of `ctx.user.created_at`), plus a new case for the null/fail-open branch — 7 cases now, all
+green.
 
 ---
 

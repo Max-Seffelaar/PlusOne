@@ -20,23 +20,24 @@ vi.mock('next/navigation', () => ({
 const USER_ID = '00000000-0000-0000-0000-000000000001';
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
-function makeClient(snoozeUntil: string | null) {
+function makeClient(opts: { snoozeUntil?: string | null; acceptedAt?: string | null }) {
   return {
     from: vi.fn(() => ({
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
-      maybeSingle: vi.fn(async () => ({ data: { mfa_snooze_until: snoozeUntil } })),
+      maybeSingle: vi.fn(async () => ({
+        data: {
+          mfa_snooze_until: opts.snoozeUntil ?? null,
+          terms_accepted_at: opts.acceptedAt ?? null,
+        },
+      })),
     })),
   };
 }
 
-function makeCtx(opts: {
-  createdAt: string;
-  requiresMfa?: boolean;
-  hasVerifiedTotp?: boolean;
-}): AuthContext {
+function makeCtx(opts: { requiresMfa?: boolean; hasVerifiedTotp?: boolean }): AuthContext {
   return {
-    user: { id: USER_ID, created_at: opts.createdAt } as AuthContext['user'],
+    user: { id: USER_ID } as AuthContext['user'],
     currentLevel: 'aal1',
     nextLevel: 'aal1',
     isAal2: false,
@@ -50,52 +51,66 @@ describe('recommendMfaIfDue', () => {
     redirectMock.mockClear();
   });
 
-  it('young account (<24h): never redirects, even with no factor and no snooze', async () => {
-    (createClient as Mock).mockResolvedValue(makeClient(null));
-    const ctx = makeCtx({ createdAt: new Date(Date.now() - ONE_DAY_MS / 2).toISOString() });
-    await expect(recommendMfaIfDue('/app', ctx)).resolves.toBeUndefined();
+  it('terms accepted <24h ago: never redirects, even with no factor and no snooze', async () => {
+    (createClient as Mock).mockResolvedValue(
+      makeClient({ acceptedAt: new Date(Date.now() - ONE_DAY_MS / 2).toISOString() })
+    );
+    await expect(recommendMfaIfDue('/app', makeCtx({}))).resolves.toBeUndefined();
     expect(redirectMock).not.toHaveBeenCalled();
   });
 
-  it('account >24h old, no factor, no snooze: redirects to /mfa/enroll', async () => {
-    (createClient as Mock).mockResolvedValue(makeClient(null));
-    const ctx = makeCtx({ createdAt: new Date(Date.now() - 2 * ONE_DAY_MS).toISOString() });
-    await expect(recommendMfaIfDue('/app', ctx)).rejects.toThrow('REDIRECT:/mfa/enroll?next=%2Fapp');
+  it('terms not yet accepted (null): never redirects (fail open)', async () => {
+    (createClient as Mock).mockResolvedValue(makeClient({ acceptedAt: null }));
+    await expect(recommendMfaIfDue('/app', makeCtx({}))).resolves.toBeUndefined();
+    expect(redirectMock).not.toHaveBeenCalled();
+  });
+
+  it('terms accepted >24h ago, no factor, no snooze: redirects to /mfa/enroll', async () => {
+    (createClient as Mock).mockResolvedValue(
+      makeClient({ acceptedAt: new Date(Date.now() - 2 * ONE_DAY_MS).toISOString() })
+    );
+    await expect(recommendMfaIfDue('/app', makeCtx({}))).rejects.toThrow(
+      'REDIRECT:/mfa/enroll?next=%2Fapp'
+    );
   });
 
   it('snoozed (future timestamp): does not redirect', async () => {
     (createClient as Mock).mockResolvedValue(
-      makeClient(new Date(Date.now() + ONE_DAY_MS).toISOString())
+      makeClient({
+        acceptedAt: new Date(Date.now() - 2 * ONE_DAY_MS).toISOString(),
+        snoozeUntil: new Date(Date.now() + ONE_DAY_MS).toISOString(),
+      })
     );
-    const ctx = makeCtx({ createdAt: new Date(Date.now() - 2 * ONE_DAY_MS).toISOString() });
-    await expect(recommendMfaIfDue('/app', ctx)).resolves.toBeUndefined();
+    await expect(recommendMfaIfDue('/app', makeCtx({}))).resolves.toBeUndefined();
     expect(redirectMock).not.toHaveBeenCalled();
   });
 
   it('snoozed forever ("Don\'t ask again"): does not redirect', async () => {
-    (createClient as Mock).mockResolvedValue(makeClient('9999-12-31T00:00:00Z'));
-    const ctx = makeCtx({ createdAt: new Date(Date.now() - 2 * ONE_DAY_MS).toISOString() });
-    await expect(recommendMfaIfDue('/app', ctx)).resolves.toBeUndefined();
+    (createClient as Mock).mockResolvedValue(
+      makeClient({
+        acceptedAt: new Date(Date.now() - 2 * ONE_DAY_MS).toISOString(),
+        snoozeUntil: '9999-12-31T00:00:00Z',
+      })
+    );
+    await expect(recommendMfaIfDue('/app', makeCtx({}))).resolves.toBeUndefined();
     expect(redirectMock).not.toHaveBeenCalled();
   });
 
-  it('verified factor present: never redirects regardless of account age', async () => {
-    (createClient as Mock).mockResolvedValue(makeClient(null));
-    const ctx = makeCtx({
-      createdAt: new Date(Date.now() - 2 * ONE_DAY_MS).toISOString(),
-      hasVerifiedTotp: true,
-    });
-    await expect(recommendMfaIfDue('/app', ctx)).resolves.toBeUndefined();
+  it('verified factor present: never redirects regardless of acceptance age', async () => {
+    (createClient as Mock).mockResolvedValue(
+      makeClient({ acceptedAt: new Date(Date.now() - 2 * ONE_DAY_MS).toISOString() })
+    );
+    await expect(
+      recommendMfaIfDue('/app', makeCtx({ hasVerifiedTotp: true }))
+    ).resolves.toBeUndefined();
     expect(redirectMock).not.toHaveBeenCalled();
   });
 
   it('role does not require MFA: never redirects', async () => {
-    (createClient as Mock).mockResolvedValue(makeClient(null));
-    const ctx = makeCtx({
-      createdAt: new Date(Date.now() - 2 * ONE_DAY_MS).toISOString(),
-      requiresMfa: false,
-    });
-    await expect(recommendMfaIfDue('/app', ctx)).resolves.toBeUndefined();
+    (createClient as Mock).mockResolvedValue(
+      makeClient({ acceptedAt: new Date(Date.now() - 2 * ONE_DAY_MS).toISOString() })
+    );
+    await expect(recommendMfaIfDue('/app', makeCtx({ requiresMfa: false }))).resolves.toBeUndefined();
     expect(redirectMock).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { describeAuthError } from '@/features/auth/errors';
 import { totpSchema } from '@/features/auth/schemas';
@@ -25,6 +25,10 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
   // step 1 (explanation only) to step 2 (QR + verification).
   const [enrolling, setEnrolling] = useState(false);
   const [snoozing, setSnoozing] = useState<'week' | 'never' | null>(null);
+  // Guards against a double-click on "Set up now" or a "Try again" click while
+  // a prior attempt is still in flight firing two concurrent enroll() calls —
+  // a state check alone can't catch same-tick clicks, a ref can.
+  const enrollInFlight = useRef(false);
 
   async function skip(choice: 'week' | 'never'): Promise<void> {
     if (busy || snoozing) return;
@@ -39,24 +43,30 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
   }
 
   async function startEnrollment(): Promise<void> {
+    if (enrollInFlight.current) return;
+    enrollInFlight.current = true;
     setEnrolling(true);
     setError(null);
-    // Clean up abandoned, unverified TOTP factors so re-enrolling is idempotent.
-    const { data: factors } = await supabase.auth.mfa.listFactors();
-    for (const f of factors?.all ?? []) {
-      if (f.factor_type === 'totp' && f.status === 'unverified') {
-        await supabase.auth.mfa.unenroll({ factorId: f.id });
+    try {
+      // Clean up abandoned, unverified TOTP factors so re-enrolling is idempotent.
+      const { data: factors } = await supabase.auth.mfa.listFactors();
+      for (const f of factors?.all ?? []) {
+        if (f.factor_type === 'totp' && f.status === 'unverified') {
+          await supabase.auth.mfa.unenroll({ factorId: f.id });
+        }
       }
-    }
 
-    const { data, error: enrollError } = await supabase.auth.mfa.enroll({ factorType: 'totp' });
-    if (enrollError || !data) {
-      setError(describeAuthError(enrollError).message);
-      return;
+      const { data, error: enrollError } = await supabase.auth.mfa.enroll({ factorType: 'totp' });
+      if (enrollError || !data) {
+        setError(describeAuthError(enrollError).message);
+        return;
+      }
+      setFactorId(data.id);
+      setQr(data.totp.qr_code);
+      setSecret(data.totp.secret);
+    } finally {
+      enrollInFlight.current = false;
     }
-    setFactorId(data.id);
-    setQr(data.totp.qr_code);
-    setSecret(data.totp.secret);
   }
 
   async function verify(): Promise<void> {
