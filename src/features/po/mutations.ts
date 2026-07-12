@@ -597,6 +597,123 @@ export function usePoCheckOut(eventId: string) {
   });
 }
 
+interface RefuseCtx {
+  prevGuests: Guest[] | undefined;
+}
+
+/** Optimistically flip a guest's status; returns a snapshot for rollback. */
+function optimisticGuestStatus(qc: QueryClient, eventId: string, guestId: string, to: Guest['status']): RefuseCtx {
+  const prevGuests = qc.getQueryData<Guest[]>(poKeys.guests(eventId));
+  qc.setQueryData<Guest[]>(poKeys.guests(eventId), (old) => flipGuestStatus(old, guestId, to));
+  return { prevGuests };
+}
+
+export interface PoRefuseGuestInput {
+  guestId: string;
+  /** Mandatory (#10) — goes in the audit log via the refusal row. */
+  reason: string;
+}
+
+/**
+ * Refuse a guest from the cockpit (G2 door-parity): the desktop equivalent of
+ * the door's refuse flow. Online only (no outbox) — inserts a `refusals` row
+ * through the same write gateway the door uses; `guests.status` becomes
+ * 'refused' server-side via the `refusals_sync_guest_status` trigger
+ * (migration 20260619120000), so the optimistic flip here is just cache —
+ * the DB is the source of truth on refetch.
+ */
+export function usePoRefuseGuest(eventId: string) {
+  const qc = useQueryClient();
+  const { userId } = usePoIdentity();
+  return useMutation<void, Error, PoRefuseGuestInput, RefuseCtx>({
+    mutationFn: async ({ guestId, reason }) => {
+      const gw = supabaseGateway(getDoorClient());
+      const ts = new Date().toISOString();
+      const res = classifyError(
+        (
+          await gw.insertRefusal({
+            id: uuidv7(),
+            guest_id: guestId,
+            event_id: eventId,
+            refused_by: userId,
+            reason,
+            refused_at: ts,
+            client_timestamp: ts,
+            device_id: getDeviceId(),
+          })
+        ).error
+      );
+      if (res.status === 'error' || res.status === 'pending') {
+        throw new Error(res.message ?? 'Refuse failed.');
+      }
+    },
+    onMutate: async ({ guestId }) => {
+      await qc.cancelQueries({ queryKey: poKeys.guests(eventId) });
+      return optimisticGuestStatus(qc, eventId, guestId, 'refused');
+    },
+    onError: (_err, _input, ctx) => {
+      if (ctx) qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
+    },
+    onSettled: () => void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) }),
+  });
+}
+
+/**
+ * Undo a mistaken refusal from the cockpit ("reverse-check-in", G2 door-parity)
+ * — mirrors the door's `undoRefusal`. Status flips back to approved/'wait';
+ * the refusal row stays as history (#10/#15).
+ */
+export function usePoUndoRefusal(eventId: string) {
+  const qc = useQueryClient();
+  return useMutation<void, Error, { guestId: string }, RefuseCtx>({
+    mutationFn: async ({ guestId }) => {
+      const gw = supabaseGateway(getDoorClient());
+      const res = classifyError((await gw.undoRefusal(guestId)).error);
+      if (res.status === 'error' || res.status === 'pending') {
+        throw new Error(res.message ?? 'Undo failed.');
+      }
+    },
+    onMutate: async ({ guestId }) => {
+      await qc.cancelQueries({ queryKey: poKeys.guests(eventId) });
+      return optimisticGuestStatus(qc, eventId, guestId, 'wait');
+    },
+    onError: (_err, _input, ctx) => {
+      if (ctx) qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
+    },
+    onSettled: () => void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) }),
+  });
+}
+
+/**
+ * Acknowledge (or reopen) a guest's task/note from the cockpit (G2 door-parity)
+ * — mirrors the door's `ackNote`. Online only; optimistic toggle + invalidate.
+ */
+export function usePoAckNote(eventId: string) {
+  const qc = useQueryClient();
+  const { userId } = usePoIdentity();
+  return useMutation<void, Error, { guestId: string; ack: boolean }, { prevGuests: Guest[] | undefined }>({
+    mutationFn: async ({ guestId, ack }) => {
+      const gw = supabaseGateway(getDoorClient());
+      const res = classifyError((await gw.ackNote(guestId, ack, userId)).error);
+      if (res.status === 'error' || res.status === 'pending') {
+        throw new Error(res.message ?? 'Update failed.');
+      }
+    },
+    onMutate: async ({ guestId, ack }) => {
+      await qc.cancelQueries({ queryKey: poKeys.guests(eventId) });
+      const prevGuests = qc.getQueryData<Guest[]>(poKeys.guests(eventId));
+      qc.setQueryData<Guest[]>(poKeys.guests(eventId), (old) =>
+        old?.map((g) => (g.id === guestId ? { ...g, noteAcknowledged: ack } : g))
+      );
+      return { prevGuests };
+    },
+    onError: (_err, _input, ctx) => {
+      if (ctx) qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
+    },
+    onSettled: () => void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) }),
+  });
+}
+
 /** A check-in/void/top-up changes the present count, tier occupancy, arrivals + chart. */
 function invalidateAfterCheckin(qc: QueryClient, eventId: string): void {
   void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });

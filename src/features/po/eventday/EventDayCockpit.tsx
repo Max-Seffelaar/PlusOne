@@ -32,14 +32,19 @@ import {
   usePoTiers,
 } from '@/features/po/hooks';
 import { DoorEventPicker } from '@/components/po/screens/door';
+import { CockpitTasksCard } from './CockpitTasksCard';
+import { CockpitRefuseModal } from './CockpitRefuseModal';
 import {
+  usePoAckNote,
   usePoApproveRequest,
   usePoCheckIn,
   usePoCheckOut,
   usePoDecideQuota,
   usePoDenyRequest,
+  usePoRefuseGuest,
   usePoSetListLock,
   usePoTopUpCheckIn,
+  usePoUndoRefusal,
 } from '@/features/po/mutations';
 import {
   amsterdamHM,
@@ -158,6 +163,9 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   const approve = usePoApproveRequest();
   const deny = usePoDenyRequest();
   const decideQuota = usePoDecideQuota();
+  const refuseGuest = usePoRefuseGuest(eventId);
+  const undoRefusal = usePoUndoRefusal(eventId);
+  const ackNote = usePoAckNote(eventId);
 
   const [q, setQ] = useState('');
   const [statF, setStatF] = useState<StatusFilter>('all');
@@ -165,6 +173,8 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   const [feed, setFeed] = useState<FeedEntry[]>([]);
   const [flashId, setFlashId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; tone: 'in' | 'out' } | null>(null);
+  // Refuse modal target (G2 door-parity) — the guest awaiting a reason, or null.
+  const [refuseTarget, setRefuseTarget] = useState<Guest | null>(null);
   // Quantified in-/uitcheck modal (S1.2). `value` is the stepper position in koppen:
   // checkin = arriving now, topup = how many more, checkout = how many leave.
   const [modal, setModal] = useState<{ kind: 'checkin' | 'topup' | 'checkout'; guest: Guest; value: number } | null>(null);
@@ -311,6 +321,23 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
     );
     pushFeed({ kind: 'msg', t: amsterdamHM(new Date()), msg: fmt(t.cockpit.feedQuotaDenied, { who: r.who }), accent: false });
   }
+  // ── Refuse / undo-refusal / task ack (G2 door-parity) ─────────────────────
+  function confirmRefuse(reason: string): void {
+    if (!refuseTarget) return;
+    const g = refuseTarget;
+    refuseGuest.mutate({ guestId: g.id, reason }, { onError: (e) => notify(e.message) });
+    pushFeed({ kind: 'msg', t: amsterdamHM(new Date()), msg: fmt(t.cockpit.feedRefused, { name: g.name }), accent: false });
+    notify(fmt(t.cockpit.toastRefused, { name: g.name }), 'out');
+    setRefuseTarget(null);
+  }
+  function onUndoRefuse(g: Guest): void {
+    undoRefusal.mutate({ guestId: g.id }, { onError: (e) => notify(e.message) });
+    pushFeed({ kind: 'msg', t: amsterdamHM(new Date()), msg: fmt(t.cockpit.feedUndoRefusal, { name: g.name }), accent: true });
+    notify(fmt(t.cockpit.toastUndoRefusal, { name: g.name }), 'in');
+  }
+  function onAckNote(guestId: string, ack: boolean): void {
+    ackNote.mutate({ guestId, ack }, { onError: (e) => notify(e.message) });
+  }
 
   const doorTime = editRow?.startsAt ? amsterdamHM(new Date(editRow.startsAt)) : null;
 
@@ -444,6 +471,11 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                     ['all', t.cockpit.filterAll, counts.all],
                     ['wait', t.cockpit.filterOnTheWay, counts.wait],
                     ['in', t.cockpit.filterInside, counts.in],
+                    // Only shown once someone has actually been refused (mirrors
+                    // the door's REFUSED group, which stays hidden until non-empty).
+                    ...(counts.refused > 0 || statF === 'refused'
+                      ? ([['refused', t.cockpit.filterRefused, counts.refused]] as const)
+                      : []),
                   ] as const
                 ).map(([k, l, n]) => {
                   const on = statF === k;
@@ -496,6 +528,8 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
             allowUncheck={allowUncheck}
             onCheckInClick={onCheckInClick}
             onVoid={onVoidClick}
+            onRefuseClick={setRefuseTarget}
+            onUndoRefuse={onUndoRefuse}
           />
 
           <div className="flex min-h-[44px] items-center gap-[10px] border-t border-line px-[18px] py-[11px]">
@@ -597,6 +631,9 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
               )}
             </Card>
           )}
+
+          {/* tasks — G2 door-parity */}
+          {canCheckIn && <CockpitTasksCard guests={guests} onAck={onAckNote} />}
 
           {/* aanwezig per tier */}
           <Card className="p-[22px]">
@@ -702,6 +739,9 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
           </div>
         </div>
       )}
+      {refuseTarget && (
+        <CockpitRefuseModal guest={refuseTarget} onCancel={() => setRefuseTarget(null)} onConfirm={confirmRefuse} />
+      )}
     </div>
   );
 }
@@ -729,6 +769,8 @@ const CockpitGuestList = memo(function CockpitGuestList({
   allowUncheck,
   onCheckInClick,
   onVoid,
+  onRefuseClick,
+  onUndoRefuse,
 }: {
   rows: Guest[];
   totalGuests: number;
@@ -739,6 +781,8 @@ const CockpitGuestList = memo(function CockpitGuestList({
   allowUncheck: boolean;
   onCheckInClick: (g: Guest) => void;
   onVoid: (g: Guest) => void;
+  onRefuseClick: (g: Guest) => void;
+  onUndoRefuse: (g: Guest) => void;
 }): JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -783,6 +827,9 @@ const CockpitGuestList = memo(function CockpitGuestList({
                     <Avatar name={g.name} size={38} accent={isIn} />
                     <div className="min-w-0">
                       <div className="truncate font-display text-[15px] font-bold text-text">
+                        {g.flag === 'high' && (
+                          <Icon name="flag" size={13} stroke="#B5A6FF" fill="#B5A6FF" className="mr-1 inline-block align-[-1px]" />
+                        )}
                         {g.name}
                         {g.plus > 0 && <span className="font-extrabold text-acc"> +{g.plus}</span>}
                       </div>
@@ -801,7 +848,12 @@ const CockpitGuestList = memo(function CockpitGuestList({
                     </span>
                   </div>
                   <div>
-                    {isIn ? (
+                    {g.status === 'refused' ? (
+                      <span className="inline-flex items-center gap-[7px] text-[12.5px] text-faint">
+                        <Icon name="close" size={13} className="text-faint" />
+                        {t.cockpit.rowRefused}
+                      </span>
+                    ) : isIn ? (
                       <div>
                         <span className="inline-flex items-center gap-1.5 font-body text-[12.5px] font-bold text-acc">
                           <Icon name="check" size={13} sw={2.6} />
@@ -818,18 +870,23 @@ const CockpitGuestList = memo(function CockpitGuestList({
                     )}
                   </div>
                   <div className="flex justify-end gap-[7px]">
-                    {canCheckIn ? (
+                    {!canCheckIn ? (
+                      <span className="text-[11px] text-ghost">—</span>
+                    ) : g.status === 'refused' ? (
+                      <Btn desktop kind="ghost" sm onClick={() => onUndoRefuse(g)}>
+                        {t.door.undo}
+                      </Btn>
+                    ) : (
                       <>
                         <ChkBtn kind="in" active={isIn} onClick={() => onCheckInClick(g)} />
                         <ChkBtn
                           kind="out"
                           active={!isIn}
                           disabled={isIn && !allowUncheck}
-                          onClick={() => onVoid(g)}
+                          refuse={!isIn}
+                          onClick={() => (isIn ? onVoid(g) : onRefuseClick(g))}
                         />
                       </>
-                    ) : (
-                      <span className="text-[11px] text-ghost">—</span>
                     )}
                   </div>
                 </div>
@@ -903,21 +960,32 @@ function ChkBtn({
   kind,
   active,
   disabled,
+  /** kind='out' on a guest who isn't inside: the slot becomes "Refuse" instead
+   *  of a no-op void (G2 door-parity) — same slot, no row-width growth. */
+  refuse,
   onClick,
 }: {
   kind: 'in' | 'out';
   active: boolean;
   disabled?: boolean;
+  refuse?: boolean;
   onClick: () => void;
 }): JSX.Element {
   const isIn = kind === 'in';
+  const title = isIn
+    ? t.cockpit.checkInTitle
+    : refuse
+      ? t.cockpit.refuseRowTitle
+      : disabled
+        ? t.cockpit.checkOutDisabledTitle
+        : t.cockpit.checkOutTitle;
   return (
     <button
       type="button"
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
       aria-pressed={active}
-      title={isIn ? t.cockpit.checkInTitle : disabled ? t.cockpit.checkOutDisabledTitle : t.cockpit.checkOutTitle}
+      title={title}
       className={cn(
         'flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] border',
         !disabled && press,

@@ -224,6 +224,7 @@ describe('toPoGuest', () => {
     tier_id: 't1',
     note: 'Tafel 4 reserveren',
     note_priority: 'high',
+    note_acknowledged_at: null,
     created_at: '2024-11-28T12:00:00Z',
     contact_id: 'c1',
   };
@@ -241,11 +242,17 @@ describe('toPoGuest', () => {
       plus: 2,
       note: 'Tafel 4 reserveren',
       flag: 'high',
+      noteAcknowledged: false,
       by: 'Max',
       status: 'in',
       contactId: 'c1',
     });
     expect(g.addedAt).toBe('28 Nov');
+  });
+
+  it('marks the note acknowledged once note_acknowledged_at is set', () => {
+    const g = toPoGuest({ ...row, note_acknowledged_at: '2024-11-28T13:00:00Z' }, { role: 'VIP' });
+    expect(g.noteAcknowledged).toBe(true);
   });
 
   it('defaults addedBy/note and maps a waiting guest', () => {
