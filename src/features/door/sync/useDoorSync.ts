@@ -148,7 +148,13 @@ export function useDoorSync({ eventId, onSync, onRealtimeCheckIn, onRealtimeGues
         // binding INSERT-only left a peer's void unpropagated so the headcount
         // stayed inflated until the 60s safety sync (C11). The provider patches
         // the matching row in place on an UPDATE.
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'check_ins', filter: `event_id=eq.${eventId}` }, (payload) => {
+        //
+        // NO server-side filter here: `check_ins` carries no `event_id` column
+        // (only `guest_id`), so an `event_id=eq.` filter can never match — this
+        // silently killed check-in realtime entirely (M4/K-10 investigation).
+        // Subscribe unfiltered and let the callback drop rows outside this
+        // event's snapshot (guestIdSetRef membership, see onRealtimeCheckIn).
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'check_ins' }, (payload) => {
           if (!payload.new || Object.keys(payload.new).length === 0) return; // DELETE (never happens — soft-void only) / empty
           onCheckInRef.current(payload.new as CheckInRow);
           setNow(Date.now());

@@ -432,6 +432,55 @@ Meer venue card, venue switcher, venue settings all render live data as before).
 
 ---
 
+## 2026-07-12 — UX/IA 8/7 M4: canonical headcount rules + one shared selector (K-10, ClickUp `86ey7dzdc`)
+
+Root-caused K-10 ("cockpit counts differently than the rest — 4/38 · 34 on the way vs.
+door/EventView's 37 · 33, same event, same moment") and fixed it at both the structural
+and the data level, per the canonical rules Max locked in `ux-ia-audit-claude-code.md`
+§5.2 (now also `gastenlijst-app-spec.md` decision #44).
+
+**Structural fix:** one canonical selector, `src/features/po/headcount.ts`
+(`computeHeadcounts`) — on-list excludes `removed`/`refused`, inside counts only arrived
+heads on a partial check-in, on-the-way = on-list − inside, refused is tracked separately
+and never contributes elsewhere. `src/features/po/eventday/cockpit.ts` and
+`src/features/door/model.ts` both now delegate to it instead of each carrying its own
+reducer — that duplication is exactly what let the two drift apart.
+
+**Two real bugs found while root-causing, fixed in migration `20260710120000`:**
+1. `venue_event_headcounts.present` (feeds Home cards + EventView) summed the *full*
+   registered party for every checked-in guest instead of `plus_ones_arrived` — a partial
+   check-in was overcounted. New pgTAP (`venue_scope_denormalization.test.sql` 5d) proves a
+   +3 party with 1 arrival now adds 2 heads, not 4.
+2. `event_stats_summary` / `event_tier_stats` / `venue_stats_summary` /
+   `venue_event_rollup` folded `refused` guests into the same "registered" pool as
+   approved/checked-in — a deliberate, tested choice at the time (see the old
+   `analytics.test.sql` comments) that the M4 decision now supersedes: refused never
+   contributes to on-list/no-shows/attendance anywhere, tracked only via its own,
+   `guests.status`-direct count. `event_user_additions`/`venue_user_additions` (per-adder
+   attribution — "gross, incl. removed") are deliberately **unchanged**, a different
+   metric. `analytics.test.sql` expectations updated (registered 28→27, registered
+   headcount 39→37, attendance 10.3%→10.8%, Regular-tier registered 22→21 — Bram, the
+   seed's refused guest, sat in Regular).
+
+**Bycatch, same investigation:** the realtime `check_ins` subscriptions in both
+`useDoorSync.ts` (door) and `usePoEventRealtime` (cockpit, `hooks.ts`) filtered on
+`event_id=eq.<id>` — a column `check_ins` doesn't have (only `guest_id`). The filter could
+never match, so check-in/void/top-up realtime was silently dead on both surfaces; every
+peer's check-in only ever showed up via the 60s safety sync. Filter removed — the door
+already filters client-side on guest-id membership (as its own doc comment always said was
+the design); the cockpit now invalidates unconditionally on any `check_ins` change
+(cheap/idempotent, an occasional wasted invalidate from another event is an acceptable
+trade for correctness).
+
+**Tests:** new `src/features/po/headcount.test.ts` (10 cases, incl. a K-10 repro proving
+the split-refused-array and unsplit-array call sites agree). `pnpm vitest run` 681/681
+green, `supabase test db` on a fresh reset green (926 tests, incl. the updated
+`analytics.test.sql` + new `venue_scope_denormalization.test.sql` 5d). Zero `tsc`/`lint`
+errors. Publieke `/e/[slug]`-pagina shows a different, unrelated metric (`spots_left`,
+per-link capacity) — out of scope for this rule, confirmed and left untouched.
+
+---
+
 ## 2026-07-09 — Before/after A/B of the venue-scope read fix (#143 — SCALE-5/K8/FE-3, PR #165)
 
 Same-machine, same-seed verification that the venue-scope fix (PR #143) is real, not just

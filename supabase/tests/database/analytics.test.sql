@@ -6,9 +6,10 @@
 -- requires AAL2. Relies on the standard seed; everything rolls back.
 --
 -- Seed baseline (supabase/seed.sql): venue aa..01 has one event ee..01 with 30
--- guests; 28 are "registered" (status approved/checked_in/refused — pending
--- Aïcha + removed Pieter excluded), 3 checked in (Sanne/Daan/Esra), 1 refused
--- (Bram), 24 no-shows. Adders: Max 20, Tom 7, Lisa 1.
+-- guests; 27 are "registered"/on-list (status approved/checked_in — pending
+-- Aïcha, removed Pieter AND refused Bram excluded, M4/#44), 3 checked in
+-- (Sanne/Daan/Esra), 1 refused (Bram, tracked separately), 24 no-shows.
+-- Adders: Max 20, Tom 7, Lisa 1.
 
 begin;
 
@@ -33,19 +34,19 @@ select plan(62);
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2');
 
 select is((select registered from public.event_stats_summary('ee000000-0000-7000-8000-000000000001')),
-  28, '1.1 registered = 28 (approved/checked_in/refused; pending+removed excluded)');
+  27, '1.1 registered = 27 (approved/checked_in; pending+removed+refused excluded, M4/#44)');
 select is((select registered_headcount from public.event_stats_summary('ee000000-0000-7000-8000-000000000001')),
-  39, '1.2 registered headcount = 39 (Σ 1 + plus_ones)');
+  37, '1.2 registered headcount = 37 (Σ 1 + plus_ones, excl. Bram''s 2 refused heads)');
 select is((select present from public.event_stats_summary('ee000000-0000-7000-8000-000000000001')),
   3, '1.3 present = 3 guests with a check-in');
 select is((select present_headcount from public.event_stats_summary('ee000000-0000-7000-8000-000000000001')),
   4, '1.4 present headcount = 4 (Σ 1 + plus_ones_arrived)');
 select is((select refused from public.event_stats_summary('ee000000-0000-7000-8000-000000000001')),
-  1, '1.5 refused = 1 (Bram)');
+  1, '1.5 refused = 1 (Bram, tracked separately — never in registered)');
 select is((select no_shows from public.event_stats_summary('ee000000-0000-7000-8000-000000000001')),
-  24, '1.6 no-shows = 28 − 3 present − 1 refused');
+  24, '1.6 no-shows = 27 registered − 3 present');
 select is((select attendance_pct from public.event_stats_summary('ee000000-0000-7000-8000-000000000001')),
-  10.3, '1.7 attendance = 4/39 ≈ 10.3%');
+  10.8, '1.7 attendance = 4/37 ≈ 10.8%');
 select is((select peak_count from public.event_stats_summary('ee000000-0000-7000-8000-000000000001')),
   1, '1.8 peak bucket holds 1 check-in (spread across three quarters)');
 
@@ -65,7 +66,7 @@ select is((select coalesce(sum(checkins),0)::int from public.event_checkins_per_
 select is((select count(*)::int from public.event_tier_stats('ee000000-0000-7000-8000-000000000001')),
   3, '3.1 three tiers');
 select is((select registered from public.event_tier_stats('ee000000-0000-7000-8000-000000000001')
-           where tier_name = 'Regular'), 22, '3.2 Regular has 22 registered');
+           where tier_name = 'Regular'), 21, '3.2 Regular has 21 registered (refused Bram excluded, M4/#44)');
 select is((select present from public.event_tier_stats('ee000000-0000-7000-8000-000000000001')
            where tier_name = 'Regular'), 2, '3.3 Regular present = 2 (Daan, Esra)');
 select is((select present from public.event_tier_stats('ee000000-0000-7000-8000-000000000001')
@@ -135,7 +136,7 @@ select is((select reason || ':' || n from public.event_refusal_reasons('ee000000
 select is((select events from public.venue_stats_summary('aa000000-0000-7000-8000-000000000001', null, null)),
   1, '6.1 venue has 1 event in range');
 select is((select registered from public.venue_stats_summary('aa000000-0000-7000-8000-000000000001', null, null)),
-  28, '6.2 venue registered = 28');
+  27, '6.2 venue registered = 27 (refused Bram excluded, M4/#44)');
 select is((select present from public.venue_stats_summary('aa000000-0000-7000-8000-000000000001', null, null)),
   3, '6.3 venue present = 3');
 select is((select present_headcount from public.venue_stats_summary('aa000000-0000-7000-8000-000000000001', null, null)),
@@ -150,7 +151,7 @@ select is((select count(*)::int from public.venue_event_rollup('aa000000-0000-70
 select is((select present_headcount from public.venue_event_rollup('aa000000-0000-7000-8000-000000000001', null, null)),
   4, '7.2 rollup present headcount = 4');
 select is((select attendance_pct from public.venue_event_rollup('aa000000-0000-7000-8000-000000000001', null, null)),
-  10.3, '7.3 rollup attendance = 10.3%');
+  10.8, '7.3 rollup attendance = 4/37 ≈ 10.8%');
 
 reset role;
 
@@ -181,7 +182,7 @@ reset role;
 -- Organizer (Yusuf): own event stats yes (#6/§2), venue-wide no.
 select pg_temp.login('44444444-4444-4444-8444-444444444444');
 select is((select registered from public.event_stats_summary('ee000000-0000-7000-8000-000000000001')),
-  28, '8.6 organizer sees their own event stats');
+  27, '8.6 organizer sees their own event stats');
 select is((select count(*)::int from public.venue_stats_summary('aa000000-0000-7000-8000-000000000001', null, null)),
   0, '8.7 organizer gets NO venue-wide stats (not admin/finance)');
 reset role;
@@ -189,7 +190,7 @@ reset role;
 -- Finance (AAL2): read-only access to everything, audit included.
 select pg_temp.login('33333333-3333-4333-8333-333333333333', 'aal2');
 select is((select registered from public.event_stats_summary('ee000000-0000-7000-8000-000000000001')),
-  28, '8.8 finance sees event stats');
+  27, '8.8 finance sees event stats');
 select ok((select count(*) from public.audit_feed) > 0,
   '8.9 finance (AAL2) sees the audit feed');
 select is((select count(*)::int from public.venue_stats_summary('aa000000-0000-7000-8000-000000000002', null, null)),
@@ -200,7 +201,7 @@ reset role;
 -- too (AAL2 dropped for audit-log viewing, migration 20260624160000).
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal1');
 select is((select registered from public.event_stats_summary('ee000000-0000-7000-8000-000000000001')),
-  28, '8.11 admin (AAL1) still sees stats — they are not AAL2-gated');
+  27, '8.11 admin (AAL1) still sees stats — they are not AAL2-gated');
 select ok((select count(*) from public.audit_feed) > 0,
   '8.12 admin (AAL1) now sees the audit feed — role-only, MFA no longer required (#Auth)');
 reset role;

@@ -25,7 +25,7 @@ begin
 end;
 $fn$;
 
-select plan(33);
+select plan(34);
 
 -- IDs from the seed: admin=1111 UM=2222 finance=3333 organizer=4444 staff=5555
 -- doorhost=6666 · venue1=aa..01 · venue2=aa..02 (admin-only member) ·
@@ -158,6 +158,31 @@ select is(
     where venue_id = 'aa000000-0000-7000-8000-000000000001'
       and added_by = '55555555-5555-4555-8555-555555555555'),
   '5c staff: RPC headcount stays own-guests-only (SECURITY INVOKER honors RLS, not a bypass)');
+
+-- 5d. M4/#44 fix: `present` counts ARRIVED heads, not the full registered
+-- party, on a partial check-in (was summing plus_ones regardless of arrival).
+select pg_temp.login('11111111-1111-4111-8111-111111111111'); -- admin, venue-wide
+
+create temp table _partial(before_present int, after_present int);
+insert into _partial(before_present)
+  select present from public.venue_event_headcounts('aa000000-0000-7000-8000-000000000001')
+   where event_id = 'ee000000-0000-7000-8000-000000000001';
+
+insert into public.guests (id, event_id, tier_id, full_name, plus_ones, added_by)
+values ('cc000000-0000-7000-8000-00000000d401', 'ee000000-0000-7000-8000-000000000001',
+        'dd000000-0000-7000-8000-000000000001', 'Partial Party Gast', 3,
+        '11111111-1111-4111-8111-111111111111');
+-- check_ins_sync_guest_status (20260619120000) flips guests.status to
+-- checked_in on this insert.
+insert into public.check_ins (guest_id, checked_by, plus_ones_arrived)
+values ('cc000000-0000-7000-8000-00000000d401', '11111111-1111-4111-8111-111111111111', 1);
+
+update _partial set after_present = (
+  select present from public.venue_event_headcounts('aa000000-0000-7000-8000-000000000001')
+   where event_id = 'ee000000-0000-7000-8000-000000000001');
+
+select is((select after_present - before_present from _partial), 2,
+  '5d a +3 party with only 1 companion arrived adds 2 heads to present, not 4 (M4/#44)');
 
 reset role;
 select * from finish();
