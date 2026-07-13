@@ -18,10 +18,12 @@
 --
 -- FIX (expand-only, mirrors 20260713160000): set_checkin_scope() always
 -- overwrites event_id and venue_id from the guest, dropping the null-guard
--- entirely. Safe for the door outbox: the legitimate client path only ever
--- sends guest_id (event_id/venue_id are null today), and void/revive UPDATEs
--- never touch guest_id — so the unconditional re-derivation is a no-op on
--- every real code path and only ever corrects a forged value.
+-- entirely. Safe for the door outbox: the legitimate client (gateway.ts /
+-- replay.ts) sends guest_id + event_id but always omits venue_id, and the
+-- event_id it sends is always the guest's own true event — so re-deriving
+-- both from guest_id yields identical values on that path. void/revive
+-- UPDATEs never touch guest_id either — so the unconditional re-derivation
+-- is a no-op on every real code path and only ever corrects a forged value.
 
 create or replace function public.set_checkin_scope()
 returns trigger
