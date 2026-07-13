@@ -14,5 +14,5 @@ test('staff logs in with an e-mail OTP and lands on the dashboard', async ({ pag
 test('an unauthenticated visit to a protected route redirects to login', async ({ page }) => {
   await page.goto('/dashboard');
   await page.waitForURL('**/login**', { timeout: 20_000 });
-  await expect(page.getByRole('button', { name: /Stuur inlogcode/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Send code/i })).toBeVisible();
 });

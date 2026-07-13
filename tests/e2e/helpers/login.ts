@@ -7,10 +7,10 @@ import { clearMailbox, getLatestOtp } from './mail';
 export async function otpLogin(page: Page, email: string): Promise<void> {
   await clearMailbox();
   await page.goto('/login');
-  await page.getByLabel('E-mailadres').fill(email);
-  await page.getByRole('button', { name: /Stuur inlogcode/i }).click();
+  await page.getByLabel('Email').fill(email);
+  await page.getByRole('button', { name: /Send code/i }).click();
 
-  const codeInput = page.getByLabel('Inlogcode');
+  const codeInput = page.getByLabel('Your code');
   await expect(codeInput).toBeVisible({ timeout: 15_000 });
 
   const code = await getLatestOtp(email);
