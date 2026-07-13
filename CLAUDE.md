@@ -161,6 +161,7 @@ The building session never solo-approves risky work; a fresh session has no inve
 - File structure: `src/app` (routes), `src/components`, `src/lib`, `src/features/<domain>`, `supabase/` (migrations, tests, seed).
 - Dutch UI copy, English code/comments/commit messages. Conventional commits, small commits per logical step.
 - **Model routing** (session/task planning): Fable for decisions & planning, Opus for building, Sonnet for mechanical execution. Every ClickUp task carries a `Model:` line.
+- **ClickUp task lifecycle** is owned by the `clickup-task` skill (`.claude/skills/clickup-task/SKILL.md`): exact statuses, the complete-gate (merged AND tested), concurrency check, comment cadence, task id in branch + PR title. End-of-session sync is enforced by the Stop hook `scripts/hooks/clickup-sync-check.mjs` (marker: gitignored `.claude/clickup-session.json`); a daily scheduled reconcile run reports ClickUp↔GitHub drift.
 
 ## Definition of Done — every task
 

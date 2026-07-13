@@ -8,6 +8,34 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-13 — clickup-task skill + Stop-hook enforcement (workflow tooling, no ClickUp task)
+
+Max asked for a skill that owns the ClickUp task lifecycle (planning → in progress →
+complete) because sessions kept drifting from CLAUDE.md's bookkeeping rules — the 13/7
+list-wide reconciliation being the visible cost. Root insight: prose instructions load at
+session start but the failure moment (the end-of-session update) comes hours later, so the
+fix is enforcement, not more prose.
+
+- **`.claude/skills/clickup-task/SKILL.md`** — status flow with exact status strings (the
+  done-status is `complete`, not "done"), the complete-gate (merged AND tested, an open PR
+  is never complete, zero-work sessions revert to `to do`), the concurrency check as hard
+  step 0, comment cadence (pickup / plan / end-of-session / final), task id in branch + PR
+  title. Validated with two dry-run subagents against sandbox tasks (deleted after):
+  planning path and mechanical-interrupted path both behaved correctly first try; their
+  four ambiguity findings (zero-work ending, branch-name at planning-only pickup,
+  description-vs-codebase conflicts, comment-vs-status-flip ordering) were folded back in.
+- **`scripts/hooks/clickup-sync-check.mjs`** — Stop hook: the skill writes a gitignored
+  marker (`.claude/clickup-session.json`, `{"tasks":[{"id","synced"}]}`) at pickup; the
+  hook blocks ending the session while any entry is unsynced. `stop_hook_active` guards
+  the retry loop; fail-open on unreadable stdin; corrupt marker blocks with repair
+  instructions. Pipe-tested across all five scenarios.
+- **`.claude/settings.json`** — `Stop` hook registered (initially permission-denied as
+  config self-modification; applied after Max's explicit go later the same session).
+  Existing PreToolUse migration-check hook untouched.
+- **Session naming:** exact automatic naming is impossible today (`/rename` is
+  user-only; SessionStart hooks fire before the task is known) — the skill instead
+  prints a copy-paste-ready `/rename <task name>` line at pickup.
+
 ## 2026-07-13 — Bulk duplicate safeguard (86ey8xg4p, follow-up to 86ey8w7ek)
 
 ClickUp `86ey8xg4p` — fresh-session review finding 7 on PR #182: the quick-add server-side
