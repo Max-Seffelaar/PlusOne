@@ -32,7 +32,7 @@ select plan(26);
 
 select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@plusone.test');
 -- create_venue_with_owner is called by NAME with an explicit p_terms_version so each
--- call binds unambiguously to the current 11-arg signature (20260713160000, p_comped
+-- call binds unambiguously to the current 11-arg signature (20260713180000, p_comped
 -- removed — 86ey9e851). The legacy 6-arg overload may linger in a non-reset local DB,
 -- where a positional 6-arg call would be "function ... is not unique"; the
 -- p_terms_version-only-in-current pins resolution.
