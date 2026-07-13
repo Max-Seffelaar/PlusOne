@@ -479,6 +479,23 @@ green, `supabase test db` on a fresh reset green (926 tests, incl. the updated
 errors. Publieke `/e/[slug]`-pagina shows a different, unrelated metric (`spots_left`,
 per-link capacity) — out of scope for this rule, confirmed and left untouched.
 
+**Follow-up 13/7 (Max' manual test found a THIRD bug the RPC/pgTAP checks above didn't
+cover):** cockpit still showed one head too many live in the browser (40 vs. 41 — the seed's
+own `pending`-status guest, Aïcha, doesn't come from a trigger/RPC so no pgTAP test ever
+exercised it). Root cause: `fetchGuests` (`src/features/po/queries.ts`, backs `usePoGuests` →
+cockpit + the Guests tab + the venue-wide list) filtered `.neq('status', 'removed')` — the
+ONLY fetcher that didn't scope to the same `approved`/`checked_in`/`refused` triple the door's
+own query and every stats RPC already use. A `pending` (or `denied`) guest row slipped
+through, and since the po `Guest.status` type only has `in`/`wait`/`refused`,
+`guestStatusToPo` silently collapsed it into `wait` — a phantom "on the way" guest invisible
+in the UI (no `pending` badge exists) but very visible in the headcount. Fixed: `fetchGuests`
+now filters `.in('status', [...ON_LIST, 'refused'])`, matching the door exactly. No UI
+capability lost — nothing renders `guests.status === 'pending'` distinctly, so this guest was
+never meant to be counted, only ever meant to be excluded (per the seed's own comment: "pending
+Aïcha ... excluded"). Live-reverified in the preview: cockpit/door/Home all read 40 on the
+list · 25 on the way · 15 inside after the fix, where cockpit alone read 41/26/15 before.
+732/732 vitest green, `tsc`/`lint` clean (no DB change, so no new pgTAP needed here).
+
 ---
 
 ## 2026-07-09 — Before/after A/B of the venue-scope read fix (#143 — SCALE-5/K8/FE-3, PR #165)
