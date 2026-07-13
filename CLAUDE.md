@@ -117,6 +117,8 @@ Run locally against the **local Supabase stack**, never prod. Once per machine: 
 
 **Worktrees share the ONE local stack** (fixed 553xx ports). Only the dev-server port varies: `pnpm dev` claims 7000 if free, else a stable per-worktree `70xx`, and prints that port's dev-login links. Force with `PORT=7005 pnpm dev`.
 
+**A port is a checkout, not a PR.** Each running `pnpm dev` serves whatever branch is checked out in *that* directory — a port number carries no branch identity, so a bookmarked `localhost:9000` link from a past session can silently serve `main` again if that checkout was reset or reused for something else. **Before testing an open PR, confirm the server you're hitting is actually running that PR's branch** (`git branch --show-current` in the directory that owns the port) — don't infer it from the port number alone. If a screen doesn't match what a PR claims to change, checkout mismatch is the first thing to rule out, ahead of assuming the change is broken. A stale `.next` cache from before the PR's commits is the second thing to rule out (`rm -rf .next` and restart).
+
 **One DB owner.** Only ONE session runs a destructive DB command at a time. Before a test pass: `pnpm db:fresh` (= reset + `pnpm dev:mfa`). While someone tests, no other session resets/pushes. RPCs missing after a foreign reset → `pnpm dev:mfa`, never a full reset mid-test.
 
 **Dev-login** (stable, no OTP/MFA):
