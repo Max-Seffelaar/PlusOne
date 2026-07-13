@@ -15,6 +15,7 @@ import { t, fmt } from '@/lib/i18n';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { Icon, type IconName } from '@/components/po/icon';
 import { Avatar, Label, Btn, Card, pressDesktop } from '@/components/po/kit';
+import { tierInk, tintTier } from '@/lib/po/tier-colors';
 import { canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '@/components/po/context';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
@@ -502,20 +503,11 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                 {t.cockpit.allTiers}
               </TierChip>
               {tierRows.map((t) => (
-                <TierChip key={t.tierId} on={tierF === t.tierId} onClick={() => setTierF(t.tierId)}>
-                  <span className="h-2 w-2 rounded-full" style={{ background: t.color }} />
+                <TierChip key={t.tierId} on={tierF === t.tierId} color={t.color} onClick={() => setTierF(t.tierId)}>
                   {t.tier}
                 </TierChip>
               ))}
             </div>
-          </div>
-
-          <div className="grid grid-cols-[1fr_120px_150px_96px] border-b border-line2 bg-bg px-[18px] py-[11px]">
-            {[t.cockpit.colGuest, t.cockpit.colTier, t.cockpit.colStatus, t.cockpit.colInOut].map((h, i) => (
-              <Label key={h} className={i === 3 ? 'text-right' : undefined}>
-                {h}
-              </Label>
-            ))}
           </div>
 
           <CockpitGuestList
@@ -804,75 +796,74 @@ const CockpitGuestList = memo(function CockpitGuestList({
           {virtualizer.getVirtualItems().map((vi) => {
             const g = rows[vi.index];
             if (!g) return null;
+            const isRefused = g.status === 'refused';
             const isIn = g.status === 'in';
             const td = tierDisplay.get(g.tierId ?? '');
+            const tierColor = td?.color ?? '#8E8E93';
+            const tierName = td?.name ?? g.tierName ?? g.role;
             const arr = arrivals.get(g.id);
             const arrivedCount = arr ? arr.arrived : g.plus;
             const partial = isIn && arrivedCount < g.plus;
+            const fully = isIn && !partial;
             const atLabel = arr?.at ? amsterdamHM(new Date(arr.at)) : g.at;
+            // Whole-row tier fill (feedback Max 13/7 — matches the door's
+            // CheckInList): a checked-in guest mutes to a low-alpha tint +
+            // white ink so "inside" still reads as dimmed, everyone else gets
+            // the solid tier colour. Refused rows opt out of the fill
+            // entirely (mirrors the door/Guests-tab convention).
+            const ink = isRefused ? undefined : fully ? '#FFFFFF' : tierInk(tierColor);
             return (
               <div
                 key={vi.key}
                 data-index={vi.index}
                 ref={virtualizer.measureElement}
                 style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}
+                className="px-[10px] py-[3px]"
               >
                 <div
                   className={cn(
-                    'grid grid-cols-[1fr_120px_150px_96px] items-center border-b border-line2 px-[18px] py-3 transition-colors duration-500',
-                    flashId === g.id && 'bg-acc-dim'
+                    'grid grid-cols-[1fr_96px] items-center gap-3 rounded-[14px] px-[14px] py-[10px] transition-shadow duration-500',
+                    isRefused && 'border border-line2',
+                    flashId === g.id && 'ring-2 ring-acc'
                   )}
+                  style={
+                    isRefused
+                      ? undefined
+                      : {
+                          background: fully ? tintTier(tierColor, 0.14) : tierColor,
+                          ...(partial ? { boxShadow: 'inset 0 0 0 2px #B5A6FF' } : {}),
+                        }
+                  }
                 >
                   <div className="flex min-w-0 items-center gap-3">
-                    <Avatar name={g.name} size={38} accent={isIn} />
-                    <div className="min-w-0">
-                      <div className="truncate font-display text-[15px] font-bold text-text">
+                    <Avatar name={g.name} size={36} accent={isIn} />
+                    <div className="min-w-0 flex-1" style={ink ? { color: ink } : undefined}>
+                      <div className="flex items-baseline gap-1.5">
                         {g.flag === 'high' && (
-                          <Icon name="flag" size={13} stroke="#B5A6FF" fill="#B5A6FF" className="mr-1 inline-block align-[-1px]" />
+                          <Icon name="flag" size={13} stroke={ink ?? '#B5A6FF'} fill={ink ?? '#B5A6FF'} className="shrink-0" />
                         )}
-                        {g.name}
-                        {g.plus > 0 && <span className="font-extrabold text-acc"> +{g.plus}</span>}
+                        <span className="truncate font-display text-[15px] font-bold">
+                          {g.name}
+                          {g.plus > 0 && <span className="font-semibold opacity-80"> +{g.plus}</span>}
+                        </span>
                       </div>
-                      <div className="truncate text-[11.5px] text-faint">
-                        {g.note || (g.by ? fmt(t.cockpit.addedBy, { name: g.by }) : '—')}
+                      <div className={cn('truncate text-[11px] font-bold uppercase tracking-[0.03em]', isRefused ? 'text-faint normal-case' : 'opacity-80')}>
+                        {isRefused
+                          ? t.cockpit.rowRefused
+                          : partial
+                            ? fmt(t.cockpit.rowInsidePartial, { arrived: arrivedCount + 1, total: g.plus + 1 })
+                            : fully && atLabel
+                              ? `${tierName} · ${atLabel}`
+                              : tierName}
                       </div>
                     </div>
                   </div>
-                  <div>
-                    <span className="inline-flex items-center gap-[7px] font-body text-[12.5px] font-bold text-dim">
-                      <span
-                        className="h-2 w-2 rounded-full"
-                        style={{ background: td?.color ?? 'rgba(255,255,255,0.26)' }}
-                      />
-                      {td?.name ?? g.tierName ?? g.role}
-                    </span>
-                  </div>
-                  <div>
-                    {g.status === 'refused' ? (
-                      <span className="inline-flex items-center gap-[7px] text-[12.5px] text-faint">
-                        <Icon name="close" size={13} className="text-faint" />
-                        {t.cockpit.rowRefused}
-                      </span>
-                    ) : isIn ? (
-                      <div>
-                        <span className="inline-flex items-center gap-1.5 font-body text-[12.5px] font-bold text-acc">
-                          <Icon name="check" size={13} sw={2.6} />
-                          {partial ? fmt(t.cockpit.rowInsidePartial, { arrived: arrivedCount + 1, total: g.plus + 1 }) : t.cockpit.rowInside}
-                          {atLabel ? ` · ${atLabel}` : ''}
-                        </span>
-                        {g.inBy && <div className="text-[11px] text-faint">{fmt(t.cockpit.rowInsideBy, { name: g.inBy })}</div>}
-                      </div>
-                    ) : (
-                      <span className="inline-flex items-center gap-[7px] text-[12.5px] text-faint">
-                        <span className="h-2 w-2 rounded-full border-[1.5px] border-ghost" />
-                        {t.cockpit.rowOnTheWay}
-                      </span>
-                    )}
-                  </div>
                   <div className="flex justify-end gap-[7px]">
                     {!canCheckIn ? (
-                      <span className="text-[11px] text-ghost">—</span>
-                    ) : g.status === 'refused' ? (
+                      <span className="text-[11px] opacity-60" style={ink ? { color: ink } : undefined}>
+                        —
+                      </span>
+                    ) : isRefused ? (
                       <Btn desktop kind="ghost" sm onClick={() => onUndoRefuse(g)}>
                         {t.door.undo}
                       </Btn>
@@ -934,10 +925,14 @@ function Tile({ v, l, s, accent }: { v: string | number; l: string; s: string; a
 
 function TierChip({
   on,
+  color,
   onClick,
   children,
 }: {
   on: boolean;
+  /** Tier colour to fill the pill with (feedback Max 13/7 — matches the
+   *  guest rows' full-colour fill). Omitted for the neutral "All tiers" chip. */
+  color?: string;
   onClick: () => void;
   children: ReactNode;
 }): JSX.Element {
@@ -948,8 +943,10 @@ function TierChip({
       className={cn(
         'inline-flex items-center gap-[7px] whitespace-nowrap rounded-full border px-[13px] py-[7px] font-display text-[12.5px] font-bold',
         press,
-        on ? 'border-transparent bg-text text-bg' : 'border-line text-dim'
+        color ? 'border-transparent' : on ? 'border-transparent bg-text text-bg' : 'border-line text-dim',
+        on && color && 'ring-2 ring-acc'
       )}
+      style={color ? { background: color, color: tierInk(color) } : undefined}
     >
       {children}
     </button>
@@ -991,11 +988,16 @@ function ChkBtn({
         !disabled && press,
         disabled
           ? 'cursor-not-allowed border-line bg-transparent text-ghost opacity-50'
-          : active
-            ? isIn
+          : !isIn
+            ? // Void/refuse stays the secondary action regardless of state — the
+              // focus belongs on checking people in, not refusing them
+              // (feedback Max 13/7).
+              'border-line bg-transparent text-ghost'
+            : active
               ? 'border-transparent bg-acc text-on-acc'
-              : 'border-line bg-elev2 text-text'
-            : 'border-line bg-transparent text-ghost'
+              : // Not checked in yet: an accent outline, not a flat ghost — this
+                // is the button a doorhost should reach for.
+                'border-acc text-acc bg-transparent'
       )}
     >
       <Icon name={disabled ? 'lock' : isIn ? 'check' : 'close'} size={isIn ? 19 : 16} sw={2.4} />

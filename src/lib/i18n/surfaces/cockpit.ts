@@ -59,17 +59,9 @@ export const cockpit = {
   filterInside: shared.checkinFilters.inside,
   filterRefused: shared.checkinFilters.refused,
   allTiers: 'All tiers',
-  colGuest: 'Guest',
-  colTier: 'Tier',
-  colStatus: 'Status',
-  colInOut: 'In / out',
   emptyNoGuests: 'No guests on the list yet.',
   emptyNoFilter: 'No guests for this filter.',
-  addedBy: 'Added by {name}',
-  rowInside: 'Inside',
-  rowInsidePartial: 'Inside · {arrived}/{total}',
-  rowInsideBy: 'by {name}',
-  rowOnTheWay: 'On the way',
+  rowInsidePartial: '{arrived}/{total} inside',
   feedShown: '{n} guests shown · check-ins show up here live',
 
   // ── Approvals panel ──────────────────────────────────────────────────────
