@@ -12,7 +12,13 @@ import dynamic from 'next/dynamic';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
-import { usePoCanManageTemplates, usePoDoorCandidates, usePoEvents, usePoGuestRequests } from '@/features/po/hooks';
+import {
+  usePoCanManageTemplates,
+  usePoDoorCandidates,
+  usePoEvents,
+  usePoGuestRequests,
+  usePoIsDoorOrganizer,
+} from '@/features/po/hooks';
 import { isOpenGuestRequest } from '@/features/po/adapters';
 import { autoOpenDoorEvent } from '@/features/po/door-event';
 import { poKeys } from '@/features/po/keys';
@@ -376,10 +382,14 @@ export function PlusOneApp(): JSX.Element {
   // of 3.3): the Events tab, event detail, and Gastenlijst resolve real Supabase
   // rows instead of the in-memory mock. The Deur/Taken tabs are wired live too
   // (STAP 3.5) — they mount the real DoorProvider for the venue's current event.
-  // Only door roles (admin / doorhost) see the Deur/Taken tabs — staff/finance/
+  // Door roles (admin / doorhost) see the Deur/Taken tabs — staff/finance/
   // user_manager can't read check_ins/refusals (#17), so the door would look
-  // empty/"mock" for them. Organizers use /door/[eventId] directly.
-  const showDoor = canWorkDoor(roles);
+  // empty/"mock" for them. An event-organizer with no venue role also gets the
+  // tab, scoped to their own event(s): RLS (`can_check_in`) already lets them
+  // work the door, they just had no in-app route to it before (M2, K-6) —
+  // `/door/[eventId]` still works too, but is no longer the only way in.
+  const isDoorOrganizer = usePoIsDoorOrganizer();
+  const showDoor = canWorkDoor(roles) || isDoorOrganizer;
   const isDoorTab = showDoor && target.kind === 'door';
 
   // The active screen/tab key, used for Sentry breadcrumbs + the desktop column
