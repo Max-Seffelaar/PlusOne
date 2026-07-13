@@ -92,15 +92,20 @@ export interface CockpitCounts {
   all: number;
   wait: number;
   in: number;
+  /** Refused guests — a separate bucket, never folded into `all` (they never
+   *  occupied a slot; matches the canonical count rules: "Refused/Bounced
+   *  telt in géén van de bovenstaande mee"). */
+  refused: number;
 }
 
-/** Row counts (not koppen) for the Alle / Onderweg / Binnen segmented control. */
+/** Row counts (not koppen) for the Alle / Onderweg / Binnen / Refused segmented control. */
 export function cockpitCounts(guests: Guest[]): CockpitCounts {
   const list = onList(guests);
   return {
     all: list.length,
     wait: list.filter((g) => g.status === 'wait').length,
     in: list.filter((g) => g.status === 'in').length,
+    refused: guests.filter((g) => g.status === 'refused').length,
   };
 }
 
@@ -149,10 +154,12 @@ export function perTierLive(
   return rows;
 }
 
-export type StatusFilter = 'all' | 'wait' | 'in';
+export type StatusFilter = 'all' | 'wait' | 'in' | 'refused';
 
 /** The cockpit list after the status segment, tier chip (a real tier id, or
- *  'all') and search box. */
+ *  'all') and search box. The 'refused' segment is the only one that shows
+ *  refused guests — every other segment keeps them out (they never occupied
+ *  a slot), matching the canonical count rules. */
 export function filterCockpit(
   guests: Guest[],
   statF: StatusFilter,
@@ -161,9 +168,13 @@ export function filterCockpit(
 ): Guest[] {
   const q = query.trim();
   return guests.filter((g) => {
-    if (g.status === 'refused') return false;
-    if (statF === 'in' && g.status !== 'in') return false;
-    if (statF === 'wait' && g.status !== 'wait') return false;
+    if (statF === 'refused') {
+      if (g.status !== 'refused') return false;
+    } else {
+      if (g.status === 'refused') return false;
+      if (statF === 'in' && g.status !== 'in') return false;
+      if (statF === 'wait' && g.status !== 'wait') return false;
+    }
     if (tierF !== 'all' && g.tierId !== tierF) return false;
     if (q && !fuzzyMatch(q, g.name)) return false;
     return true;

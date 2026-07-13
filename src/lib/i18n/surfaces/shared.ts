@@ -34,17 +34,6 @@ export const shared = {
     emptyTime: '--',
   },
 
-  // ── App shell chrome (shell.tsx) ─────────────────────────────────────────
-  shell: {
-    tabStart: 'Home',
-    tabEvents: 'Events',
-    tabCheckin: 'Check-in',
-    tabTasks: 'Tasks',
-    tabMore: 'More',
-    stageSub: 'guest list · clickable prototype',
-    stageHint: 'Click through the flow. Type a name at Check-in.',
-  },
-
   // ── In-app MFA step-up sheet (mfa-gate.tsx) ───────────────────────────────
   mfaGate: {
     title: 'Two-factor',
@@ -87,5 +76,6 @@ export const shared = {
     all: 'All',
     onTheWay: 'On the way',
     inside: 'Inside',
+    refused: 'Refused',
   },
 } as const;
