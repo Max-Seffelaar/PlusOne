@@ -29,10 +29,12 @@ fix is enforcement, not more prose.
   hook blocks ending the session while any entry is unsynced. `stop_hook_active` guards
   the retry loop; fail-open on unreadable stdin; corrupt marker blocks with repair
   instructions. Pipe-tested across all five scenarios.
-- ⚠️ **Not yet active:** the `Stop` hook registration in `.claude/settings.json` was
-  denied by the permission classifier (self-modification without explicit user ask) —
-  Max applies/approves that 12-line addition himself; until then the marker is written
-  but unenforced.
+- **`.claude/settings.json`** — `Stop` hook registered (initially permission-denied as
+  config self-modification; applied after Max's explicit go later the same session).
+  Existing PreToolUse migration-check hook untouched.
+- **Session naming:** exact automatic naming is impossible today (`/rename` is
+  user-only; SessionStart hooks fire before the task is known) — the skill instead
+  prints a copy-paste-ready `/rename <task name>` line at pickup.
 
 ## 2026-07-13 — Bulk duplicate safeguard (86ey8xg4p, follow-up to 86ey8w7ek)
 

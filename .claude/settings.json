@@ -12,6 +12,18 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/hooks/clickup-sync-check.mjs",
+            "timeout": 10,
+            "statusMessage": "Checking ClickUp task sync…"
+          }
+        ]
+      }
     ]
   }
 }
