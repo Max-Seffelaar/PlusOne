@@ -26,7 +26,7 @@ begin
 end;
 $fn$;
 
-select plan(6);
+select plan(8);
 
 -- ---------------------------------------------------------------------------
 -- S1a. Regression: the everyday path (no venue_id sent at all) still fills
@@ -97,6 +97,40 @@ select is(
       and full_name = 'Forged Venue Request'),
   'aa000000-0000-7000-8000-000000000001'::uuid,
   'S1d venue-1 staff forged venue_id via guest_requests_insert_public is ignored');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- S1e. Same shared trigger, quota_requests: staff forges venue_id on their
+-- own quota request.
+-- ---------------------------------------------------------------------------
+
+select pg_temp.login('55555555-5555-4555-8555-555555555555');
+insert into public.quota_requests (event_id, user_id, requested_extra, venue_id)
+values ('ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555',
+        2, 'aa000000-0000-7000-8000-000000000002');
+select is(
+  (select venue_id from public.quota_requests
+    where event_id = 'ee000000-0000-7000-8000-000000000001'
+      and user_id = '55555555-5555-4555-8555-555555555555'
+      and requested_extra = 2),
+  'aa000000-0000-7000-8000-000000000001'::uuid,
+  'S1e forged venue_id on a quota_request is ignored');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- S1f. Same shared trigger, guest_tiers: admin forges venue_id on a new tier.
+-- ---------------------------------------------------------------------------
+
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+insert into public.guest_tiers (event_id, name, venue_id)
+values ('ee000000-0000-7000-8000-000000000001', 'Forged Venue Tier',
+        'aa000000-0000-7000-8000-000000000002');
+select is(
+  (select venue_id from public.guest_tiers
+    where event_id = 'ee000000-0000-7000-8000-000000000001'
+      and name = 'Forged Venue Tier'),
+  'aa000000-0000-7000-8000-000000000001'::uuid,
+  'S1f forged venue_id on a guest_tier is ignored');
 reset role;
 
 -- ---------------------------------------------------------------------------
