@@ -8,6 +8,57 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-12 — G2: deur-consolidatie + cockpit door-parity (M16, Refuse/undo-refusal/Tasks)
+
+ClickUp `86ey7dzzg`. Two parts, both done in one session (see plan approved before implementation):
+
+**Route consolidation + M16.** `/door/[eventId]` no longer mounts a second `DoorShell`
+component tree (own `PhoneFrame` + a mock "9:41" status bar shipped to production) — it now
+mounts the identical `PoDoorTab` the `/app` Door tab already used, via a new thin
+`src/features/door/components/DoorRoute.tsx`. `DoorShell.tsx` deleted; `PhoneFrame`/`StatusBar`
+(only used by it) removed from `shell.tsx`, plus the now-orphaned `.po-stage` CSS and
+`shared.shell.*`/`door.tabCheckin`/`tabTasks`/`back` i18n keys. Verified server-side via direct
+curl against the dev server (session cookie + `/door/<seed-event-id>`): 200, no `9:41`/`po-stage`
+in the rendered HTML, `Check-in` (the shared segmented control's copy) present.
+
+**Cockpit door-parity (decision "vraag 3").** Scope narrowed with Max at the start of the
+session: void/checkout already worked in the cockpit (shipped 21–23/6, predates the 8/7 audit)
+and "+ Add guest" → `QuickAdd` already covers add-on-spot — so "reverse-check-in" = undoing a
+**refusal**, and the real gap was Refuse + undo-refusal + Tasks (guest notes/priority + ack),
+all missing from `EventDayCockpit.tsx`. Added, all online (no outbox, matching the cockpit's
+existing check-in/out mutations — `usePoRefuseGuest`/`usePoUndoRefusal`/`usePoAckNote` in
+`mutations.ts`, same `supabaseGateway(getDoorClient())` pattern):
+- A guest row's ✗ slot, when the guest isn't inside, is now "Refuse" (was a dead click —
+  `onVoidClick` early-returned for a non-checked-in guest) → `CockpitRefuseModal.tsx` (mandatory
+  reason, reuses `t.door.refuse*` copy).
+- A 4th "Refused" segment (only shown once non-empty) lists refused guests with an "Undo" button.
+  `cockpit.ts`'s `filterCockpit`/`cockpitCounts` extended for the `'refused'` `StatusFilter`.
+- `CockpitTasksCard.tsx` — desktop equivalent of the door's `Taken.tsx`, in the right column.
+  Needed `guests.note_acknowledged_at` added to `fetchGuests`'s select + `Guest.noteAcknowledged`
+  on the adapter (`note_acknowledged_by`/a resolved "Done by" name deliberately skipped — scope
+  trim, not a data gap).
+- A priority-flag icon added next to the guest name in the main list row (previously invisible
+  in the cockpit entirely).
+
+Verified: `pnpm type-check` + `pnpm lint` clean; full `vitest run` 724/724 (extended
+`cockpit.test.ts` for the new filter/count branch, `adapters.test.ts` for `noteAcknowledged`).
+Live interactive browser verification (click-through) could **not** be completed this session —
+the preview browser tool hung mid-hydration on every route, including on an unmodified baseline
+(confirmed via a stash A/B: reverted to `origin/main` code on a fresh dev-server instance,
+identical hang) — an environment/tooling issue, not a defect introduced here. Server-side
+rendering was independently confirmed clean via direct `curl` against the dev server for both
+changed routes. **Follow-up needed: a real click-through per the per-screen test handoff below
+before this is considered fully verified** — not done as part of this session.
+
+Files: see the plan file structure — `mutations.ts`/`queries.ts`/`adapters.ts`/`lib/po/types.ts`
+(+noteAcknowledged plumbing), `cockpit.ts`/`cockpit.test.ts`, `EventDayCockpit.tsx`,
+`CockpitTasksCard.tsx` + `CockpitRefuseModal.tsx` (new), `DoorRoute.tsx` (new),
+`app/door/[eventId]/page.tsx`, `shell.tsx`, i18n surfaces (`door.ts`/`cockpit.ts`/`shared.ts`).
+No migration — every write reuses an existing `DoorGateway` call already covered by mobile's
+RLS/audit-trigger path.
+
+---
+
 ## 2026-07-12 — G1 follow-up: door sub-nav still hit the server (fresh-eyes re-review)
 
 A second fresh-session review found the G1 layout split (below) did NOT actually fix the

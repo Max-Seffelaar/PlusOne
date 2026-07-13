@@ -32,7 +32,16 @@ export type PoEventRow = {
 
 export type PoGuestRow = Pick<
   Tables['guests']['Row'],
-  'id' | 'full_name' | 'plus_ones' | 'status' | 'tier_id' | 'note' | 'note_priority' | 'created_at' | 'contact_id'
+  | 'id'
+  | 'full_name'
+  | 'plus_ones'
+  | 'status'
+  | 'tier_id'
+  | 'note'
+  | 'note_priority'
+  | 'note_acknowledged_at'
+  | 'created_at'
+  | 'contact_id'
 >;
 
 export type PoTierRow = Pick<
@@ -92,7 +101,7 @@ export async function fetchGuests(client: Client, scope: GuestScope): Promise<Po
   return fetchAllRanged<PoVenueGuestRow>((from, to) => {
     const query = client
       .from('guests')
-      .select('id, full_name, plus_ones, status, tier_id, note, note_priority, created_at, contact_id, event_id')
+      .select('id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, event_id')
       .neq('status', 'removed')
       .order('created_at', { ascending: true })
       .order('id')

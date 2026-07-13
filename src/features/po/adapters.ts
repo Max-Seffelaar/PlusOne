@@ -236,6 +236,7 @@ export function toPoGuest(row: PoGuestRow, extras: GuestExtras): Guest {
     plus: row.plus_ones,
     note: row.note ?? '',
     flag: notePriorityToFlag(row.note_priority),
+    noteAcknowledged: row.note_acknowledged_at != null,
     by: extras.addedBy ?? '',
     addedAt: fmt(row.created_at, { day: 'numeric', month: 'short' }).replace('.', ''),
     status: guestStatusToPo(row.status),
