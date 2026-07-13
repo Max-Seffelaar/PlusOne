@@ -45,7 +45,16 @@ export interface DoorSyncState {
 }
 
 export function useDoorSync({ eventId, onSync, onRealtimeCheckIn, onRealtimeGuest }: DoorSyncHandlers): DoorSyncState {
-  const [online, setOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine));
+  // Modern Node exposes a global `navigator` (web-platform-API compat) without
+  // an `onLine` property, so `typeof navigator === 'undefined'` alone no longer
+  // detects "no real browser" during SSR — it reads `undefined` (falsy) there,
+  // while a real browser reads its actual (usually `true`) value, producing a
+  // server/client hydration mismatch on every route that renders this from a
+  // cold SSR pass (e.g. /door/[eventId]). Fall back to `true` unless the value
+  // is a genuine boolean.
+  const [online, setOnline] = useState(() =>
+    typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' ? navigator.onLine : true
+  );
   const [realtimeConnected, setRealtimeConnected] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
   const [syncing, setSyncing] = useState(false);

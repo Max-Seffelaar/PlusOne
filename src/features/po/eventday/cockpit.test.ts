@@ -127,14 +127,14 @@ describe('insideHeads / partyState (S1.2 in-/uitcheck modals)', () => {
 });
 
 describe('cockpitCounts', () => {
-  it('counts rows (not koppen) per segment, refused excluded', () => {
+  it('counts rows (not koppen) per segment; refused is its own bucket, not folded into all', () => {
     const guests = [
       g({ id: '1', status: 'in', plus: 9 }),
       g({ id: '2', status: 'wait' }),
       g({ id: '3', status: 'wait' }),
       g({ id: '4', status: 'refused' }),
     ];
-    expect(cockpitCounts(guests)).toEqual({ all: 3, wait: 2, in: 1 });
+    expect(cockpitCounts(guests)).toEqual({ all: 3, wait: 2, in: 1, refused: 1 });
   });
 });
 
@@ -180,8 +180,11 @@ describe('filterCockpit', () => {
     g({ id: '2', name: 'Sanne de Vries', role: 'Guest', status: 'in' }),
     g({ id: '3', name: 'Refused Rick', role: 'Guest', status: 'refused' }),
   ];
-  it('always hides refused', () => {
+  it('hides refused on every segment except the dedicated "refused" one', () => {
     expect(filterCockpit(guests, 'all', 'all', '').map((x) => x.id)).toEqual(['1', '2']);
+  });
+  it('the "refused" segment shows only refused guests', () => {
+    expect(filterCockpit(guests, 'refused', 'all', '').map((x) => x.id)).toEqual(['3']);
   });
   it('filters by status segment and tier (real tier id)', () => {
     expect(filterCockpit(guests, 'in', 'all', '').map((x) => x.id)).toEqual(['2']);

@@ -25,7 +25,7 @@ import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import type { Tier } from '@/lib/po/types';
 import type { PoInfluencer, PoRequestLink } from '@/features/po/queries';
-import { usePoEventForEdit, usePoEvents, usePoInfluencers, usePoLinkFunnel, usePoRequestLinks, usePoTiers } from '@/features/po/hooks';
+import { usePoEventForEdit, usePoEvents, usePoInfluencers, usePoRequestLinks, usePoTiers } from '@/features/po/hooks';
 import { usePoCreateInfluencer, usePoUpdateLink } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { poKeys } from '@/features/po/keys';
@@ -58,7 +58,6 @@ function displayName(link: PoRequestLink): string {
 function LinkCard({
   link,
   tier,
-  checkedIn,
   canManage,
   highlight,
   onOpen,
@@ -68,8 +67,6 @@ function LinkCard({
 }: {
   link: PoRequestLink;
   tier: Tier | null;
-  /** Checked-in headcount via this link (M14) — undefined while the funnel loads. */
-  checkedIn: number | undefined;
   canManage: boolean;
   /** Just created — brief accent border so the new link is findable. */
   highlight: boolean;
@@ -95,8 +92,7 @@ function LinkCard({
   };
 
   const stats =
-    fmt(t.links.stats, { views: link.views, requests: link.requests, approved: link.approved }) +
-    (checkedIn != null ? fmt(t.links.statsIn, { n: checkedIn }) : '') +
+    fmt(t.links.stats, { views: link.views, requests: link.requests, approved: link.approved, checkedIn: link.checkedInHeads }) +
     (link.maxHeadcount != null
       ? fmt(t.links.statsCap, { heads: link.approvedHeads, max: link.maxHeadcount })
       : '');
@@ -180,7 +176,6 @@ export function EventLinks({ eventId, embedded }: { eventId?: string; embedded?:
   const id = eventId ?? fallback?.id ?? '';
   const { data: ev, canManage } = usePoEventForEdit(id);
   const linksQ = usePoRequestLinks(id);
-  const funnelQ = usePoLinkFunnel(id);
   const tiersQ = usePoTiers(id);
   const influencersQ = usePoInfluencers();
   const updateLink = usePoUpdateLink(id);
@@ -195,10 +190,6 @@ export function EventLinks({ eventId, embedded }: { eventId?: string; embedded?:
   const links = linksQ.data ?? [];
   const tiers = tiersQ.data ?? [];
   const tierById = new Map(tiers.map((row) => [row.id, row]));
-  // Checked-in per link (M14) — same event_link_funnel RPC the Overview reads,
-  // so both Promotion tabs agree. Undefined until loaded; the card omits the
-  // segment rather than flashing a zero.
-  const checkedInByLink = new Map((funnelQ.data ?? []).map((r) => [r.linkId, r.checkedInHeads]));
 
   // Fade the just-created highlight after a beat.
   useEffect(() => {
@@ -245,7 +236,6 @@ export function EventLinks({ eventId, embedded }: { eventId?: string; embedded?:
               key={link.id}
               link={link}
               tier={link.tierId ? tierById.get(link.tierId) ?? null : null}
-              checkedIn={checkedInByLink.get(link.id)}
               canManage={canManage}
               highlight={link.id === justCreated}
               onOpen={() => canManage && setSheet({ mode: 'edit', link })}

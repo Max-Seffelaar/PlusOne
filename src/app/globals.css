@@ -34,26 +34,7 @@ html {
   }
 }
 
-/* ── PLUSONE prototype: phone-frame stage, screen + sheet/toast motion ──────
-   The "stage" (warm paper backdrop) and the phone bezel are a DESKTOP PREVIEW
-   device only — on a real phone viewport the screen goes full-bleed. The inner
-   `.po-screen` content is the actual product UI. */
-
-/* The stage paper + noise only paint on the desktop preview (lg+). On a phone
-   viewport the dark screen fills the display. */
-@media (min-width: 1024px) {
-  .po-stage {
-    background: radial-gradient(140% 100% at 80% -10%, #f2efe8 0%, #e7e2d8 50%, #ddd7cb 100%);
-  }
-  .po-stage::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    opacity: 0.5;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
-  }
-}
+/* ── PLUSONE prototype: screen + sheet/toast motion ──────────────────────── */
 
 .po-phone {
   width: 390px;

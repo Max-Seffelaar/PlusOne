@@ -48,6 +48,14 @@ export function formatMonthYear(iso: string): string {
   return capitalize(formatInTz(iso, { month: 'long', year: 'numeric' }));
 }
 
+/** "16 Jul · 18:07" (Amsterdam) — a check-in instant needs the date alongside
+ *  the time (not just "18:07") since an event can cross midnight (#26): without
+ *  it, a guest who arrived just after 00:00 reads as earlier than one who
+ *  arrived at 23:50 the same night. */
+export function formatDateTime(iso: string): string {
+  return `${formatShortDate(iso)} · ${formatTime(iso)}`;
+}
+
 /** A 15-min bucket / check-in instant → "23:30" (Amsterdam); '—' when absent. */
 export function formatClock(iso: string | null): string {
   if (!iso) return '—';
