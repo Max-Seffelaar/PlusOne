@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { getAuthContext } from '@/lib/auth/context';
+import { requireConsent } from '@/lib/auth/consent';
 import { safeNextPath } from '@/features/auth/next-path';
 import { MfaChallengeForm } from '@/features/auth/components/MfaChallengeForm';
 
@@ -15,6 +16,10 @@ export default async function MfaVerifyPage({
   const nextPath = safeNextPath(next);
   const ctx = await getAuthContext();
   if (!ctx) redirect('/login');
+
+  // First-login consent gate (#20/#40): same deep-link gap as /mfa/enroll —
+  // this route sits outside the /app layout, so it needs its own gate.
+  await requireConsent(ctx.user.id, nextPath);
 
   // Nothing to challenge → enroll first; already AAL2 → carry on.
   if (!ctx.hasVerifiedTotp) redirect('/mfa/enroll');
