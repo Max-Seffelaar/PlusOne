@@ -8,9 +8,13 @@
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { PoEvent } from '@/lib/po/types';
+import { indexGuestsByName } from '@/features/guests/bulk-dedupe';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
 import { usePoTiers, usePoQuota, usePoGuests, usePoEventForEdit } from '@/features/po/hooks';
 import { usePoBulkAddToEvent, type BulkAddPerson } from '@/features/po/mutations';
+import { findEventGuestsByNames } from '@/features/po/queries';
+import { createClient } from '@/lib/supabase/client';
+import { captureUnexpectedError } from '@/lib/observability/capture';
 import { summarizeBulkAdd, type BulkAddOutcome, type BulkAddRowResult } from '@/features/po/bulk';
 import { t, fmt } from '@/lib/i18n';
 import { Icon } from '../../icon';
@@ -121,6 +125,7 @@ export function BulkAddToEventSheet({
   const [tierId, setTierId] = useState<string>('');
   const [results, setResults] = useState<BulkAddRowResult[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     if (tiers.length === 0) {
@@ -147,11 +152,34 @@ export function BulkAddToEventSheet({
     alreadyOn: p.contactId ? existingContactIds.has(p.contactId) : existingNames.has(p.name.trim().toLowerCase()),
   }));
 
-  const submit = (): void => {
+  const submit = async (): Promise<void> => {
     if (!evId || !tierId) return;
     setErr(null);
+    // Authoritative server-side duplicate check (86ey8xg4p, follow-up to
+    // 86ey8w7ek): `planned.alreadyOn` above is only a HINT from `evGuests`, which
+    // can lag or truncate on a big event. Contact-linked people are already safe
+    // (add_contact_to_event upserts idempotently via the event+contact unique
+    // constraint) — only the name-only path calls a plain insert, so that's the
+    // only slice re-checked here, in one batched RPC call. A failure (offline /
+    // deploy skew) falls back to the client hint, same as bulk-paste.
+    let finalPeople = planned;
+    const nameOnly = planned.filter((p) => !p.contactId && !p.alreadyOn);
+    if (nameOnly.length > 0) {
+      setChecking(true);
+      try {
+        const matches = await findEventGuestsByNames(createClient(), evId, nameOnly.map((p) => p.name));
+        const byName = indexGuestsByName(matches);
+        finalPeople = planned.map((p) =>
+          !p.contactId && !p.alreadyOn && byName.has(p.name.trim().toLowerCase()) ? { ...p, alreadyOn: true } : p,
+        );
+      } catch (e) {
+        captureUnexpectedError(e, { source: 'query', key: 'find_event_guests_by_names' });
+      } finally {
+        setChecking(false);
+      }
+    }
     bulkAdd.mutate(
-      { targetEventId: evId, tierId, targetLocked: evEdit.data?.listLocked ?? false, people: planned },
+      { targetEventId: evId, tierId, targetLocked: evEdit.data?.listLocked ?? false, people: finalPeople },
       {
         onSuccess: (res) => setResults(res),
         onError: (e) => setErr(e instanceof Error ? e.message : ba.error),
@@ -229,11 +257,11 @@ export function BulkAddToEventSheet({
             kind="primary"
             full
             icon="plus"
-            className={cn('mt-2', (!evId || !tierId || bulkAdd.isPending) && 'opacity-[0.45]')}
-            disabled={!evId || !tierId || bulkAdd.isPending}
-            onClick={submit}
+            className={cn('mt-2', (!evId || !tierId || bulkAdd.isPending || checking) && 'opacity-[0.45]')}
+            disabled={!evId || !tierId || bulkAdd.isPending || checking}
+            onClick={() => void submit()}
           >
-            {bulkAdd.isPending ? ba.busy : fmt(ba.submit, { n: people.length, event: scopeEvent?.name ?? '' })}
+            {bulkAdd.isPending || checking ? ba.busy : fmt(ba.submit, { n: people.length, event: scopeEvent?.name ?? '' })}
           </Btn>
         </>
       )}

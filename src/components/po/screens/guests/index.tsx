@@ -28,6 +28,9 @@ import {
   usePoChangeGuestsTierBulk,
   usePoMarkGuestsRegular,
 } from '@/features/po/mutations';
+import { findEventGuestsByNames } from '@/features/po/queries';
+import { createClient } from '@/lib/supabase/client';
+import { captureUnexpectedError } from '@/lib/observability/capture';
 import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
@@ -543,7 +546,25 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
     if (!canConfirm) return;
     setOrchErr(null);
     setBusy(true);
-    const plan = planBulkAdd(plannable, byName, dupeMode);
+    // Authoritative server-side duplicate check AT CONFIRM (86ey8xg4p, follow-up
+    // to 86ey8w7ek): `byName` above is only a HINT built from whatever page of
+    // evGuests has loaded — on a big/not-yet-loaded event it can miss real
+    // duplicates and let the same guest get inserted 3-5x. One batched, indexed
+    // RPC call resolves every pasted name against the full RLS-scoped list right
+    // before the plan executes. A failure (offline / deploy skew) falls back to
+    // the client hint — offline stays quiet, but a missing RPC must reach Sentry
+    // or the safeguard would be silently inert in prod.
+    let authByName = byName;
+    try {
+      const names = plannable.map((r) => r.name);
+      if (names.length > 0) {
+        const matches = await findEventGuestsByNames(createClient(), evId, names);
+        authByName = indexGuestsByName(matches);
+      }
+    } catch (e) {
+      captureUnexpectedError(e, { source: 'query', key: 'find_event_guests_by_names' });
+    }
+    const plan = planBulkAdd(plannable, authByName, dupeMode);
     try {
       if (plan.inserts.length > 0) {
         await addBulk.mutateAsync({
