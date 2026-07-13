@@ -25,6 +25,13 @@ jobs:
           node-version: 22
           cache: 'pnpm'
 
+      # Fastest possible feedback on a migration timestamp collision (fails in
+      # seconds, no dependencies installed yet) — catches the case a per-branch
+      # check can't: two PRs each picking a free timestamp that only collides
+      # once both land on main (86ey9e84m/86ey9e851, 13/7).
+      - name: Check for migration timestamp collisions
+        run: node scripts/hooks/check-migration-duplicates.mjs
+
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm lint
