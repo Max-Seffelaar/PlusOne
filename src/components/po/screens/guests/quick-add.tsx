@@ -304,13 +304,18 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
     executePlan(dupeHit, mode);
   };
 
+  // A quota number reads as "you can add guests" — showing it to a role that
+  // can't (user_manager/finance) contradicted the noRights note right below it
+  // (K-7 residual: M9 fixed Home/EventRow but missed this screen's own header).
   const sub = !curEv
     ? t.guests.add.subNoEvent
-    : exempt
-      ? t.guests.add.subUnlimited
-      : remaining !== null && quota
-        ? fmt(t.guests.add.subQuota, { n: remaining, m: quota.quota })
-        : t.guests.add.subFallback;
+    : !canAdd
+      ? t.guests.add.subFallback
+      : exempt
+        ? t.guests.add.subUnlimited
+        : remaining !== null && quota
+          ? fmt(t.guests.add.subQuota, { n: remaining, m: quota.quota })
+          : t.guests.add.subFallback;
 
   return (
     <div className={col}>
