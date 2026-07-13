@@ -50,10 +50,14 @@ export type GuestRow = Pick<
   | 'created_at'
 >;
 
-/** PostgREST column list for the door guest select — MUST stay in sync with the
- *  `GuestRow` keys above (a unit test asserts the two match). */
+/** PostgREST column list for the door guest select — the SINGLE source used by
+ *  the live `fetchDoorSnapshot` read (below), so the drift-guard test that pins
+ *  this to the `GuestRow`/`projectDoorGuest` keys actually protects the primary
+ *  IndexedDB writer, not a bystander constant. `as const` keeps the typed client's
+ *  column validation + narrow row inference (a fake column fails `tsc`; adding a
+ *  real one like `email` fails the drift test). MUST stay in sync with `GuestRow`. */
 export const DOOR_GUEST_SELECT =
-  'id, event_id, full_name, phone, plus_ones, tier_id, status, note, note_priority, note_acknowledged_at, note_acknowledged_by, added_by, created_at';
+  'id, event_id, full_name, phone, plus_ones, tier_id, status, note, note_priority, note_acknowledged_at, note_acknowledged_by, added_by, created_at' as const;
 
 /** Project a full guests row (realtime payload / server row) down to the narrow
  *  snapshot shape, so unshown PII (email, …) never reaches IndexedDB (P-IDB7). */
@@ -156,10 +160,10 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
         // and offer "ongedaan maken"; buildDoorView splits them out by status.
         // Narrow projection (NOT select('*')) — only the door-rendered columns;
         // keeps unshown PII out of IndexedDB and ~a third off the payload (P-IDB7).
+        // Uses the shared DOOR_GUEST_SELECT so the drift-guard test covers THIS
+        // read (the primary IndexedDB writer), not just an unused constant.
         .from('guests')
-        .select(
-          'id, event_id, full_name, phone, plus_ones, tier_id, status, note, note_priority, note_acknowledged_at, note_acknowledged_by, added_by, created_at',
-        )
+        .select(DOOR_GUEST_SELECT)
         .eq('event_id', eventId)
         .in('status', ['approved', 'checked_in', 'refused'])
         .order('full_name')
