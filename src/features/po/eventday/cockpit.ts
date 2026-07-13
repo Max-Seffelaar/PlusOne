@@ -4,18 +4,20 @@
  * The cockpit screen (EventDayCockpit) stays declarative: every number and filter
  * it renders comes from these pure functions, mirroring how `src/features/door/
  * model.ts` keeps the door's logic testable in isolation (no I/O, injectable
- * `now`). Headcount math follows the quota convention (#5/#22): a guest with N
- * plus-ones is `1 + N` koppen. "Refused" guests are off the cockpit's working set
- * — the night is about who is on the list and inside; weigeren is a door concern.
+ * `now`). Headcount math is the canonical M4 selector (`../headcount.ts`, spec
+ * #44) — this file adapts the cockpit's `Guest[]` + arrivals-map shape onto it,
+ * it never re-derives on-list/inside/on-the-way itself (K-10: two independent
+ * reducers here and in door/model.ts is exactly what let the two drift apart).
  */
 import { fuzzyMatch } from '@/features/door/components/fuzzy';
 import type { Guest, GuestStatus, Tier } from '@/lib/po/types';
+import { computeHeadcounts, heads as headsOf, type HeadcountRow } from '../headcount';
 
 const TZ = 'Europe/Amsterdam';
 
 /** Koppen for one guest: themselves + their (registered) plus-ones (#5). */
 export function heads(g: Pick<Guest, 'plus'>): number {
-  return 1 + (g.plus || 0);
+  return headsOf(g);
 }
 
 /** Actual present check-in arrivals per guest (plus_ones_arrived), keyed by id. */
@@ -30,6 +32,15 @@ export type ArrivalsByGuest = ReadonlyMap<string, { arrived: number }>;
 export function arrivedHeads(g: Guest, arrivals: ArrivalsByGuest): number {
   const a = arrivals.get(g.id);
   return 1 + (a ? a.arrived : g.plus || 0);
+}
+
+/** `Guest[]` + arrivals-map → the canonical selector's normalized row shape. */
+function toHeadcountRows(guests: Guest[], arrivals: ArrivalsByGuest): HeadcountRow[] {
+  return guests.map((g) => ({
+    status: g.status,
+    plus: g.plus,
+    arrivedPlus: g.status === 'in' ? arrivals.get(g.id)?.arrived : undefined,
+  }));
 }
 
 /** Koppen currently inside for a guest: their present arrivals, or 0 when the
@@ -75,16 +86,13 @@ export interface CockpitTiles {
 }
 
 export function cockpitTiles(guests: Guest[], arrivals: ArrivalsByGuest = new Map()): CockpitTiles {
-  const list = onList(guests);
-  const aangemeldH = list.reduce((a, g) => a + heads(g), 0);
-  const inside = list.filter((g) => g.status === 'in');
-  const binnenH = inside.reduce((a, g) => a + arrivedHeads(g, arrivals), 0);
+  const hc = computeHeadcounts(toHeadcountRows(guests, arrivals));
   return {
-    binnenH,
-    aangemeldH,
-    onderwegH: aangemeldH - binnenH,
-    pct: aangemeldH > 0 ? binnenH / aangemeldH : 0,
-    binnenN: inside.length,
+    binnenH: hc.insideHeads,
+    aangemeldH: hc.onListHeads,
+    onderwegH: hc.onTheWayHeads,
+    pct: hc.attendancePct,
+    binnenN: hc.insideRows,
   };
 }
 
@@ -142,12 +150,13 @@ export function perTierLive(
   for (const t of tiers) {
     const gs = list.filter((g) => g.tierId === t.id);
     if (gs.length === 0) continue;
+    const hc = computeHeadcounts(toHeadcountRows(gs, arrivals));
     rows.push({
       tierId: t.id,
       tier: t.name,
       color: t.color,
-      aangemeld: gs.reduce((a, g) => a + heads(g), 0),
-      binnen: gs.filter((g) => g.status === 'in').reduce((a, g) => a + arrivedHeads(g, arrivals), 0),
+      aangemeld: hc.onListHeads,
+      binnen: hc.insideHeads,
       entries: gs.length,
     });
   }

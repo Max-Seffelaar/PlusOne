@@ -92,6 +92,15 @@ export type GuestScope = { eventId: string } | { venueId: string };
  * venue-wide "all guests" list can badge + deep-link each row to its own event;
  * single-event callers simply don't use it.
  *
+ * Status filter (M4/#44 — was `.neq('status', 'removed')`, which let a
+ * `pending`/`denied` row leak in as a phantom "on the way" guest: the po
+ * `Guest.status` type only has in/wait/refused, so `guestStatusToPo` collapsed
+ * it into 'wait', and it silently inflated the cockpit's on-list count by one
+ * relative to the door (whose own query, and every stats RPC, already scoped
+ * to exactly these three). Matches `ON_LIST` above, plus `refused` since
+ * screens here (Guests tab, cockpit's "Refused" concept) still need to render
+ * those rows, just never count them on-list.
+ *
  * Ranged: a 1500-guest event/venue would truncate at PostgREST's 1000-row cap,
  * hiding the rest. `created_at` isn't unique, so `.order('id')` is the
  * tiebreaker that makes the page order deterministic (no overlap/skip across
@@ -102,7 +111,7 @@ export async function fetchGuests(client: Client, scope: GuestScope): Promise<Po
     const query = client
       .from('guests')
       .select('id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, event_id')
-      .neq('status', 'removed')
+      .in('status', [...ON_LIST, 'refused'])
       .order('created_at', { ascending: true })
       .order('id')
       .range(from, to);

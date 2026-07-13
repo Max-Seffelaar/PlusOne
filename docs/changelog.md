@@ -482,6 +482,108 @@ Meer venue card, venue switcher, venue settings all render live data as before).
 
 ---
 
+## 2026-07-12 — UX/IA 8/7 M4: canonical headcount rules + one shared selector (K-10, ClickUp `86ey7dzdc`)
+
+Root-caused K-10 ("cockpit counts differently than the rest — 4/38 · 34 on the way vs.
+door/EventView's 37 · 33, same event, same moment") and fixed it at both the structural
+and the data level, per the canonical rules Max locked in `ux-ia-audit-claude-code.md`
+§5.2 (now also `gastenlijst-app-spec.md` decision #44).
+
+**Structural fix:** one canonical selector, `src/features/po/headcount.ts`
+(`computeHeadcounts`) — on-list excludes `removed`/`refused`, inside counts only arrived
+heads on a partial check-in, on-the-way = on-list − inside, refused is tracked separately
+and never contributes elsewhere. `src/features/po/eventday/cockpit.ts` and
+`src/features/door/model.ts` both now delegate to it instead of each carrying its own
+reducer — that duplication is exactly what let the two drift apart.
+
+**Two real bugs found while root-causing, fixed in migration
+`20260713140000_headcount_canonical_rules.sql`** (renamed at the fresh-session
+`/code-review` pass — the original `20260710120000` stamp sorted before `main`'s
+already-live `20260712120000_quick_add_dupe_check.sql`, which would have forced
+`db push --include-all` on the next prod deploy):**
+1. `venue_event_headcounts.present` (feeds Home cards + EventView) summed the *full*
+   registered party for every checked-in guest instead of `plus_ones_arrived` — a partial
+   check-in was overcounted. New pgTAP (`venue_scope_denormalization.test.sql` 5d) proves a
+   +3 party with 1 arrival now adds 2 heads, not 4.
+2. `event_stats_summary` / `event_tier_stats` / `venue_stats_summary` /
+   `venue_event_rollup` folded `refused` guests into the same "registered" pool as
+   approved/checked-in — a deliberate, tested choice at the time (see the old
+   `analytics.test.sql` comments) that the M4 decision now supersedes: refused never
+   contributes to on-list/no-shows/attendance anywhere, tracked only via its own,
+   `guests.status`-direct count. `event_user_additions`/`venue_user_additions` (per-adder
+   attribution — "gross, incl. removed") are deliberately **unchanged**, a different
+   metric. `analytics.test.sql` expectations updated (registered 28→27, registered
+   headcount 39→37, attendance 10.3%→10.8%, Regular-tier registered 22→21 — Bram, the
+   seed's refused guest, sat in Regular).
+
+**~~Bycatch, same investigation~~ — RETRACTED, see the fresh-session `/code-review` correction
+below.** The original entry here claimed `check_ins` has no `event_id` column and removed the
+realtime filter on that basis. Both were wrong: `check_ins` has carried `event_id` since
+`20260622140000_checkin_event_scope.sql`, and `20260623` (`d6b8c4a`) deliberately added the
+`event_id=eq.<id>` filter as scale-track work — without it, every venue's check-in reaches every
+subscriber before RLS runs. The filter was restored in both `useDoorSync.ts` and `hooks.ts`; see
+the 13/7 correction entry for the full story.
+
+**Tests:** new `src/features/po/headcount.test.ts` (10 cases, incl. a K-10 repro proving
+the split-refused-array and unsplit-array call sites agree). `pnpm vitest run` 681/681
+green, `supabase test db` on a fresh reset green (926 tests, incl. the updated
+`analytics.test.sql` + new `venue_scope_denormalization.test.sql` 5d). Zero `tsc`/`lint`
+errors. Publieke `/e/[slug]`-pagina shows a different, unrelated metric (`spots_left`,
+per-link capacity) — out of scope for this rule, confirmed and left untouched.
+
+**Follow-up 13/7 (Max' manual test found a THIRD bug the RPC/pgTAP checks above didn't
+cover):** cockpit still showed one head too many live in the browser (40 vs. 41 — the seed's
+own `pending`-status guest, Aïcha, doesn't come from a trigger/RPC so no pgTAP test ever
+exercised it). Root cause: `fetchGuests` (`src/features/po/queries.ts`, backs `usePoGuests` →
+cockpit + the Guests tab + the venue-wide list) filtered `.neq('status', 'removed')` — the
+ONLY fetcher that didn't scope to the same `approved`/`checked_in`/`refused` triple the door's
+own query and every stats RPC already use. A `pending` (or `denied`) guest row slipped
+through, and since the po `Guest.status` type only has `in`/`wait`/`refused`,
+`guestStatusToPo` silently collapsed it into `wait` — a phantom "on the way" guest invisible
+in the UI (no `pending` badge exists) but very visible in the headcount. Fixed: `fetchGuests`
+now filters `.in('status', [...ON_LIST, 'refused'])`, matching the door exactly. No UI
+capability lost — nothing renders `guests.status === 'pending'` distinctly, so this guest was
+never meant to be counted, only ever meant to be excluded (per the seed's own comment: "pending
+Aïcha ... excluded"). Live-reverified in the preview: cockpit/door/Home all read 40 on the
+list · 25 on the way · 15 inside after the fix, where cockpit alone read 41/26/15 before.
+732/732 vitest green, `tsc`/`lint` clean (no DB change, so no new pgTAP needed here).
+
+**Fresh-session `/code-review` before merge (per the review gate — migration touches
+`SECURITY DEFINER` functions), 13/7 — two real findings, both fixed:**
+1. **The "bycatch" realtime fix above was built on a false premise and reverted.**
+   `check_ins` DOES carry `event_id` (`20260622140000_checkin_event_scope.sql`, backfilled
+   NOT NULL, trigger-maintained, indexed specifically "backs the realtime event filter"), and
+   the `event_id=eq.<id>` filter this session removed was deliberately added in `d6b8c4a`
+   ("feat(scale): wire check_ins event scope") as scale-track work — without it, every venue's
+   check-in reaches every subscriber before RLS evaluates, the exact cost that commit fixed.
+   Filter restored in both `useDoorSync.ts` and `usePoEventRealtime` (`hooks.ts`); the false
+   claim also corrected in both files' comments and here. If realtime genuinely looked dead
+   during the original K-10 investigation, the real suspect is the documented local
+   realtime-publication-drop quirk (see `local-supabase-quirks`), not the filter — worth its
+   own look if it reproduces on prod, but out of scope for this PR.
+2. **`venue_event_headcounts.present` regressed staff to seeing 0 for their own checked-in
+   guests.** The rewrite is `SECURITY INVOKER` and derives `present` from `check_ins`, which
+   staff have no SELECT policy on — so a staff user's own guest showed `checked_in` in the
+   list while the Home/EventView card read 0 inside (the pre-PR formula, summing the full
+   registered party off `guests` alone, happened to dodge this since `guests` IS staff-
+   readable). Fixed role-preservingly: `sum(1 + coalesce(c.plus_ones_arrived, g.plus_ones))
+   filter (where g.status = 'checked_in')`, `c` joined only on non-voided rows — exact
+   arrived heads where `check_ins` is readable, the old full-party behaviour where it isn't
+   (a hidden row joins to `null`, `coalesce` falls back). New pgTAP case covers staff
+   specifically (the original 5d only exercised admin — DoD's per-role rule).
+
+Also from the review: renamed the migration off a timestamp that collided with `main`'s
+`20260712120000_quick_add_dupe_check.sql`; fixed `event_checkins_per_quarter`'s comment
+(a refused-after-checked-in guest keeps its check-in — `sync_guest_status_from_refusal`
+flips status without voiding — so "refused never has a check-in" was false, just rare); fixed
+the seed baseline comment ("Tom 7" → "Tom 8", the file's own 4.6 assertion already proved 8).
+Flagged, not fixed (non-blocking): `arrivedHeads`/`cockpitCounts`/`perTierLive` in
+`cockpit.ts` still hand-roll koppen math the canonical selector already provides — the exact
+duplication this PR exists to kill, left as a follow-up rather than growing this PR further;
+`guest_slot_cost` still charges a `pending` guest quota (pre-existing, unrelated to this PR).
+
+---
+
 ## 2026-07-09 — Before/after A/B of the venue-scope read fix (#143 — SCALE-5/K8/FE-3, PR #165)
 
 Same-machine, same-seed verification that the venue-scope fix (PR #143) is real, not just
