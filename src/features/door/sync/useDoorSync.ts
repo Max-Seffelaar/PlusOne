@@ -7,9 +7,9 @@
  *    (channel state);
  *  - runs `onSync` (drain outbox + refetch snapshot) on mount, on reconnect, on
  *    visibilitychange/focus, and on a 60s safety interval;
- *  - subscribes to `check_ins` INSERTs (all — they carry no event_id, so the
- *    provider filters by snapshot membership) and `guests` changes for this
- *    event, forwarding rows to the provider for cache patching (~1s, point 9);
+ *  - subscribes to `check_ins` and `guests` changes for this event (both
+ *    server-filtered on `event_id`, #3a scale track), forwarding rows to the
+ *    provider for cache patching (~1s, point 9);
  *  - derives the status-bar state from `status.ts`.
  *
  * Callbacks are kept in refs so connectivity/timer effects never re-subscribe.
@@ -149,12 +149,16 @@ export function useDoorSync({ eventId, onSync, onRealtimeCheckIn, onRealtimeGues
         // stayed inflated until the 60s safety sync (C11). The provider patches
         // the matching row in place on an UPDATE.
         //
-        // NO server-side filter here: `check_ins` carries no `event_id` column
-        // (only `guest_id`), so an `event_id=eq.` filter can never match — this
-        // silently killed check-in realtime entirely (M4/K-10 investigation).
-        // Subscribe unfiltered and let the callback drop rows outside this
-        // event's snapshot (guestIdSetRef membership, see onRealtimeCheckIn).
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'check_ins' }, (payload) => {
+        // `filter: event_id=eq.<id>` — check_ins carries event_id since
+        // `20260622140000_checkin_event_scope.sql` (backfilled, NOT NULL,
+        // trigger-maintained) specifically so this filter could exist: without
+        // it every venue's check-ins reach every subscriber before RLS runs
+        // (the documented postgres_changes "RLS per subscriber per change"
+        // cost — see that migration's own comment). A prior M4/K-10 session
+        // mistakenly believed the column didn't exist (checked only the
+        // original CREATE TABLE, missed this migration) and removed the
+        // filter — reverted; fresh-session /code-review caught it.
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'check_ins', filter: `event_id=eq.${eventId}` }, (payload) => {
           if (!payload.new || Object.keys(payload.new).length === 0) return; // DELETE (never happens — soft-void only) / empty
           onCheckInRef.current(payload.new as CheckInRow);
           setNow(Date.now());

@@ -604,13 +604,6 @@ export function usePoEventRealtime(eventId: string): { realtimeConnected: boolea
         void qc.invalidateQueries({ queryKey: poKeys.eventDetail(eventId) });
       };
 
-      // check_ins carries no `event_id` column (only `guest_id`) — an
-      // `event_id=eq.` filter on it can never match, which silently killed
-      // check-in realtime for the cockpit entirely (M4/K-10 investigation;
-      // same bug fixed in the door's useDoorSync). Subscribe unfiltered:
-      // invalidate() is cheap/idempotent, so an occasional wasted invalidate
-      // from another event's check-in is an acceptable trade for correctness.
-
       channel = client
         .channel(`eventday:${eventId}`)
         .on(
@@ -618,7 +611,11 @@ export function usePoEventRealtime(eventId: string): { realtimeConnected: boolea
           { event: '*', schema: 'public', table: 'guests', filter: `event_id=eq.${eventId}` },
           invalidate
         )
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'check_ins' }, invalidate)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'check_ins', filter: `event_id=eq.${eventId}` },
+          invalidate
+        )
         .subscribe((st) => {
           if (cancelled) return;
           // Heal a missed burst: a resubscribe after a drop replays nothing, so

@@ -446,7 +446,11 @@ and never contributes elsewhere. `src/features/po/eventday/cockpit.ts` and
 `src/features/door/model.ts` both now delegate to it instead of each carrying its own
 reducer — that duplication is exactly what let the two drift apart.
 
-**Two real bugs found while root-causing, fixed in migration `20260710120000`:**
+**Two real bugs found while root-causing, fixed in migration
+`20260713140000_headcount_canonical_rules.sql`** (renamed at the fresh-session
+`/code-review` pass — the original `20260710120000` stamp sorted before `main`'s
+already-live `20260712120000_quick_add_dupe_check.sql`, which would have forced
+`db push --include-all` on the next prod deploy):**
 1. `venue_event_headcounts.present` (feeds Home cards + EventView) summed the *full*
    registered party for every checked-in guest instead of `plus_ones_arrived` — a partial
    check-in was overcounted. New pgTAP (`venue_scope_denormalization.test.sql` 5d) proves a
@@ -462,15 +466,13 @@ reducer — that duplication is exactly what let the two drift apart.
    headcount 39→37, attendance 10.3%→10.8%, Regular-tier registered 22→21 — Bram, the
    seed's refused guest, sat in Regular).
 
-**Bycatch, same investigation:** the realtime `check_ins` subscriptions in both
-`useDoorSync.ts` (door) and `usePoEventRealtime` (cockpit, `hooks.ts`) filtered on
-`event_id=eq.<id>` — a column `check_ins` doesn't have (only `guest_id`). The filter could
-never match, so check-in/void/top-up realtime was silently dead on both surfaces; every
-peer's check-in only ever showed up via the 60s safety sync. Filter removed — the door
-already filters client-side on guest-id membership (as its own doc comment always said was
-the design); the cockpit now invalidates unconditionally on any `check_ins` change
-(cheap/idempotent, an occasional wasted invalidate from another event is an acceptable
-trade for correctness).
+**~~Bycatch, same investigation~~ — RETRACTED, see the fresh-session `/code-review` correction
+below.** The original entry here claimed `check_ins` has no `event_id` column and removed the
+realtime filter on that basis. Both were wrong: `check_ins` has carried `event_id` since
+`20260622140000_checkin_event_scope.sql`, and `20260623` (`d6b8c4a`) deliberately added the
+`event_id=eq.<id>` filter as scale-track work — without it, every venue's check-in reaches every
+subscriber before RLS runs. The filter was restored in both `useDoorSync.ts` and `hooks.ts`; see
+the 13/7 correction entry for the full story.
 
 **Tests:** new `src/features/po/headcount.test.ts` (10 cases, incl. a K-10 repro proving
 the split-refused-array and unsplit-array call sites agree). `pnpm vitest run` 681/681
@@ -495,6 +497,40 @@ never meant to be counted, only ever meant to be excluded (per the seed's own co
 Aïcha ... excluded"). Live-reverified in the preview: cockpit/door/Home all read 40 on the
 list · 25 on the way · 15 inside after the fix, where cockpit alone read 41/26/15 before.
 732/732 vitest green, `tsc`/`lint` clean (no DB change, so no new pgTAP needed here).
+
+**Fresh-session `/code-review` before merge (per the review gate — migration touches
+`SECURITY DEFINER` functions), 13/7 — two real findings, both fixed:**
+1. **The "bycatch" realtime fix above was built on a false premise and reverted.**
+   `check_ins` DOES carry `event_id` (`20260622140000_checkin_event_scope.sql`, backfilled
+   NOT NULL, trigger-maintained, indexed specifically "backs the realtime event filter"), and
+   the `event_id=eq.<id>` filter this session removed was deliberately added in `d6b8c4a`
+   ("feat(scale): wire check_ins event scope") as scale-track work — without it, every venue's
+   check-in reaches every subscriber before RLS evaluates, the exact cost that commit fixed.
+   Filter restored in both `useDoorSync.ts` and `usePoEventRealtime` (`hooks.ts`); the false
+   claim also corrected in both files' comments and here. If realtime genuinely looked dead
+   during the original K-10 investigation, the real suspect is the documented local
+   realtime-publication-drop quirk (see `local-supabase-quirks`), not the filter — worth its
+   own look if it reproduces on prod, but out of scope for this PR.
+2. **`venue_event_headcounts.present` regressed staff to seeing 0 for their own checked-in
+   guests.** The rewrite is `SECURITY INVOKER` and derives `present` from `check_ins`, which
+   staff have no SELECT policy on — so a staff user's own guest showed `checked_in` in the
+   list while the Home/EventView card read 0 inside (the pre-PR formula, summing the full
+   registered party off `guests` alone, happened to dodge this since `guests` IS staff-
+   readable). Fixed role-preservingly: `sum(1 + coalesce(c.plus_ones_arrived, g.plus_ones))
+   filter (where g.status = 'checked_in')`, `c` joined only on non-voided rows — exact
+   arrived heads where `check_ins` is readable, the old full-party behaviour where it isn't
+   (a hidden row joins to `null`, `coalesce` falls back). New pgTAP case covers staff
+   specifically (the original 5d only exercised admin — DoD's per-role rule).
+
+Also from the review: renamed the migration off a timestamp that collided with `main`'s
+`20260712120000_quick_add_dupe_check.sql`; fixed `event_checkins_per_quarter`'s comment
+(a refused-after-checked-in guest keeps its check-in — `sync_guest_status_from_refusal`
+flips status without voiding — so "refused never has a check-in" was false, just rare); fixed
+the seed baseline comment ("Tom 7" → "Tom 8", the file's own 4.6 assertion already proved 8).
+Flagged, not fixed (non-blocking): `arrivedHeads`/`cockpitCounts`/`perTierLive` in
+`cockpit.ts` still hand-roll koppen math the canonical selector already provides — the exact
+duplication this PR exists to kill, left as a follow-up rather than growing this PR further;
+`guest_slot_cost` still charges a `pending` guest quota (pre-existing, unrelated to this PR).
 
 ---
 

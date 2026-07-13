@@ -9,7 +9,7 @@
 -- guests; 27 are "registered"/on-list (status approved/checked_in — pending
 -- Aïcha, removed Pieter AND refused Bram excluded, M4/#44), 3 checked in
 -- (Sanne/Daan/Esra), 1 refused (Bram, tracked separately), 24 no-shows.
--- Adders: Max 20, Tom 7, Lisa 1.
+-- Adders: Max 20, Tom 8 (incl. removed Pieter, see 4.6), Lisa 1.
 
 begin;
 

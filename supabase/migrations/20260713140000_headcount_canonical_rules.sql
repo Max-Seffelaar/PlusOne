@@ -6,6 +6,15 @@
 --    20260708120000) summed the FULL registered party (`plus_ones`) for every
 --    checked_in guest instead of the heads that actually arrived
 --    (`check_ins.plus_ones_arrived`) — a partial check-in was overcounted.
+--    Fixed role-preservingly: this function is deliberately `SECURITY
+--    INVOKER` (runs under the caller's own RLS, same as the row-by-row read
+--    it replaces — a staff member's headcount stays scoped to their own
+--    guests), so a caller without SELECT on `check_ins` (staff, #17) sees
+--    `c` as null via RLS on every row, not just voided ones; `coalesce`
+--    falls back to the full registered party for them, matching the
+--    pre-this-migration behaviour instead of silently reporting 0 inside for
+--    their own checked-in guest (caught by fresh-session `/code-review`
+--    before merge — a first version without the fallback regressed this).
 --
 -- 2. `event_stats_summary` / `event_tier_stats` / `venue_stats_summary` /
 --    `venue_event_rollup` (migration 20260617020000) folded `refused` guests
@@ -23,8 +32,13 @@
 -- `event_user_additions` / `venue_user_additions` (per-adder attribution) are
 -- UNCHANGED — they are a deliberately different "gross, incl. removed" ledger
 -- ("who added how many, ever"), not the live on-list figure, and stay so.
--- `event_checkins_per_quarter` is unchanged too (no registered/on-list output;
--- refused guests never have a check-in in practice, so its join is inert).
+-- `event_checkins_per_quarter` is unchanged too (no registered/on-list
+-- output) — its `reg` join scopes to approved/checked_in/refused, but note
+-- that claim is narrower than it sounds: a refused-after-checked-in guest
+-- (`sync_guest_status_from_refusal` flips status without voiding the
+-- check-in) DOES keep a real check_ins row, so the quarter chart can in that
+-- rare case disagree with the summary's `present`. Not fixed here — flagged
+-- by fresh-session `/code-review`, tracked as a follow-up.
 
 -- ── 1. venue_event_headcounts: present = arrived heads, not registered ──────
 
@@ -39,8 +53,14 @@ as $$
     coalesce(sum(1 + g.plus_ones) filter (where g.status in ('approved', 'checked_in')), 0)::int as registered,
     -- Partial-check-in aware (#44): a +3 with 1 companion present is 2 heads,
     -- not 4. check_ins.guest_id is unique, so this join never fans out.
+    -- Role-preserving: coalesce(c.plus_ones_arrived, g.plus_ones) falls back
+    -- to the full party when `c` is null — either no check-in exists, or RLS
+    -- hid it from a caller without check_ins SELECT (staff). guests.status
+    -- = 'checked_in' already excludes a voided check-in (the door_status_sync
+    -- trigger flips it back to 'approved' on void), so the filter alone
+    -- gates presence correctly regardless of whether `c` is visible.
     coalesce(
-      sum(1 + c.plus_ones_arrived) filter (where g.status = 'checked_in' and c.voided_at is null),
+      sum(1 + coalesce(c.plus_ones_arrived, g.plus_ones)) filter (where g.status = 'checked_in'),
       0
     )::int as present
   from public.guests g
