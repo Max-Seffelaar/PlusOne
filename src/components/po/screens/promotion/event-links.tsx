@@ -265,6 +265,11 @@ export function EventLinks({ eventId, embedded }: { eventId?: string; embedded?:
         <CreateLinkFlow
           eventId={id}
           eventName={ev?.name ?? ''}
+          // Only in the embedded (venue-member) hub tab — the standalone
+          // per-event route stays locked to its one event (see the prop doc
+          // on CreateLinkFlow: an external organizer shouldn't see a picker
+          // over venue events he can't create links on).
+          events={embedded ? events : undefined}
           onCreated={(newId) => {
             pendingCreated.current = newId;
           }}
@@ -293,8 +298,10 @@ export function EventLinks({ eventId, embedded }: { eventId?: string; embedded?:
   );
 
   if (embedded) {
-    // Inside the Promotion hub: the hub renders the Top header + tab bar; this
-    // adds the event picker row (venue members pick any event) + the add button.
+    // Inside the Promotion hub: the hub renders the Top header (incl. the
+    // persistent "+ New link" — its own CreateLinkFlow event-picker covers
+    // "add a link on a DIFFERENT event than the one I'm viewing here", so this
+    // tab doesn't need its own second "+" next to the event picker row.
     return (
       <div className="flex min-h-0 flex-col">
         <div className="mb-4 flex items-center justify-between gap-3">
@@ -303,7 +310,6 @@ export function EventLinks({ eventId, embedded }: { eventId?: string; embedded?:
             selectedId={id || null}
             onPick={(picked) => nav.replace('promotion', { tab: 'events', id: picked })}
           />
-          {canManage && <IconBtn name="plus" onClick={() => setSheet({ mode: 'create' })} />}
         </div>
         {events.length === 0 && !eventsQ.isLoading ? <Empty text={t.promo.noEvents} /> : body}
         {sheets}

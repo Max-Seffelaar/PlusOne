@@ -13,6 +13,7 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
+import type { PoEvent } from '@/lib/po/types';
 import { usePoInfluencers, usePoTiers } from '@/features/po/hooks';
 import { usePoCreateInfluencer, usePoCreateLink } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
@@ -20,6 +21,7 @@ import { localInputToIso } from '@/features/events/datetime';
 import { Icon } from '../../icon';
 import { Btn, Field, Label, TierPicker, ToggleRow, press } from '../../kit';
 import { Sheet } from '../../shell';
+import { EventPicker, Kicker } from './shared';
 
 type WhoKind = 'influencer' | 'new' | 'label' | null;
 
@@ -42,20 +44,36 @@ function whoChip(key: string, label: string, active: boolean, onClick: () => voi
 export function CreateLinkFlow({
   eventId,
   eventName,
+  events,
   onClose,
   onCreated,
 }: {
+  /** Starting event — the only one used when `events` is omitted/single. */
   eventId: string;
   /** Plain event name — shown in the form's event row and the done-step copy. */
   eventName: string;
+  /** Full venue event list — when longer than one, an EventPicker replaces the
+   *  static label so the flow isn't locked to wherever it was opened from (a
+   *  venue member creating a link isn't necessarily on the right event's tab
+   *  yet). Omit from single-event contexts (the standalone per-event route,
+   *  reached by an external organizer scoped to just that event) — passing it
+   *  there would suggest access to other venue events the organizer can't
+   *  actually create links on. */
+  events?: PoEvent[];
   onClose: () => void;
   /** Fired once on success with the new link's id (e.g. list highlight). */
   onCreated?: (id: string) => void;
 }): JSX.Element {
   const { venueId } = usePoIdentity();
-  const tiersQ = usePoTiers(eventId);
+  const [pickedEventId, setPickedEventId] = useState(eventId);
+  const pickedEvent = events?.find((e) => e.id === pickedEventId);
+  const activeEventId = pickedEvent ? pickedEventId : eventId;
+  const activeEventName = pickedEvent?.name ?? eventName;
+  const canSwitchEvent = (events?.length ?? 0) > 1;
+
+  const tiersQ = usePoTiers(activeEventId);
   const influencersQ = usePoInfluencers();
-  const createLink = usePoCreateLink(eventId);
+  const createLink = usePoCreateLink(activeEventId);
   const createInf = usePoCreateInfluencer();
 
   const [step, setStep] = useState<'form' | 'done'>('form');
@@ -79,6 +97,20 @@ export function CreateLinkFlow({
   const busy = createLink.isPending || createInf.isPending;
   const maxNum = Number.parseInt(maxHeads, 10);
   const maxVal = Number.isFinite(maxNum) && maxNum > 0 ? maxNum : null;
+
+  // Switching events resets everything tier/identity-related below it — a
+  // tier id from the old event is meaningless (or worse, silently wrong) on
+  // the new one.
+  const pickEvent = (id: string): void => {
+    setPickedEventId(id);
+    setWhoKind(null);
+    setWhoId('');
+    setNewName('');
+    setLabel('');
+    setTierId('');
+    setAutoApprove(false);
+    setErr(null);
+  };
 
   // Turning auto-approve on requires a pinned tier: auto-select the first one,
   // or surface the "add a tier first" hint on a tier-less event.
@@ -140,7 +172,7 @@ export function CreateLinkFlow({
       const infName =
         whoKind === 'new' ? newName.trim() : influencers.find((i) => i.id === influencerId)?.name ?? '';
       const created = await createLink.mutateAsync({
-        eventId,
+        eventId: activeEventId,
         influencerId,
         label: labelVal,
         slugBase: labelVal ?? infName,
@@ -183,7 +215,7 @@ export function CreateLinkFlow({
             <div className="max-w-[250px] text-[13px] leading-[1.5] text-dim">
               {fmt(tier ? t.promo.doneBodyTier : t.promo.doneBody, {
                 name: doneName || (whoKind === 'label' ? t.promo.doneFallbackLabel : t.promo.doneFallbackInfluencer),
-                event: eventName,
+                event: activeEventName,
                 tier: tier?.short ?? '',
               })}
               {autoApprove ? t.promo.doneAuto : ''}
@@ -233,7 +265,14 @@ export function CreateLinkFlow({
   return (
     <Sheet onClose={onClose} center={false}>
       <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{t.links.sheetCreateTitle}</div>
-      <div className="mb-4 text-[13px] text-faint">{eventName}</div>
+      {canSwitchEvent ? (
+        <div className="mb-4">
+          <Kicker className="mb-2">{t.promo.eventLabel}</Kicker>
+          <EventPicker events={events ?? []} selectedId={activeEventId} onPick={pickEvent} />
+        </div>
+      ) : (
+        <div className="mb-4 text-[13px] text-faint">{activeEventName}</div>
+      )}
       <div className="po-scroll -mx-1 max-h-[62vh] overflow-y-auto px-1">
         {/* (a) For who? — existing influencer chips + "+ New" + "Label only". */}
         <Label className="mb-2">{t.links.forWho}</Label>

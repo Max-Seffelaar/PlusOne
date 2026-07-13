@@ -9,6 +9,14 @@
       "autoPort": true
     },
     {
+      "name": "dev1000",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["dev"],
+      "env": { "PORT": "1000" },
+      "port": 1000,
+      "autoPort": false
+    },
+    {
       "name": "dev5000",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["dev"],

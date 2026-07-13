@@ -14,12 +14,16 @@
  * 'links'), which stays outside this hub. A direct deep link here without
  * access gets a plain no-access state (role-hide, M3), not an empty dashboard.
  */
+import { useState } from 'react';
 import { t } from '@/lib/i18n';
+import { usePoEvents } from '@/features/po/hooks';
 import { useNav, usePo } from '../../context';
-import { Empty, Scroll, Seg, Top } from '../../kit';
+import { Empty, IconBtn, Scroll, Seg, Top } from '../../kit';
+import { CreateLinkFlow } from './create-link-flow';
 import { PromotionOverview } from './overview';
 import { PromotionRoster } from './roster';
 import { EventLinks } from './event-links';
+import { soonestUpcoming } from './shared';
 
 type PromoTab = 'overview' | 'events' | 'roster';
 
@@ -33,6 +37,16 @@ export function PromotionHub({ tab, eventId }: { tab?: string; eventId?: string 
   const nav = useNav();
   const { statsVenues } = usePo();
   const active: PromoTab = tab === 'events' || tab === 'roster' ? tab : 'overview';
+  // A persistent "+ New link" lives in the hub header (not just the Per-event
+  // tab) so creating one doesn't require navigating there first (feedback:
+  // tucking link creation only inside "Per event" read as illogical). Reuses
+  // the venue's event list already needed elsewhere in the hub; defaults to
+  // the same "soonest upcoming, else newest" pick as the Overview tab, and
+  // CreateLinkFlow's own EventPicker lets the user redirect it before saving.
+  const eventsQ = usePoEvents();
+  const events = eventsQ.data ?? [];
+  const defaultEvent = soonestUpcoming(events) ?? events[0] ?? null;
+  const [creating, setCreating] = useState(false);
 
   if (statsVenues.length === 0) {
     return (
@@ -53,7 +67,15 @@ export function PromotionHub({ tab, eventId }: { tab?: string; eventId?: string 
 
   return (
     <div className="flex h-full flex-col">
-      <Top onBack={nav.back} title={t.promo.title} />
+      <Top
+        onBack={nav.back}
+        title={t.promo.title}
+        right={
+          active !== 'roster' && defaultEvent ? (
+            <IconBtn name="plus" ariaLabel={t.promo.newLink} onClick={() => setCreating(true)} />
+          ) : undefined
+        }
+      />
       <Scroll bottom={40}>
         <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6">
           <Seg value={active} onChange={switchTab} items={TABS} className="max-w-[420px]" />
@@ -66,6 +88,14 @@ export function PromotionHub({ tab, eventId }: { tab?: string; eventId?: string 
           )}
         </div>
       </Scroll>
+      {creating && defaultEvent && (
+        <CreateLinkFlow
+          eventId={defaultEvent.id}
+          eventName={defaultEvent.name}
+          events={events}
+          onClose={() => setCreating(false)}
+        />
+      )}
     </div>
   );
 }

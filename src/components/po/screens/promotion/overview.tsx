@@ -473,7 +473,7 @@ export function PromotionOverview(): JSX.Element {
     <div className="flex flex-col gap-[30px]">
       {content}
       {creating && selected && (
-        <CreateLinkFlow eventId={selected.id} eventName={selected.name} onClose={() => setCreating(false)} />
+        <CreateLinkFlow eventId={selected.id} eventName={selected.name} events={events} onClose={() => setCreating(false)} />
       )}
     </div>
   );
