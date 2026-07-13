@@ -51,12 +51,19 @@ export async function idbGet<T>(key: string): Promise<T | undefined> {
   }
 }
 
-export async function idbSet<T>(key: string, value: T): Promise<void> {
-  if (!hasIdb()) return;
+/**
+ * Returns whether the write actually landed. Callers that only use IndexedDB
+ * as a best-effort cache (the RQ persister) can ignore the result; the outbox
+ * cannot — a swallowed write failure there silently drops queued check-ins on
+ * the next reload (O4), so it surfaces the boolean instead of eating it.
+ */
+export async function idbSet<T>(key: string, value: T): Promise<boolean> {
+  if (!hasIdb()) return false;
   try {
     await tx('readwrite', (s) => s.put(value as unknown as IDBValidKey & T, key));
+    return true;
   } catch {
-    // Best-effort cache; a write failure must never break the door UI.
+    return false;
   }
 }
 

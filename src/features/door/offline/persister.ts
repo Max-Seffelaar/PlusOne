@@ -11,7 +11,9 @@ const CACHE_KEY = 'door-query-cache';
 
 export function createIdbPersister(key = CACHE_KEY): Persister {
   return {
-    persistClient: (client: PersistedClient) => idbSet(key, client),
+    persistClient: (client: PersistedClient) => {
+      void idbSet(key, client);
+    },
     restoreClient: () => idbGet<PersistedClient>(key),
     removeClient: () => idbDel(key),
   };

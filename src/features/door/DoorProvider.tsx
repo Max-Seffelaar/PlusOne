@@ -146,6 +146,13 @@ export function DoorProvider({
     void outbox.init();
   }, []);
   const outboxEntries = useSyncExternalStore(outbox.subscribe, outbox.getSnapshot, outbox.getServerSnapshot);
+  // O4: IndexedDB write failures no longer vanish silently — Sentry sees every
+  // one (store.ts), and the doorhost gets a one-time heads-up via the toast.
+  const outboxPersistDegraded = useSyncExternalStore(
+    outbox.subscribeStatus,
+    outbox.getStatusSnapshot,
+    outbox.getStatusServerSnapshot,
+  );
 
   useEffect(() => {
     getDoorClient()
@@ -241,6 +248,10 @@ export function DoorProvider({
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), TOAST_MS);
   }, []);
+
+  useEffect(() => {
+    if (outboxPersistDegraded) showToast('Local storage unavailable — check-ins may not survive a reload');
+  }, [outboxPersistDegraded, showToast]);
 
   const patchSnapshot = useCallback(
     (updater: (s: DoorSnapshot) => DoorSnapshot) => {
