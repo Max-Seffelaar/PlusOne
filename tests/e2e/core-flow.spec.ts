@@ -150,6 +150,11 @@ test('core flow: create event → add guest → door check-in, asserted in the d
   expect(guestAudit![0].event_id).toBe(eventId);
 
   // ── 4. Door check-in on the standalone door route. ──────────────────────────
+  // G2: /door/[eventId] now redirects a DESKTOP viewport straight into /app's
+  // Deur tab (the whole point of this suite's step 1-3 desktop UI) — a mobile
+  // viewport is what actually stays on the standalone Door-modus this step
+  // means to cover.
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/door/${eventId}`);
   await page.getByPlaceholder('Search a name…').fill(GUEST_NAME, { timeout: 30_000 });
   await page.getByRole('button', { name: new RegExp(GUEST_NAME) }).click();

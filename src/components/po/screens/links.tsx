@@ -83,7 +83,7 @@ function LinkCard({
   };
 
   const stats =
-    fmt(t.links.stats, { views: link.views, requests: link.requests, approved: link.approved }) +
+    fmt(t.links.stats, { views: link.views, requests: link.requests, approved: link.approved, checkedIn: link.checkedInHeads }) +
     (link.maxHeadcount != null
       ? fmt(t.links.statsCap, { heads: link.approvedHeads, max: link.maxHeadcount })
       : '');

@@ -106,6 +106,114 @@ verified findings, 4 fixed before merge, rest pre-existing/flagged:**
 
 ---
 
+## 2026-07-12 — M6: event-stats to event-home, Analytics event-first, LOG→Audit
+
+UX/IA 8/7 task M6 ([86ey7dzmp](https://app.clickup.com/t/9018914367/86ey7dzmp), `ux-ia-audit-claude-code.md`
+§2-E/§5.2/§7-Q4), PR [#188](https://github.com/Max-Seffelaar/PlusOne/pull/188), branch
+`claude/affectionate-shannon-602e85`.
+
+§2-E had flagged the same per-event stats rendered on three surfaces (EventView's Activity
+section, Analytics' per-event drill-down, the cockpit) via two separate data paths for
+tier/member numbers — `fetchPoEventActivityStats` (`event_tier_stats`/`event_user_additions`
+RPCs, raw rows) vs `fetchEventStats`+`po-adapter.ts` (same two RPCs plus summary/perQuarter,
+adapted view-models). Max's 8/7 decision: EventView/PastEvent's Activity section is the
+canonical "event-home"; Analytics becomes event-first and reuses the *same* component
+(K-10-les — no second render).
+
+- New `src/components/po/screens/events/stats-panel.tsx` (`EventStatsPanel`) — KPIs
+  (peak/no-shows), arrivals chart, by-tier, by-member. Moved verbatim out of `stats.tsx`'s
+  old per-event JSX block (richer than the old Activity tables, which it replaces).
+- `usePoEventActivity` (`hooks.ts`) repurposed to wrap `fetchEventStats` +
+  `eventKpis`/`toPerKwartier`/`toPerTier`/`toPerUser` instead of the narrower
+  `fetchPoEventActivityStats` (now deleted from `queries.ts`, along with `EventActivityStats`).
+  One fetch, one shape (`EventStatsDetail`), used by both surfaces.
+- `EventActivitySection` (`past.tsx`, shared by EventView + PastEvent): the inline audit-log
+  list is gone — a "View activity" button does `nav.push('audit', { id: eventId })`, landing
+  on the Audit screen pre-filtered to the event (`AuditLog`'s `eventId` prop already supported
+  this; the wiring in `app.tsx` predates this PR).
+- `stats.tsx` (Analytics): dropped the venue-wide KPI hero cards (`fetchVenueStats`/`venueKpis`)
+  for a static "venue trends coming later" note; the per-event block is now just
+  `<EventStatsPanel eventId={selectedEvent.id} />`. The manual refresh button now invalidates
+  `poKeys.eventActivity(eventId)` via `useQueryClient` instead of re-running the removed
+  venue-stats effect.
+- i18n: `events.ts` lost the `activityPerTier`/`activityPerMember`/`activityLog`/… keys, gained
+  `viewActivity`; `analytics.ts` lost the venue-KPI keys, gained `venueTrendsLater`.
+
+**Merge conflict, not a rebase nit:** `origin/main` had moved on with PR #186 (G1 — canonical
+nav, URL-based `/app` deep-linking, `context.tsx`/`routes.ts` rewrite) and PR #183 (event-detail
+fixes from the 10/7 test round) while this branch was in flight. #183 had *paginated* the exact
+inline log this task deletes (`FEED_PAGE`/`Show more`, ClickUp 86ey8w79x) — a real conflict in
+`past.tsx` and `events.ts`, resolved in favor of the M6 decision (removal supersedes the
+paging band-aid; #183's other changes — stat-tile relabel, quota-request badge, link-funnel
+row, error-throwing fetches — are unrelated files/regions and merged clean). G1's route table
+already generalized exactly the `nav.push('audit', { id })` pattern used here
+(`screenPath`/`parseAppUrl` in `routes.ts`) — no adjustment needed, `routes.test.ts` covers the
+round-trip.
+
+**Verification:** `pnpm lint` clean, `tsc --noEmit` 0 errors, `vitest run` 722/722 green
+(post-merge; was 671 pre-merge, +51 from G1/#183's own new tests). **Live browser verification
+NOT completed** — the preview harness's `/app/[[...segments]]` bundle (~6500 modules) never
+finished loading across 4 separate fresh dev-server attempts in this session (`main-app.js` +
+the segments `page.js` stayed pending indefinitely in the network log while every smaller
+chunk — CSS, webpack runtime, the lighter `/consent`/`/mfa/enroll` page bundles — loaded and
+rendered fine). No compile error, no console error, no server-side error surfaced; looked like
+a stalled large-chunk transfer specific to this session's preview environment, not a code
+defect. PR is up with this caveat explicit in the test-plan checklist; needs a manual pass
+before merge.
+
+---
+
+## 2026-07-12 — G2: deur-consolidatie + cockpit door-parity (M16, Refuse/undo-refusal/Tasks)
+
+ClickUp `86ey7dzzg`. Two parts, both done in one session (see plan approved before implementation):
+
+**Route consolidation + M16.** `/door/[eventId]` no longer mounts a second `DoorShell`
+component tree (own `PhoneFrame` + a mock "9:41" status bar shipped to production) — it now
+mounts the identical `PoDoorTab` the `/app` Door tab already used, via a new thin
+`src/features/door/components/DoorRoute.tsx`. `DoorShell.tsx` deleted; `PhoneFrame`/`StatusBar`
+(only used by it) removed from `shell.tsx`, plus the now-orphaned `.po-stage` CSS and
+`shared.shell.*`/`door.tabCheckin`/`tabTasks`/`back` i18n keys. Verified server-side via direct
+curl against the dev server (session cookie + `/door/<seed-event-id>`): 200, no `9:41`/`po-stage`
+in the rendered HTML, `Check-in` (the shared segmented control's copy) present.
+
+**Cockpit door-parity (decision "vraag 3").** Scope narrowed with Max at the start of the
+session: void/checkout already worked in the cockpit (shipped 21–23/6, predates the 8/7 audit)
+and "+ Add guest" → `QuickAdd` already covers add-on-spot — so "reverse-check-in" = undoing a
+**refusal**, and the real gap was Refuse + undo-refusal + Tasks (guest notes/priority + ack),
+all missing from `EventDayCockpit.tsx`. Added, all online (no outbox, matching the cockpit's
+existing check-in/out mutations — `usePoRefuseGuest`/`usePoUndoRefusal`/`usePoAckNote` in
+`mutations.ts`, same `supabaseGateway(getDoorClient())` pattern):
+- A guest row's ✗ slot, when the guest isn't inside, is now "Refuse" (was a dead click —
+  `onVoidClick` early-returned for a non-checked-in guest) → `CockpitRefuseModal.tsx` (mandatory
+  reason, reuses `t.door.refuse*` copy).
+- A 4th "Refused" segment (only shown once non-empty) lists refused guests with an "Undo" button.
+  `cockpit.ts`'s `filterCockpit`/`cockpitCounts` extended for the `'refused'` `StatusFilter`.
+- `CockpitTasksCard.tsx` — desktop equivalent of the door's `Taken.tsx`, in the right column.
+  Needed `guests.note_acknowledged_at` added to `fetchGuests`'s select + `Guest.noteAcknowledged`
+  on the adapter (`note_acknowledged_by`/a resolved "Done by" name deliberately skipped — scope
+  trim, not a data gap).
+- A priority-flag icon added next to the guest name in the main list row (previously invisible
+  in the cockpit entirely).
+
+Verified: `pnpm type-check` + `pnpm lint` clean; full `vitest run` 724/724 (extended
+`cockpit.test.ts` for the new filter/count branch, `adapters.test.ts` for `noteAcknowledged`).
+Live interactive browser verification (click-through) could **not** be completed this session —
+the preview browser tool hung mid-hydration on every route, including on an unmodified baseline
+(confirmed via a stash A/B: reverted to `origin/main` code on a fresh dev-server instance,
+identical hang) — an environment/tooling issue, not a defect introduced here. Server-side
+rendering was independently confirmed clean via direct `curl` against the dev server for both
+changed routes. **Follow-up needed: a real click-through per the per-screen test handoff below
+before this is considered fully verified** — not done as part of this session.
+
+Files: see the plan file structure — `mutations.ts`/`queries.ts`/`adapters.ts`/`lib/po/types.ts`
+(+noteAcknowledged plumbing), `cockpit.ts`/`cockpit.test.ts`, `EventDayCockpit.tsx`,
+`CockpitTasksCard.tsx` + `CockpitRefuseModal.tsx` (new), `DoorRoute.tsx` (new),
+`app/door/[eventId]/page.tsx`, `shell.tsx`, i18n surfaces (`door.ts`/`cockpit.ts`/`shared.ts`).
+No migration — every write reuses an existing `DoorGateway` call already covered by mobile's
+RLS/audit-trigger path.
+
+---
+
 ## 2026-07-12 — G1 follow-up: door sub-nav still hit the server (fresh-eyes re-review)
 
 A second fresh-session review found the G1 layout split (below) did NOT actually fix the

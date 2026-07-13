@@ -16,13 +16,10 @@ export const analytics = {
   fetchError: "Couldn't load statistics. Check your connection and try again.",
   retry: 'Try again',
 
-  // ── Venue-level KPIs ────────────────────────────────────────────────────────
-  // Feedback (Joeri, 24 jun 2026): "turnout" → Attendance, "Refusals" → Bounced.
-  venueTurnoutLabel: 'All events · avg. attendance',
-  turnoutWord: 'attendance',
-  overEvents: 'over {n} events',
-  guestsInside: 'Checked in',
-  refusals: 'Bounced',
+  // ── Venue-level trends (parked, M6 86ey7dzmp — 8/7 UX/IA decision) ───────────
+  // No venue-wide KPIs shown for now; they come back once retention/event
+  // comparisons actually say something. Analytics is event-first instead.
+  venueTrendsLater: 'Venue-wide trends (retention, comparisons across events) are coming later.',
 
   // ── Per-event picker ────────────────────────────────────────────────────────
   perEvent: 'Per event',

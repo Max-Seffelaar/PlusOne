@@ -32,7 +32,7 @@ import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Scroll, Top } from '../../kit';
-import { BottomBar } from '../../shell';
+import { BottomBar, Sheet } from '../../shell';
 import { DupeOption, NoTiersBlock, press, col } from './_shared';
 import { useGuestSelection, GuestBulkBar, BulkAddToEventSheet, type BulkAddCandidate } from './bulk-add';
 import { ScopeChip, BulkTierSheet, GuestCardList, GuestTable } from './list-shared';
@@ -265,6 +265,23 @@ export function GuestsTab(): JSX.Element {
   const upcoming = useMemo(() => events.filter((e) => e.when === 'upcoming'), [events]);
   const countSub = fmt(t.guests.list.sub, { shown: gs.length, total: guests.length });
 
+  // Add-guest on the "All events" scope (M10, K-16): no event is picked here, so
+  // route through the same event-picker sheet Home's "New guest" uses, then land
+  // on the ordinary quickadd flow.
+  const [pickOpen, setPickOpen] = useState(false);
+  const [pickQuery, setPickQuery] = useState('');
+  const pickMatches = useMemo(() => {
+    const q = pickQuery.trim().toLowerCase();
+    return q ? upcoming.filter((e) => e.name.toLowerCase().includes(q)) : upcoming;
+  }, [upcoming, pickQuery]);
+  const addGuestClick = (): void => {
+    if (scopeEvent) nav.push('quickadd', { id: scopeEvent.id });
+    else {
+      setPickQuery('');
+      setPickOpen(true);
+    }
+  };
+
   // ── Multi-select + bulk actions ──
   const { selected, toggle, clear, selectAll } = useGuestSelection();
   const markRegular = usePoMarkGuestsRegular();
@@ -327,7 +344,7 @@ export function GuestsTab(): JSX.Element {
       <Top
         title={t.guests.list.title}
         sub={scopeEvent ? `${scopeEvent.name} · ${countSub}` : countSub}
-        right={scopeEvent ? <IconBtn name="plus" ariaLabel={t.guests.list.addGuest} onClick={() => nav.push('quickadd', { id: scopeEvent.id })} /> : undefined}
+        right={<IconBtn name="plus" ariaLabel={t.guests.list.addGuest} onClick={addGuestClick} />}
       />
       <div className="flex-none overflow-x-auto px-4 pb-3">
         <div className="flex w-max items-center gap-1.5">
@@ -370,19 +387,21 @@ export function GuestsTab(): JSX.Element {
             <div className="pb-[10px] lg:max-w-[300px] lg:flex-1 lg:pb-0">
               <Field icon="search" placeholder={t.guests.list.searchPlaceholder} value={q} onChange={setQ} />
             </div>
-            {scopeEvent && (
-              <div className="flex gap-2 pb-3 lg:ml-auto lg:pb-0">
-                <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd', { id: scopeEvent.id })}>
-                  {t.guests.list.addGuest}
-                </Btn>
-                <Btn sm kind="quiet" icon="paste" onClick={() => nav.push('bulk', { id: scopeEvent.id })}>
-                  {t.guests.list.pasteList}
-                </Btn>
-                <Btn sm kind="quiet" icon="contact" onClick={() => nav.push('contacten', { id: scopeEvent.id })}>
-                  {t.guests.list.contacts}
-                </Btn>
-              </div>
-            )}
+            <div className="flex gap-2 pb-3 lg:ml-auto lg:pb-0">
+              <Btn sm kind="primary" icon="plus" onClick={addGuestClick}>
+                {t.guests.list.addGuest}
+              </Btn>
+              {scopeEvent && (
+                <>
+                  <Btn sm kind="quiet" icon="paste" onClick={() => nav.push('bulk', { id: scopeEvent.id })}>
+                    {t.guests.list.pasteList}
+                  </Btn>
+                  <Btn sm kind="quiet" icon="contact" onClick={() => nav.push('contacten', { id: scopeEvent.id })}>
+                    {t.guests.list.contacts}
+                  </Btn>
+                </>
+              )}
+            </div>
           </>
         )}
       </div>
@@ -442,6 +461,57 @@ export function GuestsTab(): JSX.Element {
           onClose={() => setBulkAddOpen(false)}
           onDone={clear}
         />
+      )}
+      {pickOpen && (
+        <Sheet onClose={() => setPickOpen(false)}>
+          <h2 className="mb-4 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">
+            {t.home.pickEventForGuest}
+          </h2>
+          {upcoming.length === 0 ? (
+            <p className="py-6 text-center text-[14px] text-faint">{t.home.noUpcomingToday}</p>
+          ) : (
+            <>
+              <div className="mb-3 flex w-full items-center gap-[11px] rounded-[14px] border border-line bg-bg px-[15px] py-[11px]">
+                <Icon name="search" size={19} className="shrink-0 text-faint" />
+                <input
+                  value={pickQuery}
+                  onChange={(e) => setPickQuery(e.target.value)}
+                  placeholder={t.home.searchEvents}
+                  className="min-w-0 flex-1 bg-transparent font-body text-[16px] text-text outline-none placeholder:text-faint"
+                />
+              </div>
+              {pickMatches.length === 0 ? (
+                <p className="py-5 text-center text-[14px] text-faint">{t.home.emptyFilteredTitle}</p>
+              ) : (
+                <div className="flex w-full flex-col gap-2">
+                  {pickMatches.map((e) => (
+                    <button
+                      key={e.id}
+                      type="button"
+                      onClick={() => {
+                        setPickOpen(false);
+                        nav.push('quickadd', { id: e.id });
+                      }}
+                      className={cn(
+                        'flex w-full items-center gap-[12px] rounded-[12px] border border-line bg-elev px-[13px] py-[11px] text-left',
+                        press,
+                      )}
+                    >
+                      <span className="w-[36px] shrink-0 text-center">
+                        <span className="block font-display text-[16px] font-extrabold leading-none text-text">{e.date}</span>
+                        <span className="block text-[9px] font-bold tracking-[0.05em] text-faint">{e.mon}</span>
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-display text-[14.5px] font-bold text-text">{e.name}</div>
+                        <div className="mt-0.5 text-[12px] text-faint">{fmt(t.home.doorAt, { time: e.time })}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </Sheet>
       )}
     </div>
   );

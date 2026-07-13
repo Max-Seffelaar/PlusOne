@@ -47,7 +47,9 @@ const ACCENT = '#B5A6FF';
 
 /** Optional per-tier filter chips (feedback Joeri): tap a tier to narrow the list
  *  to it; multiple chips OR together; none selected = all. Hidden when an event
- *  has a single tier (nothing to filter). Coloured by the tier's own colour. */
+ *  has a single tier (nothing to filter). Always filled with the tier's own
+ *  colour (feedback Max 13/7 — matches the guest rows' full-colour fill), not
+ *  just a dot; the selected state is a ring, not a separate fill. */
 function TierFilterBar({
   tiers,
   selected,
@@ -69,14 +71,13 @@ function TierFilterBar({
             type="button"
             onClick={() => onToggle(tier.id)}
             className={cn(
-              'flex items-center gap-1.5 rounded-full border px-3 py-[7px] font-display text-[12px] font-bold transition-[filter] hover:brightness-[1.07]',
-              on ? 'border-transparent text-bg' : 'border-line bg-transparent text-dim',
+              'rounded-full border border-transparent px-3 py-[7px] font-display text-[12px] font-bold transition-[filter] hover:brightness-[1.07]',
+              on && 'ring-2 ring-acc',
             )}
-            style={on ? { background: color } : undefined}
+            style={{ background: color, color: onTier(color) }}
           >
             {/* Real tier name (not the tierRole taxonomy): two "vip"-ish tiers
                 must stay two distinguishable chips (feedback 1/7). */}
-            <span className="h-2 w-2 rounded-full" style={{ background: on ? 'rgba(11,11,13,0.55)' : color }} />
             {tier.name}
           </button>
         );
