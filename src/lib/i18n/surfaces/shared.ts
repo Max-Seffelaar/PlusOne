@@ -34,17 +34,6 @@ export const shared = {
     emptyTime: '--',
   },
 
-  // ── App shell chrome (shell.tsx) ─────────────────────────────────────────
-  shell: {
-    tabStart: 'Home',
-    tabEvents: 'Events',
-    tabCheckin: 'Check-in',
-    tabTasks: 'Tasks',
-    tabMore: 'More',
-    stageSub: 'guest list · clickable prototype',
-    stageHint: 'Click through the flow. Type a name at Check-in.',
-  },
-
   // ── In-app MFA step-up sheet (mfa-gate.tsx) ───────────────────────────────
   mfaGate: {
     title: 'Two-factor',
@@ -54,6 +43,8 @@ export const shared = {
     startError: "Couldn't start MFA. Try again.",
     genericError: 'Something went wrong.',
     close: 'Close',
+    setupIntro: "You'll scan a QR code with an authenticator app (e.g. Google Authenticator, 1Password) and enter a 6-digit code.",
+    setupNow: 'Set up now',
     enrollNote: 'Scan the QR code with your authenticator app (or enter the key by hand), then enter the 6-digit code.',
     qrAlt: 'MFA QR code',
     codeLabel: '6-digit code',
@@ -87,5 +78,6 @@ export const shared = {
     all: 'All',
     onTheWay: 'On the way',
     inside: 'Inside',
+    refused: 'Refused',
   },
 } as const;

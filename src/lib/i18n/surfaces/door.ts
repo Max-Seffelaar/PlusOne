@@ -135,11 +135,6 @@ export const door = {
   addCommit: 'Add · {name}',
   addTypeName: 'Type a name',
 
-  // ── Door shell (DoorShell) ───────────────────────────────────────────────
-  tabCheckin: 'Check-in',
-  tabTasks: 'Tasks',
-  back: 'Back',
-
   // ── Sync bar (SyncBar) ───────────────────────────────────────────────────
   syncLive: 'Live · realtime',
   syncWarn: 'No sync for over 10 min. Check your connection.',

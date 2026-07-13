@@ -1,14 +1,14 @@
 'use client';
 
 /**
- * Promotion dashboard (Requests-epic F2, 86ey6b3fe — S15). Answers "who actually
- * pulls people through the door": an overview funnel per event, the venue-wide
- * influencer leaderboard (30/90 days/all time), label-only links, the per-event
- * funnel per request link, and the create-request-link flow. Recreated from the
- * approved Claude Design (docs/design/S15-slim.html) on the po kit + tokens;
- * entrance animations are translateY-only per #38. Reached from the More hub,
- * the Statistieken screen, and the desktop sidebar (admin/finance; organizers
- * reach it via RLS too — the RPCs self-guard, everyone else reads []).
+ * Promotion overview (Requests-epic F2, 86ey6b3fe — S15; regrouped under the
+ * Promotion hub by G3, 86ey7e03j). Answers "who actually pulls people through
+ * the door": the per-event overview funnel, the venue-wide influencer
+ * leaderboard (30/90 days/all time) and label-only links. Link MANAGEMENT
+ * (cards, QR, pause, edit) lives on the hub's "Per event" tab (event-links.tsx)
+ * — this tab links through instead of duplicating it. Entrance animations are
+ * translateY-only per #38. RLS self-guards the RPCs (admin/finance/organizer);
+ * everyone else reads [].
  */
 import { useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
@@ -16,13 +16,13 @@ import { fmt, t } from '@/lib/i18n';
 import type { PoEvent } from '@/lib/po/types';
 import type { PoFunnel, PoLinkFunnelRow } from '@/features/po/queries';
 import { usePoEvents, usePoLinkFunnel, usePoPromoLabelFunnel, usePoPromoLeaderboard, usePoVenueLinks, type PromoRange } from '@/features/po/hooks';
-import { useNav } from '../context';
-import { Icon } from '../icon';
-import { Avatar, Empty, Scroll, Top } from '../kit';
-import { CreateLinkModal } from './promo-create-link';
+import { useNav } from '../../context';
+import { Icon } from '../../icon';
+import { Avatar, Empty, pressDesktop } from '../../kit';
+import { CreateLinkFlow } from './create-link-flow';
+import { EventPicker, Kicker, soonestUpcoming } from './shared';
 
-const col = 'flex h-full flex-col';
-export const press = 'transition-[filter,transform,background,border-color,color] hover:brightness-[1.09] active:scale-[0.985]';
+const press = pressDesktop;
 const num = (n: number): string => n.toLocaleString('en-US');
 
 const RANGES: { key: PromoRange; label: string }[] = [
@@ -31,20 +31,7 @@ const RANGES: { key: PromoRange; label: string }[] = [
   { key: 'all', label: t.promo.rangeAll },
 ];
 
-/** "FRENZY · 12 JUL" — the picker/overview event label (PoEvent carries no weekday). */
-export function eventLabel(e: PoEvent): string {
-  return `${e.name} · ${e.date} ${e.mon}`;
-}
-
 // ── Small shared pieces ───────────────────────────────────────────────────────
-
-export function Kicker({ children, className }: { children: ReactNode; className?: string }): JSX.Element {
-  return (
-    <div className={cn('font-body text-[11.5px] font-bold uppercase tracking-[0.07em] text-faint', className)}>
-      {children}
-    </div>
-  );
-}
 
 function Card({ children, className, style }: { children: ReactNode; className?: string; style?: React.CSSProperties }): JSX.Element {
   return (
@@ -63,19 +50,6 @@ function LinkAvatar({ size = 42 }: { size?: number }): JSX.Element {
     >
       <Icon name="link" size={size * 0.42} />
     </div>
-  );
-}
-
-function PromoChip({ children, accent }: { children: ReactNode; accent?: boolean }): JSX.Element {
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1 whitespace-nowrap rounded-[7px] px-[7px] py-[3px] font-body text-[10.5px] font-extrabold uppercase tracking-[0.04em]',
-        accent ? 'border border-transparent bg-acc-dim text-acc' : 'border border-line text-dim',
-      )}
-    >
-      {children}
-    </span>
   );
 }
 
@@ -101,20 +75,18 @@ function FunnelLine({ f }: { f: PoFunnel }): JSX.Element {
   );
 }
 
-// ── Performance row (leaderboard + no-influencer + per-event) ─────────────────
+// ── Performance row (leaderboard + no-influencer) ─────────────────────────────
 function PerfRow({
   rank,
   name,
   sub,
   f,
-  chips,
   isLabel,
 }: {
   rank?: number;
   name: string;
   sub: string;
   f: PoFunnel;
-  chips?: ReactNode;
   isLabel?: boolean;
 }): JSX.Element {
   return (
@@ -129,7 +101,6 @@ function PerfRow({
             <span className="overflow-hidden text-ellipsis whitespace-nowrap font-display text-[16px] font-bold tracking-[-0.01em] text-text">
               {name}
             </span>
-            {chips}
           </div>
           <div className="mt-0.5 text-[12.5px] text-faint">{sub}</div>
         </div>
@@ -222,73 +193,19 @@ function Paginated<T>({
   );
 }
 
-// ── Event picker ──────────────────────────────────────────────────────────────
-function EventPicker({
-  events,
-  selectedId,
-  onPick,
-}: {
-  events: PoEvent[];
-  selectedId: string | null;
-  onPick: (id: string) => void;
-}): JSX.Element {
-  const [open, setOpen] = useState(false);
-  const selected = events.find((e) => e.id === selectedId) ?? null;
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        aria-label={t.promo.eventPickerAria}
-        onClick={() => setOpen(!open)}
-        className={cn(
-          'inline-flex items-center gap-[10px] whitespace-nowrap rounded-[13px] border border-line bg-elev2 px-[15px] py-[11px] font-display text-[14.5px] font-bold text-text',
-          press,
-        )}
-      >
-        <Icon name="cal" size={16} stroke="#B5A6FF" />
-        {selected ? eventLabel(selected) : '—'}
-        <Icon name="chevD" size={16} className="text-ghost" />
-      </button>
-      {open && (
-        <div className="absolute left-0 top-[calc(100%+6px)] z-20 min-w-[250px] rounded-[14px] border border-line bg-elev p-1.5 shadow-[0_18px_44px_rgba(0,0,0,0.55)]">
-          {events.map((e) => {
-            const on = e.id === selectedId;
-            return (
-              <button
-                key={e.id}
-                type="button"
-                onClick={() => {
-                  onPick(e.id);
-                  setOpen(false);
-                }}
-                className={cn(
-                  'flex w-full items-center gap-[9px] rounded-[9px] px-3 py-[11px] text-left font-body text-[13.5px] font-semibold',
-                  on ? 'bg-acc-dim text-acc' : 'text-dim',
-                  press,
-                )}
-              >
-                <span className={cn('h-[7px] w-[7px] shrink-0 rounded-full', on ? 'bg-acc' : 'bg-ghost')} />
-                {eventLabel(e)}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Overview card ─────────────────────────────────────────────────────────────
-function Overview({
+function OverviewCard({
   links,
   events,
   selectedId,
   onPick,
+  onManageLinks,
 }: {
   links: PoLinkFunnelRow[];
   events: PoEvent[];
   selectedId: string | null;
   onPick: (id: string) => void;
+  onManageLinks: () => void;
 }): JSX.Element {
   const tot = links.reduce<PoFunnel>(
     (a, l) => ({
@@ -346,7 +263,11 @@ function Overview({
           </span>
         ))}
         <span className="text-ghost">·</span>
-        <span>{fmt(t.promo.convLinks, { n: links.length })}</span>
+        {/* Link management moved to the Per-event tab (G3) — jump through. */}
+        <button type="button" onClick={onManageLinks} className={cn('inline-flex items-center gap-1 font-semibold text-acc', press)}>
+          {fmt(t.promo.convLinks, { n: links.length })}
+          <Icon name="chev" size={13} />
+        </button>
       </div>
     </Card>
   );
@@ -441,8 +362,8 @@ function LoadingState(): JSX.Element {
   );
 }
 
-// ── Screen ────────────────────────────────────────────────────────────────────
-export function Promo(): JSX.Element {
+// ── Tab body (rendered inside the Promotion hub) ─────────────────────────────
+export function PromotionOverview(): JSX.Element {
   const nav = useNav();
   const eventsQ = usePoEvents();
   const venueLinksQ = usePoVenueLinks();
@@ -456,13 +377,7 @@ export function Promo(): JSX.Element {
   // The picker offers events that HAVE links; with none anywhere it falls back to
   // upcoming events, so "Create request link" still has a target.
   const pickerEvents = eventsWithLinks.length > 0 ? eventsWithLinks : events.filter((e) => e.when === 'upcoming');
-  // usePoEvents is newest-first, so the SOONEST upcoming event is the last one
-  // in the upcoming block — that's the default the dashboard opens on.
-  const soonest = (list: PoEvent[]): PoEvent | undefined => {
-    const upcoming = list.filter((e) => e.when === 'upcoming');
-    return upcoming[upcoming.length - 1];
-  };
-  const fallback = soonest(eventsWithLinks) ?? eventsWithLinks[0] ?? soonest(events) ?? events[0] ?? null;
+  const fallback = soonestUpcoming(eventsWithLinks) ?? eventsWithLinks[0] ?? soonestUpcoming(events) ?? events[0] ?? null;
   const selected = events.find((e) => e.id === pickedEventId) ?? fallback;
 
   const funnelQ = usePoLinkFunnel(selected?.id ?? '');
@@ -472,14 +387,12 @@ export function Promo(): JSX.Element {
   const funnel = funnelQ.data ?? [];
   const board = boardQ.data ?? [];
   const labels = labelsQ.data ?? [];
-  const perEvent = [...funnel].sort((a, b) => b.checkedInHeads - a.checkedInHeads);
 
   const firstLoad = eventsQ.isLoading || venueLinksQ.isLoading || (boardQ.isLoading && labelsQ.isLoading && funnelQ.isLoading);
   const anyError = boardQ.isError || labelsQ.isError || funnelQ.isError;
   const noLinksAtAll = !firstLoad && (venueLinksQ.data ?? []).length === 0;
 
-  const rowName = (r: { influencerName: string | null; label: string | null }): string =>
-    r.influencerName ?? r.label ?? t.promo.standardName;
+  const openPerEvent = (): void => nav.replace('promotion', { tab: 'events', id: selected?.id });
 
   let content: ReactNode;
   if (firstLoad) {
@@ -487,19 +400,20 @@ export function Promo(): JSX.Element {
   } else if (events.length === 0) {
     content = <Empty text={t.promo.noEvents} />;
   } else if (noLinksAtAll) {
-    // No request links anywhere yet — the whole dashboard collapses to the CTA.
-    content = (
-      <div>
-        <SectionHead kicker={t.promo.perEventKicker} title={t.promo.perEventTitle} />
-        <EmptyState onCreate={selected ? () => setCreating(true) : undefined} />
-      </div>
-    );
+    // No request links anywhere yet — the whole overview collapses to the CTA.
+    content = <EmptyState onCreate={selected ? () => setCreating(true) : undefined} />;
   } else if (anyError) {
     content = <Empty text={t.promo.loadError} />;
   } else {
     content = (
       <>
-        <Overview links={funnel} events={pickerEvents} selectedId={selected?.id ?? null} onPick={setPickedEventId} />
+        <OverviewCard
+          links={funnel}
+          events={pickerEvents}
+          selectedId={selected?.id ?? null}
+          onPick={setPickedEventId}
+          onManageLinks={openPerEvent}
+        />
 
         <div>
           <SectionHead
@@ -551,77 +465,16 @@ export function Promo(): JSX.Element {
             )}
           </div>
         )}
-
-        <div>
-          <SectionHead
-            kicker={t.promo.perEventKicker}
-            title={t.promo.perEventTitle}
-            sub={selected ? fmt(t.promo.perEventSub, { event: eventLabel(selected) }) : undefined}
-            right={
-              selected ? (
-                <button
-                  type="button"
-                  onClick={() => setCreating(true)}
-                  className={cn(
-                    'inline-flex items-center gap-[7px] whitespace-nowrap rounded-[11px] border border-line bg-elev2 px-[14px] py-[9px] font-display text-[13.5px] font-bold text-text',
-                    press,
-                  )}
-                >
-                  <Icon name="plus" size={15} sw={2.3} stroke="#B5A6FF" />
-                  {t.promo.newLink}
-                </button>
-              ) : undefined
-            }
-          />
-          {funnelQ.isLoading ? (
-            <LoadingState />
-          ) : perEvent.length === 0 ? (
-            <EmptyState onCreate={selected ? () => setCreating(true) : undefined} />
-          ) : (
-            <Paginated
-              key={selected?.id ?? 'none'}
-              items={perEvent}
-              pageSize={5}
-              unit={t.promo.unitLinks}
-              render={(l) => (
-                <PerfRow
-                  key={l.linkId}
-                  name={rowName(l)}
-                  isLabel={l.influencerId == null}
-                  sub={l.influencerId != null ? t.promo.requestLinkSub : t.promo.labelOnlySub}
-                  chips={
-                    <span className="inline-flex gap-1.5">
-                      {l.autoApprove && (
-                        <PromoChip>
-                          <Icon name="bolt" size={10} sw={2.2} className="text-dim" />
-                          {t.promo.chipAuto}
-                        </PromoChip>
-                      )}
-                      {l.maxHeadcount != null && (
-                        <PromoChip accent>
-                          <Icon name="check" size={10} sw={2.6} stroke="#B5A6FF" />
-                          {fmt(t.promo.chipFull, { heads: l.approvedHeads, max: l.maxHeadcount })}
-                        </PromoChip>
-                      )}
-                    </span>
-                  }
-                  f={l}
-                />
-              )}
-            />
-          )}
-        </div>
       </>
     );
   }
 
   return (
-    <div className={col}>
-      <Top onBack={nav.back} title={t.promo.title} />
-      <Scroll bottom={40}>
-        <div className="mx-auto flex w-full max-w-[760px] flex-col gap-[30px]">{content}</div>
-      </Scroll>
-      {creating && selected && <CreateLinkModal event={selected} onClose={() => setCreating(false)} />}
+    <div className="flex flex-col gap-[30px]">
+      {content}
+      {creating && selected && (
+        <CreateLinkFlow eventId={selected.id} eventName={selected.name} events={events} onClose={() => setCreating(false)} />
+      )}
     </div>
   );
 }

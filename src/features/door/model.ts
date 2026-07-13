@@ -7,8 +7,9 @@
  */
 import type { IconName } from '@/components/po/icon';
 import type { CheckInRow, DoorEventMeta, DoorSnapshot, GuestRow, TierRow } from './queries';
-import { formatShortDate, formatTime } from '@/features/po/format';
+import { formatShortDate, formatDateTime } from '@/features/po/format';
 import { tierRole } from '@/lib/po/tier';
+import { computeHeadcounts, type HeadcountRow } from '@/features/po/headcount';
 
 export type NotePriority = 'none' | 'low' | 'high';
 
@@ -135,7 +136,7 @@ function toDoorGuest(
     inside: active,
     voided: ci != null && ci.voided_at != null,
     pay: false,
-    inAt: active ? formatTime(ci.checked_at) : undefined,
+    inAt: active ? formatDateTime(ci.checked_at) : undefined,
     inByName: active ? profiles[ci.checked_by] ?? 'Door' : undefined,
     arrived: active ? ci.plus_ones_arrived : undefined,
     refused: g.status === 'refused',
@@ -167,20 +168,25 @@ export function buildDoorView(snapshot: DoorSnapshot): DoorView {
     }
   }
 
-  const insideCount = guests.filter((g) => g.inside).length;
-  // Koppen (#5): present = self + arrived companions; registered = self + all +1's.
-  // Onderweg koppen = registered − present (a partial party contributes to both).
-  const insideHeadcount = guests.reduce((n, g) => n + (g.inside ? 1 + (g.arrived ?? 0) : 0), 0);
-  const registeredHeadcount = guests.reduce((n, g) => n + 1 + g.plus, 0);
+  // Canonical M4 selector (spec #44) — the SAME reducer the cockpit uses
+  // (src/features/po/headcount.ts), so the two never drift apart again (K-10).
+  // `refused` never contributes; `guests` (active list) supplies on-list/inside/
+  // on-the-way, koppen-aware (#5) and partial-check-in-aware.
+  const rows: HeadcountRow[] = guests.map((g) => ({
+    status: g.inside ? 'in' : 'wait',
+    plus: g.plus,
+    arrivedPlus: g.inside ? g.arrived : undefined,
+  }));
+  const hc = computeHeadcounts(rows);
   return {
     event: snapshot.event,
     guests,
     refused,
     tiers: snapshot.tiers,
-    insideCount,
-    waitingCount: guests.length - insideCount,
-    insideHeadcount,
-    waitingHeadcount: registeredHeadcount - insideHeadcount,
+    insideCount: hc.insideRows,
+    waitingCount: hc.onTheWayRows,
+    insideHeadcount: hc.insideHeads,
+    waitingHeadcount: hc.onTheWayHeads,
   };
 }
 

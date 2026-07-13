@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
-import type { EventSummary, TierStat, UserAddition } from '@/features/stats/data';
+import type { EventSummary, TierStat } from '@/features/stats/data';
 import { describeAuditEntry, type AuditLine } from '@/features/audit/translate';
 import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
 import { chunkIds, fetchAllRanged } from '@/lib/supabase/paging';
@@ -32,7 +32,16 @@ export type PoEventRow = {
 
 export type PoGuestRow = Pick<
   Tables['guests']['Row'],
-  'id' | 'full_name' | 'plus_ones' | 'status' | 'tier_id' | 'note' | 'note_priority' | 'created_at' | 'contact_id'
+  | 'id'
+  | 'full_name'
+  | 'plus_ones'
+  | 'status'
+  | 'tier_id'
+  | 'note'
+  | 'note_priority'
+  | 'note_acknowledged_at'
+  | 'created_at'
+  | 'contact_id'
 >;
 
 export type PoTierRow = Pick<
@@ -83,6 +92,15 @@ export type GuestScope = { eventId: string } | { venueId: string };
  * venue-wide "all guests" list can badge + deep-link each row to its own event;
  * single-event callers simply don't use it.
  *
+ * Status filter (M4/#44 — was `.neq('status', 'removed')`, which let a
+ * `pending`/`denied` row leak in as a phantom "on the way" guest: the po
+ * `Guest.status` type only has in/wait/refused, so `guestStatusToPo` collapsed
+ * it into 'wait', and it silently inflated the cockpit's on-list count by one
+ * relative to the door (whose own query, and every stats RPC, already scoped
+ * to exactly these three). Matches `ON_LIST` above, plus `refused` since
+ * screens here (Guests tab, cockpit's "Refused" concept) still need to render
+ * those rows, just never count them on-list.
+ *
  * Ranged: a 1500-guest event/venue would truncate at PostgREST's 1000-row cap,
  * hiding the rest. `created_at` isn't unique, so `.order('id')` is the
  * tiebreaker that makes the page order deterministic (no overlap/skip across
@@ -92,8 +110,8 @@ export async function fetchGuests(client: Client, scope: GuestScope): Promise<Po
   return fetchAllRanged<PoVenueGuestRow>((from, to) => {
     const query = client
       .from('guests')
-      .select('id, full_name, plus_ones, status, tier_id, note, note_priority, created_at, contact_id, event_id')
-      .neq('status', 'removed')
+      .select('id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, event_id')
+      .in('status', [...ON_LIST, 'refused'])
       .order('created_at', { ascending: true })
       .order('id')
       .range(from, to);
@@ -501,25 +519,6 @@ export async function fetchPastEventStats(
     client.rpc('event_tier_stats', { p_event_id: eventId }),
   ]);
   return { summary: summary.data ?? null, tiers: tiers.data ?? [] };
-}
-
-export interface EventActivityStats {
-  tiers: TierStat[];
-  members: UserAddition[];
-}
-
-/** Per-tier + per-member stats for the event Activity section (86ey21vnd).
- *  Both RPCs are SECURITY DEFINER, self-gated on can_read_event_stats
- *  (admin/finance/organizer); out-of-scope callers receive empty arrays. */
-export async function fetchPoEventActivityStats(
-  client: Client,
-  eventId: string
-): Promise<EventActivityStats> {
-  const [tiers, members] = await Promise.all([
-    client.rpc('event_tier_stats', { p_event_id: eventId }),
-    client.rpc('event_user_additions', { p_event_id: eventId }),
-  ]);
-  return { tiers: tiers.data ?? [], members: members.data ?? [] };
 }
 
 export interface EventEditRow {
@@ -1656,6 +1655,8 @@ export interface PoRequestLink {
   /** Approved HEADCOUNT on the guest list via this link: sum of 1 + plus_ones
    *  over non-removed guests — what max_headcount caps. */
   approvedHeads: number;
+  /** Checked-in HEADCOUNT via this link — same funnel step Promo shows (M14). */
+  checkedInHeads: number;
 }
 
 /**
@@ -1722,9 +1723,13 @@ export async function fetchRequestLinks(client: Client, eventId: string): Promis
     }
   }
   const headsByLink = new Map<string, number>();
+  const checkedInByLink = new Map<string, number>();
   for (const g of guests) {
     if (!g.request_link_id || g.status === 'removed') continue;
     headsByLink.set(g.request_link_id, (headsByLink.get(g.request_link_id) ?? 0) + 1 + g.plus_ones);
+    if (g.status === 'checked_in') {
+      checkedInByLink.set(g.request_link_id, (checkedInByLink.get(g.request_link_id) ?? 0) + 1 + g.plus_ones);
+    }
   }
 
   return rows
@@ -1746,6 +1751,7 @@ export async function fetchRequestLinks(client: Client, eventId: string): Promis
       requests: requestsByLink.get(l.id) ?? 0,
       approved: approvedByLink.get(l.id) ?? 0,
       approvedHeads: headsByLink.get(l.id) ?? 0,
+      checkedInHeads: checkedInByLink.get(l.id) ?? 0,
     }))
     .sort((a, b) => (a.isDefault === b.isDefault ? a.createdAt.localeCompare(b.createdAt) : a.isDefault ? -1 : 1));
 }

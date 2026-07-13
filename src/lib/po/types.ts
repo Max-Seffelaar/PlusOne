@@ -56,6 +56,9 @@ export interface Guest {
   plus: number;
   note: string;
   flag: Priority | null;
+  /** Whether the note/task has been acknowledged (guests.note_acknowledged_at
+   *  != null). Undefined when the note itself is empty — nothing to ack. */
+  noteAcknowledged?: boolean;
   by: string;
   addedAt: string;
   status: GuestStatus;

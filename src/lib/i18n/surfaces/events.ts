@@ -91,10 +91,11 @@ export const events = {
   quotaLess: 'Fewer',
   quotaMore: 'More',
 
-  // Block retitled with F1 (86ey21vjt): the landing page is now one of several
-  // request links. Key stays `landingPage` so no call sites move.
-  landingPage: 'Request links',
-  landingActiveTitle: 'Request link active',
+  // Renamed from "Request links" (UX/IA M13, K-19): the separate links-management
+  // row below (linksRowTitle) already owns that term — this block is just the
+  // event's own landing toggle + slug. Key stays `landingPage` so no call sites move.
+  landingPage: 'Sign-up link',
+  landingActiveTitle: 'Sign-up link active',
   landingActiveSub: 'Guests can request a spot through the link.',
   copyLinkAria: 'Copy sign-up link',
   copyLinkLabel: 'Copy link',
@@ -221,19 +222,11 @@ export const events = {
   recapGuestList: 'Guest list',
   exportLabel: 'Export',
 
-  // ── Event activity section (admin/finance, 86ey21vnd) ────────────────────────
+  // ── Event activity section (admin/finance, 86ey21vnd; M6 86ey7dzmp) ──────────
   activityHeading: 'Activity',
-  activityPerTier: 'By tier',
-  activityPerMember: 'By member',
-  activityLog: 'Log',
-  activityNoTiers: 'No tier data.',
-  activityNoMembers: 'No contributions yet.',
-  activityEmpty: 'No activity recorded yet.',
-  activityShowMore: 'Show more',
-  activityPpl: 'reg',
-  activityIn: 'in',
-  activityInShort: 'in',
-  activityAddedPpl: ' ({n} ppl)',
+  // Jumps to the Audit screen, pre-filtered to this event — the inline log itself
+  // no longer renders here (M6: EventView was too busy for most users).
+  viewActivity: 'View activity',
 
   // ── External crew (event_organizers, #6/#24) ─────────────────────────────────
   // Event-scoped people (a DJ, artist, guest organizer) attached to ONE event —

@@ -57,18 +57,11 @@ export const cockpit = {
   filterAll: shared.checkinFilters.all,
   filterOnTheWay: shared.checkinFilters.onTheWay,
   filterInside: shared.checkinFilters.inside,
+  filterRefused: shared.checkinFilters.refused,
   allTiers: 'All tiers',
-  colGuest: 'Guest',
-  colTier: 'Tier',
-  colStatus: 'Status',
-  colInOut: 'In / out',
   emptyNoGuests: 'No guests on the list yet.',
   emptyNoFilter: 'No guests for this filter.',
-  addedBy: 'Added by {name}',
-  rowInside: 'Inside',
-  rowInsidePartial: 'Inside · {arrived}/{total}',
-  rowInsideBy: 'by {name}',
-  rowOnTheWay: 'On the way',
+  rowInsidePartial: '{arrived}/{total} inside',
   feedShown: '{n} guests shown · check-ins show up here live',
 
   // ── Approvals panel ──────────────────────────────────────────────────────
@@ -128,6 +121,14 @@ export const cockpit = {
   checkInTitle: 'Check in',
   checkOutTitle: 'Check out / not inside',
   checkOutDisabledTitle: 'Check-out is off for this event',
+  refuseRowTitle: 'Refuse this guest',
+  undoRowTitle: 'Undo the refusal',
+
+  // ── Refused row (Refused segment) ─────────────────────────────────────────
+  rowRefused: 'Refused',
+
+  // ── Tasks card (right column) ─────────────────────────────────────────────
+  tasksCardEmpty: 'No tasks for this event.',
 
   // ── Toasts (notify) ──────────────────────────────────────────────────────
   // {name} +{n} checked in · {inside} inside   (the +{n} part is built inline)
@@ -136,12 +137,16 @@ export const cockpit = {
   toastTopup: '{name} updated · now {inside} inside',
   toastCheckedOut: '{name} checked out',
   toastPartialCheckout: '{name} · {leaving} checked out, {remaining} stay inside',
+  toastRefused: '{name} refused',
+  toastUndoRefusal: '{name} back on the list',
 
   // ── Live feed (pushFeed) ─────────────────────────────────────────────────
   feedApproved: '{name}{plus} approved',
   feedDeclined: '{name} declined',
   feedQuotaGranted: '{who} got +{n} quota',
   feedQuotaDenied: "Quota request from {who} declined",
+  feedRefused: '{name} refused',
+  feedUndoRefusal: '{name} back on the list',
   // reason stored on a cockpit deny (server-side, English)
   denyReason: 'Declined from cockpit',
 } as const;

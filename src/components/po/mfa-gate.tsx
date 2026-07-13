@@ -1,14 +1,21 @@
 'use client';
 
 /**
- * In-app MFA step-up for the po surface. Sensitive server actions (invite, role
- * change, member removal, quota grant) require AAL2 (#20). A non-mandatory member
- * (e.g. a user_manager who never enrolled) can reach /app at AAL1, so such an
- * action returns "Deze actie vereist MFA". Instead of dead-ending at that error,
- * `useMfaGate` opens this sheet: it challenges an existing verified factor, or —
- * the common case here, since the middleware force-steps-up anyone who already
- * has a factor — enrolls one inline (QR + code). On success the cookie-based
- * browser client upgrades the session to AAL2 and the caller retries the action.
+ * In-app MFA sheet for the po surface, used two ways:
+ *  1. Voluntary self-service ("Enable MFA" in Profile) — MFA is fully optional
+ *     for every role, no AAL2 requirement anywhere (#20 refinement 2026-07-02,
+ *     migration 20260702120000_mfa_fully_optional). There is no gate to satisfy
+ *     here; the sheet exists purely because the user asked to turn MFA on.
+ *  2. `useMfaGate` step-up — a handful of specific sensitive DB writes (venue
+ *     membership role/removal grants) still carry a narrow, RLS-level AAL2
+ *     check independent of this refinement; a caller at AAL1 gets a generic
+ *     "no access, or MFA required" error, and `guard`/`start` open this sheet
+ *     to resolve it instead of dead-ending. This is NOT a blanket AAL2 gate —
+ *     don't reintroduce one elsewhere without an explicit decision.
+ * Either way: it challenges an existing verified factor, or — if none exists —
+ * asks first ("Set up now") before enrolling one (QR + code); enroll() never
+ * fires just from the sheet opening. On success the cookie-based browser
+ * client upgrades the session to AAL2 and the caller retries the action.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
@@ -23,7 +30,7 @@ export function isAal2Error(error: unknown): boolean {
   return error instanceof Error && /\bMFA\b/i.test(error.message);
 }
 
-type Phase = 'loading' | 'challenge' | 'enroll' | 'error';
+type Phase = 'loading' | 'challenge' | 'ask' | 'enroll' | 'error';
 
 export function PoMfaSheet({
   onVerified,
@@ -46,6 +53,9 @@ export function PoMfaSheet({
   const [error, setError] = useState<string | null>(null);
   // An unverified factor we created here; dropped on cancel so it doesn't linger.
   const enrolledIdRef = useRef<string | null>(null);
+  // Guards against a double-click on "Set up now" or "Try again" firing two
+  // concurrent enroll() calls — a state check alone can't catch same-tick clicks.
+  const enrollInFlight = useRef(false);
 
   useEffect(() => {
     const supabase = createClient();
@@ -62,8 +72,20 @@ export function PoMfaSheet({
         setPhase('challenge');
         return;
       }
-      // No verified factor → clear any stray unverified ones, then enroll fresh.
-      for (const f of data?.all ?? []) {
+      // No verified factor — ask first; nothing is enrolled just from opening the sheet.
+      setPhase('ask');
+    })();
+  }, []);
+
+  async function startEnrollment(): Promise<void> {
+    if (enrollInFlight.current) return;
+    enrollInFlight.current = true;
+    setError(null);
+    try {
+      const supabase = createClient();
+      // Clean up abandoned, unverified TOTP factors so re-enrolling is idempotent.
+      const { data: factors } = await supabase.auth.mfa.listFactors();
+      for (const f of factors?.all ?? []) {
         if (f.factor_type === 'totp' && f.status !== 'verified') {
           await supabase.auth.mfa.unenroll({ factorId: f.id });
         }
@@ -79,8 +101,10 @@ export function PoMfaSheet({
       setQr(enrolled.totp.qr_code);
       setSecret(enrolled.totp.secret);
       setPhase('enroll');
-    })();
-  }, []);
+    } finally {
+      enrollInFlight.current = false;
+    }
+  }
 
   async function verify(): Promise<void> {
     if (!factorId || code.length !== 6 || busy) return;
@@ -122,6 +146,18 @@ export function PoMfaSheet({
       </div>
 
       {phase === 'loading' && <div className="py-6 text-center text-[13px] text-faint">{t.shared.mfaGate.loading}</div>}
+
+      {phase === 'ask' && (
+        <>
+          <Note icon="shield">{t.shared.mfaGate.setupIntro}</Note>
+          <Btn kind="primary" full icon="shield" className="mt-2" onClick={() => void startEnrollment()}>
+            {t.shared.mfaGate.setupNow}
+          </Btn>
+          <Btn kind="ghost" full className="mt-2" onClick={() => void cancel()}>
+            {t.shared.mfaGate.cancel}
+          </Btn>
+        </>
+      )}
 
       {phase === 'error' && (
         <>

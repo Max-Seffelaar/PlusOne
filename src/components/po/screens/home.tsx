@@ -32,6 +32,10 @@ import { EventRow, StatusChip, toBoardEvents, type BoardEvent } from '../event-r
 
 const TZ = 'Europe/Amsterdam';
 const PAGE_SIZE = 7;
+// Home's past section is a recency pulse, not history (M11): anything older than
+// a week only lives under Events → Past. Older events are still fully editable —
+// this only trims what surfaces on the board.
+const PAST_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Current hour in the product TZ (#26) — stable across SSR/CSR. */
 function amsterdamHour(): number {
@@ -493,11 +497,13 @@ export function Home(): JSX.Element {
       .sort(sortUpcoming);
   }, [board, query, filter]);
 
-  // Past section: past events filtered by search only, most recent first.
+  // Past section: last week only (M11) — older past events stay reachable via
+  // Events → Past, filtered by search, most recent first.
   const pastList = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const cutoffMs = Date.now() - PAST_WINDOW_MS;
     return board
-      .filter((e) => e.when === 'past' && (!q || (e.name + ' ' + e.venue).toLowerCase().includes(q)))
+      .filter((e) => e.when === 'past' && e.startsAtMs >= cutoffMs && (!q || (e.name + ' ' + e.venue).toLowerCase().includes(q)))
       .sort((a, b) => b.startsAtMs - a.startsAtMs);
   }, [board, query]);
 

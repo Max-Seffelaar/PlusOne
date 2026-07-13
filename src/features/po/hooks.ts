@@ -65,7 +65,6 @@ import {
   type PoLeaderboardRow,
   type PoLabelFunnelRow,
   type PoCrewMember,
-  fetchPoEventActivityStats,
   type EventEditRow,
   type CheckinArrival,
   type RecentCheckinRow,
@@ -76,7 +75,6 @@ import {
   type PoTemplateRow,
   type PoTemplateDetail,
   type PoTemplateTierRow,
-  type EventActivityStats,
 } from './queries';
 import {
   toPoEvent,
@@ -114,7 +112,16 @@ import {
 import { normalizeEmail, normalizePhoneToDigits } from '@/features/contacts/import/parse';
 import { usePoIdentity } from './PoLiveProvider';
 import { fetchEventStats } from '@/features/stats/data';
-import { eventKpis, toPerKwartier, type PerKwartier } from '@/features/stats/po-adapter';
+import {
+  eventKpis,
+  toPerKwartier,
+  toPerTier,
+  toPerUser,
+  type EventKpis,
+  type PerKwartier,
+  type PerTier,
+  type PerUser,
+} from '@/features/stats/po-adapter';
 import { getDoorClient } from '@/features/door/offline/device';
 import { shouldRefetchOnStatus, type ChannelStatus } from '@/features/door/sync/reconnect';
 
@@ -324,16 +331,34 @@ export function usePoEventRecap(eventId: string) {
   });
 }
 
-/** Per-tier + per-member stats for the event Activity section (86ey21vnd). */
+/** The one per-event-stats shape shared by the event-home Activity panel and the
+ *  Analytics event-first view (M6, 86ey7dzmp) — same fetch, same adapters, so the
+ *  two surfaces can never drift apart (K-10-les). */
+export interface EventStatsDetail {
+  ek: EventKpis;
+  perKwartier: PerKwartier[];
+  perTier: PerTier[];
+  perUser: PerUser[];
+}
+
+/** Per-event KPIs + arrivals + per-tier + per-member stats, for `EventStatsPanel`. */
 export function usePoEventActivity(
   eventId: string,
   options?: { enabled?: boolean; refetchInterval?: number }
 ) {
-  return useQuery<EventActivityStats>({
+  return useQuery<EventStatsDetail>({
     queryKey: poKeys.eventActivity(eventId),
     enabled: !!eventId && (options?.enabled ?? true),
     refetchInterval: options?.refetchInterval,
-    queryFn: () => fetchPoEventActivityStats(createClient(), eventId),
+    queryFn: async () => {
+      const { summary, perQuarter, tiers, users } = await fetchEventStats(createClient(), eventId);
+      return {
+        ek: eventKpis(summary),
+        perKwartier: toPerKwartier(perQuarter),
+        perTier: toPerTier(tiers),
+        perUser: toPerUser(users),
+      };
+    },
   });
 }
 

@@ -58,8 +58,9 @@ function TemplateChip({ label, active, onClick }: { label: string; active: boole
 
 /** Save an existing event's setup (tiers + capacity + settings) as a reusable template.
  *  Reports a typed-but-unsaved name via onDraftChange so the parent's leave-guard can
- *  catch it — "Save event" does NOT save the template (T4, 1/7). */
-function SaveAsTemplate({
+ *  catch it — "Save event" does NOT save the template (T4, 1/7). Also used standalone
+ *  from the past-event recap (M11, 8/7) — onDraftChange is optional there. */
+export function SaveAsTemplate({
   eventId,
   onDraftChange,
 }: {

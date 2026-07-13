@@ -4,18 +4,16 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
-import { usePoEvent, usePoEventRecap, usePoEventActivity, usePoAuditFeed } from '@/features/po/hooks';
-import type { TierStat, UserAddition } from '@/features/stats/data';
-import type { AuditLine } from '@/features/audit/translate';
-import { formatWhen } from '@/features/audit/translate';
+import { usePoEvent, usePoEventForEdit, usePoEventRecap } from '@/features/po/hooks';
 import { venueCapabilities } from '@/features/venues/access';
-import { auditActionMeta } from '@/features/po/audit-presenter';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, IconBtn, Label, Scroll, Top } from '../../kit';
+import { Avatar, Btn, Empty, IconBtn, Label, Scroll, Top, press } from '../../kit';
 import { TierPill } from '../guests/_shared';
 import { col, ScreenState } from './shared';
+import { EventStatsPanel } from './stats-panel';
+import { SaveAsTemplate } from './edit';
 
 // ── PAST EVENT recap (pushed) ────────────────────────────────────────────────────
 const RECAP_CAP = 8;
@@ -24,6 +22,8 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
   const nav = useNav();
   const { event, isLoading: evLoading, isError: evError, notFound } = usePoEvent(id ?? '');
   const { data: r, isLoading: rLoading, isError: rError } = usePoEventRecap(id ?? '');
+  // Past events stay editable (M11); "Save as template" reuses that same right.
+  const { canManage } = usePoEventForEdit(id ?? '');
   const [showAllIn, setShowAllIn] = useState(false);
   const [showAllNo, setShowAllNo] = useState(false);
 
@@ -183,6 +183,7 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
             {t.events.exportLabel}
           </Btn>
         </div>
+        {id && canManage && <SaveAsTemplate eventId={id} />}
         </div>
         </div>
         {id && <EventActivitySection eventId={id} />}
@@ -191,100 +192,12 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
   );
 }
 
-// ── EVENT ACTIVITY SECTION (admin/finance only, 86ey21vnd) ───────────────────────
-
-function TierActivityTable({ tiers }: { tiers: TierStat[] }): JSX.Element {
-  if (tiers.length === 0) return <Empty text={t.events.activityNoTiers} />;
-  return (
-    <ul className="flex flex-col divide-y divide-line2">
-      {tiers.map((tier) => (
-        <li key={tier.tier_id} className="flex items-center gap-[10px] py-[9px]">
-          <span
-            className="mt-px h-[9px] w-[9px] shrink-0 rounded-full"
-            style={{ backgroundColor: tier.color || '#B5A6FF' }}
-          />
-          <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-text">
-            {tier.tier_name}
-          </span>
-          <span className="font-display text-[13px] font-bold text-text">
-            {tier.registered_headcount}
-          </span>
-          <span className="text-[11.5px] text-faint">{t.events.activityPpl}</span>
-          <span className="font-display text-[13px] font-bold text-acc">
-            {tier.present_headcount}
-          </span>
-          <span className="text-[11.5px] text-faint">{t.events.activityIn}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function MemberActivityTable({ members }: { members: UserAddition[] }): JSX.Element {
-  if (members.length === 0) return <Empty text={t.events.activityNoMembers} />;
-  return (
-    <ul className="flex flex-col divide-y divide-line2">
-      {members.map((m) => (
-        <li key={m.user_id} className="flex items-center gap-[10px] py-[9px]">
-          <Avatar name={m.full_name} size={30} />
-          <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-text">
-            {m.full_name}
-          </span>
-          <span className="text-right">
-            <span className="font-display text-[13px] font-bold text-text">{m.added}</span>
-            <span className="ml-1 text-[11.5px] text-faint">
-              {fmt(t.events.activityAddedPpl, { n: m.added_headcount })}
-            </span>
-          </span>
-          {m.present > 0 && (
-            <span className="font-display text-[12px] font-bold text-acc">
-              {m.present} {t.events.activityInShort}
-            </span>
-          )}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function EventAuditEntry({ line }: { line: AuditLine }): JSX.Element {
-  const nav = useNav();
-  const meta = auditActionMeta(line.action);
-  const isDoor = /deur|door/i.test(line.device);
-  return (
-    <li>
-      <button
-        type="button"
-        disabled={!line.guestId}
-        onClick={() => line.guestId && nav.push('guest', { id: line.guestId })}
-        className="flex w-full items-start gap-[10px] py-[9px] text-left"
-      >
-        <span className="mt-[1px] flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-full bg-elev2 text-dim">
-          <Icon name={meta.icon} size={15} />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-[13px] leading-[1.4] text-dim">
-            <span className="font-semibold text-text">{line.actor}</span>{' '}
-            {line.text}
-          </span>
-          <span className="mt-0.5 flex items-center gap-x-[6px] text-[11.5px] text-faint">
-            <span>{formatWhen(line.iso)}</span>
-            <span className="text-ghost">·</span>
-            <span className={cn('flex items-center gap-[4px]', isDoor && 'text-acc')}>
-              <span className={cn('h-[5px] w-[5px] rounded-full', isDoor ? 'bg-acc' : 'bg-ghost')} />
-              {line.device}
-            </span>
-          </span>
-        </span>
-      </button>
-    </li>
-  );
-}
-
-// Audit feed paging (86ey8w79x): first window stays small; "Show more" widens
-// the server-side cap in steps — an event with hundreds of guests must never
-// ship its whole log to render this section.
-const FEED_PAGE = 50;
+// ── EVENT ACTIVITY SECTION (admin/finance only, 86ey21vnd; M6 86ey7dzmp) ─────────
+// The per-event stats live here (event-home) via the shared EventStatsPanel — the
+// same component Analytics renders after picking an event, so the two surfaces
+// never drift apart (K-10-les). The audit log itself no longer renders inline
+// (EventView was "too busy" per the 8/7 UX/IA decision) — "View activity" jumps to
+// the dedicated Audit screen, pre-filtered to this event.
 
 export function EventActivitySection({
   eventId,
@@ -293,69 +206,27 @@ export function EventActivitySection({
   eventId: string;
   isLive?: boolean;
 }): JSX.Element | null {
+  const nav = useNav();
   const { roles } = usePoIdentity();
   const canAudit = venueCapabilities(roles).viewAudit;
-  const interval = isLive ? 15_000 : undefined;
-  const [feedLimit, setFeedLimit] = useState(FEED_PAGE);
-  const { data: activity, isLoading: statsLoading } = usePoEventActivity(eventId, {
-    enabled: canAudit,
-    refetchInterval: canAudit ? interval : undefined,
-  });
-  const { data: feed, isLoading: feedLoading } = usePoAuditFeed(
-    { eventId, limit: feedLimit },
-    { enabled: canAudit, refetchInterval: canAudit ? interval : undefined }
-  );
 
   if (!canAudit) return null;
-
-  const tiers = activity?.tiers ?? [];
-  const members = activity?.members ?? [];
-  const lines = feed ?? [];
-  // A full window means there may be more; a short read means we've seen it all.
-  const maybeMore = lines.length >= feedLimit;
 
   return (
     <div className="mt-6 border-t border-line pt-5">
       <Label className="mb-4">{t.events.activityHeading}</Label>
-      {/* Stats grid: tier table + member table side by side on desktop */}
-      <div className="mb-5 lg:grid lg:grid-cols-2 lg:gap-5">
-        <div className="mb-5 lg:mb-0">
-          <Label className="mb-[10px] text-[11.5px]">{t.events.activityPerTier}</Label>
-          {statsLoading ? (
-            <div className="py-4 text-center text-[13px] text-faint">{t.events.loading}</div>
-          ) : (
-            <TierActivityTable tiers={tiers} />
-          )}
-        </div>
-        <div>
-          <Label className="mb-[10px] text-[11.5px]">{t.events.activityPerMember}</Label>
-          {statsLoading ? (
-            <div className="py-4 text-center text-[13px] text-faint">{t.events.loading}</div>
-          ) : (
-            <MemberActivityTable members={members} />
-          )}
-        </div>
-      </div>
-      {/* Audit feed */}
-      <Label className="mb-[10px] text-[11.5px]">{t.events.activityLog}</Label>
-      {feedLoading ? (
-        <div className="py-4 text-center text-[13px] text-faint">{t.events.loading}</div>
-      ) : lines.length === 0 ? (
-        <Empty text={t.events.activityEmpty} />
-      ) : (
-        <>
-          <ul className="divide-y divide-line2">
-            {lines.map((line) => (
-              <EventAuditEntry key={line.id} line={line} />
-            ))}
-          </ul>
-          {maybeMore && (
-            <Btn kind="ghost" full sm className="mt-3" onClick={() => setFeedLimit((n) => n + FEED_PAGE)}>
-              {t.events.activityShowMore}
-            </Btn>
-          )}
-        </>
-      )}
+      <EventStatsPanel eventId={eventId} isLive={isLive} />
+      <button
+        type="button"
+        onClick={() => nav.push('audit', { id: eventId })}
+        className={cn(
+          'mt-5 flex w-full items-center justify-center gap-[8px] rounded-[14px] border border-line bg-elev py-[13px] font-display text-[13.5px] font-bold text-acc',
+          press
+        )}
+      >
+        {t.events.viewActivity}
+        <Icon name="chev" size={16} />
+      </button>
     </div>
   );
 }

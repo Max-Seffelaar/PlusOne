@@ -1,32 +1,41 @@
 'use client';
 
 /**
- * Request links per event (Requests-epic F1, 86ey21vjt) — one link per
- * influencer/channel with its funnel (views → requests → approved), a QR code,
- * and a pause toggle. Reached from EventEdit/EventView via nav.push('links',
- * { id: eventId }). Reads/writes go through the shared src/features/po layer
- * (React Query + the links server actions); RLS is the boundary — admin
- * (venue) + organizer (own event) manage, finance reads, staff/door see [].
+ * Request links per event (Requests-epic F1, 86ey21vjt; regrouped under the
+ * Promotion area by G3, 86ey7e03j) — one link per influencer/channel with its
+ * funnel (views → requests → approved → checked-in, M14), a QR code, and a
+ * pause toggle. Two entries, one component:
+ *  - standalone (`/app/events/[id]/links`, ScreenName 'links'): reached from
+ *    EventEdit/EventView — deliberately OUTSIDE the Promotion hub so an
+ *    external organizer (event-scoped, no venue membership) keeps managing his
+ *    own event's links (G3 gating decision, ux-ia-audit vraag 6);
+ *  - embedded in the Promotion hub's "Per event" tab (venue members), with an
+ *    event picker instead of the back-header.
+ * Reads/writes go through the shared src/features/po layer; RLS is the
+ * boundary — admin (venue) + organizer (own event) manage, finance reads,
+ * staff/door see [].
  *
  * The DEFAULT link is the event's legacy landing slug: pinned first, its on/off
  * is the event-level master toggle in EventEdit (its own `active` stays true),
  * and its identity can't be edited or archived here.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import type { Tier } from '@/lib/po/types';
 import type { PoInfluencer, PoRequestLink } from '@/features/po/queries';
-import { usePoEventForEdit, usePoInfluencers, usePoRequestLinks, usePoTiers } from '@/features/po/hooks';
-import { usePoCreateInfluencer, usePoCreateLink, usePoUpdateLink } from '@/features/po/mutations';
+import { usePoEventForEdit, usePoEvents, usePoInfluencers, usePoRequestLinks, usePoTiers } from '@/features/po/hooks';
+import { usePoCreateInfluencer, usePoUpdateLink } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { poKeys } from '@/features/po/keys';
 import { localInputToIso, isoToLocalInput } from '@/features/events/datetime';
-import { useNav } from '../context';
-import { Icon } from '../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Scroll, Toggle, ToggleRow, Top, press, cardPress } from '../kit';
-import { Sheet } from '../shell';
+import { useNav } from '../../context';
+import { Icon } from '../../icon';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Scroll, TierPicker, Toggle, ToggleRow, Top, press, cardPress } from '../../kit';
+import { Sheet } from '../../shell';
+import { CreateLinkFlow } from './create-link-flow';
+import { EventPicker, soonestUpcoming } from './shared';
 
 const col = 'flex h-full flex-col';
 
@@ -83,7 +92,7 @@ function LinkCard({
   };
 
   const stats =
-    fmt(t.links.stats, { views: link.views, requests: link.requests, approved: link.approved }) +
+    fmt(t.links.stats, { views: link.views, requests: link.requests, approved: link.approved, checkedIn: link.checkedInHeads }) +
     (link.maxHeadcount != null
       ? fmt(t.links.statsCap, { heads: link.approvedHeads, max: link.maxHeadcount })
       : '');
@@ -156,9 +165,15 @@ function LinkCard({
 }
 
 // ── Screen ────────────────────────────────────────────────────────────────────
-export function Links({ eventId }: { eventId?: string }): JSX.Element {
+export function EventLinks({ eventId, embedded }: { eventId?: string; embedded?: boolean }): JSX.Element {
   const nav = useNav();
-  const id = eventId ?? '';
+  // Embedded (Promotion hub "Per event"): no explicit event in the URL yet →
+  // default to the soonest upcoming event, same rule as the Overview tab.
+  // (Shared venue-wide query key — standalone mode has it cached already.)
+  const eventsQ = usePoEvents();
+  const events = eventsQ.data ?? [];
+  const fallback = embedded ? soonestUpcoming(events) ?? events[0] ?? null : null;
+  const id = eventId ?? fallback?.id ?? '';
   const { data: ev, canManage } = usePoEventForEdit(id);
   const linksQ = usePoRequestLinks(id);
   const tiersQ = usePoTiers(id);
@@ -169,6 +184,8 @@ export function Links({ eventId }: { eventId?: string }): JSX.Element {
   const [qrFor, setQrFor] = useState<PoRequestLink | null>(null);
   const [justCreated, setJustCreated] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // The create flow ends on a done/copy step — hold the highlight until it closes.
+  const pendingCreated = useRef<string | null>(null);
 
   const links = linksQ.data ?? [];
   const tiers = tiersQ.data ?? [];
@@ -202,6 +219,94 @@ export function Links({ eventId }: { eventId?: string }): JSX.Element {
     );
   };
 
+  const body = (
+    <>
+      {err && <ErrLine msg={err} />}
+      {!canManage && !linksQ.isLoading && <Note icon="shield">{t.links.readOnly}</Note>}
+      {linksQ.isLoading ? (
+        <Loading text={t.links.loading} />
+      ) : linksQ.isError ? (
+        <Empty text={t.links.loadError} />
+      ) : links.length === 0 ? (
+        <Empty text={canManage ? t.links.empty : t.links.noAccess} />
+      ) : (
+        <div className="flex flex-col gap-[11px] lg:grid lg:grid-cols-2 lg:items-start">
+          {links.map((link) => (
+            <LinkCard
+              key={link.id}
+              link={link}
+              tier={link.tierId ? tierById.get(link.tierId) ?? null : null}
+              canManage={canManage}
+              highlight={link.id === justCreated}
+              onOpen={() => canManage && setSheet({ mode: 'edit', link })}
+              onQr={() => setQrFor(link)}
+              onToggle={(active) => togglePause(link, active)}
+              toggling={updateLink.isPending}
+            />
+          ))}
+        </div>
+      )}
+    </>
+  );
+
+  const sheets = (
+    <>
+      {sheet?.mode === 'create' && id && (
+        <CreateLinkFlow
+          eventId={id}
+          eventName={ev?.name ?? ''}
+          // Only in the embedded (venue-member) hub tab — the standalone
+          // per-event route stays locked to its one event (see the prop doc
+          // on CreateLinkFlow: an external organizer shouldn't see a picker
+          // over venue events he can't create links on).
+          events={embedded ? events : undefined}
+          onCreated={(newId) => {
+            pendingCreated.current = newId;
+          }}
+          onClose={() => {
+            setSheet(null);
+            if (pendingCreated.current) {
+              setJustCreated(pendingCreated.current);
+              pendingCreated.current = null;
+            }
+          }}
+        />
+      )}
+      {sheet?.mode === 'edit' && (
+        <LinkSheet
+          eventId={id}
+          link={sheet.link}
+          tiers={tiers}
+          tiersLoading={tiersQ.isLoading}
+          influencers={influencersQ.data ?? []}
+          onClose={() => setSheet(null)}
+          onSaved={() => setSheet(null)}
+        />
+      )}
+      {qrFor && <QrSheet link={qrFor} onClose={() => setQrFor(null)} />}
+    </>
+  );
+
+  if (embedded) {
+    // Inside the Promotion hub: the hub renders the Top header (incl. the
+    // persistent "+ New link" — its own CreateLinkFlow event-picker covers
+    // "add a link on a DIFFERENT event than the one I'm viewing here", so this
+    // tab doesn't need its own second "+" next to the event picker row.
+    return (
+      <div className="flex min-h-0 flex-col">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <EventPicker
+            events={events}
+            selectedId={id || null}
+            onPick={(picked) => nav.replace('promotion', { tab: 'events', id: picked })}
+          />
+        </div>
+        {events.length === 0 && !eventsQ.isLoading ? <Empty text={t.promo.noEvents} /> : body}
+        {sheets}
+      </div>
+    );
+  }
+
   return (
     <div className={col}>
       <Top
@@ -210,54 +315,14 @@ export function Links({ eventId }: { eventId?: string }): JSX.Element {
         sub={ev?.name}
         right={canManage ? <IconBtn name="plus" onClick={() => setSheet({ mode: 'create' })} /> : undefined}
       />
-      <Scroll bottom={28}>
-        {err && <ErrLine msg={err} />}
-        {!canManage && !linksQ.isLoading && <Note icon="shield">{t.links.readOnly}</Note>}
-        {linksQ.isLoading ? (
-          <Loading text={t.links.loading} />
-        ) : linksQ.isError ? (
-          <Empty text={t.links.loadError} />
-        ) : links.length === 0 ? (
-          <Empty text={canManage ? t.links.empty : t.links.noAccess} />
-        ) : (
-          <div className="flex flex-col gap-[11px] lg:grid lg:grid-cols-2 lg:items-start">
-            {links.map((link) => (
-              <LinkCard
-                key={link.id}
-                link={link}
-                tier={link.tierId ? tierById.get(link.tierId) ?? null : null}
-                canManage={canManage}
-                highlight={link.id === justCreated}
-                onOpen={() => canManage && setSheet({ mode: 'edit', link })}
-                onQr={() => setQrFor(link)}
-                onToggle={(active) => togglePause(link, active)}
-                toggling={updateLink.isPending}
-              />
-            ))}
-          </div>
-        )}
-      </Scroll>
-
-      {sheet && (
-        <LinkSheet
-          eventId={id}
-          link={sheet.mode === 'edit' ? sheet.link : null}
-          tiers={tiers}
-          tiersLoading={tiersQ.isLoading}
-          influencers={influencersQ.data ?? []}
-          onClose={() => setSheet(null)}
-          onSaved={(newId) => {
-            setSheet(null);
-            if (newId) setJustCreated(newId);
-          }}
-        />
-      )}
-      {qrFor && <QrSheet link={qrFor} onClose={() => setQrFor(null)} />}
+      <Scroll bottom={28}>{body}</Scroll>
+      {sheets}
     </div>
   );
 }
 
-// ── Create / edit sheet ───────────────────────────────────────────────────────
+// ── Edit sheet ────────────────────────────────────────────────────────────────
+// Create goes through the shared CreateLinkFlow (G3-0); this sheet only edits.
 type WhoKind = 'influencer' | 'new' | 'label' | null;
 
 function whoChip(key: string, label: string, active: boolean, onClick: () => void): JSX.Element {
@@ -286,36 +351,34 @@ function LinkSheet({
   onSaved,
 }: {
   eventId: string;
-  /** null = create mode. */
-  link: PoRequestLink | null;
+  link: PoRequestLink;
   tiers: Tier[];
   tiersLoading: boolean;
   influencers: PoInfluencer[];
   onClose: () => void;
-  onSaved: (newId?: string) => void;
+  onSaved: () => void;
 }): JSX.Element {
   const { venueId } = usePoIdentity();
-  const createLink = usePoCreateLink(eventId);
   const update = usePoUpdateLink(eventId);
   const createInf = usePoCreateInfluencer();
-  const isDefault = link?.isDefault ?? false;
+  const isDefault = link.isDefault;
 
   const [whoKind, setWhoKind] = useState<WhoKind>(
-    link ? (link.influencerId ? 'influencer' : link.label ? 'label' : null) : null,
+    link.influencerId ? 'influencer' : link.label ? 'label' : null,
   );
-  const [whoId, setWhoId] = useState(link?.influencerId ?? '');
+  const [whoId, setWhoId] = useState(link.influencerId ?? '');
   const [newName, setNewName] = useState('');
-  const [label, setLabel] = useState(link?.label ?? '');
-  const [tierId, setTierId] = useState(link?.tierId ?? '');
-  const [autoApprove, setAutoApprove] = useState(link?.autoApprove ?? false);
-  const [maxHeads, setMaxHeads] = useState(link?.maxHeadcount != null ? String(link.maxHeadcount) : '');
-  const [expDate, expTimeInit] = (isoToLocalInput(link?.expiresAt ?? null) || 'T').split('T');
+  const [label, setLabel] = useState(link.label ?? '');
+  const [tierId, setTierId] = useState(link.tierId ?? '');
+  const [autoApprove, setAutoApprove] = useState(link.autoApprove);
+  const [maxHeads, setMaxHeads] = useState(link.maxHeadcount != null ? String(link.maxHeadcount) : '');
+  const [expDate, expTimeInit] = (isoToLocalInput(link.expiresAt) || 'T').split('T');
   const [expiryDate, setExpiryDate] = useState(expDate);
   const [expiryTime, setExpiryTime] = useState(expTimeInit);
   const [err, setErr] = useState<string | null>(null);
   const [confirmArchive, setConfirmArchive] = useState(false);
 
-  const busy = createLink.isPending || update.isPending || createInf.isPending;
+  const busy = update.isPending || createInf.isPending;
 
   // Turning auto-approve on requires a pinned tier: auto-select the first one,
   // or surface the "add a tier first" hint on a tier-less event.
@@ -380,39 +443,22 @@ function LinkSheet({
         if (!influencerId) throw new Error(t.links.errInfluencerSave);
       }
 
-      if (!link) {
-        const infName =
-          whoKind === 'new' ? newName.trim() : influencers.find((i) => i.id === influencerId)?.name ?? '';
-        const created = await createLink.mutateAsync({
-          eventId,
-          influencerId,
-          label: labelVal,
-          slugBase: labelVal ?? infName,
-          tierId: tierId || undefined,
-          maxHeadcount: maxVal ?? undefined,
-          autoApprove,
-          expiresAt: expiresAt ?? undefined,
-        });
-        onSaved(created.id);
-      } else {
-        await update.mutateAsync({
-          linkId: link.id,
-          // The default link has no identity to change; null clears the other half.
-          ...(isDefault ? {} : { influencerId: influencerId ?? null, label: labelVal ?? null }),
-          tierId: tierId || null,
-          maxHeadcount: maxVal,
-          autoApprove,
-          expiresAt,
-        });
-        onSaved();
-      }
+      await update.mutateAsync({
+        linkId: link.id,
+        // The default link has no identity to change; null clears the other half.
+        ...(isDefault ? {} : { influencerId: influencerId ?? null, label: labelVal ?? null }),
+        tierId: tierId || null,
+        maxHeadcount: maxVal,
+        autoApprove,
+        expiresAt,
+      });
+      onSaved();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : link ? t.links.errSave : t.links.errCreate);
+      setErr(e instanceof Error ? e.message : t.links.errSave);
     }
   };
 
   const archive = async (): Promise<void> => {
-    if (!link) return;
     setErr(null);
     try {
       await update.mutateAsync({ linkId: link.id, archived: true });
@@ -425,7 +471,7 @@ function LinkSheet({
   return (
     <Sheet onClose={onClose} center={false}>
       <div className="mb-4 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">
-        {link ? t.links.sheetEditTitle : t.links.sheetCreateTitle}
+        {t.links.sheetEditTitle}
       </div>
       <div className="po-scroll -mx-1 max-h-[62vh] overflow-y-auto px-1">
         {/* (a) For who? — influencer chips + "+ New" + "Label only". */}
@@ -458,51 +504,19 @@ function LinkSheet({
           </>
         )}
 
-        {/* (b) Tier — radio rows cloned from the approvals AssignSheet. */}
+        {/* (b) Tier — the shared kit picker (G3-0). */}
         <Label className="mb-2">{t.links.tierLabel}</Label>
         {tiersLoading ? (
           <div className="mb-3 py-[14px] text-center text-[13px] text-faint">{t.events.loadingTiers}</div>
         ) : (
-          <div className="mb-3 flex flex-col gap-[7px]">
-            {!autoApprove && (
-              <button
-                type="button"
-                onClick={() => setTierId('')}
-                className={cn('flex items-center gap-[11px] rounded-[12px] border px-[13px] py-[12px] text-left', tierId === '' ? 'border-transparent bg-acc-dim' : 'border-line bg-elev', press)}
-              >
-                <span className="h-[12px] w-[12px] shrink-0 rounded-full border-2 border-dashed border-ghost" />
-                <span className="min-w-0 flex-1">
-                  <span className="block font-display text-[14.5px] font-bold text-text">{t.links.noFixedTier}</span>
-                  <span className="block text-[11.5px] text-faint">{t.links.noFixedTierSub}</span>
-                </span>
-                <span className={cn('flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full border-2', tierId === '' ? 'border-acc bg-acc' : 'border-ghost bg-transparent')}>
-                  {tierId === '' && <Icon name="check" size={12} stroke="#16132B" sw={3} />}
-                </span>
-              </button>
-            )}
-            {tiers.map((row) => {
-              const on = row.id === tierId;
-              return (
-                <button
-                  key={row.id}
-                  type="button"
-                  onClick={() => setTierId(row.id)}
-                  className={cn('flex items-center gap-[11px] rounded-[12px] border px-[13px] py-[12px] text-left', on ? 'border-transparent bg-acc-dim' : 'border-line bg-elev', press)}
-                >
-                  <span className="h-[12px] w-[12px] shrink-0 rounded-full" style={{ background: row.color }} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-display text-[14.5px] font-bold text-text">{row.short}</span>
-                    <span className="block text-[11.5px] text-faint">
-                      {row.max != null ? fmt(t.links.tierUsedOfMax, { used: row.used, max: row.max }) : t.links.tierNoMax}
-                    </span>
-                  </span>
-                  <span className={cn('flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full border-2', on ? 'border-acc bg-acc' : 'border-ghost bg-transparent')}>
-                    {on && <Icon name="check" size={12} stroke="#16132B" sw={3} />}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          <TierPicker
+            className="mb-3"
+            tiers={tiers}
+            value={tierId}
+            onChange={setTierId}
+            hint={(row) => (row.max != null ? fmt(t.links.tierUsedOfMax, { used: row.used, max: row.max }) : t.links.tierNoMax)}
+            none={autoApprove ? undefined : { label: t.links.noFixedTier, sub: t.links.noFixedTierSub }}
+          />
         )}
 
         {/* (c) Auto-approve — needs a pinned tier. */}
@@ -524,24 +538,20 @@ function LinkSheet({
           </div>
         </div>
 
-        {/* Edit mode: the slug is immutable — show the URL read-only. */}
-        {link && (
-          <>
-            <Label className="mb-2">{t.links.urlLabel}</Label>
-            <div className="mb-3 overflow-hidden text-ellipsis whitespace-nowrap rounded-field border border-line bg-elev px-[15px] py-[12px] font-mono text-[12.5px] text-dim">
-              {linkUrl(link.slug)}
-            </div>
-          </>
-        )}
+        {/* The slug is immutable — show the URL read-only. */}
+        <Label className="mb-2">{t.links.urlLabel}</Label>
+        <div className="mb-3 overflow-hidden text-ellipsis whitespace-nowrap rounded-field border border-line bg-elev px-[15px] py-[12px] font-mono text-[12.5px] text-dim">
+          {linkUrl(link.slug)}
+        </div>
       </div>
 
       {err && <div className="mt-2"><ErrLine msg={err} /></div>}
       <Btn kind="primary" full icon="check" disabled={busy} onClick={() => void save()} className={cn('mt-2', busy && 'opacity-50')}>
-        {busy ? t.links.saving : link ? t.links.saveCta : t.links.createCta}
+        {busy ? t.links.saving : t.links.saveCta}
       </Btn>
 
-      {/* Archive (soft) — edit mode only, never the default link. */}
-      {link && !isDefault && (
+      {/* Archive (soft) — never the default link. */}
+      {!isDefault && (
         confirmArchive ? (
           <div className="mt-3 rounded-[13px] border border-[#E89AC0]/40 p-[13px]">
             <div className="mb-2.5 text-[12.5px] leading-[1.45] text-dim">{t.links.archiveConfirmText}</div>

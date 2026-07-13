@@ -63,6 +63,357 @@ migration.
 
 ---
 
+## 2026-07-12 — UX/IA G3: Promotion hub (Promo + Links + Influencers regrouped) + M14
+
+Built per the pre-written plan (`promotion-regroup-plan-claude-code.md`, now stamped
+"gebouwd" — it sat uncommitted in sibling worktree `interesting-rhodes-e3fe08` and is
+committed with this PR). G1 had landed (#186); M14 had not, so per the plan's own logic
+M14 rode along instead of being built twice. ClickUp `86ey7e03j`.
+
+- **One Promotion area** at `/app/promotion` (`src/components/po/screens/promotion/`):
+  hub with Seg tabs **Overview** (old promo.tsx minus its per-event section — the funnel
+  card now links through to Per event) / **Per event** (old links.tsx + event picker +
+  **M14: checked-in on every link card** via `usePoLinkFunnel`, the same
+  `event_link_funnel` RPC the Overview reads) / **Roster** (old influencers.tsx).
+  Old files (`promo.tsx` 627, `links.tsx` 659, `influencers.tsx` 320,
+  `promo-create-link.tsx` 300) deleted; every new file well under the 800-LOC guideline.
+- **Create-link-flow deduplicated (G3-0):** one `CreateLinkFlow` (form → done-screen with
+  explicit copy step, the plan's recommended UX) behind both the Overview CTA and the
+  per-event links screen; `LinkSheet` is edit-only now. The third near-identical tier
+  picker (approvals `AssignSheet`) and the two link ones fold into a new **kit primitive
+  `TierPicker`** (radio rows, color dot + capacity hint; surface copy stays at call sites).
+- **Gating decoupled per vraag 6:** the hub nav item + deep link are venue-member-only
+  (`statsVenues`, i.e. admin/finance reporting access; direct hit without access = plain
+  no-access state, M3-style role-hide). The standalone `/app/events/[id]/links`
+  (ScreenName `'links'`) deliberately survives OUTSIDE the hub so an external organizer
+  keeps managing his own event's links from EventView/EventEdit. The More-hub
+  Influencers row (admin-only, duplicated what Promotion already offers since
+  admin ⊂ canViewStats) is removed; Promo row + Stats cross-link now push `'promotion'`.
+- **Routing:** ScreenNames `'promo'`/`'influencers'` replaced by `'promotion'`
+  (`props.tab: overview|events|roster`, `'overview'` is the URL-less default like
+  aanvragen's `'landing'`); `/app/promo` and `/app/influencers` parse as legacy aliases
+  to the matching hub tab (round-trip + alias tests in `routes.test.ts`).
+- **Verification:** tsc + lint clean; vitest 727 green (5 billing/realtime timeouts under
+  full-suite load pass in isolation — pre-existing flake). Live preview as admin: hub +
+  all three tabs render, Overview live data, per-event cards show "… · 0 in" (M14) and
+  capacity, CreateLinkFlow renders with who-chips + rich TierPicker; staff login confirmed
+  role-hide (no Promotion nav item) and the server action's rights error surfaces
+  gracefully in the sheet. **Caveat:** mid-session a concurrent session shared the preview
+  browser profile + local DB (cookie flips admin→staff→manager, a DB reset that revived
+  the consent gate, minutes-long compiles), so create-flow completion, the Roster tab
+  body, the standalone links route and the organizer flow were NOT click-verified live —
+  they're the moved/shared code paths above and are covered in the per-screen test
+  handoff. Lesson repeated: **check who's using the stack before a test pass** (the
+  "one DB owner" rule exists for exactly this).
+- **Follow-up (same day, Max's test pass):** persistent "+ New link" moved into the hub
+  header (was only reachable from the Per-event tab) + `CreateLinkFlow` gained an optional
+  event-switcher (`EventPicker`, shown when more than one venue event is passed) so the
+  flow isn't locked to wherever it was opened — the standalone organizer route still gets
+  no switcher (single event, unchanged). **Merge conflict landing this:** `main` had
+  independently built M14 in the same window (UX/IA M10+M11+M13+M14 polish, PR #193) —
+  their approach is better: `checkedInHeads` lives directly on `PoRequestLink`
+  (`fetchRequestLinks` in `queries.ts` now tallies it from the same `guests` read that
+  already computes `approvedHeads`), one query instead of G3's separate
+  `usePoLinkFunnel` merge. Adopted main's data layer, dropped the redundant funnel fetch
+  and the `checkedIn` prop plumbing from `event-links.tsx` — same UI result, one fewer
+  round trip. i18n `links.stats` conflict resolved the same way (single interpolated
+  string with `{checkedIn}`, not a conditionally-appended second key).
+
+---
+
+## 2026-07-13 — MFA enrollment: same-device deep link + secret copy
+
+Follow-up flagged during code review of PR #187 ("fix(auth): soften MFA nudge to ask-first
+onboarding", UX/IA 9/7, ClickUp 86ey7qkkb) and repeated in PR #196's changelog entry below (both
+list it under "not fixed here"), PR [#197](https://github.com/Max-Seffelaar/PlusOne/pull/197),
+branch `claude/upbeat-moore-00b4dc`. Rebased onto #187/#196's ask-first two-step redesign after
+those landed mid-session (real conflict in `MfaEnrollCard.tsx`, resolved by moving the deep-link
++ copy-button JSX into the new step-2 block — no logic from either side dropped).
+
+`MfaEnrollCard.tsx`'s step-2 enroll screen showed a QR code and a manual secret as a `text-xs`
+footnote with no copy button — impractical for a mobile-first PWA: you can't scan a QR with the
+same device you're enrolling on, and Supabase's `mfa.enroll()` response already carries
+`data.totp.uri` (an `otpauth://` deep link) that the component discarded entirely.
+
+- Added an **"Open in authenticator app"** link (`<a href={uri}>`, `btn-dark flex w-full
+  items-center justify-center`) rendered above the manual secret — mobile OSes route
+  `otpauth://` straight to an installed authenticator app for one-tap same-device enrollment.
+  Note the plain `<a>` needed `flex`+`w-full` explicitly: `.btn-dark` has no `display` rule, and
+  an anchor's default `display: inline` ignores `width: 100%` (a `<button>` gets away with just
+  `w-full` because buttons default to `inline-block`) — no prior `<a>`-as-button usage existed
+  in the codebase to copy from.
+- Added a **copy-to-clipboard** button next to the manual secret, reusing the codebase's existing
+  guarded pattern (feature-detect `navigator.clipboard` + try/catch, matching
+  `links.tsx`/`promo-create-link.tsx`) rather than gating on `isNativeShell()` — that seam is
+  specifically for the billing/store-tax rule (#32), not a general platform guard, so the
+  clipboard code follows its own established convention instead.
+- QR code stays visible (desktop still needs it). Copy verb-first/sentence-case/no-period
+  ("Copy" → "Copied!"), matching `tone-of-voice.md` and the existing `qrCopy`/`qrCopied` keys.
+- New `MfaEnrollCard.test.tsx` (3 tests): deep-link href from the mocked enroll response, copy
+  success via a mocked `navigator.clipboard.writeText`, and the clipboard-blocked fallback
+  (no crash, stays on "Copy"). No `@testing-library/user-event` in this repo — used
+  `fireEvent`+`act` to match the existing test style (`CheckInList.test.tsx`).
+
+**Gotcha hit mid-session:** this worktree's `node_modules` was missing `@sentry/nextjs` (declared
+in `package.json`, presumably added by the Sentry PR #155 merge, but never installed here) —
+broke both `tsc --noEmit` (12 unrelated `TS2307` errors) and `pnpm dev` (`next.config.js` require
+crash). `pnpm install` fixed it; unrelated to this change but blocked live preview until resolved.
+
+**Live-verified** via local dev-login (`manager@plusone.test` → consent → `/mfa/enroll`):
+accessibility snapshot + `preview_inspect` confirmed the deep link's real `otpauth://` URI, the
+full-width button layout, and that clicking Copy in a permission-denied automated-browser context
+degrades silently (matches the guarded-fallback test). `preview_screenshot` itself was flaky in
+this session (timed out repeatedly) — verification relied on snapshot/inspect/eval instead, per
+[[recharts-and-preview]]'s known quirk.
+
+**Verification:** `pnpm exec vitest run src/features/auth` 53/53 green, `pnpm exec eslint` clean,
+`pnpm exec tsc --noEmit` clean on touched files.
+
+---
+
+## 2026-07-13 — PoMfaSheet: ask before enrolling MFA (UX/IA 9/7 follow-up)
+
+Task [86ey7qkkb](https://app.clickup.com/t/86ey7qkkb) comment (flagged during PR #187 review as
+out of scope there — PR #187's own changelog entry below lists it under "not fixed here"), PR
+[#196](https://github.com/Max-Seffelaar/PlusOne/pull/196), branch
+`claude/gifted-tereshkova-e77b12`. Merged right after #187.
+
+`PoMfaSheet` (`src/components/po/mfa-gate.tsx`) — the Profile "Enable MFA" self-service sheet
+and the `useMfaGate` step-up sheet used by `team.tsx`/`quota.tsx` — auto-called
+`supabase.auth.mfa.enroll()` in a `useEffect` as soon as it mounted whenever the caller had no
+verified TOTP factor, creating an unverified factor before the user made any choice inside the
+sheet. Same bug PR #187 fixed in `MfaEnrollCard`.
+
+- New `ask` phase: explanation + "Set up now" CTA. `enroll()` (plus the stray-unverified-factor
+  cleanup, moved out of the mount effect) only fires from that explicit click, guarded against
+  double-fire with an in-flight ref — same shape as PR #187's `startEnrollment`.
+- Dropped the stale header comment claiming a blanket AAL2 gate/middleware force-step-up (that
+  policy was removed by migration `20260702120000_mfa_fully_optional`); replaced with an accurate
+  description of the sheet's two real callers.
+- Considered rendering `MfaEnrollCard` directly instead of duplicating the enroll UI — didn't:
+  `MfaEnrollCard` is a full-page redirect-based flow with its own skip/snooze actions, while
+  `PoMfaSheet` is `Sheet`/kit-styled and also serves the `challenge` phase (existing verified
+  factor) for `useMfaGate`. Direct reuse would've broken one of the two.
+- Verified live against the local Supabase stack (`manager@plusone.test`, Profile → Security →
+  "Turn on"): zero `auth/v1/factors` calls until "Set up now" is clicked; clicking it fires the
+  cleanup DELETE + enroll POST and shows the QR/code step; "Cancel" unenrolls and returns to OFF.
+
+**Flagged, not fixed here:** while verifying, found a genuine pre-existing gap between
+CLAUDE.md's Auth section ("no AAL2 requirement in RLS anywhere") and actual code —
+`venue_memberships_delete`'s RLS policy still enforces AAL2 (only the create/role-update
+policies dropped `is_aal2()` in `20260702120000_mfa_fully_optional`), and `removeMemberAction`
+(`venues/actions.ts`) plus `useMfaGate`'s real callers depend on that still-live check. Left a
+comment on 86ey7qkkb; needs its own decision (drop the RLS check for consistency, or correct the
+CLAUDE.md claim).
+
+---
+
+## 2026-07-12 — UX/IA 9/7: MFA-nudge softened to ask-first (86ey7qkkb)
+
+MFA stays fully optional (#20 unchanged) — only the presentation softened, per Max's
+2026-07-09 decision. Three changes, all in one PR:
+
+- **A · Two-step enroll screen** ([MfaEnrollCard.tsx](../src/features/auth/components/MfaEnrollCard.tsx)):
+  step 1 is the explanation + three actions ("Set up now (2 min)" / "Ask me in 7 days" /
+  "Don't ask again") with **no QR visible**. `supabase.auth.mfa.enroll()` moved off the mount
+  `useEffect` onto the "Set up now" click — no more half-created factors for someone who only
+  glanced at the screen.
+- **B · Order fix** ([guards.ts](../src/lib/auth/guards.ts) `requireAppAccess`): `requireConsent`
+  now runs before `recommendMfaIfDue` (was reversed). **Correction (fresh-session review):**
+  `requireAppAccess` turned out to have zero live call sites — the real `/app` guard
+  (`src/app/app/layout.tsx`) already ran consent-before-MFA inline, unchanged, so this fix had
+  no live effect. Kept as the documented order for `requireAppAccess` (reserved for a future
+  route), with an explicit comment on both sides noting the duplication.
+- **C · Not on session one:** `recommendMfaIfDue` returns early until 24h after the account's
+  first real session, no migration needed. Self-service enroll via Profile is unaffected.
+
+Landed on top of 8 PRs that merged to `main` mid-session (G1 canonical-nav refactor moved the
+`/app` guard call from `src/app/app/page.tsx` into `src/app/app/layout.tsx` — confirmed that
+call site already ran consent-before-MFA, so no additional fix needed there). Rebased with a
+stash/fast-forward/pop; the only textual overlap was CLAUDE.md, auto-merged cleanly.
+
+New unit tests (`src/lib/auth/guards.test.ts`, 6 cases) cover every due-logic branch: young
+account, >24h no factor (redirects), snoozed, snoozed-forever, verified factor, role doesn't
+require MFA. Full suite green post-rebase (728 tests), typecheck clean, lint clean.
+
+Manually verified live against the local stack: dev-logged in as `finance@plusone.test`
+(fresh seed account, no TOTP factor) — landed straight on `/app` with no MFA redirect,
+confirming the 24h skip. Navigating directly to `/mfa/enroll` showed step 1 with no QR;
+clicking "Set up now" produced a real QR + manual secret + 6-digit verify form via Supabase's
+local GoTrue. Note: the shared local Supabase stack was mid-reset by another concurrent
+session during testing (containers cycling, tables briefly absent) — waited it out rather
+than racing it, per the "one DB owner" rule.
+
+**Fresh-session `/code-review` + `/security-review` (high-risk surface gate, `guards.ts`
+touches auth/middleware) — 0 blockers, 4 findings, all fixed before merge:**
+
+- **Should-fix — wrong anchor for "not on session one":** `user.created_at` is stamped when
+  the invite is *sent* (`inviteUserByEmail` creates the auth row immediately), not on first
+  login — so a crew member invited Monday and accepting Thursday still got nudged on their
+  very first real session, defeating the point of C. Re-anchored `recommendMfaIfDue` on
+  `user_profiles.terms_accepted_at` instead (fetched in the same query as the snooze check, no
+  extra round trip); null (not yet consented) fails open. Not a regression — main nudged
+  everyone unconditionally — but the fix only worked for same-day accepters before this.
+- **Should-fix — B was dead code:** see the correction on bullet B above; comments added on
+  both `requireAppAccess` and `layout.tsx` cross-referencing each other so this doesn't
+  surprise the next reader.
+- **Minor bug — double-click race:** removing the old mount-`useEffect`'s `started` ref
+  guard (needed for A) left `startEnrollment` re-entrant — a fast double-click on "Set up
+  now", or "Try again" while a slow prior attempt was still in flight, could fire two
+  concurrent `enroll()` calls; worst case the user scans the first QR while state settles on
+  the second factor's ID, and verification fails with a confusing "invalid code". Fixed with
+  an `enrollInFlight` ref guard (a state check alone can't catch same-tick clicks).
+- **Note, pre-existing, not fixed here:** `/mfa/*` is only `requireUser`-gated, not
+  consent-gated, so a deep link could let an un-consented user enroll/snooze before accepting
+  terms. Predates this PR; flagged for a follow-up, not blocking.
+
+Unit tests updated to match the new anchor (`terms_accepted_at` via the mocked query instead
+of `ctx.user.created_at`), plus a new case for the null/fail-open branch — 7 cases, all green.
+
+**Second-pass review (7-lens workflow, 63 agents, adversarial-verified) — 0 blockers, 10
+verified findings, 4 fixed before merge, rest pre-existing/flagged:**
+
+- **UI regression — silent error on step 1:** the new step-1 branch rendered no error
+  paragraph, so a failed `snoozeMfaAction` (e.g. "Ask me in 7 days" clicked before ever
+  reaching step 2) set `error` but showed nothing — the button just reset and the user assumed
+  it saved. Added the error paragraph to the step-1 branch too.
+- **3 a11y/copy regressions, all new in this PR (all CONFIRMED by 2 independent verifiers):**
+  focus dropped to `document.body` when "Set up now" unmounted itself (WCAG 2.4.3) — fixed by
+  focusing a `tabIndex={-1}` step-2 container on entry; "Loading QR code…" had no
+  `role="status"` for screen readers (WCAG 4.1.3) — added; "Set up now — takes 2 minutes" broke
+  `tone-of-voice.md`'s no-em-dash rule — reworded to "Set up now (2 min)".
+- **Mutation-proven test gaps in `guards.test.ts`:** the "covers every due-logic branch" claim
+  above was inaccurate — deleting the `Number.isNaN(sinceAcceptedMs) ||` guard, the literal
+  `raw === 'infinity'` check, or omitting the no-`ctx` production codepath (the only codepath
+  `layout.tsx` actually calls) all left the suite green. Added 3 tests: an unparseable
+  (non-null) `terms_accepted_at` string, `mfa_snooze_until: 'infinity'` (what the e2e smoke
+  literally writes), and a no-`ctx` case that exercises the internal `getAuthContext()`
+  fallback. 10 cases now.
+- **Spec overstatement:** "the consent gate always runs before the MFA recommendation" isn't
+  globally enforced — only true on the `/app` path; `/mfa/enroll` itself has no consent check
+  (same root as the pre-existing note above). Scoped the claim in the spec/CLAUDE.md wording to
+  "on the `/app` path" rather than fixing the gap here — the actual fix is the spun-off task.
+- **Not fixed (pre-existing, flagged as follow-ups, not this PR's scope):** same-device QR
+  enrollment is impractical on mobile (no `otpauth://` deep link, no copy button for the
+  manual secret — Supabase returns `data.totp.uri` but the card discards it); `PoMfaSheet`
+  (Profile self-service) still auto-enrolls on mount with a stale AAL2 comment, the exact
+  pattern this PR removed elsewhere; smaller items (Android back-button leaves `/mfa` entirely
+  instead of returning to step 1, missing `100dvh`/safe-area on the `/mfa` layout, "Don't ask
+  again"'s tap target under 44px, a cross-tab race between the card's and sheet's unverified-
+  factor cleanup loops).
+
+729 tests green (post these fixes), typecheck clean, lint clean.
+
+---
+
+## 2026-07-12 — M6: event-stats to event-home, Analytics event-first, LOG→Audit
+
+UX/IA 8/7 task M6 ([86ey7dzmp](https://app.clickup.com/t/9018914367/86ey7dzmp), `ux-ia-audit-claude-code.md`
+§2-E/§5.2/§7-Q4), PR [#188](https://github.com/Max-Seffelaar/PlusOne/pull/188), branch
+`claude/affectionate-shannon-602e85`.
+
+§2-E had flagged the same per-event stats rendered on three surfaces (EventView's Activity
+section, Analytics' per-event drill-down, the cockpit) via two separate data paths for
+tier/member numbers — `fetchPoEventActivityStats` (`event_tier_stats`/`event_user_additions`
+RPCs, raw rows) vs `fetchEventStats`+`po-adapter.ts` (same two RPCs plus summary/perQuarter,
+adapted view-models). Max's 8/7 decision: EventView/PastEvent's Activity section is the
+canonical "event-home"; Analytics becomes event-first and reuses the *same* component
+(K-10-les — no second render).
+
+- New `src/components/po/screens/events/stats-panel.tsx` (`EventStatsPanel`) — KPIs
+  (peak/no-shows), arrivals chart, by-tier, by-member. Moved verbatim out of `stats.tsx`'s
+  old per-event JSX block (richer than the old Activity tables, which it replaces).
+- `usePoEventActivity` (`hooks.ts`) repurposed to wrap `fetchEventStats` +
+  `eventKpis`/`toPerKwartier`/`toPerTier`/`toPerUser` instead of the narrower
+  `fetchPoEventActivityStats` (now deleted from `queries.ts`, along with `EventActivityStats`).
+  One fetch, one shape (`EventStatsDetail`), used by both surfaces.
+- `EventActivitySection` (`past.tsx`, shared by EventView + PastEvent): the inline audit-log
+  list is gone — a "View activity" button does `nav.push('audit', { id: eventId })`, landing
+  on the Audit screen pre-filtered to the event (`AuditLog`'s `eventId` prop already supported
+  this; the wiring in `app.tsx` predates this PR).
+- `stats.tsx` (Analytics): dropped the venue-wide KPI hero cards (`fetchVenueStats`/`venueKpis`)
+  for a static "venue trends coming later" note; the per-event block is now just
+  `<EventStatsPanel eventId={selectedEvent.id} />`. The manual refresh button now invalidates
+  `poKeys.eventActivity(eventId)` via `useQueryClient` instead of re-running the removed
+  venue-stats effect.
+- i18n: `events.ts` lost the `activityPerTier`/`activityPerMember`/`activityLog`/… keys, gained
+  `viewActivity`; `analytics.ts` lost the venue-KPI keys, gained `venueTrendsLater`.
+
+**Merge conflict, not a rebase nit:** `origin/main` had moved on with PR #186 (G1 — canonical
+nav, URL-based `/app` deep-linking, `context.tsx`/`routes.ts` rewrite) and PR #183 (event-detail
+fixes from the 10/7 test round) while this branch was in flight. #183 had *paginated* the exact
+inline log this task deletes (`FEED_PAGE`/`Show more`, ClickUp 86ey8w79x) — a real conflict in
+`past.tsx` and `events.ts`, resolved in favor of the M6 decision (removal supersedes the
+paging band-aid; #183's other changes — stat-tile relabel, quota-request badge, link-funnel
+row, error-throwing fetches — are unrelated files/regions and merged clean). G1's route table
+already generalized exactly the `nav.push('audit', { id })` pattern used here
+(`screenPath`/`parseAppUrl` in `routes.ts`) — no adjustment needed, `routes.test.ts` covers the
+round-trip.
+
+**Verification:** `pnpm lint` clean, `tsc --noEmit` 0 errors, `vitest run` 722/722 green
+(post-merge; was 671 pre-merge, +51 from G1/#183's own new tests). **Live browser verification
+NOT completed** — the preview harness's `/app/[[...segments]]` bundle (~6500 modules) never
+finished loading across 4 separate fresh dev-server attempts in this session (`main-app.js` +
+the segments `page.js` stayed pending indefinitely in the network log while every smaller
+chunk — CSS, webpack runtime, the lighter `/consent`/`/mfa/enroll` page bundles — loaded and
+rendered fine). No compile error, no console error, no server-side error surfaced; looked like
+a stalled large-chunk transfer specific to this session's preview environment, not a code
+defect. PR is up with this caveat explicit in the test-plan checklist; needs a manual pass
+before merge.
+
+---
+
+## 2026-07-12 — G2: deur-consolidatie + cockpit door-parity (M16, Refuse/undo-refusal/Tasks)
+
+ClickUp `86ey7dzzg`. Two parts, both done in one session (see plan approved before implementation):
+
+**Route consolidation + M16.** `/door/[eventId]` no longer mounts a second `DoorShell`
+component tree (own `PhoneFrame` + a mock "9:41" status bar shipped to production) — it now
+mounts the identical `PoDoorTab` the `/app` Door tab already used, via a new thin
+`src/features/door/components/DoorRoute.tsx`. `DoorShell.tsx` deleted; `PhoneFrame`/`StatusBar`
+(only used by it) removed from `shell.tsx`, plus the now-orphaned `.po-stage` CSS and
+`shared.shell.*`/`door.tabCheckin`/`tabTasks`/`back` i18n keys. Verified server-side via direct
+curl against the dev server (session cookie + `/door/<seed-event-id>`): 200, no `9:41`/`po-stage`
+in the rendered HTML, `Check-in` (the shared segmented control's copy) present.
+
+**Cockpit door-parity (decision "vraag 3").** Scope narrowed with Max at the start of the
+session: void/checkout already worked in the cockpit (shipped 21–23/6, predates the 8/7 audit)
+and "+ Add guest" → `QuickAdd` already covers add-on-spot — so "reverse-check-in" = undoing a
+**refusal**, and the real gap was Refuse + undo-refusal + Tasks (guest notes/priority + ack),
+all missing from `EventDayCockpit.tsx`. Added, all online (no outbox, matching the cockpit's
+existing check-in/out mutations — `usePoRefuseGuest`/`usePoUndoRefusal`/`usePoAckNote` in
+`mutations.ts`, same `supabaseGateway(getDoorClient())` pattern):
+- A guest row's ✗ slot, when the guest isn't inside, is now "Refuse" (was a dead click —
+  `onVoidClick` early-returned for a non-checked-in guest) → `CockpitRefuseModal.tsx` (mandatory
+  reason, reuses `t.door.refuse*` copy).
+- A 4th "Refused" segment (only shown once non-empty) lists refused guests with an "Undo" button.
+  `cockpit.ts`'s `filterCockpit`/`cockpitCounts` extended for the `'refused'` `StatusFilter`.
+- `CockpitTasksCard.tsx` — desktop equivalent of the door's `Taken.tsx`, in the right column.
+  Needed `guests.note_acknowledged_at` added to `fetchGuests`'s select + `Guest.noteAcknowledged`
+  on the adapter (`note_acknowledged_by`/a resolved "Done by" name deliberately skipped — scope
+  trim, not a data gap).
+- A priority-flag icon added next to the guest name in the main list row (previously invisible
+  in the cockpit entirely).
+
+Verified: `pnpm type-check` + `pnpm lint` clean; full `vitest run` 724/724 (extended
+`cockpit.test.ts` for the new filter/count branch, `adapters.test.ts` for `noteAcknowledged`).
+Live interactive browser verification (click-through) could **not** be completed this session —
+the preview browser tool hung mid-hydration on every route, including on an unmodified baseline
+(confirmed via a stash A/B: reverted to `origin/main` code on a fresh dev-server instance,
+identical hang) — an environment/tooling issue, not a defect introduced here. Server-side
+rendering was independently confirmed clean via direct `curl` against the dev server for both
+changed routes. **Follow-up needed: a real click-through per the per-screen test handoff below
+before this is considered fully verified** — not done as part of this session.
+
+Files: see the plan file structure — `mutations.ts`/`queries.ts`/`adapters.ts`/`lib/po/types.ts`
+(+noteAcknowledged plumbing), `cockpit.ts`/`cockpit.test.ts`, `EventDayCockpit.tsx`,
+`CockpitTasksCard.tsx` + `CockpitRefuseModal.tsx` (new), `DoorRoute.tsx` (new),
+`app/door/[eventId]/page.tsx`, `shell.tsx`, i18n surfaces (`door.ts`/`cockpit.ts`/`shared.ts`).
+No migration — every write reuses an existing `DoorGateway` call already covered by mobile's
+RLS/audit-trigger path.
+
+---
+
 ## 2026-07-12 — G1 follow-up: door sub-nav still hit the server (fresh-eyes re-review)
 
 A second fresh-session review found the G1 layout split (below) did NOT actually fix the
@@ -241,6 +592,108 @@ Meer venue card, venue switcher, venue settings all render live data as before).
   scans ALL of `src/components/po` (not just `screens/`), and the front-end-discipline
   bullet reflects the module's removal (phantom-path guard forced the same-PR update).
 - Suite: type-check clean, lint clean, vitest 671/671 green. No high-risk surface touched.
+
+---
+
+## 2026-07-12 — UX/IA 8/7 M4: canonical headcount rules + one shared selector (K-10, ClickUp `86ey7dzdc`)
+
+Root-caused K-10 ("cockpit counts differently than the rest — 4/38 · 34 on the way vs.
+door/EventView's 37 · 33, same event, same moment") and fixed it at both the structural
+and the data level, per the canonical rules Max locked in `ux-ia-audit-claude-code.md`
+§5.2 (now also `gastenlijst-app-spec.md` decision #44).
+
+**Structural fix:** one canonical selector, `src/features/po/headcount.ts`
+(`computeHeadcounts`) — on-list excludes `removed`/`refused`, inside counts only arrived
+heads on a partial check-in, on-the-way = on-list − inside, refused is tracked separately
+and never contributes elsewhere. `src/features/po/eventday/cockpit.ts` and
+`src/features/door/model.ts` both now delegate to it instead of each carrying its own
+reducer — that duplication is exactly what let the two drift apart.
+
+**Two real bugs found while root-causing, fixed in migration
+`20260713140000_headcount_canonical_rules.sql`** (renamed at the fresh-session
+`/code-review` pass — the original `20260710120000` stamp sorted before `main`'s
+already-live `20260712120000_quick_add_dupe_check.sql`, which would have forced
+`db push --include-all` on the next prod deploy):**
+1. `venue_event_headcounts.present` (feeds Home cards + EventView) summed the *full*
+   registered party for every checked-in guest instead of `plus_ones_arrived` — a partial
+   check-in was overcounted. New pgTAP (`venue_scope_denormalization.test.sql` 5d) proves a
+   +3 party with 1 arrival now adds 2 heads, not 4.
+2. `event_stats_summary` / `event_tier_stats` / `venue_stats_summary` /
+   `venue_event_rollup` folded `refused` guests into the same "registered" pool as
+   approved/checked-in — a deliberate, tested choice at the time (see the old
+   `analytics.test.sql` comments) that the M4 decision now supersedes: refused never
+   contributes to on-list/no-shows/attendance anywhere, tracked only via its own,
+   `guests.status`-direct count. `event_user_additions`/`venue_user_additions` (per-adder
+   attribution — "gross, incl. removed") are deliberately **unchanged**, a different
+   metric. `analytics.test.sql` expectations updated (registered 28→27, registered
+   headcount 39→37, attendance 10.3%→10.8%, Regular-tier registered 22→21 — Bram, the
+   seed's refused guest, sat in Regular).
+
+**~~Bycatch, same investigation~~ — RETRACTED, see the fresh-session `/code-review` correction
+below.** The original entry here claimed `check_ins` has no `event_id` column and removed the
+realtime filter on that basis. Both were wrong: `check_ins` has carried `event_id` since
+`20260622140000_checkin_event_scope.sql`, and `20260623` (`d6b8c4a`) deliberately added the
+`event_id=eq.<id>` filter as scale-track work — without it, every venue's check-in reaches every
+subscriber before RLS runs. The filter was restored in both `useDoorSync.ts` and `hooks.ts`; see
+the 13/7 correction entry for the full story.
+
+**Tests:** new `src/features/po/headcount.test.ts` (10 cases, incl. a K-10 repro proving
+the split-refused-array and unsplit-array call sites agree). `pnpm vitest run` 681/681
+green, `supabase test db` on a fresh reset green (926 tests, incl. the updated
+`analytics.test.sql` + new `venue_scope_denormalization.test.sql` 5d). Zero `tsc`/`lint`
+errors. Publieke `/e/[slug]`-pagina shows a different, unrelated metric (`spots_left`,
+per-link capacity) — out of scope for this rule, confirmed and left untouched.
+
+**Follow-up 13/7 (Max' manual test found a THIRD bug the RPC/pgTAP checks above didn't
+cover):** cockpit still showed one head too many live in the browser (40 vs. 41 — the seed's
+own `pending`-status guest, Aïcha, doesn't come from a trigger/RPC so no pgTAP test ever
+exercised it). Root cause: `fetchGuests` (`src/features/po/queries.ts`, backs `usePoGuests` →
+cockpit + the Guests tab + the venue-wide list) filtered `.neq('status', 'removed')` — the
+ONLY fetcher that didn't scope to the same `approved`/`checked_in`/`refused` triple the door's
+own query and every stats RPC already use. A `pending` (or `denied`) guest row slipped
+through, and since the po `Guest.status` type only has `in`/`wait`/`refused`,
+`guestStatusToPo` silently collapsed it into `wait` — a phantom "on the way" guest invisible
+in the UI (no `pending` badge exists) but very visible in the headcount. Fixed: `fetchGuests`
+now filters `.in('status', [...ON_LIST, 'refused'])`, matching the door exactly. No UI
+capability lost — nothing renders `guests.status === 'pending'` distinctly, so this guest was
+never meant to be counted, only ever meant to be excluded (per the seed's own comment: "pending
+Aïcha ... excluded"). Live-reverified in the preview: cockpit/door/Home all read 40 on the
+list · 25 on the way · 15 inside after the fix, where cockpit alone read 41/26/15 before.
+732/732 vitest green, `tsc`/`lint` clean (no DB change, so no new pgTAP needed here).
+
+**Fresh-session `/code-review` before merge (per the review gate — migration touches
+`SECURITY DEFINER` functions), 13/7 — two real findings, both fixed:**
+1. **The "bycatch" realtime fix above was built on a false premise and reverted.**
+   `check_ins` DOES carry `event_id` (`20260622140000_checkin_event_scope.sql`, backfilled
+   NOT NULL, trigger-maintained, indexed specifically "backs the realtime event filter"), and
+   the `event_id=eq.<id>` filter this session removed was deliberately added in `d6b8c4a`
+   ("feat(scale): wire check_ins event scope") as scale-track work — without it, every venue's
+   check-in reaches every subscriber before RLS evaluates, the exact cost that commit fixed.
+   Filter restored in both `useDoorSync.ts` and `usePoEventRealtime` (`hooks.ts`); the false
+   claim also corrected in both files' comments and here. If realtime genuinely looked dead
+   during the original K-10 investigation, the real suspect is the documented local
+   realtime-publication-drop quirk (see `local-supabase-quirks`), not the filter — worth its
+   own look if it reproduces on prod, but out of scope for this PR.
+2. **`venue_event_headcounts.present` regressed staff to seeing 0 for their own checked-in
+   guests.** The rewrite is `SECURITY INVOKER` and derives `present` from `check_ins`, which
+   staff have no SELECT policy on — so a staff user's own guest showed `checked_in` in the
+   list while the Home/EventView card read 0 inside (the pre-PR formula, summing the full
+   registered party off `guests` alone, happened to dodge this since `guests` IS staff-
+   readable). Fixed role-preservingly: `sum(1 + coalesce(c.plus_ones_arrived, g.plus_ones))
+   filter (where g.status = 'checked_in')`, `c` joined only on non-voided rows — exact
+   arrived heads where `check_ins` is readable, the old full-party behaviour where it isn't
+   (a hidden row joins to `null`, `coalesce` falls back). New pgTAP case covers staff
+   specifically (the original 5d only exercised admin — DoD's per-role rule).
+
+Also from the review: renamed the migration off a timestamp that collided with `main`'s
+`20260712120000_quick_add_dupe_check.sql`; fixed `event_checkins_per_quarter`'s comment
+(a refused-after-checked-in guest keeps its check-in — `sync_guest_status_from_refusal`
+flips status without voiding — so "refused never has a check-in" was false, just rare); fixed
+the seed baseline comment ("Tom 7" → "Tom 8", the file's own 4.6 assertion already proved 8).
+Flagged, not fixed (non-blocking): `arrivedHeads`/`cockpitCounts`/`perTierLive` in
+`cockpit.ts` still hand-roll koppen math the canonical selector already provides — the exact
+duplication this PR exists to kill, left as a follow-up rather than growing this PR further;
+`guest_slot_cost` still charges a `pending` guest quota (pre-existing, unrelated to this PR).
 
 ---
 

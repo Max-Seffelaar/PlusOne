@@ -79,15 +79,11 @@ const TemplateEdit = dynamic(() => import('./screens/templates').then((m) => m.T
   loading: ScreenLoading,
   ssr: false,
 });
-const Links = dynamic(() => import('./screens/links').then((m) => m.Links), {
+const EventLinks = dynamic(() => import('./screens/promotion/event-links').then((m) => m.EventLinks), {
   loading: ScreenLoading,
   ssr: false,
 });
-const Influencers = dynamic(() => import('./screens/influencers').then((m) => m.Influencers), {
-  loading: ScreenLoading,
-  ssr: false,
-});
-const Promo = dynamic(() => import('./screens/promo').then((m) => m.Promo), {
+const PromotionHub = dynamic(() => import('./screens/promotion').then((m) => m.PromotionHub), {
   loading: ScreenLoading,
   ssr: false,
 });
@@ -147,14 +143,14 @@ function navKeyForScreen(name: ScreenName, _props: ScreenProps): string {
       return 'aanvragen';
     case 'stats':
       return 'stats';
-    case 'promo':
-      return 'promo';
+    case 'promotion':
+      return 'promotion';
     case 'gebruikers':
       return 'gebruikers';
     default:
       // rollen, import, venueswitch, venuesettings, venuecreate, profile,
-      // billing, audit, adminsessions, templates, templateedit, influencers —
-      // all live under the More hub on both mobile and desktop.
+      // billing, audit, adminsessions, templates, templateedit — all live
+      // under the More hub on both mobile and desktop.
       return 'meer';
   }
 }
@@ -640,7 +636,8 @@ export function PlusOneApp(): JSX.Element {
         screen = <BulkPaste eventId={p.id} />;
         break;
       case 'aanvragen':
-        screen = <Aanvragen eventId={p.id} initialTab={p.tab} />;
+        // ScreenProps.tab is shared with the Promotion hub — narrow to aanvragen's own queues.
+        screen = <Aanvragen eventId={p.id} initialTab={p.tab === 'landing' || p.tab === 'quota' ? p.tab : undefined} />;
         break;
       case 'eventedit':
         screen = <EventEdit id={p.id} isNew={p.isNew} />;
@@ -691,13 +688,10 @@ export function PlusOneApp(): JSX.Element {
         screen = <TemplateEdit id={p.id} isNew={p.isNew} />;
         break;
       case 'links':
-        screen = <Links eventId={p.id} />;
+        screen = <EventLinks eventId={p.id} />;
         break;
-      case 'influencers':
-        screen = <Influencers />;
-        break;
-      case 'promo':
-        screen = <Promo />;
+      case 'promotion':
+        screen = <PromotionHub tab={p.tab} eventId={p.id} />;
         break;
       default:
         screen = null;
@@ -779,7 +773,7 @@ export function PlusOneApp(): JSX.Element {
       ? ([{ key: 'stats', section: 'more', label: t.nav.analytics, icon: 'spark', active: currentKey === 'stats', onClick: () => nav.push('stats') }] as ShellNavItem[])
       : []),
     ...(canViewStats
-      ? ([{ key: 'promo', section: 'more', label: t.nav.promotion, icon: 'link', active: currentKey === 'promo', onClick: () => nav.push('promo') }] as ShellNavItem[])
+      ? ([{ key: 'promotion', section: 'more', label: t.nav.promotion, icon: 'link', active: currentKey === 'promotion', onClick: () => nav.push('promotion') }] as ShellNavItem[])
       : []),
     ...(caps.viewTeam
       ? ([{ key: 'gebruikers', section: 'more', label: t.nav.team, icon: 'users', active: currentKey === 'gebruikers', onClick: () => nav.push('gebruikers') }] as ShellNavItem[])
@@ -856,7 +850,7 @@ export function PlusOneApp(): JSX.Element {
   // Promotion (S15) is a single centered 760px column by design — between the
   // reading column and the full dashboard width.
   const desktopMainMax =
-    activeScreenKey === 'promo'
+    activeScreenKey === 'promotion'
       ? 'max-w-[820px]'
       : WIDE_DESKTOP.has(activeScreenKey)
         ? 'max-w-[1080px]'

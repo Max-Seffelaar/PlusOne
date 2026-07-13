@@ -1,35 +1,24 @@
 'use client';
 
-/** Mobile Statistieken (#26, spec §6) — the same live analytics as the desktop
- *  dashboard, in po mobile language. Org-level KPIs (venue_stats_summary) show
- *  WITHOUT picking an event; a bottom-sheet event picker drives the per-event
- *  instroom/tier/user detail. Client-side fetch through the browser client (RLS +
- *  the functions self-guard on role); snapshot + a refresh button, no realtime.
- *  Reached from the Meer hub, gated to reporting venues (admin/finance). */
+/** Mobile Statistieken (#26, spec §6) — event-first (M6, 86ey7dzmp): pick an event,
+ *  then land on the SAME per-event-stats view as the event-home (EventStatsPanel —
+ *  one shared component, one fetch, per the K-10-les). Venue-wide KPIs are parked
+ *  for now (retention/comparisons only mean something once they're built right);
+ *  the picker itself stays client-side over the browser client (RLS + the
+ *  functions self-guard on role). Reached from the Meer hub, admin/finance only. */
 import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
-import { fmt, t } from '@/lib/i18n';
+import { t } from '@/lib/i18n';
 import { createClient } from '@/lib/supabase/client';
-import {
-  fetchEventStats,
-  fetchVenueEvents,
-  fetchVenueStats,
-  type EventStats,
-  type PickerEvent,
-  type VenueStats,
-} from '@/features/stats/data';
+import { fetchVenueEvents, type PickerEvent } from '@/features/stats/data';
 import { formatDay } from '@/features/stats/format';
-import {
-  eventKpis,
-  toPerKwartier,
-  toPerTier,
-  toPerUser,
-  venueKpis,
-} from '@/features/stats/po-adapter';
+import { poKeys } from '@/features/po/keys';
 import { useNav, usePo } from '../context';
 import { Icon } from '../icon';
-import { Avatar, Empty, IconBtn, Label, Scroll, Top, press } from '../kit';
+import { Empty, IconBtn, Label, Scroll, Top, press } from '../kit';
 import { Sheet } from '../shell';
+import { EventStatsPanel } from './events/stats-panel';
 
 const col = 'flex h-full flex-col';
 
@@ -40,10 +29,9 @@ export function Stats(): JSX.Element {
   const venue = statsVenues.find((v) => v.venueId === globalVenueId) ?? statsVenues[0] ?? null;
   const activeVenueId = venue?.venueId ?? null;
 
-  const [venueStats, setVenueStats] = useState<VenueStats | null>(null);
+  const qc = useQueryClient();
   const [events, setEvents] = useState<PickerEvent[]>([]);
   const [eventId, setEventId] = useState<string | null>(null);
-  const [eventStats, setEventStats] = useState<EventStats | null>(null);
   const [pickOpen, setPickOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
@@ -51,22 +39,17 @@ export function Stats(): JSX.Element {
   // empty result — data.ts throws on the former (C25), so this state is only
   // ever set on an actual error, never on a role-gated empty result.
   const [error, setError] = useState(false);
-  const [eventError, setEventError] = useState(false);
 
-  // Venue-level stats + events when the venue changes or on manual refresh.
+  // The event picker's list, when the venue changes or on manual refresh.
   useEffect(() => {
     if (!activeVenueId) return;
     const client = createClient();
     let alive = true;
     setLoading(true);
     setError(false);
-    void Promise.all([
-      fetchVenueStats(client, activeVenueId, null, null),
-      fetchVenueEvents(client, activeVenueId),
-    ])
-      .then(([vs, evs]) => {
+    void fetchVenueEvents(client, activeVenueId)
+      .then((evs) => {
         if (!alive) return;
-        setVenueStats(vs);
         setEvents(evs);
         setEventId((cur) => (evs.some((e) => e.id === cur) ? cur : (evs[0]?.id ?? null)));
       })
@@ -81,28 +64,6 @@ export function Stats(): JSX.Element {
     };
   }, [activeVenueId, reloadKey]);
 
-  // Per-event detail when the selected event changes or on manual refresh.
-  useEffect(() => {
-    if (!eventId) {
-      setEventStats(null);
-      setEventError(false);
-      return;
-    }
-    const client = createClient();
-    let alive = true;
-    setEventError(false);
-    void fetchEventStats(client, eventId)
-      .then((s) => {
-        if (alive) setEventStats(s);
-      })
-      .catch(() => {
-        if (alive) setEventError(true);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [eventId, reloadKey]);
-
   if (!venue) {
     return (
       <div className={col}>
@@ -114,16 +75,6 @@ export function Stats(): JSX.Element {
     );
   }
 
-  const vk = venueKpis(venueStats?.summary ?? null);
-  const ek = eventKpis(eventStats?.summary ?? null);
-  const perKwartier = eventStats ? toPerKwartier(eventStats.perQuarter) : [];
-  const perTier = eventStats ? toPerTier(eventStats.tiers) : [];
-  const perUser = eventStats ? toPerUser(eventStats.users) : [];
-  // Only surface the free/paid split when the event actually uses a paid tier —
-  // for an all-free venue "0 paid" on every row is noise. Paid = display-only (#T3).
-  const anyPaid = perUser.some((u) => u.addedPaid > 0);
-  const maxK = Math.max(1, ...perKwartier.map((x) => x.n));
-  const maxT = Math.max(1, ...perTier.map((x) => x.aangemeld));
   const selectedEvent = events.find((e) => e.id === eventId) ?? null;
 
   return (
@@ -132,14 +83,22 @@ export function Stats(): JSX.Element {
         onBack={nav.back}
         title={t.analytics.title}
         sub={venue.venueName}
-        right={<IconBtn name="refresh" onClick={() => setReloadKey((k) => k + 1)} />}
+        right={
+          <IconBtn
+            name="refresh"
+            onClick={() => {
+              setReloadKey((k) => k + 1);
+              if (eventId) void qc.invalidateQueries({ queryKey: poKeys.eventActivity(eventId) });
+            }}
+          />
+        }
       />
       <Scroll bottom={28} className={cn(loading && 'opacity-60 transition-opacity')}>
         {/* Cross-link to the Promotion dashboard (S15) — link funnels per
             influencer live there, not in the generic analytics. */}
         <button
           type="button"
-          onClick={() => nav.push('promo')}
+          onClick={() => nav.push('promotion')}
           className={cn(
             'mb-4 flex w-full items-center gap-[11px] rounded-[14px] border border-line bg-elev px-[14px] py-[12px] text-left',
             'transition-[border-color,transform] hover:border-white/[0.24] active:scale-[0.99]'
@@ -173,42 +132,14 @@ export function Stats(): JSX.Element {
           </div>
         ) : (
           <>
-            {/* Org-level KPIs — meaningful without selecting an event. Stacked on
-                mobile (hero + a 2-up row); a single 3-across band on desktop. */}
-            <div className="mb-5 flex flex-col gap-[10px] lg:grid lg:grid-cols-[1.3fr_1fr_1fr] lg:items-stretch lg:gap-3">
-              <div className="rounded-[18px] bg-acc-dim p-[18px]">
-                <Label className="mb-[10px] text-acc-soft">{t.analytics.venueTurnoutLabel}</Label>
-                <div className="flex items-end gap-[10px]">
-                  <div className="font-display text-[54px] font-extrabold leading-[0.9] text-text">
-                    {vk.attendancePct}
-                  </div>
-                  <div className="pb-1.5">
-                    <div className="text-[14px] font-semibold text-text">
-                      {t.analytics.turnoutWord}
-                    </div>
-                    <div className="text-[12.5px] text-dim">
-                      {fmt(t.analytics.overEvents, { n: vk.events })}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-[10px] lg:contents">
-                <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px] lg:flex lg:flex-col lg:justify-center">
-                  <div className="font-display text-[30px] font-extrabold leading-none text-acc">
-                    {vk.presentHeadcount}
-                  </div>
-                  <div className="mt-1 text-[12.5px] text-dim">{t.analytics.guestsInside}</div>
-                </div>
-                <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px] lg:flex lg:flex-col lg:justify-center">
-                  <div className="font-display text-[30px] font-extrabold leading-none text-text">
-                    {vk.refused}
-                  </div>
-                  <div className="mt-1 text-[12.5px] text-faint">{t.analytics.refusals}</div>
-                </div>
-              </div>
+            {/* Venue-wide trends (retention, comparisons across events) are parked
+                for now — a calm note instead of numbers that don't say anything
+                yet (8/7 UX/IA decision, M6). */}
+            <div className="mb-5 rounded-[16px] border border-line bg-elev px-4 py-[13px] text-[12.5px] leading-[1.5] text-faint">
+              {t.analytics.venueTrendsLater}
             </div>
 
-            {/* Per-event detail. */}
+            {/* Event-first: pick an event, then see its stats below. */}
             <Label className="mb-[10px]">{t.analytics.perEvent}</Label>
             <button
               type="button"
@@ -236,165 +167,9 @@ export function Stats(): JSX.Element {
               <Icon name="chevD" size={16} className="text-ghost" />
             </button>
 
-            {!selectedEvent ? null : eventError ? (
-              <div className="mb-4 rounded-[18px] border border-line bg-elev px-4 py-[22px] text-center">
-                <Empty text={t.analytics.fetchError} />
-                <button
-                  type="button"
-                  onClick={() => setReloadKey((k) => k + 1)}
-                  className={cn(
-                    'mt-1 inline-flex items-center justify-center rounded-[12px] bg-acc px-[18px] py-[10px] font-display text-[13.5px] font-bold text-ink',
-                    press
-                  )}
-                >
-                  {t.analytics.retry}
-                </button>
-              </div>
-            ) : !eventStats ? (
-              <Empty text={t.analytics.loading} />
-            ) : (
-              // Desktop: two balanced columns (KPIs + instroom · tier + per-user).
-              // Mobile: the two column wrappers are plain blocks, so the original
-              // single-column order (KPIs → instroom → tier → per-user) is preserved.
-              <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-4">
-                <div>
-                  <div className="mb-4 grid grid-cols-2 gap-[10px]">
-                    <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
-                      <div className="font-display text-[24px] font-extrabold text-text">
-                        {ek.peak ?? '—'}
-                      </div>
-                      <div className="mt-[3px] text-[12px] text-faint">
-                        {ek.peakCount > 0
-                          ? fmt(t.analytics.peakWithCount, { n: ek.peakCount })
-                          : t.analytics.peakLabel}
-                      </div>
-                    </div>
-                    <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
-                      <div className="font-display text-[24px] font-extrabold text-text">
-                        {ek.noShows}
-                      </div>
-                      <div className="mt-[3px] text-[12px] text-faint">
-                        {fmt(t.analytics.noShowLabel, { pct: ek.noShowPct })}
-                      </div>
-                    </div>
-                  </div>
-
-                  <Label className="mb-[10px]">{t.analytics.arrivalsLabel}</Label>
-                  <div className="mb-4 rounded-[18px] border border-line bg-elev p-4">
-                    {perKwartier.length === 0 ? (
-                      <div className="py-[18px] text-center text-[13px] text-faint">
-                        {t.analytics.noCheckins}
-                      </div>
-                    ) : (
-                      <div className="flex h-[120px] items-end gap-[5px]">
-                        {perKwartier.map((b) => (
-                          <div key={b.t} className="flex flex-1 flex-col items-center gap-1.5">
-                            <div className="font-display text-[10px] font-bold text-dim">{b.n}</div>
-                            <div
-                              className={cn(
-                                'w-full rounded-[5px] border',
-                                b.n === maxK ? 'border-transparent bg-acc' : 'border-line bg-elev2'
-                              )}
-                              style={{ height: (b.n / maxK) * 80 }}
-                            />
-                            <div className="font-display text-[9px] text-faint">{b.t}</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <Label className="mb-[10px]">{t.analytics.tierLabel}</Label>
-                  <div className="mb-4 rounded-[18px] border border-line bg-elev p-4">
-                    {perTier.length === 0 ? (
-                      <div className="py-[14px] text-center text-[13px] text-faint">
-                        {t.analytics.noTierData}
-                      </div>
-                    ) : (
-                      perTier.map((row, i) => (
-                        <div key={row.tier} className={i < perTier.length - 1 ? 'mb-[13px]' : ''}>
-                          <div className="mb-1.5 flex justify-between">
-                            <span className="text-[13px] font-semibold text-text">{row.tier}</span>
-                            <span className="font-display text-[12px] text-faint">
-                              <b className="text-acc">{row.binnen}</b>/{row.aangemeld}
-                            </span>
-                          </div>
-                          <div className="relative h-[8px] overflow-hidden rounded-[5px] bg-elev2">
-                            <div
-                              className="absolute inset-0 bg-white/[0.08]"
-                              style={{ width: (row.aangemeld / maxT) * 100 + '%' }}
-                            />
-                            <div
-                              className="absolute inset-0 rounded-[5px] bg-acc"
-                              style={{ width: (row.binnen / maxT) * 100 + '%' }}
-                            />
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-
-                  <Label className="mb-[3px]">{t.analytics.addedByLabel}</Label>
-                  <div className="mb-[10px] text-[11.5px] text-faint">
-                    {t.analytics.addedByUnit}
-                  </div>
-                  <div className="mb-[14px] rounded-[18px] border border-line bg-elev px-[14px] py-0.5">
-                    {perUser.length === 0 ? (
-                      <div className="py-[14px] text-center text-[13px] text-faint">
-                        {t.analytics.noOneAdded}
-                      </div>
-                    ) : (
-                      perUser.map((u, i) => (
-                        <div
-                          key={`${u.who}-${i}`}
-                          className={cn(
-                            'flex items-center gap-[12px] py-[11px]',
-                            i < perUser.length - 1 && 'border-b border-line2'
-                          )}
-                        >
-                          <Avatar name={u.who} size={36} />
-                          <div className="min-w-0 flex-1">
-                            <div className="font-display text-[14.5px] font-bold text-text">
-                              {u.who}
-                            </div>
-                            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12px] text-faint">
-                              <span>{fmt(t.analytics.memberCheckedIn, { in: u.in })}</span>
-                              {u.removed > 0 && (
-                                <>
-                                  <span className="text-ghost">·</span>
-                                  <span>{fmt(t.analytics.memberRemoved, { n: u.removed })}</span>
-                                </>
-                              )}
-                              {anyPaid && (
-                                <>
-                                  <span className="text-ghost">·</span>
-                                  <span>
-                                    {fmt(t.analytics.memberFreePaid, {
-                                      free: u.addedFree,
-                                      paid: u.addedPaid,
-                                    })}
-                                  </span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                          <div className="shrink-0 text-right">
-                            <div className="font-display text-[18px] font-extrabold leading-none text-text">
-                              {u.added}
-                            </div>
-                            <div className="mt-[3px] text-[10px] font-bold uppercase tracking-[0.03em] text-faint">
-                              {t.analytics.addedWord}
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
+            {/* Same shared component the event-home shows (K-10-les) — never a
+                second per-event-stats implementation. */}
+            {selectedEvent && <EventStatsPanel eventId={selectedEvent.id} />}
           </>
         )}
 

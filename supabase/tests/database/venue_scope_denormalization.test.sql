@@ -25,7 +25,7 @@ begin
 end;
 $fn$;
 
-select plan(33);
+select plan(35);
 
 -- IDs from the seed: admin=1111 UM=2222 finance=3333 organizer=4444 staff=5555
 -- doorhost=6666 · venue1=aa..01 · venue2=aa..02 (admin-only member) ·
@@ -158,6 +158,65 @@ select is(
     where venue_id = 'aa000000-0000-7000-8000-000000000001'
       and added_by = '55555555-5555-4555-8555-555555555555'),
   '5c staff: RPC headcount stays own-guests-only (SECURITY INVOKER honors RLS, not a bypass)');
+
+-- 5d. M4/#44 fix: `present` counts ARRIVED heads, not the full registered
+-- party, on a partial check-in (was summing plus_ones regardless of arrival).
+select pg_temp.login('11111111-1111-4111-8111-111111111111'); -- admin, venue-wide
+
+create temp table _partial(before_present int, after_present int);
+insert into _partial(before_present)
+  select present from public.venue_event_headcounts('aa000000-0000-7000-8000-000000000001')
+   where event_id = 'ee000000-0000-7000-8000-000000000001';
+
+insert into public.guests (id, event_id, tier_id, full_name, plus_ones, added_by)
+values ('cc000000-0000-7000-8000-00000000d401', 'ee000000-0000-7000-8000-000000000001',
+        'dd000000-0000-7000-8000-000000000001', 'Partial Party Gast', 3,
+        '11111111-1111-4111-8111-111111111111');
+-- check_ins_sync_guest_status (20260619120000) flips guests.status to
+-- checked_in on this insert.
+insert into public.check_ins (guest_id, checked_by, plus_ones_arrived)
+values ('cc000000-0000-7000-8000-00000000d401', '11111111-1111-4111-8111-111111111111', 1);
+
+update _partial set after_present = (
+  select present from public.venue_event_headcounts('aa000000-0000-7000-8000-000000000001')
+   where event_id = 'ee000000-0000-7000-8000-000000000001');
+
+select is((select after_present - before_present from _partial), 2,
+  '5d a +3 party with only 1 companion arrived adds 2 heads to present, not 4 (M4/#44)');
+
+-- 5e. M4/#44 fix: SECURITY INVOKER + staff has no SELECT on check_ins means a
+-- naive present formula reads `c` as null for EVERY row (not just voided
+-- ones) and silently reports 0 — even for a guest the staff member added and
+-- can see is checked_in. Role-preserving fix falls back to the full
+-- registered party. Staff adds their own guest (guests_insert requires
+-- added_by = auth.uid()); admin checks them in (staff can't INSERT
+-- check_ins, #17); staff reads.
+select pg_temp.login('55555555-5555-4555-8555-555555555555'); -- staff (Tom)
+
+insert into public.guests (id, event_id, tier_id, full_name, plus_ones, added_by)
+values ('cc000000-0000-7000-8000-00000000d501', 'ee000000-0000-7000-8000-000000000001',
+        'dd000000-0000-7000-8000-000000000001', 'Staff Owned Gast', 2,
+        '55555555-5555-4555-8555-555555555555');
+
+select pg_temp.login('11111111-1111-4111-8111-111111111111'); -- admin
+-- Partial arrival (1 of 2 companions) — a staff caller can't read this row at
+-- all, so the visible fallback must be the FULL party (3), not this real 2.
+insert into public.check_ins (guest_id, checked_by, plus_ones_arrived)
+values ('cc000000-0000-7000-8000-00000000d501', '11111111-1111-4111-8111-111111111111', 1);
+
+select pg_temp.login('55555555-5555-4555-8555-555555555555'); -- staff (Tom)
+
+-- Staff's RLS-scoped view only ever contains guests THEY added (5c), so this
+-- is Tom's only checked-in guest at this event (the seed's own baseline is
+-- "Tom checked-in = 0", see analytics.test.sql 4.9) — present must read
+-- exactly the full registered party (1 + plus_ones=2 = 3), never 0 (the bug)
+-- and never the real arrived count 2 (staff can't see check_ins to know it).
+select is(
+  (select present from public.venue_event_headcounts('aa000000-0000-7000-8000-000000000001')
+    where event_id = 'ee000000-0000-7000-8000-000000000001'),
+  3,
+  '5e staff sees the full registered party as present for their own checked-in
+   guest (RLS hides check_ins from them), never 0 (M4/#44 fresh-review fix)');
 
 reset role;
 select * from finish();

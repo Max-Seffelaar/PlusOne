@@ -86,6 +86,10 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
     .maybeSingle();
   // First-login consent gate (#20/#40): accept Terms + Privacy before the app.
   // See the trade-off note above: next= can't carry the exact deep link here.
+  // Runs BEFORE the MFA recommendation (UX/IA 9/7, 2026-07-09) — a fresh
+  // invitee sees the terms first, a security nudge is not the first thing they
+  // meet. This is the live guard for `/app`; `requireAppAccess` in
+  // src/lib/auth/guards.ts documents the same order but isn't called from here.
   if (!acceptedCurrentTerms(profileRow)) redirect(`/consent?next=${encodeURIComponent('/app')}`);
   // MFA recommendation (optional since #20 refinement 2026-07-02): skippable
   // nudge for admin/finance without a factor, snooze-aware — never a hard gate.

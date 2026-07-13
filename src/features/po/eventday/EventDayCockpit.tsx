@@ -15,6 +15,8 @@ import { t, fmt } from '@/lib/i18n';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { Icon, type IconName } from '@/components/po/icon';
 import { Avatar, Label, Btn, Card, pressDesktop } from '@/components/po/kit';
+import { tierInk, tintTier } from '@/lib/po/tier-colors';
+import { formatDateTime } from '@/features/po/format';
 import { canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '@/components/po/context';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
@@ -32,14 +34,19 @@ import {
   usePoTiers,
 } from '@/features/po/hooks';
 import { DoorEventPicker } from '@/components/po/screens/door';
+import { CockpitTasksCard } from './CockpitTasksCard';
+import { CockpitRefuseModal } from './CockpitRefuseModal';
 import {
+  usePoAckNote,
   usePoApproveRequest,
   usePoCheckIn,
   usePoCheckOut,
   usePoDecideQuota,
   usePoDenyRequest,
+  usePoRefuseGuest,
   usePoSetListLock,
   usePoTopUpCheckIn,
+  usePoUndoRefusal,
 } from '@/features/po/mutations';
 import {
   amsterdamHM,
@@ -158,6 +165,9 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   const approve = usePoApproveRequest();
   const deny = usePoDenyRequest();
   const decideQuota = usePoDecideQuota();
+  const refuseGuest = usePoRefuseGuest(eventId);
+  const undoRefusal = usePoUndoRefusal(eventId);
+  const ackNote = usePoAckNote(eventId);
 
   const [q, setQ] = useState('');
   const [statF, setStatF] = useState<StatusFilter>('all');
@@ -165,6 +175,8 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   const [feed, setFeed] = useState<FeedEntry[]>([]);
   const [flashId, setFlashId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; tone: 'in' | 'out' } | null>(null);
+  // Refuse modal target (G2 door-parity) — the guest awaiting a reason, or null.
+  const [refuseTarget, setRefuseTarget] = useState<Guest | null>(null);
   // Quantified in-/uitcheck modal (S1.2). `value` is the stepper position in koppen:
   // checkin = arriving now, topup = how many more, checkout = how many leave.
   const [modal, setModal] = useState<{ kind: 'checkin' | 'topup' | 'checkout'; guest: Guest; value: number } | null>(null);
@@ -311,6 +323,23 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
     );
     pushFeed({ kind: 'msg', t: amsterdamHM(new Date()), msg: fmt(t.cockpit.feedQuotaDenied, { who: r.who }), accent: false });
   }
+  // ── Refuse / undo-refusal / task ack (G2 door-parity) ─────────────────────
+  function confirmRefuse(reason: string): void {
+    if (!refuseTarget) return;
+    const g = refuseTarget;
+    refuseGuest.mutate({ guestId: g.id, reason }, { onError: (e) => notify(e.message) });
+    pushFeed({ kind: 'msg', t: amsterdamHM(new Date()), msg: fmt(t.cockpit.feedRefused, { name: g.name }), accent: false });
+    notify(fmt(t.cockpit.toastRefused, { name: g.name }), 'out');
+    setRefuseTarget(null);
+  }
+  function onUndoRefuse(g: Guest): void {
+    undoRefusal.mutate({ guestId: g.id }, { onError: (e) => notify(e.message) });
+    pushFeed({ kind: 'msg', t: amsterdamHM(new Date()), msg: fmt(t.cockpit.feedUndoRefusal, { name: g.name }), accent: true });
+    notify(fmt(t.cockpit.toastUndoRefusal, { name: g.name }), 'in');
+  }
+  function onAckNote(guestId: string, ack: boolean): void {
+    ackNote.mutate({ guestId, ack }, { onError: (e) => notify(e.message) });
+  }
 
   const doorTime = editRow?.startsAt ? amsterdamHM(new Date(editRow.startsAt)) : null;
 
@@ -444,6 +473,11 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                     ['all', t.cockpit.filterAll, counts.all],
                     ['wait', t.cockpit.filterOnTheWay, counts.wait],
                     ['in', t.cockpit.filterInside, counts.in],
+                    // Only shown once someone has actually been refused (mirrors
+                    // the door's REFUSED group, which stays hidden until non-empty).
+                    ...(counts.refused > 0 || statF === 'refused'
+                      ? ([['refused', t.cockpit.filterRefused, counts.refused]] as const)
+                      : []),
                   ] as const
                 ).map(([k, l, n]) => {
                   const on = statF === k;
@@ -470,20 +504,11 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                 {t.cockpit.allTiers}
               </TierChip>
               {tierRows.map((t) => (
-                <TierChip key={t.tierId} on={tierF === t.tierId} onClick={() => setTierF(t.tierId)}>
-                  <span className="h-2 w-2 rounded-full" style={{ background: t.color }} />
+                <TierChip key={t.tierId} on={tierF === t.tierId} color={t.color} onClick={() => setTierF(t.tierId)}>
                   {t.tier}
                 </TierChip>
               ))}
             </div>
-          </div>
-
-          <div className="grid grid-cols-[1fr_120px_150px_96px] border-b border-line2 bg-bg px-[18px] py-[11px]">
-            {[t.cockpit.colGuest, t.cockpit.colTier, t.cockpit.colStatus, t.cockpit.colInOut].map((h, i) => (
-              <Label key={h} className={i === 3 ? 'text-right' : undefined}>
-                {h}
-              </Label>
-            ))}
           </div>
 
           <CockpitGuestList
@@ -496,6 +521,8 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
             allowUncheck={allowUncheck}
             onCheckInClick={onCheckInClick}
             onVoid={onVoidClick}
+            onRefuseClick={setRefuseTarget}
+            onUndoRefuse={onUndoRefuse}
           />
 
           <div className="flex min-h-[44px] items-center gap-[10px] border-t border-line px-[18px] py-[11px]">
@@ -597,6 +624,9 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
               )}
             </Card>
           )}
+
+          {/* tasks — G2 door-parity */}
+          {canCheckIn && <CockpitTasksCard guests={guests} onAck={onAckNote} />}
 
           {/* aanwezig per tier */}
           <Card className="p-[22px]">
@@ -702,6 +732,9 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
           </div>
         </div>
       )}
+      {refuseTarget && (
+        <CockpitRefuseModal guest={refuseTarget} onCancel={() => setRefuseTarget(null)} onConfirm={confirmRefuse} />
+      )}
     </div>
   );
 }
@@ -729,6 +762,8 @@ const CockpitGuestList = memo(function CockpitGuestList({
   allowUncheck,
   onCheckInClick,
   onVoid,
+  onRefuseClick,
+  onUndoRefuse,
 }: {
   rows: Guest[];
   totalGuests: number;
@@ -739,6 +774,8 @@ const CockpitGuestList = memo(function CockpitGuestList({
   allowUncheck: boolean;
   onCheckInClick: (g: Guest) => void;
   onVoid: (g: Guest) => void;
+  onRefuseClick: (g: Guest) => void;
+  onUndoRefuse: (g: Guest) => void;
 }): JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -760,76 +797,92 @@ const CockpitGuestList = memo(function CockpitGuestList({
           {virtualizer.getVirtualItems().map((vi) => {
             const g = rows[vi.index];
             if (!g) return null;
+            const isRefused = g.status === 'refused';
             const isIn = g.status === 'in';
             const td = tierDisplay.get(g.tierId ?? '');
+            const tierColor = td?.color ?? '#8E8E93';
+            const tierName = td?.name ?? g.tierName ?? g.role;
             const arr = arrivals.get(g.id);
             const arrivedCount = arr ? arr.arrived : g.plus;
             const partial = isIn && arrivedCount < g.plus;
-            const atLabel = arr?.at ? amsterdamHM(new Date(arr.at)) : g.at;
+            const fully = isIn && !partial;
+            // Date + time (not just "18:07"): the event can cross midnight (#26),
+            // so a bare time would make a post-midnight arrival read as earlier
+            // than a 23:50 one.
+            const atIso = arr?.at ?? g.at;
+            const atLabel = atIso ? formatDateTime(atIso) : undefined;
+            // Whole-row tier fill (feedback Max 13/7 — matches the door's
+            // CheckInList): a checked-in guest mutes to a low-alpha tint +
+            // white ink so "inside" still reads as dimmed, everyone else gets
+            // the solid tier colour. Refused rows opt out of the fill
+            // entirely (mirrors the door/Guests-tab convention).
+            const ink = isRefused ? undefined : fully ? '#FFFFFF' : tierInk(tierColor);
             return (
               <div
                 key={vi.key}
                 data-index={vi.index}
                 ref={virtualizer.measureElement}
                 style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}
+                className="px-[10px] py-[3px]"
               >
                 <div
                   className={cn(
-                    'grid grid-cols-[1fr_120px_150px_96px] items-center border-b border-line2 px-[18px] py-3 transition-colors duration-500',
-                    flashId === g.id && 'bg-acc-dim'
+                    'grid grid-cols-[1fr_96px] items-center gap-3 rounded-[14px] px-[14px] py-[10px] transition-shadow duration-500',
+                    isRefused && 'border border-line2',
+                    flashId === g.id && 'ring-2 ring-acc'
                   )}
+                  style={
+                    isRefused
+                      ? undefined
+                      : {
+                          background: fully ? tintTier(tierColor, 0.14) : tierColor,
+                          ...(partial ? { boxShadow: 'inset 0 0 0 2px #B5A6FF' } : {}),
+                        }
+                  }
                 >
                   <div className="flex min-w-0 items-center gap-3">
-                    <Avatar name={g.name} size={38} accent={isIn} />
-                    <div className="min-w-0">
-                      <div className="truncate font-display text-[15px] font-bold text-text">
-                        {g.name}
-                        {g.plus > 0 && <span className="font-extrabold text-acc"> +{g.plus}</span>}
+                    <Avatar name={g.name} size={36} accent={isIn} />
+                    <div className="min-w-0 flex-1" style={ink ? { color: ink } : undefined}>
+                      <div className="flex items-baseline gap-1.5">
+                        {g.flag === 'high' && (
+                          <Icon name="flag" size={13} stroke={ink ?? '#B5A6FF'} fill={ink ?? '#B5A6FF'} className="shrink-0" />
+                        )}
+                        <span className="truncate font-display text-[15px] font-bold">
+                          {g.name}
+                          {g.plus > 0 && <span className="font-semibold opacity-80"> +{g.plus}</span>}
+                        </span>
                       </div>
-                      <div className="truncate text-[11.5px] text-faint">
-                        {g.note || (g.by ? fmt(t.cockpit.addedBy, { name: g.by }) : '—')}
+                      <div className={cn('truncate text-[11px] font-bold uppercase tracking-[0.03em]', isRefused ? 'text-faint normal-case' : 'opacity-80')}>
+                        {isRefused
+                          ? t.cockpit.rowRefused
+                          : partial
+                            ? fmt(t.cockpit.rowInsidePartial, { arrived: arrivedCount + 1, total: g.plus + 1 })
+                            : fully && atLabel
+                              ? `${tierName} · ${atLabel}`
+                              : tierName}
                       </div>
                     </div>
                   </div>
-                  <div>
-                    <span className="inline-flex items-center gap-[7px] font-body text-[12.5px] font-bold text-dim">
-                      <span
-                        className="h-2 w-2 rounded-full"
-                        style={{ background: td?.color ?? 'rgba(255,255,255,0.26)' }}
-                      />
-                      {td?.name ?? g.tierName ?? g.role}
-                    </span>
-                  </div>
-                  <div>
-                    {isIn ? (
-                      <div>
-                        <span className="inline-flex items-center gap-1.5 font-body text-[12.5px] font-bold text-acc">
-                          <Icon name="check" size={13} sw={2.6} />
-                          {partial ? fmt(t.cockpit.rowInsidePartial, { arrived: arrivedCount + 1, total: g.plus + 1 }) : t.cockpit.rowInside}
-                          {atLabel ? ` · ${atLabel}` : ''}
-                        </span>
-                        {g.inBy && <div className="text-[11px] text-faint">{fmt(t.cockpit.rowInsideBy, { name: g.inBy })}</div>}
-                      </div>
-                    ) : (
-                      <span className="inline-flex items-center gap-[7px] text-[12.5px] text-faint">
-                        <span className="h-2 w-2 rounded-full border-[1.5px] border-ghost" />
-                        {t.cockpit.rowOnTheWay}
-                      </span>
-                    )}
-                  </div>
                   <div className="flex justify-end gap-[7px]">
-                    {canCheckIn ? (
+                    {!canCheckIn ? (
+                      <span className="text-[11px] opacity-60" style={ink ? { color: ink } : undefined}>
+                        —
+                      </span>
+                    ) : isRefused ? (
+                      <Btn desktop kind="ghost" sm onClick={() => onUndoRefuse(g)}>
+                        {t.door.undo}
+                      </Btn>
+                    ) : (
                       <>
                         <ChkBtn kind="in" active={isIn} onClick={() => onCheckInClick(g)} />
                         <ChkBtn
                           kind="out"
                           active={!isIn}
                           disabled={isIn && !allowUncheck}
-                          onClick={() => onVoid(g)}
+                          refuse={!isIn}
+                          onClick={() => (isIn ? onVoid(g) : onRefuseClick(g))}
                         />
                       </>
-                    ) : (
-                      <span className="text-[11px] text-ghost">—</span>
                     )}
                   </div>
                 </div>
@@ -877,10 +930,14 @@ function Tile({ v, l, s, accent }: { v: string | number; l: string; s: string; a
 
 function TierChip({
   on,
+  color,
   onClick,
   children,
 }: {
   on: boolean;
+  /** Tier colour to fill the pill with (feedback Max 13/7 — matches the
+   *  guest rows' full-colour fill). Omitted for the neutral "All tiers" chip. */
+  color?: string;
   onClick: () => void;
   children: ReactNode;
 }): JSX.Element {
@@ -891,8 +948,10 @@ function TierChip({
       className={cn(
         'inline-flex items-center gap-[7px] whitespace-nowrap rounded-full border px-[13px] py-[7px] font-display text-[12.5px] font-bold',
         press,
-        on ? 'border-transparent bg-text text-bg' : 'border-line text-dim'
+        color ? 'border-transparent' : on ? 'border-transparent bg-text text-bg' : 'border-line text-dim',
+        on && color && 'ring-2 ring-acc'
       )}
+      style={color ? { background: color, color: tierInk(color) } : undefined}
     >
       {children}
     </button>
@@ -903,31 +962,46 @@ function ChkBtn({
   kind,
   active,
   disabled,
+  /** kind='out' on a guest who isn't inside: the slot becomes "Refuse" instead
+   *  of a no-op void (G2 door-parity) — same slot, no row-width growth. */
+  refuse,
   onClick,
 }: {
   kind: 'in' | 'out';
   active: boolean;
   disabled?: boolean;
+  refuse?: boolean;
   onClick: () => void;
 }): JSX.Element {
   const isIn = kind === 'in';
+  const title = isIn
+    ? t.cockpit.checkInTitle
+    : refuse
+      ? t.cockpit.refuseRowTitle
+      : disabled
+        ? t.cockpit.checkOutDisabledTitle
+        : t.cockpit.checkOutTitle;
   return (
     <button
       type="button"
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
       aria-pressed={active}
-      title={isIn ? t.cockpit.checkInTitle : disabled ? t.cockpit.checkOutDisabledTitle : t.cockpit.checkOutTitle}
+      title={title}
       className={cn(
         'flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] border',
         !disabled && press,
+        // Rows are now filled with the guest's tier colour (feedback Max
+        // 13/7), so a transparent/outlined button all but disappears against
+        // it — every non-disabled state needs an OPAQUE fill to stay legible
+        // regardless of what colour is behind it. Check-in is always the
+        // solid accent (the button to reach for); void/refuse is always a
+        // solid neutral chip, clearly secondary.
         disabled
           ? 'cursor-not-allowed border-line bg-transparent text-ghost opacity-50'
-          : active
-            ? isIn
-              ? 'border-transparent bg-acc text-on-acc'
-              : 'border-line bg-elev2 text-text'
-            : 'border-line bg-transparent text-ghost'
+          : isIn
+            ? 'border-transparent bg-acc text-on-acc'
+            : 'border-transparent bg-elev2 text-text'
       )}
     >
       <Icon name={disabled ? 'lock' : isIn ? 'check' : 'close'} size={isIn ? 19 : 16} sw={2.4} />

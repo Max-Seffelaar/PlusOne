@@ -48,8 +48,10 @@ describe('routes: screenPath ↔ parseAppUrl round-trip', () => {
     ['templates', {}],
     ['templateedit', { isNew: true }],
     ['templateedit', { id: 't1' }],
-    ['influencers', {}],
-    ['promo', {}],
+    ['promotion', {}],
+    ['promotion', { tab: 'events' }],
+    ['promotion', { tab: 'events', id: 'e1' }],
+    ['promotion', { tab: 'roster' }],
   ];
 
   for (const [name, props] of cases) {
@@ -105,6 +107,29 @@ describe('routes: doorPath ↔ parseAppUrl round-trip', () => {
 describe('routes: unrecognized path falls back to Start', () => {
   it('falls back rather than throwing', () => {
     expect(parseAppUrl('/app/totally/unknown/path', new URLSearchParams())).toEqual({ kind: 'tab', tab: 'start' });
+  });
+});
+
+describe('routes: pre-G3 promo/influencers URLs degrade to the Promotion hub', () => {
+  it('/app/promo → promotion overview', () => {
+    expect(parseAppUrl('/app/promo', new URLSearchParams())).toEqual({
+      kind: 'screen',
+      name: 'promotion',
+      props: {},
+    });
+  });
+  it('/app/influencers → promotion roster', () => {
+    expect(parseAppUrl('/app/influencers', new URLSearchParams())).toEqual({
+      kind: 'screen',
+      name: 'promotion',
+      props: { tab: 'roster' },
+    });
+  });
+});
+
+describe('routes: promotion tab:"overview" normalizes to the default (no explicit segment)', () => {
+  it('screenPath treats tab:"overview" the same as omitted', () => {
+    expect(screenPath('promotion', { tab: 'overview' })).toBe(screenPath('promotion', {}));
   });
 });
 
