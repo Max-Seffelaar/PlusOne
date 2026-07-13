@@ -986,18 +986,17 @@ function ChkBtn({
       className={cn(
         'flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] border',
         !disabled && press,
+        // Rows are now filled with the guest's tier colour (feedback Max
+        // 13/7), so a transparent/outlined button all but disappears against
+        // it — every non-disabled state needs an OPAQUE fill to stay legible
+        // regardless of what colour is behind it. Check-in is always the
+        // solid accent (the button to reach for); void/refuse is always a
+        // solid neutral chip, clearly secondary.
         disabled
           ? 'cursor-not-allowed border-line bg-transparent text-ghost opacity-50'
-          : !isIn
-            ? // Void/refuse stays the secondary action regardless of state — the
-              // focus belongs on checking people in, not refusing them
-              // (feedback Max 13/7).
-              'border-line bg-transparent text-ghost'
-            : active
-              ? 'border-transparent bg-acc text-on-acc'
-              : // Not checked in yet: an accent outline, not a flat ghost — this
-                // is the button a doorhost should reach for.
-                'border-acc text-acc bg-transparent'
+          : isIn
+            ? 'border-transparent bg-acc text-on-acc'
+            : 'border-transparent bg-elev2 text-text'
       )}
     >
       <Icon name={disabled ? 'lock' : isIn ? 'check' : 'close'} size={isIn ? 19 : 16} sw={2.4} />
