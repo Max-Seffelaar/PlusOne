@@ -43,6 +43,8 @@ export const shared = {
     startError: "Couldn't start MFA. Try again.",
     genericError: 'Something went wrong.',
     close: 'Close',
+    setupIntro: "You'll scan a QR code with an authenticator app (e.g. Google Authenticator, 1Password) and enter a 6-digit code.",
+    setupNow: 'Set up now',
     enrollNote: 'Scan the QR code with your authenticator app (or enter the key by hand), then enter the 6-digit code.',
     qrAlt: 'MFA QR code',
     codeLabel: '6-digit code',

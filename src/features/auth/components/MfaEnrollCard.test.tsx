@@ -39,11 +39,21 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+// Step 1 is ask-first (no QR yet) — every case here needs "Set up now" clicked
+// before enroll() fires and step 2 (QR/secret) renders.
+async function enterStep2(): Promise<void> {
+  render(<MfaEnrollCard nextPath="/app" />);
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /set up now/i }));
+  });
+  await waitFor(() => screen.getByTestId('totp-secret'));
+}
+
 describe('MfaEnrollCard — same-device enrollment', () => {
   it('renders an authenticator-app deep link from the enrollment URI', async () => {
-    render(<MfaEnrollCard nextPath="/app" />);
+    await enterStep2();
 
-    const link = await screen.findByRole('link', { name: /open in authenticator app/i });
+    const link = screen.getByRole('link', { name: /open in authenticator app/i });
     expect(link).toHaveAttribute('href', ENROLL_DATA.totp.uri);
   });
 
@@ -51,8 +61,7 @@ describe('MfaEnrollCard — same-device enrollment', () => {
     const writeText = vi.fn(async () => undefined);
     Object.assign(navigator, { clipboard: { writeText } });
 
-    render(<MfaEnrollCard nextPath="/app" />);
-    await waitFor(() => screen.getByTestId('totp-secret'));
+    await enterStep2();
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /^copy$/i }));
@@ -65,8 +74,7 @@ describe('MfaEnrollCard — same-device enrollment', () => {
   it('does not throw when the clipboard API is unavailable (webview restriction)', async () => {
     Object.assign(navigator, { clipboard: undefined });
 
-    render(<MfaEnrollCard nextPath="/app" />);
-    await waitFor(() => screen.getByTestId('totp-secret'));
+    await enterStep2();
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /^copy$/i }));

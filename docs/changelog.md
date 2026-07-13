@@ -11,8 +11,11 @@ records (repo root), and `engineering-review-2026-07.md`.
 ## 2026-07-13 — MFA enrollment: same-device deep link + secret copy
 
 Follow-up flagged during code review of PR #187 ("fix(auth): soften MFA nudge to ask-first
-onboarding", UX/IA 9/7, ClickUp 86ey7qkkb), PR [#197](https://github.com/Max-Seffelaar/PlusOne/pull/197),
-branch `claude/upbeat-moore-00b4dc`.
+onboarding", UX/IA 9/7, ClickUp 86ey7qkkb) and repeated in PR #196's changelog entry below (both
+list it under "not fixed here"), PR [#197](https://github.com/Max-Seffelaar/PlusOne/pull/197),
+branch `claude/upbeat-moore-00b4dc`. Rebased onto #187/#196's ask-first two-step redesign after
+those landed mid-session (real conflict in `MfaEnrollCard.tsx`, resolved by moving the deep-link
++ copy-button JSX into the new step-2 block — no logic from either side dropped).
 
 `MfaEnrollCard.tsx`'s step-2 enroll screen showed a QR code and a manual secret as a `text-xs`
 footnote with no copy button — impractical for a mobile-first PWA: you can't scan a QR with the
@@ -52,6 +55,141 @@ this session (timed out repeatedly) — verification relied on snapshot/inspect/
 
 **Verification:** `pnpm exec vitest run src/features/auth` 53/53 green, `pnpm exec eslint` clean,
 `pnpm exec tsc --noEmit` clean on touched files.
+
+---
+
+## 2026-07-13 — PoMfaSheet: ask before enrolling MFA (UX/IA 9/7 follow-up)
+
+Task [86ey7qkkb](https://app.clickup.com/t/86ey7qkkb) comment (flagged during PR #187 review as
+out of scope there — PR #187's own changelog entry below lists it under "not fixed here"), PR
+[#196](https://github.com/Max-Seffelaar/PlusOne/pull/196), branch
+`claude/gifted-tereshkova-e77b12`. Merged right after #187.
+
+`PoMfaSheet` (`src/components/po/mfa-gate.tsx`) — the Profile "Enable MFA" self-service sheet
+and the `useMfaGate` step-up sheet used by `team.tsx`/`quota.tsx` — auto-called
+`supabase.auth.mfa.enroll()` in a `useEffect` as soon as it mounted whenever the caller had no
+verified TOTP factor, creating an unverified factor before the user made any choice inside the
+sheet. Same bug PR #187 fixed in `MfaEnrollCard`.
+
+- New `ask` phase: explanation + "Set up now" CTA. `enroll()` (plus the stray-unverified-factor
+  cleanup, moved out of the mount effect) only fires from that explicit click, guarded against
+  double-fire with an in-flight ref — same shape as PR #187's `startEnrollment`.
+- Dropped the stale header comment claiming a blanket AAL2 gate/middleware force-step-up (that
+  policy was removed by migration `20260702120000_mfa_fully_optional`); replaced with an accurate
+  description of the sheet's two real callers.
+- Considered rendering `MfaEnrollCard` directly instead of duplicating the enroll UI — didn't:
+  `MfaEnrollCard` is a full-page redirect-based flow with its own skip/snooze actions, while
+  `PoMfaSheet` is `Sheet`/kit-styled and also serves the `challenge` phase (existing verified
+  factor) for `useMfaGate`. Direct reuse would've broken one of the two.
+- Verified live against the local Supabase stack (`manager@plusone.test`, Profile → Security →
+  "Turn on"): zero `auth/v1/factors` calls until "Set up now" is clicked; clicking it fires the
+  cleanup DELETE + enroll POST and shows the QR/code step; "Cancel" unenrolls and returns to OFF.
+
+**Flagged, not fixed here:** while verifying, found a genuine pre-existing gap between
+CLAUDE.md's Auth section ("no AAL2 requirement in RLS anywhere") and actual code —
+`venue_memberships_delete`'s RLS policy still enforces AAL2 (only the create/role-update
+policies dropped `is_aal2()` in `20260702120000_mfa_fully_optional`), and `removeMemberAction`
+(`venues/actions.ts`) plus `useMfaGate`'s real callers depend on that still-live check. Left a
+comment on 86ey7qkkb; needs its own decision (drop the RLS check for consistency, or correct the
+CLAUDE.md claim).
+
+---
+
+## 2026-07-12 — UX/IA 9/7: MFA-nudge softened to ask-first (86ey7qkkb)
+
+MFA stays fully optional (#20 unchanged) — only the presentation softened, per Max's
+2026-07-09 decision. Three changes, all in one PR:
+
+- **A · Two-step enroll screen** ([MfaEnrollCard.tsx](../src/features/auth/components/MfaEnrollCard.tsx)):
+  step 1 is the explanation + three actions ("Set up now (2 min)" / "Ask me in 7 days" /
+  "Don't ask again") with **no QR visible**. `supabase.auth.mfa.enroll()` moved off the mount
+  `useEffect` onto the "Set up now" click — no more half-created factors for someone who only
+  glanced at the screen.
+- **B · Order fix** ([guards.ts](../src/lib/auth/guards.ts) `requireAppAccess`): `requireConsent`
+  now runs before `recommendMfaIfDue` (was reversed). **Correction (fresh-session review):**
+  `requireAppAccess` turned out to have zero live call sites — the real `/app` guard
+  (`src/app/app/layout.tsx`) already ran consent-before-MFA inline, unchanged, so this fix had
+  no live effect. Kept as the documented order for `requireAppAccess` (reserved for a future
+  route), with an explicit comment on both sides noting the duplication.
+- **C · Not on session one:** `recommendMfaIfDue` returns early until 24h after the account's
+  first real session, no migration needed. Self-service enroll via Profile is unaffected.
+
+Landed on top of 8 PRs that merged to `main` mid-session (G1 canonical-nav refactor moved the
+`/app` guard call from `src/app/app/page.tsx` into `src/app/app/layout.tsx` — confirmed that
+call site already ran consent-before-MFA, so no additional fix needed there). Rebased with a
+stash/fast-forward/pop; the only textual overlap was CLAUDE.md, auto-merged cleanly.
+
+New unit tests (`src/lib/auth/guards.test.ts`, 6 cases) cover every due-logic branch: young
+account, >24h no factor (redirects), snoozed, snoozed-forever, verified factor, role doesn't
+require MFA. Full suite green post-rebase (728 tests), typecheck clean, lint clean.
+
+Manually verified live against the local stack: dev-logged in as `finance@plusone.test`
+(fresh seed account, no TOTP factor) — landed straight on `/app` with no MFA redirect,
+confirming the 24h skip. Navigating directly to `/mfa/enroll` showed step 1 with no QR;
+clicking "Set up now" produced a real QR + manual secret + 6-digit verify form via Supabase's
+local GoTrue. Note: the shared local Supabase stack was mid-reset by another concurrent
+session during testing (containers cycling, tables briefly absent) — waited it out rather
+than racing it, per the "one DB owner" rule.
+
+**Fresh-session `/code-review` + `/security-review` (high-risk surface gate, `guards.ts`
+touches auth/middleware) — 0 blockers, 4 findings, all fixed before merge:**
+
+- **Should-fix — wrong anchor for "not on session one":** `user.created_at` is stamped when
+  the invite is *sent* (`inviteUserByEmail` creates the auth row immediately), not on first
+  login — so a crew member invited Monday and accepting Thursday still got nudged on their
+  very first real session, defeating the point of C. Re-anchored `recommendMfaIfDue` on
+  `user_profiles.terms_accepted_at` instead (fetched in the same query as the snooze check, no
+  extra round trip); null (not yet consented) fails open. Not a regression — main nudged
+  everyone unconditionally — but the fix only worked for same-day accepters before this.
+- **Should-fix — B was dead code:** see the correction on bullet B above; comments added on
+  both `requireAppAccess` and `layout.tsx` cross-referencing each other so this doesn't
+  surprise the next reader.
+- **Minor bug — double-click race:** removing the old mount-`useEffect`'s `started` ref
+  guard (needed for A) left `startEnrollment` re-entrant — a fast double-click on "Set up
+  now", or "Try again" while a slow prior attempt was still in flight, could fire two
+  concurrent `enroll()` calls; worst case the user scans the first QR while state settles on
+  the second factor's ID, and verification fails with a confusing "invalid code". Fixed with
+  an `enrollInFlight` ref guard (a state check alone can't catch same-tick clicks).
+- **Note, pre-existing, not fixed here:** `/mfa/*` is only `requireUser`-gated, not
+  consent-gated, so a deep link could let an un-consented user enroll/snooze before accepting
+  terms. Predates this PR; flagged for a follow-up, not blocking.
+
+Unit tests updated to match the new anchor (`terms_accepted_at` via the mocked query instead
+of `ctx.user.created_at`), plus a new case for the null/fail-open branch — 7 cases, all green.
+
+**Second-pass review (7-lens workflow, 63 agents, adversarial-verified) — 0 blockers, 10
+verified findings, 4 fixed before merge, rest pre-existing/flagged:**
+
+- **UI regression — silent error on step 1:** the new step-1 branch rendered no error
+  paragraph, so a failed `snoozeMfaAction` (e.g. "Ask me in 7 days" clicked before ever
+  reaching step 2) set `error` but showed nothing — the button just reset and the user assumed
+  it saved. Added the error paragraph to the step-1 branch too.
+- **3 a11y/copy regressions, all new in this PR (all CONFIRMED by 2 independent verifiers):**
+  focus dropped to `document.body` when "Set up now" unmounted itself (WCAG 2.4.3) — fixed by
+  focusing a `tabIndex={-1}` step-2 container on entry; "Loading QR code…" had no
+  `role="status"` for screen readers (WCAG 4.1.3) — added; "Set up now — takes 2 minutes" broke
+  `tone-of-voice.md`'s no-em-dash rule — reworded to "Set up now (2 min)".
+- **Mutation-proven test gaps in `guards.test.ts`:** the "covers every due-logic branch" claim
+  above was inaccurate — deleting the `Number.isNaN(sinceAcceptedMs) ||` guard, the literal
+  `raw === 'infinity'` check, or omitting the no-`ctx` production codepath (the only codepath
+  `layout.tsx` actually calls) all left the suite green. Added 3 tests: an unparseable
+  (non-null) `terms_accepted_at` string, `mfa_snooze_until: 'infinity'` (what the e2e smoke
+  literally writes), and a no-`ctx` case that exercises the internal `getAuthContext()`
+  fallback. 10 cases now.
+- **Spec overstatement:** "the consent gate always runs before the MFA recommendation" isn't
+  globally enforced — only true on the `/app` path; `/mfa/enroll` itself has no consent check
+  (same root as the pre-existing note above). Scoped the claim in the spec/CLAUDE.md wording to
+  "on the `/app` path" rather than fixing the gap here — the actual fix is the spun-off task.
+- **Not fixed (pre-existing, flagged as follow-ups, not this PR's scope):** same-device QR
+  enrollment is impractical on mobile (no `otpauth://` deep link, no copy button for the
+  manual secret — Supabase returns `data.totp.uri` but the card discards it); `PoMfaSheet`
+  (Profile self-service) still auto-enrolls on mount with a stale AAL2 comment, the exact
+  pattern this PR removed elsewhere; smaller items (Android back-button leaves `/mfa` entirely
+  instead of returning to step 1, missing `100dvh`/safe-area on the `/mfa` layout, "Don't ask
+  again"'s tap target under 44px, a cross-tab race between the card's and sheet's unverified-
+  factor cleanup loops).
+
+729 tests green (post these fixes), typecheck clean, lint clean.
 
 ---
 
