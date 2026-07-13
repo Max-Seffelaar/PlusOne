@@ -11,32 +11,42 @@
  * mounting a second cockpit tree here; `/app`'s Deur tab already IS the
  * desktop cockpit. Mobile stays exactly as before — the focused, chrome-free
  * Door-modus a bookmarked door device wants, no redirect.
+ *
+ * A HARD navigation (`window.location`), not `router.replace`: `/app` is a
+ * completely different route tree with its own (heavier) layout — nothing to
+ * preserve by keeping it client-side-soft, and a hard nav gives the browser's
+ * own loading affordance (tab spinner) instead of a silent blank screen while
+ * the other layout's data resolves (retest 13/7 — a slow /app compile/data
+ * fetch read as "broken" with nothing on screen in the meantime).
  */
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { PoDoorTab, type DoorOverlay } from '@/components/po/screens/door';
+import { Spinner } from '@/components/po/kit';
+import { t } from '@/lib/i18n';
 import { doorPath } from '@/components/po/routes';
 import { useViewport } from '@/components/po/use-viewport';
 import { DoorProvider } from '../DoorProvider';
 
 export function DoorRoute({ eventId, serverHint }: { eventId: string; serverHint?: boolean }): JSX.Element {
   const isMobile = useViewport(serverHint);
-  const router = useRouter();
   const [tab, setTab] = useState<'deur' | 'taken'>('deur');
   const [overlay, setOverlay] = useState<DoorOverlay>(null);
 
   useEffect(() => {
-    if (!isMobile) router.replace(doorPath({ eventId }));
-  }, [isMobile, eventId, router]);
+    if (!isMobile) window.location.replace(doorPath({ eventId }));
+  }, [isMobile, eventId]);
 
   const openGuest = (id: string): void => setOverlay({ kind: 'guest', id });
   const openAdd = (): void => setOverlay({ kind: 'add' });
   const closeOverlay = (): void => setOverlay(null);
 
   if (!isMobile) {
-    // Mid-redirect — nothing meaningful to show for the instant before the
-    // effect above fires.
-    return <div className="h-[100dvh] bg-bg" />;
+    return (
+      <div className="flex h-[100dvh] items-center justify-center gap-3 bg-bg text-faint">
+        <Spinner size={20} />
+        <span className="text-[13.5px]">{t.common.loading}</span>
+      </div>
+    );
   }
 
   return (
