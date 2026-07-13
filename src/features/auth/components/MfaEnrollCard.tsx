@@ -1,15 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { describeAuthError } from '@/features/auth/errors';
 import { totpSchema } from '@/features/auth/schemas';
 import { snoozeMfaAction } from '@/features/auth/mfa-actions';
 
 // TOTP enrollment (spec §5, decision #20 — OPTIONAL since 2026-07-02). Shown as
-// a skippable RECOMMENDATION: explains why, shows the QR + manual secret, and
-// verifies a code to raise the session to AAL2 — or the user snoozes it
-// ("Ask me in 7 days" / "Don't ask again", user_profiles.mfa_snooze_until).
+// a skippable, ask-first RECOMMENDATION (UX/IA 9/7, 2026-07-09): step 1 is the
+// explanation with three actions — no QR yet, nothing is enrolled just from
+// viewing the screen. The QR + manual secret + verification only appear after
+// the user actively opts in ("Set up now"), which is when enrollment starts.
+// Skipping writes a snooze ("Ask me in 7 days" / "Don't ask again",
+// user_profiles.mfa_snooze_until).
 export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
   const supabase = createClient();
   const [qr, setQr] = useState<string | null>(null);
@@ -18,8 +21,21 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // True once "Set up now" was clicked — switches the card from the ask-first
+  // step 1 (explanation only) to step 2 (QR + verification).
+  const [enrolling, setEnrolling] = useState(false);
   const [snoozing, setSnoozing] = useState<'week' | 'never' | null>(null);
-  const started = useRef(false);
+  // Guards against a double-click on "Set up now" or a "Try again" click while
+  // a prior attempt is still in flight firing two concurrent enroll() calls —
+  // a state check alone can't catch same-tick clicks, a ref can.
+  const enrollInFlight = useRef(false);
+  // Focus target for step 2 (WCAG 2.4.3) — "Set up now" unmounts itself, so
+  // without this, keyboard focus would drop to document.body.
+  const step2Ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (enrolling) step2Ref.current?.focus();
+  }, [enrolling]);
 
   async function skip(choice: 'week' | 'never'): Promise<void> {
     if (busy || snoozing) return;
@@ -33,31 +49,32 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
     window.location.replace(nextPath);
   }
 
-  const startEnrollment = useCallback(async () => {
+  async function startEnrollment(): Promise<void> {
+    if (enrollInFlight.current) return;
+    enrollInFlight.current = true;
+    setEnrolling(true);
     setError(null);
-    // Clean up abandoned, unverified TOTP factors so re-enrolling is idempotent.
-    const { data: factors } = await supabase.auth.mfa.listFactors();
-    for (const f of factors?.all ?? []) {
-      if (f.factor_type === 'totp' && f.status === 'unverified') {
-        await supabase.auth.mfa.unenroll({ factorId: f.id });
+    try {
+      // Clean up abandoned, unverified TOTP factors so re-enrolling is idempotent.
+      const { data: factors } = await supabase.auth.mfa.listFactors();
+      for (const f of factors?.all ?? []) {
+        if (f.factor_type === 'totp' && f.status === 'unverified') {
+          await supabase.auth.mfa.unenroll({ factorId: f.id });
+        }
       }
-    }
 
-    const { data, error: enrollError } = await supabase.auth.mfa.enroll({ factorType: 'totp' });
-    if (enrollError || !data) {
-      setError(describeAuthError(enrollError).message);
-      return;
+      const { data, error: enrollError } = await supabase.auth.mfa.enroll({ factorType: 'totp' });
+      if (enrollError || !data) {
+        setError(describeAuthError(enrollError).message);
+        return;
+      }
+      setFactorId(data.id);
+      setQr(data.totp.qr_code);
+      setSecret(data.totp.secret);
+    } finally {
+      enrollInFlight.current = false;
     }
-    setFactorId(data.id);
-    setQr(data.totp.qr_code);
-    setSecret(data.totp.secret);
-  }, [supabase]);
-
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    void startEnrollment();
-  }, [startEnrollment]);
+  }
 
   async function verify(): Promise<void> {
     if (!factorId) return;
@@ -92,69 +109,86 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
         this if you prefer and turn it on later under Profile.
       </p>
 
-      {error && !qr ? (
-        <div className="mt-4">
-          <p className="mb-3 text-sm text-red-300" role="alert">
-            {error}
-          </p>
-          <button type="button" className="btn-dark w-full" onClick={() => void startEnrollment()}>
-            Try again
-          </button>
-        </div>
-      ) : qr ? (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void verify();
-          }}
-          className="mt-4 flex flex-col gap-4"
-          noValidate
-        >
-          <div className="flex justify-center">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={qr}
-              alt="QR code for authenticator app"
-              className="bg-text h-44 w-44 rounded-card p-2"
-            />
-          </div>
-          {secret && (
-            <p className="text-faint text-center text-xs">
-              Enter it manually?{' '}
-              <code className="text-dim break-all" data-testid="totp-secret">
-                {secret}
-              </code>
-            </p>
-          )}
-          <div className="flex flex-col gap-2">
-            <label htmlFor="totp" className="label">
-              Code from your app
-            </label>
-            <input
-              id="totp"
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              pattern="\d{6}"
-              maxLength={6}
-              required
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              placeholder="000000"
-              className="field text-center text-2xl tracking-[0.5em]"
-            />
-          </div>
-          <button type="submit" className="btn-primary w-full" disabled={busy || code.length !== 6}>
-            {busy ? 'Verifying…' : 'Verify'}
-          </button>
+      {!enrolling ? (
+        <div className="mt-4 flex flex-col gap-3">
           {error && (
             <p className="text-sm text-red-300" role="alert">
               {error}
             </p>
           )}
-        </form>
+          <button type="button" className="btn-primary w-full" onClick={() => void startEnrollment()}>
+            Set up now (2 min)
+          </button>
+        </div>
       ) : (
-        <p className="text-dim mt-4 text-sm">Loading QR code…</p>
+        <div ref={step2Ref} tabIndex={-1} className="mt-4">
+          {error && !qr ? (
+            <div>
+              <p className="mb-3 text-sm text-red-300" role="alert">
+                {error}
+              </p>
+              <button type="button" className="btn-dark w-full" onClick={() => void startEnrollment()}>
+                Try again
+              </button>
+            </div>
+          ) : qr ? (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void verify();
+              }}
+              className="flex flex-col gap-4"
+              noValidate
+            >
+              <div className="flex justify-center">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={qr}
+                  alt="QR code for authenticator app"
+                  className="bg-text h-44 w-44 rounded-card p-2"
+                />
+              </div>
+              {secret && (
+                <p className="text-faint text-center text-xs">
+                  Enter it manually?{' '}
+                  <code className="text-dim break-all" data-testid="totp-secret">
+                    {secret}
+                  </code>
+                </p>
+              )}
+              <div className="flex flex-col gap-2">
+                <label htmlFor="totp" className="label">
+                  Code from your app
+                </label>
+                <input
+                  id="totp"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="\d{6}"
+                  maxLength={6}
+                  required
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="000000"
+                  className="field text-center text-2xl tracking-[0.5em]"
+                />
+              </div>
+              <button type="submit" className="btn-primary w-full" disabled={busy || code.length !== 6}>
+                {busy ? 'Verifying…' : 'Verify'}
+              </button>
+              {error && (
+                <p className="text-sm text-red-300" role="alert">
+                  {error}
+                </p>
+              )}
+            </form>
+          ) : (
+            <p className="text-dim text-sm" role="status">
+              Loading QR code…
+            </p>
+          )}
+        </div>
       )}
 
       <div className="mt-5 flex flex-col gap-2 border-t border-line2 pt-4">
