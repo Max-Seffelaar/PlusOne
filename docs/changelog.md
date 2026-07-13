@@ -8,6 +8,39 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-13 — Client-settable `comped` RPC bypass closed (86ey9e851)
+
+Adversarial review (S3) confirmed a duplicate-review finding: `create_venue_with_owner`
+and `set_venue_plan` both took a client-supplied `p_comped boolean` and were `GRANT`ed to
+`authenticated`, so any logged-in user could call either RPC directly
+(`POST /rest/v1/rpc/...`, bypassing the app entirely) and set their own venue's
+subscription to `comped` — a status `apply_stripe_subscription_update`
+(`20260706120000`/`130000`) explicitly never overwrites with webhook state. A
+client-set `comped` was therefore a permanent, Stripe-unreconciled billing bypass.
+Neither app call site ever sent an attacker-controlled `p_comped` (`createVenueAction`
+never sent it at all; `setVenuePlanAction` only ever forwarded a locally-computed
+`false`), so the app itself was not exploitable — the hole was reachable only via a
+raw RPC call.
+
+- **`supabase/migrations/20260713160000_remove_client_comped.sql`** — `p_comped`
+  removed from both signatures entirely (decision #32: comped is manual-only, via the
+  service-role SQL runbook `docs/stripe-setup.md`, never client-settable). Both RPCs
+  now always insert `'trialing'`; `set_venue_plan`'s update branch was extended to also
+  preserve an existing `'comped'` status (previously only active/past_due/canceled were
+  protected from being overwritten), so a manually-comped venue survives a later
+  onboarding plan change.
+- **`src/features/billing/actions.ts`** — `setVenuePlanAction` no longer forwards
+  `p_comped` (the RPC no longer accepts it).
+- **pgTAP** (`supabase/tests/database/onboarding.test.sql`, plan 23→26): T8b/T11b prove
+  a caller who still tries to pass `p_comped` is refused at function-resolution
+  (`42883`), not silently ignored; T10b proves `set_venue_plan` can never produce
+  `comped`. Full suite green on a fresh reset (48 files, 956 tests).
+- Regenerated `src/lib/database.types.ts`. `pnpm lint` clean, `tsc --noEmit` clean,
+  `pnpm vitest run` green (66 files, 757 tests). Smoke-tested `/app` boot post-fix
+  (organizer dev-login → consent → Home, no console errors).
+- High-risk surface (RLS-adjacent RPC + `authenticated` grants) → fresh-session
+  `/security-review` still required before merge.
+
 ## 2026-07-13 — clickup-task skill + Stop-hook enforcement (workflow tooling, no ClickUp task)
 
 Max asked for a skill that owns the ClickUp task lifecycle (planning → in progress →
