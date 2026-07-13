@@ -58,6 +58,12 @@ task turns out obsolete), say so in a comment and let Max flip it.
    end-of-session comment is posted and the status matches reality. Include the task id
    in the branch name and PR title — that is what makes the concurrency check and any
    later reconciliation mechanical.
+6. **Session name:** the model cannot rename a session itself (`/rename` is user-only,
+   as of 07-2026). So at pickup, print one copy-paste-ready line in chat so Max can make
+   the session name match the task exactly:
+   `/rename <exact task name>`
+   For sessions started from a terminal, `claude -n "<exact task name>"` at launch does
+   the same without the paste.
 
 ## Status transitions — when exactly
 
