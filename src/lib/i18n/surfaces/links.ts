@@ -24,8 +24,8 @@ export const links = {
   expiredChip: 'EXPIRED',
   fullChip: 'FULL',
 
-  // Card mini-stats + actions.
-  stats: '{views} views · {requests} requests · {approved} approved',
+  // Card mini-stats + actions. Checked-in added (M14, K-20) — same funnel step Promo shows.
+  stats: '{views} views · {requests} requests · {approved} approved · {checkedIn} in',
   statsCap: ' · {heads}/{max}',
   copyAria: 'Copy link URL',
   qrAria: 'Show QR code',
