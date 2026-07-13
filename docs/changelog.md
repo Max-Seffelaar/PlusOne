@@ -8,6 +8,57 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-13 — Bulk duplicate safeguard (86ey8xg4p, follow-up to 86ey8w7ek)
+
+ClickUp `86ey8xg4p` — fresh-session review finding 7 on PR #182: the quick-add server-side
+dupe-check shipped 12/7 (migration `20260712120000`) only covered quick-add. Bulk-paste and
+"add to event" from contacts still ran the old client-only pattern (dedupe against whatever
+page of `evGuests` had loaded), so the same 3–5x-duplication incident stayed possible there
+on a big/not-yet-loaded event.
+
+- **Scoped the actual gap first.** Contact-linked adds (`add_contact_to_event` /
+  `add_contacts_to_event`, migrations `20260619000000`/`20260707160000`) already insert
+  idempotently via the `(event_id, contact_id)` partial unique constraint — so the single
+  `AddToEventSheet` (profile-sheets.tsx) and the contact-linked half of
+  `BulkAddToEventSheet` were never actually at risk. The real gap was every path that ends
+  in a plain `guests` insert keyed off a client-only "already on the list?" check: bulk-paste
+  (`planBulkAdd`) and the **name-only** rows of `BulkAddToEventSheet`.
+- **New RPC `find_event_guests_by_names(event_id, names[])`** (migration
+  `20260713150000`) — set-based sibling of `find_event_guest_by_name`: one indexed,
+  SECURITY INVOKER, soft-delete-aware lookup for many names at once (`distinct on` picks the
+  oldest match per name, same "oldest wins" semantics). Capped at 200 names server-side as
+  defense-in-depth; the client (`findEventGuestsByNames`, `src/features/po/queries.ts`)
+  chunks to ≤100 per call. pgTAP `bulk_dupe_check.test.sql` (11 assertions: RPC shape,
+  SECURITY INVOKER not DEFINER, multi-name hit/miss, case/whitespace fold, oldest-wins,
+  soft-delete exclusion, RLS-scoped cross-staff denial, anon denied, empty/oversized-array
+  no-op).
+- **Bulk-paste** (`BulkPaste.confirm()`, `src/components/po/screens/guests/index.tsx`): the
+  existing `byName` index from `evGuests` stays as the early UI hint (preview badges, the
+  3-way dupe picker); at confirm time an authoritative batched RPC call resolves every
+  pasted name against the full RLS-scoped list and `planBulkAdd` runs against THAT result,
+  same layered hint-vs-authoritative pattern as quick-add. A failed RPC call (offline /
+  deploy skew) falls back to the client hint and reports to Sentry via
+  `captureUnexpectedError` — mirrors quick-add's fallback exactly.
+- **`BulkAddToEventSheet`** (`bulk-add.tsx`): `submit()` is now async — before calling the
+  bulk-add mutation, name-only people not already flagged `alreadyOn` by the client hint get
+  one authoritative batched check, and confirmed matches are marked `alreadyOn` so the
+  existing per-row outcome reporting (`added`/`already`/...) stays truthful. Contact-linked
+  people are untouched (already safe).
+- Regenerated `src/lib/database.types.ts` (`supabase gen types typescript --local`) — also
+  picked up unrelated pre-existing drift (a stale `create_venue_with_owner` overload, the
+  `graphql_public` schema block) that had never been regenerated after an earlier migration;
+  left as-is rather than hand-editing the generated file.
+- **Verification:** `supabase db reset` clean, pgTAP 953/953 green (48 files, incl. the new
+  11), `tsc --noEmit` clean, `pnpm lint` clean, Vitest 757/757 green. **Could not verify live
+  in the browser preview** — `/app` hydration stalled (streamed RSC content stuck in a
+  hidden Suspense marker, no console/server errors) on a freshly-restarted server before any
+  of the changed screens were reached; reproduced on two independent server instances, so
+  it reads as a preview-harness limitation rather than a defect in this change. Flagging
+  per CLAUDE.md rather than claiming UI verification that didn't happen — a manual retest of
+  bulk-paste + "add to event" on a big guest list is still worth doing.
+
+---
+
 ## 2026-07-12 — G4: Guests/Lijst-fusie + één persoonsmodel
 
 ClickUp `86ey7e079` (UX/IA 8/7). Scope narrowed by two already-merged sibling efforts: the

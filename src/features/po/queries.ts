@@ -149,6 +149,40 @@ export async function findEventGuestByName(
   return row ? { id: row.id, name: row.full_name, plusOnes: row.plus_ones } : null;
 }
 
+/** Max names per `find_event_guests_by_names` call — mirrors the RPC's own cap
+ *  and the CLAUDE.md id-chunking rule; a bulk paste/selection chunks into
+ *  several calls rather than one unbounded array. */
+const BULK_DUPE_CHECK_CHUNK = 100;
+
+/**
+ * Set-based sibling of {@link findEventGuestByName} for bulk-paste and bulk
+ * add-to-event (86ey8xg4p, follow-up to 86ey8w7ek): one authoritative,
+ * RLS-scoped lookup per chunk of names instead of N point lookups, so the
+ * safeguard holds at thousands of guests. Duplicate/blank names are folded;
+ * throws on failure — callers decide their fallback (mirrors the singular
+ * lookup so an offline/deploy-skew failure never fails silently).
+ */
+export async function findEventGuestsByNames(
+  client: Client,
+  eventId: string,
+  names: string[]
+): Promise<ExistingEventGuest[]> {
+  const unique = [...new Set(names.map((n) => n.trim()).filter(Boolean))];
+  const out: ExistingEventGuest[] = [];
+  for (let i = 0; i < unique.length; i += BULK_DUPE_CHECK_CHUNK) {
+    const chunk = unique.slice(i, i + BULK_DUPE_CHECK_CHUNK);
+    const { data, error } = await client.rpc('find_event_guests_by_names', {
+      p_event_id: eventId,
+      p_names: chunk,
+    });
+    if (error) throw error;
+    for (const row of data ?? []) {
+      out.push({ id: row.id, name: row.full_name, plusOnes: row.plus_ones });
+    }
+  }
+  return out;
+}
+
 export interface PoQuotaStatus {
   /** Personal slot allowance for this event; -1 when exempt (admin/organizer). */
   quota: number;
