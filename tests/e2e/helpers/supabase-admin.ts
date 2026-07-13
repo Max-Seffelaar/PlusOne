@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { TERMS_VERSION } from '@/lib/legal';
 
 // Service-role client for e2e test setup/teardown ONLY (never shipped to the
 // browser). Used to provision invites and reset MFA state deterministically.
@@ -35,6 +36,28 @@ export async function clearMfaFactors(email: string): Promise<void> {
   for (const factor of data?.factors ?? []) {
     await a.auth.admin.mfa.deleteFactor({ id: factor.id, userId });
   }
+}
+
+/** Clear a user's Terms + Privacy acceptance so the first-login consent gate re-fires. */
+export async function clearConsent(email: string): Promise<void> {
+  const a = adminClient();
+  const userId = await getUserIdByEmail(email);
+  if (!userId) return;
+  await a
+    .from('user_profiles')
+    .update({ terms_accepted_at: null, terms_version: null })
+    .eq('id', userId);
+}
+
+/** Set a user's Terms + Privacy acceptance to the current version (test teardown). */
+export async function acceptConsent(email: string): Promise<void> {
+  const a = adminClient();
+  const userId = await getUserIdByEmail(email);
+  if (!userId) return;
+  await a
+    .from('user_profiles')
+    .update({ terms_accepted_at: new Date(0).toISOString(), terms_version: TERMS_VERSION })
+    .eq('id', userId);
 }
 
 /** Provision a pending invite (and the auth identity) for the invite-accept e2e. */
