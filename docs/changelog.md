@@ -8,6 +8,43 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-13 — PoMfaSheet: ask before enrolling MFA (UX/IA 9/7 follow-up)
+
+Task [86ey7qkkb](https://app.clickup.com/t/86ey7qkkb) comment (flagged during PR #187 review as
+out of scope there — PR #187's own changelog entry below lists it under "not fixed here"), PR
+[#196](https://github.com/Max-Seffelaar/PlusOne/pull/196), branch
+`claude/gifted-tereshkova-e77b12`. Merged right after #187.
+
+`PoMfaSheet` (`src/components/po/mfa-gate.tsx`) — the Profile "Enable MFA" self-service sheet
+and the `useMfaGate` step-up sheet used by `team.tsx`/`quota.tsx` — auto-called
+`supabase.auth.mfa.enroll()` in a `useEffect` as soon as it mounted whenever the caller had no
+verified TOTP factor, creating an unverified factor before the user made any choice inside the
+sheet. Same bug PR #187 fixed in `MfaEnrollCard`.
+
+- New `ask` phase: explanation + "Set up now" CTA. `enroll()` (plus the stray-unverified-factor
+  cleanup, moved out of the mount effect) only fires from that explicit click, guarded against
+  double-fire with an in-flight ref — same shape as PR #187's `startEnrollment`.
+- Dropped the stale header comment claiming a blanket AAL2 gate/middleware force-step-up (that
+  policy was removed by migration `20260702120000_mfa_fully_optional`); replaced with an accurate
+  description of the sheet's two real callers.
+- Considered rendering `MfaEnrollCard` directly instead of duplicating the enroll UI — didn't:
+  `MfaEnrollCard` is a full-page redirect-based flow with its own skip/snooze actions, while
+  `PoMfaSheet` is `Sheet`/kit-styled and also serves the `challenge` phase (existing verified
+  factor) for `useMfaGate`. Direct reuse would've broken one of the two.
+- Verified live against the local Supabase stack (`manager@plusone.test`, Profile → Security →
+  "Turn on"): zero `auth/v1/factors` calls until "Set up now" is clicked; clicking it fires the
+  cleanup DELETE + enroll POST and shows the QR/code step; "Cancel" unenrolls and returns to OFF.
+
+**Flagged, not fixed here:** while verifying, found a genuine pre-existing gap between
+CLAUDE.md's Auth section ("no AAL2 requirement in RLS anywhere") and actual code —
+`venue_memberships_delete`'s RLS policy still enforces AAL2 (only the create/role-update
+policies dropped `is_aal2()` in `20260702120000_mfa_fully_optional`), and `removeMemberAction`
+(`venues/actions.ts`) plus `useMfaGate`'s real callers depend on that still-live check. Left a
+comment on 86ey7qkkb; needs its own decision (drop the RLS check for consistency, or correct the
+CLAUDE.md claim).
+
+---
+
 ## 2026-07-12 — UX/IA 9/7: MFA-nudge softened to ask-first (86ey7qkkb)
 
 MFA stays fully optional (#20 unchanged) — only the presentation softened, per Max's
