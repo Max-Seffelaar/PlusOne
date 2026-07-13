@@ -14,10 +14,10 @@ MFA stays fully optional (#20 unchanged) — only the presentation softened, per
 2026-07-09 decision. Three changes, all in one PR:
 
 - **A · Two-step enroll screen** ([MfaEnrollCard.tsx](../src/features/auth/components/MfaEnrollCard.tsx)):
-  step 1 is the explanation + three actions ("Set up now — takes 2 minutes" / "Ask me in 7
-  days" / "Don't ask again") with **no QR visible**. `supabase.auth.mfa.enroll()` moved off
-  the mount `useEffect` onto the "Set up now" click — no more half-created factors for
-  someone who only glanced at the screen.
+  step 1 is the explanation + three actions ("Set up now (2 min)" / "Ask me in 7 days" /
+  "Don't ask again") with **no QR visible**. `supabase.auth.mfa.enroll()` moved off the mount
+  `useEffect` onto the "Set up now" click — no more half-created factors for someone who only
+  glanced at the screen.
 - **B · Order fix** ([guards.ts](../src/lib/auth/guards.ts) `requireAppAccess`): `requireConsent`
   now runs before `recommendMfaIfDue` (was reversed). **Correction (fresh-session review):**
   `requireAppAccess` turned out to have zero live call sites — the real `/app` guard
@@ -68,8 +68,41 @@ touches auth/middleware) — 0 blockers, 4 findings, all fixed before merge:**
   terms. Predates this PR; flagged for a follow-up, not blocking.
 
 Unit tests updated to match the new anchor (`terms_accepted_at` via the mocked query instead
-of `ctx.user.created_at`), plus a new case for the null/fail-open branch — 7 cases now, all
-green.
+of `ctx.user.created_at`), plus a new case for the null/fail-open branch — 7 cases, all green.
+
+**Second-pass review (7-lens workflow, 63 agents, adversarial-verified) — 0 blockers, 10
+verified findings, 4 fixed before merge, rest pre-existing/flagged:**
+
+- **UI regression — silent error on step 1:** the new step-1 branch rendered no error
+  paragraph, so a failed `snoozeMfaAction` (e.g. "Ask me in 7 days" clicked before ever
+  reaching step 2) set `error` but showed nothing — the button just reset and the user assumed
+  it saved. Added the error paragraph to the step-1 branch too.
+- **3 a11y/copy regressions, all new in this PR (all CONFIRMED by 2 independent verifiers):**
+  focus dropped to `document.body` when "Set up now" unmounted itself (WCAG 2.4.3) — fixed by
+  focusing a `tabIndex={-1}` step-2 container on entry; "Loading QR code…" had no
+  `role="status"` for screen readers (WCAG 4.1.3) — added; "Set up now — takes 2 minutes" broke
+  `tone-of-voice.md`'s no-em-dash rule — reworded to "Set up now (2 min)".
+- **Mutation-proven test gaps in `guards.test.ts`:** the "covers every due-logic branch" claim
+  above was inaccurate — deleting the `Number.isNaN(sinceAcceptedMs) ||` guard, the literal
+  `raw === 'infinity'` check, or omitting the no-`ctx` production codepath (the only codepath
+  `layout.tsx` actually calls) all left the suite green. Added 3 tests: an unparseable
+  (non-null) `terms_accepted_at` string, `mfa_snooze_until: 'infinity'` (what the e2e smoke
+  literally writes), and a no-`ctx` case that exercises the internal `getAuthContext()`
+  fallback. 10 cases now.
+- **Spec overstatement:** "the consent gate always runs before the MFA recommendation" isn't
+  globally enforced — only true on the `/app` path; `/mfa/enroll` itself has no consent check
+  (same root as the pre-existing note above). Scoped the claim in the spec/CLAUDE.md wording to
+  "on the `/app` path" rather than fixing the gap here — the actual fix is the spun-off task.
+- **Not fixed (pre-existing, flagged as follow-ups, not this PR's scope):** same-device QR
+  enrollment is impractical on mobile (no `otpauth://` deep link, no copy button for the
+  manual secret — Supabase returns `data.totp.uri` but the card discards it); `PoMfaSheet`
+  (Profile self-service) still auto-enrolls on mount with a stale AAL2 comment, the exact
+  pattern this PR removed elsewhere; smaller items (Android back-button leaves `/mfa` entirely
+  instead of returning to step 1, missing `100dvh`/safe-area on the `/mfa` layout, "Don't ask
+  again"'s tap target under 44px, a cross-tab race between the card's and sheet's unverified-
+  factor cleanup loops).
+
+729 tests green (post these fixes), typecheck clean, lint clean.
 
 ---
 

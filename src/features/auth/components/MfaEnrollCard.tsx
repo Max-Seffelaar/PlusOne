@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { describeAuthError } from '@/features/auth/errors';
 import { totpSchema } from '@/features/auth/schemas';
@@ -29,6 +29,13 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
   // a prior attempt is still in flight firing two concurrent enroll() calls —
   // a state check alone can't catch same-tick clicks, a ref can.
   const enrollInFlight = useRef(false);
+  // Focus target for step 2 (WCAG 2.4.3) — "Set up now" unmounts itself, so
+  // without this, keyboard focus would drop to document.body.
+  const step2Ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (enrolling) step2Ref.current?.focus();
+  }, [enrolling]);
 
   async function skip(choice: 'week' | 'never'): Promise<void> {
     if (busy || snoozing) return;
@@ -103,76 +110,85 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
       </p>
 
       {!enrolling ? (
-        <button
-          type="button"
-          className="btn-primary mt-4 w-full"
-          onClick={() => void startEnrollment()}
-        >
-          Set up now — takes 2 minutes
-        </button>
-      ) : error && !qr ? (
-        <div className="mt-4">
-          <p className="mb-3 text-sm text-red-300" role="alert">
-            {error}
-          </p>
-          <button type="button" className="btn-dark w-full" onClick={() => void startEnrollment()}>
-            Try again
-          </button>
-        </div>
-      ) : qr ? (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void verify();
-          }}
-          className="mt-4 flex flex-col gap-4"
-          noValidate
-        >
-          <div className="flex justify-center">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={qr}
-              alt="QR code for authenticator app"
-              className="bg-text h-44 w-44 rounded-card p-2"
-            />
-          </div>
-          {secret && (
-            <p className="text-faint text-center text-xs">
-              Enter it manually?{' '}
-              <code className="text-dim break-all" data-testid="totp-secret">
-                {secret}
-              </code>
-            </p>
-          )}
-          <div className="flex flex-col gap-2">
-            <label htmlFor="totp" className="label">
-              Code from your app
-            </label>
-            <input
-              id="totp"
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              pattern="\d{6}"
-              maxLength={6}
-              required
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              placeholder="000000"
-              className="field text-center text-2xl tracking-[0.5em]"
-            />
-          </div>
-          <button type="submit" className="btn-primary w-full" disabled={busy || code.length !== 6}>
-            {busy ? 'Verifying…' : 'Verify'}
-          </button>
+        <div className="mt-4 flex flex-col gap-3">
           {error && (
             <p className="text-sm text-red-300" role="alert">
               {error}
             </p>
           )}
-        </form>
+          <button type="button" className="btn-primary w-full" onClick={() => void startEnrollment()}>
+            Set up now (2 min)
+          </button>
+        </div>
       ) : (
-        <p className="text-dim mt-4 text-sm">Loading QR code…</p>
+        <div ref={step2Ref} tabIndex={-1} className="mt-4">
+          {error && !qr ? (
+            <div>
+              <p className="mb-3 text-sm text-red-300" role="alert">
+                {error}
+              </p>
+              <button type="button" className="btn-dark w-full" onClick={() => void startEnrollment()}>
+                Try again
+              </button>
+            </div>
+          ) : qr ? (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void verify();
+              }}
+              className="flex flex-col gap-4"
+              noValidate
+            >
+              <div className="flex justify-center">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={qr}
+                  alt="QR code for authenticator app"
+                  className="bg-text h-44 w-44 rounded-card p-2"
+                />
+              </div>
+              {secret && (
+                <p className="text-faint text-center text-xs">
+                  Enter it manually?{' '}
+                  <code className="text-dim break-all" data-testid="totp-secret">
+                    {secret}
+                  </code>
+                </p>
+              )}
+              <div className="flex flex-col gap-2">
+                <label htmlFor="totp" className="label">
+                  Code from your app
+                </label>
+                <input
+                  id="totp"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="\d{6}"
+                  maxLength={6}
+                  required
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="000000"
+                  className="field text-center text-2xl tracking-[0.5em]"
+                />
+              </div>
+              <button type="submit" className="btn-primary w-full" disabled={busy || code.length !== 6}>
+                {busy ? 'Verifying…' : 'Verify'}
+              </button>
+              {error && (
+                <p className="text-sm text-red-300" role="alert">
+                  {error}
+                </p>
+              )}
+            </form>
+          ) : (
+            <p className="text-dim text-sm" role="status">
+              Loading QR code…
+            </p>
+          )}
+        </div>
       )}
 
       <div className="mt-5 flex flex-col gap-2 border-t border-line2 pt-4">

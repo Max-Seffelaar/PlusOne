@@ -1,13 +1,21 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { recommendMfaIfDue } from './guards';
 import { createClient } from '@/lib/supabase/server';
-import type { AuthContext } from './context';
+import { getAuthContext, type AuthContext } from './context';
 
 // recommendMfaIfDue calls createClient() (Next cookies() under the hood) and,
 // when due, next/navigation's redirect() — mock both so the due-logic (UX/IA
 // 9/7: ask-first, not on the first session) is testable without a request context.
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(),
+}));
+
+// The production call site (src/app/app/layout.tsx) invokes recommendMfaIfDue
+// WITHOUT a ctx argument, relying on the internal `getAuthContext()` fallback —
+// mock it so that codepath (not just the ctx-supplied shortcut every other
+// test here uses) has coverage too.
+vi.mock('./context', () => ({
+  getAuthContext: vi.fn(),
 }));
 
 const redirectMock = vi.fn((url: string) => {
@@ -65,6 +73,16 @@ describe('recommendMfaIfDue', () => {
     expect(redirectMock).not.toHaveBeenCalled();
   });
 
+  it('terms_accepted_at is an unparseable string (not null): never redirects (fail open)', async () => {
+    // A DIFFERENT code path than the null case above: this goes through the
+    // ternary's truthy branch into `new Date(garbage).getTime()` -> NaN,
+    // rather than the null->NaN literal branch — pins Number.isNaN(sinceAcceptedMs)
+    // against a mutant that only strips the null-check path.
+    (createClient as Mock).mockResolvedValue(makeClient({ acceptedAt: 'not-a-date' }));
+    await expect(recommendMfaIfDue('/app', makeCtx({}))).resolves.toBeUndefined();
+    expect(redirectMock).not.toHaveBeenCalled();
+  });
+
   it('terms accepted >24h ago, no factor, no snooze: redirects to /mfa/enroll', async () => {
     (createClient as Mock).mockResolvedValue(
       makeClient({ acceptedAt: new Date(Date.now() - 2 * ONE_DAY_MS).toISOString() })
@@ -96,6 +114,20 @@ describe('recommendMfaIfDue', () => {
     expect(redirectMock).not.toHaveBeenCalled();
   });
 
+  it('mfa_snooze_until literal "infinity": does not redirect', async () => {
+    // Distinct from the far-future-timestamp case above — pins the explicit
+    // raw === 'infinity' branch, which the e2e smoke actually writes
+    // (tests/e2e/core-flow.spec.ts).
+    (createClient as Mock).mockResolvedValue(
+      makeClient({
+        acceptedAt: new Date(Date.now() - 2 * ONE_DAY_MS).toISOString(),
+        snoozeUntil: 'infinity',
+      })
+    );
+    await expect(recommendMfaIfDue('/app', makeCtx({}))).resolves.toBeUndefined();
+    expect(redirectMock).not.toHaveBeenCalled();
+  });
+
   it('verified factor present: never redirects regardless of acceptance age', async () => {
     (createClient as Mock).mockResolvedValue(
       makeClient({ acceptedAt: new Date(Date.now() - 2 * ONE_DAY_MS).toISOString() })
@@ -112,5 +144,16 @@ describe('recommendMfaIfDue', () => {
     );
     await expect(recommendMfaIfDue('/app', makeCtx({ requiresMfa: false }))).resolves.toBeUndefined();
     expect(redirectMock).not.toHaveBeenCalled();
+  });
+
+  it('no ctx supplied (production codepath, src/app/app/layout.tsx): falls back to getAuthContext()', async () => {
+    (getAuthContext as Mock).mockResolvedValue(
+      makeCtx({ requiresMfa: true, hasVerifiedTotp: false })
+    );
+    (createClient as Mock).mockResolvedValue(
+      makeClient({ acceptedAt: new Date(Date.now() - 2 * ONE_DAY_MS).toISOString() })
+    );
+    await expect(recommendMfaIfDue('/app')).rejects.toThrow('REDIRECT:/mfa/enroll?next=%2Fapp');
+    expect(getAuthContext).toHaveBeenCalled();
   });
 });

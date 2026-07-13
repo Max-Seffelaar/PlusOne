@@ -138,10 +138,13 @@ exchanged from an e-mail click (there is no verifier cookie), so the default
 - **Ask-first** (2026-07-09, UX/IA 9/7): the recommendation never fires until
   24h after `user_profiles.terms_accepted_at` (not `auth.users.created_at` —
   that's stamped when the invite is *sent*, not when the invitee first logs
-  in) and never before the terms/privacy consent gate. To exercise it locally,
-  backdate the test user's `user_profiles.terms_accepted_at` by >24h (or wait
-  out the window after accepting terms). `/mfa/enroll` itself is two-step — the
-  QR only appears after clicking "Set up now".
+  in), and on the `/app` path it never fires before the terms/privacy consent
+  gate. `/mfa/enroll` itself has no consent check of its own (a deep link
+  could reach it pre-consent — known limitation, tracked separately, not
+  gated by `recommendMfaIfDue` in the first place). To exercise the 24h rule
+  locally, backdate the test user's `user_profiles.terms_accepted_at` by >24h
+  (or wait out the window after accepting terms). `/mfa/enroll` itself is
+  two-step — the QR only appears after clicking "Set up now".
 - Local mirror: `[auth.mfa.totp] enroll_enabled = true`, `verify_enabled = true`.
 
 ## 5. Rate limits (Authentication → Rate Limits)
