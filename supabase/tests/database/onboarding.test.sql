@@ -24,7 +24,7 @@ begin
 end;
 $fn$;
 
-select plan(23);
+select plan(26);
 
 -- ---------------------------------------------------------------------------
 -- A. create_venue_with_owner — create, effects, audit actor
@@ -32,14 +32,15 @@ select plan(23);
 
 select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@plusone.test');
 -- create_venue_with_owner is called by NAME with an explicit p_terms_version so each
--- call binds unambiguously to the current 12-arg signature (20260623160000). The legacy
--- 6-arg overload may linger in a non-reset local DB, where a positional 6-arg call would
--- be "function ... is not unique"; the 12-arg-only p_terms_version pins resolution.
+-- call binds unambiguously to the current 11-arg signature (20260713160000, p_comped
+-- removed — 86ey9e851). The legacy 6-arg overload may linger in a non-reset local DB,
+-- where a positional 6-arg call would be "function ... is not unique"; the
+-- p_terms_version-only-in-current pins resolution.
 select set_config(
   'test.vid',
   public.create_venue_with_owner(
     p_name => 'Onboarding Test', p_address => 'Teststraat 1', p_venue_type => 'club',
-    p_retention_months => 12, p_plan_id => null, p_comped => false,
+    p_retention_months => 12, p_plan_id => null,
     p_terms_version => null)::text,
   false
 );
@@ -77,7 +78,7 @@ select is((select count(*)::int from public.audit_log
 select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@plusone.test');
 select is(public.create_venue_with_owner(
             p_name => 'Dup', p_address => 'x', p_venue_type => 'bar',
-            p_retention_months => 12, p_plan_id => null, p_comped => false,
+            p_retention_months => 12, p_plan_id => null,
             p_terms_version => null),
           current_setting('test.vid')::uuid,
           'T6 a retried create returns the existing in-onboarding venue');
@@ -96,30 +97,57 @@ select pg_temp.login(null, 'aal1', null);
 select throws_ok(
   $$ select public.create_venue_with_owner(
        p_name => 'NoAuth', p_address => 'x', p_venue_type => 'club',
-       p_retention_months => 12, p_plan_id => null, p_comped => false,
+       p_retention_months => 12, p_plan_id => null,
        p_terms_version => null) $$,
   '42501', null, 'T8 an unauthenticated caller cannot create a venue');
 reset role;
 
 -- ---------------------------------------------------------------------------
--- C. set_venue_plan — owner (admin, no MFA) yes; non-admin no
+-- B'. p_comped no longer exists on either RPC (86ey9e851) — a caller who
+-- still tries to pass it (e.g. hitting /rest/v1/rpc/... directly with the old
+-- payload shape) is refused at the function-resolution level, not silently
+-- ignored. Proves the client-settable comped bypass is closed, not just gated.
+-- ---------------------------------------------------------------------------
+
+select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@plusone.test');
+select throws_ok(
+  $$ select public.create_venue_with_owner(
+       p_name => 'CompedAttempt', p_address => 'x', p_venue_type => 'club',
+       p_retention_months => 12, p_plan_id => null, p_comped => true,
+       p_terms_version => null) $$,
+  '42883', null, 'T8b create_venue_with_owner no longer accepts p_comped');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- C. set_venue_plan — owner (admin, no MFA) yes; non-admin no; comped removed
 -- ---------------------------------------------------------------------------
 
 -- A fresh AAL1 owner can pick a plan (onboarding happens before MFA enrollment).
 select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@plusone.test');
 select lives_ok(
-  $$ select public.set_venue_plan(current_setting('test.vid')::uuid, 'premium', false) $$,
+  $$ select public.set_venue_plan(current_setting('test.vid')::uuid, 'premium') $$,
   'T9 the owner sets the plan without MFA');
 reset role;
 
 select is((select plan_id from public.subscriptions where venue_id = current_setting('test.vid')::uuid),
           'premium', 'T10 the chosen plan is stored');
 
+select is((select status from public.subscriptions where venue_id = current_setting('test.vid')::uuid),
+          'trialing', 'T10b set_venue_plan can never produce comped — trialing regardless of caller intent');
+
 -- Tom is not a member of the new venue → not admin → refused.
 select pg_temp.login('55555555-5555-4555-8555-555555555555', 'aal2', 'staff@plusone.test');
 select throws_ok(
-  $$ select public.set_venue_plan(current_setting('test.vid')::uuid, 'pro', false) $$,
+  $$ select public.set_venue_plan(current_setting('test.vid')::uuid, 'pro') $$,
   '42501', null, 'T11 a non-admin cannot set the plan');
+reset role;
+
+-- The owner can no longer pass p_comped at all — refused at resolution, same
+-- proof as T8b, on the second RPC.
+select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@plusone.test');
+select throws_ok(
+  $$ select public.set_venue_plan(current_setting('test.vid')::uuid, 'premium', true) $$,
+  '42883', null, 'T11b set_venue_plan no longer accepts p_comped');
 reset role;
 
 -- ---------------------------------------------------------------------------
@@ -149,7 +177,7 @@ select set_config(
   'test.vid2',
   public.create_venue_with_owner(
     p_name => 'Second Venue', p_address => 'x', p_venue_type => 'festival',
-    p_retention_months => 12, p_plan_id => null, p_comped => false,
+    p_retention_months => 12, p_plan_id => null,
     p_terms_version => null)::text,
   false
 );
@@ -225,7 +253,7 @@ select pg_temp.login('44444444-4444-4444-8444-444444444444', 'aal1', 'organizer@
 select set_config('test.vid4',
   public.create_venue_with_owner(
     p_name => 'No Consent', p_address => 'x', p_venue_type => 'club',
-    p_retention_months => 12, p_plan_id => null, p_comped => false,
+    p_retention_months => 12, p_plan_id => null,
     p_complete => true, p_terms_version => null)::text, false);
 reset role;
 
