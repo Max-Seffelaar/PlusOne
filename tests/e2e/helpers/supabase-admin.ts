@@ -60,6 +60,24 @@ export async function acceptConsent(email: string): Promise<void> {
     .eq('id', userId);
 }
 
+/**
+ * Force a user's profile past the MFA-recommendation "ask-first" window
+ * (24h after `terms_accepted_at`, UX/IA 9/7 — `recommendMfaIfDue` in
+ * src/lib/auth/guards.ts) and clear any snooze, so `/mfa/enroll` reliably
+ * fires on next login regardless of when this seed user last accepted terms
+ * in the shared local DB.
+ */
+export async function primeMfaRecommendation(email: string): Promise<void> {
+  const a = adminClient();
+  const userId = await getUserIdByEmail(email);
+  if (!userId) return;
+  const backdated = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+  await a
+    .from('user_profiles')
+    .update({ terms_accepted_at: backdated, terms_version: TERMS_VERSION, mfa_snooze_until: null })
+    .eq('id', userId);
+}
+
 /** Provision a pending invite (and the auth identity) for the invite-accept e2e. */
 export async function ensureInvite(
   email: string,
