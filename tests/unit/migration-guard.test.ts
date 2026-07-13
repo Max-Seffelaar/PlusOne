@@ -7,7 +7,12 @@
  * backstop). This tests the shared pure logic without touching git or fs.
  */
 import { describe, expect, it } from 'vitest';
-import { findTimestampCollisions, isMigrationPath, timestampOf } from '../../scripts/hooks/lib/migration-guard.mjs';
+import {
+  findDuplicateTimestamps,
+  findTimestampCollisions,
+  isMigrationPath,
+  timestampOf,
+} from '../../scripts/hooks/lib/migration-guard.mjs';
 
 describe('timestampOf', () => {
   it('extracts the 14-digit prefix', () => {
@@ -48,6 +53,34 @@ describe('findTimestampCollisions', () => {
 
   it('ignores files without a timestamp prefix on either side', () => {
     expect(findTimestampCollisions(['README.md'], ['README.md', '20260101000000_a.sql'])).toEqual([]);
+  });
+});
+
+describe('findDuplicateTimestamps', () => {
+  it('flags two files sharing a timestamp within a single list (the cross-branch-merge case)', () => {
+    const files = ['20260713160000_venue_id_rls_integrity.sql', '20260713160000_remove_client_comped.sql'];
+
+    expect(findDuplicateTimestamps(files)).toEqual([
+      ['20260713160000_venue_id_rls_integrity.sql', '20260713160000_remove_client_comped.sql'],
+    ]);
+  });
+
+  it('does not flag unique timestamps', () => {
+    const files = ['20260713160000_a.sql', '20260713170000_b.sql', '20260713180000_c.sql'];
+
+    expect(findDuplicateTimestamps(files)).toEqual([]);
+  });
+
+  it('ignores files without a timestamp prefix', () => {
+    expect(findDuplicateTimestamps(['README.md', 'seed.sql'])).toEqual([]);
+  });
+
+  it('handles three-way collisions on the same timestamp', () => {
+    const files = ['20260713160000_a.sql', '20260713160000_b.sql', '20260713160000_c.sql'];
+
+    expect(findDuplicateTimestamps(files)).toEqual([
+      ['20260713160000_a.sql', '20260713160000_b.sql', '20260713160000_c.sql'],
+    ]);
   });
 });
 

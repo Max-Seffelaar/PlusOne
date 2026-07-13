@@ -37,3 +37,20 @@ export function findTimestampCollisions(localFiles, remoteFiles) {
 export function isMigrationPath(relativePath) {
   return /^supabase\/migrations\/[^/]+\.sql$/.test(relativePath.replace(/\\/g, '/'));
 }
+
+// Any two (or more) files sharing a 14-digit timestamp prefix within a single
+// list — the class that findTimestampCollisions cannot see: two branches can
+// each independently pick a free timestamp and only collide once BOTH land on
+// main (86ey9e84m/86ey9e851, 13/7 — neither PR's own branch had a duplicate,
+// origin/main did after both merged). Self-contained: no git/origin dependency,
+// so it works identically as a post-merge CI check on main.
+export function findDuplicateTimestamps(files) {
+  const byTimestamp = new Map();
+  for (const f of files) {
+    const ts = timestampOf(f);
+    if (!ts) continue;
+    if (!byTimestamp.has(ts)) byTimestamp.set(ts, []);
+    byTimestamp.get(ts).push(f);
+  }
+  return [...byTimestamp.values()].filter((group) => group.length > 1);
+}
