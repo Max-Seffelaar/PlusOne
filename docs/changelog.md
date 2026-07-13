@@ -8,6 +8,56 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-13 — MFA enrollment: same-device deep link + secret copy
+
+Follow-up flagged during code review of PR #187 ("fix(auth): soften MFA nudge to ask-first
+onboarding", UX/IA 9/7, ClickUp 86ey7qkkb) and repeated in PR #196's changelog entry below (both
+list it under "not fixed here"), PR [#197](https://github.com/Max-Seffelaar/PlusOne/pull/197),
+branch `claude/upbeat-moore-00b4dc`. Rebased onto #187/#196's ask-first two-step redesign after
+those landed mid-session (real conflict in `MfaEnrollCard.tsx`, resolved by moving the deep-link
++ copy-button JSX into the new step-2 block — no logic from either side dropped).
+
+`MfaEnrollCard.tsx`'s step-2 enroll screen showed a QR code and a manual secret as a `text-xs`
+footnote with no copy button — impractical for a mobile-first PWA: you can't scan a QR with the
+same device you're enrolling on, and Supabase's `mfa.enroll()` response already carries
+`data.totp.uri` (an `otpauth://` deep link) that the component discarded entirely.
+
+- Added an **"Open in authenticator app"** link (`<a href={uri}>`, `btn-dark flex w-full
+  items-center justify-center`) rendered above the manual secret — mobile OSes route
+  `otpauth://` straight to an installed authenticator app for one-tap same-device enrollment.
+  Note the plain `<a>` needed `flex`+`w-full` explicitly: `.btn-dark` has no `display` rule, and
+  an anchor's default `display: inline` ignores `width: 100%` (a `<button>` gets away with just
+  `w-full` because buttons default to `inline-block`) — no prior `<a>`-as-button usage existed
+  in the codebase to copy from.
+- Added a **copy-to-clipboard** button next to the manual secret, reusing the codebase's existing
+  guarded pattern (feature-detect `navigator.clipboard` + try/catch, matching
+  `links.tsx`/`promo-create-link.tsx`) rather than gating on `isNativeShell()` — that seam is
+  specifically for the billing/store-tax rule (#32), not a general platform guard, so the
+  clipboard code follows its own established convention instead.
+- QR code stays visible (desktop still needs it). Copy verb-first/sentence-case/no-period
+  ("Copy" → "Copied!"), matching `tone-of-voice.md` and the existing `qrCopy`/`qrCopied` keys.
+- New `MfaEnrollCard.test.tsx` (3 tests): deep-link href from the mocked enroll response, copy
+  success via a mocked `navigator.clipboard.writeText`, and the clipboard-blocked fallback
+  (no crash, stays on "Copy"). No `@testing-library/user-event` in this repo — used
+  `fireEvent`+`act` to match the existing test style (`CheckInList.test.tsx`).
+
+**Gotcha hit mid-session:** this worktree's `node_modules` was missing `@sentry/nextjs` (declared
+in `package.json`, presumably added by the Sentry PR #155 merge, but never installed here) —
+broke both `tsc --noEmit` (12 unrelated `TS2307` errors) and `pnpm dev` (`next.config.js` require
+crash). `pnpm install` fixed it; unrelated to this change but blocked live preview until resolved.
+
+**Live-verified** via local dev-login (`manager@plusone.test` → consent → `/mfa/enroll`):
+accessibility snapshot + `preview_inspect` confirmed the deep link's real `otpauth://` URI, the
+full-width button layout, and that clicking Copy in a permission-denied automated-browser context
+degrades silently (matches the guarded-fallback test). `preview_screenshot` itself was flaky in
+this session (timed out repeatedly) — verification relied on snapshot/inspect/eval instead, per
+[[recharts-and-preview]]'s known quirk.
+
+**Verification:** `pnpm exec vitest run src/features/auth` 53/53 green, `pnpm exec eslint` clean,
+`pnpm exec tsc --noEmit` clean on touched files.
+
+---
+
 ## 2026-07-13 — PoMfaSheet: ask before enrolling MFA (UX/IA 9/7 follow-up)
 
 Task [86ey7qkkb](https://app.clickup.com/t/86ey7qkkb) comment (flagged during PR #187 review as

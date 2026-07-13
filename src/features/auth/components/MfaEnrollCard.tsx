@@ -17,6 +17,7 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
   const supabase = createClient();
   const [qr, setQr] = useState<string | null>(null);
   const [secret, setSecret] = useState<string | null>(null);
+  const [uri, setUri] = useState<string | null>(null);
   const [factorId, setFactorId] = useState<string | null>(null);
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -25,6 +26,7 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
   // step 1 (explanation only) to step 2 (QR + verification).
   const [enrolling, setEnrolling] = useState(false);
   const [snoozing, setSnoozing] = useState<'week' | 'never' | null>(null);
+  const [copied, setCopied] = useState(false);
   // Guards against a double-click on "Set up now" or a "Try again" click while
   // a prior attempt is still in flight firing two concurrent enroll() calls —
   // a state check alone can't catch same-tick clicks, a ref can.
@@ -36,6 +38,19 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
   useEffect(() => {
     if (enrolling) step2Ref.current?.focus();
   }, [enrolling]);
+
+  async function copySecret(): Promise<void> {
+    if (!secret) return;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(secret);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1800);
+      }
+    } catch {
+      // Clipboard blocked (rare in webviews) — the secret is still visible/selectable.
+    }
+  }
 
   async function skip(choice: 'week' | 'never'): Promise<void> {
     if (busy || snoozing) return;
@@ -71,6 +86,7 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
       setFactorId(data.id);
       setQr(data.totp.qr_code);
       setSecret(data.totp.secret);
+      setUri(data.totp.uri);
     } finally {
       enrollInFlight.current = false;
     }
@@ -148,12 +164,24 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
                   className="bg-text h-44 w-44 rounded-card p-2"
                 />
               </div>
+              {uri && (
+                <a href={uri} className="btn-dark flex w-full items-center justify-center">
+                  Open in authenticator app
+                </a>
+              )}
               {secret && (
                 <p className="text-faint text-center text-xs">
                   Enter it manually?{' '}
                   <code className="text-dim break-all" data-testid="totp-secret">
                     {secret}
-                  </code>
+                  </code>{' '}
+                  <button
+                    type="button"
+                    onClick={() => void copySecret()}
+                    className="text-dim hover:text-text underline"
+                  >
+                    {copied ? 'Copied!' : 'Copy'}
+                  </button>
                 </p>
               )}
               <div className="flex flex-col gap-2">
