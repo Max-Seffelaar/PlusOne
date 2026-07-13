@@ -11,7 +11,7 @@ import { Avatar, Btn, PayChip, StatusDot } from '../../kit';
 import { Sheet } from '../../shell';
 import { press, cardPress, TierPill } from './_shared';
 
-// ── List-rendering machinery shared by Lijst + GuestsTab ────────────────────
+// ── List-rendering machinery for GuestsTab ───────────────────────────────────
 // Pure rendering/list machinery split out of index.tsx (FE-5): scope chips, the
 // bulk-tier picker sheet, and the two virtualized list views. No logic changes —
 // only a file-boundary move.

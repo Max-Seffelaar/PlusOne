@@ -11,6 +11,7 @@ import {
   canDecideRequests,
   canSeeOwnRequests,
   canSeeAnyRequests,
+  isDoorOnlyRole,
 } from './roles';
 
 describe('requiresMfa', () => {
@@ -127,6 +128,30 @@ describe('mergeRoles', () => {
     expect(mergeRoles(['staff'], ['doorhost'])).toEqual(['staff', 'doorhost']);
     expect(mergeRoles(['doorhost'], ['admin', 'staff'])).toEqual(['admin', 'staff', 'doorhost']);
     expect(mergeRoles(['staff'], ['staff'])).toEqual(['staff']);
+  });
+});
+
+describe('isDoorOnlyRole (person-profile role-awareness — G4, K-8, mirrors contacts_select RLS)', () => {
+  it('is true for a pure doorhost', () => {
+    expect(isDoorOnlyRole(['doorhost'])).toBe(true);
+  });
+  it('is true combined with staff — the seed door@ persona is exactly {doorhost, staff}, and staff has no contacts access either', () => {
+    expect(isDoorOnlyRole(['doorhost', 'staff'])).toBe(true);
+  });
+  it('is false once a contacts-capable role is also held (multi-role, CLAUDE.md #8)', () => {
+    expect(isDoorOnlyRole(['doorhost', 'admin'])).toBe(false);
+    expect(isDoorOnlyRole(['doorhost', 'finance'])).toBe(false);
+    expect(isDoorOnlyRole(['doorhost', 'staff', 'admin'])).toBe(false);
+  });
+  it('is false without doorhost, regardless of other roles', () => {
+    expect(isDoorOnlyRole(['staff'])).toBe(false);
+    expect(isDoorOnlyRole(['admin'])).toBe(false);
+    expect(isDoorOnlyRole(['finance'])).toBe(false);
+    expect(isDoorOnlyRole(['user_manager'])).toBe(false);
+    expect(isDoorOnlyRole(['staff', 'user_manager'])).toBe(false);
+  });
+  it('is false for empty roles — a pure event-organizer gets the benefit of the doubt (M3 precedent)', () => {
+    expect(isDoorOnlyRole([])).toBe(false);
   });
 });
 

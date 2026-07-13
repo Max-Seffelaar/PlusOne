@@ -31,7 +31,7 @@ import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
 import { useViewport } from './use-viewport';
 import { EventDaySkeleton } from '@/features/po/eventday/EventDaySkeleton';
 import { Crew, EventEdit, EventView, Events, PastEvent, Tiers } from './screens/events';
-import { BulkPaste, Contacten, ContactProfile, GuestsTab, Lijst, QuickAdd } from './screens/guests';
+import { BulkPaste, Contacten, ContactProfile, GuestsTab, QuickAdd } from './screens/guests';
 import { DoorEventPicker, PoDoorTab, type DoorOverlay } from './screens/door';
 import { Allowance, Billing, Gebruikers, Import, Meer, Profile, Rollen, VenueSettings, VenueSwitch } from './screens/settings';
 import { VenueCreate } from './screens/onboarding';
@@ -609,7 +609,7 @@ export function PlusOneApp(): JSX.Element {
         break;
       case 'lijst': {
         const e = ev(p.id);
-        screen = e ? <Lijst ev={e} /> : <Loading onBack={nav.back} />;
+        screen = e ? <GuestsTab pinnedEventId={e.id} /> : <Loading onBack={nav.back} />;
         break;
       }
       case 'guest':

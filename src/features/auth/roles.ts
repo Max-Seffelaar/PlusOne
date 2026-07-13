@@ -76,6 +76,23 @@ export function canWorkDoor(roles: readonly VenueRole[]): boolean {
   return roles.some((r) => DOOR_ROLES.includes(r));
 }
 
+/**
+ * True when the viewer works the door and holds no contacts-capable role —
+ * mirrors the `contacts_select` RLS boundary (admin/finance/organizer read
+ * contacts; doorhost and staff don't), not just a bare "doorhost" check (G4,
+ * K-8). `doorhost` alone or combined with `staff` both qualify — the seed
+ * `door@plusone.test` persona holds exactly `{doorhost, staff}`, and staff
+ * doesn't grant contacts access either. Combined with `admin`/`finance` does
+ * NOT qualify: multi-role-per-user (CLAUDE.md #8) means that viewer keeps the
+ * full person-profile. An empty `roles` array (a pure event-organizer, whose
+ * access lives in `event_organizers`, not `venue_memberships`) also returns
+ * false — same "benefit of the doubt for empty roles" the M3 rechten-hygiëne
+ * fix established, so an organizer still sees the full profile.
+ */
+export function isDoorOnlyRole(roles: readonly VenueRole[]): boolean {
+  return roles.includes('doorhost') && !roles.includes('admin') && !roles.includes('finance');
+}
+
 // Venue roles that read guests at all — mirrors the guests-select RLS: admin/
 // finance/doorhost read every guest, staff their own additions. A pure
 // user_manager (no other role) always gets zero rows back, regardless of the

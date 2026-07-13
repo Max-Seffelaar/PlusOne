@@ -8,6 +8,61 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-12 — G4: Guests/Lijst-fusie + één persoonsmodel
+
+ClickUp `86ey7e079` (UX/IA 8/7). Scope narrowed by two already-merged sibling efforts: the
+guest-tier vocabulary was already unified (Review-K11 + FE-2, `tierRole()` in
+`src/lib/po/tier.ts`), and the doorhost profile dead-end already had a reactive fallback
+(M3, PR #173). This task closed the remaining gap — three parts, all in one PR, no
+migration.
+
+- **Merged the standalone `Lijst` screen into `GuestsTab`** (`src/components/po/screens/
+  guests/index.tsx`). `Lijst` was a ~150-LOC wrapper duplicating what `GuestsTab` already
+  did in single-event scope via the same shared `GuestCardList`/`GuestTable`/
+  `BulkTierSheet`. `GuestsTab` now takes an optional `pinnedEventId` prop: when set (pushed
+  from EventView's "Guest list" button), the scope-chip/regulars-filter row is hidden and a
+  back button returns to the event — otherwise identical to the old `Lijst` UI.
+  `app.tsx`'s `case 'lijst'` renders `<GuestsTab pinnedEventId={e.id} />` instead of the
+  deleted `<Lijst>`; no route/URL changes (`routes.ts`'s `/app/events/:id/guests` is
+  untouched, only the component behind it).
+- **Dropped the standalone contact role chip** (`RoleChip` in `kit.tsx`, `ROLE_ICON` in
+  `icon.tsx`) from the Contacts list and `ContactProfile` header — Max's call: remove it
+  rather than back it with a new per-contact tier lookup. Real tier names still show
+  per-event in the events list (`TierPill`, unaffected). `contactRoleToPo`/`Role`/
+  `preferred_role` (the DB-level tier-resolution mechanism, `resolve_tier_for_contact`) are
+  untouched — that's a functional matcher, not the display concept being removed.
+- **Made the person-profile role-aware for doorhost** (structural fix for K-8, building on
+  M3's reactive fallback): new `isDoorOnlyRole()` (`src/features/auth/roles.ts`) drives the
+  `ContactProfile` actions-block branching, checked BEFORE `isContact`/`restricted` so it
+  applies uniformly — including to a not-yet-linked guest, which previously still showed a
+  "Save as contact" CTA to a doorhost. Header/stats/events/timeline stay; edit/promote/
+  add-to-event/star all disappear.
+- **Gotcha found via live testing, not planning:** the first `isDoorOnlyRole` design
+  required EVERY held role to be exactly `doorhost` (multi-role-per-user, CLAUDE.md #8 —
+  admin/finance combos should keep the full profile). Live-testing against the seed
+  `door@plusone.test` user (`Lisa van den Berg`) showed the fix never fired: the seed
+  persona holds `{doorhost, staff}`, not `{doorhost}` alone. Corrected to mirror the actual
+  `contacts_select` RLS boundary instead of a bare role-purity check: `roles.includes(
+  'doorhost') && !roles.includes('admin') && !roles.includes('finance')` — `staff` doesn't
+  grant contacts access either, so `{doorhost, staff}` now correctly qualifies.
+- **Housekeeping:** this worktree was 7 commits behind `origin/main` at session start (PRs
+  up to #186, the G1 canonical-URL nav rework) — fast-forwarded and re-diffed every file
+  this task touches against the new HEAD before planning (none of #186/#183/#180/#182 etc.
+  actually collided with this task's files; confirmed no open PR and no dirty sibling
+  worktree touched the same files either).
+- Verification: lint clean, zero TypeScript errors, 726/726 vitest green (63 files, +7 new
+  `isDoorOnlyRole` cases in `roles.test.ts`). Live: one full successful manual pass
+  confirmed the merged `GuestsTab`/pinned mode and the `ContactProfile` data pipeline
+  render correctly against real local Supabase data (pre-fix, showing the old restricted-
+  note text as expected) — but the session's dev machine was under heavy resource
+  contention (45+ concurrent worktree sessions) and the preview browser's hydration stalled
+  on every subsequent attempt (server-side confirmed healthy and fast via direct `curl`
+  throughout — this was a browser/CDP starvation issue, not an app bug). Could not get a
+  final live screenshot of the corrected doorhost-reduced-profile in this session; the fix
+  is covered by unit tests that directly encode the real seed role combination.
+
+---
+
 ## 2026-07-12 — UX/IA G3: Promotion hub (Promo + Links + Influencers regrouped) + M14
 
 Built per the pre-written plan (`promotion-regroup-plan-claude-code.md`, now stamped

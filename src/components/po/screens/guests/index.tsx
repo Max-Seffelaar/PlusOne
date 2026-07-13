@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react';
 import { v7 as uuidv7 } from 'uuid';
 import { cn } from '@/lib/utils';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
-import type { Guest as GuestT, PoEvent } from '@/lib/po/types';
+import type { Guest as GuestT } from '@/lib/po/types';
 import {
   indexGuestsByName,
   suspectedDuplicates,
@@ -40,7 +40,7 @@ import { ScopeChip, BulkTierSheet, GuestCardList, GuestTable } from './list-shar
 export { QuickAdd } from './quick-add';
 export { ContactProfile, Contacten } from './profile';
 
-// ── GUEST LIST (pushed) ──────────────────────────────────────────────────────
+// ── GUEST LIST (Guests tab) ──────────────────────────────────────────────────
 
 /** Pure search filter for the gastenlijst — extracted so it's memoizable + testable. */
 function filterGuestList(guests: GuestT[], q: string): GuestT[] {
@@ -80,167 +80,25 @@ function consumeRegularsFlag(): boolean {
   return false;
 }
 
-export function Lijst({ ev }: { ev: PoEvent }): JSX.Element {
-  const nav = useNav();
-  const { data: guests = [], isLoading, isError } = usePoGuests(ev.id);
-  const { data: tiers = [] } = usePoTiers(ev.id);
-  const { data: allEvents = [] } = usePoEvents();
-  const upcoming = useMemo(() => allEvents.filter((e) => e.when === 'upcoming'), [allEvents]);
-  const changeBulkTier = usePoChangeGuestsTierBulk(ev.id);
-  const markRegular = usePoMarkGuestsRegular();
-  const canManageRegulars = usePoCanManageTemplates();
-  const [q, setQ] = useState('');
-  const { selected, toggle, clear, selectAll } = useGuestSelection();
-  const [bulkTierOpen, setBulkTierOpen] = useState(false);
-  const [bulkAddOpen, setBulkAddOpen] = useState(false);
-  const [bulkErr, setBulkErr] = useState<string | null>(null);
-  const [regularMsg, setRegularMsg] = useState<string | null>(null);
-  const dq = useDebouncedValue(q, 140);
-  const gs = useMemo(() => filterGuestList(guests, dq), [guests, dq]);
-
-  const selectedPeople: BulkAddCandidate[] = useMemo(
-    () => guests.filter((g) => selected.has(g.id)).map((g) => ({ key: g.id, name: g.name, contactId: g.contactId ?? null, plus: g.plus })),
-    [guests, selected],
-  );
-
-  const openGuest = (id: string): void => nav.push('guest', { id, eventId: ev.id });
-  const onCardAct = (id: string): void => {
-    if (selected.size > 0) toggle(id);
-    else openGuest(id);
-  };
-
-  const runMarkRegular = (): void => {
-    setRegularMsg(null);
-    markRegular.mutate(
-      { guestIds: Array.from(selected) },
-      {
-        onSuccess: (res) => {
-          setRegularMsg(
-            res.failed > 0
-              ? fmt(t.guests.multiSelect.regularPartial, { done: res.done, failed: res.failed })
-              : fmt(t.guests.multiSelect.regularDone, { n: res.done }),
-          );
-          clear();
-        },
-        onError: (e) => setRegularMsg(e instanceof Error ? e.message : t.guests.multiSelect.regularFailed),
-      },
-    );
-  };
-
-  const applyBulkTier = (tierId: string): void => {
-    setBulkErr(null);
-    changeBulkTier.mutate(
-      { guestIds: Array.from(selected), tierId, eventId: ev.id },
-      {
-        onSuccess: () => { clear(); setBulkTierOpen(false); },
-        onError: (e) => setBulkErr(e instanceof Error ? e.message : t.guests.multiSelect.tierFailed),
-      },
-    );
-  };
-
-  return (
-    <div className={col}>
-      <Top onBack={nav.canGoBack ? nav.back : undefined} title={t.guests.list.title} sub={`${ev.name} · ${fmt(t.guests.list.sub, { shown: gs.length, total: guests.length })}`} right={<IconBtn name="plus" onClick={() => nav.push('quickadd', { id: ev.id })} />} />
-      <div className="flex-none px-4 lg:flex lg:items-center lg:gap-3 lg:pb-3">
-        {selected.size > 0 ? (
-          <GuestBulkBar
-            count={selected.size}
-            onSelectAll={() => selectAll(gs.map((g) => g.id))}
-            onChangeTier={() => { setBulkErr(null); setBulkTierOpen(true); }}
-            onMarkRegular={canManageRegulars ? runMarkRegular : null}
-            onAddToEvent={() => setBulkAddOpen(true)}
-            onCancel={clear}
-            markBusy={markRegular.isPending}
-          />
-        ) : (
-          <>
-            <div className="pb-[10px] lg:max-w-[300px] lg:flex-1 lg:pb-0">
-              <Field icon="search" placeholder={t.guests.list.searchPlaceholder} value={q} onChange={setQ} />
-            </div>
-            <div className="flex gap-2 pb-3 lg:ml-auto lg:pb-0">
-              <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd', { id: ev.id })}>
-                {t.guests.list.addGuest}
-              </Btn>
-              <Btn sm kind="quiet" icon="paste" onClick={() => nav.push('bulk', { id: ev.id })}>
-                {t.guests.list.pasteList}
-              </Btn>
-              <Btn sm kind="quiet" icon="contact" onClick={() => nav.push('contacten', { id: ev.id })}>
-                {t.guests.list.contacts}
-              </Btn>
-            </div>
-          </>
-        )}
-      </div>
-      {regularMsg && (
-        <div className="flex-none px-4 pb-2">
-          <div className="flex items-center gap-2 rounded-[11px] border border-acc bg-acc-dim px-[12px] py-[9px] text-[12.5px] text-text">
-            <Icon name="star" size={14} stroke="#B5A6FF" fill="#B5A6FF" />
-            <span className="flex-1">{regularMsg}</span>
-            <button type="button" onClick={() => setRegularMsg(null)} aria-label={t.guests.contacts.cancel}>
-              <Icon name="close" size={14} className="text-faint" />
-            </button>
-          </div>
-        </div>
-      )}
-      {isLoading ? (
-        <Scroll pad={16} bottom={24}>
-          <Empty text={t.guests.list.loading} />
-        </Scroll>
-      ) : isError ? (
-        <Scroll pad={16} bottom={24}>
-          <Empty text={t.guests.list.loadError} />
-        </Scroll>
-      ) : gs.length === 0 ? (
-        <Scroll pad={16} bottom={24}>
-          <Empty text={q ? t.guests.list.emptyFiltered : t.guests.list.empty} />
-        </Scroll>
-      ) : (
-        <>
-          <GuestCardList rows={gs} selected={selected} onAct={onCardAct} onToggle={toggle} />
-          <GuestTable
-            rows={gs}
-            selected={selected}
-            onOpen={openGuest}
-            onToggle={toggle}
-            onToggleAll={() => (gs.length > 0 && gs.every((g) => selected.has(g.id)) ? clear() : selectAll(gs.map((g) => g.id)))}
-          />
-        </>
-      )}
-      {bulkTierOpen && (
-        <BulkTierSheet
-          count={selected.size}
-          tiers={tiers}
-          isPending={changeBulkTier.isPending}
-          err={bulkErr}
-          onPick={applyBulkTier}
-          onClose={() => setBulkTierOpen(false)}
-        />
-      )}
-      {bulkAddOpen && (
-        <BulkAddToEventSheet
-          people={selectedPeople}
-          upcoming={upcoming}
-          defaultEventId={ev.id}
-          onClose={() => setBulkAddOpen(false)}
-          onDone={clear}
-        />
-      )}
-    </div>
-  );
-}
-
 /**
- * The Guests TAB — distinct from the pushed single-event `Lijst`. Defaults to ALL
- * guests across the venue's events (each row badged with its event), with an event
- * picker to scope to one. Fixes the "tab auto-opened an empty event with no way to
- * switch" trap (feedback Max): you always land on a populated list. RLS still scopes
- * staff to their own guests. Add affordances need an event, so they appear only once
- * one is picked.
+ * The Guests TAB — also the target of the per-event "Guest list" push from
+ * EventView (G4: merged from the old standalone `Lijst`, which was a thin,
+ * fully-redundant wrapper around this same component in single-event scope).
+ * Defaults to ALL guests across the venue's events (each row badged with its
+ * event), with an event picker to scope to one. Fixes the "tab auto-opened an
+ * empty event with no way to switch" trap (feedback Max): you always land on a
+ * populated list. RLS still scopes staff to their own guests. Add affordances
+ * need an event, so they appear only once one is picked.
+ *
+ * `pinnedEventId` is set when pushed from an event (EventView's "Guest list"
+ * button): the scope starts (and stays) fixed to that event — no scope-chip
+ * row, no wandering to other events — and a back button returns to the event,
+ * exactly like the old `Lijst`'s UI.
  */
-export function GuestsTab(): JSX.Element {
+export function GuestsTab({ pinnedEventId }: { pinnedEventId?: string } = {}): JSX.Element {
   const nav = useNav();
   const { data: events = [], isLoading: eventsLoading } = usePoEvents();
-  const [scope, setScope] = useState<string | null>(null);
+  const [scope, setScope] = useState<string | null>(pinnedEventId ?? null);
   const [q, setQ] = useState('');
   const [regularsOnly, setRegularsOnly] = useState(consumeRegularsFlag);
   const dq = useDebouncedValue(q, 140);
@@ -342,35 +200,40 @@ export function GuestsTab(): JSX.Element {
   return (
     <div className={col}>
       <Top
+        onBack={pinnedEventId ? (nav.canGoBack ? nav.back : undefined) : undefined}
         title={t.guests.list.title}
         sub={scopeEvent ? `${scopeEvent.name} · ${countSub}` : countSub}
         right={<IconBtn name="plus" ariaLabel={t.guests.list.addGuest} onClick={addGuestClick} />}
       />
-      <div className="flex-none overflow-x-auto px-4 pb-3">
-        <div className="flex w-max items-center gap-1.5">
-          <ScopeChip on={allMode} onClick={() => setScope(null)}>
-            {t.guests.list.allScope}
-          </ScopeChip>
-          {events.map((e) => (
-            <ScopeChip key={e.id} on={scope === e.id} onClick={() => setScope(e.id)}>
-              {e.name}
+      {/* Pinned mode (pushed from an event): single fixed scope, no chip row —
+          mirrors the old standalone `Lijst`'s UI exactly. */}
+      {!pinnedEventId && (
+        <div className="flex-none overflow-x-auto px-4 pb-3">
+          <div className="flex w-max items-center gap-1.5">
+            <ScopeChip on={allMode} onClick={() => setScope(null)}>
+              {t.guests.list.allScope}
             </ScopeChip>
-          ))}
-          <span className="mx-1 h-4 w-px shrink-0 bg-line" />
-          <button
-            type="button"
-            onClick={() => setRegularsOnly((v) => !v)}
-            aria-pressed={regularsOnly}
-            className={cn(
-              'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-[7px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.07]',
-              regularsOnly ? 'border-transparent bg-acc-dim text-acc' : 'border-line bg-transparent text-dim',
-            )}
-          >
-            <Icon name="star" size={12} fill={regularsOnly ? '#B5A6FF' : 'none'} stroke={regularsOnly ? '#B5A6FF' : 'currentColor'} />
-            {t.guests.list.regularsFilter}
-          </button>
+            {events.map((e) => (
+              <ScopeChip key={e.id} on={scope === e.id} onClick={() => setScope(e.id)}>
+                {e.name}
+              </ScopeChip>
+            ))}
+            <span className="mx-1 h-4 w-px shrink-0 bg-line" />
+            <button
+              type="button"
+              onClick={() => setRegularsOnly((v) => !v)}
+              aria-pressed={regularsOnly}
+              className={cn(
+                'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-[7px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.07]',
+                regularsOnly ? 'border-transparent bg-acc-dim text-acc' : 'border-line bg-transparent text-dim',
+              )}
+            >
+              <Icon name="star" size={12} fill={regularsOnly ? '#B5A6FF' : 'none'} stroke={regularsOnly ? '#B5A6FF' : 'currentColor'} />
+              {t.guests.list.regularsFilter}
+            </button>
+          </div>
         </div>
-      </div>
+      )}
       <div className="flex-none px-4 lg:flex lg:items-center lg:gap-3 lg:pb-3">
         {hasSelection ? (
           <GuestBulkBar

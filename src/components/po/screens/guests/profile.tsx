@@ -6,10 +6,11 @@ import { usePoEvents, usePoContacts, usePoPersonProfile, usePoTiers } from '@/fe
 import { usePoToggleContactPermanent, usePoChangeGuestTier } from '@/features/po/mutations';
 import type { PoContact, PoProfileEvent, PoProfileTimelineItem, ContactTimelineKind } from '@/features/po/adapters';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
+import { isDoorOnlyRole } from '@/features/auth/roles';
 import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../../context';
 import { Icon, type IconName } from '../../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, RoleChip, Scroll, Top } from '../../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Scroll, Top } from '../../kit';
 import { Sheet, Toast } from '../../shell';
 import { TierPill, press, col } from './_shared';
 import { useGuestSelection, BulkAddToEventSheet, type BulkAddCandidate } from './bulk-add';
@@ -138,7 +139,6 @@ export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
                   <button type="button" onClick={() => nav.push('contactprofile', { id: c.id })} aria-label={fmt(t.guests.contacts.openAria, { name: c.name })} className={cn('min-w-0 flex-1 text-left', press)}>
                     <div className="font-display text-[15.5px] font-bold text-text">{c.name}</div>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
-                      <RoleChip role={c.role} />
                       <span className="text-[11.5px] text-faint">
                         {fmt(t.guests.contacts.onListCount, { n: c.events })}{c.phoneLast4 ? ` · ••${c.phoneLast4}` : ''}
                       </span>
@@ -272,6 +272,12 @@ export function ContactProfile({
   originEventId?: string;
 }): JSX.Element {
   const nav = useNav();
+  const { roles } = usePoIdentity();
+  // G4/K-8: a door-only viewer gets the full view (header/stats/events/
+  // timeline) but no contact-management action — computed up front, not
+  // reactively from an RLS-hidden field, so it also covers a not-yet-linked
+  // guest (which today still showed a "Save as contact" CTA to a doorhost).
+  const doorOnly = isDoorOnlyRole(roles);
   const { data: profile, isLoading, isError } = usePoPersonProfile({ contactId, guestId, originEventId });
   const { data: liveEvents = [] } = usePoEvents();
   const upcoming = liveEvents.filter((e) => e.when === 'upcoming');
@@ -344,8 +350,9 @@ export function ContactProfile({
         onBack={nav.back}
         title={t.guests.contactProfile.title}
         right={
-          // Only a saved contact can be made "Regular" (the flag lives on the contact).
-          p.isContact ? (
+          // Only a saved contact can be made "Regular" (the flag lives on the
+          // contact) — and never for a door-only viewer (G4).
+          p.isContact && !doorOnly ? (
             <button
               type="button"
               onClick={onStar}
@@ -365,12 +372,11 @@ export function ContactProfile({
           <Avatar name={p.name} size={84} accent={p.vast} />
           <h2 className="mb-0 mt-4 font-display text-[26px] font-extrabold tracking-[-0.02em] text-text">{p.name}</h2>
           <div className="mt-3 flex flex-wrap items-center justify-center gap-[7px]">
-            {/* A real contact badges from its own preferred_role (a genuine
-                category, not a tier-name collapse); a name-only guest has no
-                such field, so show the real tier of its (single) appearance. */}
-            {p.isContact ? (
-              <RoleChip role={p.role} />
-            ) : (
+            {/* A saved contact isn't scoped to one event's tier, and G4 dropped
+                the standalone preferred_role vocabulary chip — its real tier(s)
+                still show per-event below. A name-only guest shows the real tier
+                of its (single) appearance instead. */}
+            {!p.isContact && (
               <TierPill name={p.events[0]?.tier ?? undefined} color={p.events[0]?.tierColor} fallback={p.role} />
             )}
             {p.vast && (
@@ -387,8 +393,12 @@ export function ContactProfile({
             gets a "Save as contact" promote (add email/phone) instead; a
             RESTRICTED guest (already a contact, just unreadable to this role —
             M3, K-8) gets neither: no promote CTA (it's already a contact), no
-            edit/add (those need the contacts row too), just a plain note. */}
-        {p.isContact ? (
+            edit/add (those need the contacts row too), just a plain note. A
+            door-only viewer (G4) skips all of this — checked first, ahead of
+            isContact/restricted, so it applies uniformly regardless of the
+            person's contact-link state; the stat strip/events/timeline below
+            already carry what's useful at the door. */}
+        {doorOnly ? null : p.isContact ? (
           <>
             <div className="mb-4 flex gap-2">
               <Btn kind="ghost" full onClick={() => setEditing(true)}>
