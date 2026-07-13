@@ -57,3 +57,6 @@ dist
 build
 *.tsbuildinfo
 supabase/.temp
+
+# Per-session ClickUp sync marker (written by the clickup-task skill, checked by the Stop hook)
+.claude/clickup-session.json
