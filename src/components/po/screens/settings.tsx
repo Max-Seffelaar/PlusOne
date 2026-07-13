@@ -102,7 +102,7 @@ export function Meer(): JSX.Element {
           <Row icon="spark" title={t.settings.more.analyticsTitle} sub={t.settings.more.analyticsSub} onClick={() => nav.push('stats')} accent />
         )}
         {showPromoRow && (
-          <Row icon="link" title={t.settings.more.promoTitle} sub={t.settings.more.promoSub} onClick={() => nav.push('promo')} accent />
+          <Row icon="link" title={t.settings.more.promoTitle} sub={t.settings.more.promoSub} onClick={() => nav.push('promotion')} accent />
         )}
         {caps.viewAudit && (
           <Row icon="history" title={t.settings.more.auditTitle} sub={t.settings.more.auditSub} onClick={() => nav.push('audit')} accent />
@@ -137,9 +137,9 @@ export function Meer(): JSX.Element {
         {showRegulars && (
           <Row icon="star" title={t.settings.more.regularsTitle} sub={t.settings.more.regularsSub} onClick={() => { armRegularsFilter(); nav.setTab('guests'); }} accent />
         )}
-        {isAdmin && (
-          <Row icon="link" title={t.settings.more.influencersTitle} sub={t.settings.more.influencersSub} onClick={() => nav.push('influencers')} />
-        )}
+        {/* Influencers folded into the Promotion hub's Roster tab (G3) — the
+            old admin-only row here duplicated an entry admins already have via
+            Promotion (admin ⊂ canViewStats, which is admin/finance). */}
         {showContactsRow && (
           <Row icon="contact" title={t.settings.more.contactsTitle} sub={t.settings.more.contactsSub} onClick={() => nav.push('contacten')} accent />
         )}

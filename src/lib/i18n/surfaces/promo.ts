@@ -10,6 +10,11 @@ export const promo = {
   /** More-hub row + Statistieken link-row sub. */
   hubSub: 'Who pulls people through the door',
 
+  // ── Hub tabs (G3 — Promo + Links + Influencers as one area) ─────────────────
+  tabOverview: 'Overview',
+  tabPerEvent: 'Per event',
+  tabRoster: 'Roster',
+
   // ── Overview card ───────────────────────────────────────────────────────────
   overviewKicker: 'Overview',
   overviewTitle: 'How your links are pulling',

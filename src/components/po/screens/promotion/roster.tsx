@@ -1,11 +1,11 @@
 'use client';
 
 /**
- * Venue influencers (Requests-epic F1, 86ey21vjt) — the roster of promoters who
- * get their own request links per event. Reached from the More hub (admin) via
- * nav.push('influencers'). List + create/edit sheets in one screen; the
- * stats-token dashboard is F2 and deliberately absent here. RLS is the boundary:
- * admin manages, organizer/finance read, staff/door get [].
+ * Venue influencer roster (Requests-epic F1, 86ey21vjt; regrouped as the
+ * Promotion hub's "Roster" tab by G3, 86ey7e03j) — the promoters who get their
+ * own request links per event, plus their private stats-token links (F2).
+ * List + create/edit sheets in one file. RLS is the boundary: admin manages,
+ * organizer/finance read, staff/door get [].
  */
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -19,19 +19,16 @@ import {
   usePoUpdateInfluencer,
 } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
-import { useNav } from '../context';
-import { Icon } from '../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, Note, Scroll, Top, press, cardPress } from '../kit';
-import { Sheet } from '../shell';
-
-const col = 'flex h-full flex-col';
+import { Icon } from '../../icon';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, Note, press, cardPress } from '../../kit';
+import { Sheet } from '../../shell';
 
 function ErrLine({ msg }: { msg: string }): JSX.Element {
   return <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{msg}</div>;
 }
 
-export function Influencers(): JSX.Element {
-  const nav = useNav();
+/** Tab body — rendered inside the Promotion hub (the hub owns the Top header). */
+export function PromotionRoster(): JSX.Element {
   const { roles } = usePoIdentity();
   const isAdmin = roles.includes('admin');
   const listQ = usePoInfluencers();
@@ -40,46 +37,46 @@ export function Influencers(): JSX.Element {
   const list = listQ.data ?? [];
 
   return (
-    <div className={col}>
-      <Top
-        onBack={nav.back}
-        title={t.links.influencersTitle}
-        right={isAdmin ? <IconBtn name="plus" onClick={() => setSheet({ mode: 'create' })} /> : undefined}
-      />
-      <Scroll bottom={28}>
+    <div className="flex min-h-0 flex-col">
+      <div className="flex items-start justify-between gap-3">
         <Note icon="star">{t.links.influencersExplainer}</Note>
-        {!isAdmin && !listQ.isLoading && <Note icon="shield">{t.links.influencersAdminOnly}</Note>}
-        {listQ.isLoading ? (
-          <Loading text={t.links.influencersLoading} />
-        ) : listQ.isError ? (
-          <Empty text={t.links.influencersLoadError} />
-        ) : list.length === 0 ? (
-          <Empty text={t.links.influencersEmpty} />
-        ) : (
-          <div className="flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px] lg:items-start">
-            {list.map((inf) => (
-              <button
-                key={inf.id}
-                type="button"
-                onClick={() => isAdmin && setSheet({ mode: 'edit', influencer: inf })}
-                className={cn(
-                  'flex w-full items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[13px] text-left',
-                  isAdmin ? cn('cursor-pointer', cardPress) : 'cursor-default',
-                )}
-              >
-                <Avatar name={inf.name} size={42} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-display text-[15px] font-bold text-text">{inf.name}</span>
-                  <span className="mt-px block truncate text-[12px] text-faint">
-                    {inf.handle ? `${inf.handle} · ` : ''}
-                    {fmt(inf.linkCount === 1 ? t.links.linksCountOne : t.links.linksCountMany, { n: inf.linkCount })}
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
+        {isAdmin && (
+          <span className="shrink-0">
+            <IconBtn name="plus" onClick={() => setSheet({ mode: 'create' })} />
+          </span>
         )}
-      </Scroll>
+      </div>
+      {!isAdmin && !listQ.isLoading && <Note icon="shield">{t.links.influencersAdminOnly}</Note>}
+      {listQ.isLoading ? (
+        <Loading text={t.links.influencersLoading} />
+      ) : listQ.isError ? (
+        <Empty text={t.links.influencersLoadError} />
+      ) : list.length === 0 ? (
+        <Empty text={t.links.influencersEmpty} />
+      ) : (
+        <div className="flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px] lg:items-start">
+          {list.map((inf) => (
+            <button
+              key={inf.id}
+              type="button"
+              onClick={() => isAdmin && setSheet({ mode: 'edit', influencer: inf })}
+              className={cn(
+                'flex w-full items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[13px] text-left',
+                isAdmin ? cn('cursor-pointer', cardPress) : 'cursor-default',
+              )}
+            >
+              <Avatar name={inf.name} size={42} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-display text-[15px] font-bold text-text">{inf.name}</span>
+                <span className="mt-px block truncate text-[12px] text-faint">
+                  {inf.handle ? `${inf.handle} · ` : ''}
+                  {fmt(inf.linkCount === 1 ? t.links.linksCountOne : t.links.linksCountMany, { n: inf.linkCount })}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
       {sheet && (
         <InfluencerSheet
           influencer={sheet.mode === 'edit' ? sheet.influencer : null}

@@ -9,6 +9,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
+import type { Tier } from '@/lib/po/types';
 import { Icon, type IconName, ROLE_ICON } from './icon';
 
 // FE-4: the canonical press/cardPress feels — 26 files hand-rolled a local copy
@@ -197,6 +198,66 @@ export function Seg<T extends string>({
           {l}
         </button>
       ))}
+    </div>
+  );
+}
+
+// ── TierPicker (radio rows) ──────────────────────────────────────────────────
+// Was near-identical in links.tsx (LinkSheet), approvals.tsx (AssignSheet) and a
+// divergent horizontal variant in promo-create-link.tsx (G3-0): one canonical
+// tier chooser — color dot + capacity hint + radio check. Surface copy stays at
+// the call site (`hint`/`none` are pre-formatted strings), so the kit needs no
+// per-surface i18n keys.
+export function TierPicker({
+  tiers,
+  value,
+  onChange,
+  hint,
+  none,
+  className,
+}: {
+  tiers: Tier[];
+  /** Selected tier id; '' selects the `none` row (when provided). */
+  value: string;
+  onChange: (id: string) => void;
+  /** Per-tier sub line, e.g. "3/40 used" / "No max" — formatted by the caller. */
+  hint: (row: Tier) => string;
+  /** Optional "no fixed tier" row (value ''); omit to force a real tier. */
+  none?: { label: string; sub: string };
+  className?: string;
+}): JSX.Element {
+  const radio = (on: boolean): ReactNode => (
+    <span className={cn('flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full border-2', on ? 'border-acc bg-acc' : 'border-ghost bg-transparent')}>
+      {on && <Icon name="check" size={12} stroke="#16132B" sw={3} />}
+    </span>
+  );
+  const row = (on: boolean): string =>
+    cn('flex items-center gap-[11px] rounded-[12px] border px-[13px] py-[12px] text-left', on ? 'border-transparent bg-acc-dim' : 'border-line bg-elev', press);
+  return (
+    <div className={cn('flex flex-col gap-[7px]', className)}>
+      {none && (
+        <button type="button" onClick={() => onChange('')} className={row(value === '')}>
+          <span className="h-[12px] w-[12px] shrink-0 rounded-full border-2 border-dashed border-ghost" />
+          <span className="min-w-0 flex-1">
+            <span className="block font-display text-[14.5px] font-bold text-text">{none.label}</span>
+            <span className="block text-[11.5px] text-faint">{none.sub}</span>
+          </span>
+          {radio(value === '')}
+        </button>
+      )}
+      {tiers.map((tier) => {
+        const on = tier.id === value;
+        return (
+          <button key={tier.id} type="button" onClick={() => onChange(tier.id)} className={row(on)}>
+            <span className="h-[12px] w-[12px] shrink-0 rounded-full" style={{ background: tier.color }} />
+            <span className="min-w-0 flex-1">
+              <span className="block font-display text-[14.5px] font-bold text-text">{tier.short}</span>
+              <span className="block text-[11.5px] text-faint">{hint(tier)}</span>
+            </span>
+            {radio(on)}
+          </button>
+        );
+      })}
     </div>
   );
 }

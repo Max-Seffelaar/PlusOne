@@ -35,7 +35,7 @@ import type { PoLinkOption } from '@/features/po/queries';
 import type { Tier } from '@/lib/po/types';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Avatar, Btn, Empty, Label, MiniChip, Note, Top, press } from '../kit';
+import { Avatar, Btn, Empty, Label, MiniChip, Note, TierPicker, Top, press } from '../kit';
 import { Sheet } from '../shell';
 
 const col = 'flex h-full flex-col';
@@ -751,28 +751,13 @@ function AssignSheet({
           </Btn>
         </div>
       ) : (
-        <div className="mb-[14px] flex flex-col gap-[7px]">
-          {tiers.map((row) => {
-            const on = row.id === tierId;
-            return (
-              <button
-                key={row.id}
-                type="button"
-                onClick={() => setTierId(row.id)}
-                className={cn('flex items-center gap-[11px] rounded-[12px] border px-[13px] py-[12px] text-left', on ? 'border-transparent bg-acc-dim' : 'border-line bg-elev', press)}
-              >
-                <span className="h-[12px] w-[12px] shrink-0 rounded-full" style={{ background: row.color }} />
-                <span className="min-w-0 flex-1">
-                  <span className="block font-display text-[14.5px] font-bold text-text">{row.short}</span>
-                  <span className="block text-[11.5px] text-faint">{row.max != null ? fmt(t.requests.tierUsedOfMax, { used: row.used, max: row.max }) : t.requests.tierNoMax}</span>
-                </span>
-                <span className={cn('flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full border-2', on ? 'border-acc bg-acc' : 'border-ghost bg-transparent')}>
-                  {on && <Icon name="check" size={12} stroke="#16132B" sw={3} />}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        <TierPicker
+          className="mb-[14px]"
+          tiers={tiers}
+          value={tierId}
+          onChange={setTierId}
+          hint={(row) => (row.max != null ? fmt(t.requests.tierUsedOfMax, { used: row.used, max: row.max }) : t.requests.tierNoMax)}
+        />
       )}
       {!noTiers && !tiersLoading && (
         <div className="mb-4 flex items-center gap-[10px] rounded-[13px] bg-acc-dim px-[14px] py-[13px]">

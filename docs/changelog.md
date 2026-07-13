@@ -8,6 +8,64 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-12 — UX/IA G3: Promotion hub (Promo + Links + Influencers regrouped) + M14
+
+Built per the pre-written plan (`promotion-regroup-plan-claude-code.md`, now stamped
+"gebouwd" — it sat uncommitted in sibling worktree `interesting-rhodes-e3fe08` and is
+committed with this PR). G1 had landed (#186); M14 had not, so per the plan's own logic
+M14 rode along instead of being built twice. ClickUp `86ey7e03j`.
+
+- **One Promotion area** at `/app/promotion` (`src/components/po/screens/promotion/`):
+  hub with Seg tabs **Overview** (old promo.tsx minus its per-event section — the funnel
+  card now links through to Per event) / **Per event** (old links.tsx + event picker +
+  **M14: checked-in on every link card** via `usePoLinkFunnel`, the same
+  `event_link_funnel` RPC the Overview reads) / **Roster** (old influencers.tsx).
+  Old files (`promo.tsx` 627, `links.tsx` 659, `influencers.tsx` 320,
+  `promo-create-link.tsx` 300) deleted; every new file well under the 800-LOC guideline.
+- **Create-link-flow deduplicated (G3-0):** one `CreateLinkFlow` (form → done-screen with
+  explicit copy step, the plan's recommended UX) behind both the Overview CTA and the
+  per-event links screen; `LinkSheet` is edit-only now. The third near-identical tier
+  picker (approvals `AssignSheet`) and the two link ones fold into a new **kit primitive
+  `TierPicker`** (radio rows, color dot + capacity hint; surface copy stays at call sites).
+- **Gating decoupled per vraag 6:** the hub nav item + deep link are venue-member-only
+  (`statsVenues`, i.e. admin/finance reporting access; direct hit without access = plain
+  no-access state, M3-style role-hide). The standalone `/app/events/[id]/links`
+  (ScreenName `'links'`) deliberately survives OUTSIDE the hub so an external organizer
+  keeps managing his own event's links from EventView/EventEdit. The More-hub
+  Influencers row (admin-only, duplicated what Promotion already offers since
+  admin ⊂ canViewStats) is removed; Promo row + Stats cross-link now push `'promotion'`.
+- **Routing:** ScreenNames `'promo'`/`'influencers'` replaced by `'promotion'`
+  (`props.tab: overview|events|roster`, `'overview'` is the URL-less default like
+  aanvragen's `'landing'`); `/app/promo` and `/app/influencers` parse as legacy aliases
+  to the matching hub tab (round-trip + alias tests in `routes.test.ts`).
+- **Verification:** tsc + lint clean; vitest 727 green (5 billing/realtime timeouts under
+  full-suite load pass in isolation — pre-existing flake). Live preview as admin: hub +
+  all three tabs render, Overview live data, per-event cards show "… · 0 in" (M14) and
+  capacity, CreateLinkFlow renders with who-chips + rich TierPicker; staff login confirmed
+  role-hide (no Promotion nav item) and the server action's rights error surfaces
+  gracefully in the sheet. **Caveat:** mid-session a concurrent session shared the preview
+  browser profile + local DB (cookie flips admin→staff→manager, a DB reset that revived
+  the consent gate, minutes-long compiles), so create-flow completion, the Roster tab
+  body, the standalone links route and the organizer flow were NOT click-verified live —
+  they're the moved/shared code paths above and are covered in the per-screen test
+  handoff. Lesson repeated: **check who's using the stack before a test pass** (the
+  "one DB owner" rule exists for exactly this).
+- **Follow-up (same day, Max's test pass):** persistent "+ New link" moved into the hub
+  header (was only reachable from the Per-event tab) + `CreateLinkFlow` gained an optional
+  event-switcher (`EventPicker`, shown when more than one venue event is passed) so the
+  flow isn't locked to wherever it was opened — the standalone organizer route still gets
+  no switcher (single event, unchanged). **Merge conflict landing this:** `main` had
+  independently built M14 in the same window (UX/IA M10+M11+M13+M14 polish, PR #193) —
+  their approach is better: `checkedInHeads` lives directly on `PoRequestLink`
+  (`fetchRequestLinks` in `queries.ts` now tallies it from the same `guests` read that
+  already computes `approvedHeads`), one query instead of G3's separate
+  `usePoLinkFunnel` merge. Adopted main's data layer, dropped the redundant funnel fetch
+  and the `checkedIn` prop plumbing from `event-links.tsx` — same UI result, one fewer
+  round trip. i18n `links.stats` conflict resolved the same way (single interpolated
+  string with `{checkedIn}`, not a conditionally-appended second key).
+
+---
+
 ## 2026-07-13 — MFA enrollment: same-device deep link + secret copy
 
 Follow-up flagged during code review of PR #187 ("fix(auth): soften MFA nudge to ask-first
