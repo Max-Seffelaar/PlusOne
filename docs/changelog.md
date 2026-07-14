@@ -10,7 +10,7 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ## 2026-07-14 — Request-link-max trigger missing the same concurrency lock as quota/capacity/tier-max (86ey9p8zh)
 
-DONE, PR #224 open (`claude/86ey9p8zh-request-link-trigger-lock`), awaiting merge. CONFIRMED
+DONE + merged to main, PR #224 (`claude/86ey9p8zh-request-link-trigger-lock`). CONFIRMED
 follow-up filed by PR #216 (86ey9e8ar) itself — "same unlocked-recompute shape, out of scope
 there". Touches a trigger + `SECURITY DEFINER` function → fresh-session `/code-review` +
 `/security-review` run before merge; verdict **ship it**, zero real defects (7/7 adversarial
@@ -42,6 +42,48 @@ refuters held on an 8-agent panel, plus a live-DB break-script: 5/6/10-way flood
   cross-attributes to a link outside their own event (no event/venue match in the lookup);
   (2) a theoretical multi-link raw-insert deadlock, unreachable via any shipped path and
   fail-safe regardless.
+
+---
+
+## 2026-07-14 — Home "Lock" button was a decoy (86ey9e8de)
+
+DONE, PR [#228](https://github.com/Max-Seffelaar/PlusOne/pull/228), not yet merged.
+CONFIRMED review finding (QU2). Client-only React Query wiring fix — no migration, no
+RLS/auth/service-role/door-outbox touch, so no mandatory fresh-session review gate; CI is
+the floor here.
+
+- **Root cause.** Home's board `onLock` (`src/components/po/screens/home.tsx`) only
+  flipped local `lockOverride` state and showed a "Lijst vergrendeld" toast — it never
+  called `usePoSetListLock`. `events.list_locked` never changed: staff mutations stayed
+  RLS-allowed and the icon reverted to the stale server value on refresh. The cockpit
+  (`EventDayCockpit.tsx`) already wired the real mutation; only Home's board was fake.
+- **Fix.** New `usePoSetListLockOnHome` (`src/features/po/mutations.ts`) — same
+  `setListLock` action as `usePoSetListLock`, but the eventId travels in the `mutate()`
+  call instead of hook creation, since Home renders many events at once rather than one
+  fixed id (can't call a per-id hook inside a list `.map()`). Also invalidates
+  `poKeys.home` — a separate cache key from `poKeys.events`/`poKeys.event` that
+  `useInvalidateEvent` doesn't touch — so Home's own icon refreshes without waiting on
+  the 60s poll. `onLock` now: optimistic flip → toast only on mutation `onSuccess` →
+  rollback of the override on `onError`.
+- **Live-verified** (local Supabase, not just unit tests): as `admin@`, Lock/Unlock
+  flips `events.list_locked` (+`locked_by`/`locked_at`) confirmed via direct PostgREST
+  read AND after a full page reload (fresh server state). As `manager@`
+  (`user_manager`, no lock rights per #23), the DB row correctly stays unchanged — RLS
+  holds.
+- **Gotcha found while testing, not fixed here:** Home passes `onLock`/`onEdit` to
+  every `EventRow` regardless of role (unlike `edit.tsx`, which gates the lock toggle
+  behind `writable`/`canManage`), and `setListLock` doesn't distinguish a real success
+  from an RLS-filtered 0-row update — it returns `ok:true` either way. Combined, an
+  unprivileged role's click leaves the optimistic UI stuck on "locked" until a manual
+  refresh. RLS itself blocks the write (no bypass, proven by the existing
+  `attacker_list_lock.test.sql` pgTAP), so this is a UX/consistency gap, not a live
+  vulnerability — spawned as a separate follow-up rather than widening this PR.
+- **Preview-tooling gotcha:** the `/app` route streams via React 18 Suspense; on a
+  backgrounded/occluded preview tab, Chrome throttles the `requestAnimationFrame` the
+  streaming reveal (`$RC`/`$RV`) depends on, so the page can stay stuck showing only
+  the pre-hydration shell indefinitely (not just slowly). Unstick with
+  `window.$RV(window.$RB)` in `preview_eval` if `document.hidden` is true and content
+  never appears after a normal wait.
 
 ## 2026-07-14 — Door add-on-the-spot bypassed Zod; quick-add trailing-number misparse (86ey9e8bd)
 
