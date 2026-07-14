@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { DbError, DoorGateway } from './gateway';
+import type { CheckInRow, DbError, DoorGateway } from './gateway';
 import { classifyError, drainOutbox, MAX_ATTEMPTS, replayEntry, type DrainDeps } from './replay';
 import { resumeStuckEntries, type OutboxEntry } from './types';
 
@@ -462,7 +462,7 @@ describe('drainOutbox', () => {
   // A dead-lettered predecessor settles (even if failed) and does NOT block its
   // guest's chain — a later same-guest entry still runs in the same drain.
   it('a same-guest successor still runs in the same drain once its predecessor is dead-lettered', async () => {
-    const insertCheckIn = vi.fn(async () => ({ error: null }));
+    const insertCheckIn = vi.fn(async (_row: CheckInRow) => ({ error: null }));
     const store = fakeStore([
       checkInEntry({ clientId: 'a', attempts: MAX_ATTEMPTS - 1, payload: { id: 'ci1', guestId: 'g1', plusOnesArrived: 0, clientTimestamp: 't' } }),
       checkInEntry({ clientId: 'b', payload: { id: 'ci2', guestId: 'g1', plusOnesArrived: 1, clientTimestamp: 't' } }),
