@@ -7,6 +7,16 @@ import type { OutboxEntry, OutboxStatus } from './types';
 vi.mock('../offline/idb', () => ({ idbGet: vi.fn(), idbSet: vi.fn() }));
 vi.mock('@sentry/nextjs', () => ({ captureMessage: vi.fn() }));
 
+// A Node MaxListenersExceededWarning may print for this file: store.ts's
+// `export const outbox = new OutboxStore()` singleton constructs (and calls
+// getChannel()) at MODULE IMPORT time, before any hook here could stub
+// BroadcastChannel — so every `new OutboxStore()` in these tests registers
+// one more listener on the one real, module-memoized channel. It's benign:
+// BroadcastChannel excludes an object from its own postMessage (verified
+// directly — a channel never receives a message it posted itself), and every
+// OutboxStore instance in this file shares that exact one object, so no
+// cross-test message delivery can ever actually happen. Cosmetic only.
+
 const idbGetMock = vi.mocked(idbGet);
 const idbSetMock = vi.mocked(idbSet);
 
@@ -35,7 +45,11 @@ function createDeferred<T>() {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  // resetAllMocks (not clearAllMocks): a `mockResolvedValue` default set by
+  // one test is an implementation, not just call history — clearAllMocks
+  // leaves it in place and it silently leaks into the next test's unqueued
+  // idbGet() calls. Every test must set its own idbGetMock behavior explicitly.
+  vi.resetAllMocks();
   idbSetMock.mockResolvedValue(true);
 });
 
@@ -81,6 +95,56 @@ describe('OutboxStore.init (O5 — enqueue during the init() await window)', () 
   });
 });
 
+describe('OutboxStore.init — C8 crash-recovery revival must survive its own flush', () => {
+  it('keeps a revived syncing→pending entry pending after the flush, not reverted back by the merge', async () => {
+    // Disk is unchanged between init()'s own read and persistMerged()'s
+    // follow-up read — nothing has written yet, which is exactly what let a
+    // plain rank-based merge revert the revival back to `syncing` (review
+    // 2026-07-14: the merge ranks `syncing` above the freshly-revived
+    // `pending` and picks disk's stale copy). Every earlier test mocked this
+    // second read as `undefined`, which masked the bug entirely.
+    const stuck = buildEnvelope([entry('a', 'syncing')]);
+    idbGetMock.mockResolvedValue(stuck);
+
+    const store = new OutboxStore();
+    await store.init();
+
+    expect(store.getSnapshot()[0].status).toBe('pending');
+
+    await vi.waitFor(() => expect(idbSetMock).toHaveBeenCalled());
+    const [, persistedValue] = idbSetMock.mock.calls.at(-1) ?? [];
+    expect((persistedValue as { entries: OutboxEntry[] }).entries[0].status).toBe('pending');
+    // Still pending once the flush has fully settled — not reverted back.
+    expect(store.getSnapshot()[0].status).toBe('pending');
+  });
+});
+
+describe('OutboxStore.retryErrors — same revert risk, same fix', () => {
+  it('keeps a retried error→pending entry pending and resets attempts, surviving its own flush', async () => {
+    idbGetMock.mockResolvedValue(undefined); // init(): nothing on disk yet
+    const store = new OutboxStore();
+    await store.init();
+    store.enqueue({ ...entry('a', 'error'), attempts: 5 });
+    await vi.waitFor(() => expect(idbSetMock).toHaveBeenCalled());
+
+    // Disk still holds the pre-retry `error` at the moment retryErrors()
+    // flushes — identical shape to the init() revival bug.
+    idbGetMock.mockResolvedValue(buildEnvelope([{ ...entry('a', 'error'), attempts: 5 }]));
+    store.retryErrors();
+    await vi.waitFor(() => expect(idbSetMock.mock.calls.length).toBeGreaterThanOrEqual(2));
+
+    const live = store.getSnapshot()[0];
+    expect(live.status).toBe('pending');
+    // A manual retry is a fresh attempt — an entry that had already
+    // dead-lettered at MAX_ATTEMPTS must not get only one more try.
+    expect(live.attempts).toBe(0);
+    const [, persistedValue] = idbSetMock.mock.calls.at(-1) ?? [];
+    const persistedEntry = (persistedValue as { entries: OutboxEntry[] }).entries[0];
+    expect(persistedEntry.status).toBe('pending');
+    expect(persistedEntry.attempts).toBe(0);
+  });
+});
+
 describe('OutboxStore — read-merge-before-commit (O1 — cross-tab last-writer-wins)', () => {
   it('never overwrites entries a sibling tab wrote since our last read', async () => {
     idbGetMock.mockResolvedValueOnce(undefined); // init(): nothing on disk yet
@@ -110,6 +174,7 @@ describe('OutboxStore — read-merge-before-commit (O1 — cross-tab last-writer
     idbGetMock.mockResolvedValueOnce(undefined); // init(): nothing on disk yet
     const store = new OutboxStore();
     await store.init();
+    idbGetMock.mockResolvedValueOnce(undefined); // enqueue()'s flush: still nothing on disk yet
     store.enqueue(entry('done', 'synced'));
     await vi.waitFor(() => expect(idbSetMock).toHaveBeenCalled());
 

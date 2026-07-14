@@ -89,16 +89,25 @@ export interface ParsedPersistedOutbox {
  */
 export function parsePersistedOutbox(raw: unknown): ParsedPersistedOutbox {
   if (raw == null) return { entries: [], droppedInvalid: 0, droppedStaleShape: false };
+  // Bare-array legacy shape (the pre-envelope persistence this fix replaces).
+  // Salvage per element instead of wiping the whole queue — a doorhost who is
+  // offline with unsynced entries at the exact moment the new bundle activates
+  // must not silently lose them; that's the class of bug this PR exists to
+  // fix (review 2026-07-14). Any element that doesn't validate is still
+  // quarantined individually, same as the versioned-envelope path below.
+  if (Array.isArray(raw)) return parseCandidates(raw);
   if (
     typeof raw !== 'object' ||
-    Array.isArray(raw) ||
     (raw as Record<string, unknown>).buster !== OUTBOX_BUSTER ||
     !Array.isArray((raw as Record<string, unknown>).entries)
   ) {
-    // Bare-array legacy shape (pre-fix) or any other unrecognized shape.
+    // Any other unrecognized/corrupt/stale-buster shape — nothing in it can be trusted.
     return { entries: [], droppedInvalid: 0, droppedStaleShape: true };
   }
-  const candidates = (raw as { entries: unknown[] }).entries;
+  return parseCandidates((raw as { entries: unknown[] }).entries);
+}
+
+function parseCandidates(candidates: unknown[]): ParsedPersistedOutbox {
   const entries: OutboxEntry[] = [];
   let droppedInvalid = 0;
   for (const candidate of candidates) {

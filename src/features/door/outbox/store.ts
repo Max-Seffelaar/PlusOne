@@ -56,7 +56,7 @@ export class OutboxStore {
     // Revive entries stranded in `syncing` by a mid-drain kill (C8). Persist the
     // normalization immediately so a second crash before the first drain can't
     // re-orphan them.
-    const anyRevived = persisted.some((e) => e.status === 'syncing');
+    const revivedIds = new Set(persisted.filter((e) => e.status === 'syncing').map((e) => e.clientId));
     const revived = resumeStuckEntries(persisted);
     // Fold in anything enqueue()'d locally during the await above (O5 — the old
     // code overwrote `this.entries` outright here, silently dropping it).
@@ -77,8 +77,15 @@ export class OutboxStore {
     // Only flush back to disk when something actually changed vs. what's there —
     // a revival, a quarantine, or entries that arrived mid-await (O5). The common
     // "nothing persisted, nothing enqueued yet" load skips the extra IDB round-trip.
-    const needsFlush = anyRevived || droppedInvalid > 0 || (droppedStaleShape && raw != null) || midAwaitEntries.length > 0;
-    if (needsFlush) void this.persistMerged();
+    const needsFlush = revivedIds.size > 0 || droppedInvalid > 0 || (droppedStaleShape && raw != null) || midAwaitEntries.length > 0;
+    // forceIds: the flush below re-reads disk, which at this point still holds
+    // the pre-revival `syncing` value (nothing has written yet) — a plain merge
+    // ranks `syncing` above `pending` and would revert the revival right back
+    // to `syncing` on both memory and disk, permanently re-orphaning the entry
+    // (C8 regression, confirmed in review 2026-07-14). Force our just-revived
+    // `pending` status through regardless of what the merge would otherwise
+    // pick, exactly like `clearSynced()`'s `excludeIds` reasserts a removal.
+    if (needsFlush) void this.persistMerged({ forceIds: revivedIds });
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -121,18 +128,27 @@ export class OutboxStore {
     // them again *after* merging, so the clear actually sticks.
     const removed = new Set(this.entries.filter((e) => e.status === 'synced').map((e) => e.clientId));
     this.entries = this.entries.filter((e) => e.status !== 'synced');
-    this.commit(removed);
+    this.commit({ excludeIds: removed });
   }
 
   /** Re-queue terminal errors for a manual force-sync retry. */
   retryErrors(): void {
+    // Same revert risk as init()'s revival: the flush below re-reads disk,
+    // which still has `error` (rank 1) for these ids — a plain merge would
+    // rank it above the freshly-set `pending` (rank 0) and undo the retry.
+    // Force it through. attempts resets to 0 too: this is a fresh
+    // user-initiated attempt, not an automatic retry, so an entry that had
+    // already dead-lettered at MAX_ATTEMPTS shouldn't get only one more try
+    // before dead-lettering again (found alongside the init() bug, same root
+    // cause — review 2026-07-14).
+    const retriedIds = new Set(this.entries.filter((e) => e.status === 'error').map((e) => e.clientId));
     this.entries = this.entries.map((e) =>
-      e.status === 'error' ? ({ ...e, status: 'pending', message: undefined } as OutboxEntry) : e,
+      e.status === 'error' ? ({ ...e, status: 'pending', attempts: 0, message: undefined } as OutboxEntry) : e,
     );
-    this.commit();
+    this.commit({ forceIds: retriedIds });
   }
 
-  private commit(excludeIds?: Set<string>): void {
+  private commit(opts?: { excludeIds?: Set<string>; forceIds?: Set<string> }): void {
     // Don't persist a partial view while init() is still awaiting its own read
     // (O5) — that read-then-write in init() already covers flushing this state
     // once `loaded` flips true. Still emit so the in-memory UI reacts locally.
@@ -140,7 +156,7 @@ export class OutboxStore {
       this.emit();
       return;
     }
-    void this.persistMerged(excludeIds);
+    void this.persistMerged(opts);
   }
 
   /**
@@ -156,13 +172,29 @@ export class OutboxStore {
    * `excludeIds` re-applies a clearSynced()-style removal after the merge — a
    * union can only ever add entries back in, never drop ones a sibling's
    * stale on-disk copy still has, so a removal has to be asserted again here.
+   *
+   * `forceIds` re-applies an intentional *backward* status transition on this
+   * tab (init()'s C8 revival, retryErrors()) after the merge. The rank-based
+   * merge is correct for reconciling concurrent cross-tab progress but wrong
+   * for a local, deliberate step backward — disk still holds the pre-change
+   * status (nothing has written yet), outranks the new one, and would revert
+   * it right back on both memory and disk. For each id in `forceIds`, the
+   * caller's current in-memory entry (captured before the merge) wins
+   * unconditionally.
    */
-  private async persistMerged(excludeIds?: Set<string>): Promise<void> {
+  private async persistMerged(opts?: { excludeIds?: Set<string>; forceIds?: Set<string> }): Promise<void> {
+    const mine = this.entries; // snapshot before the merge, for forceIds
     const run = async () => {
       const raw = await idbGet<unknown>(KEY);
       const { entries: onDisk } = parsePersistedOutbox(raw);
-      let merged = mergeOutboxEntries(this.entries, onDisk);
-      if (excludeIds && excludeIds.size > 0) merged = merged.filter((e) => !excludeIds.has(e.clientId));
+      let merged = mergeOutboxEntries(mine, onDisk);
+      if (opts?.excludeIds && opts.excludeIds.size > 0) {
+        merged = merged.filter((e) => !opts.excludeIds!.has(e.clientId));
+      }
+      if (opts?.forceIds && opts.forceIds.size > 0) {
+        const forced = new Map(mine.filter((e) => opts.forceIds!.has(e.clientId)).map((e) => [e.clientId, e]));
+        merged = merged.map((e) => forced.get(e.clientId) ?? e);
+      }
       this.entries = merged;
       const ok = await idbSet(KEY, buildEnvelope(merged));
       this.setPersistDegraded(!ok);

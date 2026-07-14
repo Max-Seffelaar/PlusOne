@@ -24,9 +24,18 @@ describe('parsePersistedOutbox (O9 — corrupt/stale-shape safety)', () => {
     expect(parsePersistedOutbox(null)).toEqual({ entries: [], droppedInvalid: 0, droppedStaleShape: false });
   });
 
-  it('quarantines the legacy bare-array shape (pre-fix persistence) instead of casting it', () => {
+  it('salvages a legacy bare-array shape (pre-envelope persistence) instead of wiping the queue', () => {
+    // A doorhost offline with unsynced entries at the exact moment the new
+    // bundle activates must not silently lose them (review 2026-07-14) — the
+    // whole point of this PR is not losing queued work.
     const out = parsePersistedOutbox([entry('c1', 'pending')]);
-    expect(out).toEqual({ entries: [], droppedInvalid: 0, droppedStaleShape: true });
+    expect(out).toEqual({ entries: [entry('c1', 'pending')], droppedInvalid: 0, droppedStaleShape: false });
+  });
+
+  it('salvages the valid elements of a legacy bare array and quarantines the rest individually', () => {
+    const corrupt = { ...entry('c2', 'pending'), payload: { ...entry('c2', 'pending').payload, guestId: 'not-a-uuid' } };
+    const out = parsePersistedOutbox([entry('c1', 'pending'), corrupt as unknown as OutboxEntry]);
+    expect(out).toEqual({ entries: [entry('c1', 'pending')], droppedInvalid: 1, droppedStaleShape: false });
   });
 
   it('quarantines a stale/mismatched buster', () => {
