@@ -12,7 +12,13 @@
 --   * the action is idempotent (already-linked guest is a harmless no-op);
 --   * a non-existent guest raises not-found.
 -- Fixtures live in seed venue aa..01 (admin 1111 is admin there, staff 5555 is
--- staff, finance 3333 is finance). Rolls back.
+-- staff, finance 3333 is finance). Case G uses a made-up UUID with zero rows
+-- in venue_memberships/event_organizers ANYWHERE — auth.uid() reads only the
+-- JWT claim, it never checks auth.users, so this reproduces the actual shape
+-- of the original defect (an authenticated caller with no relationship to the
+-- venue at all), which none of the fixed seed personas can: every seed user
+-- is either a member of aa..01 or organizes an event there (86ey9e880 review).
+-- Rolls back.
 
 begin;
 
@@ -71,9 +77,13 @@ values
   -- guest for the organizer-path test
   ('cc000000-0000-7000-8000-0000000000e4', 'ee000000-0000-7000-8000-0000000000e1',
    'dd000000-0000-7000-8000-0000000000e1', null,
-   'Organizer Target', null, 0, '11111111-1111-4111-8111-111111111111', 'app', 'approved');
+   'Organizer Target', null, 0, '11111111-1111-4111-8111-111111111111', 'app', 'approved'),
+  -- guest for the zero-membership stranger test (case G)
+  ('cc000000-0000-7000-8000-0000000000e5', 'ee000000-0000-7000-8000-0000000000e1',
+   'dd000000-0000-7000-8000-0000000000e1', null,
+   'Stranger Target', null, 0, '11111111-1111-4111-8111-111111111111', 'app', 'approved');
 
-select plan(12);
+select plan(14);
 
 -- ---------------------------------------------------------------------------
 -- A. Authorization — staff + finance are refused and create nothing.
@@ -154,6 +164,20 @@ select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2');
 select throws_ok($$ select public.promote_guest_to_contact('cc000000-0000-7000-8000-00000000dead') $$,
   'P0002', null, 'F1 a non-existent guest raises not-found');
 reset role;
+
+-- ---------------------------------------------------------------------------
+-- G. Zero-membership stranger — the exact shape of the original defect
+--    (86ey9e880): authenticated, but no venue_memberships/event_organizers
+--    row anywhere, not just the wrong role at the RIGHT venue.
+-- ---------------------------------------------------------------------------
+
+select pg_temp.login('99999999-9999-4999-8999-999999999999', 'aal2');
+select throws_ok($$ select public.promote_guest_to_contact('cc000000-0000-7000-8000-0000000000e5') $$,
+  '42501', null, 'G1 a caller with zero membership anywhere cannot promote a guest at this venue');
+reset role;
+select is(
+  (select contact_id from public.guests where id = 'cc000000-0000-7000-8000-0000000000e5'),
+  null::uuid, 'G2 the zero-membership call linked nothing');
 
 select * from finish();
 rollback;
