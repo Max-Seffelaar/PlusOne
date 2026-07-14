@@ -89,7 +89,11 @@ export function AddOnSpot({ onBack }: { onBack: () => void }): JSX.Element {
 
   const commit = (): void => {
     if (!resolved || !canCommit) return;
-    addOnSpot({ name: resolved.name, plusOnes: resolved.plusOnes, tierId: resolved.tierId });
+    // addOnSpot re-validates server-side caps (the parser's own +N/pN grammar
+    // has no upper bound) and returns false without queuing anything if that
+    // fails — only then is this a real add (86ey9e8bd: never show "on the
+    // list" for a write that didn't happen; the toast alone isn't enough).
+    if (!addOnSpot({ name: resolved.name, plusOnes: resolved.plusOnes, tierId: resolved.tierId })) return;
     setAdded((a) => [
       { id: resolved.tierId + Math.random().toString(36).slice(2), name: resolved.name, plus: resolved.plusOnes, tierName: tierLabel(resolved.tierId), tierColor: tierColor(resolved.tierId) },
       ...a,

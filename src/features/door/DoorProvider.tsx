@@ -102,7 +102,10 @@ interface DoorContextValue {
   refuse: (guestId: string, reason: string) => void;
   /** Re-admit a guest refused by mistake — status back to approved (#10). */
   undoRefusal: (guestId: string) => void;
-  addOnSpot: (input: AddOnSpotInput) => void;
+  /** Returns false (and toasts) when the payload fails validation — the caller
+   *  must not treat the guest as added (86ey9e8bd: a doorhost must never see a
+   *  false "on the list" confirmation for a write that was actually rejected). */
+  addOnSpot: (input: AddOnSpotInput) => boolean;
   ackNote: (guestId: string, ack: boolean) => void;
 }
 
@@ -483,14 +486,19 @@ export function DoorProvider({
   const addOnSpot = useCallback(
     ({ name, plusOnes, tierId }: AddOnSpotInput) => {
       const fullName = name.trim();
-      if (!fullName) return; // never queue a nameless guest (C12 — defence in depth)
+      if (!fullName) return false; // never queue a nameless guest (C12 — defence in depth)
       // The outbox replay inserts this payload directly (no server action
       // re-validates it), so it must pass the same caps as every other guest
       // write BEFORE it is even enqueued (86ey9e8bd) — never trust the parser.
+      // The parser's explicit +N/pN triggers have no upper bound of their own
+      // (unlike the bare-trailing-number fallback), so an exempt door user can
+      // still type e.g. "Anna p9999999" past the UI's own quota gate — this
+      // Zod check is the real boundary, and the caller MUST treat a `false`
+      // return as "nothing was added", not silently confirm it.
       const parsed = addOnSpotSchema.safeParse({ fullName, plusOnes, tierId });
       if (!parsed.success) {
         showToast("Couldn't add that guest — check the name and +N");
-        return;
+        return false;
       }
       const id = uuidv7();
       const ts = new Date().toISOString();
@@ -519,6 +527,7 @@ export function DoorProvider({
         },
         `${parsed.data.fullName}${parsed.data.plusOnes > 0 ? ` +${parsed.data.plusOnes}` : ''} · op de lijst`,
       );
+      return true;
     },
     [enqueueDoorWrite, eventId, meId, showToast],
   );
