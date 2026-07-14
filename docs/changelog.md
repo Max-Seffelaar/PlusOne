@@ -40,11 +40,17 @@ is welcome but not a mandated gate per the high-risk list.
   **unchanged** deps clears a set override (the exact stale-shadow-survives-pop condition), plus
   listener cleanup on unmount. Full Vitest **825/825** green, `pnpm type-check` + `pnpm lint`
   clean (only the pre-existing `datetime-field.tsx` aria warnings).
-- **Verification gap (honest).** No live click-through this session: the shared local DB was in
-  a broken/partial state owned by another session (only `admin@`+`door@`, all public tables
-  empty), so reseeding it to get the ≥2 door candidates the Switch bar needs would have violated
-  the one-DB-owner rule. Verified by code-level reasoning + the regression test; the per-screen
-  live handoff (below, on the PR/task) is waiting for Max.
+- **E2E (real browser, A/B-proven).** `tests/e2e/door-overlay-back.spec.ts` (new) drives the
+  exact flow on a 390px viewport — dev-login as `door@` → enter the door with a frozen `?event=`
+  → Switch → re-pick → open a guest overlay → one Back — and asserts the check-in list returns
+  (search box + Switch bar, overlay gone, URL back to the list). The Next remount/popstate
+  timing this depends on doesn't reproduce in jsdom, so this needed a real browser. Verified
+  **both ways**: green with the fix; with the popstate listener neutralized it **fails** exactly
+  at the post-Back assertion (the overlay lingers) — proving it's a genuine regression guard, not
+  a test that passes regardless. (Local gotcha: the fresh Playwright dev server crashed a Next
+  compile-worker on the cold 6.6k-module `/app/[[...segments]]` compile under load — a transient
+  infra flake, not the app; pre-warming the port-3000 server it reuses makes the run
+  deterministic. Authenticated `/app/door` renders `200`.)
 
 ---
 
