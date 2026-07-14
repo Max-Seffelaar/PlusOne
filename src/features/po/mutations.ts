@@ -970,6 +970,24 @@ export function usePoSetListLock(eventId: string) {
   });
 }
 
+/** Same mutation as `usePoSetListLock`, for callers that render MANY events at
+ *  once (the Home board, S14) rather than a single fixed eventId — the target
+ *  event travels in the mutate() call instead of hook creation. Also refreshes
+ *  `poKeys.home` (a separate cache key from `poKeys.events`) so the board's own
+ *  lock icon reflects the server state without waiting for the next poll. */
+export function usePoSetListLockOnHome() {
+  const invalidate = useInvalidateEvent();
+  const qc = useQueryClient();
+  const { venueId } = usePoIdentity();
+  return useMutation({
+    mutationFn: async (input: SetLockInput) => throwOnError(await setListLock(input)),
+    onSuccess: (_data, input) => {
+      invalidate(input.eventId);
+      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.home(venueId) });
+    },
+  });
+}
+
 export function usePoSetAutoLock(eventId: string) {
   const invalidate = useInvalidateEvent();
   return useMutation({

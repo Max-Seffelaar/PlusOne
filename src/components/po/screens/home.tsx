@@ -29,6 +29,7 @@ import {
   usePoCanManageTemplates,
   RECENT_EVENTS_WINDOW_MS,
 } from '@/features/po/hooks';
+import { usePoSetListLockOnHome } from '@/features/po/mutations';
 import { isOpenGuestRequest } from '@/features/po/adapters';
 import { canManageGuests, canSeeGuestCounts, canSeeRequestInbox, canSeeOwnRequests, canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '../context';
@@ -445,9 +446,11 @@ export function Home(): JSX.Element {
   const [toast, setToast] = useState<string | null>(null);
   const [guestPickOpen, setGuestPickOpen] = useState(false);
   const [guestQuery, setGuestQuery] = useState('');
-  // Lock is optimistic-local for now (the DB lock mutation lives on the event /
-  // cockpit; wiring it here is a follow-up). Tracked per event id.
+  // Optimistic per-event overlay over the server's list_locked, rolled back on
+  // mutation error; poKeys.home invalidation on success supersedes it with the
+  // confirmed value (usePoSetListLockOnHome).
   const [lockOverride, setLockOverride] = useState<Record<string, boolean>>({});
+  const setLock = usePoSetListLockOnHome();
 
   const showToast = (msg: string): void => {
     setToast(msg);
@@ -535,7 +538,16 @@ export function Home(): JSX.Element {
   const onLock = (e: BoardEvent): void => {
     const next = !e.locked;
     setLockOverride((m) => ({ ...m, [e.id]: next }));
-    showToast(fmt(next ? t.home.toastListLocked : t.home.toastListOpen, { name: e.name }));
+    setLock.mutate(
+      { eventId: e.id, locked: next },
+      {
+        onSuccess: () => showToast(fmt(next ? t.home.toastListLocked : t.home.toastListOpen, { name: e.name })),
+        onError: () => {
+          setLockOverride((m) => ({ ...m, [e.id]: !next }));
+          showToast(t.events.errLockFailed);
+        },
+      }
+    );
   };
 
   const loading = eventsQ.isLoading;
