@@ -488,7 +488,7 @@ export function usePoCheckIn(eventId: string) {
       qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
       qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
     },
-    onSuccess: () => invalidateCheckinDerived(qc, eventId),
+    onSettled: () => invalidateCheckinDerived(qc, eventId),
   });
 }
 
@@ -518,7 +518,7 @@ export function usePoTopUpCheckIn(eventId: string) {
     onError: (_err, _input, ctx) => {
       if (ctx) qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
     },
-    onSuccess: () => invalidateCheckinDerived(qc, eventId),
+    onSettled: () => invalidateCheckinDerived(qc, eventId),
   });
 }
 
@@ -543,7 +543,7 @@ export function usePoVoidCheckIn(eventId: string) {
       qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
       qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
     },
-    onSuccess: () => invalidateCheckinDerived(qc, eventId),
+    onSettled: () => invalidateCheckinDerived(qc, eventId),
   });
 }
 
@@ -593,7 +593,7 @@ export function usePoCheckOut(eventId: string) {
       qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
       qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
     },
-    onSuccess: () => invalidateCheckinDerived(qc, eventId),
+    onSettled: () => invalidateCheckinDerived(qc, eventId),
   });
 }
 
@@ -715,17 +715,23 @@ export function usePoAckNote(eventId: string) {
 }
 
 /**
- * A check-in/void/top-up moves tier occupancy + the chart — neither is patched
- * by the optimistic update above, so they still need a refetch on success. Guests
- * and arrivals are deliberately NOT invalidated here: `onMutate` already patched
- * them to the exact post-mutation shape, so re-invalidating immediately after
- * would just re-download what was just written (86ey9e8fe). The (throttled)
- * realtime channel + a 60s safety poll on the cockpit are the reconciliation path
- * for peers and for a missed/dropped realtime event — see usePoEventRealtime.
+ * A check-in/void/top-up moves tier occupancy + the chart + (for a peer's-eye
+ * view) the venue-wide All-Guests tab — none of those are patched by the
+ * optimistic update above, so they still need a refetch on settle (success OR
+ * error: a failed revive/void can follow a peer's write that already landed,
+ * see 86ey9e8fe review). Guests and arrivals are deliberately NOT invalidated
+ * here: `onMutate` already patched them to the exact post-mutation shape, so
+ * re-invalidating immediately after would just re-download what was just
+ * written. The (throttled) realtime channel + a 60s safety poll on the
+ * cockpit are the ADDITIONAL reconciliation path for peers and for a missed/
+ * dropped realtime event — see usePoEventRealtime — but this device's own
+ * write shouldn't have to wait on that for its tiers/stats/venue-guests to
+ * catch up.
  */
 function invalidateCheckinDerived(qc: QueryClient, eventId: string): void {
   void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
   void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
+  void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
 }
 
 // The approval inbox (S5) reads venue-wide and one screen decides requests from
