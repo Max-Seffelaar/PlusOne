@@ -150,10 +150,15 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   const canCheckIn = canWorkDoor(roles) || canManage; // admin/doorhost + organizer; RLS still decides
   const canSeeStats = canManage || roles.includes('finance');
 
-  const guests = usePoGuests(eventId).data ?? EMPTY_GUESTS;
-  const tiers = usePoTiers(eventId).data ?? EMPTY_TIERS;
-  const stats = usePoEventStats(eventId).data;
-  const arrivals = usePoCheckinArrivals(eventId).data ?? EMPTY_ARRIVALS;
+  // Optimistic patch + the throttled realtime channel (usePoEventRealtime) carry
+  // the cockpit moment-to-moment; this 60s poll is only the safety net for a
+  // silently-dropped realtime channel (CLAUDE.md scale rule — no invalidate on
+  // every mutation, invalidate() itself is throttled, 86ey9e8fe).
+  const cockpitSafetyPoll = { refetchInterval: 60_000 };
+  const guests = usePoGuests(eventId, cockpitSafetyPoll).data ?? EMPTY_GUESTS;
+  const tiers = usePoTiers(eventId, cockpitSafetyPoll).data ?? EMPTY_TIERS;
+  const stats = usePoEventStats(eventId, cockpitSafetyPoll).data;
+  const arrivals = usePoCheckinArrivals(eventId, cockpitSafetyPoll).data ?? EMPTY_ARRIVALS;
   const { realtimeConnected } = usePoEventRealtime(eventId);
   const guestRequests = usePoGuestRequests().data ?? [];
   const quotaRequests = usePoQuotaRequests().data ?? [];

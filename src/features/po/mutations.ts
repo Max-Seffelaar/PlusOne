@@ -488,7 +488,7 @@ export function usePoCheckIn(eventId: string) {
       qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
       qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
     },
-    onSettled: () => invalidateAfterCheckin(qc, eventId),
+    onSuccess: () => invalidateCheckinDerived(qc, eventId),
   });
 }
 
@@ -518,7 +518,7 @@ export function usePoTopUpCheckIn(eventId: string) {
     onError: (_err, _input, ctx) => {
       if (ctx) qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
     },
-    onSettled: () => invalidateAfterCheckin(qc, eventId),
+    onSuccess: () => invalidateCheckinDerived(qc, eventId),
   });
 }
 
@@ -543,7 +543,7 @@ export function usePoVoidCheckIn(eventId: string) {
       qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
       qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
     },
-    onSettled: () => invalidateAfterCheckin(qc, eventId),
+    onSuccess: () => invalidateCheckinDerived(qc, eventId),
   });
 }
 
@@ -593,7 +593,7 @@ export function usePoCheckOut(eventId: string) {
       qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
       qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
     },
-    onSettled: () => invalidateAfterCheckin(qc, eventId),
+    onSuccess: () => invalidateCheckinDerived(qc, eventId),
   });
 }
 
@@ -714,13 +714,18 @@ export function usePoAckNote(eventId: string) {
   });
 }
 
-/** A check-in/void/top-up changes the present count, tier occupancy, arrivals + chart. */
-function invalidateAfterCheckin(qc: QueryClient, eventId: string): void {
-  void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
+/**
+ * A check-in/void/top-up moves tier occupancy + the chart — neither is patched
+ * by the optimistic update above, so they still need a refetch on success. Guests
+ * and arrivals are deliberately NOT invalidated here: `onMutate` already patched
+ * them to the exact post-mutation shape, so re-invalidating immediately after
+ * would just re-download what was just written (86ey9e8fe). The (throttled)
+ * realtime channel + a 60s safety poll on the cockpit are the reconciliation path
+ * for peers and for a missed/dropped realtime event — see usePoEventRealtime.
+ */
+function invalidateCheckinDerived(qc: QueryClient, eventId: string): void {
   void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
-  void qc.invalidateQueries({ queryKey: poKeys.arrivals(eventId) });
   void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
-  void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
 }
 
 // The approval inbox (S5) reads venue-wide and one screen decides requests from

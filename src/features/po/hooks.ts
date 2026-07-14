@@ -365,10 +365,11 @@ export function usePoEventActivity(
 }
 
 /** Tiers for an event, with live occupancy ("used" = entries not removed/denied). */
-export function usePoTiers(eventId: string) {
+export function usePoTiers(eventId: string, options?: { refetchInterval?: number }) {
   return useQuery<Tier[]>({
     queryKey: poKeys.tiers(eventId),
     enabled: !!eventId,
+    refetchInterval: options?.refetchInterval,
     queryFn: async () => {
       const rows = await fetchTiersWithUsage(createClient(), eventId);
       return rows.map((r) => toPoTier(r, r.used));
@@ -486,10 +487,11 @@ function sortGuestsNewestFirst<T extends { created_at: string; id: string }>(row
 }
 
 /** Guests for an event, with each role badge resolved from its tier. */
-export function usePoGuests(eventId: string) {
+export function usePoGuests(eventId: string, options?: { refetchInterval?: number }) {
   return useQuery<Guest[]>({
     queryKey: poKeys.guests(eventId),
     enabled: !!eventId,
+    refetchInterval: options?.refetchInterval,
     queryFn: async () => {
       const client = createClient();
       const [guests, tiers] = await Promise.all([
@@ -557,13 +559,15 @@ export interface PoEventStats {
  * SECURITY DEFINER and self-gate on role (admin/finance, or organizer for the
  * event), so a caller without access gets empty rows here — never an error; the
  * cockpit then shows the chart's empty state. Short staleTime so it tracks the
- * night; the realtime hook also invalidates it on each check-in.
+ * night; the (throttled) realtime hook also invalidates it on check-ins, and the
+ * cockpit can pass refetchInterval as a safety net.
  */
-export function usePoEventStats(eventId: string) {
+export function usePoEventStats(eventId: string, options?: { refetchInterval?: number }) {
   return useQuery<PoEventStats>({
     queryKey: poKeys.eventStats(eventId),
     enabled: !!eventId,
     staleTime: 15_000,
+    refetchInterval: options?.refetchInterval,
     queryFn: async () => {
       const { summary, perQuarter } = await fetchEventStats(createClient(), eventId);
       const k = eventKpis(summary);
@@ -572,20 +576,50 @@ export function usePoEventStats(eventId: string) {
   });
 }
 
+/** Content-equal check so a refetch that changed nothing keeps the old Map
+ *  reference — React Query's default structural sharing only deep-compares
+ *  plain objects/arrays, so a fresh `Map` from every fetchCheckinArrivals call
+ *  otherwise gets a new identity even when every entry is unchanged, defeating
+ *  the arrivals-keyed memos downstream (tiles/tierRows, R6/86ey9e8fe). */
+export function arrivalsEqual(a: Map<string, CheckinArrival>, b: Map<string, CheckinArrival>): boolean {
+  if (a === b) return true;
+  if (a.size !== b.size) return false;
+  for (const [guestId, arrival] of a) {
+    const other = b.get(guestId);
+    if (!other || other.arrived !== arrival.arrived || other.at !== arrival.at) return false;
+  }
+  return true;
+}
+
 /**
  * Active check-in arrivals per guest — actual present koppen + partial-arrival
  * display (S13). RLS gates check_ins reads (admin/finance/doorhost/organizer); a
  * role without access gets an empty map and the cockpit falls back to the full
  * registered party for headcounts.
  */
-export function usePoCheckinArrivals(eventId: string) {
+export function usePoCheckinArrivals(eventId: string, options?: { refetchInterval?: number }) {
   return useQuery<Map<string, CheckinArrival>>({
     queryKey: poKeys.arrivals(eventId),
     enabled: !!eventId,
     staleTime: 10_000,
+    refetchInterval: options?.refetchInterval,
     queryFn: () => fetchCheckinArrivals(createClient(), eventId),
+    structuralSharing: (oldData, newData) => {
+      const old = oldData as Map<string, CheckinArrival> | undefined;
+      const next = newData as Map<string, CheckinArrival>;
+      return old && arrivalsEqual(old, next) ? old : next;
+    },
   });
 }
+
+// Door rush = several check-ins/sec from 5+ devices; each check-in touches BOTH
+// `guests` (status flip) and `check_ins` (insert), i.e. 2 postgres_changes events.
+// Firing the full 6-key cascade per event made the cockpit re-download an
+// unchanged list on every single check-in (~20 requests/check-in, 86ey9e8fe).
+// Leading+trailing coalesce: the first event in a quiet period still invalidates
+// immediately (a lone check-in feels instant), further events within the window
+// are absorbed into one trailing refetch instead of firing again per event.
+const REALTIME_INVALIDATE_THROTTLE_MS = 500;
 
 /**
  * Keep the cockpit live: subscribe to this event's guests changes (the check-in
@@ -593,7 +627,9 @@ export function usePoCheckinArrivals(eventId: string) {
  * without a status move), invalidating the guest list + tier counts + arrivals +
  * stats. Mirrors the door's realtime setup (useDoorSync) — JWT set before
  * subscribe, the shared device-scoped client — but the cockpit needs no outbox, so
- * refetch-on-change is enough. Returns the channel state for the "live" indicator.
+ * refetch-on-change is enough. Invalidation is throttled (see above) rather than
+ * firing once per postgres_changes event. Returns the channel state for the "live"
+ * indicator.
  */
 export function usePoEventRealtime(eventId: string): { realtimeConnected: boolean } {
   const qc = useQueryClient();
@@ -606,13 +642,15 @@ export function usePoEventRealtime(eventId: string): { realtimeConnected: boolea
     let channel: ReturnType<typeof client.channel> | null = null;
     // Previous channel status → refetch on resubscribe after a drop (#0b).
     let prevStatus: ChannelStatus | null = null;
+    let throttleTimer: ReturnType<typeof setTimeout> | null = null;
+    let trailingPending = false;
 
     void client.auth.getSession().then(({ data }) => {
       if (cancelled) return;
       const token = data.session?.access_token;
       if (token) client.realtime.setAuth(token);
 
-      const invalidate = (): void => {
+      const runInvalidate = (): void => {
         void qc.invalidateQueries({ queryKey: poKeys.guests(eventId) });
         void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
         void qc.invalidateQueries({ queryKey: poKeys.arrivals(eventId) });
@@ -622,6 +660,23 @@ export function usePoEventRealtime(eventId: string): { realtimeConnected: boolea
         // anything else on this path (C19).
         void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
         void qc.invalidateQueries({ queryKey: poKeys.eventDetail(eventId) });
+      };
+
+      // Leading edge fires now; further calls inside the window only flag a
+      // trailing refetch so a whole burst collapses into at most 2 cascades.
+      const invalidate = (): void => {
+        if (throttleTimer) {
+          trailingPending = true;
+          return;
+        }
+        runInvalidate();
+        throttleTimer = setTimeout(() => {
+          throttleTimer = null;
+          if (trailingPending) {
+            trailingPending = false;
+            runInvalidate();
+          }
+        }, REALTIME_INVALIDATE_THROTTLE_MS);
       };
 
       channel = client
@@ -649,6 +704,7 @@ export function usePoEventRealtime(eventId: string): { realtimeConnected: boolea
     return () => {
       cancelled = true;
       setRealtimeConnected(false);
+      if (throttleTimer) clearTimeout(throttleTimer);
       if (channel) void client.removeChannel(channel);
     };
   }, [eventId, qc]);
