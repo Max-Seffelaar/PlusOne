@@ -54,13 +54,20 @@ export type PoTierRow = Pick<
  *  list needs it to badge + deep-link each row to its own event. */
 export type PoVenueGuestRow = PoGuestRow & Pick<Tables['guests']['Row'], 'event_id'>;
 
-/** All events for a venue, newest first (RLS: members read their venue's events). */
-export async function fetchEvents(client: Client, venueId: string): Promise<PoEventRow[]> {
-  const { data, error } = await client
+/**
+ * All events for a venue, newest first (RLS: members read their venue's events).
+ * `sinceIso` is an optional lower bound on `starts_at` (86ey9e8gt) — omit for the
+ * full history (Events tab's "Past" view, stats); pass it from a poll that only
+ * cares about recent + upcoming events so its cost doesn't grow with venue age.
+ */
+export async function fetchEvents(client: Client, venueId: string, sinceIso?: string): Promise<PoEventRow[]> {
+  let query = client
     .from('events')
     .select('id, name, starts_at, ends_at, status, cancelled_at, list_locked, venues(name)')
     .eq('venue_id', venueId)
     .order('starts_at', { ascending: false });
+  if (sinceIso) query = query.gte('starts_at', sinceIso);
+  const { data, error } = await query;
   if (error) throw error;
 
   return (data ?? []).map((e) => ({
@@ -253,16 +260,24 @@ export interface EventHeadcount {
  * is SECURITY INVOKER (no bypass): it runs under the caller's own
  * `guests_select` visibility, so a staff member's tile still only counts their
  * own added guests, exactly like the row-by-row read it replaces.
+ *
+ * `sinceIso` (86ey9e8gt) is an optional lower bound on the event's `starts_at`,
+ * mirroring `fetchEvents`'s window — omit for every event ever (today's
+ * behaviour), pass it from a poll that should stay flat as the venue ages.
  */
 export async function fetchEventHeadcounts(
   client: Client,
-  venueId: string
+  venueId: string,
+  sinceIso?: string
 ): Promise<Map<string, EventHeadcount>> {
   const counts = new Map<string, EventHeadcount>();
   // Throw, don't swallow: a silently-eaten error here rendered every stat tile
   // as a plausible-looking 0 for days when prod missed the RPC's migration
   // (12/7). React Query's error state + Sentry must see schema drift.
-  const { data, error } = await client.rpc('venue_event_headcounts', { p_venue_id: venueId });
+  const { data, error } = await client.rpc('venue_event_headcounts', {
+    p_venue_id: venueId,
+    ...(sinceIso ? { p_since: sinceIso } : {}),
+  });
   if (error) throw error;
   for (const row of data ?? []) {
     counts.set(row.event_id, { registered: row.registered, present: row.present });

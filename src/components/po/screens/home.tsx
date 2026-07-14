@@ -20,7 +20,15 @@ import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
-import { usePoHomeEvents, usePoGuestRequests, usePoQuotaRequests, usePoProfile, useBillingBlocked, usePoCanManageTemplates } from '@/features/po/hooks';
+import {
+  usePoHomeEvents,
+  usePoGuestRequests,
+  usePoQuotaRequests,
+  usePoProfile,
+  useBillingBlocked,
+  usePoCanManageTemplates,
+  RECENT_EVENTS_WINDOW_MS,
+} from '@/features/po/hooks';
 import { usePoSetListLockOnHome } from '@/features/po/mutations';
 import { isOpenGuestRequest } from '@/features/po/adapters';
 import { canManageGuests, canSeeGuestCounts, canSeeRequestInbox, canSeeOwnRequests, canWorkDoor } from '@/features/auth/roles';
@@ -35,8 +43,10 @@ const TZ = 'Europe/Amsterdam';
 const PAGE_SIZE = 7;
 // Home's past section is a recency pulse, not history (M11): anything older than
 // a week only lives under Events → Past. Older events are still fully editable —
-// this only trims what surfaces on the board.
-const PAST_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+// this only trims what surfaces on the board. Shared with usePoHomeEvents's own
+// query window (86ey9e8gt) so the display cutoff and the fetch cutoff can't drift
+// apart — the query already only fetches what this constant will keep.
+const PAST_WINDOW_MS = RECENT_EVENTS_WINDOW_MS;
 
 /** Current hour in the product TZ (#26) — stable across SSR/CSR. */
 function amsterdamHour(): number {
