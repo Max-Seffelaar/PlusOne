@@ -15,12 +15,21 @@
 -- applied to each subscription (subscriptions.last_stripe_event_at). The
 -- caller now passes p_event_created (Stripe event.created, seconds → passed
 -- as timestamptz). When an incoming event is OLDER than the last applied
--- event for that subscription, the status/plan_id/current_period_end fields
--- are left untouched (the event is still recorded in the idempotency ledger
--- — Stripe must not redeliver it again). Backward compatible: p_event_created
--- defaults to null, and the guard only activates once a subscription has a
--- recorded last_stripe_event_at, so a first-ever event (or a caller that
--- omits the timestamp) always applies exactly as before.
+-- event for that subscription, the status/plan_id/current_period_end/
+-- stripe_customer_id/stripe_subscription_id fields are left untouched (the
+-- event is still recorded in the idempotency ledger — Stripe must not
+-- redeliver it again). Backward compatible: p_event_created defaults to
+-- null, and the guard only activates once a subscription has a recorded
+-- last_stripe_event_at, so a first-ever event (or a caller that omits the
+-- timestamp) always applies exactly as before.
+--
+-- Concurrency (fresh-session /code-review follow-up, ClickUp 86ey9e89j):
+-- Stripe delivers at-least-once, so two deliveries for the same subscription
+-- can race. The subscription row is locked with FOR UPDATE before staleness
+-- is decided, so a second concurrent call blocks until the first commits and
+-- then re-reads the now-current last_stripe_event_at — without the lock, both
+-- transactions could read the same pre-update baseline under READ COMMITTED
+-- and let an older event win, regressing last_stripe_event_at backward.
 
 alter table public.subscriptions
   add column last_stripe_event_at timestamptz;
@@ -64,11 +73,15 @@ begin
     return false; -- replay: already processed, nothing to do
   end if;
 
+  -- FOR UPDATE: serializes concurrent deliveries for the same subscription so
+  -- the staleness check below always compares against a committed baseline,
+  -- never a value another in-flight transaction is about to overwrite.
   select s.venue_id, s.stripe_customer_id, s.last_stripe_event_at
     into v_venue, v_existing_customer, v_last_event_at
   from public.subscriptions s
   where (p_venue_id is not null and s.venue_id = p_venue_id)
-     or (p_venue_id is null and s.stripe_customer_id = p_stripe_customer_id);
+     or (p_venue_id is null and s.stripe_customer_id = p_stripe_customer_id)
+  for update of s;
   if v_venue is null then
     raise exception 'no subscription matches stripe event %', p_event_id
       using errcode = 'P0002';
@@ -92,9 +105,19 @@ begin
     and v_last_event_at is not null
     and p_event_created < v_last_event_at;
 
+  -- A stale event is fully inert on this row (identity ids included): after a
+  -- cancel + resubscribe, Stripe mints a new subscription object, and a late
+  -- event for the OLD object must not repoint stripe_subscription_id back to
+  -- a dead subscription just because status/plan/period are what it's gating.
   update public.subscriptions s set
-    stripe_customer_id     = coalesce(p_stripe_customer_id, s.stripe_customer_id),
-    stripe_subscription_id = coalesce(p_stripe_subscription_id, s.stripe_subscription_id),
+    stripe_customer_id = case
+      when v_stale then s.stripe_customer_id
+      else coalesce(p_stripe_customer_id, s.stripe_customer_id)
+    end,
+    stripe_subscription_id = case
+      when v_stale then s.stripe_subscription_id
+      else coalesce(p_stripe_subscription_id, s.stripe_subscription_id)
+    end,
     plan_id = case when v_stale then s.plan_id else coalesce(p_plan_id, s.plan_id) end,
     current_period_end = case
       when v_stale then s.current_period_end
@@ -105,11 +128,11 @@ begin
       when v_stale then s.status
       else coalesce(p_status, s.status)
     end,
-    last_stripe_event_at = case
-      when p_event_created is null then s.last_stripe_event_at
-      when v_last_event_at is null then p_event_created
-      else greatest(v_last_event_at, p_event_created)
-    end,
+    -- greatest() ignores nulls, so this is a plain high-water mark once
+    -- expanded — referencing the locked row's own column, not the pre-update
+    -- local variable, keeps it correct even though FOR UPDATE already makes
+    -- v_last_event_at safe to use here too.
+    last_stripe_event_at = greatest(s.last_stripe_event_at, p_event_created),
     updated_at = now()
   where s.venue_id = v_venue;
 
