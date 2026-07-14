@@ -38,7 +38,7 @@ begin
 end;
 $fn$;
 
-select plan(28);
+select plan(38);
 
 -- ---------------------------------------------------------------------------
 -- A. Privileges: ledger + RPCs are service_role-only
@@ -224,6 +224,74 @@ select is((select stripe_customer_id from public.subscriptions
 
 select is((select count(*)::int from public.stripe_webhook_events where id = 'evt_hijack'),
   0, 'T28 the refused event is not marked processed');
+
+-- ---------------------------------------------------------------------------
+-- J. Event-ordering guard (20260714120000, ClickUp 86ey9e89j, gap-sweep SW1):
+-- Stripe redelivers webhooks out of order. A late/redelivered event older
+-- than the last APPLIED event for a subscription must not move status/plan/
+-- period backwards — even though it still lands in the idempotency ledger
+-- (so Stripe stops retrying it). Reusing venue 2 (De Marktzaal), which is
+-- 'canceled' from the F. Dunning section above and has never carried an
+-- event timestamp yet (last_stripe_event_at is still null there).
+-- ---------------------------------------------------------------------------
+
+select pg_temp.login_service();
+select is(public.apply_stripe_subscription_update(
+    'evt_order_active', 'customer.subscription.updated',
+    p_stripe_customer_id => 'cus_markt',
+    p_status => 'active',
+    p_event_created => '2026-08-01T00:00:00Z'),
+  true, 'T29 a timestamped event applies when the subscription has no prior baseline');
+reset role;
+
+select is((select status::text from public.subscriptions
+           where venue_id = 'aa000000-0000-7000-8000-000000000002'),
+  'active', 'T30 the subscription is reactivated by the recovery event');
+
+select pg_temp.login_service();
+select is(public.apply_stripe_subscription_update(
+    'evt_late_deleted', 'customer.subscription.deleted',
+    p_stripe_customer_id => 'cus_markt',
+    p_status => 'canceled',
+    p_event_created => '2026-07-15T00:00:00Z'),
+  true, 'T31 a stale (older) event is still recorded (no Stripe redelivery loop)');
+reset role;
+
+select is((select status::text from public.subscriptions
+           where venue_id = 'aa000000-0000-7000-8000-000000000002'),
+  'active', 'T32 the stale cancel does NOT revert the newer active status — the bug this guard closes');
+
+select is((select count(*)::int from public.stripe_webhook_events where id = 'evt_late_deleted'),
+  1, 'T33 the stale event landed in the ledger');
+
+select pg_temp.login_service();
+select is(public.apply_stripe_subscription_update(
+    'evt_order_pastdue', 'invoice.payment_failed',
+    p_stripe_customer_id => 'cus_markt',
+    p_status => 'past_due',
+    p_event_created => '2026-08-02T00:00:00Z'),
+  true, 'T34 a genuinely newer event applies normally');
+reset role;
+
+select is((select status::text from public.subscriptions
+           where venue_id = 'aa000000-0000-7000-8000-000000000002'),
+  'past_due', 'T35 status advances to the newer event''s state');
+
+select pg_temp.login_service();
+select is(public.apply_stripe_subscription_update(
+    'evt_order_no_ts', 'customer.subscription.updated',
+    p_stripe_customer_id => 'cus_markt',
+    p_status => 'active'),
+  true, 'T36 an event without p_event_created (backward compat) still applies unconditionally');
+reset role;
+
+select is((select status::text from public.subscriptions
+           where venue_id = 'aa000000-0000-7000-8000-000000000002'),
+  'active', 'T37 the untimestamped event was applied');
+
+select is((select last_stripe_event_at::text from public.subscriptions
+           where venue_id = 'aa000000-0000-7000-8000-000000000002'),
+  '2026-08-02 00:00:00+00', 'T38 an untimestamped event does not disturb the tracked event timestamp');
 
 -- ---------------------------------------------------------------------------
 -- I. Audit (decision #4): subscription changes are logged, actor null = system

@@ -15,6 +15,7 @@ function event(type: string, object: Record<string, unknown>): Stripe.Event {
   return {
     id: `evt_${type.replace(/\./g, '_')}`,
     type,
+    created: 1_700_000_000,
     data: { object },
   } as unknown as Stripe.Event;
 }
@@ -131,6 +132,12 @@ describe('mapStripeEvent', () => {
     const { mapStripeEvent } = await loadModule();
     expect(mapStripeEvent(event('customer.created', {}))).toBeNull();
   });
+
+  it('carries Stripe event.created through as an ISO timestamp (ordering guard input, ClickUp 86ey9e89j)', async () => {
+    const { mapStripeEvent } = await loadModule();
+    const update = mapStripeEvent(invoicePaid);
+    expect(update?.eventCreated).toBe(new Date(1_700_000_000 * 1000).toISOString());
+  });
 });
 
 describe('handleStripeWebhook', () => {
@@ -169,6 +176,7 @@ describe('handleStripeWebhook', () => {
         p_event_id: invoicePaid.id,
         p_status: 'active',
         p_stripe_customer_id: 'cus_123',
+        p_event_created: new Date(1_700_000_000 * 1000).toISOString(),
       })
     );
   });
