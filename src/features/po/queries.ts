@@ -56,11 +56,12 @@ export type PoVenueGuestRow = PoGuestRow & Pick<Tables['guests']['Row'], 'event_
 
 /** All events for a venue, newest first (RLS: members read their venue's events). */
 export async function fetchEvents(client: Client, venueId: string): Promise<PoEventRow[]> {
-  const { data } = await client
+  const { data, error } = await client
     .from('events')
     .select('id, name, starts_at, ends_at, status, cancelled_at, list_locked, venues(name)')
     .eq('venue_id', venueId)
     .order('starts_at', { ascending: false });
+  if (error) throw error;
 
   return (data ?? []).map((e) => ({
     id: e.id,
@@ -204,9 +205,10 @@ export async function fetchEventQuota(
   client: Client,
   eventId: string
 ): Promise<PoQuotaStatus | null> {
-  const { data } = await client
+  const { data, error } = await client
     .rpc('event_quota_status', { p_event_id: eventId })
     .maybeSingle();
+  if (error) throw error;
   if (!data) return null;
   return {
     quota: data.quota,
@@ -231,7 +233,8 @@ export async function fetchTiers(client: Client, scope: TierScope): Promise<PoTi
     .select('id, name, color, max_guests, aliases, door_price_cents, vat_percent')
     .order('name', { ascending: true });
 
-  const { data } = await ('eventId' in scope ? query.eq('event_id', scope.eventId) : query.eq('venue_id', scope.venueId));
+  const { data, error } = await ('eventId' in scope ? query.eq('event_id', scope.eventId) : query.eq('venue_id', scope.venueId));
+  if (error) throw error;
   return data ?? [];
 }
 
@@ -284,20 +287,23 @@ export async function fetchRecentCheckins(
   eventId: string,
   limit = 3
 ): Promise<RecentCheckinRow[]> {
-  const { data } = await client
+  const { data, error } = await client
     .from('check_ins')
     .select('checked_at, plus_ones_arrived, checked_by, guests!inner(id, full_name, event_id)')
     .eq('guests.event_id', eventId)
     .is('voided_at', null)
     .order('checked_at', { ascending: false })
     .limit(limit);
+  if (error) throw error;
 
   const rows = data ?? [];
   // Resolve the checker names in one round-trip (RLS: door roles read profiles).
   const ids = [...new Set(rows.map((r) => r.checked_by))];
-  const profiles = ids.length
-    ? (await client.from('user_profiles').select('id, full_name').in('id', ids)).data ?? []
-    : [];
+  const profilesRes = ids.length
+    ? await client.from('user_profiles').select('id, full_name').in('id', ids)
+    : { data: [] as { id: string; full_name: string }[], error: null };
+  if (profilesRes.error) throw profilesRes.error;
+  const profiles = profilesRes.data ?? [];
   const nameById = new Map(profiles.map((p) => [p.id, p.full_name]));
 
   return rows.map((r) => ({
@@ -373,15 +379,18 @@ export type PoGuestRequestRow = Pick<
 async function fetchLinkLabels(client: Client, linkIds: string[]): Promise<Map<string, string | null>> {
   const labels = new Map<string, string | null>();
   if (linkIds.length === 0) return labels;
-  const { data: links } = await client
+  const { data: links, error } = await client
     .from('request_links')
     .select('id, label, influencer_id')
     .in('id', linkIds);
+  if (error) throw error;
   const rows = links ?? [];
   const infIds = [...new Set(rows.map((l) => l.influencer_id).filter((x): x is string => !!x))];
-  const influencers = infIds.length
-    ? (await client.from('influencers').select('id, name').in('id', infIds)).data ?? []
-    : [];
+  const infRes = infIds.length
+    ? await client.from('influencers').select('id, name').in('id', infIds)
+    : { data: [] as { id: string; name: string }[], error: null };
+  if (infRes.error) throw infRes.error;
+  const influencers = infRes.data ?? [];
   const nameById = new Map(influencers.map((i) => [i.id, i.name]));
   for (const l of rows) {
     labels.set(l.id, (l.influencer_id ? nameById.get(l.influencer_id) : null) ?? l.label ?? null);
@@ -452,9 +461,11 @@ export async function fetchQuotaRequests(
 
   const rows = reqs ?? [];
   const ids = [...new Set(rows.map((r) => r.user_id))];
-  const profiles = ids.length
-    ? (await client.from('user_profiles').select('id, full_name').in('id', ids)).data ?? []
-    : [];
+  const profilesRes = ids.length
+    ? await client.from('user_profiles').select('id, full_name').in('id', ids)
+    : { data: [] as { id: string; full_name: string }[], error: null };
+  if (profilesRes.error) throw profilesRes.error;
+  const profiles = profilesRes.data ?? [];
   const nameById = new Map(profiles.map((p) => [p.id, p.full_name]));
 
   return rows.map((r) => ({
@@ -553,6 +564,8 @@ export async function fetchPastEventStats(
     client.rpc('event_stats_summary', { p_event_id: eventId }).maybeSingle(),
     client.rpc('event_tier_stats', { p_event_id: eventId }),
   ]);
+  if (summary.error) throw summary.error;
+  if (tiers.error) throw tiers.error;
   return { summary: summary.data ?? null, tiers: tiers.data ?? [] };
 }
 
@@ -587,7 +600,7 @@ export async function fetchEventForEdit(
   eventId: string,
   userId: string
 ): Promise<EventEditRow | null> {
-  const [{ data: e }, { data: org }] = await Promise.all([
+  const [{ data: e, error: eErr }, { data: org, error: orgErr }] = await Promise.all([
     client
       .from('events')
       .select(
@@ -602,6 +615,8 @@ export async function fetchEventForEdit(
       .eq('user_id', userId)
       .maybeSingle(),
   ]);
+  if (eErr) throw eErr;
+  if (orgErr) throw orgErr;
   if (!e) return null;
 
   const venueAllowUncheck = e.venues?.allow_uncheck ?? true;
@@ -678,7 +693,7 @@ export async function fetchTiersWithUsage(
   client: Client,
   eventId: string
 ): Promise<TierWithUsage[]> {
-  const [{ data: tiers }, guests] = await Promise.all([
+  const [{ data: tiers, error: tiersErr }, guests] = await Promise.all([
     client.from('guest_tiers').select('id, name, color, max_guests, aliases, door_price_cents, vat_percent').eq('event_id', eventId).order('name'),
     // Ranged: occupancy counts every non-removed/denied guest, so a 1500-guest
     // event would otherwise truncate the count at 1000. `.order('id')` keys the paging.
@@ -686,6 +701,7 @@ export async function fetchTiersWithUsage(
       client.from('guests').select('tier_id, status').eq('event_id', eventId).order('id').range(from, to),
     ),
   ]);
+  if (tiersErr) throw tiersErr;
 
   const used = new Map<string, number>();
   for (const g of guests) {
@@ -713,12 +729,14 @@ export interface PoCrewMember {
 
 /** Crew (event_organizers) on an event, with each member's guest quota, name-sorted. */
 export async function fetchEventCrew(client: Client, eventId: string): Promise<PoCrewMember[]> {
-  const [{ data: crew }, { data: quotas }] = await Promise.all([
+  const [{ data: crew, error: crewErr }, { data: quotas, error: quotasErr }] = await Promise.all([
     client.from('event_organizers').select('user_id, user_profiles(full_name, email)').eq('event_id', eventId),
     // event_quotas RLS: admin/finance read all for the venue's events (a member
     // reads only their own row) — a non-admin viewer just sees 0 here, which is fine.
     client.from('event_quotas').select('user_id, quota_override').eq('event_id', eventId),
   ]);
+  if (crewErr) throw crewErr;
+  if (quotasErr) throw quotasErr;
 
   const quotaByUser = new Map((quotas ?? []).map((q) => [q.user_id, q.quota_override]));
   return (crew ?? [])
@@ -739,11 +757,16 @@ export async function fetchEventCrew(client: Client, eventId: string): Promise<P
  * RLS still decides what's actually visible. (Search is applied client-side.)
  */
 export async function fetchAssignableCrew(client: Client, eventId: string): Promise<PoCrewMember[]> {
-  const { data: ev } = await client.from('events').select('venue_id').eq('id', eventId).maybeSingle();
+  const { data: ev, error: evErr } = await client.from('events').select('venue_id').eq('id', eventId).maybeSingle();
+  if (evErr) throw evErr;
   if (!ev) return [];
   const venueId = ev.venue_id;
 
-  const [{ data: orgRows }, { data: members }, { data: current }] = await Promise.all([
+  const [
+    { data: orgRows, error: orgErr },
+    { data: members, error: membersErr },
+    { data: current, error: currentErr },
+  ] = await Promise.all([
     client
       .from('event_organizers')
       .select('user_id, user_profiles(full_name, email), events!inner(venue_id)')
@@ -751,6 +774,9 @@ export async function fetchAssignableCrew(client: Client, eventId: string): Prom
     client.from('venue_memberships').select('user_id').eq('venue_id', venueId),
     client.from('event_organizers').select('user_id').eq('event_id', eventId),
   ]);
+  if (orgErr) throw orgErr;
+  if (membersErr) throw membersErr;
+  if (currentErr) throw currentErr;
 
   const memberIds = new Set((members ?? []).map((m) => m.user_id));
   const currentIds = new Set((current ?? []).map((c) => c.user_id));
@@ -790,13 +816,15 @@ export interface PoVenueCrewRow {
  * screen itself is gated to viewTeam.
  */
 export async function fetchVenueCrew(client: Client, venueId: string): Promise<PoVenueCrewRow[]> {
-  const [{ data: orgRows }, { data: members }] = await Promise.all([
+  const [{ data: orgRows, error: orgErr }, { data: members, error: membersErr }] = await Promise.all([
     client
       .from('event_organizers')
       .select('user_id, user_profiles(full_name, email, terms_accepted_at), events!inner(name, starts_at, venue_id)')
       .eq('events.venue_id', venueId),
     client.from('venue_memberships').select('user_id').eq('venue_id', venueId),
   ]);
+  if (orgErr) throw orgErr;
+  if (membersErr) throw membersErr;
 
   const memberIds = new Set((members ?? []).map((m) => m.user_id));
   const byUser = new Map<string, PoVenueCrewRow & { starts: string[] }>();
@@ -847,13 +875,14 @@ export type PoTemplateTierRow = Pick<
 
 /** Every template of a venue with its tier count, name-sorted. */
 export async function fetchTemplates(client: Client, venueId: string): Promise<PoTemplateRow[]> {
-  const { data } = await client
+  const { data, error } = await client
     .from('event_templates')
     .select(
       'id, name, capacity, allow_uncheck, landing_active, auto_lock_offset_minutes, event_template_tiers(count)',
     )
     .eq('venue_id', venueId)
     .order('name');
+  if (error) throw error;
   return (data ?? []).map((t) => ({
     id: t.id,
     name: t.name,
@@ -867,22 +896,24 @@ export async function fetchTemplates(client: Client, venueId: string): Promise<P
 
 /** A single template's editable fields. */
 export async function fetchTemplate(client: Client, templateId: string): Promise<PoTemplateDetail | null> {
-  const { data } = await client
+  const { data, error } = await client
     .from('event_templates')
     .select('id, venue_id, name, capacity, allow_uncheck, landing_active, auto_lock_offset_minutes')
     .eq('id', templateId)
     .maybeSingle();
+  if (error) throw error;
   return data ?? null;
 }
 
 /** A template's tiers in seeding order (position, then creation). */
 export async function fetchTemplateTiers(client: Client, templateId: string): Promise<PoTemplateTierRow[]> {
-  const { data } = await client
+  const { data, error } = await client
     .from('event_template_tiers')
     .select('id, name, description, color, max_guests, door_price_cents, vat_percent, aliases, position')
     .eq('template_id', templateId)
     .order('position')
     .order('created_at');
+  if (error) throw error;
   return data ?? [];
 }
 
@@ -895,11 +926,12 @@ export async function fetchTemplateTiers(client: Client, templateId: string): Pr
  */
 export async function fetchOrganizesAtVenue(client: Client, venueId: string, userId: string): Promise<boolean> {
   if (!userId || !venueId) return false;
-  const { count } = await client
+  const { count, error } = await client
     .from('event_organizers')
     .select('event_id, events!inner(venue_id)', { count: 'exact', head: true })
     .eq('user_id', userId)
     .eq('events.venue_id', venueId);
+  if (error) throw error;
   return (count ?? 0) > 0;
 }
 
@@ -919,11 +951,12 @@ export async function fetchOrganizesOpenEventAtVenue(
   nowMs: number
 ): Promise<boolean> {
   if (!userId || !venueId) return false;
-  const { data } = await client
+  const { data, error } = await client
     .from('event_organizers')
     .select('events!inner(venue_id, starts_at, ends_at, cancelled_at)')
     .eq('user_id', userId)
     .eq('events.venue_id', venueId);
+  if (error) throw error;
   return (data ?? []).some((row) => {
     const event = row.events;
     return event.cancelled_at == null && eventPhase(event.starts_at, event.ends_at, nowMs) !== 'past';
@@ -1191,19 +1224,21 @@ function actorIds(appearances: ContactAppearance[]): string[] {
  *  A single contact's appearances are bounded (events-per-venue × attendance), well
  *  under PostgREST's 1000-row cap, so no ranged paging is needed here. */
 async function fetchContactAppearances(client: Client, contactId: string): Promise<ContactAppearance[]> {
-  const { data } = await client
+  const { data, error } = await client
     .from('guests')
     .select(PROFILE_APPEARANCE_SELECT)
     .eq('contact_id', contactId)
     .neq('status', 'removed')
     .order('created_at', { ascending: false });
+  if (error) throw error;
 
   return ((data ?? []) as ProfileAppearanceRaw[]).map(mapAppearance);
 }
 
 /** A single guest row as one appearance — the name-only / guest-keyed path. */
 async function fetchGuestAppearance(client: Client, guestId: string): Promise<ContactAppearance[]> {
-  const { data } = await client.from('guests').select(PROFILE_APPEARANCE_SELECT).eq('id', guestId);
+  const { data, error } = await client.from('guests').select(PROFILE_APPEARANCE_SELECT).eq('id', guestId);
+  if (error) throw error;
   return ((data ?? []) as ProfileAppearanceRaw[]).map(mapAppearance);
 }
 
@@ -1211,7 +1246,8 @@ async function fetchGuestAppearance(client: Client, guestId: string): Promise<Co
  *  an unreadable actor simply drops out and the screen shows a fallback). */
 async function fetchActorNames(client: Client, ids: string[]): Promise<Record<string, string>> {
   if (ids.length === 0) return {};
-  const { data } = await client.from('user_profiles').select('id, full_name').in('id', ids);
+  const { data, error } = await client.from('user_profiles').select('id, full_name').in('id', ids);
+  if (error) throw error;
   const names: Record<string, string> = {};
   for (const p of data ?? []) names[p.id] = p.full_name;
   return names;
@@ -1220,7 +1256,7 @@ async function fetchActorNames(client: Client, ids: string[]): Promise<Record<st
 /** The contact header + all appearances + resolved actor names for the profile.
  *  header is null when the caller can't read the contact (RLS) or it doesn't exist. */
 export async function fetchContactProfile(client: Client, contactId: string): Promise<ContactProfileData> {
-  const [{ data: c }, appearances] = await Promise.all([
+  const [{ data: c, error: cErr }, appearances] = await Promise.all([
     client
       .from('contacts')
       .select('id, full_name, email, phone, birthdate, preferred_role, note, is_permanent, source, created_at')
@@ -1228,6 +1264,7 @@ export async function fetchContactProfile(client: Client, contactId: string): Pr
       .maybeSingle(),
     fetchContactAppearances(client, contactId),
   ]);
+  if (cErr) throw cErr;
 
   if (!c) return { header: null, appearances: [], actorNames: {} };
 
@@ -1280,11 +1317,12 @@ export async function fetchPersonProfile(
     return { ...data, isContact: data.header != null, promoteGuestId: null, restricted: false };
   }
   if (args.guestId) {
-    const { data: g } = await client
+    const { data: g, error: gErr } = await client
       .from('guests')
       .select('id, contact_id, full_name, email, phone, note, created_at')
       .eq('id', args.guestId)
       .maybeSingle();
+    if (gErr) throw gErr;
     if (!g) return EMPTY_PERSON;
     // Already a contact AND the caller can read it → the full cross-event profile.
     if (g.contact_id) {
@@ -1336,11 +1374,12 @@ export type PoMemberRow = {
 
 /** Members of a venue (RLS: admin/user_manager/finance may read these). */
 export async function fetchVenueMembers(client: Client, venueId: string): Promise<PoMemberRow[]> {
-  const { data } = await client
+  const { data, error } = await client
     .from('venue_memberships')
     .select('user_id, roles, job_title, user_profiles(full_name, email)')
     .eq('venue_id', venueId)
     .order('created_at', { ascending: true });
+  if (error) throw error;
 
   return (data ?? []).map((row) => ({
     user_id: row.user_id,
@@ -1361,12 +1400,13 @@ export type PoInviteRow = Pick<
  *  accepted invites are audit history, not team-screen material. RLS: managers
  *  + finance. */
 export async function fetchVenueInvites(client: Client, venueId: string): Promise<PoInviteRow[]> {
-  const { data } = await client
+  const { data, error } = await client
     .from('invites')
     .select('id, email, roles, expires_at, created_at, accepted_at')
     .eq('venue_id', venueId)
     .order('created_at', { ascending: false })
     .limit(25);
+  if (error) throw error;
 
   return data ?? [];
 }
@@ -1384,16 +1424,18 @@ export type PoMyInviteRow = {
  *  Callable from the browser client. First-login acceptance still happens in
  *  /auth/callback; this covers the mid-session case the desktop banner did. */
 export async function fetchMyPendingInvites(client: Client): Promise<PoMyInviteRow[]> {
-  const { data: auth } = await client.auth.getUser();
+  const { data: auth, error: authErr } = await client.auth.getUser();
+  if (authErr) throw authErr;
   const email = auth.user?.email;
   if (!email) return [];
-  const { data } = await client
+  const { data, error } = await client
     .from('invites')
     .select('id, venue_id, roles, expires_at, venues(name)')
     .is('accepted_at', null)
     .gt('expires_at', new Date().toISOString())
     .ilike('email', email)
     .order('created_at', { ascending: false });
+  if (error) throw error;
 
   return (data ?? []).map((row) => ({
     id: row.id,
@@ -1409,10 +1451,11 @@ export type PoQuotaRow = Pick<Tables['quotas']['Row'], 'user_id' | 'default_coun
  *  admin/finance). The caller maps these onto the member list; a missing row
  *  means the member falls back to the venue default. */
 export async function fetchMemberQuotas(client: Client, venueId: string): Promise<PoQuotaRow[]> {
-  const { data } = await client
+  const { data, error } = await client
     .from('quotas')
     .select('user_id, default_count')
     .eq('venue_id', venueId);
+  if (error) throw error;
 
   return data ?? [];
 }
@@ -1425,10 +1468,11 @@ export async function fetchEventQuotaOverrides(
   client: Client,
   eventId: string
 ): Promise<PoEventQuotaOverrideRow[]> {
-  const { data } = await client
+  const { data, error } = await client
     .from('event_quotas')
     .select('user_id, quota_override')
     .eq('event_id', eventId);
+  if (error) throw error;
 
   return data ?? [];
 }
@@ -1447,7 +1491,8 @@ export type PoSessionRow = {
 /** The caller's own active sessions (SECURITY DEFINER RPC reads auth.sessions for
  *  auth.uid() — callable from the browser client, scoped to the caller). */
 export async function fetchOwnSessions(client: Client): Promise<PoSessionRow[]> {
-  const { data } = await client.rpc('list_own_sessions');
+  const { data, error } = await client.rpc('list_own_sessions');
+  if (error) throw error;
   return (data ?? []).map((s) => ({
     session_id: s.session_id,
     created_at: s.created_at,
@@ -1461,11 +1506,14 @@ export async function fetchOwnSessions(client: Client): Promise<PoSessionRow[]> 
 }
 
 /** A team member's active sessions for the admin remote-logout screen. The
- *  SECURITY DEFINER RPC re-enforces admin-at-a-shared-venue + AAL2 (it is the
- *  real boundary); on denial it errors and we surface nothing. Callable from the
- *  browser client — never marks rows as "current" (it is someone else's session). */
+ *  SECURITY DEFINER RPC re-enforces admin-at-a-shared-venue (role-only, #MFA
+ *  fully-optional — it is the real boundary); on denial it raises, which we now
+ *  throw so React Query's isError fires instead of rendering "no sessions" for
+ *  both a genuine denial and an outage. Callable from the browser client — never
+ *  marks rows as "current" (it is someone else's session). */
 export async function fetchUserSessions(client: Client, targetUserId: string): Promise<PoSessionRow[]> {
-  const { data } = await client.rpc('admin_list_user_sessions', { p_target: targetUserId });
+  const { data, error } = await client.rpc('admin_list_user_sessions', { p_target: targetUserId });
+  if (error) throw error;
   return (data ?? []).map((s) => ({
     session_id: s.session_id,
     created_at: s.created_at,
@@ -1485,11 +1533,12 @@ export type PoProfileRow = Pick<
 
 /** The caller's own profile (RLS: a user always reads their own row, #24). */
 export async function fetchMyProfile(client: Client, userId: string): Promise<PoProfileRow | null> {
-  const { data } = await client
+  const { data, error } = await client
     .from('user_profiles')
     .select('id, full_name, first_name, last_name, email, phone')
     .eq('id', userId)
     .maybeSingle();
+  if (error) throw error;
 
   return data ?? null;
 }
@@ -1517,13 +1566,14 @@ export async function fetchVenueSettings(
   client: Client,
   venueId: string
 ): Promise<PoVenueSettingsRow | null> {
-  const { data } = await client
+  const { data, error } = await client
     .from('venues')
     .select(
       'id, name, slug, retention_months, default_personal_quota, allow_uncheck, company_name, kvk_number, vat_number, finance_email, address_line, postal_code, city, country'
     )
     .eq('id', venueId)
     .maybeSingle();
+  if (error) throw error;
 
   return data ?? null;
 }
@@ -1541,11 +1591,12 @@ export async function fetchSubscription(
   client: Client,
   venueId: string
 ): Promise<PoSubscriptionRow | null> {
-  const { data } = await client
+  const { data, error } = await client
     .from('subscriptions')
     .select('status, plan_id, current_period_end, created_at, stripe_subscription_id')
     .eq('venue_id', venueId)
     .maybeSingle();
+  if (error) throw error;
 
   return data ?? null;
 }
@@ -1606,7 +1657,8 @@ export async function fetchPoAuditFeed(
     }
   }
 
-  const { data } = await query;
+  const { data, error } = await query;
+  if (error) throw error;
   return (data ?? []).map(describeAuditEntry);
 }
 
@@ -1628,7 +1680,7 @@ export async function fetchPoGuestHistory(
   client: Client,
   guestId: string
 ): Promise<PoGuestHistory> {
-  const [{ data: rows }, { data: guest }] = await Promise.all([
+  const [{ data: rows, error: rowsErr }, { data: guest, error: guestErr }] = await Promise.all([
     client
       .from('audit_feed')
       .select('*')
@@ -1640,6 +1692,8 @@ export async function fetchPoGuestHistory(
       .eq('id', guestId)
       .maybeSingle(),
   ]);
+  if (rowsErr) throw rowsErr;
+  if (guestErr) throw guestErr;
 
   return {
     guest: guest
@@ -1662,7 +1716,7 @@ export async function fetchPoAuditFilterOptions(
   client: Client,
   venueId: string
 ): Promise<PoAuditFilterOptions> {
-  const [{ data: events }, { data: members }] = await Promise.all([
+  const [{ data: events, error: eventsErr }, { data: members, error: membersErr }] = await Promise.all([
     client
       .from('events')
       .select('id, name, starts_at')
@@ -1673,6 +1727,8 @@ export async function fetchPoAuditFilterOptions(
       .select('user_id, user_profiles(full_name)')
       .eq('venue_id', venueId),
   ]);
+  if (eventsErr) throw eventsErr;
+  if (membersErr) throw membersErr;
 
   return {
     events: (events ?? []).map((e) => ({ id: e.id, name: e.name })),
@@ -1728,7 +1784,7 @@ export interface PoRequestLink {
  * first, then oldest-first.
  */
 export async function fetchRequestLinks(client: Client, eventId: string): Promise<PoRequestLink[]> {
-  const { data: links } = await client
+  const { data: links, error: linksErr } = await client
     .from('request_links')
     .select(
       'id, event_id, slug, is_default, active, auto_approve, influencer_id, label, tier_id, max_headcount, expires_at, created_at'
@@ -1736,27 +1792,26 @@ export async function fetchRequestLinks(client: Client, eventId: string): Promis
     .eq('event_id', eventId)
     .is('archived_at', null)
     .order('created_at', { ascending: true });
+  if (linksErr) throw linksErr;
 
   const rows = links ?? [];
   if (rows.length === 0) return [];
   const linkIds = rows.map((l) => l.id);
   const infIds = [...new Set(rows.map((l) => l.influencer_id).filter((x): x is string => !!x))];
 
-  const [influencers, pageviews, requests, guests] = await Promise.all([
+  const [influencersRes, pageviewsRes, requestsRes, guests] = await Promise.all([
     infIds.length
-      ? client.from('influencers').select('id, name').in('id', infIds).then((r) => r.data ?? [])
-      : Promise.resolve([] as { id: string; name: string }[]),
+      ? client.from('influencers').select('id, name').in('id', infIds)
+      : Promise.resolve({ data: [] as { id: string; name: string }[], error: null }),
     client
       .from('request_link_pageviews_daily')
       .select('request_link_id, views')
-      .in('request_link_id', linkIds)
-      .then((r) => r.data ?? []),
+      .in('request_link_id', linkIds),
     client
       .from('guest_requests')
       .select('request_link_id, status')
       .eq('event_id', eventId)
-      .not('request_link_id', 'is', null)
-      .then((r) => r.data ?? []),
+      .not('request_link_id', 'is', null),
     // Ranged: a 1500-guest event would truncate the headcount at PostgREST's
     // 1000-row cap. `.order('id')` keys the paging (same as fetchTiersWithUsage).
     fetchAllRanged<Pick<Tables['guests']['Row'], 'request_link_id' | 'plus_ones' | 'status'>>((from, to) =>
@@ -1769,6 +1824,12 @@ export async function fetchRequestLinks(client: Client, eventId: string): Promis
         .range(from, to)
     ),
   ]);
+  if (influencersRes.error) throw influencersRes.error;
+  if (pageviewsRes.error) throw pageviewsRes.error;
+  if (requestsRes.error) throw requestsRes.error;
+  const influencers = influencersRes.data ?? [];
+  const pageviews = pageviewsRes.data ?? [];
+  const requests = requestsRes.data ?? [];
 
   const nameById = new Map(influencers.map((i) => [i.id, i.name]));
   const viewsByLink = new Map<string, number>();
@@ -1834,18 +1895,21 @@ export interface PoLinkOption {
  * (SCALE-5) — one venue_id, no `usePoEvents()` dependency at all.
  */
 export async function fetchVenueRequestLinks(client: Client, venueId: string): Promise<PoLinkOption[]> {
-  const { data } = await client
+  const { data, error } = await client
     .from('request_links')
     .select('id, event_id, is_default, label, influencer_id')
     .eq('venue_id', venueId)
     .is('archived_at', null)
     .order('created_at', { ascending: true });
+  if (error) throw error;
 
   const rows = data ?? [];
   const infIds = [...new Set(rows.map((l) => l.influencer_id).filter((x): x is string => !!x))];
-  const influencers = infIds.length
-    ? (await client.from('influencers').select('id, name').in('id', infIds)).data ?? []
-    : [];
+  const infRes = infIds.length
+    ? await client.from('influencers').select('id, name').in('id', infIds)
+    : { data: [] as { id: string; name: string }[], error: null };
+  if (infRes.error) throw infRes.error;
+  const influencers = infRes.data ?? [];
   const nameById = new Map(influencers.map((i) => [i.id, i.name]));
   return rows.map((l) => ({
     id: l.id,
@@ -1870,7 +1934,7 @@ export interface PoInfluencer {
 /** The venue's influencer roster (non-archived), name-sorted, with per-influencer
  *  link counts from one extra batched read. Admin/organizer/finance read (RLS). */
 export async function fetchVenueInfluencers(client: Client, venueId: string): Promise<PoInfluencer[]> {
-  const [{ data: influencers }, { data: links }] = await Promise.all([
+  const [{ data: influencers, error: influencersErr }, { data: links, error: linksErr }] = await Promise.all([
     client
       .from('influencers')
       .select('id, name, handle, notes, stats_token_hash')
@@ -1884,6 +1948,8 @@ export async function fetchVenueInfluencers(client: Client, venueId: string): Pr
       .is('archived_at', null)
       .not('influencer_id', 'is', null),
   ]);
+  if (influencersErr) throw influencersErr;
+  if (linksErr) throw linksErr;
 
   const counts = new Map<string, number>();
   for (const l of links ?? []) {
