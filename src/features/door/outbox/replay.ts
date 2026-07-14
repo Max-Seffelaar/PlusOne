@@ -185,7 +185,7 @@ export interface DrainSummary {
  * skipping ahead of a still-pending predecessor for the SAME guest is exactly the
  * out-of-order replay this guards against (O2).
  */
-function guestKeyOf(entry: OutboxEntry): string {
+export function guestKeyOf(entry: OutboxEntry): string {
   return entry.kind === 'add_guest' ? entry.payload.id : entry.payload.guestId;
 }
 

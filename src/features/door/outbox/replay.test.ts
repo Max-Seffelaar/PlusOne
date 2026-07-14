@@ -459,6 +459,52 @@ describe('drainOutbox', () => {
     expect(store.entries[0]).toMatchObject({ status: 'pending', attempts: MAX_ATTEMPTS - 1 });
   });
 
+  // A dead-lettered predecessor settles (even if failed) and does NOT block its
+  // guest's chain — a later same-guest entry still runs in the same drain.
+  it('a same-guest successor still runs in the same drain once its predecessor is dead-lettered', async () => {
+    const insertCheckIn = vi.fn(async () => ({ error: null }));
+    const store = fakeStore([
+      checkInEntry({ clientId: 'a', attempts: MAX_ATTEMPTS - 1, payload: { id: 'ci1', guestId: 'g1', plusOnesArrived: 0, clientTimestamp: 't' } }),
+      checkInEntry({ clientId: 'b', payload: { id: 'ci2', guestId: 'g1', plusOnesArrived: 1, clientTimestamp: 't' } }),
+    ]);
+    const gw: DoorGateway = {
+      ...gatewayReturning(null),
+      insertCheckIn: async (row) => (row.id === 'ci1' ? { error: UNKNOWN_CODE } : insertCheckIn(row)),
+    };
+    const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
+    expect(store.entries[0]).toMatchObject({ status: 'error', attempts: MAX_ATTEMPTS });
+    expect(insertCheckIn).toHaveBeenCalled(); // not blocked behind the now-settled (dead-lettered) predecessor
+    expect(summary).toMatchObject({ deadLettered: 1, synced: 1 });
+  });
+
+  // A terminal-error predecessor (e.g. add_guest hitting quota) settles and does
+  // NOT block its guest's chain either — a same-guest successor (e.g. its
+  // check_in) still attempts this same drain and independently discovers the
+  // same root cause (the guest row was never created) as its own terminal error.
+  it('a same-guest successor independently fails after a terminal-error predecessor, in the same drain', async () => {
+    const store = fakeStore([
+      {
+        clientId: 'a',
+        eventId: 'ev1',
+        kind: 'add_guest',
+        status: 'pending',
+        attempts: 0,
+        createdAt: 't',
+        payload: { id: 'g1', tierId: 't1', fullName: 'Nina Driessen', plusOnes: 0 },
+      } as OutboxEntry,
+      checkInEntry({ clientId: 'b', payload: { id: 'ci1', guestId: 'g1', plusOnesArrived: 0, clientTimestamp: 't' } }),
+    ]);
+    const gw: DoorGateway = {
+      ...gatewayReturning(null),
+      insertGuest: async () => ({ error: QUOTA_FULL }),
+      insertCheckIn: async () => ({ error: { code: '23503', message: 'guest does not exist' } }),
+    };
+    const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
+    expect(store.entries[0].status).toBe('error'); // quota-full, terminal
+    expect(store.entries[1].status).toBe('error'); // FK: attempted this same drain, independently terminal
+    expect(summary).toMatchObject({ processed: 2, errors: 2 });
+  });
+
   // C8 — an entry stranded in `syncing` by a mid-drain kill is resumed and replays.
   it('replays a killed-mid-drain entry: resumeStuckEntries → pending → synced (C8)', async () => {
     const store = fakeStore(resumeStuckEntries([checkInEntry({ clientId: 'a', status: 'syncing' })]));

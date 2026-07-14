@@ -23,7 +23,7 @@ import * as Sentry from '@sentry/nextjs';
 import { v7 as uuidv7 } from 'uuid';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
 import { getDeviceId, getDoorClient } from './offline/device';
-import { drainOutbox } from './outbox/replay';
+import { drainOutbox, guestKeyOf } from './outbox/replay';
 import { supabaseGateway } from './outbox/gateway';
 import { outbox } from './outbox/store';
 import type { OutboxEntry } from './outbox/types';
@@ -224,8 +224,7 @@ export function DoorProvider({
   const outboxByGuest = useMemo(() => {
     const map = new Map<string, OutboxEntry[]>();
     for (const e of outboxEntries) {
-      const guestId = e.kind === 'add_guest' ? e.payload.id : 'guestId' in e.payload ? e.payload.guestId : null;
-      if (!guestId) continue;
+      const guestId = guestKeyOf(e);
       const list = map.get(guestId) ?? [];
       list.push(e);
       map.set(guestId, list);
