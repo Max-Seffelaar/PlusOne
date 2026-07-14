@@ -397,7 +397,13 @@ export function ContactProfile({
             door-only viewer (G4) skips all of this — checked first, ahead of
             isContact/restricted, so it applies uniformly regardless of the
             person's contact-link state; the stat strip/events/timeline below
-            already carry what's useful at the door. */}
+            already carry what's useful at the door.
+            Not further role-gated: the CTA is dual-path (86ey9e880) — entering an
+            e-mail/phone routes through the ordinary, ungated guest-update RLS, only
+            saving name-only routes through promote_guest_to_contact (admin/organizer
+            only). Hiding the CTA for staff would kill the still-working e-mail/phone
+            path too (their only edit affordance for a name-only guest); the
+            name-only-specific denial gets a targeted hint instead (profile-sheets.tsx). */}
         {doorOnly ? null : p.isContact ? (
           <>
             <div className="mb-4 flex gap-2">

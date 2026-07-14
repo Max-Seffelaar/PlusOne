@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
+import { INSUFFICIENT_PRIVILEGE_MESSAGE } from '@/lib/db-errors';
 import type { ContactRole } from '@/features/contacts/schemas';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
 import { usePoEvents, usePoTiers, usePoQuota, usePoGuests } from '@/features/po/hooks';
@@ -93,9 +94,19 @@ export function PromoteSheet({
       );
     } else {
       // Name-only: use the SECURITY DEFINER RPC that creates a name-only contact.
+      // Gated to admin/organizer (86ey9e880) — a plain staff/finance/user_manager
+      // viewer hits the generic INSUFFICIENT_PRIVILEGE message here; swap in a
+      // hint pointing at the actual way out (add an e-mail or phone instead,
+      // which routes through the ordinary, ungated guest-update path above).
       promote.mutate(
         { guestId },
-        { onSuccess: onSaved, onError: (e) => setErr(e instanceof Error ? e.message : t.guests.contacts.saveFailed) },
+        {
+          onSuccess: onSaved,
+          onError: (e) => {
+            const message = e instanceof Error ? e.message : t.guests.contacts.saveFailed;
+            setErr(message === INSUFFICIENT_PRIVILEGE_MESSAGE ? t.guests.contactProfile.promoteNoRightsHint : message);
+          },
+        },
       );
     }
   };
