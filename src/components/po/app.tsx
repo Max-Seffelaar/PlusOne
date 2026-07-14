@@ -11,7 +11,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
-import * as Sentry from '@sentry/nextjs';
+import { setTag as sentrySetTag, addBreadcrumb as sentryAddBreadcrumb } from '@/lib/observability/sentry-client';
 import {
   usePoCanManageTemplates,
   usePoDoorCandidates,
@@ -37,7 +37,7 @@ import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
 import { useViewport } from './use-viewport';
 import { EventDaySkeleton } from '@/features/po/eventday/EventDaySkeleton';
 import { Crew, EventEdit, EventView, Events, PastEvent, Tiers } from './screens/events';
-import { BulkPaste, Contacten, ContactProfile, GuestsTab, QuickAdd } from './screens/guests';
+import { BulkPaste, Contacten, ContactProfile, GuestsTab } from './screens/guests';
 import { DoorEventPicker, PoDoorTab, type DoorOverlay } from './screens/door';
 import { Allowance, Billing, Gebruikers, Import, Meer, Profile, Rollen, VenueSettings, VenueSwitch } from './screens/settings';
 import { VenueCreate } from './screens/onboarding';
@@ -101,6 +101,15 @@ const EventDayCockpitGate = dynamic(
   () => import('@/features/po/eventday/EventDayCockpit').then((m) => m.EventDayCockpitGate),
   { loading: () => <EventDaySkeleton />, ssr: false },
 );
+// QuickAdd (#2b): the guest quick-add flow carries the parser + dedupe engine and
+// (via the lazy phone field) the country picker — heavy and only ever reached by
+// tapping "add guest", never on the door-only / common path. Split into its own
+// chunk. Imported from the leaf module (not the guests barrel) so the common
+// GuestsTab chunk doesn't drag it back in.
+const QuickAdd = dynamic(() => import('./screens/guests/quick-add').then((m) => m.QuickAdd), {
+  loading: ScreenLoading,
+  ssr: false,
+});
 
 /** Data-dense screens that opt into the full 1080px desktop column. Forms and
  *  detail-entry screens stay at the narrow reading column (640px). Mobile is
@@ -402,8 +411,8 @@ export function PlusOneApp(): JSX.Element {
   // breadcrumb centrally, from the URL-derived key — every push/tab/back/replace
   // flows through the router, so this fires on every real navigation for free.
   useEffect(() => {
-    Sentry.setTag('po.screen', activeScreenKey);
-    Sentry.addBreadcrumb({ category: 'navigation', message: activeScreenKey, level: 'info' });
+    sentrySetTag('po.screen', activeScreenKey);
+    sentryAddBreadcrumb({ category: 'navigation', message: activeScreenKey, level: 'info' });
   }, [activeScreenKey]);
 
   // Contacts desktop-nav gate (T10). Called here (before any early return) so the

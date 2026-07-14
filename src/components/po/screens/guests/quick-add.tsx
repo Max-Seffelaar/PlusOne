@@ -21,11 +21,9 @@ import { canManageGuests } from '@/features/auth/roles';
 import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import PhoneInput from 'react-phone-number-input/input';
-import { isValidPhoneNumber } from 'react-phone-number-input';
 import { Avatar, Btn, Empty, IconBtn, Label, MiniChip, Top, Scroll } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
-import { CountrySelect, type CountryCode } from '../../country-select';
+import { CountrySelect, PhoneInput, isPhoneValid, type CountryCode } from '../../phone-lazy';
 import { AddTierInline, DupeOption, NoTiersBlock, press, col } from './_shared';
 
 // ── QUICK-ADD (#33) ──────────────────────────────────────────────────────────
@@ -258,7 +256,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const commit = async (): Promise<void> => {
     if (!canSubmit || !effTier || committingRef.current) return;
     const phoneVal = parsed?.phone ?? contactPhone ?? undefined;
-    if (phoneVal && !isValidPhoneNumber(phoneVal)) {
+    if (phoneVal && !(await isPhoneValid(phoneVal))) {
       setContactPhoneErr(t.guests.add.contactPhoneError);
       return;
     }

@@ -8,13 +8,11 @@
  *  Phone is collected WITH a country code (E.164); e-mail + phone get inline
  *  validation; a marketing opt-in box records AVG consent. */
 import { useState, useTransition, type ReactNode } from 'react';
-import PhoneInput from 'react-phone-number-input/input';
-import { isValidPhoneNumber } from 'react-phone-number-input';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import type { SubmitGuestRequestInput } from '@/features/requests/schemas';
 import { isValidEmail } from '@/features/requests/validation';
-import { CountrySelect, type CountryCode } from './country-select';
+import { CountrySelect, PhoneInput, isPhoneValid, type CountryCode } from './phone-lazy';
 import { Icon, type IconName } from './icon';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.985]';
@@ -295,15 +293,16 @@ export function LandingForm({
 
     // Inline validation: e-mail (if given) and phone. libphonenumber validates
     // the number per the selected country (E.164); a wrong/incomplete one is
-    // caught here before submit.
+    // caught here before submit. The phone check is async — its metadata lives in
+    // the lazy phone chunk (#B4) — so it runs inside the transition.
     const eErr = email.trim() && !isValidEmail(email) ? t.landing.emailError : null;
-    const pErr =
-      phone && !isValidPhoneNumber(phone) ? t.landing.phoneError : null;
-    setEmailErr(eErr);
-    setPhoneErr(pErr);
-    if (eErr || pErr) return;
 
     startTransition(async () => {
+      const pErr = phone && !(await isPhoneValid(phone)) ? t.landing.phoneError : null;
+      setEmailErr(eErr);
+      setPhoneErr(pErr);
+      if (eErr || pErr) return;
+
       const res = await action({
         slug,
         fullName: name.trim(),

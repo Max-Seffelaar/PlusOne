@@ -1,4 +1,4 @@
-import * as Sentry from '@sentry/nextjs';
+import { captureException } from './sentry-client';
 
 /** Errors that are expected operating conditions — never report. */
 function isExpected(error: unknown): boolean {
@@ -19,7 +19,7 @@ export function captureUnexpectedError(
   context: { source: 'query' | 'mutation'; key?: string },
 ): void {
   if (isExpected(error)) return;
-  Sentry.captureException(error, {
+  captureException(error, {
     tags: { capture_source: context.source },
     // Only the key NAMESPACE (queryKey[0]) — full keys can contain search terms.
     extra: context.key ? { key: context.key } : undefined,

@@ -19,7 +19,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import * as Sentry from '@sentry/nextjs';
+import { setUser as sentrySetUser, setTag as sentrySetTag } from '@/lib/observability/sentry-client';
 import { v7 as uuidv7 } from 'uuid';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
 import { addOnSpotSchema } from '@/features/guests/schemas';
@@ -198,8 +198,8 @@ export function DoorProvider({
   const doorVenueId = snapshot?.event.venueId ?? null;
   useEffect(() => {
     if (!meId) return;
-    Sentry.setUser({ id: meId });
-    Sentry.setTag('venue.id', doorVenueId ?? 'none');
+    sentrySetUser({ id: meId });
+    sentrySetTag('venue.id', doorVenueId ?? 'none');
   }, [meId, doorVenueId]);
 
   // ── D3: build view + guest lookup map in one pass (O(1) guestById vs O(n) find).

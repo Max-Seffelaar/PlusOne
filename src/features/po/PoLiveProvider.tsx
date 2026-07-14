@@ -6,7 +6,7 @@
 // own offline/outbox QueryClient (DoorProvider) and we never duplicate it (#25).
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import * as Sentry from '@sentry/nextjs';
+import { setUser as sentrySetUser, setTag as sentrySetTag } from '@/lib/observability/sentry-client';
 import { captureUnexpectedError } from '@/lib/observability/capture';
 import type { VenueRole } from '@/features/auth/roles';
 
@@ -66,10 +66,10 @@ export function PoLiveProvider({
   // are NOT guest PII (the guest is never the signed-in user); email/ip are never
   // set (AVG). Cleared on unmount so a logout doesn't leak identity into the next.
   useEffect(() => {
-    Sentry.setUser({ id: identity.userId });
-    Sentry.setTag('venue.id', identity.venueId ?? 'none');
-    Sentry.setTag('roles', identity.roles.join(','));
-    return () => Sentry.setUser(null);
+    sentrySetUser({ id: identity.userId });
+    sentrySetTag('venue.id', identity.venueId ?? 'none');
+    sentrySetTag('roles', identity.roles.join(','));
+    return () => sentrySetUser(null);
   }, [identity.userId, identity.venueId, identity.roles]);
 
   return (

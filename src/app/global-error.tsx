@@ -4,7 +4,7 @@
 // when that itself crashes) and deliberately shows NO error.message — it can
 // carry guest PII. Inline styles: global CSS is gone once the root layout is
 // down. Dark theme per the design tokens (#0B0B0D).
-import * as Sentry from '@sentry/nextjs';
+import { captureException } from '@/lib/observability/sentry-client';
 import { useEffect } from 'react';
 
 export default function GlobalError({
@@ -15,7 +15,7 @@ export default function GlobalError({
   reset: () => void;
 }): JSX.Element {
   useEffect(() => {
-    Sentry.captureException(error);
+    captureException(error);
   }, [error]);
 
   return (

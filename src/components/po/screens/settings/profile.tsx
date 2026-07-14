@@ -8,20 +8,12 @@ import { usePoProfile, usePoSessions } from '@/features/po/hooks';
 import { usePoUpdateProfile, usePoUpdateEmail, usePoRevokeOwnSession } from '@/features/po/mutations';
 import { groupPoSessions } from '@/features/po/adapters';
 import { PoMfaSheet } from '../../mfa-gate';
-import PhoneInput from 'react-phone-number-input/input';
-import { parsePhoneNumber } from 'react-phone-number-input';
 import { useNav } from '../../context';
 import { Icon, type IconName } from '../../icon';
 import { Avatar, Btn, Empty, Field, Label, Loading, MiniChip, Note, Scroll, Top, press } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
-import { CountrySelect, type CountryCode } from '../../country-select';
+import { CountrySelect, PhoneInput, phoneCountryOf, type CountryCode } from '../../phone-lazy';
 import { col, FormError, signOutDevice } from './_shared';
-
-export function countryFromE164(phone: string | null | undefined): CountryCode {
-  if (!phone) return 'NL';
-  try { return (parsePhoneNumber(phone)?.country as CountryCode | undefined) ?? 'NL'; }
-  catch { return 'NL'; }
-}
 
 // MFA row in the profile's security card (S4.3). MFA is OPTIONAL for every role
 // (#20 refinement 2026-07-02): anyone can enable it (reusing the enroll step from
@@ -167,7 +159,9 @@ export function Profile(): JSX.Element {
       setFirstName(p.firstName);
       setLastName(p.lastName);
       setPhone(p.phone || undefined);
-      setPhoneCountry(countryFromE164(p.phone));
+      void phoneCountryOf(p.phone).then((c) => {
+        if (c) setPhoneCountry(c);
+      });
       setEmail(p.email);
       setLoaded(true);
     }
