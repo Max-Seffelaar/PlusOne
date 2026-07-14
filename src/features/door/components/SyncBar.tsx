@@ -9,13 +9,14 @@
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { Icon } from '@/components/po/icon';
-import { useDoor } from '../DoorProvider';
+import { useDoor, useDoorSyncStatus } from '../DoorProvider';
 
 const STATUS_COLOR = { live: '#4FD1A1', stale: '#E8C98A', warn: '#E5704F' } as const;
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.94]';
 
 export function SyncBar(): JSX.Element {
-  const { sync, pendingCount } = useDoor();
+  const { pendingCount } = useDoor();
+  const sync = useDoorSyncStatus();
   const color = STATUS_COLOR[sync.status];
 
   const label =

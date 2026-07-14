@@ -54,6 +54,139 @@ is welcome but not a mandated gate per the high-risk list.
 
 ---
 
+## 2026-07-14 — DoorContext re-rendering on every sync tick (86ey9e8gf)
+
+DONE + merged to main, PR #225 (`fix/86ey9e8gf-doorcontext-sync-memo`). Adversarially
+CONFIRMED finding from the perf/scale review batch (86ey9e8xx).
+
+- **Root cause.** `useDoorSync()` returned a fresh object literal on every render regardless
+  of whether its own reactive state (`online`/`realtimeConnected`/`lastSyncAt`/`now`/`syncing`)
+  actually changed — no `useMemo`. That busted `DoorProvider`'s `value` useMemo (`sync` was
+  always a new reference), so every `useDoor()` consumer re-rendered on the 15s age-label tick
+  and on every sync flush's `syncing` true/false toggle — confirmed ≥8×/min idle, 3-5× per
+  check-in.
+- **Fix.** (1) Wrapped `useDoorSync`'s return in `useMemo` so its identity is stable when
+  nothing it derives from changed. (2) Split `sync` out of the broad `DoorContext` into a
+  narrow `DoorSyncContext` — `SyncBar` is the only real consumer of that field (verified
+  `AddOnSpot`/`Taken`/`GuestDetail`/`CheckInList` never read it), so the tick/syncing-toggle no
+  longer re-renders the check-in list's ~20-28 virtual rows, `GuestDetail`, `Taken`, or
+  `AddOnSpot`.
+- Files: `src/features/door/DoorProvider.tsx`, `src/features/door/sync/useDoorSync.ts`,
+  `src/features/door/components/SyncBar.tsx`. No migration.
+- Tested by Max on the live door flow (10/10 on the per-screen handoff: Deur opens, sync-bar
+  status/refresh, check-in/void/undo, idle sync-label keeps updating, screen stays visually
+  still outside the sync-bar).
+- **Gotcha found during testing, tracked separately (86ey9tq62):** checking a guest in
+  sometimes leaves the GuestDetail overlay open instead of auto-returning to the check-in
+  list, and "Back" can land somewhere unexpected. Traced `closeOverlay()`/`router.back()` in
+  `src/components/po/app.tsx` line by line — confirmed `router.back()` is literally
+  `window.history.back()` in the installed Next.js version (no internal position tracking to
+  desync), and found no bug in the code as written. Live reproduction was blocked by the
+  shared local Supabase stack being touched by other concurrent sessions in the same review
+  batch (auth bouncing to onboarding, preview browser losing interactivity). Strong suspicion
+  it's a symptom of 86ey9e8pm (`PlusOneApp` remounts fully on every navigation, confirmed in
+  that task) rather than a bug in the door-overlay logic itself — the doubled full-snapshot
+  request bursts seen in Max's repro screenshot match "DoorProvider remounted and refetched
+  everything" rather than a normal delta-sync. Left unfixed pending 86ey9e8pm; narrow-fix
+  branch `fix/86ey9tq62-door-overlay-back-nav` has no commits.
+
+---
+
+## 2026-07-14 — Home's event poll was unbounded, growing with venue age (86ey9e8gt)
+
+DONE, merged to main, tested by Max (door@ confirmed real counts). Perf
+finding, adversarial CONFIRMED (R2). Discussed with Max before building: he proposed
+(1) stop polling old past events and (2) poll counts-only + manual refresh for new
+events. Landed (1) — windowing already fixes the query-cost-grows-with-venue-age bug
+that (2) was also trying to solve — and skipped (2) since `venue_event_headcounts` was
+already counts-only (the unbounded cost was in the ROW COUNT of the aggregate, not in
+fetching full guest rows), and the manual-refresh trade-off wasn't worth it once the
+row count itself is bounded.
+
+- **Root cause.** `usePoHomeEvents` (`src/features/po/hooks.ts`) polls every 10s via
+  `fetchEvents` + `fetchEventHeadcounts`, neither of which had a date window — every
+  poll re-scanned the venue's ENTIRE event history (400-1000 events after months),
+  even though the Home board only ever displays recent-past (7 days, `PAST_WINDOW_MS`
+  in `screens/home.tsx`) + upcoming events. `venue_event_headcounts` (the aggregate
+  RPC) has no join to `events`, so it returned one row per historical event too.
+- **Fix.** `venue_event_headcounts` gets an optional `p_since timestamptz` cutoff
+  (migration `20260714171523_venue_event_headcounts_since_window.sql`, default null =
+  unbounded — every other caller, incl. the Events tab's "Past" view, is unaffected).
+  `fetchEvents` gets a matching optional `sinceIso` → `.gte('starts_at', sinceIso)`.
+  `usePoHomeEvents` and `usePoDoorEvent` (same unbounded call, same file, no new
+  design decision) now pass a shared `RECENT_EVENTS_WINDOW_MS` (7 days) cutoff;
+  `home.tsx`'s own `PAST_WINDOW_MS` now imports that same constant instead of
+  duplicating the number, so the query window and the display window can't drift.
+- **Gotcha — migration timestamp collision on the shared local stack.** Picked
+  `20260714160000` first (checked clean against `origin/main`), but the SHARED local
+  Supabase stack (dozens of concurrent worktree sessions right now) already had a
+  *different* migration applied at that exact version from another session —
+  `supabase migration up` silently no-op'd it (matches by version number, not
+  content), so my file never actually ran until I noticed the DB still had the old
+  function signature and renamed to a less-guessable `20260714171523`. A full local
+  `supabase test db` run also came back polluted (unrelated committed rows from other
+  concurrent sessions inflating seed counts) — not a signal about this PR; the
+  isolated single-file pgTAP run (37/37, incl. 2 new `p_since` cases) and CI's clean
+  reset are the real gates here, not this shared dev DB's ambient state.
+- **Gotcha — preview-tool couldn't visually verify.** The headless preview browser
+  never fires `requestAnimationFrame`, which is what React's streaming-SSR Suspense
+  reveal (`$RC`/`$RV`) depends on to un-hide server-rendered content — every po screen
+  in this environment loads fully server-rendered but stays invisible forever. Forcing
+  the reveal manually (`window.$RV(window.$RB)`) proved it's a pure visual/hydration-
+  timing artifact, not a data problem — but no client-side query ever actually mounted
+  in that session either (confirmed via a `window.fetch` monkey-patch: zero calls to
+  the local Supabase REST endpoint across a full 10s poll interval), so live in-browser
+  verification of the poll itself wasn´t possible this session. Verified instead via
+  pgTAP + a direct `psql` smoke test of the windowed RPC against real seed data + the
+  full po vitest suite (147/147) + a clean `tsc --noEmit` + lint.
+- **Not high-risk** per CLAUDE.md's review-gate definition (no RLS policy, no trigger,
+  no `SECURITY DEFINER`, no `service_role`) — CI is the floor, no mandatory fresh-session
+  review before merge.
+- **First test round used the wrong seed user:** pointed Max at `manager@`
+  (`user_manager`) to eyeball Home — that role has zero guest-read rights by design
+  (`GUEST_READ_ROLES` in `src/features/auth/roles.ts`, M9/K-7: a "—" is correct there,
+  not a bug), so it looked like guests had vanished. Re-tested as `door@` and counts
+  showed correctly.
+
+---
+
+## 2026-07-14 — Request-link-max trigger missing the same concurrency lock as quota/capacity/tier-max (86ey9p8zh)
+
+DONE + merged to main, PR #224 (`claude/86ey9p8zh-request-link-trigger-lock`). CONFIRMED
+follow-up filed by PR #216 (86ey9e8ar) itself — "same unlocked-recompute shape, out of scope
+there". Touches a trigger + `SECURITY DEFINER` function → fresh-session `/code-review` +
+`/security-review` run before merge; verdict **ship it**, zero real defects (7/7 adversarial
+refuters held on an 8-agent panel, plus a live-DB break-script: 5/6/10-way floods, multi-slot
+`plus_ones`, and the `UPDATE` net-increase path CI doesn't cover all landed exactly at the cap).
+
+- **Root cause.** `enforce_request_link_max()` (SQLSTATE 45006,
+  `supabase/migrations/20260706101000_request_link_attribution.sql`) recomputed
+  `request_link_consumption()` via a plain `SELECT` in an AFTER trigger under READ COMMITTED
+  with no row lock — the identical gap 86ey9e8ar fixed for personal quota/tier-max/event
+  capacity. Two concurrent adds through the same request link (two door sessions, or two
+  offline-outbox replays both attributing to the same influencer link) could each pass and
+  silently exceed `max_headcount`.
+- **Fix.** New migration `20260714160000_request_link_trigger_locking.sql`, `CREATE OR REPLACE`
+  on the existing function, adding `pg_advisory_xact_lock(4, hashtext(request_link_id::text))`
+  as the fourth contention domain (alongside 86ey9e8ar's 1/2/3), taken only on the net-increase
+  branch. No schema change, no app-code change (`request_link_id` is only ever set single-row
+  via `approve_guest_request`/`submit_guest_request`, never through `addGuestsBulk`, so the
+  40P01 deadlock-retry #216 needed doesn't apply here).
+- **Test.** Extended `scripts/quota-trigger-concurrency-test.mjs` with a fourth cross-connection
+  race (45006) rather than a new pgTAP file — same reasoning as 86ey9e8ar (needs two genuinely
+  racing connections, which one pgTAP transaction can't produce). `supabase db reset` clean,
+  `supabase test db` 52 files/1003 pgTAP green, `pnpm db:test:concurrency` 4/4 domains PASS,
+  lint clean, vitest 819/820 (1 unrelated `stripe-webhook.test.ts` timeout flake, confirmed
+  passing in isolation).
+- **Review found two pre-existing, out-of-scope, low-severity gaps** in the *original*
+  20260706101000 migration (not introduced by this PR) — filed as its own task, 86ey9thm6:
+  (1) the 45006 error's numeric hint leaks another venue's link consumption/max if a staffer
+  cross-attributes to a link outside their own event (no event/venue match in the lookup);
+  (2) a theoretical multi-link raw-insert deadlock, unreachable via any shipped path and
+  fail-safe regardless.
+
+---
+
 ## 2026-07-14 — Home "Lock" button was a decoy (86ey9e8de)
 
 DONE, PR [#228](https://github.com/Max-Seffelaar/PlusOne/pull/228), not yet merged.
@@ -93,6 +226,53 @@ the floor here.
   the pre-hydration shell indefinitely (not just slowly). Unstick with
   `window.$RV(window.$RB)` in `preview_eval` if `document.hidden` is true and content
   never appears after a normal wait.
+
+---
+
+## 2026-07-14 — Cockpit realtime invalidation fanned out ~20 requests/check-in (86ey9e8fe)
+
+DONE + merged to main. PR #226 (`fix/86ey9e8fe-cockpit-realtime-invalidation-fanout`).
+Not a high-risk surface (no RLS/triggers/service_role/auth/webhook/door-outbox) — CI
+(`lint-and-test`) was the gate, plus a fresh 5-angle `/code-review` pass run before
+merge as extra confidence on a check-in-path perf change.
+
+- **Root cause.** `usePoEventRealtime`'s realtime channel fired its full 6-key
+  invalidation cascade (guests/tiers/arrivals/eventStats/venue-guests/eventDetail)
+  once per `postgres_changes` event — a single check-in touches both `guests`
+  (status flip) and `check_ins` (insert), so that's 2 cascades per check-in on its
+  own. On top of that, each check-in mutation's `onSettled` re-invalidated
+  `guests`/`arrivals` right after `onMutate` had already patched them optimistically
+  to the exact post-mutation shape — re-downloading data that was already correct.
+  `usePoCheckinArrivals` also returned a fresh `Map` on every fetch, defeating React
+  Query's structural sharing and invalidating the `tiles`/`tierRows`/
+  `CockpitGuestList` memos downstream even when nothing had changed.
+- **Fix.**
+  - `usePoEventRealtime`'s invalidate is now throttled (leading+trailing, 500ms) —
+    a door-rush burst collapses into at most 2 cascades instead of one per event.
+  - Check-in mutations no longer invalidate `guests`/`arrivals` (optimistic patch
+    already correct); `tiers`/`eventStats`/`VENUE_GUESTS_PREFIX` still invalidate on
+    `onSettled` — see review gotcha below for why `onSuccess` was wrong here.
+  - `usePoCheckinArrivals` gets a content-aware `structuralSharing` comparator
+    (`arrivalsEqual`) so an unchanged refetch keeps the old `Map` reference.
+  - Added an opt-in 60s `refetchInterval` safety poll on the cockpit's 4 live
+    queries, matching the "optimistic patch + realtime + 60s safety sync" scale rule.
+- **Review gotcha.** The first pass changed the check-in mutations' `onSettled` to
+  `onSuccess` and dropped `VENUE_GUESTS_PREFIX` from the derived-invalidation helper
+  entirely — both looked like reasonable trims but a 5-angle review (3 independent
+  agents, same finding from different angles) caught that this regressed real
+  behavior: `onSuccess` skips reconciliation on a failed mutation (e.g. a revive that
+  fails after a peer's write already landed), and dropping `VENUE_GUESTS_PREFIX` made
+  the acting device's own venue-wide Guests-tab freshness depend entirely on the
+  throttled realtime echo with no poll fallback outside the cockpit screen. Reverted
+  to `onSettled` + restored `VENUE_GUESTS_PREFIX` in the same PR before merge — worth
+  remembering that "this cache key looks now-redundant" needs checking against BOTH
+  the success path and the error/no-realtime path before removing it.
+- **Test-list gotcha.** One test-handoff item ("does the KPI chart update after a
+  check-in") was checked with the doorhost seed account and reported as "the whole
+  card vanished" — false alarm: the KPI/arrivals card is gated behind `canSeeStats`
+  (admin, this event's organizer, or finance), which doorhost never satisfies. Not
+  touched by this PR at all; worth being explicit about required role per test-list
+  item when a screen has per-role visibility gates, not just per-role write gates.
 
 ---
 

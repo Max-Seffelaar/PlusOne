@@ -20,13 +20,21 @@ import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
-import { usePoHomeEvents, usePoGuestRequests, usePoQuotaRequests, usePoProfile, useBillingBlocked, usePoCanManageTemplates } from '@/features/po/hooks';
+import {
+  usePoHomeEvents,
+  usePoGuestRequests,
+  usePoQuotaRequests,
+  usePoProfile,
+  useBillingBlocked,
+  usePoCanManageTemplates,
+  RECENT_EVENTS_WINDOW_MS,
+} from '@/features/po/hooks';
 import { usePoSetListLockOnHome } from '@/features/po/mutations';
 import { isOpenGuestRequest } from '@/features/po/adapters';
 import { canManageGuests, canSeeGuestCounts, canSeeRequestInbox, canSeeOwnRequests, canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '../context';
 import { Icon, type IconName } from '../icon';
-import { Btn, Note, Scroll, press } from '../kit';
+import { Btn, Empty, Note, Scroll, press } from '../kit';
 import { Sheet, Toast } from '../shell';
 import { PendingInvitesBanner } from '../pending-invites-banner';
 import { EventRow, StatusChip, toBoardEvents, type BoardEvent } from '../event-row';
@@ -35,8 +43,10 @@ const TZ = 'Europe/Amsterdam';
 const PAGE_SIZE = 7;
 // Home's past section is a recency pulse, not history (M11): anything older than
 // a week only lives under Events → Past. Older events are still fully editable —
-// this only trims what surfaces on the board.
-const PAST_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+// this only trims what surfaces on the board. Shared with usePoHomeEvents's own
+// query window (86ey9e8gt) so the display cutoff and the fetch cutoff can't drift
+// apart — the query already only fetches what this constant will keep.
+const PAST_WINDOW_MS = RECENT_EVENTS_WINDOW_MS;
 
 /** Current hour in the product TZ (#26) — stable across SSR/CSR. */
 function amsterdamHour(): number {
@@ -540,7 +550,12 @@ export function Home(): JSX.Element {
     );
   };
 
-  const loading = eventsQ.isLoading;
+  const loading = eventsQ.isLoading || guestReqQ.isLoading || quotaReqQ.isLoading;
+  // Outage must reach the screen, not render as a plausible "no events yet"
+  // empty state (86ey9e8e7) — the board's three source queries all throw on a
+  // real DB/network/RLS error now, so isError reliably distinguishes that from
+  // a genuinely empty (or out-of-scope) result.
+  const isError = eventsQ.isError || guestReqQ.isError || quotaReqQ.isError;
 
   return (
     <div className="flex h-full flex-col">
@@ -661,7 +676,7 @@ export function Home(): JSX.Element {
               <h2 className="font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">
                 {t.home.upcomingEventsHeading}
               </h2>
-              {!loading && (
+              {!loading && !isError && (
                 <span className="text-[12.5px] text-faint">
                   {list.length} {filtersActive ? t.home.countFound : t.home.countTotal}
                 </span>
@@ -677,6 +692,8 @@ export function Home(): JSX.Element {
                   <Skeleton key={i} />
                 ))}
               </div>
+            ) : isError ? (
+              <Empty text={t.home.loadError} />
             ) : list.length === 0 ? (
               <EmptyBoard
                 filtered={filtersActive}

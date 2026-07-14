@@ -14,7 +14,7 @@
  *
  * Callbacks are kept in refs so connectivity/timer effects never re-subscribe.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import { getDoorClient } from '../offline/device';
@@ -187,13 +187,20 @@ export function useDoorSync({ eventId, onSync, onRealtimeCheckIn, onRealtimeGues
     };
   }, [eventId]);
 
-  return {
-    status: deriveSyncStatus({ online, realtimeConnected, lastSyncAt, now }),
-    ageLabel: syncAgeLabel(lastSyncAt, now),
-    online,
-    realtimeConnected,
-    syncing,
-    lastSyncAt,
-    forceSync: runSync,
-  };
+  // Memoized so the returned object's identity only changes when one of its
+  // own reactive values does — otherwise every DoorProvider render (triggered
+  // by unrelated state elsewhere in the provider) produced a fresh object
+  // literal, busting the DoorContext value-memo for every consumer (86ey9e8gf).
+  return useMemo<DoorSyncState>(
+    () => ({
+      status: deriveSyncStatus({ online, realtimeConnected, lastSyncAt, now }),
+      ageLabel: syncAgeLabel(lastSyncAt, now),
+      online,
+      realtimeConnected,
+      syncing,
+      lastSyncAt,
+      forceSync: runSync,
+    }),
+    [online, realtimeConnected, lastSyncAt, now, syncing, runSync],
+  );
 }

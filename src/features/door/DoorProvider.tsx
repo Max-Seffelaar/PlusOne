@@ -82,7 +82,6 @@ interface DoorContextValue {
   /** Effective "uitchecken toestaan" for this event (#3 / S1.1). When false the
    *  screens hide the "Check-in terugdraaien" affordance; RLS rejects it too. */
   allowUncheck: boolean;
-  sync: DoorSyncState;
   toast: string | null;
   /** Entries for this event still awaiting the network (sync-bar queue badge). */
   pendingCount: number;
@@ -114,6 +113,19 @@ const DoorContext = createContext<DoorContextValue | null>(null);
 export function useDoor(): DoorContextValue {
   const v = useContext(DoorContext);
   if (!v) throw new Error('useDoor must be used within DoorProvider');
+  return v;
+}
+
+// Split off from DoorContextValue (86ey9e8gf): `sync` ticks every 15s and on
+// every flush (syncing true/false), but SyncBar is its only consumer. Bundling
+// it into the broad context meant that tick re-rendered CheckInList's ~20-28
+// virtual rows, GuestDetail, Taken and AddOnSpot for no reason — none of them
+// read it.
+const DoorSyncContext = createContext<DoorSyncState | null>(null);
+
+export function useDoorSyncStatus(): DoorSyncState {
+  const v = useContext(DoorSyncContext);
+  if (!v) throw new Error('useDoorSyncStatus must be used within DoorProvider');
   return v;
 }
 
@@ -604,7 +616,6 @@ export function DoorProvider({
       quota: quotaQuery.data ?? null,
       defaultTierId,
       allowUncheck: view?.event.allowUncheck ?? true,
-      sync,
       toast,
       pendingCount,
       outboxByGuest,
@@ -620,8 +631,12 @@ export function DoorProvider({
       addOnSpot,
       ackNote,
     }),
-    [eventId, view, tasks, quotaQuery.data, defaultTierId, sync, toast, pendingCount, outboxByGuest, listFilters, setListFilters, guestById, checkIn, topUp, voidCheckIn, reviveCheckIn, refuse, undoRefusal, addOnSpot, ackNote],
+    [eventId, view, tasks, quotaQuery.data, defaultTierId, toast, pendingCount, outboxByGuest, listFilters, setListFilters, guestById, checkIn, topUp, voidCheckIn, reviveCheckIn, refuse, undoRefusal, addOnSpot, ackNote],
   );
 
-  return <DoorContext.Provider value={value}>{children}</DoorContext.Provider>;
+  return (
+    <DoorContext.Provider value={value}>
+      <DoorSyncContext.Provider value={sync}>{children}</DoorSyncContext.Provider>
+    </DoorContext.Provider>
+  );
 }

@@ -1978,7 +1978,7 @@ export type Database = {
       }
       uuid_generate_v7: { Args: never; Returns: string }
       venue_event_headcounts: {
-        Args: { p_venue_id: string }
+        Args: { p_since?: string; p_venue_id: string }
         Returns: {
           event_id: string
           present: number
