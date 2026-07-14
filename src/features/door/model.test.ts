@@ -20,29 +20,22 @@ function tier(over: Partial<TierRow> = {}): TierRow {
   };
 }
 
+// Narrow door snapshot row (P-IDB7) — only the door-rendered columns.
 function guest(over: Partial<GuestRow> = {}): GuestRow {
   return {
     id: 'g1',
     event_id: 'ev1',
-    venue_id: 'v1',
     tier_id: 't-reg',
     full_name: 'Tess Bakker',
-    email: null,
     phone: null,
-    contact_id: null,
     plus_ones: 0,
     note: null,
     note_priority: 'none',
     note_acknowledged_by: null,
     note_acknowledged_at: null,
     added_by: 'u-max',
-    source: 'app',
     status: 'approved',
-    request_link_id: null,
-    anonymized_at: null,
-    removed_at: null,
     created_at: '2026-06-10T12:00:00Z',
-    updated_at: '2026-06-10T12:00:00Z',
     ...over,
   };
 }

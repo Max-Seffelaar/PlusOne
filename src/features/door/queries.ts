@@ -14,7 +14,71 @@ import type { Database } from '@/lib/database.types';
 import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
 import { fetchAllRanged } from '@/lib/supabase/paging';
 
-export type GuestRow = Database['public']['Tables']['guests']['Row'];
+/** FULL guests row — the shape a realtime payload or a server row arrives in,
+ *  before it is projected to the narrow snapshot shape below (P-IDB7). */
+export type GuestRowFull = Database['public']['Tables']['guests']['Row'];
+
+/**
+ * The door snapshot's guest row: DELIBERATELY narrower than the full guests row
+ * (P-IDB7). Exactly the columns model.ts renders + the realtime event guard.
+ *
+ * Dropped on purpose:
+ *  - `email` — the door never shows it; keeping no unshown guest PII in
+ *    IndexedDB on shared door phones is an AVG requirement, and it is the
+ *    biggest single-column payload win.
+ *  - `contact_id / source / request_link_id / updated_at / removed_at /
+ *    anonymized_at / venue_id` — no door code reads any of these off a guest row
+ *    (optimistic check_in/refusal rows use event.venueId, not guest.venue_id).
+ *
+ * `phone` STAYS: the door renders the last 4 digits (#27), so it is shown PII,
+ * not hidden PII.
+ */
+export type GuestRow = Pick<
+  GuestRowFull,
+  | 'id'
+  | 'event_id'
+  | 'full_name'
+  | 'phone'
+  | 'plus_ones'
+  | 'tier_id'
+  | 'status'
+  | 'note'
+  | 'note_priority'
+  | 'note_acknowledged_at'
+  | 'note_acknowledged_by'
+  | 'added_by'
+  | 'created_at'
+>;
+
+/** PostgREST column list for the door guest select — the SINGLE source used by
+ *  the live `fetchDoorSnapshot` read (below), so the drift-guard test that pins
+ *  this to the `GuestRow`/`projectDoorGuest` keys actually protects the primary
+ *  IndexedDB writer, not a bystander constant. `as const` keeps the typed client's
+ *  column validation + narrow row inference (a fake column fails `tsc`; adding a
+ *  real one like `email` fails the drift test). MUST stay in sync with `GuestRow`. */
+export const DOOR_GUEST_SELECT =
+  'id, event_id, full_name, phone, plus_ones, tier_id, status, note, note_priority, note_acknowledged_at, note_acknowledged_by, added_by, created_at' as const;
+
+/** Project a full guests row (realtime payload / server row) down to the narrow
+ *  snapshot shape, so unshown PII (email, …) never reaches IndexedDB (P-IDB7). */
+export function projectDoorGuest(row: GuestRowFull): GuestRow {
+  return {
+    id: row.id,
+    event_id: row.event_id,
+    full_name: row.full_name,
+    phone: row.phone,
+    plus_ones: row.plus_ones,
+    tier_id: row.tier_id,
+    status: row.status,
+    note: row.note,
+    note_priority: row.note_priority,
+    note_acknowledged_at: row.note_acknowledged_at,
+    note_acknowledged_by: row.note_acknowledged_by,
+    added_by: row.added_by,
+    created_at: row.created_at,
+  };
+}
+
 export type TierRow = Database['public']['Tables']['guest_tiers']['Row'];
 export type CheckInRow = Database['public']['Tables']['check_ins']['Row'];
 export type RefusalRow = Database['public']['Tables']['refusals']['Row'];
@@ -94,8 +158,12 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
       client
         // Refused guests are fetched too so the door can show a "Geweigerd" lijst
         // and offer "ongedaan maken"; buildDoorView splits them out by status.
+        // Narrow projection (NOT select('*')) — only the door-rendered columns;
+        // keeps unshown PII out of IndexedDB and ~a third off the payload (P-IDB7).
+        // Uses the shared DOOR_GUEST_SELECT so the drift-guard test covers THIS
+        // read (the primary IndexedDB writer), not just an unused constant.
         .from('guests')
-        .select('*')
+        .select(DOOR_GUEST_SELECT)
         .eq('event_id', eventId)
         .in('status', ['approved', 'checked_in', 'refused'])
         .order('full_name')

@@ -8,6 +8,44 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-13 — Persisted door-cache never evicted → "app wordt trager" (86ey9e86f)
+
+CONFIRMED root cause of the reported growth-slowdown that also hits prod. Three coupled
+defects in the door's IndexedDB persistence, one PR (all touch the same persisted cache).
+Branch `perf/door-cache-evict-86ey9e86f`. High-risk surface (door outbox/realtime) →
+fresh-session `/code-review` before merge; live door check waiting on Max (handoff on the PR).
+
+- **P-IDB1 — never-evicting cache.** `DoorQueryProvider` had no `dehydrateOptions`, so the
+  whole client (every `['door', eventId]` + `['door-quota', eventId]` ever opened) was
+  re-persisted with a fresh top-level timestamp on every boot → the client-level `maxAge`
+  and 1-week `gcTime` never fired; 30+ month-old snapshots rode along forever. Fix: a per-
+  query recency gate (`src/features/door/offline/dehydrate.ts` — `shouldDehydrateDoorQuery`)
+  persists only door queries whose own `dataUpdatedAt` is within `maxAge`; an `onSuccess`
+  boot-sweep (`isStaleDoorQuery`) removes stale, **unobserved** door queries from memory.
+  Recency (not "single active event") is deliberate: the provider is a generic wrapper that
+  doesn't know the active eventId, and an observer-count gate would drop the offline
+  snapshot the moment the Deur tab unmounts (breaks #25). Buster bumped `v1`→`v2`.
+- **P-IDB2 — whole-cache write per mutation (worse than filed).** `persistQueryClientSubscribe`
+  fires on *every* cache event and does not throttle, and our custom `createIdbPersister`
+  didn't either → a full `dehydrate()` + IDB write per check-in/realtime patch on the main
+  thread. Fix: a trailing throttle in the persister (`PERSIST_THROTTLE_MS = 2000`, keep only
+  the latest client; `removeClient` cancels a queued write so a discarded/sign-out-cleared
+  cache can't be resurrected). Outbox durability is unaffected — it lives under a separate
+  IDB key (`door-outbox`).
+- **P-IDB7 — `select('*')` + unshown PII.** The snapshot pulled all 21 guest columns. Fix:
+  narrow `GuestRow` to the 13 door-rendered columns (`queries.ts`), project the `select`, the
+  realtime `payload.new` (`projectDoorGuest`, so a realtime row can't reintroduce PII), and
+  the `addOnSpot` optimistic row. `email` (+ contact_id/source/request_link_id/updated_at/
+  removed_at/anonymized_at/venue_id) leaves IndexedDB; `phone` stays (the door shows last-4,
+  #27). No door code reads the dropped columns off a guest row; the gateway insert type is
+  separate and untouched.
+- **Measured (representative rows):** guest row 667→411 B (38% smaller); total blob 2.88 MB
+  (30 events, unbounded) → 0.41 MB (≤7 events, week-bounded, stale evicted); boot-restore
+  parse proxy 6.25→0.95 ms; rush writes ~50+ → ~5 (~10× fewer).
+- **Tests:** +16 (`offline/dehydrate.test.ts` 9, `offline/persister.test.ts` 3 fake-timer
+  throttle, `queries.test.ts` 4 projection/select-sync); `model.test.ts` fixture narrowed.
+  Door suite 100 green, full Vitest 773 green, `tsc --noEmit` clean, lint clean.
+
 ## 2026-07-13 — Client-settable `comped` RPC bypass closed (86ey9e851)
 
 Adversarial review (S3) confirmed a duplicate-review finding: `create_venue_with_owner`
