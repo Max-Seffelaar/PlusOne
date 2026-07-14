@@ -8,6 +8,44 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-14 — DoorContext re-rendering on every sync tick (86ey9e8gf)
+
+DONE + merged to main, PR #225 (`fix/86ey9e8gf-doorcontext-sync-memo`). Adversarially
+CONFIRMED finding from the perf/scale review batch (86ey9e8xx).
+
+- **Root cause.** `useDoorSync()` returned a fresh object literal on every render regardless
+  of whether its own reactive state (`online`/`realtimeConnected`/`lastSyncAt`/`now`/`syncing`)
+  actually changed — no `useMemo`. That busted `DoorProvider`'s `value` useMemo (`sync` was
+  always a new reference), so every `useDoor()` consumer re-rendered on the 15s age-label tick
+  and on every sync flush's `syncing` true/false toggle — confirmed ≥8×/min idle, 3-5× per
+  check-in.
+- **Fix.** (1) Wrapped `useDoorSync`'s return in `useMemo` so its identity is stable when
+  nothing it derives from changed. (2) Split `sync` out of the broad `DoorContext` into a
+  narrow `DoorSyncContext` — `SyncBar` is the only real consumer of that field (verified
+  `AddOnSpot`/`Taken`/`GuestDetail`/`CheckInList` never read it), so the tick/syncing-toggle no
+  longer re-renders the check-in list's ~20-28 virtual rows, `GuestDetail`, `Taken`, or
+  `AddOnSpot`.
+- Files: `src/features/door/DoorProvider.tsx`, `src/features/door/sync/useDoorSync.ts`,
+  `src/features/door/components/SyncBar.tsx`. No migration.
+- Tested by Max on the live door flow (10/10 on the per-screen handoff: Deur opens, sync-bar
+  status/refresh, check-in/void/undo, idle sync-label keeps updating, screen stays visually
+  still outside the sync-bar).
+- **Gotcha found during testing, tracked separately (86ey9tq62):** checking a guest in
+  sometimes leaves the GuestDetail overlay open instead of auto-returning to the check-in
+  list, and "Back" can land somewhere unexpected. Traced `closeOverlay()`/`router.back()` in
+  `src/components/po/app.tsx` line by line — confirmed `router.back()` is literally
+  `window.history.back()` in the installed Next.js version (no internal position tracking to
+  desync), and found no bug in the code as written. Live reproduction was blocked by the
+  shared local Supabase stack being touched by other concurrent sessions in the same review
+  batch (auth bouncing to onboarding, preview browser losing interactivity). Strong suspicion
+  it's a symptom of 86ey9e8pm (`PlusOneApp` remounts fully on every navigation, confirmed in
+  that task) rather than a bug in the door-overlay logic itself — the doubled full-snapshot
+  request bursts seen in Max's repro screenshot match "DoorProvider remounted and refetched
+  everything" rather than a normal delta-sync. Left unfixed pending 86ey9e8pm; narrow-fix
+  branch `fix/86ey9tq62-door-overlay-back-nav` has no commits.
+
+---
+
 ## 2026-07-14 — Request-link-max trigger missing the same concurrency lock as quota/capacity/tier-max (86ey9p8zh)
 
 DONE + merged to main, PR #224 (`claude/86ey9p8zh-request-link-trigger-lock`). CONFIRMED
