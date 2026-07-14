@@ -34,7 +34,7 @@ import { isOpenGuestRequest } from '@/features/po/adapters';
 import { canManageGuests, canSeeGuestCounts, canSeeRequestInbox, canSeeOwnRequests, canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '../context';
 import { Icon, type IconName } from '../icon';
-import { Btn, Note, Scroll, press } from '../kit';
+import { Btn, Empty, Note, Scroll, press } from '../kit';
 import { Sheet, Toast } from '../shell';
 import { PendingInvitesBanner } from '../pending-invites-banner';
 import { EventRow, StatusChip, toBoardEvents, type BoardEvent } from '../event-row';
@@ -550,7 +550,12 @@ export function Home(): JSX.Element {
     );
   };
 
-  const loading = eventsQ.isLoading;
+  const loading = eventsQ.isLoading || guestReqQ.isLoading || quotaReqQ.isLoading;
+  // Outage must reach the screen, not render as a plausible "no events yet"
+  // empty state (86ey9e8e7) — the board's three source queries all throw on a
+  // real DB/network/RLS error now, so isError reliably distinguishes that from
+  // a genuinely empty (or out-of-scope) result.
+  const isError = eventsQ.isError || guestReqQ.isError || quotaReqQ.isError;
 
   return (
     <div className="flex h-full flex-col">
@@ -671,7 +676,7 @@ export function Home(): JSX.Element {
               <h2 className="font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">
                 {t.home.upcomingEventsHeading}
               </h2>
-              {!loading && (
+              {!loading && !isError && (
                 <span className="text-[12.5px] text-faint">
                   {list.length} {filtersActive ? t.home.countFound : t.home.countTotal}
                 </span>
@@ -687,6 +692,8 @@ export function Home(): JSX.Element {
                   <Skeleton key={i} />
                 ))}
               </div>
+            ) : isError ? (
+              <Empty text={t.home.loadError} />
             ) : list.length === 0 ? (
               <EmptyBoard
                 filtered={filtersActive}
