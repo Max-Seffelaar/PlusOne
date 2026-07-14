@@ -1,10 +1,16 @@
--- pgTAP — promote_guest_to_contact() authorization (86ey9e880).
+-- pgTAP — promote_guest_to_contact() authorization (86ey9e880, widened + staff
+-- ownership-scoped per fresh-session /security-review).
 -- Run: supabase test db. Proves:
---   * authorization is the DB boundary — only an admin of the venue OR an
---     organizer of an event at it may promote a guest to a contact; staff and
---     finance are refused (42501) and create nothing (closes the DEFINER
---     bypass: without this gate the read succeeded for ANY guest UUID in ANY
---     venue, regardless of membership);
+--   * authorization is the DB boundary — admin/doorhost promote any guest at
+--     the venue, an organizer of the event may too even without a qualifying
+--     venue role, staff may ONLY promote a guest they personally added
+--     (mirrors guests_update's own ownership scoping — a security-review
+--     finding: staff is NOT venue-wide here, unlike admin/doorhost), and
+--     user_manager/finance are refused entirely (finance stays read-only
+--     everywhere in the PII/contacts domain per spec; user_manager has no
+--     guest/contacts access anywhere in the schema per the role matrix).
+--     Closes the DEFINER bypass: without any gate the read succeeded for ANY
+--     guest UUID in ANY venue, regardless of membership;
 --   * a NAME-ONLY guest is promoted to a name-only contact (source guest_list)
 --     that is back-linked to the guest;
 --   * a guest with an e-mail dedups onto an existing contact instead of
@@ -12,13 +18,13 @@
 --   * the action is idempotent (already-linked guest is a harmless no-op);
 --   * a non-existent guest raises not-found.
 -- Fixtures live in seed venue aa..01 (admin 1111 is admin there, staff 5555 is
--- staff, finance 3333 is finance). Case G uses a made-up UUID with zero rows
--- in venue_memberships/event_organizers ANYWHERE — auth.uid() reads only the
--- JWT claim, it never checks auth.users, so this reproduces the actual shape
--- of the original defect (an authenticated caller with no relationship to the
--- venue at all), which none of the fixed seed personas can: every seed user
--- is either a member of aa..01 or organizes an event there (86ey9e880 review).
--- Rolls back.
+-- staff, finance 3333 is finance, user_manager 2222 is user_manager). Case G
+-- uses a made-up UUID with zero rows in venue_memberships/event_organizers
+-- ANYWHERE — auth.uid() reads only the JWT claim, it never checks auth.users,
+-- so this reproduces the actual shape of the original defect (an
+-- authenticated caller with no relationship to the venue at all), which none
+-- of the fixed seed personas can: every seed user is either a member of
+-- aa..01 or organizes an event there (86ey9e880 review). Rolls back.
 
 begin;
 
@@ -74,33 +80,67 @@ values
   ('cc000000-0000-7000-8000-0000000000e3', 'ee000000-0000-7000-8000-0000000000e1',
    'dd000000-0000-7000-8000-0000000000e1', 'c0000000-0000-7000-8000-0000000000e3',
    'Already Linked Person', 'already-linked@real.test', 0, '11111111-1111-4111-8111-111111111111', 'app', 'approved'),
-  -- guest for the organizer-path test
+  -- guest for the organizer-path test (promoted by finance-as-organizer, E)
   ('cc000000-0000-7000-8000-0000000000e4', 'ee000000-0000-7000-8000-0000000000e1',
    'dd000000-0000-7000-8000-0000000000e1', null,
    'Organizer Target', null, 0, '11111111-1111-4111-8111-111111111111', 'app', 'approved'),
   -- guest for the zero-membership stranger test (case G)
   ('cc000000-0000-7000-8000-0000000000e5', 'ee000000-0000-7000-8000-0000000000e1',
    'dd000000-0000-7000-8000-0000000000e1', null,
-   'Stranger Target', null, 0, '11111111-1111-4111-8111-111111111111', 'app', 'approved');
+   'Stranger Target', null, 0, '11111111-1111-4111-8111-111111111111', 'app', 'approved'),
+  -- guest for the user_manager-denied test
+  ('cc000000-0000-7000-8000-0000000000e6', 'ee000000-0000-7000-8000-0000000000e1',
+   'dd000000-0000-7000-8000-0000000000e1', null,
+   'Manager Promotable', null, 0, '11111111-1111-4111-8111-111111111111', 'app', 'approved'),
+  -- guest for the staff-allowed test — added_by IS the staff user (ownership
+  -- is the boundary now, unlike the other fixtures which are all admin-added).
+  ('cc000000-0000-7000-8000-0000000000e7', 'ee000000-0000-7000-8000-0000000000e1',
+   'dd000000-0000-7000-8000-0000000000e1', null,
+   'Staff Promotable', null, 0, '55555555-5555-4555-8555-555555555555', 'app', 'approved'),
+  -- guest added by admin, NOT by staff — proves staff is refused for a guest
+  -- they don't own (the security-review regression this migration fixes)
+  ('cc000000-0000-7000-8000-0000000000e8', 'ee000000-0000-7000-8000-0000000000e1',
+   'dd000000-0000-7000-8000-0000000000e1', null,
+   'Colleague Guest', null, 0, '11111111-1111-4111-8111-111111111111', 'app', 'approved');
 
-select plan(14);
+select plan(19);
 
 -- ---------------------------------------------------------------------------
--- A. Authorization — staff + finance are refused and create nothing.
+-- A. Authorization — admin/doorhost/organizer venue-wide, staff OWNED-only,
+-- user_manager/finance refused entirely.
 -- ---------------------------------------------------------------------------
-
-select pg_temp.login('55555555-5555-4555-8555-555555555555', 'aal2');  -- staff
-select throws_ok($$ select public.promote_guest_to_contact('cc000000-0000-7000-8000-0000000000e1') $$,
-  '42501', null, 'A1 staff cannot promote a guest to contact');
 
 select pg_temp.login('33333333-3333-4333-8333-333333333333', 'aal2');  -- finance
 select throws_ok($$ select public.promote_guest_to_contact('cc000000-0000-7000-8000-0000000000e1') $$,
-  '42501', null, 'A2 finance cannot promote a guest to contact');
+  '42501', null, 'A1 finance cannot promote a guest to contact');
 
+select pg_temp.login('22222222-2222-4222-8222-222222222222', 'aal2');  -- user_manager
+select throws_ok($$ select public.promote_guest_to_contact('cc000000-0000-7000-8000-0000000000e6') $$,
+  '42501', null, 'A2 user_manager cannot promote a guest to contact');
 reset role;
 select is(
+  (select contact_id from public.guests where id = 'cc000000-0000-7000-8000-0000000000e6'),
+  null::uuid, 'A3 the user_manager-denied call linked nothing');
+
+select pg_temp.login('55555555-5555-4555-8555-555555555555', 'aal2');  -- staff, NOT the owner of e8
+select throws_ok($$ select public.promote_guest_to_contact('cc000000-0000-7000-8000-0000000000e8') $$,
+  '42501', null, 'A4 staff cannot promote a colleague''s guest (security-review regression fix)');
+reset role;
+select is(
+  (select contact_id from public.guests where id = 'cc000000-0000-7000-8000-0000000000e8'),
+  null::uuid, 'A5 the non-owner staff call linked nothing');
+
+select pg_temp.login('55555555-5555-4555-8555-555555555555', 'aal2');  -- staff, IS the owner of e7
+select lives_ok($$ select public.promote_guest_to_contact('cc000000-0000-7000-8000-0000000000e7') $$,
+  'A6 staff can promote a guest they themselves added');
+reset role;
+select ok(
+  (select contact_id from public.guests where id = 'cc000000-0000-7000-8000-0000000000e7') is not null,
+  'A7 the staff-owned guest is now linked');
+
+select is(
   (select contact_id from public.guests where id = 'cc000000-0000-7000-8000-0000000000e1'),
-  null::uuid, 'A3 the denied calls linked nothing');
+  null::uuid, 'A8 the finance-denied call linked nothing');
 
 -- ---------------------------------------------------------------------------
 -- B. Admin promotes a NAME-ONLY guest → a fresh name-only contact, back-linked.
@@ -142,15 +182,17 @@ select lives_ok($$ select public.promote_guest_to_contact('cc000000-0000-7000-80
   'D1 re-promoting an already-linked guest does not error');
 
 -- ---------------------------------------------------------------------------
--- E. Organizer path — a non-admin organizer of the event may promote too.
+-- E. Organizer path — finance has no qualifying venue role, but organizing
+-- this specific event is enough on its own (proves the OR-organizer clause
+-- isn't just riding along on a role that already qualifies).
 -- ---------------------------------------------------------------------------
 
 insert into public.event_organizers (event_id, user_id) values
-  ('ee000000-0000-7000-8000-0000000000e1', '55555555-5555-4555-8555-555555555555');
+  ('ee000000-0000-7000-8000-0000000000e1', '33333333-3333-4333-8333-333333333333');
 
-select pg_temp.login('55555555-5555-4555-8555-555555555555', 'aal2');  -- now an organizer here
+select pg_temp.login('33333333-3333-4333-8333-333333333333', 'aal2');  -- finance, now organizer here
 select lives_ok($$ select public.promote_guest_to_contact('cc000000-0000-7000-8000-0000000000e4') $$,
-  'E1 an event organizer can promote a guest to contact');
+  'E1 finance-as-organizer can promote a guest to contact');
 reset role;
 select ok(
   (select contact_id from public.guests where id = 'cc000000-0000-7000-8000-0000000000e4') is not null,
