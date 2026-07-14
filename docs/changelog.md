@@ -8,6 +8,46 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-14 — Door-overlay Back over-popped past the check-in list (86ey9tq62)
+
+Surfaced during 86ey9e8gf live testing. PR pending, not yet merged. Client-only nav-state
+fix (`src/components/po/`) — no migration, no RLS/auth/service-role touch. It IS door-adjacent
+(the Deur tab's raw-history sub-nav), but touches only *when the `doorOverride` shadow clears*,
+never the offline outbox or any write, and preserves the offline invariant (#25): still no
+`router.push` on the door, still pure client state, no network. A fresh-session `/code-review`
+is welcome but not a mandated gate per the high-risk list.
+
+- **Root cause (traced against the code's own documented Next model).** Door sub-nav is driven
+  by raw `window.history.pushState/replaceState` (`pushDoorState`/`replaceDoorState`), which
+  Next's `usePathname`/`useSearchParams` do **not** track — they stay frozen at the last real
+  router navigation and only resync on a genuine nav or a **popstate**. The `doorOverride` shadow
+  was cleared solely by `useEffect(…, [pathname, searchParamsStr])`. Enter the door via
+  `?event=A` → `useSearchParams` is frozen at `event=A`; the raw switch → picker → re-pick →
+  open-overlay sub-nav never changes it; pressing Back to close the overlay pops back to
+  `?event=A` — the **identical** frozen string. So the deps never change, the effect never
+  re-runs, and the stale overlay override survives the pop: the overlay lingers on screen and
+  the user's next Back over-pops straight **past** the check-in list. This is the
+  `hasPushedThisSession`↔raw-history desync Max flagged; `hasPushedThisSession` itself is fine
+  (the overlay really did push an entry) — the culprit is the shadow not clearing.
+- **Fix.** Extracted the override state machine into `src/components/po/use-door-override.ts`
+  (unit-testable, well-documented) and added a second clearing trigger: a `popstate` listener
+  that drops the shadow on **any** browser back/forward, independent of whether Next's hooks
+  changed — a popstate always means the browser URL just won, so the URL-derived door state
+  becomes authoritative. `app.tsx` now calls `useDoorOverride(pathname, searchParamsStr)` in
+  place of the inline `useState`+effect; behaviour is otherwise identical. Capacitor-safe (the
+  Android hardware-back maps to popstate → this now clears correctly too).
+- **Tests.** `use-door-override.test.ts` (5, new) — including the regression: a popstate with
+  **unchanged** deps clears a set override (the exact stale-shadow-survives-pop condition), plus
+  listener cleanup on unmount. Full Vitest **825/825** green, `pnpm type-check` + `pnpm lint`
+  clean (only the pre-existing `datetime-field.tsx` aria warnings).
+- **Verification gap (honest).** No live click-through this session: the shared local DB was in
+  a broken/partial state owned by another session (only `admin@`+`door@`, all public tables
+  empty), so reseeding it to get the ≥2 door candidates the Switch bar needs would have violated
+  the one-DB-owner rule. Verified by code-level reasoning + the regression test; the per-screen
+  live handoff (below, on the PR/task) is waiting for Max.
+
+---
+
 ## 2026-07-14 — Home "Lock" button was a decoy (86ey9e8de)
 
 DONE, PR [#228](https://github.com/Max-Seffelaar/PlusOne/pull/228), not yet merged.
