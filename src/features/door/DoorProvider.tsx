@@ -32,9 +32,11 @@ import {
   doorSnapshotKey,
   fetchDoorSnapshot,
   fetchEventQuota,
+  projectDoorGuest,
   type CheckInRow,
   type DoorSnapshot,
   type GuestRow,
+  type GuestRowFull,
   type QuotaStatus,
 } from './queries';
 import { buildDoorView, buildTasks, type DoorGuest, type DoorTask, type DoorView } from './model';
@@ -487,28 +489,23 @@ export function DoorProvider({
       enqueueDoorWrite(
         { kind: 'add_guest', payload: { id, tierId, fullName, plusOnes } },
         (s) => {
+          // Narrow snapshot row (P-IDB7) — only the door-rendered columns. The
+          // full row (venue_id, source, timestamps, …) is filled server-side; the
+          // outbox add_guest replay is the source of truth for what gets inserted.
           const row: GuestRow = {
             id,
             event_id: eventId,
-            venue_id: s.event.venueId,
             tier_id: tierId,
             full_name: fullName,
-            email: null,
             phone: null,
-            contact_id: null,
             plus_ones: plusOnes,
             note: null,
             note_priority: 'none',
             note_acknowledged_by: null,
             note_acknowledged_at: null,
             added_by: meId ?? '',
-            source: 'door',
             status: 'approved',
-            request_link_id: null,
-            anonymized_at: null,
-            removed_at: null,
             created_at: ts,
-            updated_at: ts,
           };
           return { ...s, guests: [...s.guests, row] };
         },
@@ -561,10 +558,13 @@ export function DoorProvider({
   );
 
   const onRealtimeGuest = useCallback(
-    (row: GuestRow) => {
-      if (row.event_id !== eventId) return;
-      // Keep refused too — the door shows a "Geweigerd" lijst; only pending/
-      // denied/removed drop out of the snapshot.
+    (full: GuestRowFull) => {
+      if (full.event_id !== eventId) return;
+      // Project to the narrow snapshot shape BEFORE it touches the cache, so a
+      // realtime payload can't reintroduce dropped PII (email, …) into IndexedDB
+      // (P-IDB7). Keep refused too — the door shows a "Geweigerd" lijst; only
+      // pending/denied/removed drop out of the snapshot.
+      const row = projectDoorGuest(full);
       const keep = row.status === 'approved' || row.status === 'checked_in' || row.status === 'refused';
       patchSnapshot((s) => {
         const without = s.guests.filter((g) => g.id !== row.id);

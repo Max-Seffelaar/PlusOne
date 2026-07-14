@@ -1653,7 +1653,6 @@ export type Database = {
         Args: {
           p_address: string
           p_city?: string
-          p_comped?: boolean
           p_complete?: boolean
           p_finance_email?: string
           p_kvk_number?: string
@@ -1928,7 +1927,7 @@ export type Database = {
         }[]
       }
       set_venue_plan: {
-        Args: { p_comped?: boolean; p_plan_id: string; p_venue_id: string }
+        Args: { p_plan_id: string; p_venue_id: string }
         Returns: undefined
       }
       slugify: { Args: { p_text: string }; Returns: string }

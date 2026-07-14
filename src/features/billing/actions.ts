@@ -37,13 +37,15 @@ export async function setVenuePlanAction(input: SetVenuePlanInput): Promise<Bill
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
 
-  const { status } = await billing.startSubscription({ venueId, planId: planId as PlanId });
+  // comped is never client-settable (#32) — the RPC always starts a new
+  // subscription trialing; comped is stamped later, manually, via the
+  // service-role runbook (docs/stripe-setup.md).
+  await billing.startSubscription({ venueId, planId: planId as PlanId });
 
   const supabase = await createClient();
   const { error } = await supabase.rpc('set_venue_plan', {
     p_venue_id: venueId,
     p_plan_id: planId,
-    p_comped: status === 'comped',
   });
   if (error) return mapMutationError(error);
 

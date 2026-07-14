@@ -8,6 +8,77 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-13 — Persisted door-cache never evicted → "app wordt trager" (86ey9e86f)
+
+CONFIRMED root cause of the reported growth-slowdown that also hits prod. Three coupled
+defects in the door's IndexedDB persistence, one PR (all touch the same persisted cache).
+Branch `perf/door-cache-evict-86ey9e86f`. High-risk surface (door outbox/realtime) →
+fresh-session `/code-review` before merge; live door check waiting on Max (handoff on the PR).
+
+- **P-IDB1 — never-evicting cache.** `DoorQueryProvider` had no `dehydrateOptions`, so the
+  whole client (every `['door', eventId]` + `['door-quota', eventId]` ever opened) was
+  re-persisted with a fresh top-level timestamp on every boot → the client-level `maxAge`
+  and 1-week `gcTime` never fired; 30+ month-old snapshots rode along forever. Fix: a per-
+  query recency gate (`src/features/door/offline/dehydrate.ts` — `shouldDehydrateDoorQuery`)
+  persists only door queries whose own `dataUpdatedAt` is within `maxAge`; an `onSuccess`
+  boot-sweep (`isStaleDoorQuery`) removes stale, **unobserved** door queries from memory.
+  Recency (not "single active event") is deliberate: the provider is a generic wrapper that
+  doesn't know the active eventId, and an observer-count gate would drop the offline
+  snapshot the moment the Deur tab unmounts (breaks #25). Buster bumped `v1`→`v2`.
+- **P-IDB2 — whole-cache write per mutation (worse than filed).** `persistQueryClientSubscribe`
+  fires on *every* cache event and does not throttle, and our custom `createIdbPersister`
+  didn't either → a full `dehydrate()` + IDB write per check-in/realtime patch on the main
+  thread. Fix: a trailing throttle in the persister (`PERSIST_THROTTLE_MS = 2000`, keep only
+  the latest client; `removeClient` cancels a queued write so a discarded/sign-out-cleared
+  cache can't be resurrected). Outbox durability is unaffected — it lives under a separate
+  IDB key (`door-outbox`).
+- **P-IDB7 — `select('*')` + unshown PII.** The snapshot pulled all 21 guest columns. Fix:
+  narrow `GuestRow` to the 13 door-rendered columns (`queries.ts`), project the `select`, the
+  realtime `payload.new` (`projectDoorGuest`, so a realtime row can't reintroduce PII), and
+  the `addOnSpot` optimistic row. `email` (+ contact_id/source/request_link_id/updated_at/
+  removed_at/anonymized_at/venue_id) leaves IndexedDB; `phone` stays (the door shows last-4,
+  #27). No door code reads the dropped columns off a guest row; the gateway insert type is
+  separate and untouched.
+- **Measured (representative rows):** guest row 667→411 B (38% smaller); total blob 2.88 MB
+  (30 events, unbounded) → 0.41 MB (≤7 events, week-bounded, stale evicted); boot-restore
+  parse proxy 6.25→0.95 ms; rush writes ~50+ → ~5 (~10× fewer).
+- **Tests:** +16 (`offline/dehydrate.test.ts` 9, `offline/persister.test.ts` 3 fake-timer
+  throttle, `queries.test.ts` 4 projection/select-sync); `model.test.ts` fixture narrowed.
+  Door suite 100 green, full Vitest 773 green, `tsc --noEmit` clean, lint clean.
+
+## 2026-07-13 — Client-settable `comped` RPC bypass closed (86ey9e851)
+
+Adversarial review (S3) confirmed a duplicate-review finding: `create_venue_with_owner`
+and `set_venue_plan` both took a client-supplied `p_comped boolean` and were `GRANT`ed to
+`authenticated`, so any logged-in user could call either RPC directly
+(`POST /rest/v1/rpc/...`, bypassing the app entirely) and set their own venue's
+subscription to `comped` — a status `apply_stripe_subscription_update`
+(`20260706120000`/`130000`) explicitly never overwrites with webhook state. A
+client-set `comped` was therefore a permanent, Stripe-unreconciled billing bypass.
+Neither app call site ever sent an attacker-controlled `p_comped` (`createVenueAction`
+never sent it at all; `setVenuePlanAction` only ever forwarded a locally-computed
+`false`), so the app itself was not exploitable — the hole was reachable only via a
+raw RPC call.
+
+- **`supabase/migrations/20260713160000_remove_client_comped.sql`** — `p_comped`
+  removed from both signatures entirely (decision #32: comped is manual-only, via the
+  service-role SQL runbook `docs/stripe-setup.md`, never client-settable). Both RPCs
+  now always insert `'trialing'`; `set_venue_plan`'s update branch was extended to also
+  preserve an existing `'comped'` status (previously only active/past_due/canceled were
+  protected from being overwritten), so a manually-comped venue survives a later
+  onboarding plan change.
+- **`src/features/billing/actions.ts`** — `setVenuePlanAction` no longer forwards
+  `p_comped` (the RPC no longer accepts it).
+- **pgTAP** (`supabase/tests/database/onboarding.test.sql`, plan 23→26): T8b/T11b prove
+  a caller who still tries to pass `p_comped` is refused at function-resolution
+  (`42883`), not silently ignored; T10b proves `set_venue_plan` can never produce
+  `comped`. Full suite green on a fresh reset (48 files, 956 tests).
+- Regenerated `src/lib/database.types.ts`. `pnpm lint` clean, `tsc --noEmit` clean,
+  `pnpm vitest run` green (66 files, 757 tests). Smoke-tested `/app` boot post-fix
+  (organizer dev-login → consent → Home, no console errors).
+- High-risk surface (RLS-adjacent RPC + `authenticated` grants) → fresh-session
+  `/security-review` still required before merge.
+
 ## 2026-07-13 — clickup-task skill + Stop-hook enforcement (workflow tooling, no ClickUp task)
 
 Max asked for a skill that owns the ClickUp task lifecycle (planning → in progress →
