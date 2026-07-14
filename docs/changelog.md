@@ -8,6 +8,42 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-14 — First Load JS afslanken: Sentry defer + lazy phone + QuickAdd split (86ey9e8z5)
+
+PR [#236](https://github.com/Max-Seffelaar/PlusOne/pull/236) (`perf/86ey9e8z5-first-load-js`) **open,
+awaiting review + merge.** Three levers on the measured bundle, before → after via `pnpm build`.
+
+- **Lever 1 — Sentry off every route (biggest win).** `instrumentation-client.ts` used to
+  `Sentry.init` synchronously, pinning the ~131 kB gz browser SDK into the First Load of EVERY
+  route (offline door + public guest links included). Now a lazy facade
+  (`src/lib/observability/sentry-client.ts`, `import type` only) idle-loads the SDK
+  (`requestIdleCallback`) from a new `src/sentry.client.init.ts`; every client caller (app shell,
+  `PoLiveProvider`, `DoorProvider`, `outbox/store`, `capture`, `global-error`) routes through it.
+  **Pure defer — no route loses coverage** (deliberately NOT the per-route exclusion the ticket
+  floated; keeping the door instrumented matters). Facade `.catch()`es a failed chunk fetch so the
+  door's offline path (#25) never throws. **Shared-by-all 189 → 105 kB.**
+- **Lever 2 — QuickAdd split** out of the `/app` page entry via `next/dynamic` from its leaf
+  module (dropped from the guests barrel re-export so `GuestsTab`'s common chunk doesn't drag it
+  back). Guarded by `app.code-split.test.ts`.
+- **Lever 3 — lazy phone field.** `react-phone-number-input` (flags + libphonenumber, ~102 kB gz)
+  code-split behind `src/components/po/phone-lazy.tsx`; all 5 consumers import
+  `CountrySelect`/`PhoneInput`/`isPhoneValid`/`phoneCountryOf`/`useStoredPhoneCountry` from there.
+  Validators deferred (async); the render-time `parsePhoneNumber` "initial flag" derive moved to an
+  effect. **Public `/e`+`/r` 330 → 141 kB (−57%), `/consent` 331 → 142 kB.**
+- **Net:** `/app` 540 → 346 kB (−36%), `/door/[eventId]` 373 → 288 kB, every other route −83…−85 kB.
+- **Guardrails:** `tests/unit/{sentry,phone}-lazy-imports.test.ts` fail CI if a static import of
+  `@sentry/nextjs` / `react-phone-number-input` creeps back into a first-load graph.
+- **Tests:** build exit 0, type-check ✅, lint ✅, `pnpm vitest run` **839 passed** (`store.test.ts`
+  updated to mock the facade). Preview smoke: `/app` + public `/e` render zero console errors;
+  Sentry loads as a deferred async chunk; lazy country picker opens (245 countries, NL default).
+- **Review gate:** touches the door outbox telemetry path → fresh-session `/code-review` before
+  merge; adversarial door-offline-safety prompt in the PR body. Door outbox security properties
+  (idempotency, RLS, PII scrub) unchanged — only a `captureMessage` transport moved behind the facade.
+- **Gotcha:** the Sentry init module must NOT be named `sentry.client.config.ts` (the Sentry
+  Next.js plugin auto-registers that filename as an eager entry, which would undo the split).
+
+---
+
 ## 2026-07-14 — DoorContext re-rendering on every sync tick (86ey9e8gf)
 
 DONE + merged to main, PR #225 (`fix/86ey9e8gf-doorcontext-sync-memo`). Adversarially
