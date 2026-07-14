@@ -177,6 +177,18 @@ export interface DrainSummary {
  *  - Terminal errors (quota/tier/capacity + FK/RLS/CHECK/NOT-NULL) settle to
  *    `error` immediately and the drain moves on.
  */
+/**
+ * The guest a given entry's write targets. `add_guest` has no `guestId` field —
+ * its own client-generated guest id IS the identity later entries (check_in,
+ * void, top-up, ...) reference via `guestId`. This is the FIFO chain key: C9's
+ * cross-guest skip-ahead is fine (an unrelated guest's write must not wait), but
+ * skipping ahead of a still-pending predecessor for the SAME guest is exactly the
+ * out-of-order replay this guards against (O2).
+ */
+function guestKeyOf(entry: OutboxEntry): string {
+  return entry.kind === 'add_guest' ? entry.payload.id : entry.payload.guestId;
+}
+
 export async function drainOutbox(deps: DrainDeps): Promise<DrainSummary> {
   const summary: DrainSummary = {
     processed: 0,
@@ -186,7 +198,15 @@ export async function drainOutbox(deps: DrainDeps): Promise<DrainSummary> {
     deadLettered: 0,
     interrupted: false,
   };
+  // Guest chains with a predecessor that is still pending after this loop's
+  // attempt — every later entry for that same (event, guest) is left untouched
+  // rather than replayed out of order (O2). A guest with no blocked predecessor
+  // is unaffected, so C9's cross-guest skip-ahead still holds.
+  const blockedChains = new Set<string>();
   for (const entry of deps.list().filter(isPending)) {
+    const chainKey = `${entry.eventId}:${guestKeyOf(entry)}`;
+    if (blockedChains.has(chainKey)) continue;
+
     deps.update(entry.clientId, { status: 'syncing' });
     let result: ReplayResult;
     try {
@@ -195,33 +215,41 @@ export async function drainOutbox(deps: DrainDeps): Promise<DrainSummary> {
       // A thrown fetch = the network is down → pure transient, pause the drain.
       result = { status: 'pending', message: e instanceof Error ? e.message : 'Unknown error' };
     }
-    const attempts = entry.attempts + 1;
 
     if (result.status === 'pending') {
       if (result.codedReject) {
+        // Coded-reject budget (O3): only a CODED rejection counts against
+        // MAX_ATTEMPTS. A code-less network flap below never touches this
+        // counter, so connectivity trouble can't pre-burn a valid entry's budget.
+        const attempts = entry.attempts + 1;
         if (attempts >= MAX_ATTEMPTS) {
           // Given up: dead-letter so it stops blocking the queue. Surfaced as a
-          // terminal `error` with its message; the drain keeps going.
+          // terminal `error` with its message; the drain keeps going, and the
+          // chain is NOT blocked — a settled (even if failed) predecessor no
+          // longer holds up its guest's later entries.
           deps.update(entry.clientId, { status: 'error', message: result.message, attempts });
           summary.processed++;
           summary.errors++;
           summary.deadLettered++;
           continue;
         }
-        // Alive connection, one bad entry — leave it pending and skip past it so
-        // the writes behind it still sync (C9).
+        // Alive connection, one bad entry — leave it pending. Still-unresolved,
+        // so block this guest's chain (O2) while still letting OTHER guests'
+        // entries sync this same drain (C9).
         deps.update(entry.clientId, { status: 'pending', message: result.message, attempts });
         summary.processed++;
+        blockedChains.add(chainKey);
         continue;
       }
-      // Code-less network/offline failure → pause; the whole queue retries later.
-      deps.update(entry.clientId, { status: 'pending', message: result.message, attempts });
+      // Code-less network/offline failure → pause the whole queue; not this
+      // entry's fault, so its coded-reject attempts budget is left untouched (O3).
+      deps.update(entry.clientId, { status: 'pending', message: result.message });
       summary.processed++;
       summary.interrupted = true;
       break;
     }
 
-    deps.update(entry.clientId, { status: result.status, message: result.message, attempts });
+    deps.update(entry.clientId, { status: result.status, message: result.message });
     summary.processed++;
     if (result.status === 'synced') summary.synced++;
     if (result.status === 'duplicate') summary.duplicates++;

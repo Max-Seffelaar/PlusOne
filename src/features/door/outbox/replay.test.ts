@@ -381,6 +381,84 @@ describe('drainOutbox', () => {
     expect(store.entries[0].attempts).toBe(MAX_ATTEMPTS);
   });
 
+  // O2 — a coded-reject predecessor for the SAME guest must not be skipped past:
+  // the successor stays queued untouched rather than replaying out of order.
+  it('blocks a same-guest successor behind a still-pending coded-reject predecessor (O2)', async () => {
+    const insertCheckIn = vi.fn(async () => ({ error: null }));
+    const store = fakeStore([
+      {
+        clientId: 'a',
+        eventId: 'ev1',
+        kind: 'add_guest',
+        status: 'pending',
+        attempts: 0,
+        createdAt: 't',
+        payload: { id: 'g1', tierId: 't1', fullName: 'Nina Driessen', plusOnes: 0 },
+      } as OutboxEntry,
+      checkInEntry({ clientId: 'b', payload: { id: 'ci1', guestId: 'g1', plusOnesArrived: 0, clientTimestamp: 't' } }),
+    ]);
+    const gw: DoorGateway = { ...gatewayReturning(null), insertGuest: async () => ({ error: UNKNOWN_CODE }), insertCheckIn };
+    const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
+    expect(insertCheckIn).not.toHaveBeenCalled(); // never attempted out of order
+    expect(summary.processed).toBe(1); // only the predecessor was touched
+    expect(store.entries[0].status).toBe('pending');
+    expect(store.entries[1]).toMatchObject({ status: 'pending', attempts: 0 }); // untouched, not skipped-and-marked
+  });
+
+  // O2 — a void queued behind a still-pending check-in for the same guest must
+  // not run early: an out-of-order 0-row UPDATE must not be misread as synced.
+  it('blocks a void behind a still-pending check-in for the same guest (O2)', async () => {
+    const voidCheckIn = vi.fn(async () => ({ error: null }));
+    const store = fakeStore([
+      checkInEntry({ clientId: 'a', payload: { id: 'ci1', guestId: 'g1', plusOnesArrived: 0, clientTimestamp: 't' } }),
+      {
+        clientId: 'b',
+        eventId: 'ev1',
+        kind: 'check_in_void',
+        status: 'pending',
+        attempts: 0,
+        createdAt: 't',
+        payload: { guestId: 'g1', clientTimestamp: 't' },
+      } as OutboxEntry,
+    ]);
+    const gw: DoorGateway = { ...gatewayReturning(null), insertCheckIn: async () => ({ error: UNKNOWN_CODE }), voidCheckIn };
+    const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
+    expect(voidCheckIn).not.toHaveBeenCalled();
+    expect(summary.processed).toBe(1);
+    expect(store.entries[1].status).toBe('pending'); // not misread as synced (0-row phantom)
+  });
+
+  // Once the predecessor settles (even within the same drain), the chain unblocks
+  // and the successor for that guest still runs — no unnecessary serialization.
+  it('unblocks a same-guest successor once the predecessor settles, in the same drain', async () => {
+    const voidCheckIn = vi.fn(async () => ({ error: null }));
+    const store = fakeStore([
+      checkInEntry({ clientId: 'a', payload: { id: 'ci1', guestId: 'g1', plusOnesArrived: 0, clientTimestamp: 't' } }),
+      {
+        clientId: 'b',
+        eventId: 'ev1',
+        kind: 'check_in_void',
+        status: 'pending',
+        attempts: 0,
+        createdAt: 't',
+        payload: { guestId: 'g1', clientTimestamp: 't' },
+      } as OutboxEntry,
+    ]);
+    const gw: DoorGateway = { ...gatewayReturning(null), voidCheckIn };
+    const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
+    expect(voidCheckIn).toHaveBeenCalledWith('g1', UID);
+    expect(summary).toMatchObject({ processed: 2, synced: 2 });
+  });
+
+  // O3 — a code-less network flap must not burn the coded-reject dead-letter
+  // budget: MAX_ATTEMPTS-1 worth of prior coded rejects survives a network blip.
+  it('does not increment attempts on a code-less network failure (O3)', async () => {
+    const store = fakeStore([checkInEntry({ clientId: 'a', attempts: MAX_ATTEMPTS - 1 })]);
+    const summary = await drainOutbox({ ...store, gateway: gatewayReturning(NETWORK), uid: UID, deviceId: DEVICE });
+    expect(summary.interrupted).toBe(true);
+    expect(store.entries[0]).toMatchObject({ status: 'pending', attempts: MAX_ATTEMPTS - 1 });
+  });
+
   // C8 — an entry stranded in `syncing` by a mid-drain kill is resumed and replays.
   it('replays a killed-mid-drain entry: resumeStuckEntries → pending → synced (C8)', async () => {
     const store = fakeStore(resumeStuckEntries([checkInEntry({ clientId: 'a', status: 'syncing' })]));
