@@ -131,6 +131,15 @@ const STATUS_RANK: Record<OutboxStatus, number> = {
  * copy is further along its lifecycle so a merge can never revert a status
  * forward-progress (e.g. `syncing` reverting to `pending`); ties go to the
  * higher attempt count, then to `mine` as the freshest local view.
+ *
+ * Do NOT special-case a disk-sourced terminal status (`synced`/`duplicate`)
+ * to avoid overriding a live in-memory `pending` — that reads as a "forged
+ * synced" defense, but it isn't one: the only foothold that lets an attacker
+ * write a fake `synced` into IndexedDB is same-origin script execution,
+ * which can already corrupt the queue in far easier ways, and disk alone
+ * can't distinguish that forgery from a sibling tab that genuinely synced
+ * the entry — which is exactly the case this merge exists to adopt correctly
+ * (skip a redundant re-send). Security-reviewed 2026-07-14; keep as written.
  */
 export function mergeOutboxEntries(mine: OutboxEntry[], other: OutboxEntry[]): OutboxEntry[] {
   const byId = new Map<string, OutboxEntry>();

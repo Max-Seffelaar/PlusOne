@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { idbGet, idbSet } from '../offline/idb';
 import { buildEnvelope } from './persistence';
 import { OutboxStore } from './store';
@@ -37,6 +37,10 @@ function createDeferred<T>() {
 beforeEach(() => {
   vi.clearAllMocks();
   idbSetMock.mockResolvedValue(true);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe('OutboxStore.init (O9 — IndexedDB absent or corrupt)', () => {
@@ -119,6 +123,34 @@ describe('OutboxStore — read-merge-before-commit (O1 — cross-tab last-writer
     const [, persistedValue] = idbSetMock.mock.calls.at(-1) ?? [];
     expect((persistedValue as { entries: OutboxEntry[] }).entries).toEqual([]);
   });
+});
+
+describe('OutboxStore — stuck Web Lock does not disable persistence', () => {
+  it('degrades to the unlocked write once the lock-request times out', async () => {
+    idbGetMock.mockResolvedValue(undefined);
+
+    // A lock held forever — mirrors a wedged sibling tab, a hung extension, or
+    // a same-origin script squatting on the lock name. The real Web Locks API
+    // rejects the request promise with the AbortSignal's reason once it fires;
+    // `run` (the callback) is never invoked in that case, matching the spec.
+    vi.stubGlobal('navigator', {
+      locks: {
+        request: (_name: string, opts: { signal?: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            opts.signal?.addEventListener('abort', () => reject(opts.signal?.reason));
+          }),
+      },
+    });
+
+    const store = new OutboxStore();
+    await store.init();
+    store.enqueue(entry('a'));
+
+    // The fix's hardcoded 2s AbortSignal.timeout must trip and the write must
+    // still land — a stuck lock must not silently switch off durability.
+    await vi.waitFor(() => expect(idbSetMock).toHaveBeenCalled(), { timeout: 4000 });
+    expect(store.getSnapshot().map((e) => e.clientId)).toEqual(['a']);
+  }, 8000);
 });
 
 describe('OutboxStore — persist-failure surfacing (O4)', () => {

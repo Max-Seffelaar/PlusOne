@@ -64,6 +64,8 @@ export class OutboxStore {
     this.entries = mergeOutboxEntries(midAwaitEntries, revived);
     this.loaded = true;
     if (droppedInvalid > 0 || droppedStaleShape) {
+      // Counts only — never attach the raw dropped entries/payloads here, they
+      // can carry guest names (PII).
       Sentry.captureMessage(
         droppedStaleShape
           ? 'door-outbox: dropped stale/unrecognized persisted outbox shape on load'
@@ -168,7 +170,25 @@ export class OutboxStore {
       getChannel()?.postMessage({ type: 'changed' });
     };
     if (hasWebLocks()) {
-      await navigator.locks.request(LOCK_NAME, run);
+      // A stuck/contended lock (a wedged sibling tab, a hung extension, a
+      // same-origin script squatting on this lock name) must not silently
+      // switch off persistence — `navigator.locks.request` with no signal
+      // awaits forever, so `run()` (and therefore `idbSet`) would just never
+      // fire while the queue looks healthy. Bound the wait and degrade to the
+      // same best-effort unlocked write the no-Web-Locks branch already uses;
+      // once the request is aborted the lock manager never invokes `run`, so
+      // there is no double-write.
+      const signal =
+        typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? AbortSignal.timeout(2000) : undefined;
+      try {
+        await navigator.locks.request(LOCK_NAME, signal ? { signal } : {}, run);
+      } catch (e) {
+        if (e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+          await run();
+        } else {
+          throw e;
+        }
+      }
     } else {
       await run();
     }
@@ -189,6 +209,7 @@ export class OutboxStore {
     if (v === this.persistDegraded) return;
     this.persistDegraded = v;
     if (v) {
+      // Static string — never attach the failed entries/payloads (guest names are PII).
       Sentry.captureMessage(
         'door-outbox: IndexedDB write failed — queued check-ins are not being saved locally',
         'warning',
