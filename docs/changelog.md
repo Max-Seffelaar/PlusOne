@@ -8,6 +8,62 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-14 — Home's event poll was unbounded, growing with venue age (86ey9e8gt)
+
+DONE, merged to main, tested by Max (door@ confirmed real counts). Perf
+finding, adversarial CONFIRMED (R2). Discussed with Max before building: he proposed
+(1) stop polling old past events and (2) poll counts-only + manual refresh for new
+events. Landed (1) — windowing already fixes the query-cost-grows-with-venue-age bug
+that (2) was also trying to solve — and skipped (2) since `venue_event_headcounts` was
+already counts-only (the unbounded cost was in the ROW COUNT of the aggregate, not in
+fetching full guest rows), and the manual-refresh trade-off wasn't worth it once the
+row count itself is bounded.
+
+- **Root cause.** `usePoHomeEvents` (`src/features/po/hooks.ts`) polls every 10s via
+  `fetchEvents` + `fetchEventHeadcounts`, neither of which had a date window — every
+  poll re-scanned the venue's ENTIRE event history (400-1000 events after months),
+  even though the Home board only ever displays recent-past (7 days, `PAST_WINDOW_MS`
+  in `screens/home.tsx`) + upcoming events. `venue_event_headcounts` (the aggregate
+  RPC) has no join to `events`, so it returned one row per historical event too.
+- **Fix.** `venue_event_headcounts` gets an optional `p_since timestamptz` cutoff
+  (migration `20260714171523_venue_event_headcounts_since_window.sql`, default null =
+  unbounded — every other caller, incl. the Events tab's "Past" view, is unaffected).
+  `fetchEvents` gets a matching optional `sinceIso` → `.gte('starts_at', sinceIso)`.
+  `usePoHomeEvents` and `usePoDoorEvent` (same unbounded call, same file, no new
+  design decision) now pass a shared `RECENT_EVENTS_WINDOW_MS` (7 days) cutoff;
+  `home.tsx`'s own `PAST_WINDOW_MS` now imports that same constant instead of
+  duplicating the number, so the query window and the display window can't drift.
+- **Gotcha — migration timestamp collision on the shared local stack.** Picked
+  `20260714160000` first (checked clean against `origin/main`), but the SHARED local
+  Supabase stack (dozens of concurrent worktree sessions right now) already had a
+  *different* migration applied at that exact version from another session —
+  `supabase migration up` silently no-op'd it (matches by version number, not
+  content), so my file never actually ran until I noticed the DB still had the old
+  function signature and renamed to a less-guessable `20260714171523`. A full local
+  `supabase test db` run also came back polluted (unrelated committed rows from other
+  concurrent sessions inflating seed counts) — not a signal about this PR; the
+  isolated single-file pgTAP run (37/37, incl. 2 new `p_since` cases) and CI's clean
+  reset are the real gates here, not this shared dev DB's ambient state.
+- **Gotcha — preview-tool couldn't visually verify.** The headless preview browser
+  never fires `requestAnimationFrame`, which is what React's streaming-SSR Suspense
+  reveal (`$RC`/`$RV`) depends on to un-hide server-rendered content — every po screen
+  in this environment loads fully server-rendered but stays invisible forever. Forcing
+  the reveal manually (`window.$RV(window.$RB)`) proved it's a pure visual/hydration-
+  timing artifact, not a data problem — but no client-side query ever actually mounted
+  in that session either (confirmed via a `window.fetch` monkey-patch: zero calls to
+  the local Supabase REST endpoint across a full 10s poll interval), so live in-browser
+  verification of the poll itself wasn´t possible this session. Verified instead via
+  pgTAP + a direct `psql` smoke test of the windowed RPC against real seed data + the
+  full po vitest suite (147/147) + a clean `tsc --noEmit` + lint.
+- **Not high-risk** per CLAUDE.md's review-gate definition (no RLS policy, no trigger,
+  no `SECURITY DEFINER`, no `service_role`) — CI is the floor, no mandatory fresh-session
+  review before merge.
+- **First test round used the wrong seed user:** pointed Max at `manager@`
+  (`user_manager`) to eyeball Home — that role has zero guest-read rights by design
+  (`GUEST_READ_ROLES` in `src/features/auth/roles.ts`, M9/K-7: a "—" is correct there,
+  not a bug), so it looked like guests had vanished. Re-tested as `door@` and counts
+  showed correctly.
+
 ## 2026-07-14 — Request-link-max trigger missing the same concurrency lock as quota/capacity/tier-max (86ey9p8zh)
 
 DONE + merged to main, PR #224 (`claude/86ey9p8zh-request-link-trigger-lock`). CONFIRMED

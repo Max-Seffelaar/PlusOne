@@ -25,7 +25,7 @@ begin
 end;
 $fn$;
 
-select plan(35);
+select plan(37);
 
 -- IDs from the seed: admin=1111 UM=2222 finance=3333 organizer=4444 staff=5555
 -- doorhost=6666 · venue1=aa..01 · venue2=aa..02 (admin-only member) ·
@@ -217,6 +217,24 @@ select is(
   3,
   '5e staff sees the full registered party as present for their own checked-in
    guest (RLS hides check_ins from them), never 0 (M4/#44 fresh-review fix)');
+
+-- 5f/5g. Optional `p_since` window (86ey9e8gt) — Home's poll passes a recent-
+-- events cutoff so its cost stops growing with the venue's total event history;
+-- omitting the arg (5a-5e above) must keep returning every event, unbounded.
+select pg_temp.login('11111111-1111-4111-8111-111111111111'); -- admin, venue-wide
+
+-- The seed event starts now() + 5 days (always-upcoming seed) — a cutoff a year
+-- in the past still includes it, exactly like the unbounded call.
+select ok(
+  (select count(*)::int from public.venue_event_headcounts(
+     'aa000000-0000-7000-8000-000000000001', now() - interval '1 year')) > 0,
+  '5f p_since well before the event still includes it');
+
+select is(
+  (select count(*)::int from public.venue_event_headcounts(
+     'aa000000-0000-7000-8000-000000000001', now() + interval '1 year')),
+  0,
+  '5g p_since after every event''s starts_at excludes it entirely');
 
 reset role;
 select * from finish();
