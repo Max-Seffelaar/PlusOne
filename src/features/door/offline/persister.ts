@@ -15,7 +15,7 @@
  * worst case is a refetch on next boot.
  */
 import type { PersistedClient, Persister } from '@tanstack/react-query-persist-client';
-import { idbDel, idbGet, idbSet } from './idb';
+import { idbDel, idbEpoch, idbGet, idbSet } from './idb';
 
 const CACHE_KEY = 'door-query-cache';
 
@@ -24,13 +24,18 @@ export const PERSIST_THROTTLE_MS = 2000;
 
 export function createIdbPersister(key = CACHE_KEY, throttleMs = PERSIST_THROTTLE_MS): Persister {
   let pending: PersistedClient | null = null;
+  let pendingEpoch = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   const write = (): void => {
     timer = null;
     const client = pending;
     pending = null;
-    if (client) void idbSet(key, client);
+    // Drop a write that was scheduled before a sign-out wipe (epoch bumped since
+    // we armed the timer). Otherwise this trailing write re-creates the
+    // just-deleted `plusone-door` DB and re-persists the previous doorhost's
+    // guest snapshot for the next person on a shared tablet (86ey9et07).
+    if (client && pendingEpoch === idbEpoch()) void idbSet(key, client);
   };
 
   return {
@@ -38,6 +43,7 @@ export function createIdbPersister(key = CACHE_KEY, throttleMs = PERSIST_THROTTL
     // later calls within it just replace `pending` → one write per window.
     persistClient: (client: PersistedClient) => {
       pending = client;
+      pendingEpoch = idbEpoch();
       timer ??= setTimeout(write, throttleMs);
     },
     restoreClient: () => idbGet<PersistedClient>(key),

@@ -4,14 +4,18 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// signOutDevice only touches Supabase's auth.signOut — stub the client so no real
-// supabase-js (or network) is pulled in, and so we can force the failure path.
+// signOutDevice touches auth.signOut + auth.getSession — stub the client so no
+// real supabase-js (or network) is pulled in, and so we can drive the
+// lingering-session fail-safe (#4).
 const signOut = vi.fn(async (_opts: { scope: 'local' | 'global' }) => ({ error: null }));
+const getSession = vi.fn(async () => ({ data: { session: null as unknown } }));
 vi.mock('@/lib/supabase/client', () => ({
-  createClient: () => ({ auth: { signOut } }),
+  createClient: () => ({ auth: { signOut, getSession } }),
 }));
+vi.mock('@sentry/nextjs', () => ({ captureMessage: vi.fn() }));
 
 import { idbGet, idbSet, idbClearAll } from '@/features/door/offline/idb';
+import { outbox } from '@/features/door/outbox/store';
 import { signOutDevice } from './_shared';
 
 // The two keys the door persists to the shared `plusone-door` IndexedDB.
@@ -34,14 +38,19 @@ const outboxEntryWithPii = [
   },
 ];
 
+const A_SESSION = { access_token: 'a.token', user: { id: 'A' } };
+
 beforeEach(() => {
   signOut.mockReset().mockResolvedValue({ error: null });
+  getSession.mockReset().mockResolvedValue({ data: { session: null } }); // no token left = safe to leave
   assign.mockReset();
+  vi.spyOn(outbox, 'reset');
   vi.stubGlobal('window', { location: { assign } });
 });
 
 afterEach(async () => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   await idbClearAll(); // drop the DB so each test starts from a clean origin store
 });
 
@@ -63,6 +72,12 @@ describe('signOutDevice — shared-device isolation (86ey9et07)', () => {
     expect(await idbGet(CACHE_KEY)).toBeUndefined();
   });
 
+  it('empties the in-memory outbox singleton too (it outlives a route change)', async () => {
+    await signOutDevice('local');
+
+    expect(outbox.reset).toHaveBeenCalledTimes(1);
+  });
+
   it('signs out with the requested scope and redirects to /login', async () => {
     await signOutDevice('global');
 
@@ -70,15 +85,43 @@ describe('signOutDevice — shared-device isolation (86ey9et07)', () => {
     expect(assign).toHaveBeenCalledWith('/login');
   });
 
-  it('wipes the device even when the network sign-out fails — isolation must not depend on the server round-trip', async () => {
+  it('still wipes + completes when auth.signOut throws (defensive; it usually returns {error})', async () => {
     signOut.mockRejectedValue(new Error('offline'));
     await idbSet(OUTBOX_KEY, outboxEntryWithPii);
 
-    // The rejection re-throws after the `finally`; call sites `void` it. What must
-    // still hold is that the local wipe + redirect ran regardless.
-    await expect(signOutDevice('local')).rejects.toThrow('offline');
+    await signOutDevice('local');
 
     expect(await idbGet(OUTBOX_KEY)).toBeUndefined();
+    expect(outbox.reset).toHaveBeenCalled();
     expect(assign).toHaveBeenCalledWith('/login');
+  });
+
+  // #4 — the dangerous case: a failed server revoke leaves A's token on the
+  // device. Never navigate to /login while it's there (middleware would bounce
+  // the next user to /app AS A).
+  describe('lingering-session fail-safe (#4)', () => {
+    it('retries a local sign-out when a session is still present, then leaves once it is gone', async () => {
+      // getSession: still there after the scoped sign-out, gone after the local retry.
+      getSession
+        .mockResolvedValueOnce({ data: { session: A_SESSION } })
+        .mockResolvedValueOnce({ data: { session: null } });
+
+      await signOutDevice('global');
+
+      expect(signOut).toHaveBeenNthCalledWith(1, { scope: 'global' });
+      expect(signOut).toHaveBeenNthCalledWith(2, { scope: 'local' }); // the retry
+      expect(assign).toHaveBeenCalledWith('/login');
+    });
+
+    it('does NOT redirect when the token cannot be cleared (offline) — throws instead', async () => {
+      getSession.mockResolvedValue({ data: { session: A_SESSION } }); // never clears
+      await idbSet(OUTBOX_KEY, outboxEntryWithPii);
+
+      await expect(signOutDevice('global')).rejects.toThrow('sign-out-incomplete');
+
+      expect(assign).not.toHaveBeenCalled(); // stayed put — no hand-off of an authed device
+      expect(await idbGet(OUTBOX_KEY)).toBeUndefined(); // PII still wiped (network-independent)
+      expect(outbox.reset).toHaveBeenCalled();
+    });
   });
 });

@@ -13,7 +13,7 @@
  * state without waiting for their own next local mutation.
  */
 import * as Sentry from '@sentry/nextjs';
-import { idbGet, idbSet } from '../offline/idb';
+import { idbEpoch, idbGet, idbSet } from '../offline/idb';
 import { buildEnvelope, mergeOutboxEntries, parsePersistedOutbox } from './persistence';
 import { resumeStuckEntries, type OutboxEntry } from './types';
 
@@ -184,8 +184,15 @@ export class OutboxStore {
    */
   private async persistMerged(opts?: { excludeIds?: Set<string>; forceIds?: Set<string> }): Promise<void> {
     const mine = this.entries; // snapshot before the merge, for forceIds
+    // Capture the wipe epoch at schedule time. A sign-out (idbClearAll) bumps it;
+    // if it moved by the time we're about to write, our in-flight read-merge would
+    // resurrect A's queued entries into the fresh DB the next user is starting on
+    // (misattributing A's check-ins under B on replay), so we bail (86ey9et07).
+    const scheduledEpoch = idbEpoch();
     const run = async () => {
+      if (scheduledEpoch !== idbEpoch()) return;
       const raw = await idbGet<unknown>(KEY);
+      if (scheduledEpoch !== idbEpoch()) return; // a wipe landed during the read
       const { entries: onDisk } = parsePersistedOutbox(raw);
       let merged = mergeOutboxEntries(mine, onDisk);
       if (opts?.excludeIds && opts.excludeIds.size > 0) {
@@ -229,13 +236,33 @@ export class OutboxStore {
   /** A sibling tab committed — pull its entries in without waiting for our own next mutation. */
   private onRemoteChange = (): void => {
     if (!this.loaded) return; // init() will merge in whatever's on disk once it resolves
+    const scheduledEpoch = idbEpoch();
     void (async () => {
       const raw = await idbGet<unknown>(KEY);
+      // A sign-out wipe during the read must not pull a sibling's stale entries
+      // back into memory (they'd re-persist under the next user) — see persistMerged.
+      if (scheduledEpoch !== idbEpoch()) return;
       const { entries: onDisk } = parsePersistedOutbox(raw);
       this.entries = mergeOutboxEntries(this.entries, onDisk);
       this.emit();
     })();
   };
+
+  /**
+   * Empty the in-memory queue on sign-out (86ey9et07). `idbClearAll` deletes the
+   * persisted copy, but this store is a module singleton that outlives a route
+   * change; on a shared device the next doorhost must not inherit the previous
+   * one's entries. Setting `loaded = false` also makes the next user's `init()`
+   * re-read from the (now-clean) DB instead of no-opping on a stale `loaded`.
+   * Pairs with the wipe epoch, which stops any already-scheduled write from
+   * re-persisting these entries after the reset.
+   */
+  reset(): void {
+    this.entries = [];
+    this.loaded = false;
+    this.emit();
+    this.setPersistDegraded(false);
+  }
 
   private setPersistDegraded(v: boolean): void {
     if (v === this.persistDegraded) return;

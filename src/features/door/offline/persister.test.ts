@@ -2,14 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PersistedClient } from '@tanstack/react-query-persist-client';
 
 // The persister writes through ./idb; spy on it so we can assert HOW OFTEN it
-// writes without needing a real IndexedDB.
+// writes without needing a real IndexedDB. `idbEpoch` is controllable so we can
+// simulate a sign-out wipe (epoch bump) landing between arming and firing.
 vi.mock('./idb', () => ({
   idbSet: vi.fn(() => Promise.resolve()),
   idbGet: vi.fn(() => Promise.resolve(undefined)),
   idbDel: vi.fn(() => Promise.resolve()),
+  idbEpoch: vi.fn(() => 0),
 }));
 
-import { idbDel, idbSet } from './idb';
+import { idbDel, idbEpoch, idbSet } from './idb';
 import { createIdbPersister } from './persister';
 
 const THROTTLE = 2000;
@@ -23,6 +25,7 @@ describe('createIdbPersister — throttle (P-IDB2)', () => {
     vi.useFakeTimers();
     vi.mocked(idbSet).mockClear();
     vi.mocked(idbDel).mockClear();
+    vi.mocked(idbEpoch).mockReturnValue(0);
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -58,5 +61,16 @@ describe('createIdbPersister — throttle (P-IDB2)', () => {
     vi.advanceTimersByTime(THROTTLE * 2);
     expect(idbSet).not.toHaveBeenCalled();
     expect(idbDel).toHaveBeenCalledTimes(1);
+  });
+
+  // 86ey9et07 #3: a snapshot write armed before a sign-out wipe must not fire —
+  // it would re-create the just-deleted `plusone-door` DB with the previous
+  // doorhost's guest snapshot on a shared tablet.
+  it('drops a trailing write whose wipe-epoch changed since it was armed', () => {
+    const p = createIdbPersister('k', THROTTLE);
+    p.persistClient(client('a')); // captured epoch 0
+    vi.mocked(idbEpoch).mockReturnValue(1); // idbClearAll() bumped it (sign-out)
+    vi.advanceTimersByTime(THROTTLE);
+    expect(idbSet).not.toHaveBeenCalled();
   });
 });

@@ -10,43 +10,61 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ## 2026-07-14 — Door outbox/cache not wiped on sign-out — shared-device isolation (86ey9et07)
 
-Branch `fix/86ey9et07-door-outbox-clear-on-signout` (PR open). Follow-up carved out of the
+Branch `fix/86ey9et07-door-outbox-clear-on-signout` (PR #233). Follow-up carved out of the
 adversarial security-review of PR #212 (door-outbox durability, `86ey9e85u`) — the leak is in
 the logout lifecycle, not #212's outbox-merge/lock code. Milestone: Now (security/AVG + audit
-integrity on shared venue tablets).
+integrity on shared venue tablets). **Scope was widened after a fresh-session `/security-review`
+of the first (narrow) fix found it insufficient** — five confirmed gaps, incl. a verified
+account-takeover on the "log out everywhere" button. Max chose the robust fix over merge-and-defer.
 
 - **Root cause.** The door persists to the origin-scoped `plusone-door` IndexedDB under two
-  keys — `door-outbox` (the offline queue, carries guest UUIDs, arrival times, refusal reasons,
-  and plaintext guest names on `add_guest`) and `door-query-cache` (the full guest-list
-  snapshot). `idbClearAll()` (`src/features/door/offline/idb.ts`) existed and its docstring even
-  claimed "Called on sign-out" — but it was wired up **nowhere**. `signOutDevice`
-  (`src/components/po/screens/settings/_shared.tsx`) only did `auth.signOut()` + redirect. On a
-  shared door tablet that meant (1) doorhost B could read A's queued PII straight out of
-  IndexedDB via devtools — no XSS, purely a data-isolation gap between two legitimate successive
-  users — and (2) the worse one: if A had un-synced entries, B's login ran `outbox.init()`,
-  loaded A's entries, and drained them under B's session, so A's check-ins landed server-side
-  **attributed to B** in the append-only audit trail, with no attacker involved.
-- **Fix.** Wired `idbClearAll()` into `signOutDevice` in a `try/finally` before the redirect —
-  runs for both scopes (`local` + `global`) and **even if the network sign-out throws**, because
-  local device isolation must not hinge on the server round-trip succeeding. deleteDatabase (vs.
-  a targeted per-key del) is defense-in-depth: it wipes any door key, present or future.
-- **Supporting hardening in `idb.ts`.** `idbClearAll` now `close()`s its own tracked connection
-  before `deleteDatabase`. Without that the delete is blocked by the still-open connection and
-  deferred (via `onblocked`) until the page navigates away — leaving the data readable on disk in
-  the interim and making the wipe untestable without a real navigation. `close()` waits for
-  in-flight transactions, so nothing is aborted; a sibling tab's connection can still block, but
-  the `onblocked` handler prevents a hang and that tab's own unload finalizes the delete.
-- **Scope.** The deeper edge — force-quit/crash with *no* clean logout, un-synced offline
-  entries, then a different user — is explicitly out of scope here; it needs an owner-stamp +
-  product decision and lives in the linked follow-up.
-- Test: `src/components/po/screens/settings/sign-out.test.ts` (new) — runs against a real
-  in-memory IndexedDB (`fake-indexeddb`, added as a devDependency) and asserts the actual
-  `door-outbox` **and** `door-query-cache` keys are empty after `signOutDevice`, that the scope
-  is passed through + redirect fires, and that the wipe still happens when `auth.signOut`
-  rejects. No migration.
-- Suites green on a fresh run: Vitest **837 passed** (76 files, incl. the 4 new), `tsc --noEmit`
-  clean, `pnpm lint` clean. High-risk surface (door outbox) → fresh-session `/code-review` before
-  merge; adversarial security-research prompt in the PR body.
+  keys — `door-outbox` (the offline queue: guest UUIDs, arrival times, refusal reasons, plaintext
+  guest names on `add_guest`) and `door-query-cache` (the full guest-list snapshot). `idbClearAll()`
+  existed but was wired up **nowhere**; `signOutDevice` only did `auth.signOut()` + redirect. On a
+  shared door tablet: (1) doorhost B could read A's queued PII from IndexedDB via devtools (no XSS),
+  and (2) A's un-synced entries would replay under B on the next login, attributing A's check-ins to
+  B in the append-only audit trail.
+- **Why the naive fix wasn't enough.** "Delete the IDB + navigate, let the reload clean up the rest"
+  doesn't hold on a shared device with sibling tabs, throttled writes, a module singleton, and an
+  auth client that returns (not throws) on a failed revoke. The security review (verified against the
+  real code) surfaced five gaps; the robust fix addresses each:
+  1. **Sibling-tab blocks the delete (`#1`).** `openDb()` set no `onversionchange`, so a second door
+     tab (Deur tab + standalone `/door/[id]`) kept its connection open → `deleteDatabase` blocked
+     forever → A's data survived. Fix: every connection gets an `onversionchange` that closes it, so a
+     sibling releases and the delete completes. (`idb.ts`)
+  2. **In-memory outbox singleton (`#2`).** `outbox` is module-scoped and outlives a route change.
+     Added `OutboxStore.reset()` (clears `entries`, sets `loaded=false`) called on sign-out, so the
+     next doorhost inherits nothing and their `init()` re-reads the clean DB. (`outbox/store.ts`)
+  3. **Re-persist race (`#3`).** A throttled persister write or an in-flight `persistMerged` could
+     re-create the just-deleted DB with A's data. Added a wipe **epoch** in `idb.ts` (bumped by
+     `idbClearAll`); the persister captures it when arming its timer and the outbox captures it when
+     starting a read-merge, and both drop the write if the epoch moved. No permanent tombstone, so the
+     next user's writes still work. (`idb.ts`, `persister.ts`, `outbox/store.ts`)
+  4. **Lingering session → account-takeover (`#4`, the severe one).** Verified against
+     `@supabase/auth-js@2.108.1` `GoTrueClient._signOut`: on a server-revoke error that isn't
+     401/403/404 (e.g. a 5xx on flaky venue wifi) it `return`s `{ error }` **before** `_removeSession()`
+     and **does not throw** — A's tokens stay on the device. Navigating to `/login` then lets
+     `middleware.ts` ("a signed-in user has no business on /login → /app") hand the next user a live
+     session **as A**. Fix: `signOutDevice` now verifies via `getSession()` that no token remains before
+     redirecting, retries a local-scope sign-out once (clears local tokens on a 401/403), and if a
+     session still remains (truly offline) **throws instead of redirecting** — the caller surfaces the
+     failure and the device stays put rather than silently handing off an account. (`_shared.tsx` +
+     error handling in `settings.tsx`/`profile.tsx`, new `signOutFailed` copy)
+  5. **Completeness (`#5`).** The persisted `door-query-cache` is wiped by `idbClearAll`; the in-memory
+     RQ cache is component-scoped (the door query client lives in `DoorQueryProvider` and is dropped on
+     unmount), so no extra `queryClient.clear()` plumbing was warranted. `localStorage` device-id is
+     intentionally stable (device attribution) and left as-is.
+- **`idbClearAll` hardening (from the first pass).** Closes its own tracked connection before
+  `deleteDatabase` so the delete isn't deferred via `onblocked` until navigation.
+- Tests (all against a real in-memory IndexedDB where relevant; `fake-indexeddb` added as a
+  devDependency): `sign-out.test.ts` (new, 7 cases — both door keys empty after sign-out, in-memory
+  `outbox.reset()`, scope + redirect, the `#4` fail-safe both cleared-on-retry and offline-throws
+  paths); `persister.test.ts` (+1: epoch-guarded trailing write dropped); `store.test.ts` (+2:
+  `reset()` empties the queue, in-flight commit doesn't re-persist after an epoch bump).
+- Suites green on a fresh run: Vitest **843 passed** (76 files), `tsc --noEmit` clean, `pnpm lint`
+  clean. High-risk surface (door outbox + auth) → the widened fix needs a **re-run** of fresh-session
+  `/code-review` + `/security-review` before merge (the checkout-mismatch note: the first review ran
+  against `main` + the inline prompt, not the branch — re-point it at the branch).
 
 ---
 

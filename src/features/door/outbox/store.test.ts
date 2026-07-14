@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { idbGet, idbSet } from '../offline/idb';
+import { idbEpoch, idbGet, idbSet } from '../offline/idb';
 import { buildEnvelope } from './persistence';
 import { OutboxStore } from './store';
 import type { OutboxEntry, OutboxStatus } from './types';
 
-vi.mock('../offline/idb', () => ({ idbGet: vi.fn(), idbSet: vi.fn() }));
+vi.mock('../offline/idb', () => ({ idbGet: vi.fn(), idbSet: vi.fn(), idbEpoch: vi.fn(() => 0) }));
 vi.mock('@sentry/nextjs', () => ({ captureMessage: vi.fn() }));
 
 // A Node MaxListenersExceededWarning may print for this file: store.ts's
@@ -19,6 +19,7 @@ vi.mock('@sentry/nextjs', () => ({ captureMessage: vi.fn() }));
 
 const idbGetMock = vi.mocked(idbGet);
 const idbSetMock = vi.mocked(idbSet);
+const idbEpochMock = vi.mocked(idbEpoch);
 
 const EVENT_ID = '11111111-1111-4111-8111-111111111111';
 const CI_ID = '22222222-2222-4222-8222-222222222222';
@@ -51,6 +52,7 @@ beforeEach(() => {
   // idbGet() calls. Every test must set its own idbGetMock behavior explicitly.
   vi.resetAllMocks();
   idbSetMock.mockResolvedValue(true);
+  idbEpochMock.mockReturnValue(0); // resetAllMocks cleared its implementation
 });
 
 afterEach(() => {
@@ -245,5 +247,41 @@ describe('OutboxStore — persist-failure surfacing (O4)', () => {
     await vi.waitFor(() => expect(idbSetMock.mock.calls.length).toBeGreaterThanOrEqual(2));
 
     expect(captureMessage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('OutboxStore — sign-out isolation (86ey9et07)', () => {
+  it('reset() empties the in-memory queue and marks it unloaded', async () => {
+    idbGetMock.mockResolvedValue(buildEnvelope([entry('a'), entry('b')]));
+    const store = new OutboxStore();
+    await store.init();
+    expect(store.getSnapshot()).toHaveLength(2);
+
+    store.reset();
+
+    // getSnapshot() returns the empty ref while !loaded — the next doorhost on a
+    // shared device inherits nothing, and their init() re-reads the clean DB.
+    expect(store.getSnapshot()).toEqual([]);
+  });
+
+  it('does not re-persist an in-flight commit once a sign-out wipe bumped the epoch', async () => {
+    idbGetMock.mockResolvedValueOnce(buildEnvelope([])); // init()'s read
+    const store = new OutboxStore();
+    await store.init(); // loaded, epoch 0
+    idbSetMock.mockClear();
+
+    // A last optimistic mutation kicks off persistMerged, whose read-merge hangs…
+    const readDeferred = createDeferred<unknown>();
+    idbGetMock.mockReturnValue(readDeferred.promise as Promise<unknown>);
+    store.enqueue(entry('late'));
+
+    // …meanwhile the doorhost signs out: idbClearAll() bumped the epoch.
+    idbEpochMock.mockReturnValue(1);
+    readDeferred.resolve(buildEnvelope([]));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // The merge bails post-read instead of writing A's entry into the fresh DB.
+    expect(idbSetMock).not.toHaveBeenCalled();
   });
 });
