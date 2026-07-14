@@ -462,18 +462,21 @@ describe('drainOutbox', () => {
   // A dead-lettered predecessor settles (even if failed) and does NOT block its
   // guest's chain — a later same-guest entry still runs in the same drain.
   it('a same-guest successor still runs in the same drain once its predecessor is dead-lettered', async () => {
-    const insertCheckIn = vi.fn(async (_row: CheckInRow) => ({ error: null }));
+    // Named apart from the gateway's own `insertCheckIn` property below — same
+    // name for both trips up TS's contextual typing of the object literal
+    // (reports the inner call as taking 0 arguments); distinct names sidestep it.
+    const trackedInsertCheckIn = vi.fn(async (_row: CheckInRow) => ({ error: null }));
     const store = fakeStore([
       checkInEntry({ clientId: 'a', attempts: MAX_ATTEMPTS - 1, payload: { id: 'ci1', guestId: 'g1', plusOnesArrived: 0, clientTimestamp: 't' } }),
       checkInEntry({ clientId: 'b', payload: { id: 'ci2', guestId: 'g1', plusOnesArrived: 1, clientTimestamp: 't' } }),
     ]);
     const gw: DoorGateway = {
       ...gatewayReturning(null),
-      insertCheckIn: async (row) => (row.id === 'ci1' ? { error: UNKNOWN_CODE } : insertCheckIn(row)),
+      insertCheckIn: async (row) => (row.id === 'ci1' ? { error: UNKNOWN_CODE } : trackedInsertCheckIn(row)),
     };
     const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
     expect(store.entries[0]).toMatchObject({ status: 'error', attempts: MAX_ATTEMPTS });
-    expect(insertCheckIn).toHaveBeenCalled(); // not blocked behind the now-settled (dead-lettered) predecessor
+    expect(trackedInsertCheckIn).toHaveBeenCalled(); // not blocked behind the now-settled (dead-lettered) predecessor
     expect(summary).toMatchObject({ deadLettered: 1, synced: 1 });
   });
 
