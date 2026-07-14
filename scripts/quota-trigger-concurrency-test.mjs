@@ -23,11 +23,12 @@
 //   Session A opens a transaction, inserts the one guest that exactly fills
 //   the boundary, and DELIBERATELY holds the transaction open (no commit
 //   yet) — the trigger's advisory lock stays held for as long as A stays
-//   open. Session B is fired at the same boundary and is asserted to still be
-//   IN FLIGHT (blocked on A's lock) while A is open — that is the actual
-//   proof of serialisation, not just "B happened to run after A". Only once
-//   A commits does B unblock, re-read the now-committed count, and correctly
-//   get rejected for going one over the boundary.
+//   open. Session B is fired at the same boundary. We poll pg_locks (not a
+//   fixed timer) for a row proving B's own backend is genuinely WAITING on
+//   an advisory lock while A is open — that is the actual proof of
+//   serialisation, not "B happened to still be running". Only once A commits
+//   does B unblock, re-read the now-committed count, and correctly get
+//   rejected for going one over the boundary.
 //
 // RESIDUE (read before pointing this at a database you care about)
 //   Every fixture this script creates is permanent: the audit_log rows the
@@ -37,7 +38,9 @@
 //   script therefore does NOT attempt cleanup. Fixtures are named
 //   "🧪 concurrency-test" so they read as obvious test data. Safe against
 //   local dev / CI's throwaway Postgres (both get wiped by the next
-//   `supabase db reset`) — NEVER point PGURL at prod or a shared database.
+//   `supabase db reset`). PGURL is refused unless it resolves to a loopback
+//   host, so an accidental misfire against prod/a shared DB isn't possible —
+//   set ALLOW_REMOTE_PGURL=1 to override for a deliberately non-local target.
 //
 // USAGE
 //   node scripts/quota-trigger-concurrency-test.mjs
@@ -48,6 +51,18 @@ import pg from 'pg';
 import { randomUUID } from 'node:crypto';
 
 const PGURL = process.env.PGURL ?? 'postgresql://postgres:postgres@127.0.0.1:55322/postgres';
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
+{
+  const host = new URL(PGURL).hostname;
+  if (!LOOPBACK_HOSTS.has(host) && process.env.ALLOW_REMOTE_PGURL !== '1') {
+    console.error(
+      `Refusing to run against non-local PGURL host "${host}" — this script commits permanent test ` +
+        'fixtures (see header). Set ALLOW_REMOTE_PGURL=1 if you really mean a remote/hosted database.'
+    );
+    process.exit(1);
+  }
+}
+
 // Seed venue "Club Vesper" — Tom (staff) and Lisa (doorhost+staff) are both
 // members (supabase/seed.sql), so guests they add satisfy the guests FK/scope
 // triggers without any extra fixture setup.
@@ -55,6 +70,12 @@ const VENUE_ID = 'aa000000-0000-7000-8000-000000000001';
 const TOM = '55555555-5555-4555-8555-555555555555';
 const LISA = '66666666-6666-4666-8666-666666666666';
 const UNLIMITED_QUOTA = 999999;
+
+// SQLSTATEs that mean "B genuinely lost the race and was correctly rejected"
+// vs. ones that mean "something about the harness/contention itself is off"
+// — kept distinct so a lock_timeout/deadlock flake never gets misreported as
+// a quota-logic regression.
+const CONTENTION_SQLSTATES = new Set(['55P03', '40P01']); // lock_timeout, deadlock_detected
 
 let failures = 0;
 function assertion(cond, message) {
@@ -103,11 +124,35 @@ async function setQuotaOverride(setup, eventId, userId, quota) {
   );
 }
 
+function insertGuestQuery(eventId, tierId, name, addedBy) {
+  return {
+    text: `insert into public.guests (event_id, tier_id, full_name, plus_ones, added_by, source)
+           values ($1, $2, $3, 0, $4, 'app')`,
+    values: [eventId, tierId, name, addedBy],
+  };
+}
+
+// Polls pg_locks (via a THIRD, observer connection) until targetPid shows a
+// granted=false advisory-lock wait row, or the deadline passes. This is the
+// actual proof B is blocked on the lock — not an inference from timing.
+async function waitUntilBlockedOnAdvisoryLock(observer, targetPid, { timeoutMs = 2000, intervalMs = 20 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const { rows } = await observer.query(
+      `select 1 from pg_locks where pid = $1 and locktype = 'advisory' and not granted limit 1`,
+      [targetPid]
+    );
+    if (rows.length > 0) return true;
+    await sleep(intervalMs);
+  }
+  return false;
+}
+
 // Runs the actual race: A inserts + holds its transaction open (so it keeps
-// the advisory lock), B is fired concurrently and MUST still be in flight
-// while A is open, then A releases and B is expected to resolve to a specific
-// error once it re-reads the now-committed boundary.
-async function race({ label, insertA, insertB, expectedSqlstate }) {
+// the advisory lock), B is fired concurrently and MUST show up in pg_locks as
+// genuinely waiting while A is open, then A releases and B is expected to
+// resolve to a specific error once it re-reads the now-committed boundary.
+async function race({ label, observer, insertA, insertB, expectedSqlstate }) {
   console.log(`\n${label}`);
   const connA = await connect();
   const connB = await connect();
@@ -117,29 +162,31 @@ async function race({ label, insertA, insertB, expectedSqlstate }) {
     await connA.query(insertA); // succeeds; the trigger's advisory lock is now held, uncommitted
 
     await connB.query('begin');
+    const { rows: pidRows } = await connB.query('select pg_backend_pid() as pid');
+    const bPid = pidRows[0].pid;
     const bPromise = connB.query(insertB).catch((err) => err);
 
-    // Give B time to actually reach the trigger and start blocking on A's lock.
-    await sleep(250);
-    const bStillInFlight = await Promise.race([
-      bPromise.then(() => false),
-      sleep(100).then(() => true),
-    ]);
-    assertion(bStillInFlight, 'B is still blocked on the advisory lock while A is open (real serialisation, not luck)');
+    const bBlocked = await waitUntilBlockedOnAdvisoryLock(observer, bPid);
+    assertion(bBlocked, 'B is genuinely waiting on the advisory lock in pg_locks while A is open (real serialisation, not luck)');
 
     await connA.query('commit');
 
     const bResult = await bPromise;
     const bErrored = bResult instanceof Error;
-    assertion(bErrored, 'B is rejected once it re-reads the boundary A just committed');
-    if (bErrored) {
-      assertion(
-        bResult.code === expectedSqlstate,
-        `B fails with the expected SQLSTATE ${expectedSqlstate} (got ${bResult.code})`
+    if (!bErrored) {
+      failures += 1;
+      console.error('  FAIL — B unexpectedly SUCCEEDED — the boundary was silently exceeded (the exact bug 86ey9e8ar describes)');
+    } else if (CONTENTION_SQLSTATES.has(bResult.code)) {
+      failures += 1;
+      console.error(
+        `  FAIL — B failed with ${bResult.code} (lock contention/deadlock), not the expected quota SQLSTATE ${expectedSqlstate} — ` +
+          'this is a harness/contention issue, not proof of the quota check working'
       );
     } else {
-      failures += 1;
-      console.error(`  FAIL — B unexpectedly SUCCEEDED — the boundary was silently exceeded (the exact bug 86ey9e8ar describes)`);
+      assertion(
+        bResult.code === expectedSqlstate,
+        `B is correctly rejected with the expected SQLSTATE ${expectedSqlstate} once it re-reads the boundary A just committed (got ${bResult.code})`
+      );
     }
   } finally {
     // B's transaction is either already aborted (it raised) or, in the
@@ -155,15 +202,11 @@ async function runQuotaDomain(setup) {
   const { eventId, tierId } = await makeEvent(setup, { capacity: null, tierMax: null });
   await setQuotaOverride(setup, eventId, TOM, 1);
 
-  const insertGuest = (name) => `
-    insert into public.guests (event_id, tier_id, full_name, plus_ones, added_by, source)
-    values ('${eventId}', '${tierId}', '${name}', 0, '${TOM}', 'app')
-  `;
-
   await race({
     label: 'Personal quota (45001) — quota=1, two concurrent adds by the SAME staffer',
-    insertA: insertGuest('Race Guest A'),
-    insertB: insertGuest('Race Guest B'),
+    observer: setup,
+    insertA: insertGuestQuery(eventId, tierId, 'Race Guest A', TOM),
+    insertB: insertGuestQuery(eventId, tierId, 'Race Guest B', TOM),
     expectedSqlstate: '45001',
   });
 
@@ -179,15 +222,11 @@ async function runTierMaxDomain(setup) {
   await setQuotaOverride(setup, eventId, TOM, UNLIMITED_QUOTA);
   await setQuotaOverride(setup, eventId, LISA, UNLIMITED_QUOTA);
 
-  const insertGuest = (name, addedBy) => `
-    insert into public.guests (event_id, tier_id, full_name, plus_ones, added_by, source)
-    values ('${eventId}', '${tierId}', '${name}', 0, '${addedBy}', 'app')
-  `;
-
   await race({
     label: 'Tier max (45002) — tier max_guests=1, two DIFFERENT staffers race the same tier',
-    insertA: insertGuest('Race Guest A', TOM),
-    insertB: insertGuest('Race Guest B', LISA),
+    observer: setup,
+    insertA: insertGuestQuery(eventId, tierId, 'Race Guest A', TOM),
+    insertB: insertGuestQuery(eventId, tierId, 'Race Guest B', LISA),
     expectedSqlstate: '45002',
   });
 
@@ -203,15 +242,11 @@ async function runCapacityDomain(setup) {
   await setQuotaOverride(setup, eventId, TOM, UNLIMITED_QUOTA);
   await setQuotaOverride(setup, eventId, LISA, UNLIMITED_QUOTA);
 
-  const insertGuest = (name, addedBy) => `
-    insert into public.guests (event_id, tier_id, full_name, plus_ones, added_by, source)
-    values ('${eventId}', '${tierId}', '${name}', 0, '${addedBy}', 'app')
-  `;
-
   await race({
     label: 'Event capacity (45005) — capacity=1, two DIFFERENT staffers race the whole room',
-    insertA: insertGuest('Race Guest A', TOM),
-    insertB: insertGuest('Race Guest B', LISA),
+    observer: setup,
+    insertA: insertGuestQuery(eventId, tierId, 'Race Guest A', TOM),
+    insertB: insertGuestQuery(eventId, tierId, 'Race Guest B', LISA),
     expectedSqlstate: '45005',
   });
 
