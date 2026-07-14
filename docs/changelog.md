@@ -8,6 +8,43 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-14 — Request-link-max trigger missing the same concurrency lock as quota/capacity/tier-max (86ey9p8zh)
+
+DONE + merged to main, PR #224 (`claude/86ey9p8zh-request-link-trigger-lock`). CONFIRMED
+follow-up filed by PR #216 (86ey9e8ar) itself — "same unlocked-recompute shape, out of scope
+there". Touches a trigger + `SECURITY DEFINER` function → fresh-session `/code-review` +
+`/security-review` run before merge; verdict **ship it**, zero real defects (7/7 adversarial
+refuters held on an 8-agent panel, plus a live-DB break-script: 5/6/10-way floods, multi-slot
+`plus_ones`, and the `UPDATE` net-increase path CI doesn't cover all landed exactly at the cap).
+
+- **Root cause.** `enforce_request_link_max()` (SQLSTATE 45006,
+  `supabase/migrations/20260706101000_request_link_attribution.sql`) recomputed
+  `request_link_consumption()` via a plain `SELECT` in an AFTER trigger under READ COMMITTED
+  with no row lock — the identical gap 86ey9e8ar fixed for personal quota/tier-max/event
+  capacity. Two concurrent adds through the same request link (two door sessions, or two
+  offline-outbox replays both attributing to the same influencer link) could each pass and
+  silently exceed `max_headcount`.
+- **Fix.** New migration `20260714160000_request_link_trigger_locking.sql`, `CREATE OR REPLACE`
+  on the existing function, adding `pg_advisory_xact_lock(4, hashtext(request_link_id::text))`
+  as the fourth contention domain (alongside 86ey9e8ar's 1/2/3), taken only on the net-increase
+  branch. No schema change, no app-code change (`request_link_id` is only ever set single-row
+  via `approve_guest_request`/`submit_guest_request`, never through `addGuestsBulk`, so the
+  40P01 deadlock-retry #216 needed doesn't apply here).
+- **Test.** Extended `scripts/quota-trigger-concurrency-test.mjs` with a fourth cross-connection
+  race (45006) rather than a new pgTAP file — same reasoning as 86ey9e8ar (needs two genuinely
+  racing connections, which one pgTAP transaction can't produce). `supabase db reset` clean,
+  `supabase test db` 52 files/1003 pgTAP green, `pnpm db:test:concurrency` 4/4 domains PASS,
+  lint clean, vitest 819/820 (1 unrelated `stripe-webhook.test.ts` timeout flake, confirmed
+  passing in isolation).
+- **Review found two pre-existing, out-of-scope, low-severity gaps** in the *original*
+  20260706101000 migration (not introduced by this PR) — filed as its own task, 86ey9thm6:
+  (1) the 45006 error's numeric hint leaks another venue's link consumption/max if a staffer
+  cross-attributes to a link outside their own event (no event/venue match in the lookup);
+  (2) a theoretical multi-link raw-insert deadlock, unreachable via any shipped path and
+  fail-safe regardless.
+
+---
+
 ## 2026-07-14 — Home "Lock" button was a decoy (86ey9e8de)
 
 DONE, PR [#228](https://github.com/Max-Seffelaar/PlusOne/pull/228), not yet merged.
@@ -47,8 +84,6 @@ the floor here.
   the pre-hydration shell indefinitely (not just slowly). Unstick with
   `window.$RV(window.$RB)` in `preview_eval` if `document.hidden` is true and content
   never appears after a normal wait.
-
----
 
 ## 2026-07-14 — Door add-on-the-spot bypassed Zod; quick-add trailing-number misparse (86ey9e8bd)
 

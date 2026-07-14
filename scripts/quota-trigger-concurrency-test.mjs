@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Real-connection concurrency test for the quota/capacity/tier-max trigger
-// locking fix (ClickUp 86ey9e8ar).
+// Real-connection concurrency test for the quota/capacity/tier-max/request-link
+// trigger locking fix (ClickUp 86ey9e8ar + follow-up 86ey9p8zh).
 //
 // WHY THIS ISN'T A pgTAP FILE
 //   Proving "two concurrent transactions on the boundary — exactly one must
@@ -19,7 +19,7 @@
 //   local/CI Postgres — the same idea scripts/perf/realtime-loadtest-hosted.mjs
 //   uses for concurrency this project's SQL-only test tooling can't reach.
 //
-// WHAT IT PROVES, PER DOMAIN (personal quota / tier max / event capacity)
+// WHAT IT PROVES, PER DOMAIN (personal quota / tier max / event capacity / request link)
 //   Session A opens a transaction, inserts the one guest that exactly fills
 //   the boundary, and DELIBERATELY holds the transaction open (no commit
 //   yet) — the trigger's advisory lock stays held for as long as A stays
@@ -237,6 +237,43 @@ async function runTierMaxDomain(setup) {
   assertion(rows[0].n === 1, `exactly 1 guest landed in this tier (found ${rows[0].n})`);
 }
 
+async function runRequestLinkDomain(setup) {
+  const { eventId, tierId } = await makeEvent(setup, { capacity: null, tierMax: null });
+  await setQuotaOverride(setup, eventId, TOM, UNLIMITED_QUOTA);
+  await setQuotaOverride(setup, eventId, LISA, UNLIMITED_QUOTA);
+
+  const slug = `concurrency-test-link-${randomUUID()}`;
+  const { rows: linkRows } = await setup.query(
+    `insert into public.request_links (event_id, tier_id, label, slug, max_headcount)
+     values ($1, $2, '🧪 concurrency-test link', $3, 1)
+     returning id`,
+    [eventId, tierId, slug]
+  );
+  const linkId = linkRows[0].id;
+
+  function insertLinkedGuestQuery(name, addedBy) {
+    return {
+      text: `insert into public.guests (event_id, tier_id, request_link_id, full_name, plus_ones, added_by, source)
+             values ($1, $2, $3, $4, 0, $5, 'app')`,
+      values: [eventId, tierId, linkId, name, addedBy],
+    };
+  }
+
+  await race({
+    label: 'Request link max (45006) — max_headcount=1, two DIFFERENT staffers race the same link',
+    observer: setup,
+    insertA: insertLinkedGuestQuery('Race Guest A', TOM),
+    insertB: insertLinkedGuestQuery('Race Guest B', LISA),
+    expectedSqlstate: '45006',
+  });
+
+  const { rows } = await setup.query(
+    `select count(*)::int as n from public.guests where request_link_id = $1 and status <> 'removed'`,
+    [linkId]
+  );
+  assertion(rows[0].n === 1, `exactly 1 guest landed for this request link (found ${rows[0].n})`);
+}
+
 async function runCapacityDomain(setup) {
   const { eventId, tierId } = await makeEvent(setup, { capacity: 1, tierMax: null });
   await setQuotaOverride(setup, eventId, TOM, UNLIMITED_QUOTA);
@@ -263,6 +300,7 @@ async function main() {
     await runQuotaDomain(setup);
     await runTierMaxDomain(setup);
     await runCapacityDomain(setup);
+    await runRequestLinkDomain(setup);
   } finally {
     await setup.end();
   }
