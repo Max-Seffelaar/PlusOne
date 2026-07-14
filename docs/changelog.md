@@ -8,6 +8,43 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-14 — `promote_guest_to_contact()` missing venue/role authorization (86ey9e880)
+
+CONFIRMED cross-tenant PII-write defect, verified adversarially before this session (S2 +
+13/7 re-verification). Branch `fix/86ey9e880-promote-guest-authz`. High-risk surface
+(`SECURITY DEFINER` + RLS-adjacent authorization) → fresh-session `/code-review` +
+`/security-review` required before merge — not run by the building session.
+
+- **Root cause.** `promote_guest_to_contact()` (`20260625100100`) is `SECURITY DEFINER`
+  with `set search_path=''` but had **no authorization predicate**. The inline comment
+  claimed "RLS enforces membership" — false, because a DEFINER function bypasses RLS
+  entirely. The read on `guests`/`events` succeeded for *any* non-removed guest UUID in
+  *any* venue; the function then inserted a `contacts` row (PII) into that venue and
+  back-linked `guests.contact_id`, reachable by any `authenticated` user via
+  `GRANT ... TO authenticated`. The sister RPCs added later (`mark_guest_regular`
+  `20260707150000`, `add_contacts_to_event` `20260707160000`) both gate on
+  `has_venue_role(admin) or organizes_event_at_venue` — this one never got that gate when
+  it was written first.
+- **Fix.** New migration `20260714120000_promote_guest_to_contact_authz.sql` — same
+  `create or replace function` body, with the missing predicate added (raises `42501`
+  otherwise), mirroring `mark_guest_regular` exactly. No column/table changes, no
+  expand-contract concerns.
+- **Tests.** New `supabase/tests/database/promote_guest_to_contact.test.sql` (12 pgTAP
+  assertions) — staff/finance denied (create nothing), admin promotes a name-only guest
+  (fresh contact, `source = 'guest_list'`), an e-mail dedup guest links onto the existing
+  contact instead of duplicating, already-linked guest is a no-op, a non-admin organizer of
+  the guest's event may promote, non-existent guest raises `P0002`. Full suite green on a
+  fresh `supabase db reset`: pgTAP 981 (was 969), Vitest 777, lint clean.
+- **UX note, not fixed here.** The "Save as contact" CTA in
+  `src/components/po/screens/guests/profile.tsx` is shown to any non-door-only role
+  (`isDoorOnlyRole`), including plain `staff` — who could previously call the RPC
+  successfully (the bug) and will now get a generic "no rights" toast (`mapMutationError`
+  → `42501`, handled gracefully, no crash). Determining organizer-of-this-event client-side
+  needs data `usePoIdentity` doesn't carry today; flagged as a follow-up rather than folded
+  into this security fix.
+
+---
+
 ## 2026-07-13 — Persisted door-cache never evicted → "app wordt trager" (86ey9e86f)
 
 CONFIRMED root cause of the reported growth-slowdown that also hits prod. Three coupled
