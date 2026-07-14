@@ -66,9 +66,20 @@ export async function addGuest(input: AddGuestInput): Promise<ActionResult> {
   return { ok: true };
 }
 
+const DEADLOCK_DETECTED = '40P01';
+const BULK_DEADLOCK_RETRIES = 2;
+
 /**
  * Add many guests in one statement. The insert is atomic: if the quota engine
  * rejects any row, the whole batch rolls back (#33 "blokkeert de batch").
+ *
+ * A batch spanning multiple tiers acquires the per-tier advisory locks
+ * (86ey9e8ar, migration 20260714100000_quota_capacity_trigger_locking) in
+ * row order, which two concurrent bulk imports touching the same capped
+ * tiers in opposite order can deadlock on — Postgres aborts one side with
+ * 40P01. The abort is atomic (nothing partially inserted), so a retry is
+ * safe; it is not a masked oversell, just a rare contention error worth
+ * absorbing rather than surfacing as a batch failure.
  */
 export async function addGuestsBulk(input: BulkAddInput): Promise<ActionResult> {
   const parsed = bulkAddSchema.safeParse(input);
@@ -95,7 +106,11 @@ export async function addGuestsBulk(input: BulkAddInput): Promise<ActionResult> 
 
   // venue_id is populated by the set_event_scope BEFORE INSERT trigger
   // (migration 20260708120000); cast over the omitted column.
-  const { error } = await supabase.from('guests').insert(rows as Database['public']['Tables']['guests']['Insert'][]);
+  let error = null;
+  for (let attempt = 0; attempt <= BULK_DEADLOCK_RETRIES; attempt += 1) {
+    ({ error } = await supabase.from('guests').insert(rows as Database['public']['Tables']['guests']['Insert'][]));
+    if (!error || error.code !== DEADLOCK_DETECTED) break;
+  }
   if (error) return mapMutationError(error);
 
   revalidatePath(guestsPath(eventId));
