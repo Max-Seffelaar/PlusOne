@@ -30,6 +30,11 @@ const UNIQUE_VIOLATION = '23505';
 const NOT_NULL_VIOLATION = '23502';
 const CHECK_VIOLATION = '23514';
 
+/** The copy for INSUFFICIENT_PRIVILEGE below — exported so a call site that knows
+ *  a specific privilege-gated action failed can offer a more actionable hint than
+ *  this generic message, without re-typing (and risking drift from) the string. */
+export const INSUFFICIENT_PRIVILEGE_MESSAGE = "You don't have rights for this.";
+
 export function mapMutationError(error: PostgrestLikeError | null | undefined): MutationError {
   const code = error?.code ?? 'unknown';
 
@@ -48,7 +53,7 @@ export function mapMutationError(error: PostgrestLikeError | null | undefined): 
       return {
         ok: false,
         code,
-        message: "You don't have rights for this.",
+        message: INSUFFICIENT_PRIVILEGE_MESSAGE,
       };
     case UNIQUE_VIOLATION:
       return { ok: false, code, message: 'This already exists.' };

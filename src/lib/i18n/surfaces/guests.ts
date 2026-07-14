@@ -353,6 +353,10 @@ export const guests = {
     promoteHint: "With an email or phone number we recognise them next time. Without one, they're saved by name only.",
     promoteSave: 'Save as contact',
     promoteSuccess: 'Saved as contact.',
+    // Saving name-only (no e-mail/phone) requires admin or the event organizer
+    // (promote_guest_to_contact RPC authz, 86ey9e880) — other roles can still
+    // save by adding an e-mail or phone number instead (a different, ungated path).
+    promoteNoRightsHint: "Saving without an e-mail or phone needs an admin or the event organizer. Add an e-mail or phone number instead, or ask them to save it.",
     // Tier change from the person profile
     changeTier: 'Change tier',
     changeTierSub: 'Pick a tier for this guest.',
