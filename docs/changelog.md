@@ -10,28 +10,31 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ## 2026-07-14 — Door add-on-the-spot bypassed Zod; quick-add trailing-number misparse (86ey9e8bd)
 
-CONFIRMED review finding (T2 + gap-sweep #36). Branch `claude/practical-curie-7e9287`.
-Touches the door outbox → high-risk surface → **fresh-session `/code-review` required
-before merge**, not run by the building session.
+DONE + merged to main. CONFIRMED review finding (T2 + gap-sweep #36). PR #219
+(`fix/86ey9e8bd-door-add-plus-ones-cap`). Touched the door outbox → high-risk surface →
+fresh-session `/code-review` + `/security-review` run before merge, not by the building
+session — the code review caught a real merge-blocking bug (below), the security review
+found nothing blocking.
 
 - **Root cause 1 (T2).** `DoorProvider.addOnSpot` (`src/features/door/DoorProvider.tsx`)
   enqueued the door "add on the spot" payload straight into the offline outbox with only
   `if (!fullName) return` as a guard — no Zod. The outbox replay (`outbox/replay.ts` →
-  `gateway.ts insertGuest`) inserts that payload directly with no server action
-  re-validating it, so `plusOnes`/`fullName` reached the DB with only
-  `plus_ones >= 0` (no ceiling) as a backstop. A quota-exempt admin mistyping a large
-  number could write `guests.plus_ones` in the millions, corrupting quota/headcount math.
+  `gateway.ts insertGuest`) inserts that payload directly through the user-scoped client
+  with RLS as the only gate — no server action re-validates it — so `plusOnes`/`fullName`
+  reached the DB with only `plus_ones >= 0` (no ceiling) as a backstop. A quota-exempt
+  admin mistyping a large number could write `guests.plus_ones` in the millions,
+  corrupting quota/headcount math.
 - **Root cause 2 (gap-sweep #36).** `quick-add-parser.ts`'s `findPlusOnes` read *any*
   bare trailing integer under 8 digits as a plus-ones count (the "Naam 2" → +2
   convenience). "Adele 25" parsed as +25 (26 slots); "Blink 182" parsed as +182 and
   failed the `.max(50)` Zod cap, silently killing an otherwise-valid bulk-paste line.
 - **Fix.**
-  - New `addOnSpotSchema` (`src/features/guests/schemas.ts`, reusing the existing
-    `fullName`/`plusOnes`/uuid primitives) — `DoorProvider.addOnSpot` now
-    `safeParse`s the door-add payload before enqueueing; on failure it toasts and never
-    queues the write (no DB round-trip needed to reject it).
-  - New CHECK constraint `guests_plus_ones_upper_bound` (`plus_ones <= 50`), migration
-    `20260714130000_guests_plus_ones_upper_bound.sql` — additive, the existing
+  - New `addOnSpotSchema` (`src/features/guests/schemas.ts`, derived from `addGuestSchema`
+    via `.pick()` rather than duplicating field definitions) — `DoorProvider.addOnSpot`
+    now `safeParse`s the door-add payload before enqueueing; on failure it toasts and
+    never queues the write.
+  - New additive CHECK constraint `guests_plus_ones_upper_bound` (`plus_ones <= 50`),
+    migration `20260714150000_guests_plus_ones_upper_bound.sql` — the existing
     `plus_ones >= 0` check is untouched. DB-level backstop for any insert path, not just
     the door.
   - `findPlusOnes`'s bare-trailing-number fallback is now capped at
@@ -39,21 +42,39 @@ before merge**, not run by the building session.
     mistyped "Anna 9999999" now leave the number in the name instead of misreading it as
     a party size. An explicit `+N`/`plus N` still works up to the Zod cap (50) regardless
     of the bare-number threshold.
-- **Tests.** New `src/features/guests/schemas.test.ts` (7 cases: cap boundary, runaway
-  value, negative, empty name, non-uuid tier). New pgTAP
-  `supabase/tests/database/guests_plus_ones_upper_bound.test.sql` (50 accepted, 51 and a
-  runaway value rejected with `23514`). 5 new cases in `quick-add-parser.test.ts` for the
-  gap-sweep #36 threshold. Migration applies cleanly on a fresh `supabase db reset`.
-  Full suite green: Vitest 817 (was 796), pgTAP 986 (was 981), lint clean, `tsc --noEmit`
-  clean.
-- **Not done this session.** Live UI verification of the door add-on-the-spot flow in the
-  preview browser was inconclusive — the door route's client-side Suspense boundary never
-  mounted content in the headless preview (no console/server errors, all chunks 200'd;
-  looked like a preview-harness/session quirk, not a code defect, but not conclusively
-  ruled out either). Automated coverage (unit + pgTAP + lint + typecheck) is green; Max
-  should confirm the door screen live via the test handoff below before merging.
+- **Code-review finding, fixed before merge.** `addOnSpot` originally returned `void`.
+  `AddOnSpot.tsx`'s `commit()` unconditionally showed the guest as "on the list" and
+  cleared the input after calling it — even when the new Zod guard silently rejected the
+  payload. Reachable: the parser's explicit `+N`/`pN` triggers have no upper bound of
+  their own (unlike the bare-number fallback), so an exempt door user typing e.g.
+  `"Anna p9999999"` could pass the UI's own quota gate and get a false success
+  confirmation for a write that never happened. Fixed: `addOnSpot` now returns a boolean;
+  `commit()` only marks success when it's `true`. New `AddOnSpot.test.tsx` (2 cases)
+  covers both outcomes.
+- **Tests.** `src/features/guests/schemas.test.ts` (7 cases), `AddOnSpot.test.tsx`
+  (2 cases), 5 new `quick-add-parser.test.ts` cases, pgTAP
+  `guests_plus_ones_upper_bound.test.sql` (50 accepted, 51 + a runaway value rejected
+  with `23514`). Final state: Vitest 820, pgTAP 1003 (fresh `db reset`), lint clean,
+  `tsc --noEmit` clean.
+- **Unrelated but blocking discovery: `main` had a live migration timestamp collision.**
+  PR #220 (`promote_guest_to_contact_widen_authz.sql`) merged with the same
+  `20260714130000` timestamp PR #215 (`stripe_event_ordering_guard.sql`) had already
+  claimed — `supabase db reset` failed outright for anyone on `main` (duplicate key on
+  `schema_migrations`), which also blocks the prod-push flow's required `db reset && test
+  db` step. Fixed in **PR #222** (merged first): renamed the later file to
+  `20260714135000` (pure rename, no SQL change), verified 1000/1000 pgTAP passing after.
+  PR #219 was rebased on top once #222 merged. **Lesson: the pre-push hook only checks
+  the pushing branch against `main` at push time — it can't catch two branches that each
+  independently pick a free slot and then merge close together.** Worth a periodic
+  `git ls-files supabase/migrations | sort | uniq -d -w14` sweep, not just per-PR checks.
+- **Live UI verification never completed** by the building session — the door route's
+  client-side Suspense boundary never mounted content in the headless preview (no
+  console/server errors, all chunks 200'd; read as a preview-harness/session quirk, not a
+  code defect, but not conclusively ruled out). Max reviewed and approved merge directly
+  ("Everything is okay! We can merge!") without a documented answer to the 5-question
+  test handoff below — noted here in case the door screen needs a closer look later.
 
-**Test handoff:**
+**Test handoff (if ever needed):**
 `http://localhost:<port>/auth/dev-login?email=door@plusone.test&next=/app/door?add=1`
 (or Deur tab → "+" add-on-the-spot). Questions:
 1. Typing "Anna 9999999" (or any 2+ digit trailing number) no longer offers it as
