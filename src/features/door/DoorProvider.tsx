@@ -22,6 +22,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
 import { v7 as uuidv7 } from 'uuid';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
+import { addOnSpotSchema } from '@/features/guests/schemas';
 import { getDeviceId, getDoorClient } from './offline/device';
 import { drainOutbox, guestKeyOf } from './outbox/replay';
 import { supabaseGateway } from './outbox/gateway';
@@ -101,7 +102,10 @@ interface DoorContextValue {
   refuse: (guestId: string, reason: string) => void;
   /** Re-admit a guest refused by mistake — status back to approved (#10). */
   undoRefusal: (guestId: string) => void;
-  addOnSpot: (input: AddOnSpotInput) => void;
+  /** Returns false (and toasts) when the payload fails validation — the caller
+   *  must not treat the guest as added (86ey9e8bd: a doorhost must never see a
+   *  false "on the list" confirmation for a write that was actually rejected). */
+  addOnSpot: (input: AddOnSpotInput) => boolean;
   ackNote: (guestId: string, ack: boolean) => void;
 }
 
@@ -482,11 +486,24 @@ export function DoorProvider({
   const addOnSpot = useCallback(
     ({ name, plusOnes, tierId }: AddOnSpotInput) => {
       const fullName = name.trim();
-      if (!fullName) return; // never queue a nameless guest (C12 — defence in depth)
+      if (!fullName) return false; // never queue a nameless guest (C12 — defence in depth)
+      // The outbox replay inserts this payload directly (no server action
+      // re-validates it), so it must pass the same caps as every other guest
+      // write BEFORE it is even enqueued (86ey9e8bd) — never trust the parser.
+      // The parser's explicit +N/pN triggers have no upper bound of their own
+      // (unlike the bare-trailing-number fallback), so an exempt door user can
+      // still type e.g. "Anna p9999999" past the UI's own quota gate — this
+      // Zod check is the real boundary, and the caller MUST treat a `false`
+      // return as "nothing was added", not silently confirm it.
+      const parsed = addOnSpotSchema.safeParse({ fullName, plusOnes, tierId });
+      if (!parsed.success) {
+        showToast("Couldn't add that guest — check the name and +N");
+        return false;
+      }
       const id = uuidv7();
       const ts = new Date().toISOString();
       enqueueDoorWrite(
-        { kind: 'add_guest', payload: { id, tierId, fullName, plusOnes } },
+        { kind: 'add_guest', payload: { id, tierId: parsed.data.tierId, fullName: parsed.data.fullName, plusOnes: parsed.data.plusOnes } },
         (s) => {
           // Narrow snapshot row (P-IDB7) — only the door-rendered columns. The
           // full row (venue_id, source, timestamps, …) is filled server-side; the
@@ -494,10 +511,10 @@ export function DoorProvider({
           const row: GuestRow = {
             id,
             event_id: eventId,
-            tier_id: tierId,
-            full_name: fullName,
+            tier_id: parsed.data.tierId,
+            full_name: parsed.data.fullName,
             phone: null,
-            plus_ones: plusOnes,
+            plus_ones: parsed.data.plusOnes,
             note: null,
             note_priority: 'none',
             note_acknowledged_by: null,
@@ -508,10 +525,11 @@ export function DoorProvider({
           };
           return { ...s, guests: [...s.guests, row] };
         },
-        `${fullName}${plusOnes > 0 ? ` +${plusOnes}` : ''} · op de lijst`,
+        `${parsed.data.fullName}${parsed.data.plusOnes > 0 ? ` +${parsed.data.plusOnes}` : ''} · op de lijst`,
       );
+      return true;
     },
-    [enqueueDoorWrite, eventId, meId],
+    [enqueueDoorWrite, eventId, meId, showToast],
   );
 
   const ackNote = useCallback(

@@ -8,6 +8,63 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-14 — Door add-on-the-spot bypassed Zod; quick-add trailing-number misparse (86ey9e8bd)
+
+CONFIRMED review finding (T2 + gap-sweep #36). Branch `claude/practical-curie-7e9287`.
+Touches the door outbox → high-risk surface → **fresh-session `/code-review` required
+before merge**, not run by the building session.
+
+- **Root cause 1 (T2).** `DoorProvider.addOnSpot` (`src/features/door/DoorProvider.tsx`)
+  enqueued the door "add on the spot" payload straight into the offline outbox with only
+  `if (!fullName) return` as a guard — no Zod. The outbox replay (`outbox/replay.ts` →
+  `gateway.ts insertGuest`) inserts that payload directly with no server action
+  re-validating it, so `plusOnes`/`fullName` reached the DB with only
+  `plus_ones >= 0` (no ceiling) as a backstop. A quota-exempt admin mistyping a large
+  number could write `guests.plus_ones` in the millions, corrupting quota/headcount math.
+- **Root cause 2 (gap-sweep #36).** `quick-add-parser.ts`'s `findPlusOnes` read *any*
+  bare trailing integer under 8 digits as a plus-ones count (the "Naam 2" → +2
+  convenience). "Adele 25" parsed as +25 (26 slots); "Blink 182" parsed as +182 and
+  failed the `.max(50)` Zod cap, silently killing an otherwise-valid bulk-paste line.
+- **Fix.**
+  - New `addOnSpotSchema` (`src/features/guests/schemas.ts`, reusing the existing
+    `fullName`/`plusOnes`/uuid primitives) — `DoorProvider.addOnSpot` now
+    `safeParse`s the door-add payload before enqueueing; on failure it toasts and never
+    queues the write (no DB round-trip needed to reject it).
+  - New CHECK constraint `guests_plus_ones_upper_bound` (`plus_ones <= 50`), migration
+    `20260714130000_guests_plus_ones_upper_bound.sql` — additive, the existing
+    `plus_ones >= 0` check is untouched. DB-level backstop for any insert path, not just
+    the door.
+  - `findPlusOnes`'s bare-trailing-number fallback is now capped at
+    `MAX_BARE_TRAILING_PLUS_ONES = 9` — "Naam 2" still works, "Adele 25"/"Blink 182"/a
+    mistyped "Anna 9999999" now leave the number in the name instead of misreading it as
+    a party size. An explicit `+N`/`plus N` still works up to the Zod cap (50) regardless
+    of the bare-number threshold.
+- **Tests.** New `src/features/guests/schemas.test.ts` (7 cases: cap boundary, runaway
+  value, negative, empty name, non-uuid tier). New pgTAP
+  `supabase/tests/database/guests_plus_ones_upper_bound.test.sql` (50 accepted, 51 and a
+  runaway value rejected with `23514`). 5 new cases in `quick-add-parser.test.ts` for the
+  gap-sweep #36 threshold. Migration applies cleanly on a fresh `supabase db reset`.
+  Full suite green: Vitest 817 (was 796), pgTAP 986 (was 981), lint clean, `tsc --noEmit`
+  clean.
+- **Not done this session.** Live UI verification of the door add-on-the-spot flow in the
+  preview browser was inconclusive — the door route's client-side Suspense boundary never
+  mounted content in the headless preview (no console/server errors, all chunks 200'd;
+  looked like a preview-harness/session quirk, not a code defect, but not conclusively
+  ruled out either). Automated coverage (unit + pgTAP + lint + typecheck) is green; Max
+  should confirm the door screen live via the test handoff below before merging.
+
+**Test handoff:**
+`http://localhost:<port>/auth/dev-login?email=door@plusone.test&next=/app/door?add=1`
+(or Deur tab → "+" add-on-the-spot). Questions:
+1. Typing "Anna 9999999" (or any 2+ digit trailing number) no longer offers it as
+   plus-ones — the number stays part of the preview name?
+2. Typing "Naam 2" still shows a +2 preview and adds 2 plus-ones?
+3. Typing "Naam +25" still works (explicit +N above the bare-number threshold)?
+4. A normal add ("Juri Braakman +2 vip") still completes and appears in "Just added"?
+5. No new console errors when opening the add-on-the-spot screen or committing an add?
+
+---
+
 ## 2026-07-14 — `promote_guest_to_contact()` missing venue/role authorization (86ey9e880)
 
 CONFIRMED cross-tenant PII-write defect, verified adversarially before this session (S2 +

@@ -71,6 +71,38 @@ describe('+N grammar', () => {
   });
 });
 
+describe('gap-sweep #36 — a bare trailing number is not an unbounded party size (86ey9e8bd)', () => {
+  it('still reads a small bare trailing number as +N ("Naam 2")', () => {
+    const r = parse('Naam 2');
+    expect(r.name).toBe('Naam');
+    expect(r.plusOnes).toBe(2);
+  });
+
+  it('does NOT read "Adele 25" as +25 — 25 stays part of the name', () => {
+    const r = parse('Adele 25');
+    expect(r.name).toBe('Adele 25');
+    expect(r.plusOnes).toBe(0);
+  });
+
+  it('does NOT read "Blink 182" as +182 — 182 stays part of the name', () => {
+    const r = parse('Blink 182');
+    expect(r.name).toBe('Blink 182');
+    expect(r.plusOnes).toBe(0);
+  });
+
+  it('does NOT read a mistyped huge trailing number as plus-ones ("Anna 9999999")', () => {
+    const r = parse('Anna 9999999');
+    expect(r.name).toBe('Anna 9999999');
+    expect(r.plusOnes).toBe(0);
+  });
+
+  it('an explicit "+N" above the bare-number threshold still works', () => {
+    const r = parse('Anna +25');
+    expect(r.name).toBe('Anna');
+    expect(r.plusOnes).toBe(25);
+  });
+});
+
 describe('case (b) — recognised tier word (exact / fuzzy)', () => {
   it('matches an exact alias', () => {
     const r = parse('Juri Braakman vip');
