@@ -5,6 +5,11 @@
 // eventDetail — a peer's check-in/void never refreshed the All-Guests tab or
 // the event-detail header. Asserts the full invalidated key-list on a
 // postgres_changes callback, not just the pre-fix subset.
+//
+// Also covers 86ey9e8fe: invalidate() is throttled (leading+trailing) so a
+// burst of postgres_changes events (a check-in touches BOTH guests AND
+// check_ins) collapses into at most 2 invalidate cycles instead of firing the
+// full cascade once per event.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -83,5 +88,40 @@ describe('usePoEventRealtime invalidate() (C19, 86ey6xdkb)', () => {
     expect(includesKey(keys, poKeys.eventStats('event-1'))).toBe(true);
     expect(includesKey(keys, VENUE_GUESTS_PREFIX)).toBe(true);
     expect(includesKey(keys, poKeys.eventDetail('event-1'))).toBe(true);
+  });
+});
+
+describe('usePoEventRealtime invalidate() throttling (86ey9e8fe)', () => {
+  it('a burst of postgres_changes events fires the 6-key cascade only twice (leading + trailing), not once per event', async () => {
+    const { wrapper, spy } = makeWrapper();
+    const { result } = renderHook(() => usePoEventRealtime('event-1'), { wrapper });
+
+    // Establish the connection on real timers first — fake timers don't mock
+    // the promise microtask chain, but mixing them with testing-library's
+    // waitFor internals is fragile.
+    await waitFor(() => expect(result.current.realtimeConnected).toBe(true));
+    expect(handlers.length).toBeGreaterThan(0);
+    spy.mockClear();
+
+    vi.useFakeTimers();
+    try {
+      // One check-in touches BOTH `guests` and `check_ins` — simulate that plus
+      // a few peers' check-ins landing in the same door-rush burst.
+      act(() => {
+        for (let i = 0; i < 8; i++) handlers.forEach((h) => h());
+      });
+
+      // Leading edge already fired once synchronously.
+      expect(spy.mock.calls.length).toBe(6);
+
+      act(() => vi.advanceTimersByTime(600));
+
+      // Trailing edge closes the burst with exactly one more cascade — NOT one
+      // cascade per one of the 16 events that fired above (86ey9e8fe: ~20
+      // requests/check-in came from firing the full cascade per event).
+      expect(spy.mock.calls.length).toBe(12);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
