@@ -56,6 +56,14 @@ jobs:
       - name: Run database tests (pgTAP)
         run: supabase test db
 
+      # Real cross-connection concurrency test for the quota/capacity/tier-max
+      # trigger locking fix (86ey9e8ar) — needs two genuinely separate, racing
+      # Postgres transactions, which a single-connection pgTAP file can't give
+      # it (see the script's header comment for why dblink wasn't an option
+      # against this project's local/CI Supabase image).
+      - name: Run quota/capacity trigger concurrency test
+        run: pnpm db:test:concurrency
+
       # STAP 4.3 — core-flow smoke with DB-state assertions (86ey7q6ze). One
       # deliberately small spec; Playwright boots `pnpm dev` itself (PORT=3000).
       - name: Provision .env.local from the running stack
