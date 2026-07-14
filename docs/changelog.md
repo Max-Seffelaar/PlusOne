@@ -8,6 +8,48 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-14 — Door outbox/cache not wiped on sign-out — shared-device isolation (86ey9et07)
+
+Branch `fix/86ey9et07-door-outbox-clear-on-signout` (PR open). Follow-up carved out of the
+adversarial security-review of PR #212 (door-outbox durability, `86ey9e85u`) — the leak is in
+the logout lifecycle, not #212's outbox-merge/lock code. Milestone: Now (security/AVG + audit
+integrity on shared venue tablets).
+
+- **Root cause.** The door persists to the origin-scoped `plusone-door` IndexedDB under two
+  keys — `door-outbox` (the offline queue, carries guest UUIDs, arrival times, refusal reasons,
+  and plaintext guest names on `add_guest`) and `door-query-cache` (the full guest-list
+  snapshot). `idbClearAll()` (`src/features/door/offline/idb.ts`) existed and its docstring even
+  claimed "Called on sign-out" — but it was wired up **nowhere**. `signOutDevice`
+  (`src/components/po/screens/settings/_shared.tsx`) only did `auth.signOut()` + redirect. On a
+  shared door tablet that meant (1) doorhost B could read A's queued PII straight out of
+  IndexedDB via devtools — no XSS, purely a data-isolation gap between two legitimate successive
+  users — and (2) the worse one: if A had un-synced entries, B's login ran `outbox.init()`,
+  loaded A's entries, and drained them under B's session, so A's check-ins landed server-side
+  **attributed to B** in the append-only audit trail, with no attacker involved.
+- **Fix.** Wired `idbClearAll()` into `signOutDevice` in a `try/finally` before the redirect —
+  runs for both scopes (`local` + `global`) and **even if the network sign-out throws**, because
+  local device isolation must not hinge on the server round-trip succeeding. deleteDatabase (vs.
+  a targeted per-key del) is defense-in-depth: it wipes any door key, present or future.
+- **Supporting hardening in `idb.ts`.** `idbClearAll` now `close()`s its own tracked connection
+  before `deleteDatabase`. Without that the delete is blocked by the still-open connection and
+  deferred (via `onblocked`) until the page navigates away — leaving the data readable on disk in
+  the interim and making the wipe untestable without a real navigation. `close()` waits for
+  in-flight transactions, so nothing is aborted; a sibling tab's connection can still block, but
+  the `onblocked` handler prevents a hang and that tab's own unload finalizes the delete.
+- **Scope.** The deeper edge — force-quit/crash with *no* clean logout, un-synced offline
+  entries, then a different user — is explicitly out of scope here; it needs an owner-stamp +
+  product decision and lives in the linked follow-up.
+- Test: `src/components/po/screens/settings/sign-out.test.ts` (new) — runs against a real
+  in-memory IndexedDB (`fake-indexeddb`, added as a devDependency) and asserts the actual
+  `door-outbox` **and** `door-query-cache` keys are empty after `signOutDevice`, that the scope
+  is passed through + redirect fires, and that the wipe still happens when `auth.signOut`
+  rejects. No migration.
+- Suites green on a fresh run: Vitest **837 passed** (76 files, incl. the 4 new), `tsc --noEmit`
+  clean, `pnpm lint` clean. High-risk surface (door outbox) → fresh-session `/code-review` before
+  merge; adversarial security-research prompt in the PR body.
+
+---
+
 ## 2026-07-14 — DoorContext re-rendering on every sync tick (86ey9e8gf)
 
 DONE + merged to main, PR #225 (`fix/86ey9e8gf-doorcontext-sync-memo`). Adversarially

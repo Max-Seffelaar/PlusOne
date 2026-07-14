@@ -17,6 +17,10 @@ function hasIdb(): boolean {
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null;
+/** The live connection behind `dbPromise`, tracked so `idbClearAll` can close it
+ *  before deleting the database (an open connection would otherwise defer the
+ *  delete via `onblocked` until the page navigates away). */
+let dbConn: IDBDatabase | null = null;
 
 function openDb(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
@@ -25,7 +29,10 @@ function openDb(): Promise<IDBDatabase> {
     req.onupgradeneeded = () => {
       if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE);
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      dbConn = req.result;
+      resolve(req.result);
+    };
     req.onerror = () => reject(req.error);
   });
   return dbPromise;
@@ -83,6 +90,14 @@ export async function idbDel(key: string): Promise<void> {
  */
 export async function idbClearAll(): Promise<void> {
   if (!hasIdb()) return;
+  // Close our own connection first — otherwise `deleteDatabase` is blocked and
+  // deferred until the page navigates away, leaving the data readable on disk in
+  // the meantime (and untestable without a real navigation). `close()` waits for
+  // in-flight transactions to finish, so nothing is aborted. A sibling tab's
+  // connection can still block us; the `onblocked` handler keeps us from hanging
+  // and that tab's own sign-out / unload finalizes the delete.
+  dbConn?.close();
+  dbConn = null;
   dbPromise = null;
   await new Promise<void>((resolve) => {
     const req = indexedDB.deleteDatabase(DB_NAME);

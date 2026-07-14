@@ -6,6 +6,7 @@
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import { createClient } from '@/lib/supabase/client';
+import { idbClearAll } from '@/features/door/offline/idb';
 import { VENUE_ROLES, ROLE_LABELS, type VenueRole } from '@/features/auth/roles';
 import { Icon } from '../../icon';
 import { press } from '../../kit';
@@ -15,10 +16,24 @@ export const col = 'flex h-full flex-col';
 /** Real sign-out (T1 #7/#15): end the Supabase session, land on /login. NB:
  *  supabase-js signOut() DEFAULTS to scope 'global' — 'local' must be explicit
  *  for the this-device variant. 'global' revokes every session server-side =
- *  true "log out everywhere". */
+ *  true "log out everywhere".
+ *
+ *  Shared-device isolation (86ey9et07): a venue door tablet passes between
+ *  successive doorhosts, but the offline door data (outbox + query-cache
+ *  snapshot, both in the `plusone-door` IndexedDB) is origin-scoped, not
+ *  session-scoped. Without a wipe on sign-out, doorhost B could read A's queued
+ *  guest data / plaintext guest names from IndexedDB (no XSS needed), and — worse
+ *  — A's un-synced outbox entries would replay under B's session, misattributing
+ *  A's check-ins to B in the append-only audit trail. So clear it here, for both
+ *  scopes, in a `finally` so the wipe runs even if the network sign-out throws:
+ *  local isolation must not hinge on the server round-trip succeeding. */
 export async function signOutDevice(scope: 'local' | 'global'): Promise<void> {
-  await createClient().auth.signOut({ scope });
-  window.location.assign('/login');
+  try {
+    await createClient().auth.signOut({ scope });
+  } finally {
+    await idbClearAll();
+    window.location.assign('/login');
+  }
 }
 
 /** Inline action error, matching the desktop forms' `text-red-300` treatment. */
