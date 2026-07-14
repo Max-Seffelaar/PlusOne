@@ -164,6 +164,18 @@ export function usePoEvents() {
  *  and it only runs while the Start screen is mounted (other tabs unmount it). */
 const HOME_POLL_MS = 10_000;
 
+/** How far back the po hooks that poll/refresh events look (86ey9e8gt) — matches
+ *  the Home board's own display cutoff (PAST_WINDOW_MS in screens/home.tsx):
+ *  anything older is a history concern, not a "keep this current" concern, so the
+ *  query never has to scan the venue's full event history to serve it. Shared
+ *  here (not re-derived per caller) so the query window and the display window
+ *  can't drift apart. */
+export const RECENT_EVENTS_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+function recentEventsSinceIso(): string {
+  return new Date(Date.now() - RECENT_EVENTS_WINDOW_MS).toISOString();
+}
+
 export interface PoHomeEvents {
   /** Candidate events (not closed), role-scoped headcounts attached, ordered
    *  live-first then soonest — the set the home can feature / switch between. */
@@ -188,9 +200,10 @@ export function usePoHomeEvents() {
     queryFn: async () => {
       if (!venueId) return { events: [], defaultId: null };
       const client = createClient();
+      const sinceIso = recentEventsSinceIso();
       const [rows, heads] = await Promise.all([
-        fetchEvents(client, venueId),
-        fetchEventHeadcounts(client, venueId),
+        fetchEvents(client, venueId, sinceIso),
+        fetchEventHeadcounts(client, venueId, sinceIso),
       ]);
       const now = Date.now();
       const events: HomeEvent[] = rows
@@ -253,7 +266,10 @@ export function usePoDoorEvent() {
     enabled: !!venueId,
     queryFn: async () => {
       if (!venueId) return null;
-      const rows = await fetchEvents(createClient(), venueId);
+      // Windowed (86ey9e8gt) — pickDoorEvent's oldest fallback is "most recent
+      // still-open event", never ancient history, so it doesn't need the venue's
+      // full event history to resolve "tonight".
+      const rows = await fetchEvents(createClient(), venueId, recentEventsSinceIso());
       return pickDoorEvent(rows, Date.now());
     },
   });
