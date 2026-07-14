@@ -141,6 +141,55 @@ the floor here.
   `window.$RV(window.$RB)` in `preview_eval` if `document.hidden` is true and content
   never appears after a normal wait.
 
+---
+
+## 2026-07-14 — Cockpit realtime invalidation fanned out ~20 requests/check-in (86ey9e8fe)
+
+DONE + merged to main. PR #226 (`fix/86ey9e8fe-cockpit-realtime-invalidation-fanout`).
+Not a high-risk surface (no RLS/triggers/service_role/auth/webhook/door-outbox) — CI
+(`lint-and-test`) was the gate, plus a fresh 5-angle `/code-review` pass run before
+merge as extra confidence on a check-in-path perf change.
+
+- **Root cause.** `usePoEventRealtime`'s realtime channel fired its full 6-key
+  invalidation cascade (guests/tiers/arrivals/eventStats/venue-guests/eventDetail)
+  once per `postgres_changes` event — a single check-in touches both `guests`
+  (status flip) and `check_ins` (insert), so that's 2 cascades per check-in on its
+  own. On top of that, each check-in mutation's `onSettled` re-invalidated
+  `guests`/`arrivals` right after `onMutate` had already patched them optimistically
+  to the exact post-mutation shape — re-downloading data that was already correct.
+  `usePoCheckinArrivals` also returned a fresh `Map` on every fetch, defeating React
+  Query's structural sharing and invalidating the `tiles`/`tierRows`/
+  `CockpitGuestList` memos downstream even when nothing had changed.
+- **Fix.**
+  - `usePoEventRealtime`'s invalidate is now throttled (leading+trailing, 500ms) —
+    a door-rush burst collapses into at most 2 cascades instead of one per event.
+  - Check-in mutations no longer invalidate `guests`/`arrivals` (optimistic patch
+    already correct); `tiers`/`eventStats`/`VENUE_GUESTS_PREFIX` still invalidate on
+    `onSettled` — see review gotcha below for why `onSuccess` was wrong here.
+  - `usePoCheckinArrivals` gets a content-aware `structuralSharing` comparator
+    (`arrivalsEqual`) so an unchanged refetch keeps the old `Map` reference.
+  - Added an opt-in 60s `refetchInterval` safety poll on the cockpit's 4 live
+    queries, matching the "optimistic patch + realtime + 60s safety sync" scale rule.
+- **Review gotcha.** The first pass changed the check-in mutations' `onSettled` to
+  `onSuccess` and dropped `VENUE_GUESTS_PREFIX` from the derived-invalidation helper
+  entirely — both looked like reasonable trims but a 5-angle review (3 independent
+  agents, same finding from different angles) caught that this regressed real
+  behavior: `onSuccess` skips reconciliation on a failed mutation (e.g. a revive that
+  fails after a peer's write already landed), and dropping `VENUE_GUESTS_PREFIX` made
+  the acting device's own venue-wide Guests-tab freshness depend entirely on the
+  throttled realtime echo with no poll fallback outside the cockpit screen. Reverted
+  to `onSettled` + restored `VENUE_GUESTS_PREFIX` in the same PR before merge — worth
+  remembering that "this cache key looks now-redundant" needs checking against BOTH
+  the success path and the error/no-realtime path before removing it.
+- **Test-list gotcha.** One test-handoff item ("does the KPI chart update after a
+  check-in") was checked with the doorhost seed account and reported as "the whole
+  card vanished" — false alarm: the KPI/arrivals card is gated behind `canSeeStats`
+  (admin, this event's organizer, or finance), which doorhost never satisfies. Not
+  touched by this PR at all; worth being explicit about required role per test-list
+  item when a screen has per-role visibility gates, not just per-role write gates.
+
+---
+
 ## 2026-07-14 — Door add-on-the-spot bypassed Zod; quick-add trailing-number misparse (86ey9e8bd)
 
 DONE + merged to main. CONFIRMED review finding (T2 + gap-sweep #36). PR #219
