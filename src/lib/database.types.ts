@@ -1329,6 +1329,7 @@ export type Database = {
           created_at: string
           current_period_end: string | null
           id: string
+          last_stripe_event_at: string | null
           plan_id: string | null
           status: Database["public"]["Enums"]["subscription_status"]
           stripe_customer_id: string | null
@@ -1340,6 +1341,7 @@ export type Database = {
           created_at?: string
           current_period_end?: string | null
           id?: string
+          last_stripe_event_at?: string | null
           plan_id?: string | null
           status: Database["public"]["Enums"]["subscription_status"]
           stripe_customer_id?: string | null
@@ -1351,6 +1353,7 @@ export type Database = {
           created_at?: string
           current_period_end?: string | null
           id?: string
+          last_stripe_event_at?: string | null
           plan_id?: string | null
           status?: Database["public"]["Enums"]["subscription_status"]
           stripe_customer_id?: string | null
@@ -1608,6 +1611,7 @@ export type Database = {
       apply_stripe_subscription_update: {
         Args: {
           p_current_period_end?: string
+          p_event_created?: string
           p_event_id: string
           p_event_type: string
           p_plan_id?: string

@@ -6,7 +6,11 @@ import 'server-only';
 // through the service-role RPC apply_stripe_subscription_update — the
 // documented service-role exception from CLAUDE.md §Billing. Idempotency lives
 // in the RPC (stripe_webhook_events ledger): a replayed event returns false
-// and mutates nothing.
+// and mutates nothing. Ordering lives there too (ClickUp 86ey9e89j): each
+// mapped event carries Stripe's own event.created, and the RPC ignores
+// status/plan/period fields from an event older than the last one it applied
+// to that subscription — Stripe redelivers out of order, so a late
+// invoice.paid must not undo a newer customer.subscription.deleted.
 
 import Stripe from 'stripe';
 import { createServiceClient } from '@/lib/supabase/service';
@@ -25,6 +29,8 @@ export interface StripeSubscriptionUpdate {
   planId: string | null;
   /** ISO timestamp; null = leave untouched. */
   currentPeriodEnd: string | null;
+  /** ISO timestamp of Stripe's event.created — drives the ordering guard. */
+  eventCreated: string | null;
 }
 
 function customerIdOf(
@@ -91,6 +97,7 @@ export function mapStripeEvent(event: Stripe.Event): StripeSubscriptionUpdate | 
     status: null as MappedStatus | null,
     planId: null as string | null,
     currentPeriodEnd: null as string | null,
+    eventCreated: isoFromUnix(event.created),
   };
 
   switch (event.type) {
@@ -193,6 +200,7 @@ export async function handleStripeWebhook(
     p_status: update.status ?? undefined,
     p_plan_id: update.planId ?? undefined,
     p_current_period_end: update.currentPeriodEnd ?? undefined,
+    p_event_created: update.eventCreated ?? undefined,
   });
 
   if (error) {
