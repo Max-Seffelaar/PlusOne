@@ -1,11 +1,16 @@
--- pgTAP — promote_guest_to_contact() authorization (86ey9e880, widened 86ey9e880-followup).
+-- pgTAP — promote_guest_to_contact() authorization (86ey9e880, widened + staff
+-- ownership-scoped per fresh-session /security-review).
 -- Run: supabase test db. Proves:
---   * authorization is the DB boundary — every venue role EXCEPT a pure finance
---     membership may promote a guest to a contact, or an organizer of an event
---     at the venue even without a qualifying venue role; finance alone is
---     refused (42501) and creates nothing (closes the DEFINER bypass: without
---     this gate the read succeeded for ANY guest UUID in ANY venue, regardless
---     of membership);
+--   * authorization is the DB boundary — admin/doorhost promote any guest at
+--     the venue, an organizer of the event may too even without a qualifying
+--     venue role, staff may ONLY promote a guest they personally added
+--     (mirrors guests_update's own ownership scoping — a security-review
+--     finding: staff is NOT venue-wide here, unlike admin/doorhost), and
+--     user_manager/finance are refused entirely (finance stays read-only
+--     everywhere in the PII/contacts domain per spec; user_manager has no
+--     guest/contacts access anywhere in the schema per the role matrix).
+--     Closes the DEFINER bypass: without any gate the read succeeded for ANY
+--     guest UUID in ANY venue, regardless of membership;
 --   * a NAME-ONLY guest is promoted to a name-only contact (source guest_list)
 --     that is back-linked to the guest;
 --   * a guest with an e-mail dedups onto an existing contact instead of
@@ -83,19 +88,26 @@ values
   ('cc000000-0000-7000-8000-0000000000e5', 'ee000000-0000-7000-8000-0000000000e1',
    'dd000000-0000-7000-8000-0000000000e1', null,
    'Stranger Target', null, 0, '11111111-1111-4111-8111-111111111111', 'app', 'approved'),
-  -- guest for the user_manager-allowed test
+  -- guest for the user_manager-denied test
   ('cc000000-0000-7000-8000-0000000000e6', 'ee000000-0000-7000-8000-0000000000e1',
    'dd000000-0000-7000-8000-0000000000e1', null,
    'Manager Promotable', null, 0, '11111111-1111-4111-8111-111111111111', 'app', 'approved'),
-  -- guest for the staff-allowed test
+  -- guest for the staff-allowed test — added_by IS the staff user (ownership
+  -- is the boundary now, unlike the other fixtures which are all admin-added).
   ('cc000000-0000-7000-8000-0000000000e7', 'ee000000-0000-7000-8000-0000000000e1',
    'dd000000-0000-7000-8000-0000000000e1', null,
-   'Staff Promotable', null, 0, '11111111-1111-4111-8111-111111111111', 'app', 'approved');
+   'Staff Promotable', null, 0, '55555555-5555-4555-8555-555555555555', 'app', 'approved'),
+  -- guest added by admin, NOT by staff — proves staff is refused for a guest
+  -- they don't own (the security-review regression this migration fixes)
+  ('cc000000-0000-7000-8000-0000000000e8', 'ee000000-0000-7000-8000-0000000000e1',
+   'dd000000-0000-7000-8000-0000000000e1', null,
+   'Colleague Guest', null, 0, '11111111-1111-4111-8111-111111111111', 'app', 'approved');
 
-select plan(17);
+select plan(19);
 
 -- ---------------------------------------------------------------------------
--- A. Authorization — every role but a pure finance membership may promote.
+-- A. Authorization — admin/doorhost/organizer venue-wide, staff OWNED-only,
+-- user_manager/finance refused entirely.
 -- ---------------------------------------------------------------------------
 
 select pg_temp.login('33333333-3333-4333-8333-333333333333', 'aal2');  -- finance
@@ -103,24 +115,32 @@ select throws_ok($$ select public.promote_guest_to_contact('cc000000-0000-7000-8
   '42501', null, 'A1 finance cannot promote a guest to contact');
 
 select pg_temp.login('22222222-2222-4222-8222-222222222222', 'aal2');  -- user_manager
-select lives_ok($$ select public.promote_guest_to_contact('cc000000-0000-7000-8000-0000000000e6') $$,
-  'A2 user_manager can promote a guest to contact');
+select throws_ok($$ select public.promote_guest_to_contact('cc000000-0000-7000-8000-0000000000e6') $$,
+  '42501', null, 'A2 user_manager cannot promote a guest to contact');
 reset role;
-select ok(
-  (select contact_id from public.guests where id = 'cc000000-0000-7000-8000-0000000000e6') is not null,
-  'A3 the user_manager-promoted guest is now linked');
+select is(
+  (select contact_id from public.guests where id = 'cc000000-0000-7000-8000-0000000000e6'),
+  null::uuid, 'A3 the user_manager-denied call linked nothing');
 
-select pg_temp.login('55555555-5555-4555-8555-555555555555', 'aal2');  -- staff
+select pg_temp.login('55555555-5555-4555-8555-555555555555', 'aal2');  -- staff, NOT the owner of e8
+select throws_ok($$ select public.promote_guest_to_contact('cc000000-0000-7000-8000-0000000000e8') $$,
+  '42501', null, 'A4 staff cannot promote a colleague''s guest (security-review regression fix)');
+reset role;
+select is(
+  (select contact_id from public.guests where id = 'cc000000-0000-7000-8000-0000000000e8'),
+  null::uuid, 'A5 the non-owner staff call linked nothing');
+
+select pg_temp.login('55555555-5555-4555-8555-555555555555', 'aal2');  -- staff, IS the owner of e7
 select lives_ok($$ select public.promote_guest_to_contact('cc000000-0000-7000-8000-0000000000e7') $$,
-  'A4 staff can promote a guest to contact');
+  'A6 staff can promote a guest they themselves added');
 reset role;
 select ok(
   (select contact_id from public.guests where id = 'cc000000-0000-7000-8000-0000000000e7') is not null,
-  'A5 the staff-promoted guest is now linked');
+  'A7 the staff-owned guest is now linked');
 
 select is(
   (select contact_id from public.guests where id = 'cc000000-0000-7000-8000-0000000000e1'),
-  null::uuid, 'A6 the finance-denied call linked nothing');
+  null::uuid, 'A8 the finance-denied call linked nothing');
 
 -- ---------------------------------------------------------------------------
 -- B. Admin promotes a NAME-ONLY guest → a fresh name-only contact, back-linked.
