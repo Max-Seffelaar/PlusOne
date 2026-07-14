@@ -63,14 +63,6 @@
       "env": { "PORT": "6001" },
       "port": 6001,
       "autoPort": false
-    },
-    {
-      "name": "dev6000",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["dev"],
-      "env": { "PORT": "6000" },
-      "port": 6000,
-      "autoPort": false
     }
   ]
 }
