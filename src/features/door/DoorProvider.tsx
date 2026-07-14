@@ -22,6 +22,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
 import { v7 as uuidv7 } from 'uuid';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
+import { addOnSpotSchema } from '@/features/guests/schemas';
 import { getDeviceId, getDoorClient } from './offline/device';
 import { drainOutbox, guestKeyOf } from './outbox/replay';
 import { supabaseGateway } from './outbox/gateway';
@@ -483,10 +484,18 @@ export function DoorProvider({
     ({ name, plusOnes, tierId }: AddOnSpotInput) => {
       const fullName = name.trim();
       if (!fullName) return; // never queue a nameless guest (C12 — defence in depth)
+      // The outbox replay inserts this payload directly (no server action
+      // re-validates it), so it must pass the same caps as every other guest
+      // write BEFORE it is even enqueued (86ey9e8bd) — never trust the parser.
+      const parsed = addOnSpotSchema.safeParse({ fullName, plusOnes, tierId });
+      if (!parsed.success) {
+        showToast("Couldn't add that guest — check the name and +N");
+        return;
+      }
       const id = uuidv7();
       const ts = new Date().toISOString();
       enqueueDoorWrite(
-        { kind: 'add_guest', payload: { id, tierId, fullName, plusOnes } },
+        { kind: 'add_guest', payload: { id, tierId: parsed.data.tierId, fullName: parsed.data.fullName, plusOnes: parsed.data.plusOnes } },
         (s) => {
           // Narrow snapshot row (P-IDB7) — only the door-rendered columns. The
           // full row (venue_id, source, timestamps, …) is filled server-side; the
@@ -494,10 +503,10 @@ export function DoorProvider({
           const row: GuestRow = {
             id,
             event_id: eventId,
-            tier_id: tierId,
-            full_name: fullName,
+            tier_id: parsed.data.tierId,
+            full_name: parsed.data.fullName,
             phone: null,
-            plus_ones: plusOnes,
+            plus_ones: parsed.data.plusOnes,
             note: null,
             note_priority: 'none',
             note_acknowledged_by: null,
@@ -508,10 +517,10 @@ export function DoorProvider({
           };
           return { ...s, guests: [...s.guests, row] };
         },
-        `${fullName}${plusOnes > 0 ? ` +${plusOnes}` : ''} · op de lijst`,
+        `${parsed.data.fullName}${parsed.data.plusOnes > 0 ? ` +${parsed.data.plusOnes}` : ''} · op de lijst`,
       );
     },
-    [enqueueDoorWrite, eventId, meId],
+    [enqueueDoorWrite, eventId, meId, showToast],
   );
 
   const ackNote = useCallback(

@@ -44,6 +44,19 @@ export const addGuestSchema = z.object({
 });
 export type AddGuestInput = z.input<typeof addGuestSchema>;
 
+/**
+ * Door "add on the spot" payload (#10). The outbox replay inserts this
+ * directly with the service client's RLS as the only gate — no server action
+ * re-parses it — so it must be Zod-validated client-side before it is even
+ * enqueued, not just at the eventual DB write (86ey9e8bd).
+ */
+export const addOnSpotSchema = z.object({
+  fullName,
+  plusOnes,
+  tierId: uuid,
+});
+export type AddOnSpotSchemaInput = z.input<typeof addOnSpotSchema>;
+
 /** A bulk paste: many lines at once. The DB rejects the whole batch on overage. */
 export const bulkAddSchema = z.object({
   eventId: uuid,

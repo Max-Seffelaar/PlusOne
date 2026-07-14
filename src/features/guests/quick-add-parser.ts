@@ -201,6 +201,11 @@ interface PlusOnes {
   consumed: Set<number>;
 }
 
+// A bare trailing number above this is never read as a party size (gap-sweep
+// #36, 86ey9e8bd) — real +N intent has an explicit trigger ("+25", "plus 25")
+// above this range. Below it, "Naam 2" still just works.
+const MAX_BARE_TRAILING_PLUS_ONES = 9;
+
 /** Find the first +N expression and the token indices it consumes. */
 function findPlusOnes(normTokens: string[]): PlusOnes {
   const consumed = new Set<number>();
@@ -241,13 +246,19 @@ function findPlusOnes(normTokens: string[]): PlusOnes {
       }
     }
   }
-  // Fallback: a trailing bare number is the guest count ("Naam 2" → +2). Phones
-  // are already stripped (≥8 digits), so a lone trailing integer is a small count,
-  // not a phone. Explicit +N above always wins.
+  // Fallback: a small trailing bare number is the guest count ("Naam 2" → +2).
+  // Phones are already stripped (≥8 digits), so a lone trailing integer is a
+  // small count, not a phone. Explicit +N above always wins. Capped at
+  // MAX_BARE_TRAILING_PLUS_ONES so a numeric surname/stray number ("Adele 25",
+  // "Blink 182") isn't misread as a huge party size — that needs an explicit
+  // "+N"/"plus N" to be intentional.
   const last = normTokens.length - 1;
   if (last >= 0 && /^\d+$/.test(normTokens[last])) {
-    consumed.add(last);
-    return { count: parseInt(normTokens[last], 10), consumed };
+    const n = parseInt(normTokens[last], 10);
+    if (n <= MAX_BARE_TRAILING_PLUS_ONES) {
+      consumed.add(last);
+      return { count: n, consumed };
+    }
   }
   return { count: null, consumed };
 }
