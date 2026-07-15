@@ -8,6 +8,62 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-15 — /app never hydrated in unpainted tabs → Home/Deur "no events" (86eya4yuf)
+
+Demo-blocker reported as "Home board + mobile Deur tab show NO events while the Events tab
+works". PR pending on `fix/86eya4yuf-home-door-no-events`. Two real defects found; the
+headline one is NOT the suspected 7-day window but a hydration hang.
+
+- **Root cause (MODE B, reproduced deterministically + proven end-to-end).** The /app page
+  rendered `PlusOneApp` directly under `<Suspense fallback={null}>`. `useSearchParams()`
+  suspends during SSR, so the ENTIRE shell streamed as a late `$RC("B:0","S:0")`-completed
+  boundary. Next 15.5.19's inline fizz runtime gates that boundary's reveal (`$RV`) — and
+  React's hydration retry (`comment._reactRetry`) — on `requestAnimationFrame`, with no
+  timeout fallback while `$RT` is unset (i.e. before a first paint). A tab that loads
+  without painting (opened in the background, headless webview) never fires rAF → the
+  boundary never reveals (blank page) or reveals but never hydrates (static SSR HTML).
+  Either way ZERO queries mount and ZERO fetches fire, forever — and the SSR zeros render
+  as a plausible, settled "no events" board. Foreground loads hydrate normally, which is
+  exactly why the Events tab "worked" when navigated to directly (each sidebar click was a
+  full page load in a visible tab). Diagnosed by fiber-walking the live page (140-node
+  committed tree, `dehydrated: true`, `lanes: 0`); proven by manually running the starved
+  `$RV(window.$RB)` + `_reactRetry()` in the stuck tab → 13 REST fetches fired instantly
+  and all 7 events appeared.
+- **Fix.** `src/components/po/app-client.tsx`: mount the shell via `next/dynamic` with
+  `ssr: false` (honest boot mark instead of fake-zero SSR HTML); the server never suspends
+  on the shell, so the streamed boundary no longer exists (verified: /app HTML now has 0
+  pending markers / 0 `$RC` calls). Client-render markers hydrate on the normal,
+  non-rAF-gated path. CI guard `tests/unit/app-shell-no-ssr-suspense.test.ts` pins both
+  halves (page must import `app-client`, wrapper must keep `ssr: false`). The standalone
+  `/door/[eventId]` route was checked and is immune (no `useSearchParams`, synchronous
+  client tree); no other page-level `<Suspense>` exists under `src/app`.
+- **MODE A (windowed door pick, 86ey9e8gt regression) also fixed.** `usePoDoorEvent` fed
+  7-day-windowed rows into `pickDoorEvent`, whose last-resort fallback is "most recent
+  already-started event" — a venue whose newest event is >7 days old resolved to null. Now
+  fetches unwindowed (one-shot, single `venue_id`, no 414 risk); the stale "windowed is
+  safe" comment is corrected. Note: the hook currently has NO call sites (Deur tab uses
+  `usePoDoorCandidates`, already unwindowed; Home's windowed board cutoff is deliberate
+  M11 behaviour) — fixed anyway so the next caller doesn't inherit the trap.
+  `usePoDoorCandidates` still drops `past` events by design (Max 7/7: picker offers
+  live/future only; late check-outs go via the direct `/door/[eventId]` URL).
+- **Live verification** (fresh dev server, worst-case permanently-hidden tab, door@):
+  Home renders "Club Vesper · 7 upcoming" with the full board, Deur tab shows the 7-event
+  picker and opens PLUSONE Launch Night's check-in list (25 on the way / 8 inside,
+  realtime connected), Events tab lists all 7 — all with zero manual intervention.
+- **Watch-outs for later sessions.** (1) The local repro environment was churned: the
+  sibling worktree's dev server on :7000 was half-dead (6.9s /login, intermittent
+  connection-refused) and this worktree's node_modules was incomplete — neither was the
+  bug. (2) Prod-drift check still open: migration `20260714171523` (two-arg
+  `venue_event_headcounts`) merged 14/7; if prod hasn't had `supabase db push` since, the
+  deployed Home ALSO breaks with PGRST202 (Events tab unaffected) — run the prod-push flow.
+- Tests: vitest 847/80 files green (+4 new), `tsc --noEmit` clean, lint clean (pre-existing
+  warnings only). No migration. Files: `src/app/app/[[...segments]]/page.tsx`,
+  `src/components/po/app-client.tsx` (new), `src/features/po/hooks.ts`,
+  `src/features/po/door-event.test.ts`, `src/features/po/hooks.doorEvent.test.tsx` (new),
+  `tests/unit/app-shell-no-ssr-suspense.test.ts` (new).
+
+---
+
 ## 2026-07-14 — Door-QueryClient rebuilt (and leaked) per shell remount (86ey9e8pm)
 
 PR #235 open (`fix/86ey9e8pm-door-queryclient-remount`), tests green, awaiting fresh-session
