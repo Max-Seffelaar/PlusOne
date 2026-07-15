@@ -31,6 +31,7 @@ import { DoorQueryProvider } from '@/features/door/DoorQueryProvider';
 import { setActiveVenueAction } from '@/features/venues/actions';
 import { PoProvider, type Nav, type PoApp, type ScreenName, type ScreenProps } from './context';
 import { doorPath, parseAppUrl, screenPath, tabPath, type DoorSeg, type ParsedTarget } from './routes';
+import { useDoorOverride } from './use-door-override';
 import { Toast, type TabKey } from './shell';
 import { Top } from './kit';
 import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
@@ -284,32 +285,18 @@ export function PlusOneApp(): JSX.Element {
   const doorOverlay: DoorOverlay = target.kind === 'door' ? target.overlay : null;
   const searchParamsStr = searchParams.toString();
 
-  // Door sub-state override (G1 fresh-review fix). `router.push`/`replace` on
-  // this dynamic route hits the server for a fresh RSC payload on ANY
-  // search-param change — Next's client router keys cached page data by the
-  // full search string, and the search-param-aliasing optimization that would
-  // avoid this needs a `loading.tsx` this route doesn't have — regardless of
-  // page.tsx reading no searchParams itself. Confirmed live: opening a guest
-  // overlay produced a real `GET .../door?guest=…&_rsc=…` request. That breaks
-  // the door's offline invariant (#25) for every overlay open/close and
-  // segment switch, and even online turns what used to be instant into a
-  // blocking round-trip. Fix: drive door sub-state through raw
+  // Door sub-state override (G1 fresh-review fix). Door sub-nav (guest/add
+  // overlay, Deur↔Taken segment, event override) is driven through raw
   // `window.history.pushState/replaceState` (`pushDoorState`/`replaceDoorState`
-  // below) instead — no server involved — and shadow the URL-derived door
-  // fields with this local override until Next's OWN hooks report a genuine
-  // change (a real router-driven navigation, or a browser back/forward
-  // popstate, which Next resyncs on its own regardless of who pushed the
-  // entry) — the effect below clears the shadow at that point so the
-  // URL becomes authoritative again. Desktop's cockpit is unaffected (it's
-  // online-only by design, no outbox, and never sets this override).
-  const [doorOverride, setDoorOverride] = useState<{
-    seg: DoorSeg;
-    eventId: string | null;
-    overlay: DoorOverlay;
-  } | null>(null);
-  useEffect(() => {
-    setDoorOverride(null);
-  }, [pathname, searchParamsStr]);
+  // below) to keep the door's offline invariant (#25) — `router.push`/`replace`
+  // on this dynamic route forces a server RSC round-trip on any search-param
+  // change. Since Next's `usePathname`/`useSearchParams` don't track those raw
+  // History calls, this override shadows the URL-derived door fields until the
+  // URL becomes authoritative again; the hook owns exactly when to drop it (a
+  // genuine router nav OR any browser back/forward — see use-door-override.ts,
+  // where the back/forward case fixes 86ey9tq62). Desktop's cockpit is
+  // unaffected (online-only by design, no outbox, never sets this override).
+  const [doorOverride, setDoorOverride] = useDoorOverride(pathname, searchParamsStr);
   const doorState = doorOverride ?? { seg: doorSeg, eventId: doorEventIdFromUrl, overlay: doorOverlay };
 
   const [toast, setToast] = useState<string | null>(null);

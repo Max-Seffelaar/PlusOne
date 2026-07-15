@@ -10,7 +10,7 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ## 2026-07-14 — `useVenueGuests` pulled the whole venue guest history to the browser (86ey9e8hz)
 
-DONE (PR pending merge, `fix/86ey9e8hz-venue-guests-window`). Adversarially CONFIRMED
+DONE — PR #234 (`fix/86ey9e8hz-venue-guests-window`), merged to main. Adversarially CONFIRMED
 finding (R3/C1) from the perf/scale review batch; violated the CLAUDE.md scale rule
 "Reads must be windowed at large N". Milestone ≥25 (25 000 guests / 400 events).
 
@@ -49,6 +49,97 @@ finding (R3/C1) from the perf/scale review batch; violated the CLAUDE.md scale r
 - **Known scope boundary (not a regression):** at large N the "Regulars" client filter and the
   "shown of N" pairing operate over the 200-row window; and `ilike '%term%'` is a seqscan at
   very large N (fine at 25 000, a `pg_trgm` index is the ≥100 follow-up if search latency shows).
+
+---
+
+## 2026-07-14 — Door-QueryClient rebuilt (and leaked) per shell remount (86ey9e8pm)
+
+PR #235 open (`fix/86ey9e8pm-door-queryclient-remount`), tests green, awaiting fresh-session
+`/code-review` + Max's merge. Adversarially CONFIRMED perf finding (L1) from the 86ey9e8xx
+review batch; the immediate follow-up to 86ey9e8gf, which had already flagged this task's
+remount as the suspected cause of the doubled snapshot bursts behind 86ey9tq62.
+
+- **Root cause.** On `/app` the mobile Deur-tab mounts `DoorQueryProvider` *inside*
+  `PlusOneApp`, which remounts fully on every `router.push` (module comment
+  `app.tsx:244-257`). `DoorQueryProvider` built a **fresh** client per mount via
+  `useState(() => createDoorQueryClient())`, whose `gcTime: WEEK_MS` timers pin the full
+  event snapshot (150–1500+ rows) + the abandoned client for a week on unmount — one leaked
+  client per Deur-tab visit, so the heap grows over a shift. The standalone `/door` route is
+  immune: its provider lives in the route layout, mounted once (`src/app/door/layout.tsx:10`).
+- **Why not "hoist the provider".** `PoLiveProvider` supplies the po-QueryClient on the
+  **default** React Query context (`PoLiveProvider.tsx:76`); `PlusOneApp` + every po screen
+  read it via `useQueryClient()` (e.g. `app.tsx:333`). Hanging `DoorQueryProvider` above
+  `PlusOneApp` would shadow the po-client for the whole shell. The door client must stay
+  scoped to the door subtree.
+- **Fix (surgical singleton — scope confirmed with Max).** Door QueryClient + persister are
+  now per-tab-session singletons (`getDoorQueryClient` / `getDoorPersister` in
+  `offline/query-client.ts` + `offline/persister.ts`) that `DoorQueryProvider` reuses
+  (`useState(getDoorQueryClient)` / `useState(getDoorPersister)`) — the client is no longer
+  rebuilt per navigation. Kills the leak; serves a warm cache on re-entry, which also removes
+  the **doubled full-snapshot refetch on remount** (relevant to 86ey9tq62 — worth a re-test).
+  Resets only on a full page load; sign-out does `window.location.assign` (`settings/_shared.tsx`),
+  so PII posture is unchanged. Same one-client-per-session model `/door` already uses.
+- **Deliberately out of scope (R7 → follow-up).** `PlusOneApp` still remounts per navigation
+  (a constant-cost shell re-render, not the growing leak). Filed as a separate no-remount task
+  (move `PlusOneApp` into the stable `/app` layout) — that's the one that would also settle
+  86ey9tq62's remount-driven overlay-back weirdness at the source.
+- Files: `src/features/door/DoorQueryProvider.tsx`, `src/features/door/offline/query-client.ts`,
+  `src/features/door/offline/persister.ts`. New tests: `offline/query-client.test.ts`
+  (singleton identity + gcTime), `DoorQueryProvider.test.tsx` (same client instance across an
+  unmount→remount cycle = the exact leak mechanism). No migration.
+- Tests: `pnpm vitest run` green (837, 77 files, +4 new); `tsc --noEmit` clean; eslint clean.
+  Browser: `/app` renders clean for `door@` with no console errors; a live heap/mount-count
+  capture on the mobile door tab wasn't reliably obtainable in the shared headless preview
+  (tab not painting, mobile branch not flipping via matchMedia), so the leak mechanism is
+  unit-proven instead of screenshotted.
+
+---
+
+## 2026-07-14 — Door-overlay Back over-popped past the check-in list (86ey9tq62)
+
+Surfaced during 86ey9e8gf live testing. PR pending, not yet merged. Client-only nav-state
+fix (`src/components/po/`) — no migration, no RLS/auth/service-role touch. It IS door-adjacent
+(the Deur tab's raw-history sub-nav), but touches only *when the `doorOverride` shadow clears*,
+never the offline outbox or any write, and preserves the offline invariant (#25): still no
+`router.push` on the door, still pure client state, no network. A fresh-session `/code-review`
+is welcome but not a mandated gate per the high-risk list.
+
+- **Root cause (traced against the code's own documented Next model).** Door sub-nav is driven
+  by raw `window.history.pushState/replaceState` (`pushDoorState`/`replaceDoorState`), which
+  Next's `usePathname`/`useSearchParams` do **not** track — they stay frozen at the last real
+  router navigation and only resync on a genuine nav or a **popstate**. The `doorOverride` shadow
+  was cleared solely by `useEffect(…, [pathname, searchParamsStr])`. Enter the door via
+  `?event=A` → `useSearchParams` is frozen at `event=A`; the raw switch → picker → re-pick →
+  open-overlay sub-nav never changes it; pressing Back to close the overlay pops back to
+  `?event=A` — the **identical** frozen string. So the deps never change, the effect never
+  re-runs, and the stale overlay override survives the pop: the overlay lingers on screen and
+  the user's next Back over-pops straight **past** the check-in list. This is the
+  `hasPushedThisSession`↔raw-history desync Max flagged; `hasPushedThisSession` itself is fine
+  (the overlay really did push an entry) — the culprit is the shadow not clearing.
+- **Fix.** Extracted the override state machine into `src/components/po/use-door-override.ts`
+  (unit-testable, well-documented) and added a second clearing trigger: a `popstate` listener
+  that drops the shadow on **any** browser back/forward, independent of whether Next's hooks
+  changed — a popstate always means the browser URL just won, so the URL-derived door state
+  becomes authoritative. `app.tsx` now calls `useDoorOverride(pathname, searchParamsStr)` in
+  place of the inline `useState`+effect; behaviour is otherwise identical. Capacitor-safe (the
+  Android hardware-back maps to popstate → this now clears correctly too).
+- **Tests.** `use-door-override.test.ts` (5, new) — including the regression: a popstate with
+  **unchanged** deps clears a set override (the exact stale-shadow-survives-pop condition), plus
+  listener cleanup on unmount. Full Vitest **825/825** green, `pnpm type-check` + `pnpm lint`
+  clean (only the pre-existing `datetime-field.tsx` aria warnings).
+- **E2E (real browser, A/B-proven).** `tests/e2e/door-overlay-back.spec.ts` (new) drives the
+  exact flow on a 390px viewport — dev-login as `door@` → enter the door with a frozen `?event=`
+  → Switch → re-pick → open a guest overlay → one Back — and asserts the check-in list returns
+  (search box + Switch bar, overlay gone, URL back to the list). The Next remount/popstate
+  timing this depends on doesn't reproduce in jsdom, so this needed a real browser. Verified
+  **both ways**: green with the fix; with the popstate listener neutralized it **fails** exactly
+  at the post-Back assertion (the overlay lingers) — proving it's a genuine regression guard, not
+  a test that passes regardless. (Local gotcha: the fresh Playwright dev server crashed a Next
+  compile-worker on the cold 6.6k-module `/app/[[...segments]]` compile under load — a transient
+  infra flake, not the app; pre-warming the port-3000 server it reuses makes the run
+  deterministic. Authenticated `/app/door` renders `200`.)
+
+---
 
 ## 2026-07-14 — DoorContext re-rendering on every sync tick (86ey9e8gf)
 
@@ -222,6 +313,55 @@ the floor here.
   the pre-hydration shell indefinitely (not just slowly). Unstick with
   `window.$RV(window.$RB)` in `preview_eval` if `document.hidden` is true and content
   never appears after a normal wait.
+
+---
+
+## 2026-07-14 — Cockpit realtime invalidation fanned out ~20 requests/check-in (86ey9e8fe)
+
+DONE + merged to main. PR #226 (`fix/86ey9e8fe-cockpit-realtime-invalidation-fanout`).
+Not a high-risk surface (no RLS/triggers/service_role/auth/webhook/door-outbox) — CI
+(`lint-and-test`) was the gate, plus a fresh 5-angle `/code-review` pass run before
+merge as extra confidence on a check-in-path perf change.
+
+- **Root cause.** `usePoEventRealtime`'s realtime channel fired its full 6-key
+  invalidation cascade (guests/tiers/arrivals/eventStats/venue-guests/eventDetail)
+  once per `postgres_changes` event — a single check-in touches both `guests`
+  (status flip) and `check_ins` (insert), so that's 2 cascades per check-in on its
+  own. On top of that, each check-in mutation's `onSettled` re-invalidated
+  `guests`/`arrivals` right after `onMutate` had already patched them optimistically
+  to the exact post-mutation shape — re-downloading data that was already correct.
+  `usePoCheckinArrivals` also returned a fresh `Map` on every fetch, defeating React
+  Query's structural sharing and invalidating the `tiles`/`tierRows`/
+  `CockpitGuestList` memos downstream even when nothing had changed.
+- **Fix.**
+  - `usePoEventRealtime`'s invalidate is now throttled (leading+trailing, 500ms) —
+    a door-rush burst collapses into at most 2 cascades instead of one per event.
+  - Check-in mutations no longer invalidate `guests`/`arrivals` (optimistic patch
+    already correct); `tiers`/`eventStats`/`VENUE_GUESTS_PREFIX` still invalidate on
+    `onSettled` — see review gotcha below for why `onSuccess` was wrong here.
+  - `usePoCheckinArrivals` gets a content-aware `structuralSharing` comparator
+    (`arrivalsEqual`) so an unchanged refetch keeps the old `Map` reference.
+  - Added an opt-in 60s `refetchInterval` safety poll on the cockpit's 4 live
+    queries, matching the "optimistic patch + realtime + 60s safety sync" scale rule.
+- **Review gotcha.** The first pass changed the check-in mutations' `onSettled` to
+  `onSuccess` and dropped `VENUE_GUESTS_PREFIX` from the derived-invalidation helper
+  entirely — both looked like reasonable trims but a 5-angle review (3 independent
+  agents, same finding from different angles) caught that this regressed real
+  behavior: `onSuccess` skips reconciliation on a failed mutation (e.g. a revive that
+  fails after a peer's write already landed), and dropping `VENUE_GUESTS_PREFIX` made
+  the acting device's own venue-wide Guests-tab freshness depend entirely on the
+  throttled realtime echo with no poll fallback outside the cockpit screen. Reverted
+  to `onSettled` + restored `VENUE_GUESTS_PREFIX` in the same PR before merge — worth
+  remembering that "this cache key looks now-redundant" needs checking against BOTH
+  the success path and the error/no-realtime path before removing it.
+- **Test-list gotcha.** One test-handoff item ("does the KPI chart update after a
+  check-in") was checked with the doorhost seed account and reported as "the whole
+  card vanished" — false alarm: the KPI/arrivals card is gated behind `canSeeStats`
+  (admin, this event's organizer, or finance), which doorhost never satisfies. Not
+  touched by this PR at all; worth being explicit about required role per test-list
+  item when a screen has per-role visibility gates, not just per-role write gates.
+
+---
 
 ## 2026-07-14 — Door add-on-the-spot bypassed Zod; quick-add trailing-number misparse (86ey9e8bd)
 
