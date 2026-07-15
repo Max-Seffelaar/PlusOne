@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
-import { Suspense } from 'react';
-import { PlusOneApp } from '@/components/po/app';
+import { PlusOneAppClient } from '@/components/po/app-client';
 
 export const metadata: Metadata = {
   title: 'Guest list · PlusOne',
@@ -15,11 +14,13 @@ export const metadata: Metadata = {
  * navigations (door overlay open/close, event picks) as pure client-side
  * updates instead of forcing a network round-trip on every one — see the
  * layout's doc comment for why that matters for the door's offline invariant.
+ *
+ * The shell mounts through `PlusOneAppClient` (`ssr: false`) — NOT directly
+ * under a page-level `<Suspense>`. `useSearchParams()` suspends during SSR, and
+ * a server-streamed app boundary never reveals/hydrates in a tab that hasn't
+ * painted yet (86eya4yuf — see app-client.tsx). Don't reintroduce a direct
+ * `<Suspense><PlusOneApp /></Suspense>` render here.
  */
 export default function AppPage(): JSX.Element {
-  return (
-    <Suspense fallback={null}>
-      <PlusOneApp />
-    </Suspense>
-  );
+  return <PlusOneAppClient />;
 }
