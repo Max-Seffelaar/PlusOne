@@ -8,6 +8,50 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-14 — `useVenueGuests` pulled the whole venue guest history to the browser (86ey9e8hz)
+
+DONE — PR #234 (`fix/86ey9e8hz-venue-guests-window`), merged to main. Adversarially CONFIRMED
+finding (R3/C1) from the perf/scale review batch; violated the CLAUDE.md scale rule
+"Reads must be windowed at large N". Milestone ≥25 (25 000 guests / 400 events).
+
+- **Root cause.** The Guests-tab "All events" mode called `fetchGuests(client, { venueId })`
+  → `fetchAllRanged` paged **every** venue guest row to the client (up to 50 sequential
+  1000-row PostgREST pages), then `sortGuestsNewestFirst` (full copy + O(n log n)) + `toPoGuest`
+  per row + `filterGuestList` over all rows on every debounced keystroke. At 25 000 guests that
+  is ~25 sequential requests + the whole snapshot in browser memory. `usePoEventRealtime` also
+  invalidated `VENUE_GUESTS_PREFIX` on **every** check-in, so returning to the tab during a live
+  night re-triggered the full re-download + re-sort. Worked on the 30-guest seed, died at 25 000
+  — the canonical "works at 150, falls over at 25 000".
+- **Fix.** New `fetchVenueGuestsWindow` (`src/features/po/queries.ts`): ONE bounded request —
+  newest-first (`created_at desc, id desc`), `VENUE_GUESTS_WINDOW = 200` rows via `.range`, tier
+  from the `guest_tiers(name, color)` embed (kills the separate venue-wide tier read, no
+  waterfall), and `count: 'exact'` for the "of N" subtitle total. Name **search is pushed to the
+  server** (`ilike` on `full_name`, same shape as `fetchContacts`) so a match outside the window
+  stays findable without downloading the venue. `useVenueGuests(events, search)` keys on
+  venue+term (like `contacts`); `poKeys.venueGuests` gained the search arg (prefix unchanged, so
+  guest writes still invalidate every variant). The unbounded `fetchGuests({ venueId })` branch
+  was **deleted** at the source (narrowed to `fetchGuests(client, eventId)` — the single-event
+  door/cockpit read is a bounded, deliberately-ranged case and is untouched).
+- **Realtime.** Removed the per-check-in `VENUE_GUESTS_PREFIX` invalidation from
+  `usePoEventRealtime` (kept `eventDetail`); the venue-wide tab is not the door, so it now
+  refreshes on guest writes (mutation paths keep the prefix), navigation, and the safety sync —
+  not on every check-in during a rush. Event-scoped door/cockpit stays fully live.
+- Files: `src/features/po/queries.ts`, `hooks.ts`, `keys.ts`,
+  `src/components/po/screens/guests/index.tsx`. Tests: new `fetchVenueGuestsWindow` coverage
+  (window/search/count/tier-flatten + error-propagation) in `queries.test.ts`, repointed the
+  SCALE-5 venue-scope guard, updated the realtime cascade test (venue-guests no longer fired;
+  6-key → 5-key). No migration (reused `guests.venue_id` from `20260708120000`).
+- **Runtime-verified** on the local stack (door@ / Club Vesper): the exact windowed query
+  returned 200 (`…guest_tiers(name,color)&venue_id=eq.…&status=in.(approved,checked_in,refused)&order=created_at.desc,id.desc&offset=0&limit=200`),
+  ONE page not a ranged loop; subtitle "33 of 33 shown"; typing "Esra" fired a fresh bounded
+  request with `&full_name=ilike.%Esra%` and the subtitle became "1 of 1 shown". No console
+  errors. Suites: Vitest 837 green, `tsc` clean, lint clean.
+- **Known scope boundary (not a regression):** at large N the "Regulars" client filter and the
+  "shown of N" pairing operate over the 200-row window; and `ilike '%term%'` is a seqscan at
+  very large N (fine at 25 000, a `pg_trgm` index is the ≥100 follow-up if search latency shows).
+
+---
+
 ## 2026-07-14 — Door-QueryClient rebuilt (and leaked) per shell remount (86ey9e8pm)
 
 PR #235 open (`fix/86ey9e8pm-door-queryclient-remount`), tests green, awaiting fresh-session
