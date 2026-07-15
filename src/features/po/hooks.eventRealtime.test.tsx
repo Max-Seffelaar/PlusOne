@@ -1,10 +1,14 @@
 // @vitest-environment jsdom
 //
 // Regression coverage for C19 (2026-07 review P3, ClickUp 86ey6xdkb):
-// usePoEventRealtime's invalidate() previously omitted venue-guests AND
-// eventDetail — a peer's check-in/void never refreshed the All-Guests tab or
-// the event-detail header. Asserts the full invalidated key-list on a
-// postgres_changes callback, not just the pre-fix subset.
+// usePoEventRealtime's invalidate() previously omitted eventDetail — a peer's
+// check-in/void never refreshed the event-detail header. Asserts the full
+// invalidated key-list on a postgres_changes callback, not just the pre-fix subset.
+//
+// 86ey9e8hz updated this: the venue-wide All-Guests tab (VENUE_GUESTS_PREFIX) is
+// NO LONGER invalidated per check-in — that tab is a server-windowed working set,
+// and re-downloading it on every check-in during a rush is the cost the windowing
+// removed. It still refreshes on guest WRITES (the mutation paths keep the prefix).
 //
 // Also covers 86ey9e8fe: invalidate() is throttled (leading+trailing) so a
 // burst of postgres_changes events (a check-in touches BOTH guests AND
@@ -71,8 +75,8 @@ afterEach(() => {
   handlers.length = 0;
 });
 
-describe('usePoEventRealtime invalidate() (C19, 86ey6xdkb)', () => {
-  it('a postgres_changes event invalidates guests, tiers, arrivals, event-stats, venue-guests AND event-detail', async () => {
+describe('usePoEventRealtime invalidate() (C19, 86ey6xdkb / 86ey9e8hz)', () => {
+  it('a postgres_changes event invalidates guests, tiers, arrivals, event-stats AND event-detail — but NOT venue-guests', async () => {
     const { wrapper, spy } = makeWrapper();
     const { result } = renderHook(() => usePoEventRealtime('event-1'), { wrapper });
 
@@ -86,13 +90,15 @@ describe('usePoEventRealtime invalidate() (C19, 86ey6xdkb)', () => {
     expect(includesKey(keys, poKeys.tiers('event-1'))).toBe(true);
     expect(includesKey(keys, poKeys.arrivals('event-1'))).toBe(true);
     expect(includesKey(keys, poKeys.eventStats('event-1'))).toBe(true);
-    expect(includesKey(keys, VENUE_GUESTS_PREFIX)).toBe(true);
     expect(includesKey(keys, poKeys.eventDetail('event-1'))).toBe(true);
+    // 86ey9e8hz: the windowed venue-wide All-Guests tab is NOT re-downloaded per
+    // check-in; only guest writes (mutation paths) invalidate this prefix.
+    expect(includesKey(keys, VENUE_GUESTS_PREFIX)).toBe(false);
   });
 });
 
 describe('usePoEventRealtime invalidate() throttling (86ey9e8fe)', () => {
-  it('a burst of postgres_changes events fires the 6-key cascade only twice (leading + trailing), not once per event', async () => {
+  it('a burst of postgres_changes events fires the 5-key cascade only twice (leading + trailing), not once per event', async () => {
     const { wrapper, spy } = makeWrapper();
     const { result } = renderHook(() => usePoEventRealtime('event-1'), { wrapper });
 
@@ -111,15 +117,16 @@ describe('usePoEventRealtime invalidate() throttling (86ey9e8fe)', () => {
         for (let i = 0; i < 8; i++) handlers.forEach((h) => h());
       });
 
-      // Leading edge already fired once synchronously.
-      expect(spy.mock.calls.length).toBe(6);
+      // Leading edge already fired once synchronously (5 keys: guests, tiers,
+      // arrivals, event-stats, event-detail — venue-guests dropped in 86ey9e8hz).
+      expect(spy.mock.calls.length).toBe(5);
 
       act(() => vi.advanceTimersByTime(600));
 
       // Trailing edge closes the burst with exactly one more cascade — NOT one
       // cascade per one of the 16 events that fired above (86ey9e8fe: ~20
       // requests/check-in came from firing the full cascade per event).
-      expect(spy.mock.calls.length).toBe(12);
+      expect(spy.mock.calls.length).toBe(10);
     } finally {
       vi.useRealTimers();
     }

@@ -17,10 +17,12 @@ export const poKeys = {
   eventDetail: (eventId: string) => [...poKeys.all, 'event-detail', eventId] as const,
   eventRecap: (eventId: string) => [...poKeys.all, 'event-recap', eventId] as const,
   guests: (eventId: string) => [...poKeys.all, 'guests', eventId] as const,
-  /** The venue-wide "all guests" list (Guests tab, no event selected); keyed on
-   *  the venue only (SCALE-5 — the read itself is venue-scoped now, not an
-   *  event-id list, so the key no longer needs to vary with the event set). */
-  venueGuests: (venueId: string) => [...poKeys.all, 'venue-guests', venueId] as const,
+  /** The venue-wide "all guests" working set (Guests tab, no event selected).
+   *  Keyed on venue + the (debounced) search term (86ey9e8hz — the window is
+   *  server-searched, so each term is its own cached page, like `contacts`). The
+   *  VENUE_GUESTS_PREFIX (venue-guests) still prefix-matches every term, so guest
+   *  writes invalidate all variants at once. */
+  venueGuests: (venueId: string, search = '') => [...poKeys.all, 'venue-guests', venueId, search] as const,
   tiers: (eventId: string) => [...poKeys.all, 'tiers', eventId] as const,
   // External crew (event_organizers, #6/#24) for an event + the assignable
   // team-member pool for the "add an existing member" path. Both key on the event.
