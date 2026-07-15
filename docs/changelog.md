@@ -8,6 +8,49 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-14 — Door-QueryClient rebuilt (and leaked) per shell remount (86ey9e8pm)
+
+PR #235 open (`fix/86ey9e8pm-door-queryclient-remount`), tests green, awaiting fresh-session
+`/code-review` + Max's merge. Adversarially CONFIRMED perf finding (L1) from the 86ey9e8xx
+review batch; the immediate follow-up to 86ey9e8gf, which had already flagged this task's
+remount as the suspected cause of the doubled snapshot bursts behind 86ey9tq62.
+
+- **Root cause.** On `/app` the mobile Deur-tab mounts `DoorQueryProvider` *inside*
+  `PlusOneApp`, which remounts fully on every `router.push` (module comment
+  `app.tsx:244-257`). `DoorQueryProvider` built a **fresh** client per mount via
+  `useState(() => createDoorQueryClient())`, whose `gcTime: WEEK_MS` timers pin the full
+  event snapshot (150–1500+ rows) + the abandoned client for a week on unmount — one leaked
+  client per Deur-tab visit, so the heap grows over a shift. The standalone `/door` route is
+  immune: its provider lives in the route layout, mounted once (`src/app/door/layout.tsx:10`).
+- **Why not "hoist the provider".** `PoLiveProvider` supplies the po-QueryClient on the
+  **default** React Query context (`PoLiveProvider.tsx:76`); `PlusOneApp` + every po screen
+  read it via `useQueryClient()` (e.g. `app.tsx:333`). Hanging `DoorQueryProvider` above
+  `PlusOneApp` would shadow the po-client for the whole shell. The door client must stay
+  scoped to the door subtree.
+- **Fix (surgical singleton — scope confirmed with Max).** Door QueryClient + persister are
+  now per-tab-session singletons (`getDoorQueryClient` / `getDoorPersister` in
+  `offline/query-client.ts` + `offline/persister.ts`) that `DoorQueryProvider` reuses
+  (`useState(getDoorQueryClient)` / `useState(getDoorPersister)`) — the client is no longer
+  rebuilt per navigation. Kills the leak; serves a warm cache on re-entry, which also removes
+  the **doubled full-snapshot refetch on remount** (relevant to 86ey9tq62 — worth a re-test).
+  Resets only on a full page load; sign-out does `window.location.assign` (`settings/_shared.tsx`),
+  so PII posture is unchanged. Same one-client-per-session model `/door` already uses.
+- **Deliberately out of scope (R7 → follow-up).** `PlusOneApp` still remounts per navigation
+  (a constant-cost shell re-render, not the growing leak). Filed as a separate no-remount task
+  (move `PlusOneApp` into the stable `/app` layout) — that's the one that would also settle
+  86ey9tq62's remount-driven overlay-back weirdness at the source.
+- Files: `src/features/door/DoorQueryProvider.tsx`, `src/features/door/offline/query-client.ts`,
+  `src/features/door/offline/persister.ts`. New tests: `offline/query-client.test.ts`
+  (singleton identity + gcTime), `DoorQueryProvider.test.tsx` (same client instance across an
+  unmount→remount cycle = the exact leak mechanism). No migration.
+- Tests: `pnpm vitest run` green (837, 77 files, +4 new); `tsc --noEmit` clean; eslint clean.
+  Browser: `/app` renders clean for `door@` with no console errors; a live heap/mount-count
+  capture on the mobile door tab wasn't reliably obtainable in the shared headless preview
+  (tab not painting, mobile branch not flipping via matchMedia), so the leak mechanism is
+  unit-proven instead of screenshotted.
+
+---
+
 ## 2026-07-14 — Door-overlay Back over-popped past the check-in list (86ey9tq62)
 
 Surfaced during 86ey9e8gf live testing. PR pending, not yet merged. Client-only nav-state

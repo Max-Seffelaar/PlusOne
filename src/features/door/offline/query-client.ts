@@ -26,3 +26,22 @@ export function createDoorQueryClient(): QueryClient {
     },
   });
 }
+
+let sharedDoorClient: QueryClient | null = null;
+
+/**
+ * Per-browser-tab-session singleton door client (86ey9e8pm / L1). The door client
+ * MUST NOT be rebuilt per mount: on /app the Deur-tab mounts DoorQueryProvider
+ * INSIDE PlusOneApp, which remounts fully on every `router.push` navigation
+ * (app.tsx:244-257). A fresh client per mount left its `gcTime: WEEK_MS` gc timers
+ * pinning the whole event snapshot (150-1500+ rows) for a week — one leaked client
+ * per Deur-tab visit, so the heap grew over a shift ("trager over tijd"). Reusing
+ * one client also serves a warm cache on re-entry: no IndexedDB re-restore, no
+ * snapshot refetch. Resets only on a full page load — sign-out does
+ * `window.location.assign` (settings/_shared.tsx) which wipes the in-memory cache,
+ * so PII posture is unchanged. This is the same one-client-per-session model the
+ * standalone /door route already uses (its provider lives in the route layout).
+ */
+export function getDoorQueryClient(): QueryClient {
+  return (sharedDoorClient ??= createDoorQueryClient());
+}
