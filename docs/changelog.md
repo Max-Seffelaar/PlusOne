@@ -8,6 +8,36 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-17 — behavioural CI guard: /app must render events, even in a never-painted tab (86eyaz44q)
+
+Follow-up to 86eya4yuf/PR #237. That fix already had a *structural* guard
+(`tests/unit/app-shell-no-ssr-suspense.test.ts`). This task adds the *behavioural* layer so
+the "Home/Deur silently shows no events" failure can never ship unnoticed again — Max's ask
+after the fix landed.
+
+- **New e2e `tests/e2e/app-home-events-visible.spec.ts`** (door@, read-only against the seed's
+  always-upcoming `PLUSONE Launch Night`), two tests: (1) `/app` renders event cards on a
+  normal load — the broad "empty board" guard, also catching future data/RLS/windowing
+  regressions; (2) the same load with `requestAnimationFrame` stubbed to a no-op — the exact
+  precondition of the hydration hang (a never-painted tab). Terms pre-accepted via the
+  `acceptConsent` admin helper so dev-login lands straight on `/app`, no consent gate.
+- **Wired into CI:** `e2e:smoke` now runs this spec alongside `core-flow.spec.ts`, so the
+  required `lint-and-test` job enforces it on every push.
+- **Proven to discriminate (the point of the exercise).** On the shipped `ssr:false` mount:
+  both tests green (`2 passed`). Temporarily restoring the pre-#237 `<Suspense><PlusOneApp/>`
+  shape: the rAF-starved test fails — `getByText('PLUSONE Launch Night')` times out, board
+  never renders. So the test genuinely catches a regression that a normal headless run (which
+  paints, so rAF fires) would miss. Safe because `/app` content is CSS-animated
+  (tailwindcss-animate) and React commits via its MessageChannel scheduler — neither is
+  gated on rAF.
+- **Docs:** CLAUDE.md line-58 invariant now names both guards + generalises the rule to any
+  route root (a client component that suspends during SSR must mount `ssr:false`, never under
+  a page `<Suspense>`); a matching hard "don't do this / never weaken these guards" line added
+  to *What NOT to do*.
+- **Suites:** type-check clean; lint clean (only the 2 pre-existing `datetime-field` ARIA
+  warnings); `app-shell-no-ssr-suspense` + `claude-md-references` green. No migration, no
+  runtime code touched — tests + docs + one `package.json` script.
+
 ## 2026-07-15 — /app never hydrated in unpainted tabs → Home/Deur "no events" (86eya4yuf)
 
 Demo-blocker reported as "Home board + mobile Deur tab show NO events while the Events tab
