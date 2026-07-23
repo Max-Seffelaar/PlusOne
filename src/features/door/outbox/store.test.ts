@@ -5,7 +5,8 @@ import { OutboxStore } from './store';
 import type { OutboxEntry, OutboxStatus } from './types';
 
 vi.mock('../offline/idb', () => ({ idbGet: vi.fn(), idbSet: vi.fn() }));
-vi.mock('@sentry/nextjs', () => ({ captureMessage: vi.fn() }));
+// store.ts reports through the lazy Sentry facade (#B2), not @sentry/nextjs directly.
+vi.mock('@/lib/observability/sentry-client', () => ({ captureMessage: vi.fn() }));
 
 // A Node MaxListenersExceededWarning may print for this file: store.ts's
 // `export const outbox = new OutboxStore()` singleton constructs (and calls
@@ -67,7 +68,7 @@ describe('OutboxStore.init (O9 — IndexedDB absent or corrupt)', () => {
 
   it('quarantines a corrupt/unrecognized persisted shape instead of crashing', async () => {
     idbGetMock.mockResolvedValue({ totally: 'not-an-outbox' });
-    const { captureMessage } = await import('@sentry/nextjs');
+    const { captureMessage } = await import('@/lib/observability/sentry-client');
     const store = new OutboxStore();
     await expect(store.init()).resolves.toBeUndefined();
     expect(store.getSnapshot()).toEqual([]);
@@ -222,7 +223,7 @@ describe('OutboxStore — persist-failure surfacing (O4)', () => {
   it('flags persistDegraded and reports to Sentry when the IndexedDB write fails', async () => {
     idbGetMock.mockResolvedValue(undefined);
     idbSetMock.mockResolvedValue(false);
-    const { captureMessage } = await import('@sentry/nextjs');
+    const { captureMessage } = await import('@/lib/observability/sentry-client');
     const store = new OutboxStore();
     await store.init();
 
@@ -236,7 +237,7 @@ describe('OutboxStore — persist-failure surfacing (O4)', () => {
   it('does not re-report on every subsequent failed write (edge-triggered)', async () => {
     idbGetMock.mockResolvedValue(undefined);
     idbSetMock.mockResolvedValue(false);
-    const { captureMessage } = await import('@sentry/nextjs');
+    const { captureMessage } = await import('@/lib/observability/sentry-client');
     const store = new OutboxStore();
     await store.init();
     store.enqueue(entry('a'));

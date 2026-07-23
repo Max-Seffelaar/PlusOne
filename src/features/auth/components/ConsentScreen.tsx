@@ -10,8 +10,7 @@ import { t, fmt } from '@/lib/i18n';
 import { AUTH_GRADIENT } from '@/lib/po/theme';
 import { Icon } from '@/components/po/icon';
 import { Btn, Field, Label } from '@/components/po/kit';
-import { CountrySelect, type CountryCode } from '@/components/po/country-select';
-import PhoneInput from 'react-phone-number-input/input';
+import { CountrySelect, PhoneInput, type CountryCode } from '@/components/po/phone-lazy';
 import { TERMS_URL, PRIVACY_URL } from '@/lib/legal';
 import { acceptTermsAction } from '@/features/auth/consent-actions';
 

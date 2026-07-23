@@ -64,6 +64,42 @@ headline one is NOT the suspected 7-day window but a hydration hang.
 
 ---
 
+## 2026-07-14 — First Load JS afslanken: Sentry defer + lazy phone + QuickAdd split (86ey9e8z5)
+
+DONE — PR [#236](https://github.com/Max-Seffelaar/PlusOne/pull/236) (`perf/86ey9e8z5-first-load-js`),
+merged to main. Three levers on the measured bundle (before → after via `pnpm build`); tested live by
+Max on the local stack.
+
+- **Lever 1 — Sentry off every route (biggest win).** `instrumentation-client.ts` used to
+  `Sentry.init` synchronously, pinning the ~131 kB gz browser SDK into the First Load of EVERY route
+  (offline door + public guest links included). Now a lazy facade
+  (`src/lib/observability/sentry-client.ts`, `import type` only) idle-loads the SDK
+  (`requestIdleCallback`) from a new `src/sentry.client.init.ts`; every client caller (app shell,
+  `PoLiveProvider`, `DoorProvider`, `outbox/store`, `capture`, `global-error`) routes through it.
+  **Pure defer — no route loses coverage** (deliberately NOT a per-route exclusion; the door stays
+  instrumented). Facade `.catch()`es a failed chunk fetch so the door's offline path (#25) never
+  throws. **Shared-by-all 189 → 105 kB.**
+- **Lever 2 — QuickAdd split** out of the `/app` page entry via `next/dynamic` from its leaf module
+  (dropped from the guests barrel re-export). Guarded by `app.code-split.test.ts`.
+- **Lever 3 — lazy phone field** (`src/components/po/phone-lazy.tsx`): `react-phone-number-input`
+  (flags + libphonenumber, ~102 kB gz) code-split; all 5 consumers import
+  `CountrySelect`/`PhoneInput`/`isPhoneValid`/`phoneCountryOf`/`useStoredPhoneCountry` from there.
+  Validators deferred (async); the render-time `parsePhoneNumber` "initial flag" derive moved to an
+  effect. Country locale switched to English (`en.json`); dimension-matched skeletons so the field
+  fills in without a flash. **Public `/e`+`/r` 330 → 141 kB (−57%), `/consent` 331 → 142 kB.**
+- **Net:** `/app` 540 → 346 kB (−36%), `/door/[eventId]` 373 → 288 kB, every other route −83…−85 kB.
+- **Guardrails:** `tests/unit/{sentry,phone}-lazy-imports.test.ts` fail CI if a static import of
+  `@sentry/nextjs` / `react-phone-number-input` creeps back into a first-load graph.
+- **Tests:** `pnpm build` exit 0, type-check + lint clean, `pnpm vitest run` 839 passed
+  (`store.test.ts` mocks the facade). Live: `/app` + public `/e`/`/r` zero console errors; Sentry
+  loads as a deferred async chunk; English country picker (245 countries); door + Sentry tests ✅.
+- **Follow-up (pre-existing landing validation UX, out of scope):** red errors, name-required,
+  stronger e-mail check → task 86eyd3men.
+- **Gotcha:** the Sentry init module must NOT be named `sentry.client.config.ts` (the Sentry Next.js
+  plugin auto-registers that filename as an eager entry, which would undo the split).
+
+---
+
 ## 2026-07-14 — `useVenueGuests` pulled the whole venue guest history to the browser (86ey9e8hz)
 
 DONE — PR #234 (`fix/86ey9e8hz-venue-guests-window`), merged to main. Adversarially CONFIRMED

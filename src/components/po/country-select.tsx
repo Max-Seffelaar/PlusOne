@@ -4,11 +4,12 @@
  *  native <select> of react-phone-number-input: we drive the input-only build
  *  with an external `country` state, so the flag is ALWAYS the chosen country
  *  (no globe-while-typing) and the list matches the PLUSONE dark design.
- *  Country names are Dutch; search matches name, ISO code or dial code. */
+ *  Country names are English (the app is English); search matches name, ISO
+ *  code or dial code. */
 import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { getCountries, getCountryCallingCode, type Country } from 'react-phone-number-input';
 import flagComponents from 'react-phone-number-input/flags';
-import nlLabels from 'react-phone-number-input/locale/nl.json';
+import enLabels from 'react-phone-number-input/locale/en.json';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import { Icon } from './icon';
@@ -17,7 +18,7 @@ import './landing-phone.css';
 export type CountryCode = Country;
 
 const flags = flagComponents as Record<string, ComponentType<{ title?: string }>>;
-const names = nlLabels as Record<string, string>;
+const names = enLabels as Record<string, string>;
 
 function Flag({ code }: { code: string }): JSX.Element {
   const F = flags[code];
@@ -50,7 +51,7 @@ export function CountrySelect({
     () =>
       getCountries()
         .map((c) => ({ code: c, name: names[c] ?? c, dial: getCountryCallingCode(c) }))
-        .sort((a, b) => a.name.localeCompare(b.name, 'nl')),
+        .sort((a, b) => a.name.localeCompare(b.name, 'en')),
     [],
   );
 

@@ -40,7 +40,9 @@ import { DupeOption, NoTiersBlock, press, col } from './_shared';
 import { useGuestSelection, GuestBulkBar, BulkAddToEventSheet, type BulkAddCandidate } from './bulk-add';
 import { ScopeChip, BulkTierSheet, GuestCardList, GuestTable } from './list-shared';
 
-export { QuickAdd } from './quick-add';
+// QuickAdd is intentionally NOT re-exported here (#2b): the app shell code-splits
+// it via `next/dynamic` straight from './quick-add'. Re-exporting it would pull
+// the quick-add + phone chunks back into the common GuestsTab bundle.
 export { ContactProfile, Contacten } from './profile';
 
 // ── GUEST LIST (Guests tab) ──────────────────────────────────────────────────
