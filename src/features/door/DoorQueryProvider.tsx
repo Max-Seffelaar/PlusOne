@@ -8,8 +8,8 @@
 import { useState, type ReactNode } from 'react';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import type { QueryClient } from '@tanstack/react-query';
-import { createDoorQueryClient } from './offline/query-client';
-import { createIdbPersister } from './offline/persister';
+import { getDoorQueryClient } from './offline/query-client';
+import { getDoorPersister } from './offline/persister';
 import { isStaleDoorQuery, shouldDehydrateDoorQuery } from './offline/dehydrate';
 
 const WEEK_MS = 1000 * 60 * 60 * 24 * 7;
@@ -37,8 +37,11 @@ function sweepStaleDoorQueries(client: QueryClient): void {
 }
 
 export function DoorQueryProvider({ children }: { children: ReactNode }): JSX.Element {
-  const [client] = useState(() => createDoorQueryClient());
-  const [persister] = useState(() => createIdbPersister());
+  // Session singletons, NOT per-mount factories: on /app this provider mounts
+  // inside the remounting PlusOneApp shell (86ey9e8pm) — a fresh client per mount
+  // leaked its week-long gc timers. See getDoorQueryClient's doc comment.
+  const [client] = useState(getDoorQueryClient);
+  const [persister] = useState(getDoorPersister);
 
   return (
     <PersistQueryClientProvider

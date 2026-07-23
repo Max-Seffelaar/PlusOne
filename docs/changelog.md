@@ -8,39 +8,228 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-07-15 — /app never hydrated in unpainted tabs → Home/Deur "no events" (86eya4yuf)
+
+Demo-blocker reported as "Home board + mobile Deur tab show NO events while the Events tab
+works". PR pending on `fix/86eya4yuf-home-door-no-events`. Two real defects found; the
+headline one is NOT the suspected 7-day window but a hydration hang.
+
+- **Root cause (MODE B, reproduced deterministically + proven end-to-end).** The /app page
+  rendered `PlusOneApp` directly under `<Suspense fallback={null}>`. `useSearchParams()`
+  suspends during SSR, so the ENTIRE shell streamed as a late `$RC("B:0","S:0")`-completed
+  boundary. Next 15.5.19's inline fizz runtime gates that boundary's reveal (`$RV`) — and
+  React's hydration retry (`comment._reactRetry`) — on `requestAnimationFrame`, with no
+  timeout fallback while `$RT` is unset (i.e. before a first paint). A tab that loads
+  without painting (opened in the background, headless webview) never fires rAF → the
+  boundary never reveals (blank page) or reveals but never hydrates (static SSR HTML).
+  Either way ZERO queries mount and ZERO fetches fire, forever — and the SSR zeros render
+  as a plausible, settled "no events" board. Foreground loads hydrate normally, which is
+  exactly why the Events tab "worked" when navigated to directly (each sidebar click was a
+  full page load in a visible tab). Diagnosed by fiber-walking the live page (140-node
+  committed tree, `dehydrated: true`, `lanes: 0`); proven by manually running the starved
+  `$RV(window.$RB)` + `_reactRetry()` in the stuck tab → 13 REST fetches fired instantly
+  and all 7 events appeared.
+- **Fix.** `src/components/po/app-client.tsx`: mount the shell via `next/dynamic` with
+  `ssr: false` (honest boot mark instead of fake-zero SSR HTML); the server never suspends
+  on the shell, so the streamed boundary no longer exists (verified: /app HTML now has 0
+  pending markers / 0 `$RC` calls). Client-render markers hydrate on the normal,
+  non-rAF-gated path. CI guard `tests/unit/app-shell-no-ssr-suspense.test.ts` pins both
+  halves (page must import `app-client`, wrapper must keep `ssr: false`). The standalone
+  `/door/[eventId]` route was checked and is immune (no `useSearchParams`, synchronous
+  client tree); no other page-level `<Suspense>` exists under `src/app`.
+- **MODE A (windowed door pick, 86ey9e8gt regression) also fixed.** `usePoDoorEvent` fed
+  7-day-windowed rows into `pickDoorEvent`, whose last-resort fallback is "most recent
+  already-started event" — a venue whose newest event is >7 days old resolved to null. Now
+  fetches unwindowed (one-shot, single `venue_id`, no 414 risk); the stale "windowed is
+  safe" comment is corrected. Note: the hook currently has NO call sites (Deur tab uses
+  `usePoDoorCandidates`, already unwindowed; Home's windowed board cutoff is deliberate
+  M11 behaviour) — fixed anyway so the next caller doesn't inherit the trap.
+  `usePoDoorCandidates` still drops `past` events by design (Max 7/7: picker offers
+  live/future only; late check-outs go via the direct `/door/[eventId]` URL).
+- **Live verification** (fresh dev server, worst-case permanently-hidden tab, door@):
+  Home renders "Club Vesper · 7 upcoming" with the full board, Deur tab shows the 7-event
+  picker and opens PLUSONE Launch Night's check-in list (25 on the way / 8 inside,
+  realtime connected), Events tab lists all 7 — all with zero manual intervention.
+- **Watch-outs for later sessions.** (1) The local repro environment was churned: the
+  sibling worktree's dev server on :7000 was half-dead (6.9s /login, intermittent
+  connection-refused) and this worktree's node_modules was incomplete — neither was the
+  bug. (2) Prod-drift check still open: migration `20260714171523` (two-arg
+  `venue_event_headcounts`) merged 14/7; if prod hasn't had `supabase db push` since, the
+  deployed Home ALSO breaks with PGRST202 (Events tab unaffected) — run the prod-push flow.
+- Tests: vitest 847/80 files green (+4 new), `tsc --noEmit` clean, lint clean (pre-existing
+  warnings only). No migration. Files: `src/app/app/[[...segments]]/page.tsx`,
+  `src/components/po/app-client.tsx` (new), `src/features/po/hooks.ts`,
+  `src/features/po/door-event.test.ts`, `src/features/po/hooks.doorEvent.test.tsx` (new),
+  `tests/unit/app-shell-no-ssr-suspense.test.ts` (new).
+
+---
+
 ## 2026-07-14 — First Load JS afslanken: Sentry defer + lazy phone + QuickAdd split (86ey9e8z5)
 
-PR [#236](https://github.com/Max-Seffelaar/PlusOne/pull/236) (`perf/86ey9e8z5-first-load-js`) **open,
-awaiting review + merge.** Three levers on the measured bundle, before → after via `pnpm build`.
+DONE — PR [#236](https://github.com/Max-Seffelaar/PlusOne/pull/236) (`perf/86ey9e8z5-first-load-js`),
+merged to main. Three levers on the measured bundle (before → after via `pnpm build`); tested live by
+Max on the local stack.
 
 - **Lever 1 — Sentry off every route (biggest win).** `instrumentation-client.ts` used to
-  `Sentry.init` synchronously, pinning the ~131 kB gz browser SDK into the First Load of EVERY
-  route (offline door + public guest links included). Now a lazy facade
+  `Sentry.init` synchronously, pinning the ~131 kB gz browser SDK into the First Load of EVERY route
+  (offline door + public guest links included). Now a lazy facade
   (`src/lib/observability/sentry-client.ts`, `import type` only) idle-loads the SDK
   (`requestIdleCallback`) from a new `src/sentry.client.init.ts`; every client caller (app shell,
   `PoLiveProvider`, `DoorProvider`, `outbox/store`, `capture`, `global-error`) routes through it.
-  **Pure defer — no route loses coverage** (deliberately NOT the per-route exclusion the ticket
-  floated; keeping the door instrumented matters). Facade `.catch()`es a failed chunk fetch so the
-  door's offline path (#25) never throws. **Shared-by-all 189 → 105 kB.**
-- **Lever 2 — QuickAdd split** out of the `/app` page entry via `next/dynamic` from its leaf
-  module (dropped from the guests barrel re-export so `GuestsTab`'s common chunk doesn't drag it
-  back). Guarded by `app.code-split.test.ts`.
-- **Lever 3 — lazy phone field.** `react-phone-number-input` (flags + libphonenumber, ~102 kB gz)
-  code-split behind `src/components/po/phone-lazy.tsx`; all 5 consumers import
+  **Pure defer — no route loses coverage** (deliberately NOT a per-route exclusion; the door stays
+  instrumented). Facade `.catch()`es a failed chunk fetch so the door's offline path (#25) never
+  throws. **Shared-by-all 189 → 105 kB.**
+- **Lever 2 — QuickAdd split** out of the `/app` page entry via `next/dynamic` from its leaf module
+  (dropped from the guests barrel re-export). Guarded by `app.code-split.test.ts`.
+- **Lever 3 — lazy phone field** (`src/components/po/phone-lazy.tsx`): `react-phone-number-input`
+  (flags + libphonenumber, ~102 kB gz) code-split; all 5 consumers import
   `CountrySelect`/`PhoneInput`/`isPhoneValid`/`phoneCountryOf`/`useStoredPhoneCountry` from there.
   Validators deferred (async); the render-time `parsePhoneNumber` "initial flag" derive moved to an
-  effect. **Public `/e`+`/r` 330 → 141 kB (−57%), `/consent` 331 → 142 kB.**
+  effect. Country locale switched to English (`en.json`); dimension-matched skeletons so the field
+  fills in without a flash. **Public `/e`+`/r` 330 → 141 kB (−57%), `/consent` 331 → 142 kB.**
 - **Net:** `/app` 540 → 346 kB (−36%), `/door/[eventId]` 373 → 288 kB, every other route −83…−85 kB.
 - **Guardrails:** `tests/unit/{sentry,phone}-lazy-imports.test.ts` fail CI if a static import of
   `@sentry/nextjs` / `react-phone-number-input` creeps back into a first-load graph.
-- **Tests:** build exit 0, type-check ✅, lint ✅, `pnpm vitest run` **839 passed** (`store.test.ts`
-  updated to mock the facade). Preview smoke: `/app` + public `/e` render zero console errors;
-  Sentry loads as a deferred async chunk; lazy country picker opens (245 countries, NL default).
-- **Review gate:** touches the door outbox telemetry path → fresh-session `/code-review` before
-  merge; adversarial door-offline-safety prompt in the PR body. Door outbox security properties
-  (idempotency, RLS, PII scrub) unchanged — only a `captureMessage` transport moved behind the facade.
-- **Gotcha:** the Sentry init module must NOT be named `sentry.client.config.ts` (the Sentry
-  Next.js plugin auto-registers that filename as an eager entry, which would undo the split).
+- **Tests:** `pnpm build` exit 0, type-check + lint clean, `pnpm vitest run` 839 passed
+  (`store.test.ts` mocks the facade). Live: `/app` + public `/e`/`/r` zero console errors; Sentry
+  loads as a deferred async chunk; English country picker (245 countries); door + Sentry tests ✅.
+- **Follow-up (pre-existing landing validation UX, out of scope):** red errors, name-required,
+  stronger e-mail check → task 86eyd3men.
+- **Gotcha:** the Sentry init module must NOT be named `sentry.client.config.ts` (the Sentry Next.js
+  plugin auto-registers that filename as an eager entry, which would undo the split).
+
+---
+
+## 2026-07-14 — `useVenueGuests` pulled the whole venue guest history to the browser (86ey9e8hz)
+
+DONE — PR #234 (`fix/86ey9e8hz-venue-guests-window`), merged to main. Adversarially CONFIRMED
+finding (R3/C1) from the perf/scale review batch; violated the CLAUDE.md scale rule
+"Reads must be windowed at large N". Milestone ≥25 (25 000 guests / 400 events).
+
+- **Root cause.** The Guests-tab "All events" mode called `fetchGuests(client, { venueId })`
+  → `fetchAllRanged` paged **every** venue guest row to the client (up to 50 sequential
+  1000-row PostgREST pages), then `sortGuestsNewestFirst` (full copy + O(n log n)) + `toPoGuest`
+  per row + `filterGuestList` over all rows on every debounced keystroke. At 25 000 guests that
+  is ~25 sequential requests + the whole snapshot in browser memory. `usePoEventRealtime` also
+  invalidated `VENUE_GUESTS_PREFIX` on **every** check-in, so returning to the tab during a live
+  night re-triggered the full re-download + re-sort. Worked on the 30-guest seed, died at 25 000
+  — the canonical "works at 150, falls over at 25 000".
+- **Fix.** New `fetchVenueGuestsWindow` (`src/features/po/queries.ts`): ONE bounded request —
+  newest-first (`created_at desc, id desc`), `VENUE_GUESTS_WINDOW = 200` rows via `.range`, tier
+  from the `guest_tiers(name, color)` embed (kills the separate venue-wide tier read, no
+  waterfall), and `count: 'exact'` for the "of N" subtitle total. Name **search is pushed to the
+  server** (`ilike` on `full_name`, same shape as `fetchContacts`) so a match outside the window
+  stays findable without downloading the venue. `useVenueGuests(events, search)` keys on
+  venue+term (like `contacts`); `poKeys.venueGuests` gained the search arg (prefix unchanged, so
+  guest writes still invalidate every variant). The unbounded `fetchGuests({ venueId })` branch
+  was **deleted** at the source (narrowed to `fetchGuests(client, eventId)` — the single-event
+  door/cockpit read is a bounded, deliberately-ranged case and is untouched).
+- **Realtime.** Removed the per-check-in `VENUE_GUESTS_PREFIX` invalidation from
+  `usePoEventRealtime` (kept `eventDetail`); the venue-wide tab is not the door, so it now
+  refreshes on guest writes (mutation paths keep the prefix), navigation, and the safety sync —
+  not on every check-in during a rush. Event-scoped door/cockpit stays fully live.
+- Files: `src/features/po/queries.ts`, `hooks.ts`, `keys.ts`,
+  `src/components/po/screens/guests/index.tsx`. Tests: new `fetchVenueGuestsWindow` coverage
+  (window/search/count/tier-flatten + error-propagation) in `queries.test.ts`, repointed the
+  SCALE-5 venue-scope guard, updated the realtime cascade test (venue-guests no longer fired;
+  6-key → 5-key). No migration (reused `guests.venue_id` from `20260708120000`).
+- **Runtime-verified** on the local stack (door@ / Club Vesper): the exact windowed query
+  returned 200 (`…guest_tiers(name,color)&venue_id=eq.…&status=in.(approved,checked_in,refused)&order=created_at.desc,id.desc&offset=0&limit=200`),
+  ONE page not a ranged loop; subtitle "33 of 33 shown"; typing "Esra" fired a fresh bounded
+  request with `&full_name=ilike.%Esra%` and the subtitle became "1 of 1 shown". No console
+  errors. Suites: Vitest 837 green, `tsc` clean, lint clean.
+- **Known scope boundary (not a regression):** at large N the "Regulars" client filter and the
+  "shown of N" pairing operate over the 200-row window; and `ilike '%term%'` is a seqscan at
+  very large N (fine at 25 000, a `pg_trgm` index is the ≥100 follow-up if search latency shows).
+
+---
+
+## 2026-07-14 — Door-QueryClient rebuilt (and leaked) per shell remount (86ey9e8pm)
+
+PR #235 open (`fix/86ey9e8pm-door-queryclient-remount`), tests green, awaiting fresh-session
+`/code-review` + Max's merge. Adversarially CONFIRMED perf finding (L1) from the 86ey9e8xx
+review batch; the immediate follow-up to 86ey9e8gf, which had already flagged this task's
+remount as the suspected cause of the doubled snapshot bursts behind 86ey9tq62.
+
+- **Root cause.** On `/app` the mobile Deur-tab mounts `DoorQueryProvider` *inside*
+  `PlusOneApp`, which remounts fully on every `router.push` (module comment
+  `app.tsx:244-257`). `DoorQueryProvider` built a **fresh** client per mount via
+  `useState(() => createDoorQueryClient())`, whose `gcTime: WEEK_MS` timers pin the full
+  event snapshot (150–1500+ rows) + the abandoned client for a week on unmount — one leaked
+  client per Deur-tab visit, so the heap grows over a shift. The standalone `/door` route is
+  immune: its provider lives in the route layout, mounted once (`src/app/door/layout.tsx:10`).
+- **Why not "hoist the provider".** `PoLiveProvider` supplies the po-QueryClient on the
+  **default** React Query context (`PoLiveProvider.tsx:76`); `PlusOneApp` + every po screen
+  read it via `useQueryClient()` (e.g. `app.tsx:333`). Hanging `DoorQueryProvider` above
+  `PlusOneApp` would shadow the po-client for the whole shell. The door client must stay
+  scoped to the door subtree.
+- **Fix (surgical singleton — scope confirmed with Max).** Door QueryClient + persister are
+  now per-tab-session singletons (`getDoorQueryClient` / `getDoorPersister` in
+  `offline/query-client.ts` + `offline/persister.ts`) that `DoorQueryProvider` reuses
+  (`useState(getDoorQueryClient)` / `useState(getDoorPersister)`) — the client is no longer
+  rebuilt per navigation. Kills the leak; serves a warm cache on re-entry, which also removes
+  the **doubled full-snapshot refetch on remount** (relevant to 86ey9tq62 — worth a re-test).
+  Resets only on a full page load; sign-out does `window.location.assign` (`settings/_shared.tsx`),
+  so PII posture is unchanged. Same one-client-per-session model `/door` already uses.
+- **Deliberately out of scope (R7 → follow-up).** `PlusOneApp` still remounts per navigation
+  (a constant-cost shell re-render, not the growing leak). Filed as a separate no-remount task
+  (move `PlusOneApp` into the stable `/app` layout) — that's the one that would also settle
+  86ey9tq62's remount-driven overlay-back weirdness at the source.
+- Files: `src/features/door/DoorQueryProvider.tsx`, `src/features/door/offline/query-client.ts`,
+  `src/features/door/offline/persister.ts`. New tests: `offline/query-client.test.ts`
+  (singleton identity + gcTime), `DoorQueryProvider.test.tsx` (same client instance across an
+  unmount→remount cycle = the exact leak mechanism). No migration.
+- Tests: `pnpm vitest run` green (837, 77 files, +4 new); `tsc --noEmit` clean; eslint clean.
+  Browser: `/app` renders clean for `door@` with no console errors; a live heap/mount-count
+  capture on the mobile door tab wasn't reliably obtainable in the shared headless preview
+  (tab not painting, mobile branch not flipping via matchMedia), so the leak mechanism is
+  unit-proven instead of screenshotted.
+
+---
+
+## 2026-07-14 — Door-overlay Back over-popped past the check-in list (86ey9tq62)
+
+Surfaced during 86ey9e8gf live testing. PR pending, not yet merged. Client-only nav-state
+fix (`src/components/po/`) — no migration, no RLS/auth/service-role touch. It IS door-adjacent
+(the Deur tab's raw-history sub-nav), but touches only *when the `doorOverride` shadow clears*,
+never the offline outbox or any write, and preserves the offline invariant (#25): still no
+`router.push` on the door, still pure client state, no network. A fresh-session `/code-review`
+is welcome but not a mandated gate per the high-risk list.
+
+- **Root cause (traced against the code's own documented Next model).** Door sub-nav is driven
+  by raw `window.history.pushState/replaceState` (`pushDoorState`/`replaceDoorState`), which
+  Next's `usePathname`/`useSearchParams` do **not** track — they stay frozen at the last real
+  router navigation and only resync on a genuine nav or a **popstate**. The `doorOverride` shadow
+  was cleared solely by `useEffect(…, [pathname, searchParamsStr])`. Enter the door via
+  `?event=A` → `useSearchParams` is frozen at `event=A`; the raw switch → picker → re-pick →
+  open-overlay sub-nav never changes it; pressing Back to close the overlay pops back to
+  `?event=A` — the **identical** frozen string. So the deps never change, the effect never
+  re-runs, and the stale overlay override survives the pop: the overlay lingers on screen and
+  the user's next Back over-pops straight **past** the check-in list. This is the
+  `hasPushedThisSession`↔raw-history desync Max flagged; `hasPushedThisSession` itself is fine
+  (the overlay really did push an entry) — the culprit is the shadow not clearing.
+- **Fix.** Extracted the override state machine into `src/components/po/use-door-override.ts`
+  (unit-testable, well-documented) and added a second clearing trigger: a `popstate` listener
+  that drops the shadow on **any** browser back/forward, independent of whether Next's hooks
+  changed — a popstate always means the browser URL just won, so the URL-derived door state
+  becomes authoritative. `app.tsx` now calls `useDoorOverride(pathname, searchParamsStr)` in
+  place of the inline `useState`+effect; behaviour is otherwise identical. Capacitor-safe (the
+  Android hardware-back maps to popstate → this now clears correctly too).
+- **Tests.** `use-door-override.test.ts` (5, new) — including the regression: a popstate with
+  **unchanged** deps clears a set override (the exact stale-shadow-survives-pop condition), plus
+  listener cleanup on unmount. Full Vitest **825/825** green, `pnpm type-check` + `pnpm lint`
+  clean (only the pre-existing `datetime-field.tsx` aria warnings).
+- **E2E (real browser, A/B-proven).** `tests/e2e/door-overlay-back.spec.ts` (new) drives the
+  exact flow on a 390px viewport — dev-login as `door@` → enter the door with a frozen `?event=`
+  → Switch → re-pick → open a guest overlay → one Back — and asserts the check-in list returns
+  (search box + Switch bar, overlay gone, URL back to the list). The Next remount/popstate
+  timing this depends on doesn't reproduce in jsdom, so this needed a real browser. Verified
+  **both ways**: green with the fix; with the popstate listener neutralized it **fails** exactly
+  at the post-Back assertion (the overlay lingers) — proving it's a genuine regression guard, not
+  a test that passes regardless. (Local gotcha: the fresh Playwright dev server crashed a Next
+  compile-worker on the cold 6.6k-module `/app/[[...segments]]` compile under load — a transient
+  infra flake, not the app; pre-warming the port-3000 server it reuses makes the run
+  deterministic. Authenticated `/app/door` renders `200`.)
 
 ---
 

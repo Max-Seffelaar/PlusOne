@@ -109,24 +109,35 @@ export function GuestsTab({ pinnedEventId }: { pinnedEventId?: string } = {}): J
   const dq = useDebouncedValue(q, 140);
 
   const allMode = scope === null;
-  const venue = useVenueGuests(allMode ? events : []);
+  // All-events mode is a server-windowed working set searched server-side (86ey9e8hz):
+  // the debounced term goes to the query so a match outside the window is still
+  // found, instead of downloading the whole venue and filtering in the browser.
+  const venue = useVenueGuests(allMode ? events : [], dq);
   const single = usePoGuests(scope ?? '');
   const active = allMode ? venue : single;
-  const guests = useMemo(() => active.data ?? [], [active.data]);
+  const guests = useMemo<GuestT[]>(
+    () => (allMode ? venue.data?.guests : single.data) ?? [],
+    [allMode, venue.data, single.data],
+  );
 
   // Regulars = guests whose linked contact is starred permanent (#11). Manager-only
   // read (RLS); staff get [] → the filter simply yields nothing for them.
   const { data: permanentContacts = [] } = usePoPermanentContacts();
   const permanentIds = useMemo(() => new Set(permanentContacts.map((c) => c.id)), [permanentContacts]);
   const gs = useMemo(() => {
-    const searched = filterGuestList(guests, dq);
+    // All-events already filtered by name on the server; single-event holds the
+    // whole event locally, so it keeps the client-side name filter.
+    const searched = allMode ? guests : filterGuestList(guests, dq);
     return regularsOnly ? searched.filter((g) => g.contactId && permanentIds.has(g.contactId)) : searched;
-  }, [guests, dq, regularsOnly, permanentIds]);
+  }, [allMode, guests, dq, regularsOnly, permanentIds]);
   const loading = active.isLoading || (allMode && eventsLoading);
 
   const scopeEvent = events.find((e) => e.id === scope) ?? null;
   const upcoming = useMemo(() => events.filter((e) => e.when === 'upcoming'), [events]);
-  const countSub = fmt(t.guests.list.sub, { shown: gs.length, total: guests.length });
+  // Total is the venue-wide match count (from the server) in all-events mode, the
+  // loaded event size in single-event mode — the "of N" in the subtitle.
+  const total = allMode ? venue.data?.total ?? guests.length : guests.length;
+  const countSub = fmt(t.guests.list.sub, { shown: gs.length, total });
 
   // Add-guest on the "All events" scope (M10, K-16): no event is picked here, so
   // route through the same event-picker sheet Home's "New guest" uses, then land
