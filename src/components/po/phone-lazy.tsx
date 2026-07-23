@@ -22,10 +22,30 @@ import type { Country } from 'react-phone-number-input';
 
 export type CountryCode = Country;
 
-/** Fixed-footprint placeholder for the country button (flag + dial + chevron) so
- *  the phone row doesn't reflow when the real picker hydrates. */
+/** Skeleton that mirrors the real country button's footprint (flag + dial +
+ *  chevron) so the phone row keeps its exact geometry — no reflow, and the
+ *  content fills in (rather than popping from empty) when the picker hydrates. */
 function CountrySelectFallback(): JSX.Element {
-  return <span className="inline-block h-[27px] w-[58px] shrink-0" aria-hidden />;
+  return (
+    <div
+      className="flex shrink-0 items-center gap-[6px] rounded-[9px] px-[5px] py-[5px]"
+      aria-hidden
+    >
+      <span className="h-[15px] w-[20px] animate-pulse rounded-[3px] bg-elev2" />
+      <span className="h-[12px] w-[22px] animate-pulse rounded bg-elev2" />
+      <span className="h-[15px] w-[15px]" />
+    </div>
+  );
+}
+
+/** Holds the input's full width (flex-1) with a short loading bar, so the field
+ *  neither collapses nor looks pre-filled before the input hydrates. */
+function PhoneInputFallback(): JSX.Element {
+  return (
+    <span className="min-w-0 flex-1" aria-hidden>
+      <span className="block h-[13px] w-[92px] animate-pulse rounded bg-elev2" />
+    </span>
+  );
 }
 
 export const CountrySelect = dynamic(
@@ -47,7 +67,7 @@ type PhoneInputProps = {
 
 export const PhoneInput = dynamic<PhoneInputProps>(
   () => import('react-phone-number-input/input'),
-  { ssr: false, loading: () => <div className="min-w-0 flex-1" aria-hidden /> },
+  { ssr: false, loading: PhoneInputFallback },
 );
 
 /** Validate an E.164 string. Defers the libphonenumber metadata: the phone chunk
