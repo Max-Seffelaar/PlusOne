@@ -30,6 +30,7 @@ export function Meer(): JSX.Element {
   const { statsVenues, isMobile } = usePo();
   const { venueName, roles } = usePoIdentity();
   const [signingOut, setSigningOut] = useState(false);
+  const [signOutErr, setSignOutErr] = useState(false);
   const caps = venueCapabilities(roles);
   const isAdmin = roles.includes('admin');
   const isFinance = roles.includes('finance');
@@ -165,10 +166,22 @@ export function Meer(): JSX.Element {
             sub={t.settings.profile.signOutSub}
             onClick={() => {
               if (signingOut) return;
+              setSignOutErr(false);
               setSigningOut(true);
-              void signOutDevice('local');
+              // On the fail-safe reject (the local session couldn't be cleared,
+              // e.g. offline) signOutDevice does NOT redirect — recover the button
+              // and warn rather than leaving it stuck on "Signing out…".
+              void signOutDevice('local').catch(() => {
+                setSigningOut(false);
+                setSignOutErr(true);
+              });
             }}
           />
+          {signOutErr && (
+            <p className="mt-2 px-1 text-[12.5px] leading-[1.45] text-red-300" role="alert">
+              {t.settings.profile.signOutFailed}
+            </p>
+          )}
         </div>
       </Scroll>
     </div>

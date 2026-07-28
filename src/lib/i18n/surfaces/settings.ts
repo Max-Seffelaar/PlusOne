@@ -254,6 +254,7 @@ export const settings = {
     signOut: 'Sign out',
     signOutSub: 'Log out on this device',
     signingOut: 'Signing out…',
+    signOutFailed: 'Could not sign out — check your connection and try again.',
     saving: 'Saving…',
     save: 'Save',
     logoutAllConfirm:

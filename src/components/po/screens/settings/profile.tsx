@@ -150,6 +150,7 @@ export function Profile(): JSX.Element {
   const [loaded, setLoaded] = useState(false);
   const [confirmLogoutAll, setConfirmLogoutAll] = useState(false);
   const [signingOut, setSigningOut] = useState<'local' | 'global' | null>(null);
+  const [signOutErr, setSignOutErr] = useState(false);
 
   // Prefill the editable fields once the profile arrives (and keep them in sync
   // after a save re-fetches the row).
@@ -307,8 +308,14 @@ export function Profile(): JSX.Element {
           className="mb-2"
           disabled={signingOut !== null}
           onClick={() => {
+            setSignOutErr(false);
             setSigningOut('local');
-            void signOutDevice('local');
+            // Fail-safe reject (local session not cleared, e.g. offline): no
+            // redirect happens — recover the button and warn.
+            void signOutDevice('local').catch(() => {
+              setSigningOut(null);
+              setSignOutErr(true);
+            });
           }}
         >
           {signingOut === 'local' ? t.settings.profile.signingOut : t.settings.profile.signOut}
@@ -326,6 +333,11 @@ export function Profile(): JSX.Element {
           </Btn>
         )}
         <FormError error={revokeSession.isError ? revokeSession.error : null} />
+        {signOutErr && (
+          <p className="mt-3 text-[12.5px] leading-[1.45] text-red-300" role="alert">
+            {t.settings.profile.signOutFailed}
+          </p>
+        )}
       </Scroll>
       <BottomBar>
         <Btn
@@ -349,8 +361,13 @@ export function Profile(): JSX.Element {
             className="mt-2"
             disabled={signingOut !== null}
             onClick={() => {
+              setSignOutErr(false);
               setSigningOut('global');
-              void signOutDevice('global');
+              void signOutDevice('global').catch(() => {
+                setSigningOut(null);
+                setSignOutErr(true);
+                setConfirmLogoutAll(false); // close the sheet so the error under the buttons shows
+              });
             }}
           >
             {signingOut === 'global' ? t.settings.profile.loggingOut : t.settings.profile.logoutAllConfirmBtn}
