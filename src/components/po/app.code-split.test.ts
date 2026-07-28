@@ -19,6 +19,9 @@ const LAZY_SCREENS: Record<string, string> = {
   AuditLog: './screens/audit',
   AdminSessions: './screens/admin-sessions',
   Aanvragen: './screens/approvals',
+  // #2b: the guest quick-add flow (parser + dedupe + lazy phone field) is split
+  // straight from its leaf module, not the guests barrel.
+  QuickAdd: './screens/guests/quick-add',
 };
 
 describe('po/app.tsx code-split (#2a)', () => {

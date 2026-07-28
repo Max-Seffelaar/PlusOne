@@ -20,11 +20,9 @@ import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { venueCapabilities } from '@/features/venues/access';
 import { t, fmt } from '@/lib/i18n';
 import { Icon } from '../../icon';
-import PhoneInput from 'react-phone-number-input/input';
-import { isValidPhoneNumber, parsePhoneNumber } from 'react-phone-number-input';
 import { Avatar, Btn, Empty, Field, Label, Note, Stepper } from '../../kit';
 import { ConfirmSheet, Sheet } from '../../shell';
-import { CountrySelect, type CountryCode } from '../../country-select';
+import { CountrySelect, PhoneInput, isPhoneValid, useStoredPhoneCountry } from '../../phone-lazy';
 import { NoTiersBlock, press } from './_shared';
 
 // ── Shared sub-sheets + helpers for the guests profile screens ──────────────
@@ -39,13 +37,6 @@ const CONTACT_ROLE_OPTIONS: { value: ContactRole; label: string }[] = [
   { value: 'crew', label: t.guests.contacts.roleCrew },
   { value: 'guest', label: t.guests.contacts.roleGuest },
 ];
-
-/** Derive the CountryCode from a stored E.164 phone string; falls back to NL. */
-function countryFromE164(phone: string | null | undefined): CountryCode {
-  if (!phone) return 'NL';
-  try { return (parsePhoneNumber(phone)?.country as CountryCode | undefined) ?? 'NL'; }
-  catch { return 'NL'; }
-}
 
 /** Promote a name-only guest into a contact: add an e-mail/phone (the dedup key)
  *  and the widened auto-link trigger (20260624170000) creates + links the contact
@@ -72,12 +63,12 @@ export function PromoteSheet({
   const [name, setName] = useState(defaultName);
   const [email, setEmail] = useState(defaultEmail ?? '');
   const [phone, setPhone] = useState<string | undefined>(defaultPhone ?? undefined);
-  const [phoneCountry, setPhoneCountry] = useState<CountryCode>(() => countryFromE164(defaultPhone));
+  const [phoneCountry, setPhoneCountry] = useStoredPhoneCountry(defaultPhone);
   const [err, setErr] = useState<string | null>(null);
 
   const canSave = name.trim() !== '';
   const busy = update.isPending || promote.isPending;
-  const save = (): void => {
+  const save = async (): Promise<void> => {
     setErr(null);
     if (name.trim() === '') return setErr(t.guests.contacts.nameRequired);
     const hasContact = email.trim() !== '' || !!phone;
@@ -85,7 +76,7 @@ export function PromoteSheet({
       // Has a dedup key — updateGuest triggers the auto-link (20260624170000).
       let phoneVal: string | undefined;
       if (phone) {
-        if (!isValidPhoneNumber(phone)) return setErr(t.guests.contacts.phoneInvalid);
+        if (!(await isPhoneValid(phone))) return setErr(t.guests.contacts.phoneInvalid);
         phoneVal = phone; // PhoneInput gives E.164 directly
       }
       update.mutate(
@@ -173,17 +164,17 @@ export function ContactEditSheet({
   const [name, setName] = useState(contact.name);
   const [email, setEmail] = useState(contact.email ?? '');
   const [phone, setPhone] = useState<string | undefined>(contact.phone ?? undefined);
-  const [phoneCountry, setPhoneCountry] = useState<CountryCode>(() => countryFromE164(contact.phone));
+  const [phoneCountry, setPhoneCountry] = useStoredPhoneCountry(contact.phone);
   const [role, setRole] = useState<ContactRole | ''>(contact.preferredRole ?? '');
   const [err, setErr] = useState<string | null>(null);
 
-  const save = (): void => {
+  const save = async (): Promise<void> => {
     setErr(null);
     if (!venueId) return setErr(t.guests.contacts.noVenue);
     if (name.trim() === '') return setErr(t.guests.contacts.nameRequired);
     let phoneVal: string | undefined;
     if (phone) {
-      if (!isValidPhoneNumber(phone)) return setErr(t.guests.contacts.phoneInvalid);
+      if (!(await isPhoneValid(phone))) return setErr(t.guests.contacts.phoneInvalid);
       phoneVal = phone; // PhoneInput gives E.164 directly
     }
     upsert.mutate(

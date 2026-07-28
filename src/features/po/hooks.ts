@@ -10,7 +10,6 @@ import { createClient } from '@/lib/supabase/client';
 import type { Guest, PoEvent, Tier } from '@/lib/po/types';
 import type { AuditLine } from '@/features/audit/translate';
 import { poKeys } from './keys';
-import { VENUE_GUESTS_PREFIX } from './mutations';
 import { doorCandidates, pickDoorEvent, type PoDoorEvent } from './door-event';
 import { eventPhase } from './event-phase';
 import {
@@ -25,6 +24,7 @@ import {
   fetchTiers,
   fetchTiersWithUsage,
   fetchGuests,
+  fetchVenueGuestsWindow,
   fetchCheckinArrivals,
   fetchEventQuota,
   fetchGuestRequests,
@@ -266,10 +266,15 @@ export function usePoDoorEvent() {
     enabled: !!venueId,
     queryFn: async () => {
       if (!venueId) return null;
-      // Windowed (86ey9e8gt) — pickDoorEvent's oldest fallback is "most recent
-      // still-open event", never ancient history, so it doesn't need the venue's
-      // full event history to resolve "tonight".
-      const rows = await fetchEvents(createClient(), venueId, recentEventsSinceIso());
+      // Deliberately UNWINDOWED (86eya4yuf): pickDoorEvent's last-resort
+      // fallback is "the most recent event that already started" — a venue
+      // whose latest event is older than any recency window (and has nothing
+      // upcoming) must still resolve it, so a `starts_at >=` bound here would
+      // empty the pick entirely (the 86ey9e8gt regression). This is a
+      // one-shot, non-polling, lean select scoped to a single venue_id (no
+      // id-list, no 414 risk); the 7-day window stays on Home's 10s poll,
+      // where keeping the recurring cost flat is what matters.
+      const rows = await fetchEvents(createClient(), venueId);
       return pickDoorEvent(rows, Date.now());
     },
   });
@@ -511,7 +516,7 @@ export function usePoGuests(eventId: string, options?: { refetchInterval?: numbe
     queryFn: async () => {
       const client = createClient();
       const [guests, tiers] = await Promise.all([
-        fetchGuests(client, { eventId }),
+        fetchGuests(client, eventId),
         fetchTiers(client, { eventId }),
       ]);
       const tierById = new Map(tiers.map((t) => [t.id, t]));
@@ -526,36 +531,46 @@ export function usePoGuests(eventId: string, options?: { refetchInterval?: numbe
   });
 }
 
+export interface VenueGuests {
+  /** The windowed working set, already newest-first (server-ordered). */
+  guests: Guest[];
+  /** Total matching guests venue-wide (respects `search` + RLS) — backs the
+   *  "of N" subtitle; ≥ guests.length when there's more beyond the window. */
+  total: number;
+}
+
 /**
- * The venue-wide "all guests" list (Guests tab, no event selected): every active
- * guest at the venue, each carrying its event id + name so a row can badge +
- * deep-link to its own event. Scoped by venue_id (SCALE-5 — was an eventIds
- * list derived from `events`, which 414s past ~205 events); `events` is kept
- * only to resolve each row's event NAME. RLS stays the boundary (staff see only
- * their own). Pass `[]` to disable (e.g. when a single event is selected instead).
+ * The venue-wide "all guests" working set (Guests tab, no event selected): the
+ * newest VENUE_GUESTS_WINDOW guests across the venue, with name search pushed to
+ * the server so it reaches past the window (86ey9e8hz — was an unbounded
+ * page-the-whole-venue read + client re-sort/-filter that died at 25 000 guests).
+ * Each row carries its event id + name to badge + deep-link, and its tier from
+ * the embed (no separate venue-wide tier read). `total` backs the "of N"
+ * subtitle. RLS stays the boundary (staff see only their own). Pass `[]` to
+ * disable (single-event mode); `search` is the debounced term, and a new term is
+ * a new server window keyed under the same prefix so writes still invalidate it.
  */
-export function useVenueGuests(events: PoEvent[]) {
+export function useVenueGuests(events: PoEvent[], search = '') {
   const { venueId } = usePoIdentity();
   const nameById = new Map(events.map((e) => [e.id, e.name]));
-  return useQuery<Guest[]>({
-    queryKey: poKeys.venueGuests(venueId ?? ''),
+  return useQuery<VenueGuests>({
+    queryKey: poKeys.venueGuests(venueId ?? '', search),
     enabled: !!venueId && events.length > 0,
     queryFn: async () => {
-      const client = createClient();
-      const [guests, tiers] = await Promise.all([
-        fetchGuests(client, { venueId: venueId ?? '' }),
-        fetchTiers(client, { venueId: venueId ?? '' }),
-      ]);
-      const tierById = new Map(tiers.map((t) => [t.id, t]));
-      return sortGuestsNewestFirst(guests).map((g) =>
+      const { rows, total } = await fetchVenueGuestsWindow(createClient(), {
+        venueId: venueId ?? '',
+        search,
+      });
+      const guests = rows.map((g) =>
         toPoGuest(g, {
-          role: tierRole(tierById.get(g.tier_id)?.name ?? '').role,
-          tierName: tierById.get(g.tier_id)?.name,
-          tierColor: tierById.get(g.tier_id)?.color ?? undefined,
+          role: tierRole(g.tierName ?? '').role,
+          tierName: g.tierName ?? undefined,
+          tierColor: g.tierColor ?? undefined,
           eventId: g.event_id,
           eventName: nameById.get(g.event_id) ?? '',
         }),
       );
+      return { guests, total };
     },
   });
 }
@@ -630,8 +645,8 @@ export function usePoCheckinArrivals(eventId: string, options?: { refetchInterva
 
 // Door rush = several check-ins/sec from 5+ devices; each check-in touches BOTH
 // `guests` (status flip) and `check_ins` (insert), i.e. 2 postgres_changes events.
-// Firing the full 6-key cascade per event made the cockpit re-download an
-// unchanged list on every single check-in (~20 requests/check-in, 86ey9e8fe).
+// Firing the full cascade per event made the cockpit re-download an unchanged
+// list on every single check-in (~20 requests/check-in, 86ey9e8fe).
 // Leading+trailing coalesce: the first event in a quiet period still invalidates
 // immediately (a lone check-in feels instant), further events within the window
 // are absorbed into one trailing refetch instead of firing again per event.
@@ -671,10 +686,11 @@ export function usePoEventRealtime(eventId: string): { realtimeConnected: boolea
         void qc.invalidateQueries({ queryKey: poKeys.tiers(eventId) });
         void qc.invalidateQueries({ queryKey: poKeys.arrivals(eventId) });
         void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
-        // A peer's check-in/void also touches the venue-wide All-Guests tab and
-        // the event-detail header (headcount) — neither was invalidated by
-        // anything else on this path (C19).
-        void qc.invalidateQueries({ queryKey: VENUE_GUESTS_PREFIX });
+        // A peer's check-in/void also touches the event-detail header (headcount).
+        // NOT the venue-wide All-Guests tab (86ey9e8hz): re-downloading that
+        // working set on every check-in during a rush is exactly the cost the
+        // windowing removed — it refreshes on guest writes (mutation paths keep
+        // invalidating VENUE_GUESTS_PREFIX), on navigation, and on its safety sync.
         void qc.invalidateQueries({ queryKey: poKeys.eventDetail(eventId) });
       };
 

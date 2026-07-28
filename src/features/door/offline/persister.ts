@@ -60,3 +60,15 @@ export function createIdbPersister(key = CACHE_KEY, throttleMs = PERSIST_THROTTL
     },
   };
 }
+
+let sharedDoorPersister: Persister | null = null;
+
+/**
+ * Session-stable persister paired with getDoorQueryClient (86ey9e8pm). Recreating
+ * a persister per DoorQueryProvider mount re-subscribes + re-restores from
+ * IndexedDB on every Deur-tab re-entry for nothing; one instance across the tab
+ * session avoids that churn and matches the reused client.
+ */
+export function getDoorPersister(): Persister {
+  return (sharedDoorPersister ??= createIdbPersister());
+}

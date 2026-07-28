@@ -82,50 +82,123 @@ export async function fetchEvents(client: Client, venueId: string, sinceIso?: st
   }));
 }
 
-export type GuestScope = { eventId: string } | { venueId: string };
-
 /**
- * Active guests (soft-deleted excluded), oldest first, scoped to ONE event OR
- * an entire venue (SCALE-5/FE-3 — this is the single fetcher that used to be
- * `fetchPoGuests`/`fetchVenueGuests`; a venue-wide read now sends ONE venue_id,
- * never an event-id list that can blow Kong's URI length past ~205 events).
- *
- * This is the po surface's canonical guest read, lifted out of the desktop
- * `(app)/events/[eventId]/guests/page.tsx` inline select so both the desktop
- * Server Component and the mobile Client Components share one query shape
- * (STAP 3.4). Both run through the USER-scoped client, so RLS stays the
- * boundary — staff see only their own guests, an out-of-scope scope yields [].
- * The desktop page keeps its own richer select (email/phone/source for the
- * edit form, removed rows shown struck-through); this lean projection is
- * exactly what `toPoGuest` needs. `event_id` is always selected (cheap) so the
- * venue-wide "all guests" list can badge + deep-link each row to its own event;
- * single-event callers simply don't use it.
+ * Active guests (soft-deleted excluded) of ONE event, oldest first — the po
+ * surface's canonical single-event guest read (door/cockpit list, bulk dedupe),
+ * lifted out of the desktop `(app)/events/[eventId]/guests/page.tsx` inline
+ * select so the Server Component and the mobile Client Components share one query
+ * shape (STAP 3.4). Runs through the USER-scoped client, so RLS stays the
+ * boundary — staff see only their own guests, an out-of-scope event yields [].
+ * The desktop page keeps its own richer select (email/phone/source for the edit
+ * form); this lean projection is exactly what `toPoGuest` needs. `event_id` is
+ * selected (cheap) so callers that badge a row by event can reuse this shape.
  *
  * Status filter (M4/#44 — was `.neq('status', 'removed')`, which let a
  * `pending`/`denied` row leak in as a phantom "on the way" guest: the po
  * `Guest.status` type only has in/wait/refused, so `guestStatusToPo` collapsed
- * it into 'wait', and it silently inflated the cockpit's on-list count by one
- * relative to the door (whose own query, and every stats RPC, already scoped
- * to exactly these three). Matches `ON_LIST` above, plus `refused` since
- * screens here (Guests tab, cockpit's "Refused" concept) still need to render
- * those rows, just never count them on-list.
+ * it into 'wait', silently inflating the cockpit's on-list count by one relative
+ * to the door). Matches `ON_LIST` above, plus `refused` since screens here still
+ * render those rows, just never count them on-list.
  *
- * Ranged: a 1500-guest event/venue would truncate at PostgREST's 1000-row cap,
- * hiding the rest. `created_at` isn't unique, so `.order('id')` is the
- * tiebreaker that makes the page order deterministic (no overlap/skip across
- * `.range()` windows).
+ * Ranged: a 1500-guest event would truncate at PostgREST's 1000-row cap, hiding
+ * the rest. `created_at` isn't unique, so `.order('id')` is the tiebreaker that
+ * makes the page order deterministic (no overlap/skip across `.range()` windows).
+ *
+ * The venue-WIDE "all guests" list does NOT use this — a per-event fetcher over
+ * a whole venue pages every guest of every event to the browser. Use the
+ * windowed + server-searched {@link fetchVenueGuestsWindow} for that (86ey9e8hz).
  */
-export async function fetchGuests(client: Client, scope: GuestScope): Promise<PoVenueGuestRow[]> {
-  return fetchAllRanged<PoVenueGuestRow>((from, to) => {
-    const query = client
+export async function fetchGuests(client: Client, eventId: string): Promise<PoVenueGuestRow[]> {
+  return fetchAllRanged<PoVenueGuestRow>((from, to) =>
+    client
       .from('guests')
       .select('id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, event_id')
+      .eq('event_id', eventId)
       .in('status', [...ON_LIST, 'refused'])
       .order('created_at', { ascending: true })
       .order('id')
-      .range(from, to);
-    return 'eventId' in scope ? query.eq('event_id', scope.eventId) : query.eq('venue_id', scope.venueId);
-  });
+      .range(from, to),
+  );
+}
+
+/** Rows the venue-wide "all guests" list pulls at once (86ey9e8hz). The tab is a
+ *  working SET, not the whole venue: rows come newest-first, name search is pushed
+ *  to the server so it reaches past the window, and the list virtualizes the DOM.
+ *  200 covers a small venue's entire history unchanged, while a 25 000-guest venue
+ *  loads ONE bounded page instead of ~25 sequential full-table pages. */
+export const VENUE_GUESTS_WINDOW = 200;
+
+/** The `guest_tiers(name, color)` embed comes back to-one OR to-many depending on
+ *  the generated client — normalize with `[x].flat()` before reading. */
+type VenueGuestTierEmbed = { name: string; color: string | null };
+type PoVenueGuestRaw = PoVenueGuestRow & {
+  guest_tiers: VenueGuestTierEmbed | VenueGuestTierEmbed[] | null;
+};
+
+/** A venue-wide guest row with its tier flattened out of the embed. */
+export interface PoVenueGuestWithTier extends PoVenueGuestRow {
+  tierName: string | null;
+  tierColor: string | null;
+}
+
+export interface VenueGuestsPage {
+  rows: PoVenueGuestWithTier[];
+  /** Total matching guests across the venue (respects the search filter + RLS) —
+   *  the "of N" in the list subtitle. May exceed rows.length: the remainder is
+   *  reachable by searching, not by scrolling. */
+  total: number;
+}
+
+/**
+ * The Guests-tab "All events" working set (86ey9e8hz): the newest
+ * {@link VENUE_GUESTS_WINDOW} on-list/refused guests across the venue, each with
+ * its tier from the embed (no separate venue-wide tier read) and a total count
+ * for the subtitle. `search` is pushed down as a server-side `ilike` on
+ * `full_name`, so a name outside the window is still findable without downloading
+ * the whole venue — the anti-pattern this replaces paged EVERY venue guest to the
+ * browser (~25 sequential requests + the full snapshot at 25 000 guests),
+ * re-sorted and re-filtered client-side on every keystroke. RLS stays the
+ * boundary (staff see only their own). Ordered newest-first in SQL
+ * (`created_at desc, id desc`) so no client re-sort is needed; `id` is the
+ * deterministic tiebreaker.
+ *
+ * Note: at very large N the `ilike '%term%'` is a sequential scan (no leading-
+ * anchor index) — fine at 25 000, and a pg_trgm index is the ≥100-venue follow-up
+ * if search latency ever shows up, not a reason to widen scope now.
+ */
+export async function fetchVenueGuestsWindow(
+  client: Client,
+  args: { venueId: string; search?: string; limit?: number },
+): Promise<VenueGuestsPage> {
+  const limit = args.limit ?? VENUE_GUESTS_WINDOW;
+  let query = client
+    .from('guests')
+    .select(
+      'id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, event_id, guest_tiers(name, color)',
+      { count: 'exact' },
+    )
+    .eq('venue_id', args.venueId)
+    .in('status', [...ON_LIST, 'refused'])
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .range(0, limit - 1);
+
+  // Same `%term%` shape as fetchContacts: supabase-js sends it as a value (no
+  // filter-string injection), and a stray %/_ acting as a wildcard is a harmless
+  // search nicety, not a bug.
+  const term = args.search?.trim();
+  if (term) query = query.ilike('full_name', `%${term}%`);
+
+  const { data, error, count } = await query;
+  if (error) throw error;
+
+  const rows: PoVenueGuestWithTier[] = ((data ?? []) as PoVenueGuestRaw[]).map(
+    ({ guest_tiers, ...g }) => {
+      const tier = [guest_tiers].flat().filter(Boolean)[0] as VenueGuestTierEmbed | undefined;
+      return { ...g, tierName: tier?.name ?? null, tierColor: tier?.color ?? null };
+    },
+  );
+  return { rows, total: count ?? rows.length };
 }
 
 export interface ExistingEventGuest {

@@ -12,7 +12,7 @@
  * available, and a BroadcastChannel nudges sibling tabs to pick up the merged
  * state without waiting for their own next local mutation.
  */
-import * as Sentry from '@sentry/nextjs';
+import { captureMessage as sentryCaptureMessage } from '@/lib/observability/sentry-client';
 import { idbEpoch, idbGet, idbSet } from '../offline/idb';
 import { buildEnvelope, mergeOutboxEntries, parsePersistedOutbox } from './persistence';
 import { resumeStuckEntries, type OutboxEntry } from './types';
@@ -66,7 +66,7 @@ export class OutboxStore {
     if (droppedInvalid > 0 || droppedStaleShape) {
       // Counts only — never attach the raw dropped entries/payloads here, they
       // can carry guest names (PII).
-      Sentry.captureMessage(
+      sentryCaptureMessage(
         droppedStaleShape
           ? 'door-outbox: dropped stale/unrecognized persisted outbox shape on load'
           : `door-outbox: dropped ${droppedInvalid} invalid persisted outbox entr${droppedInvalid === 1 ? 'y' : 'ies'} on load`,
@@ -269,7 +269,7 @@ export class OutboxStore {
     this.persistDegraded = v;
     if (v) {
       // Static string — never attach the failed entries/payloads (guest names are PII).
-      Sentry.captureMessage(
+      sentryCaptureMessage(
         'door-outbox: IndexedDB write failed — queued check-ins are not being saved locally',
         'warning',
       );
