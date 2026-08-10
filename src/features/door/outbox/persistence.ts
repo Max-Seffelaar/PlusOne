@@ -45,12 +45,20 @@ const outboxEntrySchema = z.discriminatedUnion('kind', [
   z.object({
     ...base,
     kind: z.literal('check_in_void'),
-    payload: z.object({ guestId: uuid, clientTimestamp: ts }),
+    // checkInId is nullish on purpose: entries persisted by a pre-#35 bundle
+    // have no such field, and quarantining a doorhost's queued void mid-shift
+    // would lose a real door action. They replay guest-scoped, as before.
+    payload: z.object({ guestId: uuid, checkInId: uuid.nullish(), clientTimestamp: ts }),
   }),
   z.object({
     ...base,
     kind: z.literal('check_in_revive'),
-    payload: z.object({ guestId: uuid, plusOnesArrived: z.number().int().min(0), clientTimestamp: ts }),
+    payload: z.object({
+      guestId: uuid,
+      plusOnesArrived: z.number().int().min(0),
+      checkInId: uuid.nullish(),
+      clientTimestamp: ts,
+    }),
   }),
   z.object({
     ...base,
