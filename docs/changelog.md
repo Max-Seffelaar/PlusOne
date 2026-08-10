@@ -8,6 +8,31 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-10 — /r and /i IP-salt fail-closed regression (86ey9e9my, C5)
+
+Branch `fix/86ey9e9my-landing-ip-salt-fail-closed` (PR TBD). Follow-up review finding on the
+Requests-epic influencer/status pages: C5 (security review 2026-07-07) fixed the landing page
+(`/e/[slug]`) to fail closed on a missing `LANDING_IP_SALT` in production via the shared
+`landingIpSalt()`/`landingClientIpHash()` helpers (`src/features/requests/ip-hash.ts`), but two
+sibling routes — `/r/[token]` (guest status) and `/i/[token]` (influencer stats) — each carried
+their own inline `statusIpHash`/`statsIpHash` with `process.env.LANDING_IP_SALT ?? 'plusone-landing-dev-salt'`.
+That committed constant is a real fallback, not just a dev convenience: if `LANDING_IP_SALT` is
+ever unset in production those two routes would silently hash every visitor IP with a
+publicly-known salt instead of failing loudly, reopening the exact brute-forceable `ip_hash`
+C5 closed. Milestone: Now (security regression on a live prod surface).
+
+- **Fix.** Deleted both inline helpers; both routes now import `landingClientIpHash` from the
+  shared module, same as `/e/[slug]`. No behavior change outside the missing-env-in-prod case —
+  local/dev/test still get the deterministic dev salt.
+- **Test added.** `tests/unit/landing-ip-hash-fail-closed.test.ts` — structural scan proving both
+  routes call the shared helper and contain no reintroduced `LANDING_IP_SALT ?? '...'` fallback,
+  plus a behavioral test proving `landingIpSalt()` throws with `NODE_ENV=production` and no env
+  var set, and returns the configured salt when it is set.
+- **Gates:** `pnpm lint` + `pnpm vitest run` — see PR for results. Non-UI, no migration, no test
+  handoff needed.
+
+---
+
 ## 2026-07-14 — Door outbox/cache not wiped on sign-out — shared-device isolation (86ey9et07)
 
 Branch `fix/86ey9et07-door-outbox-clear-on-signout` (PR #233). Follow-up carved out of the
