@@ -29,7 +29,19 @@ const SAFETY_SYNC_MS = 60_000; // background delta-sync floor
 
 export interface DoorSyncHandlers {
   eventId: string;
+  /**
+   * Drain + refetch. MUST be safe to call while a previous call is still
+   * running: the manual "sync nu" path below forwards to it rather than
+   * dropping the request, and relies on the implementation coalescing (the
+   * door's `flush` returns the in-flight promise and queues one rerun).
+   */
   onSync: () => Promise<void>;
+  /**
+   * Runs on the MANUAL "sync nu" press only — never on the 60s safety sync, a
+   * reconnect, or a visibility change. The door uses it to re-queue terminal
+   * errors, which must stay a deliberate user action (see `retryErrors`).
+   */
+  onBeforeForceSync?: () => void;
   onRealtimeCheckIn: (row: CheckInRow) => void;
   onRealtimeGuest: (row: GuestRow) => void;
 }
@@ -44,7 +56,13 @@ export interface DoorSyncState {
   forceSync: () => void;
 }
 
-export function useDoorSync({ eventId, onSync, onRealtimeCheckIn, onRealtimeGuest }: DoorSyncHandlers): DoorSyncState {
+export function useDoorSync({
+  eventId,
+  onSync,
+  onBeforeForceSync,
+  onRealtimeCheckIn,
+  onRealtimeGuest,
+}: DoorSyncHandlers): DoorSyncState {
   // Modern Node exposes a global `navigator` (web-platform-API compat) without
   // an `onLine` property, so `typeof navigator === 'undefined'` alone no longer
   // detects "no real browser" during SSR — it reads `undefined` (falsy) there,
@@ -62,14 +80,24 @@ export function useDoorSync({ eventId, onSync, onRealtimeCheckIn, onRealtimeGues
 
   const onSyncRef = useRef(onSync);
   onSyncRef.current = onSync;
+  const onBeforeForceRef = useRef(onBeforeForceSync);
+  onBeforeForceRef.current = onBeforeForceSync;
   const onCheckInRef = useRef(onRealtimeCheckIn);
   onCheckInRef.current = onRealtimeCheckIn;
   const onGuestRef = useRef(onRealtimeGuest);
   onGuestRef.current = onRealtimeGuest;
   const inFlight = useRef(false);
 
-  const runSync = useCallback(async () => {
-    if (inFlight.current) return;
+  const runSync = useCallback(async (opts?: { coalesce?: boolean }) => {
+    if (inFlight.current) {
+      // Automatic triggers (interval, reconnect, visibility) drop the request —
+      // a sync is already doing exactly what they wanted. The manual press does
+      // NOT: the doorhost just re-queued their failed entries and is watching
+      // the bar, so forward it and let `onSync` coalesce (it queues one rerun),
+      // instead of silently doing nothing until the next 60s tick.
+      if (opts?.coalesce) await onSyncRef.current();
+      return;
+    }
     inFlight.current = true;
     setSyncing(true);
     try {
@@ -82,6 +110,13 @@ export function useDoorSync({ eventId, onSync, onRealtimeCheckIn, onRealtimeGues
       setSyncing(false);
     }
   }, []);
+
+  // The sync-bar button. Distinct from `runSync` so the store-level retry of
+  // terminal errors stays bound to a deliberate press.
+  const forceSync = useCallback(() => {
+    onBeforeForceRef.current?.();
+    void runSync({ coalesce: true });
+  }, [runSync]);
 
   // Online/offline.
   useEffect(() => {
@@ -199,8 +234,8 @@ export function useDoorSync({ eventId, onSync, onRealtimeCheckIn, onRealtimeGues
       realtimeConnected,
       syncing,
       lastSyncAt,
-      forceSync: runSync,
+      forceSync,
     }),
-    [online, realtimeConnected, lastSyncAt, now, syncing, runSync],
+    [online, realtimeConnected, lastSyncAt, now, syncing, forceSync],
   );
 }
