@@ -8,6 +8,67 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-10 — request_links: cross-venue link-id disclosure hardening (86ey9thm6)
+
+Branch `fix/86ey9thm6-request-link-venue-isolation`, PR not yet opened at session end.
+CONFIRMED, low severity, milestone Now (cross-tenant isolation is a core invariant, #1).
+Filed by the 86ey9p8zh/PR #224 fresh-session review as an out-of-scope finding (see
+2026-07-14 entry below). Touches a trigger function → high-risk surface per the review
+gates: **not self-merged**, fresh-session `/code-review` + `/security-review` required.
+
+- **Root cause.** `enforce_request_link_max()` (`20260706101000_request_link_attribution.sql`,
+  relocked in `20260714160000`) looked up the request link by `rl.id = new.request_link_id`
+  only — never checking it belongs to `new.event_id`. Nothing else in the schema enforces
+  that match either (`guests.request_link_id` has only a single-column FK to
+  `request_links(id)`; `guests_insert`'s WITH CHECK constrains `source`/`added_by`, not
+  `request_link_id`). An admin/organizer (exempt from the `source` allowlist) with raw API
+  access to their own venue could POST a guest on their own event carrying a
+  `request_link_id` copied from ANOTHER venue's link; the trigger would then recompute that
+  foreign link's consumption against its cap and, on a breach, raise 45006 with hint
+  `link_full;consumed=%s;max=%s` — disclosing another venue's private link fill numbers.
+- **Fix.** New migration `20260810100000_request_link_venue_isolation.sql`,
+  `CREATE OR REPLACE` on the existing function: reject a `request_link_id` whose
+  `event_id` doesn't match the guest's own event (23514, generic message) BEFORE the
+  foreign link's row is used for anything — same posture as
+  `set_request_link_scope()`'s influencer-venue check. A same-event link falls through to
+  the unchanged cap logic (advisory-lock ordering from 20260714160000 preserved verbatim).
+- **Out of scope (documented in the migration, not built).** A theoretical multi-link
+  advisory-lock deadlock (40P01) — unreachable today since every shipped writer of
+  `guests.request_link_id` touches exactly one guest/one link per statement; fail-safe if
+  it ever becomes reachable (Postgres's deadlock detector aborts one side, retryable, same
+  shape 86ey9e8ar/PR #216 already handles for the other three lock domains).
+- **Test.** Extended `supabase/tests/database/request_links.test.sql` with C8 (denied:
+  cross-venue attribution rejected before any foreign-link computation, no guest row
+  created, foreign link's consumption stays untouched) and C9 (allowed: same-event
+  attribution still succeeds) — 34/34 in that file. `supabase db reset` clean, `supabase
+  test db` **52 files / 1009 tests, PASS**. `pnpm lint` clean (2 pre-existing unrelated
+  a11y warnings in `datetime-field.tsx`). `pnpm vitest run` 866/867 — the one failure
+  (`realtime-throttle.test.ts`, unrelated to this change) is a timeout flake under heavy
+  machine load, confirmed passing in isolation.
+- **Gotcha — shared local Supabase stack under heavy concurrent load.** ~50 worktree
+  sessions were active simultaneously; `supabase db reset` failed with `unexpected EOF`
+  three times in a row (another session's concurrent reset/restart cycling the shared db
+  container), and a stale reset once left an unrelated migration
+  (`20260810120000`, from a *different* worktree/branch not containing this session's
+  migration) as the latest applied version — silently reverting this fix's trigger back to
+  pre-patch behaviour and producing a real (not flaky) `request_links.test.sql` failure on
+  the first attempt. Confirmed via `supabase db query` against `pg_proc.prosrc` that the
+  live function body didn't match the migration before diagnosing it as a collision, not a
+  logic bug. Resolved by chaining `db reset` immediately followed by a single targeted
+  pgTAP file run (via `docker exec … psql`) to shrink the collision window, then a full
+  `supabase test db` once the stack settled. Also: **timestamp collision** — two unrelated
+  concurrent sessions independently picked `20260810120000` for their own migrations
+  (`atomic_check_out_guest` vs `scale_tier_occupancy_link_funnel`); this task's migration
+  used `20260810100000`, unique against `origin/main` at branch time, but the collision
+  between those two other branches will need resolving at merge time per CLAUDE.md's
+  timestamp-collision rule.
+- **ClickUp bookkeeping not done by this session.** The ClickUp MCP connector returned
+  `RATE_LIMIT_EXCEEDED` (~17h cooldown) for the entire session, so the pickup/status
+  comments and status transitions described by the `clickup-task` skill could not be
+  posted. Task 86ey9thm6 needs manual pickup/status sync once the PR is up.
+
+---
+
 ## 2026-07-14 — Door outbox/cache not wiped on sign-out — shared-device isolation (86ey9et07)
 
 Branch `fix/86ey9et07-door-outbox-clear-on-signout` (PR #233). Follow-up carved out of the
