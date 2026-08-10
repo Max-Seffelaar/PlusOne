@@ -10,7 +10,8 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ## 2026-08-10 — Dependabot: refuse Next/React majors, unblock the safe bumps (86eyd39gn)
 
-Branch `chore/86eyd39gn-deps-ignore-majors-safe-bumps` (PR #243). Milestone: Now — dependency
+Branch `chore/86eyd39gn-deps-ignore-majors-safe-bumps` (PR #247, closes the deadlocked #239).
+Milestone: Now — dependency
 hygiene keeps the security-patch stream flowing, and a permanently-red deps PR trains everyone
 to ignore Dependabot. No migration, no schema change, no runtime behaviour change.
 
@@ -26,15 +27,20 @@ to ignore Dependabot. No migration, no schema change, no runtime behaviour chang
   Deliberately *not* ignored: Stripe/zod/uuid/tailwind-merge majors. Those are ordinary library
   migrations we do want proposed; they just need their own PRs, so they'll come back regrouped
   once #239 is closed.
-- **Safe bumps taken, lockfile-only.** `pnpm update` on the six in-major updates; every caret range
-  in `package.json` already covered them, so `package.json` is untouched and only `pnpm-lock.yaml`
-  moved (CI's `pnpm install --frozen-lockfile` stays consistent):
+- **Safe bumps taken.** `pnpm update` on the six in-major updates:
   `@sentry/nextjs` 10.64.0 → 10.70.0 · `@supabase/ssr` 0.12.0 → 0.12.4 ·
   `@supabase/supabase-js` 2.108.1 → 2.112.2 · `@tanstack/react-query` +
   `@tanstack/react-query-persist-client` 5.101.0 → 5.101.4 · `@tanstack/react-virtual` 3.14.3 → 3.14.9.
+  `pnpm update` also raises the caret floors in `package.json` (e.g. the vague `@sentry/nextjs: ^10`
+  → `^10.70.0`), which is what Dependabot does and is worth keeping — the floor then documents the
+  version actually tested, and the `ssr`/`supabase-js` pairing below becomes explicit instead of
+  implied. `next` and `react` did not move (they appear in the lockfile diff only as peer context
+  inside Sentry's version string); the transitive churn is OpenTelemetry 2.9 → 2.10 under Sentry.
   The CLAUDE.md invariant (`@supabase/ssr` aligned with `supabase-js`, ≥0.12 for js ≥2.108) holds
-  and was re-verified the way it actually fails: type-checking a real `.from()` call to prove the
-  typed client doesn't collapse to `never`.
+  and was re-verified the way it actually fails: type-checking real `.from()`/`.rpc()` calls against
+  the repo's own `database.types.ts` to prove the typed client doesn't collapse to `never`. The row
+  type came back fully resolved (`{ id: string; status: "pending" | … ; plus_ones: number }`), and a
+  negative control (a bogus column) still errors, so the check isn't vacuous.
 - **Removed a landmine for the parked React migration.** `JSX.Element` resolved through the
   *global* `JSX` namespace in **269 places across 107 files**. @types/react 18.3.31 already marks
   that global `@deprecated` ("Use `React.JSX` instead"), and @types/react 19.2.18 drops the
@@ -55,12 +61,20 @@ to ignore Dependabot. No migration, no schema change, no runtime behaviour chang
     match one single line with `[^;\n]` so a match cannot cross a statement boundary. If you
     codemod imports here: forbid `;` and newlines in the specifier, and assert afterwards that
     every touched import line still ends in `from 'react';`.
-- **Environment note (cost me the gates, not the code).** The dev box was running **15 concurrent
-  `pnpm install`/`update` processes** from sibling worktree sessions, with free RAM down to ~3 GB
-  of 64 GB. Packages extracted into `.pnpm` fine (976 dirs) but the top-level linking phase
-  starved for well over an hour. CLAUDE.md already has a "one DB owner" rule; the same courtesy
-  applies to `pnpm` — a parallel session's install is not free, and a worktree install competes
-  for one global store.
+- **Gotcha worth keeping: `pnpm --lockfile-only` when the box is busy.** The dev box was running
+  **15–17 concurrent `pnpm install`/`update` processes** from sibling worktree sessions, free RAM
+  down to ~3 GB of 64 GB. Resolution and extraction were fine (976 dirs in `.pnpm`), but the
+  top-level **linking** phase starved for over an hour and never produced a `node_modules`, so no
+  local gate could run. `pnpm update --lockfile-only` skips linking entirely and finished the same
+  work **in 59 seconds**. For a dependency-only task that's all you need — the lockfile is the
+  deliverable and CI does the verifying — so reach for it first instead of waiting on a full
+  install. (Corollary, same spirit as CLAUDE.md's "one DB owner": a sibling session's `pnpm install`
+  is not free, since every worktree competes for one global store.)
+- **Verification ran on CI, deliberately.** With no local `node_modules`, the pre-lockfile commits
+  were pushed and `lint-and-test` (lint · type-check · vitest · pgTAP · quota concurrency · e2e
+  smoke) went **green on a clean runner**, plus a passing Vercel `next build` — a better gate than
+  a thrashing local box. The dependency-bump commit lands after that and gets its own CI run, which
+  is the one that actually matters for the bumps (CI installs with `--frozen-lockfile`).
 
 ---
 
