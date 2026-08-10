@@ -8,6 +8,41 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-10 — M4 follow-up PR A: cockpit fully on the canonical selector (86ey9c5fp)
+
+Branch `claude/86ey9c5fp-m4-followup-cockpit-dedup`. Part 1 of the M4 review follow-up
+(non-blocking findings from the fresh-session `/code-review` of `86ey7dzdc`, PR #—):
+client-only, no migration, behaviour-neutral — every touched function returns exactly
+what it did before.
+
+- **`src/features/po/eventday/cockpit.ts` no longer hand-rolls any koppen math** (the
+  exact duplication M4 exists to kill, flagged non-blocking at the M4 review):
+  `arrivedHeads` delegates to the canonical `arrivedHeadsOf` (`../headcount.ts`);
+  `cockpitCounts` reads `computeHeadcounts`' row counts (`onListRows`/`onTheWayRows`/
+  `insideRows`/`refusedRows`) instead of filtering four times; `perTierLive` no longer
+  pre-filters refused before handing rows to `computeHeadcounts` (which filters refused
+  itself) — the tier skip now keys on `onListRows === 0`, same outcome. The local
+  `onList()` helper is gone.
+- **`headcount.ts`: dead `?? 0` removed from `arrivedHeadsOf`** (`plus` is a required
+  number) — the no-arrival-count fallback now delegates to `heads(row)`, so "full
+  registered party" has exactly one definition and one `|| 0` idiom.
+- **Changelog wording fix in the 2026-07-12 M4 entry:** it claimed "`c` joined only on
+  non-voided rows" for `venue_event_headcounts`, but the SQL joins `check_ins` without a
+  voided filter — `g.status = 'checked_in'` alone gates presence (door_status_sync flips
+  a voided check-in back to `approved`). Corrected in place, marked as a 10/8 edit.
+
+Part 2 (the two design decisions — quarter-chart refused-after-checked-in, and
+`guest_personal_contribution` charging invisible `pending` guests) is presented to Max
+with advice first, per the task; any build lands as its own migration + pgTAP in a
+separate PR. Research already done this session: no production flow inserts
+`guests.status = 'pending'` (all request paths insert `approved`, the column defaults to
+`approved`; `guest_requests` owns the pending lifecycle) — only the seed's Aïcha and raw
+PostgREST inserts (RLS doesn't pin status, `added_by` pinned to self) can produce one.
+
+Tests: see PR — vitest suite + lint/tsc (no DB change, no pgTAP needed for part 1).
+
+---
+
 ## 2026-07-14 — Door outbox/cache not wiped on sign-out — shared-device isolation (86ey9et07)
 
 Branch `fix/86ey9et07-door-outbox-clear-on-signout` (PR #233). Follow-up carved out of the
@@ -1482,9 +1517,12 @@ list · 25 on the way · 15 inside after the fix, where cockpit alone read 41/26
    list while the Home/EventView card read 0 inside (the pre-PR formula, summing the full
    registered party off `guests` alone, happened to dodge this since `guests` IS staff-
    readable). Fixed role-preservingly: `sum(1 + coalesce(c.plus_ones_arrived, g.plus_ones))
-   filter (where g.status = 'checked_in')`, `c` joined only on non-voided rows — exact
-   arrived heads where `check_ins` is readable, the old full-party behaviour where it isn't
-   (a hidden row joins to `null`, `coalesce` falls back). New pgTAP case covers staff
+   filter (where g.status = 'checked_in')` — the join carries no voided filter;
+   `g.status = 'checked_in'` alone gates presence (the door_status_sync trigger flips a
+   voided check-in back to `approved`). Exact arrived heads where `check_ins` is readable,
+   the old full-party behaviour where it isn't (a hidden row joins to `null`, `coalesce`
+   falls back). *(Wording corrected 10/8, `86ey9c5fp` — this entry originally claimed "`c`
+   joined only on non-voided rows", which the SQL never did.)* New pgTAP case covers staff
    specifically (the original 5d only exercised admin — DoD's per-role rule).
 
 Also from the review: renamed the migration off a timestamp that collided with `main`'s
