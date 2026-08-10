@@ -1811,7 +1811,7 @@ export type Database = {
       guest_capacity_contribution: {
         Args: {
           g: Database["public"]["Tables"]["guests"]["Row"]
-          p_went_live_at: string
+          p_is_inside: boolean
         }
         Returns: number
       }
