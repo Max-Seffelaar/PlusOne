@@ -10,7 +10,7 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ## 2026-08-10 — Event capacity counted on a dead column — hard cap could be overfilled (86ey9e9r9)
 
-Branch `fix/86ey9e9r9-event-capacity-inside-rule`. Review finding SW3, verified against the
+Branch `fix/86ey9e9r9-event-capacity-inside-rule` (PR #244). Review finding SW3, verified against the
 current effective definitions before touching anything. Milestone: Now (fraud/quota integrity —
 a hard room cap that does not hold is worse than no cap). High-risk surface (quota/capacity
 triggers) → not self-merged; fresh-session `/code-review` first.
