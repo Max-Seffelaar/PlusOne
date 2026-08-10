@@ -10,7 +10,7 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ## 2026-08-10 — /r and /i IP-salt fail-closed regression (86ey9e9my, C5)
 
-Branch `fix/86ey9e9my-landing-ip-salt-fail-closed` (PR TBD). Follow-up review finding on the
+Branch `fix/86ey9e9my-landing-ip-salt-fail-closed` (PR [#242](https://github.com/Max-Seffelaar/PlusOne/pull/242)). Follow-up review finding on the
 Requests-epic influencer/status pages: C5 (security review 2026-07-07) fixed the landing page
 (`/e/[slug]`) to fail closed on a missing `LANDING_IP_SALT` in production via the shared
 `landingIpSalt()`/`landingClientIpHash()` helpers (`src/features/requests/ip-hash.ts`), but two
