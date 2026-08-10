@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const selectMock = vi.fn();
 const fromMock = vi.fn(() => ({ select: selectMock }));
 
-vi.mock('@/lib/supabase/service', () => ({
-  createServiceClient: () => ({ from: fromMock }),
+vi.mock('@/lib/supabase/health-client', () => ({
+  createHealthClient: () => ({ from: fromMock }),
 }));
 
 async function loadRoute() {

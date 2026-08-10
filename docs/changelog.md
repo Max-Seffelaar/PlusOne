@@ -8,6 +8,68 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-10 — Auth/redirect kleine fixes — bundel review (86ey9ea00)
+
+Branch `fix/86ey9ea00-auth-redirect-small-fixes` (PR pending). Bundel van 1 CONFIRMED
+finding + 4 finder-punten uit een eerdere review-pass, elk kort her-geverifieerd tegen
+de huidige code vóór de fix. Milestone: Now (auth/middleware correctness + een echte
+account-enumeratie-lek). High-risk surface (auth/middleware) — PR niet zelf gemerged,
+zie de security-research prompt in de PR-body.
+
+- **#56 (bevestigd dood pad).** `/settings/profile` bestaat niet (`src/app`
+  heeft geen `settings/`-map) — de live profielscreen is `/app/profile`
+  (`src/components/po/routes.ts`). `auth/confirm/route.ts`'s e-mailwijziging-fallback,
+  en de no-op `revalidatePath('/settings/profile')` in `profile-actions.ts` en
+  `session-actions.ts`, wezen alle drie naar het dode pad — een bevestigde
+  e-mailwijziging landde via de `/app`-catch-all-guard stil op de home-tab in plaats
+  van het profiel. Alle drie nu naar `/app/profile`; `entry-redirect.ts`'s comment
+  ook gecorrigeerd. *(Zelfde bug-klasse gevonden maar buiten scope gelaten:
+  `revalidatePath('/admin/team')` en `/admin/sessions')` in `invite-actions.ts` /
+  `session-actions.ts` wijzen ook naar niet-bestaande paden — live routes zijn
+  `/app/team` en `/app/sessions`. Los als eigen taak.)*
+- **#57 (middleware dropt `?next=`).** De authed-op-`/login`-redirect zette
+  `url.search = ''` onvoorwaardelijk, dus een deep-link als
+  `/login?next=/app/profile` (stale tab, of een oude sessie die alsnog authed
+  blijkt) viel altijd terug op kaal `/app`. Nu respecteert `/login` (niet de
+  marketing-root `/`) `?next=` via `safeNextPath` — dezelfde open-redirect-guard
+  die de anonieme kant al gebruikt.
+- **#53 (login-orakel/account-enumeratie).** `signInWithOtp({ shouldCreateUser: false })`
+  op een niet-uitgenodigd adres gaf GoTrue's `signup_disabled`-fout, die
+  `describeAuthError` vertaalde naar een zichtbaar andere melding ("dit account
+  bestaat niet...") dan het "we hebben een code gestuurd"-succespad voor een bekend
+  adres — de aanwezigheid van dat verschil ZELF is het lek, los van de teksten. Fix:
+  nieuwe `isUnknownAccountOtpError` in `errors.ts`; `OtpLoginForm` behandelt die fout
+  nu identiek aan succes (zelfde stap-overgang, zelfde bericht). Echte fouten
+  (rate-limit, netwerk) blijven gewoon zichtbaar.
+- **#54 (invite-actions volgorde).** `inviteUserAction` provisionede het auth-account
+  + verstuurde de uitnodigingsmail vóórdat de RLS-geverifieerde `invites`-insert
+  liep. Bij een denial of een duplicate-invite-conflict (23505) bleef een levend
+  auth-account + verstuurde mail achter zonder invite-rij om 'm te verzilveren.
+  Omgedraaid: insert eerst, provisioning/mail pas na succes. `sendInviteEmail` is
+  idempotent (zelfde patroon als `resendInviteAction`), dus een latere
+  provisioning-fout is herstelbaar via resend.
+- **#55 (health-endpoint met service-role).** `/api/health` is publiek,
+  middleware-exempt en zonder rate-limit, maar gebruikte de service-role-client —
+  onnodig, want een `head+count`-query op `venues` bewijst de Postgres-roundtrip
+  ook met de anon-key (RLS filtert dan gewoon naar 0 rijen, geen fout). Nieuwe
+  `src/lib/supabase/health-client.ts` (anon-key, geen cookies-afhankelijkheid);
+  route + test omgezet.
+
+**Tests toegevoegd:** `src/middleware.test.ts` (8 tests — next-param behoud, open-redirect-
+guard, marketing-root ongemoeid, bestaand anon-gedrag onveranderd), uitbreiding van
+`errors.test.ts` (`isUnknownAccountOtpError`), nieuw `OtpLoginForm.test.tsx` (3 tests —
+bekend/onbekend e-mail geven identieke UI, echte rate-limit blijft zichtbaar), nieuw
+`invite-actions.test.ts` (3 tests — insert-vóór-mail volgorde, geen mail bij denial/conflict),
+`health/route.test.ts` aangepast op de nieuwe client. **Vitest 840/844 groen** (4 falen +
+6 suites falen op ontbrekende `node_modules` — `stripe`, `@tanstack/react-virtual`,
+`fake-indexeddb`, `@sentry/nextjs` — een pre-existing worktree-install-gat, bevestigd
+losstaand van deze wijzigingen: geen van de 5 punten raakt die packages, en `next lint`
+faalt om dezelfde reden (`@sentry/nextjs` ontbreekt in `next.config.js`'s require-pad).
+Gerichte `eslint` op alle aangepaste bestanden: schoon. `tsc --noEmit`: zie sessieverslag/PR.
+`pnpm install` in deze worktree draaien is aanbevolen vóór de volgende sessie die hier lint/build nodig heeft.
+
+---
+
 ## 2026-07-14 — Door outbox/cache not wiped on sign-out — shared-device isolation (86ey9et07)
 
 Branch `fix/86ey9et07-door-outbox-clear-on-signout` (PR #233). Follow-up carved out of the

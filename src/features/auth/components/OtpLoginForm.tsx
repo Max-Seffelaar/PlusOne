@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { describeAuthError } from '@/features/auth/errors';
+import { describeAuthError, isUnknownAccountOtpError } from '@/features/auth/errors';
 import { requestOtpSchema, verifyOtpSchema } from '@/features/auth/schemas';
 
 type Step = 'email' | 'code';
@@ -44,7 +44,11 @@ export function OtpLoginForm({ nextPath }: { nextPath: string }): JSX.Element {
       options: { shouldCreateUser: false },
     });
     setBusy(false);
-    if (otpError) {
+    // An unknown/uninvited address must look identical to a known one — same
+    // step transition, same message — or the response shape itself reveals
+    // whether the account exists (account enumeration, 86ey9ea00 #53). Real
+    // failures (rate limits, network errors) still surface below.
+    if (otpError && !isUnknownAccountOtpError(otpError)) {
       const normalized = describeAuthError(otpError);
       setError(normalized.message);
       if (normalized.retryAfterSeconds) setCooldown(normalized.retryAfterSeconds);

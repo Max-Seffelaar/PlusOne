@@ -68,7 +68,11 @@ export function describeAuthError(error: unknown): NormalizedAuthError {
     return { message: "That verification code isn't right. Try again." };
   }
 
-  // Signups disabled (invite-only) — do not reveal whether the e-mail exists.
+  // Signups disabled (invite-only). This message is only safe to show on
+  // screens where the caller already knows the account exists (e.g. an admin
+  // resending an invite) — see isUnknownAccountOtpError for the login form,
+  // which must not let this branch distinguish "no such account" from "code
+  // sent" (86ey9ea00 #53).
   if (code === 'signup_disabled' || lower.includes('signups not allowed')) {
     return { message: "This account doesn't exist or isn't invited. Ask an admin for an invite." };
   }
@@ -79,4 +83,22 @@ export function describeAuthError(error: unknown): NormalizedAuthError {
   }
 
   return { message: GENERIC };
+}
+
+/**
+ * True when a `signInWithOtp({ shouldCreateUser: false })` call failed because
+ * the address has no invited account (GoTrue's "signups not allowed" /
+ * `signup_disabled`). The login form (OtpLoginForm) must treat this identically
+ * to a known e-mail — same "we sent a code" step transition, not a distinct
+ * error — otherwise the response shape itself leaks whether the address is
+ * registered (account enumeration, 86ey9ea00 #53). Genuine failures (rate
+ * limiting, network errors) are unaffected and still surface normally via
+ * describeAuthError.
+ */
+export function isUnknownAccountOtpError(error: unknown): boolean {
+  const e = asErrorLike(error);
+  const code = typeof e.code === 'string' ? e.code : '';
+  const message = typeof e.message === 'string' ? e.message : '';
+  const lower = message.toLowerCase();
+  return code === 'signup_disabled' || lower.includes('signups not allowed');
 }

@@ -13,7 +13,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const type = url.searchParams.get('type') as EmailOtpType | null;
   // Invite/magic-link e-mails land in the app flow; only the e-mail-change
   // confirmation belongs on the profile screen (T1 #1 — one flow, no detour).
-  const fallback = type === 'email_change' ? '/settings/profile' : '/app';
+  // The live profile screen is /app/profile (po routes.ts) — /settings/profile
+  // was a dead route (86ey9ea00 #56): it 307'd through the /app catch-all guard
+  // straight back to /app, so a confirmed e-mail change silently dropped the
+  // user on the home screen instead of their profile.
+  const fallback = type === 'email_change' ? '/app/profile' : '/app';
   const next = safeNextPath(url.searchParams.get('next'), fallback);
 
   if (!tokenHash || !type) {
