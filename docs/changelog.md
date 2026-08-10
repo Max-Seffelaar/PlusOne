@@ -8,6 +8,62 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-10 — Dependabot: refuse Next/React majors, unblock the safe bumps (86eyd39gn)
+
+Branch `chore/86eyd39gn-deps-ignore-majors-safe-bumps` (PR #243). Milestone: Now — dependency
+hygiene keeps the security-patch stream flowing, and a permanently-red deps PR trains everyone
+to ignore Dependabot. No migration, no schema change, no runtime behaviour change.
+
+- **The problem with PR #239.** Dependabot groups by `dependency-type`, so *one* group PR carried
+  14 updates: Next 15.5.19 → **16.2.12**, Stripe 18 → **22**, zod 3 → **4**, uuid 10 → **14**,
+  tailwind-merge 2 → **3**, recharts 3.8 → 3.10, plus six genuinely safe in-major bumps. The stack
+  is pinned by CLAUDE.md (Next 15 / React 19), so the majors can't merge — and because they share
+  a PR with the safe ones, *nothing* merged. The group had been stuck since 6/8.
+- **Fix: refuse the majors at the source.** `.github/dependabot.yml` gained an `ignore` block for
+  `next`, `react`, `react-dom`, `@types/react`, `@types/react-dom` limited to
+  `update-types: ["version-update:semver-major"]`. Minor/patch keeps arriving weekly. A framework
+  major stays what it is — a migration with its own task (**86eyd39mx**, parked), not a bump.
+  Deliberately *not* ignored: Stripe/zod/uuid/tailwind-merge majors. Those are ordinary library
+  migrations we do want proposed; they just need their own PRs, so they'll come back regrouped
+  once #239 is closed.
+- **Safe bumps taken, lockfile-only.** `pnpm update` on the six in-major updates; every caret range
+  in `package.json` already covered them, so `package.json` is untouched and only `pnpm-lock.yaml`
+  moved (CI's `pnpm install --frozen-lockfile` stays consistent):
+  `@sentry/nextjs` 10.64.0 → 10.70.0 · `@supabase/ssr` 0.12.0 → 0.12.4 ·
+  `@supabase/supabase-js` 2.108.1 → 2.112.2 · `@tanstack/react-query` +
+  `@tanstack/react-query-persist-client` 5.101.0 → 5.101.4 · `@tanstack/react-virtual` 3.14.3 → 3.14.9.
+  The CLAUDE.md invariant (`@supabase/ssr` aligned with `supabase-js`, ≥0.12 for js ≥2.108) holds
+  and was re-verified the way it actually fails: type-checking a real `.from()` call to prove the
+  typed client doesn't collapse to `never`.
+- **Removed a landmine for the parked React migration.** `JSX.Element` resolved through the
+  *global* `JSX` namespace in **269 places across 107 files**. @types/react 18.3.31 already marks
+  that global `@deprecated` ("Use `React.JSX` instead"), and @types/react 19.2.18 drops the
+  `declare global` block entirely — verified by A/B-ing both patterns against both real typings:
+  the bare annotation fails under 19 with `TS2503: Cannot find namespace 'JSX'`, the explicit
+  import compiles clean under **both** 18 and 19. So 86eyd39mx would have opened with 269 type
+  errors before touching a line of React. Now it opens with zero.
+  - Mechanical and annotation-preserving: every `JSX.Element` is byte-identical, only imports
+    changed, and all 107 files are one-line diffs — merged into an existing single-line `react`
+    import where it fit prettier's `printWidth: 100`, otherwise its own
+    `import type { JSX } from 'react';`.
+  - **Gotcha for the next codemod author.** The first pass matched react imports with
+    `/^import\s+([\s\S]*?)\s+from\s+['"]react['"]/gm`; `[\s\S]*?` happily spans *statements*, so a
+    match starting at an earlier `import` line ran on until the next `from 'react'` and the
+    specifier got spliced into the **wrong module's** braces — `type JSX` landed in
+    `next/navigation`, `vitest`, and (worst) the `@/lib/observability/sentry-client` facade that
+    CLAUDE.md requires stay untouched. Caught by inspection before committing, then rewritten to
+    match one single line with `[^;\n]` so a match cannot cross a statement boundary. If you
+    codemod imports here: forbid `;` and newlines in the specifier, and assert afterwards that
+    every touched import line still ends in `from 'react';`.
+- **Environment note (cost me the gates, not the code).** The dev box was running **15 concurrent
+  `pnpm install`/`update` processes** from sibling worktree sessions, with free RAM down to ~3 GB
+  of 64 GB. Packages extracted into `.pnpm` fine (976 dirs) but the top-level linking phase
+  starved for well over an hour. CLAUDE.md already has a "one DB owner" rule; the same courtesy
+  applies to `pnpm` — a parallel session's install is not free, and a worktree install competes
+  for one global store.
+
+---
+
 ## 2026-07-14 — Door outbox/cache not wiped on sign-out — shared-device isolation (86ey9et07)
 
 Branch `fix/86ey9et07-door-outbox-clear-on-signout` (PR #233). Follow-up carved out of the
