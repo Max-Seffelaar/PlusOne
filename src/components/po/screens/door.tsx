@@ -26,6 +26,7 @@ import { Taken as DoorTaken } from '@/features/door/components/Taken';
 import { GuestDetail } from '@/features/door/components/GuestDetail';
 import { AddOnSpot } from '@/features/door/components/AddOnSpot';
 import { SyncBar } from '@/features/door/components/SyncBar';
+import { StaleResumeOverlay } from '@/features/door/components/StaleResumeOverlay';
 import { DoorErrorBoundary } from '@/features/door/components/DoorErrorBoundary';
 import type { DoorOverlayState } from '../routes';
 
@@ -161,6 +162,7 @@ export function PoDoorTab({
 
   return (
     <DoorErrorBoundary>
+      <StaleResumeOverlay />
       <SyncBar />
       {!overlay && onChangeEvent && currentEventName && (
         <DoorEventBar name={currentEventName} onChange={onChangeEvent} />

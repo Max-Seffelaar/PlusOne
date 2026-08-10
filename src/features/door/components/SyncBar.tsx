@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { Icon } from '@/components/po/icon';
 import { useDoor, useDoorSyncStatus } from '../DoorProvider';
+import { useWakeLock } from '../sync/useWakeLock';
 
 const STATUS_COLOR = { live: '#4FD1A1', stale: '#E8C98A', warn: '#E5704F' } as const;
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.94]';
@@ -17,6 +18,7 @@ const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scal
 export function SyncBar(): JSX.Element {
   const { pendingCount } = useDoor();
   const sync = useDoorSyncStatus();
+  const wakeLock = useWakeLock();
   const color = STATUS_COLOR[sync.status];
 
   const label =
@@ -56,6 +58,23 @@ export function SyncBar(): JSX.Element {
           </span>
         )}
       </span>
+
+      {wakeLock.supported && (
+        <button
+          type="button"
+          onClick={wakeLock.toggle}
+          aria-label={t.door.wakeLockAria}
+          aria-pressed={wakeLock.enabled}
+          title={t.door.wakeLockAria}
+          className={cn(
+            'flex h-[30px] w-[30px] items-center justify-center rounded-[10px] border',
+            wakeLock.enabled ? 'border-acc/40 bg-acc-dim text-acc' : 'border-line bg-elev2 text-dim',
+            press,
+          )}
+        >
+          <Icon name="bolt" size={15} sw={2.1} fill={wakeLock.enabled ? 'currentColor' : 'none'} />
+        </button>
+      )}
 
       <button
         type="button"
