@@ -3,7 +3,7 @@
 // Event picker for the statistics screen — selecting an event rewrites the URL
 // (?event=…) and the server re-fetches that event's stats. Keeps the venue param.
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useTransition } from 'react';
+import { type JSX, useTransition } from 'react';
 import { Icon } from '@/components/po/icon';
 
 export interface PickerOption {

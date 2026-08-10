@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { usePoCreateTier } from '@/features/po/mutations';
 import { usePoTiers } from '@/features/po/hooks';

@@ -1,7 +1,7 @@
 'use client';
 
 /** Event tier + alias management — split from events.tsx (FE-5). */
-import { useEffect, useRef, useState } from 'react';
+import { type JSX, useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { usePoEvent, usePoTiers } from '@/features/po/hooks';

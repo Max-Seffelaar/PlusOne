@@ -5,7 +5,7 @@
  *  step (T1 #3): first + last name required, phone optional but encouraged —
  *  one screen, one submit, then straight on to `next` (venue create or /app).
  *  Records everything via acceptTermsAction. */
-import { useState, useTransition } from 'react';
+import { type JSX, useState, useTransition } from 'react';
 import { t, fmt } from '@/lib/i18n';
 import { AUTH_GRADIENT } from '@/lib/po/theme';
 import { Icon } from '@/components/po/icon';

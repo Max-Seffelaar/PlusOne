@@ -7,6 +7,7 @@
  * + queued (outbox) + flushed when online; realtime patches the same cache so
  * colleagues' check-ins appear within ~1s (spec §4, decisions #11/#25/#39).
  */
+import type { JSX } from 'react';
 import {
   createContext,
   useCallback,

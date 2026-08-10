@@ -2,6 +2,7 @@
 
 /** Onboarding intro after a verified magic link (#40). Lightweight hand-off into
  *  the venue-creation flow — not a tutorial (a conscious refinement of #40d). */
+import type { JSX } from 'react';
 import { cn } from '@/lib/utils';
 import { AUTH_GRADIENT } from '@/lib/po/theme';
 import { Icon } from '@/components/po/icon';
