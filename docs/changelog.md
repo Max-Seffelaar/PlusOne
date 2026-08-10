@@ -983,6 +983,53 @@ at the door, not cosmetic).
 
 ---
 
+## 2026-08-10 — M4 follow-up: kill stale "check_ins has no event_id" comment + embeds (86ey9c5d2)
+
+Branch `fix/86ey9c5d2-checkin-event-id-comment`. Mechanical follow-up flagged in PR #189's
+review round: `20260622140000_checkin_event_scope.sql` gave `check_ins`/`refusals` a NOT NULL,
+indexed, trigger-filled `event_id` (+ `venue_id`) back on 22/6, but three read paths still
+filtered via a `guests!inner(event_id)` embed as if that column didn't exist — the same false
+premise that once caused a wrong "fix" to the realtime subscription filter (see the 13/7
+changelog entries above, decision #44 in the spec). Milestone: Now (removes a stale trap that
+already misled one session).
+
+- **`fetchCheckinArrivals`** (`src/features/po/queries.ts`) — replaced the `guests!inner(event_id)`
+  embed + `.eq('guests.event_id', eventId)` with a direct `.eq('event_id', eventId)` on
+  `check_ins`; rewrote the doc comment that claimed "check_ins carries no event_id".
+- **`fetchDoorSnapshot`** (`src/features/door/queries.ts`) — same fix for both the `check_ins`
+  and `refusals` ranged reads. Since neither read needs any `guests` field once the embed is
+  gone, `select('*, guests!inner(event_id))')` collapsed to `select('*')`, which made the
+  `stripEmbeddedGuests` helper (existed solely to drop the now-absent embed before returning
+  rows) dead code — deleted. Comments updated.
+- **`fetchRecentCheckins`** (`src/features/po/queries.ts`) — same stale-embed-as-filter pattern,
+  found via the grep sweep (not explicitly named in the task, but the identical mistake). This
+  one genuinely needs `guests.id`/`guests.full_name` for the returned rows, so the embed stays;
+  only the filter moved from `.eq('guests.event_id', eventId)` to `.eq('event_id', eventId)` on
+  `check_ins` directly (and the now-redundant `event_id` dropped from the embed's column list).
+- **RLS unaffected.** The SELECT policies already key on the denormalized `event_id`/`venue_id`
+  columns (`20260622140000`), so filtering on them directly changes zero row visibility —
+  purely a read-path simplification, behaviourally neutral for both PostgREST payload and
+  door-snapshot data.
+- **Grep sweep** of `src/` + docs for other live claims that `check_ins`/`refusals` lack
+  `event_id`: none found. `useDoorSync.ts`'s realtime-filter comment already states the correct
+  fact (fixed in the 13/7 incident). `docs/changelog.md` history and the historical
+  `perf-scale-track-3.5.md`/`perf-scale-audit-megaevent.md` audit docs were left untouched
+  (dated snapshots of past state, not live documentation).
+
+**Tests:** `pnpm vitest run` 867/867 green (full suite, this worktree's fresh install — no
+node_modules existed yet, `pnpm install` took 1h17m purely from concurrent-session CPU/disk
+contention on this machine, not a repo issue). `tsc --noEmit` zero errors. `pnpm lint` clean
+(the two pre-existing `datetime-field.tsx` a11y warnings are untouched by this change). No
+migration — behaviourally neutral, so no new pgTAP; the door's offline snapshot shape
+(`DoorSnapshot.checkIns`/`.refusals`) is unchanged, verified by inspection (`CheckInRow`/
+`RefusalRow` stay the same generated-table type, just no longer wrapped with an embed that got
+stripped before the function returned).
+
+**Review gate:** touches `src/features/door/queries.ts` (door snapshot read path) — needs a
+fresh-session `/code-review` before merge per CLAUDE.md's review gates.
+
+---
+
 ## 2026-07-14 — Door outbox/cache not wiped on sign-out — shared-device isolation (86ey9et07)
 
 Branch `fix/86ey9et07-door-outbox-clear-on-signout` (PR #233). Follow-up carved out of the

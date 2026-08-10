@@ -125,18 +125,6 @@ export function doorSnapshotKey(eventId: string): readonly ['door', string] {
 
 type Client = SupabaseClient<Database>;
 
-/**
- * The check_ins/refusals reads embed `guests!inner(event_id)` purely to filter by
- * event (no `guest_id` list — see fetchDoorSnapshot). The snapshot row types have
- * no `guests` field, so drop the embed before handing rows back. Generic over the
- * base row so one helper serves both tables.
- */
-function stripEmbeddedGuests<T>(row: T & { guests: unknown }): T {
-  const rest: Record<string, unknown> = { ...row };
-  delete rest.guests;
-  return rest as T;
-}
-
 export async function fetchDoorSnapshot(client: Client, eventId: string): Promise<DoorSnapshot> {
   const { data: event, error: eventError } = await client
     .from('events')
@@ -149,9 +137,10 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
   // `.select()` truncates at PostgREST's max-rows (1000) and the door silently
   // loses ~third of the list. guests + check_ins + refusals each page to the end;
   // every ranged read carries a unique `.order('id')` tiebreaker so pages can't
-  // overlap or skip. check_ins/refusals filter via an inner-join on the event
-  // (mirrors fetchRecentCheckins) instead of a giant `.in('guest_id', …)` — that
-  // id list would blow Kong's URI length at 1500 ids and over-return anyway.
+  // overlap or skip. check_ins/refusals filter on their own denormalized `event_id`
+  // (migration `20260622140000_checkin_event_scope`) instead of a giant
+  // `.in('guest_id', …)` — that id list would blow Kong's URI length at 1500 ids
+  // and over-return anyway.
   const [{ data: venue }, guestRows, { data: tiers }, checkIns, refusals] = await Promise.all([
     client.from('venues').select('name, allow_uncheck').eq('id', event.venue_id).maybeSingle(),
     fetchAllRanged<GuestRow>((from, to) =>
@@ -171,22 +160,12 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
         .range(from, to),
     ),
     client.from('guest_tiers').select('*').eq('event_id', eventId).order('name'),
-    fetchAllRanged<CheckInRow & { guests: unknown }>((from, to) =>
-      client
-        .from('check_ins')
-        .select('*, guests!inner(event_id)')
-        .eq('guests.event_id', eventId)
-        .order('id')
-        .range(from, to),
-    ).then((rows) => rows.map(stripEmbeddedGuests)),
-    fetchAllRanged<RefusalRow & { guests: unknown }>((from, to) =>
-      client
-        .from('refusals')
-        .select('*, guests!inner(event_id)')
-        .eq('guests.event_id', eventId)
-        .order('id')
-        .range(from, to),
-    ).then((rows) => rows.map(stripEmbeddedGuests)),
+    fetchAllRanged<CheckInRow>((from, to) =>
+      client.from('check_ins').select('*').eq('event_id', eventId).order('id').range(from, to),
+    ),
+    fetchAllRanged<RefusalRow>((from, to) =>
+      client.from('refusals').select('*').eq('event_id', eventId).order('id').range(from, to),
+    ),
   ]);
 
   // Names needed for the logboek + the current user (for optimistic check-ins).

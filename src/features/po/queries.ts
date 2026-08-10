@@ -369,7 +369,13 @@ export interface RecentCheckinRow {
   by: string;
 }
 
-/** Most recent (non-voided) check-ins for an event — drives "Laatst binnen". */
+/**
+ * Most recent (non-voided) check-ins for an event — drives "Laatst binnen". Filters
+ * on `check_ins.event_id` directly (denormalized, see fetchCheckinArrivals above);
+ * the `guests!inner(id, full_name)` embed stays because the returned rows need the
+ * guest's name — `!inner` keeps `r.guests` non-nullable so `r.guests.id`/
+ * `r.guests.full_name` below don't need a null check.
+ */
 export async function fetchRecentCheckins(
   client: Client,
   eventId: string,
@@ -377,8 +383,8 @@ export async function fetchRecentCheckins(
 ): Promise<RecentCheckinRow[]> {
   const { data, error } = await client
     .from('check_ins')
-    .select('checked_at, plus_ones_arrived, checked_by, guests!inner(id, full_name, event_id)')
-    .eq('guests.event_id', eventId)
+    .select('checked_at, plus_ones_arrived, checked_by, guests!inner(id, full_name)')
+    .eq('event_id', eventId)
     .is('voided_at', null)
     .order('checked_at', { ascending: false })
     .limit(limit);
@@ -742,39 +748,36 @@ export interface CheckinArrival {
   id?: string;
 }
 
-type CheckinArrivalRow = Pick<
-  Tables['check_ins']['Row'],
-  'id' | 'guest_id' | 'plus_ones_arrived' | 'checked_at' | 'voided_at'
->;
+type CheckinArrivalRow = Pick<Tables['check_ins']['Row'], 'id' | 'guest_id' | 'plus_ones_arrived' | 'checked_at'>;
 
 /**
  * Active (non-voided) check-in arrivals for an event's guests, keyed by guest id.
  * The cockpit (S13) uses this for the ACTUAL present headcount and partial-arrival
- * display (a +3 guest with 1 companion present = 2 koppen binnen, not 4). check_ins
- * carries no event_id, so we filter via an inner-join on the guest's event
- * (mirrors fetchDoorSnapshot/fetchRecentCheckins) — no `.in('guest_id', …)` list
- * that would blow Kong's URI length at 1500 ids. Ranged so >1000 check-ins all
- * load; `.order('id')` gives the deterministic order paging requires. RLS still
- * gates which check_ins are visible.
+ * display (a +3 guest with 1 companion present = 2 koppen binnen, not 4). Filters
+ * on the denormalized `event_id` (migration `20260622140000_checkin_event_scope`,
+ * unconditionally server-derived since `20260713190000_checkin_scope_venue_pin`)
+ * — no `.in('guest_id', …)` list that would blow Kong's URI length at 1500 ids.
+ * Voiding is filtered server-side (`check_ins.guest_id` is UNIQUE, so this can't
+ * under-return). Ranged so >1000 check-ins all load; `.order('id')` gives the
+ * deterministic order paging requires. RLS still gates which check_ins are visible.
  */
 export async function fetchCheckinArrivals(
   client: Client,
   eventId: string
 ): Promise<Map<string, CheckinArrival>> {
-  const rows = await fetchAllRanged<CheckinArrivalRow & { guests: unknown }>((from, to) =>
+  const rows = await fetchAllRanged<CheckinArrivalRow>((from, to) =>
     client
       .from('check_ins')
-      .select('id, guest_id, plus_ones_arrived, checked_at, voided_at, guests!inner(event_id)')
-      .eq('guests.event_id', eventId)
+      .select('id, guest_id, plus_ones_arrived, checked_at')
+      .eq('event_id', eventId)
+      .is('voided_at', null)
       .order('id')
       .range(from, to),
   );
 
   const map = new Map<string, CheckinArrival>();
   for (const row of rows) {
-    if (row.voided_at == null) {
-      map.set(row.guest_id, { arrived: row.plus_ones_arrived, at: row.checked_at, id: row.id });
-    }
+    map.set(row.guest_id, { arrived: row.plus_ones_arrived, at: row.checked_at, id: row.id });
   }
   return map;
 }
