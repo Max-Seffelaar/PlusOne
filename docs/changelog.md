@@ -10,7 +10,7 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ## 2026-08-10 — Auth/redirect kleine fixes — bundel review (86ey9ea00)
 
-Branch `fix/86ey9ea00-auth-redirect-small-fixes` (PR pending). Bundel van 1 CONFIRMED
+Branch `fix/86ey9ea00-auth-redirect-small-fixes` (PR [#243](https://github.com/Max-Seffelaar/PlusOne/pull/243)). Bundel van 1 CONFIRMED
 finding + 4 finder-punten uit een eerdere review-pass, elk kort her-geverifieerd tegen
 de huidige code vóór de fix. Milestone: Now (auth/middleware correctness + een echte
 account-enumeratie-lek). High-risk surface (auth/middleware) — PR niet zelf gemerged,
