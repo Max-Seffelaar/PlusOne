@@ -49,12 +49,16 @@ vi.mock('./PoLiveProvider', () => ({
   usePoIdentity: () => ({ venueId: 'venue-1', userId: 'user-1', roles: ['admin'] }),
 }));
 
+import { addGuest } from '@/features/guests/actions';
+import { updateRequestLink } from '@/features/links/actions';
 import {
   usePoUpdateGuest,
   usePoRemoveGuest,
   usePoApproveRequest,
   usePoForgetContact,
   usePoUpdateInfluencer,
+  usePoUpdateLink,
+  usePoBulkAddToEvent,
   VENUE_GUESTS_PREFIX,
 } from './mutations';
 import { poKeys } from './keys';
@@ -145,5 +149,62 @@ describe('mutations.ts cache invalidation (2026-07 review P3, 86ey6xdkb)', () =>
     expect(includesKey(keys, [...poKeys.all, 'promo'])).toBe(true);
     // Existing behavior must be unregressed too.
     expect(includesKey(keys, [...poKeys.all, 'influencers'])).toBe(true);
+  });
+});
+
+describe('usePoUpdateLink optimistic pause/resume (86ey9e9v5)', () => {
+  it('flips the cached link immediately and keeps the flip on success', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const Wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    );
+    qc.setQueryData(poKeys.requestLinks('event-1'), [{ id: 'link-1', active: true }]);
+    vi.mocked(updateRequestLink).mockResolvedValueOnce({ ok: true });
+
+    const { result } = renderHook(() => usePoUpdateLink('event-1'), { wrapper: Wrapper });
+    act(() => result.current.mutate({ linkId: 'link-1', active: false }));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const cached = qc.getQueryData<{ id: string; active: boolean }[]>(poKeys.requestLinks('event-1'));
+    expect(cached?.find((l) => l.id === 'link-1')?.active).toBe(false);
+  });
+
+  it('rolls back the optimistic flip when the write fails (86ey9e9v5 — pause toggle previously had no rollback path via cancelQueries)', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const Wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    );
+    qc.setQueryData(poKeys.requestLinks('event-1'), [{ id: 'link-1', active: true }]);
+    vi.mocked(updateRequestLink).mockResolvedValueOnce({ ok: false, code: 'error', message: 'nope' });
+
+    const { result } = renderHook(() => usePoUpdateLink('event-1'), { wrapper: Wrapper });
+    act(() => result.current.mutate({ linkId: 'link-1', active: false }));
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    const cached = qc.getQueryData<{ id: string; active: boolean }[]>(poKeys.requestLinks('event-1'));
+    expect(cached?.find((l) => l.id === 'link-1')?.active).toBe(true);
+  });
+});
+
+describe('usePoBulkAddToEvent invalidates on error too (86ey9e9v5 — onSettled, not onSuccess)', () => {
+  it('still invalidates the target event caches when a row throws mid-loop', async () => {
+    const { wrapper, spy } = makeWrapper();
+    vi.mocked(addGuest).mockRejectedValueOnce(new Error('boom'));
+
+    const { result } = renderHook(() => usePoBulkAddToEvent(), { wrapper });
+    act(() =>
+      result.current.mutate({
+        targetEventId: 'event-2',
+        tierId: 'tier-1',
+        targetLocked: false,
+        people: [{ key: 'p1', name: 'Guest One', contactId: null, plusOnes: 0, alreadyOn: false }],
+      })
+    );
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    const keys = invalidatedKeys(spy);
+    expect(includesKey(keys, poKeys.guests('event-2'))).toBe(true);
+    expect(includesKey(keys, poKeys.quota('event-2'))).toBe(true);
+    expect(includesKey(keys, VENUE_GUESTS_PREFIX)).toBe(true);
   });
 });

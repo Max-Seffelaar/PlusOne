@@ -75,8 +75,10 @@ export const poKeys = {
     [...poKeys.all, 'audit', venueId, filters] as const,
   auditOptions: (venueId: string) => [...poKeys.all, 'audit-options', venueId] as const,
   guestHistory: (guestId: string) => [...poKeys.all, 'guest-history', guestId] as const,
-  /** Per-tier + per-member stats for the event Activity section (86ey21vnd). */
-  eventActivity: (eventId: string) => [...poKeys.all, 'event-activity', eventId] as const,
+  // Note: the per-event Activity section (86ey21vnd) used to have its own
+  // 'event-activity' key here; 86ey9e9v5 folded it into `eventStats` above (both
+  // hooks now share ONE query, varying shape with `select`) to stop duplicating
+  // the same fetchEventStats round-trip under two keys.
   // Request links + influencers (Requests-epic F1, 86ey21vjt) — one event's links
   // with their funnel numbers; the venue-wide lean link list (approvals filter);
   // the venue's influencer roster. Mutations invalidate by the same prefixes.
