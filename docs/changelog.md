@@ -8,6 +8,81 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-10 — Service worker cached credentialed `/app` HTML + stale next-pwa artefacts (86ey9e9mn)
+
+Branch `fix/86ey9e9mn-sw-pii-cache`. Direct follow-up to 86ey9et07 (PR #233): that one wiped
+IndexedDB on sign-out, this one closes the *other* origin-scoped store the door leaves behind —
+Cache Storage. Milestone: Now (security/AVG on shared venue tablets). Two confirmed review
+findings, both about data that outlives the session that produced it.
+
+- **N1 — the door SW cached every same-origin navigation, including `/app`.**
+  `public/service-worker.js` handled `request.mode === 'navigate'` with no path scope at all, so
+  the network-first branch wrote the response of *any* navigation into one persistent cache
+  (`plusone-door-v1`). `/app` is not a static shell: `src/app/app/layout.tsx` resolves identity
+  server-side and the RSC flight payload embedded in the HTML carries user id, venue id, venue
+  name, roles, display name and the whole membership set. `/door` (the picker) SSRs the caller's
+  event + venue list. Sign-out cleared IndexedDB but never touched Cache Storage, so on a tablet
+  passed from doorhost A to B, A's `/app` HTML stayed readable in devtools (and would be served
+  to B on an offline boot).
+- **Fix — two caches, two lifetimes.** The SW now decides per pathname which bucket a navigation
+  may go in, and defaults to *not storing it at all*:
+  - `plusone-shell-v2` (persistent, PII-free): static assets + `/door/<eventId>`, which
+    deliberately SSRs no guest data. Kept across sign-out on purpose — wiping it would cost the
+    *next* doorhost their offline cold start (invariant #25).
+  - `plusone-session-v1` (session-scoped): `/app`, `/app/*` and the `/door` picker. Wiped by
+    `clearDeviceCaches()` (`src/features/door/offline/sw-cache.ts`) from `signOutDevice`, right
+    next to `idbClearAll()` — Cache Storage now has the same lifetime as IndexedDB.
+  - Everything else same-origin (`/login`, `/e/<slug>`, `/onboarding`, `/r/<token>`, `/`) is
+    network-only: not needed for offline boot, so not worth storing credentialed.
+  - Offline fallback is per-surface (`/door*` → cached `/door`, `/app*` → cached `/app`, else a
+    network error). The old code fell back to the door shell for *any* failed navigation — the
+    exact wrong-shell hazard `routes.ts` warns about.
+  - `putInCache` now refuses redirected responses: after sign-out `/app` 307s to `/login`, and
+    following that redirect used to store the login page under the `/app` key.
+  - Renaming the caches is the migration: `activate` deletes every bucket that isn't one of the
+    two, so devices already holding leaked `/app` HTML in `plusone-door-v1` are cleaned on the
+    first post-deploy activation. The install-time precache of `/door` is gone (`cache.addAll`
+    sends cookies — it was putting the credentialed picker in the persistent cache).
+- **N2 — a retired Workbox SW was still live on real browsers.** `public/sw.js` and
+  `public/workbox-e9849328.js` were next-pwa build output from before fase 9. next-pwa is
+  disabled in `next.config.js`, but a service worker is not retired by deleting its source:
+  a browser that ever registered `/sw.js` keeps running the installed copy, and that copy
+  `registerRoute`d **cross-origin** GETs into a `NetworkFirst` cache with a 1h TTL — Supabase
+  REST bodies, i.e. guest PII, in an origin-scoped cache that outlived sign-out. Visiting `/door`
+  replaces the registration (same scope), so only clients that never opened the door were
+  affected — `/app`-only users and landing-page visitors.
+  Fix: `public/sw.js` is now a **self-destructing stub** (skipWaiting → delete every cache except
+  `plusone-shell-*` → `registration.unregister()` → renavigate open clients). Browsers re-fetch a
+  registered SW script on navigation, so this is what actually kills those workers.
+  `public/workbox-e9849328.js` deleted and the commented-out `withPWA` blocks in `next.config.js`
+  replaced by a do-not-reinstate note. **`next-pwa` itself is still in `package.json`** — the
+  `pnpm remove` stalled for 45+ minutes against a dozen concurrent `pnpm install` processes from
+  other sessions on this machine and was abandoned rather than left half-applied (a package.json
+  without a matching lockfile breaks CI's `--frozen-lockfile`). It is inert (nothing requires it)
+  and guarded by a test; dropping the dependency is a one-line follow-up for a quiet machine.
+  `clearDeviceCaches()` deny-lists by prefix (delete everything except `plusone-shell-*`) rather
+  than allow-listing known names, so the Workbox buckets (`apis`, `others`, `cross-origin`,
+  `workbox-precache-*`) are wiped on sign-out too, on devices that still have them.
+- **Middleware.** `sw.js` and `service-worker.js` stay excluded from the auth matcher — a 307 to
+  `/login` in place of a SW script is unparseable JS, and the browser would keep the previously
+  installed worker, i.e. the stub would never take effect. Documented inline. `workbox-` dropped
+  from the matcher along with the artefact it served.
+- **Tests.** `tests/unit/service-worker-cache-scope.test.ts` evaluates the real
+  `public/service-worker.js` inside a fake ServiceWorker global (self/caches/fetch/Response),
+  fires actual `fetch`/`activate` events and asserts *which cache bucket* each URL lands in —
+  a regex-over-source guard would not have caught this class of bug. Includes the offline
+  cold-start cases so the fix cannot silently trade #25 for privacy.
+  `src/features/door/offline/sw-cache.test.ts` covers the sign-out wipe (keeps the shell, wipes
+  session + legacy Workbox buckets, no-ops without CacheStorage, swallows storage errors).
+  `tests/unit/no-stale-pwa-artifacts.test.ts` fails CI if the stub is replaced by a generated
+  Workbox SW, if a workbox runtime reappears, if next-pwa comes back, if the middleware
+  exclusions are dropped, or if sign-out stops wiping Cache Storage.
+- **Known gap, deliberately not changed here:** only `/door` registers the service worker
+  (`src/app/door/layout.tsx`), so an `/app`-only device has no offline shell at all. Extending
+  registration to `/app` would widen the caching surface and belongs in its own task.
+
+---
+
 ## 2026-07-14 — Door outbox/cache not wiped on sign-out — shared-device isolation (86ey9et07)
 
 Branch `fix/86ey9et07-door-outbox-clear-on-signout` (PR #233). Follow-up carved out of the

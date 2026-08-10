@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import { createClient } from '@/lib/supabase/client';
 import { idbClearAll } from '@/features/door/offline/idb';
+import { clearDeviceCaches } from '@/features/door/offline/sw-cache';
 import { outbox } from '@/features/door/outbox/store';
 import { VENUE_ROLES, ROLE_LABELS, type VenueRole } from '@/features/auth/roles';
 import { Icon } from '../../icon';
@@ -38,6 +39,11 @@ async function hasLocalSession(supabase: SupabaseClient): Promise<boolean> {
  *     query-cache snapshot) and bumps the wipe epoch that stops a throttled /
  *     in-flight write from re-creating it; `outbox.reset()` empties the in-memory
  *     outbox singleton (it outlives a route change). Both run network-independently.
+ *   - `clearDeviceCaches()` does the same for Cache Storage (86ey9e9mn): the
+ *     service worker caches navigation HTML, and `/app`'s HTML carries the RSC
+ *     payload (user id, venue, roles, name, memberships). IndexedDB alone was
+ *     only half the wipe. The PII-free offline shell is deliberately kept so the
+ *     NEXT doorhost can still cold-start offline (invariant #25).
  *   - Fail safe against a lingering session: supabase-js SKIPS its local session
  *     removal when the server revoke errors with a non-401/403/404 status (e.g. a
  *     5xx on flaky venue wifi) — and returns `{ error }` rather than throwing. If
@@ -57,6 +63,7 @@ export async function signOutDevice(scope: 'local' | 'global'): Promise<void> {
     // defensive — the device wipe below must run regardless.
   }
   await idbClearAll();
+  await clearDeviceCaches();
   outbox.reset();
 
   if (await hasLocalSession(supabase)) {
