@@ -72,6 +72,6 @@ describe('realtime throttle is raised on both browser clients (#0b)', () => {
     // device graph inside the test body, which lands within a few hundred ms of
     // the 5s default while the rest of the suite is transforming in parallel —
     // an assertion about an options object should never be decided by machine
-    // load, so give it room (86ey9e9p5).
-  }, 20_000);
+    // load, so give it room via the `{ timeout }` option above (86ey9e9p5 + 86ey9e9q2).
+  });
 });
