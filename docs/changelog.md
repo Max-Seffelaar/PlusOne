@@ -10,11 +10,12 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ## 2026-08-10 — Door wake-lock toggle + stale-resume sync guard (86ey6x56p)
 
-Branch `feat/86ey6x56p-door-wakelock-stale-resume` (PR #252, **not merged yet** — awaiting
-fresh-session `/code-review` per the door high-risk-surface gate + Max's manual test handoff).
-Milestone: Now. No migration; no RLS/auth/service_role/PII surface touched — both features are
-read-only consumers of the existing `useDoorSync` status plus a device-local browser API, so the
-review prompt in the PR body is framed as correctness/reliability, not security.
+Branch `feat/86ey6x56p-door-wakelock-stale-resume` (PR #252, **not merged yet** — a fresh-session
+xhigh `/code-review` found 15 verified findings, all fixed 2026-08-11 in a review-fix round below;
+the PR still needs that gate re-confirmed + Max's manual test handoff before merge). Milestone: Now.
+No migration; no RLS/auth/service_role/PII surface touched — both features are read-only consumers
+of the existing `useDoorSync` status plus a device-local browser API, so the review prompt in the PR
+body is framed as correctness/reliability, not security.
 
 - **Screen Wake Lock toggle.** `src/features/door/sync/wakeLock.ts` wraps the Wake Lock API
   feature-detected + try/catch end to end (never throws — the API is absent in most Capacitor
@@ -28,28 +29,104 @@ review prompt in the PR body is framed as correctness/reliability, not security.
   when the last successful sync is ≥5 min old (configurable). `useStaleResumeGuard.ts` wires that
   into the EXISTING `useDoorSync` status (`forceSync`/`syncing`/`online`/`lastSyncAt` — no second sync
   mechanism) via a 3-phase state machine (`closed` / `syncing` / `blocked`), rendered by
-  `StaleResumeOverlay.tsx` and mounted once in `PoDoorTab` (covers both the mobile `/door/[eventId]`
-  route and the desktop cockpit's Deur tab, and blocks guest-detail/add-on-spot too since both render
-  under the same `PoDoorTab`/`DoorProvider`). Online, it force-syncs and auto-closes; offline (or a
-  hung request past an 8s backstop timeout) it degrades to an explicit "Continue anyway" warning —
-  hard requirement from the task spec that the door must never lock up with no way out. `blocked`
-  also self-heals to `closed` the moment ANY later sync (not just its own forced one — the 60s safety
-  interval or a reconnect) lands fresh+online. Mesh/peer sync is parked per the task; only
-  online/offline-alone paths are built.
+  `StaleResumeOverlay.tsx` and mounted once in `PoDoorTab`. **Covers the mobile `/door/[eventId]`
+  route and the mobile `/app` Deur tab only** (both render `PoDoorTab`/`DoorProvider`, so
+  guest-detail/add-on-spot are blocked too) — corrected 2026-08-11: an earlier version of this note,
+  the overlay's own doc comment, and the PR body all wrongly claimed desktop cockpit coverage. The
+  desktop (≥1024px) `/app` Deur tab renders `EventDayCockpitGate` (app.tsx), a completely separate
+  online-only React Query tree with no `DoorProvider`/outbox and therefore none of this wiring — never
+  actually built. Follow-up spawned (see review-fix round below) rather than built into this PR. Online,
+  the guard force-syncs and auto-closes; offline (or a hung request past an 8s backstop timeout) it
+  degrades to an explicit "Continue anyway" warning — hard requirement from the task spec that the
+  door must never lock up with no way out. `blocked` also self-heals to `closed` the moment ANY later
+  sync (not just its own forced one — the 60s safety interval or a reconnect) lands fresh. Mesh/peer
+  sync is parked per the task; only online/offline-alone paths are built.
 - **Gotcha found while writing the hook's own tests**: `forceSync()` and `useDoorSync`'s own
   `setSyncing(true)` land in the same React commit in production (both triggered synchronously inside
   the same `visibilitychange` dispatch), but nothing *guarantees* `sync.syncing` is already `true` on
   the very first render after opening the overlay — an early version of the resolve-effect could
   downgrade `syncing → blocked` before the forced sync had even started. Fixed with an `attemptSeenRef`
   that only allows the downgrade after `sync.syncing === true` has actually been observed once.
-- Suites: `pnpm vitest run src/features/door/sync` 50/50 new+existing pass; full suite 900/901 (the
-  1 failure, `realtime-throttle.test.ts` timing out under full-suite load, is pre-existing/unrelated
-  and passes cleanly in isolation — environmental flakiness on a heavily loaded dev machine, not this
-  branch). `pnpm type-check` and `pnpm lint` clean.
+- Suites (2026-08-10, before the review-fix round): `pnpm vitest run src/features/door/sync` 50/50
+  new+existing pass; full suite 900/901 (the 1 failure, `realtime-throttle.test.ts` timing out under
+  full-suite load, was pre-existing/unrelated and passed cleanly in isolation — environmental
+  flakiness on a heavily loaded dev machine, not this branch). `pnpm type-check` and `pnpm lint` clean.
 - **Environment note**: `pnpm install` in this worktree took roughly 40 minutes (970 packages all
   already in the pnpm store — pure hardlink/copy, no downloads — throttled to a crawl, almost
   certainly AV/disk contention from ~46 concurrently running `node.exe` processes on the machine at
   the time). Not a repo issue; flagging in case a future session hits the same wall.
+
+### 2026-08-11 — Review-fix round (fresh-session xhigh `/code-review`, 15 verified findings)
+
+The state-machine core (`closed`/`syncing`/`blocked`, `attemptSeenRef` ordering, the 8s backstop,
+`inFlight` idempotence with `useDoorSync`) was verified SOUND and left untouched — every fix below is
+surgical, same files as the original entry above plus `src/components/po/kit.tsx` (one prop, see
+P1-5) and `src/features/door/sync/useDoorSync.ts` (one line, see P1-6).
+
+**P0 — merge blockers:**
+- **SSR hydration mismatch** (`useWakeLock.ts`): `supported` now starts `false` on every render
+  (`useState(false)`) and upgrades in a mount effect, exactly like the documented `navigator.onLine`
+  guard pattern in `useDoorSync.ts` — computing it eagerly during render read differently on the
+  server (no `navigator.wakeLock`) than a real browser's first client render, an immediate hydration
+  error on every real door-device load. Tested via `renderToString` (SSR never runs effects, so it
+  directly proves the pre-hydration output).
+- **False desktop-cockpit coverage claim** — corrected in this file (above), the overlay's doc
+  comment, and the PR body; follow-up task spawned rather than built here.
+- **Wake-lock toggle asserted protection it didn't have** (`SyncBar.tsx`, `useWakeLock.ts`): the
+  button now renders three distinct states — off (gray) / enabled-but-not-holding (gold, reuses the
+  "stale" traffic-light colour) / on-and-holding (accent, filled) — and `onSentinelReleased` now
+  retries once immediately when the browser revokes a lock while the document stays visible
+  (documented battery-saver behaviour), not just on the next resume.
+- **`acquire()` race guards**: (a) a sentinel obtained by a concurrent acquire that lost the race is
+  released immediately instead of orphaned/overwriting the held one; (b) a sentinel whose `.released`
+  flipped `true` without ever firing the `'release'` event (iOS pre-18.4 gap) is now detected and
+  cleared instead of permanently blocking every future acquire.
+
+**P1 — fixed in this round:**
+- **Focus containment**: the door content (everything except the overlay itself) gets React 19's
+  `inert` boolean prop while `phase !== 'closed'` (a wrapper div in `PoDoorTab`, lifted the
+  `useStaleResumeGuard()` call up there so `StaleResumeOverlay` is now purely presentational and only
+  ONE state machine instance exists) — a hardware keyboard or barcode-scanner wedge could otherwise
+  type into `AddOnSpot`'s autofocused, Enter-to-commit field behind the overlay. "Continue anyway" is
+  now `autoFocus` (added an `autoFocus?: boolean` passthrough prop to `kit.tsx`'s `Btn`, one line).
+- **Realtime-reconnect self-heal didn't actually work**: `useDoorSync.ts`'s resubscribe-after-drop
+  path called `onSyncRef.current()` directly, bypassing `runSync` — so a reconnect refetch never
+  updated `lastSyncAt`/`syncing`, and the guard's self-heal claim silently didn't apply to that path.
+  Pre-existing line, routed through `runSync` now.
+- **Blocked state got a "Try again" action** (`retry()` on the guard, a secondary Btn on the
+  overlay) and the copy no longer falsely claims "still trying" once an attempt has already settled.
+- **Hidden-mount resume**: `prevVisibility` now seeds from the actual `document.visibilityState` at
+  listener registration (not `null`), so a door screen that mounts already backgrounded is guarded on
+  its first reveal instead of that reveal being mistaken for "the initial observation."
+- **Explicit wake-lock OFF now persists** (`plusone-door-wakelock-off` in localStorage, same
+  guarded try/catch pattern as `getDeviceId` in `offline/device.ts`) — previously reset to ON on
+  every reload.
+- **Clock-jump hardening + one source of truth**: exported `isSyncStale(lastSyncAt, now, thresholdMs)`
+  from `staleResume.ts`, used by both the open predicate and the guard's close predicate (previously
+  hand-mirrored complements in two files); a backward clock jump now degrades loudly (treated as
+  stale) instead of silently never firing.
+
+**P2 — judgment calls (defaults chosen, stated here per the task instructions):**
+- **Offline re-block friction**: `continueAnyway()` while offline now suppresses re-opening the
+  overlay on every subsequent screen unlock for the rest of that offline period — the doorhost
+  already acknowledged the risk once. Suppression clears the moment `sync.online` flips true.
+- **Doomed pre-resume attempt**: the resolve effect now gives ONE internal retry (guarded by a ref,
+  so it can only fire once per `syncing` phase) before downgrading to `blocked`, covering the case
+  where a pre-existing sync (not our own `forceSync()` call, silently swallowed by `useDoorSync`'s
+  shared `inFlight` guard) was the one that settled unfresh. Also dropped the `sync.online` condition
+  from the "fresh" check — a `lastSyncAt` that just landed already proves connectivity worked at that
+  moment, even if `online` is flickering false for an unrelated reason.
+- **`liveRef` reset**: now explicitly set `true` at the top of the mount effect (not just relied on
+  the `useRef(true)` initializer) — hardens against `next.config.ts`'s `reactStrictMode: false`
+  ("temporarily") ever being re-enabled, whose dev-only double-invoke would otherwise leave it stuck
+  `false` after the simulated remount, permanently killing every future acquire. Verified with a
+  `<StrictMode>`-wrapped test.
+
+Suites after the review-fix round: `pnpm vitest run src/features/door/sync` 68/68, door+po component
+suites 270/270, full suite 919/919 (no flakes this run). `pnpm type-check` and `pnpm lint` clean (no
+new warnings). Follow-up task spawned for desktop-cockpit coverage (not built here, per the review's
+explicit instruction). ClickUp session comment couldn't be posted — the ClickUp MCP write API was
+rate-limited workspace-wide for ~23h at the start of this round; exact comment text handed to Max.
 
 ## 2026-07-14 — Door outbox/cache not wiped on sign-out — shared-device isolation (86ey9et07)
 

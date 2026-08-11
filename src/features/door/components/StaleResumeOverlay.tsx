@@ -9,21 +9,35 @@
  * check people in against a guest list that might be minutes or hours stale —
  * the door itself must never silently "fall shut" on outdated data.
  *
- * Mounted once in PoDoorTab (covers both the mobile /door/[eventId] route and
- * the desktop cockpit's Deur tab — both render PoDoorTab under the same
- * DoorProvider), so it blocks every door surface uniformly, including the
- * guest-detail and add-on-spot overlays.
+ * Purely presentational — `phase`/`offline`/`continueAnyway`/`retry` come from
+ * a SINGLE `useStaleResumeGuard()` call in the parent (`PoDoorTab`), which also
+ * needs the phase to `inert` the rest of the door content while blocking
+ * (keyboard/scanner-wedge input must not reach a check-in input underneath —
+ * e.g. AddOnSpot's autofocused, Enter-to-commit field). Calling the guard hook
+ * a second time here would run two independent state machines against the
+ * same sync state and could disagree with each other.
+ *
+ * Covers the mobile `/door/[eventId]` route AND the mobile `/app` Deur tab —
+ * both render `PoDoorTab` under the same `DoorProvider`, including the
+ * guest-detail and add-on-spot overlays. Does NOT cover the desktop (≥1024px)
+ * `/app` cockpit (`EventDayCockpitGate` in app.tsx) — that surface is a
+ * separate, online-only React Query tree with no wake-lock/stale-resume
+ * wiring; extending this feature there is tracked as a follow-up, not built
+ * in this PR.
  */
 import { Icon } from '@/components/po/icon';
 import { Btn, Spinner } from '@/components/po/kit';
 import { t } from '@/lib/i18n';
-import { useDoorSyncStatus } from '../DoorProvider';
-import { useStaleResumeGuard } from '../sync/useStaleResumeGuard';
+import type { StaleResumeOverlayPhase } from '../sync/useStaleResumeGuard';
 
-export function StaleResumeOverlay(): JSX.Element | null {
-  const sync = useDoorSyncStatus();
-  const { phase, offline, continueAnyway } = useStaleResumeGuard(sync);
+export interface StaleResumeOverlayProps {
+  phase: StaleResumeOverlayPhase;
+  offline: boolean;
+  continueAnyway: () => void;
+  retry: () => void;
+}
 
+export function StaleResumeOverlay({ phase, offline, continueAnyway, retry }: StaleResumeOverlayProps): JSX.Element | null {
   if (phase === 'closed') return null;
 
   return (
@@ -52,9 +66,16 @@ export function StaleResumeOverlay(): JSX.Element | null {
           <p className="max-w-[280px] text-[13.5px] leading-[1.5] text-faint">
             {offline ? t.door.resumeOfflineSub : t.door.resumeStuckSub}
           </p>
-          <Btn onClick={continueAnyway} full className="max-w-[280px]">
-            {t.door.resumeContinueAnyway}
-          </Btn>
+          <div className="flex w-full max-w-[280px] flex-col gap-[10px]">
+            {/* The guaranteed-safe escape hatch is primary + focused first — the
+                door must never depend on connectivity to be usable. */}
+            <Btn onClick={continueAnyway} full autoFocus>
+              {t.door.resumeContinueAnyway}
+            </Btn>
+            <Btn onClick={retry} full kind="ghost">
+              {t.door.resumeTryAgain}
+            </Btn>
+          </div>
         </>
       )}
     </div>

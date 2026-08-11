@@ -32,14 +32,28 @@ export interface StaleResumeInputs {
 export const DEFAULT_STALE_RESUME_MS = 5 * 60_000;
 
 /**
+ * Single source of truth for "is this sync too old to trust" — shared by the
+ * open predicate below and the hook's close/fresh predicate (code review
+ * 86ey6x56p: these were hand-mirrored complements in two files, drifting on a
+ * boundary would be easy to miss). `lastSyncAt == null` (never synced) always
+ * counts as stale. A NEGATIVE elapsed (device clock jumped backwards — a
+ * "sync from the future") also counts as stale rather than silently trusting
+ * it forever: never let a clock glitch suppress the guard permanently.
+ */
+export function isSyncStale(lastSyncAt: number | null, now: number, thresholdMs: number): boolean {
+  if (lastSyncAt == null) return true;
+  const elapsed = now - lastSyncAt;
+  if (elapsed < 0) return true;
+  return elapsed >= thresholdMs;
+}
+
+/**
  * True exactly when `next` is a resume (a real hidden→visible transition, not
  * the first-ever observation and not a same-state no-op) AND the last
- * successful sync is stale relative to `thresholdMs`. A `lastSyncAt` of
- * `null` (never synced) always counts as stale.
+ * successful sync is stale relative to `thresholdMs`.
  */
 export function shouldShowStaleResumeOverlay({ prev, next, lastSyncAt, now, thresholdMs }: StaleResumeInputs): boolean {
   if (next !== 'visible') return false;
   if (prev == null || prev === 'visible') return false; // first observation / already visible — not a resume
-  const elapsed = lastSyncAt == null ? Number.POSITIVE_INFINITY : now - lastSyncAt;
-  return elapsed >= thresholdMs;
+  return isSyncStale(lastSyncAt, now, thresholdMs);
 }

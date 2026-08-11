@@ -60,19 +60,32 @@ export function SyncBar(): JSX.Element {
       </span>
 
       {wakeLock.supported && (
+        // Three distinct looks — never claim a lock that isn't actually held:
+        // off (user turned it off, gray) / pending (on, but not currently
+        // holding — refused or a re-acquire in flight, gold — reuses the
+        // "stale" traffic-light colour above) / on (solid accent, holding it).
+        // The pending colour is a runtime STATUS_COLOR reference, so it goes
+        // through inline `style` rather than a Tailwind arbitrary-value class
+        // (a template-literal class name isn't statically analyzable by the
+        // Tailwind JIT scanner and would silently compile to no CSS at all).
         <button
           type="button"
           onClick={wakeLock.toggle}
           aria-label={t.door.wakeLockAria}
           aria-pressed={wakeLock.enabled}
-          title={t.door.wakeLockAria}
+          title={wakeLock.enabled && !wakeLock.active ? t.door.wakeLockPendingAria : t.door.wakeLockAria}
           className={cn(
             'flex h-[30px] w-[30px] items-center justify-center rounded-[10px] border',
-            wakeLock.enabled ? 'border-acc/40 bg-acc-dim text-acc' : 'border-line bg-elev2 text-dim',
+            !wakeLock.enabled
+              ? 'border-line bg-elev2 text-dim'
+              : wakeLock.active
+                ? 'border-acc/40 bg-acc-dim text-acc'
+                : 'bg-elev2',
             press,
           )}
+          style={wakeLock.enabled && !wakeLock.active ? { borderColor: `${STATUS_COLOR.stale}66`, color: STATUS_COLOR.stale } : undefined}
         >
-          <Icon name="bolt" size={15} sw={2.1} fill={wakeLock.enabled ? 'currentColor' : 'none'} />
+          <Icon name="bolt" size={15} sw={2.1} fill={wakeLock.enabled && wakeLock.active ? 'currentColor' : 'none'} />
         </button>
       )}
 

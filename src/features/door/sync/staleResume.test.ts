@@ -1,8 +1,33 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_STALE_RESUME_MS, shouldShowStaleResumeOverlay } from './staleResume';
+import { DEFAULT_STALE_RESUME_MS, isSyncStale, shouldShowStaleResumeOverlay } from './staleResume';
 
 const T0 = 1_000_000_000_000;
 const THRESHOLD = 5 * 60_000;
+
+describe('isSyncStale', () => {
+  it('is stale when never synced', () => {
+    expect(isSyncStale(null, T0, THRESHOLD)).toBe(true);
+  });
+
+  it('is not stale within the threshold', () => {
+    expect(isSyncStale(T0 - 10_000, T0, THRESHOLD)).toBe(false);
+  });
+
+  it('treats the boundary as stale (>=)', () => {
+    expect(isSyncStale(T0 - THRESHOLD, T0, THRESHOLD)).toBe(true);
+  });
+
+  it('is stale just past the threshold', () => {
+    expect(isSyncStale(T0 - (THRESHOLD + 1), T0, THRESHOLD)).toBe(true);
+  });
+
+  it('treats a backward clock jump (lastSyncAt appears to be in the future) as stale, not eternally fresh', () => {
+    // A device clock correction (NTP sync, manual change, DST edge case) could
+    // otherwise make a stale sync look perpetually "0s ago" — degrade loudly
+    // instead of silently trusting a sync timestamp from the future.
+    expect(isSyncStale(T0 + 60_000, T0, THRESHOLD)).toBe(true);
+  });
+});
 
 describe('shouldShowStaleResumeOverlay', () => {
   it('never fires on the first-ever observation, even with no sync yet', () => {

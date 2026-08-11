@@ -142,13 +142,15 @@ export const door = {
   syncQueued: '{n} queued',
   syncNowAria: 'Sync now',
   wakeLockAria: 'Keep screen on',
+  wakeLockPendingAria: 'Keep screen on (not holding it right now)',
 
   // ── Stale-resume guard overlay (StaleResumeOverlay) ──────────────────────
   resumeSyncingTitle: 'Catching up…',
   resumeSyncingSub: 'Checking for anything that happened while this screen was away.',
   resumeOfflineTitle: 'No connection',
   resumeOfflineSub: "This device is offline, so the guest list may be out of date. Check-ins will queue and sync once you're back online.",
-  resumeStuckTitle: 'Still trying to sync',
-  resumeStuckSub: 'The connection is slow to respond. You can wait, or continue on the last list you have.',
+  resumeStuckTitle: "Sync didn't complete",
+  resumeStuckSub: "The last attempt didn't finish. Try again, or continue on the last list you have.",
+  resumeTryAgain: 'Try again',
   resumeContinueAnyway: 'Continue anyway',
 } as const;

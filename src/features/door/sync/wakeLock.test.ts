@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isWakeLockSupported, releaseWakeLock, requestScreenWakeLock, type WakeLockSentinelLike } from './wakeLock';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  isWakeLockSupported,
+  readWakeLockOffPreference,
+  releaseWakeLock,
+  requestScreenWakeLock,
+  writeWakeLockOffPreference,
+  type WakeLockSentinelLike,
+} from './wakeLock';
 
 function stubWakeLock(request: ((type: 'screen') => Promise<WakeLockSentinelLike>) | undefined): void {
   if (request) {
@@ -88,5 +95,38 @@ describe('releaseWakeLock', () => {
       removeEventListener: vi.fn(),
     };
     await expect(releaseWakeLock(sentinel)).resolves.toBeUndefined();
+  });
+});
+
+describe('wake-lock off preference (86ey6x56p review — explicit OFF must survive a reload)', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('defaults to false (on) when nothing is persisted', () => {
+    expect(readWakeLockOffPreference()).toBe(false);
+  });
+
+  it('round-trips true/false through localStorage', () => {
+    writeWakeLockOffPreference(true);
+    expect(readWakeLockOffPreference()).toBe(true);
+    writeWakeLockOffPreference(false);
+    expect(readWakeLockOffPreference()).toBe(false);
+  });
+
+  it('never throws when localStorage is unavailable (private mode, blocked storage)', () => {
+    const getItemSpy = vi.spyOn(window.localStorage, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    const setItemSpy = vi.spyOn(window.localStorage, 'setItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    try {
+      expect(readWakeLockOffPreference()).toBe(false);
+      expect(() => writeWakeLockOffPreference(true)).not.toThrow();
+    } finally {
+      getItemSpy.mockRestore();
+      setItemSpy.mockRestore();
+    }
   });
 });

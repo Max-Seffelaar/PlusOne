@@ -174,7 +174,12 @@ export function useDoorSync({ eventId, onSync, onRealtimeCheckIn, onRealtimeGues
           if (cancelled) return;
           // Self-heal: if we just resubscribed after a drop, drain the outbox +
           // refetch the snapshot so any check-ins missed while down reappear (#0b).
-          if (shouldRefetchOnStatus(prevStatus, st)) void onSyncRef.current();
+          // Routed through `runSync` (not a bare `onSyncRef.current()` call) so this
+          // path also updates `lastSyncAt`/`syncing` like every other sync trigger —
+          // otherwise a reconnect could silently refresh data while `lastSyncAt`
+          // stayed stale, and the stale-resume guard's self-heal (86ey6x56p) would
+          // never see it (code review finding, pre-existing before that PR).
+          if (shouldRefetchOnStatus(prevStatus, st)) void runSync();
           prevStatus = st;
           setRealtimeConnected(st === 'SUBSCRIBED');
         });
@@ -185,7 +190,7 @@ export function useDoorSync({ eventId, onSync, onRealtimeCheckIn, onRealtimeGues
       setRealtimeConnected(false);
       if (channel) void client.removeChannel(channel);
     };
-  }, [eventId]);
+  }, [eventId, runSync]);
 
   // Memoized so the returned object's identity only changes when one of its
   // own reactive values does — otherwise every DoorProvider render (triggered
