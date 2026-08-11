@@ -180,10 +180,18 @@ door, so it can never be checked in while pending, and the moment it is promoted
 `approved`/`checked_in` the `enforce_guest_quota` / `enforce_request_link_max` triggers fire on
 the net increase and charge it in full (pgTAP case 14.4 asserts exactly that). `guests_insert`
 RLS still pins `added_by` to the caller.
-**Deliberately unchanged:** `guest_capacity_contribution` (event capacity, `20260624090000`)
-keeps counting pending. Its rule is a different shape ("anything not removed/denied occupies a
-physical spot", and it counts refused too, #22 anti-reuse), so folding pending out of it is a
-separate semantic decision — flagged for Max, not silently changed.
+**Deliberately unchanged:** `guest_capacity_contribution` (hard event capacity, 45005) keeps
+counting pending — capacity answers a different question ("does this person occupy a spot in the
+room") and has no #31 source exemption, so that is a separate decision, flagged rather than
+silently changed. ⚠ **In-flight interaction:** `86ey9e9r9` (PR #244, open) rewrites that same
+helper onto the personal engine's `p_is_inside` basis *specifically* so both engines answer #22
+identically — and keeps its `pending` branch. Once both land they differ in exactly one place:
+a pending row would consume hard capacity but no personal quota. Unreachable in practice (no
+write path produces one), so it is a consistency wart rather than a live bug; whichever PR merges
+second should settle `pending` for both helpers at once. Recommendation: drop it in capacity too.
+Also noted for Max: PR #244's migration is stamped `20260810171500`, which sorts *before* main's
+already-live `20260810183000_atomic_check_out_guest.sql` — the same ordering trap that forced the
+M4 migration rename in July, worth fixing before that PR merges.
 
 **Tests.** New pgTAP: `analytics.test.sql` §12 (6 cases, plan 62→68) refuses an
 already-checked-in guest and proves her `check_ins` row survives un-voided (the premise), that the

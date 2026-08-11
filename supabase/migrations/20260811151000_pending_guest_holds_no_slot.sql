@@ -35,12 +35,23 @@
 -- `guests_insert` RLS still pins `added_by` to the caller, so no third party's
 -- quota can be touched either way.
 --
--- DELIBERATELY UNCHANGED: `guest_capacity_contribution` (event capacity,
--- 20260624090000) keeps counting pending. Its rule is a different shape
--- ("anything not removed/denied occupies a physical spot", and it deliberately
--- counts refused too, #22 anti-reuse), so folding pending out of it is a
--- separate semantic decision about capacity — not part of the flagged
--- personal-quota bug. Flagged for Max, not silently changed.
+-- DELIBERATELY UNCHANGED: `guest_capacity_contribution` (hard event capacity,
+-- 45005) keeps counting pending. Capacity answers a different question — "does
+-- this person occupy a spot in the room" — and has no #31 source exemption, so
+-- folding pending out of it is a separate decision about capacity, not part of
+-- the flagged personal-quota bug. Flagged for Max, not silently changed.
+--
+-- ⚠ IN-FLIGHT INTERACTION (86ey9e9r9, PR #244, open at the time of writing):
+-- that PR rewrites `guest_capacity_contribution` onto the same `p_is_inside`
+-- basis as the personal engine, explicitly so "both engines answer the amended
+-- #22 identically", and its rewrite KEEPS the 'pending' branch. Once both land,
+-- the two helpers are identical in shape except for the #31 source exemption
+-- and exactly one thing: pending. A pending row would then consume hard event
+-- capacity while consuming no personal quota. Unreachable in practice (no write
+-- path produces a pending guest — see above), so this is a consistency wart,
+-- not a live bug. Whichever of the two PRs merges second should decide the
+-- pending branch for BOTH helpers in one place; recommendation is to drop it in
+-- capacity too, for the same reason it is dropped here.
 
 -- ── 1. Personal quota per adder (#22, #31) ──────────────────────────────────
 
