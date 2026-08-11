@@ -6,7 +6,10 @@ import {
   fetchOrganizerEventIds,
   fetchOrganizesAtVenue,
   fetchOwnSessions,
+  fetchRequestLinks,
+  fetchTiersWithUsage,
   fetchVenueGuestsWindow,
+  fetchVenueRequestLinks,
   fetchVenueSettings,
   VENUE_GUESTS_WINDOW,
 } from './queries';
@@ -288,5 +291,316 @@ describe('fetchVenueGuestsWindow (86ey9e8hz)', () => {
 
     expect(rows[0]).toMatchObject({ tierName: 'Gastenlijst', tierColor: null });
     expect(total).toBe(1); // count null → falls back to the page length
+  });
+});
+
+// ── fetchTiersWithUsage (86ey9e9wv) ──────────────────────────────────────
+// Occupancy now comes from the event_tier_occupancy RPC (a DB-side GROUP BY),
+// not a per-guest download summed in JS.
+
+describe('fetchTiersWithUsage (86ey9e9wv)', () => {
+  interface RpcCall {
+    name: string;
+    args: unknown;
+  }
+
+  function makeClient(tiersResult: unknown, rpcResult: unknown, rpcCalls: RpcCall[] = []) {
+    return {
+      from: vi.fn(() => ({
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            order: vi.fn(() => Promise.resolve(tiersResult)),
+          })),
+        })),
+      })),
+      rpc: vi.fn((name: string, args: unknown) => {
+        rpcCalls.push({ name, args });
+        return Promise.resolve(rpcResult);
+      }),
+    } as never;
+  }
+
+  it('rejects when the occupancy RPC errors, rather than showing every tier as empty', async () => {
+    const client = makeClient({ data: [{ id: 't1' }], error: null }, { data: null, error: { message: 'boom' } });
+    await expect(fetchTiersWithUsage(client, 'event-1')).rejects.toThrow();
+  });
+
+  it('rejects when the tiers select errors', async () => {
+    const client = makeClient({ data: null, error: { message: 'boom' } }, { data: [], error: null });
+    await expect(fetchTiersWithUsage(client, 'event-1')).rejects.toThrow();
+  });
+
+  it('maps occupancy from the RPC by tier_id and defaults tiers with no rows to 0', async () => {
+    const rpcCalls: RpcCall[] = [];
+    const client = makeClient(
+      {
+        data: [
+          { id: 't1', name: 'Regular', color: '#000', max_guests: null, aliases: [], door_price_cents: null, vat_percent: null },
+          { id: 't2', name: 'VIP', color: '#fff', max_guests: 10, aliases: [], door_price_cents: null, vat_percent: null },
+        ],
+        error: null,
+      },
+      { data: [{ tier_id: 't1', used: 23 }], error: null },
+      rpcCalls,
+    );
+
+    const rows = await fetchTiersWithUsage(client, 'event-1');
+
+    expect(rpcCalls).toEqual([{ name: 'event_tier_occupancy', args: { p_event_id: 'event-1' } }]);
+    expect(rows).toEqual([
+      { id: 't1', name: 'Regular', color: '#000', max_guests: null, aliases: [], door_price_cents: null, vat_percent: null, used: 23 },
+      { id: 't2', name: 'VIP', color: '#fff', max_guests: 10, aliases: [], door_price_cents: null, vat_percent: null, used: 0 },
+    ]);
+  });
+});
+
+// ── fetchVenueRequestLinks (86ey9e9wv, A2 fix) ───────────────────────────
+// Links never archive automatically, so this is now a ranged read (instead of
+// one unwindowed select). The influencer lookup filters by venue_id directly
+// (never `.in('id', …)` — a ranged read has no bound on the distinct
+// influencer count it can surface, matching CLAUDE.md's "never .in() a
+// venue-wide list" rule).
+
+describe('fetchVenueRequestLinks (86ey9e9wv, A2)', () => {
+  interface Capture {
+    ranges: [number, number][];
+    orders: unknown[][];
+    influencersEq: [string, string][];
+  }
+
+  interface LinksChain {
+    select: (...args: unknown[]) => LinksChain;
+    eq: (...args: unknown[]) => LinksChain;
+    is: (...args: unknown[]) => LinksChain;
+    order: (...args: unknown[]) => LinksChain;
+    range: (from: number, to: number) => Promise<unknown>;
+  }
+  interface InfChain {
+    select: (...args: unknown[]) => InfChain;
+    eq: (col: string, value: string) => Promise<unknown>;
+  }
+
+  function makeClient(pages: unknown[], influencersResult: unknown, capture: Capture) {
+    let pageIndex = 0;
+    const linksChain: LinksChain = {
+      select: vi.fn(() => linksChain),
+      eq: vi.fn(() => linksChain),
+      is: vi.fn(() => linksChain),
+      order: vi.fn((...args: unknown[]) => {
+        capture.orders.push(args);
+        return linksChain;
+      }),
+      range: vi.fn((from: number, to: number) => {
+        capture.ranges.push([from, to]);
+        const result = pages[pageIndex] ?? { data: [], error: null };
+        pageIndex++;
+        return Promise.resolve(result);
+      }),
+    };
+    const infChain: InfChain = {
+      select: vi.fn(() => infChain),
+      eq: vi.fn((col: string, value: string) => {
+        capture.influencersEq.push([col, value]);
+        return Promise.resolve(influencersResult);
+      }),
+    };
+    return {
+      from: vi.fn((table: string) => (table === 'request_links' ? linksChain : infChain)),
+    } as never;
+  }
+
+  it('rejects when the ranged request_links read errors', async () => {
+    const capture: Capture = { ranges: [], orders: [], influencersEq: [] };
+    const client = makeClient([{ data: null, error: { message: 'boom' } }], { data: [], error: null }, capture);
+    await expect(fetchVenueRequestLinks(client, 'venue-1')).rejects.toThrow();
+  });
+
+  it('rejects when the influencers read errors', async () => {
+    const capture: Capture = { ranges: [], orders: [], influencersEq: [] };
+    const client = makeClient([{ data: [], error: null }], { data: null, error: { message: 'boom' } }, capture);
+    await expect(fetchVenueRequestLinks(client, 'venue-1')).rejects.toThrow();
+  });
+
+  it('pages the request_links read (fetchAllRanged) with an id tiebreaker, instead of one unwindowed select', async () => {
+    const capture: Capture = { ranges: [], orders: [], influencersEq: [] };
+    const fullPage = Array.from({ length: 1000 }, (_, i) => ({
+      id: `link-${i}`,
+      event_id: 'event-1',
+      is_default: false,
+      label: `Link ${i}`,
+      influencer_id: null,
+    }));
+    const client = makeClient(
+      [
+        { data: fullPage, error: null },
+        { data: [], error: null },
+      ],
+      { data: [], error: null },
+      capture,
+    );
+
+    const rows = await fetchVenueRequestLinks(client, 'venue-1');
+
+    expect(capture.ranges).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ]); // a full first page forces a second (short) page request
+    // B4: `created_at` alone isn't a unique order — every page must also carry
+    // the `id` tiebreaker, or ranged paging can skip/repeat tied rows. The page
+    // factory reruns per page (fetchAllRanged rebuilds the query each time), so
+    // the pair repeats once per page fetched (two pages here).
+    expect(capture.orders).toEqual([
+      ['created_at', { ascending: true }],
+      ['id'],
+      ['created_at', { ascending: true }],
+      ['id'],
+    ]);
+    expect(rows).toHaveLength(1000);
+  });
+
+  it('filters influencers by venue_id (no .in() id list) and resolves label fallback (resolved name > stored label > null)', async () => {
+    const capture: Capture = { ranges: [], orders: [], influencersEq: [] };
+    const client = makeClient(
+      [
+        {
+          data: [
+            { id: 'l1', event_id: 'e1', is_default: true, label: null, influencer_id: null },
+            { id: 'l2', event_id: 'e1', is_default: false, label: 'Fallback label', influencer_id: 'inf-1' },
+            { id: 'l3', event_id: 'e1', is_default: false, label: null, influencer_id: 'inf-2' },
+          ],
+          error: null,
+        },
+      ],
+      { data: [{ id: 'inf-1', name: 'Jayden Promo' }], error: null },
+      capture,
+    );
+
+    const rows = await fetchVenueRequestLinks(client, 'venue-1');
+
+    expect(capture.influencersEq).toEqual([['venue_id', 'venue-1']]);
+    expect(rows).toEqual([
+      { id: 'l1', eventId: 'e1', isDefault: true, label: null },
+      { id: 'l2', eventId: 'e1', isDefault: false, label: 'Jayden Promo' },
+      { id: 'l3', eventId: 'e1', isDefault: false, label: null }, // unresolved influencer -> null, not the (absent) stored label
+    ]);
+  });
+});
+
+// ── fetchRequestLinks (86ey9e9wv/D1) ─────────────────────────────────────────
+// Folded onto the existing event_link_funnel RPC (fresh-session /code-review
+// D1) — one call replaces the old four batched reads + client-side heads
+// loops entirely, so there is nothing left in this fetcher to re-implement
+// or get wrong (the RPC's own correctness is exercised by
+// supabase/tests/database/promotion_stats.test.sql).
+
+describe('fetchRequestLinks (86ey9e9wv/D1)', () => {
+  function makeClient(rpcResult: unknown, rpcCalls: Array<{ name: string; args: unknown }> = []) {
+    return {
+      rpc: vi.fn((name: string, args: unknown) => {
+        rpcCalls.push({ name, args });
+        return Promise.resolve(rpcResult);
+      }),
+    } as never;
+  }
+
+  it('rejects when the RPC errors, rather than showing every link with zero requests', async () => {
+    const client = makeClient({ data: null, error: { message: 'boom' } });
+    await expect(fetchRequestLinks(client, 'event-1')).rejects.toThrow();
+  });
+
+  it('calls event_link_funnel with the event id and maps every field, including the new tier_id/created_at/approved columns', async () => {
+    const rpcCalls: Array<{ name: string; args: unknown }> = [];
+    const client = makeClient(
+      {
+        data: [
+          {
+            link_id: 'l1',
+            slug: 's1',
+            is_default: true,
+            label: null,
+            tier_id: null,
+            influencer_id: null,
+            influencer_name: null,
+            active: true,
+            auto_approve: false,
+            max_headcount: null,
+            expires_at: null,
+            created_at: '2026-01-01T00:00:00Z',
+            views: 10,
+            requests: 3,
+            approved: 1,
+            approved_heads: 2,
+            checked_in_heads: 1,
+          },
+          {
+            link_id: 'l2',
+            slug: 's2',
+            is_default: false,
+            label: 'Jayden',
+            tier_id: 't1',
+            influencer_id: 'inf-1',
+            influencer_name: 'Jayden Promo',
+            active: true,
+            auto_approve: true,
+            max_headcount: 25,
+            expires_at: '2026-02-01T00:00:00Z',
+            created_at: '2026-01-02T00:00:00Z',
+            views: 40,
+            requests: 2,
+            approved: 2,
+            approved_heads: 4,
+            checked_in_heads: 3,
+          },
+        ],
+        error: null,
+      },
+      rpcCalls,
+    );
+
+    const rows = await fetchRequestLinks(client, 'event-1');
+
+    expect(rpcCalls).toEqual([{ name: 'event_link_funnel', args: { p_event_id: 'event-1' } }]);
+    expect(rows).toEqual([
+      {
+        id: 'l1',
+        eventId: 'event-1',
+        slug: 's1',
+        isDefault: true,
+        active: true,
+        autoApprove: false,
+        influencerId: null,
+        influencerName: null,
+        label: null,
+        tierId: null,
+        maxHeadcount: null,
+        expiresAt: null,
+        createdAt: '2026-01-01T00:00:00Z',
+        views: 10,
+        requests: 3,
+        approved: 1, // requests (3) and approved (1) are DISTINCT counts — B4
+        approvedHeads: 2,
+        checkedInHeads: 1,
+      },
+      {
+        id: 'l2',
+        eventId: 'event-1',
+        slug: 's2',
+        isDefault: false,
+        active: true,
+        autoApprove: true,
+        influencerId: 'inf-1',
+        influencerName: 'Jayden Promo',
+        label: 'Jayden',
+        tierId: 't1',
+        maxHeadcount: 25,
+        expiresAt: '2026-02-01T00:00:00Z',
+        createdAt: '2026-01-02T00:00:00Z',
+        views: 40,
+        requests: 2,
+        approved: 2,
+        approvedHeads: 4,
+        checkedInHeads: 3,
+      },
+    ]);
   });
 });

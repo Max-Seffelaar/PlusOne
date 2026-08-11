@@ -25,7 +25,7 @@ begin
 end;
 $fn$;
 
-select plan(62);
+select plan(70);
 
 -- ===========================================================================
 -- 1. Event summary — correct headline numbers (admin, AAL2)
@@ -291,6 +291,106 @@ select is((select pr2 from _c6), (select pr0 from _c6),
   '11.4 voiding the check-in drops present back to baseline (C6 fix)');
 
 reset role;
+
+-- ===========================================================================
+-- 12. event_tier_occupancy (86ey9e9wv, D2) — DB-side aggregate that
+--     replaces fetchTiersWithUsage's client-side per-row sum. Delegates to
+--     guest_tier_contribution(g) — the exact function tier_consumption (the
+--     capacity trigger) already sums — so the exclusion set can never drift
+--     from the trigger. SECURITY INVOKER, so RLS on `guests` governs
+--     visibility exactly as it did for the row-by-row read this replaces.
+--     (fetchRequestLinks' funnel is now the existing event_link_funnel RPC,
+--     D1 — its own coverage lives in promotion_stats.test.sql, extended below
+--     rather than duplicated here.)
+--
+--     Uses its OWN isolated event/tiers/guests (e2../d2../c2..) rather than
+--     the shared ee..01 seed event — the exact counts below must not depend
+--     on §9's tier-change mutation, nor (this local stack is shared across
+--     many worktree sessions against the SAME fixed seed ids) on another
+--     session's concurrent writes to ee..01. An explicit event_quotas
+--     override for Tom decouples the fixture from the seed's venue-level
+--     default quota too (86ey9e9wv/B5) — his two guests below would fit
+--     under the seed's current default (10), but that's an accident of the
+--     seed's current value, not a guarantee this fixture should silently
+--     lean on.
+-- ===========================================================================
+
+insert into public.events (id, venue_id, name, starts_at, status, landing_slug, landing_active)
+values ('e2000000-0000-7000-8000-000000000001', 'aa000000-0000-7000-8000-000000000001',
+        'Occupancy Fixture', now() + interval '9 days', 'open', 'occupancy-fixture', false);
+
+insert into public.event_quotas (event_id, user_id, quota_override) values
+  ('e2000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555', 100);
+
+insert into public.guest_tiers (id, event_id, name) values
+  ('d2000000-0000-7000-8000-000000000001', 'e2000000-0000-7000-8000-000000000001', 'Fixture Regular'),
+  ('d2000000-0000-7000-8000-000000000002', 'e2000000-0000-7000-8000-000000000001', 'Fixture VIP'),
+  ('d2000000-0000-7000-8000-000000000003', 'e2000000-0000-7000-8000-000000000001', 'Fixture Empty');
+
+-- Tier 1: every status once — proves "used" excludes ONLY removed/denied
+-- (matches guest_tier_contribution, NOT event_tier_stats' approved/checked_in-
+-- only "registered"). Split across two adders to prove staff RLS-scoping too.
+insert into public.guests (id, event_id, tier_id, full_name, added_by, status) values
+  ('c2000000-0000-7000-8000-000000000001', 'e2000000-0000-7000-8000-000000000001',
+   'd2000000-0000-7000-8000-000000000001', 'Fixture Approved (Max)',
+   '11111111-1111-4111-8111-111111111111', 'approved'),
+  ('c2000000-0000-7000-8000-000000000002', 'e2000000-0000-7000-8000-000000000001',
+   'd2000000-0000-7000-8000-000000000001', 'Fixture CheckedIn (Max)',
+   '11111111-1111-4111-8111-111111111111', 'checked_in'),
+  ('c2000000-0000-7000-8000-000000000003', 'e2000000-0000-7000-8000-000000000001',
+   'd2000000-0000-7000-8000-000000000001', 'Fixture Pending (Tom)',
+   '55555555-5555-4555-8555-555555555555', 'pending'),
+  ('c2000000-0000-7000-8000-000000000004', 'e2000000-0000-7000-8000-000000000001',
+   'd2000000-0000-7000-8000-000000000001', 'Fixture Refused (Tom)',
+   '55555555-5555-4555-8555-555555555555', 'refused'),
+  ('c2000000-0000-7000-8000-000000000005', 'e2000000-0000-7000-8000-000000000001',
+   'd2000000-0000-7000-8000-000000000001', 'Fixture Removed (Max)',
+   '11111111-1111-4111-8111-111111111111', 'removed'),
+  ('c2000000-0000-7000-8000-000000000006', 'e2000000-0000-7000-8000-000000000001',
+   'd2000000-0000-7000-8000-000000000001', 'Fixture Denied (Max)',
+   '11111111-1111-4111-8111-111111111111', 'denied'),
+  ('c2000000-0000-7000-8000-000000000007', 'e2000000-0000-7000-8000-000000000001',
+   'd2000000-0000-7000-8000-000000000002', 'Fixture VIP Approved (Max)',
+   '11111111-1111-4111-8111-111111111111', 'approved');
+
+select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2');
+
+select is((select count(*)::int from public.event_tier_occupancy('e2000000-0000-7000-8000-000000000001')),
+  2, '12.1 admin: only tiers WITH occupancy appear (the empty tier is absent)');
+select is((select used from public.event_tier_occupancy('e2000000-0000-7000-8000-000000000001')
+           where tier_id = 'd2000000-0000-7000-8000-000000000001'),
+  4, '12.2 tier 1 used = 4 (approved + checked_in + pending + refused; removed + denied excluded — NOT event_tier_stats semantics)');
+select is((select used from public.event_tier_occupancy('e2000000-0000-7000-8000-000000000001')
+           where tier_id = 'd2000000-0000-7000-8000-000000000002'),
+  1, '12.3 tier 2 used = 1');
+reset role;
+
+-- Staff (Tom): guests RLS scopes to added_by = self — occupancy reflects only
+-- his own additions (Fixture Pending + Fixture Refused; none in tier 2, so
+-- tier 2 doesn't appear for him at all).
+select pg_temp.login('55555555-5555-4555-8555-555555555555');
+select is((select count(*)::int from public.event_tier_occupancy('e2000000-0000-7000-8000-000000000001')),
+  1, '12.4 staff sees occupancy only for tiers among his own guests');
+select is((select used from public.event_tier_occupancy('e2000000-0000-7000-8000-000000000001')
+           where tier_id = 'd2000000-0000-7000-8000-000000000001'),
+  2, '12.5 staff tier 1 used = 2 (his own pending + refused; the other 4 rows added by Max stay invisible)');
+reset role;
+
+-- Doorhost (Lisa): guests_select grants admin/finance/doorhost full read.
+select pg_temp.login('66666666-6666-4666-8666-666666666666');
+select is((select count(*)::int from public.event_tier_occupancy('e2000000-0000-7000-8000-000000000001')),
+  2, '12.6 doorhost sees full tier occupancy (guests_select grants doorhost)');
+reset role;
+
+-- Privileges (86ey9e9wv/B2) — the drop+recreate this migration does on
+-- event_link_funnel wipes its prior grants, and event_tier_occupancy is a
+-- brand-new function; both need an explicit re-declaration, not the Postgres
+-- default (EXECUTE TO PUBLIC), matching the venue_event_headcounts precedent
+-- (20260708120000_venue_scope_denormalization.sql).
+select ok(not has_function_privilege('anon', 'public.event_tier_occupancy(uuid)', 'EXECUTE'),
+  '12.7 anon cannot execute event_tier_occupancy');
+select ok(has_function_privilege('authenticated', 'public.event_tier_occupancy(uuid)', 'EXECUTE'),
+  '12.8 authenticated can execute event_tier_occupancy');
 
 select * from finish();
 

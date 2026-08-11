@@ -1291,6 +1291,72 @@ outbox) — got the fresh-session `/code-review` above before merge, per CLAUDE.
 
 ---
 
+## 2026-08-10 — Scale: tier occupancy + request-link reads/funnel now DB-aggregated (86ey9e9wv)
+
+Branch `perf/86ey9e9wv-scale-tiers-links-funnel` (PR #260). Milestone: Now (scale/front-end
+discipline from the 2026-07 engineering review). Three fetchers in `src/features/po/queries.ts`
+violated "aggregate on the database, never download every row and sum in JS" / "reads must be
+windowed at large N" — fixed with DB-side aggregation + windowing. **A fresh-session
+`/code-review` at max effort found 15 further issues in the first version of this fix** (4
+blocking, 5 should-fix, cleanups, 2 design decisions put to Max) — this entry describes the
+repaired, merged state; see PR #260 for the full finding list and fix-by-fix response.
+
+- **`fetchTiersWithUsage`.** Downloaded every guest row of the event (`tier_id`, `status`) and
+  summed per-tier occupancy in JS, re-fetched on every check-in. The ClickUp ticket suggested
+  reusing `event_tier_stats` — **re-verified and rejected**: `event_tier_stats`'s "registered"
+  counts only `approved`/`checked_in`, but the tier-max occupancy bar must match
+  `guest_tier_contribution`/`tier_consumption` (the actual capacity-trigger semantics), which
+  excludes only `removed`/`denied`. The review's first pass re-typed that exclusion rule as a
+  literal instead of calling `guest_tier_contribution` directly — a duplicate copy that could
+  silently drift from the trigger on a future `guest_status` addition. Fixed properly: the new
+  `event_tier_occupancy(uuid)` RPC now delegates to `guest_tier_contribution(g)` itself (granted
+  `EXECUTE` to `authenticated` for the first time — it was quota-engine-internal before), so the
+  two can never disagree.
+- **`fetchRequestLinks` funnel counting + `fetchVenueRequestLinks`'s influencer lookup.** The
+  `guest_requests` read for per-link requests/approved had no `.range()`; the venue-wide link
+  read's influencer lookup chunked an unbounded `.in()` id list at the wrong size (`chunkIds`'
+  1000-default renders ~37 kB of query string — CLAUDE.md's own measured 414 threshold is ~210
+  ids); and the hand-rolled `approvedHeads`/`checkedInHeads` JS counted denied/refused guests as
+  full headcount (the real cap, `link_headcount_contribution`, does not) and used registered
+  `plus_ones` instead of `plus_ones_arrived` for checked-in heads (the #44 overcount, already
+  fixed elsewhere). Rather than add a THIRD place computing "heads through this link" with its
+  own scoping, **`fetchRequestLinks` was folded onto the existing `event_link_funnel` RPC**
+  (`20260707100000_promotion_dashboard_rpcs.sql`, already used by the Promotion screen and
+  already correct on both counts) — widened with `approved`/`tier_id`/`created_at` (a
+  `returns table` widening needs drop+recreate, Postgres rejects it under `create or replace`,
+  so its grants had to be explicitly re-declared). This deleted the four batched reads, both
+  funnel `Map`s, and every client-side heads loop — nothing left in `fetchRequestLinks` to get
+  wrong. `fetchVenueRequestLinks`'s influencer lookup now filters `.eq('venue_id', venueId)`
+  directly instead of chunking an `.in()` id list at all (an organizer's `influencers` RLS grant
+  is venue-wide even though `request_links`'s is per-event, so this can resolve a few names the
+  caller's own links never reference — harmless, just unused map entries).
+- Migration `20260810190000_scale_tier_occupancy_link_funnel.sql` (re-stamped after
+  `20260810183000` post-rebase — the first version sorted BETWEEN two already-merged migrations,
+  which `supabase db push --include-all` would have needed to catch). Both RPCs' grants are
+  explicit (`revoke … from public, anon[, authenticated, service_role]` +
+  `grant … to authenticated, service_role`), matching the `venue_event_headcounts` precedent —
+  the first version relied on the Postgres default (`EXECUTE TO PUBLIC`), which `anon` could call
+  (harmlessly, since `guests`/`guest_requests` RLS still denies the underlying read, but a lost
+  second lock nonetheless).
+- **New CI guard**, `tests/unit/rpc-migration-exists.test.ts`: scans every `client.rpc('name')`
+  literal in `src/` against every `create [or replace] function public.<name>` in
+  `supabase/migrations/`, so code that calls an RPC no migration ever created fails `pnpm test`
+  instead of silently 404ing in prod for however long it takes someone to notice (CLAUDE.md's
+  migration-before-code expand–contract flow assumes the migration is pushed before the code
+  deploys; this PR's own migration briefly wasn't, per the note on `fetchEventHeadcounts`).
+- pgTAP: `analytics.test.sql` §12 covers `event_tier_occupancy` (per-status inclusion, the staff
+  RLS-scoping, and its privilege grants) using an **isolated fixture event** (`e2../d2../c2..`
+  ids, with an explicit `event_quotas` override so it doesn't silently lean on the seed's default
+  quota) rather than the shared seed event — the shared local Supabase stack is used concurrently
+  by every worktree session against the same fixed seed ids, so exact-count assertions against
+  the shared event are flaky by construction (confirmed while first writing this: the seed's
+  Regular/VIP tier counts drifted between two otherwise-identical runs). `promotion_stats.test.sql`
+  gained the `approved`/`tier_id`/`created_at` coverage plus `event_link_funnel`'s privilege
+  grants, extending its existing fixture rather than duplicating one. Full suite: pgTAP 1049
+  (was 1005), vitest 1118 (was 857, incl. unrelated `main` growth from other merges).
+- No client-facing behaviour change: same shapes, same numbers, same RLS-scoped visibility —
+  purely a where-the-aggregation-happens change.
+
 ## 2026-07-14 — Door outbox/cache not wiped on sign-out — shared-device isolation (86ey9et07)
 
 Branch `fix/86ey9et07-door-outbox-clear-on-signout` (PR #233). Follow-up carved out of the
