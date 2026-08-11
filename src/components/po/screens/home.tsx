@@ -452,17 +452,17 @@ export function Home(): JSX.Element {
   const [lockOverride, setLockOverride] = useState<Record<string, boolean>>({});
   const setLock = usePoSetListLockOnHome();
 
-  const toastTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = (msg: string): void => {
     setToast(msg);
     // An earlier toast's timer would otherwise fire after a later one is set
     // and wipe it prematurely — clear it before arming the new one.
-    if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 2200);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 2200);
   };
   useEffect(() => {
     return () => {
-      if (toastTimer.current) window.clearTimeout(toastTimer.current);
+      if (toastTimer.current) clearTimeout(toastTimer.current);
     };
   }, []);
 
