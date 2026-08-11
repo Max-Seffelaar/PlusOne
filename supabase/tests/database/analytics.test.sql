@@ -25,7 +25,7 @@ begin
 end;
 $fn$;
 
-select plan(62);
+select plan(68);
 
 -- ===========================================================================
 -- 1. Event summary — correct headline numbers (admin, AAL2)
@@ -289,6 +289,59 @@ select is((select hc2 from _c6), (select hc0 from _c6),
   '11.3 voiding the check-in drops present_headcount back to baseline (C6 fix)');
 select is((select pr2 from _c6), (select pr0 from _c6),
   '11.4 voiding the check-in drops present back to baseline (C6 fix)');
+
+-- ===========================================================================
+-- 12. M4 follow-up 3A (86ey9c5fp) — a guest refused AFTER checking in must
+--     leave the instroom chart too. `sync_guest_status_from_refusal` flips the
+--     status without voiding the check-in (deliberate: the arrival really
+--     happened, the refusal is the newer fact), so before migration
+--     20260811150000 that live check_ins row kept feeding
+--     event_checkins_per_quarter while event_stats_summary.present had already
+--     dropped it — two numbers for the same moment (#44).
+-- ===========================================================================
+
+select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2');
+
+create temp table _q3a as
+  select (select coalesce(sum(checkins), 0)::int
+            from public.event_checkins_per_quarter('ee000000-0000-7000-8000-000000000001')) as ci0,
+         (select coalesce(sum(headcount), 0)::int
+            from public.event_checkins_per_quarter('ee000000-0000-7000-8000-000000000001')) as hc0,
+         (select present from public.event_stats_summary('ee000000-0000-7000-8000-000000000001')) as pr0;
+
+select is((select ci0 from _q3a), (select pr0 from _q3a),
+  '12.1 baseline: chart check-ins and summary present agree (3 = 3)');
+
+-- Sanne (cc..02) is checked in with 1 arrived plus-one = 2 heads. Refuse her now.
+insert into public.refusals (guest_id, refused_by, reason)
+values ('cc000000-0000-7000-8000-000000000002', '11111111-1111-4111-8111-111111111111',
+        'Alsnog geweigerd na binnenkomst');
+
+select is((select status::text from public.guests
+            where id = 'cc000000-0000-7000-8000-000000000002'),
+  'refused', '12.2 the refusal flipped the checked-in guest to refused');
+
+-- The premise of the whole finding: the check-in survives the refusal.
+select ok((select exists (select 1 from public.check_ins
+                           where guest_id = 'cc000000-0000-7000-8000-000000000002'
+                             and voided_at is null)),
+  '12.3 her check_ins row is still there and NOT voided (refusal never voids)');
+
+select is((select coalesce(sum(checkins), 0)::int
+             from public.event_checkins_per_quarter('ee000000-0000-7000-8000-000000000001')),
+  (select ci0 - 1 from _q3a),
+  '12.4 the chart drops her arrival (3 -> 2 check-ins)');
+
+select is((select coalesce(sum(headcount), 0)::int
+             from public.event_checkins_per_quarter('ee000000-0000-7000-8000-000000000001')),
+  (select hc0 - 2 from _q3a),
+  '12.5 the chart drops both of her heads (self + 1 arrived plus-one)');
+
+-- The point of 3A: chart and summary describe the same population again.
+select is((select coalesce(sum(checkins), 0)::int
+             from public.event_checkins_per_quarter('ee000000-0000-7000-8000-000000000001')),
+  (select present from public.event_stats_summary('ee000000-0000-7000-8000-000000000001')),
+  '12.6 chart and summary.present still agree after the refusal (they did not before)');
 
 reset role;
 

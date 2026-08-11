@@ -17,7 +17,7 @@ begin
 end;
 $fn$;
 
-select plan(13);
+select plan(19);
 
 -- Headroom so the personal limit never interferes; only the free/hold RULE is tested.
 update public.event_quotas set quota_override = 100000
@@ -86,6 +86,67 @@ select is(public.submit_guest_request(
   (select landing_slug from public.events where id = 'ee000000-0000-7000-8000-000000000001'),
   'Cap Submitter', null, null, 0, null, null, false) ->> 'status', 'ok',
   '9 a request to an active, non-cancelled event is accepted');
+
+-- ===========================================================================
+-- 14.x — M4 follow-up 4A (86ey9c5fp, migration 20260811151000): a `pending`
+-- guest row holds NO personal-quota or request-link slot. No shipped surface
+-- renders a pending guest (fetchGuests and the door query both scope to
+-- approved/checked_in/refused) and no write path produces one, so charging it
+-- meant an invisible, unfreeable slot. The anti-fraud "inside keeps the slot"
+-- branch (#22) still wins over pending, and promoting the row to approved
+-- charges it in full — that is the no-bypass case (14.4).
+--
+-- Placed before the cancel block below so these writes run against a live
+-- event; numbered 14 to keep the existing case numbers stable.
+-- ===========================================================================
+
+create temp table cap_pending as
+  select public.user_event_consumption(
+    'ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555') as c;
+
+-- A pending guest with a +2 party (would be 3 slots if it were on the list).
+insert into public.guests (id, event_id, tier_id, full_name, plus_ones, added_by, source, status)
+values ('cc000000-0000-7000-8000-0000000000f3', 'ee000000-0000-7000-8000-000000000001',
+        'dd000000-0000-7000-8000-000000000001', 'Cap Pending', 2,
+        '55555555-5555-4555-8555-555555555555', 'app', 'pending');
+
+select is(public.guest_personal_contribution(
+  (select g from public.guests g where g.id = 'cc000000-0000-7000-8000-0000000000f3'), false),
+  0, '14.1 a pending guest who is not inside contributes 0 personal slots');
+
+select is(public.guest_personal_contribution(
+  (select g from public.guests g where g.id = 'cc000000-0000-7000-8000-0000000000f3'), true),
+  3, '14.2 a pending guest who IS inside still holds its slots (anti-fraud #22 wins)');
+
+select is(public.user_event_consumption(
+  'ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555'),
+  (select c from cap_pending),
+  '14.3 adding a pending guest does not raise the adder''s consumption');
+
+-- No bypass: the moment the row becomes usable, the quota engine charges it.
+update public.guests set status = 'approved'
+  where id = 'cc000000-0000-7000-8000-0000000000f3';
+select is(public.user_event_consumption(
+  'ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555'),
+  (select c from cap_pending) + 3,
+  '14.4 promoting pending -> approved charges the full 1 + plus_ones (no bypass)');
+
+-- Same rule for the per-request-link cap (45006), kept in lockstep.
+update public.guests set status = 'pending'
+  where id = 'cc000000-0000-7000-8000-0000000000f3';
+select is(public.link_headcount_contribution(
+  (select g from public.guests g where g.id = 'cc000000-0000-7000-8000-0000000000f3'), false),
+  0, '14.5 a pending guest contributes 0 to a request link''s headcount cap');
+
+update public.guests set status = 'approved'
+  where id = 'cc000000-0000-7000-8000-0000000000f3';
+select is(public.link_headcount_contribution(
+  (select g from public.guests g where g.id = 'cc000000-0000-7000-8000-0000000000f3'), false),
+  3, '14.6 the same guest approved contributes its full party to the link cap');
+
+-- Leave the fixture off the list so the cancel-gate cases below are unaffected.
+update public.guests set status = 'removed'
+  where id = 'cc000000-0000-7000-8000-0000000000f3';
 
 -- ── Cancel the event ──
 update public.events set cancelled_at = now()

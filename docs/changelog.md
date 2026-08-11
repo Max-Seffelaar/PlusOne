@@ -8,6 +8,67 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-11 — M4 follow-up PR B: quarter chart follows #44, pending guests hold no slot (86ey9c5fp)
+
+Branch `claude/86ey9c5fp-quarter-chart-pending-quota`. Part 2 of the M4 review follow-up:
+the two **design decisions** the fresh-session `/code-review` of `86ey7dzdc` left open. Both
+were put to Max with a recommendation before any code was written; he chose 3A and 4A.
+Milestone: Now. Deliberately split from PR A (#248, client-only dedup) so the quota-engine
+change carries its own review gate instead of riding along on a refactor.
+
+**3A — `event_checkins_per_quarter` excludes refused (migration
+`20260811150000_quarter_chart_excludes_refused.sql`).** `sync_guest_status_from_refusal`
+(`20260619120000`) flips a guest `checked_in` → `refused` *without* voiding their check-in —
+deliberate, the arrival really happened and the refusal is just the newer fact. The quarter
+chart scoped its guest join to `('approved','checked_in','refused')`, so that surviving
+`check_ins` row kept feeding the chart after `event_stats_summary.present` had already dropped
+it. Worth noting the RPC also disagreed with **its own sibling**: the summary's
+`peak_bucket`/`peak_count` derive from a refused-free CTE, so the chart could render a bucket
+taller than the peak the same screen reported. Now one population everywhere (#44). The refusal
+stays fully visible via `guests.status`, the `refusals` table, the audit trail and
+`event_stats_summary.refused`. Only the status scope changed — the `voided_at is null` filter,
+the first-check-in-wins `distinct on` (#11) and the bucket math are untouched.
+
+**4A — a `pending` guest holds no personal-quota or link slot (migration
+`20260811151000_pending_guest_holds_no_slot.sql`).** `guest_personal_contribution` charged
+`1 + plus_ones` for status `pending` while no shipped surface renders such a row (`fetchGuests`
+and the door query both scope to `approved`/`checked_in`/`refused`, and the po `Guest` type has
+no pending variant) — an invisible slot the adder could not free. Verified across every write
+path before changing it: `guests.status` **defaults to `approved`**, every guest-creating RPC
+inserts `'approved'` explicitly (the awaiting-approval state lives on `guest_requests.status`,
+which only materializes a `guests` row on approval), and the app's own insert paths send no
+status at all. The only producers are the seed's Aïcha fixture (source `landing`, already exempt
+under #31) and a hand-written PostgREST insert; the branch is vestigial, predating
+`guest_requests`. `link_headcount_contribution` (45006) carried the identical dead branch and was
+changed in lockstep so "holds a slot" means one thing across the quota engine.
+**No bypass:** a pending row is inert in both directions — invisible to every list *and* to the
+door, so it can never be checked in while pending, and the moment it is promoted to
+`approved`/`checked_in` the `enforce_guest_quota` / `enforce_request_link_max` triggers fire on
+the net increase and charge it in full (pgTAP case 14.4 asserts exactly that). `guests_insert`
+RLS still pins `added_by` to the caller.
+**Deliberately unchanged:** `guest_capacity_contribution` (event capacity, `20260624090000`)
+keeps counting pending. Its rule is a different shape ("anything not removed/denied occupies a
+physical spot", and it counts refused too, #22 anti-reuse), so folding pending out of it is a
+separate semantic decision — flagged for Max, not silently changed.
+
+**Tests.** New pgTAP: `analytics.test.sql` §12 (6 cases, plan 62→68) refuses an
+already-checked-in guest and proves her `check_ins` row survives un-voided (the premise), that the
+chart drops both her heads, and that chart and `summary.present` agree again — the pre-fix
+disagreement is what the case exists to prevent. `event_lifecycle_capacity.test.sql` §14 (6 cases,
+plan 13→19) covers pending = 0 slots, pending-but-inside still holding its slots (anti-fraud #22
+still wins), the promote-to-approved charge, and the same rule on the link cap. Full suite on a
+fresh `supabase db reset`: **53 files / 1036 pgTAP tests PASS**; `pnpm vitest run` 97 files /
+**1024** green; `tsc --noEmit` clean; `eslint` clean. `database.types.ts` needed no regeneration —
+both functions keep their exact signature and return type (verified by regenerating and diffing).
+
+**Unrelated pre-existing finding, not fixed here:** `supabase/tests/database/tiers.vat.test.sql`
+plans 15 tests but runs 2 — it aborts at case B1 (a `guest_tiers` VAT constraint insert) and
+**pg_prove still reports the file as `ok`**, so 13 assertions have been silently absent from the
+green light. Reproduced in isolation and unrelated to these migrations (different tables entirely);
+likely the known local pgTAP savepoint quirk. Filed separately.
+
+---
+
 ## 2026-08-11 — Review fixes on the SW cache split: offline boot, wipe completeness (86ey9e9mn)
 
 Same branch/PR (#246) as the entry below. A fresh-session `/code-review` (15 findings) plus
