@@ -1,27 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import type { EmailOtpType } from '@supabase/supabase-js';
-import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { safeNextPath } from '@/features/auth/next-path';
 import { resolveEntryDestination } from '@/features/auth/entry-redirect';
-
-// The link-verification types this route accepts. `EmailOtpType` in
-// auth-js is an OPEN union (`'signup' | 'invite' | ... | (string & {})`), so
-// `satisfies z.ZodType<EmailOtpType>` enforces nothing at compile time — a
-// trimmed or misspelled enum still typechecks clean. This is a hand-maintained
-// subset of the six values GoTrue actually accepts for link-based
-// verification; `emailOtpTypeSchema.test.ts` pins the exact list so drift is
-// caught at test time instead. Validated (rather than a raw `as` cast) so an
-// unexpected value in the query string fails closed instead of reaching
-// verifyOtp unchecked.
-export const emailOtpTypeSchema = z.enum([
-  'signup',
-  'invite',
-  'magiclink',
-  'recovery',
-  'email_change',
-  'email',
-]) satisfies z.ZodType<EmailOtpType>;
+import { emailOtpTypeSchema } from '@/features/auth/schemas';
 
 // Handles link-based verification (token_hash), used for the confirmed e-mail
 // change flow (decision #24) and any magic-link fallback. On success the
