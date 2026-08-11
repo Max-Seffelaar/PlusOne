@@ -8,6 +8,101 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-11 — Review fixes on the SW cache split: offline boot, wipe completeness (86ey9e9mn)
+
+Same branch/PR (#246) as the entry below. A fresh-session `/code-review` (15 findings) plus
+`/security-review` (no new vulnerabilities; the PR is a net security win) ran on the cache-scoping
+work. The security half held up; the **offline half did not** — three of the findings were ways
+the new scoping quietly broke invariant #25, which the original entry claimed it preserved.
+Milestone: Now. All 15 addressed; suites: Vitest 86 files / **923** tests (the three SW suites grew
+28 → 63), pgTAP unchanged, lint + type-check clean.
+
+- **Offline boot was actually broken in three places** (merge-blocking half of the review):
+  - *Installed PWA could not launch offline.* `manifest.json` `start_url` is `/` with
+    `display: standalone`, but `/` classified as "never store" and had no fallback, so a
+    home-screen launch offline hit the browser error page — where the pre-PR universal
+    `caches.match('/door')` fallback had booted it. `/` is `src/app/page.tsx`: static, no auth, no
+    redirect, so it now routes to the SHELL bucket and is its own fallback. Fixed in the SW rather
+    than the manifest deliberately — a `start_url` change never reaches an already-installed PWA.
+    Caught while wiring this up: middleware 307s a *signed-in* user off `/` to `/app`, so both a
+    real navigation and a credentialed seed come back redirected and store nothing — the offline
+    launch would have stayed broken for exactly the people who use the installed app. `/` is
+    therefore seeded with `credentials: 'omit'`, which also makes "this entry holds no session
+    data" true by construction instead of by inspection.
+  - *The shell was never seeded.* Removing the install precache was right (`cache.addAll` sends
+    cookies), but "the shell fills itself from real navigations" was false: every in-app move is a
+    `<Link>`/RSC fetch (`mode: 'cors'`), so the SW never sees a `navigate` request for
+    `/door/<eventId>` — a first-session tablet cached zero navigation HTML and died on an offline
+    reload. Added a `seed-shell` message: `register-sw.tsx` posts the paths it wants after
+    `serviceWorker.ready`, the SW re-fetches them with `credentials: 'same-origin'`. The path list
+    is treated as untrusted — each entry must classify as SHELL via `navigationCache` on its own
+    merits, so a compromised client cannot talk the worker into persisting `/app`.
+  - *The "next doorhost still cold-starts offline" claim was not delivered and is now corrected
+    rather than engineered around.* `fallbackFor('/door/<id>')` points at `/door`, which is
+    session-scoped and therefore gone after sign-out; and falling back across events is not an
+    option (the flight payload embeds the eventId — it would render the wrong event). The honest
+    version, now in the SW header, CLAUDE.md and the entry below: the persistent bucket buys static
+    assets + exact-URL door pages; a signed-out device can't work the door offline anyway (no
+    session, no IDB snapshot), and the next doorhost's bootable HTML comes from their own online
+    login via seeding.
+- **Cache writes could be dropped.** `putInCache` was fire-and-forget, so a worker terminated
+  after the response but before the write committed lost it — worst on WebKit/iPad, the door's
+  device class. It now returns its promise and every call site passes it to `event.waitUntil`.
+- **`ignoreSearch` on navigation lookups.** Without it, an entry under `/app/door?event=X` (the
+  canonical Deur-tab URL, `doorPath()`) could not satisfy `/app/door?event=X&seg=taken`, so a
+  query-only screen change died offline. `ignoreSearch` ignores the query only, never the path —
+  no cross-event bleed, asserted both ways.
+- **Sign-out ordering reversed (this changes #233 behaviour deliberately).** The wipes ran *before*
+  the lingering-session checks, so the `sign-out-incomplete` throw path — where we intentionally
+  keep the user signed in — destroyed that still-working doorhost's un-synced check-ins and offline
+  shell mid-shift while protecting nothing (their token is still on the device either way). The
+  wipe now runs only once the session is confirmed gone, immediately before the redirect. The
+  #233 test that asserted "PII still wiped" on the throw path was inverted to match, with the
+  reasoning recorded next to it.
+- **Sign-out wipe completeness (security-shaped):**
+  - The MFA wall's escape hatch called `supabase.auth.signOut()` raw — no IndexedDB wipe, no cache
+    wipe — on a surface reachable from a shared tablet. The device-wipe sign-out moved to
+    `src/features/auth/sign-out-device.ts` (so `features/*` doesn't import from
+    `components/po/screens/`); both call sites use it, `_shared.tsx` re-exports it.
+  - Cache Storage had no re-population guard. `clearDeviceCaches()` now posts `{type:'session-wipe'}`
+    to the worker, which bumps a `sessionEpoch` — the Cache Storage counterpart of `idbEpoch()` —
+    so a sibling tab's in-flight navigation cannot resurrect the cache we just deleted, and deletes
+    the bucket once more from inside the worker. An epoch rather than a sticky flag: it self-heals,
+    so the next user's own navigations cache normally.
+  - A remotely revoked device runs no code, so its session cache outlived revocation. The SW now
+    drops `plusone-session-*` when a SESSION-path navigation comes back as an opaqueredirect (the
+    post-revoke 307 to `/login`). Deliberately not "any non-200" — a 502 on flaky venue wifi must
+    not wipe the cache. Residual, now documented in CLAUDE.md: a device that never comes online
+    again keeps its cache; nothing running on it can be reached.
+- **Migration robustness.** `activate` used `Promise.all` with no catch, so one rejected
+  `caches.delete` skipped the rest of the purge *and* `clients.claim()` — and activate never fires
+  again for that script version. Now `allSettled` with an unconditional claim; same split in the
+  `sw.js` stub so a failed delete can never skip `registration.unregister()`. Added a lazy
+  purge at worker startup: the SW we replaced keeps finishing in-flight events, so a fire-and-forget
+  write can re-create a purged legacy cache seconds after `activate` ran.
+- **Docs-vs-code.** The `redirected` guard's documented mechanism didn't exist on the navigation
+  path (redirect mode is `manual` → opaqueredirect, status 0, `redirected` false). Comments, the
+  changelog entry below and the test fixture now model the real shape; the guard stays because it
+  *is* live for the static and seed-fetch paths, with a test for each.
+- **Guards that could not fail.** `toContain('sw.js')` was satisfied by the explanatory comment
+  above the middleware matcher, and `sign-out.test.ts` ran in the node env where `caches` is
+  undefined — so deleting either protection kept CI green. The matcher is now compiled from
+  `src/middleware.ts` source and asserted behaviourally (`/sw.js` and `/service-worker.js` must NOT
+  match, `/app` and `/door/evt-1` must), and `sign-out.test.ts` stubs `caches` and asserts the
+  session bucket is deleted during the real `signOutDevice` flow. The `plusone-shell-` prefix was
+  triplicated across two SWs and a TS module with no drift guard: `KEEP_PREFIX` is exported and a
+  test extracts both cache names from the SW source and asserts the prefix contract, so a rename
+  that made sign-out wipe the shell (or spare the credentialed cache) fails CI.
+- **Shell PII contract + growth.** `/door/` (trailing slash) classified as SHELL and only Next's
+  `trailingSlash: false` kept the credentialed picker out — now excluded explicitly. Added a
+  structural guard that `src/app/door/[eventId]/page.tsx` renders only `<DoorRoute eventId
+  serverHint>` and serializes no guest data, plus a note that `/_next/image` routing to SHELL is
+  only safe while `images.unoptimized: true`. The shell cache is now capped (60 entries, static
+  assets evicted first) — nothing bounded it, and origin-quota eviction would have taken the
+  IndexedDB outbox with it.
+
+---
+
 ## 2026-08-10 — Service worker cached credentialed `/app` HTML + stale next-pwa artefacts (86ey9e9mn)
 
 Branch `fix/86ey9e9mn-sw-pii-cache`. Direct follow-up to 86ey9et07 (PR #233): that one wiped
@@ -37,8 +132,10 @@ findings, both about data that outlives the session that produced it.
   - Offline fallback is per-surface (`/door*` → cached `/door`, `/app*` → cached `/app`, else a
     network error). The old code fell back to the door shell for *any* failed navigation — the
     exact wrong-shell hazard `routes.ts` warns about.
-  - `putInCache` now refuses redirected responses: after sign-out `/app` 307s to `/login`, and
-    following that redirect used to store the login page under the `/app` key.
+  - `putInCache` refuses redirected responses. (Corrected by the review, see the 2026-08-11 entry:
+    on the *navigation* path the 307 to `/login` arrives as an **opaqueredirect**, so it is the
+    `status !== 200` check that keeps the login page out of the `/app` key — the `redirected` flag
+    is live for the redirect-mode-`follow` paths, static assets and the seed fetch.)
   - Renaming the caches is the migration: `activate` deletes every bucket that isn't one of the
     two, so devices already holding leaked `/app` HTML in `plusone-door-v1` are cleaned on the
     first post-deploy activation. The install-time precache of `/door` is gone (`cache.addAll`

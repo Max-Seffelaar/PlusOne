@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { describeAuthError } from '@/features/auth/errors';
 import { totpSchema } from '@/features/auth/schemas';
+import { signOutDevice } from '@/features/auth/sign-out-device';
 
 // Step-up challenge: a user with a verified TOTP factor on an AAL1 session
 // proves the second factor to reach AAL2 (required for sensitive routes).
@@ -53,9 +54,18 @@ export function MfaChallengeForm({ nextPath }: { nextPath: string }): JSX.Elemen
     window.location.replace(nextPath);
   }
 
+  // Full device sign-out, not a bare `auth.signOut()` (86ey9e9mn): this escape
+  // hatch is reachable on a shared door tablet, and the previous user's
+  // IndexedDB (outbox + guest snapshot) and Cache Storage (`/app` HTML with
+  // their identity) have to go with the session. Scope 'global' matches the
+  // old default. `signOutDevice` throws rather than redirect when the token
+  // cannot be cleared — surface that instead of stranding the user silently.
   async function signOut(): Promise<void> {
-    await supabase.auth.signOut();
-    window.location.assign('/login');
+    try {
+      await signOutDevice('global');
+    } catch {
+      setError('Could not sign out — check your connection and try again.');
+    }
   }
 
   return (

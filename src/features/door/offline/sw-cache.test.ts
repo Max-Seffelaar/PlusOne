@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import { clearDeviceCaches } from './sw-cache';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { clearDeviceCaches, KEEP_PREFIX } from './sw-cache';
 
 // `caches` is declared non-optional on globalThis by lib.dom, so it can only be
 // stubbed/removed through a cast that makes the property optional.
@@ -34,7 +34,20 @@ function stubCaches(names: string[]): { deleted: string[] } {
 
 afterEach(() => {
   delete holder.caches;
+  vi.unstubAllGlobals();
 });
+
+/** Stub just enough of `navigator.serviceWorker` to observe the wipe message. */
+function stubServiceWorker(): { posted: unknown[] } {
+  const posted: unknown[] = [];
+  vi.stubGlobal('navigator', {
+    serviceWorker: {
+      getRegistration: async () => ({ active: { postMessage: (m: unknown) => posted.push(m) } }),
+      controller: null,
+    },
+  });
+  return { posted };
+}
 
 describe('clearDeviceCaches (shared-device sign-out, 86ey9e9mn)', () => {
   it('wipes the session cache holding credentialed /app HTML', async () => {
@@ -75,5 +88,33 @@ describe('clearDeviceCaches (shared-device sign-out, 86ey9e9mn)', () => {
       async () => true,
     );
     await expect(clearDeviceCaches()).resolves.toBeUndefined();
+  });
+
+  it('tells the service worker a wipe happened (re-population guard)', async () => {
+    // Without this the SW has no idea: a sibling tab's in-flight navigation
+    // response would re-create the session cache we just deleted. The worker
+    // bumps its epoch on this message and drops any write from before it —
+    // the Cache Storage counterpart of `idbEpoch()`.
+    const { posted } = stubServiceWorker();
+    stubCaches(['plusone-session-v1']);
+
+    await clearDeviceCaches();
+
+    expect(posted).toEqual([{ type: 'session-wipe' }]);
+  });
+
+  it('still notifies the worker when CacheStorage itself is missing', async () => {
+    const { posted } = stubServiceWorker();
+    delete holder.caches;
+
+    await clearDeviceCaches();
+
+    expect(posted).toEqual([{ type: 'session-wipe' }]);
+  });
+
+  it('exports the prefix the service workers must agree on', () => {
+    // Guarded end-to-end in tests/unit/service-worker-cache-scope.test.ts; this
+    // just pins that the constant is exported rather than re-typed per file.
+    expect(KEEP_PREFIX).toBe('plusone-shell-');
   });
 });
