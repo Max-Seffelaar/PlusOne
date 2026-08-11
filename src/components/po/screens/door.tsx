@@ -13,7 +13,7 @@
  * behind a full-screen detail), NOT the po nav stack — the door owns its own
  * navigation inside its provider.
  */
-import { useMemo } from 'react';
+import { type JSX, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import { Toast } from '../shell';

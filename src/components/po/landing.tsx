@@ -7,13 +7,14 @@
  *  honeypot-protected submit action; a filled honeypot still shows success.
  *  Phone is collected WITH a country code (E.164); e-mail + phone get inline
  *  validation; a marketing opt-in box records AVG consent. */
-import { useState, useTransition, type ReactNode } from 'react';
+import { type JSX, useState, useTransition, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import type { SubmitGuestRequestInput } from '@/features/requests/schemas';
 import { isValidEmail } from '@/features/requests/validation';
 import { CountrySelect, PhoneInput, isPhoneValid, type CountryCode } from './phone-lazy';
 import { Icon, type IconName } from './icon';
+import { fieldErrorBorder, fieldErrorText } from './kit';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.985]';
 const LANDING_BG = 'radial-gradient(120% 70% at 50% -8%, #211d3a 0%, #100f18 42%, #0B0B0D 100%)';
@@ -40,9 +41,9 @@ export type SubmitAction = (input: SubmitGuestRequestInput) => Promise<SubmitRes
 
 function FieldError({ text }: { text: string }): JSX.Element {
   return (
-    <div className="mt-[6px] flex items-center gap-[6px] pl-1">
-      <Icon name="warn" size={12} stroke="#B5A6FF" />
-      <span className="text-[11.5px] leading-[1.35] text-acc-soft">{text}</span>
+    <div className={cn('mt-[6px] flex items-center gap-[6px] pl-1', fieldErrorText)} role="alert">
+      <Icon name="warn" size={12} />
+      <span className="text-[11.5px] leading-[1.35]">{text}</span>
     </div>
   );
 }
@@ -76,7 +77,7 @@ function LField({
         <span className="text-[12px] font-bold uppercase tracking-[0.04em] text-faint">{label}</span>
         {optional && <span className="text-[11.5px] text-ghost">{t.landing.optional}</span>}
       </div>
-      <div className={cn('flex gap-[11px] rounded-[14px] border bg-elev px-[15px] transition-colors focus-within:border-acc', error ? 'border-acc' : 'border-line', area ? 'items-start py-[13px]' : 'items-center py-[14px]')}>
+      <div className={cn('flex gap-[11px] rounded-[14px] border bg-elev px-[15px] transition-colors focus-within:border-acc', error ? fieldErrorBorder : 'border-line', area ? 'items-start py-[13px]' : 'items-center py-[14px]')}>
         <span className={cn('text-faint', area && 'mt-0.5')}>
           <Icon name={icon} size={19} />
         </span>
@@ -273,6 +274,7 @@ export function LandingForm({
   const [marketing, setMarketing] = useState(false);
   // Honeypot — must stay empty; bots that fill it get a fake success.
   const [company, setCompany] = useState('');
+  const [nameErr, setNameErr] = useState<string | null>(null);
   const [emailErr, setEmailErr] = useState<string | null>(null);
   const [phoneErr, setPhoneErr] = useState<string | null>(null);
   const [sent, setSent] = useState<{ statusToken?: string; autoApproved?: boolean } | null>(null);
@@ -288,8 +290,17 @@ export function LandingForm({
   const atCap = plus >= maxPlus;
 
   function submit(): void {
-    if (!ok || pending) return;
+    if (pending) return;
     setError(null);
+
+    // The button stays tappable even with an empty name (86eyd3men) — a silent
+    // disabled state gave no feedback. A submit attempt with no name surfaces an
+    // explicit error on the field instead.
+    if (!ok) {
+      setNameErr(t.landing.nameError);
+      return;
+    }
+    setNameErr(null);
 
     // Inline validation: e-mail (if given) and phone. libphonenumber validates
     // the number per the selected country (E.164); a wrong/incomplete one is
@@ -328,6 +339,7 @@ export function LandingForm({
     setMotiv('');
     setMarketing(false);
     setCompany('');
+    setNameErr(null);
     setEmailErr(null);
     setPhoneErr(null);
     setError(null);
@@ -433,7 +445,17 @@ export function LandingForm({
           </div>
         )}
 
-        <LField icon="user" label={t.landing.nameLabel} value={name} set={setName} placeholder={t.landing.namePlaceholder} />
+        <LField
+          icon="user"
+          label={t.landing.nameLabel}
+          value={name}
+          set={(v) => {
+            setName(v);
+            if (nameErr) setNameErr(null);
+          }}
+          placeholder={t.landing.namePlaceholder}
+          error={nameErr}
+        />
 
         <div className="mb-[14px]">
           <div className="mb-[7px] flex items-center justify-between">
@@ -485,7 +507,7 @@ export function LandingForm({
             <span className="text-[12px] font-bold uppercase tracking-[0.04em] text-faint">{t.landing.phoneLabel}</span>
             <span className="text-[11.5px] text-ghost">{t.landing.optional}</span>
           </div>
-          <div className={cn('flex items-center gap-[8px] rounded-[14px] border bg-elev py-[10px] pl-[9px] pr-[15px] transition-colors focus-within:border-acc', phoneErr ? 'border-acc' : 'border-line')}>
+          <div className={cn('flex items-center gap-[8px] rounded-[14px] border bg-elev py-[10px] pl-[9px] pr-[15px] transition-colors focus-within:border-acc', phoneErr ? fieldErrorBorder : 'border-line')}>
             <CountrySelect
               value={country}
               onChange={(c) => {
@@ -539,16 +561,16 @@ export function LandingForm({
         <button
           type="button"
           onClick={submit}
-          disabled={!ok || pending}
-          className={cn('mt-1.5 inline-flex w-full items-center justify-center gap-[9px] rounded-[14px] border-none bg-acc px-4 py-4 font-display text-[16px] font-bold tracking-[-0.01em] text-on-acc', press, ok && !pending ? 'cursor-pointer' : 'cursor-not-allowed opacity-[0.45]')}
+          disabled={pending}
+          className={cn('mt-1.5 inline-flex w-full items-center justify-center gap-[9px] rounded-[14px] border-none bg-acc px-4 py-4 font-display text-[16px] font-bold tracking-[-0.01em] text-on-acc', press, !pending ? 'cursor-pointer' : 'cursor-not-allowed opacity-[0.45]')}
         >
           <Icon name="check2" size={19} sw={2.2} />
           {pending ? t.landing.submitting : t.landing.submit}
         </button>
         {error && (
-          <div className="mt-[12px] flex items-start gap-2 rounded-[12px] border border-line bg-bg px-3 py-[11px]">
-            <Icon name="warn" size={14} stroke="#B5A6FF" className="mt-0.5" />
-            <span className="text-[12.5px] leading-[1.4] text-text">{error}</span>
+          <div className={cn('mt-[12px] flex items-start gap-2 rounded-[12px] border border-red-300/40 bg-red-300/10 px-3 py-[11px]', fieldErrorText)} role="alert">
+            <Icon name="warn" size={14} className="mt-0.5" />
+            <span className="text-[12.5px] leading-[1.4]">{error}</span>
           </div>
         )}
         <div className="mt-[14px] flex items-start gap-2">

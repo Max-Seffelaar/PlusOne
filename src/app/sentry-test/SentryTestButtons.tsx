@@ -1,7 +1,7 @@
 'use client';
 
 import * as Sentry from '@sentry/nextjs';
-import { useState, type CSSProperties } from 'react';
+import { type JSX, useState, type CSSProperties } from 'react';
 import { triggerServerError } from './actions';
 
 // Three triggers exercising the whole pipeline: (1) a client throw → global

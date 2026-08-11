@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
-import { createElement, StrictMode } from 'react';
+import { createElement, StrictMode, type JSX } from 'react';
 import { renderToString } from 'react-dom/server';
 import { useWakeLock } from './useWakeLock';
 import { writeWakeLockOffPreference } from './wakeLock';

@@ -4,6 +4,7 @@
 // recharts. Data arrives pre-bucketed and pre-formatted from the server (labels
 // already in Amsterdam TZ), so there is no aggregation or TZ logic on the
 // client. The busiest bucket is accented in lavender, matching the mock.
+import type { JSX } from 'react';
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 const ACC = '#B5A6FF';

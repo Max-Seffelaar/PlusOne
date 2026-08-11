@@ -5,7 +5,7 @@
  *  only methods per CLAUDE.md §Billing), but no Stripe call happens yet: the
  *  proefperiode is already running, so "Doorgaan" just advances. Real checkout is
  *  the billing-fase follow-up. */
-import { useState } from 'react';
+import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Icon, type IconName } from '@/components/po/icon';
 import { Btn, Label, press } from '@/components/po/kit';

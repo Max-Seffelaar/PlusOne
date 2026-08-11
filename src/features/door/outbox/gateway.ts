@@ -28,10 +28,30 @@ export interface DoorGateway {
   insertCheckIn(row: CheckInRow): Promise<{ error: DbError | null }>;
   /** Raise plus_ones_arrived on a guest's existing check-in ("nog inchecken"). */
   topUpCheckIn(guestId: string, plusOnesArrived: number): Promise<{ error: DbError | null }>;
-  /** Soft-void a check-in ("uitchecken"); idempotent (re-void matches no row). */
-  voidCheckIn(guestId: string, uid: string): Promise<{ error: DbError | null }>;
+  /**
+   * Soft-void a check-in ("uitchecken"); idempotent (re-void matches no row).
+   * `checkInId` is the check_ins row the caller OBSERVED — pass it whenever it
+   * is known so a replayed write can never reach a peer's newer row (#35).
+   */
+  voidCheckIn(guestId: string, uid: string, checkInId?: string | null): Promise<{ error: DbError | null }>;
   /** Re-checkin a voided guest: clear the void and re-set arrivals. */
-  reviveCheckIn(guestId: string, plusOnesArrived: number, uid: string): Promise<{ error: DbError | null }>;
+  reviveCheckIn(
+    guestId: string,
+    plusOnesArrived: number,
+    uid: string,
+    checkInId?: string | null,
+  ): Promise<{ error: DbError | null }>;
+  /**
+   * Atomic (partial) check-out: void + re-checkin of the smaller party in ONE
+   * transaction (`check_out_guest`, migration 20260810183000). `remainingHeads`
+   * is the TOTAL head count staying inside; 0 = everyone leaves (full void).
+   * Online-only — the door's offline path uses voidCheckIn/reviveCheckIn (#34).
+   */
+  checkOutGuest(
+    guestId: string,
+    remainingHeads: number,
+    checkInId?: string | null,
+  ): Promise<{ error: DbError | null }>;
   insertRefusal(row: RefusalRow): Promise<{ error: DbError | null }>;
   /** Re-admit a guest refused by mistake: status refused → approved. The refusal
    *  row stays (append-only history); idempotent (only matches a refused row). */
@@ -53,15 +73,24 @@ export function supabaseGateway(client: SupabaseClient<Database>): DoorGateway {
     }),
     // Soft-void: flag the row. `.is('voided_at', null)` makes a re-void a no-op
     // (idempotent). The audit trigger records the change; RLS = check_ins_update_door.
-    voidCheckIn: async (guestId, uid) => ({
-      error: (
-        await client
-          .from('check_ins')
-          .update({ voided_at: new Date().toISOString(), voided_by: uid })
-          .eq('guest_id', guestId)
-          .is('voided_at', null)
-      ).error,
-    }),
+    //
+    // `checkInId` pins the write to the row the caller OBSERVED (#35). guest_id
+    // is unique, so an offline device that only matches on guest_id reaches
+    // whatever check-in exists at drain time — including a colleague's fresh one
+    // made while we were offline, which this would silently flip to "onderweg"
+    // while the guest stands inside. A different id matches 0 rows = no-op =
+    // synced, which is the same "the server's first write wins" rule the 23505
+    // duplicate path already applies (#11). Entries queued by an older bundle
+    // carry no id and keep the guest-scoped behaviour rather than being dropped.
+    voidCheckIn: async (guestId, uid, checkInId = null) => {
+      let q = client
+        .from('check_ins')
+        .update({ voided_at: new Date().toISOString(), voided_by: uid })
+        .eq('guest_id', guestId)
+        .is('voided_at', null);
+      if (checkInId) q = q.eq('id', checkInId);
+      return { error: (await q).error };
+    },
     // Re-checkin: clear the void and re-set arrivals fresh (the revive-aware
     // trigger does not hold the pre-void count). One row per guest, so no INSERT.
     // `.not('voided_at','is',null)` scopes the UPDATE to a genuinely voided row:
@@ -69,19 +98,37 @@ export function supabaseGateway(client: SupabaseClient<Database>): DoorGateway {
     // ACTIVE checked_by/checked_at and corrupt the first-wins audit + instroom
     // bucket (C10). A 0-row match (the guest is already active) leaves the peer's
     // row untouched and returns no error → a harmless no-op = synced.
-    reviveCheckIn: async (guestId, plusOnesArrived, uid) => ({
+    // `checkInId` additionally pins it to the row we observed (#35): our own
+    // void may legitimately have created the voided state, so the voided-only
+    // guard alone cannot tell "the row I voided" from "a peer's row I just
+    // voided by mistake".
+    reviveCheckIn: async (guestId, plusOnesArrived, uid, checkInId = null) => {
+      let q = client
+        .from('check_ins')
+        .update({
+          voided_at: null,
+          voided_by: null,
+          checked_by: uid,
+          checked_at: new Date().toISOString(),
+          plus_ones_arrived: plusOnesArrived,
+        })
+        .eq('guest_id', guestId)
+        .not('voided_at', 'is', null);
+      if (checkInId) q = q.eq('id', checkInId);
+      return { error: (await q).error };
+    },
+    // Partial/full check-out in one transaction (#34). Everything the two-step
+    // client dance used to do — including the RLS uncheck gate — happens inside
+    // the function, so a mid-flight failure leaves the guest exactly as they were.
+    checkOutGuest: async (guestId, remainingHeads, checkInId = null) => ({
       error: (
-        await client
-          .from('check_ins')
-          .update({
-            voided_at: null,
-            voided_by: null,
-            checked_by: uid,
-            checked_at: new Date().toISOString(),
-            plus_ones_arrived: plusOnesArrived,
-          })
-          .eq('guest_id', guestId)
-          .not('voided_at', 'is', null)
+        await client.rpc('check_out_guest', {
+          p_guest_id: guestId,
+          p_remaining_heads: remainingHeads,
+          // Omitted rather than null: the SQL default (null = "any active row
+          // for this guest") is what an unknown row id must fall back to.
+          p_check_in_id: checkInId ?? undefined,
+        })
       ).error,
     }),
     insertRefusal: async (row) => ({

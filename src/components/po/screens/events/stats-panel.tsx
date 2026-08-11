@@ -5,6 +5,7 @@
  *  Activity section) AND on the Analytics event-first screen: ONE component, ONE
  *  fetch (`usePoEventActivity`), so the two surfaces can never show different
  *  numbers for the same event (K-10-les, ux-ia-audit-claude-code.md §2-E). */
+import type { JSX } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import { usePoEventActivity } from '@/features/po/hooks';

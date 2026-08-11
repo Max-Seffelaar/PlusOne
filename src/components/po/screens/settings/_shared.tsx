@@ -3,6 +3,7 @@
 /** Small helpers shared by 2+ settings sections (hub + team/quota/venue/profile/
  *  billing/import): the pushed-screen column wrapper, the inline form-error
  *  renderer, the role multi-select chips, and the real sign-out helper. */
+import type { JSX } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';

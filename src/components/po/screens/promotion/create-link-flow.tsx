@@ -10,7 +10,7 @@
  * the fresh URL is the whole point of the action (decided per the G3 plan).
  * Editing an existing link stays in event-links.tsx's LinkSheet.
  */
-import { useState } from 'react';
+import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import type { PoEvent } from '@/lib/po/types';

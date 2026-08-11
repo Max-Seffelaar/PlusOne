@@ -617,7 +617,11 @@ export function arrivalsEqual(a: Map<string, CheckinArrival>, b: Map<string, Che
   if (a.size !== b.size) return false;
   for (const [guestId, arrival] of a) {
     const other = b.get(guestId);
-    if (!other || other.arrived !== arrival.arrived || other.at !== arrival.at) return false;
+    // id included: a same-count, same-time arrival on a DIFFERENT check_ins row
+    // is a different check-in, and the cockpit's check-out targets that id (#35).
+    if (!other || other.arrived !== arrival.arrived || other.at !== arrival.at || other.id !== arrival.id) {
+      return false;
+    }
   }
   return true;
 }

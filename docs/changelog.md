@@ -128,6 +128,319 @@ new warnings). Follow-up task spawned for desktop-cockpit coverage (not built he
 explicit instruction). ClickUp session comment couldn't be posted — the ClickUp MCP write API was
 rate-limited workspace-wide for ~23h at the start of this round; exact comment text handed to Max.
 
+## 2026-08-10 — Dependabot: refuse Next/React majors, unblock the safe bumps (86eyd39gn)
+
+Branch `chore/86eyd39gn-deps-ignore-majors-safe-bumps` (PR #247, closes the deadlocked #239).
+Milestone: Now — dependency
+hygiene keeps the security-patch stream flowing, and a permanently-red deps PR trains everyone
+to ignore Dependabot. No migration, no schema change, no runtime behaviour change.
+
+- **The problem with PR #239.** Dependabot groups by `dependency-type`, so *one* group PR carried
+  14 updates: Next 15.5.19 → **16.2.12**, Stripe 18 → **22**, zod 3 → **4**, uuid 10 → **14**,
+  tailwind-merge 2 → **3**, recharts 3.8 → 3.10, plus six genuinely safe in-major bumps. The stack
+  is pinned by CLAUDE.md (Next 15 / React 19), so the majors can't merge — and because they share
+  a PR with the safe ones, *nothing* merged. The group had been stuck since 6/8.
+- **Fix: refuse the majors at the source.** `.github/dependabot.yml` gained an `ignore` block for
+  `next`, `react`, `react-dom`, `@types/react`, `@types/react-dom` limited to
+  `update-types: ["version-update:semver-major"]`. Minor/patch keeps arriving weekly. A framework
+  major stays what it is — a migration with its own task (**86eyd39mx**, parked), not a bump.
+  Deliberately *not* ignored: Stripe/zod/uuid/tailwind-merge majors. Those are ordinary library
+  migrations we do want proposed; they just need their own PRs, so they'll come back regrouped
+  once #239 is closed.
+- **Safe bumps taken.** `pnpm update` on the six in-major updates:
+  `@sentry/nextjs` 10.64.0 → 10.70.0 · `@supabase/ssr` 0.12.0 → 0.12.4 ·
+  `@supabase/supabase-js` 2.108.1 → 2.112.2 · `@tanstack/react-query` +
+  `@tanstack/react-query-persist-client` 5.101.0 → 5.101.4 · `@tanstack/react-virtual` 3.14.3 → 3.14.9.
+  `pnpm update` also raises the caret floors in `package.json` (e.g. the vague `@sentry/nextjs: ^10`
+  → `^10.70.0`), which is what Dependabot does and is worth keeping — the floor then documents the
+  version actually tested, and the `ssr`/`supabase-js` pairing below becomes explicit instead of
+  implied. `next` and `react` did not move (they appear in the lockfile diff only as peer context
+  inside Sentry's version string); the transitive churn is OpenTelemetry 2.9 → 2.10 under Sentry.
+  The CLAUDE.md invariant (`@supabase/ssr` aligned with `supabase-js`, ≥0.12 for js ≥2.108) holds
+  and was re-verified the way it actually fails: type-checking real `.from()`/`.rpc()` calls against
+  the repo's own `database.types.ts` to prove the typed client doesn't collapse to `never`. The row
+  type came back fully resolved (`{ id: string; status: "pending" | … ; plus_ones: number }`), and a
+  negative control (a bogus column) still errors, so the check isn't vacuous.
+- **Removed a landmine for the parked React migration.** `JSX.Element` resolved through the
+  *global* `JSX` namespace in **269 places across 107 files**. @types/react 18.3.31 already marks
+  that global `@deprecated` ("Use `React.JSX` instead"), and @types/react 19.2.18 drops the
+  `declare global` block entirely — verified by A/B-ing both patterns against both real typings:
+  the bare annotation fails under 19 with `TS2503: Cannot find namespace 'JSX'`, the explicit
+  import compiles clean under **both** 18 and 19. So 86eyd39mx would have opened with 269 type
+  errors before touching a line of React. Now it opens with zero.
+  - Mechanical and annotation-preserving: every `JSX.Element` is byte-identical, only imports
+    changed, and all 107 files are one-line diffs — merged into an existing single-line `react`
+    import where it fit prettier's `printWidth: 100`, otherwise its own
+    `import type { JSX } from 'react';`.
+  - **Gotcha for the next codemod author.** The first pass matched react imports with
+    `/^import\s+([\s\S]*?)\s+from\s+['"]react['"]/gm`; `[\s\S]*?` happily spans *statements*, so a
+    match starting at an earlier `import` line ran on until the next `from 'react'` and the
+    specifier got spliced into the **wrong module's** braces — `type JSX` landed in
+    `next/navigation`, `vitest`, and (worst) the `@/lib/observability/sentry-client` facade that
+    CLAUDE.md requires stay untouched. Caught by inspection before committing, then rewritten to
+    match one single line with `[^;\n]` so a match cannot cross a statement boundary. If you
+    codemod imports here: forbid `;` and newlines in the specifier, and assert afterwards that
+    every touched import line still ends in `from 'react';`.
+- **Gotcha worth keeping: `pnpm --lockfile-only` when the box is busy.** The dev box was running
+  **15–17 concurrent `pnpm install`/`update` processes** from sibling worktree sessions, free RAM
+  down to ~3 GB of 64 GB. Resolution and extraction were fine (976 dirs in `.pnpm`), but the
+  top-level **linking** phase starved for over an hour and never produced a `node_modules`, so no
+  local gate could run. `pnpm update --lockfile-only` skips linking entirely and finished the same
+  work **in 59 seconds**. For a dependency-only task that's all you need — the lockfile is the
+  deliverable and CI does the verifying — so reach for it first instead of waiting on a full
+  install. (Corollary, same spirit as CLAUDE.md's "one DB owner": a sibling session's `pnpm install`
+  is not free, since every worktree competes for one global store.)
+- **Verification ran on CI, deliberately.** With no local `node_modules`, the pre-lockfile commits
+  were pushed and `lint-and-test` (lint · type-check · vitest · pgTAP · quota concurrency · e2e
+  smoke) went **green on a clean runner**, plus a passing Vercel `next build` — a better gate than
+  a thrashing local box. The dependency-bump commit lands after that and gets its own CI run, which
+  is the one that actually matters for the bumps (CI installs with `--frozen-lockfile`).
+
+---
+
+## 2026-08-10 — request_links: cross-venue link-id disclosure hardening (86ey9thm6)
+
+Branch `fix/86ey9thm6-request-link-venue-isolation`, PR not yet opened at session end.
+CONFIRMED, low severity, milestone Now (cross-tenant isolation is a core invariant, #1).
+Filed by the 86ey9p8zh/PR #224 fresh-session review as an out-of-scope finding (see
+2026-07-14 entry below). Touches a trigger function → high-risk surface per the review
+gates: **not self-merged**, fresh-session `/code-review` + `/security-review` required.
+
+- **Root cause.** `enforce_request_link_max()` (`20260706101000_request_link_attribution.sql`,
+  relocked in `20260714160000`) looked up the request link by `rl.id = new.request_link_id`
+  only — never checking it belongs to `new.event_id`. Nothing else in the schema enforces
+  that match either (`guests.request_link_id` has only a single-column FK to
+  `request_links(id)`; `guests_insert`'s WITH CHECK constrains `source`/`added_by`, not
+  `request_link_id`). An admin/organizer (exempt from the `source` allowlist) with raw API
+  access to their own venue could POST a guest on their own event carrying a
+  `request_link_id` copied from ANOTHER venue's link; the trigger would then recompute that
+  foreign link's consumption against its cap and, on a breach, raise 45006 with hint
+  `link_full;consumed=%s;max=%s` — disclosing another venue's private link fill numbers.
+- **Fix.** New migration `20260810100000_request_link_venue_isolation.sql`,
+  `CREATE OR REPLACE` on the existing function: reject a `request_link_id` whose
+  `event_id` doesn't match the guest's own event (23514, generic message) BEFORE the
+  foreign link's row is used for anything — same posture as
+  `set_request_link_scope()`'s influencer-venue check. A same-event link falls through to
+  the unchanged cap logic (advisory-lock ordering from 20260714160000 preserved verbatim).
+- **Out of scope (documented in the migration, not built).** A theoretical multi-link
+  advisory-lock deadlock (40P01) — unreachable today since every shipped writer of
+  `guests.request_link_id` touches exactly one guest/one link per statement; fail-safe if
+  it ever becomes reachable (Postgres's deadlock detector aborts one side, retryable, same
+  shape 86ey9e8ar/PR #216 already handles for the other three lock domains).
+- **Test.** Extended `supabase/tests/database/request_links.test.sql` with C8 (denied:
+  cross-venue attribution rejected before any foreign-link computation, no guest row
+  created, foreign link's consumption stays untouched) and C9 (allowed: same-event
+  attribution still succeeds) — 34/34 in that file. `supabase db reset` clean, `supabase
+  test db` **52 files / 1009 tests, PASS**. `pnpm lint` clean (2 pre-existing unrelated
+  a11y warnings in `datetime-field.tsx`). `pnpm vitest run` 866/867 — the one failure
+  (`realtime-throttle.test.ts`, unrelated to this change) is a timeout flake under heavy
+  machine load, confirmed passing in isolation.
+- **Gotcha — shared local Supabase stack under heavy concurrent load.** ~50 worktree
+  sessions were active simultaneously; `supabase db reset` failed with `unexpected EOF`
+  three times in a row (another session's concurrent reset/restart cycling the shared db
+  container), and a stale reset once left an unrelated migration
+  (`20260810120000`, from a *different* worktree/branch not containing this session's
+  migration) as the latest applied version — silently reverting this fix's trigger back to
+  pre-patch behaviour and producing a real (not flaky) `request_links.test.sql` failure on
+  the first attempt. Confirmed via `supabase db query` against `pg_proc.prosrc` that the
+  live function body didn't match the migration before diagnosing it as a collision, not a
+  logic bug. Resolved by chaining `db reset` immediately followed by a single targeted
+  pgTAP file run (via `docker exec … psql`) to shrink the collision window, then a full
+  `supabase test db` once the stack settled. Also: **timestamp collision** — two unrelated
+  concurrent sessions independently picked `20260810120000` for their own migrations
+  (`atomic_check_out_guest` vs `scale_tier_occupancy_link_funnel`); this task's migration
+  used `20260810100000`, unique against `origin/main` at branch time, but the collision
+  between those two other branches will need resolving at merge time per CLAUDE.md's
+  timestamp-collision rule.
+- **ClickUp bookkeeping not done by this session.** The ClickUp MCP connector returned
+  `RATE_LIMIT_EXCEEDED` (~17h cooldown) for the entire session, so the pickup/status
+  comments and status transitions described by the `clickup-task` skill could not be
+  posted. Task 86ey9thm6 needs manual pickup/status sync once the PR is up.
+
+---
+
+## 2026-08-10 — Atomic partial check-out + offline void/revive peer-steal (86ey9e9q2)
+
+Branch `fix/86ey9e9q2-atomic-checkout-outbox-peer-steal`. Two findings from the review
+backlog (#34, #35), both about a check-in row changing hands between the moment a device
+observes it and the moment its write lands. Milestone: Now — both corrupt the headcount and
+the audit trail at the door, which is the product's core promise. Each bug was reproduced
+with a failing test BEFORE the fix (the tests are in the PR; they fail on the parent commit).
+
+- **#34 — a partial check-out was two round trips.** `check_ins` holds one row per guest with
+  a MONOTONE `plus_ones_arrived`, so "3 of the 4 in this party leave" cannot be a plain UPDATE:
+  the cap trigger only lets the count drop across a revive (voided → active). `usePoCheckOut`
+  therefore voided the row, then re-checked the smaller party in from the browser. A transient
+  failure between the two (network flap, edge 502, tab closed) left the guest FULLY checked out
+  — headcount −4 where the host asked for −2 — and the cockpit's cache disagreed with the
+  database until the 60s safety sync.
+  **Fix:** migration `20260810183000_atomic_check_out_guest.sql` adds
+  `public.check_out_guest(p_guest_id, p_remaining_heads, p_check_in_id)` — SECURITY INVOKER, so
+  RLS (incl. the S1.1 uncheck gate) still decides — doing both writes in one transaction. Also
+  fixed two behaviours that were wrong in the old dance: `checked_by`/`checked_at` are now
+  PRESERVED (the guest never left, so the first-wins arrival identity and instroom bucket must
+  not move to whoever pressed ✗), and the remaining-heads argument is clamped so a stale client
+  can never *raise* a party via the check-out path.
+- **#35 — an offline void/revive could hijack a colleague's check-in.** `check_ins.guest_id` is
+  UNIQUE, so matching a replayed write on `guest_id` alone reaches whatever row exists at drain
+  time. Doorhost A works offline (check in → undo → re-check-in queued); meanwhile doorhost B
+  checks the same guest in for real. On reconnect A's insert correctly settled as `duplicate`,
+  but the void then voided B's ACTIVE row (guest reads onderweg while standing inside) and the
+  revive stamped A over B's `checked_by` — the same C10 first-wins corruption the cockpit's
+  revive fallback already guards against.
+  **Fix:** the observed `check_ins.id` travels with the outbox entry (`checkInId` on the void and
+  revive payloads, zod-`nullish` so a doorhost upgrading mid-shift keeps their queued entries
+  instead of having them quarantined) and the gateway adds `.eq('id', …)`. A peer's newer row is
+  then a 0-row no-op = synced, the same "server's first write wins" rule as the 23505 duplicate
+  path. The cockpit passes the id too, via a new `id` on `CheckinArrival`.
+- **Residual, deliberately not fixed here:** if a peer voids AND re-checks-in the SAME row while
+  we are offline, the row id is unchanged, so our stale void still applies. Closing that needs
+  optimistic concurrency on `checked_at`, which a device cannot do for its own offline inserts
+  (the server stamps `checked_at`, the device only knows its client timestamp). Flagged in the
+  PR's security-research prompt.
+- Tests: `mutations.checkout.test.tsx` (hook against a fake gateway with real write semantics —
+  asserts DB-equivalent state, not `ok: true`), `peer-checkin.test.ts` (a full outbox drain against
+  an in-memory `check_ins` with the unique/void/revive constraints), gateway filter tests, and
+  `check_out_guest.test.sql` (15 pgTAP assertions: allowed/denied per role, preserved identity,
+  clamping, stale-id no-op, and the atomicity proof — an uncheck-disabled event rejects the whole
+  call and leaves the guest untouched).
+- Gotcha for later pgTAP work: `composite IS NOT NULL` is only true when EVERY field is non-null,
+  so a function returning a table row must be asserted via `(f(...)).id`, and that field-selection
+  form does not resolve untyped literals — the arguments need explicit `::uuid` casts.
+- Local-stack note: `20260810120000` collided with a sibling worktree's migration
+  (`scale_tier_occupancy_link_funnel`, branch `perf/86ey9e9wv-…`), caught because the shared local
+  DB had it applied; renamed to `20260810183000`.
+
+## 2026-08-10 — Landing request-form validation UX: red errors, name-required, e-mail sanity check (86eyd3men)
+
+Branch `fix/86eyd3men-landing-request-validation-ux`. Found by Max while testing 86ey9e8z5 (the
+public request form, `/e/[slug]` + `/r/[token]`, `src/components/po/landing.tsx`). Milestone: Now
+(request-form UX Max personally hit while testing). Three fixes, all UX/validation-only — no
+migration.
+
+- **Errors were lavender, not red.** `FieldError` and the invalid-field border used `border-acc`/
+  `text-acc-soft` (the same accent used for focus/selection elsewhere), so an error read as
+  "active", not "wrong". Added `fieldErrorText`/`fieldErrorBorder`/`FieldErrorText` to `kit.tsx`
+  (`text-red-300`/`border-red-400` — the color already used by ~15 other screens, just never
+  centralized) and wired landing.tsx's field errors, the phone-field border, and the
+  submit-failure banner onto it.
+- **Empty name was silently disabled, no feedback.** The submit button used to `disabled={!ok}`
+  so a native `disabled` button never fires `onClick` — there was no way to surface *why* nothing
+  happened. Button now only disables on `pending`; `submit()` gates on `!ok` first and sets a new
+  `nameErr` (copy: "Add your name so we can save your spot."), clearing it as soon as the
+  requester types.
+- **`isValidEmail` was too permissive.** The old regex (`[^\s@]+@[^\s@]+\.[^\s@]+`) accepted
+  anything with an `@` and a dot anywhere in the domain — 1-char TLDs, numeric TLDs, doubled/
+  leading/trailing dots, leading-hyphen labels. New regex in `src/features/requests/validation.ts`
+  requires a real-looking local part and a domain with a 2–24 char alphabetic TLD.
+  `submitGuestRequestSchema` (`schemas.ts`) now imports the same `EMAIL_RE` instead of Zod's
+  built-in `.email()`, so client and server never disagree.
+  - **Known, deliberate gap:** this is a structural sanity check, not a deliverability check — a
+    syntactically well-formed but fake domain (Max's test case, `max@hoiu.dsadas`) still passes,
+    because telling it apart from a real one needs either a bundled TLD allowlist (~5-10 kB gz on
+    the exact page PR #236 just spent effort shrinking, plus a maintenance burden and false-reject
+    risk on legitimate uncommon TLDs) or a live MX/DNS lookup (new server-side moving part on an
+    anonymous public write path). Given email is optional here (#9) and a false rejection costs a
+    real guest more than an occasional fake one costs the venue, this was a considered trade-off,
+    not an oversight — flagged for Max in case he wants deliverability-grade validation later.
+- The public endpoint's no-enumeration guarantee (never reveal whether an e-mail already exists,
+  #28) is untouched — `submitGuestRequest` still dedupes silently in the DB regardless of Zod
+  outcome.
+- Tests: `src/features/requests/validation.test.ts` (+8 cases for the stricter regex),
+  `schemas.test.ts` (+1 case proving client/server agree), new `src/components/po/landing.test.tsx`
+  (4 RTL cases: name-required blocks submit + clears on typing, malformed e-mail blocks submit and
+  is styled red, valid submit still reaches `action` — phone-lazy mocked out, hermetic). `pnpm lint`
+  clean, `tsc --noEmit` clean. Full `vitest run` (833 tests) is flaky on this dev machine under full
+  84-file parallelism — 8 unrelated pre-existing files (billing/webhook, door, realtime, health-check,
+  sign-out) time out under CPU contention but pass individually and in a smaller batch; none touch
+  the files this PR changed.
+
+---
+
+## 2026-08-10 — /r and /i IP-salt fail-closed regression (86ey9e9my, C5)
+
+Branch `fix/86ey9e9my-landing-ip-salt-fail-closed` (PR [#242](https://github.com/Max-Seffelaar/PlusOne/pull/242)). Follow-up review finding on the
+Requests-epic influencer/status pages: C5 (security review 2026-07-07) fixed the landing page
+(`/e/[slug]`) to fail closed on a missing `LANDING_IP_SALT` in production via the shared
+`landingIpSalt()`/`landingClientIpHash()` helpers (`src/features/requests/ip-hash.ts`), but two
+sibling routes — `/r/[token]` (guest status) and `/i/[token]` (influencer stats) — each carried
+their own inline `statusIpHash`/`statsIpHash` with `process.env.LANDING_IP_SALT ?? 'plusone-landing-dev-salt'`.
+That committed constant is a real fallback, not just a dev convenience: if `LANDING_IP_SALT` is
+ever unset in production those two routes would silently hash every visitor IP with a
+publicly-known salt instead of failing loudly, reopening the exact brute-forceable `ip_hash`
+C5 closed. Milestone: Now (security regression on a live prod surface).
+
+- **Fix.** Deleted both inline helpers; both routes now import `landingClientIpHash` from the
+  shared module, same as `/e/[slug]`. No behavior change outside the missing-env-in-prod case —
+  local/dev/test still get the deterministic dev salt.
+- **Test added.** `tests/unit/landing-ip-hash-fail-closed.test.ts` — structural scan proving both
+  routes call the shared helper and contain no reintroduced `LANDING_IP_SALT ?? '...'` fallback,
+  plus a behavioral test proving `landingIpSalt()` throws with `NODE_ENV=production` and no env
+  var set, and returns the configured salt when it is set.
+- **Gates:** `pnpm lint` + `pnpm vitest run` — see PR for results. Non-UI, no migration, no test
+  handoff needed.
+
+---
+
+## 2026-08-10 — Door-outbox housekeeping: double-tap, flush-coalescing, tombstone-pruning (86ey9e9p5)
+
+Branch `fix/86ey9e9p5-door-outbox-housekeeping` (PR [#249](https://github.com/Max-Seffelaar/PlusOne/pull/249)). Three findings from the door-outbox
+review — O8 (CONFIRMED) plus finders #32/#33, all re-verified against the code before building.
+Builds on PR #233's wipe-epoch + `reset()`; sign-out isolation untouched. Milestone: Now (this is
+the door, on the offline path — invariant #25).
+
+- **O8 — a double-tap queued a second check-in and blamed a colleague.** `checkIn()` guarded only
+  the optimistic cache patch (`if (s.checkIns.some(...)) return s`), never the enqueue, so tap #2
+  produced a second `check_in` entry with a fresh `check_ins.id`. `check_ins.guest_id` is UNIQUE
+  (one row per guest ever, #11 — `20260613000000_full_schema.sql:273`), so that entry's ONLY
+  possible outcome on replay is 23505-on-guest_id, which `replay.ts` correctly classifies as
+  `duplicate` → the toast **"Was already checked in on another device"**. A doorhost who
+  double-tapped their own tablet was told a colleague did it — and #32 below made that far more
+  likely, because a refetch could wipe the optimistic patch and make the guest look un-checked-in
+  again. Fix: guard the ENQUEUE, reading the two sources the first tap mutated synchronously — the
+  query cache (also the channel realtime patches through, so a peer's check-in counts too) and the
+  outbox (new pure helper `outbox/dedup.ts` `hasOpenCheckIn`, FIFO-aware: a `check_in_void` reopens
+  the guest, an `error` never created a row so a retry stays allowed). The blocked tap toasts
+  "already inside" rather than doing nothing.
+- **#32 — a mutation enqueued during a flush was dropped twice over.** `flush()` kept a single
+  in-flight promise and handed it to any concurrent caller, queueing nothing; `drainOutbox` snapshots
+  the queue once at the start, and the `invalidateQueries` that follows overwrites the cache with a
+  server snapshot that predates the new write. So checking in the next guest during the ~1s
+  drain+refetch — the normal case at a busy door, not an edge case — lost both the drain and the
+  optimistic patch: the guest visibly fell back to "onderweg" until the 60s safety sync. Fix:
+  remember that someone asked while a flush ran and rerun the whole cycle (drain THEN refetch),
+  bounded by `MAX_COALESCED_RERUNS`, so the last refetch of a burst always includes the new write.
+  The in-flight flag is cleared in the same synchronous step as the final queued-check, so no
+  request can land in the gap. `useDoorSync` gained a `coalesce` option: the manual "sync nu" press
+  now forwards into that coalescing instead of being silently dropped when a sync is already running.
+- **#33 — tombstones were immortal and the error toast showed the wrong one.** `clearSynced()`
+  dropped only `synced`, so every `duplicate`/`error` entry stayed queued for good AND was
+  re-serialized to IndexedDB on every later commit (this runs after every drain — each mutation plus
+  the 60s sync), i.e. the per-write cost climbed all night on the device that can least afford it.
+  On top of that the flush error toast did `find(e => e.status === 'error' && e.message)` — the
+  OLDEST error still queued — so a doorhost hitting "tier zit vol" could be shown an unrelated
+  rejection from hours earlier. Fix: `clearSettled(now)` prunes `duplicate`/`error` past a 12h TTL
+  (a full night; the CheckInList duplicate marker and the manual retry need them within the shift)
+  and returns without committing when nothing settled; `DrainSummary.lastError` carries the
+  just-failed message out of the drain; and `retryErrors()` — which existed with **no callers at
+  all** — is wired to the sync-bar button only (`onBeforeForceSync`), never to an automatic drain,
+  so dead-lettering still means something while a terminal error finally has a recovery path.
+- **Tests.** New `DoorProvider.test.tsx` (6 behavioural cases driving the real provider, real outbox
+  and real drain against a fake gateway that models the UNIQUE guest_id constraint), new
+  `outbox/dedup.test.ts` (7), plus additions to `store.test.ts` (4 pruning cases incl. "no IndexedDB
+  write when nothing settled") and `replay.test.ts` (2 × `lastError`). **Every new test was verified
+  to fail against the pre-fix sources** (`git checkout HEAD~1 -- <sources>`, new tests kept): 7
+  failures with exactly the described symptoms — `['g-anna','g-anna']` for one double-tap,
+  `expected ['g-anna'] to include 'g-bram'` for the mid-flush check-in, `lastError` undefined.
+- Vitest 886/886 green (85 files), `next lint` clean (only the two pre-existing
+  `datetime-field.tsx` aria warnings). No migration. Unrelated env fix: the shared `node_modules`
+  lacked `@tanstack/react-virtual` (declared in package.json + lockfile) — `pnpm install` restored it.
+  `realtime-throttle.test.ts` sat ~200ms under the 5s default (it does `resetModules()` + a cold
+  dynamic import of the door device graph); the extra parallel load tipped it over, so that one case
+  got an explicit 20s timeout.
+
+---
+
 ## 2026-07-14 — Door outbox/cache not wiped on sign-out — shared-device isolation (86ey9et07)
 
 Branch `fix/86ey9et07-door-outbox-clear-on-signout` (PR #233). Follow-up carved out of the

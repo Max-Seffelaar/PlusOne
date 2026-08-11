@@ -6,7 +6,7 @@
  * pixel values use arbitrary Tailwind values so the visual output matches the
  * handoff. Interaction: hover `brightness(1.07)`, active `scale(0.975)`.
  */
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, JSX, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import type { Tier } from '@/lib/po/types';
@@ -83,6 +83,23 @@ export function PayChip({ pay }: { pay: string }): JSX.Element | null {
     <span className="inline-flex items-center gap-[4px] rounded-[7px] border border-dashed border-line px-2 py-[3px] font-body text-[11px] font-bold tracking-[0.02em] text-text">
       {t.shared.kit.payMustPay}
     </span>
+  );
+}
+
+// ── Field error ─────────────────────────────────────────────────────────────
+// Canonical validation-error color (86eyd3men): red, never the lavender accent
+// — the accent already means "focused"/"selected" elsewhere in the UI, so an
+// invalid field styled in accent reads as active, not wrong. A dozen screens
+// hand-rolled `text-red-300 role="alert"` locally before this existed; new
+// inline-error UI should use these instead of re-picking a color.
+export const fieldErrorText = 'text-red-300';
+export const fieldErrorBorder = 'border-red-400';
+
+export function FieldErrorText({ children, className }: { children: ReactNode; className?: string }): JSX.Element {
+  return (
+    <p className={cn('text-[12.5px] leading-[1.4]', fieldErrorText, className)} role="alert">
+      {children}
+    </p>
   );
 }
 

@@ -6,7 +6,7 @@
  *  (no globe-while-typing) and the list matches the PLUSONE dark design.
  *  Country names are English (the app is English); search matches name, ISO
  *  code or dial code. */
-import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
+import { type JSX, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { getCountries, getCountryCallingCode, type Country } from 'react-phone-number-input';
 import flagComponents from 'react-phone-number-input/flags';
 import enLabels from 'react-phone-number-input/locale/en.json';

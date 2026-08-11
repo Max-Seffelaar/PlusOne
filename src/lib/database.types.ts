@@ -1636,6 +1636,34 @@ export type Database = {
       can_read_venue_stats: { Args: { p_venue_id: string }; Returns: boolean }
       can_view_profile: { Args: { p_profile_id: string }; Returns: boolean }
       can_write_guests: { Args: { p_event_id: string }; Returns: boolean }
+      check_out_guest: {
+        Args: {
+          p_check_in_id?: string
+          p_guest_id: string
+          p_remaining_heads: number
+        }
+        Returns: {
+          checked_at: string
+          checked_by: string
+          client_timestamp: string | null
+          created_at: string
+          device_id: string | null
+          event_id: string
+          guest_id: string
+          id: string
+          offline_synced: boolean
+          plus_ones_arrived: number
+          venue_id: string
+          voided_at: string | null
+          voided_by: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "check_ins"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       consume_public_throttle: {
         Args: { p_key: string; p_max: number; p_window_min: number }
         Returns: boolean

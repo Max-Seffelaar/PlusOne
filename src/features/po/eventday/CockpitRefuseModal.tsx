@@ -7,7 +7,7 @@
  * set. Styled like the cockpit's existing quantified check-in/out modal
  * (`EventDayCockpit.tsx`) so it doesn't read as a foreign pattern.
  */
-import { useState } from 'react';
+import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { Btn } from '@/components/po/kit';

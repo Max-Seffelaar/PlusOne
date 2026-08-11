@@ -25,6 +25,7 @@
  * wiring; extending this feature there is tracked as a follow-up, not built
  * in this PR.
  */
+import type { JSX } from 'react';
 import { Icon } from '@/components/po/icon';
 import { Btn, Spinner } from '@/components/po/kit';
 import { t } from '@/lib/i18n';
