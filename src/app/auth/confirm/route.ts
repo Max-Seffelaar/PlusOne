@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import type { EmailOtpType } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 import { safeNextPath } from '@/features/auth/next-path';
 import { resolveEntryDestination } from '@/features/auth/entry-redirect';
+import { emailOtpTypeSchema } from '@/features/auth/schemas';
 
 // Handles link-based verification (token_hash), used for the confirmed e-mail
 // change flow (decision #24) and any magic-link fallback. On success the
@@ -10,15 +10,24 @@ import { resolveEntryDestination } from '@/features/auth/entry-redirect';
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const url = new URL(request.url);
   const tokenHash = url.searchParams.get('token_hash');
-  const type = url.searchParams.get('type') as EmailOtpType | null;
+  if (!tokenHash) {
+    return NextResponse.redirect(new URL('/login', request.url));
+  }
+
+  const parsedType = emailOtpTypeSchema.safeParse(url.searchParams.get('type'));
+  if (!parsedType.success) {
+    // A token_hash without a recognized type used to reach verifyOtp anyway
+    // (GoTrue rejected it) and bounce to /login?error=link with a visible
+    // message; failing the shape check earlier must land on the same visible
+    // outcome, not a silent bare /login that looks like "no link at all".
+    return NextResponse.redirect(new URL('/login?error=link', request.url));
+  }
+  const type = parsedType.data;
+
   // Invite/magic-link e-mails land in the app flow; only the e-mail-change
   // confirmation belongs on the profile screen (T1 #1 — one flow, no detour).
   const fallback = type === 'email_change' ? '/settings/profile' : '/app';
   const next = safeNextPath(url.searchParams.get('next'), fallback);
-
-  if (!tokenHash || !type) {
-    return NextResponse.redirect(new URL('/login', request.url));
-  }
 
   // Forward the browser's real User-Agent so the session GoTrue records carries
   // a usable device label ("Chrome · Windows") in the active-sessions list — a

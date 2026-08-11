@@ -104,6 +104,23 @@ describe('OutboxStore.init (O5 — enqueue during the init() await window)', () 
   });
 });
 
+describe('OutboxStore.init — concurrent calls share one IndexedDB read (StrictMode double-invoke)', () => {
+  it('running init() twice back-to-back reads IndexedDB once and both calls resolve', async () => {
+    const deferred = createDeferred<unknown>();
+    idbGetMock.mockImplementationOnce(() => deferred.promise as Promise<unknown>);
+
+    const store = new OutboxStore();
+    const first = store.init();
+    const second = store.init(); // fired before the first read resolves — must join, not race
+
+    deferred.resolve(undefined);
+    await Promise.all([first, second]);
+
+    expect(idbGetMock).toHaveBeenCalledTimes(1);
+    expect(store.getSnapshot()).toEqual([]);
+  });
+});
+
 describe('OutboxStore.init — C8 crash-recovery revival must survive its own flush', () => {
   it('keeps a revived syncing→pending entry pending after the flush, not reverted back by the merge', async () => {
     // Disk is unchanged between init()'s own read and persistMerged()'s
@@ -346,5 +363,33 @@ describe('OutboxStore — sign-out isolation (86ey9et07)', () => {
 
     // The merge bails post-read instead of writing A's entry into the fresh DB.
     expect(idbSetMock).not.toHaveBeenCalled();
+  });
+
+  it('a sign-out landing mid-load does not resurrect the previous user entries, and a later init() re-reads', async () => {
+    const readDeferred = createDeferred<unknown>();
+    idbGetMock.mockImplementationOnce(() => readDeferred.promise as Promise<unknown>);
+
+    const store = new OutboxStore();
+    const firstInit = store.init(); // A's load starts, awaiting idbGet at epoch 0
+
+    // Sign-out lands mid-load: idbClearAll() bumps the epoch, then reset() —
+    // exactly the sequence in settings/_shared.tsx's sign-out flow.
+    idbEpochMock.mockReturnValue(1);
+    store.reset();
+
+    // A's stale read resolves with A's own old entries — must not repopulate
+    // the store (guest PII from the previous user landing in the next user's
+    // clean queue, 86ey9et07).
+    readDeferred.resolve(buildEnvelope([entry('a-old')]));
+    await firstInit;
+    expect(store.getSnapshot()).toEqual([]);
+
+    // reset() must also drop the cached initPromise: a next-user init() has to
+    // start a fresh doInit() against the wiped epoch, not join (or no-op
+    // against) anything left over from A's load.
+    idbGetMock.mockResolvedValueOnce(undefined);
+    await store.init();
+    expect(idbGetMock).toHaveBeenCalledTimes(2);
+    expect(store.getSnapshot()).toEqual([]);
   });
 });

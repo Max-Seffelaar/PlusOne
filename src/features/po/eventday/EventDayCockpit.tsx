@@ -14,6 +14,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { useTransientValue } from '@/lib/use-transient-value';
 import { Icon, type IconName } from '@/components/po/icon';
 import { Avatar, Label, Btn, Card, pressDesktop } from '@/components/po/kit';
 import { tierInk, tintTier } from '@/lib/po/tier-colors';
@@ -182,8 +183,8 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   const [statF, setStatF] = useState<StatusFilter>('all');
   const [tierF, setTierF] = useState('all');
   const [feed, setFeed] = useState<FeedEntry[]>([]);
-  const [flashId, setFlashId] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ msg: string; tone: 'in' | 'out' } | null>(null);
+  const [flashId, flash] = useTransientValue<string>(900);
+  const [toast, notifyRaw] = useTransientValue<{ msg: string; tone: 'in' | 'out' }>(3200);
   // Refuse modal target (G2 door-parity) — the guest awaiting a reason, or null.
   const [refuseTarget, setRefuseTarget] = useState<Guest | null>(null);
   // Quantified in-/uitcheck modal (S1.2). `value` is the stepper position in koppen:
@@ -216,17 +217,14 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   const evQuotaReqs = quotaRequests.filter((r) => r.eventId === eventId);
   const openReqs = evGuestReqs.length + evQuotaReqs.length;
 
-  const notify = useCallback((msg: string, tone: 'in' | 'out' = 'out'): void => {
-    const entry = { msg, tone };
-    setToast(entry);
-    window.setTimeout(() => setToast((v) => (v === entry ? null : v)), 3200);
-  }, []);
+  const notify = useCallback(
+    (msg: string, tone: 'in' | 'out' = 'out'): void => {
+      notifyRaw({ msg, tone });
+    },
+    [notifyRaw]
+  );
   const pushFeed = useCallback((e: FeedEntry): void => {
     setFeed((f) => [e, ...f].slice(0, 6));
-  }, []);
-  const flash = useCallback((id: string): void => {
-    setFlashId(id);
-    window.setTimeout(() => setFlashId((v) => (v === id ? null : v)), 900);
   }, []);
 
   const checkInMutate = checkIn.mutate; // stable across renders (React Query guarantee)

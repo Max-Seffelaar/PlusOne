@@ -10,6 +10,7 @@
 import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
+import { useTransientValue } from '@/lib/use-transient-value';
 import type { PoInfluencer } from '@/features/po/queries';
 import { usePoInfluencers } from '@/features/po/hooks';
 import {
@@ -99,7 +100,8 @@ function StatsLinkBlock({ influencer }: { influencer: PoInfluencer }): JSX.Eleme
   // The prop is a snapshot — track token presence locally after rotate/revoke.
   const [hasToken, setHasToken] = useState(influencer.hasStatsToken);
   const [freshUrl, setFreshUrl] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copiedFlag, triggerCopied, clearCopied] = useTransientValue<true>(1800);
+  const copied = copiedFlag === true;
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [revoked, setRevoked] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -113,7 +115,7 @@ function StatsLinkBlock({ influencer }: { influencer: PoInfluencer }): JSX.Eleme
       const origin = typeof window !== 'undefined' ? window.location.origin : '';
       setFreshUrl(`${origin}/i/${token}`);
       setHasToken(true);
-      setCopied(false);
+      clearCopied();
     } catch (e) {
       setErr(e instanceof Error ? e.message : t.links.errStatsLink);
     }
@@ -137,8 +139,7 @@ function StatsLinkBlock({ influencer }: { influencer: PoInfluencer }): JSX.Eleme
     try {
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
         await navigator.clipboard.writeText(freshUrl);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1800);
+        triggerCopied(true);
       }
     } catch {
       // Clipboard blocked — the URL stays visible/selectable in the row.

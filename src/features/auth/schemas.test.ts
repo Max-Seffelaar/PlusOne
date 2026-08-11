@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { emailSchema, otpSchema, inviteSchema, profileNameSchema } from './schemas';
+import { emailSchema, otpSchema, inviteSchema, profileNameSchema, emailOtpTypeSchema } from './schemas';
 
 const VENUE_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -10,6 +10,28 @@ describe('emailSchema', () => {
   it('rejects invalid addresses', () => {
     expect(emailSchema.safeParse('not-an-email').success).toBe(false);
     expect(emailSchema.safeParse('').success).toBe(false);
+  });
+});
+
+// `EmailOtpType` (auth-js) is an open union (`... | (string & {})`), so
+// `satisfies z.ZodType<EmailOtpType>` on the schema enforces nothing at
+// compile time — a trimmed or misspelled list still typechecks. This pins
+// the exact six values GoTrue accepts for link-based verification (consumed
+// by auth/confirm/route.ts), so a drift (a 7th type added upstream, a typo)
+// is caught here instead of silently narrowing what the route accepts.
+describe('emailOtpTypeSchema', () => {
+  const VALID = ['signup', 'invite', 'magiclink', 'recovery', 'email_change', 'email'];
+
+  it('accepts exactly the six link-verification types GoTrue supports', () => {
+    for (const type of VALID) {
+      expect(emailOtpTypeSchema.safeParse(type).success).toBe(true);
+    }
+  });
+
+  it('rejects an unrecognized type, null, and a phone-OTP type (out of scope for this route)', () => {
+    expect(emailOtpTypeSchema.safeParse('bogus').success).toBe(false);
+    expect(emailOtpTypeSchema.safeParse(null).success).toBe(false);
+    expect(emailOtpTypeSchema.safeParse('sms').success).toBe(false); // MobileOtpType, not EmailOtpType
   });
 });
 

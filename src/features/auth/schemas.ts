@@ -3,6 +3,7 @@
 // validation rules live in exactly one place.
 
 import { z } from 'zod';
+import type { EmailOtpType } from '@supabase/supabase-js';
 import { VENUE_ROLES } from './roles';
 
 // E-mail is normalised (trim + lowercase) so invite/lookup matching is
@@ -26,6 +27,25 @@ export const totpSchema = z
   .string()
   .trim()
   .regex(/^\d{6}$/, 'Enter the 6-digit code from your authenticator app');
+
+// The link-verification types auth/confirm/route.ts accepts. `EmailOtpType` in
+// auth-js is an OPEN union (`... | (string & {})`), so `satisfies
+// z.ZodType<EmailOtpType>` enforces nothing at compile time — a trimmed or
+// misspelled list still typechecks. This is a hand-maintained subset of the
+// six values GoTrue actually accepts for link-based verification;
+// route.test.ts pins the exact list so drift is caught at test time instead.
+// Lives here (not in route.ts) because a Next.js Route Handler file may only
+// export the handful of names Next recognizes (GET, POST, config, …) — any
+// other named export fails the production build with "is not a valid Route
+// export field".
+export const emailOtpTypeSchema = z.enum([
+  'signup',
+  'invite',
+  'magiclink',
+  'recovery',
+  'email_change',
+  'email',
+]) satisfies z.ZodType<EmailOtpType>;
 
 export const uuidSchema = z.string().uuid('Invalid id');
 
