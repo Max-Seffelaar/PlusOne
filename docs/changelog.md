@@ -60,6 +60,52 @@ with a failing test BEFORE the fix (the tests are in the PR; they fail on the pa
   (`scale_tier_occupancy_link_funnel`, branch `perf/86ey9e9wv-…`), caught because the shared local
   DB had it applied; renamed to `20260810183000`.
 
+## 2026-08-10 — Landing request-form validation UX: red errors, name-required, e-mail sanity check (86eyd3men)
+
+Branch `fix/86eyd3men-landing-request-validation-ux`. Found by Max while testing 86ey9e8z5 (the
+public request form, `/e/[slug]` + `/r/[token]`, `src/components/po/landing.tsx`). Milestone: Now
+(request-form UX Max personally hit while testing). Three fixes, all UX/validation-only — no
+migration.
+
+- **Errors were lavender, not red.** `FieldError` and the invalid-field border used `border-acc`/
+  `text-acc-soft` (the same accent used for focus/selection elsewhere), so an error read as
+  "active", not "wrong". Added `fieldErrorText`/`fieldErrorBorder`/`FieldErrorText` to `kit.tsx`
+  (`text-red-300`/`border-red-400` — the color already used by ~15 other screens, just never
+  centralized) and wired landing.tsx's field errors, the phone-field border, and the
+  submit-failure banner onto it.
+- **Empty name was silently disabled, no feedback.** The submit button used to `disabled={!ok}`
+  so a native `disabled` button never fires `onClick` — there was no way to surface *why* nothing
+  happened. Button now only disables on `pending`; `submit()` gates on `!ok` first and sets a new
+  `nameErr` (copy: "Add your name so we can save your spot."), clearing it as soon as the
+  requester types.
+- **`isValidEmail` was too permissive.** The old regex (`[^\s@]+@[^\s@]+\.[^\s@]+`) accepted
+  anything with an `@` and a dot anywhere in the domain — 1-char TLDs, numeric TLDs, doubled/
+  leading/trailing dots, leading-hyphen labels. New regex in `src/features/requests/validation.ts`
+  requires a real-looking local part and a domain with a 2–24 char alphabetic TLD.
+  `submitGuestRequestSchema` (`schemas.ts`) now imports the same `EMAIL_RE` instead of Zod's
+  built-in `.email()`, so client and server never disagree.
+  - **Known, deliberate gap:** this is a structural sanity check, not a deliverability check — a
+    syntactically well-formed but fake domain (Max's test case, `max@hoiu.dsadas`) still passes,
+    because telling it apart from a real one needs either a bundled TLD allowlist (~5-10 kB gz on
+    the exact page PR #236 just spent effort shrinking, plus a maintenance burden and false-reject
+    risk on legitimate uncommon TLDs) or a live MX/DNS lookup (new server-side moving part on an
+    anonymous public write path). Given email is optional here (#9) and a false rejection costs a
+    real guest more than an occasional fake one costs the venue, this was a considered trade-off,
+    not an oversight — flagged for Max in case he wants deliverability-grade validation later.
+- The public endpoint's no-enumeration guarantee (never reveal whether an e-mail already exists,
+  #28) is untouched — `submitGuestRequest` still dedupes silently in the DB regardless of Zod
+  outcome.
+- Tests: `src/features/requests/validation.test.ts` (+8 cases for the stricter regex),
+  `schemas.test.ts` (+1 case proving client/server agree), new `src/components/po/landing.test.tsx`
+  (4 RTL cases: name-required blocks submit + clears on typing, malformed e-mail blocks submit and
+  is styled red, valid submit still reaches `action` — phone-lazy mocked out, hermetic). `pnpm lint`
+  clean, `tsc --noEmit` clean. Full `vitest run` (833 tests) is flaky on this dev machine under full
+  84-file parallelism — 8 unrelated pre-existing files (billing/webhook, door, realtime, health-check,
+  sign-out) time out under CPU contention but pass individually and in a smaller batch; none touch
+  the files this PR changed.
+
+---
+
 ## 2026-08-10 — /r and /i IP-salt fail-closed regression (86ey9e9my, C5)
 
 Branch `fix/86ey9e9my-landing-ip-salt-fail-closed` (PR [#242](https://github.com/Max-Seffelaar/PlusOne/pull/242)). Follow-up review finding on the
@@ -82,6 +128,7 @@ C5 closed. Milestone: Now (security regression on a live prod surface).
   var set, and returns the configured salt when it is set.
 - **Gates:** `pnpm lint` + `pnpm vitest run` — see PR for results. Non-UI, no migration, no test
   handoff needed.
+
 ---
 
 ## 2026-08-10 — Door-outbox housekeeping: double-tap, flush-coalescing, tombstone-pruning (86ey9e9p5)

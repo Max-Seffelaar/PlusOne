@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EMAIL_RE } from './validation';
 
 const uuid = z.string().uuid();
 
@@ -26,11 +27,13 @@ export const submitGuestRequestSchema = z.object({
     .max(120)
     .regex(/^[a-z0-9-]+$/i, 'Invalid link'),
   fullName: z.string().trim().min(2, 'Enter your name').max(120),
+  // Same shape check as the form's inline `isValidEmail` (validation.ts) — a
+  // request that passes client-side never gets silently rejected here.
   email: z
     .string()
     .trim()
     .max(254)
-    .email('Invalid email')
+    .regex(EMAIL_RE, 'Invalid email')
     .optional()
     .or(z.literal(''))
     .transform((v) => (v && v.length > 0 ? v : undefined)),
