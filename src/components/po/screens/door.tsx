@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import { Toast } from '../shell';
 import { EventRow, toBoardEvents } from '../event-row';
-import { useDoor } from '@/features/door/DoorProvider';
+import { useDoor, useDoorSyncStatus } from '@/features/door/DoorProvider';
 import type { PoDoorEvent } from '@/features/po/door-event';
 import { usePoGuestRequests, usePoHomeEvents, usePoQuotaRequests } from '@/features/po/hooks';
 import { CheckInList } from '@/features/door/components/CheckInList';
@@ -26,7 +26,9 @@ import { Taken as DoorTaken } from '@/features/door/components/Taken';
 import { GuestDetail } from '@/features/door/components/GuestDetail';
 import { AddOnSpot } from '@/features/door/components/AddOnSpot';
 import { SyncBar } from '@/features/door/components/SyncBar';
+import { StaleResumeOverlay } from '@/features/door/components/StaleResumeOverlay';
 import { DoorErrorBoundary } from '@/features/door/components/DoorErrorBoundary';
+import { useStaleResumeGuard } from '@/features/door/sync/useStaleResumeGuard';
 import type { DoorOverlayState } from '../routes';
 
 // Single source of truth is routes.ts (the URL scheme owns this shape — it's
@@ -150,6 +152,11 @@ export function PoDoorTab({
   onChangeEvent?: () => void;
 }): JSX.Element {
   const { toast } = useDoor();
+  // Called ONCE here (not inside StaleResumeOverlay) so its phase can also
+  // `inert` everything else in this subtree — a second independent call would
+  // run two state machines against the same sync state that could disagree.
+  const sync = useDoorSyncStatus();
+  const staleResume = useStaleResumeGuard(sync);
 
   let screen: JSX.Element;
   if (overlay?.kind === 'guest') screen = <GuestDetail guestId={overlay.id} onBack={closeOverlay} />;
@@ -161,31 +168,42 @@ export function PoDoorTab({
 
   return (
     <DoorErrorBoundary>
-      <SyncBar />
-      {!overlay && onChangeEvent && currentEventName && (
-        <DoorEventBar name={currentEventName} onChange={onChangeEvent} />
-      )}
-      {!overlay && onTab && (
-        <div className="flex flex-none items-center gap-2 px-5 pb-1 pt-2">
-          {(['deur', 'taken'] as const).map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => onTab(s)}
-              className={cn(
-                'rounded-full px-[14px] py-[6px] font-display text-[13px] font-bold transition-[filter] hover:brightness-110',
-                tab === s ? 'bg-acc text-on-acc' : 'border border-line bg-elev text-dim',
-              )}
-            >
-              {s === 'deur' ? t.nav.checkin : t.nav.tasks}
-            </button>
-          ))}
+      <StaleResumeOverlay
+        phase={staleResume.phase}
+        offline={staleResume.offline}
+        continueAnyway={staleResume.continueAnyway}
+        retry={staleResume.retry}
+      />
+      {/* `inert` (not just the overlay's visual z-index) so a hardware keyboard
+          or barcode-scanner wedge can't type into an autofocused field
+          underneath (e.g. AddOnSpot's Enter-to-commit input) while blocked. */}
+      <div inert={staleResume.phase !== 'closed'} className="flex min-h-0 flex-1 flex-col">
+        <SyncBar />
+        {!overlay && onChangeEvent && currentEventName && (
+          <DoorEventBar name={currentEventName} onChange={onChangeEvent} />
+        )}
+        {!overlay && onTab && (
+          <div className="flex flex-none items-center gap-2 px-5 pb-1 pt-2">
+            {(['deur', 'taken'] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => onTab(s)}
+                className={cn(
+                  'rounded-full px-[14px] py-[6px] font-display text-[13px] font-bold transition-[filter] hover:brightness-110',
+                  tab === s ? 'bg-acc text-on-acc' : 'border border-line bg-elev text-dim',
+                )}
+              >
+                {s === 'deur' ? t.nav.checkin : t.nav.tasks}
+              </button>
+            ))}
+          </div>
+        )}
+        <div key={navKey} className="po-screen-anim flex min-h-0 flex-1 flex-col">
+          {screen}
         </div>
-      )}
-      <div key={navKey} className="po-screen-anim flex min-h-0 flex-1 flex-col">
-        {screen}
+        {toast && <Toast>{toast}</Toast>}
       </div>
-      {toast && <Toast>{toast}</Toast>}
     </DoorErrorBoundary>
   );
 }

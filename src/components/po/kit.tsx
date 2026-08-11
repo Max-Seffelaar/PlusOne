@@ -125,6 +125,7 @@ export function Btn({
   className,
   style,
   desktop,
+  autoFocus,
 }: {
   children: ReactNode;
   kind?: BtnKind;
@@ -139,12 +140,14 @@ export function Btn({
   /** Desktop density (was desktop/kit.tsx's `DBtn`): tighter radius + the
    *  desktop press feel. Same API otherwise — a screen never needs two imports. */
   desktop?: boolean;
+  autoFocus?: boolean;
 }): JSX.Element {
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
+      autoFocus={autoFocus}
       className={cn(
         'inline-flex cursor-pointer items-center justify-center gap-[9px] whitespace-nowrap border font-display font-bold tracking-[-0.01em]',
         desktop ? 'rounded-[12px]' : 'rounded-btn',
