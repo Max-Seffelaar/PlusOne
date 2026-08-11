@@ -11,7 +11,12 @@
  */
 import { fuzzyMatch } from '@/features/door/components/fuzzy';
 import type { Guest, GuestStatus, Tier } from '@/lib/po/types';
-import { computeHeadcounts, heads as headsOf, type HeadcountRow } from '../headcount';
+import {
+  arrivedHeadsOf,
+  computeHeadcounts,
+  heads as headsOf,
+  type HeadcountRow,
+} from '../headcount';
 
 const TZ = 'Europe/Amsterdam';
 
@@ -30,12 +35,11 @@ export type ArrivalsByGuest = ReadonlyMap<string, { arrived: number }>;
  * before the arrivals refetch, or a role that can't read check_ins).
  */
 export function arrivedHeads(g: Guest, arrivals: ArrivalsByGuest): number {
-  const a = arrivals.get(g.id);
-  return 1 + (a ? a.arrived : g.plus || 0);
+  return arrivedHeadsOf({ plus: g.plus, arrivedPlus: arrivals.get(g.id)?.arrived });
 }
 
 /** `Guest[]` + arrivals-map → the canonical selector's normalized row shape. */
-function toHeadcountRows(guests: Guest[], arrivals: ArrivalsByGuest): HeadcountRow[] {
+function toHeadcountRows(guests: Guest[], arrivals: ArrivalsByGuest = new Map()): HeadcountRow[] {
   return guests.map((g) => ({
     status: g.status,
     plus: g.plus,
@@ -65,11 +69,6 @@ export function partyState(g: Guest, arrivals: ArrivalsByGuest): PartyState {
   const totalHeads = heads(g);
   const inside = insideHeads(g, arrivals);
   return { totalHeads, insideHeads: inside, remaining: totalHeads - inside };
-}
-
-/** Guests that count toward tonight (everything except refused). */
-function onList(guests: Guest[]): Guest[] {
-  return guests.filter((g) => g.status !== 'refused');
 }
 
 export interface CockpitTiles {
@@ -108,12 +107,12 @@ export interface CockpitCounts {
 
 /** Row counts (not koppen) for the Alle / Onderweg / Binnen / Refused segmented control. */
 export function cockpitCounts(guests: Guest[]): CockpitCounts {
-  const list = onList(guests);
+  const hc = computeHeadcounts(toHeadcountRows(guests));
   return {
-    all: list.length,
-    wait: list.filter((g) => g.status === 'wait').length,
-    in: list.filter((g) => g.status === 'in').length,
-    refused: guests.filter((g) => g.status === 'refused').length,
+    all: hc.onListRows,
+    wait: hc.onTheWayRows,
+    in: hc.insideRows,
+    refused: hc.refusedRows,
   };
 }
 
@@ -144,20 +143,19 @@ export function perTierLive(
   tiers: Tier[],
   arrivals: ArrivalsByGuest = new Map()
 ): TierLiveRow[] {
-  const list = onList(guests);
-
   const rows: TierLiveRow[] = [];
   for (const t of tiers) {
-    const gs = list.filter((g) => g.tierId === t.id);
-    if (gs.length === 0) continue;
-    const hc = computeHeadcounts(toHeadcountRows(gs, arrivals));
+    const hc = computeHeadcounts(
+      toHeadcountRows(guests.filter((g) => g.tierId === t.id), arrivals)
+    );
+    if (hc.onListRows === 0) continue;
     rows.push({
       tierId: t.id,
       tier: t.name,
       color: t.color,
       aangemeld: hc.onListHeads,
       binnen: hc.insideHeads,
-      entries: gs.length,
+      entries: hc.onListRows,
     });
   }
   return rows;

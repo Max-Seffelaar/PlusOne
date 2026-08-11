@@ -32,9 +32,10 @@ export function heads(row: Pick<HeadcountRow, 'plus'>): number {
   return 1 + (row.plus || 0);
 }
 
-/** Koppen actually present for a checked-in guest (partial-check-in aware). */
+/** Koppen actually present for a checked-in guest (partial-check-in aware);
+ *  no arrival count known → the full registered party (`heads`). */
 export function arrivedHeadsOf(row: Pick<HeadcountRow, 'plus' | 'arrivedPlus'>): number {
-  return 1 + (row.arrivedPlus ?? row.plus ?? 0);
+  return row.arrivedPlus != null ? 1 + row.arrivedPlus : heads(row);
 }
 
 export interface Headcounts {
