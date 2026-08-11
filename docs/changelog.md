@@ -128,6 +128,18 @@ new warnings). Follow-up task spawned for desktop-cockpit coverage (not built he
 explicit instruction). ClickUp session comment couldn't be posted — the ClickUp MCP write API was
 rate-limited workspace-wide for ~23h at the start of this round; exact comment text handed to Max.
 
+**Merged `origin/main` into the branch after pushing the fixes** — `main` had moved substantially
+(PR #247's repo-wide `JSX.Element` → explicit-import codemod + new `tests/unit/jsx-namespace-imported.test.ts`
+guard, PR #249's door outbox coalescing/`onBeforeForceSync` restructure of `useDoorSync.ts`, PR #253's
+atomic check-out, PR #250's request-link venue isolation). Only real conflict was two changelog
+entries landing at the top simultaneously (trivial, kept both). `useDoorSync.ts` auto-merged cleanly
+with BOTH this task's finding-6 fix (the realtime-reconnect self-heal routed through `runSync`) and
+#249's new `forceSync`/`onBeforeForceSync` split intact — verified by reading the merged file, not
+just trusting the auto-merge. The JSX codemod predates this branch's new files, so
+`StaleResumeOverlay.tsx` and `useWakeLock.test.ts` needed the same `import type { JSX } from 'react'`
+fix by hand; caught by re-running the guard test, not by manual inspection. Full suite re-run
+post-merge: 966/966, type-check + lint clean, PR now shows `MERGEABLE`.
+
 ## 2026-08-10 — Dependabot: refuse Next/React majors, unblock the safe bumps (86eyd39gn)
 
 Branch `chore/86eyd39gn-deps-ignore-majors-safe-bumps` (PR #247, closes the deadlocked #239).
