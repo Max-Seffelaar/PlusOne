@@ -26,9 +26,10 @@ import { resolveDefaultTierId } from '@/features/guests/tiers';
 import { addOnSpotSchema } from '@/features/guests/schemas';
 import { getDeviceId, getDoorClient } from './offline/device';
 import { drainOutbox, guestKeyOf } from './outbox/replay';
+import { hasOpenCheckIn } from './outbox/dedup';
 import { supabaseGateway } from './outbox/gateway';
 import { outbox } from './outbox/store';
-import type { OutboxEntry } from './outbox/types';
+import { isPending, type OutboxEntry } from './outbox/types';
 import { useDoorSync, type DoorSyncState } from './sync/useDoorSync';
 import {
   doorSnapshotKey,
@@ -67,6 +68,10 @@ type OutboxWrite = {
 
 const QUOTA_KEY = (eventId: string) => ['door-quota', eventId] as const;
 const TOAST_MS = 2600;
+/** Reruns of a flush that had work enqueued while it ran — see `flush` below. */
+const MAX_COALESCED_RERUNS = 3;
+
+const isOnline = (): boolean => typeof navigator === 'undefined' || navigator.onLine;
 
 export interface AddOnSpotInput {
   name: string;
@@ -278,46 +283,95 @@ export function DoorProvider({
     [queryClient, eventId],
   );
 
+  /** The cache as it is RIGHT NOW — `patchSnapshot` writes here synchronously,
+   *  so this sees a mutation from the same frame that the render refs miss. */
+  const readSnapshot = useCallback(
+    () => queryClient.getQueryData<DoorSnapshot>(doorSnapshotKey(eventId)),
+    [queryClient, eventId],
+  );
+
   // ── Sync: drain the outbox, then refetch the snapshot + quota (when online).
-  const flushPromise = useRef<Promise<void> | null>(null);
-  const flush = useCallback((): Promise<void> => {
-    if (flushPromise.current) return flushPromise.current;
-    const run = (async () => {
-      const client = getDoorClient();
-      const {
-        data: { user },
-      } = await client.auth.getUser();
-      if (user) {
-        const summary = await drainOutbox({
-          list: () => [...outbox.getSnapshot()],
-          update: (id, patch) => outbox.update(id, patch),
-          gateway: supabaseGateway(client),
-          uid: user.id,
-          deviceId: getDeviceId(),
-        });
-        if (summary.duplicates > 0) showToast('Was already checked in on another device');
-        if (summary.errors > 0) {
-          const failed = outbox.getSnapshot().find((e) => e.status === 'error' && e.message);
-          if (failed?.message) showToast(failed.message);
-        }
-        outbox.clearSynced();
-      }
-      if (typeof navigator === 'undefined' || navigator.onLine) {
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: doorSnapshotKey(eventId) }),
-          queryClient.invalidateQueries({ queryKey: QUOTA_KEY(eventId) }),
-        ]);
-      }
-    })().finally(() => {
-      flushPromise.current = null;
-    });
-    flushPromise.current = run;
-    return run;
+  const runFlush = useCallback(async (): Promise<void> => {
+    const client = getDoorClient();
+    const {
+      data: { user },
+    } = await client.auth.getUser();
+    if (user) {
+      const summary = await drainOutbox({
+        list: () => [...outbox.getSnapshot()],
+        update: (id, patch) => outbox.update(id, patch),
+        gateway: supabaseGateway(client),
+        uid: user.id,
+        deviceId: getDeviceId(),
+      });
+      if (summary.duplicates > 0) showToast('Was already checked in on another device');
+      // The entry that JUST failed, carried out of the drain itself. Scanning the
+      // store for the first `error` entry (the old code) returns the OLDEST one
+      // still queued — since tombstones were never pruned, that meant a doorhost
+      // whose check-in hit "tier zit vol" could be shown an unrelated rejection
+      // from three hours earlier (#33).
+      if (summary.lastError) showToast(summary.lastError);
+      outbox.clearSettled();
+    }
+    if (isOnline()) {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: doorSnapshotKey(eventId) }),
+        queryClient.invalidateQueries({ queryKey: QUOTA_KEY(eventId) }),
+      ]);
+    }
   }, [eventId, queryClient, showToast]);
 
-  const isOnline = (): boolean => typeof navigator === 'undefined' || navigator.onLine;
+  const flushPromise = useRef<Promise<void> | null>(null);
+  const flushQueued = useRef(false);
+  /**
+   * One flush at a time, but never a LOST flush (#32).
+   *
+   * `drainOutbox` snapshots the queue once, and the refetch that follows it
+   * overwrites the cache with whatever the server has. So a mutation enqueued
+   * while a flush is running — the doorhost checking in the next guest during
+   * the ~1s drain+refetch, which at the door is the normal case, not the edge
+   * case — used to be dropped twice over: its own `maybeFlush()` got handed the
+   * in-flight promise and queued nothing, and then the in-flight refetch landed
+   * a server snapshot that predates it and wiped its optimistic patch. The guest
+   * visibly fell back to "onderweg" until the 60s safety sync picked the entry
+   * up. Instead: remember that someone asked, and rerun the whole cycle
+   * (drain THEN refetch) once the current one is done, so the last refetch of
+   * the burst is always the one that already includes the new write.
+   */
+  const flush = useCallback((): Promise<void> => {
+    if (flushPromise.current) {
+      flushQueued.current = true;
+      return flushPromise.current;
+    }
+    flushQueued.current = false;
+    const run = (async () => {
+      try {
+        await runFlush();
+        // Bounded: one rerun already drains an entire burst (the drain lists
+        // every pending entry), and anything still queued after that is a
+        // pathological loop, not a doorhost — the 60s safety sync remains the
+        // backstop. Keeps termination provable on the door's hot path.
+        for (let i = 0; i < MAX_COALESCED_RERUNS && flushQueued.current; i++) {
+          flushQueued.current = false;
+          if (!isOnline() || !outbox.getSnapshot().some(isPending)) break;
+          await runFlush();
+        }
+      } finally {
+        // Cleared in the same synchronous step as the final `flushQueued` read,
+        // so no flush() call can land in a window where the rerun loop has given
+        // up but the promise still looks in-flight (its request would be lost).
+        flushPromise.current = null;
+      }
+    })();
+    flushPromise.current = run;
+    return run;
+  }, [runFlush]);
+
   const maybeFlush = useCallback(() => {
-    if (isOnline()) void flush();
+    // Swallow here only: a mutation's fire-and-forget flush must not surface as
+    // an unhandled rejection. useDoorSync awaits the same promise and keeps its
+    // own error handling (it degrades the status bar to stale/warn).
+    if (isOnline()) void flush().catch(() => {});
   }, [flush]);
 
   // ── 2a: centralised outbox envelope — clientId / status / attempts / createdAt
@@ -343,10 +397,30 @@ export function DoorProvider({
 
   const checkIn = useCallback(
     (guestId: string, totalPeople: number) => {
+      const g = guestMapRef.current.get(guestId);
+      // O8 — guard the ENQUEUE, not just the optimistic patch. The patch below
+      // is a no-op when the guest is already in the snapshot, but the entry was
+      // queued regardless; `check_ins.guest_id` is UNIQUE, so that second entry
+      // could only ever come back 23505 → `duplicate` → "Was already checked in
+      // on another device" at a doorhost who just double-tapped their own
+      // tablet. Both reads are deliberately synchronous state that the first tap
+      // already mutated — the query cache (also patched by realtime, so a
+      // colleague's check-in counts too) and the outbox — because two taps in
+      // one frame share the same stale render refs (`guestMapRef`/`view`).
+      const existing = readSnapshot()?.checkIns.find((c) => c.guest_id === guestId);
+      if (existing || hasOpenCheckIn(outbox.getSnapshot(), eventId, guestId)) {
+        // Never silent: the tap has to answer something, or the doorhost taps
+        // again. A voided row is the revive path's business, not a fresh INSERT.
+        showToast(
+          existing?.voided_at
+            ? `${g?.name ?? 'Guest'} · check-in was reversed — use re-check-in`
+            : `${g?.name ?? 'Guest'} · already inside`,
+        );
+        return;
+      }
       const ciId = uuidv7();
       const ts = new Date().toISOString();
       const plusArrived = Math.max(0, totalPeople - 1);
-      const g = guestMapRef.current.get(guestId);
       enqueueDoorWrite(
         { kind: 'check_in', payload: { id: ciId, guestId, plusOnesArrived: plusArrived, clientTimestamp: ts } },
         (s) => {
@@ -371,7 +445,7 @@ export function DoorProvider({
         `${g?.name ?? 'Guest'}${plusArrived > 0 ? ` +${plusArrived}` : ''} · inside ✓`,
       );
     },
-    [enqueueDoorWrite, eventId, meId],
+    [enqueueDoorWrite, eventId, meId, readSnapshot, showToast],
   );
 
   // "Nog inchecken": raise plus_ones_arrived for a guest already inside. We read
@@ -604,7 +678,18 @@ export function DoorProvider({
     [eventId, patchSnapshot],
   );
 
-  const sync = useDoorSync({ eventId, onSync: flush, onRealtimeCheckIn, onRealtimeGuest });
+  // `onBeforeForceSync` fires on the sync-bar button only: a terminal error
+  // (quota full, tier full, an RLS deny while the list was locked) had no way
+  // back into the queue at all — `retryErrors` existed but nothing called it
+  // (#33). Automatic drains must NOT retry them, or dead-lettering means nothing.
+  const retryFailed = useCallback(() => outbox.retryErrors(), []);
+  const sync = useDoorSync({
+    eventId,
+    onSync: flush,
+    onBeforeForceSync: retryFailed,
+    onRealtimeCheckIn,
+    onRealtimeGuest,
+  });
 
   // ── D3: O(1) lookup via the map built in the view useMemo above.
   const guestById = useCallback((id: string) => guestMapRef.current.get(id), []);

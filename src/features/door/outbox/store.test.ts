@@ -26,17 +26,23 @@ const EVENT_ID = '11111111-1111-4111-8111-111111111111';
 const CI_ID = '22222222-2222-4222-8222-222222222222';
 const GUEST_ID = '33333333-3333-4333-8333-333333333333';
 
-function entry(clientId: string, status: OutboxStatus = 'pending'): OutboxEntry {
+const CREATED_AT = '2026-07-13T20:00:00.000Z';
+
+function entry(clientId: string, status: OutboxStatus = 'pending', over: Partial<OutboxEntry> = {}): OutboxEntry {
   return {
     clientId,
     eventId: EVENT_ID,
     kind: 'check_in',
     status,
     attempts: 0,
-    createdAt: '2026-07-13T20:00:00.000Z',
-    payload: { id: CI_ID, guestId: GUEST_ID, plusOnesArrived: 0, clientTimestamp: '2026-07-13T20:00:00.000Z' },
-  };
+    createdAt: CREATED_AT,
+    payload: { id: CI_ID, guestId: GUEST_ID, plusOnesArrived: 0, clientTimestamp: CREATED_AT },
+    ...over,
+  } as OutboxEntry;
 }
+
+/** ms since the entries above were created. */
+const at = (hoursLater: number): number => Date.parse(CREATED_AT) + hoursLater * 60 * 60 * 1000;
 
 function createDeferred<T>() {
   let resolve!: (v: T) => void;
@@ -173,7 +179,7 @@ describe('OutboxStore — read-merge-before-commit (O1 — cross-tab last-writer
     ]);
   });
 
-  it('clearSynced() removal survives even when a sibling tab still has the synced entry on disk', async () => {
+  it('clearSettled() removal survives even when a sibling tab still has the synced entry on disk', async () => {
     idbGetMock.mockResolvedValueOnce(undefined); // init(): nothing on disk yet
     const store = new OutboxStore();
     await store.init();
@@ -184,12 +190,68 @@ describe('OutboxStore — read-merge-before-commit (O1 — cross-tab last-writer
     // A sibling tab hasn't cleared it yet — its stale on-disk copy still has
     // 'done'. A plain merge would resurrect it; the removal must stick anyway.
     idbGetMock.mockResolvedValueOnce(buildEnvelope([entry('done', 'synced')]));
-    store.clearSynced();
+    store.clearSettled();
     await vi.waitFor(() => expect(idbSetMock.mock.calls.length).toBeGreaterThanOrEqual(2));
 
     expect(store.getSnapshot().map((e) => e.clientId)).toEqual([]);
     const [, persistedValue] = idbSetMock.mock.calls.at(-1) ?? [];
     expect((persistedValue as { entries: OutboxEntry[] }).entries).toEqual([]);
+  });
+});
+
+describe('OutboxStore.clearSettled — tombstone pruning (86ey9e9p5 / #33)', () => {
+  async function loadedStoreWith(entries: OutboxEntry[]) {
+    idbGetMock.mockResolvedValue(buildEnvelope(entries));
+    const store = new OutboxStore();
+    await store.init();
+    idbSetMock.mockClear();
+    idbGetMock.mockResolvedValue(undefined); // later commits: nothing new on disk
+    return store;
+  }
+
+  it('drops synced entries immediately but keeps duplicate/error tombstones during the shift', async () => {
+    // The duplicate marker on a check-in row and the manual retry both read
+    // these — they must survive the drain that produced them.
+    const store = await loadedStoreWith([entry('ok', 'synced'), entry('dup', 'duplicate'), entry('bad', 'error')]);
+
+    store.clearSettled(at(1)); // one hour into the night
+
+    expect(store.getSnapshot().map((e) => e.clientId).sort()).toEqual(['bad', 'dup']);
+  });
+
+  it('drops duplicate/error tombstones once they are past the 12h TTL', async () => {
+    const store = await loadedStoreWith([entry('dup', 'duplicate'), entry('bad', 'error'), entry('queued', 'pending')]);
+
+    store.clearSettled(at(13));
+
+    // Pending work is never pruned by age — an entry that has not reached the
+    // server yet is a check-in that still has to happen, however old it is.
+    expect(store.getSnapshot().map((e) => e.clientId)).toEqual(['queued']);
+    await vi.waitFor(() => expect(idbSetMock).toHaveBeenCalled());
+    const [, persistedValue] = idbSetMock.mock.calls.at(-1) ?? [];
+    expect((persistedValue as { entries: OutboxEntry[] }).entries.map((e) => e.clientId)).toEqual(['queued']);
+  });
+
+  it('never prunes an entry still in syncing, however old', async () => {
+    // A mid-drain kill leaves `syncing`; init()'s C8 revival owns that, not the
+    // pruner — dropping it here would silently lose the check-in.
+    const store = await loadedStoreWith([entry('inflight', 'syncing')]);
+    store.clearSettled(at(48));
+    expect(store.getSnapshot().map((e) => e.clientId)).toEqual(['inflight']);
+  });
+
+  it('does not touch IndexedDB at all when nothing has settled', async () => {
+    // This runs after EVERY drain (each mutation + the 60s safety sync). The old
+    // version committed unconditionally, so a queue holding a night's worth of
+    // never-pruned tombstones paid a full read-merge-write for a no-op each time.
+    const store = await loadedStoreWith([entry('queued', 'pending'), entry('dup', 'duplicate')]);
+
+    store.clearSettled(at(1));
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(idbSetMock).not.toHaveBeenCalled();
+    expect(store.getSnapshot()).toHaveLength(2);
   });
 });
 
