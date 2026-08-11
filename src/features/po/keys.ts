@@ -9,8 +9,6 @@ export const poKeys = {
   home: (venueId: string) => [...poKeys.all, 'home', venueId] as const,
   /** Home KPI bundle for the selected event (open requests + personal quota). */
   homeStats: (eventId: string) => [...poKeys.all, 'home-stats', eventId] as const,
-  /** The venue's "current" event for the mobile Deur/Taken tab (live → next → recent). */
-  doorEvent: (venueId: string) => [...poKeys.all, 'door-event', venueId] as const,
   /** All non-closed events the door/cockpit may work, for the Deur-tab switcher (S1.3). */
   doorCandidates: (venueId: string) => [...poKeys.all, 'door-candidates', venueId] as const,
   event: (eventId: string) => [...poKeys.all, 'event', eventId] as const,
@@ -75,8 +73,10 @@ export const poKeys = {
     [...poKeys.all, 'audit', venueId, filters] as const,
   auditOptions: (venueId: string) => [...poKeys.all, 'audit-options', venueId] as const,
   guestHistory: (guestId: string) => [...poKeys.all, 'guest-history', guestId] as const,
-  /** Per-tier + per-member stats for the event Activity section (86ey21vnd). */
-  eventActivity: (eventId: string) => [...poKeys.all, 'event-activity', eventId] as const,
+  // Note: the per-event Activity section (86ey21vnd) used to have its own
+  // 'event-activity' key here; 86ey9e9v5 folded it into `eventStats` above (both
+  // hooks now share ONE query, varying shape with `select`) to stop duplicating
+  // the same fetchEventStats round-trip under two keys.
   // Request links + influencers (Requests-epic F1, 86ey21vjt) — one event's links
   // with their funnel numbers; the venue-wide lean link list (approvals filter);
   // the venue's influencer roster. Mutations invalidate by the same prefixes.

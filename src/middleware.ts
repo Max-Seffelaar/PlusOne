@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { updateSession } from '@/lib/supabase/middleware';
+import { safeNextPath } from '@/features/auth/next-path';
 
 // Middleware protects EVERY route by default; public exceptions are listed
 // explicitly here (bouwplan Fase 4 §6). Anything not public requires a verified
@@ -39,10 +40,18 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   // A signed-in user has no business on the login screen → the one app surface.
   // Same for the marketing root: invite links used to strand a logged-in user
   // on the landing page with an extra "Open the app" click (T1 #1/#5).
+  // From /login, honour ?next= (86ey9ea00 #57) — an already-signed-in user
+  // hitting /login?next=/app/profile (e.g. a stale tab, or a deep link they
+  // opened while a previous session was still authed) must still land where
+  // the link pointed, not get flattened to /app. safeNextPath keeps this from
+  // becoming an open redirect. The marketing root has no such deep-link case.
   if (user && (pathname === '/login' || pathname === '/')) {
     const url = request.nextUrl.clone();
-    url.pathname = '/app';
-    url.search = '';
+    const target =
+      pathname === '/login' ? safeNextPath(request.nextUrl.searchParams.get('next')) : '/app';
+    const targetUrl = new URL(target, request.url);
+    url.pathname = targetUrl.pathname;
+    url.search = targetUrl.search;
     return redirectWithCookies(url, response);
   }
 

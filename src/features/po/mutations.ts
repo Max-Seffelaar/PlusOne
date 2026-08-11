@@ -51,7 +51,6 @@ import type {
   PromoteGuestToContactInput,
 } from '@/features/contacts/schemas';
 import {
-  changeEventStatus,
   createEvent,
   createTier,
   deleteTier,
@@ -78,7 +77,6 @@ import {
   setEventDefaultMemberQuota,
 } from '@/features/events/actions';
 import type {
-  ChangeStatusInput,
   CreateEventInput,
   CreateTierInput,
   DeleteTierInput,
@@ -125,7 +123,7 @@ import { setDefaultQuotaAction } from '@/features/quotas/default-quota-actions';
 import { createCheckoutSessionAction, createPortalSessionAction } from '@/features/billing/actions';
 import type { VenueRole } from '@/features/auth/roles';
 import type { Guest, Tier } from '@/lib/po/types';
-import type { CheckinArrival } from './queries';
+import type { CheckinArrival, PoRequestLink } from './queries';
 import { poKeys } from './keys';
 import { classifyAddResult, type BulkAddRowResult } from './bulk';
 import { optimisticGuest, type OptimisticAddArgs } from './adapters';
@@ -374,7 +372,12 @@ export function usePoBulkAddToEvent() {
       }
       return results;
     },
-    onSuccess: (_res, input) => {
+    // onSettled, not onSuccess (86ey9e9v5, matches usePoAddGuest): the loop above
+    // never throws per-row (each outcome is classified, not surfaced as a
+    // mutation error), but an unexpected mid-loop exception would still leave
+    // any already-added rows uninvalidated under onSuccess-only. onSettled
+    // reconciles the target event's caches regardless of how the mutation ends.
+    onSettled: (_res, _err, input) => {
       invalidateAfterAdd(qc, input.targetEventId);
       void qc.invalidateQueries({ queryKey: CONTACT_PROFILE_KEY });
     },
@@ -424,6 +427,20 @@ export interface PoCheckInInput {
   /** Companions present now (arrived plus-ones). The cockpit's stepper picks how
    *  many of a +N party are in; a +0 guest is always 0. */
   plusOnes: number;
+}
+
+/** Cancel any in-flight guests/arrivals refetch before an optimistic check-in
+ *  patch (86ey9e9rz). `optimisticCheckin` below patches BOTH poKeys.guests AND
+ *  poKeys.arrivals, but a caller that only cancelled guests left an in-flight
+ *  arrivals refetch free to land after the patch and silently overwrite it with
+ *  pre-mutation data — the guest visibly snapped back to "onderweg" on the
+ *  cockpit. Shared by every mutation that calls optimisticCheckin so the two
+ *  cancels can't drift apart again. */
+async function cancelCheckinQueries(qc: QueryClient, eventId: string): Promise<void> {
+  await Promise.all([
+    qc.cancelQueries({ queryKey: poKeys.guests(eventId) }),
+    qc.cancelQueries({ queryKey: poKeys.arrivals(eventId) }),
+  ]);
 }
 
 /** Optimistically flip a guest in↔wait and patch their arrival count; returns a snapshot. */
@@ -488,7 +505,7 @@ export function usePoCheckIn(eventId: string) {
       }
     },
     onMutate: async ({ guestId, plusOnes }) => {
-      await qc.cancelQueries({ queryKey: poKeys.guests(eventId) });
+      await cancelCheckinQueries(qc, eventId);
       return optimisticCheckin(qc, eventId, guestId, 'in', plusOnes);
     },
     onError: (_err, _input, ctx) => {
@@ -547,7 +564,7 @@ export function usePoVoidCheckIn(eventId: string) {
       }
     },
     onMutate: async ({ guestId }) => {
-      await qc.cancelQueries({ queryKey: poKeys.guests(eventId) });
+      await cancelCheckinQueries(qc, eventId);
       return optimisticCheckin(qc, eventId, guestId, 'wait', 0);
     },
     onError: (_err, _input, ctx) => {
@@ -592,7 +609,7 @@ export function usePoCheckOut(eventId: string) {
       }
     },
     onMutate: async ({ guestId, remainingHeads }) => {
-      await qc.cancelQueries({ queryKey: poKeys.guests(eventId) });
+      await cancelCheckinQueries(qc, eventId);
       return remainingHeads <= 0
         ? optimisticCheckin(qc, eventId, guestId, 'wait', 0)
         : optimisticCheckin(qc, eventId, guestId, 'in', remainingHeads - 1);
@@ -926,6 +943,15 @@ function useInvalidateEvent() {
     if (venueId) {
       void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
       void qc.invalidateQueries({ queryKey: poKeys.doorCandidates(venueId) });
+      // poKeys.home is a SEPARATE cache entry from poKeys.events (its own fetch,
+      // its own 10s poll) — without this an event create/status-change/cancel
+      // only reached the mobile Home board on its next poll tick, not
+      // immediately, while the Events tab (poKeys.events, invalidated above)
+      // updated right away (86ey9e9v5: Home vs Events inconsistency after
+      // create/cancel). PR #228 fixed this ad hoc for the lock toggle only
+      // (usePoSetListLockOnHome); this generalizes it to every caller of
+      // useInvalidateEvent.
+      void qc.invalidateQueries({ queryKey: poKeys.home(venueId) });
     }
   };
 }
@@ -943,6 +969,7 @@ export function usePoCreateEvent() {
       if (venueId) {
         void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
         void qc.invalidateQueries({ queryKey: poKeys.doorCandidates(venueId) });
+        void qc.invalidateQueries({ queryKey: poKeys.home(venueId) });
       }
     },
   });
@@ -952,14 +979,6 @@ export function usePoUpdateEvent(eventId: string) {
   const invalidate = useInvalidateEvent();
   return useMutation({
     mutationFn: async (input: UpdateEventInput) => throwOnError(await updateEvent(input)),
-    onSuccess: () => invalidate(eventId),
-  });
-}
-
-export function usePoChangeStatus(eventId: string) {
-  const invalidate = useInvalidateEvent();
-  return useMutation({
-    mutationFn: async (input: ChangeStatusInput) => throwOnError(await changeEventStatus(input)),
     onSuccess: () => invalidate(eventId),
   });
 }
@@ -992,19 +1011,14 @@ export function usePoSetListLock(eventId: string) {
 
 /** Same mutation as `usePoSetListLock`, for callers that render MANY events at
  *  once (the Home board, S14) rather than a single fixed eventId — the target
- *  event travels in the mutate() call instead of hook creation. Also refreshes
- *  `poKeys.home` (a separate cache key from `poKeys.events`) so the board's own
- *  lock icon reflects the server state without waiting for the next poll. */
+ *  event travels in the mutate() call instead of hook creation. `useInvalidateEvent`
+ *  now also refreshes `poKeys.home` itself (86ey9e9v5), so the board's own lock
+ *  icon reflects the server state without waiting for the next poll. */
 export function usePoSetListLockOnHome() {
   const invalidate = useInvalidateEvent();
-  const qc = useQueryClient();
-  const { venueId } = usePoIdentity();
   return useMutation({
     mutationFn: async (input: SetLockInput) => throwOnError(await setListLock(input)),
-    onSuccess: (_data, input) => {
-      invalidate(input.eventId);
-      if (venueId) void qc.invalidateQueries({ queryKey: poKeys.home(venueId) });
-    },
+    onSuccess: (_data, input) => invalidate(input.eventId),
   });
 }
 
@@ -1150,6 +1164,7 @@ export function usePoCreateEventFromTemplate() {
       if (venueId) {
         void qc.invalidateQueries({ queryKey: poKeys.events(venueId) });
         void qc.invalidateQueries({ queryKey: poKeys.doorCandidates(venueId) });
+        void qc.invalidateQueries({ queryKey: poKeys.home(venueId) });
       }
     },
   });
@@ -1283,11 +1298,33 @@ export function usePoCreateLink(eventId: string) {
 }
 
 /** Update / pause / archive a request link. Also refreshes the approvals caches —
- *  the via-labels and the link filter ride on the link rows. */
+ *  the via-labels and the link filter ride on the link rows.
+ *
+ * Optimistically patches the cached `active` flag itself (86ey9e9v5): the pause
+ * toggle used to do this in the component with a bare `setQueryData` and no
+ * `cancelQueries`, so an in-flight links refetch could land right after the flip
+ * and silently revert it. Only `active` is patched — the sole caller today
+ * (EventLinks' pause toggle) only ever sends `{ linkId, active }`; extend this if
+ * a future caller starts editing other fields optimistically too. */
 export function usePoUpdateLink(eventId: string) {
   const qc = useQueryClient();
+  const key = poKeys.requestLinks(eventId);
   return useMutation({
     mutationFn: async (input: UpdateRequestLinkInput) => throwOnError(await updateRequestLink(input)),
+    onMutate: async (input) => {
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<PoRequestLink[]>(key);
+      if (input.active !== undefined) {
+        const active = input.active;
+        qc.setQueryData<PoRequestLink[]>(key, (old) =>
+          (old ?? []).map((l) => (l.id === input.linkId ? { ...l, active } : l)),
+        );
+      }
+      return { prev };
+    },
+    onError: (_err, _input, ctx) => {
+      if (ctx) qc.setQueryData(key, ctx.prev);
+    },
     onSuccess: () => {
       invalidateLinks(qc, eventId);
       void qc.invalidateQueries({ queryKey: REQUESTS_KEY });

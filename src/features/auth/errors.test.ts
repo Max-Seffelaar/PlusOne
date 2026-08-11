@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeAuthError, parseRetryAfterSeconds } from './errors';
+import { describeAuthError, parseRetryAfterSeconds, isUnknownAccountOtpError } from './errors';
 
 describe('parseRetryAfterSeconds', () => {
   it('extracts the wait time from GoTrue rate-limit text', () => {
@@ -53,5 +53,26 @@ describe('describeAuthError', () => {
     expect(describeAuthError({ message: 'kaboom' }).message).toBe('Something went wrong. Try again.');
     expect(describeAuthError(null).message).toBe('Something went wrong. Try again.');
     expect(describeAuthError(undefined).message).toBe('Something went wrong. Try again.');
+  });
+});
+
+describe('isUnknownAccountOtpError (86ey9ea00 #53 — login-form account-enumeration guard)', () => {
+  it('is true for otp_disabled — GoTrue\'s REAL error_code, verified against the local stack (PR #243 review)', () => {
+    expect(isUnknownAccountOtpError({ code: 'otp_disabled', message: 'Signups not allowed for otp' })).toBe(true);
+  });
+
+  it('is true for the signup_disabled code (defensive alternate spelling, not what GoTrue actually sends)', () => {
+    expect(isUnknownAccountOtpError({ code: 'signup_disabled' })).toBe(true);
+  });
+
+  it('is true for the "signups not allowed" message text alone, with no matching code', () => {
+    expect(isUnknownAccountOtpError({ message: 'Signups not allowed for otp' })).toBe(true);
+  });
+
+  it('is false for an unrelated error, so real failures still surface', () => {
+    expect(isUnknownAccountOtpError({ status: 429, message: 'rate limited' })).toBe(false);
+    expect(isUnknownAccountOtpError({ code: 'otp_expired' })).toBe(false);
+    expect(isUnknownAccountOtpError(null)).toBe(false);
+    expect(isUnknownAccountOtpError(undefined)).toBe(false);
   });
 });

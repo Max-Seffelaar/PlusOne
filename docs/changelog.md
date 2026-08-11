@@ -8,6 +8,364 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-11 — Quota-engine forge closed; quarter chart + per-member present follow #44 (86ey9c5fp)
+
+Branch `claude/86ey9c5fp-quarter-chart-pending-quota` (PR #262). Part 2 of the M4 review
+follow-up, **rewritten after a fresh-session `/code-review` found that half of it opened a
+quota bypass**. Milestone: Now (fraud resistance on the core quota engine).
+
+**What the review found, and what reproducing it showed.** The PR originally dropped `pending`
+from the "holds a slot" branch of `guest_personal_contribution` and `link_headcount_contribution`,
+on the argument that a pending guest is invisible and therefore inert. Verified against a local
+stack, staff user pinned to 0 free slots (8 of 8), inside `begin … rollback`:
+
+| statement | before the fix | after |
+|---|---|---|
+| normal `approved` insert | 45001 blocked ("9 van 8") | 45001 blocked |
+| identical row, `status='pending'`, `plus_ones=50` | **accepted**, consumption still 8 | **42501 RLS reject** |
+| same insert with the pre-PR function body | 45001 blocked ("59 van 8") | — |
+
+The root cause is not the helper, it is that `guests_insert` pins `added_by` and `source`
+(`20260623140200`) but never `status`, and `authenticated` holds table-wide INSERT including that
+column. `enforce_guest_quota` only raises on a NET INCREASE, so with old = new = 0 the 45001
+branch was never reached. The forged row still consumed the **shared** pools it is invisible in:
+event capacity moved by 1 + plus_ones and tier-max by one entry — a ghost no screen renders and no
+UI can delete. The migration's own SECURITY NOTE was wrong on all three of its claims; notably a
+doorhost *can* insert a `check_ins` row for a pending guest (`check_ins_insert` gates on
+`can_check_in(event_id)`, which structurally cannot see guest status), and
+`sync_guest_status_from_checkin` then no-ops because it matches only `status = 'approved'` — so no
+`guests` UPDATE fires and no quota re-check happens.
+
+**Decisions (put to Max before writing code; he took all three recommendations).**
+- **D1 — pin the column.** `20260811160000_guests_status_client_write_guard.sql`: a client insert
+  may only create `approved`; a client update may never leave a row in `pending`/`denied` (the
+  request-lifecycle statuses — `guest_requests.status` owns that). Verified non-breaking first:
+  no client path sends a status at all (`guests/actions.ts` single + bulk, and the door outbox's
+  `add_guest`) — they rely on the column DEFAULT. Triggers and SECURITY DEFINER RPCs bypass RLS
+  (`guests` is not FORCE ROW LEVEL SECURITY), so the door's `approved → checked_in → refused`
+  transitions are untouched.
+- **D2 — revert 4A.** `20260811151000_pending_guest_holds_no_slot.sql` is deleted from the branch
+  rather than neutralised by a follow-up migration. With the column pinned, 4A's motivation (an
+  invisible slot the adder cannot free) is gone, and `pending` now charges uniformly across all
+  four engines again — personal, link, capacity and tier. While the status column was forgeable,
+  "which status is free" was attacker-controlled input.
+- **D3 — `event_user_additions` follows #44.** `20260811161000`: `present`/`present_headcount` no
+  longer count a guest refused after checking in, matching the chart and `summary.present` that
+  render beside them. The gross ledger columns (`added`, `added_headcount`, `removed_headcount`)
+  are deliberately unchanged — a different question.
+
+**3A survives unchanged in substance** (`20260811150000`): `event_checkins_per_quarter` scopes to
+`('approved','checked_in')`, so a guest refused after check-in leaves the chart. Two mechanical
+cleanups from the review rode along: the `check_ins` scan had no bounding predicate of its own and
+now filters on `c.event_id` (server-derived unconditionally since `20260713190000`, indexed), and
+the `distinct on (c.guest_id)` was dropped — `check_ins.guest_id` is NOT NULL UNIQUE, so it
+eliminated nothing while forcing a sort. The header comment that credited that clause with #11's
+"first check-in wins" was wrong and is corrected: the UNIQUE constraint plus the door's 23505 →
+revive path is what enforces #11.
+
+**Link-cap display drift** (`20260811162000`). Four read paths re-typed the 45006 cap rule as a
+literal `sum(case when gu.status in (…) then 1 + gu.plus_ones else 0 end)`, dropping the helper's
+is-inside branch — so the Promotion bar and the public `/i/[token]` page could show room the
+database will refuse to fill. `event_link_funnel`, `venue_influencer_leaderboard`,
+`venue_label_link_funnel` and `get_influencer_stats` now delegate to
+`link_headcount_contribution`, the same function `request_link_consumption` sums — the pattern
+`event_tier_occupancy` already set for the tier cap. The three SECURITY INVOKER ones get the
+matching `grant execute` on the helper. The now-false comment at `src/features/po/queries.ts` was
+rewritten.
+
+**Tests — the point of this round, since the original coverage is why it shipped.**
+- `attacker_quota_bypass.test.sql` 8–13 (plan 7→13): the forged `status='pending'` insert, the
+  `denied` variant, a 50-row forged batch and the update-to-pending path all reject with 42501, as
+  `authenticated` rather than superuser; a DB-state assertion proves no forged row survived; and
+  the legitimate soft delete still works, so the guard is not a regression.
+- `event_lifecycle_capacity.test.sql` 10–13 (plan 13→17): the old case 14.4 was cited as the
+  "no-bypass proof" and **could not fail** — `quota_override = 100000` made 45001 unreachable for
+  the whole file, the block ran after the last `reset role`, and it contained no `throws_ok`. It is
+  gone. In its place: pending charges its full 1 + plus_ones, that shows up in the adder's
+  consumption, a check-in on a pending row does not promote it, and the guest stays charged either
+  way. The post-cancel labels were renumbered 10–13 → 14–17 because pgTAP numbers by execution
+  order, not by label.
+- `event_capacity_inside.test.sql` 13 (plan 12→13): the capacity/personal parity assertion existed
+  only for a `removed` row, which is why it stayed green while 4A broke parity for `pending`. Now
+  asserted on a pending row too.
+- `analytics.test.sql` §13 (plan 76→79): rebuilt on its own `e3..` fixture event instead of
+  mutating the shared `ee..01` seed and pinning deltas against it — the same reasoning §12 states
+  for its own fixture. Adds the D3 coverage (present drops the refused arrival, gross `added` does
+  not).
+
+**Suites, as actually run on the full merged migration set after `supabase db reset`:**
+pgTAP **54 files / 1069 tests PASS**; `pnpm vitest run` **109 files / 1116 passed**;
+`tsc --noEmit` clean; `eslint` clean on the touched paths (`next lint` cannot run in this
+worktree — its `node_modules` is missing `next` after a contended install; the CI `lint-and-test`
+gate covers it). `database.types.ts` needs no regeneration: every rewritten function keeps its
+signature and return type.
+
+**Still open, unchanged by this round:** `supabase/tests/database/tiers.vat.test.sql` plans 15
+tests and runs 2 while pg_prove still reports the file as `ok`, so 13 assertions are absent from
+the green light and the headline totals above are that much less trustworthy. Reproduced in
+isolation, unrelated to these migrations, filed separately.
+
+---
+
+## 2026-08-11 — Dead-code sweep (86ey9e9xx) + countryFromE164 dedup check (86ey9ea3e, partial)
+
+Branch `chore/86ey9e9xx-dead-code-sweep`. Milestone: Now (codebase hygiene, no behavior
+change). Every removal was grep-verified for zero call-sites before deletion, per the
+task's hard requirement (a past sweep claim was inaccurate once).
+
+- **Removed, all confirmed zero importers repo-wide:**
+  - `src/features/guests/components/{QuickAddField,BulkPasteDialog,GuestEditForm}.tsx`
+    (659 LOC) — superseded, no importers anywhere.
+  - `usePoChangeStatus` (`src/features/po/mutations.ts`) + server action
+    `changeEventStatus`/`changeStatusSchema` (`src/features/events/{actions,schemas}.ts`)
+    — the vestigial event-status machine; `usePoSetCancelled`/`setEventCancelled`
+    replaced it (24 jun 2026, #22). No parallel session had touched it (`gh pr list`
+    for 86ey9e9gn/86ey9e9rz came back empty) — clean removal, no coordination needed.
+    Also dropped the now-orphaned `eventStatus`/`EVENT_STATUSES` import in schemas.ts.
+  - `usePoDoorEvent` (`src/features/po/hooks.ts`) + its dedicated test
+    `hooks.doorEvent.test.tsx` — zero production call sites; `usePoHomeEvents` is the
+    only live caller of the underlying `pickDoorEvent` pure function, which stays
+    (and stays tested via `door-event.test.ts`, comment updated to stop pointing at
+    the now-removed hook). Also dropped the orphaned `poKeys.doorEvent` key.
+  - `usePoVoidCheckIn` (`src/features/po/mutations.ts`) — superseded by `usePoCheckOut`
+    (full/partial checkout, S1.2), which calls the same gateway method directly. No
+    open PR on 86ey9e9rz to coordinate with.
+  - `src/features/contacts/queries.ts` — zero importers anywhere in the repo.
+  - `src/features/stats/components/{TierChart,InflowChart}.tsx` + the `recharts`
+    dependency (package.json + 307-line lockfile trim) — the event-day cockpit moved
+    to CSS bars (`EventDaySkeleton.tsx`'s own comment confirms: "no recharts, cockpit
+    uses CSS bars"), leaving these orphaned. Note: `stats/components/{EventPicker,StatCard}.tsx`
+    grep the same way — zero importers of `stats/components/EventPicker`/`StatCard`
+    either (the broad "EventPicker"/"StatCard" hits elsewhere are unrelated same-named
+    local symbols). Not named in this task, so left alone rather than scope-creeping;
+    flagged as a follow-up task instead.
+- **86ey9ea3e (countryFromE164 dedup) — already moot, no code change.** Grepped for
+  `countryFromE164` repo-wide: zero matches. It was already consolidated into
+  `phoneCountryOf` (`src/components/po/phone-lazy.tsx`) during the First-Load-JS trim
+  (PR #236) — both `profile-sheets.tsx` and `settings/profile.tsx` already import the
+  shared helper. The LOC-split of approvals/home named in that task is explicitly
+  **not** done here per the task instructions — left open, noted in the ClickUp
+  comment once the workspace-wide rate limit clears.
+- **"Overweeg" tooling ask (no-unused-vars→error / dead-export lint)** — not
+  implemented. `@typescript-eslint/no-unused-vars` only catches unused *local*
+  imports/vars, not unused *exports* (the actual shape of every item removed here);
+  catching that needs a different tool (`knip`/`ts-prune`/`eslint-plugin-import`
+  no-unused-modules) — new devDependency, likely surfaces unrelated findings
+  workspace-wide. Flagged as a follow-up decision for Max rather than adding
+  unreviewed tooling in a cleanup PR.
+- **Gates:** `pnpm lint` clean (2 pre-existing unrelated a11y warnings in
+  `datetime-field.tsx`), `npx tsc --noEmit` clean, `pnpm vitest run` 865/865 green,
+  `pnpm build` succeeds. Not a UI change — no test handoff.
+- **Environment gotcha (not code-related):** the first `pnpm install` after editing
+  package.json hung for 40+ minutes under heavy concurrent-session load (dozens of
+  node processes, sub-2GB free RAM) and, once killed, left `node_modules` **empty**
+  and a corrupted partial-extraction dir in `node_modules/.pnpm`. Recovered via
+  `rm -rf` on the corrupted package dir + a clean `pnpm install` once system load
+  eased. `pnpm build` similarly OOM-crashed twice (Windows exit code 3221226505)
+  under the same load before succeeding cleanly. No lasting damage, but worth knowing
+  if a future session's `pnpm install`/`pnpm build` seems to hang for an unusually
+  long time — check `Get-Process node | Measure-Object` / free memory before assuming
+  the command itself is broken.
+- **ClickUp:** MCP was workspace-wide rate-limited (~59 min) exactly when this session
+  tried to pick up both tasks — same recurring issue as [[clickup-86ey9e9r9-sync-pending]].
+  Status/comments deferred to the point where the limit clears; this changelog entry
+  and the PR are the source of truth for what actually happened in the meantime.
+
+---
+
+## 2026-08-11 — Auth/redirect bundel: fresh-session security-review fixes (86ey9ea00, PR #243)
+
+Follow-up op de 2026-08-10-entry hieronder, zelfde branch/PR, nog steeds niet gemerged.
+Een verse `/security-review`-sessie op PR #243 leverde een schoon verdict op (geen
+HIGH/MEDIUM-bevindingen die deze PR introduceert) maar wél 2 blokkerende + 1
+aanbevolen fix, waarvan er één zelf pas een tweede, verkeerde poging kreeg tijdens het
+oplossen:
+
+- **`/api/health` zou permanent 503 zijn gebleven — tweede keer raak.** Mijn eerste
+  poging (2026-08-10-entry) verving `venues` door `events`, gebaseerd op alleen
+  `20260613000000_full_schema.sql`'s `grant select on table public.events to anon`.
+  Fout: `20260707170000_p0_security_hotfixes.sql` (C3) trekt die grant later weer in
+  (`events_select_landing` liet anon elk tenant's actieve events oplijsten — nu via
+  de `SECURITY DEFINER get_landing_event`-RPC). **Dit is precies de fout die
+  [[feedback-verify-schema-against-full-migration-history]] beschrijft** — ik had 'm
+  zelf moeten voorkomen. Uiteindelijke, empirisch geverifieerde fix (rechtstreeks
+  tegen de lokale stack met de echte lokale anon-JWT via `supabase status`):
+  `request_links` — anon heeft daar een echte tabel-grant
+  (`20260706103000_submit_via_request_link.sql`) mét een RLS-policy die `anon`
+  helemaal niet noemt (`request_links_select`, alleen `to authenticated`) — dus de
+  query 42501't nooit, en levert altijd 0 rijen. `venues` en `events` gaven beide
+  bevestigd 42501 in de live curl-test; `request_links` gaf 200 met 0 rijen. Nieuwe
+  `tests/e2e/api-health.spec.ts` (toegevoegd aan `e2e:smoke`) hit de échte lokale
+  stack — de gemockte `route.test.ts` kán een ACL/RLS-fout structureel niet vangen,
+  dus daar staat nu alleen een regressie-guard op de tabelnaam.
+- **`isUnknownAccountOtpError`'s `code`-check was dode code, en de match was te
+  breed.** GoTrue's echte `error_code` is `otp_disabled`, niet `signup_disabled` —
+  bevestigd met een rechtstreekse curl tegen de lokale GoTrue-instance. Erger:
+  dezelfde foutvorm (`otp_disabled` / "Signups not allowed for otp") komt ook terug
+  voor een uitgenodigd-maar-nooit-geaccepteerd account (zie `invite-mail.ts`'s
+  `sendInviteEmail`-comment) — zo iemand kreeg nu een nep "we hebben een code
+  gestuurd"-scherm zonder dat er ooit een code verstuurd is, zonder enig vervolgpad.
+  Fix: matcher checkt nu `otp_disabled` (primair) én `signup_disabled` (defensief);
+  `OtpLoginForm`'s code-stap toont nu onvoorwaardelijk een "geen code ontvangen?
+  vraag een admin je uitnodiging opnieuw te sturen"-hint (altijd zichtbaar, dus
+  verraadt zelf niets).
+- **#53-claim afgezwakt.** Zie de nuance hieronder in de 2026-08-10-entry — dit dicht
+  het login-orakel op UI-niveau, niet het onderliggende `POST /auth/v1/otp`-endpoint.
+
+**Los hiervan, buiten deze PR ontdekt tijdens het verifiëren:** het `.env.local` in de
+hoofdcheckout (prod-pointing) had `NEXT_PUBLIC_SUPABASE_ANON_KEY` gevuld met een
+`sb_secret_...`-waarde (service-role-equivalent) in plaats van de correcte
+`sb_publishable_...`-waarde die er al naast stond. Nooit gecommit (gitignored, geen
+git-historie). **Vercel's Production-waarde voor dezelfde variabele is bij het schrijven
+van dit verslag nog NIET geverifieerd** — een poging om 'm via `vercel env pull` in te
+zien werd automatisch geblokkeerd door de auto-mode-classifier (bulk-secret-download),
+dus dit staat nog open. Max roteert de lokale secret-key, corrigeert het lokale bestand,
+en checkt de Vercel-waarde zelf.
+
+**Tests:** vitest-suite opnieuw groen inclusief de uitgebreide/nieuwe testcases hierboven;
+`e2e:smoke` uitgebreid met `api-health.spec.ts`. Volledige testresultaten: sessieverslag/PR.
+
+---
+
+## 2026-08-10 — Auth/redirect kleine fixes — bundel review (86ey9ea00)
+
+Branch `fix/86ey9ea00-auth-redirect-small-fixes` (PR [#243](https://github.com/Max-Seffelaar/PlusOne/pull/243)). Bundel van 1 CONFIRMED
+finding + 4 finder-punten uit een eerdere review-pass, elk kort her-geverifieerd tegen
+de huidige code vóór de fix. Milestone: Now (auth/middleware correctness + een echte
+account-enumeratie-lek). High-risk surface (auth/middleware) — PR niet zelf gemerged,
+zie de security-research prompt in de PR-body.
+
+- **#56 (bevestigd dood pad).** `/settings/profile` bestaat niet (`src/app`
+  heeft geen `settings/`-map) — de live profielscreen is `/app/profile`
+  (`src/components/po/routes.ts`). `auth/confirm/route.ts`'s e-mailwijziging-fallback,
+  en de no-op `revalidatePath('/settings/profile')` in `profile-actions.ts` en
+  `session-actions.ts`, wezen alle drie naar het dode pad — een bevestigde
+  e-mailwijziging landde via de `/app`-catch-all-guard stil op de home-tab in plaats
+  van het profiel. Alle drie nu naar `/app/profile`; `entry-redirect.ts`'s comment
+  ook gecorrigeerd. *(Zelfde bug-klasse gevonden maar buiten scope gelaten:
+  `revalidatePath('/admin/team')` en `/admin/sessions')` in `invite-actions.ts` /
+  `session-actions.ts` wijzen ook naar niet-bestaande paden — live routes zijn
+  `/app/team` en `/app/sessions`. Los als eigen taak.)*
+- **#57 (middleware dropt `?next=`).** De authed-op-`/login`-redirect zette
+  `url.search = ''` onvoorwaardelijk, dus een deep-link als
+  `/login?next=/app/profile` (stale tab, of een oude sessie die alsnog authed
+  blijkt) viel altijd terug op kaal `/app`. Nu respecteert `/login` (niet de
+  marketing-root `/`) `?next=` via `safeNextPath` — dezelfde open-redirect-guard
+  die de anonieme kant al gebruikt.
+- **#53 (login-orakel/account-enumeratie) — UI-niveau fix, geen volledige sluiting.**
+  `signInWithOtp({ shouldCreateUser: false })` op een niet-uitgenodigd adres gaf een
+  fout die `OtpLoginForm` zichtbaar anders afhandelde ("dit account bestaat niet...",
+  blijft op e-mail-stap) dan het "we hebben een code gestuurd"-succespad voor een
+  bekend adres — de aanwezigheid van dat verschil ZELF is het lek, los van de teksten.
+  Fix: nieuwe `isUnknownAccountOtpError` in `errors.ts`; `OtpLoginForm` behandelt die
+  fout nu identiek aan succes (zelfde stap-overgang, zelfde bericht). Echte fouten
+  (rate-limit, netwerk) blijven gewoon zichtbaar. **Belangrijke nuance (fresh-session
+  /security-review op PR #243):** dit dicht alleen de UI-respons. Het onderliggende
+  `POST /auth/v1/otp`-endpoint blijft rechtstreeks aanroepbaar (publieke anon-key,
+  altijd al zo) en verraadt via zijn eigen response nog steeds of een adres bestaat —
+  dat is GoTrue-platformgedrag, niet iets wat deze PR kan dichten zonder een
+  server-side proxy + rate-limiting (buiten scope, apart af te wegen). Geaccepteerd
+  restrisico voor een invite-only B2B-tool.
+- **#54 (invite-actions volgorde).** `inviteUserAction` provisionede het auth-account
+  + verstuurde de uitnodigingsmail vóórdat de RLS-geverifieerde `invites`-insert
+  liep. Bij een denial of een duplicate-invite-conflict (23505) bleef een levend
+  auth-account + verstuurde mail achter zonder invite-rij om 'm te verzilveren.
+  Omgedraaid: insert eerst, provisioning/mail pas na succes. `sendInviteEmail` is
+  idempotent (zelfde patroon als `resendInviteAction`), dus een latere
+  provisioning-fout is herstelbaar via resend.
+- **#55 (health-endpoint met service-role).** `/api/health` is publiek,
+  middleware-exempt en zonder rate-limit, maar gebruikte de service-role-client —
+  onnodig, want een `head+count`-query op `venues` bewijst de Postgres-roundtrip
+  ook met de anon-key (RLS filtert dan gewoon naar 0 rijen, geen fout). Nieuwe
+  `src/lib/supabase/health-client.ts` (anon-key, geen cookies-afhankelijkheid);
+  route + test omgezet.
+
+**Tests toegevoegd:** `src/middleware.test.ts` (8 tests — next-param behoud, open-redirect-
+guard, marketing-root ongemoeid, bestaand anon-gedrag onveranderd), uitbreiding van
+`errors.test.ts` (`isUnknownAccountOtpError`), nieuw `OtpLoginForm.test.tsx` (3 tests —
+bekend/onbekend e-mail geven identieke UI, echte rate-limit blijft zichtbaar), nieuw
+`invite-actions.test.ts` (3 tests — insert-vóór-mail volgorde, geen mail bij denial/conflict),
+`health/route.test.ts` aangepast op de nieuwe client. **Vitest 840/844 groen** (4 falen +
+6 suites falen op ontbrekende `node_modules` — `stripe`, `@tanstack/react-virtual`,
+`fake-indexeddb`, `@sentry/nextjs` — een pre-existing worktree-install-gat, bevestigd
+losstaand van deze wijzigingen: geen van de 5 punten raakt die packages, en `next lint`
+faalt om dezelfde reden (`@sentry/nextjs` ontbreekt in `next.config.js`'s require-pad).
+Gerichte `eslint` op alle aangepaste bestanden: schoon. `tsc --noEmit`: zie sessieverslag/PR.
+`pnpm install` in deze worktree draaien is aanbevolen vóór de volgende sessie die hier lint/build nodig heeft.
+
+---
+
+## 2026-08-11 — Silent 0-row event/link updates + Home Lock/Edit role-gating (86ey9e9gn + 86ey9tkav)
+
+Branch `fix/86ey9e9gn-86ey9tkav-event-write-guards-home-gating`. Two overlapping,
+CONFIRMED findings tackled together: same failure class (C15 silent-success pattern),
+and #2 is the visible symptom of #1 on the Home board. Milestone: Now (correctness +
+a UI control that misleads a real venue-role user).
+
+- **Root cause (86ey9e9gn).** Several state-changing server actions did
+  `.update(patch).eq('id', …)` and returned `{ ok: true }` without checking how many
+  rows PostgREST actually touched. When RLS filters the caller down to 0 rows (no
+  access, list already in the target state, or a stale id), Postgrest returns no error
+  — the action reported success while nothing changed. Fixed by adding
+  `{ count: 'exact' }` to each `.update()` and returning the existing `notFound()`
+  helper (`src/lib/db-errors.ts`) when `count` is falsy, mirroring the established
+  `changeGuestsTierBulk`/`rotateInfluencerStatsToken` pattern:
+  `changeEventStatus`, `setEventCancelled`, `setLandingActive`, `setListLock`,
+  `setAutoLock`, `setEventAllowUncheck` (`src/features/events/actions.ts`) +
+  `updateRequestLink`, `revokeInfluencerStatsToken` (`src/features/links/actions.ts`).
+  `updateEvent` and the template CRUD actions were left alone — out of scope, not
+  reported as affected.
+- **Home board Lock/Edit gating (86ey9tkav).** `src/components/po/screens/home.tsx`
+  passed `onEdit`/`onLock` to every `EventRow` unconditionally, so an
+  ungeprivilegieerde role (e.g. a bare `user_manager`) saw a Lock button that flipped
+  optimistically and — pre-fix — never got corrected, because the silent-success bug
+  above meant the doomed mutation reported `ok:true`. Fixed at the root: added a
+  bulk, venue-scoped `fetchOrganizerEventIds` query (`src/features/po/queries.ts`,
+  mirrors `fetchOrganizesAtVenue`'s `events!inner(venue_id)` pattern — one request for
+  the whole board, not N+1) threaded through `usePoHomeEvents` → `HomeEvent.canManage`
+  → `toBoardEvents` → `BoardEvent.canManage` (`src/features/po/hooks.ts`,
+  `src/features/po/adapters.ts`, `src/components/po/event-row.tsx`). `home.tsx` now
+  passes `onEdit`/`onLock` only when `e.canManage` — same admin-OR-organizer-of-THIS-
+  event rule as `usePoEventForEdit`/`edit.tsx`/`EventDayCockpit.tsx`, just role-hidden
+  instead of shown-and-disabled (Home already role-hides `showNewGuest` the same way).
+  With 86ey9e9gn's guard in place, even a stale `canManage` (cache race) now fails
+  safely — the action returns `not_found` and the existing `onError` rollback in
+  `onLock` (home.tsx) restores the optimistic flip and shows a toast.
+- **Gotcha vs. the ClickUp test-handoff assumption.** The task asked for the live
+  test handoff to confirm Lock "onzichtbaar voor manager@, wél werkend voor
+  door@/admin@". Checked the actual RLS policy (`events_update_admin_organizer`,
+  `admin OR is_event_organizer(id)`) and the seed data (`supabase/seed.sql`): the only
+  seeded organizer is `organizer@plusone.test`, not `door@` — a bare doorhost has
+  no lock rights by design. Implemented to match RLS/spec, not the handoff assumption;
+  flagged instead of silently building either version.
+- Tests: `src/features/events/actions.test.ts` (new, 18 cases) + `src/features/links/actions.test.ts`
+  (new, 6 cases) — count 0/no-error → `not_found`, count 1 → unaffected success, Postgrest
+  error → unaffected `mapMutationError` path, for every touched action. `src/features/po/queries.test.ts`
+  gained 3 cases for `fetchOrganizerEventIds` (error passthrough, id-set mapping, skip-when-missing-args).
+  `src/features/po/adapters.test.ts` fixtures updated for the new `HomeEvent.canManage` field.
+  `pnpm vitest run` on the touched suites (`events/actions`, `links/actions`,
+  `guests/actions`, `po/queries`, `po/adapters`): 116 passed, 0 failed. `pnpm lint` clean
+  on touched files.
+  `tsc --noEmit`: no new errors (pre-existing unrelated `Cannot find module` errors — this
+  worktree's `node_modules` needed a fresh `pnpm install`, done this session — and one
+  pre-existing `@tanstack/react-virtual` gap in `EventDayCockpit.tsx`, untouched by this PR).
+- **Live-verified** (after `pnpm install` + clearing a corrupted `.next` cache — this
+  sandbox's dev server crashed twice on a stale/interrupted cache before a clean start
+  worked): dev-logged in as `manager@plusone.test` — Home board shows only "Open" on
+  every event card, no Edit/Lock/Door/Requests. Dev-logged in as `admin@plusone.test` —
+  both event cards show Edit + Lock, and clicking Lock round-tripped through the real
+  local Supabase stack (button flipped "Lock list" → "Unlock list"), confirming the
+  full pipeline (action → count-check → RLS → DB write → cache invalidation → UI).
+  Did not verify `organizer@plusone.test` live (session got signed out by the sandbox's
+  own instability — HMR loops / an intermittently-timing-out local GoTrue admin API,
+  unrelated to this change) — Max should cover that case in the handoff below.
+- ClickUp: could not update 86ey9e9gn/86ey9tkav from this session — the ClickUp MCP
+  connector was unavailable at pickup and, once it reconnected mid-session, the
+  workspace was rate-limited (~16h). Max needs to link the two tasks and move status
+  manually once the rate limit clears.
+
+---
+
 ## 2026-08-11 — Dev-build sneller: Turbopack default + .next/cache-cap (86ey9e9zd)
 
 Branch `perf/86ey9e9zd-turbopack-dev` (PR: zie taak). Dev-only DX-perf (B5+B6 uit de
@@ -48,6 +406,9 @@ dev/test-loop).
 - Gates: lint ✅, type-check ✅, vitest 867/867 ✅, `pnpm build` ✅, e2e:smoke 3/3 ✅.
   CLAUDE.md: turbopack-regel + cache-prune-note in de local-dev-sectie. NB: de
   CI-e2e-smoke draait via `pnpm dev` en test dus voortaan óók tegen turbopack.
+
+---
+
 ## 2026-08-11 — strictMode, viewport zoom, timer leaks, unsafe casts (86ey9ea09, 86ey9ea1g, 86ey9ea2y)
 
 Branch `claude/sharp-swirles-7f3da7` (PR #255), three finder-only tasks combined into one
@@ -891,6 +1252,243 @@ triggers) → not self-merged; fresh-session `/code-review` first.
   suite, and pick minute-precision migration timestamps.
 
 ---
+
+## 2026-08-11 — Cockpit check-in flicker + po cache-invalidation gaps (86ey9e9rz)(86ey9e9v5)
+
+Branch `fix/86ey9e9rz-86ey9e9v5-po-cache-invalidation` (PR #259). Two ClickUp tasks combined
+(86ey9e9rz confirmed root-cause, 86ey9e9v5 finder — its four points were re-verified against
+current `main` before touching anything). Milestone: Now (door speed is a core value — a
+guest visibly bouncing back to "onderweg" after check-in is a fraud-resistance/trust issue
+at the door, not cosmetic).
+
+- **Root cause (86ey9e9rz).** `usePoCheckIn`/`usePoVoidCheckIn` (`src/features/po/mutations.ts`)
+  only cancelled `poKeys.guests` in `onMutate` before their optimistic patch, but the shared
+  `optimisticCheckin()` helper writes BOTH `poKeys.guests` AND `poKeys.arrivals`. An in-flight
+  arrivals refetch (the cockpit's own polling, or a sibling tab) could land right after the
+  patch and silently overwrite it with pre-mutation data — a just-checked-in guest visibly
+  snapped back to "onderweg" on the event-dag cockpit. `usePoCheckOut` had the identical bug
+  (same helper, same file, not named in the original task) and got the same fix for
+  consistency. Extracted a shared `cancelCheckinQueries` helper so the two cancels can't drift
+  apart again.
+- **86ey9e9v5, re-verified one by one:**
+  - (a) `usePoHomeEvents` vs `usePoEvents` — re-checked as NOT a literal duplicate fetcher:
+    Home is deliberately windowed to 7 days (PR #229's scale fix), so merging the two queries
+    would regress that windowing. The actual bug was that `useInvalidateEvent` (and the two
+    create-event mutations) never invalidated `poKeys.home`, so the Home board lagged the
+    Events tab by up to one 10s poll after create/cancel/status-change. Fixed there instead;
+    PR #228's ad hoc home-invalidation on the lock toggle is now redundant and removed.
+  - (b) `usePoEventStats` + `usePoEventActivity` — confirmed duplicate: both called the
+    identical `fetchEventStats` 5-RPC bundle under two separate cache keys. Now share
+    `poKeys.eventStats`, varying shape with React Query `select` (per CLAUDE.md's "share a
+    base query" rule) — mounting both no longer double-fetches, and an invalidation (e.g. the
+    check-in realtime hook, which only ever targeted `eventStats`) now refreshes both instead
+    of silently leaving the Activity panel stale.
+  - (c) `togglePause` in `event-links.tsx` — confirmed: a bare `setQueryData` with no
+    `cancelQueries` before it, same race class as the check-in bug. Moved the optimistic patch
+    + rollback into `usePoUpdateLink`'s `onMutate`/`onError` (its only caller).
+  - (d) `usePoBulkAddToEvent` — confirmed `onSuccess`-only invalidation. Switched to
+    `onSettled` (matches `usePoAddGuest`) so a mid-loop exception still reconciles the target
+    event's caches.
+- Re-checked line numbers/behaviour against recent merges (#235 door-QueryClient singleton,
+  #228 Home lock mutation, #229 windowed home poll) before editing — no regressions to any.
+- **Tests.** 3 new files (`mutations.checkin.test.tsx`, `mutations.homeInvalidate.test.tsx`,
+  `hooks.eventStatsShared.test.tsx`) + additions to `mutations.test.tsx`, one per fix above.
+  `pnpm lint` clean, `tsc --noEmit` 0 errors, `pnpm vitest run` on `src/features/po` +
+  `src/components/po`: 21 files / 270 tests green (after rebasing twice onto a fast-moving
+  `main` — #253's atomic check-out RPC needed the `checkOutGuest` mock added to the new
+  `usePoCheckOut` test). No migration — pure React Query cache-layer change.
+- **Gotcha hit mid-session:** ClickUp's MCP API was rate-limited for ~975 minutes at pickup
+  time, so the task status flip + end-of-session comment for both tasks couldn't be posted
+  from this session — needs a manual update or a later session once the limit clears.
+- **Open:** PR #259 awaiting Max's manual test pass (handoff questions in the PR body) + merge.
+
+---
+
+## 2026-08-10 — M4 follow-up: kill stale "check_ins has no event_id" comment + embeds (86ey9c5d2)
+
+Branch `fix/86ey9c5d2-checkin-event-id-comment` (PR [#251](https://github.com/Max-Seffelaar/PlusOne/pull/251)).
+Mechanical follow-up flagged in PR #189's review round: `20260622140000_checkin_event_scope.sql`
+gave `check_ins`/`refusals` a NOT NULL, indexed, trigger-filled `event_id` (+ `venue_id`) back on
+22/6, but three read paths still filtered via a `guests!inner(event_id)` embed as if that column
+didn't exist — the same false premise that once caused a wrong "fix" to the realtime subscription
+filter (see the **2026-07-12** changelog entry below — "UX/IA 8/7 M4: canonical headcount rules" —
+and decision #44 in the spec). Milestone: Now (removes a stale trap that already misled one session).
+
+- **`fetchCheckinArrivals`** (`src/features/po/queries.ts`) — replaced the `guests!inner(event_id)`
+  embed + `.eq('guests.event_id', eventId)` with a direct `.eq('event_id', eventId)` on
+  `check_ins`; rewrote the doc comment that claimed "check_ins carries no event_id".
+- **`fetchDoorSnapshot`** (`src/features/door/queries.ts`) — same fix for both the `check_ins`
+  and `refusals` ranged reads. Since neither read needs any `guests` field once the embed is
+  gone, `select('*, guests!inner(event_id)')` collapsed to `select('*')`, which made the
+  `stripEmbeddedGuests` helper (existed solely to drop the now-absent embed before returning
+  rows) dead code — deleted. Comments updated, including the module header's RLS claim, which
+  was itself stale (said "check_ins/refusals are scoped to those guests" — the live policies
+  key on `venue_id`/`event_id` directly, no join through `guests`).
+- **`fetchRecentCheckins`** (`src/features/po/queries.ts`) — same stale-embed-as-filter pattern,
+  found via the grep sweep (not explicitly named in the task, but the identical mistake). This
+  one genuinely needs `guests.id`/`guests.full_name` for the returned rows, so the embed stays;
+  only the filter moved from `.eq('guests.event_id', eventId)` to `.eq('event_id', eventId)` on
+  `check_ins` directly (and the now-redundant `event_id` dropped from the embed's column list).
+- **RLS unaffected — but not because the policies changed.** `check_ins_select`/`refusals_select`
+  key on the row's own `venue_id`/`event_id` (`20260622140000`, unchanged since), and
+  `guests_select` grants a strict superset of those two branches (same admin/finance/doorhost-on-
+  venue and organizer-on-event, plus a `staff`/`added_by=auth.uid()` branch `check_ins_select`
+  doesn't have) — pinned by `supabase/tests/database/rls.test.sql` and `checkin_scope.test.sql`.
+  So dropping the `guests!inner` join removes a *redundant* filter, not a widening one. This
+  reasoning is specific to `check_ins`/`refusals`'s subset relationship to `guests` — it would
+  NOT hold for a table whose own policy is broader than `guests_select`.
+- **Grep sweep** of `src/` + docs for other live claims that `check_ins`/`refusals` lack
+  `event_id`: none found. `useDoorSync.ts`'s realtime-filter comment already states the correct
+  fact. `docs/changelog.md` history and the historical `perf-scale-track-3.5.md`/
+  `perf-scale-audit-megaevent.md` audit docs were left untouched (dated snapshots of past state,
+  not live documentation).
+
+**Fresh-session `/code-review` before merge (per the review gate — touches the door snapshot
+read path), 2026-08-11 — 15 findings survived verification, all addressed:**
+
+- **Rebase conflict with PR #253** (merged to `main` after this branch was cut) — #253 rewrote
+  the same `fetchCheckinArrivals` lines to add `id` to `CheckinArrival`/`CheckinArrivalRow`
+  (row-scoped offline check-out, #35). Resolved keeping BOTH: `id`/`.select('id, guest_id, …')`
+  from #253, `.eq('event_id', eventId)` (no embed) from this PR.
+- **Swallowed read errors in `fetchDoorSnapshot`** — the `Promise.all` destructured `venues`/
+  `guest_tiers` without checking `error`, and a swallowed `venues` error would resolve
+  `allowUncheck` to `true` (via `?? true`) on a venue with uitchecken actually OFF — the door
+  would show the uncheck button, queue an offline void, and only get rejected at outbox replay
+  by the RESTRICTIVE `check_ins_void_requires_uncheck` policy, after the UI already misled the
+  doorhost. Now both errors are checked and thrown.
+- **Unbounded `.in()` on `user_profiles`** — the `added_by`/`note_acknowledged_by`/`checked_by`
+  id set was passed to `.in()` unchunked (CLAUDE.md: chunk to ≤120), the exact anti-pattern the
+  surrounding comment warns against nine lines above. Chunked via `chunkIds` (already imported
+  by this file's neighbor `paging.ts`) at 120; the error from each chunk is now also checked
+  instead of falling back to `.data ?? []`.
+- **`fetchCheckinArrivals` filtered `voided_at` in JS** — `fetchRecentCheckins` already does
+  `.is('voided_at', null)` server-side; moved the same filter server-side here (`check_ins.guest_id`
+  is UNIQUE, so this can't under-return) and dropped `voided_at` from the select/type.
+- **Migration citation was half-right** — `20260622140000` made the column fill-when-null, not
+  trustworthy against a forged write; `20260713190000_checkin_scope_venue_pin` is what made it
+  unconditionally server-derived. Both are now cited where the trust claim is made.
+- **No test pinned the filter shape** — reverting any of the three fixes to the embed pattern
+  would have passed the full suite. Added `tests/unit/checkin-event-id-scope.test.ts`, a
+  regression guard using a new shared `tests/unit/helpers/spy-client.ts` (promoted from the
+  single-table spy in `scale5-venue-scope.test.ts`, now itself refactored onto the shared
+  helper) — asserts all three reads issue `.eq('event_id', …)` and never `.eq('guests.event_id',
+  …)`. Verified the guard actually catches the regression: hand-reverted `fetchDoorSnapshot`'s
+  `check_ins` read to the old embed pattern, confirmed the new test fails, restored the fix.
+- **Directionality/date error in this entry's own back-pointer** — fixed above ("above" → the
+  2026-07-12 entry is below in this newest-first file; "13/7" → the entry is dated 2026-07-12,
+  13/7 was a `/code-review` sub-section within it).
+- **Changelog's "door outbox surface" mislabel** — the outbox is `src/features/door/outbox/`;
+  this PR touches `src/features/door/queries.ts`, the snapshot *read* path. Fixed here and in
+  the review-gate line below.
+- **CLAUDE.md's scale-rule list of `venue_id`-carrying tables didn't mention `check_ins`/
+  `refusals`** despite them carrying `event_id`+`venue_id` since 22/6 — exactly the kind of
+  "which tables can I filter directly" fact a future session forms its mental model from.
+  Added a clause.
+- **Duplicated ranged-event-scope reads lost their cross-references** when `stripEmbeddedGuests`
+  (whose docstring said "one helper serves both tables") was deleted. Restored
+  `fetchDoorSnapshot` ↔ `fetchCheckinArrivals`/`fetchRecentCheckins` breadcrumb comments. **Not
+  done:** extracting a shared `eventScopedRanged(client, table, eventId, columns)` helper next
+  to `fetchAllRanged` — the three call sites have different columns and one has an extra
+  `.is('voided_at', null)` filter, and typing a generic PostgREST chain wrapper without `any`
+  turned out to be more machinery than three call sites justify. Flagged for Max instead of
+  built; comments are the proportionate fix until/unless a fourth call site appears.
+- Fixed the unbalanced paren in this entry's own `select('*, guests!inner(event_id))')` quote
+  (one `)` too many) and the "1h17m install" aside is `pnpm install` contention from concurrent
+  sessions on this machine, not a repo problem — left as-is, just noting it's not a regression
+  risk.
+
+**Deferred, not built — needs Max's call:**
+- **`check_ins.event_id` isn't re-pinned if a guest moves events post-check-in.**
+  `set_checkin_scope()` only fires on `check_ins`/`refusals` writes, never on a `guests` update;
+  `guests_update`'s RLS re-checks write access but nothing re-derives `check_ins.event_id`. Not
+  reachable today (`updateGuest` never patches `event_id`), so this is latent, not exploitable
+  via any current UI/API path. Two options if Max wants it closed: (a) a `pin_guest_event`
+  trigger + pgTAP proving a guest-event move is rejected (new migration), or (b) a comment at
+  each read recording that `check_ins.event_id == guests.event_id` is now load-bearing and must
+  stay true. Neither built this session — needs a decision, not more code.
+- **`select('*')` on `check_ins`/`refusals` in `fetchDoorSnapshot`** fetches several columns the
+  door never reads (all ids/timestamps/flags, no PII beyond `refusals.reason` which IS rendered
+  and must stay). Not a regression (pre-PR was `'*, guests!inner(event_id)'`, same breadth) and
+  narrowing isn't a one-liner — `CheckInRow` is also built in full by `DoorProvider.tsx`'s
+  optimistic paths and realtime, so narrowing needs a `Pick<>` + a `projectDoorCheckIn` mirror +
+  its own drift guard, mirroring `DOOR_GUEST_SELECT`/`projectDoorGuest`. Recommend deferring
+  unless Max wants P-IDB7 extended to non-PII payload trimming for consistency.
+
+**Tests:** `pnpm vitest run` 418/418 green on the touched suites (door, po, the new/refactored
+`tests/unit/*`), full suite unchanged elsewhere. `tsc --noEmit` zero errors. `pnpm lint` clean.
+No migration — behaviourally neutral for RLS visibility (see above), so no new pgTAP; the F4
+trigger question is explicitly deferred, not silently skipped.
+
+**Review gate:** touches `src/features/door/queries.ts` (door snapshot read path, not the
+outbox) — got the fresh-session `/code-review` above before merge, per CLAUDE.md's review gates.
+
+---
+
+## 2026-08-10 — Scale: tier occupancy + request-link reads/funnel now DB-aggregated (86ey9e9wv)
+
+Branch `perf/86ey9e9wv-scale-tiers-links-funnel` (PR #260). Milestone: Now (scale/front-end
+discipline from the 2026-07 engineering review). Three fetchers in `src/features/po/queries.ts`
+violated "aggregate on the database, never download every row and sum in JS" / "reads must be
+windowed at large N" — fixed with DB-side aggregation + windowing. **A fresh-session
+`/code-review` at max effort found 15 further issues in the first version of this fix** (4
+blocking, 5 should-fix, cleanups, 2 design decisions put to Max) — this entry describes the
+repaired, merged state; see PR #260 for the full finding list and fix-by-fix response.
+
+- **`fetchTiersWithUsage`.** Downloaded every guest row of the event (`tier_id`, `status`) and
+  summed per-tier occupancy in JS, re-fetched on every check-in. The ClickUp ticket suggested
+  reusing `event_tier_stats` — **re-verified and rejected**: `event_tier_stats`'s "registered"
+  counts only `approved`/`checked_in`, but the tier-max occupancy bar must match
+  `guest_tier_contribution`/`tier_consumption` (the actual capacity-trigger semantics), which
+  excludes only `removed`/`denied`. The review's first pass re-typed that exclusion rule as a
+  literal instead of calling `guest_tier_contribution` directly — a duplicate copy that could
+  silently drift from the trigger on a future `guest_status` addition. Fixed properly: the new
+  `event_tier_occupancy(uuid)` RPC now delegates to `guest_tier_contribution(g)` itself (granted
+  `EXECUTE` to `authenticated` for the first time — it was quota-engine-internal before), so the
+  two can never disagree.
+- **`fetchRequestLinks` funnel counting + `fetchVenueRequestLinks`'s influencer lookup.** The
+  `guest_requests` read for per-link requests/approved had no `.range()`; the venue-wide link
+  read's influencer lookup chunked an unbounded `.in()` id list at the wrong size (`chunkIds`'
+  1000-default renders ~37 kB of query string — CLAUDE.md's own measured 414 threshold is ~210
+  ids); and the hand-rolled `approvedHeads`/`checkedInHeads` JS counted denied/refused guests as
+  full headcount (the real cap, `link_headcount_contribution`, does not) and used registered
+  `plus_ones` instead of `plus_ones_arrived` for checked-in heads (the #44 overcount, already
+  fixed elsewhere). Rather than add a THIRD place computing "heads through this link" with its
+  own scoping, **`fetchRequestLinks` was folded onto the existing `event_link_funnel` RPC**
+  (`20260707100000_promotion_dashboard_rpcs.sql`, already used by the Promotion screen and
+  already correct on both counts) — widened with `approved`/`tier_id`/`created_at` (a
+  `returns table` widening needs drop+recreate, Postgres rejects it under `create or replace`,
+  so its grants had to be explicitly re-declared). This deleted the four batched reads, both
+  funnel `Map`s, and every client-side heads loop — nothing left in `fetchRequestLinks` to get
+  wrong. `fetchVenueRequestLinks`'s influencer lookup now filters `.eq('venue_id', venueId)`
+  directly instead of chunking an `.in()` id list at all (an organizer's `influencers` RLS grant
+  is venue-wide even though `request_links`'s is per-event, so this can resolve a few names the
+  caller's own links never reference — harmless, just unused map entries).
+- Migration `20260810190000_scale_tier_occupancy_link_funnel.sql` (re-stamped after
+  `20260810183000` post-rebase — the first version sorted BETWEEN two already-merged migrations,
+  which `supabase db push --include-all` would have needed to catch). Both RPCs' grants are
+  explicit (`revoke … from public, anon[, authenticated, service_role]` +
+  `grant … to authenticated, service_role`), matching the `venue_event_headcounts` precedent —
+  the first version relied on the Postgres default (`EXECUTE TO PUBLIC`), which `anon` could call
+  (harmlessly, since `guests`/`guest_requests` RLS still denies the underlying read, but a lost
+  second lock nonetheless).
+- **New CI guard**, `tests/unit/rpc-migration-exists.test.ts`: scans every `client.rpc('name')`
+  literal in `src/` against every `create [or replace] function public.<name>` in
+  `supabase/migrations/`, so code that calls an RPC no migration ever created fails `pnpm test`
+  instead of silently 404ing in prod for however long it takes someone to notice (CLAUDE.md's
+  migration-before-code expand–contract flow assumes the migration is pushed before the code
+  deploys; this PR's own migration briefly wasn't, per the note on `fetchEventHeadcounts`).
+- pgTAP: `analytics.test.sql` §12 covers `event_tier_occupancy` (per-status inclusion, the staff
+  RLS-scoping, and its privilege grants) using an **isolated fixture event** (`e2../d2../c2..`
+  ids, with an explicit `event_quotas` override so it doesn't silently lean on the seed's default
+  quota) rather than the shared seed event — the shared local Supabase stack is used concurrently
+  by every worktree session against the same fixed seed ids, so exact-count assertions against
+  the shared event are flaky by construction (confirmed while first writing this: the seed's
+  Regular/VIP tier counts drifted between two otherwise-identical runs). `promotion_stats.test.sql`
+  gained the `approved`/`tier_id`/`created_at` coverage plus `event_link_funnel`'s privilege
+  grants, extending its existing fixture rather than duplicating one. Full suite: pgTAP 1049
+  (was 1005), vitest 1118 (was 857, incl. unrelated `main` growth from other merges).
+- No client-facing behaviour change: same shapes, same numbers, same RLS-scoped visibility —
+  purely a where-the-aggregation-happens change.
 
 ## 2026-07-14 — Door outbox/cache not wiped on sign-out — shared-device isolation (86ey9et07)
 
