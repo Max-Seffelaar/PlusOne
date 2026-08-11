@@ -1906,12 +1906,14 @@ export interface PoRequestLink {
  * One event's request links (archived excluded) with their funnel numbers —
  * views / requests / approved / approved heads / checked-in heads — via a
  * single `event_link_funnel` RPC call (86ey9e9wv/D1: folded onto the RPC the
- * Promotion screen already uses, `fetchEventLinkFunnel` below). That RPC
- * already gets approved/checked-in heads right (matches
- * `link_headcount_contribution`'s real cap semantics — pending/approved/
- * checked_in, not "everything but removed" — and uses `plus_ones_arrived`,
- * not registered `plus_ones`, for checked-in heads, #44), so this fetcher no
- * longer re-implements any counting in JS. Default link first, then
+ * Promotion screen already uses, `fetchEventLinkFunnel` below). Since 86ey9c5fp
+ * that RPC calls `link_headcount_contribution` itself — the exact function the
+ * 45006 trigger sums via `request_link_consumption` — instead of re-typing the
+ * status list, so the bar can no longer disagree with the cap it renders. (It
+ * previously spelled the rule out inline and dropped the helper's is-inside
+ * branch, under-counting a guest who is physically inside but removed/refused.)
+ * Checked-in heads use `plus_ones_arrived`, not registered `plus_ones` (#44).
+ * This fetcher re-implements no counting in JS. Default link first, then
  * oldest-first — the RPC's own `order by is_default desc, created_at`.
  */
 export async function fetchRequestLinks(client: Client, eventId: string): Promise<PoRequestLink[]> {

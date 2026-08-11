@@ -8,6 +8,105 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-11 — Quota-engine forge closed; quarter chart + per-member present follow #44 (86ey9c5fp)
+
+Branch `claude/86ey9c5fp-quarter-chart-pending-quota` (PR #262). Part 2 of the M4 review
+follow-up, **rewritten after a fresh-session `/code-review` found that half of it opened a
+quota bypass**. Milestone: Now (fraud resistance on the core quota engine).
+
+**What the review found, and what reproducing it showed.** The PR originally dropped `pending`
+from the "holds a slot" branch of `guest_personal_contribution` and `link_headcount_contribution`,
+on the argument that a pending guest is invisible and therefore inert. Verified against a local
+stack, staff user pinned to 0 free slots (8 of 8), inside `begin … rollback`:
+
+| statement | before the fix | after |
+|---|---|---|
+| normal `approved` insert | 45001 blocked ("9 van 8") | 45001 blocked |
+| identical row, `status='pending'`, `plus_ones=50` | **accepted**, consumption still 8 | **42501 RLS reject** |
+| same insert with the pre-PR function body | 45001 blocked ("59 van 8") | — |
+
+The root cause is not the helper, it is that `guests_insert` pins `added_by` and `source`
+(`20260623140200`) but never `status`, and `authenticated` holds table-wide INSERT including that
+column. `enforce_guest_quota` only raises on a NET INCREASE, so with old = new = 0 the 45001
+branch was never reached. The forged row still consumed the **shared** pools it is invisible in:
+event capacity moved by 1 + plus_ones and tier-max by one entry — a ghost no screen renders and no
+UI can delete. The migration's own SECURITY NOTE was wrong on all three of its claims; notably a
+doorhost *can* insert a `check_ins` row for a pending guest (`check_ins_insert` gates on
+`can_check_in(event_id)`, which structurally cannot see guest status), and
+`sync_guest_status_from_checkin` then no-ops because it matches only `status = 'approved'` — so no
+`guests` UPDATE fires and no quota re-check happens.
+
+**Decisions (put to Max before writing code; he took all three recommendations).**
+- **D1 — pin the column.** `20260811160000_guests_status_client_write_guard.sql`: a client insert
+  may only create `approved`; a client update may never leave a row in `pending`/`denied` (the
+  request-lifecycle statuses — `guest_requests.status` owns that). Verified non-breaking first:
+  no client path sends a status at all (`guests/actions.ts` single + bulk, and the door outbox's
+  `add_guest`) — they rely on the column DEFAULT. Triggers and SECURITY DEFINER RPCs bypass RLS
+  (`guests` is not FORCE ROW LEVEL SECURITY), so the door's `approved → checked_in → refused`
+  transitions are untouched.
+- **D2 — revert 4A.** `20260811151000_pending_guest_holds_no_slot.sql` is deleted from the branch
+  rather than neutralised by a follow-up migration. With the column pinned, 4A's motivation (an
+  invisible slot the adder cannot free) is gone, and `pending` now charges uniformly across all
+  four engines again — personal, link, capacity and tier. While the status column was forgeable,
+  "which status is free" was attacker-controlled input.
+- **D3 — `event_user_additions` follows #44.** `20260811161000`: `present`/`present_headcount` no
+  longer count a guest refused after checking in, matching the chart and `summary.present` that
+  render beside them. The gross ledger columns (`added`, `added_headcount`, `removed_headcount`)
+  are deliberately unchanged — a different question.
+
+**3A survives unchanged in substance** (`20260811150000`): `event_checkins_per_quarter` scopes to
+`('approved','checked_in')`, so a guest refused after check-in leaves the chart. Two mechanical
+cleanups from the review rode along: the `check_ins` scan had no bounding predicate of its own and
+now filters on `c.event_id` (server-derived unconditionally since `20260713190000`, indexed), and
+the `distinct on (c.guest_id)` was dropped — `check_ins.guest_id` is NOT NULL UNIQUE, so it
+eliminated nothing while forcing a sort. The header comment that credited that clause with #11's
+"first check-in wins" was wrong and is corrected: the UNIQUE constraint plus the door's 23505 →
+revive path is what enforces #11.
+
+**Link-cap display drift** (`20260811162000`). Four read paths re-typed the 45006 cap rule as a
+literal `sum(case when gu.status in (…) then 1 + gu.plus_ones else 0 end)`, dropping the helper's
+is-inside branch — so the Promotion bar and the public `/i/[token]` page could show room the
+database will refuse to fill. `event_link_funnel`, `venue_influencer_leaderboard`,
+`venue_label_link_funnel` and `get_influencer_stats` now delegate to
+`link_headcount_contribution`, the same function `request_link_consumption` sums — the pattern
+`event_tier_occupancy` already set for the tier cap. The three SECURITY INVOKER ones get the
+matching `grant execute` on the helper. The now-false comment at `src/features/po/queries.ts` was
+rewritten.
+
+**Tests — the point of this round, since the original coverage is why it shipped.**
+- `attacker_quota_bypass.test.sql` 8–13 (plan 7→13): the forged `status='pending'` insert, the
+  `denied` variant, a 50-row forged batch and the update-to-pending path all reject with 42501, as
+  `authenticated` rather than superuser; a DB-state assertion proves no forged row survived; and
+  the legitimate soft delete still works, so the guard is not a regression.
+- `event_lifecycle_capacity.test.sql` 10–13 (plan 13→17): the old case 14.4 was cited as the
+  "no-bypass proof" and **could not fail** — `quota_override = 100000` made 45001 unreachable for
+  the whole file, the block ran after the last `reset role`, and it contained no `throws_ok`. It is
+  gone. In its place: pending charges its full 1 + plus_ones, that shows up in the adder's
+  consumption, a check-in on a pending row does not promote it, and the guest stays charged either
+  way. The post-cancel labels were renumbered 10–13 → 14–17 because pgTAP numbers by execution
+  order, not by label.
+- `event_capacity_inside.test.sql` 13 (plan 12→13): the capacity/personal parity assertion existed
+  only for a `removed` row, which is why it stayed green while 4A broke parity for `pending`. Now
+  asserted on a pending row too.
+- `analytics.test.sql` §13 (plan 76→79): rebuilt on its own `e3..` fixture event instead of
+  mutating the shared `ee..01` seed and pinning deltas against it — the same reasoning §12 states
+  for its own fixture. Adds the D3 coverage (present drops the refused arrival, gross `added` does
+  not).
+
+**Suites, as actually run on the full merged migration set after `supabase db reset`:**
+pgTAP **54 files / 1069 tests PASS**; `pnpm vitest run` **109 files / 1116 passed**;
+`tsc --noEmit` clean; `eslint` clean on the touched paths (`next lint` cannot run in this
+worktree — its `node_modules` is missing `next` after a contended install; the CI `lint-and-test`
+gate covers it). `database.types.ts` needs no regeneration: every rewritten function keeps its
+signature and return type.
+
+**Still open, unchanged by this round:** `supabase/tests/database/tiers.vat.test.sql` plans 15
+tests and runs 2 while pg_prove still reports the file as `ok`, so 13 assertions are absent from
+the green light and the headline totals above are that much less trustworthy. Reproduced in
+isolation, unrelated to these migrations, filed separately.
+
+---
+
 ## 2026-08-11 — Dead-code sweep (86ey9e9xx) + countryFromE164 dedup check (86ey9ea3e, partial)
 
 Branch `chore/86ey9e9xx-dead-code-sweep`. Milestone: Now (codebase hygiene, no behavior

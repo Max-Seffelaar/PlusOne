@@ -19,7 +19,7 @@ values ('ee000000-0000-7000-8000-0000000000cb', 'aa000000-0000-7000-8000-0000000
 insert into public.guest_tiers (id, event_id, name)
 values ('dd000000-0000-7000-8000-0000000000cb', 'ee000000-0000-7000-8000-0000000000cb', 'CapTier');
 
-select plan(12);
+select plan(13);
 
 select is(public.event_capacity_consumption('ee000000-0000-7000-8000-0000000000cb'),
   0, '1 a fresh capped event consumes nothing');
@@ -99,6 +99,22 @@ select is(
      join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public' and p.proname = 'guest_capacity_contribution'),
   1, '12 exactly one guest_capacity_contribution overload remains');
+
+-- ── 13 (86ey9c5fp): the SAME parity assertion on a `pending` row ────────────
+-- Case 4 above only exercised a `removed` guest, so it stayed green while an
+-- earlier version of PR #262 dropped `pending` from the personal engine alone —
+-- capacity said 1 + plus_ones, personal said 0, for the identical row. That
+-- change was reverted; this case is what would have caught it.
+insert into public.guests (id, event_id, tier_id, full_name, plus_ones, added_by, source, status)
+values ('cc000000-0000-7000-8000-0000000000b9', 'ee000000-0000-7000-8000-0000000000cb',
+        'dd000000-0000-7000-8000-0000000000cb', 'Cap Pending Parity', 1,
+        '11111111-1111-4111-8111-111111111111', 'app', 'pending');
+select is(
+  public.guest_capacity_contribution(
+    (select g from public.guests g where g.id = 'cc000000-0000-7000-8000-0000000000b9'), false),
+  public.guest_personal_contribution(
+    (select g from public.guests g where g.id = 'cc000000-0000-7000-8000-0000000000b9'), false),
+  '13 capacity and personal quota contribute the same for a pending guest');
 
 select * from finish();
 

@@ -17,7 +17,7 @@ begin
 end;
 $fn$;
 
-select plan(13);
+select plan(17);
 
 -- Headroom so the personal limit never interferes; only the free/hold RULE is tested.
 update public.event_quotas set quota_override = 100000
@@ -87,29 +87,70 @@ select is(public.submit_guest_request(
   'Cap Submitter', null, null, 0, null, null, false) ->> 'status', 'ok',
   '9 a request to an active, non-cancelled event is accepted');
 
+-- ── 10-13 (86ey9c5fp): `pending` is NOT a free status, and a check-in that
+-- arrives while the guest is not `approved` does not silently un-charge them.
+-- 4A (dropping pending from guest_personal_contribution) was reverted after a
+-- review found it opened a quota bypass; these cases lock the reverted rule in.
+-- Inserted as owner because a client can no longer create a pending row at all
+-- (RLS, 20260811160000) — the point here is the ENGINE's answer, not the policy.
+insert into public.guests (id, event_id, tier_id, full_name, plus_ones, added_by, source, status)
+values ('cc000000-0000-7000-8000-0000000000f3', 'ee000000-0000-7000-8000-000000000001',
+        'dd000000-0000-7000-8000-000000000001', 'Cap Pending', 2,
+        '55555555-5555-4555-8555-555555555555', 'app', 'pending');
+
+select is(public.guest_personal_contribution(
+  (select g from public.guests g where g.id = 'cc000000-0000-7000-8000-0000000000f3'), false),
+  3, '10 a pending guest holds its full 1 + plus_ones (pending is not free)');
+
+select is(public.user_event_consumption(
+  'ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555'),
+  (select c from cap0) + 3, '11 …and that shows up in the adder''s consumption');
+
+-- Check-in FIRST, promotion never: sync_guest_status_from_checkin only matches
+-- `status = 'approved'`, so a check-in on a pending row leaves the status alone
+-- and fires no guests UPDATE (hence no quota re-check). The guest must therefore
+-- already be charged — which they are, via the status branch above and via the
+-- is_inside branch below. Neither ordering yields a free head.
+insert into public.check_ins (guest_id, checked_by, plus_ones_arrived)
+values ('cc000000-0000-7000-8000-0000000000f3', '11111111-1111-4111-8111-111111111111', 2);
+
+select is((select status::text from public.guests
+            where id = 'cc000000-0000-7000-8000-0000000000f3'),
+  'pending', '12 a check-in does not promote a non-approved guest (trigger guard)');
+
+select is(public.user_event_consumption(
+  'ee000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555'),
+  (select c from cap0) + 3, '13 the checked-in pending guest is still charged, not freed');
+
+-- Leave the fixture off the list so the cancel-gate cases below are unaffected.
+update public.check_ins set voided_at = now(), voided_by = '11111111-1111-4111-8111-111111111111'
+  where guest_id = 'cc000000-0000-7000-8000-0000000000f3';
+update public.guests set status = 'removed'
+  where id = 'cc000000-0000-7000-8000-0000000000f3';
+
 -- ── Cancel the event ──
 update public.events set cancelled_at = now()
   where id = 'ee000000-0000-7000-8000-000000000001';
 
--- ── 10/11/12: gates after cancel ──
+-- ── 14/15/16: gates after cancel ──
 select pg_temp.login('66666666-6666-4666-8666-666666666666'); -- doorhost
 select is(public.can_check_in('ee000000-0000-7000-8000-000000000001'), false,
-  '10 a cancelled event blocks check-in');
+  '14 a cancelled event blocks check-in');
 reset role;
 select pg_temp.login('55555555-5555-4555-8555-555555555555'); -- staff
 select is(public.can_write_guests('ee000000-0000-7000-8000-000000000001'), false,
-  '11 a cancelled event blocks staff writes');
+  '15 a cancelled event blocks staff writes');
 reset role;
 select pg_temp.login('11111111-1111-4111-8111-111111111111'); -- admin
 select is(public.can_write_guests('ee000000-0000-7000-8000-000000000001'), true,
-  '12 an admin can still write to a cancelled event');
+  '16 an admin can still write to a cancelled event');
 reset role;
 
--- ── 13: a cancelled event stops taking public requests (no enumeration) ──
+-- ── 17: a cancelled event stops taking public requests (no enumeration) ──
 select is(public.submit_guest_request(
   (select landing_slug from public.events where id = 'ee000000-0000-7000-8000-000000000001'),
   'Cap Submitter Two', null, null, 0, null, null, false) ->> 'status', 'closed',
-  '13 a cancelled event stops taking public requests');
+  '17 a cancelled event stops taking public requests');
 
 select * from finish();
 
