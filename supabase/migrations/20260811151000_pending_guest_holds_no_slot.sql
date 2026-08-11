@@ -41,17 +41,18 @@
 -- folding pending out of it is a separate decision about capacity, not part of
 -- the flagged personal-quota bug. Flagged for Max, not silently changed.
 --
--- ⚠ IN-FLIGHT INTERACTION (86ey9e9r9, PR #244, open at the time of writing):
--- that PR rewrites `guest_capacity_contribution` onto the same `p_is_inside`
--- basis as the personal engine, explicitly so "both engines answer the amended
--- #22 identically", and its rewrite KEEPS the 'pending' branch. Once both land,
--- the two helpers are identical in shape except for the #31 source exemption
--- and exactly one thing: pending. A pending row would then consume hard event
--- capacity while consuming no personal quota. Unreachable in practice (no write
--- path produces a pending guest — see above), so this is a consistency wart,
--- not a live bug. Whichever of the two PRs merges second should decide the
--- pending branch for BOTH helpers in one place; recommendation is to drop it in
--- capacity too, for the same reason it is dropped here.
+-- ⚠ KNOWN DIVERGENCE with 86ey9e9r9 (`20260810171500_event_capacity_inside_rule`,
+-- merged to main 11 aug 2026, after this migration was written): that migration
+-- rewrote `guest_capacity_contribution` onto the same `p_is_inside` basis as the
+-- personal engine, explicitly so "both engines answer the amended #22
+-- identically" — and KEPT its 'pending' branch. With this migration the two
+-- helpers are therefore identical in shape except for the #31 source exemption
+-- and exactly one thing: pending. A pending row consumes hard event capacity
+-- while consuming no personal quota. Unreachable in practice (no write path
+-- produces a pending guest — see above), so this is a consistency wart and not a
+-- live bug, but it should be settled in one follow-up that decides `pending` for
+-- BOTH helpers. Recommendation: drop it in capacity too, for the same reason it
+-- is dropped here.
 
 -- ── 1. Personal quota per adder (#22, #31) ──────────────────────────────────
 
