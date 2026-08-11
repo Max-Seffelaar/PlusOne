@@ -22,7 +22,10 @@ function loadEnvLocal(): void {
 }
 loadEnvLocal();
 
-const PORT = 3000;
+// 3000 unless E2E_PORT overrides it — locally another project's dev server can
+// squat 3000, and reuseExistingServer would then run the suite against the wrong
+// app (every route 404s). CI always has 3000 free.
+const PORT = Number(process.env.E2E_PORT ?? 3000);
 const BASE_URL = `http://localhost:${PORT}`;
 
 export default defineConfig({
