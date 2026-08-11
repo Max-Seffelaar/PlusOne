@@ -754,12 +754,14 @@ type CheckinArrivalRow = Pick<Tables['check_ins']['Row'], 'id' | 'guest_id' | 'p
  * Active (non-voided) check-in arrivals for an event's guests, keyed by guest id.
  * The cockpit (S13) uses this for the ACTUAL present headcount and partial-arrival
  * display (a +3 guest with 1 companion present = 2 koppen binnen, not 4). Filters
- * on the denormalized `event_id` (migration `20260622140000_checkin_event_scope`,
- * unconditionally server-derived since `20260713190000_checkin_scope_venue_pin`)
- * — no `.in('guest_id', …)` list that would blow Kong's URI length at 1500 ids.
- * Voiding is filtered server-side (`check_ins.guest_id` is UNIQUE, so this can't
- * under-return). Ranged so >1000 check-ins all load; `.order('id')` gives the
- * deterministic order paging requires. RLS still gates which check_ins are visible.
+ * on the denormalized `event_id` (mirrors the door's `check_ins`/`refusals` reads
+ * in `fetchDoorSnapshot`, `src/features/door/queries.ts` — migration
+ * `20260622140000_checkin_event_scope`, unconditionally server-derived since
+ * `20260713190000_checkin_scope_venue_pin`) — no `.in('guest_id', …)` list that
+ * would blow Kong's URI length at 1500 ids. Voiding is filtered server-side
+ * (`check_ins.guest_id` is UNIQUE, so this can't under-return). Ranged so >1000
+ * check-ins all load; `.order('id')` gives the deterministic order paging
+ * requires. RLS still gates which check_ins are visible.
  */
 export async function fetchCheckinArrivals(
   client: Client,
