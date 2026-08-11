@@ -2,9 +2,13 @@
 //
 // 86ey9ea00 #53 — an unknown/uninvited e-mail must be indistinguishable from a
 // known one at the login form: same step transition, same message. Before this
-// fix, GoTrue's `signup_disabled` error surfaced as a visibly different "this
-// account doesn't exist" banner while a known e-mail moved straight to the
-// code step — that difference IS the account-enumeration oracle.
+// fix, GoTrue's error surfaced as a visibly different "this account doesn't
+// exist" banner while a known e-mail moved straight to the code step — that
+// difference IS the account-enumeration oracle. The mocked error shape below
+// (`code: 'otp_disabled'`, message "Signups not allowed for otp") is GoTrue's
+// REAL response, verified against the local Supabase stack directly (PR #243
+// review) — an earlier version of this fix matched only `signup_disabled`,
+// which GoTrue never actually sends here.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
@@ -40,15 +44,24 @@ describe('OtpLoginForm — account-enumeration guard', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('moves to the SAME code step, with the SAME message, for an unknown/uninvited e-mail', async () => {
+  it('moves to the SAME code step, with the SAME message, for an unknown/uninvited e-mail (real GoTrue error shape)', async () => {
     signInWithOtp.mockResolvedValue({
-      error: { code: 'signup_disabled', message: 'Signups not allowed for otp' },
+      error: { code: 'otp_disabled', message: 'Signups not allowed for otp' },
     });
     await submitEmail('unknown@venue.com');
 
     expect(await screen.findByLabelText(/your code/i)).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('We sent a 6-digit code to unknown@venue.com.');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('also swallows the legacy signup_disabled spelling (defensive, not what GoTrue actually sends)', async () => {
+    signInWithOtp.mockResolvedValue({
+      error: { code: 'signup_disabled', message: 'Signups not allowed for otp' },
+    });
+    await submitEmail('unknown-legacy-code@venue.com');
+
+    expect(await screen.findByLabelText(/your code/i)).toBeInTheDocument();
   });
 
   it('still surfaces a genuine failure (rate limit) as a distinct error, not a fake code step', async () => {
@@ -59,5 +72,12 @@ describe('OtpLoginForm — account-enumeration guard', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('30 seconds');
     expect(screen.queryByLabelText(/your code/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the "didn\'t get a code?" hint unconditionally on the code step — the invited-but-unconfirmed escape hatch (#53/#54 review)', async () => {
+    signInWithOtp.mockResolvedValue({ error: null });
+    await submitEmail('known@venue.com');
+
+    expect(await screen.findByText(/didn.t get a code\?/i)).toBeInTheDocument();
   });
 });

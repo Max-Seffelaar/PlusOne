@@ -187,6 +187,13 @@ export function OtpLoginForm({ nextPath }: { nextPath: string }): JSX.Element {
                 Use another email
               </button>
             </div>
+            {/* Shown unconditionally — never gated on whether a code was
+                actually sent (86ey9ea00 #53/#54 review) — so an invited-but-
+                not-yet-accepted account has a way forward, without this hint
+                itself becoming a second account-existence signal. */}
+            <p className="text-faint text-center text-xs">
+              Didn&apos;t get a code? Double-check the address, or ask an admin to resend your invite.
+            </p>
           </form>
         )}
 

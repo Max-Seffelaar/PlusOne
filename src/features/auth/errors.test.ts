@@ -57,11 +57,15 @@ describe('describeAuthError', () => {
 });
 
 describe('isUnknownAccountOtpError (86ey9ea00 #53 — login-form account-enumeration guard)', () => {
-  it('is true for the signup_disabled code', () => {
+  it('is true for otp_disabled — GoTrue\'s REAL error_code, verified against the local stack (PR #243 review)', () => {
+    expect(isUnknownAccountOtpError({ code: 'otp_disabled', message: 'Signups not allowed for otp' })).toBe(true);
+  });
+
+  it('is true for the signup_disabled code (defensive alternate spelling, not what GoTrue actually sends)', () => {
     expect(isUnknownAccountOtpError({ code: 'signup_disabled' })).toBe(true);
   });
 
-  it('is true for the "signups not allowed" message text', () => {
+  it('is true for the "signups not allowed" message text alone, with no matching code', () => {
     expect(isUnknownAccountOtpError({ message: 'Signups not allowed for otp' })).toBe(true);
   });
 

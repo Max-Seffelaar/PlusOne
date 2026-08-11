@@ -68,11 +68,16 @@ export function describeAuthError(error: unknown): NormalizedAuthError {
     return { message: "That verification code isn't right. Try again." };
   }
 
-  // Signups disabled (invite-only). This message is only safe to show on
-  // screens where the caller already knows the account exists (e.g. an admin
-  // resending an invite) — see isUnknownAccountOtpError for the login form,
-  // which must not let this branch distinguish "no such account" from "code
-  // sent" (86ey9ea00 #53).
+  // Signups disabled (invite-only). NOTE: GoTrue's real error_code for the
+  // login form's case is `otp_disabled` (verified against the local stack,
+  // 86ey9ea00 PR #243 review) — but that code is already caught by the
+  // "expired OTP" branch above (line 59), so this `code` check only ever
+  // fires for `signup_disabled` specifically or the message substring. This
+  // message is only safe to show on screens where the caller already knows
+  // the account exists (e.g. an admin resending an invite) — see
+  // isUnknownAccountOtpError for the login form, which checks the raw error
+  // directly and must not let this branch distinguish "no such account" from
+  // "code sent" (86ey9ea00 #53).
   if (code === 'signup_disabled' || lower.includes('signups not allowed')) {
     return { message: "This account doesn't exist or isn't invited. Ask an admin for an invite." };
   }
@@ -87,18 +92,31 @@ export function describeAuthError(error: unknown): NormalizedAuthError {
 
 /**
  * True when a `signInWithOtp({ shouldCreateUser: false })` call failed because
- * the address has no invited account (GoTrue's "signups not allowed" /
- * `signup_disabled`). The login form (OtpLoginForm) must treat this identically
- * to a known e-mail — same "we sent a code" step transition, not a distinct
+ * GoTrue would not send a code — verified against the local stack (86ey9ea00
+ * PR #243 review): the real `error_code` is `otp_disabled`, message "Signups
+ * not allowed for otp" (`signup_disabled` kept as a defensive alternate
+ * spelling; it is not what GoTrue actually returns here).
+ *
+ * GoTrue returns this SAME error for two different situations, and does not
+ * distinguish between them in the response — which is exactly why matching it
+ * is safe:
+ *   1. no account exists for the address at all;
+ *   2. an account exists but was invited and never confirmed (accepted the
+ *      invite) — see invite-mail.ts's `sendInviteEmail` doc comment.
+ * The login form (OtpLoginForm) must treat this identically to a known,
+ * confirmed e-mail — same "we sent a code" step transition, not a distinct
  * error — otherwise the response shape itself leaks whether the address is
- * registered (account enumeration, 86ey9ea00 #53). Genuine failures (rate
- * limiting, network errors) are unaffected and still surface normally via
- * describeAuthError.
+ * registered (account enumeration, 86ey9ea00 #53). The tradeoff: a genuinely
+ * invited-but-unconfirmed user now also lands on the code step with no code
+ * actually sent — OtpLoginForm's code step carries a static "didn't get a
+ * code?" hint for exactly that case, shown unconditionally so it reveals
+ * nothing on its own. Genuine failures (rate limiting, network errors) are
+ * unaffected and still surface normally via describeAuthError.
  */
 export function isUnknownAccountOtpError(error: unknown): boolean {
   const e = asErrorLike(error);
   const code = typeof e.code === 'string' ? e.code : '';
   const message = typeof e.message === 'string' ? e.message : '';
   const lower = message.toLowerCase();
-  return code === 'signup_disabled' || lower.includes('signups not allowed');
+  return code === 'otp_disabled' || code === 'signup_disabled' || lower.includes('signups not allowed');
 }
