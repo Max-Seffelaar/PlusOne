@@ -44,20 +44,39 @@ describe('door subtree element-identity bailout (86ey9e9vc review)', () => {
     expect(src).toMatch(/<DoorProvider eventId=\{resolvedDoorId\}>\{doorTabElement\}<\/DoorProvider>/);
   });
 
-  it('DoorProvider forwards children unmodified (no Children.map/cloneElement, no wrapping boundary)', () => {
+  it('DoorProvider forwards children unmodified through EVERY context layer (no Children.map/cloneElement, no wrapping boundary at any level)', () => {
     const src = readFileSync(DOOR_PROVIDER, 'utf8');
     expect(src).not.toMatch(/Children\.(map|forEach|toArray)/);
     expect(src).not.toMatch(/cloneElement/);
-    // The innermost Provider's child must be the literal `{children}` prop —
-    // a transform (e.g. wrapping it in another element) would break the
-    // referential-equality bailout even without touching Children.map.
-    expect(src).toMatch(/<DoorToastContext\.Provider value=\{toastValue\}>\{children\}<\/DoorToastContext\.Provider>/);
+    // Round-2 review finding: the previous version of this test only checked
+    // the INNERMOST Provider's child was `{children}` — DoorSyncContext.Provider
+    // or DoorFiltersContext.Provider could each have wrapped it in something
+    // else without failing anything. Match the WHOLE nesting chain at once —
+    // each opening tag must be followed (mod whitespace) by exactly the next
+    // expected opening tag, all the way down to `{children}` and back out —
+    // so an extra element inserted ANYWHERE in the chain breaks the match.
+    expect(src).toMatch(
+      /<DoorContext\.Provider value=\{value\}>\s*<DoorSyncContext\.Provider value=\{sync\}>\s*<DoorFiltersContext\.Provider value=\{filtersValue\}>\s*<DoorToastContext\.Provider value=\{toastValue\}>\{children\}<\/DoorToastContext\.Provider>\s*<\/DoorFiltersContext\.Provider>\s*<\/DoorSyncContext\.Provider>\s*<\/DoorContext\.Provider>/,
+    );
   });
 
   it('DoorQueryProvider forwards children unmodified at the source level (no Children.map/cloneElement)', () => {
     const src = readFileSync(DOOR_QUERY_PROVIDER, 'utf8');
     expect(src).not.toMatch(/Children\.(map|forEach|toArray)/);
     expect(src).not.toMatch(/cloneElement/);
-    expect(src).toMatch(/>\s*\{children\}\s*</);
+    // Round-2 review finding: a bare `/>\s*\{children\}\s*</ ` anchors to ANY
+    // element's closing bracket, not specifically PersistQueryClientProvider's
+    // — `<Suspense>{children}</Suspense>` injected right there still has a `>`
+    // immediately before `{children}`, so that check couldn't tell "wrapped in
+    // Suspense" from "not wrapped at all". `PersistQueryClientProvider`'s own
+    // props are multi-line and contain `=>` arrow functions, which rules out a
+    // plain `[^>]*` skip (it would stop at the arrow's own `>`) — `(?:[^>]|=>)*`
+    // treats a literal `=>` as one unit so it can skip past it, while still
+    // stopping at any OTHER bare `>` (an embedded self-closing tag, e.g. a
+    // `<Spinner/>` inside an injected wrapper's own props, blocks the skip
+    // entirely — regex can't do real nested-tag matching, so a wrapper whose
+    // own opening tag has no embedded `>` at all could still slip past this;
+    // that residual gap is accepted, not undetected-by-oversight).
+    expect(src).toMatch(/<PersistQueryClientProvider(?:[^>]|=>)*>\s*\{children\}\s*<\/PersistQueryClientProvider>/);
   });
 });

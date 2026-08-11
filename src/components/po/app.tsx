@@ -523,8 +523,16 @@ export function PlusOneApp(): JSX.Element {
   const autoOpenTried = useRef(false);
   useEffect(() => {
     if (autoOpenTried.current || isMobile || !showDoor) return;
+    // `doorCandidatesQuery.data` is never undefined (usePoDoorCandidates'
+    // stable-empty-array fallback, 86ey9e9vc) — an undefined-ness check here
+    // can no longer distinguish "still loading" from "loaded, zero events",
+    // so this used to consume the one-shot evaluation on the FIRST render
+    // (candidates still loading, `cands` already `[]`) with nothing to open,
+    // permanently arming the sessionStorage flag before the real candidate
+    // list ever arrived — the auto-open silently never fired (review round
+    // 2, Blocker 2). Gate on the query's own success state instead.
+    if (!doorCandidatesQuery.isSuccess) return; // wait for candidates before consuming the one evaluation
     const cands = doorCandidatesQuery.data;
-    if (!cands) return; // wait for candidates before consuming the one evaluation
     // Consume the one-shot evaluation NOW, regardless of which tab this turns
     // out to be (G1 review fix): stamping this only inside the Start-tab branch
     // left the flag armed for a session whose first landing was a deep link
@@ -545,7 +553,7 @@ export function PlusOneApp(): JSX.Element {
     if (!id) return;
     router.replace(doorPath({ seg: 'deur', eventId: id }));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot landing tweak
-  }, [isMobile, showDoor, doorCandidatesQuery.data, userId, target]);
+  }, [isMobile, showDoor, doorCandidatesQuery.isSuccess, doorCandidatesQuery.data, userId, target]);
 
   const doorOverlayOpen = isDoorTab && doorState.overlay !== null;
 

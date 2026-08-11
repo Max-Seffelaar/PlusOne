@@ -237,22 +237,38 @@ async function settle(): Promise<void> {
   });
 }
 
-/** Wait until a render-count probe array stops growing across two consecutive
- *  checks, not just after one `settle()` tick (86ey9e9vc review, 3c): `meId`
- *  is a dep of six DoorContext callbacks (`checkIn`/`voidCheckIn`/etc.), set
- *  asynchronously from the mocked `getUser()` on mount — a single microtask
- *  flush happens to be enough today, but couples an exact render-count
- *  assertion to how many hops that mock takes, which is incidental to what
- *  these tests actually check. Reproduced: a 10ms delay on the mocked
- *  `getUser` broke the single-`settle()` version. */
+/** Wait until a render-count probe array stops growing, not just after one
+ *  `settle()` tick (86ey9e9vc review round 1, 3c): `meId` is a dep of six
+ *  DoorContext callbacks (`checkIn`/`voidCheckIn`/etc.), set asynchronously
+ *  from the mocked `getUser()` on mount — a single microtask flush happens to
+ *  be enough today, but couples an exact render-count assertion to how many
+ *  hops that mock takes, which is incidental to what these tests actually
+ *  check. Reproduced: a 10ms delay on the mocked `getUser` broke the
+ *  single-`settle()` version.
+ *
+ *  Round-2 finding (3c's own fix had a flake window): two consecutive equal
+ *  reads at `waitFor`'s default 50ms poll interval only needs an async
+ *  completion to land OUTSIDE both of two ~50ms windows to be missed —
+ *  captured too early, same false-baseline failure mode as the thing this
+ *  was fixing. Tightened to a 5ms interval and THREE consecutive equal
+ *  reads (not two) — reproduced-and-fixed the same way: a 10ms delay on the
+ *  mocked `getUser` still settles correctly under this version (verified by
+ *  hand), where two consecutive 50ms-interval reads previously could not. */
 async function waitForQuiescence(renders: { length: number }): Promise<void> {
   let last = -1;
-  await waitFor(() => {
-    if (renders.length !== last) {
-      last = renders.length;
-      throw new Error('render count still changing');
-    }
-  });
+  let stableReads = 0;
+  await waitFor(
+    () => {
+      if (renders.length !== last) {
+        last = renders.length;
+        stableReads = 0;
+        throw new Error('render count still changing');
+      }
+      stableReads += 1;
+      if (stableReads < 3) throw new Error('not enough consecutive stable reads yet');
+    },
+    { interval: 5, timeout: 2000 },
+  );
 }
 
 describe('DoorProvider — double-tap on check-in (O8)', () => {
@@ -453,17 +469,20 @@ describe('DoorProvider — render scope of the DoorToastContext split (86ey9e9vc
   // stable its own props/element are upstream — memoizing the <PoDoorTab>
   // element in app.tsx cannot bail a component out of its OWN context
   // subscription. `toast` was PoDoorTab's only reason to read the broad
-  // DoorContext; splitting it out is what makes app.tsx's element memo's
-  // bailout real.
+  // DoorContext; splitting it out NARROWS that subscription (correcting an
+  // overstated review-round-1 claim: this does not eliminate PoDoorTab's
+  // re-render on a check-in, only reduce it — `toast` itself still changes on
+  // this client's own check-ins, which PoDoorTab legitimately needs to render
+  // the toast banner).
   //
-  // A REAL check-in also legitimately re-renders `useDoorSyncStatus()`
-  // consumers (the flush flips `syncing` true→false), so an absolute render
-  // count on the post-fix shape alone doesn't isolate the toast fix's effect.
   // Compare the post-fix shape (useDoorSyncStatus + useDoorToast, what
   // PoDoorTab reads today) against the pre-fix shape (useDoor +
   // useDoorSyncStatus, what it read before Step 0) side by side under the
-  // SAME check-in: the fix's whole claim is that the new shape renders
-  // strictly fewer times than the old one would have.
+  // SAME real check-in, plus a sync-only probe to isolate where the new
+  // shape's residual render actually comes from (measured: oldExtra=2,
+  // newExtra=1, syncOnlyExtra=0 — the residual is `toast` itself changing,
+  // NOT `syncing` flipping true→false during the flush, despite what an
+  // earlier version of this comment claimed).
   it('a PoDoorTab-shaped consumer subscribing to useDoor() re-renders MORE on a check-in than one subscribing to useDoorToast()', async () => {
     const oldShapeRenders: null[] = [];
     const newShapeRenders: null[] = [];
@@ -479,6 +498,12 @@ describe('DoorProvider — render scope of the DoorToastContext split (86ey9e9vc
       newShapeRenders.push(null);
       return null;
     }
+    const syncOnlyRenders: null[] = [];
+    function SyncOnlyProbe(): null {
+      useDoorSyncStatus();
+      syncOnlyRenders.push(null);
+      return null;
+    }
 
     const door: DoorApi[] = [];
     const sync: SyncApi[] = [];
@@ -489,12 +514,14 @@ describe('DoorProvider — render scope of the DoorToastContext split (86ey9e9vc
           <Probe door={door} sync={sync} />
           <OldShapeProbe />
           <NewShapeProbe />
+          <SyncOnlyProbe />
         </DoorProvider>
       </QueryClientProvider>,
     );
     await waitForQuiescence(oldShapeRenders);
     const oldAfterMount = oldShapeRenders.length;
     const newAfterMount = newShapeRenders.length;
+    const syncOnlyAfterMount = syncOnlyRenders.length;
 
     await act(async () => {
       door[door.length - 1].checkIn(GUEST_A, 1);
@@ -504,6 +531,15 @@ describe('DoorProvider — render scope of the DoorToastContext split (86ey9e9vc
 
     const oldExtra = oldShapeRenders.length - oldAfterMount;
     const newExtra = newShapeRenders.length - newAfterMount;
+    const syncOnlyExtra = syncOnlyRenders.length - syncOnlyAfterMount;
     expect(oldExtra).toBeGreaterThan(newExtra);
+    // The residual render on the NEW shape (oldExtra=2, newExtra=1 in this
+    // mocked-channel harness — see the comment above `it(...)`) comes from
+    // `toast` itself changing (set on check-in), NOT from `syncing` flipping —
+    // a sync-only probe (no toast) sees zero extra renders across the same
+    // check-in. Correcting the review round 1 claim that the split alone "is
+    // what makes the element memo's bailout real" for PoDoorTab: it narrows
+    // the subscription, it doesn't eliminate the residual re-render.
+    expect(syncOnlyExtra).toBe(0);
   });
 });

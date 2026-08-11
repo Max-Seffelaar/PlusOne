@@ -157,9 +157,14 @@ export function useDoorFilters(): DoorFiltersContextValue {
 // body, so a context-value change forces it to re-render regardless of how
 // stable its props/element are upstream — app.tsx's `<PoDoorTab>` element
 // memo cannot bail a component out of its OWN context subscription. `toast`
-// was PoDoorTab's only reason to read the broad (check-in-churning) `value`;
-// narrowing to just that field is what makes the element memo's bailout real.
-// Full analysis in docs/changelog.md.
+// was PoDoorTab's only reason to read the broad (check-in- and realtime-
+// churning) `value`; narrowing to just that field NARROWS PoDoorTab's
+// re-render frequency, it does not eliminate it — `toast` itself still
+// changes on this client's own check-ins (necessary: PoDoorTab renders the
+// toast banner). Measured (DoorProvider.test.tsx): a broad-`useDoor()`-shaped
+// probe re-renders strictly more on a check-in than a `useDoorToast()`-shaped
+// one, and the narrow shape's own residual render is `toast` changing, not
+// the `sync` tick. Full analysis in docs/changelog.md.
 interface DoorToastContextValue {
   toast: string | null;
 }

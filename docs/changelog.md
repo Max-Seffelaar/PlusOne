@@ -107,6 +107,123 @@ isolation, unrelated to these migrations, filed separately.
 
 ---
 
+## 2026-08-11 — Door search + po shell re-render scope, third review pass (86ey9e9vc, PR #261)
+
+Branch `perf/86ey9e9vc-render-scope-memo`, still not merged. A THIRD max-effort
+fresh-session `/code-review` on the same PR — the round-2 rework (DoorToastContext
+split, T6 auto-open re-check, useIsDesktop/innerWidth fallback, `notifyOnChangeProps`
+audit trail) was found correct in its OWN claims (every red-on-revert claim from that
+pass was independently re-verified and held), but the round-2 fix for finding 15
+(moving the stable-empty-array fallback into `usePoEvents`/`usePoDoorCandidates`)
+introduced **2 new blockers** and surfaced **4 more findings** in the process. Full
+detail below; summary in the PR body. Milestone: Now (a genuinely broken desktop
+feature + a re-render-scope regression, both introduced by the previous "fix").
+
+- **Blocker 1 — the `{ ...query, ... }` spread defeated React Query's tracked-properties
+  optimization.** `usePoEvents()`/`usePoDoorCandidates()` spread the FULL `UseQueryResult`
+  object to attach the stable-empty-array `data` fallback. Spreading reads every one of
+  ~26 properties on the object, which (per `@tanstack/react-query@5.101.0`'s
+  `trackResult` Proxy) subscribes every consumer to every property — so a plain
+  `invalidateQueries`/refetch re-rendered every consumer even when `data` itself hadn't
+  changed, reintroducing the EXACT class of bug this whole PR chain exists to fix, now
+  at the shared-hooks level (~17 call sites). Fixed with an explicit
+  `notifyOnChangeProps` allowlist on both `useQuery()` calls, chosen only after a
+  dedicated audit of every real call site's actual property reads (`data`/`isLoading`/
+  `isError`/`isFetching`/`error`/`isSuccess` — small, stable, no dynamic access anywhere)
+  confirmed the list would be complete. **Verified with a real render-count probe**
+  (mounts the actual `usePoEvents()` against a real `QueryClient`, forces a refetch that
+  leaves `data` structurally unchanged): before the fix, a `data`-only consumer picked
+  up **+1 extra render** per refetch; after, **0 extra**. Re-verified failing by
+  temporarily removing the allowlist and watching the probe go red, same as it did
+  before the fix existed.
+- **Blocker 2 — the T6 desktop auto-open effect (decided 1/7) silently stopped firing.**
+  `app.tsx`'s one-shot "open the cockpit automatically if there's exactly one live
+  event" effect guarded on `if (!doorCandidatesQuery.data) return;` — since `.data` is
+  never `undefined` anymore (the very fallback this PR's own finding 15 added), that
+  guard could never fire. It consumed its one-shot sessionStorage flag on the FIRST
+  render (candidates still loading, `data` already `[]`, `autoOpenDoorEvent([], …)`
+  finds nothing), before the real candidate list ever arrived — the desktop auto-open
+  never worked again. Also directly contradicted this changelog's own round-1 entry,
+  which claimed the empty-array audit had found no call site relying on `data`'s
+  undefined-ness — it had, this was the exact counterexample. Fixed: gate on
+  `doorCandidatesQuery.isSuccess` explicitly instead (not `isLoading` — a *disabled*
+  query, e.g. `venueId` not yet resolved, also reads `isLoading: false`, same trap).
+  Required adding `isSuccess` to `usePoDoorCandidates`'s `notifyOnChangeProps` list too
+  (Blocker 1's fix), since app.tsx now reads it and an unlisted property can silently
+  stop notifying. **New regression test** (`app.auto-open.test.tsx`, none existed
+  before) — mounts the REAL `PlusOneApp` with its data/routing dependencies mocked (no
+  existing test does this; the shell's hook surface required pinning ~10 module mocks
+  to the minimum this one effect's guard logic needs), drives `usePoDoorCandidates`
+  through a `useSyncExternalStore`-backed mock so flipping its result actually
+  re-renders the shell, and asserts (a) the one-shot flag is NOT consumed while
+  candidates are loading and (b) the auto-open genuinely fires once they resolve with
+  one eligible event. Verified red on both assertions by restoring the old guard.
+- **Finding 3 — the structural element-identity-bailout guard had a false-green hole.**
+  `door-tab-element-identity-bailout.test.ts`'s `DoorQueryProvider` check
+  (`/>\s*\{children\}\s*</`) anchors to ANY element's closing bracket, not specifically
+  `PersistQueryClientProvider`'s — `<Suspense>{children}</Suspense>` injected right
+  there still has a `>` immediately before `{children}`, so the check couldn't tell
+  "wrapped in Suspense" (the exact route-root mutation CLAUDE.md bans) from "not
+  wrapped at all". Separately, the guard only checked the INNERMOST
+  `DoorToastContext.Provider` forwards `children` — `DoorSyncContext.Provider`/
+  `DoorFiltersContext.Provider` could each wrap it in something else without failing
+  anything. Fixed both: the `DoorProvider` check now matches the WHOLE 4-layer nesting
+  chain in one pattern (an extra element inserted at ANY layer breaks the match — tested
+  by hand, injecting a wrapper `<div>` mid-chain). The `DoorQueryProvider` check now
+  uses `(?:[^>]|=>)*` to skip `PersistQueryClientProvider`'s own multi-line props
+  (which contain `=>` arrow functions a naive `[^>]*` would stop at) while still
+  requiring `{children}` immediately after its real closing `>` — verified this exact
+  fix catches the reviewer's own `<Suspense fallback={<Spinner/>}>` reproduction by
+  hand. Noted honestly in the test's own comment: a wrapper whose OWN opening tag
+  contains no embedded `>` at all (unlike the demonstrated `<Spinner/>` case) could
+  still slip past a regex-based check — real nested-tag matching isn't possible without
+  a parser, and that residual gap is accepted, not undetected-by-oversight.
+- **Finding 4 — two comments overstated what the toast-context split (round 2, Blocker 1
+  of the SECOND pass) actually bought.** They claimed narrowing `PoDoorTab` to
+  `useDoorToast()` "is what makes the element memo's bailout real" — it narrows the
+  re-render frequency, it does not eliminate the residual: `toast` itself changes twice
+  per local mutation (set, then `useTransientValue`'s ~2.6s clear), so `PoDoorTab` still
+  re-renders on a check-in, just less. Also, `DoorProvider.test.tsx`'s own rationale
+  comment misattributed that residual to the `syncing` flip during a flush. **Added a
+  third probe to the existing render-scope test** (`useDoorSyncStatus()` alone, no
+  toast) to actually isolate this instead of asserting it in prose: measured
+  `oldExtra=2, newExtra=1, syncOnlyExtra=0` — the residual is `toast` changing, NOT
+  `syncing`. Comments in `DoorProvider.tsx` and the test itself corrected to match; the
+  test now asserts `syncOnlyExtra === 0` directly instead of only logging it.
+- **Finding 5 — `usePoEvent`'s `notFound` had the SAME undefined-ness trap as Blocker 2.**
+  Round 1 dropped a `!!data` check with a comment claiming `!isLoading` alone covered
+  it post-fallback; it doesn't, for the identical reason — a *disabled* query
+  (`venueId` not yet resolved) also has `isLoading: false`, so `notFound` read `true`
+  whenever the query had simply never run, not just when it ran and the id was
+  genuinely absent. No visible break today (both consumers OR it with `!event`, which
+  stays `null` either way in that window) but the exported CONTRACT silently inverted.
+  Fixed: gate on the query's own `isSuccess` (added to `usePoEvents`'s
+  `notifyOnChangeProps` for the same reason as Blocker 2). **New test**
+  (`hooks.usePoEvent.test.tsx`, none existed before) covers all three states
+  (disabled/not-found/found); verified the disabled-query case red on reverting to
+  `!isLoading`.
+- **Finding 6 — the round-1 fix for the round-1 flake (3c) had its own, narrower flake
+  window.** `waitForQuiescence`'s two-consecutive-equal-reads check, at `waitFor`'s
+  default 50ms poll interval, only needed an async completion to land outside both of
+  two ~50ms windows to be missed — captured too early, the same false-baseline failure
+  mode 3c was fixing, just less likely to trigger. Tightened to a 5ms interval and
+  THREE consecutive equal reads. Re-verified against the exact reproduction that
+  originally caught 3c (a 10ms delay on the mocked `getUser`) — 5/5 clean runs, where
+  the two-read/50ms version had failed under the same delay.
+- Tests: `pnpm run type-check` clean, `pnpm run lint` clean (only the pre-existing
+  unrelated `datetime-field.tsx` a11y warnings), `pnpm vitest run` — 113 files / 1136
+  tests passing, 0 regressions (added: 2 in `app.auto-open.test.tsx`, 3 in
+  `hooks.usePoEvent.test.tsx`, 1 new assertion + probe in the existing
+  `DoorProvider.test.tsx` toast-split test). Every new/changed check in this pass
+  verified red-on-revert by hand, including a real before/after render-count
+  measurement for Blocker 1 (not just a type-level argument that `notifyOnChangeProps`
+  should work).
+- Left for Max: this round's fixes are a comment-and-guard pass PLUS two genuine
+  behavioral bugfixes (Blockers 1/2) touching the shared `po` data-fetch hooks and the
+  desktop shell — narrower in blast radius than round 2's new context, but still
+  behavioral. Given that, another fresh-session `/code-review` before merge, same as
+  every prior round (`DoorProvider.tsx` stays a listed high-risk surface).
+
 ## 2026-08-11 — Door search + po shell re-render scope, second review pass (86ey9e9vc, PR #261)
 
 Branch `perf/86ey9e9vc-render-scope-memo`, still not merged. A SECOND max-effort
