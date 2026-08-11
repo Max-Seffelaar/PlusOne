@@ -23,8 +23,20 @@
 -- itself remains fully visible — `guests.status`, the `refusals` table, the
 -- audit trail and `event_stats_summary.refused` all still report it.
 --
--- Only the guest-status scope changes; the voided-check-in filter, the
--- first-check-in-wins `distinct on` (#11) and the bucket math are untouched.
+-- Two mechanical cleanups ride along, both provable from the schema:
+--   * the `check_ins` scan had NO bounding predicate of its own — it reached
+--     every check-in row in the table and relied on the join to `guests` to
+--     discard the rest. `check_ins.event_id` has been server-derived
+--     unconditionally since 20260713190000_checkin_scope_venue_pin and is
+--     indexed (`check_ins_event_id_idx`), so the scan is now bounded directly.
+--   * `distinct on (c.guest_id)` (and the `order by` it forces) eliminated
+--     nothing: `check_ins.guest_id` is NOT NULL UNIQUE (20260613000000), so
+--     there is at most one row per guest by construction. Dropping it also drops
+--     the sort requirement that made an unbounded merge join attractive.
+--     Note the old comment credited that clause with #11's "first check-in
+--     wins" rule; it never implemented it — the UNIQUE constraint plus the
+--     door's 23505 → revive path is what enforces #11.
+-- The voided-check-in filter and the bucket math are untouched, and
 -- `create or replace` keeps the grants from 20260614120000.
 
 create or replace function public.event_checkins_per_quarter(p_event_id uuid)
@@ -42,13 +54,15 @@ begin
     -- On the list (#44): approved + checked_in only. A refused-after-checked-in
     -- guest keeps a live check_ins row (see header) but is no longer part of any
     -- on-list/present population, so their arrival leaves the chart as well.
-    select distinct on (c.guest_id) c.guest_id, c.checked_at, c.plus_ones_arrived
+    -- One row per guest by construction (check_ins.guest_id is unique), so no
+    -- de-duplication is needed here.
+    select c.guest_id, c.checked_at, c.plus_ones_arrived
     from public.check_ins c
     join public.guests g on g.id = c.guest_id
-    where g.event_id = p_event_id
+    where c.event_id = p_event_id
+      and g.event_id = p_event_id
       and g.status in ('approved', 'checked_in')
       and c.voided_at is null
-    order by c.guest_id, c.checked_at
   )
   select
     to_timestamp(floor(extract(epoch from ci.checked_at) / 900) * 900) as bucket,

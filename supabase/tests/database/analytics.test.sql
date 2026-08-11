@@ -25,7 +25,7 @@ begin
 end;
 $fn$;
 
-select plan(76);
+select plan(79);
 
 -- ===========================================================================
 -- 1. Event summary — correct headline numbers (admin, AAL2)
@@ -400,50 +400,87 @@ select ok(has_function_privilege('authenticated', 'public.event_tier_occupancy(u
 --     20260811150000 that live check_ins row kept feeding
 --     event_checkins_per_quarter while event_stats_summary.present had already
 --     dropped it — two numbers for the same moment (#44).
+--
+--     Own fixture event (e3..), for the reason §12 states above: the local
+--     stack is shared across worktrees and the seed ids are fixed, so a case
+--     that mutates ee..01 and pins deltas against it is order-dependent and
+--     leaks into every other section.
 -- ===========================================================================
+
+insert into public.events (id, venue_id, name, starts_at, landing_slug, landing_active)
+values ('e3000000-0000-7000-8000-000000000001', 'aa000000-0000-7000-8000-000000000001',
+        'Refused After Checkin Fixture', now() + interval '11 days',
+        'refused-after-checkin-fixture', false);
+
+insert into public.guest_tiers (id, event_id, name)
+values ('d3000000-0000-7000-8000-000000000001', 'e3000000-0000-7000-8000-000000000001', 'Fixture Tier');
+
+-- Two guests on the list; both check in. One of them gets refused afterwards.
+insert into public.guests (id, event_id, tier_id, full_name, plus_ones, added_by, status) values
+  ('c3000000-0000-7000-8000-000000000001', 'e3000000-0000-7000-8000-000000000001',
+   'd3000000-0000-7000-8000-000000000001', 'Fixture Stays', 0,
+   '11111111-1111-4111-8111-111111111111', 'approved'),
+  ('c3000000-0000-7000-8000-000000000002', 'e3000000-0000-7000-8000-000000000001',
+   'd3000000-0000-7000-8000-000000000001', 'Fixture Refused Later', 1,
+   '11111111-1111-4111-8111-111111111111', 'approved');
+
+-- plus_ones_arrived = 1 for the second guest → 2 heads present.
+insert into public.check_ins (guest_id, checked_by, plus_ones_arrived) values
+  ('c3000000-0000-7000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 0),
+  ('c3000000-0000-7000-8000-000000000002', '11111111-1111-4111-8111-111111111111', 1);
 
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2');
 
-create temp table _q3a as
-  select (select coalesce(sum(checkins), 0)::int
-            from public.event_checkins_per_quarter('ee000000-0000-7000-8000-000000000001')) as ci0,
-         (select coalesce(sum(headcount), 0)::int
-            from public.event_checkins_per_quarter('ee000000-0000-7000-8000-000000000001')) as hc0,
-         (select present from public.event_stats_summary('ee000000-0000-7000-8000-000000000001')) as pr0;
+select is((select coalesce(sum(checkins), 0)::int
+             from public.event_checkins_per_quarter('e3000000-0000-7000-8000-000000000001')),
+  (select present from public.event_stats_summary('e3000000-0000-7000-8000-000000000001')),
+  '13.1 baseline: chart check-ins and summary present agree (2 = 2)');
 
-select is((select ci0 from _q3a), (select pr0 from _q3a),
-  '13.1 baseline: chart check-ins and summary present agree (3 = 3)');
+select is((select coalesce(sum(headcount), 0)::int
+             from public.event_checkins_per_quarter('e3000000-0000-7000-8000-000000000001')),
+  3, '13.2 baseline chart headcount = 3 (1 + 2 arrived heads)');
 
--- Sanne (cc..02) is checked in with 1 arrived plus-one = 2 heads. Refuse her now.
+-- Refuse the checked-in +1 guest.
 insert into public.refusals (guest_id, refused_by, reason)
-values ('cc000000-0000-7000-8000-000000000002', '11111111-1111-4111-8111-111111111111',
+values ('c3000000-0000-7000-8000-000000000002', '11111111-1111-4111-8111-111111111111',
         'Alsnog geweigerd na binnenkomst');
 
 select is((select status::text from public.guests
-            where id = 'cc000000-0000-7000-8000-000000000002'),
-  'refused', '13.2 the refusal flipped the checked-in guest to refused');
+            where id = 'c3000000-0000-7000-8000-000000000002'),
+  'refused', '13.3 the refusal flipped the checked-in guest to refused');
 
 -- The premise of the whole finding: the check-in survives the refusal.
 select ok((select exists (select 1 from public.check_ins
-                           where guest_id = 'cc000000-0000-7000-8000-000000000002'
+                           where guest_id = 'c3000000-0000-7000-8000-000000000002'
                              and voided_at is null)),
-  '13.3 her check_ins row is still there and NOT voided (refusal never voids)');
+  '13.4 her check_ins row is still there and NOT voided (refusal never voids)');
 
 select is((select coalesce(sum(checkins), 0)::int
-             from public.event_checkins_per_quarter('ee000000-0000-7000-8000-000000000001')),
-  (select ci0 - 1 from _q3a),
-  '13.4 the chart drops her arrival (3 -> 2 check-ins)');
+             from public.event_checkins_per_quarter('e3000000-0000-7000-8000-000000000001')),
+  1, '13.5 the chart drops her arrival (2 -> 1 check-in)');
 
 select is((select coalesce(sum(headcount), 0)::int
-             from public.event_checkins_per_quarter('ee000000-0000-7000-8000-000000000001')),
-  (select hc0 - 2 from _q3a),
-  '13.5 the chart drops both of her heads (self + 1 arrived plus-one)');
+             from public.event_checkins_per_quarter('e3000000-0000-7000-8000-000000000001')),
+  1, '13.6 …and both of her heads with it (3 -> 1)');
 
 -- The point of 3A: chart and summary describe the same population again.
 select is((select coalesce(sum(checkins), 0)::int
-             from public.event_checkins_per_quarter('ee000000-0000-7000-8000-000000000001')),
-  (select present from public.event_stats_summary('ee000000-0000-7000-8000-000000000001')),
-  '13.6 chart and summary.present still agree after the refusal (they did not before)');
+             from public.event_checkins_per_quarter('e3000000-0000-7000-8000-000000000001')),
+  (select present from public.event_stats_summary('e3000000-0000-7000-8000-000000000001')),
+  '13.7 chart and summary.present still agree after the refusal (they did not before)');
+
+-- D3, same rule one panel over: the per-member breakdown must not keep counting
+-- her as present either (event_user_additions, migration 20260811161000).
+select is((select present from public.event_user_additions('e3000000-0000-7000-8000-000000000001')
+           where full_name = 'Max de Vries'),
+  1, '13.8 event_user_additions.present drops the refused arrival too (#44)');
+
+select is((select added from public.event_user_additions('e3000000-0000-7000-8000-000000000001')
+           where full_name = 'Max de Vries'),
+  2, '13.9 …while the gross added ledger still counts both guests');
+
+reset role;
+
 
 reset role;
 
