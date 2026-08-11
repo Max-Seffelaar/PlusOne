@@ -24,7 +24,7 @@ export async function revokeOwnSessionAction(
   });
   if (error || !data) return { ok: false, error: "Couldn't end the session." };
 
-  revalidatePath('/settings/profile');
+  revalidatePath('/app/profile'); // was '/settings/profile' — a dead route, no-op (86ey9ea00 #56)
   return { ok: true, message: 'Session ended.' };
 }
 

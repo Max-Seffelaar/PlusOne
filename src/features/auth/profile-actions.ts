@@ -46,7 +46,7 @@ export async function updateProfileAction(
     .eq('id', user.id);
   if (error) return { ok: false, error: "Couldn't save your profile." };
 
-  revalidatePath('/settings/profile');
+  revalidatePath('/app/profile'); // was '/settings/profile' — a dead route, no-op (86ey9ea00 #56)
   revalidatePath('/', 'layout'); // nav shows the name
   return { ok: true, message: 'Profile saved.' };
 }
