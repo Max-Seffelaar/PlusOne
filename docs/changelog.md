@@ -79,6 +79,49 @@ a UI control that misleads a real venue-role user).
 
 ---
 
+## 2026-08-11 — Dev-build sneller: Turbopack default + .next/cache-cap (86ey9e9zd)
+
+Branch `perf/86ey9e9zd-turbopack-dev` (PR: zie taak). Dev-only DX-perf (B5+B6 uit de
+perf-audit); `pnpm build` blijft webpack. Milestone: Now (sessiesnelheid van elke
+dev/test-loop).
+
+- **`pnpm dev` draait nu `next dev --turbopack`** (spawn in `scripts/dev-env.mjs`);
+  escape hatch `DEV_WEBPACK=1 pnpm dev`. Gemeten (onbelaste machine, verse worktree,
+  Next 15.5.19): cold Ready 5,8s vs 8,5s webpack; eerste `/app`-compile **2,4s vs
+  9,4s**; landing 6,1s vs 10,1s; HMR (Fast Refresh, browser-gemeten) **20–253ms vs
+  545–1973ms**. Onder zware parallelle-sessie-load was webpack-cold zelfs 119s Ready /
+  69–352s per route-compile — precies de pijn die de taak aankaartte. Turbopack heeft
+  géén persistente dev-cache: warm ≈ cold (5,6s Ready), terwijl webpack-warm 7,6s
+  Ready maar nog steeds 8–10s per eerste route-compile deed. Netto wint turbopack in
+  élk scenario.
+- **Gevalideerd onder turbopack:** dev-login-flow, `/app` home met live seed-data,
+  Deur-tab incl. check-in door de outbox (DB-rij `offline_synced:true` geasserteerd),
+  Sentry lazy facade (`window.__SENTRY__` na idle — de dynamic import van
+  `sentry.client.init` werkt), HMR op i18n- én screen-bestanden, en `pnpm e2e:smoke`
+  3/3 groen (incl. de rAF-gestubde never-painted-tab hydration-guard). CSP-dev
+  (`unsafe-eval`) dekt turbopack al.
+- **`.next/cache`-cap:** één `pnpm build` zet ~776 MB webpack-cache neer die turbopack-dev
+  nooit leest. `pnpm dev` pruned nu bij start `.next/cache` boven 500 MB (logregel,
+  faalt nooit hard); handmatig: nieuw script `pnpm clean:next`. Live getest: 775 MB →
+  gepruned bij eerstvolgende `pnpm dev`.
+- **`E2E_PORT`** override in `playwright.config.ts` (default 3000, CI ongewijzigd):
+  lokaal bleken poorten 3000 én 3010 bezet door parked `groeniek-onderhoud`-servers
+  die elke route 404'en — `reuseExistingServer` liet de suite dáártegen draaien, alle
+  3 specs rood zonder dat er iets stuk was. Met `E2E_PORT=3033`: 3/3 groen.
+- **Gotcha (gedocumenteerd in `next.config.js`):** `turbopack.root`/`outputFileTracingRoot`
+  pinnen op `__dirname` om de multi-lockfile-warning te dempen breekt in een
+  pnpm-worktree de resolutie van `@sentry/nextjs` in `sentry.server.config.ts`
+  ("Module not found") → dev-server kapot. De inferred parent-root werkt; warning is
+  cosmetisch. Niet pinnen.
+- **Sentry/OTel-warning weg:** `require-in-the-middle` (OTel-dep, op Next's
+  `serverExternalPackages`-default) als devDependency toegevoegd — pnpm hoist hem
+  niet, turbopack warnde er elke start over.
+- Gates: lint ✅, type-check ✅, vitest 867/867 ✅, `pnpm build` ✅, e2e:smoke 3/3 ✅.
+  CLAUDE.md: turbopack-regel + cache-prune-note in de local-dev-sectie. NB: de
+  CI-e2e-smoke draait via `pnpm dev` en test dus voortaan óók tegen turbopack.
+
+---
+
 ## 2026-08-11 — strictMode, viewport zoom, timer leaks, unsafe casts (86ey9ea09, 86ey9ea1g, 86ey9ea2y)
 
 Branch `claude/sharp-swirles-7f3da7` (PR #255), three finder-only tasks combined into one
