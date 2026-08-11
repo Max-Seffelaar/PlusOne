@@ -136,12 +136,35 @@ export interface ContactDedupeKeys {
   phones: Set<string>;
 }
 
+// Stable empty-array fallbacks (86ey9e9vc review, Step 5b) — `.data` is
+// `undefined` while a query is disabled/loading, and every one of
+// usePoEvents/usePoDoorCandidates' ~16 call sites across the app was doing
+// its OWN local `?? []`, minting a fresh array reference each render. Fixing
+// it once here, at the source, means every existing call site benefits
+// without needing an edit — a local `?? []` downstream still works, it's
+// just redundant now.
+const EMPTY_EVENTS: PoEvent[] = [];
+const EMPTY_DOOR_CANDIDATES: PoDoorEvent[] = [];
+
 /** All events for the caller's active venue, with on-list + present headcounts. */
 export function usePoEvents() {
   const { venueId } = usePoIdentity();
-  return useQuery<PoEvent[]>({
+  const query = useQuery<PoEvent[]>({
     queryKey: poKeys.events(venueId ?? ''),
     enabled: !!venueId,
+    // Explicit list (86ey9e9vc review round 2), audited against every one of
+    // this hook's ~15 call sites — none reads anything else off the returned
+    // object. Required for the `{ ...query, ... }` spread below to stay safe:
+    // without it, v5's tracked-properties Proxy (`trackResult`) marks a
+    // consumer subscribed to EVERY property the spread touches (`fetchStatus`,
+    // `isFetching`, `dataUpdatedAt`, `promise`, …), so a plain refetch/
+    // invalidation re-rendered every consumer even when `data` itself hadn't
+    // changed — the same class of bug this whole PR exists to fix. `error` is
+    // included because `usePoEvent` below destructures it even though none of
+    // ITS callers currently re-export it further. `isSuccess` is included for
+    // the same reason `usePoDoorCandidates` needs it (see that hook's comment,
+    // review round 2 Blocker 2): `usePoEvent`'s `notFound` below gates on it.
+    notifyOnChangeProps: ['data', 'isLoading', 'isError', 'error', 'isSuccess'],
     queryFn: async () => {
       if (!venueId) return [];
       const client = createClient();
@@ -157,6 +180,7 @@ export function usePoEvents() {
       });
     },
   });
+  return { ...query, data: query.data ?? EMPTY_EVENTS };
 }
 
 /** Home polling cadence: keep "aanwezig"/"aanvragen" current without realtime
@@ -272,26 +296,42 @@ export function usePoHomeStats(eventId: string | null) {
  */
 export function usePoDoorCandidates() {
   const { venueId } = usePoIdentity();
-  return useQuery<PoDoorEvent[]>({
+  const query = useQuery<PoDoorEvent[]>({
     queryKey: poKeys.doorCandidates(venueId ?? ''),
     enabled: !!venueId,
+    // Explicit list (86ey9e9vc review round 2) — see usePoEvents' comment
+    // above for why. Audited: app.tsx (the only call site reading more than
+    // `data`/`isLoading`) also reads `isFetching` (a stale-door-refetch
+    // effect dep), `isSuccess` (the T6 auto-open effect's load-state guard —
+    // review round 2, Blocker 2), and calls `.refetch()` imperatively — a
+    // stable method reference, not gated by this list.
+    notifyOnChangeProps: ['data', 'isLoading', 'isFetching', 'isSuccess'],
     queryFn: async () => {
       if (!venueId) return [];
       return doorCandidates(await fetchEvents(createClient(), venueId), Date.now());
     },
   });
+  return { ...query, data: query.data ?? EMPTY_DOOR_CANDIDATES };
 }
 
 /** A single event by id, read from the venue's events list (no extra round-trip). */
 export function usePoEvent(eventId: string) {
-  const { data, isLoading, isError, error } = usePoEvents();
+  const { data, isLoading, isError, error, isSuccess } = usePoEvents();
   return {
-    event: data?.find((e) => e.id === eventId) ?? null,
+    event: data.find((e) => e.id === eventId) ?? null,
     isLoading,
     isError,
     error,
+    // Gate on the query's own `isSuccess`, not `!isLoading` (86ey9e9vc review
+    // round 2, finding 5 — the exact Blocker-2 trap): with `enabled: !!venueId`
+    // and no venueId yet resolved (a brand-new session, or `resolveActiveVenueId`
+    // catching an error to null), the query is `status: 'pending'`,
+    // `fetchStatus: 'idle'` — `isLoading = isPending && isFetching` is FALSE
+    // for a disabled query, same as for a settled one. `data` is never
+    // undefined (usePoEvents' stable-empty-array fallback), so `!isLoading`
+    // alone can no longer tell "never ran" apart from "ran, id not in it".
     /** List loaded but this id isn't visible (deleted / out of scope). */
-    notFound: !isLoading && !isError && !!data && !data.some((e) => e.id === eventId),
+    notFound: isSuccess && !data.some((e) => e.id === eventId),
   };
 }
 

@@ -89,14 +89,10 @@ interface DoorContextValue {
   /** Effective "uitchecken toestaan" for this event (#3 / S1.1). When false the
    *  screens hide the "Check-in terugdraaien" affordance; RLS rejects it too. */
   allowUncheck: boolean;
-  toast: string | null;
   /** Entries for this event still awaiting the network (sync-bar queue badge). */
   pendingCount: number;
   /** guest_id → its outbox entries (for the "duplicaat" marker). */
   outboxByGuest: Map<string, OutboxEntry[]>;
-  /** Check-in list filters — survive the guest-detail push/pop (see above). */
-  listFilters: DoorListFilters;
-  setListFilters: (patch: Partial<DoorListFilters>) => void;
   guestById: (id: string) => DoorGuest | undefined;
   checkIn: (guestId: string, totalPeople: number) => void;
   /** Raise an already-checked-in guest's arrivals by `addArrived` ("nog inchecken"). */
@@ -124,15 +120,60 @@ export function useDoor(): DoorContextValue {
 }
 
 // Split off from DoorContextValue (86ey9e8gf): `sync` ticks every 15s and on
-// every flush (syncing true/false), but SyncBar is its only consumer. Bundling
-// it into the broad context meant that tick re-rendered CheckInList's ~20-28
-// virtual rows, GuestDetail, Taken and AddOnSpot for no reason — none of them
-// read it.
+// every flush. Consumers: SyncBar (the status bar itself) and PoDoorTab
+// (`useStaleResumeGuard`) — both need it; nothing else does, so bundling it
+// into the broad context re-rendered CheckInList's virtual rows, GuestDetail,
+// Taken and AddOnSpot on every tick for no reason.
 const DoorSyncContext = createContext<DoorSyncState | null>(null);
 
 export function useDoorSyncStatus(): DoorSyncState {
   const v = useContext(DoorSyncContext);
   if (!v) throw new Error('useDoorSyncStatus must be used within DoorProvider');
+  return v;
+}
+
+// Split off from DoorContextValue (86ey9e9vc, #44 — see docs/changelog.md for
+// why this survived #225's `sync` split and how it was re-verified).
+// CheckInList is the only consumer; the state lives here (not locally in
+// CheckInList) because opening a guest pushes a detail screen and the pop
+// remounts the list — provider state is what keeps the filters selected
+// across that remount (feedback Joeri 1/7). Local-first stays true: no server
+// state, just a narrower context boundary.
+interface DoorFiltersContextValue {
+  listFilters: DoorListFilters;
+  setListFilters: (patch: Partial<DoorListFilters>) => void;
+}
+
+const DoorFiltersContext = createContext<DoorFiltersContextValue | null>(null);
+
+export function useDoorFilters(): DoorFiltersContextValue {
+  const v = useContext(DoorFiltersContext);
+  if (!v) throw new Error('useDoorFilters must be used within DoorProvider');
+  return v;
+}
+
+// Split off from DoorContextValue (86ey9e9vc review, Step 0 Option A):
+// `PoDoorTab` (screens/door.tsx) reads `useDoor()` directly in its own render
+// body, so a context-value change forces it to re-render regardless of how
+// stable its props/element are upstream — app.tsx's `<PoDoorTab>` element
+// memo cannot bail a component out of its OWN context subscription. `toast`
+// was PoDoorTab's only reason to read the broad (check-in- and realtime-
+// churning) `value`; narrowing to just that field NARROWS PoDoorTab's
+// re-render frequency, it does not eliminate it — `toast` itself still
+// changes on this client's own check-ins (necessary: PoDoorTab renders the
+// toast banner). Measured (DoorProvider.test.tsx): a broad-`useDoor()`-shaped
+// probe re-renders strictly more on a check-in than a `useDoorToast()`-shaped
+// one, and the narrow shape's own residual render is `toast` changing, not
+// the `sync` tick. Full analysis in docs/changelog.md.
+interface DoorToastContextValue {
+  toast: string | null;
+}
+
+const DoorToastContext = createContext<DoorToastContextValue | null>(null);
+
+export function useDoorToast(): DoorToastContextValue {
+  const v = useContext(DoorToastContext);
+  if (!v) throw new Error('useDoorToast must be used within DoorProvider');
   return v;
 }
 
@@ -701,11 +742,8 @@ export function DoorProvider({
       quota: quotaQuery.data ?? null,
       defaultTierId,
       allowUncheck: view?.event.allowUncheck ?? true,
-      toast,
       pendingCount,
       outboxByGuest,
-      listFilters,
-      setListFilters,
       guestById,
       checkIn,
       topUp,
@@ -716,12 +754,25 @@ export function DoorProvider({
       addOnSpot,
       ackNote,
     }),
-    [eventId, view, tasks, quotaQuery.data, defaultTierId, toast, pendingCount, outboxByGuest, listFilters, setListFilters, guestById, checkIn, topUp, voidCheckIn, reviveCheckIn, refuse, undoRefusal, addOnSpot, ackNote],
+    [eventId, view, tasks, quotaQuery.data, defaultTierId, pendingCount, outboxByGuest, guestById, checkIn, topUp, voidCheckIn, reviveCheckIn, refuse, undoRefusal, addOnSpot, ackNote],
   );
+
+  // Narrow contexts (see the comments on DoorFiltersContext/DoorToastContext
+  // above) — only these objects' identities change on a keystroke / a toast
+  // message, never the broad `value` above.
+  const filtersValue = useMemo<DoorFiltersContextValue>(
+    () => ({ listFilters, setListFilters }),
+    [listFilters, setListFilters],
+  );
+  const toastValue = useMemo<DoorToastContextValue>(() => ({ toast }), [toast]);
 
   return (
     <DoorContext.Provider value={value}>
-      <DoorSyncContext.Provider value={sync}>{children}</DoorSyncContext.Provider>
+      <DoorSyncContext.Provider value={sync}>
+        <DoorFiltersContext.Provider value={filtersValue}>
+          <DoorToastContext.Provider value={toastValue}>{children}</DoorToastContext.Provider>
+        </DoorFiltersContext.Provider>
+      </DoorSyncContext.Provider>
     </DoorContext.Provider>
   );
 }

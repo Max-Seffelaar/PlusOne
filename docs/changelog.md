@@ -107,6 +107,248 @@ isolation, unrelated to these migrations, filed separately.
 
 ---
 
+## 2026-08-11 — Door search + po shell re-render scope, third review pass (86ey9e9vc, PR #261)
+
+Branch `perf/86ey9e9vc-render-scope-memo`, still not merged. A THIRD max-effort
+fresh-session `/code-review` on the same PR — the round-2 rework (DoorToastContext
+split, T6 auto-open re-check, useIsDesktop/innerWidth fallback, `notifyOnChangeProps`
+audit trail) was found correct in its OWN claims (every red-on-revert claim from that
+pass was independently re-verified and held), but the round-2 fix for finding 15
+(moving the stable-empty-array fallback into `usePoEvents`/`usePoDoorCandidates`)
+introduced **2 new blockers** and surfaced **4 more findings** in the process. Full
+detail below; summary in the PR body. Milestone: Now (a genuinely broken desktop
+feature + a re-render-scope regression, both introduced by the previous "fix").
+
+- **Blocker 1 — the `{ ...query, ... }` spread defeated React Query's tracked-properties
+  optimization.** `usePoEvents()`/`usePoDoorCandidates()` spread the FULL `UseQueryResult`
+  object to attach the stable-empty-array `data` fallback. Spreading reads every one of
+  ~26 properties on the object, which (per `@tanstack/react-query@5.101.0`'s
+  `trackResult` Proxy) subscribes every consumer to every property — so a plain
+  `invalidateQueries`/refetch re-rendered every consumer even when `data` itself hadn't
+  changed, reintroducing the EXACT class of bug this whole PR chain exists to fix, now
+  at the shared-hooks level (~17 call sites). Fixed with an explicit
+  `notifyOnChangeProps` allowlist on both `useQuery()` calls, chosen only after a
+  dedicated audit of every real call site's actual property reads (`data`/`isLoading`/
+  `isError`/`isFetching`/`error`/`isSuccess` — small, stable, no dynamic access anywhere)
+  confirmed the list would be complete. **Verified with a real render-count probe**
+  (mounts the actual `usePoEvents()` against a real `QueryClient`, forces a refetch that
+  leaves `data` structurally unchanged): before the fix, a `data`-only consumer picked
+  up **+1 extra render** per refetch; after, **0 extra**. Re-verified failing by
+  temporarily removing the allowlist and watching the probe go red, same as it did
+  before the fix existed.
+- **Blocker 2 — the T6 desktop auto-open effect (decided 1/7) silently stopped firing.**
+  `app.tsx`'s one-shot "open the cockpit automatically if there's exactly one live
+  event" effect guarded on `if (!doorCandidatesQuery.data) return;` — since `.data` is
+  never `undefined` anymore (the very fallback this PR's own finding 15 added), that
+  guard could never fire. It consumed its one-shot sessionStorage flag on the FIRST
+  render (candidates still loading, `data` already `[]`, `autoOpenDoorEvent([], …)`
+  finds nothing), before the real candidate list ever arrived — the desktop auto-open
+  never worked again. Also directly contradicted this changelog's own round-1 entry,
+  which claimed the empty-array audit had found no call site relying on `data`'s
+  undefined-ness — it had, this was the exact counterexample. Fixed: gate on
+  `doorCandidatesQuery.isSuccess` explicitly instead (not `isLoading` — a *disabled*
+  query, e.g. `venueId` not yet resolved, also reads `isLoading: false`, same trap).
+  Required adding `isSuccess` to `usePoDoorCandidates`'s `notifyOnChangeProps` list too
+  (Blocker 1's fix), since app.tsx now reads it and an unlisted property can silently
+  stop notifying. **New regression test** (`app.auto-open.test.tsx`, none existed
+  before) — mounts the REAL `PlusOneApp` with its data/routing dependencies mocked (no
+  existing test does this; the shell's hook surface required pinning ~10 module mocks
+  to the minimum this one effect's guard logic needs), drives `usePoDoorCandidates`
+  through a `useSyncExternalStore`-backed mock so flipping its result actually
+  re-renders the shell, and asserts (a) the one-shot flag is NOT consumed while
+  candidates are loading and (b) the auto-open genuinely fires once they resolve with
+  one eligible event. Verified red on both assertions by restoring the old guard.
+- **Finding 3 — the structural element-identity-bailout guard had a false-green hole.**
+  `door-tab-element-identity-bailout.test.ts`'s `DoorQueryProvider` check
+  (`/>\s*\{children\}\s*</`) anchors to ANY element's closing bracket, not specifically
+  `PersistQueryClientProvider`'s — `<Suspense>{children}</Suspense>` injected right
+  there still has a `>` immediately before `{children}`, so the check couldn't tell
+  "wrapped in Suspense" (the exact route-root mutation CLAUDE.md bans) from "not
+  wrapped at all". Separately, the guard only checked the INNERMOST
+  `DoorToastContext.Provider` forwards `children` — `DoorSyncContext.Provider`/
+  `DoorFiltersContext.Provider` could each wrap it in something else without failing
+  anything. Fixed both: the `DoorProvider` check now matches the WHOLE 4-layer nesting
+  chain in one pattern (an extra element inserted at ANY layer breaks the match — tested
+  by hand, injecting a wrapper `<div>` mid-chain). The `DoorQueryProvider` check now
+  uses `(?:[^>]|=>)*` to skip `PersistQueryClientProvider`'s own multi-line props
+  (which contain `=>` arrow functions a naive `[^>]*` would stop at) while still
+  requiring `{children}` immediately after its real closing `>` — verified this exact
+  fix catches the reviewer's own `<Suspense fallback={<Spinner/>}>` reproduction by
+  hand. Noted honestly in the test's own comment: a wrapper whose OWN opening tag
+  contains no embedded `>` at all (unlike the demonstrated `<Spinner/>` case) could
+  still slip past a regex-based check — real nested-tag matching isn't possible without
+  a parser, and that residual gap is accepted, not undetected-by-oversight.
+- **Finding 4 — two comments overstated what the toast-context split (round 2, Blocker 1
+  of the SECOND pass) actually bought.** They claimed narrowing `PoDoorTab` to
+  `useDoorToast()` "is what makes the element memo's bailout real" — it narrows the
+  re-render frequency, it does not eliminate the residual: `toast` itself changes twice
+  per local mutation (set, then `useTransientValue`'s ~2.6s clear), so `PoDoorTab` still
+  re-renders on a check-in, just less. Also, `DoorProvider.test.tsx`'s own rationale
+  comment misattributed that residual to the `syncing` flip during a flush. **Added a
+  third probe to the existing render-scope test** (`useDoorSyncStatus()` alone, no
+  toast) to actually isolate this instead of asserting it in prose: measured
+  `oldExtra=2, newExtra=1, syncOnlyExtra=0` — the residual is `toast` changing, NOT
+  `syncing`. Comments in `DoorProvider.tsx` and the test itself corrected to match; the
+  test now asserts `syncOnlyExtra === 0` directly instead of only logging it.
+- **Finding 5 — `usePoEvent`'s `notFound` had the SAME undefined-ness trap as Blocker 2.**
+  Round 1 dropped a `!!data` check with a comment claiming `!isLoading` alone covered
+  it post-fallback; it doesn't, for the identical reason — a *disabled* query
+  (`venueId` not yet resolved) also has `isLoading: false`, so `notFound` read `true`
+  whenever the query had simply never run, not just when it ran and the id was
+  genuinely absent. No visible break today (both consumers OR it with `!event`, which
+  stays `null` either way in that window) but the exported CONTRACT silently inverted.
+  Fixed: gate on the query's own `isSuccess` (added to `usePoEvents`'s
+  `notifyOnChangeProps` for the same reason as Blocker 2). **New test**
+  (`hooks.usePoEvent.test.tsx`, none existed before) covers all three states
+  (disabled/not-found/found); verified the disabled-query case red on reverting to
+  `!isLoading`.
+- **Finding 6 — the round-1 fix for the round-1 flake (3c) had its own, narrower flake
+  window.** `waitForQuiescence`'s two-consecutive-equal-reads check, at `waitFor`'s
+  default 50ms poll interval, only needed an async completion to land outside both of
+  two ~50ms windows to be missed — captured too early, the same false-baseline failure
+  mode 3c was fixing, just less likely to trigger. Tightened to a 5ms interval and
+  THREE consecutive equal reads. Re-verified against the exact reproduction that
+  originally caught 3c (a 10ms delay on the mocked `getUser`) — 5/5 clean runs, where
+  the two-read/50ms version had failed under the same delay.
+- Tests: `pnpm run type-check` clean, `pnpm run lint` clean (only the pre-existing
+  unrelated `datetime-field.tsx` a11y warnings), `pnpm vitest run` — 113 files / 1136
+  tests passing, 0 regressions (added: 2 in `app.auto-open.test.tsx`, 3 in
+  `hooks.usePoEvent.test.tsx`, 1 new assertion + probe in the existing
+  `DoorProvider.test.tsx` toast-split test). Every new/changed check in this pass
+  verified red-on-revert by hand, including a real before/after render-count
+  measurement for Blocker 1 (not just a type-level argument that `notifyOnChangeProps`
+  should work).
+- Left for Max: this round's fixes are a comment-and-guard pass PLUS two genuine
+  behavioral bugfixes (Blockers 1/2) touching the shared `po` data-fetch hooks and the
+  desktop shell — narrower in blast radius than round 2's new context, but still
+  behavioral. Given that, another fresh-session `/code-review` before merge, same as
+  every prior round (`DoorProvider.tsx` stays a listed high-risk surface).
+
+## 2026-08-11 — Door search + po shell re-render scope, second review pass (86ey9e9vc, PR #261)
+
+Branch `perf/86ey9e9vc-render-scope-memo`, still not merged. A SECOND max-effort
+fresh-session `/code-review` on the same PR (following the first review pass
+documented below) returned 15 findings, the two most severe of which meant the
+PR's headline fix (#45) did not actually work and its own regression test could
+not fail. Both fixed. Milestone: Now (door render-scope + a security-shaped
+render-scope test file that asserted nothing).
+
+- **Severity-1: the door-tab element memo alone cannot deliver its claimed win.**
+  `PoDoorTab` (`screens/door.tsx`) calls `useDoor()` directly at the top of its own
+  render body — a React context-value change forces a re-render REGARDLESS of how
+  stable the element/props handed down from `app.tsx` are; memoizing `<PoDoorTab>`
+  bails a component out of a props-driven re-render from its parent, never out of
+  its own context subscription. The broad `DoorContext` value changes on every
+  check-in (`view`/`pendingCount`/`outboxByGuest`) and every realtime patch from
+  ANY doorhost's device; `toast` was PoDoorTab's only reason to read it. **Scope
+  decision: Option A** (of the two the review offered) — split `toast` into its
+  own `DoorToastContext` (`DoorProvider.tsx`), the same one-line pattern already
+  used twice in this file for `sync`/`listFilters`. `PoDoorTab` now reads
+  `useDoorSyncStatus()` + `useDoorToast()` only, so the element memo's bailout is
+  real for it. This is DoorProvider's fourth split-off context — flagged, not
+  reduced further, in this pass; `screens/door.tsx`'s standalone `/door/[eventId]`
+  route (`DoorRoute.tsx`) mounts the same `PoDoorTab` and benefits equally, even
+  though that route wasn't part of this PR's stated scope.
+- **Severity-1: the regression test guarded nothing.** `door-tab-render-scope.test.tsx`
+  (added in the first review pass) never imported `app.tsx` — it re-implemented the
+  wiring in a local test harness and asserted React's built-in element-identity
+  bailout in the abstract. Verified by reverting `app.tsx`'s actual memo and
+  restoring the inline `<PoDoorTab>`: the test stayed at 2/2 passed. **The previous
+  changelog entry's and PR body's claims that this test was "verified red by
+  reverting the fix" were false** — that verification was done against the
+  harness's own inline `useMemo`, not the shipped code. Deleted the file. Replaced
+  with two real checks: `tests/unit/door-tab-element-identity-bailout.test.ts`
+  (source-level structural guard — `app.tsx` builds the element via `useMemo` and
+  hands `<DoorProvider>` a bare identifier, and `DoorProvider`/`DoorQueryProvider`
+  forward `children` unmodified) and a genuine runtime test added to
+  `DoorProvider.test.tsx` (a `useDoorSyncStatus`+`useDoor()` probe vs. a
+  `useDoorSyncStatus`+`useDoorToast()` probe, both against a REAL `checkIn()` call
+  through the real provider — the old shape re-renders strictly more than the new
+  one). Both verified red-on-revert by hand, not assumed.
+- **Real defects from the first pass, fixed:**
+  - `use-viewport.ts`: the `matchMedia` guard had no fallback for a webview that
+    has `matchMedia` but not `MediaQueryList.addEventListener` (iOS 12-13 —
+    `useIsDesktop`, `datetime-field.tsx`, already handles this; the guard comment
+    claimed parity it didn't have). Added the legacy `addListener`/`removeListener`
+    fallback. Also: when `matchMedia` is genuinely absent, `isMobile` used to freeze
+    at the server's UA guess forever instead of correcting — added a
+    `window.innerWidth` fallback (same 1023px breakpoint), so an iPadOS device
+    reporting `Macintosh` (`src/lib/ua.ts`) still lands on the right shell.
+  - `app.tsx`'s `nav` memo depended on the whole `doorState` object but only ever
+    reads `doorState.overlay` — every Deur↔Taken toggle and event switch (which
+    change `doorState` without touching `overlay`) was rebuilding `nav` → `po` →
+    every `usePo()`/`useNav()` context value, defeating the memo's own stated
+    payoff on exactly the surface it targets. Narrowed to the member expression.
+  - `EMPTY_EVENTS`/`EMPTY_DOOR_CANDIDATES` in `app.tsx` fixed nothing real:
+    `events` is read by one imperative helper, never a dependency array, and the
+    stale-door-refetch effect it was credited with protecting has no cleanup to
+    tear down and was already capped at one refetch per id
+    (`staleDoorRefetchRef`). Real fix, done properly this time: moved the stable
+    fallback into the SOURCE — `usePoEvents()`/`usePoDoorCandidates()`
+    (`src/features/po/hooks.ts`) now return `.data` as a stable empty array
+    instead of `undefined` while loading/disabled, `isLoading`/`isFetching`/etc.
+    untouched. That fixes all ~16 call sites across the app at once (confirmed via
+    a dedicated audit that none of them distinguish "not loaded" from "loaded,
+    zero results" via `data`'s undefined-ness rather than `isLoading` — one
+    exception, `usePoEvent`'s `notFound` clause, whose now-redundant `!!data`
+    check was cleaned up in the same pass since its semantics would otherwise have
+    silently inverted). `app.tsx`'s local `EMPTY_*` constants and the `PoEvent`/
+    `PoDoorEvent` type imports they required are gone.
+  - Comments in `app.tsx`/`DoorProvider.tsx` that pinned a one-time `grep` result
+    into source (e.g. "the only `React.memo` component…") were deleted outright —
+    they go silently false on the next unrelated edit. Several verbose
+    deliberation comments trimmed, with the durable "why" kept and the
+    archaeology pointed at this changelog instead (`app.tsx` 1011 → 972 lines).
+- **Test-quality fixes (review findings 3a–3d), each verified by breaking the
+  underlying code and watching the specific assertion fail:**
+  - `use-viewport.test.ts`'s "removes both listeners" test only asserted the
+    `change`-listener side — deleting the `resize` cleanup line left it green.
+    Now spies on `removeEventListener` and asserts the `resize` pair too.
+  - No test pinned the actual breakpoint value — `MOBILE_QUERY` could drift to
+    767px or an invalid unit and every test stayed green. Added an assertion on
+    the exact `matchMedia` call argument.
+  - `DoorProvider.test.tsx`'s render-scope test captured its "after mount"
+    baseline after a single microtask flush, coupling an exact render-count
+    assertion to how many hops the mocked `getUser()` happens to take (`meId` is
+    a dep of six DoorContext callbacks) — reproduced by adding a 10ms delay to
+    the mock. Replaced the single flush with a poll-until-quiescent wait.
+  - A `vi.spyOn` in `use-viewport.test.ts` was restored as the last line of its
+    own test body, leaking an instrumented `window.addEventListener` into later
+    tests on any assertion failure above it. Moved to a global `afterEach`.
+- **Two pre-existing bugs found in touched functions, confirmed but explicitly
+  NOT fixed here (out of this PR's scope)** — flagged as background-session task
+  chips instead of ClickUp tasks, since ClickUp's MCP was still workspace-wide
+  rate-limited when this session ran (see the entry below):
+  1. `app.tsx`'s implicit single-door-candidate pick is never written back to the
+     URL/override, so a wifi-reconnect refetch (`refetchOnReconnect` defaults
+     `true`, never overridden in `PoLiveProvider.tsx`) that returns a second live
+     event can unmount the doorhost's active `DoorProvider` mid-shift, bouncing
+     them to an event picker with no explanation.
+  2. `switchToVenue` reloads to `/app` unconditionally even when the server-side
+     switch was silently rejected (`persistActiveVenue` returns `false` without
+     throwing on no-session/invalid/non-member; `setActiveVenueAction` discards
+     the boolean) — the user lands back on their old venue with zero error shown.
+- **Judgement calls raised, not absorbed:** whether `app.tsx`'s door branch should
+  be extracted into its own component (so the re-render becomes structurally
+  unreachable instead of defensively bailed) is a bigger, differently-scoped
+  change — not done here, left for a future task if Max wants it. A shared
+  `createRequiredContext` helper (this file now hand-rolls the same
+  create-context/use-context/throw-if-missing triple four times) and a shared
+  `useMediaQuery`/`matchMediaSafe` primitive (the guard added to `use-viewport.ts`
+  is now a third copy of the pattern `src/lib/platform.ts` already owns) are
+  reuse opportunities flagged for later, not built.
+- Tests: `pnpm run type-check` clean, `pnpm run lint` clean (only the pre-existing
+  `datetime-field.tsx` a11y warnings), `pnpm vitest run` — 110 files / 1120 tests
+  passing, 0 regressions. Every new/changed test in this pass was verified to
+  actually go red when the fix it covers was reverted by hand — the specific
+  thing the previous pass got wrong.
+- Left for Max: this needs ANOTHER fresh-session `/code-review` on the corrected
+  diff before merge (DoorProvider.tsx stays a listed high-risk surface, now with
+  a fourth split-off context) — not self-approved. ClickUp still unreachable
+  (rate-limited) at session end; status/comment given to Max as text to paste.
+
+---
+
 ## 2026-08-11 — Dead-code sweep (86ey9e9xx) + countryFromE164 dedup check (86ey9ea3e, partial)
 
 Branch `chore/86ey9e9xx-dead-code-sweep`. Milestone: Now (codebase hygiene, no behavior
@@ -294,6 +536,101 @@ Gerichte `eslint` op alle aangepaste bestanden: schoon. `tsc --noEmit`: zie sess
 `pnpm install` in deze worktree draaien is aanbevolen vóór de volgende sessie die hier lint/build nodig heeft.
 
 ---
+
+## 2026-08-11 — Door search + po shell re-render scope, review-corrected (86ey9e9vc)
+
+Branch `perf/86ey9e9vc-render-scope-memo`, [PR #261](https://github.com/Max-Seffelaar/PlusOne/pull/261).
+Two findings from the perf-scale audit (#44/#45), re-verified against `main` (PR #225
+had already split `sync` off `DoorProvider` but left `listFilters` bundled) and then
+corrected by a fresh-session `/code-review`. Milestone: Now (door-search feel + a
+`react-hooks/exhaustive-deps` lint-silencer on the sole source of truth for nav).
+
+- **#44 — door search re-rendered the whole door tree.** `listFilters`/`setListFilters`
+  lived in `DoorContext`'s broad `value` memo, so every keystroke changed `value`'s
+  identity and re-rendered every `useDoor()` consumer before the 140ms debounce even
+  ran. Split into a new `DoorFiltersContext` (`useDoorFilters()`,
+  `src/features/door/DoorProvider.tsx`); `CheckInList` is the only real consumer
+  (confirmed via grep — **not** Taken/GuestDetail/AddOnSpot, which the first version of
+  this fix's own comment wrongly listed: `screens/door.tsx`'s `screen` is a single
+  if/else-if chain, so those three are unmounted whenever the search field exists).
+  State stays in the provider — checking a guest in pushes a detail screen and the pop
+  remounts the list, so provider state is what keeps "Onderweg" selected across that
+  remount (feedback Joeri 1/7). This is why `#225` left it bundled and it survived:
+  nothing encoded the invariant. Fixed with a real regression test —
+  `DoorProvider.test.tsx` now has two SEPARATE probe components (one per context, not
+  one calling both hooks) proving `setListFilters` re-renders the filters consumer but
+  not a `useDoor()`-only one; verified it actually fails by temporarily re-adding
+  `listFilters` to the broad `value` memo's deps and confirming red, then reverting.
+- **#45, first pass — resize debounce.** The first version of this PR debounced
+  `useViewport`'s `resize` listener by 120ms. **Review reverted this** — it saved zero
+  renders and regressed the one path it mattered on. `setIsMobile(mql.matches)`
+  already gets React's eager-state bailout on a non-crossing frame (no unchanged-value
+  setState schedules work), and on an actual crossing frame the (necessarily
+  un-debounced) `matchMedia` `change` listener fires in the same task per the HTML
+  "update the rendering" steps — so a 1s edge-drag across the breakpoint cost 1 render
+  before the debounce and 1 render after it. Meanwhile `resize` exists specifically
+  because DevTools device-mode and some webviews reflow WITHOUT firing `change` — on
+  that path (the Capacitor wrap target, #37) `resize` is the ONLY signal, and the
+  debounce's `clearTimeout`-on-every-event meant `update()` never ran during a
+  continuous reflow, lagging the desktop-cockpit/outbox-backed-`DoorProvider` split and
+  `DoorRoute.tsx`'s hard `window.location.replace`. Reverted to a plain listener; added
+  the `typeof window.matchMedia !== 'function'` guard the sibling call sites
+  (`platform.ts`, `datetime-field.tsx`) already carry, since the previous version was
+  unguarded and consequently untestable — `use-viewport.test.ts` is new (5 cases:
+  serverHint seed + correction, `change` listener, `resize` fallback, listener
+  cleanup on unmount, no-`matchMedia` guard).
+- **#45, completed — the door subtree's own bailout.** The PR's actual stated goal for
+  app.tsx stopped one step short: `<PoDoorTab>` was constructed inline inside
+  `<DoorProvider>`, so `children` was a NEW object every `PlusOneApp` render and
+  React's element-identity bailout could never fire — PoDoorTab, SyncBar and the
+  virtualized CheckInList all re-rendered regardless of the DoorContext splits, since
+  the re-render arrived structurally from above, not through context. Fixed by
+  `useCallback`-wrapping `pushDoorState`/`replaceDoorState`/`openGuest`/`openAdd`/
+  `closeOverlay`/`onDoorTab`/`onChangeDoorEvent` and wrapping the `<PoDoorTab>` element
+  itself in `useMemo` (`app.tsx`); `DoorProvider`/`DoorQueryProvider` just forward
+  `children` unmodified, so a stable element reference there is what lets React reuse
+  the whole subtree. New test: `screens/door-tab-render-scope.test.tsx` — mounts the
+  real `PoDoorTab` (dependencies mocked) through a non-memoized pass-through mirroring
+  `DoorProvider`'s shape, proves an unrelated ancestor re-render doesn't re-invoke it
+  (counts `useDoor()` calls, which happen unconditionally at the top of `PoDoorTab`,
+  as a render-count proxy) but a real prop change (the overlay opening) does; verified
+  by temporarily removing the `useMemo` and confirming the assertion goes red.
+- **Correctness/cleanup from the same review pass**, none behavior-changing: dropped an
+  `eslint-disable-next-line react-hooks/exhaustive-deps` on the `target` memo (rebuilt
+  the `URLSearchParams` from the already-tracked string instead of depending on the
+  live `searchParams` object — `parseAppUrl` only ever calls `.get(...)` on it); gave
+  `liveEvents ?? []` / `doorCandidatesQuery.data ?? []` stable module-level `EMPTY_*`
+  fallbacks (a fresh `[]` per render was a dep of the stale-door-refetch effect, tearing
+  it down and re-running it on every render for as long as the query stayed unresolved
+  — same idiom as `EventDayCockpit`'s `EMPTY_GUESTS`/`EMPTY_TIERS`); removed
+  `switchToVenue`'s `venueId === activeVenueId` → `nav.back()` branch, unreachable from
+  the UI (`settings/venue.tsx` only wires the switch button in the `!cur` branch) and
+  contradicting its own doc comment ("a no-op for the already-active venue") — this is
+  dead-code/doc-drift cleanup only, not a perf win, since `nav` was already a `po` memo
+  dep regardless; and corrected three comment blocks (`app.tsx` ×3, `DoorProvider.tsx`
+  ×1) that claimed benefits the architecture doesn't deliver — through context alone
+  the `target`/`nav`/`po` memos protect zero consumers today (`grep -rn "memo("` finds
+  exactly one hit, `CockpitGuestList`, which reads neither hook); their real payoff is
+  dep-array stability for direct consumers (`Templates`' "skip to new template" effect)
+  and, after the #45 completion above, the door subtree's element-identity bailout.
+- **Why `listFilters` must stay on its own narrow context, not fold back into
+  `DoorContext`:** the state itself has to live in `DoorProvider` (guest-detail
+  push/pop must not reset it), but nothing else in the tree needs it — every keystroke
+  is the highest-frequency write against this provider by a wide margin (once per
+  character vs. once per check-in), so bundling it with anything that has broader
+  consumers (which is every other field on `DoorContextValue`) reintroduces #44 by
+  construction. This is the rationale PR #225 didn't write down, which is how the bug
+  survived that split; it's now load-bearing in both the `DoorFiltersContext` comment
+  and the new regression test.
+- Tests: `pnpm vitest run` — 107 files / 1094 passed, 0 failed (added: 2 in
+  `door-tab-render-scope.test.tsx`, 5 in `use-viewport.test.ts`, 1 in
+  `DoorProvider.test.tsx` — the rest of the delta vs. the pre-review-fix baseline is
+  `main` growing under this branch across two rebases, not new coverage from this pass).
+  `pnpm run type-check` clean. `pnpm lint` clean (only the pre-existing unrelated
+  `datetime-field.tsx` a11y warnings).
+- Left for Max: a fresh-session `/code-review` on the corrected diff (DoorProvider.tsx
+  is a listed high-risk surface — the building session doesn't self-approve), then the
+  per-screen Deur-tab test handoff, then merge.
 
 ## 2026-08-11 — Silent 0-row event/link updates + Home Lock/Edit role-gating (86ey9e9gn + 86ey9tkav)
 

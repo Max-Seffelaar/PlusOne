@@ -7,7 +7,7 @@
  * live Supabase data; the Deur/Taken tabs mount the real DoorProvider (offline
  * outbox + realtime), so there is no in-memory door state here anymore.
  */
-import { type JSX, useEffect, useRef, useState, type ReactNode } from 'react';
+import { type JSX, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
@@ -285,14 +285,22 @@ export function PlusOneApp(): JSX.Element {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const searchParamsStr = searchParams.toString();
   // The live URL IS the nav state (G1) — no in-memory stack, no sessionStorage
-  // restore-after-refresh hack. Every screen/tab/door-overlay derives from this
-  // single parse of the current pathname + query string.
-  const target = parseAppUrl(pathname, searchParams);
+  // restore-after-refresh hack. Memoized (86ey9e9vc) so `nav`/`po` below stay
+  // dep-array-stable (Templates' effect) and, after fix #3, so the door
+  // subtree can bail via element-identity — see docs/changelog.md for the
+  // full re-render-scope analysis (what this memo does and doesn't stop).
+  const target = useMemo(
+    // A plain `URLSearchParams(searchParamsStr)` satisfies `parseAppUrl`
+    // (routes.ts only calls `.get(...)` on it) and keys the memo off the
+    // tracked STRING instead of Next's possibly-fresh `searchParams` object.
+    () => parseAppUrl(pathname, new URLSearchParams(searchParamsStr)),
+    [pathname, searchParamsStr],
+  );
   const doorSeg = target.kind === 'door' ? target.seg : 'deur';
   const doorEventIdFromUrl = target.kind === 'door' ? target.eventId : null;
   const doorOverlay: DoorOverlay = target.kind === 'door' ? target.overlay : null;
-  const searchParamsStr = searchParams.toString();
 
   // Door sub-state override (G1 fresh-review fix). Door sub-nav (guest/add
   // overlay, Deur↔Taken segment, event override) is driven through raw
@@ -306,7 +314,13 @@ export function PlusOneApp(): JSX.Element {
   // where the back/forward case fixes 86ey9tq62). Desktop's cockpit is
   // unaffected (online-only by design, no outbox, never sets this override).
   const [doorOverride, setDoorOverride] = useDoorOverride(pathname, searchParamsStr);
-  const doorState = doorOverride ?? { seg: doorSeg, eventId: doorEventIdFromUrl, overlay: doorOverlay };
+  // Memoized for the same reason as `target` above — `doorOverride` is a real
+  // useState value (stable reference when untouched), so this only produces a
+  // new object when one of its actual inputs changed.
+  const doorState = useMemo(
+    () => doorOverride ?? { seg: doorSeg, eventId: doorEventIdFromUrl, overlay: doorOverlay },
+    [doorOverride, doorSeg, doorEventIdFromUrl, doorOverlay],
+  );
 
   const [toast, setToast] = useState<string | null>(null);
   // Retriggers the CSS entrance animation on every navigation (any URL change).
@@ -405,15 +419,16 @@ export function PlusOneApp(): JSX.Element {
   // Contacts desktop-nav gate (T10). Called here (before any early return) so the
   // hook order stays stable; the gate itself is computed with `caps` further down.
   const canManageTemplates = usePoCanManageTemplates();
-  const { data: liveEvents } = usePoEvents();
-  const events = liveEvents ?? [];
+  // Never undefined — usePoEvents' own stable-empty-array fallback
+  // (86ey9e9vc review, Step 5b; same for usePoDoorCandidates' `.data` below).
+  const { data: events } = usePoEvents();
   // Non-closed events for the door (live-first). Selection-first (S1.3): an explicit
   // pick (doorEventIdFromUrl, the `?event=` on the door URL, set by "Check-in" from
   // an event card) wins; with exactly one candidate we use it; with several, the
   // user chooses — no auto-pick guess. Only the chosen event's guests are ever
   // loaded, so dozens of live events stay cheap.
   const doorCandidatesQuery = usePoDoorCandidates();
-  const doorCandidates = doorCandidatesQuery.data ?? [];
+  const doorCandidates = doorCandidatesQuery.data;
   // Open-requests count for the nav badge (desktop sidebar + mobile More). Reuses
   // the venue-wide guest-requests query that Home already loads (shared React
   // Query key → no extra polling); OPEN = pending only, the shared definition, so
@@ -456,19 +471,22 @@ export function PlusOneApp(): JSX.Element {
   // twice → two router.push calls. This guard drops a second navigation in the same
   // synchronous dispatch; the inner (real) target wins.
   const navGuard = useRef(false);
-  const guarded = (apply: () => void): void => {
+  const guarded = useCallback((apply: () => void): void => {
     if (navGuard.current) return;
     navGuard.current = true;
     queueMicrotask(() => {
       navGuard.current = false;
     });
     apply();
-  };
+  }, []);
 
-  const pushUrl = (url: string): void => {
-    hasPushedThisSession = true;
-    router.push(url);
-  };
+  const pushUrl = useCallback(
+    (url: string): void => {
+      hasPushedThisSession = true;
+      router.push(url);
+    },
+    [router],
+  );
 
   // Mobile door sub-nav (guest/add overlay, Deur↔Taken segment, event
   // override) — raw History API, entirely bypassing `router.push/replace`
@@ -476,15 +494,21 @@ export function PlusOneApp(): JSX.Element {
   // real poppable entry same as `pushUrl`; `replaceDoorState` doesn't, same
   // as a plain `router.replace`.
   type DoorState = { seg: DoorSeg; eventId: string | null; overlay: DoorOverlay };
-  const pushDoorState = (next: DoorState): void => {
-    hasPushedThisSession = true;
-    setDoorOverride(next);
-    window.history.pushState(window.history.state, '', doorPath(next));
-  };
-  const replaceDoorState = (next: DoorState): void => {
-    setDoorOverride(next);
-    window.history.replaceState(window.history.state, '', doorPath(next));
-  };
+  const pushDoorState = useCallback(
+    (next: DoorState): void => {
+      hasPushedThisSession = true;
+      setDoorOverride(next);
+      window.history.pushState(window.history.state, '', doorPath(next));
+    },
+    [setDoorOverride],
+  );
+  const replaceDoorState = useCallback(
+    (next: DoorState): void => {
+      setDoorOverride(next);
+      window.history.replaceState(window.history.state, '', doorPath(next));
+    },
+    [setDoorOverride],
+  );
 
   // T6 auto-open (decided 1/7): on the FIRST visit of this browser session (per
   // user), when the desktop shell (≥1024px) has exactly ONE event inside its door
@@ -499,8 +523,16 @@ export function PlusOneApp(): JSX.Element {
   const autoOpenTried = useRef(false);
   useEffect(() => {
     if (autoOpenTried.current || isMobile || !showDoor) return;
+    // `doorCandidatesQuery.data` is never undefined (usePoDoorCandidates'
+    // stable-empty-array fallback, 86ey9e9vc) — an undefined-ness check here
+    // can no longer distinguish "still loading" from "loaded, zero events",
+    // so this used to consume the one-shot evaluation on the FIRST render
+    // (candidates still loading, `cands` already `[]`) with nothing to open,
+    // permanently arming the sessionStorage flag before the real candidate
+    // list ever arrived — the auto-open silently never fired (review round
+    // 2, Blocker 2). Gate on the query's own success state instead.
+    if (!doorCandidatesQuery.isSuccess) return; // wait for candidates before consuming the one evaluation
     const cands = doorCandidatesQuery.data;
-    if (!cands) return; // wait for candidates before consuming the one evaluation
     // Consume the one-shot evaluation NOW, regardless of which tab this turns
     // out to be (G1 review fix): stamping this only inside the Start-tab branch
     // left the flag armed for a session whose first landing was a deep link
@@ -521,83 +553,107 @@ export function PlusOneApp(): JSX.Element {
     if (!id) return;
     router.replace(doorPath({ seg: 'deur', eventId: id }));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot landing tweak
-  }, [isMobile, showDoor, doorCandidatesQuery.data, userId, target]);
+  }, [isMobile, showDoor, doorCandidatesQuery.isSuccess, doorCandidatesQuery.data, userId, target]);
 
   const doorOverlayOpen = isDoorTab && doorState.overlay !== null;
 
-  const nav: Nav = {
-    push: (name: ScreenName, props = {}) => guarded(() => pushUrl(screenPath(name, props))),
-    // No history entry: the current position is swapped, not stacked. For
-    // after-create flows: "New event" → replace with the created event's
-    // settings, so back returns to where the flow started instead of the stale
-    // create form.
-    replace: (name: ScreenName, props = {}) => guarded(() => router.replace(screenPath(name, props))),
-    // Real history to pop (pushed earlier this session) → let the browser go
-    // back. Otherwise (cold deep link) → zoom out to the screen's parent
-    // instead of no-op'ing or leaving the app. `replace`, NOT `pushUrl`: a
-    // fallback that pushed would leave the ORIGINAL deep-linked screen sitting
-    // right behind the parent in history, and — since it also latched
-    // hasPushedThisSession — the very next back() would take the real-history
-    // branch and pop straight back into that stale child, oscillating
-    // child↔parent forever instead of climbing. `replace` swaps in place and
-    // never latches, so a second cold back() computes a fresh parent from the
-    // new (parent) target and keeps ascending (review fix).
-    back: () => guarded(() => (hasPushedThisSession ? router.back() : router.replace(parentPathFor(target)))),
-    setTab: (t: TabKey) =>
-      guarded(() => {
-        if (t === 'deur') {
-          // Re-tapping Deur while already on its root (no overlay) is a no-op.
-          // Checks doorState (override-aware), not target.overlay — the
-          // latter can be stale while a raw-history door override is active.
-          if (target.kind === 'door' && doorState.overlay === null) return;
-          pushUrl(doorPath());
-          return;
-        }
-        // Re-tapping the current tab at its root is a true no-op.
-        if (target.kind === 'tab' && target.tab === t) return;
-        pushUrl(tabPath(t));
-      }),
-    // "Check-in" from a specific event: open the Deur tab for THAT event (S1.3).
-    openDoor: (eventId: string) => guarded(() => pushUrl(doorPath({ seg: 'deur', eventId }))),
-    // A real per-screen URL: every pushed screen has a parent to go back to
-    // (a real history entry, or the computed fallback above).
-    canGoBack: target.kind === 'screen',
-  };
+  // Memoized (86ey9e9vc): `nav`'s identity now only changes on real
+  // navigation, not on every PlusOneApp render — see the `target` comment
+  // above for what this does and doesn't buy.
+  const nav: Nav = useMemo(
+    () => ({
+      push: (name: ScreenName, props = {}) => guarded(() => pushUrl(screenPath(name, props))),
+      // No history entry: the current position is swapped, not stacked. For
+      // after-create flows: "New event" → replace with the created event's
+      // settings, so back returns to where the flow started instead of the stale
+      // create form.
+      replace: (name: ScreenName, props = {}) => guarded(() => router.replace(screenPath(name, props))),
+      // Real history to pop (pushed earlier this session) → let the browser go
+      // back. Otherwise (cold deep link) → zoom out to the screen's parent
+      // instead of no-op'ing or leaving the app. `replace`, NOT `pushUrl`: a
+      // fallback that pushed would leave the ORIGINAL deep-linked screen sitting
+      // right behind the parent in history, and — since it also latched
+      // hasPushedThisSession — the very next back() would take the real-history
+      // branch and pop straight back into that stale child, oscillating
+      // child↔parent forever instead of climbing. `replace` swaps in place and
+      // never latches, so a second cold back() computes a fresh parent from the
+      // new (parent) target and keeps ascending (review fix).
+      back: () => guarded(() => (hasPushedThisSession ? router.back() : router.replace(parentPathFor(target)))),
+      setTab: (t: TabKey) =>
+        guarded(() => {
+          if (t === 'deur') {
+            // Re-tapping Deur while already on its root (no overlay) is a no-op.
+            // Checks doorState (override-aware), not target.overlay — the
+            // latter can be stale while a raw-history door override is active.
+            if (target.kind === 'door' && doorState.overlay === null) return;
+            pushUrl(doorPath());
+            return;
+          }
+          // Re-tapping the current tab at its root is a true no-op.
+          if (target.kind === 'tab' && target.tab === t) return;
+          pushUrl(tabPath(t));
+        }),
+      // "Check-in" from a specific event: open the Deur tab for THAT event (S1.3).
+      openDoor: (eventId: string) => guarded(() => pushUrl(doorPath({ seg: 'deur', eventId }))),
+      // A real per-screen URL: every pushed screen has a parent to go back to
+      // (a real history entry, or the computed fallback above).
+      canGoBack: target.kind === 'screen',
+    }),
+    // Member-level dep, not the whole `doorState` object (86ey9e9vc review,
+    // 2b): the body above only ever reads `doorState.overlay` — depending on
+    // the whole object meant every door sub-nav (Deur↔Taken, event switch)
+    // minted a new `doorState` → new `nav` → new `po` value, defeating the
+    // stability this memo exists to provide on exactly the surface it targets.
+    [target, doorState.overlay, router, guarded, pushUrl],
+  );
 
   // Door-overlay navigation (Deur/Taken tabs): opening the overlay is a forward
   // step (it hides the tab bar like a pushed screen) — a real history entry, so
   // the physical back button and the overlay's own close button share one path.
   // Raw history (pushDoorState), not pushUrl/router.push — see doorOverride.
-  const openGuest = (id: string): void =>
-    guarded(() => pushDoorState({ seg: doorState.seg, eventId: doorState.eventId, overlay: { kind: 'guest', id } }));
-  const openAdd = (): void =>
-    guarded(() => pushDoorState({ seg: doorState.seg, eventId: doorState.eventId, overlay: { kind: 'add' } }));
+  // useCallback (86ey9e9vc review, fix #3): these are handed to `<PoDoorTab>`
+  // as props — stable references are what let the memoized element below
+  // actually bail the door subtree (SyncBar, the virtualized CheckInList, ...)
+  // on an unrelated PlusOneApp re-render.
+  const openGuest = useCallback(
+    (id: string): void =>
+      guarded(() => pushDoorState({ seg: doorState.seg, eventId: doorState.eventId, overlay: { kind: 'guest', id } })),
+    [guarded, pushDoorState, doorState],
+  );
+  const openAdd = useCallback(
+    (): void => guarded(() => pushDoorState({ seg: doorState.seg, eventId: doorState.eventId, overlay: { kind: 'add' } })),
+    [guarded, pushDoorState, doorState],
+  );
   // Same cold-deep-link fallback as nav.back() — a directly-linked overlay
   // (e.g. a shared door URL) has no history to pop either. `replace`, not
   // `pushUrl`, for the same non-latching reason as `nav.back()` above.
-  const closeOverlay = (): void =>
-    guarded(() => (hasPushedThisSession ? router.back() : router.replace(parentPathFor(target))));
+  const closeOverlay = useCallback(
+    (): void => guarded(() => (hasPushedThisSession ? router.back() : router.replace(parentPathFor(target)))),
+    [guarded, router, target],
+  );
 
   // Switch the ACTIVE venue for real (#1): write the server cookie, then full-reload
   // so app/page.tsx re-resolves the identity and every live query re-scopes to the
   // new venue. (Local state alone can't re-scope server-resolved identity.)
-  const switchToVenue = (venueId: string): void => {
-    if (venueId === activeVenueId) {
-      nav.back();
-      return;
-    }
-    setToast(t.venue.switching);
-    const fd = new FormData();
-    fd.set('venueId', venueId);
-    void setActiveVenueAction(fd)
-      .then(() => {
-        window.location.assign('/app');
-      })
-      .catch(() => {
-        // Switch failed (network blip / server error) — stay on the old venue.
-        setToast(null);
-      });
-  };
+  const switchToVenue = useCallback(
+    (venueId: string): void => {
+      // A no-op for the already-active venue (context.tsx) — unreachable from
+      // the UI today, kept as a guard since this is public API (86ey9e9vc).
+      if (venueId === activeVenueId) return;
+      setToast(t.venue.switching);
+      const fd = new FormData();
+      fd.set('venueId', venueId);
+      void setActiveVenueAction(fd)
+        .then(() => {
+          window.location.assign('/app');
+        })
+        .catch(() => {
+          // Switch failed (network blip / server error) — stay on the old venue.
+          setToast(null);
+        });
+    },
+    [activeVenueId],
+  );
 
   const ev = (id?: string) => events.find((e) => e.id === id);
 
@@ -723,14 +779,18 @@ export function PlusOneApp(): JSX.Element {
     screen = <Home />;
   }
 
-  const po: PoApp = {
-    statsVenues: statsAccess?.venues ?? [],
-    myVenues,
-    activeVenueId,
-    switchToVenue,
-    nav,
-    isMobile,
-  };
+  // Memoized (86ey9e9vc) — same shape and caveats as `target`/`nav` above.
+  const po: PoApp = useMemo(
+    () => ({
+      statsVenues: statsAccess?.venues ?? [],
+      myVenues,
+      activeVenueId,
+      switchToVenue,
+      nav,
+      isMobile,
+    }),
+    [statsAccess, myVenues, activeVenueId, switchToVenue, nav, isMobile],
+  );
 
   const body = (
     <>
@@ -815,28 +875,60 @@ export function PlusOneApp(): JSX.Element {
   // doorState, not doorSeg/doorOverlay — override-aware (only ever reached on
   // mobile, where a raw-history override may be active).
   const doorTitle = doorState.seg === 'taken' ? t.door.tasksTitle : t.door.checkinTitle;
+  const hasMultipleDoorCandidates = doorCandidates.length > 1;
+  // useCallback (86ey9e9vc review, fix #3) — these were inline arrows before,
+  // a NEW closure every PlusOneApp render, which alone would defeat the
+  // element memo below no matter how stable everything else was.
+  const onDoorTab = useCallback(
+    (seg: DoorSeg) => guarded(() => replaceDoorState({ seg, eventId: doorState.eventId, overlay: doorState.overlay })),
+    [guarded, replaceDoorState, doorState],
+  );
+  const onChangeDoorEvent = useCallback(
+    () => guarded(() => replaceDoorState({ seg: doorState.seg, eventId: null, overlay: doorState.overlay })),
+    [guarded, replaceDoorState, doorState],
+  );
+  // Memoized element (86ey9e9vc, fix #3): a stable reference here is what lets
+  // `DoorProvider`/`DoorQueryProvider` (which just forward `children`) bail
+  // React out of re-rendering PoDoorTab on an unrelated PlusOneApp render —
+  // structural, not context-based, so it's necessary but NOT sufficient on
+  // its own (PoDoorTab still directly subscribes to a couple of DoorProvider
+  // contexts; see DoorToastContext's comment). Structural half verified in
+  // tests/unit/door-tab-element-identity-bailout.test.ts; the context half in
+  // DoorProvider.test.tsx.
+  const doorTabElement = useMemo(
+    () =>
+      resolvedDoorId ? (
+        <PoDoorTab
+          tab={doorState.seg}
+          onTab={onDoorTab}
+          overlay={doorState.overlay}
+          openGuest={openGuest}
+          openAdd={openAdd}
+          closeOverlay={closeOverlay}
+          currentEventName={hasMultipleDoorCandidates ? resolvedDoorName : undefined}
+          onChangeEvent={hasMultipleDoorCandidates ? onChangeDoorEvent : undefined}
+        />
+      ) : null,
+    [
+      resolvedDoorId,
+      doorState.seg,
+      onDoorTab,
+      doorState.overlay,
+      openGuest,
+      openAdd,
+      closeOverlay,
+      hasMultipleDoorCandidates,
+      resolvedDoorName,
+      onChangeDoorEvent,
+    ],
+  );
   let doorBranch: ReactNode;
   if (!isMobile) {
     doorBranch = cockpitBranch;
   } else if (resolvedDoorId) {
     doorBranch = (
       <DoorQueryProvider>
-        <DoorProvider eventId={resolvedDoorId}>
-          <PoDoorTab
-            tab={doorState.seg}
-            onTab={(seg) => guarded(() => replaceDoorState({ seg, eventId: doorState.eventId, overlay: doorState.overlay }))}
-            overlay={doorState.overlay}
-            openGuest={openGuest}
-            openAdd={openAdd}
-            closeOverlay={closeOverlay}
-            currentEventName={doorCandidates.length > 1 ? resolvedDoorName : undefined}
-            onChangeEvent={
-              doorCandidates.length > 1
-                ? () => guarded(() => replaceDoorState({ seg: doorState.seg, eventId: null, overlay: doorState.overlay }))
-                : undefined
-            }
-          />
-        </DoorProvider>
+        <DoorProvider eventId={resolvedDoorId}>{doorTabElement}</DoorProvider>
       </DoorQueryProvider>
     );
   } else if (doorCandidatesQuery.isLoading) {

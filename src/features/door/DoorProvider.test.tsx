@@ -53,7 +53,7 @@ vi.mock('./queries', async (importOriginal) => {
 });
 
 // Imported AFTER the mocks so the provider picks them up.
-const { DoorProvider, useDoor, useDoorSyncStatus } = await import('./DoorProvider');
+const { DoorProvider, useDoor, useDoorSyncStatus, useDoorFilters, useDoorToast } = await import('./DoorProvider');
 const { outbox } = await import('./outbox/store');
 
 // ── fixtures ────────────────────────────────────────────────────────────────
@@ -165,11 +165,17 @@ function makeGateway(): DoorGateway {
 }
 
 // ── harness ─────────────────────────────────────────────────────────────────
-type DoorApi = ReturnType<typeof useDoor>;
+// `toast` moved to its own narrow DoorToastContext (86ey9e9vc review, Step 0
+// Option A) — merged back into one API shape here so the existing
+// `h.api().toast` assertions below stay unchanged; that merge means `Probe`
+// itself is a joint consumer of both contexts, same caveat as the note on the
+// render-scope describe block further down.
+type DoorApi = ReturnType<typeof useDoor> & { toast: string | null };
 type SyncApi = ReturnType<typeof useDoorSyncStatus>;
 
 function Probe({ door, sync }: { door: DoorApi[]; sync: SyncApi[] }): null {
-  door.push(useDoor());
+  const { toast } = useDoorToast();
+  door.push({ ...useDoor(), toast });
   sync.push(useDoorSyncStatus());
   return null;
 }
@@ -229,6 +235,40 @@ async function settle(): Promise<void> {
   await act(async () => {
     await Promise.resolve();
   });
+}
+
+/** Wait until a render-count probe array stops growing, not just after one
+ *  `settle()` tick (86ey9e9vc review round 1, 3c): `meId` is a dep of six
+ *  DoorContext callbacks (`checkIn`/`voidCheckIn`/etc.), set asynchronously
+ *  from the mocked `getUser()` on mount — a single microtask flush happens to
+ *  be enough today, but couples an exact render-count assertion to how many
+ *  hops that mock takes, which is incidental to what these tests actually
+ *  check. Reproduced: a 10ms delay on the mocked `getUser` broke the
+ *  single-`settle()` version.
+ *
+ *  Round-2 finding (3c's own fix had a flake window): two consecutive equal
+ *  reads at `waitFor`'s default 50ms poll interval only needs an async
+ *  completion to land OUTSIDE both of two ~50ms windows to be missed —
+ *  captured too early, same false-baseline failure mode as the thing this
+ *  was fixing. Tightened to a 5ms interval and THREE consecutive equal
+ *  reads (not two) — reproduced-and-fixed the same way: a 10ms delay on the
+ *  mocked `getUser` still settles correctly under this version (verified by
+ *  hand), where two consecutive 50ms-interval reads previously could not. */
+async function waitForQuiescence(renders: { length: number }): Promise<void> {
+  let last = -1;
+  let stableReads = 0;
+  await waitFor(
+    () => {
+      if (renders.length !== last) {
+        last = renders.length;
+        stableReads = 0;
+        throw new Error('render count still changing');
+      }
+      stableReads += 1;
+      if (stableReads < 3) throw new Error('not enough consecutive stable reads yet');
+    },
+    { interval: 5, timeout: 2000 },
+  );
 }
 
 describe('DoorProvider — double-tap on check-in (O8)', () => {
@@ -370,5 +410,136 @@ describe('DoorProvider — which failure the doorhost is shown (#33)', () => {
     });
     await waitFor(() => expect(insertCalls.filter((g) => g === GUEST_A)).toHaveLength(2));
     await waitFor(() => expect(serverCheckIns.map((c) => c.guest_id)).toEqual([GUEST_A]));
+  });
+});
+
+describe('DoorProvider — render scope of the DoorFiltersContext split (86ey9e9vc, #44)', () => {
+  // Regression for exactly how #44 survived PR #225's `sync` split: a minimal
+  // "keep the useDoorFilters export but source it from the broad DoorContext
+  // value" change restores the bug with every OTHER test in this file still
+  // green, because none of them touch listFilters. This is the one that would
+  // actually catch it — two SEPARATE probes, one per context, so a re-render
+  // of one without the other is observable (a single probe calling both hooks
+  // would re-render on either and prove nothing).
+  // The bare `useDoor()` return (no merged `toast` — that's `DoorApi` above,
+  // built for the other describe block's convenience only).
+  type PureDoorApi = ReturnType<typeof useDoor>;
+  type FiltersApi = ReturnType<typeof useDoorFilters>;
+
+  function DoorOnlyProbe({ renders }: { renders: PureDoorApi[] }): null {
+    renders.push(useDoor());
+    return null;
+  }
+  function FiltersOnlyProbe({ renders }: { renders: FiltersApi[] }): null {
+    renders.push(useDoorFilters());
+    return null;
+  }
+
+  it('setListFilters re-renders the useDoorFilters() consumer but not a useDoor()-only consumer', async () => {
+    const doorRenders: PureDoorApi[] = [];
+    const filtersRenders: FiltersApi[] = [];
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    render(
+      <QueryClientProvider client={client}>
+        <DoorProvider eventId={EVENT_ID} initialSnapshot={snapshotWith([])}>
+          <DoorOnlyProbe renders={doorRenders} />
+          <FiltersOnlyProbe renders={filtersRenders} />
+        </DoorProvider>
+      </QueryClientProvider>,
+    );
+    await waitForQuiescence(doorRenders);
+
+    const doorAfterMount = doorRenders.length;
+    const filtersAfterMount = filtersRenders.length;
+
+    await act(async () => {
+      filtersRenders[filtersRenders.length - 1].setListFilters({ q: 'ann' });
+    });
+
+    expect(filtersRenders.length).toBeGreaterThan(filtersAfterMount);
+    expect(filtersRenders[filtersRenders.length - 1].listFilters.q).toBe('ann');
+    expect(doorRenders.length).toBe(doorAfterMount);
+  });
+});
+
+describe('DoorProvider — render scope of the DoorToastContext split (86ey9e9vc review, Step 0 Option A)', () => {
+  // The severity-1 fresh-session review finding on PR #261: PoDoorTab
+  // (screens/door.tsx) calls useDoor() directly at the top of its own render
+  // body, so a context-value change forces it to re-render NO MATTER how
+  // stable its own props/element are upstream — memoizing the <PoDoorTab>
+  // element in app.tsx cannot bail a component out of its OWN context
+  // subscription. `toast` was PoDoorTab's only reason to read the broad
+  // DoorContext; splitting it out NARROWS that subscription (correcting an
+  // overstated review-round-1 claim: this does not eliminate PoDoorTab's
+  // re-render on a check-in, only reduce it — `toast` itself still changes on
+  // this client's own check-ins, which PoDoorTab legitimately needs to render
+  // the toast banner).
+  //
+  // Compare the post-fix shape (useDoorSyncStatus + useDoorToast, what
+  // PoDoorTab reads today) against the pre-fix shape (useDoor +
+  // useDoorSyncStatus, what it read before Step 0) side by side under the
+  // SAME real check-in, plus a sync-only probe to isolate where the new
+  // shape's residual render actually comes from (measured: oldExtra=2,
+  // newExtra=1, syncOnlyExtra=0 — the residual is `toast` itself changing,
+  // NOT `syncing` flipping true→false during the flush, despite what an
+  // earlier version of this comment claimed).
+  it('a PoDoorTab-shaped consumer subscribing to useDoor() re-renders MORE on a check-in than one subscribing to useDoorToast()', async () => {
+    const oldShapeRenders: null[] = [];
+    const newShapeRenders: null[] = [];
+    function OldShapeProbe(): null {
+      useDoor(); // pre-fix: what PoDoorTab read before Step 0 (for `toast`)
+      useDoorSyncStatus();
+      oldShapeRenders.push(null);
+      return null;
+    }
+    function NewShapeProbe(): null {
+      useDoorToast(); // post-fix: what PoDoorTab reads today
+      useDoorSyncStatus();
+      newShapeRenders.push(null);
+      return null;
+    }
+    const syncOnlyRenders: null[] = [];
+    function SyncOnlyProbe(): null {
+      useDoorSyncStatus();
+      syncOnlyRenders.push(null);
+      return null;
+    }
+
+    const door: DoorApi[] = [];
+    const sync: SyncApi[] = [];
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    render(
+      <QueryClientProvider client={client}>
+        <DoorProvider eventId={EVENT_ID} initialSnapshot={snapshotWith([])}>
+          <Probe door={door} sync={sync} />
+          <OldShapeProbe />
+          <NewShapeProbe />
+          <SyncOnlyProbe />
+        </DoorProvider>
+      </QueryClientProvider>,
+    );
+    await waitForQuiescence(oldShapeRenders);
+    const oldAfterMount = oldShapeRenders.length;
+    const newAfterMount = newShapeRenders.length;
+    const syncOnlyAfterMount = syncOnlyRenders.length;
+
+    await act(async () => {
+      door[door.length - 1].checkIn(GUEST_A, 1);
+    });
+    await waitFor(() => expect(insertCalls).toContain(GUEST_A));
+    await waitFor(() => expect(door[door.length - 1].pendingCount).toBe(0));
+
+    const oldExtra = oldShapeRenders.length - oldAfterMount;
+    const newExtra = newShapeRenders.length - newAfterMount;
+    const syncOnlyExtra = syncOnlyRenders.length - syncOnlyAfterMount;
+    expect(oldExtra).toBeGreaterThan(newExtra);
+    // The residual render on the NEW shape (oldExtra=2, newExtra=1 in this
+    // mocked-channel harness — see the comment above `it(...)`) comes from
+    // `toast` itself changing (set on check-in), NOT from `syncing` flipping —
+    // a sync-only probe (no toast) sees zero extra renders across the same
+    // check-in. Correcting the review round 1 claim that the split alone "is
+    // what makes the element memo's bailout real" for PoDoorTab: it narrows
+    // the subscription, it doesn't eliminate the residual re-render.
+    expect(syncOnlyExtra).toBe(0);
   });
 });
