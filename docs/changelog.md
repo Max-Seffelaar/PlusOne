@@ -760,6 +760,64 @@ the door, on the offline path — invariant #25).
 
 ---
 
+## 2026-08-10 — Event capacity counted on a dead column — hard cap could be overfilled (86ey9e9r9)
+
+Branch `fix/86ey9e9r9-event-capacity-inside-rule` (PR #244). Review finding SW3, verified against the
+current effective definitions before touching anything. Milestone: Now (fraud/quota integrity —
+a hard room cap that does not hold is worse than no cap). High-risk surface (quota/capacity
+triggers) → not self-merged; fresh-session `/code-review` first.
+
+- **Root cause.** `20260624200000_event_lifecycle_capacity.sql` repointed the *personal*-quota
+  engine from `events.went_live_at` onto "is the guest physically inside" (a non-voided
+  `check_ins` row) when the status machine was retired the same day. The *event-capacity* engine
+  (`guest_capacity_contribution`, migration `20260624090000`) was not repointed and kept its
+  `p_went_live_at` argument — including in its most recent rewrite,
+  `20260714100000_quota_capacity_trigger_locking.sql`. Nothing sets `events.status = 'live'`
+  anymore (`changeEventStatus` / `usePoChangeStatus` exist but have zero call sites, and the UI
+  has no status control), so `went_live_at` is permanently NULL and the branch guarded by it is
+  unreachable.
+- **Impact.** A guest who checked in and was then set to `removed` contributed **0** to event
+  capacity while still contributing `1 + plus_ones` to the adder's personal quota — the two
+  engines disagreed about the same guest, and the room-capacity one under-counted. On a
+  hard-capped event that means `enforce_event_capacity` never raises 45005 for those slots, so
+  the cap can be filled past its limit by checking people in and removing them. The
+  auto-approve path (`submit_via_request_link`) leans on the same 45005 as a guard, so it
+  inherited the hole.
+- **Fix** (`20260810171500_event_capacity_inside_rule.sql`): `guest_capacity_contribution` takes
+  `p_is_inside boolean` and uses the exact same basis as `guest_personal_contribution`;
+  `event_capacity_consumption` computes `is_inside` per guest (the `events` join is gone with
+  `went_live_at`); `enforce_event_capacity` keeps its advisory-lock serialisation from
+  `20260714100000` unchanged and only swaps the contribution basis. The dead
+  `(guests, timestamptz)` overload is dropped so the name resolves to one signature, and the new
+  overload is re-revoked (a fresh function is granted to PUBLIC by default).
+- **Deliberate divergence preserved:** capacity has **no** source exemption — a
+  `landing`/`permanent` guest occupies the room; #31 exempts them from the personal fraud limit
+  only. Guarded by a test that asserts both halves on the same row.
+- **Secondary correction in the same rewrite:** `refused` guests no longer consume capacity
+  unless they are inside. The old function only zeroed `denied` and the dead removed-branch, so
+  a guest turned away at the door still held their slots — contradicting spec #44 ("refused
+  never contributes to on-list/inside anywhere"). The refused-after-check-in case
+  (`sync_guest_status_from_refusal` flips the status without voiding the check-in) keeps
+  counting via `p_is_inside`, exactly as it does for personal quota.
+- **Known asymmetry, unchanged and now documented in the migration:** the cap is enforced by a
+  trigger on `guests` only. A check-in that flips a removed guest to `checked_in` computes the
+  same `is_inside` for OLD and NEW, so there is no net increase and no cap re-check — parity
+  with the quota engine, and deliberate: the door is never blocked by an admin-side limit (#25).
+- **Tests.** New pgTAP `event_capacity_inside.test.sql` (12): the removed-but-inside guest keeps
+  their slots, capacity and personal quota return the *same* number for that row, the cap
+  actually rejects the next guest with 45005 (this insert succeeded before the fix), voiding the
+  check-in frees the room again, the landing divergence, refused-frees (#44), and a guard that
+  exactly one `guest_capacity_contribution` overload remains. `event_templates.test.sql` D1–D3
+  stay green (labels reworded off "before go-live"). Spec §Capaciteitsregel amended.
+- **Gotcha for the next session (local stack).** Three sibling worktree sessions were writing
+  migrations at the same moment; one had already claimed `20260810100000` and another reset the
+  shared local DB mid-run (a `supabase test db` against a DB missing your own migration fails as
+  ~15 files "No plan found", not as a clean assertion failure). Verify
+  `supabase_migrations.schema_migrations` actually contains your version before believing a red
+  suite, and pick minute-precision migration timestamps.
+
+---
+
 ## 2026-07-14 — Door outbox/cache not wiped on sign-out — shared-device isolation (86ey9et07)
 
 Branch `fix/86ey9et07-door-outbox-clear-on-signout` (PR #233). Follow-up carved out of the
