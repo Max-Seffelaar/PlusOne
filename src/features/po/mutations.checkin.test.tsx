@@ -25,6 +25,7 @@ vi.mock('@/features/door/outbox/gateway', () => ({
     topUpCheckIn: vi.fn(async () => ({ error: null })),
     voidCheckIn: vi.fn(async () => ({ error: null })),
     reviveCheckIn: vi.fn(async () => ({ error: null })),
+    checkOutGuest: vi.fn(async () => ({ error: null })),
     insertRefusal: vi.fn(async () => ({ error: null })),
     undoRefusal: vi.fn(async () => ({ error: null })),
     ackNote: vi.fn(async () => ({ error: null })),
