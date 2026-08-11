@@ -63,5 +63,10 @@ describe('realtime throttle is raised on both browser clients (#0b)', () => {
     expect(options?.realtime?.params?.eventsPerSecond).toBe(constMod.REALTIME_EVENTS_PER_SECOND);
     // …without clobbering the existing device header (audit #25).
     expect(options?.global?.headers?.['x-device-id']).toBe('device-test-id');
-  });
+    // `vi.resetModules()` + this cold dynamic import transforms the whole door
+    // device graph inside the test body, which lands within a few hundred ms of
+    // the 5s default while the rest of the suite is transforming in parallel —
+    // an assertion about an options object should never be decided by machine
+    // load, so give it room (86ey9e9p5).
+  }, 20_000);
 });
