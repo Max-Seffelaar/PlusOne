@@ -16,7 +16,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 
 vi.mock('@/features/events/actions', () => ({
-  changeEventStatus: vi.fn(async () => ({ ok: true })),
   createEvent: vi.fn(async () => ({ ok: true, eventId: 'event-new' })),
   createTier: vi.fn(),
   deleteTier: vi.fn(),

@@ -265,33 +265,6 @@ export function usePoHomeStats(eventId: string | null) {
 }
 
 /**
- * The event the mobile Deur/Taken tab works (live → soonest upcoming → most
- * recent still-open). Lean read scoped to the active venue; the door's own
- * snapshot/outbox (DoorProvider) loads once this resolves an id. Null when the
- * caller has no venue or only closed events — the tab then shows an empty state.
- */
-export function usePoDoorEvent() {
-  const { venueId } = usePoIdentity();
-  return useQuery<PoDoorEvent | null>({
-    queryKey: poKeys.doorEvent(venueId ?? ''),
-    enabled: !!venueId,
-    queryFn: async () => {
-      if (!venueId) return null;
-      // Deliberately UNWINDOWED (86eya4yuf): pickDoorEvent's last-resort
-      // fallback is "the most recent event that already started" — a venue
-      // whose latest event is older than any recency window (and has nothing
-      // upcoming) must still resolve it, so a `starts_at >=` bound here would
-      // empty the pick entirely (the 86ey9e8gt regression). This is a
-      // one-shot, non-polling, lean select scoped to a single venue_id (no
-      // id-list, no 414 risk); the 7-day window stays on Home's 10s poll,
-      // where keeping the recurring cost flat is what matters.
-      const rows = await fetchEvents(createClient(), venueId);
-      return pickDoorEvent(rows, Date.now());
-    },
-  });
-}
-
-/**
  * Every non-closed event the door/cockpit may work (live first, then soonest),
  * for the Deur-tab event switcher (S1.3). Lean read scoped to the active venue;
  * lets the user deliberately pick which event they are doing the door for when

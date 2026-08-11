@@ -9,8 +9,6 @@ export const poKeys = {
   home: (venueId: string) => [...poKeys.all, 'home', venueId] as const,
   /** Home KPI bundle for the selected event (open requests + personal quota). */
   homeStats: (eventId: string) => [...poKeys.all, 'home-stats', eventId] as const,
-  /** The venue's "current" event for the mobile Deur/Taken tab (live → next → recent). */
-  doorEvent: (venueId: string) => [...poKeys.all, 'door-event', venueId] as const,
   /** All non-closed events the door/cockpit may work, for the Deur-tab switcher (S1.3). */
   doorCandidates: (venueId: string) => [...poKeys.all, 'door-candidates', venueId] as const,
   event: (eventId: string) => [...poKeys.all, 'event', eventId] as const,

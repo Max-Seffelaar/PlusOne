@@ -8,12 +8,10 @@ import { getAuthContext } from '@/lib/auth/context';
 import { mapMutationError, unauthorized, invalidInput, notFound, type MutationError } from '@/lib/db-errors';
 import { assertVenueBillingActive } from '@/features/billing/gate';
 import { buildEventSlug } from './slug';
-import type { EventStatus } from './status';
 import type { Database } from '@/lib/database.types';
 import {
   createEventSchema,
   updateEventSchema,
-  changeStatusSchema,
   setCancelledSchema,
   setLandingActiveSchema,
   setLockSchema,
@@ -38,7 +36,6 @@ import {
   createTemplateFromEventSchema,
   type CreateEventInput,
   type UpdateEventInput,
-  type ChangeStatusInput,
   type SetCancelledInput,
   type SetLandingActiveInput,
   type SetLockInput,
@@ -148,32 +145,6 @@ export async function updateEvent(input: UpdateEventInput): Promise<ActionResult
 
   const { error } = await supabase.from('events').update(patch).eq('id', eventId);
   if (error) return mapMutationError(error);
-  revalidateEvent(eventId);
-  return { ok: true };
-}
-
-/**
- * Move the event along the status lifecycle (#26). The fase-6 trigger validates
- * the graph (45004) and that corrective reversals are admin-only; RLS already
- * limited writes to admin/organizer.
- */
-export async function changeEventStatus(input: ChangeStatusInput): Promise<ActionResult> {
-  const parsed = changeStatusSchema.safeParse(input);
-  if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { eventId, status } = parsed.data;
-
-  const supabase = await createClient();
-  const ctx = await getAuthContext();
-  if (!ctx) return unauthorized();
-
-  const { error, count } = await supabase
-    .from('events')
-    .update({ status: status as EventStatus }, { count: 'exact' })
-    .eq('id', eventId);
-  if (error) return mapMutationError(error);
-  // RLS-filtered 0-row update (locked list, stale status graph edge, or a
-  // caller without event access) is a real no-op, not a success (C15 guard).
-  if (!count) return notFound();
   revalidateEvent(eventId);
   return { ok: true };
 }

@@ -51,7 +51,6 @@ import type {
   PromoteGuestToContactInput,
 } from '@/features/contacts/schemas';
 import {
-  changeEventStatus,
   createEvent,
   createTier,
   deleteTier,
@@ -78,7 +77,6 @@ import {
   setEventDefaultMemberQuota,
 } from '@/features/events/actions';
 import type {
-  ChangeStatusInput,
   CreateEventInput,
   CreateTierInput,
   DeleteTierInput,
@@ -981,14 +979,6 @@ export function usePoUpdateEvent(eventId: string) {
   const invalidate = useInvalidateEvent();
   return useMutation({
     mutationFn: async (input: UpdateEventInput) => throwOnError(await updateEvent(input)),
-    onSuccess: () => invalidate(eventId),
-  });
-}
-
-export function usePoChangeStatus(eventId: string) {
-  const invalidate = useInvalidateEvent();
-  return useMutation({
-    mutationFn: async (input: ChangeStatusInput) => throwOnError(await changeEventStatus(input)),
     onSuccess: () => invalidate(eventId),
   });
 }
