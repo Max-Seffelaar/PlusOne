@@ -17,7 +17,7 @@ export async function resolveEntryDestination(userId: string, next: string): Pro
   let dest = next;
   // A user without access anywhere is heading for the onboarding wizard, not
   // /app. Only the /app default is rerouted — an explicit next (e.g. the
-  // e-mail-change confirmation to /settings/profile) is respected.
+  // e-mail-change confirmation to /app/profile) is respected.
   if (dest === '/app') {
     const state = await getOnboardingState();
     if (state.step !== 'done') dest = '/onboarding';
