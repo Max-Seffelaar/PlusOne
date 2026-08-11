@@ -7,7 +7,7 @@
  *  their active devices → log out remotely. Reads via the browser client
  *  (admin_list_user_sessions), writes via the shared adminRevokeSessionAction.
  *  Reached from the Meer hub. */
-import { useState } from 'react';
+import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { usePoTeam, usePoUserSessions } from '@/features/po/hooks';

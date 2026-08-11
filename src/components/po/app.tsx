@@ -7,7 +7,7 @@
  * live Supabase data; the Deur/Taken tabs mount the real DoorProvider (offline
  * outbox + realtime), so there is no in-memory door state here anymore.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { type JSX, useEffect, useRef, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';

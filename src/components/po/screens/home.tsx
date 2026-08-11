@@ -16,9 +16,10 @@
  * The shell (sidebar / bottom-tabs) is the ResponsiveShell; this screen renders
  * only the content column. English copy via the i18n catalogus; lg: = 1024px.
  */
-import { useMemo, useState } from 'react';
+import { type JSX, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
+import { useTransientValue } from '@/lib/use-transient-value';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import {
   usePoHomeEvents,
@@ -443,7 +444,7 @@ export function Home(): JSX.Element {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const [page, setPage] = useState(0);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, showToast] = useTransientValue<string>(2200);
   const [guestPickOpen, setGuestPickOpen] = useState(false);
   const [guestQuery, setGuestQuery] = useState('');
   // Optimistic per-event overlay over the server's list_locked, rolled back on
@@ -451,11 +452,6 @@ export function Home(): JSX.Element {
   // confirmed value (usePoSetListLockOnHome).
   const [lockOverride, setLockOverride] = useState<Record<string, boolean>>({});
   const setLock = usePoSetListLockOnHome();
-
-  const showToast = (msg: string): void => {
-    setToast(msg);
-    window.setTimeout(() => setToast(null), 2200);
-  };
 
   const board: BoardEvent[] = useMemo(
     () => toBoardEvents(eventsQ.data?.events ?? [], guestReqQ.data ?? [], quotaReqQ.data ?? [], lockOverride, Date.now()),
@@ -718,8 +714,8 @@ export function Home(): JSX.Element {
                       // 'landing' is the default tab — omit it so the URL matches
                       // the plain /app/requests?event= form (routes.ts invariant).
                       onReq={showRequestTiles ? (tab) => nav.push('aanvragen', tab === 'quota' ? { id: e.id, tab } : { id: e.id }) : undefined}
-                      onEdit={() => nav.push('eventedit', { id: e.id })}
-                      onLock={() => onLock(e)}
+                      onEdit={e.canManage ? () => nav.push('eventedit', { id: e.id }) : undefined}
+                      onLock={e.canManage ? () => onLock(e) : undefined}
                     />
                   ))}
                 </div>
@@ -759,8 +755,8 @@ export function Home(): JSX.Element {
                     // 'landing' is the default tab — omit it so the URL matches
                     // the plain /app/requests?event= form (routes.ts invariant).
                     onReq={showRequestTiles ? (tab) => nav.push('aanvragen', tab === 'quota' ? { id: e.id, tab } : { id: e.id }) : undefined}
-                    onEdit={() => nav.push('eventedit', { id: e.id })}
-                    onLock={() => onLock(e)}
+                    onEdit={e.canManage ? () => nav.push('eventedit', { id: e.id }) : undefined}
+                    onLock={e.canManage ? () => onLock(e) : undefined}
                   />
                 ))}
               </div>

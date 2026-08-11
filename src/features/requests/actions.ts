@@ -9,6 +9,7 @@ import {
   submitGuestRequestSchema,
   approveGuestRequestSchema,
   denyGuestRequestSchema,
+  submitGuestRequestResultSchema,
   type SubmitGuestRequestInput,
   type ApproveGuestRequestInput,
   type DenyGuestRequestInput,
@@ -73,7 +74,22 @@ export async function submitGuestRequest(input: SubmitGuestRequestInput): Promis
     return { ok: false, code: 'error', message: 'Something went wrong. Try again.' };
   }
 
-  const payload = (data ?? {}) as { status?: string; auto_approved?: boolean };
+  // Unlike the rpc-error branch above, the request row (+ status_token_hash)
+  // already exists in the DB by this point — a parse failure here means the
+  // RPC's return shape drifted from what the app expects, not that the
+  // requester did anything wrong. Blaming them with `invalidInput()` would
+  // both discard their one-time /r/[token] status link and mislabel a
+  // server-side bug as a client error, so this logs and reports the same
+  // generic failure the rpc-error branch does.
+  const parsedPayload = submitGuestRequestResultSchema.safeParse(data);
+  if (!parsedPayload.success) {
+    console.error(
+      '[submitGuestRequest] unexpected rpc result shape:',
+      parsedPayload.error.issues.map((i) => i.path.join('.')),
+    );
+    return { ok: false, code: 'error', message: 'Something went wrong. Try again.' };
+  }
+  const payload = parsedPayload.data;
   switch (payload.status) {
     case 'ok':
       return { ok: true, statusToken, autoApproved: payload.auto_approved === true };
