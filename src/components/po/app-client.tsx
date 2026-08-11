@@ -20,6 +20,7 @@
  * client-side. Nothing of value is lost: every /app read is client-side React
  * Query anyway, so the old SSR output was misleading zero placeholders.
  */
+import type { JSX } from 'react';
 import dynamic from 'next/dynamic';
 
 /** Honest boot state: brand mark on the app background, no fake-zero data. */

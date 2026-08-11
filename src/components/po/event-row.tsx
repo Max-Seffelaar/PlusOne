@@ -8,6 +8,7 @@
  * change propagates to every surface that lists events. Home and the Deur/cockpit
  * picker both import from here; never fork this card per screen.
  */
+import type { JSX } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import type { HomeEvent } from '@/features/po/adapters';

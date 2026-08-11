@@ -7,7 +7,7 @@
  * data with no identity/auth meaning of its own — keeping it separate avoids
  * overloading `PoIdentity` with fields most `usePoIdentity()` callers don't need.
  */
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, type JSX, useContext, type ReactNode } from 'react';
 import type { PoVenueMembership } from './context';
 
 export interface AppShellData {

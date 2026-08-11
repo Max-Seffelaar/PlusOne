@@ -97,12 +97,15 @@ export async function replayEntry(
     }
     case 'check_in_void': {
       // Idempotent: re-voiding (or a row already voided) matches 0 rows = synced.
-      const { error } = await gw.voidCheckIn(entry.payload.guestId, uid);
+      // Scoped to the observed check_ins row so a colleague's check-in made while
+      // this device was offline is left alone (#35) — that too is a 0-row synced.
+      const p = entry.payload;
+      const { error } = await gw.voidCheckIn(p.guestId, uid, p.checkInId ?? null);
       return classifyError(error);
     }
     case 'check_in_revive': {
       const p = entry.payload;
-      const { error } = await gw.reviveCheckIn(p.guestId, p.plusOnesArrived, uid);
+      const { error } = await gw.reviveCheckIn(p.guestId, p.plusOnesArrived, uid, p.checkInId ?? null);
       return classifyError(error);
     }
     case 'refusal': {
@@ -162,6 +165,14 @@ export interface DrainSummary {
   deadLettered: number;
   /** A code-less (network/offline) failure paused the drain early. */
   interrupted: boolean;
+  /**
+   * Message of the LAST entry this drain settled to `error`, for the caller's
+   * toast. The provider used to look this up by scanning the store for the first
+   * `error` entry, which returns the OLDEST one still queued — with tombstones
+   * never pruned, that reliably surfaced a stale rejection from earlier in the
+   * night instead of the write the doorhost is standing there waiting on.
+   */
+  lastError?: string;
 }
 
 /**
@@ -231,6 +242,7 @@ export async function drainOutbox(deps: DrainDeps): Promise<DrainSummary> {
           summary.processed++;
           summary.errors++;
           summary.deadLettered++;
+          if (result.message) summary.lastError = result.message;
           continue;
         }
         // Alive connection, one bad entry — leave it pending. Still-unresolved,
@@ -253,7 +265,10 @@ export async function drainOutbox(deps: DrainDeps): Promise<DrainSummary> {
     summary.processed++;
     if (result.status === 'synced') summary.synced++;
     if (result.status === 'duplicate') summary.duplicates++;
-    if (result.status === 'error') summary.errors++;
+    if (result.status === 'error') {
+      summary.errors++;
+      if (result.message) summary.lastError = result.message;
+    }
   }
   return summary;
 }

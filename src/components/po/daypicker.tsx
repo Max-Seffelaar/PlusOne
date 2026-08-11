@@ -7,6 +7,7 @@
  * Styling is fully via classNames (no react-day-picker stylesheet), matching the
  * dark kit: near-black surfaces, lavender accent, display font for the caption.
  */
+import type { JSX } from 'react';
 import { DayPicker } from 'react-day-picker';
 
 export function PoDayPicker({

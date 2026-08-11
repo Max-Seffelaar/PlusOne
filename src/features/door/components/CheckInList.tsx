@@ -24,7 +24,7 @@
  * `translateY(vi.start - scrollMargin)`. Search is debounced (the input stays
  * instant; the expensive flatten runs on the settled term).
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type JSX, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';

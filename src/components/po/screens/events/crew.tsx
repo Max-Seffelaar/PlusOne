@@ -1,7 +1,7 @@
 'use client';
 
 /** External crew (event_organizers) management — split from events.tsx (FE-5). */
-import { useEffect, useState } from 'react';
+import { type JSX, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import { usePoCrew, usePoAssignableCrew, usePoEvent, usePoEventForEdit } from '@/features/po/hooks';

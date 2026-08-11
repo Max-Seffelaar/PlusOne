@@ -3,6 +3,7 @@
 // Aanwezig vs. aangemeld per tier (spec §6), recharts horizontal stacked bars:
 // the accent segment (in each tier's own colour) is who came (binnen), the faint
 // segment the rest of those expected (aangemeld). Counts are headcount (people).
+import type { JSX } from 'react';
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 const ACC = '#B5A6FF';

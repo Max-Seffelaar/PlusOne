@@ -16,7 +16,7 @@
  * creep back into a First Load graph. Capacitor-safe (#37): pure client, no
  * browser-only global touched at import time.
  */
-import { useEffect, useState } from 'react';
+import { type JSX, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import type { Country } from 'react-phone-number-input';
 

@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 import type { Metadata } from 'next';
 import { createClient } from '@/lib/supabase/server';
 import { submitGuestRequest } from '@/features/requests/actions';
@@ -9,6 +10,10 @@ export const metadata: Metadata = {
   // Per-event request links are private; never index them.
   robots: { index: false, follow: false },
 };
+
+// See src/lib/public-route-viewport.ts — overrides the root layout's locked
+// viewport so a guest filling in this form can pinch-zoom (WCAG 1.4.4).
+export { publicRouteViewport as viewport } from '@/lib/public-route-viewport';
 
 const dateFmt = new Intl.DateTimeFormat('en-GB', {
   weekday: 'short',
