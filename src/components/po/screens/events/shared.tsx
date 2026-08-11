@@ -1,6 +1,7 @@
 'use client';
 
 /** Small helpers shared across the events screens (hub + edit/tiers/crew/past). */
+import type { JSX } from 'react';
 import { Empty, Scroll, Top } from '../../kit';
 
 export const col = 'flex h-full flex-col';

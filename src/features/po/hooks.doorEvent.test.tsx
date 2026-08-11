@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
+import type { JSX, ReactNode } from 'react';
 import type { PoEventRow } from './queries';
 
 const fetchEventsMock = vi.fn<unknown[], Promise<PoEventRow[]>>(async () => []);

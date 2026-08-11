@@ -6,6 +6,7 @@
  *  auto-accept in /auth/callback). Accepting changes memberships, which are
  *  resolved server-side in /app, so we router.refresh() afterwards to re-resolve
  *  identity + the venue switcher. Renders nothing when there are no invites. */
+import type { JSX } from 'react';
 import { useRouter } from 'next/navigation';
 import { t, fmt } from '@/lib/i18n';
 import { usePoMyPendingInvites } from '@/features/po/hooks';

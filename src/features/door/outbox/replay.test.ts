@@ -22,7 +22,17 @@ function checkInEntry(over: Partial<OutboxEntry> = {}): OutboxEntry {
 /** A gateway that returns a fixed error for every method. */
 function gatewayReturning(error: DbError | null): DoorGateway {
   const r = async () => ({ error });
-  return { insertCheckIn: r, topUpCheckIn: r, voidCheckIn: r, reviveCheckIn: r, insertRefusal: r, undoRefusal: r, insertGuest: r, ackNote: r };
+  return {
+    insertCheckIn: r,
+    topUpCheckIn: r,
+    voidCheckIn: r,
+    reviveCheckIn: r,
+    checkOutGuest: r,
+    insertRefusal: r,
+    undoRefusal: r,
+    insertGuest: r,
+    ackNote: r,
+  };
 }
 
 const UNIQUE_GUEST: DbError = { code: '23505', details: 'Key (guest_id)=(g1) already exists.' };
@@ -130,7 +140,7 @@ describe('replayEntry', () => {
     expect(result.status).toBe('synced');
   });
 
-  it('check_in_void voids by guest_id, pinning voided_by to the session user', async () => {
+  it('check_in_void voids the observed row, pinning voided_by to the session user', async () => {
     const voidCheckIn = vi.fn(async () => ({ error: null }));
     const gw: DoorGateway = { ...gatewayReturning(null), voidCheckIn };
     const result = await replayEntry(gw, {
@@ -140,10 +150,27 @@ describe('replayEntry', () => {
       status: 'pending',
       attempts: 0,
       createdAt: '2026-06-20T23:40:00.000Z',
-      payload: { guestId: 'g1', clientTimestamp: '2026-06-20T23:40:00.000Z' },
+      payload: { guestId: 'g1', checkInId: 'ci1', clientTimestamp: '2026-06-20T23:40:00.000Z' },
     }, UID, DEVICE);
     expect(result.status).toBe('synced');
-    expect(voidCheckIn).toHaveBeenCalledWith('g1', UID);
+    // The observed check_ins row travels with the entry so the replay cannot
+    // reach a peer's newer check-in (#35).
+    expect(voidCheckIn).toHaveBeenCalledWith('g1', UID, 'ci1');
+  });
+
+  it('check_in_void without a stored row id stays guest-scoped (pre-#35 entries)', async () => {
+    const voidCheckIn = vi.fn(async () => ({ error: null }));
+    const gw: DoorGateway = { ...gatewayReturning(null), voidCheckIn };
+    await replayEntry(gw, {
+      clientId: 'c5b',
+      eventId: 'ev1',
+      kind: 'check_in_void',
+      status: 'pending',
+      attempts: 0,
+      createdAt: '2026-06-20T23:40:00.000Z',
+      payload: { guestId: 'g1', clientTimestamp: '2026-06-20T23:40:00.000Z' },
+    }, UID, DEVICE);
+    expect(voidCheckIn).toHaveBeenCalledWith('g1', UID, null);
   });
 
   it('check_in_revive re-checks-in with fresh arrivals and the session user', async () => {
@@ -156,10 +183,10 @@ describe('replayEntry', () => {
       status: 'pending',
       attempts: 0,
       createdAt: '2026-06-20T23:50:00.000Z',
-      payload: { guestId: 'g1', plusOnesArrived: 1, clientTimestamp: '2026-06-20T23:50:00.000Z' },
+      payload: { guestId: 'g1', plusOnesArrived: 1, checkInId: 'ci1', clientTimestamp: '2026-06-20T23:50:00.000Z' },
     }, UID, DEVICE);
     expect(result.status).toBe('synced');
-    expect(reviveCheckIn).toHaveBeenCalledWith('g1', 1, UID);
+    expect(reviveCheckIn).toHaveBeenCalledWith('g1', 1, UID, 'ci1');
   });
 
   it('add_guest carries source=door and the event id, and maps quota to error', async () => {
@@ -324,6 +351,29 @@ describe('drainOutbox', () => {
     expect(store.entries[1].status).toBe('pending');
   });
 
+  // #33 — the provider toasts summary.lastError. It used to scan the store for
+  // the first `error` entry instead, which (with tombstones never pruned) served
+  // the OLDEST stale failure of the night rather than the one that just happened.
+  it('reports the message of the error it settled LAST, not the first one it saw', async () => {
+    const store = fakeStore([
+      checkInEntry({ clientId: 'a', payload: { id: 'a', guestId: 'g1', plusOnesArrived: 0, clientTimestamp: 't' } }),
+      checkInEntry({ clientId: 'b', payload: { id: 'b', guestId: 'g2', plusOnesArrived: 0, clientTimestamp: 't' } }),
+    ]);
+    const gw: DoorGateway = {
+      ...gatewayReturning(null),
+      insertCheckIn: async (row) => ({ error: row.guest_id === 'g1' ? QUOTA_FULL : TIER_FULL }),
+    };
+    const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
+    expect(summary.errors).toBe(2);
+    expect(summary.lastError).toBe(TIER_FULL.message);
+  });
+
+  it('leaves lastError undefined when nothing failed', async () => {
+    const store = fakeStore([checkInEntry({ clientId: 'a' })]);
+    const summary = await drainOutbox({ ...store, gateway: gatewayReturning(null), uid: UID, deviceId: DEVICE });
+    expect(summary.lastError).toBeUndefined();
+  });
+
   it('records a duplicate without blocking the rest of the queue', async () => {
     const store = fakeStore([
       checkInEntry({ clientId: 'a', payload: { id: 'a', guestId: 'g1', plusOnesArrived: 0, clientTimestamp: 't' } }),
@@ -446,7 +496,7 @@ describe('drainOutbox', () => {
     ]);
     const gw: DoorGateway = { ...gatewayReturning(null), voidCheckIn };
     const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
-    expect(voidCheckIn).toHaveBeenCalledWith('g1', UID);
+    expect(voidCheckIn).toHaveBeenCalledWith('g1', UID, null);
     expect(summary).toMatchObject({ processed: 2, synced: 2 });
   });
 

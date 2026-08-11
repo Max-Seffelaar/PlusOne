@@ -6,7 +6,7 @@
  * picked when creating an event to seed it (create_event_from_template). Management
  * is admin OR venue-organizer (usePoCanManageTemplates / RLS).
  */
-import { useEffect, useState } from 'react';
+import { type JSX, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import {
