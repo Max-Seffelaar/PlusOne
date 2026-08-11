@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { type JSX, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { describeAuthError } from '@/features/auth/errors';
 import { totpSchema } from '@/features/auth/schemas';
 import { snoozeMfaAction } from '@/features/auth/mfa-actions';
+import { useTransientValue } from '@/lib/use-transient-value';
 
 // TOTP enrollment (spec §5, decision #20 — OPTIONAL since 2026-07-02). Shown as
 // a skippable, ask-first RECOMMENDATION (UX/IA 9/7, 2026-07-09): step 1 is the
@@ -26,7 +27,8 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
   // step 1 (explanation only) to step 2 (QR + verification).
   const [enrolling, setEnrolling] = useState(false);
   const [snoozing, setSnoozing] = useState<'week' | 'never' | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copiedFlag, triggerCopied] = useTransientValue<true>(1800);
+  const copied = copiedFlag === true;
   // Guards against a double-click on "Set up now" or a "Try again" click while
   // a prior attempt is still in flight firing two concurrent enroll() calls —
   // a state check alone can't catch same-tick clicks, a ref can.
@@ -44,8 +46,7 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
     try {
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
         await navigator.clipboard.writeText(secret);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1800);
+        triggerCopied(true);
       }
     } catch {
       // Clipboard blocked (rare in webviews) — the secret is still visible/selectable.

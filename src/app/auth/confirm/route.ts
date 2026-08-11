@@ -5,10 +5,16 @@ import { createClient } from '@/lib/supabase/server';
 import { safeNextPath } from '@/features/auth/next-path';
 import { resolveEntryDestination } from '@/features/auth/entry-redirect';
 
-// The link-verification types this route accepts, mirroring EmailOtpType —
-// kept as an explicit list (rather than a raw cast) so an unexpected value in
-// the query string fails closed instead of reaching verifyOtp unchecked.
-const emailOtpTypeSchema = z.enum([
+// The link-verification types this route accepts. `EmailOtpType` in
+// auth-js is an OPEN union (`'signup' | 'invite' | ... | (string & {})`), so
+// `satisfies z.ZodType<EmailOtpType>` enforces nothing at compile time — a
+// trimmed or misspelled enum still typechecks clean. This is a hand-maintained
+// subset of the six values GoTrue actually accepts for link-based
+// verification; `emailOtpTypeSchema.test.ts` pins the exact list so drift is
+// caught at test time instead. Validated (rather than a raw `as` cast) so an
+// unexpected value in the query string fails closed instead of reaching
+// verifyOtp unchecked.
+export const emailOtpTypeSchema = z.enum([
   'signup',
   'invite',
   'magiclink',
@@ -23,10 +29,17 @@ const emailOtpTypeSchema = z.enum([
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const url = new URL(request.url);
   const tokenHash = url.searchParams.get('token_hash');
-  const parsedType = emailOtpTypeSchema.safeParse(url.searchParams.get('type'));
-
-  if (!tokenHash || !parsedType.success) {
+  if (!tokenHash) {
     return NextResponse.redirect(new URL('/login', request.url));
+  }
+
+  const parsedType = emailOtpTypeSchema.safeParse(url.searchParams.get('type'));
+  if (!parsedType.success) {
+    // A token_hash without a recognized type used to reach verifyOtp anyway
+    // (GoTrue rejected it) and bounce to /login?error=link with a visible
+    // message; failing the shape check earlier must land on the same visible
+    // outcome, not a silent bare /login that looks like "no link at all".
+    return NextResponse.redirect(new URL('/login?error=link', request.url));
   }
   const type = parsedType.data;
 

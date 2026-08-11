@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useRef } from 'react';
+import { type JSX, useState, useMemo, useRef } from 'react';
 import { v7 as uuidv7 } from 'uuid';
 import { cn } from '@/lib/utils';
 import { indexGuestsByName, type DupeMode, type ExistingGuest } from '@/features/guests/bulk-dedupe';

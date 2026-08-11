@@ -6,7 +6,7 @@
  * collapses below lg so the same wizard serves mobile web. Reuses the PLUSONE
  * design kit; no new primitives.
  */
-import type { ReactNode } from 'react';
+import type { JSX, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { AUTH_GRADIENT } from '@/lib/po/theme';
 import { Icon } from '@/components/po/icon';

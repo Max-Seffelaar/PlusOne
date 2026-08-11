@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EMAIL_RE } from './validation';
 
 const uuid = z.string().uuid();
 
@@ -26,11 +27,13 @@ export const submitGuestRequestSchema = z.object({
     .max(120)
     .regex(/^[a-z0-9-]+$/i, 'Invalid link'),
   fullName: z.string().trim().min(2, 'Enter your name').max(120),
+  // Same shape check as the form's inline `isValidEmail` (validation.ts) — a
+  // request that passes client-side never gets silently rejected here.
   email: z
     .string()
     .trim()
     .max(254)
-    .email('Invalid email')
+    .regex(EMAIL_RE, 'Invalid email')
     .optional()
     .or(z.literal(''))
     .transform((v) => (v && v.length > 0 ? v : undefined)),
@@ -79,13 +82,17 @@ export type DenyGuestRequestInput = z.input<typeof denyGuestRequestSchema>;
 
 /**
  * Result shape of the `submit_guest_request` RPC (jsonb — see
- * 20260706103000_submit_via_request_link.sql): `auto_approved` is only ever
- * set alongside `status: 'ok'`. Validated rather than hand-cast so a
- * mismatched deploy (app ahead of/behind the DB function) fails closed
- * instead of silently reading `undefined` off an unexpected shape.
+ * 20260706103000_submit_via_request_link.sql): every `return
+ * jsonb_build_object(...)` in that function sets `status`, so it's required
+ * here, not optional — an object without it is exactly the "unexpected
+ * shape" this schema exists to catch. `auto_approved` is display-only (the
+ * caller only ever checks `=== true`), so a non-boolean there shouldn't veto
+ * an otherwise-real `status: 'ok'` success; `z.unknown()` lets the `=== true`
+ * check fail open instead. Validated rather than hand-cast so a mismatched
+ * deploy (app ahead of/behind the DB function) fails closed instead of
+ * silently reading `undefined` off an unexpected shape.
  */
 export const submitGuestRequestResultSchema = z.object({
-  status: z.enum(['ok', 'rate_limited', 'closed', 'invalid']).optional(),
-  auto_approved: z.boolean().optional(),
+  status: z.enum(['ok', 'rate_limited', 'closed', 'invalid']),
+  auto_approved: z.unknown().optional(),
 });
-export type SubmitGuestRequestResult = z.infer<typeof submitGuestRequestResultSchema>;

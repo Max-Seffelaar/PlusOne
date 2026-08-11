@@ -13,6 +13,8 @@ import {
   forgetContactSchema,
   promoteGuestToContactSchema,
   markGuestRegularSchema,
+  upsertContactsResultSchema,
+  addContactsToEventResultSchema,
   type UpsertContactInput,
   type TogglePermanentInput,
   type AddContactToEventInput,
@@ -215,15 +217,20 @@ export async function importContacts(input: ImportContactsInput): Promise<Import
   });
   if (error) return mapMutationError(error);
 
-  const r = (data ?? {}) as { inserted?: number; updated?: number; skipped?: number; ids?: string[] };
+  // The rows are already written by this point — a shape mismatch here is a
+  // server-side/deploy-drift bug, not something the importer did wrong, so
+  // this logs and reports the same generic failure an rpc `error` would.
+  const parsedResult = upsertContactsResultSchema.safeParse(data);
+  if (!parsedResult.success) {
+    console.error(
+      '[importContacts] unexpected rpc result shape:',
+      parsedResult.error.issues.map((i) => i.path.join('.')),
+    );
+    return { ok: false, code: 'error', message: 'Something went wrong. Try again.' };
+  }
+  const r = parsedResult.data;
   revalidatePath(APP_PATH);
-  return {
-    ok: true,
-    inserted: r.inserted ?? 0,
-    updated: r.updated ?? 0,
-    skipped: r.skipped ?? 0,
-    ids: Array.isArray(r.ids) ? r.ids : [],
-  };
+  return { ok: true, inserted: r.inserted, updated: r.updated, skipped: r.skipped, ids: r.ids };
 }
 
 /**
@@ -250,10 +257,21 @@ export async function addContactsToEvent(input: AddContactsToEventInput): Promis
   });
   if (error) return mapMutationError(error);
 
-  const r = (data ?? {}) as { added?: number; already?: number; skipped?: number };
+  // The guests are already written by this point — same reasoning as
+  // importContacts above: a shape mismatch is a server-side bug, not a bad
+  // request, so this logs and reports the same generic failure.
+  const parsedResult = addContactsToEventResultSchema.safeParse(data);
+  if (!parsedResult.success) {
+    console.error(
+      '[addContactsToEvent] unexpected rpc result shape:',
+      parsedResult.error.issues.map((i) => i.path.join('.')),
+    );
+    return { ok: false, code: 'error', message: 'Something went wrong. Try again.' };
+  }
+  const r = parsedResult.data;
   revalidatePath(APP_PATH);
   revalidatePath(`/events/${eventId}/guests`);
-  return { ok: true, added: r.added ?? 0, already: r.already ?? 0, skipped: r.skipped ?? 0 };
+  return { ok: true, added: r.added, already: r.already, skipped: r.skipped };
 }
 
 /**

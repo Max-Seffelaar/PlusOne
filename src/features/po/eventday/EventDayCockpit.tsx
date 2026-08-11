@@ -8,11 +8,13 @@
  * outbox — desktop is online), lock/approvals through the existing server actions.
  * RLS is the boundary; affordances hide for roles without the right (see below).
  */
+import type { JSX } from 'react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { useTransientValue } from '@/lib/use-transient-value';
 import { Icon, type IconName } from '@/components/po/icon';
 import { Avatar, Label, Btn, Card, pressDesktop } from '@/components/po/kit';
 import { tierInk, tintTier } from '@/lib/po/tier-colors';
@@ -21,6 +23,7 @@ import { canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '@/components/po/context';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import type { PoDoorEvent } from '@/features/po/door-event';
+import type { CheckinArrival } from '@/features/po/queries';
 import type { Guest, Tier } from '@/lib/po/types';
 import {
   usePoCheckinArrivals,
@@ -67,7 +70,7 @@ import {
 
 const press = pressDesktop;
 const DENY_REASON = t.cockpit.denyReason;
-const EMPTY_ARRIVALS: ReadonlyMap<string, { arrived: number; at: string }> = new Map();
+const EMPTY_ARRIVALS: ReadonlyMap<string, CheckinArrival> = new Map();
 // Stable fallbacks so the memoized computations don't recompute every render
 // when the query has no data yet (keeps the virtualized list cheap).
 const EMPTY_GUESTS: Guest[] = [];
@@ -180,8 +183,8 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   const [statF, setStatF] = useState<StatusFilter>('all');
   const [tierF, setTierF] = useState('all');
   const [feed, setFeed] = useState<FeedEntry[]>([]);
-  const [flashId, setFlashId] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ msg: string; tone: 'in' | 'out' } | null>(null);
+  const [flashId, flash] = useTransientValue<string>(900);
+  const [toast, notifyRaw] = useTransientValue<{ msg: string; tone: 'in' | 'out' }>(3200);
   // Refuse modal target (G2 door-parity) — the guest awaiting a reason, or null.
   const [refuseTarget, setRefuseTarget] = useState<Guest | null>(null);
   // Quantified in-/uitcheck modal (S1.2). `value` is the stepper position in koppen:
@@ -214,26 +217,14 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   const evQuotaReqs = quotaRequests.filter((r) => r.eventId === eventId);
   const openReqs = evGuestReqs.length + evQuotaReqs.length;
 
-  const toastTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null);
-  const notify = useCallback((msg: string, tone: 'in' | 'out' = 'out'): void => {
-    setToast({ msg, tone });
-    if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 3200);
-  }, []);
+  const notify = useCallback(
+    (msg: string, tone: 'in' | 'out' = 'out'): void => {
+      notifyRaw({ msg, tone });
+    },
+    [notifyRaw]
+  );
   const pushFeed = useCallback((e: FeedEntry): void => {
     setFeed((f) => [e, ...f].slice(0, 6));
-  }, []);
-  const flashTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null);
-  const flash = useCallback((id: string): void => {
-    setFlashId(id);
-    if (flashTimer.current) window.clearTimeout(flashTimer.current);
-    flashTimer.current = window.setTimeout(() => setFlashId(null), 900);
-  }, []);
-  useEffect(() => {
-    return () => {
-      if (toastTimer.current) window.clearTimeout(toastTimer.current);
-      if (flashTimer.current) window.clearTimeout(flashTimer.current);
-    };
   }, []);
 
   const checkInMutate = checkIn.mutate; // stable across renders (React Query guarantee)
@@ -289,7 +280,13 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
       const inside = insideHeads(guest, arrivals);
       const leaving = Math.min(inside, Math.max(1, value));
       const remainingHeads = inside - leaving;
-      checkOut.mutate({ guestId: guest.id, remainingHeads }, { onError: (e) => notify(e.message) });
+      // Pin the check-out to the check-in row this cockpit is showing (#35): a
+      // tab that has been open across a peer's re-check-in must no-op, not
+      // check out someone else's guest.
+      checkOut.mutate(
+        { guestId: guest.id, remainingHeads, checkInId: arrivals.get(guest.id)?.id ?? null },
+        { onError: (e) => notify(e.message) }
+      );
       pushFeed({ kind: 'out', t: amsterdamHM(new Date()), name: guest.name, plus: Math.max(0, leaving - 1) });
       notify(
         remainingHeads === 0

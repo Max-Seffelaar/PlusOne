@@ -11,6 +11,7 @@
  * Pure presentational, no recharts (the cockpit uses CSS bars). Tokens/classes are
  * copied — not imported from the client `DCard` — so it stays a plain module.
  */
+import type { JSX } from 'react';
 
 const card = 'rounded-[20px] border border-line bg-elev';
 const block = 'animate-pulse rounded-[8px] bg-elev2';

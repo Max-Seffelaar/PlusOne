@@ -1,4 +1,5 @@
-import type { Metadata, Viewport } from 'next';
+import type { JSX } from 'react';
+import type { Metadata } from 'next';
 import { createClient } from '@/lib/supabase/server';
 import { submitGuestRequest } from '@/features/requests/actions';
 import { landingClientIpHash } from '@/features/requests/ip-hash';
@@ -10,20 +11,9 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-// Overrides the root layout's locked viewport for this public route — a guest
-// filling in the form must be able to pinch-zoom (WCAG 1.4.4). Next merges
-// viewport per-key across the segment tree rather than replacing wholesale
-// (verified against the running dev server: omitting maximumScale/userScalable
-// here left the root's `maximum-scale=1, user-scalable=no` in the rendered
-// meta tag) — so they must be explicitly overridden, not just left out.
-export const viewport: Viewport = {
-  width: 'device-width',
-  initialScale: 1,
-  maximumScale: 5,
-  userScalable: true,
-  colorScheme: 'dark',
-  themeColor: '#0B0B0D',
-};
+// See src/lib/public-route-viewport.ts — overrides the root layout's locked
+// viewport so a guest filling in this form can pinch-zoom (WCAG 1.4.4).
+export { publicRouteViewport as viewport } from '@/lib/public-route-viewport';
 
 const dateFmt = new Intl.DateTimeFormat('en-GB', {
   weekday: 'short',

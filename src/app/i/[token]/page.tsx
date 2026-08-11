@@ -1,7 +1,8 @@
-import type { Metadata, Viewport } from 'next';
+import type { JSX } from 'react';
+import type { Metadata } from 'next';
 import { createHash } from 'node:crypto';
-import { headers } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
+import { landingClientIpHash } from '@/features/requests/ip-hash';
 import { InfluencerStats, type InfluencerStatsData, type InfluencerStatsEvent } from '@/components/po/influencer-stats';
 import { t } from '@/lib/i18n';
 
@@ -11,20 +12,9 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-// Overrides the root layout's locked viewport for this public route (WCAG
-// 1.4.4). Next merges viewport per-key across the segment tree rather than
-// replacing wholesale (verified against the running dev server: omitting
-// maximumScale/userScalable here left the root's `maximum-scale=1,
-// user-scalable=no` in the rendered meta tag) — so they must be explicitly
-// overridden, not just left out.
-export const viewport: Viewport = {
-  width: 'device-width',
-  initialScale: 1,
-  maximumScale: 5,
-  userScalable: true,
-  colorScheme: 'dark',
-  themeColor: '#0B0B0D',
-};
+// See src/lib/public-route-viewport.ts — overrides the root layout's locked
+// viewport for this public route (WCAG 1.4.4).
+export { publicRouteViewport as viewport } from '@/lib/public-route-viewport';
 
 const dateFmt = new Intl.DateTimeFormat('en-GB', {
   weekday: 'short',
@@ -32,14 +22,6 @@ const dateFmt = new Intl.DateTimeFormat('en-GB', {
   month: 'short',
   timeZone: 'Europe/Amsterdam',
 });
-
-async function statsIpHash(): Promise<string> {
-  const h = await headers();
-  const forwarded = h.get('x-forwarded-for');
-  const ip = (forwarded ? forwarded.split(',')[0] : h.get('x-real-ip') ?? '').trim();
-  const salt = process.env.LANDING_IP_SALT ?? 'plusone-landing-dev-salt';
-  return createHash('sha256').update(`${salt}:${ip || 'no-ip'}`).digest('hex');
-}
 
 interface StatsEventPayload {
   event_name?: string;
@@ -72,7 +54,7 @@ export default async function InfluencerStatsPage({
   const tokenHash = createHash('sha256').update(token).digest('hex');
   const { data } = await supabase.rpc('get_influencer_stats', {
     p_token_hash: tokenHash,
-    p_ip_hash: await statsIpHash(),
+    p_ip_hash: await landingClientIpHash(),
   });
 
   const payload = (data ?? {}) as {

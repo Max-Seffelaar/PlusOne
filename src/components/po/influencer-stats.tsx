@@ -8,9 +8,10 @@
  * the po app — only the icon primitive + Tailwind tokens. Entrance animations are
  * translateY-only (#38); clipboard/window access is guarded (#37).
  */
-import { useEffect, useState, type ReactNode } from 'react';
+import { type JSX, useEffect, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
+import { useTransientValue } from '@/lib/use-transient-value';
 import { Icon } from './icon';
 
 const press = 'transition-[filter,transform,background,border-color,color] hover:brightness-[1.08] active:scale-[0.98]';
@@ -48,19 +49,18 @@ function eventUrl(slug: string): string {
 }
 
 function useCopy(): [boolean, (text: string) => void] {
-  const [copied, setCopied] = useState(false);
+  const [copiedFlag, triggerCopied] = useTransientValue<true>(1800);
   const copy = (text: string): void => {
     try {
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
         void navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1800);
+        triggerCopied(true);
       }
     } catch {
       // Clipboard blocked — the URL stays visible elsewhere on the card/modal.
     }
   };
-  return [copied, copy];
+  return [copiedFlag === true, copy];
 }
 
 // ── Header ────────────────────────────────────────────────────────────────────
@@ -133,7 +133,10 @@ function Search({ q, setQ }: { q: string; setQ: (v: string) => void }): JSX.Elem
         value={q}
         onChange={(e) => setQ(e.target.value)}
         placeholder={t.influencerStats.searchPlaceholder}
-        className="min-w-0 flex-1 border-none bg-transparent font-body text-[14.5px] text-text outline-none placeholder:text-faint"
+        // 16px: this page (/i) is pinch-zoomable (publicRouteViewport) — a
+        // sub-16px input triggers iOS Safari's auto-zoom-on-focus, same class
+        // of regression as the /r status-link input (finding 11).
+        className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none placeholder:text-faint"
       />
       {q && (
         <button

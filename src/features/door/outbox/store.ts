@@ -20,6 +20,18 @@ import { resumeStuckEntries, type OutboxEntry } from './types';
 const KEY = 'door-outbox';
 const LOCK_NAME = 'door-outbox-write';
 const CHANNEL_NAME = 'door-outbox-sync';
+/**
+ * How long a settled-but-not-synced entry (`duplicate` / `error`) is kept after
+ * it was created. These are tombstones: nothing will ever replay them again, but
+ * they still drive UI — the "duplicaat" marker on a check-in row (CheckInList) —
+ * and the manual force-sync retry, so they must outlive the shift they belong to
+ * rather than vanish on the next drain. 12h covers a full night (build-up, doors,
+ * teardown) and guarantees the queue starts the next event empty instead of
+ * carrying every duplicate/quota rejection the venue ever produced, which the
+ * old `clearSynced()` kept forever and re-serialized to IndexedDB on every
+ * single commit.
+ */
+const TOMBSTONE_TTL_MS = 12 * 60 * 60 * 1000;
 /** Stable empty reference for SSR / first paint (useSyncExternalStore needs it). */
 const EMPTY: readonly OutboxEntry[] = Object.freeze([]);
 
@@ -68,7 +80,15 @@ export class OutboxStore {
   }
 
   private async doInit(): Promise<void> {
+    // Mirrors persistMerged/onRemoteChange's wipe-epoch guard: a sign-out
+    // (idbClearAll bumps the epoch) landing during this await must not let the
+    // continuation repopulate `entries` with the previous user's data, flip
+    // `loaded` back to true, and then have persistMerged's own (post-wipe)
+    // epoch check pass and write the old user's check-in queue — guest PII —
+    // into the next user's clean DB (86ey9et07).
+    const epoch = idbEpoch();
     const raw = await idbGet<unknown>(KEY);
+    if (epoch !== idbEpoch()) return; // a wipe landed during the read — bail before any state mutation
     const { entries: persisted, droppedInvalid, droppedStaleShape } = parsePersistedOutbox(raw);
     // Revive entries stranded in `syncing` by a mid-drain kill (C8). Persist the
     // normalization immediately so a second crash before the first drain can't
@@ -136,19 +156,47 @@ export class OutboxStore {
     this.commit();
   }
 
-  /** Drop entries that fully synced — keeps the queue small over a long night. */
-  clearSynced(): void {
+  /**
+   * Drop everything that has finished for good — keeps the queue small over a
+   * long night. `synced` goes immediately (the server owns that state now);
+   * `duplicate` / `error` tombstones survive `TOMBSTONE_TTL_MS` because the UI
+   * and the manual retry still read them, then go too.
+   *
+   * Before this pruned tombstones, a queue only ever grew: a night's duplicates
+   * and quota rejections stayed in memory AND were re-serialized to IndexedDB on
+   * every subsequent commit (this runs after every drain — a mutation or the 60s
+   * safety sync), so the per-write cost climbed all night on exactly the device
+   * that can least afford it. `now` is injectable for tests only.
+   */
+  clearSettled(now: number = Date.now()): void {
+    const cutoff = now - TOMBSTONE_TTL_MS;
+    const isExpiredTombstone = (e: OutboxEntry): boolean =>
+      (e.status === 'duplicate' || e.status === 'error') && Date.parse(e.createdAt) <= cutoff;
     // The read-merge-before-commit below unions with whatever's on disk, which
     // may still hold these exact entries if a sibling tab hasn't cleared them
     // yet — a plain filter-then-commit would have the removal silently undone
     // by that merge. Passing the removed ids through lets persistMerged() strip
     // them again *after* merging, so the clear actually sticks.
-    const removed = new Set(this.entries.filter((e) => e.status === 'synced').map((e) => e.clientId));
-    this.entries = this.entries.filter((e) => e.status !== 'synced');
+    const removed = new Set(
+      this.entries.filter((e) => e.status === 'synced' || isExpiredTombstone(e)).map((e) => e.clientId),
+    );
+    // Nothing settled since the last call: skip the commit entirely rather than
+    // paying a read-merge-write of the whole queue for a no-op.
+    if (removed.size === 0) return;
+    this.entries = this.entries.filter((e) => !removed.has(e.clientId));
     this.commit({ excludeIds: removed });
   }
 
-  /** Re-queue terminal errors for a manual force-sync retry. */
+  /**
+   * Re-queue terminal errors for a manual force-sync retry. Wired to the
+   * sync-bar's "sync nu" button ONLY (`onBeforeForceSync` in DoorProvider) —
+   * never to the automatic drains, or a dead-lettered entry would retry forever
+   * on the 60s safety sync and the dead-letter budget would mean nothing. A
+   * doorhost pressing it is deliberately saying "try again": the condition that
+   * produced the rejection may genuinely be gone (the list was unlocked, a
+   * removal freed a quota slot), and without this there was no recovery path at
+   * all short of re-doing the check-in by hand.
+   */
   retryErrors(): void {
     // Same revert risk as init()'s revival: the flush below re-reads disk,
     // which still has `error` (rank 1) for these ids — a plain merge would
@@ -277,6 +325,10 @@ export class OutboxStore {
   reset(): void {
     this.entries = [];
     this.loaded = false;
+    // A next-user init() arriving while the previous user's load is still in
+    // flight must not join that stale pre-wipe promise — invalidate it too so
+    // the next init() call starts a fresh doInit() against the wiped epoch.
+    this.initPromise = null;
     this.emit();
     this.setPersistDegraded(false);
   }

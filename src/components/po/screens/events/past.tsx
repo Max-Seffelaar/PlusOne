@@ -1,7 +1,7 @@
 'use client';
 
 /** Past-event recap + shared event-activity/audit section — split from events.tsx (FE-5). */
-import { useState } from 'react';
+import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { usePoEvent, usePoEventForEdit, usePoEventRecap } from '@/features/po/hooks';

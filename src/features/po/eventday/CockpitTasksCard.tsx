@@ -7,6 +7,7 @@
  * (`t.door.tasks*`/`taskMarkDone`/`taskReopen`/`taskPriorityBadge`) rather than
  * a parallel cockpit-only string set.
  */
+import type { JSX } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import { Icon } from '@/components/po/icon';

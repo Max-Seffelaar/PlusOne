@@ -16,9 +16,10 @@
  * The shell (sidebar / bottom-tabs) is the ResponsiveShell; this screen renders
  * only the content column. English copy via the i18n catalogus; lg: = 1024px.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type JSX, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
+import { useTransientValue } from '@/lib/use-transient-value';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import {
   usePoHomeEvents,
@@ -443,7 +444,7 @@ export function Home(): JSX.Element {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const [page, setPage] = useState(0);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, showToast] = useTransientValue<string>(2200);
   const [guestPickOpen, setGuestPickOpen] = useState(false);
   const [guestQuery, setGuestQuery] = useState('');
   // Optimistic per-event overlay over the server's list_locked, rolled back on
@@ -451,20 +452,6 @@ export function Home(): JSX.Element {
   // confirmed value (usePoSetListLockOnHome).
   const [lockOverride, setLockOverride] = useState<Record<string, boolean>>({});
   const setLock = usePoSetListLockOnHome();
-
-  const toastTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null);
-  const showToast = (msg: string): void => {
-    setToast(msg);
-    // An earlier toast's timer would otherwise fire after a later one is set
-    // and wipe it prematurely — clear it before arming the new one.
-    if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 2200);
-  };
-  useEffect(() => {
-    return () => {
-      if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    };
-  }, []);
 
   const board: BoardEvent[] = useMemo(
     () => toBoardEvents(eventsQ.data?.events ?? [], guestReqQ.data ?? [], quotaReqQ.data ?? [], lockOverride, Date.now()),

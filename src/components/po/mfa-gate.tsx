@@ -17,7 +17,7 @@
  * fires just from the sheet opening. On success the cookie-based browser
  * client upgrades the session to AAL2 and the caller retries the action.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { type JSX, useEffect, useRef, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import { createClient } from '@/lib/supabase/client';
