@@ -714,8 +714,8 @@ export function Home(): JSX.Element {
                       // 'landing' is the default tab — omit it so the URL matches
                       // the plain /app/requests?event= form (routes.ts invariant).
                       onReq={showRequestTiles ? (tab) => nav.push('aanvragen', tab === 'quota' ? { id: e.id, tab } : { id: e.id }) : undefined}
-                      onEdit={() => nav.push('eventedit', { id: e.id })}
-                      onLock={() => onLock(e)}
+                      onEdit={e.canManage ? () => nav.push('eventedit', { id: e.id }) : undefined}
+                      onLock={e.canManage ? () => onLock(e) : undefined}
                     />
                   ))}
                 </div>
@@ -755,8 +755,8 @@ export function Home(): JSX.Element {
                     // 'landing' is the default tab — omit it so the URL matches
                     // the plain /app/requests?event= form (routes.ts invariant).
                     onReq={showRequestTiles ? (tab) => nav.push('aanvragen', tab === 'quota' ? { id: e.id, tab } : { id: e.id }) : undefined}
-                    onEdit={() => nav.push('eventedit', { id: e.id })}
-                    onLock={() => onLock(e)}
+                    onEdit={e.canManage ? () => nav.push('eventedit', { id: e.id }) : undefined}
+                    onLock={e.canManage ? () => onLock(e) : undefined}
                   />
                 ))}
               </div>

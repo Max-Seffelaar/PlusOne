@@ -1033,6 +1033,29 @@ export async function fetchOrganizesAtVenue(client: Client, venueId: string, use
 }
 
 /**
+ * Every event id at this venue the caller organizes (86ey9tkav) — the bulk,
+ * per-event counterpart to fetchOrganizesAtVenue's single boolean. Feeds the
+ * Home board's per-row "admin OR organizer of THIS event" manage-gate
+ * (mirrors events_update_admin_organizer RLS / fetchEventForEdit's isOrganizer)
+ * without an N+1 query per card: one venue-scoped read, same shape as
+ * fetchOrganizesOpenEventAtVenue.
+ */
+export async function fetchOrganizerEventIds(
+  client: Client,
+  venueId: string,
+  userId: string
+): Promise<Set<string>> {
+  if (!userId || !venueId) return new Set();
+  const { data, error } = await client
+    .from('event_organizers')
+    .select('event_id, events!inner(venue_id)')
+    .eq('user_id', userId)
+    .eq('events.venue_id', venueId);
+  if (error) throw error;
+  return new Set((data ?? []).map((row) => row.event_id));
+}
+
+/**
  * Whether the caller organizes a still-workable event at this venue — a live/
  * upcoming, non-cancelled event (M2, K-6): an external crew member with no venue
  * role otherwise has no in-app route to a door surface, even though RLS
