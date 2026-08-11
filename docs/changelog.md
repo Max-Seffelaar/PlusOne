@@ -119,11 +119,22 @@ merged tree before touching any finding, per instruction — clean.
   (`service.ts`, `server.ts`, `middleware.ts`, `invite-mail.ts`) — deliberately NOT in
   `src/lib/supabase/client.ts`, whose `NEXT_PUBLIC_*` reads must stay literal `process.env.X`
   for Next's build-time inlining into the browser bundle.
+- **Gotcha caught only by CI, not `pnpm type-check`**: `route.test.ts`'s pin for
+  `emailOtpTypeSchema` (finding 9) lived as an exported const in `route.ts` itself. `tsc --noEmit`
+  is happy with that — it's Next.js's own build-time Route Handler validation, not TypeScript
+  structural checking, that rejects any named export from a Route Handler file other than the
+  small set it recognizes (`GET`, `POST`, `config`, …): `"emailOtpTypeSchema" is not a valid
+  Route export field.` Broke both the Vercel preview deploy and the CI `lint-and-test` job (which
+  runs a real `pnpm build`). Fixed by moving the schema into `features/auth/schemas.ts` (its
+  tests moved to the co-located `schemas.test.ts`); confirmed via a local `pnpm build` before
+  re-pushing, not just `type-check`. Worth remembering for any future Route Handler file: `tsc
+  --noEmit` is not a substitute for `next build` when the file exports anything beyond the HTTP
+  method handlers.
 - Gates on the merged tree: `pnpm lint` clean, `pnpm type-check` clean (one real error caught —
-  see `useTransientValue`'s `clear()` above), 988/988 vitest green, manual dev-server smoke
-  (Door tab: live check-in/reverse-check-in round-trip with correct count updates, no console
-  errors, `touch-action: manipulation` confirmed via computed style; public `/e`: viewport meta
-  confirmed still zoomable after the shared-const refactor).
+  see `useTransientValue`'s `clear()` above), `pnpm build` succeeds, 1046/1046 vitest green,
+  manual dev-server smoke (Door tab: live check-in/reverse-check-in round-trip with correct
+  count updates, no console errors, `touch-action: manipulation` confirmed via computed style;
+  public `/e`: viewport meta confirmed still zoomable after the shared-const refactor).
 - **Left for Max**: merge PR #255 (`gh pr merge` is blocked for this session by the auto-mode
   classifier, even on direct instruction); the ClickUp root-unlock/input-audit follow-up still
   needs filing once the rate limit clears; a fresh-session `/code-review` is required again
