@@ -295,6 +295,101 @@ Gerichte `eslint` op alle aangepaste bestanden: schoon. `tsc --noEmit`: zie sess
 
 ---
 
+## 2026-08-11 — Door search + po shell re-render scope, review-corrected (86ey9e9vc)
+
+Branch `perf/86ey9e9vc-render-scope-memo`, [PR #261](https://github.com/Max-Seffelaar/PlusOne/pull/261).
+Two findings from the perf-scale audit (#44/#45), re-verified against `main` (PR #225
+had already split `sync` off `DoorProvider` but left `listFilters` bundled) and then
+corrected by a fresh-session `/code-review`. Milestone: Now (door-search feel + a
+`react-hooks/exhaustive-deps` lint-silencer on the sole source of truth for nav).
+
+- **#44 — door search re-rendered the whole door tree.** `listFilters`/`setListFilters`
+  lived in `DoorContext`'s broad `value` memo, so every keystroke changed `value`'s
+  identity and re-rendered every `useDoor()` consumer before the 140ms debounce even
+  ran. Split into a new `DoorFiltersContext` (`useDoorFilters()`,
+  `src/features/door/DoorProvider.tsx`); `CheckInList` is the only real consumer
+  (confirmed via grep — **not** Taken/GuestDetail/AddOnSpot, which the first version of
+  this fix's own comment wrongly listed: `screens/door.tsx`'s `screen` is a single
+  if/else-if chain, so those three are unmounted whenever the search field exists).
+  State stays in the provider — checking a guest in pushes a detail screen and the pop
+  remounts the list, so provider state is what keeps "Onderweg" selected across that
+  remount (feedback Joeri 1/7). This is why `#225` left it bundled and it survived:
+  nothing encoded the invariant. Fixed with a real regression test —
+  `DoorProvider.test.tsx` now has two SEPARATE probe components (one per context, not
+  one calling both hooks) proving `setListFilters` re-renders the filters consumer but
+  not a `useDoor()`-only one; verified it actually fails by temporarily re-adding
+  `listFilters` to the broad `value` memo's deps and confirming red, then reverting.
+- **#45, first pass — resize debounce.** The first version of this PR debounced
+  `useViewport`'s `resize` listener by 120ms. **Review reverted this** — it saved zero
+  renders and regressed the one path it mattered on. `setIsMobile(mql.matches)`
+  already gets React's eager-state bailout on a non-crossing frame (no unchanged-value
+  setState schedules work), and on an actual crossing frame the (necessarily
+  un-debounced) `matchMedia` `change` listener fires in the same task per the HTML
+  "update the rendering" steps — so a 1s edge-drag across the breakpoint cost 1 render
+  before the debounce and 1 render after it. Meanwhile `resize` exists specifically
+  because DevTools device-mode and some webviews reflow WITHOUT firing `change` — on
+  that path (the Capacitor wrap target, #37) `resize` is the ONLY signal, and the
+  debounce's `clearTimeout`-on-every-event meant `update()` never ran during a
+  continuous reflow, lagging the desktop-cockpit/outbox-backed-`DoorProvider` split and
+  `DoorRoute.tsx`'s hard `window.location.replace`. Reverted to a plain listener; added
+  the `typeof window.matchMedia !== 'function'` guard the sibling call sites
+  (`platform.ts`, `datetime-field.tsx`) already carry, since the previous version was
+  unguarded and consequently untestable — `use-viewport.test.ts` is new (5 cases:
+  serverHint seed + correction, `change` listener, `resize` fallback, listener
+  cleanup on unmount, no-`matchMedia` guard).
+- **#45, completed — the door subtree's own bailout.** The PR's actual stated goal for
+  app.tsx stopped one step short: `<PoDoorTab>` was constructed inline inside
+  `<DoorProvider>`, so `children` was a NEW object every `PlusOneApp` render and
+  React's element-identity bailout could never fire — PoDoorTab, SyncBar and the
+  virtualized CheckInList all re-rendered regardless of the DoorContext splits, since
+  the re-render arrived structurally from above, not through context. Fixed by
+  `useCallback`-wrapping `pushDoorState`/`replaceDoorState`/`openGuest`/`openAdd`/
+  `closeOverlay`/`onDoorTab`/`onChangeDoorEvent` and wrapping the `<PoDoorTab>` element
+  itself in `useMemo` (`app.tsx`); `DoorProvider`/`DoorQueryProvider` just forward
+  `children` unmodified, so a stable element reference there is what lets React reuse
+  the whole subtree. New test: `screens/door-tab-render-scope.test.tsx` — mounts the
+  real `PoDoorTab` (dependencies mocked) through a non-memoized pass-through mirroring
+  `DoorProvider`'s shape, proves an unrelated ancestor re-render doesn't re-invoke it
+  (counts `useDoor()` calls, which happen unconditionally at the top of `PoDoorTab`,
+  as a render-count proxy) but a real prop change (the overlay opening) does; verified
+  by temporarily removing the `useMemo` and confirming the assertion goes red.
+- **Correctness/cleanup from the same review pass**, none behavior-changing: dropped an
+  `eslint-disable-next-line react-hooks/exhaustive-deps` on the `target` memo (rebuilt
+  the `URLSearchParams` from the already-tracked string instead of depending on the
+  live `searchParams` object — `parseAppUrl` only ever calls `.get(...)` on it); gave
+  `liveEvents ?? []` / `doorCandidatesQuery.data ?? []` stable module-level `EMPTY_*`
+  fallbacks (a fresh `[]` per render was a dep of the stale-door-refetch effect, tearing
+  it down and re-running it on every render for as long as the query stayed unresolved
+  — same idiom as `EventDayCockpit`'s `EMPTY_GUESTS`/`EMPTY_TIERS`); removed
+  `switchToVenue`'s `venueId === activeVenueId` → `nav.back()` branch, unreachable from
+  the UI (`settings/venue.tsx` only wires the switch button in the `!cur` branch) and
+  contradicting its own doc comment ("a no-op for the already-active venue") — this is
+  dead-code/doc-drift cleanup only, not a perf win, since `nav` was already a `po` memo
+  dep regardless; and corrected three comment blocks (`app.tsx` ×3, `DoorProvider.tsx`
+  ×1) that claimed benefits the architecture doesn't deliver — through context alone
+  the `target`/`nav`/`po` memos protect zero consumers today (`grep -rn "memo("` finds
+  exactly one hit, `CockpitGuestList`, which reads neither hook); their real payoff is
+  dep-array stability for direct consumers (`Templates`' "skip to new template" effect)
+  and, after the #45 completion above, the door subtree's element-identity bailout.
+- **Why `listFilters` must stay on its own narrow context, not fold back into
+  `DoorContext`:** the state itself has to live in `DoorProvider` (guest-detail
+  push/pop must not reset it), but nothing else in the tree needs it — every keystroke
+  is the highest-frequency write against this provider by a wide margin (once per
+  character vs. once per check-in), so bundling it with anything that has broader
+  consumers (which is every other field on `DoorContextValue`) reintroduces #44 by
+  construction. This is the rationale PR #225 didn't write down, which is how the bug
+  survived that split; it's now load-bearing in both the `DoorFiltersContext` comment
+  and the new regression test.
+- Tests: `pnpm vitest run` — 107 files / 1094 passed, 0 failed (added: 2 in
+  `door-tab-render-scope.test.tsx`, 5 in `use-viewport.test.ts`, 1 in
+  `DoorProvider.test.tsx` — the rest of the delta vs. the pre-review-fix baseline is
+  `main` growing under this branch across two rebases, not new coverage from this pass).
+  `pnpm run type-check` clean. `pnpm lint` clean (only the pre-existing unrelated
+  `datetime-field.tsx` a11y warnings).
+- Left for Max: a fresh-session `/code-review` on the corrected diff (DoorProvider.tsx
+  is a listed high-risk surface — the building session doesn't self-approve), then the
+  per-screen Deur-tab test handoff, then merge.
+
 ## 2026-08-11 — Silent 0-row event/link updates + Home Lock/Edit role-gating (86ey9e9gn + 86ey9tkav)
 
 Branch `fix/86ey9e9gn-86ey9tkav-event-write-guards-home-gating`. Two overlapping,

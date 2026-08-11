@@ -137,13 +137,17 @@ export function useDoorSyncStatus(): DoorSyncState {
 // #225: that PR split off `sync`, but `listFilters`/`setListFilters` were still
 // bundled into the broad `value` useMemo below, so every keystroke in the
 // search field updated `listFiltersFor` state → `value`'s identity changed →
-// every useDoor() consumer re-rendered (Taken, SyncBar, GuestDetail, AddOnSpot,
-// the door screen wrapper), before the 140ms debounce even runs. CheckInList is
-// the only real consumer (verified via grep) — the state itself still LIVES in
-// DoorProvider (not local to CheckInList) because opening a guest pushes a
-// detail screen and the pop remounts the list; local state would snap filters
-// back to defaults mid-shift (feedback Joeri 1/7). Local-first stays true: no
-// server state, just a narrower context boundary.
+// every useDoor() consumer re-rendered, before the 140ms debounce even runs.
+// NOT Taken/GuestDetail/AddOnSpot (review, 86ey9e9vc) — screens/door.tsx's
+// `screen` is a single if/else-if chain, so all three are unmounted whenever
+// the search field can receive a keystroke; the real per-keystroke saving is
+// PoDoorTab itself + SyncBar + DoorEventBar + the Deur/Taken segment buttons,
+// which stay mounted alongside CheckInList. CheckInList is the only real
+// listFilters/setListFilters consumer (verified via grep) — the state itself
+// still LIVES in DoorProvider (not local to CheckInList) because opening a
+// guest pushes a detail screen and the pop remounts the list; local state
+// would snap filters back to defaults mid-shift (feedback Joeri 1/7).
+// Local-first stays true: no server state, just a narrower context boundary.
 interface DoorFiltersContextValue {
   listFilters: DoorListFilters;
   setListFilters: (patch: Partial<DoorListFilters>) => void;

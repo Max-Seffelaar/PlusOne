@@ -53,7 +53,7 @@ vi.mock('./queries', async (importOriginal) => {
 });
 
 // Imported AFTER the mocks so the provider picks them up.
-const { DoorProvider, useDoor, useDoorSyncStatus } = await import('./DoorProvider');
+const { DoorProvider, useDoor, useDoorSyncStatus, useDoorFilters } = await import('./DoorProvider');
 const { outbox } = await import('./outbox/store');
 
 // ── fixtures ────────────────────────────────────────────────────────────────
@@ -370,5 +370,51 @@ describe('DoorProvider — which failure the doorhost is shown (#33)', () => {
     });
     await waitFor(() => expect(insertCalls.filter((g) => g === GUEST_A)).toHaveLength(2));
     await waitFor(() => expect(serverCheckIns.map((c) => c.guest_id)).toEqual([GUEST_A]));
+  });
+});
+
+describe('DoorProvider — render scope of the DoorFiltersContext split (86ey9e9vc, #44)', () => {
+  // Regression for exactly how #44 survived PR #225's `sync` split: a minimal
+  // "keep the useDoorFilters export but source it from the broad DoorContext
+  // value" change restores the bug with every OTHER test in this file still
+  // green, because none of them touch listFilters. This is the one that would
+  // actually catch it — two SEPARATE probes, one per context, so a re-render
+  // of one without the other is observable (a single probe calling both hooks
+  // would re-render on either and prove nothing).
+  type FiltersApi = ReturnType<typeof useDoorFilters>;
+
+  function DoorOnlyProbe({ renders }: { renders: DoorApi[] }): null {
+    renders.push(useDoor());
+    return null;
+  }
+  function FiltersOnlyProbe({ renders }: { renders: FiltersApi[] }): null {
+    renders.push(useDoorFilters());
+    return null;
+  }
+
+  it('setListFilters re-renders the useDoorFilters() consumer but not a useDoor()-only consumer', async () => {
+    const doorRenders: DoorApi[] = [];
+    const filtersRenders: FiltersApi[] = [];
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    render(
+      <QueryClientProvider client={client}>
+        <DoorProvider eventId={EVENT_ID} initialSnapshot={snapshotWith([])}>
+          <DoorOnlyProbe renders={doorRenders} />
+          <FiltersOnlyProbe renders={filtersRenders} />
+        </DoorProvider>
+      </QueryClientProvider>,
+    );
+    await settle();
+
+    const doorAfterMount = doorRenders.length;
+    const filtersAfterMount = filtersRenders.length;
+
+    await act(async () => {
+      filtersRenders[filtersRenders.length - 1].setListFilters({ q: 'ann' });
+    });
+
+    expect(filtersRenders.length).toBeGreaterThan(filtersAfterMount);
+    expect(filtersRenders[filtersRenders.length - 1].listFilters.q).toBe('ann');
+    expect(doorRenders.length).toBe(doorAfterMount);
   });
 });
