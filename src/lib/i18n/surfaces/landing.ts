@@ -58,6 +58,7 @@ export const landing = {
   privacyNote: 'Your details go only to the organizer of this event and are anonymized automatically after the retention period. No account needed.',
 
   // ── Validation ───────────────────────────────────────────────────────────
+  nameError: 'Add your name so we can save your spot.',
   emailError: "That email doesn't look right. Mind checking it?",
   phoneError: 'Check your phone number, including the country code.',
 

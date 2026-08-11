@@ -1,7 +1,8 @@
+import type { JSX } from 'react';
 import type { Metadata } from 'next';
 import { createHash } from 'node:crypto';
-import { headers } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
+import { landingClientIpHash } from '@/features/requests/ip-hash';
 import { RequestStatus, type RequestStatusData } from '@/components/po/landing';
 
 export const metadata: Metadata = {
@@ -10,20 +11,16 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
+// See src/lib/public-route-viewport.ts — overrides the root layout's locked
+// viewport for this public route (WCAG 1.4.4).
+export { publicRouteViewport as viewport } from '@/lib/public-route-viewport';
+
 const dateFmt = new Intl.DateTimeFormat('en-GB', {
   weekday: 'short',
   day: 'numeric',
   month: 'short',
   timeZone: 'Europe/Amsterdam',
 });
-
-async function statusIpHash(): Promise<string> {
-  const h = await headers();
-  const forwarded = h.get('x-forwarded-for');
-  const ip = (forwarded ? forwarded.split(',')[0] : h.get('x-real-ip') ?? '').trim();
-  const salt = process.env.LANDING_IP_SALT ?? 'plusone-landing-dev-salt';
-  return createHash('sha256').update(`${salt}:${ip || 'no-ip'}`).digest('hex');
-}
 
 /**
  * Guest status page (/r/[token], #28). The URL carries a bearer token; only its
@@ -42,7 +39,7 @@ export default async function RequestStatusPage({
   const tokenHash = createHash('sha256').update(token).digest('hex');
   const { data } = await supabase.rpc('get_request_status', {
     p_token_hash: tokenHash,
-    p_ip_hash: await statusIpHash(),
+    p_ip_hash: await landingClientIpHash(),
   });
 
   const payload = (data ?? {}) as {

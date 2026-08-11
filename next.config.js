@@ -1,12 +1,13 @@
 /** @type {import('next').NextConfig} */
 const { withSentryConfig } = require('@sentry/nextjs');
 
-// PWA disabled for now — will re-enable in fase 9 (door app)
-// const withPWA = require('next-pwa')({
-//   dest: 'public',
-//   register: true,
-//   skipWaiting: true,
-// });
+// NO next-pwa — do not wire it in. Fase 9 shipped a hand-written service worker
+// instead (public/service-worker.js, registered from /door only). Its generated
+// Workbox SW cached cross-origin GETs — Supabase REST bodies with guest PII — in
+// an origin-scoped cache that outlived sign-out on shared door tablets, and its
+// leftover output at public/sw.js kept running on real browsers for months
+// (86ey9e9mn). The dependency is still in package.json pending a lockfile change;
+// this comment and tests/unit/no-stale-pwa-artifacts.test.ts are what keep it inert.
 
 const isDev = process.env.NODE_ENV !== 'production';
 
@@ -33,7 +34,12 @@ const csp = [
 ].join('; ');
 
 const nextConfig = {
-  reactStrictMode: false, // Disabled temporarily to debug hydration issues
+  reactStrictMode: true,
+  // NOTE: do NOT pin `turbopack.root` / `outputFileTracingRoot` to __dirname to
+  // silence the multi-lockfile workspace-root warning. In a git worktree with
+  // pnpm, pinning the root makes Turbopack fail to resolve `@sentry/nextjs`
+  // from sentry.server.config.ts ("Module not found") — the inferred parent
+  // root works fine and the warning is cosmetic (86ey9e9zd).
   images: {
     unoptimized: true,
   },
@@ -82,8 +88,6 @@ const nextConfig = {
 // upload. No secrets here — hardcoded org/project fallbacks keep CI/local builds
 // working without env; the Vercel marketplace integration injects the real
 // SENTRY_ORG/SENTRY_PROJECT/SENTRY_AUTH_TOKEN and env wins.
-// When PWA returns in fase 9 it goes INSIDE this wrap:
-//   module.exports = withSentryConfig(withPWA(nextConfig), {...})
 module.exports = withSentryConfig(nextConfig, {
   org: process.env.SENTRY_ORG || 'plus-one-hs', // fase 7.2 — verify the real org slug
   project: process.env.SENTRY_PROJECT || 'javascript-nextjs',

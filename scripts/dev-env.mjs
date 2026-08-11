@@ -14,12 +14,13 @@
 //   node scripts/dev-env.mjs           → provision .env.local only (used by `dev:env`)
 //   node scripts/dev-env.mjs --serve   → provision, pick a port, print links, run next dev
 //   PORT=7005 node scripts/dev-env.mjs --serve → force a specific port
+//   DEV_WEBPACK=1 pnpm dev             → escape hatch: serve with webpack instead of Turbopack
 //
 // Never blocks: any env problem prints guidance and continues (next dev still runs).
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync, rmSync, readdirSync, statSync } from 'node:fs';
 import { execSync, spawn } from 'node:child_process';
 import { createServer } from 'node:net';
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
 
 const cwd = process.cwd();
 const envPath = resolve(cwd, '.env.local');
@@ -113,11 +114,66 @@ try {
   console.warn('[dev-env] Unexpected env error; continuing:', e?.message ?? e);
 }
 
+// The webpack build cache under .next/cache grows unbounded (~745 MB after one
+// `pnpm build`) and Turbopack dev never reads it. Prune it at dev startup once it
+// crosses the cap — the next `pnpm build` simply regenerates it. Never blocks.
+const CACHE_CAP_MB = 500;
+
+function dirSizeMb(dir) {
+  let bytes = 0;
+  const stack = [dir];
+  while (stack.length) {
+    const current = stack.pop();
+    let entries;
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = join(current, entry.name);
+      if (entry.isDirectory()) stack.push(full);
+      else if (entry.isFile()) {
+        try {
+          bytes += statSync(full).size;
+        } catch {
+          /* file vanished mid-walk */
+        }
+      }
+    }
+  }
+  return bytes / (1024 * 1024);
+}
+
+function pruneNextCache() {
+  const cacheDir = resolve(cwd, '.next', 'cache');
+  if (!existsSync(cacheDir)) return;
+  const sizeMb = dirSizeMb(cacheDir);
+  if (sizeMb <= CACHE_CAP_MB) return;
+  try {
+    rmSync(cacheDir, { recursive: true, force: true });
+    console.log(
+      `[dev-env] Pruned .next/cache (${Math.round(sizeMb)} MB > ${CACHE_CAP_MB} MB cap — build cache regenerates on the next \`pnpm build\`).`
+    );
+  } catch (e) {
+    console.warn('[dev-env] Could not prune .next/cache; continuing:', e?.message ?? e);
+  }
+}
+
 if (process.argv.includes('--serve')) {
   const port = await choosePort();
   printBanner(port);
+  try {
+    pruneNextCache();
+  } catch (e) {
+    console.warn('[dev-env] Cache prune check failed; continuing:', e?.message ?? e);
+  }
   const nextBin = resolve(cwd, 'node_modules', 'next', 'dist', 'bin', 'next');
-  const child = spawn(process.execPath, [nextBin, 'dev', '-p', String(port)], { stdio: 'inherit' });
+  // Turbopack (measured 11/8, task 86ey9e9zd): cold /app compile 2.4s vs 9.4s
+  // webpack, HMR 20–250ms vs 550–2000ms. DEV_WEBPACK=1 falls back to webpack.
+  const args = [nextBin, 'dev', '-p', String(port)];
+  if (!process.env.DEV_WEBPACK) args.splice(2, 0, '--turbopack');
+  const child = spawn(process.execPath, args, { stdio: 'inherit' });
   child.on('exit', (code) => process.exit(code ?? 0));
 } else {
   process.exit(0);

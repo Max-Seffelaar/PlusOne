@@ -214,7 +214,8 @@ rollback to savepoint c4;
 
 -- ---------------------------------------------------------------------------
 -- D. Capacity enforcement (45005) on the cap-3 event — slots = 1 + plus_ones,
---    with the removal-frees-before-live rule.
+--    with the removal-frees-unless-inside rule (#22; the removed-but-inside half
+--    lives in event_capacity_inside.test.sql).
 -- ---------------------------------------------------------------------------
 savepoint dcap;
 select pg_temp.login('11111111-1111-4111-8111-111111111111');  -- admin (exempt from quota, not capacity)
@@ -230,7 +231,7 @@ update public.guests set status = 'removed' where id = 'cc000000-0000-7000-8000-
 select lives_ok($$insert into public.guests (event_id, tier_id, full_name, plus_ones, added_by)
   values ('ee000000-0000-7000-8000-0000000000ca', 'dd000000-0000-7000-8000-0000000000c1',
           'Cap C', 0, '11111111-1111-4111-8111-111111111111')$$,
-  'D3 removing the +2 before go-live frees the slot');
+  'D3 removing the never-checked-in +2 frees the slot');
 reset role;
 rollback to savepoint dcap;
 

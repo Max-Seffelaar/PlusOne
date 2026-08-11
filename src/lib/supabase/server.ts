@@ -2,6 +2,7 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import type { Database } from '../database.types';
 import { AUTH_COOKIE_MAX_AGE } from './cookie-options';
+import { requiredServerEnv } from '../env';
 
 /**
  * @param options.headers Extra HTTP headers forwarded on every request this
@@ -14,8 +15,8 @@ export const createClient = async (options?: { headers?: Record<string, string> 
   const cookieStore = await cookies();
 
   return createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    requiredServerEnv('NEXT_PUBLIC_SUPABASE_URL'),
+    requiredServerEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY'),
     {
       // Persist the session across browser restarts (ClickUp "30 dagen onthouden").
       cookieOptions: { maxAge: AUTH_COOKIE_MAX_AGE },

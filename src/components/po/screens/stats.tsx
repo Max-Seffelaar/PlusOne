@@ -6,7 +6,7 @@
  *  for now (retention/comparisons only mean something once they're built right);
  *  the picker itself stays client-side over the browser client (RLS + the
  *  functions self-guard on role). Reached from the Meer hub, admin/finance only. */
-import { useEffect, useState } from 'react';
+import { type JSX, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
@@ -88,7 +88,10 @@ export function Stats(): JSX.Element {
             name="refresh"
             onClick={() => {
               setReloadKey((k) => k + 1);
-              if (eventId) void qc.invalidateQueries({ queryKey: poKeys.eventActivity(eventId) });
+              // usePoEventActivity reads under poKeys.eventStats now (86ey9e9v5 —
+              // shared with usePoEventStats to dedupe the fetch), not a separate
+              // eventActivity key.
+              if (eventId) void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
             }}
           />
         }

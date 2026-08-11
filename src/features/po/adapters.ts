@@ -158,6 +158,10 @@ export type HomeEvent = PoEventRow & {
   registered: number;
   /** Present headcount (1 + plus-ones over checked-in). */
   present: number;
+  /** Admin (venue) OR organizer of THIS event (86ey9tkav) — gates the board's
+   *  Edit/Lock affordances so a role like a bare user_manager never sees a
+   *  control that RLS would silently refuse. */
+  canManage: boolean;
 };
 
 export function toPoHome(

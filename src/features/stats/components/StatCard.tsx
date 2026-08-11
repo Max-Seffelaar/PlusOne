@@ -1,5 +1,6 @@
 // One KPI card — the desktop mock's stat tile. Server component (pure display),
 // shared by the event-stats and venue-overview screens.
+import type { JSX } from 'react';
 import { cn } from '@/lib/utils';
 import { Card } from '@/components/po/kit';
 

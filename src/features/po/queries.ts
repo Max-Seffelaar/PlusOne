@@ -733,11 +733,18 @@ export interface CheckinArrival {
   arrived: number;
   /** ISO check-in time, for "Binnen · HH:MM". */
   at: string;
+  /**
+   * The check_ins row id. The check-out sends it along so the write can only hit
+   * the check-in the cockpit was actually looking at — a peer's newer row is a
+   * 0-row no-op rather than a hijacked check-in (#35). Absent on an optimistic
+   * patch, where no server row is known yet.
+   */
+  id?: string;
 }
 
 type CheckinArrivalRow = Pick<
   Tables['check_ins']['Row'],
-  'guest_id' | 'plus_ones_arrived' | 'checked_at' | 'voided_at'
+  'id' | 'guest_id' | 'plus_ones_arrived' | 'checked_at' | 'voided_at'
 >;
 
 /**
@@ -757,7 +764,7 @@ export async function fetchCheckinArrivals(
   const rows = await fetchAllRanged<CheckinArrivalRow & { guests: unknown }>((from, to) =>
     client
       .from('check_ins')
-      .select('guest_id, plus_ones_arrived, checked_at, voided_at, guests!inner(event_id)')
+      .select('id, guest_id, plus_ones_arrived, checked_at, voided_at, guests!inner(event_id)')
       .eq('guests.event_id', eventId)
       .order('id')
       .range(from, to),
@@ -765,7 +772,9 @@ export async function fetchCheckinArrivals(
 
   const map = new Map<string, CheckinArrival>();
   for (const row of rows) {
-    if (row.voided_at == null) map.set(row.guest_id, { arrived: row.plus_ones_arrived, at: row.checked_at });
+    if (row.voided_at == null) {
+      map.set(row.guest_id, { arrived: row.plus_ones_arrived, at: row.checked_at, id: row.id });
+    }
   }
   return map;
 }
@@ -1021,6 +1030,29 @@ export async function fetchOrganizesAtVenue(client: Client, venueId: string, use
     .eq('events.venue_id', venueId);
   if (error) throw error;
   return (count ?? 0) > 0;
+}
+
+/**
+ * Every event id at this venue the caller organizes (86ey9tkav) — the bulk,
+ * per-event counterpart to fetchOrganizesAtVenue's single boolean. Feeds the
+ * Home board's per-row "admin OR organizer of THIS event" manage-gate
+ * (mirrors events_update_admin_organizer RLS / fetchEventForEdit's isOrganizer)
+ * without an N+1 query per card: one venue-scoped read, same shape as
+ * fetchOrganizesOpenEventAtVenue.
+ */
+export async function fetchOrganizerEventIds(
+  client: Client,
+  venueId: string,
+  userId: string
+): Promise<Set<string>> {
+  if (!userId || !venueId) return new Set();
+  const { data, error } = await client
+    .from('event_organizers')
+    .select('event_id, events!inner(venue_id)')
+    .eq('user_id', userId)
+    .eq('events.venue_id', venueId);
+  if (error) throw error;
+  return new Set((data ?? []).map((row) => row.event_id));
 }
 
 /**

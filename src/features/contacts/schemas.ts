@@ -146,3 +146,30 @@ export const importContactsSchema = z.object({
     .max(2000, 'Too many rows in one import (max 2000)'),
 });
 export type ImportContactsInput = z.input<typeof importContactsSchema>;
+
+/**
+ * Result shape of the `upsert_contacts` RPC (jsonb — see
+ * 20260707160000_add_contacts_to_event.sql): every code path funnels through
+ * one terminal `jsonb_build_object`, so all four fields are always present —
+ * no optional-field branching like submit_guest_request's multiple early
+ * returns. Validated rather than hand-cast so a mismatched deploy (app ahead
+ * of/behind the DB function) fails closed instead of silently reading
+ * `undefined` off an unexpected shape.
+ */
+export const upsertContactsResultSchema = z.object({
+  inserted: z.number().int(),
+  updated: z.number().int(),
+  skipped: z.number().int(),
+  ids: z.array(uuid),
+});
+
+/**
+ * Result shape of the `add_contacts_to_event` RPC (jsonb — see
+ * 20260707160000_add_contacts_to_event.sql): one terminal
+ * `jsonb_build_object`, all three fields always present.
+ */
+export const addContactsToEventResultSchema = z.object({
+  added: z.number().int(),
+  already: z.number().int(),
+  skipped: z.number().int(),
+});

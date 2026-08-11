@@ -77,7 +77,15 @@ export const config = {
   // `monitoring` prefix would let a future `/monitoring-dashboard` route skip auth
   // entirely. Matcher-level, not PUBLIC_PREFIXES, so no pointless Supabase session
   // refresh runs per envelope.
+  //
+  // `sw.js` and `service-worker.js` MUST stay excluded (86ey9e9mn): a browser
+  // fetching a service-worker script that 307s to /login gets HTML, fails to
+  // parse it, and keeps running the previously installed script — which is
+  // exactly how a retired Workbox SW would survive its own kill-switch stub.
+  // `workbox-` is gone with the artifact it served (public/workbox-*.js); the
+  // only requester left would be a stale SW re-importing it, and that request
+  // is meant to fail.
   matcher: [
-    '/((?!_next/static|_next/image|monitoring(?:/|$)|favicon.ico|manifest.json|sw.js|service-worker.js|workbox-|icons/|apple-touch-icon.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt|woff2?)$).*)',
+    '/((?!_next/static|_next/image|monitoring(?:/|$)|favicon.ico|manifest.json|sw.js|service-worker.js|icons/|apple-touch-icon.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt|woff2?)$).*)',
   ],
 };

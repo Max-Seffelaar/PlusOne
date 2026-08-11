@@ -19,16 +19,15 @@
  * is the event-level master toggle in EventEdit (its own `active` stays true),
  * and its identity can't be edited or archived here.
  */
-import { useEffect, useState, useRef } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { type JSX, useEffect, useState, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
+import { useTransientValue } from '@/lib/use-transient-value';
 import type { Tier } from '@/lib/po/types';
 import type { PoInfluencer, PoRequestLink } from '@/features/po/queries';
 import { usePoEventForEdit, usePoEvents, usePoInfluencers, usePoRequestLinks, usePoTiers } from '@/features/po/hooks';
 import { usePoCreateInfluencer, usePoUpdateLink } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
-import { poKeys } from '@/features/po/keys';
 import { localInputToIso, isoToLocalInput } from '@/features/events/datetime';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
@@ -75,7 +74,8 @@ function LinkCard({
   onToggle: (active: boolean) => void;
   toggling: boolean;
 }): JSX.Element {
-  const [copied, setCopied] = useState(false);
+  const [copiedFlag, triggerCopied] = useTransientValue<true>(1800);
+  const copied = copiedFlag === true;
   const expired = link.expiresAt != null && Date.parse(link.expiresAt) < Date.now();
   const full = link.maxHeadcount != null && link.approvedHeads >= link.maxHeadcount;
 
@@ -83,8 +83,7 @@ function LinkCard({
     try {
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
         await navigator.clipboard.writeText(linkUrl(link.slug));
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1800);
+        triggerCopied(true);
       }
     } catch {
       // Clipboard blocked (rare in webviews) — silently ignore; the URL is visible in the sheet.
@@ -198,24 +197,14 @@ export function EventLinks({ eventId, embedded }: { eventId?: string; embedded?:
     return () => clearTimeout(timer);
   }, [justCreated]);
 
-  // Optimistic pause/resume: flip the cached row immediately, roll back on error
-  // (the mutation's own invalidation reconciles with the server afterwards).
-  const qc = useQueryClient();
+  // Optimistic pause/resume: usePoUpdateLink itself cancels the in-flight links
+  // query, flips the cached row, and rolls back on error (86ey9e9v5) — this only
+  // has to surface the error message.
   const togglePause = (link: PoRequestLink, active: boolean): void => {
     setErr(null);
-    const key = poKeys.requestLinks(id);
-    const prev = qc.getQueryData<PoRequestLink[]>(key);
-    qc.setQueryData<PoRequestLink[]>(key, (old) =>
-      (old ?? []).map((l) => (l.id === link.id ? { ...l, active } : l)),
-    );
     updateLink.mutate(
       { linkId: link.id, active },
-      {
-        onError: (e) => {
-          qc.setQueryData(key, prev);
-          setErr(e instanceof Error ? e.message : t.links.errPause);
-        },
-      },
+      { onError: (e) => setErr(e instanceof Error ? e.message : t.links.errPause) },
     );
   };
 
@@ -588,7 +577,8 @@ function QrSheet({ link, onClose }: { link: PoRequestLink; onClose: () => void }
   const url = linkUrl(link.slug);
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copiedFlag, triggerCopied] = useTransientValue<true>(1800);
+  const copied = copiedFlag === true;
 
   useEffect(() => {
     let cancelled = false;
@@ -609,8 +599,7 @@ function QrSheet({ link, onClose }: { link: PoRequestLink; onClose: () => void }
     try {
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
         await navigator.clipboard.writeText(url);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1800);
+        triggerCopied(true);
       }
     } catch {
       // Clipboard blocked — the URL is visible below the code.

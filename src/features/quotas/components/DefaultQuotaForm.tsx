@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { type JSX, useActionState } from 'react';
 import { setDefaultQuotaAction, type ActionState } from '../default-quota-actions';
 
 const INITIAL: ActionState = { ok: false };
