@@ -5,14 +5,20 @@
  * patches and optimistic writes are simple `setQueryData` edits.
  *
  * Everything goes through the caller's USER-scoped client, so RLS decides what
- * is visible (a doorhost sees the venue's guests; check_ins/refusals are scoped
- * to those guests). Client-agnostic so the server page can prefetch with the
- * server client and hand it to the provider as initialData.
+ * is visible: `check_ins_select`/`refusals_select` grant `{admin,finance,doorhost}`
+ * on the row's own `venue_id`, or the event's organizer on `event_id` — no join
+ * through `guests` (`20260622140000_checkin_event_scope.sql`). Client-agnostic so
+ * the server page can prefetch with the server client and hand it to the provider
+ * as initialData.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 import { resolveAllowUncheck } from '@/features/events/allow-uncheck';
-import { fetchAllRanged } from '@/lib/supabase/paging';
+import { chunkIds, fetchAllRanged } from '@/lib/supabase/paging';
+
+/** Max ids per `.in()` chunk (CLAUDE.md scale rule) — keeps the profiles lookup
+ *  below well under Kong's URI length even at a 1500-guest event. */
+const PROFILE_ID_CHUNK_SIZE = 120;
 
 /** FULL guests row — the shape a realtime payload or a server row arrives in,
  *  before it is projected to the narrow snapshot shape below (P-IDB7). */
@@ -125,18 +131,6 @@ export function doorSnapshotKey(eventId: string): readonly ['door', string] {
 
 type Client = SupabaseClient<Database>;
 
-/**
- * The check_ins/refusals reads embed `guests!inner(event_id)` purely to filter by
- * event (no `guest_id` list — see fetchDoorSnapshot). The snapshot row types have
- * no `guests` field, so drop the embed before handing rows back. Generic over the
- * base row so one helper serves both tables.
- */
-function stripEmbeddedGuests<T>(row: T & { guests: unknown }): T {
-  const rest: Record<string, unknown> = { ...row };
-  delete rest.guests;
-  return rest as T;
-}
-
 export async function fetchDoorSnapshot(client: Client, eventId: string): Promise<DoorSnapshot> {
   const { data: event, error: eventError } = await client
     .from('events')
@@ -149,45 +143,47 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
   // `.select()` truncates at PostgREST's max-rows (1000) and the door silently
   // loses ~third of the list. guests + check_ins + refusals each page to the end;
   // every ranged read carries a unique `.order('id')` tiebreaker so pages can't
-  // overlap or skip. check_ins/refusals filter via an inner-join on the event
-  // (mirrors fetchRecentCheckins) instead of a giant `.in('guest_id', …)` — that
-  // id list would blow Kong's URI length at 1500 ids and over-return anyway.
-  const [{ data: venue }, guestRows, { data: tiers }, checkIns, refusals] = await Promise.all([
-    client.from('venues').select('name, allow_uncheck').eq('id', event.venue_id).maybeSingle(),
-    fetchAllRanged<GuestRow>((from, to) =>
-      client
-        // Refused guests are fetched too so the door can show a "Geweigerd" lijst
-        // and offer "ongedaan maken"; buildDoorView splits them out by status.
-        // Narrow projection (NOT select('*')) — only the door-rendered columns;
-        // keeps unshown PII out of IndexedDB and ~a third off the payload (P-IDB7).
-        // Uses the shared DOOR_GUEST_SELECT so the drift-guard test covers THIS
-        // read (the primary IndexedDB writer), not just an unused constant.
-        .from('guests')
-        .select(DOOR_GUEST_SELECT)
-        .eq('event_id', eventId)
-        .in('status', ['approved', 'checked_in', 'refused'])
-        .order('full_name')
-        .order('id')
-        .range(from, to),
-    ),
-    client.from('guest_tiers').select('*').eq('event_id', eventId).order('name'),
-    fetchAllRanged<CheckInRow & { guests: unknown }>((from, to) =>
-      client
-        .from('check_ins')
-        .select('*, guests!inner(event_id)')
-        .eq('guests.event_id', eventId)
-        .order('id')
-        .range(from, to),
-    ).then((rows) => rows.map(stripEmbeddedGuests)),
-    fetchAllRanged<RefusalRow & { guests: unknown }>((from, to) =>
-      client
-        .from('refusals')
-        .select('*, guests!inner(event_id)')
-        .eq('guests.event_id', eventId)
-        .order('id')
-        .range(from, to),
-    ).then((rows) => rows.map(stripEmbeddedGuests)),
-  ]);
+  // overlap or skip. check_ins/refusals filter on their own denormalized `event_id`
+  // (mirrors fetchCheckinArrivals/fetchRecentCheckins in po/queries.ts — same
+  // `.eq('event_id', …)` shape, different columns/filters per caller's need)
+  // instead of a giant `.in('guest_id', …)` — that id list would blow Kong's URI
+  // length at 1500 ids and over-return anyway. The column arrived (fill-when-null)
+  // in `20260622140000_checkin_event_scope`; `20260713190000_checkin_scope_venue_pin`
+  // made it unconditionally server-derived on every write, which is what makes
+  // filtering on it directly trustworthy.
+  const [{ data: venue, error: venueError }, guestRows, { data: tiers, error: tiersError }, checkIns, refusals] =
+    await Promise.all([
+      client.from('venues').select('name, allow_uncheck').eq('id', event.venue_id).maybeSingle(),
+      fetchAllRanged<GuestRow>((from, to) =>
+        client
+          // Refused guests are fetched too so the door can show a "Geweigerd" lijst
+          // and offer "ongedaan maken"; buildDoorView splits them out by status.
+          // Narrow projection (NOT select('*')) — only the door-rendered columns;
+          // keeps unshown PII out of IndexedDB and ~a third off the payload (P-IDB7).
+          // Uses the shared DOOR_GUEST_SELECT so the drift-guard test covers THIS
+          // read (the primary IndexedDB writer), not just an unused constant.
+          .from('guests')
+          .select(DOOR_GUEST_SELECT)
+          .eq('event_id', eventId)
+          .in('status', ['approved', 'checked_in', 'refused'])
+          .order('full_name')
+          .order('id')
+          .range(from, to),
+      ),
+      client.from('guest_tiers').select('*').eq('event_id', eventId).order('name'),
+      fetchAllRanged<CheckInRow>((from, to) =>
+        client.from('check_ins').select('*').eq('event_id', eventId).order('id').range(from, to),
+      ),
+      fetchAllRanged<RefusalRow>((from, to) =>
+        client.from('refusals').select('*').eq('event_id', eventId).order('id').range(from, to),
+      ),
+    ]);
+  // `venue`/`tiers` errors must not fall through to a default — a swallowed venues
+  // error would resolve `allowUncheck` to `true` below (via `?? true`) on a venue
+  // that actually has uitchecken OFF, letting the door queue an offline void the
+  // server rejects only at outbox replay, after the UI already showed the button.
+  if (venueError) throw venueError;
+  if (tiersError) throw tiersError;
 
   // Names needed for the logboek + the current user (for optimistic check-ins).
   const ids = new Set<string>();
@@ -201,9 +197,15 @@ export async function fetchDoorSnapshot(client: Client, eventId: string): Promis
   } = await client.auth.getUser();
   if (user) ids.add(user.id);
 
-  const profileRows = ids.size
-    ? (await client.from('user_profiles').select('id, full_name').in('id', [...ids])).data ?? []
-    : [];
+  // Chunked (CLAUDE.md scale rule): a busy event's added_by/checked_by/acknowledged_by
+  // set can exceed the ≤120-id budget for a single `.in()` well before it exceeds
+  // PostgREST's 1000-row cap, so this chunks rather than ranges.
+  const profileRows: { id: string; full_name: string }[] = [];
+  for (const chunk of chunkIds([...ids], PROFILE_ID_CHUNK_SIZE)) {
+    const { data, error } = await client.from('user_profiles').select('id, full_name').in('id', chunk);
+    if (error) throw error;
+    profileRows.push(...(data ?? []));
+  }
 
   return {
     event: {

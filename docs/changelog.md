@@ -1171,6 +1171,126 @@ at the door, not cosmetic).
 
 ---
 
+## 2026-08-10 — M4 follow-up: kill stale "check_ins has no event_id" comment + embeds (86ey9c5d2)
+
+Branch `fix/86ey9c5d2-checkin-event-id-comment` (PR [#251](https://github.com/Max-Seffelaar/PlusOne/pull/251)).
+Mechanical follow-up flagged in PR #189's review round: `20260622140000_checkin_event_scope.sql`
+gave `check_ins`/`refusals` a NOT NULL, indexed, trigger-filled `event_id` (+ `venue_id`) back on
+22/6, but three read paths still filtered via a `guests!inner(event_id)` embed as if that column
+didn't exist — the same false premise that once caused a wrong "fix" to the realtime subscription
+filter (see the **2026-07-12** changelog entry below — "UX/IA 8/7 M4: canonical headcount rules" —
+and decision #44 in the spec). Milestone: Now (removes a stale trap that already misled one session).
+
+- **`fetchCheckinArrivals`** (`src/features/po/queries.ts`) — replaced the `guests!inner(event_id)`
+  embed + `.eq('guests.event_id', eventId)` with a direct `.eq('event_id', eventId)` on
+  `check_ins`; rewrote the doc comment that claimed "check_ins carries no event_id".
+- **`fetchDoorSnapshot`** (`src/features/door/queries.ts`) — same fix for both the `check_ins`
+  and `refusals` ranged reads. Since neither read needs any `guests` field once the embed is
+  gone, `select('*, guests!inner(event_id)')` collapsed to `select('*')`, which made the
+  `stripEmbeddedGuests` helper (existed solely to drop the now-absent embed before returning
+  rows) dead code — deleted. Comments updated, including the module header's RLS claim, which
+  was itself stale (said "check_ins/refusals are scoped to those guests" — the live policies
+  key on `venue_id`/`event_id` directly, no join through `guests`).
+- **`fetchRecentCheckins`** (`src/features/po/queries.ts`) — same stale-embed-as-filter pattern,
+  found via the grep sweep (not explicitly named in the task, but the identical mistake). This
+  one genuinely needs `guests.id`/`guests.full_name` for the returned rows, so the embed stays;
+  only the filter moved from `.eq('guests.event_id', eventId)` to `.eq('event_id', eventId)` on
+  `check_ins` directly (and the now-redundant `event_id` dropped from the embed's column list).
+- **RLS unaffected — but not because the policies changed.** `check_ins_select`/`refusals_select`
+  key on the row's own `venue_id`/`event_id` (`20260622140000`, unchanged since), and
+  `guests_select` grants a strict superset of those two branches (same admin/finance/doorhost-on-
+  venue and organizer-on-event, plus a `staff`/`added_by=auth.uid()` branch `check_ins_select`
+  doesn't have) — pinned by `supabase/tests/database/rls.test.sql` and `checkin_scope.test.sql`.
+  So dropping the `guests!inner` join removes a *redundant* filter, not a widening one. This
+  reasoning is specific to `check_ins`/`refusals`'s subset relationship to `guests` — it would
+  NOT hold for a table whose own policy is broader than `guests_select`.
+- **Grep sweep** of `src/` + docs for other live claims that `check_ins`/`refusals` lack
+  `event_id`: none found. `useDoorSync.ts`'s realtime-filter comment already states the correct
+  fact. `docs/changelog.md` history and the historical `perf-scale-track-3.5.md`/
+  `perf-scale-audit-megaevent.md` audit docs were left untouched (dated snapshots of past state,
+  not live documentation).
+
+**Fresh-session `/code-review` before merge (per the review gate — touches the door snapshot
+read path), 2026-08-11 — 15 findings survived verification, all addressed:**
+
+- **Rebase conflict with PR #253** (merged to `main` after this branch was cut) — #253 rewrote
+  the same `fetchCheckinArrivals` lines to add `id` to `CheckinArrival`/`CheckinArrivalRow`
+  (row-scoped offline check-out, #35). Resolved keeping BOTH: `id`/`.select('id, guest_id, …')`
+  from #253, `.eq('event_id', eventId)` (no embed) from this PR.
+- **Swallowed read errors in `fetchDoorSnapshot`** — the `Promise.all` destructured `venues`/
+  `guest_tiers` without checking `error`, and a swallowed `venues` error would resolve
+  `allowUncheck` to `true` (via `?? true`) on a venue with uitchecken actually OFF — the door
+  would show the uncheck button, queue an offline void, and only get rejected at outbox replay
+  by the RESTRICTIVE `check_ins_void_requires_uncheck` policy, after the UI already misled the
+  doorhost. Now both errors are checked and thrown.
+- **Unbounded `.in()` on `user_profiles`** — the `added_by`/`note_acknowledged_by`/`checked_by`
+  id set was passed to `.in()` unchunked (CLAUDE.md: chunk to ≤120), the exact anti-pattern the
+  surrounding comment warns against nine lines above. Chunked via `chunkIds` (already imported
+  by this file's neighbor `paging.ts`) at 120; the error from each chunk is now also checked
+  instead of falling back to `.data ?? []`.
+- **`fetchCheckinArrivals` filtered `voided_at` in JS** — `fetchRecentCheckins` already does
+  `.is('voided_at', null)` server-side; moved the same filter server-side here (`check_ins.guest_id`
+  is UNIQUE, so this can't under-return) and dropped `voided_at` from the select/type.
+- **Migration citation was half-right** — `20260622140000` made the column fill-when-null, not
+  trustworthy against a forged write; `20260713190000_checkin_scope_venue_pin` is what made it
+  unconditionally server-derived. Both are now cited where the trust claim is made.
+- **No test pinned the filter shape** — reverting any of the three fixes to the embed pattern
+  would have passed the full suite. Added `tests/unit/checkin-event-id-scope.test.ts`, a
+  regression guard using a new shared `tests/unit/helpers/spy-client.ts` (promoted from the
+  single-table spy in `scale5-venue-scope.test.ts`, now itself refactored onto the shared
+  helper) — asserts all three reads issue `.eq('event_id', …)` and never `.eq('guests.event_id',
+  …)`. Verified the guard actually catches the regression: hand-reverted `fetchDoorSnapshot`'s
+  `check_ins` read to the old embed pattern, confirmed the new test fails, restored the fix.
+- **Directionality/date error in this entry's own back-pointer** — fixed above ("above" → the
+  2026-07-12 entry is below in this newest-first file; "13/7" → the entry is dated 2026-07-12,
+  13/7 was a `/code-review` sub-section within it).
+- **Changelog's "door outbox surface" mislabel** — the outbox is `src/features/door/outbox/`;
+  this PR touches `src/features/door/queries.ts`, the snapshot *read* path. Fixed here and in
+  the review-gate line below.
+- **CLAUDE.md's scale-rule list of `venue_id`-carrying tables didn't mention `check_ins`/
+  `refusals`** despite them carrying `event_id`+`venue_id` since 22/6 — exactly the kind of
+  "which tables can I filter directly" fact a future session forms its mental model from.
+  Added a clause.
+- **Duplicated ranged-event-scope reads lost their cross-references** when `stripEmbeddedGuests`
+  (whose docstring said "one helper serves both tables") was deleted. Restored
+  `fetchDoorSnapshot` ↔ `fetchCheckinArrivals`/`fetchRecentCheckins` breadcrumb comments. **Not
+  done:** extracting a shared `eventScopedRanged(client, table, eventId, columns)` helper next
+  to `fetchAllRanged` — the three call sites have different columns and one has an extra
+  `.is('voided_at', null)` filter, and typing a generic PostgREST chain wrapper without `any`
+  turned out to be more machinery than three call sites justify. Flagged for Max instead of
+  built; comments are the proportionate fix until/unless a fourth call site appears.
+- Fixed the unbalanced paren in this entry's own `select('*, guests!inner(event_id))')` quote
+  (one `)` too many) and the "1h17m install" aside is `pnpm install` contention from concurrent
+  sessions on this machine, not a repo problem — left as-is, just noting it's not a regression
+  risk.
+
+**Deferred, not built — needs Max's call:**
+- **`check_ins.event_id` isn't re-pinned if a guest moves events post-check-in.**
+  `set_checkin_scope()` only fires on `check_ins`/`refusals` writes, never on a `guests` update;
+  `guests_update`'s RLS re-checks write access but nothing re-derives `check_ins.event_id`. Not
+  reachable today (`updateGuest` never patches `event_id`), so this is latent, not exploitable
+  via any current UI/API path. Two options if Max wants it closed: (a) a `pin_guest_event`
+  trigger + pgTAP proving a guest-event move is rejected (new migration), or (b) a comment at
+  each read recording that `check_ins.event_id == guests.event_id` is now load-bearing and must
+  stay true. Neither built this session — needs a decision, not more code.
+- **`select('*')` on `check_ins`/`refusals` in `fetchDoorSnapshot`** fetches several columns the
+  door never reads (all ids/timestamps/flags, no PII beyond `refusals.reason` which IS rendered
+  and must stay). Not a regression (pre-PR was `'*, guests!inner(event_id)'`, same breadth) and
+  narrowing isn't a one-liner — `CheckInRow` is also built in full by `DoorProvider.tsx`'s
+  optimistic paths and realtime, so narrowing needs a `Pick<>` + a `projectDoorCheckIn` mirror +
+  its own drift guard, mirroring `DOOR_GUEST_SELECT`/`projectDoorGuest`. Recommend deferring
+  unless Max wants P-IDB7 extended to non-PII payload trimming for consistency.
+
+**Tests:** `pnpm vitest run` 418/418 green on the touched suites (door, po, the new/refactored
+`tests/unit/*`), full suite unchanged elsewhere. `tsc --noEmit` zero errors. `pnpm lint` clean.
+No migration — behaviourally neutral for RLS visibility (see above), so no new pgTAP; the F4
+trigger question is explicitly deferred, not silently skipped.
+
+**Review gate:** touches `src/features/door/queries.ts` (door snapshot read path, not the
+outbox) — got the fresh-session `/code-review` above before merge, per CLAUDE.md's review gates.
+
+---
+
 ## 2026-07-14 — Door outbox/cache not wiped on sign-out — shared-device isolation (86ey9et07)
 
 Branch `fix/86ey9et07-door-outbox-clear-on-signout` (PR #233). Follow-up carved out of the
