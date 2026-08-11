@@ -52,6 +52,10 @@ export interface BoardEvent {
   turnout: number;
   requests: number;
   quota: number;
+  /** Admin (venue) OR organizer of THIS event (86ey9tkav) — Home gates the
+   *  Edit/Lock buttons on this, so a role like a bare user_manager never sees
+   *  a control RLS would silently refuse. */
+  canManage: boolean;
 }
 
 /**
@@ -93,6 +97,7 @@ export function toBoardEvents(
       turnout: e.registered > 0 ? Math.round((e.present / e.registered) * 100) : 0,
       requests: reqBy.get(e.id) ?? 0,
       quota: quotaBy.get(e.id) ?? 0,
+      canManage: e.canManage,
     };
   });
 }

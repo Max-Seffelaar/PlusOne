@@ -3,6 +3,7 @@ import {
   fetchEventCrew,
   fetchEventQuota,
   fetchEvents,
+  fetchOrganizerEventIds,
   fetchOrganizesAtVenue,
   fetchOwnSessions,
   fetchVenueGuestsWindow,
@@ -104,6 +105,50 @@ describe('fetchOrganizesAtVenue (86ey9e8e7)', () => {
     } as never;
 
     await expect(fetchOrganizesAtVenue(client, 'venue-1', 'user-1')).rejects.toThrow();
+  });
+});
+
+describe('fetchOrganizerEventIds (86ey9tkav)', () => {
+  it('rejects on a read error, rather than silently deciding "organizes nothing"', async () => {
+    const client = {
+      from: vi.fn(() => ({
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            eq: vi.fn(() => Promise.resolve({ data: null, error: { message: 'boom' } })),
+          })),
+        })),
+      })),
+    } as never;
+
+    await expect(fetchOrganizerEventIds(client, 'venue-1', 'user-1')).rejects.toThrow();
+  });
+
+  it('returns the set of event ids the caller organizes at this venue', async () => {
+    const client = {
+      from: vi.fn(() => ({
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            eq: vi.fn(() =>
+              Promise.resolve({
+                data: [{ event_id: 'event-1' }, { event_id: 'event-2' }],
+                error: null,
+              })
+            ),
+          })),
+        })),
+      })),
+    } as never;
+
+    const result = await fetchOrganizerEventIds(client, 'venue-1', 'user-1');
+    expect(result).toEqual(new Set(['event-1', 'event-2']));
+  });
+
+  it('returns an empty set without querying when userId or venueId is missing', async () => {
+    const client = { from: vi.fn() } as never;
+
+    await expect(fetchOrganizerEventIds(client, '', 'user-1')).resolves.toEqual(new Set());
+    await expect(fetchOrganizerEventIds(client, 'venue-1', '')).resolves.toEqual(new Set());
+    expect((client as { from: ReturnType<typeof vi.fn> }).from).not.toHaveBeenCalled();
   });
 });
 

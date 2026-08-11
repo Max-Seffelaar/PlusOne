@@ -8,6 +8,75 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-11 — Silent 0-row event/link updates + Home Lock/Edit role-gating (86ey9e9gn + 86ey9tkav)
+
+Branch `fix/86ey9e9gn-86ey9tkav-event-write-guards-home-gating`. Two overlapping,
+CONFIRMED findings tackled together: same failure class (C15 silent-success pattern),
+and #2 is the visible symptom of #1 on the Home board. Milestone: Now (correctness +
+a UI control that misleads a real venue-role user).
+
+- **Root cause (86ey9e9gn).** Several state-changing server actions did
+  `.update(patch).eq('id', …)` and returned `{ ok: true }` without checking how many
+  rows PostgREST actually touched. When RLS filters the caller down to 0 rows (no
+  access, list already in the target state, or a stale id), Postgrest returns no error
+  — the action reported success while nothing changed. Fixed by adding
+  `{ count: 'exact' }` to each `.update()` and returning the existing `notFound()`
+  helper (`src/lib/db-errors.ts`) when `count` is falsy, mirroring the established
+  `changeGuestsTierBulk`/`rotateInfluencerStatsToken` pattern:
+  `changeEventStatus`, `setEventCancelled`, `setLandingActive`, `setListLock`,
+  `setAutoLock`, `setEventAllowUncheck` (`src/features/events/actions.ts`) +
+  `updateRequestLink`, `revokeInfluencerStatsToken` (`src/features/links/actions.ts`).
+  `updateEvent` and the template CRUD actions were left alone — out of scope, not
+  reported as affected.
+- **Home board Lock/Edit gating (86ey9tkav).** `src/components/po/screens/home.tsx`
+  passed `onEdit`/`onLock` to every `EventRow` unconditionally, so an
+  ungeprivilegieerde role (e.g. a bare `user_manager`) saw a Lock button that flipped
+  optimistically and — pre-fix — never got corrected, because the silent-success bug
+  above meant the doomed mutation reported `ok:true`. Fixed at the root: added a
+  bulk, venue-scoped `fetchOrganizerEventIds` query (`src/features/po/queries.ts`,
+  mirrors `fetchOrganizesAtVenue`'s `events!inner(venue_id)` pattern — one request for
+  the whole board, not N+1) threaded through `usePoHomeEvents` → `HomeEvent.canManage`
+  → `toBoardEvents` → `BoardEvent.canManage` (`src/features/po/hooks.ts`,
+  `src/features/po/adapters.ts`, `src/components/po/event-row.tsx`). `home.tsx` now
+  passes `onEdit`/`onLock` only when `e.canManage` — same admin-OR-organizer-of-THIS-
+  event rule as `usePoEventForEdit`/`edit.tsx`/`EventDayCockpit.tsx`, just role-hidden
+  instead of shown-and-disabled (Home already role-hides `showNewGuest` the same way).
+  With 86ey9e9gn's guard in place, even a stale `canManage` (cache race) now fails
+  safely — the action returns `not_found` and the existing `onError` rollback in
+  `onLock` (home.tsx) restores the optimistic flip and shows a toast.
+- **Gotcha vs. the ClickUp test-handoff assumption.** The task asked for the live
+  test handoff to confirm Lock "onzichtbaar voor manager@, wél werkend voor
+  door@/admin@". Checked the actual RLS policy (`events_update_admin_organizer`,
+  `admin OR is_event_organizer(id)`) and the seed data (`supabase/seed.sql`): the only
+  seeded organizer is `organizer@plusone.test`, not `door@` — a bare doorhost has
+  no lock rights by design. Implemented to match RLS/spec, not the handoff assumption;
+  flagged instead of silently building either version.
+- Tests: `src/features/events/actions.test.ts` (new, 18 cases) + `src/features/links/actions.test.ts`
+  (new, 6 cases) — count 0/no-error → `not_found`, count 1 → unaffected success, Postgrest
+  error → unaffected `mapMutationError` path, for every touched action. `src/features/po/queries.test.ts`
+  gained 3 cases for `fetchOrganizerEventIds` (error passthrough, id-set mapping, skip-when-missing-args).
+  `src/features/po/adapters.test.ts` fixtures updated for the new `HomeEvent.canManage` field.
+  `pnpm vitest run` on the touched suites (`events/actions`, `links/actions`,
+  `guests/actions`, `po/queries`, `po/adapters`): 116 passed, 0 failed. `pnpm lint` clean
+  on touched files.
+  `tsc --noEmit`: no new errors (pre-existing unrelated `Cannot find module` errors — this
+  worktree's `node_modules` needed a fresh `pnpm install`, done this session — and one
+  pre-existing `@tanstack/react-virtual` gap in `EventDayCockpit.tsx`, untouched by this PR).
+- **Live-verified** (after `pnpm install` + clearing a corrupted `.next` cache — this
+  sandbox's dev server crashed twice on a stale/interrupted cache before a clean start
+  worked): dev-logged in as `manager@plusone.test` — Home board shows only "Open" on
+  every event card, no Edit/Lock/Door/Requests. Dev-logged in as `admin@plusone.test` —
+  both event cards show Edit + Lock, and clicking Lock round-tripped through the real
+  local Supabase stack (button flipped "Lock list" → "Unlock list"), confirming the
+  full pipeline (action → count-check → RLS → DB write → cache invalidation → UI).
+  Did not verify `organizer@plusone.test` live (session got signed out by the sandbox's
+  own instability — HMR loops / an intermittently-timing-out local GoTrue admin API,
+  unrelated to this change) — Max should cover that case in the handoff below.
+- ClickUp: could not update 86ey9e9gn/86ey9tkav from this session — the ClickUp MCP
+  connector was unavailable at pickup and, once it reconnected mid-session, the
+  workspace was rate-limited (~16h). Max needs to link the two tasks and move status
+  manually once the rate limit clears.
+
 ## 2026-07-14 — Door outbox/cache not wiped on sign-out — shared-device isolation (86ey9et07)
 
 Branch `fix/86ey9et07-door-outbox-clear-on-signout` (PR #233). Follow-up carved out of the

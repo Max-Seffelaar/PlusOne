@@ -51,6 +51,7 @@ import {
   fetchTemplateTiers,
   fetchOrganizesAtVenue,
   fetchOrganizesOpenEventAtVenue,
+  fetchOrganizerEventIds,
   fetchEventCrew,
   fetchAssignableCrew,
   fetchRequestLinks,
@@ -192,7 +193,8 @@ export interface PoHomeEvents {
  * the Deur tab (pickDoorEvent), so the home and the door agree on "tonight".
  */
 export function usePoHomeEvents() {
-  const { venueId } = usePoIdentity();
+  const { venueId, userId, roles } = usePoIdentity();
+  const isAdmin = roles.includes('admin');
   return useQuery<PoHomeEvents>({
     queryKey: poKeys.home(venueId ?? ''),
     enabled: !!venueId,
@@ -201,16 +203,25 @@ export function usePoHomeEvents() {
       if (!venueId) return { events: [], defaultId: null };
       const client = createClient();
       const sinceIso = recentEventsSinceIso();
-      const [rows, heads] = await Promise.all([
+      // Admin already manages everything — skip the extra read. Otherwise one
+      // venue-scoped fetch of the caller's own organizer rows (86ey9tkav),
+      // not an N+1 per card, so the board can gate Edit/Lock per event.
+      const [rows, heads, organizerIds] = await Promise.all([
         fetchEvents(client, venueId, sinceIso),
         fetchEventHeadcounts(client, venueId, sinceIso),
+        isAdmin || !userId ? Promise.resolve(new Set<string>()) : fetchOrganizerEventIds(client, venueId, userId),
       ]);
       const now = Date.now();
       const events: HomeEvent[] = rows
         .filter((r) => r.cancelled_at == null)
         .map((r) => {
           const c = heads.get(r.id) ?? { registered: 0, present: 0 };
-          return { ...r, registered: c.registered, present: c.present };
+          return {
+            ...r,
+            registered: c.registered,
+            present: c.present,
+            canManage: isAdmin || organizerIds.has(r.id),
+          };
         })
         // Live first, then soonest start — the order the picker shows.
         .sort((a, b) => {
