@@ -20,9 +20,8 @@ import {
   usePoIsDoorOrganizer,
 } from '@/features/po/hooks';
 import { isOpenGuestRequest } from '@/features/po/adapters';
-import { autoOpenDoorEvent, type PoDoorEvent } from '@/features/po/door-event';
+import { autoOpenDoorEvent } from '@/features/po/door-event';
 import { poKeys } from '@/features/po/keys';
-import type { PoEvent } from '@/lib/po/types';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { useAppShellData } from './app-shell-data';
 import { canSeeAnyRequests, canWorkDoor } from '@/features/auth/roles';
@@ -181,16 +180,6 @@ function mobileTabForScreen(name: ScreenName, props: ScreenProps): TabKey {
   return (MOBILE_TABS.has(key) ? key : 'meer') as TabKey;
 }
 
-// Stable `?? []` fallbacks (86ey9e9vc review; same idiom as EventDayCockpit's
-// EMPTY_GUESTS/EMPTY_TIERS) — `liveEvents ?? []`/`doorCandidatesQuery.data ??
-// []` minted a fresh array every render while the query was still loading.
-// `doorCandidates` is a dep of the stale-door refetch effect below, so a fresh
-// []-per-render tore that effect down and re-ran it on every render for as
-// long as the door candidates query stayed unresolved — on the door's own
-// mount path.
-const EMPTY_EVENTS: PoEvent[] = [];
-const EMPTY_DOOR_CANDIDATES: PoDoorEvent[] = [];
-
 /** Best-effort parent path for a screen with no real browser-history entry to
  *  pop (G1 review): a cold deep link — fresh tab, bookmark, or the consent/MFA
  *  `next=` round-trip — has nothing "before" it in THIS tab's history, so
@@ -298,25 +287,14 @@ export function PlusOneApp(): JSX.Element {
   const searchParams = useSearchParams();
   const searchParamsStr = searchParams.toString();
   // The live URL IS the nav state (G1) — no in-memory stack, no sessionStorage
-  // restore-after-refresh hack. Every screen/tab/door-overlay derives from this
-  // single parse of the current pathname + query string. Memoized (86ey9e9vc,
-  // #45) so its reference is stable across renders that don't change the URL —
-  // `nav`/`po` below key off it. Through context alone this protects nothing
-  // today (review, 86ey9e9vc): the only `React.memo` component in the tree,
-  // `CockpitGuestList`, consumes neither `usePo()` nor `useNav()`, and no query
-  // `PlusOneApp` reads polls (no `refetchInterval`, `refetchOnWindowFocus` is
-  // `false`) — there is no re-render storm this alone stops. The real payoff is
-  // dep-array stability: `nav` is a dep of `Templates`' "skip to new template"
-  // effect (screens/templates.tsx), so an unstable `nav` re-ran that effect on
-  // every render instead of only when its actual inputs changed. Fix #3 below
-  // (86ey9e9vc review) adds a second, structural payoff — the door subtree can
-  // now bail via element-identity, which needs `target`/`doorState` stable too.
+  // restore-after-refresh hack. Memoized (86ey9e9vc) so `nav`/`po` below stay
+  // dep-array-stable (Templates' effect) and, after fix #3, so the door
+  // subtree can bail via element-identity — see docs/changelog.md for the
+  // full re-render-scope analysis (what this memo does and doesn't stop).
   const target = useMemo(
-    // `parseAppUrl` only ever calls `.get(...)` on `search` (routes.ts) — a
-    // plain `URLSearchParams` built from the string satisfies it exactly like
-    // the live `searchParams` object would, so keying the memo off the STRING
-    // (not the possibly-fresh-instance object Next hands back) is what makes
-    // this actually memoize, with no lint-silencing needed (86ey9e9vc review).
+    // A plain `URLSearchParams(searchParamsStr)` satisfies `parseAppUrl`
+    // (routes.ts only calls `.get(...)` on it) and keys the memo off the
+    // tracked STRING instead of Next's possibly-fresh `searchParams` object.
     () => parseAppUrl(pathname, new URLSearchParams(searchParamsStr)),
     [pathname, searchParamsStr],
   );
@@ -441,15 +419,16 @@ export function PlusOneApp(): JSX.Element {
   // Contacts desktop-nav gate (T10). Called here (before any early return) so the
   // hook order stays stable; the gate itself is computed with `caps` further down.
   const canManageTemplates = usePoCanManageTemplates();
-  const { data: liveEvents } = usePoEvents();
-  const events = liveEvents ?? EMPTY_EVENTS;
+  // Never undefined — usePoEvents' own stable-empty-array fallback
+  // (86ey9e9vc review, Step 5b; same for usePoDoorCandidates' `.data` below).
+  const { data: events } = usePoEvents();
   // Non-closed events for the door (live-first). Selection-first (S1.3): an explicit
   // pick (doorEventIdFromUrl, the `?event=` on the door URL, set by "Check-in" from
   // an event card) wins; with exactly one candidate we use it; with several, the
   // user chooses — no auto-pick guess. Only the chosen event's guests are ever
   // loaded, so dozens of live events stay cheap.
   const doorCandidatesQuery = usePoDoorCandidates();
-  const doorCandidates = doorCandidatesQuery.data ?? EMPTY_DOOR_CANDIDATES;
+  const doorCandidates = doorCandidatesQuery.data;
   // Open-requests count for the nav badge (desktop sidebar + mobile More). Reuses
   // the venue-wide guest-requests query that Home already loads (shared React
   // Query key → no extra polling); OPEN = pending only, the shared definition, so
@@ -570,15 +549,9 @@ export function PlusOneApp(): JSX.Element {
 
   const doorOverlayOpen = isDoorTab && doorState.overlay !== null;
 
-  // Memoized (86ey9e9vc, #45): `target`/`doorState` are now stable references
-  // that only change when the URL/override actually does, and `guarded`/
-  // `pushUrl` are stable useCallbacks — so `nav`'s own identity now only
-  // changes on real navigation instead of on every PlusOneApp render. This does
-  // NOT stop `usePo()`/`useNav()` consumers re-rendering through context (see
-  // the `target` comment above — nothing in the tree bails on that today); the
-  // real payoff is `nav` being a stable dep for consumers that key an effect or
-  // memo off it directly (e.g. `Templates`' effect, screens/templates.tsx) and,
-  // after fix #3 below, for the door subtree's own element-identity bailout.
+  // Memoized (86ey9e9vc): `nav`'s identity now only changes on real
+  // navigation, not on every PlusOneApp render — see the `target` comment
+  // above for what this does and doesn't buy.
   const nav: Nav = useMemo(
     () => ({
       push: (name: ScreenName, props = {}) => guarded(() => pushUrl(screenPath(name, props))),
@@ -618,7 +591,12 @@ export function PlusOneApp(): JSX.Element {
       // (a real history entry, or the computed fallback above).
       canGoBack: target.kind === 'screen',
     }),
-    [target, doorState, router, guarded, pushUrl],
+    // Member-level dep, not the whole `doorState` object (86ey9e9vc review,
+    // 2b): the body above only ever reads `doorState.overlay` — depending on
+    // the whole object meant every door sub-nav (Deur↔Taken, event switch)
+    // minted a new `doorState` → new `nav` → new `po` value, defeating the
+    // stability this memo exists to provide on exactly the surface it targets.
+    [target, doorState.overlay, router, guarded, pushUrl],
   );
 
   // Door-overlay navigation (Deur/Taken tabs): opening the overlay is a forward
@@ -652,11 +630,7 @@ export function PlusOneApp(): JSX.Element {
   const switchToVenue = useCallback(
     (venueId: string): void => {
       // A no-op for the already-active venue (context.tsx) — unreachable from
-      // the UI today (settings/venue.tsx only wires this button in the `!cur`
-      // branch) but kept as a guard since `PoApp.switchToVenue` is public API
-      // for any future caller. Not a dependency-array/perf concern either way:
-      // `nav` was already a dep of the `po` memo below regardless (86ey9e9vc
-      // review — dropping it here was previously miscredited as a perf win).
+      // the UI today, kept as a guard since this is public API (86ey9e9vc).
       if (venueId === activeVenueId) return;
       setToast(t.venue.switching);
       const fd = new FormData();
@@ -797,13 +771,7 @@ export function PlusOneApp(): JSX.Element {
     screen = <Home />;
   }
 
-  // Memoized (86ey9e9vc, #45): the PoProvider context value used to be rebuilt
-  // fresh on every render; with `nav` now stable too, this keeps its identity
-  // steady across renders that don't change any of these fields. As with
-  // `nav`/`target` above, no component today reads `usePo()` through a
-  // `React.memo` boundary, so this alone bails nothing through context — the
-  // value is a stable dep for direct consumers instead (same shape as the
-  // `Templates` effect example on `target`).
+  // Memoized (86ey9e9vc) — same shape and caveats as `target`/`nav` above.
   const po: PoApp = useMemo(
     () => ({
       statsVenues: statsAccess?.venues ?? [],
@@ -911,16 +879,14 @@ export function PlusOneApp(): JSX.Element {
     () => guarded(() => replaceDoorState({ seg: doorState.seg, eventId: null, overlay: doorState.overlay })),
     [guarded, replaceDoorState, doorState],
   );
-  // Memoized element (86ey9e9vc review, fix #3 — the PR's own goal, completed):
-  // constructing `<PoDoorTab>` inline meant `DoorProvider`'s `children` prop was
-  // a NEW object every PlusOneApp render, so React's element-identity bailout
-  // could never fire — PoDoorTab, SyncBar and CheckInList (incl. its
-  // `useVirtualizer` recompute over the mounted rows) all re-rendered on every
-  // unrelated PlusOneApp render regardless of the three DoorContext splits,
-  // since the re-render arrives structurally from above, not through context.
-  // With this memoized AND `DoorProvider`/`DoorQueryProvider` just forwarding
-  // `children` through unchanged, React reuses the previous subtree whenever
-  // none of these deps changed — see door-tab-render-scope.test.tsx.
+  // Memoized element (86ey9e9vc, fix #3): a stable reference here is what lets
+  // `DoorProvider`/`DoorQueryProvider` (which just forward `children`) bail
+  // React out of re-rendering PoDoorTab on an unrelated PlusOneApp render —
+  // structural, not context-based, so it's necessary but NOT sufficient on
+  // its own (PoDoorTab still directly subscribes to a couple of DoorProvider
+  // contexts; see DoorToastContext's comment). Structural half verified in
+  // tests/unit/door-tab-element-identity-bailout.test.ts; the context half in
+  // DoorProvider.test.tsx.
   const doorTabElement = useMemo(
     () =>
       resolvedDoorId ? (

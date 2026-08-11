@@ -53,7 +53,7 @@ vi.mock('./queries', async (importOriginal) => {
 });
 
 // Imported AFTER the mocks so the provider picks them up.
-const { DoorProvider, useDoor, useDoorSyncStatus, useDoorFilters } = await import('./DoorProvider');
+const { DoorProvider, useDoor, useDoorSyncStatus, useDoorFilters, useDoorToast } = await import('./DoorProvider');
 const { outbox } = await import('./outbox/store');
 
 // ── fixtures ────────────────────────────────────────────────────────────────
@@ -165,11 +165,17 @@ function makeGateway(): DoorGateway {
 }
 
 // ── harness ─────────────────────────────────────────────────────────────────
-type DoorApi = ReturnType<typeof useDoor>;
+// `toast` moved to its own narrow DoorToastContext (86ey9e9vc review, Step 0
+// Option A) — merged back into one API shape here so the existing
+// `h.api().toast` assertions below stay unchanged; that merge means `Probe`
+// itself is a joint consumer of both contexts, same caveat as the note on the
+// render-scope describe block further down.
+type DoorApi = ReturnType<typeof useDoor> & { toast: string | null };
 type SyncApi = ReturnType<typeof useDoorSyncStatus>;
 
 function Probe({ door, sync }: { door: DoorApi[]; sync: SyncApi[] }): null {
-  door.push(useDoor());
+  const { toast } = useDoorToast();
+  door.push({ ...useDoor(), toast });
   sync.push(useDoorSyncStatus());
   return null;
 }
@@ -228,6 +234,24 @@ afterEach(() => {
 async function settle(): Promise<void> {
   await act(async () => {
     await Promise.resolve();
+  });
+}
+
+/** Wait until a render-count probe array stops growing across two consecutive
+ *  checks, not just after one `settle()` tick (86ey9e9vc review, 3c): `meId`
+ *  is a dep of six DoorContext callbacks (`checkIn`/`voidCheckIn`/etc.), set
+ *  asynchronously from the mocked `getUser()` on mount — a single microtask
+ *  flush happens to be enough today, but couples an exact render-count
+ *  assertion to how many hops that mock takes, which is incidental to what
+ *  these tests actually check. Reproduced: a 10ms delay on the mocked
+ *  `getUser` broke the single-`settle()` version. */
+async function waitForQuiescence(renders: { length: number }): Promise<void> {
+  let last = -1;
+  await waitFor(() => {
+    if (renders.length !== last) {
+      last = renders.length;
+      throw new Error('render count still changing');
+    }
   });
 }
 
@@ -381,9 +405,12 @@ describe('DoorProvider — render scope of the DoorFiltersContext split (86ey9e9
   // actually catch it — two SEPARATE probes, one per context, so a re-render
   // of one without the other is observable (a single probe calling both hooks
   // would re-render on either and prove nothing).
+  // The bare `useDoor()` return (no merged `toast` — that's `DoorApi` above,
+  // built for the other describe block's convenience only).
+  type PureDoorApi = ReturnType<typeof useDoor>;
   type FiltersApi = ReturnType<typeof useDoorFilters>;
 
-  function DoorOnlyProbe({ renders }: { renders: DoorApi[] }): null {
+  function DoorOnlyProbe({ renders }: { renders: PureDoorApi[] }): null {
     renders.push(useDoor());
     return null;
   }
@@ -393,7 +420,7 @@ describe('DoorProvider — render scope of the DoorFiltersContext split (86ey9e9
   }
 
   it('setListFilters re-renders the useDoorFilters() consumer but not a useDoor()-only consumer', async () => {
-    const doorRenders: DoorApi[] = [];
+    const doorRenders: PureDoorApi[] = [];
     const filtersRenders: FiltersApi[] = [];
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
     render(
@@ -404,7 +431,7 @@ describe('DoorProvider — render scope of the DoorFiltersContext split (86ey9e9
         </DoorProvider>
       </QueryClientProvider>,
     );
-    await settle();
+    await waitForQuiescence(doorRenders);
 
     const doorAfterMount = doorRenders.length;
     const filtersAfterMount = filtersRenders.length;
@@ -416,5 +443,67 @@ describe('DoorProvider — render scope of the DoorFiltersContext split (86ey9e9
     expect(filtersRenders.length).toBeGreaterThan(filtersAfterMount);
     expect(filtersRenders[filtersRenders.length - 1].listFilters.q).toBe('ann');
     expect(doorRenders.length).toBe(doorAfterMount);
+  });
+});
+
+describe('DoorProvider — render scope of the DoorToastContext split (86ey9e9vc review, Step 0 Option A)', () => {
+  // The severity-1 fresh-session review finding on PR #261: PoDoorTab
+  // (screens/door.tsx) calls useDoor() directly at the top of its own render
+  // body, so a context-value change forces it to re-render NO MATTER how
+  // stable its own props/element are upstream — memoizing the <PoDoorTab>
+  // element in app.tsx cannot bail a component out of its OWN context
+  // subscription. `toast` was PoDoorTab's only reason to read the broad
+  // DoorContext; splitting it out is what makes app.tsx's element memo's
+  // bailout real.
+  //
+  // A REAL check-in also legitimately re-renders `useDoorSyncStatus()`
+  // consumers (the flush flips `syncing` true→false), so an absolute render
+  // count on the post-fix shape alone doesn't isolate the toast fix's effect.
+  // Compare the post-fix shape (useDoorSyncStatus + useDoorToast, what
+  // PoDoorTab reads today) against the pre-fix shape (useDoor +
+  // useDoorSyncStatus, what it read before Step 0) side by side under the
+  // SAME check-in: the fix's whole claim is that the new shape renders
+  // strictly fewer times than the old one would have.
+  it('a PoDoorTab-shaped consumer subscribing to useDoor() re-renders MORE on a check-in than one subscribing to useDoorToast()', async () => {
+    const oldShapeRenders: null[] = [];
+    const newShapeRenders: null[] = [];
+    function OldShapeProbe(): null {
+      useDoor(); // pre-fix: what PoDoorTab read before Step 0 (for `toast`)
+      useDoorSyncStatus();
+      oldShapeRenders.push(null);
+      return null;
+    }
+    function NewShapeProbe(): null {
+      useDoorToast(); // post-fix: what PoDoorTab reads today
+      useDoorSyncStatus();
+      newShapeRenders.push(null);
+      return null;
+    }
+
+    const door: DoorApi[] = [];
+    const sync: SyncApi[] = [];
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    render(
+      <QueryClientProvider client={client}>
+        <DoorProvider eventId={EVENT_ID} initialSnapshot={snapshotWith([])}>
+          <Probe door={door} sync={sync} />
+          <OldShapeProbe />
+          <NewShapeProbe />
+        </DoorProvider>
+      </QueryClientProvider>,
+    );
+    await waitForQuiescence(oldShapeRenders);
+    const oldAfterMount = oldShapeRenders.length;
+    const newAfterMount = newShapeRenders.length;
+
+    await act(async () => {
+      door[door.length - 1].checkIn(GUEST_A, 1);
+    });
+    await waitFor(() => expect(insertCalls).toContain(GUEST_A));
+    await waitFor(() => expect(door[door.length - 1].pendingCount).toBe(0));
+
+    const oldExtra = oldShapeRenders.length - oldAfterMount;
+    const newExtra = newShapeRenders.length - newAfterMount;
+    expect(oldExtra).toBeGreaterThan(newExtra);
   });
 });

@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import { Toast } from '../shell';
 import { EventRow, toBoardEvents } from '../event-row';
-import { useDoor, useDoorSyncStatus } from '@/features/door/DoorProvider';
+import { useDoorSyncStatus, useDoorToast } from '@/features/door/DoorProvider';
 import type { PoDoorEvent } from '@/features/po/door-event';
 import { usePoGuestRequests, usePoHomeEvents, usePoQuotaRequests } from '@/features/po/hooks';
 import { CheckInList } from '@/features/door/components/CheckInList';
@@ -151,7 +151,11 @@ export function PoDoorTab({
   currentEventName?: string;
   onChangeEvent?: () => void;
 }): JSX.Element {
-  const { toast } = useDoor();
+  // Narrow context (86ey9e9vc review, Step 0 Option A) — not useDoor(): the
+  // broad DoorContext changes on every check-in and every realtime patch from
+  // ANY device, and a context subscription forces a re-render regardless of
+  // how stable this component's own props/element are upstream.
+  const { toast } = useDoorToast();
   // Called ONCE here (not inside StaleResumeOverlay) so its phase can also
   // `inert` everything else in this subtree — a second independent call would
   // run two state machines against the same sync state that could disagree.

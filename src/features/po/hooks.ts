@@ -136,10 +136,20 @@ export interface ContactDedupeKeys {
   phones: Set<string>;
 }
 
+// Stable empty-array fallbacks (86ey9e9vc review, Step 5b) — `.data` is
+// `undefined` while a query is disabled/loading, and every one of
+// usePoEvents/usePoDoorCandidates' ~16 call sites across the app was doing
+// its OWN local `?? []`, minting a fresh array reference each render. Fixing
+// it once here, at the source, means every existing call site benefits
+// without needing an edit — a local `?? []` downstream still works, it's
+// just redundant now.
+const EMPTY_EVENTS: PoEvent[] = [];
+const EMPTY_DOOR_CANDIDATES: PoDoorEvent[] = [];
+
 /** All events for the caller's active venue, with on-list + present headcounts. */
 export function usePoEvents() {
   const { venueId } = usePoIdentity();
-  return useQuery<PoEvent[]>({
+  const query = useQuery<PoEvent[]>({
     queryKey: poKeys.events(venueId ?? ''),
     enabled: !!venueId,
     queryFn: async () => {
@@ -157,6 +167,7 @@ export function usePoEvents() {
       });
     },
   });
+  return { ...query, data: query.data ?? EMPTY_EVENTS };
 }
 
 /** Home polling cadence: keep "aanwezig"/"aanvragen" current without realtime
@@ -272,7 +283,7 @@ export function usePoHomeStats(eventId: string | null) {
  */
 export function usePoDoorCandidates() {
   const { venueId } = usePoIdentity();
-  return useQuery<PoDoorEvent[]>({
+  const query = useQuery<PoDoorEvent[]>({
     queryKey: poKeys.doorCandidates(venueId ?? ''),
     enabled: !!venueId,
     queryFn: async () => {
@@ -280,18 +291,22 @@ export function usePoDoorCandidates() {
       return doorCandidates(await fetchEvents(createClient(), venueId), Date.now());
     },
   });
+  return { ...query, data: query.data ?? EMPTY_DOOR_CANDIDATES };
 }
 
 /** A single event by id, read from the venue's events list (no extra round-trip). */
 export function usePoEvent(eventId: string) {
   const { data, isLoading, isError, error } = usePoEvents();
   return {
-    event: data?.find((e) => e.id === eventId) ?? null,
+    event: data.find((e) => e.id === eventId) ?? null,
     isLoading,
     isError,
     error,
+    // `data` is never undefined (usePoEvents' stable-empty-array fallback,
+    // 86ey9e9vc review, Step 5b) — no `!!data` needed to tell "not loaded
+    // yet" apart from "loaded, id not in it" anymore; `!isLoading` covers it.
     /** List loaded but this id isn't visible (deleted / out of scope). */
-    notFound: !isLoading && !isError && !!data && !data.some((e) => e.id === eventId),
+    notFound: !isLoading && !isError && !data.some((e) => e.id === eventId),
   };
 }
 
