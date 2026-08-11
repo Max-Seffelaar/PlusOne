@@ -9,7 +9,7 @@
  * not all of their +N have arrived yet (plus_ones_arrived only rises), or have
  * their check-in undone ("terugdraaien", soft void #3) and later re-checked in.
  */
-import { useState } from 'react';
+import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { Icon, type IconName } from '@/components/po/icon';

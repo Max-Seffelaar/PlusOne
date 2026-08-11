@@ -7,7 +7,7 @@
  * List + create/edit sheets in one file. RLS is the boundary: admin manages,
  * organizer/finance read, staff/door get [].
  */
-import { useState } from 'react';
+import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import type { PoInfluencer } from '@/features/po/queries';

@@ -40,12 +40,32 @@ const outboxEntryWithPii = [
 
 const A_SESSION = { access_token: 'a.token', user: { id: 'A' } };
 
+// Cache Storage half of the wipe (86ey9e9mn). This suite runs in the node env,
+// where `caches` is undefined and `clearDeviceCaches()` silently no-ops — so
+// without this stub, deleting the whole Cache Storage wipe would still pass
+// every test in the repo.
+let deletedCaches: string[] = [];
+function stubCacheStorage(names: string[]): void {
+  deletedCaches = [];
+  vi.stubGlobal('caches', {
+    keys: async () => names,
+    delete: async (name: string) => {
+      deletedCaches.push(name);
+      return true;
+    },
+    has: async () => false,
+    match: async () => undefined,
+    open: async () => ({}),
+  });
+}
+
 beforeEach(() => {
   signOut.mockReset().mockResolvedValue({ error: null });
   getSession.mockReset().mockResolvedValue({ data: { session: null } }); // no token left = safe to leave
   assign.mockReset();
   vi.spyOn(outbox, 'reset');
   vi.stubGlobal('window', { location: { assign } });
+  stubCacheStorage(['plusone-session-v1', 'plusone-shell-v2']);
 });
 
 afterEach(async () => {
@@ -76,6 +96,16 @@ describe('signOutDevice — shared-device isolation (86ey9et07)', () => {
     await signOutDevice('local');
 
     expect(outbox.reset).toHaveBeenCalledTimes(1);
+  });
+
+  it('wipes the credentialed Cache Storage bucket, keeping the PII-free shell (86ey9e9mn)', async () => {
+    // `/app` HTML in `plusone-session-v1` carries the RSC payload (user id,
+    // venue, roles, name, memberships); `plusone-shell-v2` holds only static
+    // assets + PII-free door pages and must survive so the next doorhost's own
+    // login can still cold-start offline (invariant #25).
+    await signOutDevice('local');
+
+    expect(deletedCaches).toEqual(['plusone-session-v1']);
   });
 
   it('signs out with the requested scope and redirects to /login', async () => {
@@ -113,6 +143,11 @@ describe('signOutDevice — shared-device isolation (86ey9et07)', () => {
       expect(assign).toHaveBeenCalledWith('/login');
     });
 
+    // Ordering revised by the 86ey9e9mn review — this REVERSES the original #233
+    // behaviour (which wiped before the session checks). On this path the user
+    // stays signed in deliberately, and their token is still on the device
+    // either way, so the early wipe protected nothing while destroying a
+    // still-working doorhost's un-synced check-ins and offline shell mid-shift.
     it('does NOT redirect when the token cannot be cleared (offline) — throws instead', async () => {
       getSession.mockResolvedValue({ data: { session: A_SESSION } }); // never clears
       await idbSet(OUTBOX_KEY, outboxEntryWithPii);
@@ -120,8 +155,18 @@ describe('signOutDevice — shared-device isolation (86ey9et07)', () => {
       await expect(signOutDevice('global')).rejects.toThrow('sign-out-incomplete');
 
       expect(assign).not.toHaveBeenCalled(); // stayed put — no hand-off of an authed device
-      expect(await idbGet(OUTBOX_KEY)).toBeUndefined(); // PII still wiped (network-independent)
-      expect(outbox.reset).toHaveBeenCalled();
+    });
+
+    it('keeps this still-signed-in user’s data when sign-out could not complete', async () => {
+      getSession.mockResolvedValue({ data: { session: A_SESSION } }); // never clears
+      await idbSet(OUTBOX_KEY, outboxEntryWithPii);
+
+      await expect(signOutDevice('global')).rejects.toThrow('sign-out-incomplete');
+
+      // Still their device, still their session — so still their queued check-ins.
+      expect(await idbGet(OUTBOX_KEY)).toBeDefined();
+      expect(outbox.reset).not.toHaveBeenCalled();
+      expect(deletedCaches).toEqual([]);
     });
   });
 });

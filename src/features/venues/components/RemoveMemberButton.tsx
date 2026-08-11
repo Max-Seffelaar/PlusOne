@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { type JSX, useActionState, useState } from 'react';
 import { removeMemberAction, type ActionState } from '../actions';
 
 const INITIAL: ActionState = { ok: false };

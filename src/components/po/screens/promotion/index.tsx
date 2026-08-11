@@ -14,7 +14,7 @@
  * 'links'), which stays outside this hub. A direct deep link here without
  * access gets a plain no-access state (role-hide, M3), not an empty dashboard.
  */
-import { useState } from 'react';
+import { type JSX, useState } from 'react';
 import { t } from '@/lib/i18n';
 import { usePoEvents } from '@/features/po/hooks';
 import { useNav, usePo } from '../../context';

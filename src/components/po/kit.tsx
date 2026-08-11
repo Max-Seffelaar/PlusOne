@@ -6,7 +6,7 @@
  * pixel values use arbitrary Tailwind values so the visual output matches the
  * handoff. Interaction: hover `brightness(1.07)`, active `scale(0.975)`.
  */
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, JSX, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import type { Tier } from '@/lib/po/types';
@@ -86,6 +86,23 @@ export function PayChip({ pay }: { pay: string }): JSX.Element | null {
   );
 }
 
+// ── Field error ─────────────────────────────────────────────────────────────
+// Canonical validation-error color (86eyd3men): red, never the lavender accent
+// — the accent already means "focused"/"selected" elsewhere in the UI, so an
+// invalid field styled in accent reads as active, not wrong. A dozen screens
+// hand-rolled `text-red-300 role="alert"` locally before this existed; new
+// inline-error UI should use these instead of re-picking a color.
+export const fieldErrorText = 'text-red-300';
+export const fieldErrorBorder = 'border-red-400';
+
+export function FieldErrorText({ children, className }: { children: ReactNode; className?: string }): JSX.Element {
+  return (
+    <p className={cn('text-[12.5px] leading-[1.4]', fieldErrorText, className)} role="alert">
+      {children}
+    </p>
+  );
+}
+
 // ── Btn ─────────────────────────────────────────────────────────────────────
 type BtnKind = 'primary' | 'dark' | 'ghost' | 'quiet' | 'danger';
 const BTN_KINDS: Record<BtnKind, string> = {
@@ -108,6 +125,7 @@ export function Btn({
   className,
   style,
   desktop,
+  autoFocus,
 }: {
   children: ReactNode;
   kind?: BtnKind;
@@ -122,12 +140,14 @@ export function Btn({
   /** Desktop density (was desktop/kit.tsx's `DBtn`): tighter radius + the
    *  desktop press feel. Same API otherwise — a screen never needs two imports. */
   desktop?: boolean;
+  autoFocus?: boolean;
 }): JSX.Element {
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
+      autoFocus={autoFocus}
       className={cn(
         'inline-flex cursor-pointer items-center justify-center gap-[9px] whitespace-nowrap border font-display font-bold tracking-[-0.01em]',
         desktop ? 'rounded-[12px]' : 'rounded-btn',

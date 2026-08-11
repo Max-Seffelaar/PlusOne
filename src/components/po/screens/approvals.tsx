@@ -15,7 +15,7 @@
  * approvals fall OUTSIDE the approver's personal quota (#31) but still count
  * toward tier-max. No payment / "notify the guest" copy — no ticketing/mail (#10).
  */
-import { useEffect, useState } from 'react';
+import { type JSX, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import {

@@ -32,6 +32,12 @@ export interface DoorGuest {
   inside: boolean;
   /** Had a check-in that was undone at the door (soft void) → back to "onderweg". */
   voided: boolean;
+  /**
+   * The check_ins row this device currently sees for the guest, or null when
+   * there is none. Void/revive send it along so a queued offline write can only
+   * ever hit the row it was aimed at, never a colleague's newer check-in (#35).
+   */
+  checkInId: string | null;
   /** Door payment required — inert until guest_tiers.door_price lands (#34). */
   pay: boolean;
   inAt?: string;
@@ -135,6 +141,7 @@ function toDoorGuest(
     ackByName: g.note_acknowledged_by ? profiles[g.note_acknowledged_by] : undefined,
     inside: active,
     voided: ci != null && ci.voided_at != null,
+    checkInId: ci?.id ?? null,
     pay: false,
     inAt: active ? formatDateTime(ci.checked_at) : undefined,
     inByName: active ? profiles[ci.checked_by] ?? 'Door' : undefined,

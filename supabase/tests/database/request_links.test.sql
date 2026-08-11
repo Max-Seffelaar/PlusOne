@@ -39,7 +39,7 @@ begin
 end;
 $fn$;
 
-select plan(30);
+select plan(34);
 
 -- ---------------------------------------------------------------------------
 -- A. Default link: backfill + create-on-insert + slug sync + generator
@@ -193,6 +193,53 @@ select throws_ok(
      values ('ee000000-0000-7000-8000-000000000001', 'X', 'cross-tier-link',
              'dd000000-0000-7000-8000-0000000000e1') $$,
   '23503', null, 'C7 a tier from another event violates the composite FK');
+
+-- C8/C9 (86ey9thm6): guests.request_link_id has only a single-column FK to
+-- request_links(id) — nothing else in the schema stops a direct guests insert
+-- from attributing to ANOTHER VENUE's link. enforce_request_link_max() is the
+-- only gate; prove it now rejects the mismatch (denied) and still allows a
+-- same-event attribution through (allowed) — the exact allowed/denied pair
+-- the hardening task asked for.
+insert into public.events (id, venue_id, name, starts_at)
+values ('ee000000-0000-7000-8000-00000000f001', 'aa000000-0000-7000-8000-000000000002',
+        'Marktzaal Night', now() + interval '10 days');
+insert into public.guest_tiers (id, event_id, name)
+values ('dd000000-0000-7000-8000-0000000000f1',
+        'ee000000-0000-7000-8000-00000000f001', 'Marktzaal Tier');
+insert into public.request_links (id, event_id, label, slug, tier_id, max_headcount, created_by)
+values ('2c000000-0000-7000-8000-00000000f101',
+        'ee000000-0000-7000-8000-00000000f001', 'Marktzaal Promo',
+        'marktzaal-promo', 'dd000000-0000-7000-8000-0000000000f1', 1,
+        '11111111-1111-4111-8111-111111111111');
+
+select pg_temp.login('55555555-5555-4555-8555-555555555555'); -- staff, venue aa..01 ONLY (no membership at aa..02)
+select throws_ok(
+  $$ insert into public.guests
+       (event_id, tier_id, full_name, added_by, source, request_link_id)
+     values ('ee000000-0000-7000-8000-000000000001',
+             'dd000000-0000-7000-8000-000000000001', 'Cross Venue Attempt',
+             '55555555-5555-4555-8555-555555555555', 'app',
+             '2c000000-0000-7000-8000-00000000f101') $$,
+  '23514', null,
+  'C8 attributing a guest (own event) to another venue''s link is rejected before the foreign link''s cap/consumption is ever computed');
+reset role;
+select is(
+  (select count(*)::int from public.guests where full_name = 'Cross Venue Attempt'),
+  0, 'C8b …and no guest row was created');
+select is(
+  (select public.request_link_consumption('2c000000-0000-7000-8000-00000000f101')),
+  0, 'C8c …and the foreign venue''s link consumption is untouched (nothing leaked, nothing counted)');
+
+select pg_temp.login('55555555-5555-4555-8555-555555555555');
+select is(
+  pg_temp.rowcount($$ insert into public.guests
+       (event_id, tier_id, full_name, added_by, source, request_link_id)
+     values ('ee000000-0000-7000-8000-000000000001',
+             'dd000000-0000-7000-8000-000000000001', 'Same Event Attempt',
+             '55555555-5555-4555-8555-555555555555', 'app',
+             (select id from public.request_links where slug = 'nova-link')) $$),
+  1, 'C9 attributing a guest to a link on the SAME event still succeeds (allowed path unaffected)');
+reset role;
 
 -- ---------------------------------------------------------------------------
 -- D. get_landing_event — one namespace, no enumeration (#28)

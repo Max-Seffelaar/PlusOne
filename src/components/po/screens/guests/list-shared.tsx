@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef } from 'react';
+import { type JSX, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
 import type { Guest as GuestT } from '@/lib/po/types';

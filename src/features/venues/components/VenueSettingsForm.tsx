@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { type JSX, useActionState } from 'react';
 import { updateVenueSettingsAction, type ActionState } from '../actions';
 
 const INITIAL: ActionState = { ok: false };

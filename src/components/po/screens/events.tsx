@@ -3,7 +3,7 @@
 /** Events tab + event detail. Event CRUD, tier/alias beheer, crew and past-event
  *  recap live under `./events/*` (FE-5 split); re-exported here so external
  *  callers keep importing from './screens/events'. */
-import { useState } from 'react';
+import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import {

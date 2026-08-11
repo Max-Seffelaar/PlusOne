@@ -5,7 +5,7 @@
 // with its per-row result view. Lives in its own module so the Guests tab
 // (index.tsx, both venue-wide and pinned to a single event) AND the Contacts
 // screen (profile.tsx) can all use it without an index↔profile circular import.
-import { useEffect, useState } from 'react';
+import { type JSX, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { PoEvent } from '@/lib/po/types';
 import { indexGuestsByName } from '@/features/guests/bulk-dedupe';
