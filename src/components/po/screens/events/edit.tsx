@@ -4,6 +4,7 @@
 import { type JSX, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
+import { useTransientValue } from '@/lib/use-transient-value';
 import {
   usePoEventForEdit,
   usePoTemplates,
@@ -213,7 +214,8 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   // save like the lock/check-out controls, so it never counts toward form-dirty.
   const [quotaDefault, setQuotaDefault] = useState(0);
   const [err, setErr] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copiedFlag, triggerCopied] = useTransientValue<true>(1800);
+  const copied = copiedFlag === true;
   // Leaving with unsaved edits asks first (retest 3/7, Q6). Immediate controls
   // (lock, check-out, cancel) commit on toggle, so they never count as dirty.
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -402,8 +404,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     if (!ev?.landingSlug) return;
     try {
       await navigator.clipboard.writeText(`${window.location.origin}/e/${ev.landingSlug}`);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+      triggerCopied(true);
     } catch {
       // Clipboard blocked (rare in webviews) — silently ignore; the slug is visible.
     }

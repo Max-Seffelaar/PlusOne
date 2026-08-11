@@ -34,7 +34,7 @@ const csp = [
 ].join('; ');
 
 const nextConfig = {
-  reactStrictMode: false, // Disabled temporarily to debug hydration issues
+  reactStrictMode: true,
   images: {
     unoptimized: true,
   },

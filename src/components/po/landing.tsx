@@ -10,6 +10,7 @@
 import { type JSX, useState, useTransition, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
+import { useTransientValue } from '@/lib/use-transient-value';
 import type { SubmitGuestRequestInput } from '@/features/requests/schemas';
 import { isValidEmail } from '@/features/requests/validation';
 import { CountrySelect, PhoneInput, isPhoneValid, type CountryCode } from './phone-lazy';
@@ -113,15 +114,15 @@ function Wrap({ children }: { children: ReactNode }): JSX.Element {
  *  URL the requester can bookmark. Clipboard is guarded (Capacitor webview /
  *  older browsers fall back to a selectable input). */
 function StatusLinkBlock({ token }: { token: string }): JSX.Element {
-  const [copied, setCopied] = useState(false);
+  const [copiedFlag, triggerCopied] = useTransientValue<true>(2000);
+  const copied = copiedFlag === true;
   const url =
     typeof window !== 'undefined' ? `${window.location.origin}/r/${token}` : `/r/${token}`;
 
   function copy(): void {
     if (typeof navigator === 'undefined' || !navigator.clipboard) return;
     void navigator.clipboard.writeText(url).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      triggerCopied(true);
     });
   }
 
@@ -134,7 +135,11 @@ function StatusLinkBlock({ token }: { token: string }): JSX.Element {
           readOnly
           value={url}
           onFocus={(e) => e.currentTarget.select()}
-          className="min-w-0 flex-1 rounded-[10px] border border-line bg-elev px-3 py-2 text-[12px] text-dim outline-none"
+          // 16px, not the original 12px: this page is now pinch-zoomable
+          // (publicRouteViewport), and iOS Safari auto-zooms on focus for any
+          // text input under 16px — tapping to copy the link would zoom the
+          // page in and leave it that way.
+          className="min-w-0 flex-1 rounded-[10px] border border-line bg-elev px-3 py-2 text-[16px] text-dim outline-none"
         />
         <button
           type="button"

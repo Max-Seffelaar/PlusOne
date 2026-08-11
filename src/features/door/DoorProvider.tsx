@@ -20,6 +20,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTransientValue } from '@/lib/use-transient-value';
 import { setUser as sentrySetUser, setTag as sentrySetTag } from '@/lib/observability/sentry-client';
 import { v7 as uuidv7 } from 'uuid';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
@@ -146,7 +147,7 @@ export function DoorProvider({
 }): JSX.Element {
   const queryClient = useQueryClient();
   const [meId, setMeId] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, showToast] = useTransientValue<string>(TOAST_MS);
   // List filters, tagged with the event they belong to: the provider stays
   // mounted across an event switch (same tree position), so a stale tag means
   // "different event → start from the defaults" instead of leaking filters.
@@ -163,8 +164,6 @@ export function DoorProvider({
       })),
     [eventId],
   );
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   // Outbox: load once, subscribe for re-render.
   useEffect(() => {
     void outbox.init();
@@ -265,12 +264,6 @@ export function DoorProvider({
     () => outboxEntries.filter((e) => e.eventId === eventId && (e.status === 'pending' || e.status === 'syncing')).length,
     [outboxEntries, eventId],
   );
-
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), TOAST_MS);
-  }, []);
 
   useEffect(() => {
     if (outboxPersistDegraded) showToast('Local storage unavailable — check-ins may not survive a reload');
