@@ -267,6 +267,12 @@ export function DoorProvider({
   }, []);
 
   useEffect(() => {
+    return () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
     if (outboxPersistDegraded) showToast('Local storage unavailable — check-ins may not survive a reload');
   }, [outboxPersistDegraded, showToast]);
 

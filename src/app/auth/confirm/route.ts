@@ -1,8 +1,21 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import type { EmailOtpType } from '@supabase/supabase-js';
+import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { safeNextPath } from '@/features/auth/next-path';
 import { resolveEntryDestination } from '@/features/auth/entry-redirect';
+
+// The link-verification types this route accepts, mirroring EmailOtpType —
+// kept as an explicit list (rather than a raw cast) so an unexpected value in
+// the query string fails closed instead of reaching verifyOtp unchecked.
+const emailOtpTypeSchema = z.enum([
+  'signup',
+  'invite',
+  'magiclink',
+  'recovery',
+  'email_change',
+  'email',
+]) satisfies z.ZodType<EmailOtpType>;
 
 // Handles link-based verification (token_hash), used for the confirmed e-mail
 // change flow (decision #24) and any magic-link fallback. On success the
@@ -10,15 +23,17 @@ import { resolveEntryDestination } from '@/features/auth/entry-redirect';
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const url = new URL(request.url);
   const tokenHash = url.searchParams.get('token_hash');
-  const type = url.searchParams.get('type') as EmailOtpType | null;
+  const parsedType = emailOtpTypeSchema.safeParse(url.searchParams.get('type'));
+
+  if (!tokenHash || !parsedType.success) {
+    return NextResponse.redirect(new URL('/login', request.url));
+  }
+  const type = parsedType.data;
+
   // Invite/magic-link e-mails land in the app flow; only the e-mail-change
   // confirmation belongs on the profile screen (T1 #1 — one flow, no detour).
   const fallback = type === 'email_change' ? '/settings/profile' : '/app';
   const next = safeNextPath(url.searchParams.get('next'), fallback);
-
-  if (!tokenHash || !type) {
-    return NextResponse.redirect(new URL('/login', request.url));
-  }
 
   // Forward the browser's real User-Agent so the session GoTrue records carries
   // a usable device label ("Chrome · Windows") in the active-sessions list — a

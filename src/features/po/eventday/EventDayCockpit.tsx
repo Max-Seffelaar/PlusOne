@@ -214,17 +214,26 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   const evQuotaReqs = quotaRequests.filter((r) => r.eventId === eventId);
   const openReqs = evGuestReqs.length + evQuotaReqs.length;
 
+  const toastTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const notify = useCallback((msg: string, tone: 'in' | 'out' = 'out'): void => {
-    const entry = { msg, tone };
-    setToast(entry);
-    window.setTimeout(() => setToast((v) => (v === entry ? null : v)), 3200);
+    setToast({ msg, tone });
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 3200);
   }, []);
   const pushFeed = useCallback((e: FeedEntry): void => {
     setFeed((f) => [e, ...f].slice(0, 6));
   }, []);
+  const flashTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const flash = useCallback((id: string): void => {
     setFlashId(id);
-    window.setTimeout(() => setFlashId((v) => (v === id ? null : v)), 900);
+    if (flashTimer.current) window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setFlashId(null), 900);
+  }, []);
+  useEffect(() => {
+    return () => {
+      if (toastTimer.current) window.clearTimeout(toastTimer.current);
+      if (flashTimer.current) window.clearTimeout(flashTimer.current);
+    };
   }, []);
 
   const checkInMutate = checkIn.mutate; // stable across renders (React Query guarantee)

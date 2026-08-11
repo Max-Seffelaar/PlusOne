@@ -9,6 +9,7 @@ import {
   submitGuestRequestSchema,
   approveGuestRequestSchema,
   denyGuestRequestSchema,
+  submitGuestRequestResultSchema,
   type SubmitGuestRequestInput,
   type ApproveGuestRequestInput,
   type DenyGuestRequestInput,
@@ -73,7 +74,9 @@ export async function submitGuestRequest(input: SubmitGuestRequestInput): Promis
     return { ok: false, code: 'error', message: 'Something went wrong. Try again.' };
   }
 
-  const payload = (data ?? {}) as { status?: string; auto_approved?: boolean };
+  const parsedPayload = submitGuestRequestResultSchema.safeParse(data ?? {});
+  if (!parsedPayload.success) return invalidInput();
+  const payload = parsedPayload.data;
   switch (payload.status) {
     case 'ok':
       return { ok: true, statusToken, autoApproved: payload.auto_approved === true };

@@ -16,7 +16,7 @@
  * The shell (sidebar / bottom-tabs) is the ResponsiveShell; this screen renders
  * only the content column. English copy via the i18n catalogus; lg: = 1024px.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
@@ -452,10 +452,19 @@ export function Home(): JSX.Element {
   const [lockOverride, setLockOverride] = useState<Record<string, boolean>>({});
   const setLock = usePoSetListLockOnHome();
 
+  const toastTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const showToast = (msg: string): void => {
     setToast(msg);
-    window.setTimeout(() => setToast(null), 2200);
+    // An earlier toast's timer would otherwise fire after a later one is set
+    // and wipe it prematurely — clear it before arming the new one.
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 2200);
   };
+  useEffect(() => {
+    return () => {
+      if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    };
+  }, []);
 
   const board: BoardEvent[] = useMemo(
     () => toBoardEvents(eventsQ.data?.events ?? [], guestReqQ.data ?? [], quotaReqQ.data ?? [], lockOverride, Date.now()),

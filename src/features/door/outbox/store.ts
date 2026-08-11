@@ -43,14 +43,31 @@ export class OutboxStore {
   private listeners = new Set<() => void>();
   private persistDegraded = false;
   private statusListeners = new Set<() => void>();
+  private initPromise: Promise<void> | null = null;
 
   constructor() {
     getChannel()?.addEventListener('message', this.onRemoteChange);
   }
 
-  /** Load persisted entries once (called from the provider on mount). */
-  async init(): Promise<void> {
-    if (this.loaded) return;
+  /**
+   * Load persisted entries once (called from the provider on mount). The
+   * `loaded` guard alone only rejects a call once a PRIOR one has already
+   * finished — two calls fired back-to-back before the first's IndexedDB read
+   * resolves (React 18 StrictMode's dev-only double-invoke of the mount
+   * effect calls this twice with nothing in between) would both pass it and
+   * read+merge concurrently. Cache the in-flight promise so a second call
+   * while one is already running joins it instead of racing it.
+   */
+  init(): Promise<void> {
+    if (this.loaded) return Promise.resolve();
+    if (this.initPromise) return this.initPromise;
+    this.initPromise = this.doInit().finally(() => {
+      this.initPromise = null;
+    });
+    return this.initPromise;
+  }
+
+  private async doInit(): Promise<void> {
     const raw = await idbGet<unknown>(KEY);
     const { entries: persisted, droppedInvalid, droppedStaleShape } = parsePersistedOutbox(raw);
     // Revive entries stranded in `syncing` by a mid-drain kill (C8). Persist the
