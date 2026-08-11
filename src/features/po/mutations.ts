@@ -51,7 +51,6 @@ import type {
   PromoteGuestToContactInput,
 } from '@/features/contacts/schemas';
 import {
-  changeEventStatus,
   createEvent,
   createTier,
   deleteTier,
@@ -78,7 +77,6 @@ import {
   setEventDefaultMemberQuota,
 } from '@/features/events/actions';
 import type {
-  ChangeStatusInput,
   CreateEventInput,
   CreateTierInput,
   DeleteTierInput,
@@ -522,31 +520,6 @@ export function usePoTopUpCheckIn(eventId: string) {
   });
 }
 
-/** Reverse a check-in from the cockpit (✗) — soft-void, guest returns to onderweg (#3). */
-export function usePoVoidCheckIn(eventId: string) {
-  const qc = useQueryClient();
-  const { userId } = usePoIdentity();
-  return useMutation<void, Error, { guestId: string }, CheckinCtx>({
-    mutationFn: async ({ guestId }) => {
-      const gw = supabaseGateway(getDoorClient());
-      const res = classifyError((await gw.voidCheckIn(guestId, userId)).error);
-      if (res.status === 'error' || res.status === 'pending') {
-        throw new Error(res.message ?? 'Check-out failed.');
-      }
-    },
-    onMutate: async ({ guestId }) => {
-      await qc.cancelQueries({ queryKey: poKeys.guests(eventId) });
-      return optimisticCheckin(qc, eventId, guestId, 'wait', 0);
-    },
-    onError: (_err, _input, ctx) => {
-      if (!ctx) return;
-      qc.setQueryData(poKeys.guests(eventId), ctx.prevGuests);
-      qc.setQueryData(poKeys.arrivals(eventId), ctx.prevArrivals);
-    },
-    onSettled: () => invalidateCheckinDerived(qc, eventId),
-  });
-}
-
 export interface PoCheckOutInput {
   guestId: string;
   /** Koppen that STAY inside after the check-out. 0 = everyone leaves (full void). */
@@ -943,14 +916,6 @@ export function usePoUpdateEvent(eventId: string) {
   const invalidate = useInvalidateEvent();
   return useMutation({
     mutationFn: async (input: UpdateEventInput) => throwOnError(await updateEvent(input)),
-    onSuccess: () => invalidate(eventId),
-  });
-}
-
-export function usePoChangeStatus(eventId: string) {
-  const invalidate = useInvalidateEvent();
-  return useMutation({
-    mutationFn: async (input: ChangeStatusInput) => throwOnError(await changeEventStatus(input)),
     onSuccess: () => invalidate(eventId),
   });
 }

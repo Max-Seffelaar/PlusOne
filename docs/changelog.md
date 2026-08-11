@@ -8,6 +8,70 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-11 — Dead-code sweep (86ey9e9xx) + countryFromE164 dedup check (86ey9ea3e, partial)
+
+Branch `chore/86ey9e9xx-dead-code-sweep`. Milestone: Now (codebase hygiene, no behavior
+change). Every removal was grep-verified for zero call-sites before deletion, per the
+task's hard requirement (a past sweep claim was inaccurate once).
+
+- **Removed, all confirmed zero importers repo-wide:**
+  - `src/features/guests/components/{QuickAddField,BulkPasteDialog,GuestEditForm}.tsx`
+    (659 LOC) — superseded, no importers anywhere.
+  - `usePoChangeStatus` (`src/features/po/mutations.ts`) + server action
+    `changeEventStatus`/`changeStatusSchema` (`src/features/events/{actions,schemas}.ts`)
+    — the vestigial event-status machine; `usePoSetCancelled`/`setEventCancelled`
+    replaced it (24 jun 2026, #22). No parallel session had touched it (`gh pr list`
+    for 86ey9e9gn/86ey9e9rz came back empty) — clean removal, no coordination needed.
+    Also dropped the now-orphaned `eventStatus`/`EVENT_STATUSES` import in schemas.ts.
+  - `usePoDoorEvent` (`src/features/po/hooks.ts`) + its dedicated test
+    `hooks.doorEvent.test.tsx` — zero production call sites; `usePoHomeEvents` is the
+    only live caller of the underlying `pickDoorEvent` pure function, which stays
+    (and stays tested via `door-event.test.ts`, comment updated to stop pointing at
+    the now-removed hook). Also dropped the orphaned `poKeys.doorEvent` key.
+  - `usePoVoidCheckIn` (`src/features/po/mutations.ts`) — superseded by `usePoCheckOut`
+    (full/partial checkout, S1.2), which calls the same gateway method directly. No
+    open PR on 86ey9e9rz to coordinate with.
+  - `src/features/contacts/queries.ts` — zero importers anywhere in the repo.
+  - `src/features/stats/components/{TierChart,InflowChart}.tsx` + the `recharts`
+    dependency (package.json + 307-line lockfile trim) — the event-day cockpit moved
+    to CSS bars (`EventDaySkeleton.tsx`'s own comment confirms: "no recharts, cockpit
+    uses CSS bars"), leaving these orphaned. Note: `stats/components/{EventPicker,StatCard}.tsx`
+    grep the same way — zero importers of `stats/components/EventPicker`/`StatCard`
+    either (the broad "EventPicker"/"StatCard" hits elsewhere are unrelated same-named
+    local symbols). Not named in this task, so left alone rather than scope-creeping;
+    flagged as a follow-up task instead.
+- **86ey9ea3e (countryFromE164 dedup) — already moot, no code change.** Grepped for
+  `countryFromE164` repo-wide: zero matches. It was already consolidated into
+  `phoneCountryOf` (`src/components/po/phone-lazy.tsx`) during the First-Load-JS trim
+  (PR #236) — both `profile-sheets.tsx` and `settings/profile.tsx` already import the
+  shared helper. The LOC-split of approvals/home named in that task is explicitly
+  **not** done here per the task instructions — left open, noted in the ClickUp
+  comment once the workspace-wide rate limit clears.
+- **"Overweeg" tooling ask (no-unused-vars→error / dead-export lint)** — not
+  implemented. `@typescript-eslint/no-unused-vars` only catches unused *local*
+  imports/vars, not unused *exports* (the actual shape of every item removed here);
+  catching that needs a different tool (`knip`/`ts-prune`/`eslint-plugin-import`
+  no-unused-modules) — new devDependency, likely surfaces unrelated findings
+  workspace-wide. Flagged as a follow-up decision for Max rather than adding
+  unreviewed tooling in a cleanup PR.
+- **Gates:** `pnpm lint` clean (2 pre-existing unrelated a11y warnings in
+  `datetime-field.tsx`), `npx tsc --noEmit` clean, `pnpm vitest run` 865/865 green,
+  `pnpm build` succeeds. Not a UI change — no test handoff.
+- **Environment gotcha (not code-related):** the first `pnpm install` after editing
+  package.json hung for 40+ minutes under heavy concurrent-session load (dozens of
+  node processes, sub-2GB free RAM) and, once killed, left `node_modules` **empty**
+  and a corrupted partial-extraction dir in `node_modules/.pnpm`. Recovered via
+  `rm -rf` on the corrupted package dir + a clean `pnpm install` once system load
+  eased. `pnpm build` similarly OOM-crashed twice (Windows exit code 3221226505)
+  under the same load before succeeding cleanly. No lasting damage, but worth knowing
+  if a future session's `pnpm install`/`pnpm build` seems to hang for an unusually
+  long time — check `Get-Process node | Measure-Object` / free memory before assuming
+  the command itself is broken.
+- **ClickUp:** MCP was workspace-wide rate-limited (~59 min) exactly when this session
+  tried to pick up both tasks — same recurring issue as [[clickup-86ey9e9r9-sync-pending]].
+  Status/comments deferred to the point where the limit clears; this changelog entry
+  and the PR are the source of truth for what actually happened in the meantime.
+
 ## 2026-07-14 — Door outbox/cache not wiped on sign-out — shared-device isolation (86ey9et07)
 
 Branch `fix/86ey9et07-door-outbox-clear-on-signout` (PR #233). Follow-up carved out of the

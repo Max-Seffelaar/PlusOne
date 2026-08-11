@@ -3,7 +3,6 @@
 // actions and the client forms so the rules live in exactly one place.
 
 import { z } from 'zod';
-import { EVENT_STATUSES } from './status';
 
 const uuid = z.string().uuid('Invalid id');
 
@@ -20,8 +19,6 @@ const hexColor = z
   .string()
   .trim()
   .regex(/^#[0-9a-fA-F]{6}$/, 'Pick a valid color');
-
-const eventStatus = z.enum(EVENT_STATUSES as unknown as [string, ...string[]]);
 
 const optionalText = (max: number) =>
   z
@@ -60,12 +57,6 @@ export const updateEventSchema = z
     path: ['endsAt'],
   });
 export type UpdateEventInput = z.input<typeof updateEventSchema>;
-
-export const changeStatusSchema = z.object({
-  eventId: uuid,
-  status: eventStatus,
-});
-export type ChangeStatusInput = z.input<typeof changeStatusSchema>;
 
 // Cancel / un-cancel an event (replaces the retired status='closed' semantics,
 // 24 jun 2026). A cancelled event is admin-only, takes no check-ins and no public
