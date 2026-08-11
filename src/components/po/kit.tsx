@@ -86,6 +86,23 @@ export function PayChip({ pay }: { pay: string }): JSX.Element | null {
   );
 }
 
+// ── Field error ─────────────────────────────────────────────────────────────
+// Canonical validation-error color (86eyd3men): red, never the lavender accent
+// — the accent already means "focused"/"selected" elsewhere in the UI, so an
+// invalid field styled in accent reads as active, not wrong. A dozen screens
+// hand-rolled `text-red-300 role="alert"` locally before this existed; new
+// inline-error UI should use these instead of re-picking a color.
+export const fieldErrorText = 'text-red-300';
+export const fieldErrorBorder = 'border-red-400';
+
+export function FieldErrorText({ children, className }: { children: ReactNode; className?: string }): JSX.Element {
+  return (
+    <p className={cn('text-[12.5px] leading-[1.4]', fieldErrorText, className)} role="alert">
+      {children}
+    </p>
+  );
+}
+
 // ── Btn ─────────────────────────────────────────────────────────────────────
 type BtnKind = 'primary' | 'dark' | 'ghost' | 'quiet' | 'danger';
 const BTN_KINDS: Record<BtnKind, string> = {
