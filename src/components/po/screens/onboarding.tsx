@@ -7,7 +7,7 @@
  *  New venue): submit calls the same create_venue_with_owner path as the
  *  onboarding wizard (createVenueAction), with complete=true so the venue is
  *  immediately usable, then sets it active + full-reloads (like switchToVenue). */
-import { useState, useTransition } from 'react';
+import { type JSX, useState, useTransition } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { createVenueAction, setActiveVenueAction } from '@/features/venues/actions';

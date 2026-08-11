@@ -7,7 +7,7 @@
  *  honeypot-protected submit action; a filled honeypot still shows success.
  *  Phone is collected WITH a country code (E.164); e-mail + phone get inline
  *  validation; a marketing opt-in box records AVG consent. */
-import { useState, useTransition, type ReactNode } from 'react';
+import { type JSX, useState, useTransition, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import type { SubmitGuestRequestInput } from '@/features/requests/schemas';

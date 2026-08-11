@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 import type { Metadata } from 'next';
 import { createHash } from 'node:crypto';
 import { createClient } from '@/lib/supabase/server';

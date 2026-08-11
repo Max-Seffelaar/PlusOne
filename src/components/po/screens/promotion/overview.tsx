@@ -10,7 +10,7 @@
  * translateY-only per #38. RLS self-guards the RPCs (admin/finance/organizer);
  * everyone else reads [].
  */
-import { useState, type ReactNode } from 'react';
+import { type JSX, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import type { PoEvent } from '@/lib/po/types';

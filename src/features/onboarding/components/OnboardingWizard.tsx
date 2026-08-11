@@ -3,7 +3,7 @@
 /** Client-side onboarding wizard (#40): Welkom → Venue → Plan → Team. The step is
  *  seeded from server-derived state so the flow is resumable; from there it is a
  *  local state machine. Welkom only shows when starting fresh (no venue yet). */
-import { useState } from 'react';
+import { type JSX, useState } from 'react';
 import { DEFAULT_PLAN_ID, type PlanId } from '@/features/billing/plans';
 import { WelkomStep } from './steps/WelkomStep';
 import { VenueStep } from './steps/VenueStep';

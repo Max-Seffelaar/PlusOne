@@ -4,7 +4,7 @@
  *  which a brand-new owner has not set up yet, so invites are best-effort and the
  *  step is prominently skippable; MFA can be enrolled afterwards from the app.
  *  Finishing (send or skip) marks onboarding complete and moves to the app. */
-import { useState, useTransition } from 'react';
+import { type JSX, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { Field, Label, Note, Btn, press } from '@/components/po/kit';
