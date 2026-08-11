@@ -8,7 +8,7 @@
  * the po app — only the icon primitive + Tailwind tokens. Entrance animations are
  * translateY-only (#38); clipboard/window access is guarded (#37).
  */
-import { useEffect, useState, type ReactNode } from 'react';
+import { type JSX, useEffect, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import { Icon } from './icon';

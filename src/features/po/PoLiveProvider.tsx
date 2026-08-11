@@ -4,7 +4,7 @@
 // /app surface plus the caller's identity (user + active venue), resolved
 // server-side in app/page.tsx and passed in. NOT persisted — the door keeps its
 // own offline/outbox QueryClient (DoorProvider) and we never duplicate it (#25).
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, type JSX, useContext, useEffect, useState, type ReactNode } from 'react';
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { setUser as sentrySetUser, setTag as sentrySetTag } from '@/lib/observability/sentry-client';
 import { captureUnexpectedError } from '@/lib/observability/capture';

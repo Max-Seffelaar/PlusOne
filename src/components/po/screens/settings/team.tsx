@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { canGrantRoles, requiresMfa, type VenueRole } from '@/features/auth/roles';

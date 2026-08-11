@@ -19,7 +19,7 @@
  * the other layout's data resolves (retest 13/7 — a slow /app compile/data
  * fetch read as "broken" with nothing on screen in the meantime).
  */
-import { useEffect, useState } from 'react';
+import { type JSX, useEffect, useState } from 'react';
 import { PoDoorTab, type DoorOverlay } from '@/components/po/screens/door';
 import { Spinner } from '@/components/po/kit';
 import { t } from '@/lib/i18n';

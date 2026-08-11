@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { requireUser } from '@/lib/auth/guards';

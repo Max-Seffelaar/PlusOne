@@ -10,6 +10,7 @@ function dg(partial: Partial<DoorGuest> & { id: string; name: string }): DoorGue
     tierId: partial.tierId ?? 't1',
     tierName: partial.tierName ?? 'Gast',
     tierColor: partial.tierColor ?? '#fff',
+    checkInId: partial.checkInId ?? null,
     tierIcon: partial.tierIcon ?? 'user',
     addedByName: partial.addedByName ?? 'Manager',
     addedAt: partial.addedAt ?? '1 jan',

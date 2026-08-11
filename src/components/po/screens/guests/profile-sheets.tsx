@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { type JSX, useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { INSUFFICIENT_PRIVILEGE_MESSAGE } from '@/lib/db-errors';
 import type { ContactRole } from '@/features/contacts/schemas';

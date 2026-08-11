@@ -6,7 +6,7 @@
  * identical content in between. Built with the real `po` kit + design tokens;
  * the screens rendered inside stay as-is for now (wired live per S1+).
  */
-import { Fragment, type ReactNode } from 'react';
+import { Fragment, type JSX, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import { Icon, type IconName } from './icon';

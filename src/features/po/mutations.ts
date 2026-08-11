@@ -125,6 +125,7 @@ import { setDefaultQuotaAction } from '@/features/quotas/default-quota-actions';
 import { createCheckoutSessionAction, createPortalSessionAction } from '@/features/billing/actions';
 import type { VenueRole } from '@/features/auth/roles';
 import type { Guest, Tier } from '@/lib/po/types';
+import type { CheckinArrival } from './queries';
 import { poKeys } from './keys';
 import { classifyAddResult, type BulkAddRowResult } from './bulk';
 import { optimisticGuest, type OptimisticAddArgs } from './adapters';
@@ -409,7 +410,9 @@ export function usePoRemoveGuest(eventId: string) {
 // gates the write via can_check_in (admin/doorhost/organizer, event open/live); the
 // screen hides ✓/✗ for roles without it, and check-in works while locked (#6).
 
-type ArrivalsCache = Map<string, { arrived: number; at: string }>;
+// The cache holds exactly what fetchCheckinArrivals returns — one canonical
+// arrival type, not a second hand-copied shape (CLAUDE.md front-end discipline).
+type ArrivalsCache = Map<string, CheckinArrival>;
 
 interface CheckinCtx {
   prevGuests: Guest[] | undefined;
@@ -438,7 +441,12 @@ function optimisticCheckin(
   );
   qc.setQueryData<ArrivalsCache>(poKeys.arrivals(eventId), (old) => {
     const next: ArrivalsCache = new Map(old ?? []);
-    if (to === 'in') next.set(guestId, { arrived, at: next.get(guestId)?.at ?? new Date().toISOString() });
+    if (to === 'in') {
+      const prev = next.get(guestId);
+      // Keep the known check_ins row id across the optimistic patch — the next
+      // check-out still has to target the row the server actually holds (#35).
+      next.set(guestId, { arrived, at: prev?.at ?? new Date().toISOString(), id: prev?.id });
+    }
     else next.delete(guestId);
     return next;
   });
@@ -510,7 +518,8 @@ export function usePoTopUpCheckIn(eventId: string) {
       const prevArrivals = qc.getQueryData<ArrivalsCache>(poKeys.arrivals(eventId));
       qc.setQueryData<ArrivalsCache>(poKeys.arrivals(eventId), (old) => {
         const next: ArrivalsCache = new Map(old ?? []);
-        next.set(guestId, { arrived: plusOnes, at: next.get(guestId)?.at ?? new Date().toISOString() });
+        const prev = next.get(guestId);
+        next.set(guestId, { arrived: plusOnes, at: prev?.at ?? new Date().toISOString(), id: prev?.id });
         return next;
       });
       return { prevArrivals };
@@ -526,10 +535,13 @@ export function usePoTopUpCheckIn(eventId: string) {
 export function usePoVoidCheckIn(eventId: string) {
   const qc = useQueryClient();
   const { userId } = usePoIdentity();
-  return useMutation<void, Error, { guestId: string }, CheckinCtx>({
-    mutationFn: async ({ guestId }) => {
+  return useMutation<void, Error, { guestId: string; checkInId?: string | null }, CheckinCtx>({
+    mutationFn: async ({ guestId, checkInId }) => {
       const gw = supabaseGateway(getDoorClient());
-      const res = classifyError((await gw.voidCheckIn(guestId, userId)).error);
+      // Same row-scoping as the door and the check-out RPC (#35): void the
+      // check-in we are looking at, never whatever row exists by the time the
+      // request lands.
+      const res = classifyError((await gw.voidCheckIn(guestId, userId, checkInId ?? null)).error);
       if (res.status === 'error' || res.status === 'pending') {
         throw new Error(res.message ?? 'Check-out failed.');
       }
@@ -551,35 +563,32 @@ export interface PoCheckOutInput {
   guestId: string;
   /** Koppen that STAY inside after the check-out. 0 = everyone leaves (full void). */
   remainingHeads: number;
+  /** The check_ins row the cockpit is looking at, when known (C10 / #35). */
+  checkInId?: string | null;
 }
 
 /**
  * Partial or full check-out from the cockpit (S1.2). The check_ins model is one
  * row per guest with a MONOTONE plus_ones_arrived (offline-safety, #25), so there
- * is no in-place "lower the count". A full check-out is a soft-void (#3); a partial
- * check-out is modelled honestly as void + re-checkin of the smaller party — the
- * revive-aware cap trigger resets arrivals fresh, so the count can drop. Online
- * only (no outbox): optimistic flip + invalidate, RLS (incl. the S1.1 uncheck gate)
- * decides. Not atomic across the two writes; on a mid-failure the guest is left
- * onderweg and the error surfaces — the host re-checks-in.
+ * is no in-place "lower the count": the database expresses a partial check-out as
+ * a void plus a re-checkin of the smaller party (the revive-aware cap trigger
+ * resets arrivals fresh, so the count can drop).
+ *
+ * Both writes live inside the `check_out_guest` RPC (migration 20260810183000),
+ * so they share one transaction. Doing them as two round trips from the browser
+ * meant a transient failure in between left the guest FULLY checked out —
+ * headcount −4 where the host asked for −2 — and the cockpit had no way to tell
+ * (#34). Online only (no outbox), optimistic flip + invalidate; RLS, including
+ * the S1.1 uncheck gate, still decides inside the function.
  */
 export function usePoCheckOut(eventId: string) {
   const qc = useQueryClient();
-  const { userId } = usePoIdentity();
   return useMutation<void, Error, PoCheckOutInput, CheckinCtx>({
-    mutationFn: async ({ guestId, remainingHeads }) => {
+    mutationFn: async ({ guestId, remainingHeads, checkInId }) => {
       const gw = supabaseGateway(getDoorClient());
-      const voided = classifyError((await gw.voidCheckIn(guestId, userId)).error);
-      if (voided.status === 'error' || voided.status === 'pending') {
-        throw new Error(voided.message ?? 'Check-out failed.');
-      }
-      if (remainingHeads >= 1) {
-        const revived = classifyError(
-          (await gw.reviveCheckIn(guestId, remainingHeads - 1, userId)).error
-        );
-        if (revived.status === 'error' || revived.status === 'pending') {
-          throw new Error(revived.message ?? 'Check-out failed.');
-        }
+      const res = classifyError((await gw.checkOutGuest(guestId, remainingHeads, checkInId ?? null)).error);
+      if (res.status === 'error' || res.status === 'pending') {
+        throw new Error(res.message ?? 'Check-out failed.');
       }
     },
     onMutate: async ({ guestId, remainingHeads }) => {

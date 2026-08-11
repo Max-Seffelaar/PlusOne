@@ -16,7 +16,7 @@
  * The shell (sidebar / bottom-tabs) is the ResponsiveShell; this screen renders
  * only the content column. English copy via the i18n catalogus; lg: = 1024px.
  */
-import { useMemo, useState } from 'react';
+import { type JSX, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';

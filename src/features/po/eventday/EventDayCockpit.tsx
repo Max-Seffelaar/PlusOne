@@ -8,6 +8,7 @@
  * outbox — desktop is online), lock/approvals through the existing server actions.
  * RLS is the boundary; affordances hide for roles without the right (see below).
  */
+import type { JSX } from 'react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
@@ -21,6 +22,7 @@ import { canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '@/components/po/context';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import type { PoDoorEvent } from '@/features/po/door-event';
+import type { CheckinArrival } from '@/features/po/queries';
 import type { Guest, Tier } from '@/lib/po/types';
 import {
   usePoCheckinArrivals,
@@ -67,7 +69,7 @@ import {
 
 const press = pressDesktop;
 const DENY_REASON = t.cockpit.denyReason;
-const EMPTY_ARRIVALS: ReadonlyMap<string, { arrived: number; at: string }> = new Map();
+const EMPTY_ARRIVALS: ReadonlyMap<string, CheckinArrival> = new Map();
 // Stable fallbacks so the memoized computations don't recompute every render
 // when the query has no data yet (keeps the virtualized list cheap).
 const EMPTY_GUESTS: Guest[] = [];
@@ -280,7 +282,13 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
       const inside = insideHeads(guest, arrivals);
       const leaving = Math.min(inside, Math.max(1, value));
       const remainingHeads = inside - leaving;
-      checkOut.mutate({ guestId: guest.id, remainingHeads }, { onError: (e) => notify(e.message) });
+      // Pin the check-out to the check-in row this cockpit is showing (#35): a
+      // tab that has been open across a peer's re-check-in must no-op, not
+      // check out someone else's guest.
+      checkOut.mutate(
+        { guestId: guest.id, remainingHeads, checkInId: arrivals.get(guest.id)?.id ?? null },
+        { onError: (e) => notify(e.message) }
+      );
       pushFeed({ kind: 'out', t: amsterdamHM(new Date()), name: guest.name, plus: Math.max(0, leaving - 1) });
       notify(
         remainingHeads === 0

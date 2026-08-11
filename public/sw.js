@@ -1,1 +1,43 @@
-if(!self.define){let e,s={};const a=(a,n)=>(a=new URL(a+".js",n).href,s[a]||new Promise(s=>{if("document"in self){const e=document.createElement("script");e.src=a,e.onload=s,document.head.appendChild(e)}else e=a,importScripts(a),s()}).then(()=>{let e=s[a];if(!e)throw new Error(`Module ${a} didn’t register its module`);return e}));self.define=(n,t)=>{const c=e||("document"in self?document.currentScript.src:"")||location.href;if(s[c])return;let i={};const r=e=>a(e,c),o={module:{uri:c},exports:i,require:r};s[c]=Promise.all(n.map(e=>o[e]||r(e))).then(e=>(t(...e),i))}}define(["./workbox-e9849328"],function(e){"use strict";importScripts(),self.skipWaiting(),e.clientsClaim(),e.precacheAndRoute([{url:"/_next/app-build-manifest.json",revision:"4deb9734db6745fb348b7643e2292453"},{url:"/_next/static/chunks/0cb07a38-393d14575a7ccf05.js",revision:"393d14575a7ccf05"},{url:"/_next/static/chunks/215.467afdcb3c20b40d.js",revision:"467afdcb3c20b40d"},{url:"/_next/static/chunks/78-5a29d3a0ee564122.js",revision:"5a29d3a0ee564122"},{url:"/_next/static/chunks/922.b7489385dde24f70.js",revision:"b7489385dde24f70"},{url:"/_next/static/chunks/app/_not-found/page-9096c5648bc6e521.js",revision:"9096c5648bc6e521"},{url:"/_next/static/chunks/app/layout-9fec20a94ebee215.js",revision:"9fec20a94ebee215"},{url:"/_next/static/chunks/app/page-b8ef5108a4cce754.js",revision:"b8ef5108a4cce754"},{url:"/_next/static/chunks/framework-4ca6833de2121832.js",revision:"4ca6833de2121832"},{url:"/_next/static/chunks/main-30efcd32f071ae0d.js",revision:"30efcd32f071ae0d"},{url:"/_next/static/chunks/main-app-a89dcaadbd6ad611.js",revision:"a89dcaadbd6ad611"},{url:"/_next/static/chunks/pages/_app-27170dd2479ee49f.js",revision:"27170dd2479ee49f"},{url:"/_next/static/chunks/pages/_error-bd8732afec6c70f5.js",revision:"bd8732afec6c70f5"},{url:"/_next/static/chunks/polyfills-42372ed130431b0a.js",revision:"846118c33b2c0e922d7b3a7676f81f6f"},{url:"/_next/static/chunks/webpack-e86be4f61f01c073.js",revision:"e86be4f61f01c073"},{url:"/_next/static/css/612efcdf2856537d.css",revision:"612efcdf2856537d"},{url:"/_next/static/media/19cfc7226ec3afaa-s.woff2",revision:"9dda5cfc9a46f256d0e131bb535e46f8"},{url:"/_next/static/media/21350d82a1f187e9-s.woff2",revision:"4e2553027f1d60eff32898367dd4d541"},{url:"/_next/static/media/8e9860b6e62d6359-s.woff2",revision:"01ba6c2a184b8cba08b0d57167664d75"},{url:"/_next/static/media/ba9851c3c22cd980-s.woff2",revision:"9e494903d6b0ffec1a1e14d34427d44d"},{url:"/_next/static/media/c5fe6dc8356a8c31-s.woff2",revision:"027a89e9ab733a145db70f09b8a18b42"},{url:"/_next/static/media/df0a9ae256c0569c-s.woff2",revision:"d54db44de5ccb18886ece2fda72bdfe0"},{url:"/_next/static/media/e4af272ccee01ff0-s.p.woff2",revision:"65850a373e258f1c897a2b3d75eb74de"},{url:"/_next/static/sIlN7NSfvmTHHh9p3M7kD/_buildManifest.js",revision:"c0a1e1ee2e7ead81217aa76fe59a749b"},{url:"/_next/static/sIlN7NSfvmTHHh9p3M7kD/_ssgManifest.js",revision:"b6652df95db52feb4daf4eca35380933"},{url:"/manifest.json",revision:"3a42a58e9bee2e02ce641e03ac6396d6"},{url:"/service-worker.js",revision:"1fdbc07019ceabedea327799bc12fa1c"}],{ignoreURLParametersMatching:[]}),e.cleanupOutdatedCaches(),e.registerRoute("/",new e.NetworkFirst({cacheName:"start-url",plugins:[{cacheWillUpdate:async({request:e,response:s,event:a,state:n})=>s&&"opaqueredirect"===s.type?new Response(s.body,{status:200,statusText:"OK",headers:s.headers}):s}]}),"GET"),e.registerRoute(/^https:\/\/fonts\.(?:gstatic)\.com\/.*/i,new e.CacheFirst({cacheName:"google-fonts-webfonts",plugins:[new e.ExpirationPlugin({maxEntries:4,maxAgeSeconds:31536e3})]}),"GET"),e.registerRoute(/^https:\/\/fonts\.(?:googleapis)\.com\/.*/i,new e.StaleWhileRevalidate({cacheName:"google-fonts-stylesheets",plugins:[new e.ExpirationPlugin({maxEntries:4,maxAgeSeconds:604800})]}),"GET"),e.registerRoute(/\.(?:eot|otf|ttc|ttf|woff|woff2|font.css)$/i,new e.StaleWhileRevalidate({cacheName:"static-font-assets",plugins:[new e.ExpirationPlugin({maxEntries:4,maxAgeSeconds:604800})]}),"GET"),e.registerRoute(/\.(?:jpg|jpeg|gif|png|svg|ico|webp)$/i,new e.StaleWhileRevalidate({cacheName:"static-image-assets",plugins:[new e.ExpirationPlugin({maxEntries:64,maxAgeSeconds:86400})]}),"GET"),e.registerRoute(/\/_next\/image\?url=.+$/i,new e.StaleWhileRevalidate({cacheName:"next-image",plugins:[new e.ExpirationPlugin({maxEntries:64,maxAgeSeconds:86400})]}),"GET"),e.registerRoute(/\.(?:mp3|wav|ogg)$/i,new e.CacheFirst({cacheName:"static-audio-assets",plugins:[new e.RangeRequestsPlugin,new e.ExpirationPlugin({maxEntries:32,maxAgeSeconds:86400})]}),"GET"),e.registerRoute(/\.(?:mp4)$/i,new e.CacheFirst({cacheName:"static-video-assets",plugins:[new e.RangeRequestsPlugin,new e.ExpirationPlugin({maxEntries:32,maxAgeSeconds:86400})]}),"GET"),e.registerRoute(/\.(?:js)$/i,new e.StaleWhileRevalidate({cacheName:"static-js-assets",plugins:[new e.ExpirationPlugin({maxEntries:32,maxAgeSeconds:86400})]}),"GET"),e.registerRoute(/\.(?:css|less)$/i,new e.StaleWhileRevalidate({cacheName:"static-style-assets",plugins:[new e.ExpirationPlugin({maxEntries:32,maxAgeSeconds:86400})]}),"GET"),e.registerRoute(/\/_next\/data\/.+\/.+\.json$/i,new e.StaleWhileRevalidate({cacheName:"next-data",plugins:[new e.ExpirationPlugin({maxEntries:32,maxAgeSeconds:86400})]}),"GET"),e.registerRoute(/\.(?:json|xml|csv)$/i,new e.NetworkFirst({cacheName:"static-data-assets",plugins:[new e.ExpirationPlugin({maxEntries:32,maxAgeSeconds:86400})]}),"GET"),e.registerRoute(({url:e})=>{if(!(self.origin===e.origin))return!1;const s=e.pathname;return!s.startsWith("/api/auth/")&&!!s.startsWith("/api/")},new e.NetworkFirst({cacheName:"apis",networkTimeoutSeconds:10,plugins:[new e.ExpirationPlugin({maxEntries:16,maxAgeSeconds:86400})]}),"GET"),e.registerRoute(({url:e})=>{if(!(self.origin===e.origin))return!1;return!e.pathname.startsWith("/api/")},new e.NetworkFirst({cacheName:"others",networkTimeoutSeconds:10,plugins:[new e.ExpirationPlugin({maxEntries:32,maxAgeSeconds:86400})]}),"GET"),e.registerRoute(({url:e})=>!(self.origin===e.origin),new e.NetworkFirst({cacheName:"cross-origin",networkTimeoutSeconds:10,plugins:[new e.ExpirationPlugin({maxEntries:32,maxAgeSeconds:3600})]}),"GET")});
+// PLUSONE — self-destructing stub (86ey9e9mn). DO NOT put caching logic here.
+//
+// This path used to serve a next-pwa/Workbox service worker. next-pwa is gone
+// (see next.config.js) and the door's own SW lives at /service-worker.js, but
+// removing the file was not enough: a browser that ever registered /sw.js keeps
+// running the INSTALLED copy indefinitely, and that copy cached same-origin AND
+// cross-origin GETs — including Supabase REST responses (guest PII) for an hour,
+// under an origin-scoped cache that outlived sign-out.
+//
+// Browsers re-fetch a registered SW script on navigation (and at least daily), so
+// shipping this stub is what actually stops those clients: it takes over the
+// registration, deletes the Workbox caches, and unregisters itself. Once a client
+// has run it, /sw.js is no longer registered and this file is never fetched again.
+//
+// It must keep being served WITHOUT an auth redirect (see the middleware matcher
+// exclusion in src/middleware.ts) — an HTML login page here would fail to parse
+// and the stale Workbox SW would survive.
+
+self.addEventListener('install', () => self.skipWaiting());
+
+self.addEventListener('activate', (event) => {
+  // The unregister is the load-bearing step, so it is deliberately NOT chained
+  // behind the cache purge: `Promise.all` over `caches.delete` would let a single
+  // rejection skip the unregister and leave the Workbox worker installed for
+  // good (activate never fires again for this script version). Purge with
+  // allSettled first, then unregister no matter how that went.
+  event.waitUntil(
+    caches
+      .keys()
+      // Keep the door's PII-free offline shell if it somehow coexists: wiping it
+      // would cost the next doorhost their offline cold start (invariant #25).
+      // Prefix must stay in sync with SHELL_CACHE in service-worker.js and
+      // KEEP_PREFIX in src/features/door/offline/sw-cache.ts — guarded by
+      // tests/unit/service-worker-cache-scope.test.ts.
+      .then((keys) => keys.filter((k) => !k.startsWith('plusone-shell-')))
+      .then((keys) => Promise.allSettled(keys.map((k) => caches.delete(k))))
+      .catch(() => undefined)
+      .then(() => self.registration.unregister())
+      .then(() => self.clients.matchAll({ type: 'window' }))
+      .then((clients) => clients.forEach((c) => c.navigate(c.url)))
+      .catch(() => undefined),
+  );
+});
