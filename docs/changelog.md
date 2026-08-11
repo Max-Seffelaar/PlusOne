@@ -1189,7 +1189,11 @@ with advice first, per the task; any build lands as its own migration + pgTAP in
 separate PR. Research already done this session: no production flow inserts
 `guests.status = 'pending'` (all request paths insert `approved`, the column defaults to
 `approved`; `guest_requests` owns the pending lifecycle) — only the seed's Aïcha and raw
-PostgREST inserts (RLS doesn't pin status, `added_by` pinned to self) can produce one.
+PostgREST inserts could produce one. *(Corrected 11/8: that last clause read "RLS doesn't pin
+status, `added_by` pinned to self" as if it were a harmless gap. It was the vulnerability —
+see the `86ey9c5fp` entry at the top of this file. `guests_insert`/`guests_update` pin the
+status column since `20260811160000`, so a raw PostgREST insert can no longer produce one
+either.)*
 
 Tests: see PR — vitest suite + lint/tsc (no DB change, no pgTAP needed for part 1).
 
