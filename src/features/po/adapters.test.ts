@@ -69,7 +69,7 @@ describe('toPoHome', () => {
     // "Live" is now time-derived: place now 30 min after the 22:00Z start (inside
     // the live window), same Amsterdam calendar day as the 23:00 start.
     const liveNow = Date.parse('2024-12-14T22:30:00Z');
-    const v = toPoHome({ ...baseEvent, registered: 148, present: 47 }, 3, boundedQuota, liveNow);
+    const v = toPoHome({ ...baseEvent, registered: 148, present: 47, canManage: false }, 3, boundedQuota, liveNow);
     expect(v.scenario).toBe('live');
     expect(v.statusLabel).toBe('Live now');
     expect(v.inside).toBe(47);
@@ -85,7 +85,12 @@ describe('toPoHome', () => {
   });
 
   it('maps an open event starting today to the pre-event (deur dicht) scenario', () => {
-    const v = toPoHome({ ...baseEvent, status: 'open', registered: 148, present: 0 }, 5, boundedQuota, NOW);
+    const v = toPoHome(
+      { ...baseEvent, status: 'open', registered: 148, present: 0, canManage: false },
+      5,
+      boundedQuota,
+      NOW
+    );
     expect(v.scenario).toBe('pre');
     expect(v.statusLabel).toBe('Tonight · doors closed');
     expect(v.inside).toBe(0);
@@ -104,6 +109,7 @@ describe('toPoHome', () => {
         venue_name: 'Paradiso',
         registered: 96,
         present: 0,
+        canManage: false,
       },
       2,
       boundedQuota,
@@ -118,7 +124,7 @@ describe('toPoHome', () => {
 
   it('treats an exempt quota as no limit (quotaFree null, still known)', () => {
     const v = toPoHome(
-      { ...baseEvent, registered: 148, present: 47 },
+      { ...baseEvent, registered: 148, present: 47, canManage: false },
       0,
       { quota: -1, consumed: 42, remaining: null, exempt: true },
       NOW
@@ -129,7 +135,7 @@ describe('toPoHome', () => {
   });
 
   it('handles a missing quota and zero counts without dividing by zero', () => {
-    const v = toPoHome({ ...baseEvent, registered: 0, present: 0 }, 0, null, NOW);
+    const v = toPoHome({ ...baseEvent, registered: 0, present: 0, canManage: false }, 0, null, NOW);
     expect(v.inside).toBe(0);
     expect(v.registered).toBe(0);
     expect(v.walking).toBe(0);

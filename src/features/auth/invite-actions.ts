@@ -36,11 +36,16 @@ async function callerRolesAt(venueId: string, userId: string): Promise<VenueRole
  * is sensitive), caller's venue role + escalation guard checked in the app AND
  * again by RLS on the invite insert, all input through Zod.
  *
- * The invitee is provisioned + e-mailed via the service role (inviteUserByEmail
- * for a new address, a magic-link login for one that already exists — invite-only,
- * no public signups); the invite row — written through the user-scoped client so
- * RLS re-validates — is what actually grants access when the invitee accepts on
- * first login. The audit trigger records the invite.
+ * The invite row — written through the user-scoped client so RLS re-validates —
+ * is inserted FIRST and is what actually grants access when the invitee accepts
+ * on first login; the invitee is provisioned + e-mailed via the service role
+ * (inviteUserByEmail for a new address, a magic-link login for one that already
+ * exists — invite-only, no public signups) only AFTER that insert succeeds. A
+ * denied or conflicting insert (e.g. an already-open invite) must never leave a
+ * live auth account + e-mail behind with no invite record to redeem it
+ * (86ey9ea00 #54); sendInviteEmail is safe to retry, so a later provisioning
+ * failure is recoverable via resendInviteAction. The audit trigger records the
+ * invite.
  */
 export async function inviteUserAction(
   _prev: ActionState,
@@ -80,17 +85,9 @@ export async function inviteUserAction(
     return { ok: false, error: 'Only an admin can link someone to events.' };
   }
 
-  // 1) Provision the auth identity AND notify the invitee by e-mail (invite-only,
-  //    no public signups — #20). The invite ROW written below is what actually
-  //    grants access on first login — the e-mail is only the notification, so a
-  //    transient notify failure for an EXISTING account must not block here.
-  const sent = await sendInviteEmail(email);
-  if (!sent.ok && sent.reason === 'provision') {
-    return { ok: false, error: "Couldn't send the invite. Try again." };
-  }
-
-  // 2) Record the invite through the user-scoped client → RLS enforces
-  //    manager-role + AAL2 + escalation + invited_by = self once more.
+  // 1) Record the invite through the user-scoped client FIRST → RLS enforces
+  //    manager-role + escalation + invited_by = self once more. Nothing is
+  //    provisioned or e-mailed until this succeeds (#54).
   const supabase = await createClient();
 
   // Keep only event ids that actually belong to this venue (RLS already scopes
@@ -125,6 +122,16 @@ export async function inviteUserAction(
     }
     console.error('inviteUser: invite insert failed', inviteError.message);
     return { ok: false, error: "Couldn't record the invite." };
+  }
+
+  // 2) Only now provision the auth identity AND notify the invitee by e-mail
+  //    (invite-only, no public signups — #20). The invite row above is what
+  //    actually grants access — a transient notify failure for an EXISTING
+  //    account must not surface as a hard error; sendInviteEmail can be
+  //    retried via resendInviteAction either way.
+  const sent = await sendInviteEmail(email);
+  if (!sent.ok && sent.reason === 'provision') {
+    return { ok: false, error: "Couldn't send the invite. Try again." };
   }
 
   revalidatePath('/admin/team');

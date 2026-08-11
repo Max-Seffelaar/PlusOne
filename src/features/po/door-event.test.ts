@@ -65,9 +65,12 @@ describe('pickDoorEvent', () => {
 
   it('resolves a venue whose only events are older than the 7-day Home window (86eya4yuf)', () => {
     // Both events started >7 days before NOW (2026-06-19). The fallback pick
-    // only works when the caller feeds it the venue's FULL history —
-    // usePoDoorEvent must fetch unwindowed: the 7-day `starts_at >=` bound it
-    // briefly had (86ey9e8gt) emptied this list and nulled the pick.
+    // only works when the caller feeds it the venue's FULL history — callers
+    // of pickDoorEvent must fetch unwindowed: the 7-day `starts_at >=` bound
+    // it briefly had (86ey9e8gt, then usePoDoorEvent) emptied this list and
+    // nulled the pick. usePoDoorEvent itself was removed as dead code
+    // (86ey9e9xx, no production call site) — usePoHomeEvents is the one live
+    // caller of pickDoorEvent left; this contract still applies to it.
     const rows = [
       row('lastMonth', '2026-05-20T20:00:00Z'),
       row('nineDaysAgo', '2026-06-10T20:00:00Z'),

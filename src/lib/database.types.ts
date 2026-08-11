@@ -1723,9 +1723,11 @@ export type Database = {
         Args: { p_event_id: string }
         Returns: {
           active: boolean
+          approved: number
           approved_heads: number
           auto_approve: boolean
           checked_in_heads: number
+          created_at: string
           expires_at: string
           influencer_id: string
           influencer_name: string
@@ -1735,6 +1737,7 @@ export type Database = {
           max_headcount: number
           requests: number
           slug: string
+          tier_id: string
           views: number
         }[]
       }
@@ -1766,6 +1769,13 @@ export type Database = {
           refused: number
           registered: number
           registered_headcount: number
+        }[]
+      }
+      event_tier_occupancy: {
+        Args: { p_event_id: string }
+        Returns: {
+          tier_id: string
+          used: number
         }[]
       }
       event_tier_stats: {
@@ -1839,7 +1849,7 @@ export type Database = {
       guest_capacity_contribution: {
         Args: {
           g: Database["public"]["Tables"]["guests"]["Row"]
-          p_went_live_at: string
+          p_is_inside: boolean
         }
         Returns: number
       }

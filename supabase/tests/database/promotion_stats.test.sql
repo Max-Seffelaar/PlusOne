@@ -30,7 +30,7 @@ begin
 end;
 $fn$;
 
-select plan(16);
+select plan(21);
 
 -- Fixture: approve Robin (+1) through Jayden's link and check him in with his
 -- plus-one → approved_heads 2, checked_in_heads 2 on that link.
@@ -63,6 +63,23 @@ select ok(
    from public.event_link_funnel('ee000000-0000-7000-8000-000000000001')
    where slug = 'launch-night-jayden'),
   'A3 …and carries its pageviews + request count');
+
+-- 86ey9e9wv/D1: widened with approved/tier_id/created_at so fetchRequestLinks
+-- could fold onto this RPC instead of its own guest_requests read + Maps.
+select is(
+  (select approved::int from public.event_link_funnel('ee000000-0000-7000-8000-000000000001')
+   where slug = 'launch-night-jayden'),
+  1, 'A3a of the 2 requests, only Robin''s is approved (Sofia''s stays pending)');
+select is(
+  (select tier_id from public.event_link_funnel('ee000000-0000-7000-8000-000000000001')
+   where slug = 'launch-night-jayden'),
+  'dd000000-0000-7000-8000-000000000001', 'A3b carries the link''s pinned tier_id (Regular)');
+select ok(
+  (select elf.created_at = rl.created_at
+   from public.event_link_funnel('ee000000-0000-7000-8000-000000000001') elf
+   join public.request_links rl on rl.id = elf.link_id
+   where rl.slug = 'launch-night-jayden'),
+  'A3c created_at matches the underlying request_links row');
 
 select pg_temp.login('55555555-5555-4555-8555-555555555555'); -- staff
 select is(
@@ -151,6 +168,18 @@ select is(
   public.get_influencer_stats(encode(extensions.digest('tok-if-test', 'sha256'), 'hex'), 'ip-if-rl') ->> 'found',
   'false', 'C6 past the window even a valid token reads not-found (probing costs budget)');
 reset role;
+
+-- ---------------------------------------------------------------------------
+-- D. Privileges (86ey9e9wv/B2) — event_link_funnel was drop+recreated to add
+--    approved/tier_id/created_at (widening a `returns table` needs drop+
+--    recreate, Postgres rejects it under `create or replace`), which wipes
+--    any prior grants; confirm the re-declared grant matches the original.
+-- ---------------------------------------------------------------------------
+
+select ok(not has_function_privilege('anon', 'public.event_link_funnel(uuid)', 'EXECUTE'),
+  'D1 anon cannot execute event_link_funnel');
+select ok(has_function_privilege('authenticated', 'public.event_link_funnel(uuid)', 'EXECUTE'),
+  'D2 authenticated can execute event_link_funnel');
 
 select * from finish();
 

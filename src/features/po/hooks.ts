@@ -51,6 +51,7 @@ import {
   fetchTemplateTiers,
   fetchOrganizesAtVenue,
   fetchOrganizesOpenEventAtVenue,
+  fetchOrganizerEventIds,
   fetchEventCrew,
   fetchAssignableCrew,
   fetchRequestLinks,
@@ -192,7 +193,8 @@ export interface PoHomeEvents {
  * the Deur tab (pickDoorEvent), so the home and the door agree on "tonight".
  */
 export function usePoHomeEvents() {
-  const { venueId } = usePoIdentity();
+  const { venueId, userId, roles } = usePoIdentity();
+  const isAdmin = roles.includes('admin');
   return useQuery<PoHomeEvents>({
     queryKey: poKeys.home(venueId ?? ''),
     enabled: !!venueId,
@@ -201,16 +203,25 @@ export function usePoHomeEvents() {
       if (!venueId) return { events: [], defaultId: null };
       const client = createClient();
       const sinceIso = recentEventsSinceIso();
-      const [rows, heads] = await Promise.all([
+      // Admin already manages everything — skip the extra read. Otherwise one
+      // venue-scoped fetch of the caller's own organizer rows (86ey9tkav),
+      // not an N+1 per card, so the board can gate Edit/Lock per event.
+      const [rows, heads, organizerIds] = await Promise.all([
         fetchEvents(client, venueId, sinceIso),
         fetchEventHeadcounts(client, venueId, sinceIso),
+        isAdmin || !userId ? Promise.resolve(new Set<string>()) : fetchOrganizerEventIds(client, venueId, userId),
       ]);
       const now = Date.now();
       const events: HomeEvent[] = rows
         .filter((r) => r.cancelled_at == null)
         .map((r) => {
           const c = heads.get(r.id) ?? { registered: 0, present: 0 };
-          return { ...r, registered: c.registered, present: c.present };
+          return {
+            ...r,
+            registered: c.registered,
+            present: c.present,
+            canManage: isAdmin || organizerIds.has(r.id),
+          };
         })
         // Live first, then soonest start — the order the picker shows.
         .sort((a, b) => {
@@ -249,33 +260,6 @@ export function usePoHomeStats(eventId: string | null) {
         fetchEventQuota(client, eventId ?? ''),
       ]);
       return { openRequests, quota };
-    },
-  });
-}
-
-/**
- * The event the mobile Deur/Taken tab works (live → soonest upcoming → most
- * recent still-open). Lean read scoped to the active venue; the door's own
- * snapshot/outbox (DoorProvider) loads once this resolves an id. Null when the
- * caller has no venue or only closed events — the tab then shows an empty state.
- */
-export function usePoDoorEvent() {
-  const { venueId } = usePoIdentity();
-  return useQuery<PoDoorEvent | null>({
-    queryKey: poKeys.doorEvent(venueId ?? ''),
-    enabled: !!venueId,
-    queryFn: async () => {
-      if (!venueId) return null;
-      // Deliberately UNWINDOWED (86eya4yuf): pickDoorEvent's last-resort
-      // fallback is "the most recent event that already started" — a venue
-      // whose latest event is older than any recency window (and has nothing
-      // upcoming) must still resolve it, so a `starts_at >=` bound here would
-      // empty the pick entirely (the 86ey9e8gt regression). This is a
-      // one-shot, non-polling, lean select scoped to a single venue_id (no
-      // id-list, no 414 risk); the 7-day window stays on Home's 10s poll,
-      // where keeping the recurring cost flat is what matters.
-      const rows = await fetchEvents(createClient(), venueId);
-      return pickDoorEvent(rows, Date.now());
     },
   });
 }
@@ -364,24 +348,52 @@ export interface EventStatsDetail {
   perUser: PerUser[];
 }
 
+/** Raw shape behind BOTH `usePoEventStats` (cockpit chart) and `usePoEventActivity`
+ *  (Activity panel / Analytics event-first view) — they used to call the identical
+ *  `fetchEventStats` 5-RPC bundle independently under two different cache keys
+ *  (86ey9e9v5), so mounting both duplicated the fetch, and an invalidation of one
+ *  key (e.g. the check-in realtime hook, which only ever touched `eventStats`)
+ *  silently left the other stale. Sharing `poKeys.eventStats` as the queryKey and
+ *  varying the shape per hook with `select` (CLAUDE.md's "share a base query")
+ *  dedupes the network call and fixes that staleness for free. */
+interface EventStatsBundle {
+  ek: EventKpis;
+  perKwartier: PerKwartier[];
+  perTier: PerTier[];
+  perUser: PerUser[];
+  peak: string | null;
+  peakCount: number;
+}
+
+async function fetchEventStatsBundle(eventId: string): Promise<EventStatsBundle> {
+  const { summary, perQuarter, tiers, users } = await fetchEventStats(createClient(), eventId);
+  const ek = eventKpis(summary);
+  return {
+    ek,
+    perKwartier: toPerKwartier(perQuarter),
+    perTier: toPerTier(tiers),
+    perUser: toPerUser(users),
+    peak: ek.peak,
+    peakCount: ek.peakCount,
+  };
+}
+
 /** Per-event KPIs + arrivals + per-tier + per-member stats, for `EventStatsPanel`. */
 export function usePoEventActivity(
   eventId: string,
   options?: { enabled?: boolean; refetchInterval?: number }
 ) {
-  return useQuery<EventStatsDetail>({
-    queryKey: poKeys.eventActivity(eventId),
+  return useQuery({
+    queryKey: poKeys.eventStats(eventId),
     enabled: !!eventId && (options?.enabled ?? true),
     refetchInterval: options?.refetchInterval,
-    queryFn: async () => {
-      const { summary, perQuarter, tiers, users } = await fetchEventStats(createClient(), eventId);
-      return {
-        ek: eventKpis(summary),
-        perKwartier: toPerKwartier(perQuarter),
-        perTier: toPerTier(tiers),
-        perUser: toPerUser(users),
-      };
-    },
+    queryFn: () => fetchEventStatsBundle(eventId),
+    select: (bundle): EventStatsDetail => ({
+      ek: bundle.ek,
+      perKwartier: bundle.perKwartier,
+      perTier: bundle.perTier,
+      perUser: bundle.perUser,
+    }),
   });
 }
 
@@ -594,16 +606,17 @@ export interface PoEventStats {
  * cockpit can pass refetchInterval as a safety net.
  */
 export function usePoEventStats(eventId: string, options?: { refetchInterval?: number }) {
-  return useQuery<PoEventStats>({
+  return useQuery({
     queryKey: poKeys.eventStats(eventId),
     enabled: !!eventId,
     staleTime: 15_000,
     refetchInterval: options?.refetchInterval,
-    queryFn: async () => {
-      const { summary, perQuarter } = await fetchEventStats(createClient(), eventId);
-      const k = eventKpis(summary);
-      return { perKwartier: toPerKwartier(perQuarter), peak: k.peak, peakCount: k.peakCount };
-    },
+    queryFn: () => fetchEventStatsBundle(eventId),
+    select: (bundle): PoEventStats => ({
+      perKwartier: bundle.perKwartier,
+      peak: bundle.peak,
+      peakCount: bundle.peakCount,
+    }),
   });
 }
 

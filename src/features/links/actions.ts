@@ -3,7 +3,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { createClient } from '@/lib/supabase/server';
 import type { Database } from '@/lib/database.types';
-import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
+import { mapMutationError, unauthorized, invalidInput, notFound, type MutationError } from '@/lib/db-errors';
 import { slugify, randomSlugSuffix } from '@/features/events/slug';
 import {
   createInfluencerSchema,
@@ -146,8 +146,15 @@ export async function updateRequestLink(input: UpdateRequestLinkInput): Promise<
   if (archived !== undefined) patch.archived_at = archived ? new Date().toISOString() : null;
   if (Object.keys(patch).length === 0) return { ok: true, id: linkId };
 
-  const { error } = await supabase.from('request_links').update(patch).eq('id', linkId);
+  const { error, count } = await supabase
+    .from('request_links')
+    .update(patch, { count: 'exact' })
+    .eq('id', linkId);
   if (error) return mapMutationError(error);
+  // RLS-filtered 0-row update is a real no-op — matters most for active:false,
+  // where a silent "success" would leave a link the caller believes deactivated
+  // still live (C15 guard).
+  if (!count) return notFound();
   return { ok: true, id: linkId };
 }
 
@@ -195,10 +202,11 @@ export async function revokeInfluencerStatsToken(influencerId: string): Promise<
   } = await supabase.auth.getUser();
   if (!user) return unauthorized();
 
-  const { error } = await supabase
+  const { error, count } = await supabase
     .from('influencers')
-    .update({ stats_token_hash: null })
+    .update({ stats_token_hash: null }, { count: 'exact' })
     .eq('id', influencerId);
   if (error) return mapMutationError(error);
+  if (!count) return notFound();
   return { ok: true, id: influencerId };
 }
