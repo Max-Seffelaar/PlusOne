@@ -34,6 +34,20 @@ describe('submitGuestRequestSchema', () => {
     ).toBe(false);
   });
 
+  // 86eyd3men: server-side follows the same rule as the form's inline
+  // isValidEmail (both import EMAIL_RE from validation.ts) — a request that
+  // slips past the client check would otherwise be silently rejected here.
+  it('applies the same e-mail sanity check as the client (EMAIL_RE)', () => {
+    const ok = submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos', email: 'noa@voorbeeld.nl' });
+    expect(ok.success).toBe(true);
+    expect(
+      submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos', email: 'noa@hoiu.d' }).success
+    ).toBe(false); // TLD too short
+    expect(
+      submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos', email: 'noa@hoiu..com' }).success
+    ).toBe(false); // double dot
+  });
+
   it('coerces plusOnes and bounds it to 0..20', () => {
     const r = submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos', plusOnes: '3' });
     expect(r.success && r.data.plusOnes).toBe(3);

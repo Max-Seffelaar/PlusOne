@@ -324,6 +324,29 @@ describe('drainOutbox', () => {
     expect(store.entries[1].status).toBe('pending');
   });
 
+  // #33 — the provider toasts summary.lastError. It used to scan the store for
+  // the first `error` entry instead, which (with tombstones never pruned) served
+  // the OLDEST stale failure of the night rather than the one that just happened.
+  it('reports the message of the error it settled LAST, not the first one it saw', async () => {
+    const store = fakeStore([
+      checkInEntry({ clientId: 'a', payload: { id: 'a', guestId: 'g1', plusOnesArrived: 0, clientTimestamp: 't' } }),
+      checkInEntry({ clientId: 'b', payload: { id: 'b', guestId: 'g2', plusOnesArrived: 0, clientTimestamp: 't' } }),
+    ]);
+    const gw: DoorGateway = {
+      ...gatewayReturning(null),
+      insertCheckIn: async (row) => ({ error: row.guest_id === 'g1' ? QUOTA_FULL : TIER_FULL }),
+    };
+    const summary = await drainOutbox({ ...store, gateway: gw, uid: UID, deviceId: DEVICE });
+    expect(summary.errors).toBe(2);
+    expect(summary.lastError).toBe(TIER_FULL.message);
+  });
+
+  it('leaves lastError undefined when nothing failed', async () => {
+    const store = fakeStore([checkInEntry({ clientId: 'a' })]);
+    const summary = await drainOutbox({ ...store, gateway: gatewayReturning(null), uid: UID, deviceId: DEVICE });
+    expect(summary.lastError).toBeUndefined();
+  });
+
   it('records a duplicate without blocking the rest of the queue', async () => {
     const store = fakeStore([
       checkInEntry({ clientId: 'a', payload: { id: 'a', guestId: 'g1', plusOnesArrived: 0, clientTimestamp: 't' } }),

@@ -49,6 +49,140 @@ dev/test-loop).
   CLAUDE.md: turbopack-regel + cache-prune-note in de local-dev-sectie. NB: de
   CI-e2e-smoke draait via `pnpm dev` en test dus voortaan óók tegen turbopack.
 
+---
+
+## 2026-08-10 — Landing request-form validation UX: red errors, name-required, e-mail sanity check (86eyd3men)
+
+Branch `fix/86eyd3men-landing-request-validation-ux`. Found by Max while testing 86ey9e8z5 (the
+public request form, `/e/[slug]` + `/r/[token]`, `src/components/po/landing.tsx`). Milestone: Now
+(request-form UX Max personally hit while testing). Three fixes, all UX/validation-only — no
+migration.
+
+- **Errors were lavender, not red.** `FieldError` and the invalid-field border used `border-acc`/
+  `text-acc-soft` (the same accent used for focus/selection elsewhere), so an error read as
+  "active", not "wrong". Added `fieldErrorText`/`fieldErrorBorder`/`FieldErrorText` to `kit.tsx`
+  (`text-red-300`/`border-red-400` — the color already used by ~15 other screens, just never
+  centralized) and wired landing.tsx's field errors, the phone-field border, and the
+  submit-failure banner onto it.
+- **Empty name was silently disabled, no feedback.** The submit button used to `disabled={!ok}`
+  so a native `disabled` button never fires `onClick` — there was no way to surface *why* nothing
+  happened. Button now only disables on `pending`; `submit()` gates on `!ok` first and sets a new
+  `nameErr` (copy: "Add your name so we can save your spot."), clearing it as soon as the
+  requester types.
+- **`isValidEmail` was too permissive.** The old regex (`[^\s@]+@[^\s@]+\.[^\s@]+`) accepted
+  anything with an `@` and a dot anywhere in the domain — 1-char TLDs, numeric TLDs, doubled/
+  leading/trailing dots, leading-hyphen labels. New regex in `src/features/requests/validation.ts`
+  requires a real-looking local part and a domain with a 2–24 char alphabetic TLD.
+  `submitGuestRequestSchema` (`schemas.ts`) now imports the same `EMAIL_RE` instead of Zod's
+  built-in `.email()`, so client and server never disagree.
+  - **Known, deliberate gap:** this is a structural sanity check, not a deliverability check — a
+    syntactically well-formed but fake domain (Max's test case, `max@hoiu.dsadas`) still passes,
+    because telling it apart from a real one needs either a bundled TLD allowlist (~5-10 kB gz on
+    the exact page PR #236 just spent effort shrinking, plus a maintenance burden and false-reject
+    risk on legitimate uncommon TLDs) or a live MX/DNS lookup (new server-side moving part on an
+    anonymous public write path). Given email is optional here (#9) and a false rejection costs a
+    real guest more than an occasional fake one costs the venue, this was a considered trade-off,
+    not an oversight — flagged for Max in case he wants deliverability-grade validation later.
+- The public endpoint's no-enumeration guarantee (never reveal whether an e-mail already exists,
+  #28) is untouched — `submitGuestRequest` still dedupes silently in the DB regardless of Zod
+  outcome.
+- Tests: `src/features/requests/validation.test.ts` (+8 cases for the stricter regex),
+  `schemas.test.ts` (+1 case proving client/server agree), new `src/components/po/landing.test.tsx`
+  (4 RTL cases: name-required blocks submit + clears on typing, malformed e-mail blocks submit and
+  is styled red, valid submit still reaches `action` — phone-lazy mocked out, hermetic). `pnpm lint`
+  clean, `tsc --noEmit` clean. Full `vitest run` (833 tests) is flaky on this dev machine under full
+  84-file parallelism — 8 unrelated pre-existing files (billing/webhook, door, realtime, health-check,
+  sign-out) time out under CPU contention but pass individually and in a smaller batch; none touch
+  the files this PR changed.
+
+---
+
+## 2026-08-10 — /r and /i IP-salt fail-closed regression (86ey9e9my, C5)
+
+Branch `fix/86ey9e9my-landing-ip-salt-fail-closed` (PR [#242](https://github.com/Max-Seffelaar/PlusOne/pull/242)). Follow-up review finding on the
+Requests-epic influencer/status pages: C5 (security review 2026-07-07) fixed the landing page
+(`/e/[slug]`) to fail closed on a missing `LANDING_IP_SALT` in production via the shared
+`landingIpSalt()`/`landingClientIpHash()` helpers (`src/features/requests/ip-hash.ts`), but two
+sibling routes — `/r/[token]` (guest status) and `/i/[token]` (influencer stats) — each carried
+their own inline `statusIpHash`/`statsIpHash` with `process.env.LANDING_IP_SALT ?? 'plusone-landing-dev-salt'`.
+That committed constant is a real fallback, not just a dev convenience: if `LANDING_IP_SALT` is
+ever unset in production those two routes would silently hash every visitor IP with a
+publicly-known salt instead of failing loudly, reopening the exact brute-forceable `ip_hash`
+C5 closed. Milestone: Now (security regression on a live prod surface).
+
+- **Fix.** Deleted both inline helpers; both routes now import `landingClientIpHash` from the
+  shared module, same as `/e/[slug]`. No behavior change outside the missing-env-in-prod case —
+  local/dev/test still get the deterministic dev salt.
+- **Test added.** `tests/unit/landing-ip-hash-fail-closed.test.ts` — structural scan proving both
+  routes call the shared helper and contain no reintroduced `LANDING_IP_SALT ?? '...'` fallback,
+  plus a behavioral test proving `landingIpSalt()` throws with `NODE_ENV=production` and no env
+  var set, and returns the configured salt when it is set.
+- **Gates:** `pnpm lint` + `pnpm vitest run` — see PR for results. Non-UI, no migration, no test
+  handoff needed.
+
+---
+
+## 2026-08-10 — Door-outbox housekeeping: double-tap, flush-coalescing, tombstone-pruning (86ey9e9p5)
+
+Branch `fix/86ey9e9p5-door-outbox-housekeeping` (PR [#249](https://github.com/Max-Seffelaar/PlusOne/pull/249)). Three findings from the door-outbox
+review — O8 (CONFIRMED) plus finders #32/#33, all re-verified against the code before building.
+Builds on PR #233's wipe-epoch + `reset()`; sign-out isolation untouched. Milestone: Now (this is
+the door, on the offline path — invariant #25).
+
+- **O8 — a double-tap queued a second check-in and blamed a colleague.** `checkIn()` guarded only
+  the optimistic cache patch (`if (s.checkIns.some(...)) return s`), never the enqueue, so tap #2
+  produced a second `check_in` entry with a fresh `check_ins.id`. `check_ins.guest_id` is UNIQUE
+  (one row per guest ever, #11 — `20260613000000_full_schema.sql:273`), so that entry's ONLY
+  possible outcome on replay is 23505-on-guest_id, which `replay.ts` correctly classifies as
+  `duplicate` → the toast **"Was already checked in on another device"**. A doorhost who
+  double-tapped their own tablet was told a colleague did it — and #32 below made that far more
+  likely, because a refetch could wipe the optimistic patch and make the guest look un-checked-in
+  again. Fix: guard the ENQUEUE, reading the two sources the first tap mutated synchronously — the
+  query cache (also the channel realtime patches through, so a peer's check-in counts too) and the
+  outbox (new pure helper `outbox/dedup.ts` `hasOpenCheckIn`, FIFO-aware: a `check_in_void` reopens
+  the guest, an `error` never created a row so a retry stays allowed). The blocked tap toasts
+  "already inside" rather than doing nothing.
+- **#32 — a mutation enqueued during a flush was dropped twice over.** `flush()` kept a single
+  in-flight promise and handed it to any concurrent caller, queueing nothing; `drainOutbox` snapshots
+  the queue once at the start, and the `invalidateQueries` that follows overwrites the cache with a
+  server snapshot that predates the new write. So checking in the next guest during the ~1s
+  drain+refetch — the normal case at a busy door, not an edge case — lost both the drain and the
+  optimistic patch: the guest visibly fell back to "onderweg" until the 60s safety sync. Fix:
+  remember that someone asked while a flush ran and rerun the whole cycle (drain THEN refetch),
+  bounded by `MAX_COALESCED_RERUNS`, so the last refetch of a burst always includes the new write.
+  The in-flight flag is cleared in the same synchronous step as the final queued-check, so no
+  request can land in the gap. `useDoorSync` gained a `coalesce` option: the manual "sync nu" press
+  now forwards into that coalescing instead of being silently dropped when a sync is already running.
+- **#33 — tombstones were immortal and the error toast showed the wrong one.** `clearSynced()`
+  dropped only `synced`, so every `duplicate`/`error` entry stayed queued for good AND was
+  re-serialized to IndexedDB on every later commit (this runs after every drain — each mutation plus
+  the 60s sync), i.e. the per-write cost climbed all night on the device that can least afford it.
+  On top of that the flush error toast did `find(e => e.status === 'error' && e.message)` — the
+  OLDEST error still queued — so a doorhost hitting "tier zit vol" could be shown an unrelated
+  rejection from hours earlier. Fix: `clearSettled(now)` prunes `duplicate`/`error` past a 12h TTL
+  (a full night; the CheckInList duplicate marker and the manual retry need them within the shift)
+  and returns without committing when nothing settled; `DrainSummary.lastError` carries the
+  just-failed message out of the drain; and `retryErrors()` — which existed with **no callers at
+  all** — is wired to the sync-bar button only (`onBeforeForceSync`), never to an automatic drain,
+  so dead-lettering still means something while a terminal error finally has a recovery path.
+- **Tests.** New `DoorProvider.test.tsx` (6 behavioural cases driving the real provider, real outbox
+  and real drain against a fake gateway that models the UNIQUE guest_id constraint), new
+  `outbox/dedup.test.ts` (7), plus additions to `store.test.ts` (4 pruning cases incl. "no IndexedDB
+  write when nothing settled") and `replay.test.ts` (2 × `lastError`). **Every new test was verified
+  to fail against the pre-fix sources** (`git checkout HEAD~1 -- <sources>`, new tests kept): 7
+  failures with exactly the described symptoms — `['g-anna','g-anna']` for one double-tap,
+  `expected ['g-anna'] to include 'g-bram'` for the mid-flush check-in, `lastError` undefined.
+- Vitest 886/886 green (85 files), `next lint` clean (only the two pre-existing
+  `datetime-field.tsx` aria warnings). No migration. Unrelated env fix: the shared `node_modules`
+  lacked `@tanstack/react-virtual` (declared in package.json + lockfile) — `pnpm install` restored it.
+  `realtime-throttle.test.ts` sat ~200ms under the 5s default (it does `resetModules()` + a cold
+  dynamic import of the door device graph); the extra parallel load tipped it over, so that one case
+  got an explicit 20s timeout.
+
+---
+
+## 2026-07-14 — Door outbox/cache not wiped on sign-out — shared-device isolation (86ey9et07)
+
 Branch `fix/86ey9et07-door-outbox-clear-on-signout` (PR #233). Follow-up carved out of the
 adversarial security-review of PR #212 (door-outbox durability, `86ey9e85u`) — the leak is in
 the logout lifecycle, not #212's outbox-merge/lock code. Milestone: Now (security/AVG + audit
