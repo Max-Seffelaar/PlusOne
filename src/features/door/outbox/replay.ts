@@ -97,12 +97,15 @@ export async function replayEntry(
     }
     case 'check_in_void': {
       // Idempotent: re-voiding (or a row already voided) matches 0 rows = synced.
-      const { error } = await gw.voidCheckIn(entry.payload.guestId, uid);
+      // Scoped to the observed check_ins row so a colleague's check-in made while
+      // this device was offline is left alone (#35) — that too is a 0-row synced.
+      const p = entry.payload;
+      const { error } = await gw.voidCheckIn(p.guestId, uid, p.checkInId ?? null);
       return classifyError(error);
     }
     case 'check_in_revive': {
       const p = entry.payload;
-      const { error } = await gw.reviveCheckIn(p.guestId, p.plusOnesArrived, uid);
+      const { error } = await gw.reviveCheckIn(p.guestId, p.plusOnesArrived, uid, p.checkInId ?? null);
       return classifyError(error);
     }
     case 'refusal': {

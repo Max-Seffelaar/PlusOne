@@ -78,6 +78,60 @@ to ignore Dependabot. No migration, no schema change, no runtime behaviour chang
 
 ---
 
+---
+
+## 2026-08-10 — Atomic partial check-out + offline void/revive peer-steal (86ey9e9q2)
+
+Branch `fix/86ey9e9q2-atomic-checkout-outbox-peer-steal`. Two findings from the review
+backlog (#34, #35), both about a check-in row changing hands between the moment a device
+observes it and the moment its write lands. Milestone: Now — both corrupt the headcount and
+the audit trail at the door, which is the product's core promise. Each bug was reproduced
+with a failing test BEFORE the fix (the tests are in the PR; they fail on the parent commit).
+
+- **#34 — a partial check-out was two round trips.** `check_ins` holds one row per guest with
+  a MONOTONE `plus_ones_arrived`, so "3 of the 4 in this party leave" cannot be a plain UPDATE:
+  the cap trigger only lets the count drop across a revive (voided → active). `usePoCheckOut`
+  therefore voided the row, then re-checked the smaller party in from the browser. A transient
+  failure between the two (network flap, edge 502, tab closed) left the guest FULLY checked out
+  — headcount −4 where the host asked for −2 — and the cockpit's cache disagreed with the
+  database until the 60s safety sync.
+  **Fix:** migration `20260810183000_atomic_check_out_guest.sql` adds
+  `public.check_out_guest(p_guest_id, p_remaining_heads, p_check_in_id)` — SECURITY INVOKER, so
+  RLS (incl. the S1.1 uncheck gate) still decides — doing both writes in one transaction. Also
+  fixed two behaviours that were wrong in the old dance: `checked_by`/`checked_at` are now
+  PRESERVED (the guest never left, so the first-wins arrival identity and instroom bucket must
+  not move to whoever pressed ✗), and the remaining-heads argument is clamped so a stale client
+  can never *raise* a party via the check-out path.
+- **#35 — an offline void/revive could hijack a colleague's check-in.** `check_ins.guest_id` is
+  UNIQUE, so matching a replayed write on `guest_id` alone reaches whatever row exists at drain
+  time. Doorhost A works offline (check in → undo → re-check-in queued); meanwhile doorhost B
+  checks the same guest in for real. On reconnect A's insert correctly settled as `duplicate`,
+  but the void then voided B's ACTIVE row (guest reads onderweg while standing inside) and the
+  revive stamped A over B's `checked_by` — the same C10 first-wins corruption the cockpit's
+  revive fallback already guards against.
+  **Fix:** the observed `check_ins.id` travels with the outbox entry (`checkInId` on the void and
+  revive payloads, zod-`nullish` so a doorhost upgrading mid-shift keeps their queued entries
+  instead of having them quarantined) and the gateway adds `.eq('id', …)`. A peer's newer row is
+  then a 0-row no-op = synced, the same "server's first write wins" rule as the 23505 duplicate
+  path. The cockpit passes the id too, via a new `id` on `CheckinArrival`.
+- **Residual, deliberately not fixed here:** if a peer voids AND re-checks-in the SAME row while
+  we are offline, the row id is unchanged, so our stale void still applies. Closing that needs
+  optimistic concurrency on `checked_at`, which a device cannot do for its own offline inserts
+  (the server stamps `checked_at`, the device only knows its client timestamp). Flagged in the
+  PR's security-research prompt.
+- Tests: `mutations.checkout.test.tsx` (hook against a fake gateway with real write semantics —
+  asserts DB-equivalent state, not `ok: true`), `peer-checkin.test.ts` (a full outbox drain against
+  an in-memory `check_ins` with the unique/void/revive constraints), gateway filter tests, and
+  `check_out_guest.test.sql` (15 pgTAP assertions: allowed/denied per role, preserved identity,
+  clamping, stale-id no-op, and the atomicity proof — an uncheck-disabled event rejects the whole
+  call and leaves the guest untouched).
+- Gotcha for later pgTAP work: `composite IS NOT NULL` is only true when EVERY field is non-null,
+  so a function returning a table row must be asserted via `(f(...)).id`, and that field-selection
+  form does not resolve untyped literals — the arguments need explicit `::uuid` casts.
+- Local-stack note: `20260810120000` collided with a sibling worktree's migration
+  (`scale_tier_occupancy_link_funnel`, branch `perf/86ey9e9wv-…`), caught because the shared local
+  DB had it applied; renamed to `20260810183000`.
+
 ## 2026-08-10 — Landing request-form validation UX: red errors, name-required, e-mail sanity check (86eyd3men)
 
 Branch `fix/86eyd3men-landing-request-validation-ux`. Found by Max while testing 86ey9e8z5 (the

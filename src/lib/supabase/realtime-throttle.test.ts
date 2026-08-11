@@ -43,7 +43,12 @@ describe('realtime throttle is raised on both browser clients (#0b)', () => {
     expect(options?.realtime?.params?.eventsPerSecond).toBe(mod.REALTIME_EVENTS_PER_SECOND);
   });
 
-  it('the door getDoorClient passes eventsPerSecond = REALTIME_EVENTS_PER_SECOND', async () => {
+  // Timeout raised off the 5s default: `vi.resetModules()` forces this case to
+  // re-import the door client's whole graph, which drags the ~2300-line
+  // generated database.types.ts through the transform pipeline. On a cold Vite
+  // cache (every CI run, and locally right after the types are regenerated) that
+  // alone can exceed 5s and fail a test that is only asserting one option value.
+  it('the door getDoorClient passes eventsPerSecond = REALTIME_EVENTS_PER_SECOND', { timeout: 30_000 }, async () => {
     // The door client reads getDeviceId() from localStorage; stub a browser env.
     vi.stubGlobal('window', {
       localStorage: {
@@ -67,6 +72,6 @@ describe('realtime throttle is raised on both browser clients (#0b)', () => {
     // device graph inside the test body, which lands within a few hundred ms of
     // the 5s default while the rest of the suite is transforming in parallel —
     // an assertion about an options object should never be decided by machine
-    // load, so give it room (86ey9e9p5).
-  }, 20_000);
+    // load, so give it room via the `{ timeout }` option above (86ey9e9p5 + 86ey9e9q2).
+  });
 });
