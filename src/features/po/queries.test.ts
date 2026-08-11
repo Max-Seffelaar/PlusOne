@@ -6,7 +6,10 @@ import {
   fetchOrganizerEventIds,
   fetchOrganizesAtVenue,
   fetchOwnSessions,
+  fetchRequestLinks,
+  fetchTiersWithUsage,
   fetchVenueGuestsWindow,
+  fetchVenueRequestLinks,
   fetchVenueSettings,
   VENUE_GUESTS_WINDOW,
 } from './queries';
@@ -288,5 +291,306 @@ describe('fetchVenueGuestsWindow (86ey9e8hz)', () => {
 
     expect(rows[0]).toMatchObject({ tierName: 'Gastenlijst', tierColor: null });
     expect(total).toBe(1); // count null → falls back to the page length
+  });
+});
+
+// ── fetchTiersWithUsage (86ey9e9wv/#47) ──────────────────────────────────────
+// Occupancy now comes from the event_tier_occupancy RPC (a DB-side GROUP BY),
+// not a per-guest download summed in JS.
+
+describe('fetchTiersWithUsage (86ey9e9wv/#47)', () => {
+  interface RpcCall {
+    name: string;
+    args: unknown;
+  }
+
+  function makeClient(tiersResult: unknown, rpcResult: unknown, rpcCalls: RpcCall[] = []) {
+    return {
+      from: vi.fn(() => ({
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            order: vi.fn(() => Promise.resolve(tiersResult)),
+          })),
+        })),
+      })),
+      rpc: vi.fn((name: string, args: unknown) => {
+        rpcCalls.push({ name, args });
+        return Promise.resolve(rpcResult);
+      }),
+    } as never;
+  }
+
+  it('rejects when the occupancy RPC errors, rather than showing every tier as empty', async () => {
+    const client = makeClient({ data: [{ id: 't1' }], error: null }, { data: null, error: { message: 'boom' } });
+    await expect(fetchTiersWithUsage(client, 'event-1')).rejects.toThrow();
+  });
+
+  it('rejects when the tiers select errors', async () => {
+    const client = makeClient({ data: null, error: { message: 'boom' } }, { data: [], error: null });
+    await expect(fetchTiersWithUsage(client, 'event-1')).rejects.toThrow();
+  });
+
+  it('maps occupancy from the RPC by tier_id and defaults tiers with no rows to 0', async () => {
+    const rpcCalls: RpcCall[] = [];
+    const client = makeClient(
+      {
+        data: [
+          { id: 't1', name: 'Regular', color: '#000', max_guests: null, aliases: [], door_price_cents: null, vat_percent: null },
+          { id: 't2', name: 'VIP', color: '#fff', max_guests: 10, aliases: [], door_price_cents: null, vat_percent: null },
+        ],
+        error: null,
+      },
+      { data: [{ tier_id: 't1', used: 23 }], error: null },
+      rpcCalls,
+    );
+
+    const rows = await fetchTiersWithUsage(client, 'event-1');
+
+    expect(rpcCalls).toEqual([{ name: 'event_tier_occupancy', args: { p_event_id: 'event-1' } }]);
+    expect(rows).toEqual([
+      { id: 't1', name: 'Regular', color: '#000', max_guests: null, aliases: [], door_price_cents: null, vat_percent: null, used: 23 },
+      { id: 't2', name: 'VIP', color: '#fff', max_guests: 10, aliases: [], door_price_cents: null, vat_percent: null, used: 0 },
+    ]);
+  });
+});
+
+// ── fetchVenueRequestLinks (86ey9e9wv/#48) ───────────────────────────────────
+// Links never archive automatically, so this is now a ranged read (instead of
+// one unwindowed select) with the influencer lookup chunked.
+
+describe('fetchVenueRequestLinks (86ey9e9wv/#48)', () => {
+  interface Capture {
+    ranges: [number, number][];
+    inIds: string[][];
+  }
+
+  interface LinksChain {
+    select: (...args: unknown[]) => LinksChain;
+    eq: (...args: unknown[]) => LinksChain;
+    is: (...args: unknown[]) => LinksChain;
+    order: (...args: unknown[]) => LinksChain;
+    range: (from: number, to: number) => Promise<unknown>;
+  }
+  interface InfChain {
+    select: (...args: unknown[]) => InfChain;
+    in: (col: string, ids: string[]) => Promise<unknown>;
+  }
+
+  function makeClient(pages: unknown[], influencersResult: unknown, capture: Capture) {
+    let pageIndex = 0;
+    const linksChain: LinksChain = {
+      select: vi.fn(() => linksChain),
+      eq: vi.fn(() => linksChain),
+      is: vi.fn(() => linksChain),
+      order: vi.fn(() => linksChain),
+      range: vi.fn((from: number, to: number) => {
+        capture.ranges.push([from, to]);
+        const result = pages[pageIndex] ?? { data: [], error: null };
+        pageIndex++;
+        return Promise.resolve(result);
+      }),
+    };
+    const infChain: InfChain = {
+      select: vi.fn(() => infChain),
+      in: vi.fn((_col: string, ids: string[]) => {
+        capture.inIds.push(ids);
+        return Promise.resolve(influencersResult);
+      }),
+    };
+    return {
+      from: vi.fn((table: string) => (table === 'request_links' ? linksChain : infChain)),
+    } as never;
+  }
+
+  it('rejects when the ranged request_links read errors', async () => {
+    const capture: Capture = { ranges: [], inIds: [] };
+    const client = makeClient([{ data: null, error: { message: 'boom' } }], { data: [], error: null }, capture);
+    await expect(fetchVenueRequestLinks(client, 'venue-1')).rejects.toThrow();
+  });
+
+  it('pages the request_links read (fetchAllRanged) instead of one unwindowed select', async () => {
+    const capture: Capture = { ranges: [], inIds: [] };
+    const fullPage = Array.from({ length: 1000 }, (_, i) => ({
+      id: `link-${i}`,
+      event_id: 'event-1',
+      is_default: false,
+      label: `Link ${i}`,
+      influencer_id: null,
+    }));
+    const client = makeClient(
+      [
+        { data: fullPage, error: null },
+        { data: [], error: null },
+      ],
+      { data: [], error: null },
+      capture,
+    );
+
+    const rows = await fetchVenueRequestLinks(client, 'venue-1');
+
+    expect(capture.ranges).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ]); // a full first page forces a second (short) page request
+    expect(rows).toHaveLength(1000);
+  });
+
+  it('chunks the influencer lookup and resolves label fallback (resolved name > stored label > null)', async () => {
+    const capture: Capture = { ranges: [], inIds: [] };
+    const client = makeClient(
+      [
+        {
+          data: [
+            { id: 'l1', event_id: 'e1', is_default: true, label: null, influencer_id: null },
+            { id: 'l2', event_id: 'e1', is_default: false, label: 'Fallback label', influencer_id: 'inf-1' },
+            { id: 'l3', event_id: 'e1', is_default: false, label: null, influencer_id: 'inf-2' },
+          ],
+          error: null,
+        },
+      ],
+      { data: [{ id: 'inf-1', name: 'Jayden Promo' }], error: null },
+      capture,
+    );
+
+    const rows = await fetchVenueRequestLinks(client, 'venue-1');
+
+    expect(capture.inIds).toEqual([['inf-1', 'inf-2']]); // deduped, one chunk (<1000 ids)
+    expect(rows).toEqual([
+      { id: 'l1', eventId: 'e1', isDefault: true, label: null },
+      { id: 'l2', eventId: 'e1', isDefault: false, label: 'Jayden Promo' },
+      { id: 'l3', eventId: 'e1', isDefault: false, label: null }, // unresolved influencer -> null, not the (absent) stored label
+    ]);
+  });
+});
+
+// ── fetchRequestLinks (86ey9e9wv/#49) ────────────────────────────────────────
+// requests/approved now come from the event_request_link_funnel RPC (a DB-side
+// GROUP BY), not an unwindowed guest_requests download summed in JS.
+
+describe('fetchRequestLinks (86ey9e9wv/#49)', () => {
+  interface SimpleChain {
+    select: (...args: unknown[]) => SimpleChain;
+    eq: (...args: unknown[]) => SimpleChain;
+    is: (...args: unknown[]) => SimpleChain;
+    not: (...args: unknown[]) => SimpleChain;
+    order: (...args: unknown[]) => SimpleChain | Promise<unknown>;
+    in: (...args: unknown[]) => Promise<unknown>;
+    range: (...args: unknown[]) => Promise<unknown>;
+  }
+
+  function makeClient(
+    opts: { links: unknown; influencers?: unknown; pageviews?: unknown; funnel: unknown },
+    rpcCalls: Array<{ name: string; args: unknown }> = [],
+  ) {
+    const linksChain: SimpleChain = {
+      select: vi.fn(() => linksChain),
+      eq: vi.fn(() => linksChain),
+      is: vi.fn(() => linksChain),
+      not: vi.fn(() => linksChain),
+      order: vi.fn(() => Promise.resolve(opts.links)),
+      in: vi.fn(() => Promise.resolve(opts.links)),
+      range: vi.fn(() => Promise.resolve(opts.links)),
+    };
+    const infChain: SimpleChain = {
+      select: vi.fn(() => infChain),
+      eq: vi.fn(() => infChain),
+      is: vi.fn(() => infChain),
+      not: vi.fn(() => infChain),
+      order: vi.fn(() => infChain),
+      in: vi.fn(() => Promise.resolve(opts.influencers ?? { data: [], error: null })),
+      range: vi.fn(() => Promise.resolve(opts.influencers ?? { data: [], error: null })),
+    };
+    const pvChain: SimpleChain = {
+      select: vi.fn(() => pvChain),
+      eq: vi.fn(() => pvChain),
+      is: vi.fn(() => pvChain),
+      not: vi.fn(() => pvChain),
+      order: vi.fn(() => pvChain),
+      in: vi.fn(() => Promise.resolve(opts.pageviews ?? { data: [], error: null })),
+      range: vi.fn(() => Promise.resolve(opts.pageviews ?? { data: [], error: null })),
+    };
+    const guestsChain: SimpleChain = {
+      select: vi.fn(() => guestsChain),
+      eq: vi.fn(() => guestsChain),
+      is: vi.fn(() => guestsChain),
+      not: vi.fn(() => guestsChain),
+      order: vi.fn(() => guestsChain),
+      in: vi.fn(() => Promise.resolve({ data: [], error: null })),
+      range: vi.fn(() => Promise.resolve({ data: [], error: null })),
+    };
+    return {
+      from: vi.fn((table: string) => {
+        if (table === 'request_links') return linksChain;
+        if (table === 'influencers') return infChain;
+        if (table === 'request_link_pageviews_daily') return pvChain;
+        if (table === 'guests') return guestsChain;
+        throw new Error(`unexpected table ${table}`);
+      }),
+      rpc: vi.fn((name: string, args: unknown) => {
+        rpcCalls.push({ name, args });
+        return Promise.resolve(opts.funnel);
+      }),
+    } as never;
+  }
+
+  it('returns [] without a funnel read when the event has no links', async () => {
+    const rpcCalls: Array<{ name: string; args: unknown }> = [];
+    const client = makeClient({ links: { data: [], error: null }, funnel: { data: [], error: null } }, rpcCalls);
+    const rows = await fetchRequestLinks(client, 'event-1');
+    expect(rows).toEqual([]);
+    expect(rpcCalls).toEqual([]);
+  });
+
+  it('rejects when the funnel RPC errors, rather than showing every link with zero requests', async () => {
+    const client = makeClient({
+      links: {
+        data: [
+          {
+            id: 'l1', event_id: 'e1', slug: 's1', is_default: true, active: true, auto_approve: false,
+            influencer_id: null, label: null, tier_id: null, max_headcount: null, expires_at: null, created_at: '2026-01-01',
+          },
+        ],
+        error: null,
+      },
+      funnel: { data: null, error: { message: 'boom' } },
+    });
+    await expect(fetchRequestLinks(client, 'event-1')).rejects.toThrow();
+  });
+
+  it('aggregates requests/approved from the RPC, default link sorted first', async () => {
+    const rpcCalls: Array<{ name: string; args: unknown }> = [];
+    const client = makeClient(
+      {
+        links: {
+          data: [
+            {
+              id: 'l1', event_id: 'e1', slug: 's1', is_default: true, active: true, auto_approve: false,
+              influencer_id: null, label: null, tier_id: null, max_headcount: null, expires_at: null, created_at: '2026-01-01',
+            },
+            {
+              id: 'l2', event_id: 'e1', slug: 's2', is_default: false, active: true, auto_approve: true,
+              influencer_id: null, label: 'Jayden', tier_id: null, max_headcount: null, expires_at: null, created_at: '2026-01-02',
+            },
+          ],
+          error: null,
+        },
+        funnel: {
+          data: [
+            { request_link_id: 'l2', requests: 2, approved: 0 },
+            { request_link_id: 'l1', requests: 1, approved: 0 },
+          ],
+          error: null,
+        },
+      },
+      rpcCalls,
+    );
+
+    const rows = await fetchRequestLinks(client, 'event-1');
+
+    expect(rpcCalls).toEqual([{ name: 'event_request_link_funnel', args: { p_event_id: 'event-1' } }]);
+    expect(rows.map((r) => [r.id, r.requests, r.approved])).toEqual([
+      ['l1', 1, 0],
+      ['l2', 2, 0],
+    ]);
   });
 });

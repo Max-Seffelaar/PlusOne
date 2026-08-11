@@ -1754,6 +1754,14 @@ export type Database = {
           reason: string
         }[]
       }
+      event_request_link_funnel: {
+        Args: { p_event_id: string }
+        Returns: {
+          approved: number
+          request_link_id: string
+          requests: number
+        }[]
+      }
       event_stats_summary: {
         Args: { p_event_id: string }
         Returns: {
@@ -1766,6 +1774,13 @@ export type Database = {
           refused: number
           registered: number
           registered_headcount: number
+        }[]
+      }
+      event_tier_occupancy: {
+        Args: { p_event_id: string }
+        Returns: {
+          tier_id: string
+          used: number
         }[]
       }
       event_tier_stats: {

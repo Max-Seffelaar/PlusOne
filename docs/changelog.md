@@ -1291,6 +1291,52 @@ outbox) — got the fresh-session `/code-review` above before merge, per CLAUDE.
 
 ---
 
+## 2026-08-10 — Scale: tier occupancy + request-link reads/funnel now DB-aggregated (86ey9e9wv)
+
+Branch `perf/86ey9e9wv-scale-tiers-links-funnel`. Milestone: Now (scale/front-end discipline
+from the 2026-07 engineering review, #47/#48/#49 of the scale-audit finder). Three fetchers in
+`src/features/po/queries.ts` violated "aggregate on the database, never download every row and
+sum in JS" / "reads must be windowed at large N" — fixed with two new RPCs + windowing/chunking,
+no client-facing behaviour change.
+
+- **#47 `fetchTiersWithUsage`.** Downloaded every guest row of the event (`tier_id`, `status`)
+  and summed per-tier occupancy in JS, re-fetched on every check-in. The ClickUp ticket suggested
+  reusing `event_tier_stats` — **re-verified and rejected**: `event_tier_stats`'s "registered"
+  counts only `approved`/`checked_in`, but the tier-max occupancy bar must match
+  `guest_tier_contribution`/`tier_consumption` (the actual capacity-trigger semantics), which
+  excludes only `removed`/`denied` — pending and refused guests still hold a slot there. Reusing
+  `event_tier_stats` would have silently dropped pending/refused from the displayed count while
+  the DB trigger kept blocking adds on their account. Fixed with a new `event_tier_occupancy(uuid)`
+  RPC (SECURITY INVOKER, GROUP BY on `guests`) mirroring `guest_tier_contribution`'s own exclusion
+  set instead.
+- **#48 `fetchVenueRequestLinks`.** Links never archive automatically, so a long-lived venue's
+  non-archived `request_links` can exceed PostgREST's 1000-row cap and silently truncate the
+  approvals link-filter picker. Now ranged (`fetchAllRanged`); the influencer-id lookup is
+  chunked (mirrors `contactEventCounts`) since the id list grows with the ranged read.
+- **#49 `fetchRequestLinks` funnel counting.** The `guest_requests` read for the per-link
+  requests/approved counts had no `.range()` — a viral event's request volume can exceed 1000
+  rows and silently undercount the funnel. New `event_request_link_funnel(uuid)` RPC (SECURITY
+  INVOKER, GROUP BY on `guest_requests`) replaces it; the guests headcount read alongside it was
+  already ranged (unchanged).
+- Migration `20260810120000_scale_tier_occupancy_link_funnel.sql` — both RPCs are plain
+  `language sql stable` (no explicit `security invoker`, matches `venue_event_headcounts`), so
+  RLS on `guests`/`guest_requests` scopes results exactly as the row-by-row reads did (staff:
+  only their own added guests for occupancy; `guest_requests`: admin/finance/organizer only,
+  staff/doorhost see nothing).
+- pgTAP: 14 new assertions in `analytics.test.sql` §12, using an **isolated fixture event**
+  (`e2../d2../c2../f2../b2..` ids) rather than the shared seed event — the shared local Supabase
+  stack is used concurrently by every worktree session against the same fixed seed ids, so
+  exact-count assertions against the shared event are flaky by construction (confirmed while
+  writing this: the seed's Regular/VIP tier counts drifted between runs). The isolated fixture
+  proves per-status inclusion (`used` = approved+checked_in+pending+refused, excl.
+  removed+denied) and the role matrix (admin full, staff RLS-scoped-to-own-adds, organizer full
+  funnel, doorhost full occupancy/empty funnel) without depending on any other section's state or
+  another session's writes. Full suite: pgTAP 1019 (was 1005), vitest 876.
+- Vitest: 3 new `describe` blocks in `queries.test.ts` (13 new tests) — RPC-error rejection,
+  ranged-read paging, influencer-chunking, and result-mapping per fetcher.
+- No client-facing behaviour change: same shapes, same numbers, same RLS-scoped visibility —
+  purely a where-the-aggregation-happens change.
+
 ## 2026-07-14 — Door outbox/cache not wiped on sign-out — shared-device isolation (86ey9et07)
 
 Branch `fix/86ey9et07-door-outbox-clear-on-signout` (PR #233). Follow-up carved out of the

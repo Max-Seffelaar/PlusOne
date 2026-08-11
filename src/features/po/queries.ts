@@ -789,28 +789,24 @@ export type TierWithUsage = PoTierRow & { used: number };
 /**
  * Tiers of an event with current occupancy — mirrors getEventTiers: "used" counts
  * entries that aren't removed/denied (matches guest_tier_contribution), as people
- * (not headcount), for the tier-max bar.
+ * (not headcount), for the tier-max bar. Occupancy is aggregated in the DB
+ * (`event_tier_occupancy`, mirrors guest_tier_contribution's own exclusion set —
+ * NOT event_tier_stats, whose "registered" excludes pending/refused too and would
+ * silently disagree with the capacity trigger) instead of downloading every guest
+ * row and summing in JS (86ey9e9wv/#47).
  */
 export async function fetchTiersWithUsage(
   client: Client,
   eventId: string
 ): Promise<TierWithUsage[]> {
-  const [{ data: tiers, error: tiersErr }, guests] = await Promise.all([
+  const [{ data: tiers, error: tiersErr }, { data: occupancy, error: occErr }] = await Promise.all([
     client.from('guest_tiers').select('id, name, color, max_guests, aliases, door_price_cents, vat_percent').eq('event_id', eventId).order('name'),
-    // Ranged: occupancy counts every non-removed/denied guest, so a 1500-guest
-    // event would otherwise truncate the count at 1000. `.order('id')` keys the paging.
-    fetchAllRanged<Pick<Tables['guests']['Row'], 'tier_id' | 'status'>>((from, to) =>
-      client.from('guests').select('tier_id, status').eq('event_id', eventId).order('id').range(from, to),
-    ),
+    client.rpc('event_tier_occupancy', { p_event_id: eventId }),
   ]);
   if (tiersErr) throw tiersErr;
+  if (occErr) throw occErr;
 
-  const used = new Map<string, number>();
-  for (const g of guests) {
-    if (g.status === 'removed' || g.status === 'denied') continue;
-    used.set(g.tier_id, (used.get(g.tier_id) ?? 0) + 1);
-  }
-
+  const used = new Map((occupancy ?? []).map((row) => [row.tier_id, row.used]));
   return (tiers ?? []).map((t) => ({ ...t, used: used.get(t.id) ?? 0 }));
 }
 
@@ -1888,7 +1884,8 @@ export interface PoRequestLink {
   maxHeadcount: number | null;
   expiresAt: string | null;
   createdAt: string;
-  // Funnel numbers, aggregated client-side from batched reads.
+  // Funnel numbers: pageviews/heads summed client-side from batched reads,
+  // requests/approved aggregated in the DB (event_request_link_funnel, #49).
   /** Total landing pageviews (sum of the daily buckets). */
   views: number;
   /** Total requests submitted through the link (any status). */
@@ -1924,7 +1921,7 @@ export async function fetchRequestLinks(client: Client, eventId: string): Promis
   const linkIds = rows.map((l) => l.id);
   const infIds = [...new Set(rows.map((l) => l.influencer_id).filter((x): x is string => !!x))];
 
-  const [influencersRes, pageviewsRes, requestsRes, guests] = await Promise.all([
+  const [influencersRes, pageviewsRes, funnelRes, guests] = await Promise.all([
     infIds.length
       ? client.from('influencers').select('id, name').in('id', infIds)
       : Promise.resolve({ data: [] as { id: string; name: string }[], error: null }),
@@ -1932,11 +1929,9 @@ export async function fetchRequestLinks(client: Client, eventId: string): Promis
       .from('request_link_pageviews_daily')
       .select('request_link_id, views')
       .in('request_link_id', linkIds),
-    client
-      .from('guest_requests')
-      .select('request_link_id, status')
-      .eq('event_id', eventId)
-      .not('request_link_id', 'is', null),
+    // Aggregated in the DB (86ey9e9wv/#49): an unwindowed `guest_requests` select
+    // silently undercounts past PostgREST's 1000-row cap for a viral event.
+    client.rpc('event_request_link_funnel', { p_event_id: eventId }),
     // Ranged: a 1500-guest event would truncate the headcount at PostgREST's
     // 1000-row cap. `.order('id')` keys the paging (same as fetchTiersWithUsage).
     fetchAllRanged<Pick<Tables['guests']['Row'], 'request_link_id' | 'plus_ones' | 'status'>>((from, to) =>
@@ -1951,25 +1946,18 @@ export async function fetchRequestLinks(client: Client, eventId: string): Promis
   ]);
   if (influencersRes.error) throw influencersRes.error;
   if (pageviewsRes.error) throw pageviewsRes.error;
-  if (requestsRes.error) throw requestsRes.error;
+  if (funnelRes.error) throw funnelRes.error;
   const influencers = influencersRes.data ?? [];
   const pageviews = pageviewsRes.data ?? [];
-  const requests = requestsRes.data ?? [];
+  const funnel = funnelRes.data ?? [];
 
   const nameById = new Map(influencers.map((i) => [i.id, i.name]));
   const viewsByLink = new Map<string, number>();
   for (const p of pageviews) {
     viewsByLink.set(p.request_link_id, (viewsByLink.get(p.request_link_id) ?? 0) + p.views);
   }
-  const requestsByLink = new Map<string, number>();
-  const approvedByLink = new Map<string, number>();
-  for (const r of requests) {
-    if (!r.request_link_id) continue;
-    requestsByLink.set(r.request_link_id, (requestsByLink.get(r.request_link_id) ?? 0) + 1);
-    if (r.status === 'approved') {
-      approvedByLink.set(r.request_link_id, (approvedByLink.get(r.request_link_id) ?? 0) + 1);
-    }
-  }
+  const requestsByLink = new Map(funnel.map((f) => [f.request_link_id, f.requests]));
+  const approvedByLink = new Map(funnel.map((f) => [f.request_link_id, f.approved]));
   const headsByLink = new Map<string, number>();
   const checkedInByLink = new Map<string, number>();
   for (const g of guests) {
@@ -2014,28 +2002,35 @@ export interface PoLinkOption {
   label: string | null;
 }
 
+type VenueLinkRow = Pick<Tables['request_links']['Row'], 'id' | 'event_id' | 'is_default' | 'label' | 'influencer_id'>;
+
 /**
  * Every non-archived link at a venue (lean — no funnel numbers). `request_links`
  * already carries `venue_id`, so this never needed the eventIds indirection
- * (SCALE-5) — one venue_id, no `usePoEvents()` dependency at all.
+ * (SCALE-5) — one venue_id, no `usePoEvents()` dependency at all. Links never
+ * archive automatically (86ey9e9wv/#48) — a long-lived venue can accumulate past
+ * PostgREST's 1000-row cap, so this is ranged; the influencer lookup is chunked
+ * (mirrors contactEventCounts) since the id list grows with the ranged read.
  */
 export async function fetchVenueRequestLinks(client: Client, venueId: string): Promise<PoLinkOption[]> {
-  const { data, error } = await client
-    .from('request_links')
-    .select('id, event_id, is_default, label, influencer_id')
-    .eq('venue_id', venueId)
-    .is('archived_at', null)
-    .order('created_at', { ascending: true });
-  if (error) throw error;
+  const rows = await fetchAllRanged<VenueLinkRow>((from, to) =>
+    client
+      .from('request_links')
+      .select('id, event_id, is_default, label, influencer_id')
+      .eq('venue_id', venueId)
+      .is('archived_at', null)
+      .order('created_at', { ascending: true })
+      .order('id')
+      .range(from, to)
+  );
 
-  const rows = data ?? [];
   const infIds = [...new Set(rows.map((l) => l.influencer_id).filter((x): x is string => !!x))];
-  const infRes = infIds.length
-    ? await client.from('influencers').select('id, name').in('id', infIds)
-    : { data: [] as { id: string; name: string }[], error: null };
-  if (infRes.error) throw infRes.error;
-  const influencers = infRes.data ?? [];
-  const nameById = new Map(influencers.map((i) => [i.id, i.name]));
+  const nameById = new Map<string, string>();
+  for (const chunk of chunkIds(infIds)) {
+    const { data, error } = await client.from('influencers').select('id, name').in('id', chunk);
+    if (error) throw error;
+    for (const i of data ?? []) nameById.set(i.id, i.name);
+  }
   return rows.map((l) => ({
     id: l.id,
     eventId: l.event_id,
