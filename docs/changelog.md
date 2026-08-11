@@ -932,6 +932,57 @@ triggers) → not self-merged; fresh-session `/code-review` first.
 
 ---
 
+## 2026-08-11 — Cockpit check-in flicker + po cache-invalidation gaps (86ey9e9rz)(86ey9e9v5)
+
+Branch `fix/86ey9e9rz-86ey9e9v5-po-cache-invalidation` (PR #259). Two ClickUp tasks combined
+(86ey9e9rz confirmed root-cause, 86ey9e9v5 finder — its four points were re-verified against
+current `main` before touching anything). Milestone: Now (door speed is a core value — a
+guest visibly bouncing back to "onderweg" after check-in is a fraud-resistance/trust issue
+at the door, not cosmetic).
+
+- **Root cause (86ey9e9rz).** `usePoCheckIn`/`usePoVoidCheckIn` (`src/features/po/mutations.ts`)
+  only cancelled `poKeys.guests` in `onMutate` before their optimistic patch, but the shared
+  `optimisticCheckin()` helper writes BOTH `poKeys.guests` AND `poKeys.arrivals`. An in-flight
+  arrivals refetch (the cockpit's own polling, or a sibling tab) could land right after the
+  patch and silently overwrite it with pre-mutation data — a just-checked-in guest visibly
+  snapped back to "onderweg" on the event-dag cockpit. `usePoCheckOut` had the identical bug
+  (same helper, same file, not named in the original task) and got the same fix for
+  consistency. Extracted a shared `cancelCheckinQueries` helper so the two cancels can't drift
+  apart again.
+- **86ey9e9v5, re-verified one by one:**
+  - (a) `usePoHomeEvents` vs `usePoEvents` — re-checked as NOT a literal duplicate fetcher:
+    Home is deliberately windowed to 7 days (PR #229's scale fix), so merging the two queries
+    would regress that windowing. The actual bug was that `useInvalidateEvent` (and the two
+    create-event mutations) never invalidated `poKeys.home`, so the Home board lagged the
+    Events tab by up to one 10s poll after create/cancel/status-change. Fixed there instead;
+    PR #228's ad hoc home-invalidation on the lock toggle is now redundant and removed.
+  - (b) `usePoEventStats` + `usePoEventActivity` — confirmed duplicate: both called the
+    identical `fetchEventStats` 5-RPC bundle under two separate cache keys. Now share
+    `poKeys.eventStats`, varying shape with React Query `select` (per CLAUDE.md's "share a
+    base query" rule) — mounting both no longer double-fetches, and an invalidation (e.g. the
+    check-in realtime hook, which only ever targeted `eventStats`) now refreshes both instead
+    of silently leaving the Activity panel stale.
+  - (c) `togglePause` in `event-links.tsx` — confirmed: a bare `setQueryData` with no
+    `cancelQueries` before it, same race class as the check-in bug. Moved the optimistic patch
+    + rollback into `usePoUpdateLink`'s `onMutate`/`onError` (its only caller).
+  - (d) `usePoBulkAddToEvent` — confirmed `onSuccess`-only invalidation. Switched to
+    `onSettled` (matches `usePoAddGuest`) so a mid-loop exception still reconciles the target
+    event's caches.
+- Re-checked line numbers/behaviour against recent merges (#235 door-QueryClient singleton,
+  #228 Home lock mutation, #229 windowed home poll) before editing — no regressions to any.
+- **Tests.** 3 new files (`mutations.checkin.test.tsx`, `mutations.homeInvalidate.test.tsx`,
+  `hooks.eventStatsShared.test.tsx`) + additions to `mutations.test.tsx`, one per fix above.
+  `pnpm lint` clean, `tsc --noEmit` 0 errors, `pnpm vitest run` on `src/features/po` +
+  `src/components/po`: 21 files / 270 tests green (after rebasing twice onto a fast-moving
+  `main` — #253's atomic check-out RPC needed the `checkOutGuest` mock added to the new
+  `usePoCheckOut` test). No migration — pure React Query cache-layer change.
+- **Gotcha hit mid-session:** ClickUp's MCP API was rate-limited for ~975 minutes at pickup
+  time, so the task status flip + end-of-session comment for both tasks couldn't be posted
+  from this session — needs a manual update or a later session once the limit clears.
+- **Open:** PR #259 awaiting Max's manual test pass (handoff questions in the PR body) + merge.
+
+---
+
 ## 2026-07-14 — Door outbox/cache not wiped on sign-out — shared-device isolation (86ey9et07)
 
 Branch `fix/86ey9et07-door-outbox-clear-on-signout` (PR #233). Follow-up carved out of the

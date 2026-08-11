@@ -88,7 +88,10 @@ export function Stats(): JSX.Element {
             name="refresh"
             onClick={() => {
               setReloadKey((k) => k + 1);
-              if (eventId) void qc.invalidateQueries({ queryKey: poKeys.eventActivity(eventId) });
+              // usePoEventActivity reads under poKeys.eventStats now (86ey9e9v5 —
+              // shared with usePoEventStats to dedupe the fetch), not a separate
+              // eventActivity key.
+              if (eventId) void qc.invalidateQueries({ queryKey: poKeys.eventStats(eventId) });
             }}
           />
         }

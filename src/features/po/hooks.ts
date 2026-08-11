@@ -375,24 +375,52 @@ export interface EventStatsDetail {
   perUser: PerUser[];
 }
 
+/** Raw shape behind BOTH `usePoEventStats` (cockpit chart) and `usePoEventActivity`
+ *  (Activity panel / Analytics event-first view) — they used to call the identical
+ *  `fetchEventStats` 5-RPC bundle independently under two different cache keys
+ *  (86ey9e9v5), so mounting both duplicated the fetch, and an invalidation of one
+ *  key (e.g. the check-in realtime hook, which only ever touched `eventStats`)
+ *  silently left the other stale. Sharing `poKeys.eventStats` as the queryKey and
+ *  varying the shape per hook with `select` (CLAUDE.md's "share a base query")
+ *  dedupes the network call and fixes that staleness for free. */
+interface EventStatsBundle {
+  ek: EventKpis;
+  perKwartier: PerKwartier[];
+  perTier: PerTier[];
+  perUser: PerUser[];
+  peak: string | null;
+  peakCount: number;
+}
+
+async function fetchEventStatsBundle(eventId: string): Promise<EventStatsBundle> {
+  const { summary, perQuarter, tiers, users } = await fetchEventStats(createClient(), eventId);
+  const ek = eventKpis(summary);
+  return {
+    ek,
+    perKwartier: toPerKwartier(perQuarter),
+    perTier: toPerTier(tiers),
+    perUser: toPerUser(users),
+    peak: ek.peak,
+    peakCount: ek.peakCount,
+  };
+}
+
 /** Per-event KPIs + arrivals + per-tier + per-member stats, for `EventStatsPanel`. */
 export function usePoEventActivity(
   eventId: string,
   options?: { enabled?: boolean; refetchInterval?: number }
 ) {
-  return useQuery<EventStatsDetail>({
-    queryKey: poKeys.eventActivity(eventId),
+  return useQuery({
+    queryKey: poKeys.eventStats(eventId),
     enabled: !!eventId && (options?.enabled ?? true),
     refetchInterval: options?.refetchInterval,
-    queryFn: async () => {
-      const { summary, perQuarter, tiers, users } = await fetchEventStats(createClient(), eventId);
-      return {
-        ek: eventKpis(summary),
-        perKwartier: toPerKwartier(perQuarter),
-        perTier: toPerTier(tiers),
-        perUser: toPerUser(users),
-      };
-    },
+    queryFn: () => fetchEventStatsBundle(eventId),
+    select: (bundle): EventStatsDetail => ({
+      ek: bundle.ek,
+      perKwartier: bundle.perKwartier,
+      perTier: bundle.perTier,
+      perUser: bundle.perUser,
+    }),
   });
 }
 
@@ -605,16 +633,17 @@ export interface PoEventStats {
  * cockpit can pass refetchInterval as a safety net.
  */
 export function usePoEventStats(eventId: string, options?: { refetchInterval?: number }) {
-  return useQuery<PoEventStats>({
+  return useQuery({
     queryKey: poKeys.eventStats(eventId),
     enabled: !!eventId,
     staleTime: 15_000,
     refetchInterval: options?.refetchInterval,
-    queryFn: async () => {
-      const { summary, perQuarter } = await fetchEventStats(createClient(), eventId);
-      const k = eventKpis(summary);
-      return { perKwartier: toPerKwartier(perQuarter), peak: k.peak, peakCount: k.peakCount };
-    },
+    queryFn: () => fetchEventStatsBundle(eventId),
+    select: (bundle): PoEventStats => ({
+      perKwartier: bundle.perKwartier,
+      peak: bundle.peak,
+      peakCount: bundle.peakCount,
+    }),
   });
 }
 
