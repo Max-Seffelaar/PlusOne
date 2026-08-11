@@ -6,7 +6,7 @@
  * pixel values use arbitrary Tailwind values so the visual output matches the
  * handoff. Interaction: hover `brightness(1.07)`, active `scale(0.975)`.
  */
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, JSX, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import type { Tier } from '@/lib/po/types';
@@ -125,6 +125,7 @@ export function Btn({
   className,
   style,
   desktop,
+  autoFocus,
 }: {
   children: ReactNode;
   kind?: BtnKind;
@@ -139,12 +140,14 @@ export function Btn({
   /** Desktop density (was desktop/kit.tsx's `DBtn`): tighter radius + the
    *  desktop press feel. Same API otherwise — a screen never needs two imports. */
   desktop?: boolean;
+  autoFocus?: boolean;
 }): JSX.Element {
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
+      autoFocus={autoFocus}
       className={cn(
         'inline-flex cursor-pointer items-center justify-center gap-[9px] whitespace-nowrap border font-display font-bold tracking-[-0.01em]',
         desktop ? 'rounded-[12px]' : 'rounded-btn',

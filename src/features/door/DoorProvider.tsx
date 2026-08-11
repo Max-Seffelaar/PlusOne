@@ -7,6 +7,7 @@
  * + queued (outbox) + flushed when online; realtime patches the same cache so
  * colleagues' check-ins appear within ~1s (spec §4, decisions #11/#25/#39).
  */
+import type { JSX } from 'react';
 import {
   createContext,
   useCallback,
@@ -481,7 +482,10 @@ export function DoorProvider({
       if (!g || !g.inside) return;
       const ts = new Date().toISOString();
       enqueueDoorWrite(
-        { kind: 'check_in_void', payload: { guestId, clientTimestamp: ts } },
+        // The observed row id travels with the entry: replayed hours later it
+        // must still mean "undo THAT check-in", not "undo whatever check-in this
+        // guest has by then" (#35).
+        { kind: 'check_in_void', payload: { guestId, checkInId: g.checkInId, clientTimestamp: ts } },
         (s) => ({
           ...s,
           checkIns: s.checkIns.map((c) =>
@@ -504,7 +508,10 @@ export function DoorProvider({
       const plusArrived = Math.min(g.plus, Math.max(0, totalPeople - 1));
       const ts = new Date().toISOString();
       enqueueDoorWrite(
-        { kind: 'check_in_revive', payload: { guestId, plusOnesArrived: plusArrived, clientTimestamp: ts } },
+        {
+          kind: 'check_in_revive',
+          payload: { guestId, plusOnesArrived: plusArrived, checkInId: g.checkInId, clientTimestamp: ts },
+        },
         (s) => ({
           ...s,
           checkIns: s.checkIns.map((c) =>

@@ -5,7 +5,7 @@
  * used by both the Overview and Per-event tabs, and the section kicker. Anything
  * generic enough for other domains graduates to kit.tsx instead (TierPicker did).
  */
-import { useState, type ReactNode } from 'react';
+import { type JSX, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import type { PoEvent } from '@/lib/po/types';

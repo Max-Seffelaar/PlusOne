@@ -4,7 +4,7 @@
  *  persoonlijke gegevens + sessies, abonnement & facturen, importeren.
  *  Split across settings/ (FE-5): this file stays the thin hub (Meer) plus
  *  re-exports of every section so `app.tsx` keeps importing from one place. */
-import { useState } from 'react';
+import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';

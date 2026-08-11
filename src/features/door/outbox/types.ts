@@ -47,6 +47,14 @@ export interface CheckInTopUpPayload {
 
 export interface CheckInVoidPayload {
   guestId: string;
+  /**
+   * The check_ins row this device OBSERVED when the doorhost undid the check-in
+   * (#35). Replay pins the UPDATE to it, so a colleague's fresh check-in made
+   * while we were offline is never voided by our stale queue. Optional: entries
+   * written by an older bundle have none and stay guest-scoped (dropping a
+   * queued door write would be worse than the narrow window it closes).
+   */
+  checkInId?: string | null;
   clientTimestamp: string;
 }
 
@@ -55,6 +63,8 @@ export interface CheckInRevivePayload {
   /** Fresh arrivals on re-checkin (total people - 1); the revive-aware trigger
    *  re-sets rather than holds it monotonic. */
   plusOnesArrived: number;
+  /** The observed check_ins row — see CheckInVoidPayload.checkInId (#35). */
+  checkInId?: string | null;
   clientTimestamp: string;
 }
 

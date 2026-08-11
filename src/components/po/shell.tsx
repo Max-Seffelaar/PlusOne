@@ -3,7 +3,7 @@
 /**
  * App shell: bottom tab bar, accent toast, bottom-sheet modal.
  */
-import { type ReactNode } from 'react';
+import { type JSX, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import { Icon, type IconName } from './icon';

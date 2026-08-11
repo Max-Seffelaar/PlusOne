@@ -17,7 +17,7 @@
  * DateField 'YYYY-MM-DD' | '', TimeField 'HH:mm' | ''. Omit onChange = read-only.
  * Capacitor-safe (#37): guarded matchMedia, no browser-only API without fallback.
  */
-import { useEffect, useRef, useState } from 'react';
+import { type JSX, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';

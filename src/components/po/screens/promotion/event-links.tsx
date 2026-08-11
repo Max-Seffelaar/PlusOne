@@ -19,7 +19,7 @@
  * is the event-level master toggle in EventEdit (its own `active` stays true),
  * and its identity can't be edited or archived here.
  */
-import { useEffect, useState, useRef } from 'react';
+import { type JSX, useEffect, useState, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';

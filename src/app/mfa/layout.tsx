@@ -1,3 +1,4 @@
+import type { JSX } from 'react';
 import { requireUser } from '@/lib/auth/guards';
 
 // MFA routes sit OUTSIDE the (app) group so the AAL2-enforcing app layout can

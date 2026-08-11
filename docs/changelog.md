@@ -51,6 +51,493 @@ dev/test-loop).
 
 ---
 
+## 2026-08-11 — Review fixes on the SW cache split: offline boot, wipe completeness (86ey9e9mn)
+
+Same branch/PR (#246) as the entry below. A fresh-session `/code-review` (15 findings) plus
+`/security-review` (no new vulnerabilities; the PR is a net security win) ran on the cache-scoping
+work. The security half held up; the **offline half did not** — three of the findings were ways
+the new scoping quietly broke invariant #25, which the original entry claimed it preserved.
+Milestone: Now. All 15 addressed; suites: Vitest 86 files / **923** tests (the three SW suites grew
+28 → 63), pgTAP unchanged, lint + type-check clean.
+
+- **Offline boot was actually broken in three places** (merge-blocking half of the review):
+  - *Installed PWA could not launch offline.* `manifest.json` `start_url` is `/` with
+    `display: standalone`, but `/` classified as "never store" and had no fallback, so a
+    home-screen launch offline hit the browser error page — where the pre-PR universal
+    `caches.match('/door')` fallback had booted it. `/` is `src/app/page.tsx`: static, no auth, no
+    redirect, so it now routes to the SHELL bucket and is its own fallback. Fixed in the SW rather
+    than the manifest deliberately — a `start_url` change never reaches an already-installed PWA.
+    Caught while wiring this up: middleware 307s a *signed-in* user off `/` to `/app`, so both a
+    real navigation and a credentialed seed come back redirected and store nothing — the offline
+    launch would have stayed broken for exactly the people who use the installed app. `/` is
+    therefore seeded with `credentials: 'omit'`, which also makes "this entry holds no session
+    data" true by construction instead of by inspection.
+  - *The shell was never seeded.* Removing the install precache was right (`cache.addAll` sends
+    cookies), but "the shell fills itself from real navigations" was false: every in-app move is a
+    `<Link>`/RSC fetch (`mode: 'cors'`), so the SW never sees a `navigate` request for
+    `/door/<eventId>` — a first-session tablet cached zero navigation HTML and died on an offline
+    reload. Added a `seed-shell` message: `register-sw.tsx` posts the paths it wants after
+    `serviceWorker.ready`, the SW re-fetches them with `credentials: 'same-origin'`. The path list
+    is treated as untrusted — each entry must classify as SHELL via `navigationCache` on its own
+    merits, so a compromised client cannot talk the worker into persisting `/app`.
+  - *The "next doorhost still cold-starts offline" claim was not delivered and is now corrected
+    rather than engineered around.* `fallbackFor('/door/<id>')` points at `/door`, which is
+    session-scoped and therefore gone after sign-out; and falling back across events is not an
+    option (the flight payload embeds the eventId — it would render the wrong event). The honest
+    version, now in the SW header, CLAUDE.md and the entry below: the persistent bucket buys static
+    assets + exact-URL door pages; a signed-out device can't work the door offline anyway (no
+    session, no IDB snapshot), and the next doorhost's bootable HTML comes from their own online
+    login via seeding.
+- **Cache writes could be dropped.** `putInCache` was fire-and-forget, so a worker terminated
+  after the response but before the write committed lost it — worst on WebKit/iPad, the door's
+  device class. It now returns its promise and every call site passes it to `event.waitUntil`.
+- **`ignoreSearch` on navigation lookups.** Without it, an entry under `/app/door?event=X` (the
+  canonical Deur-tab URL, `doorPath()`) could not satisfy `/app/door?event=X&seg=taken`, so a
+  query-only screen change died offline. `ignoreSearch` ignores the query only, never the path —
+  no cross-event bleed, asserted both ways.
+- **Sign-out ordering reversed (this changes #233 behaviour deliberately).** The wipes ran *before*
+  the lingering-session checks, so the `sign-out-incomplete` throw path — where we intentionally
+  keep the user signed in — destroyed that still-working doorhost's un-synced check-ins and offline
+  shell mid-shift while protecting nothing (their token is still on the device either way). The
+  wipe now runs only once the session is confirmed gone, immediately before the redirect. The
+  #233 test that asserted "PII still wiped" on the throw path was inverted to match, with the
+  reasoning recorded next to it.
+- **Sign-out wipe completeness (security-shaped):**
+  - The MFA wall's escape hatch called `supabase.auth.signOut()` raw — no IndexedDB wipe, no cache
+    wipe — on a surface reachable from a shared tablet. The device-wipe sign-out moved to
+    `src/features/auth/sign-out-device.ts` (so `features/*` doesn't import from
+    `components/po/screens/`); both call sites use it, `_shared.tsx` re-exports it.
+  - Cache Storage had no re-population guard. `clearDeviceCaches()` now posts `{type:'session-wipe'}`
+    to the worker, which bumps a `sessionEpoch` — the Cache Storage counterpart of `idbEpoch()` —
+    so a sibling tab's in-flight navigation cannot resurrect the cache we just deleted, and deletes
+    the bucket once more from inside the worker. An epoch rather than a sticky flag: it self-heals,
+    so the next user's own navigations cache normally.
+  - A remotely revoked device runs no code, so its session cache outlived revocation. The SW now
+    drops `plusone-session-*` when a SESSION-path navigation comes back as an opaqueredirect (the
+    post-revoke 307 to `/login`). Deliberately not "any non-200" — a 502 on flaky venue wifi must
+    not wipe the cache. Residual, now documented in CLAUDE.md: a device that never comes online
+    again keeps its cache; nothing running on it can be reached.
+- **Migration robustness.** `activate` used `Promise.all` with no catch, so one rejected
+  `caches.delete` skipped the rest of the purge *and* `clients.claim()` — and activate never fires
+  again for that script version. Now `allSettled` with an unconditional claim; same split in the
+  `sw.js` stub so a failed delete can never skip `registration.unregister()`. Added a lazy
+  purge at worker startup: the SW we replaced keeps finishing in-flight events, so a fire-and-forget
+  write can re-create a purged legacy cache seconds after `activate` ran.
+- **Docs-vs-code.** The `redirected` guard's documented mechanism didn't exist on the navigation
+  path (redirect mode is `manual` → opaqueredirect, status 0, `redirected` false). Comments, the
+  changelog entry below and the test fixture now model the real shape; the guard stays because it
+  *is* live for the static and seed-fetch paths, with a test for each.
+- **Guards that could not fail.** `toContain('sw.js')` was satisfied by the explanatory comment
+  above the middleware matcher, and `sign-out.test.ts` ran in the node env where `caches` is
+  undefined — so deleting either protection kept CI green. The matcher is now compiled from
+  `src/middleware.ts` source and asserted behaviourally (`/sw.js` and `/service-worker.js` must NOT
+  match, `/app` and `/door/evt-1` must), and `sign-out.test.ts` stubs `caches` and asserts the
+  session bucket is deleted during the real `signOutDevice` flow. The `plusone-shell-` prefix was
+  triplicated across two SWs and a TS module with no drift guard: `KEEP_PREFIX` is exported and a
+  test extracts both cache names from the SW source and asserts the prefix contract, so a rename
+  that made sign-out wipe the shell (or spare the credentialed cache) fails CI.
+- **Shell PII contract + growth.** `/door/` (trailing slash) classified as SHELL and only Next's
+  `trailingSlash: false` kept the credentialed picker out — now excluded explicitly. Added a
+  structural guard that `src/app/door/[eventId]/page.tsx` renders only `<DoorRoute eventId
+  serverHint>` and serializes no guest data, plus a note that `/_next/image` routing to SHELL is
+  only safe while `images.unoptimized: true`. The shell cache is now capped (60 entries, static
+  assets evicted first) — nothing bounded it, and origin-quota eviction would have taken the
+  IndexedDB outbox with it.
+
+---
+
+## 2026-08-10 — Service worker cached credentialed `/app` HTML + stale next-pwa artefacts (86ey9e9mn)
+
+Branch `fix/86ey9e9mn-sw-pii-cache`. Direct follow-up to 86ey9et07 (PR #233): that one wiped
+IndexedDB on sign-out, this one closes the *other* origin-scoped store the door leaves behind —
+Cache Storage. Milestone: Now (security/AVG on shared venue tablets). Two confirmed review
+findings, both about data that outlives the session that produced it.
+
+- **N1 — the door SW cached every same-origin navigation, including `/app`.**
+  `public/service-worker.js` handled `request.mode === 'navigate'` with no path scope at all, so
+  the network-first branch wrote the response of *any* navigation into one persistent cache
+  (`plusone-door-v1`). `/app` is not a static shell: `src/app/app/layout.tsx` resolves identity
+  server-side and the RSC flight payload embedded in the HTML carries user id, venue id, venue
+  name, roles, display name and the whole membership set. `/door` (the picker) SSRs the caller's
+  event + venue list. Sign-out cleared IndexedDB but never touched Cache Storage, so on a tablet
+  passed from doorhost A to B, A's `/app` HTML stayed readable in devtools (and would be served
+  to B on an offline boot).
+- **Fix — two caches, two lifetimes.** The SW now decides per pathname which bucket a navigation
+  may go in, and defaults to *not storing it at all*:
+  - `plusone-shell-v2` (persistent, PII-free): static assets + `/door/<eventId>`, which
+    deliberately SSRs no guest data. Kept across sign-out on purpose — wiping it would cost the
+    *next* doorhost their offline cold start (invariant #25).
+  - `plusone-session-v1` (session-scoped): `/app`, `/app/*` and the `/door` picker. Wiped by
+    `clearDeviceCaches()` (`src/features/door/offline/sw-cache.ts`) from `signOutDevice`, right
+    next to `idbClearAll()` — Cache Storage now has the same lifetime as IndexedDB.
+  - Everything else same-origin (`/login`, `/e/<slug>`, `/onboarding`, `/r/<token>`, `/`) is
+    network-only: not needed for offline boot, so not worth storing credentialed.
+  - Offline fallback is per-surface (`/door*` → cached `/door`, `/app*` → cached `/app`, else a
+    network error). The old code fell back to the door shell for *any* failed navigation — the
+    exact wrong-shell hazard `routes.ts` warns about.
+  - `putInCache` refuses redirected responses. (Corrected by the review, see the 2026-08-11 entry:
+    on the *navigation* path the 307 to `/login` arrives as an **opaqueredirect**, so it is the
+    `status !== 200` check that keeps the login page out of the `/app` key — the `redirected` flag
+    is live for the redirect-mode-`follow` paths, static assets and the seed fetch.)
+  - Renaming the caches is the migration: `activate` deletes every bucket that isn't one of the
+    two, so devices already holding leaked `/app` HTML in `plusone-door-v1` are cleaned on the
+    first post-deploy activation. The install-time precache of `/door` is gone (`cache.addAll`
+    sends cookies — it was putting the credentialed picker in the persistent cache).
+- **N2 — a retired Workbox SW was still live on real browsers.** `public/sw.js` and
+  `public/workbox-e9849328.js` were next-pwa build output from before fase 9. next-pwa is
+  disabled in `next.config.js`, but a service worker is not retired by deleting its source:
+  a browser that ever registered `/sw.js` keeps running the installed copy, and that copy
+  `registerRoute`d **cross-origin** GETs into a `NetworkFirst` cache with a 1h TTL — Supabase
+  REST bodies, i.e. guest PII, in an origin-scoped cache that outlived sign-out. Visiting `/door`
+  replaces the registration (same scope), so only clients that never opened the door were
+  affected — `/app`-only users and landing-page visitors.
+  Fix: `public/sw.js` is now a **self-destructing stub** (skipWaiting → delete every cache except
+  `plusone-shell-*` → `registration.unregister()` → renavigate open clients). Browsers re-fetch a
+  registered SW script on navigation, so this is what actually kills those workers.
+  `public/workbox-e9849328.js` deleted and the commented-out `withPWA` blocks in `next.config.js`
+  replaced by a do-not-reinstate note. **`next-pwa` itself is still in `package.json`** — the
+  `pnpm remove` stalled for 45+ minutes against a dozen concurrent `pnpm install` processes from
+  other sessions on this machine and was abandoned rather than left half-applied (a package.json
+  without a matching lockfile breaks CI's `--frozen-lockfile`). It is inert (nothing requires it)
+  and guarded by a test; dropping the dependency is a one-line follow-up for a quiet machine.
+  `clearDeviceCaches()` deny-lists by prefix (delete everything except `plusone-shell-*`) rather
+  than allow-listing known names, so the Workbox buckets (`apis`, `others`, `cross-origin`,
+  `workbox-precache-*`) are wiped on sign-out too, on devices that still have them.
+- **Middleware.** `sw.js` and `service-worker.js` stay excluded from the auth matcher — a 307 to
+  `/login` in place of a SW script is unparseable JS, and the browser would keep the previously
+  installed worker, i.e. the stub would never take effect. Documented inline. `workbox-` dropped
+  from the matcher along with the artefact it served.
+- **Tests.** `tests/unit/service-worker-cache-scope.test.ts` evaluates the real
+  `public/service-worker.js` inside a fake ServiceWorker global (self/caches/fetch/Response),
+  fires actual `fetch`/`activate` events and asserts *which cache bucket* each URL lands in —
+  a regex-over-source guard would not have caught this class of bug. Includes the offline
+  cold-start cases so the fix cannot silently trade #25 for privacy.
+  `src/features/door/offline/sw-cache.test.ts` covers the sign-out wipe (keeps the shell, wipes
+  session + legacy Workbox buckets, no-ops without CacheStorage, swallows storage errors).
+  `tests/unit/no-stale-pwa-artifacts.test.ts` fails CI if the stub is replaced by a generated
+  Workbox SW, if a workbox runtime reappears, if next-pwa comes back, if the middleware
+  exclusions are dropped, or if sign-out stops wiping Cache Storage.
+- **Known gap, deliberately not changed here:** only `/door` registers the service worker
+  (`src/app/door/layout.tsx`), so an `/app`-only device has no offline shell at all. Extending
+  registration to `/app` would widen the caching surface and belongs in its own task.
+
+---
+
+## 2026-08-10 — Door wake-lock toggle + stale-resume sync guard (86ey6x56p)
+
+Branch `feat/86ey6x56p-door-wakelock-stale-resume` (PR #252, **not merged yet** — a fresh-session
+xhigh `/code-review` found 15 verified findings, all fixed 2026-08-11 in a review-fix round below;
+the PR still needs that gate re-confirmed + Max's manual test handoff before merge). Milestone: Now.
+No migration; no RLS/auth/service_role/PII surface touched — both features are read-only consumers
+of the existing `useDoorSync` status plus a device-local browser API, so the review prompt in the PR
+body is framed as correctness/reliability, not security.
+
+- **Screen Wake Lock toggle.** `src/features/door/sync/wakeLock.ts` wraps the Wake Lock API
+  feature-detected + try/catch end to end (never throws — the API is absent in most Capacitor
+  webviews, checklist #37). `useWakeLock.ts` defaults it ON where supported, re-acquires on every
+  `visibilitychange → visible` (the OS silently drops the lock the instant a tab is hidden and never
+  restores it on its own), and race-guards a request that resolves after the user already toggled
+  off (releases immediately instead of surprise-relocking the screen). Wired into `SyncBar` as a
+  small icon toggle, hidden entirely (not shown inert) when unsupported.
+- **Stale-resume guard.** `staleResume.ts` is a pure edge-detector (same shape as `reconnect.ts`):
+  fires only on a genuine hidden→visible transition — never first mount, never a same-state no-op —
+  when the last successful sync is ≥5 min old (configurable). `useStaleResumeGuard.ts` wires that
+  into the EXISTING `useDoorSync` status (`forceSync`/`syncing`/`online`/`lastSyncAt` — no second sync
+  mechanism) via a 3-phase state machine (`closed` / `syncing` / `blocked`), rendered by
+  `StaleResumeOverlay.tsx` and mounted once in `PoDoorTab`. **Covers the mobile `/door/[eventId]`
+  route and the mobile `/app` Deur tab only** (both render `PoDoorTab`/`DoorProvider`, so
+  guest-detail/add-on-spot are blocked too) — corrected 2026-08-11: an earlier version of this note,
+  the overlay's own doc comment, and the PR body all wrongly claimed desktop cockpit coverage. The
+  desktop (≥1024px) `/app` Deur tab renders `EventDayCockpitGate` (app.tsx), a completely separate
+  online-only React Query tree with no `DoorProvider`/outbox and therefore none of this wiring — never
+  actually built. Follow-up spawned (see review-fix round below) rather than built into this PR. Online,
+  the guard force-syncs and auto-closes; offline (or a hung request past an 8s backstop timeout) it
+  degrades to an explicit "Continue anyway" warning — hard requirement from the task spec that the
+  door must never lock up with no way out. `blocked` also self-heals to `closed` the moment ANY later
+  sync (not just its own forced one — the 60s safety interval or a reconnect) lands fresh. Mesh/peer
+  sync is parked per the task; only online/offline-alone paths are built.
+- **Gotcha found while writing the hook's own tests**: `forceSync()` and `useDoorSync`'s own
+  `setSyncing(true)` land in the same React commit in production (both triggered synchronously inside
+  the same `visibilitychange` dispatch), but nothing *guarantees* `sync.syncing` is already `true` on
+  the very first render after opening the overlay — an early version of the resolve-effect could
+  downgrade `syncing → blocked` before the forced sync had even started. Fixed with an `attemptSeenRef`
+  that only allows the downgrade after `sync.syncing === true` has actually been observed once.
+- Suites (2026-08-10, before the review-fix round): `pnpm vitest run src/features/door/sync` 50/50
+  new+existing pass; full suite 900/901 (the 1 failure, `realtime-throttle.test.ts` timing out under
+  full-suite load, was pre-existing/unrelated and passed cleanly in isolation — environmental
+  flakiness on a heavily loaded dev machine, not this branch). `pnpm type-check` and `pnpm lint` clean.
+- **Environment note**: `pnpm install` in this worktree took roughly 40 minutes (970 packages all
+  already in the pnpm store — pure hardlink/copy, no downloads — throttled to a crawl, almost
+  certainly AV/disk contention from ~46 concurrently running `node.exe` processes on the machine at
+  the time). Not a repo issue; flagging in case a future session hits the same wall.
+
+### 2026-08-11 — Review-fix round (fresh-session xhigh `/code-review`, 15 verified findings)
+
+The state-machine core (`closed`/`syncing`/`blocked`, `attemptSeenRef` ordering, the 8s backstop,
+`inFlight` idempotence with `useDoorSync`) was verified SOUND and left untouched — every fix below is
+surgical, same files as the original entry above plus `src/components/po/kit.tsx` (one prop, see
+P1-5) and `src/features/door/sync/useDoorSync.ts` (one line, see P1-6).
+
+**P0 — merge blockers:**
+- **SSR hydration mismatch** (`useWakeLock.ts`): `supported` now starts `false` on every render
+  (`useState(false)`) and upgrades in a mount effect, exactly like the documented `navigator.onLine`
+  guard pattern in `useDoorSync.ts` — computing it eagerly during render read differently on the
+  server (no `navigator.wakeLock`) than a real browser's first client render, an immediate hydration
+  error on every real door-device load. Tested via `renderToString` (SSR never runs effects, so it
+  directly proves the pre-hydration output).
+- **False desktop-cockpit coverage claim** — corrected in this file (above), the overlay's doc
+  comment, and the PR body; follow-up task spawned rather than built here.
+- **Wake-lock toggle asserted protection it didn't have** (`SyncBar.tsx`, `useWakeLock.ts`): the
+  button now renders three distinct states — off (gray) / enabled-but-not-holding (gold, reuses the
+  "stale" traffic-light colour) / on-and-holding (accent, filled) — and `onSentinelReleased` now
+  retries once immediately when the browser revokes a lock while the document stays visible
+  (documented battery-saver behaviour), not just on the next resume.
+- **`acquire()` race guards**: (a) a sentinel obtained by a concurrent acquire that lost the race is
+  released immediately instead of orphaned/overwriting the held one; (b) a sentinel whose `.released`
+  flipped `true` without ever firing the `'release'` event (iOS pre-18.4 gap) is now detected and
+  cleared instead of permanently blocking every future acquire.
+
+**P1 — fixed in this round:**
+- **Focus containment**: the door content (everything except the overlay itself) gets React 19's
+  `inert` boolean prop while `phase !== 'closed'` (a wrapper div in `PoDoorTab`, lifted the
+  `useStaleResumeGuard()` call up there so `StaleResumeOverlay` is now purely presentational and only
+  ONE state machine instance exists) — a hardware keyboard or barcode-scanner wedge could otherwise
+  type into `AddOnSpot`'s autofocused, Enter-to-commit field behind the overlay. "Continue anyway" is
+  now `autoFocus` (added an `autoFocus?: boolean` passthrough prop to `kit.tsx`'s `Btn`, one line).
+- **Realtime-reconnect self-heal didn't actually work**: `useDoorSync.ts`'s resubscribe-after-drop
+  path called `onSyncRef.current()` directly, bypassing `runSync` — so a reconnect refetch never
+  updated `lastSyncAt`/`syncing`, and the guard's self-heal claim silently didn't apply to that path.
+  Pre-existing line, routed through `runSync` now.
+- **Blocked state got a "Try again" action** (`retry()` on the guard, a secondary Btn on the
+  overlay) and the copy no longer falsely claims "still trying" once an attempt has already settled.
+- **Hidden-mount resume**: `prevVisibility` now seeds from the actual `document.visibilityState` at
+  listener registration (not `null`), so a door screen that mounts already backgrounded is guarded on
+  its first reveal instead of that reveal being mistaken for "the initial observation."
+- **Explicit wake-lock OFF now persists** (`plusone-door-wakelock-off` in localStorage, same
+  guarded try/catch pattern as `getDeviceId` in `offline/device.ts`) — previously reset to ON on
+  every reload.
+- **Clock-jump hardening + one source of truth**: exported `isSyncStale(lastSyncAt, now, thresholdMs)`
+  from `staleResume.ts`, used by both the open predicate and the guard's close predicate (previously
+  hand-mirrored complements in two files); a backward clock jump now degrades loudly (treated as
+  stale) instead of silently never firing.
+
+**P2 — judgment calls (defaults chosen, stated here per the task instructions):**
+- **Offline re-block friction**: `continueAnyway()` while offline now suppresses re-opening the
+  overlay on every subsequent screen unlock for the rest of that offline period — the doorhost
+  already acknowledged the risk once. Suppression clears the moment `sync.online` flips true.
+- **Doomed pre-resume attempt**: the resolve effect now gives ONE internal retry (guarded by a ref,
+  so it can only fire once per `syncing` phase) before downgrading to `blocked`, covering the case
+  where a pre-existing sync (not our own `forceSync()` call, silently swallowed by `useDoorSync`'s
+  shared `inFlight` guard) was the one that settled unfresh. Also dropped the `sync.online` condition
+  from the "fresh" check — a `lastSyncAt` that just landed already proves connectivity worked at that
+  moment, even if `online` is flickering false for an unrelated reason.
+- **`liveRef` reset**: now explicitly set `true` at the top of the mount effect (not just relied on
+  the `useRef(true)` initializer) — hardens against `next.config.ts`'s `reactStrictMode: false`
+  ("temporarily") ever being re-enabled, whose dev-only double-invoke would otherwise leave it stuck
+  `false` after the simulated remount, permanently killing every future acquire. Verified with a
+  `<StrictMode>`-wrapped test.
+
+Suites after the review-fix round: `pnpm vitest run src/features/door/sync` 68/68, door+po component
+suites 270/270, full suite 919/919 (no flakes this run). `pnpm type-check` and `pnpm lint` clean (no
+new warnings). Follow-up task spawned for desktop-cockpit coverage (not built here, per the review's
+explicit instruction). ClickUp session comment couldn't be posted — the ClickUp MCP write API was
+rate-limited workspace-wide for ~23h at the start of this round; exact comment text handed to Max.
+
+**Merged `origin/main` into the branch after pushing the fixes** — `main` had moved substantially
+(PR #247's repo-wide `JSX.Element` → explicit-import codemod + new `tests/unit/jsx-namespace-imported.test.ts`
+guard, PR #249's door outbox coalescing/`onBeforeForceSync` restructure of `useDoorSync.ts`, PR #253's
+atomic check-out, PR #250's request-link venue isolation). Only real conflict was two changelog
+entries landing at the top simultaneously (trivial, kept both). `useDoorSync.ts` auto-merged cleanly
+with BOTH this task's finding-6 fix (the realtime-reconnect self-heal routed through `runSync`) and
+#249's new `forceSync`/`onBeforeForceSync` split intact — verified by reading the merged file, not
+just trusting the auto-merge. The JSX codemod predates this branch's new files, so
+`StaleResumeOverlay.tsx` and `useWakeLock.test.ts` needed the same `import type { JSX } from 'react'`
+fix by hand; caught by re-running the guard test, not by manual inspection. Full suite re-run
+post-merge: 966/966, type-check + lint clean, PR now shows `MERGEABLE`.
+
+## 2026-08-10 — Dependabot: refuse Next/React majors, unblock the safe bumps (86eyd39gn)
+
+Branch `chore/86eyd39gn-deps-ignore-majors-safe-bumps` (PR #247, closes the deadlocked #239).
+Milestone: Now — dependency
+hygiene keeps the security-patch stream flowing, and a permanently-red deps PR trains everyone
+to ignore Dependabot. No migration, no schema change, no runtime behaviour change.
+
+- **The problem with PR #239.** Dependabot groups by `dependency-type`, so *one* group PR carried
+  14 updates: Next 15.5.19 → **16.2.12**, Stripe 18 → **22**, zod 3 → **4**, uuid 10 → **14**,
+  tailwind-merge 2 → **3**, recharts 3.8 → 3.10, plus six genuinely safe in-major bumps. The stack
+  is pinned by CLAUDE.md (Next 15 / React 19), so the majors can't merge — and because they share
+  a PR with the safe ones, *nothing* merged. The group had been stuck since 6/8.
+- **Fix: refuse the majors at the source.** `.github/dependabot.yml` gained an `ignore` block for
+  `next`, `react`, `react-dom`, `@types/react`, `@types/react-dom` limited to
+  `update-types: ["version-update:semver-major"]`. Minor/patch keeps arriving weekly. A framework
+  major stays what it is — a migration with its own task (**86eyd39mx**, parked), not a bump.
+  Deliberately *not* ignored: Stripe/zod/uuid/tailwind-merge majors. Those are ordinary library
+  migrations we do want proposed; they just need their own PRs, so they'll come back regrouped
+  once #239 is closed.
+- **Safe bumps taken.** `pnpm update` on the six in-major updates:
+  `@sentry/nextjs` 10.64.0 → 10.70.0 · `@supabase/ssr` 0.12.0 → 0.12.4 ·
+  `@supabase/supabase-js` 2.108.1 → 2.112.2 · `@tanstack/react-query` +
+  `@tanstack/react-query-persist-client` 5.101.0 → 5.101.4 · `@tanstack/react-virtual` 3.14.3 → 3.14.9.
+  `pnpm update` also raises the caret floors in `package.json` (e.g. the vague `@sentry/nextjs: ^10`
+  → `^10.70.0`), which is what Dependabot does and is worth keeping — the floor then documents the
+  version actually tested, and the `ssr`/`supabase-js` pairing below becomes explicit instead of
+  implied. `next` and `react` did not move (they appear in the lockfile diff only as peer context
+  inside Sentry's version string); the transitive churn is OpenTelemetry 2.9 → 2.10 under Sentry.
+  The CLAUDE.md invariant (`@supabase/ssr` aligned with `supabase-js`, ≥0.12 for js ≥2.108) holds
+  and was re-verified the way it actually fails: type-checking real `.from()`/`.rpc()` calls against
+  the repo's own `database.types.ts` to prove the typed client doesn't collapse to `never`. The row
+  type came back fully resolved (`{ id: string; status: "pending" | … ; plus_ones: number }`), and a
+  negative control (a bogus column) still errors, so the check isn't vacuous.
+- **Removed a landmine for the parked React migration.** `JSX.Element` resolved through the
+  *global* `JSX` namespace in **269 places across 107 files**. @types/react 18.3.31 already marks
+  that global `@deprecated` ("Use `React.JSX` instead"), and @types/react 19.2.18 drops the
+  `declare global` block entirely — verified by A/B-ing both patterns against both real typings:
+  the bare annotation fails under 19 with `TS2503: Cannot find namespace 'JSX'`, the explicit
+  import compiles clean under **both** 18 and 19. So 86eyd39mx would have opened with 269 type
+  errors before touching a line of React. Now it opens with zero.
+  - Mechanical and annotation-preserving: every `JSX.Element` is byte-identical, only imports
+    changed, and all 107 files are one-line diffs — merged into an existing single-line `react`
+    import where it fit prettier's `printWidth: 100`, otherwise its own
+    `import type { JSX } from 'react';`.
+  - **Gotcha for the next codemod author.** The first pass matched react imports with
+    `/^import\s+([\s\S]*?)\s+from\s+['"]react['"]/gm`; `[\s\S]*?` happily spans *statements*, so a
+    match starting at an earlier `import` line ran on until the next `from 'react'` and the
+    specifier got spliced into the **wrong module's** braces — `type JSX` landed in
+    `next/navigation`, `vitest`, and (worst) the `@/lib/observability/sentry-client` facade that
+    CLAUDE.md requires stay untouched. Caught by inspection before committing, then rewritten to
+    match one single line with `[^;\n]` so a match cannot cross a statement boundary. If you
+    codemod imports here: forbid `;` and newlines in the specifier, and assert afterwards that
+    every touched import line still ends in `from 'react';`.
+- **Gotcha worth keeping: `pnpm --lockfile-only` when the box is busy.** The dev box was running
+  **15–17 concurrent `pnpm install`/`update` processes** from sibling worktree sessions, free RAM
+  down to ~3 GB of 64 GB. Resolution and extraction were fine (976 dirs in `.pnpm`), but the
+  top-level **linking** phase starved for over an hour and never produced a `node_modules`, so no
+  local gate could run. `pnpm update --lockfile-only` skips linking entirely and finished the same
+  work **in 59 seconds**. For a dependency-only task that's all you need — the lockfile is the
+  deliverable and CI does the verifying — so reach for it first instead of waiting on a full
+  install. (Corollary, same spirit as CLAUDE.md's "one DB owner": a sibling session's `pnpm install`
+  is not free, since every worktree competes for one global store.)
+- **Verification ran on CI, deliberately.** With no local `node_modules`, the pre-lockfile commits
+  were pushed and `lint-and-test` (lint · type-check · vitest · pgTAP · quota concurrency · e2e
+  smoke) went **green on a clean runner**, plus a passing Vercel `next build` — a better gate than
+  a thrashing local box. The dependency-bump commit lands after that and gets its own CI run, which
+  is the one that actually matters for the bumps (CI installs with `--frozen-lockfile`).
+
+---
+
+## 2026-08-10 — request_links: cross-venue link-id disclosure hardening (86ey9thm6)
+
+Branch `fix/86ey9thm6-request-link-venue-isolation`, PR not yet opened at session end.
+CONFIRMED, low severity, milestone Now (cross-tenant isolation is a core invariant, #1).
+Filed by the 86ey9p8zh/PR #224 fresh-session review as an out-of-scope finding (see
+2026-07-14 entry below). Touches a trigger function → high-risk surface per the review
+gates: **not self-merged**, fresh-session `/code-review` + `/security-review` required.
+
+- **Root cause.** `enforce_request_link_max()` (`20260706101000_request_link_attribution.sql`,
+  relocked in `20260714160000`) looked up the request link by `rl.id = new.request_link_id`
+  only — never checking it belongs to `new.event_id`. Nothing else in the schema enforces
+  that match either (`guests.request_link_id` has only a single-column FK to
+  `request_links(id)`; `guests_insert`'s WITH CHECK constrains `source`/`added_by`, not
+  `request_link_id`). An admin/organizer (exempt from the `source` allowlist) with raw API
+  access to their own venue could POST a guest on their own event carrying a
+  `request_link_id` copied from ANOTHER venue's link; the trigger would then recompute that
+  foreign link's consumption against its cap and, on a breach, raise 45006 with hint
+  `link_full;consumed=%s;max=%s` — disclosing another venue's private link fill numbers.
+- **Fix.** New migration `20260810100000_request_link_venue_isolation.sql`,
+  `CREATE OR REPLACE` on the existing function: reject a `request_link_id` whose
+  `event_id` doesn't match the guest's own event (23514, generic message) BEFORE the
+  foreign link's row is used for anything — same posture as
+  `set_request_link_scope()`'s influencer-venue check. A same-event link falls through to
+  the unchanged cap logic (advisory-lock ordering from 20260714160000 preserved verbatim).
+- **Out of scope (documented in the migration, not built).** A theoretical multi-link
+  advisory-lock deadlock (40P01) — unreachable today since every shipped writer of
+  `guests.request_link_id` touches exactly one guest/one link per statement; fail-safe if
+  it ever becomes reachable (Postgres's deadlock detector aborts one side, retryable, same
+  shape 86ey9e8ar/PR #216 already handles for the other three lock domains).
+- **Test.** Extended `supabase/tests/database/request_links.test.sql` with C8 (denied:
+  cross-venue attribution rejected before any foreign-link computation, no guest row
+  created, foreign link's consumption stays untouched) and C9 (allowed: same-event
+  attribution still succeeds) — 34/34 in that file. `supabase db reset` clean, `supabase
+  test db` **52 files / 1009 tests, PASS**. `pnpm lint` clean (2 pre-existing unrelated
+  a11y warnings in `datetime-field.tsx`). `pnpm vitest run` 866/867 — the one failure
+  (`realtime-throttle.test.ts`, unrelated to this change) is a timeout flake under heavy
+  machine load, confirmed passing in isolation.
+- **Gotcha — shared local Supabase stack under heavy concurrent load.** ~50 worktree
+  sessions were active simultaneously; `supabase db reset` failed with `unexpected EOF`
+  three times in a row (another session's concurrent reset/restart cycling the shared db
+  container), and a stale reset once left an unrelated migration
+  (`20260810120000`, from a *different* worktree/branch not containing this session's
+  migration) as the latest applied version — silently reverting this fix's trigger back to
+  pre-patch behaviour and producing a real (not flaky) `request_links.test.sql` failure on
+  the first attempt. Confirmed via `supabase db query` against `pg_proc.prosrc` that the
+  live function body didn't match the migration before diagnosing it as a collision, not a
+  logic bug. Resolved by chaining `db reset` immediately followed by a single targeted
+  pgTAP file run (via `docker exec … psql`) to shrink the collision window, then a full
+  `supabase test db` once the stack settled. Also: **timestamp collision** — two unrelated
+  concurrent sessions independently picked `20260810120000` for their own migrations
+  (`atomic_check_out_guest` vs `scale_tier_occupancy_link_funnel`); this task's migration
+  used `20260810100000`, unique against `origin/main` at branch time, but the collision
+  between those two other branches will need resolving at merge time per CLAUDE.md's
+  timestamp-collision rule.
+- **ClickUp bookkeeping not done by this session.** The ClickUp MCP connector returned
+  `RATE_LIMIT_EXCEEDED` (~17h cooldown) for the entire session, so the pickup/status
+  comments and status transitions described by the `clickup-task` skill could not be
+  posted. Task 86ey9thm6 needs manual pickup/status sync once the PR is up.
+
+---
+
+## 2026-08-10 — Atomic partial check-out + offline void/revive peer-steal (86ey9e9q2)
+
+Branch `fix/86ey9e9q2-atomic-checkout-outbox-peer-steal`. Two findings from the review
+backlog (#34, #35), both about a check-in row changing hands between the moment a device
+observes it and the moment its write lands. Milestone: Now — both corrupt the headcount and
+the audit trail at the door, which is the product's core promise. Each bug was reproduced
+with a failing test BEFORE the fix (the tests are in the PR; they fail on the parent commit).
+
+- **#34 — a partial check-out was two round trips.** `check_ins` holds one row per guest with
+  a MONOTONE `plus_ones_arrived`, so "3 of the 4 in this party leave" cannot be a plain UPDATE:
+  the cap trigger only lets the count drop across a revive (voided → active). `usePoCheckOut`
+  therefore voided the row, then re-checked the smaller party in from the browser. A transient
+  failure between the two (network flap, edge 502, tab closed) left the guest FULLY checked out
+  — headcount −4 where the host asked for −2 — and the cockpit's cache disagreed with the
+  database until the 60s safety sync.
+  **Fix:** migration `20260810183000_atomic_check_out_guest.sql` adds
+  `public.check_out_guest(p_guest_id, p_remaining_heads, p_check_in_id)` — SECURITY INVOKER, so
+  RLS (incl. the S1.1 uncheck gate) still decides — doing both writes in one transaction. Also
+  fixed two behaviours that were wrong in the old dance: `checked_by`/`checked_at` are now
+  PRESERVED (the guest never left, so the first-wins arrival identity and instroom bucket must
+  not move to whoever pressed ✗), and the remaining-heads argument is clamped so a stale client
+  can never *raise* a party via the check-out path.
+- **#35 — an offline void/revive could hijack a colleague's check-in.** `check_ins.guest_id` is
+  UNIQUE, so matching a replayed write on `guest_id` alone reaches whatever row exists at drain
+  time. Doorhost A works offline (check in → undo → re-check-in queued); meanwhile doorhost B
+  checks the same guest in for real. On reconnect A's insert correctly settled as `duplicate`,
+  but the void then voided B's ACTIVE row (guest reads onderweg while standing inside) and the
+  revive stamped A over B's `checked_by` — the same C10 first-wins corruption the cockpit's
+  revive fallback already guards against.
+  **Fix:** the observed `check_ins.id` travels with the outbox entry (`checkInId` on the void and
+  revive payloads, zod-`nullish` so a doorhost upgrading mid-shift keeps their queued entries
+  instead of having them quarantined) and the gateway adds `.eq('id', …)`. A peer's newer row is
+  then a 0-row no-op = synced, the same "server's first write wins" rule as the 23505 duplicate
+  path. The cockpit passes the id too, via a new `id` on `CheckinArrival`.
+- **Residual, deliberately not fixed here:** if a peer voids AND re-checks-in the SAME row while
+  we are offline, the row id is unchanged, so our stale void still applies. Closing that needs
+  optimistic concurrency on `checked_at`, which a device cannot do for its own offline inserts
+  (the server stamps `checked_at`, the device only knows its client timestamp). Flagged in the
+  PR's security-research prompt.
+- Tests: `mutations.checkout.test.tsx` (hook against a fake gateway with real write semantics —
+  asserts DB-equivalent state, not `ok: true`), `peer-checkin.test.ts` (a full outbox drain against
+  an in-memory `check_ins` with the unique/void/revive constraints), gateway filter tests, and
+  `check_out_guest.test.sql` (15 pgTAP assertions: allowed/denied per role, preserved identity,
+  clamping, stale-id no-op, and the atomicity proof — an uncheck-disabled event rejects the whole
+  call and leaves the guest untouched).
+- Gotcha for later pgTAP work: `composite IS NOT NULL` is only true when EVERY field is non-null,
+  so a function returning a table row must be asserted via `(f(...)).id`, and that field-selection
+  form does not resolve untyped literals — the arguments need explicit `::uuid` casts.
+- Local-stack note: `20260810120000` collided with a sibling worktree's migration
+  (`scale_tier_occupancy_link_funnel`, branch `perf/86ey9e9wv-…`), caught because the shared local
+  DB had it applied; renamed to `20260810183000`.
+
 ## 2026-08-10 — Landing request-form validation UX: red errors, name-required, e-mail sanity check (86eyd3men)
 
 Branch `fix/86eyd3men-landing-request-validation-ux`. Found by Max while testing 86ey9e8z5 (the

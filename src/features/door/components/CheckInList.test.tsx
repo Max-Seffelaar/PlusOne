@@ -37,6 +37,7 @@ function dg(i: number): DoorGuest {
     tierId: 't1',
     tierName: 'Gast',
     tierColor: '#fff',
+    checkInId: null,
     tierIcon: 'user',
     addedByName: 'Manager',
     addedAt: '1 jan',

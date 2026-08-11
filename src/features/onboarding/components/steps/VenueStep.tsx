@@ -2,7 +2,7 @@
 
 /** Onboarding step 1 — create the venue (#40a). On success the caller becomes
  *  Admin and we advance to the plan step with the new venue id. */
-import { useState, useTransition } from 'react';
+import { type JSX, useState, useTransition } from 'react';
 import { cn } from '@/lib/utils';
 import { Field, Label, Btn, press } from '@/components/po/kit';
 import { createVenueAction } from '@/features/venues/actions';
