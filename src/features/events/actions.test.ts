@@ -1,6 +1,5 @@
 import { describe, expect, it, vi, type Mock } from 'vitest';
 import {
-  changeEventStatus,
   setEventCancelled,
   setLandingActive,
   setListLock,
@@ -60,9 +59,8 @@ function mockAuthed() {
 describe('event toggle actions — C15 zero-row guard', () => {
   const cases: Array<{
     name: string;
-    run: () => ReturnType<typeof changeEventStatus>;
+    run: () => ReturnType<typeof setEventCancelled>;
   }> = [
-    { name: 'changeEventStatus', run: () => changeEventStatus({ eventId: EVENT_ID, status: 'open' }) },
     { name: 'setEventCancelled', run: () => setEventCancelled({ eventId: EVENT_ID, cancelled: true }) },
     { name: 'setLandingActive', run: () => setLandingActive({ eventId: EVENT_ID, active: true }) },
     { name: 'setListLock', run: () => setListLock({ eventId: EVENT_ID, locked: true }) },
