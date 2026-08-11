@@ -3,7 +3,7 @@
 /** Onboarding step 2 — pick a plan (#40c). Billing is stubbed: this only writes
  *  the subscription's plan + trialing status; the real Stripe "Betaling" screen
  *  is deferred. */
-import { useState, useTransition } from 'react';
+import { type JSX, useState, useTransition } from 'react';
 import { cn } from '@/lib/utils';
 import { Icon } from '@/components/po/icon';
 import { Btn, press } from '@/components/po/kit';

@@ -8,6 +8,7 @@
  * outbox — desktop is online), lock/approvals through the existing server actions.
  * RLS is the boundary; affordances hide for roles without the right (see below).
  */
+import type { JSX } from 'react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';

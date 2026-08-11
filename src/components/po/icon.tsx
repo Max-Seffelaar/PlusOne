@@ -1,5 +1,5 @@
 /** Single-path stroke icon set, ported from the prototype's `PI` dictionary. */
-import type { CSSProperties } from 'react';
+import type { CSSProperties, JSX } from 'react';
 
 export const ICONS = {
   back: 'M15 5l-7 7 7 7',

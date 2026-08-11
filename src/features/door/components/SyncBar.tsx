@@ -6,6 +6,7 @@
  * palette: live=mint, stale=gold (both already used as tier colours in the design
  * data), warn=red (the one genuinely new hue — flagged in the build summary).
  */
+import type { JSX } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { Icon } from '@/components/po/icon';

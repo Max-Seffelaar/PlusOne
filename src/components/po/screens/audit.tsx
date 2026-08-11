@@ -8,7 +8,7 @@
  *  from the SHARED features/audit/translate.ts. Gated to admin/finance (no AAL2
  *  since 2026-06-24 — MFA is scoped to invite/member/session actions) — RLS is
  *  the real boundary, this only renders the right state. Reached from the Meer hub. */
-import { useState } from 'react';
+import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import { formatWhen, type AuditLine } from '@/features/audit/translate';

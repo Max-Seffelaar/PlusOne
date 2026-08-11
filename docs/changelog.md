@@ -8,6 +8,76 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-10 — Dependabot: refuse Next/React majors, unblock the safe bumps (86eyd39gn)
+
+Branch `chore/86eyd39gn-deps-ignore-majors-safe-bumps` (PR #247, closes the deadlocked #239).
+Milestone: Now — dependency
+hygiene keeps the security-patch stream flowing, and a permanently-red deps PR trains everyone
+to ignore Dependabot. No migration, no schema change, no runtime behaviour change.
+
+- **The problem with PR #239.** Dependabot groups by `dependency-type`, so *one* group PR carried
+  14 updates: Next 15.5.19 → **16.2.12**, Stripe 18 → **22**, zod 3 → **4**, uuid 10 → **14**,
+  tailwind-merge 2 → **3**, recharts 3.8 → 3.10, plus six genuinely safe in-major bumps. The stack
+  is pinned by CLAUDE.md (Next 15 / React 19), so the majors can't merge — and because they share
+  a PR with the safe ones, *nothing* merged. The group had been stuck since 6/8.
+- **Fix: refuse the majors at the source.** `.github/dependabot.yml` gained an `ignore` block for
+  `next`, `react`, `react-dom`, `@types/react`, `@types/react-dom` limited to
+  `update-types: ["version-update:semver-major"]`. Minor/patch keeps arriving weekly. A framework
+  major stays what it is — a migration with its own task (**86eyd39mx**, parked), not a bump.
+  Deliberately *not* ignored: Stripe/zod/uuid/tailwind-merge majors. Those are ordinary library
+  migrations we do want proposed; they just need their own PRs, so they'll come back regrouped
+  once #239 is closed.
+- **Safe bumps taken.** `pnpm update` on the six in-major updates:
+  `@sentry/nextjs` 10.64.0 → 10.70.0 · `@supabase/ssr` 0.12.0 → 0.12.4 ·
+  `@supabase/supabase-js` 2.108.1 → 2.112.2 · `@tanstack/react-query` +
+  `@tanstack/react-query-persist-client` 5.101.0 → 5.101.4 · `@tanstack/react-virtual` 3.14.3 → 3.14.9.
+  `pnpm update` also raises the caret floors in `package.json` (e.g. the vague `@sentry/nextjs: ^10`
+  → `^10.70.0`), which is what Dependabot does and is worth keeping — the floor then documents the
+  version actually tested, and the `ssr`/`supabase-js` pairing below becomes explicit instead of
+  implied. `next` and `react` did not move (they appear in the lockfile diff only as peer context
+  inside Sentry's version string); the transitive churn is OpenTelemetry 2.9 → 2.10 under Sentry.
+  The CLAUDE.md invariant (`@supabase/ssr` aligned with `supabase-js`, ≥0.12 for js ≥2.108) holds
+  and was re-verified the way it actually fails: type-checking real `.from()`/`.rpc()` calls against
+  the repo's own `database.types.ts` to prove the typed client doesn't collapse to `never`. The row
+  type came back fully resolved (`{ id: string; status: "pending" | … ; plus_ones: number }`), and a
+  negative control (a bogus column) still errors, so the check isn't vacuous.
+- **Removed a landmine for the parked React migration.** `JSX.Element` resolved through the
+  *global* `JSX` namespace in **269 places across 107 files**. @types/react 18.3.31 already marks
+  that global `@deprecated` ("Use `React.JSX` instead"), and @types/react 19.2.18 drops the
+  `declare global` block entirely — verified by A/B-ing both patterns against both real typings:
+  the bare annotation fails under 19 with `TS2503: Cannot find namespace 'JSX'`, the explicit
+  import compiles clean under **both** 18 and 19. So 86eyd39mx would have opened with 269 type
+  errors before touching a line of React. Now it opens with zero.
+  - Mechanical and annotation-preserving: every `JSX.Element` is byte-identical, only imports
+    changed, and all 107 files are one-line diffs — merged into an existing single-line `react`
+    import where it fit prettier's `printWidth: 100`, otherwise its own
+    `import type { JSX } from 'react';`.
+  - **Gotcha for the next codemod author.** The first pass matched react imports with
+    `/^import\s+([\s\S]*?)\s+from\s+['"]react['"]/gm`; `[\s\S]*?` happily spans *statements*, so a
+    match starting at an earlier `import` line ran on until the next `from 'react'` and the
+    specifier got spliced into the **wrong module's** braces — `type JSX` landed in
+    `next/navigation`, `vitest`, and (worst) the `@/lib/observability/sentry-client` facade that
+    CLAUDE.md requires stay untouched. Caught by inspection before committing, then rewritten to
+    match one single line with `[^;\n]` so a match cannot cross a statement boundary. If you
+    codemod imports here: forbid `;` and newlines in the specifier, and assert afterwards that
+    every touched import line still ends in `from 'react';`.
+- **Gotcha worth keeping: `pnpm --lockfile-only` when the box is busy.** The dev box was running
+  **15–17 concurrent `pnpm install`/`update` processes** from sibling worktree sessions, free RAM
+  down to ~3 GB of 64 GB. Resolution and extraction were fine (976 dirs in `.pnpm`), but the
+  top-level **linking** phase starved for over an hour and never produced a `node_modules`, so no
+  local gate could run. `pnpm update --lockfile-only` skips linking entirely and finished the same
+  work **in 59 seconds**. For a dependency-only task that's all you need — the lockfile is the
+  deliverable and CI does the verifying — so reach for it first instead of waiting on a full
+  install. (Corollary, same spirit as CLAUDE.md's "one DB owner": a sibling session's `pnpm install`
+  is not free, since every worktree competes for one global store.)
+- **Verification ran on CI, deliberately.** With no local `node_modules`, the pre-lockfile commits
+  were pushed and `lint-and-test` (lint · type-check · vitest · pgTAP · quota concurrency · e2e
+  smoke) went **green on a clean runner**, plus a passing Vercel `next build` — a better gate than
+  a thrashing local box. The dependency-bump commit lands after that and gets its own CI run, which
+  is the one that actually matters for the bumps (CI installs with `--frozen-lockfile`).
+
+---
+
 ## 2026-08-10 — request_links: cross-venue link-id disclosure hardening (86ey9thm6)
 
 Branch `fix/86ey9thm6-request-link-venue-isolation`, PR not yet opened at session end.

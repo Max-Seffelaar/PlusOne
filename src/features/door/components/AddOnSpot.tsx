@@ -7,7 +7,7 @@
  * than silently defaulting (#33). The quota guard mirrors `event_quota_status`;
  * the database quota trigger is the real backstop.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { type JSX, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import {

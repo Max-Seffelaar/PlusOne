@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { JSX, ReactNode } from 'react';
 import { DoorQueryProvider } from '@/features/door/DoorQueryProvider';
 import { RegisterServiceWorker } from './register-sw';
 

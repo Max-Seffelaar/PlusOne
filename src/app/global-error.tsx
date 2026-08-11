@@ -5,7 +5,7 @@
 // carry guest PII. Inline styles: global CSS is gone once the root layout is
 // down. Dark theme per the design tokens (#0B0B0D).
 import { captureException } from '@/lib/observability/sentry-client';
-import { useEffect } from 'react';
+import { type JSX, useEffect } from 'react';
 
 export default function GlobalError({
   error,

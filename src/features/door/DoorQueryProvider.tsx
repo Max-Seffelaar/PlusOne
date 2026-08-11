@@ -5,7 +5,7 @@
  * snapshot cache is restored from IndexedDB on boot so the door opens instantly
  * and works offline after a reload (spec §4, decision #25).
  */
-import { useState, type ReactNode } from 'react';
+import { type JSX, useState, type ReactNode } from 'react';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import type { QueryClient } from '@tanstack/react-query';
 import { getDoorQueryClient } from './offline/query-client';

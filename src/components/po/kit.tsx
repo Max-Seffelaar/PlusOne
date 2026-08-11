@@ -6,7 +6,7 @@
  * pixel values use arbitrary Tailwind values so the visual output matches the
  * handoff. Interaction: hover `brightness(1.07)`, active `scale(0.975)`.
  */
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, JSX, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import type { Tier } from '@/lib/po/types';
