@@ -25,7 +25,7 @@ begin
 end;
 $fn$;
 
-select plan(76);
+select plan(70);
 
 -- ===========================================================================
 -- 1. Event summary — correct headline numbers (admin, AAL2)
@@ -293,26 +293,34 @@ select is((select pr2 from _c6), (select pr0 from _c6),
 reset role;
 
 -- ===========================================================================
--- 12. event_tier_occupancy / event_request_link_funnel (86ey9e9wv/#47,#49) —
---     DB-side aggregates that replace fetchTiersWithUsage/fetchRequestLinks's
---     client-side per-row sums (never truncates past PostgREST's 1000-row cap
---     the way an unwindowed guest_requests select did). Both are plain
---     SECURITY INVOKER SQL functions, so RLS on guests/guest_requests governs
---     visibility exactly as it did for the row-by-row reads they replace.
+-- 12. event_tier_occupancy (86ey9e9wv, D2) — DB-side aggregate that
+--     replaces fetchTiersWithUsage's client-side per-row sum. Delegates to
+--     guest_tier_contribution(g) — the exact function tier_consumption (the
+--     capacity trigger) already sums — so the exclusion set can never drift
+--     from the trigger. SECURITY INVOKER, so RLS on `guests` governs
+--     visibility exactly as it did for the row-by-row read this replaces.
+--     (fetchRequestLinks' funnel is now the existing event_link_funnel RPC,
+--     D1 — its own coverage lives in promotion_stats.test.sql, extended below
+--     rather than duplicated here.)
 --
---     Uses its OWN isolated event/tiers/links (e2../d2../c2../l2../b2..) rather
---     than the shared ee..01 seed event — the exact counts below must not
---     depend on §9's tier-change mutation, nor (this local stack is shared
---     across many worktree sessions against the SAME fixed seed ids) on
---     another session's concurrent writes to ee..01.
+--     Uses its OWN isolated event/tiers/guests (e2../d2../c2..) rather than
+--     the shared ee..01 seed event — the exact counts below must not depend
+--     on §9's tier-change mutation, nor (this local stack is shared across
+--     many worktree sessions against the SAME fixed seed ids) on another
+--     session's concurrent writes to ee..01. An explicit event_quotas
+--     override for Tom decouples the fixture from the seed's venue-level
+--     default quota too (86ey9e9wv/B5) — his two guests below would fit
+--     under the seed's current default (10), but that's an accident of the
+--     seed's current value, not a guarantee this fixture should silently
+--     lean on.
 -- ===========================================================================
 
 insert into public.events (id, venue_id, name, starts_at, status, landing_slug, landing_active)
 values ('e2000000-0000-7000-8000-000000000001', 'aa000000-0000-7000-8000-000000000001',
-        'Occupancy/Funnel Fixture', now() + interval '9 days', 'open', 'occupancy-funnel-fixture', false);
+        'Occupancy Fixture', now() + interval '9 days', 'open', 'occupancy-fixture', false);
 
-insert into public.event_organizers (event_id, user_id) values
-  ('e2000000-0000-7000-8000-000000000001', '44444444-4444-4444-8444-444444444444');
+insert into public.event_quotas (event_id, user_id, quota_override) values
+  ('e2000000-0000-7000-8000-000000000001', '55555555-5555-4555-8555-555555555555', 100);
 
 insert into public.guest_tiers (id, event_id, name) values
   ('d2000000-0000-7000-8000-000000000001', 'e2000000-0000-7000-8000-000000000001', 'Fixture Regular'),
@@ -345,32 +353,6 @@ insert into public.guests (id, event_id, tier_id, full_name, added_by, status) v
    'd2000000-0000-7000-8000-000000000002', 'Fixture VIP Approved (Max)',
    '11111111-1111-4111-8111-111111111111', 'approved');
 
-insert into public.request_links (id, event_id, label, slug) values
-  ('f2000000-0000-7000-8000-000000000001', 'e2000000-0000-7000-8000-000000000001',
-   'Fixture Extra Link', 'occupancy-funnel-fixture-extra');
-
--- guest_requests_check (20260706101000): a decided (non-pending) request needs
--- decided_at + (decided_by or decided_via='auto') — stamp both on denied/approved.
-insert into public.guest_requests (id, event_id, full_name, status, request_link_id, decided_by, decided_at) values
-  ('b2000000-0000-7000-8000-000000000001', 'e2000000-0000-7000-8000-000000000001',
-   'Req Default 1', 'pending',
-   (select id from public.request_links where event_id = 'e2000000-0000-7000-8000-000000000001' and is_default),
-   null, null),
-  ('b2000000-0000-7000-8000-000000000002', 'e2000000-0000-7000-8000-000000000001',
-   'Req Default 2', 'pending',
-   (select id from public.request_links where event_id = 'e2000000-0000-7000-8000-000000000001' and is_default),
-   null, null),
-  ('b2000000-0000-7000-8000-000000000003', 'e2000000-0000-7000-8000-000000000001',
-   'Req Default 3', 'denied',
-   (select id from public.request_links where event_id = 'e2000000-0000-7000-8000-000000000001' and is_default),
-   '11111111-1111-4111-8111-111111111111', now()),
-  ('b2000000-0000-7000-8000-000000000004', 'e2000000-0000-7000-8000-000000000001',
-   'Req Extra 1', 'approved', 'f2000000-0000-7000-8000-000000000001',
-   '11111111-1111-4111-8111-111111111111', now()),
-  ('b2000000-0000-7000-8000-000000000005', 'e2000000-0000-7000-8000-000000000001',
-   'Req Extra 2', 'denied', 'f2000000-0000-7000-8000-000000000001',
-   '11111111-1111-4111-8111-111111111111', now());
-
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2');
 
 select is((select count(*)::int from public.event_tier_occupancy('e2000000-0000-7000-8000-000000000001')),
@@ -381,54 +363,34 @@ select is((select used from public.event_tier_occupancy('e2000000-0000-7000-8000
 select is((select used from public.event_tier_occupancy('e2000000-0000-7000-8000-000000000001')
            where tier_id = 'd2000000-0000-7000-8000-000000000002'),
   1, '12.3 tier 2 used = 1');
-
-select is((select count(*)::int from public.event_request_link_funnel('e2000000-0000-7000-8000-000000000001')),
-  2, '12.4 admin: two links have requests (default + extra)');
-select is((select requests from public.event_request_link_funnel('e2000000-0000-7000-8000-000000000001')
-           where request_link_id = (select id from public.request_links
-                                     where event_id = 'e2000000-0000-7000-8000-000000000001' and is_default)),
-  3, '12.5 default link: 3 requests (2 pending + 1 denied)');
-select is((select approved from public.event_request_link_funnel('e2000000-0000-7000-8000-000000000001')
-           where request_link_id = (select id from public.request_links
-                                     where event_id = 'e2000000-0000-7000-8000-000000000001' and is_default)),
-  0, '12.6 default link: 0 approved');
-select is((select requests from public.event_request_link_funnel('e2000000-0000-7000-8000-000000000001')
-           where request_link_id = 'f2000000-0000-7000-8000-000000000001'),
-  2, '12.7 extra link: 2 requests');
-select is((select approved from public.event_request_link_funnel('e2000000-0000-7000-8000-000000000001')
-           where request_link_id = 'f2000000-0000-7000-8000-000000000001'),
-  1, '12.8 extra link: 1 approved');
 reset role;
 
 -- Staff (Tom): guests RLS scopes to added_by = self — occupancy reflects only
 -- his own additions (Fixture Pending + Fixture Refused; none in tier 2, so
--- tier 2 doesn't appear for him at all). guest_requests grants staff nothing.
+-- tier 2 doesn't appear for him at all).
 select pg_temp.login('55555555-5555-4555-8555-555555555555');
 select is((select count(*)::int from public.event_tier_occupancy('e2000000-0000-7000-8000-000000000001')),
-  1, '12.9 staff sees occupancy only for tiers among his own guests');
+  1, '12.4 staff sees occupancy only for tiers among his own guests');
 select is((select used from public.event_tier_occupancy('e2000000-0000-7000-8000-000000000001')
            where tier_id = 'd2000000-0000-7000-8000-000000000001'),
-  2, '12.10 staff tier 1 used = 2 (his own pending + refused; the other 4 rows added by Max stay invisible)');
-select is((select count(*)::int from public.event_request_link_funnel('e2000000-0000-7000-8000-000000000001')),
-  0, '12.11 staff gets NO request-link funnel data (#17)');
+  2, '12.5 staff tier 1 used = 2 (his own pending + refused; the other 4 rows added by Max stay invisible)');
 reset role;
 
--- Organizer (Yusuf, made organizer of THIS fixture event above): guest_requests
--- RLS is is_event_organizer(event_id), not per-row — sees the FULL funnel,
--- unlike staff's per-row-scoped tier occupancy above.
-select pg_temp.login('44444444-4444-4444-8444-444444444444');
-select is((select count(*)::int from public.event_request_link_funnel('e2000000-0000-7000-8000-000000000001')),
-  2, '12.12 organizer sees the full request-link funnel for their own event');
-reset role;
-
--- Doorhost (Lisa): guests_select grants admin/finance/doorhost full read, but
--- guest_requests_select excludes doorhost — occupancy is full, funnel is empty.
+-- Doorhost (Lisa): guests_select grants admin/finance/doorhost full read.
 select pg_temp.login('66666666-6666-4666-8666-666666666666');
 select is((select count(*)::int from public.event_tier_occupancy('e2000000-0000-7000-8000-000000000001')),
-  2, '12.13 doorhost sees full tier occupancy (guests_select grants doorhost)');
-select is((select count(*)::int from public.event_request_link_funnel('e2000000-0000-7000-8000-000000000001')),
-  0, '12.14 doorhost gets NO request-link funnel data (not admin/finance/organizer)');
+  2, '12.6 doorhost sees full tier occupancy (guests_select grants doorhost)');
 reset role;
+
+-- Privileges (86ey9e9wv/B2) — the drop+recreate this migration does on
+-- event_link_funnel wipes its prior grants, and event_tier_occupancy is a
+-- brand-new function; both need an explicit re-declaration, not the Postgres
+-- default (EXECUTE TO PUBLIC), matching the venue_event_headcounts precedent
+-- (20260708120000_venue_scope_denormalization.sql).
+select ok(not has_function_privilege('anon', 'public.event_tier_occupancy(uuid)', 'EXECUTE'),
+  '12.7 anon cannot execute event_tier_occupancy');
+select ok(has_function_privilege('authenticated', 'public.event_tier_occupancy(uuid)', 'EXECUTE'),
+  '12.8 authenticated can execute event_tier_occupancy');
 
 select * from finish();
 

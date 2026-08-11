@@ -1723,9 +1723,11 @@ export type Database = {
         Args: { p_event_id: string }
         Returns: {
           active: boolean
+          approved: number
           approved_heads: number
           auto_approve: boolean
           checked_in_heads: number
+          created_at: string
           expires_at: string
           influencer_id: string
           influencer_name: string
@@ -1735,6 +1737,7 @@ export type Database = {
           max_headcount: number
           requests: number
           slug: string
+          tier_id: string
           views: number
         }[]
       }
@@ -1752,14 +1755,6 @@ export type Database = {
         Returns: {
           n: number
           reason: string
-        }[]
-      }
-      event_request_link_funnel: {
-        Args: { p_event_id: string }
-        Returns: {
-          approved: number
-          request_link_id: string
-          requests: number
         }[]
       }
       event_stats_summary: {
