@@ -55,15 +55,40 @@ export class OutboxStore {
   private listeners = new Set<() => void>();
   private persistDegraded = false;
   private statusListeners = new Set<() => void>();
+  private initPromise: Promise<void> | null = null;
 
   constructor() {
     getChannel()?.addEventListener('message', this.onRemoteChange);
   }
 
-  /** Load persisted entries once (called from the provider on mount). */
-  async init(): Promise<void> {
-    if (this.loaded) return;
+  /**
+   * Load persisted entries once (called from the provider on mount). The
+   * `loaded` guard alone only rejects a call once a PRIOR one has already
+   * finished — two calls fired back-to-back before the first's IndexedDB read
+   * resolves (React 18 StrictMode's dev-only double-invoke of the mount
+   * effect calls this twice with nothing in between) would both pass it and
+   * read+merge concurrently. Cache the in-flight promise so a second call
+   * while one is already running joins it instead of racing it.
+   */
+  init(): Promise<void> {
+    if (this.loaded) return Promise.resolve();
+    if (this.initPromise) return this.initPromise;
+    this.initPromise = this.doInit().finally(() => {
+      this.initPromise = null;
+    });
+    return this.initPromise;
+  }
+
+  private async doInit(): Promise<void> {
+    // Mirrors persistMerged/onRemoteChange's wipe-epoch guard: a sign-out
+    // (idbClearAll bumps the epoch) landing during this await must not let the
+    // continuation repopulate `entries` with the previous user's data, flip
+    // `loaded` back to true, and then have persistMerged's own (post-wipe)
+    // epoch check pass and write the old user's check-in queue — guest PII —
+    // into the next user's clean DB (86ey9et07).
+    const epoch = idbEpoch();
     const raw = await idbGet<unknown>(KEY);
+    if (epoch !== idbEpoch()) return; // a wipe landed during the read — bail before any state mutation
     const { entries: persisted, droppedInvalid, droppedStaleShape } = parsePersistedOutbox(raw);
     // Revive entries stranded in `syncing` by a mid-drain kill (C8). Persist the
     // normalization immediately so a second crash before the first drain can't
@@ -300,6 +325,10 @@ export class OutboxStore {
   reset(): void {
     this.entries = [];
     this.loaded = false;
+    // A next-user init() arriving while the previous user's load is still in
+    // flight must not join that stale pre-wipe promise — invalidate it too so
+    // the next init() call starts a fresh doInit() against the wiped epoch.
+    this.initPromise = null;
     this.emit();
     this.setPersistDegraded(false);
   }

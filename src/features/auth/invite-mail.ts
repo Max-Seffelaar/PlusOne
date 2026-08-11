@@ -1,5 +1,6 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { createServiceClient } from '@/lib/supabase/service';
+import { requiredServerEnv } from '@/lib/env';
 import type { Database } from '@/lib/database.types';
 
 // Shared invite/resend e-mail plumbing for the server actions (invite-actions +
@@ -23,8 +24,8 @@ export function alreadyRegistered(error: {
 // to an already-registered invitee — never touches the caller's own session.
 function createAnonClient() {
   return createSupabaseClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    requiredServerEnv('NEXT_PUBLIC_SUPABASE_URL'),
+    requiredServerEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY'),
     { auth: { autoRefreshToken: false, persistSession: false } }
   );
 }

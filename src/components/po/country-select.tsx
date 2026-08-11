@@ -117,7 +117,10 @@ export function CountrySelect({
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t.shared.country.searchPlaceholder}
               aria-label={t.shared.country.searchAria}
-              className="min-w-0 flex-1 border-none bg-transparent text-[14.5px] text-text outline-none placeholder:text-faint"
+              // 16px: reachable from the /e request form's phone field, which
+              // is on a pinch-zoomable page (publicRouteViewport) — a
+              // sub-16px input there triggers iOS Safari's auto-zoom-on-focus.
+              className="min-w-0 flex-1 border-none bg-transparent text-[16px] text-text outline-none placeholder:text-faint"
             />
           </div>
           <ul role="listbox" className="po-scroll max-h-[260px] overflow-y-auto py-[6px]">

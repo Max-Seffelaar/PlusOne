@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { importContactsSchema, upsertContactSchema } from './schemas';
+import {
+  importContactsSchema,
+  upsertContactSchema,
+  upsertContactsResultSchema,
+  addContactsToEventResultSchema,
+} from './schemas';
 
 const VENUE = '00000000-0000-7000-8000-000000000001';
 
@@ -34,5 +39,31 @@ describe('contacts fullName length (T12 — 200 → 500)', () => {
   it('single-contact upsert shares the 500 cap', () => {
     expect(upsertContactSchema.safeParse({ venueId: VENUE, fullName: 'z'.repeat(500) }).success).toBe(true);
     expect(upsertContactSchema.safeParse({ venueId: VENUE, fullName: 'z'.repeat(501) }).success).toBe(false);
+  });
+});
+
+describe('upsertContactsResultSchema (upsert_contacts RPC)', () => {
+  const CONTACT = '00000000-0000-7000-8000-000000000002';
+
+  it('accepts the real shape — all four fields always present', () => {
+    const r = upsertContactsResultSchema.safeParse({ inserted: 2, updated: 1, skipped: 0, ids: [CONTACT] });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects a missing field or a non-array ids', () => {
+    expect(upsertContactsResultSchema.safeParse({ inserted: 2, updated: 1, skipped: 0 }).success).toBe(false);
+    expect(
+      upsertContactsResultSchema.safeParse({ inserted: 2, updated: 1, skipped: 0, ids: 'not-an-array' }).success
+    ).toBe(false);
+  });
+});
+
+describe('addContactsToEventResultSchema (add_contacts_to_event RPC)', () => {
+  it('accepts the real shape', () => {
+    expect(addContactsToEventResultSchema.safeParse({ added: 3, already: 1, skipped: 0 }).success).toBe(true);
+  });
+
+  it('rejects a missing field', () => {
+    expect(addContactsToEventResultSchema.safeParse({ added: 3, already: 1 }).success).toBe(false);
   });
 });

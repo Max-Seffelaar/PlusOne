@@ -79,3 +79,20 @@ export const denyGuestRequestSchema = z.object({
   eventId: uuid.optional(),
 });
 export type DenyGuestRequestInput = z.input<typeof denyGuestRequestSchema>;
+
+/**
+ * Result shape of the `submit_guest_request` RPC (jsonb — see
+ * 20260706103000_submit_via_request_link.sql): every `return
+ * jsonb_build_object(...)` in that function sets `status`, so it's required
+ * here, not optional — an object without it is exactly the "unexpected
+ * shape" this schema exists to catch. `auto_approved` is display-only (the
+ * caller only ever checks `=== true`), so a non-boolean there shouldn't veto
+ * an otherwise-real `status: 'ok'` success; `z.unknown()` lets the `=== true`
+ * check fail open instead. Validated rather than hand-cast so a mismatched
+ * deploy (app ahead of/behind the DB function) fails closed instead of
+ * silently reading `undefined` off an unexpected shape.
+ */
+export const submitGuestRequestResultSchema = z.object({
+  status: z.enum(['ok', 'rate_limited', 'closed', 'invalid']),
+  auto_approved: z.unknown().optional(),
+});

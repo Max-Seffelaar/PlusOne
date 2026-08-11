@@ -23,6 +23,7 @@ import { type JSX, useEffect, useState, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
+import { useTransientValue } from '@/lib/use-transient-value';
 import type { Tier } from '@/lib/po/types';
 import type { PoInfluencer, PoRequestLink } from '@/features/po/queries';
 import { usePoEventForEdit, usePoEvents, usePoInfluencers, usePoRequestLinks, usePoTiers } from '@/features/po/hooks';
@@ -75,7 +76,8 @@ function LinkCard({
   onToggle: (active: boolean) => void;
   toggling: boolean;
 }): JSX.Element {
-  const [copied, setCopied] = useState(false);
+  const [copiedFlag, triggerCopied] = useTransientValue<true>(1800);
+  const copied = copiedFlag === true;
   const expired = link.expiresAt != null && Date.parse(link.expiresAt) < Date.now();
   const full = link.maxHeadcount != null && link.approvedHeads >= link.maxHeadcount;
 
@@ -83,8 +85,7 @@ function LinkCard({
     try {
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
         await navigator.clipboard.writeText(linkUrl(link.slug));
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1800);
+        triggerCopied(true);
       }
     } catch {
       // Clipboard blocked (rare in webviews) — silently ignore; the URL is visible in the sheet.
@@ -588,7 +589,8 @@ function QrSheet({ link, onClose }: { link: PoRequestLink; onClose: () => void }
   const url = linkUrl(link.slug);
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copiedFlag, triggerCopied] = useTransientValue<true>(1800);
+  const copied = copiedFlag === true;
 
   useEffect(() => {
     let cancelled = false;
@@ -609,8 +611,7 @@ function QrSheet({ link, onClose }: { link: PoRequestLink; onClose: () => void }
     try {
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
         await navigator.clipboard.writeText(url);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1800);
+        triggerCopied(true);
       }
     } catch {
       // Clipboard blocked — the URL is visible below the code.

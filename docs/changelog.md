@@ -48,6 +48,138 @@ dev/test-loop).
 - Gates: lint ✅, type-check ✅, vitest 867/867 ✅, `pnpm build` ✅, e2e:smoke 3/3 ✅.
   CLAUDE.md: turbopack-regel + cache-prune-note in de local-dev-sectie. NB: de
   CI-e2e-smoke draait via `pnpm dev` en test dus voortaan óók tegen turbopack.
+## 2026-08-11 — strictMode, viewport zoom, timer leaks, unsafe casts (86ey9ea09, 86ey9ea1g, 86ey9ea2y)
+
+Branch `claude/sharp-swirles-7f3da7` (PR #255), three finder-only tasks combined into one
+branch/PR per instruction. Milestone: Now. High-risk surfaces touched (door outbox,
+auth/confirm route) — see the review-fix round below for the required adversarial
+security-research prompt.
+
+- **`next.config.js`**: `reactStrictMode: false → true`. Audited every realtime-subscription
+  and outbox-init effect for the double-invoke bugs Strict Mode's dev-only mount→cleanup→mount
+  is designed to surface; `useDoorSync`/`usePoEventRealtime`'s channel effects were already safe
+  via a `cancelled`-closure guard. Found and fixed one real gap: `OutboxStore.init()`
+  (`src/features/door/outbox/store.ts`) had no in-flight dedup, so two calls fired back-to-back
+  before the first IndexedDB read resolved could both pass the `loaded` guard and read+merge
+  concurrently — fixed with a cached in-flight promise.
+- **Viewport lock removed from the public `/e`, `/r`, `/i` routes** (WCAG 1.4.4 pinch-zoom) via
+  a page-level `viewport` export; `/app` and other authenticated routes keep the root layout's
+  lock. Gotcha, found by testing live against the dev server rather than trusting the Next.js
+  docs: Next merges `viewport` **per-key** across the route segment tree rather than replacing
+  wholesale, so simply omitting `maximumScale`/`userScalable` in the page override silently left
+  the root's `maximum-scale=1, user-scalable=no` in the rendered meta tag — they have to be set
+  explicitly (`maximumScale: 5, userScalable: true`).
+- **Timer cleanups**: `home.tsx`'s `showToast` had no timer ref at all — a real bug where an
+  earlier toast's timer could wipe a later one prematurely. `EventDayCockpit`'s notify/flash and
+  `DoorProvider`'s toast timer now also clear on unmount, all on one consistent ref pattern
+  (superseded by `useTransientValue` in the review-fix round below).
+- **Zod-validated** the `auth/confirm` route's `type` query param (was a blind `as EmailOtpType`
+  cast) and the `submit_guest_request` RPC result (was a hand cast).
+- **`service.ts`**: the missing-env check moved from a silent `!` assertion to an eager, named
+  throw inside `createServiceClient()` — deliberately NOT module-top-level, since that broke
+  `stripe-webhook.test.ts`'s pure `mapStripeEvent` tests (they import the module transitively
+  without ever calling the function) — caught by actually running the suite, not just reasoning
+  about it.
+- Gates (pre-review-fix): `pnpm lint` clean, 867/867 vitest green with `reactStrictMode: true`,
+  manual dev-server smoke (Door tab live counts + no console errors, public `/e` viewport
+  confirmed zoomable).
+- **Environment note**: this session hit the same `pnpm install`/disk-contention wall as the
+  door wake-lock entry above (~46 concurrent `node.exe` processes) — one install attempt got
+  killed mid-write and left a corrupted `node_modules/.pnpm` entry for `next` (empty package
+  dir, valid symlink); `pnpm install --force` re-extracted cleanly. Also hit a `gh pr merge`
+  auto-mode-classifier block on direct user instruction — that action needs Max to run it
+  himself, no working-around it.
+
+### 2026-08-11 — Review-fix round (fresh-session `/code-review`, 15 verified findings)
+
+Base branch had drifted 3 door-PRs behind `main` (main renamed `clearSynced`→`clearSettled`,
+reworked the drain-summary shape, rewrote `store.test.ts`, removed the global JSX namespace
+repo-wide). `git merge origin/main` conflicted in exactly the 4 files the review predicted
+(`home.tsx` + the 3 public pages — resolved by keeping both sides' imports, per the review's
+own instructions); everything else auto-merged clean. Full lint/type-check/vitest run on the
+merged tree before touching any finding, per instruction — clean.
+
+- **Outbox `reset()`/`doInit()` race** (findings 1–2): `reset()` (sign-out isolation, 86ey9et07)
+  now also nulls `initPromise` — a next-user `init()` arriving while the previous user's load was
+  still in flight would otherwise join the stale pre-wipe promise. `doInit()` now captures
+  `idbEpoch()` at entry and bails post-await on a mismatch (mirrors the existing
+  `persistMerged`/`onRemoteChange` guard) — a sign-out landing mid-load could otherwise
+  repopulate the store with the previous user's entries (guest PII) into the next user's clean
+  DB. Two new tests in `store.test.ts`: concurrent `init()` reads IndexedDB once; a sign-out
+  mid-load leaves the snapshot empty and a later `init()` re-reads.
+- **`submitGuestRequest`'s post-write parse failure** (finding 4) used to return `invalidInput()`
+  — blaming the guest, discarding their one-time `/r/[token]` link, logging nothing — for a
+  failure that happens *after* the RPC already inserted the row. Now logs (issue paths only, no
+  payload — PII rule) and returns the same generic error the `rpc error` branch above it does.
+  `submitGuestRequestResultSchema` (finding 5) is now a required `status` enum (every
+  `submit_guest_request` return path sets it) + `auto_approved: z.unknown()` (display-only,
+  shouldn't veto a real success) instead of both fields optional; dropped the dead
+  `SubmitGuestRequestResult` export. Same bug class in `contacts/actions.ts` (finding 7):
+  `upsert_contacts`/`add_contacts_to_event`'s hand-cast RPC results replaced with schemas read
+  from their actual migration (`20260707160000_add_contacts_to_event.sql`), same post-write
+  log-and-generic-error handling.
+- **`auth/confirm/route.ts`** (findings 8–9): an unrecognized `type` with a present `token_hash`
+  now redirects to `/login?error=link` (visible message) instead of a silent bare `/login` — only
+  a missing `token_hash` stays a silent bounce. Rewrote the `satisfies z.ZodType<EmailOtpType>`
+  comment: `EmailOtpType` is an *open* union (`... | (string & {})`), so that check enforces
+  nothing at compile time; a new `route.test.ts` pins the six accepted values plus both guard
+  branches.
+- **Viewport root-unlock decision** (finding 10): a grep audit for `text-[1[0-4]px]` on
+  `<input>/<textarea>/<select>` found ~10 genuine sub-16px form inputs scattered across
+  authenticated screens — well past "a handful" — so the root layout's lock stays app-wide
+  (unlocking it would re-enable iOS Safari's auto-zoom-on-focus on every one of them). Extracted
+  the 3 public pages' duplicated viewport block into one `src/lib/public-route-viewport.ts`
+  const instead. Added `touch-action: manipulation` to the one wrapper shared by every door
+  surface (`PoDoorTab` in `screens/door.tsx`) — the root's `userScalable:false` never reliably
+  stopped iOS double-tap zoom anyway (Safari has ignored that flag since iOS 10), so this is the
+  actual fix, not a redundant one. A ClickUp follow-up tracks the root unlock + full input
+  migration (**not filed yet — ClickUp MCP hit its rate limit while writing this entry**).
+  Fixed the two sub-16px inputs actually reachable from the 3 patched pages (finding 11): the
+  `/r` status-link copy input (`landing.tsx`, the named case) plus two more the audit surfaced
+  on the same pages' component tree — `/i`'s search input (`influencer-stats.tsx`) and the phone
+  field's country-picker search (`country-select.tsx`, reachable from `/e`).
+- **`useTransientValue<T>(ttlMs)`** (`src/lib/use-transient-value.ts`, finding 12): the shared
+  primitive the repo's "new primitive → shared, same PR" rule calls for, replacing the PR's 4
+  hand-rolled toast/flash timers plus 7 sibling `setTimeout(() => setX(null))` sites with the
+  same bug shape (`influencer-stats.tsx`, `landing.tsx`, `MfaEnrollCard.tsx`,
+  `promotion/roster.tsx`, `promotion/event-links.tsx` ×2, `events/edit.tsx`) — `guests/profile.tsx`
+  and `promotion/event-links.tsx`'s `justCreated` flash were correctly left alone (already
+  effect-driven with proper cleanup). Adds a mounted-ref the hand-rolled versions didn't have:
+  a `trigger()` landing after unmount (an async mutation's `onError`/`onSuccess`, a clipboard
+  write's `.then()`) is a no-op instead of a setState-after-unmount warning. A `clear()` escape
+  hatch was added after `pnpm type-check` caught a real bug the review didn't: `roster.tsx`
+  explicitly resets a stale `copied` flag to `false` when a fresh link is minted (before
+  anything has actually been copied for it) — a 2-tuple `[value, trigger]` can't express that.
+- **`service.ts` comment** (finding 13) was factually wrong: supabase-js's own constructor
+  already throws synchronously on a falsy arg (`'supabaseUrl is required.'` /
+  `'supabaseKey is required.'`) — the old `!` pattern never let `undefined` silently reach a
+  network call. Rewritten honestly: the guard's real value is naming the actual env var, not
+  supabase-js's generic parameter name. Added the optional `requiredServerEnv(name)` helper
+  (`src/lib/env.ts`, `server-only`) and used it in all four server-side factories
+  (`service.ts`, `server.ts`, `middleware.ts`, `invite-mail.ts`) — deliberately NOT in
+  `src/lib/supabase/client.ts`, whose `NEXT_PUBLIC_*` reads must stay literal `process.env.X`
+  for Next's build-time inlining into the browser bundle.
+- **Gotcha caught only by CI, not `pnpm type-check`**: `route.test.ts`'s pin for
+  `emailOtpTypeSchema` (finding 9) lived as an exported const in `route.ts` itself. `tsc --noEmit`
+  is happy with that — it's Next.js's own build-time Route Handler validation, not TypeScript
+  structural checking, that rejects any named export from a Route Handler file other than the
+  small set it recognizes (`GET`, `POST`, `config`, …): `"emailOtpTypeSchema" is not a valid
+  Route export field.` Broke both the Vercel preview deploy and the CI `lint-and-test` job (which
+  runs a real `pnpm build`). Fixed by moving the schema into `features/auth/schemas.ts` (its
+  tests moved to the co-located `schemas.test.ts`); confirmed via a local `pnpm build` before
+  re-pushing, not just `type-check`. Worth remembering for any future Route Handler file: `tsc
+  --noEmit` is not a substitute for `next build` when the file exports anything beyond the HTTP
+  method handlers.
+- Gates on the merged tree: `pnpm lint` clean, `pnpm type-check` clean (one real error caught —
+  see `useTransientValue`'s `clear()` above), `pnpm build` succeeds, 1046/1046 vitest green,
+  manual dev-server smoke (Door tab: live check-in/reverse-check-in round-trip with correct
+  count updates, no console errors, `touch-action: manipulation` confirmed via computed style;
+  public `/e`: viewport meta confirmed still zoomable after the shared-const refactor).
+- **Left for Max**: merge PR #255 (`gh pr merge` is blocked for this session by the auto-mode
+  classifier, even on direct instruction); the ClickUp root-unlock/input-audit follow-up still
+  needs filing once the rate limit clears; a fresh-session `/code-review` is required again
+  before merge per the review-gates rule (this round touched the door outbox + auth route, both
+  high-risk surfaces) — self-contained adversarial security-research prompt in the PR body.
 
 ---
 
