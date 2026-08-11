@@ -3,6 +3,7 @@ import {
   submitGuestRequestSchema,
   approveGuestRequestSchema,
   denyGuestRequestSchema,
+  submitGuestRequestResultSchema,
 } from './schemas';
 
 const EVENT = '00000000-0000-7000-8000-000000000001';
@@ -113,5 +114,31 @@ describe('denyGuestRequestSchema', () => {
       denyGuestRequestSchema.safeParse({ requestId: REQ, reason: 'Lijst vol' }).success
     ).toBe(true);
     expect(denyGuestRequestSchema.safeParse({ requestId: REQ, reason: '   ' }).success).toBe(false);
+  });
+});
+
+describe('submitGuestRequestResultSchema', () => {
+  it('accepts a real success, with or without auto_approved', () => {
+    expect(submitGuestRequestResultSchema.safeParse({ status: 'ok', auto_approved: true }).success).toBe(true);
+    expect(submitGuestRequestResultSchema.safeParse({ status: 'rate_limited' }).success).toBe(true);
+    expect(submitGuestRequestResultSchema.safeParse({ status: 'closed' }).success).toBe(true);
+    expect(submitGuestRequestResultSchema.safeParse({ status: 'invalid' }).success).toBe(true);
+  });
+
+  it('lets a non-boolean auto_approved (display-only) fail open instead of vetoing a real status', () => {
+    const r = submitGuestRequestResultSchema.safeParse({ status: 'ok', auto_approved: 'yes' });
+    expect(r.success).toBe(true);
+    expect(r.success && r.data.auto_approved === true).toBe(false); // caller's `=== true` check still fails safe
+  });
+
+  it('rejects a missing/empty result — status is required, not optional', () => {
+    expect(submitGuestRequestResultSchema.safeParse({}).success).toBe(false);
+    expect(submitGuestRequestResultSchema.safeParse(null).success).toBe(false);
+    expect(submitGuestRequestResultSchema.safeParse(undefined).success).toBe(false);
+  });
+
+  it('rejects a bare string and an unrecognized status value', () => {
+    expect(submitGuestRequestResultSchema.safeParse('ok').success).toBe(false);
+    expect(submitGuestRequestResultSchema.safeParse({ status: 'huh' }).success).toBe(false);
   });
 });

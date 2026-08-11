@@ -8,6 +8,181 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-11 — Dev-build sneller: Turbopack default + .next/cache-cap (86ey9e9zd)
+
+Branch `perf/86ey9e9zd-turbopack-dev` (PR: zie taak). Dev-only DX-perf (B5+B6 uit de
+perf-audit); `pnpm build` blijft webpack. Milestone: Now (sessiesnelheid van elke
+dev/test-loop).
+
+- **`pnpm dev` draait nu `next dev --turbopack`** (spawn in `scripts/dev-env.mjs`);
+  escape hatch `DEV_WEBPACK=1 pnpm dev`. Gemeten (onbelaste machine, verse worktree,
+  Next 15.5.19): cold Ready 5,8s vs 8,5s webpack; eerste `/app`-compile **2,4s vs
+  9,4s**; landing 6,1s vs 10,1s; HMR (Fast Refresh, browser-gemeten) **20–253ms vs
+  545–1973ms**. Onder zware parallelle-sessie-load was webpack-cold zelfs 119s Ready /
+  69–352s per route-compile — precies de pijn die de taak aankaartte. Turbopack heeft
+  géén persistente dev-cache: warm ≈ cold (5,6s Ready), terwijl webpack-warm 7,6s
+  Ready maar nog steeds 8–10s per eerste route-compile deed. Netto wint turbopack in
+  élk scenario.
+- **Gevalideerd onder turbopack:** dev-login-flow, `/app` home met live seed-data,
+  Deur-tab incl. check-in door de outbox (DB-rij `offline_synced:true` geasserteerd),
+  Sentry lazy facade (`window.__SENTRY__` na idle — de dynamic import van
+  `sentry.client.init` werkt), HMR op i18n- én screen-bestanden, en `pnpm e2e:smoke`
+  3/3 groen (incl. de rAF-gestubde never-painted-tab hydration-guard). CSP-dev
+  (`unsafe-eval`) dekt turbopack al.
+- **`.next/cache`-cap:** één `pnpm build` zet ~776 MB webpack-cache neer die turbopack-dev
+  nooit leest. `pnpm dev` pruned nu bij start `.next/cache` boven 500 MB (logregel,
+  faalt nooit hard); handmatig: nieuw script `pnpm clean:next`. Live getest: 775 MB →
+  gepruned bij eerstvolgende `pnpm dev`.
+- **`E2E_PORT`** override in `playwright.config.ts` (default 3000, CI ongewijzigd):
+  lokaal bleken poorten 3000 én 3010 bezet door parked `groeniek-onderhoud`-servers
+  die elke route 404'en — `reuseExistingServer` liet de suite dáártegen draaien, alle
+  3 specs rood zonder dat er iets stuk was. Met `E2E_PORT=3033`: 3/3 groen.
+- **Gotcha (gedocumenteerd in `next.config.js`):** `turbopack.root`/`outputFileTracingRoot`
+  pinnen op `__dirname` om de multi-lockfile-warning te dempen breekt in een
+  pnpm-worktree de resolutie van `@sentry/nextjs` in `sentry.server.config.ts`
+  ("Module not found") → dev-server kapot. De inferred parent-root werkt; warning is
+  cosmetisch. Niet pinnen.
+- **Sentry/OTel-warning weg:** `require-in-the-middle` (OTel-dep, op Next's
+  `serverExternalPackages`-default) als devDependency toegevoegd — pnpm hoist hem
+  niet, turbopack warnde er elke start over.
+- Gates: lint ✅, type-check ✅, vitest 867/867 ✅, `pnpm build` ✅, e2e:smoke 3/3 ✅.
+  CLAUDE.md: turbopack-regel + cache-prune-note in de local-dev-sectie. NB: de
+  CI-e2e-smoke draait via `pnpm dev` en test dus voortaan óók tegen turbopack.
+## 2026-08-11 — strictMode, viewport zoom, timer leaks, unsafe casts (86ey9ea09, 86ey9ea1g, 86ey9ea2y)
+
+Branch `claude/sharp-swirles-7f3da7` (PR #255), three finder-only tasks combined into one
+branch/PR per instruction. Milestone: Now. High-risk surfaces touched (door outbox,
+auth/confirm route) — see the review-fix round below for the required adversarial
+security-research prompt.
+
+- **`next.config.js`**: `reactStrictMode: false → true`. Audited every realtime-subscription
+  and outbox-init effect for the double-invoke bugs Strict Mode's dev-only mount→cleanup→mount
+  is designed to surface; `useDoorSync`/`usePoEventRealtime`'s channel effects were already safe
+  via a `cancelled`-closure guard. Found and fixed one real gap: `OutboxStore.init()`
+  (`src/features/door/outbox/store.ts`) had no in-flight dedup, so two calls fired back-to-back
+  before the first IndexedDB read resolved could both pass the `loaded` guard and read+merge
+  concurrently — fixed with a cached in-flight promise.
+- **Viewport lock removed from the public `/e`, `/r`, `/i` routes** (WCAG 1.4.4 pinch-zoom) via
+  a page-level `viewport` export; `/app` and other authenticated routes keep the root layout's
+  lock. Gotcha, found by testing live against the dev server rather than trusting the Next.js
+  docs: Next merges `viewport` **per-key** across the route segment tree rather than replacing
+  wholesale, so simply omitting `maximumScale`/`userScalable` in the page override silently left
+  the root's `maximum-scale=1, user-scalable=no` in the rendered meta tag — they have to be set
+  explicitly (`maximumScale: 5, userScalable: true`).
+- **Timer cleanups**: `home.tsx`'s `showToast` had no timer ref at all — a real bug where an
+  earlier toast's timer could wipe a later one prematurely. `EventDayCockpit`'s notify/flash and
+  `DoorProvider`'s toast timer now also clear on unmount, all on one consistent ref pattern
+  (superseded by `useTransientValue` in the review-fix round below).
+- **Zod-validated** the `auth/confirm` route's `type` query param (was a blind `as EmailOtpType`
+  cast) and the `submit_guest_request` RPC result (was a hand cast).
+- **`service.ts`**: the missing-env check moved from a silent `!` assertion to an eager, named
+  throw inside `createServiceClient()` — deliberately NOT module-top-level, since that broke
+  `stripe-webhook.test.ts`'s pure `mapStripeEvent` tests (they import the module transitively
+  without ever calling the function) — caught by actually running the suite, not just reasoning
+  about it.
+- Gates (pre-review-fix): `pnpm lint` clean, 867/867 vitest green with `reactStrictMode: true`,
+  manual dev-server smoke (Door tab live counts + no console errors, public `/e` viewport
+  confirmed zoomable).
+- **Environment note**: this session hit the same `pnpm install`/disk-contention wall as the
+  door wake-lock entry above (~46 concurrent `node.exe` processes) — one install attempt got
+  killed mid-write and left a corrupted `node_modules/.pnpm` entry for `next` (empty package
+  dir, valid symlink); `pnpm install --force` re-extracted cleanly. Also hit a `gh pr merge`
+  auto-mode-classifier block on direct user instruction — that action needs Max to run it
+  himself, no working-around it.
+
+### 2026-08-11 — Review-fix round (fresh-session `/code-review`, 15 verified findings)
+
+Base branch had drifted 3 door-PRs behind `main` (main renamed `clearSynced`→`clearSettled`,
+reworked the drain-summary shape, rewrote `store.test.ts`, removed the global JSX namespace
+repo-wide). `git merge origin/main` conflicted in exactly the 4 files the review predicted
+(`home.tsx` + the 3 public pages — resolved by keeping both sides' imports, per the review's
+own instructions); everything else auto-merged clean. Full lint/type-check/vitest run on the
+merged tree before touching any finding, per instruction — clean.
+
+- **Outbox `reset()`/`doInit()` race** (findings 1–2): `reset()` (sign-out isolation, 86ey9et07)
+  now also nulls `initPromise` — a next-user `init()` arriving while the previous user's load was
+  still in flight would otherwise join the stale pre-wipe promise. `doInit()` now captures
+  `idbEpoch()` at entry and bails post-await on a mismatch (mirrors the existing
+  `persistMerged`/`onRemoteChange` guard) — a sign-out landing mid-load could otherwise
+  repopulate the store with the previous user's entries (guest PII) into the next user's clean
+  DB. Two new tests in `store.test.ts`: concurrent `init()` reads IndexedDB once; a sign-out
+  mid-load leaves the snapshot empty and a later `init()` re-reads.
+- **`submitGuestRequest`'s post-write parse failure** (finding 4) used to return `invalidInput()`
+  — blaming the guest, discarding their one-time `/r/[token]` link, logging nothing — for a
+  failure that happens *after* the RPC already inserted the row. Now logs (issue paths only, no
+  payload — PII rule) and returns the same generic error the `rpc error` branch above it does.
+  `submitGuestRequestResultSchema` (finding 5) is now a required `status` enum (every
+  `submit_guest_request` return path sets it) + `auto_approved: z.unknown()` (display-only,
+  shouldn't veto a real success) instead of both fields optional; dropped the dead
+  `SubmitGuestRequestResult` export. Same bug class in `contacts/actions.ts` (finding 7):
+  `upsert_contacts`/`add_contacts_to_event`'s hand-cast RPC results replaced with schemas read
+  from their actual migration (`20260707160000_add_contacts_to_event.sql`), same post-write
+  log-and-generic-error handling.
+- **`auth/confirm/route.ts`** (findings 8–9): an unrecognized `type` with a present `token_hash`
+  now redirects to `/login?error=link` (visible message) instead of a silent bare `/login` — only
+  a missing `token_hash` stays a silent bounce. Rewrote the `satisfies z.ZodType<EmailOtpType>`
+  comment: `EmailOtpType` is an *open* union (`... | (string & {})`), so that check enforces
+  nothing at compile time; a new `route.test.ts` pins the six accepted values plus both guard
+  branches.
+- **Viewport root-unlock decision** (finding 10): a grep audit for `text-[1[0-4]px]` on
+  `<input>/<textarea>/<select>` found ~10 genuine sub-16px form inputs scattered across
+  authenticated screens — well past "a handful" — so the root layout's lock stays app-wide
+  (unlocking it would re-enable iOS Safari's auto-zoom-on-focus on every one of them). Extracted
+  the 3 public pages' duplicated viewport block into one `src/lib/public-route-viewport.ts`
+  const instead. Added `touch-action: manipulation` to the one wrapper shared by every door
+  surface (`PoDoorTab` in `screens/door.tsx`) — the root's `userScalable:false` never reliably
+  stopped iOS double-tap zoom anyway (Safari has ignored that flag since iOS 10), so this is the
+  actual fix, not a redundant one. A ClickUp follow-up tracks the root unlock + full input
+  migration (**not filed yet — ClickUp MCP hit its rate limit while writing this entry**).
+  Fixed the two sub-16px inputs actually reachable from the 3 patched pages (finding 11): the
+  `/r` status-link copy input (`landing.tsx`, the named case) plus two more the audit surfaced
+  on the same pages' component tree — `/i`'s search input (`influencer-stats.tsx`) and the phone
+  field's country-picker search (`country-select.tsx`, reachable from `/e`).
+- **`useTransientValue<T>(ttlMs)`** (`src/lib/use-transient-value.ts`, finding 12): the shared
+  primitive the repo's "new primitive → shared, same PR" rule calls for, replacing the PR's 4
+  hand-rolled toast/flash timers plus 7 sibling `setTimeout(() => setX(null))` sites with the
+  same bug shape (`influencer-stats.tsx`, `landing.tsx`, `MfaEnrollCard.tsx`,
+  `promotion/roster.tsx`, `promotion/event-links.tsx` ×2, `events/edit.tsx`) — `guests/profile.tsx`
+  and `promotion/event-links.tsx`'s `justCreated` flash were correctly left alone (already
+  effect-driven with proper cleanup). Adds a mounted-ref the hand-rolled versions didn't have:
+  a `trigger()` landing after unmount (an async mutation's `onError`/`onSuccess`, a clipboard
+  write's `.then()`) is a no-op instead of a setState-after-unmount warning. A `clear()` escape
+  hatch was added after `pnpm type-check` caught a real bug the review didn't: `roster.tsx`
+  explicitly resets a stale `copied` flag to `false` when a fresh link is minted (before
+  anything has actually been copied for it) — a 2-tuple `[value, trigger]` can't express that.
+- **`service.ts` comment** (finding 13) was factually wrong: supabase-js's own constructor
+  already throws synchronously on a falsy arg (`'supabaseUrl is required.'` /
+  `'supabaseKey is required.'`) — the old `!` pattern never let `undefined` silently reach a
+  network call. Rewritten honestly: the guard's real value is naming the actual env var, not
+  supabase-js's generic parameter name. Added the optional `requiredServerEnv(name)` helper
+  (`src/lib/env.ts`, `server-only`) and used it in all four server-side factories
+  (`service.ts`, `server.ts`, `middleware.ts`, `invite-mail.ts`) — deliberately NOT in
+  `src/lib/supabase/client.ts`, whose `NEXT_PUBLIC_*` reads must stay literal `process.env.X`
+  for Next's build-time inlining into the browser bundle.
+- **Gotcha caught only by CI, not `pnpm type-check`**: `route.test.ts`'s pin for
+  `emailOtpTypeSchema` (finding 9) lived as an exported const in `route.ts` itself. `tsc --noEmit`
+  is happy with that — it's Next.js's own build-time Route Handler validation, not TypeScript
+  structural checking, that rejects any named export from a Route Handler file other than the
+  small set it recognizes (`GET`, `POST`, `config`, …): `"emailOtpTypeSchema" is not a valid
+  Route export field.` Broke both the Vercel preview deploy and the CI `lint-and-test` job (which
+  runs a real `pnpm build`). Fixed by moving the schema into `features/auth/schemas.ts` (its
+  tests moved to the co-located `schemas.test.ts`); confirmed via a local `pnpm build` before
+  re-pushing, not just `type-check`. Worth remembering for any future Route Handler file: `tsc
+  --noEmit` is not a substitute for `next build` when the file exports anything beyond the HTTP
+  method handlers.
+- Gates on the merged tree: `pnpm lint` clean, `pnpm type-check` clean (one real error caught —
+  see `useTransientValue`'s `clear()` above), `pnpm build` succeeds, 1046/1046 vitest green,
+  manual dev-server smoke (Door tab: live check-in/reverse-check-in round-trip with correct
+  count updates, no console errors, `touch-action: manipulation` confirmed via computed style;
+  public `/e`: viewport meta confirmed still zoomable after the shared-const refactor).
+- **Left for Max**: merge PR #255 (`gh pr merge` is blocked for this session by the auto-mode
+  classifier, even on direct instruction); the ClickUp root-unlock/input-audit follow-up still
+  needs filing once the rate limit clears; a fresh-session `/code-review` is required again
+  before merge per the review-gates rule (this round touched the door outbox + auth route, both
+  high-risk surfaces) — self-contained adversarial security-research prompt in the PR body.
+
+---
+
 ## 2026-08-11 — Review fixes on the SW cache split: offline boot, wipe completeness (86ey9e9mn)
 
 Same branch/PR (#246) as the entry below. A fresh-session `/code-review` (15 findings) plus
@@ -656,6 +831,64 @@ separate PR. Research already done this session: no production flow inserts
 PostgREST inserts (RLS doesn't pin status, `added_by` pinned to self) can produce one.
 
 Tests: see PR — vitest suite + lint/tsc (no DB change, no pgTAP needed for part 1).
+
+---
+
+## 2026-08-10 — Event capacity counted on a dead column — hard cap could be overfilled (86ey9e9r9)
+
+Branch `fix/86ey9e9r9-event-capacity-inside-rule` (PR #244). Review finding SW3, verified against the
+current effective definitions before touching anything. Milestone: Now (fraud/quota integrity —
+a hard room cap that does not hold is worse than no cap). High-risk surface (quota/capacity
+triggers) → not self-merged; fresh-session `/code-review` first.
+
+- **Root cause.** `20260624200000_event_lifecycle_capacity.sql` repointed the *personal*-quota
+  engine from `events.went_live_at` onto "is the guest physically inside" (a non-voided
+  `check_ins` row) when the status machine was retired the same day. The *event-capacity* engine
+  (`guest_capacity_contribution`, migration `20260624090000`) was not repointed and kept its
+  `p_went_live_at` argument — including in its most recent rewrite,
+  `20260714100000_quota_capacity_trigger_locking.sql`. Nothing sets `events.status = 'live'`
+  anymore (`changeEventStatus` / `usePoChangeStatus` exist but have zero call sites, and the UI
+  has no status control), so `went_live_at` is permanently NULL and the branch guarded by it is
+  unreachable.
+- **Impact.** A guest who checked in and was then set to `removed` contributed **0** to event
+  capacity while still contributing `1 + plus_ones` to the adder's personal quota — the two
+  engines disagreed about the same guest, and the room-capacity one under-counted. On a
+  hard-capped event that means `enforce_event_capacity` never raises 45005 for those slots, so
+  the cap can be filled past its limit by checking people in and removing them. The
+  auto-approve path (`submit_via_request_link`) leans on the same 45005 as a guard, so it
+  inherited the hole.
+- **Fix** (`20260810171500_event_capacity_inside_rule.sql`): `guest_capacity_contribution` takes
+  `p_is_inside boolean` and uses the exact same basis as `guest_personal_contribution`;
+  `event_capacity_consumption` computes `is_inside` per guest (the `events` join is gone with
+  `went_live_at`); `enforce_event_capacity` keeps its advisory-lock serialisation from
+  `20260714100000` unchanged and only swaps the contribution basis. The dead
+  `(guests, timestamptz)` overload is dropped so the name resolves to one signature, and the new
+  overload is re-revoked (a fresh function is granted to PUBLIC by default).
+- **Deliberate divergence preserved:** capacity has **no** source exemption — a
+  `landing`/`permanent` guest occupies the room; #31 exempts them from the personal fraud limit
+  only. Guarded by a test that asserts both halves on the same row.
+- **Secondary correction in the same rewrite:** `refused` guests no longer consume capacity
+  unless they are inside. The old function only zeroed `denied` and the dead removed-branch, so
+  a guest turned away at the door still held their slots — contradicting spec #44 ("refused
+  never contributes to on-list/inside anywhere"). The refused-after-check-in case
+  (`sync_guest_status_from_refusal` flips the status without voiding the check-in) keeps
+  counting via `p_is_inside`, exactly as it does for personal quota.
+- **Known asymmetry, unchanged and now documented in the migration:** the cap is enforced by a
+  trigger on `guests` only. A check-in that flips a removed guest to `checked_in` computes the
+  same `is_inside` for OLD and NEW, so there is no net increase and no cap re-check — parity
+  with the quota engine, and deliberate: the door is never blocked by an admin-side limit (#25).
+- **Tests.** New pgTAP `event_capacity_inside.test.sql` (12): the removed-but-inside guest keeps
+  their slots, capacity and personal quota return the *same* number for that row, the cap
+  actually rejects the next guest with 45005 (this insert succeeded before the fix), voiding the
+  check-in frees the room again, the landing divergence, refused-frees (#44), and a guard that
+  exactly one `guest_capacity_contribution` overload remains. `event_templates.test.sql` D1–D3
+  stay green (labels reworded off "before go-live"). Spec §Capaciteitsregel amended.
+- **Gotcha for the next session (local stack).** Three sibling worktree sessions were writing
+  migrations at the same moment; one had already claimed `20260810100000` and another reset the
+  shared local DB mid-run (a `supabase test db` against a DB missing your own migration fails as
+  ~15 files "No plan found", not as a clean assertion failure). Verify
+  `supabase_migrations.schema_migrations` actually contains your version before believing a red
+  suite, and pick minute-precision migration timestamps.
 
 ---
 

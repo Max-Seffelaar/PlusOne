@@ -34,7 +34,12 @@ const csp = [
 ].join('; ');
 
 const nextConfig = {
-  reactStrictMode: false, // Disabled temporarily to debug hydration issues
+  reactStrictMode: true,
+  // NOTE: do NOT pin `turbopack.root` / `outputFileTracingRoot` to __dirname to
+  // silence the multi-lockfile workspace-root warning. In a git worktree with
+  // pnpm, pinning the root makes Turbopack fail to resolve `@sentry/nextjs`
+  // from sentry.server.config.ts ("Module not found") — the inferred parent
+  // root works fine and the warning is cosmetic (86ey9e9zd).
   images: {
     unoptimized: true,
   },

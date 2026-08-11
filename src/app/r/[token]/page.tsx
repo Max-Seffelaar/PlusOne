@@ -11,6 +11,10 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
+// See src/lib/public-route-viewport.ts — overrides the root layout's locked
+// viewport for this public route (WCAG 1.4.4).
+export { publicRouteViewport as viewport } from '@/lib/public-route-viewport';
+
 const dateFmt = new Intl.DateTimeFormat('en-GB', {
   weekday: 'short',
   day: 'numeric',

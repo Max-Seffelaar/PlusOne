@@ -177,7 +177,15 @@ export function PoDoorTab({
       {/* `inert` (not just the overlay's visual z-index) so a hardware keyboard
           or barcode-scanner wedge can't type into an autofocused field
           underneath (e.g. AddOnSpot's Enter-to-commit input) while blocked. */}
-      <div inert={staleResume.phase !== 'closed'} className="flex min-h-0 flex-1 flex-col">
+      {/* touch-manipulation: the root viewport lock (userScalable:false) never
+          reliably stopped double-tap zoom on iOS Safari — Apple has ignored
+          that flag since iOS 10. This is the actual fix, on the one wrapper
+          shared by every door surface (standalone /door and the /app Deur tab,
+          mobile and desktop). */}
+      <div
+        inert={staleResume.phase !== 'closed'}
+        className="flex min-h-0 flex-1 flex-col touch-manipulation"
+      >
         <SyncBar />
         {!overlay && onChangeEvent && currentEventName && (
           <DoorEventBar name={currentEventName} onChange={onChangeEvent} />
