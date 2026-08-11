@@ -94,9 +94,6 @@ interface DoorContextValue {
   pendingCount: number;
   /** guest_id → its outbox entries (for the "duplicaat" marker). */
   outboxByGuest: Map<string, OutboxEntry[]>;
-  /** Check-in list filters — survive the guest-detail push/pop (see above). */
-  listFilters: DoorListFilters;
-  setListFilters: (patch: Partial<DoorListFilters>) => void;
   guestById: (id: string) => DoorGuest | undefined;
   checkIn: (guestId: string, totalPeople: number) => void;
   /** Raise an already-checked-in guest's arrivals by `addArrived` ("nog inchecken"). */
@@ -133,6 +130,30 @@ const DoorSyncContext = createContext<DoorSyncState | null>(null);
 export function useDoorSyncStatus(): DoorSyncState {
   const v = useContext(DoorSyncContext);
   if (!v) throw new Error('useDoorSyncStatus must be used within DoorProvider');
+  return v;
+}
+
+// Split off from DoorContextValue (86ey9e9vc, finding #44 — re-verified after
+// #225: that PR split off `sync`, but `listFilters`/`setListFilters` were still
+// bundled into the broad `value` useMemo below, so every keystroke in the
+// search field updated `listFiltersFor` state → `value`'s identity changed →
+// every useDoor() consumer re-rendered (Taken, SyncBar, GuestDetail, AddOnSpot,
+// the door screen wrapper), before the 140ms debounce even runs. CheckInList is
+// the only real consumer (verified via grep) — the state itself still LIVES in
+// DoorProvider (not local to CheckInList) because opening a guest pushes a
+// detail screen and the pop remounts the list; local state would snap filters
+// back to defaults mid-shift (feedback Joeri 1/7). Local-first stays true: no
+// server state, just a narrower context boundary.
+interface DoorFiltersContextValue {
+  listFilters: DoorListFilters;
+  setListFilters: (patch: Partial<DoorListFilters>) => void;
+}
+
+const DoorFiltersContext = createContext<DoorFiltersContextValue | null>(null);
+
+export function useDoorFilters(): DoorFiltersContextValue {
+  const v = useContext(DoorFiltersContext);
+  if (!v) throw new Error('useDoorFilters must be used within DoorProvider');
   return v;
 }
 
@@ -704,8 +725,6 @@ export function DoorProvider({
       toast,
       pendingCount,
       outboxByGuest,
-      listFilters,
-      setListFilters,
       guestById,
       checkIn,
       topUp,
@@ -716,12 +735,21 @@ export function DoorProvider({
       addOnSpot,
       ackNote,
     }),
-    [eventId, view, tasks, quotaQuery.data, defaultTierId, toast, pendingCount, outboxByGuest, listFilters, setListFilters, guestById, checkIn, topUp, voidCheckIn, reviveCheckIn, refuse, undoRefusal, addOnSpot, ackNote],
+    [eventId, view, tasks, quotaQuery.data, defaultTierId, toast, pendingCount, outboxByGuest, guestById, checkIn, topUp, voidCheckIn, reviveCheckIn, refuse, undoRefusal, addOnSpot, ackNote],
+  );
+
+  // Narrow context (see the comment on DoorFiltersContext above) — only this
+  // object's identity changes on a keystroke, never the broad `value` above.
+  const filtersValue = useMemo<DoorFiltersContextValue>(
+    () => ({ listFilters, setListFilters }),
+    [listFilters, setListFilters],
   );
 
   return (
     <DoorContext.Provider value={value}>
-      <DoorSyncContext.Provider value={sync}>{children}</DoorSyncContext.Provider>
+      <DoorSyncContext.Provider value={sync}>
+        <DoorFiltersContext.Provider value={filtersValue}>{children}</DoorFiltersContext.Provider>
+      </DoorSyncContext.Provider>
     </DoorContext.Provider>
   );
 }

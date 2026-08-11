@@ -32,7 +32,7 @@ import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { hasFinePointer } from '@/lib/platform';
 import { Icon } from '@/components/po/icon';
 import { Avatar, Label, StatusDot, Top, Seg, cardPress } from '@/components/po/kit';
-import { useDoor } from '../DoorProvider';
+import { useDoor, useDoorFilters } from '../DoorProvider';
 import type { DoorGuest } from '../model';
 import { flattenCheckInItems, partsLeft, type CheckInItem, type Filter } from './checkin-items';
 import { tierInk as onTier, tintTier } from '@/lib/po/tier-colors';
@@ -87,9 +87,12 @@ function TierFilterBar({
 }
 
 export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) => void; onAdd: () => void }): JSX.Element {
-  const { view, outboxByGuest, undoRefusal, listFilters, setListFilters } = useDoor();
-  // Filters live in the provider: checking someone in pushes a guest detail and
-  // the pop remounts this list — provider state keeps "On the way" selected.
+  const { view, outboxByGuest, undoRefusal } = useDoor();
+  // Filters live in the provider (on their own narrow context — #44/86ey9e9vc):
+  // checking someone in pushes a guest detail and the pop remounts this list —
+  // provider state keeps "On the way" selected, without re-rendering the rest
+  // of the door tree on every keystroke via the broad DoorContext.
+  const { listFilters, setListFilters } = useDoorFilters();
   const { q, f, tierIds: tierFilter } = listFilters;
   const setQ = (next: string): void => setListFilters({ q: next });
   const setF = (next: Filter): void => setListFilters({ f: next });
