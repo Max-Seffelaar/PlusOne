@@ -61,6 +61,7 @@ export const landing = {
   nameError: 'Add your name so we can save your spot.',
   emailError: "That email doesn't look right. Mind checking it?",
   phoneError: 'Check your phone number, including the country code.',
+  turnstileError: "Just confirming you're human — give the checkbox a moment, then try again.",
 
   // ── Success ──────────────────────────────────────────────────────────────
   successTitle: "Request sent. You're in the queue.",

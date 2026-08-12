@@ -17,6 +17,35 @@ import {
 
 export type ActionResult = { ok: true } | MutationError;
 
+const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+
+/**
+ * Server-side Turnstile check (86ey2czr6), run before the submit_guest_request
+ * RPC. Keyless-safe: without TURNSTILE_SECRET_KEY the check is skipped entirely
+ * (local dev/CI unaffected) — same posture as LANDING_IP_SALT/Stripe. Fails
+ * closed once the secret IS configured: no token, an unreachable Cloudflare
+ * endpoint, or an unsuccessful verification all reject the same way.
+ */
+async function verifyTurnstileToken(token: string | undefined): Promise<boolean> {
+  const secret = process.env.TURNSTILE_SECRET_KEY;
+  if (!secret) return true;
+  if (!token) return false;
+
+  try {
+    const res = await fetch(TURNSTILE_VERIFY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ secret, response: token }),
+    });
+    if (!res.ok) return false;
+    const data = (await res.json()) as { success?: unknown };
+    return data.success === true;
+  } catch (err) {
+    console.error('[verifyTurnstileToken] siteverify request failed:', err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
 /**
  * Submission outcome: the requester gets a bearer status URL (/r/[token]) and,
  * on an auto-approve link, the "you're on the list" confirmation. Only the
@@ -40,12 +69,19 @@ export type SubmitOutcome =
 export async function submitGuestRequest(input: SubmitGuestRequestInput): Promise<SubmitOutcome> {
   const parsed = submitGuestRequestSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { slug, fullName, email, phone, plusOnes, motivation, birthdate, marketingOptIn, company } =
+  const { slug, fullName, email, phone, plusOnes, motivation, birthdate, marketingOptIn, company, turnstileToken } =
     parsed.data;
 
   // Honeypot tripped → behave exactly like a success, but touch nothing (no
   // status token either — a bot has no use for one).
   if (company && company.trim().length > 0) return { ok: true };
+
+  // Turnstile check runs before any DB work (rate-limit budget, dedup lookup,
+  // contact capture) is touched. Generic failure message — same as the rpc-error
+  // branch below — so a bot learns nothing about which check tripped.
+  if (!(await verifyTurnstileToken(turnstileToken))) {
+    return { ok: false, code: 'error', message: 'Something went wrong. Try again.' };
+  }
 
   const ipHash = await landingClientIpHash();
   const supabase = await createClient();

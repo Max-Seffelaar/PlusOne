@@ -16,6 +16,7 @@ import { isValidEmail } from '@/features/requests/validation';
 import { CountrySelect, PhoneInput, isPhoneValid, type CountryCode } from './phone-lazy';
 import { Icon, type IconName } from './icon';
 import { fieldErrorBorder, fieldErrorText } from './kit';
+import { TurnstileWidget, TURNSTILE_ENABLED } from './turnstile';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.985]';
 const LANDING_BG = 'radial-gradient(120% 70% at 50% -8%, #211d3a 0%, #100f18 42%, #0B0B0D 100%)';
@@ -279,12 +280,16 @@ export function LandingForm({
   const [marketing, setMarketing] = useState(false);
   // Honeypot — must stay empty; bots that fill it get a fake success.
   const [company, setCompany] = useState('');
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [nameErr, setNameErr] = useState<string | null>(null);
   const [emailErr, setEmailErr] = useState<string | null>(null);
   const [phoneErr, setPhoneErr] = useState<string | null>(null);
   const [sent, setSent] = useState<{ statusToken?: string; autoApproved?: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // Bumped on reset() to remount the widget and force a fresh challenge (a
+  // solved Turnstile token is single-use server-side).
+  const [turnstileKey, setTurnstileKey] = useState(0);
   const ok = name.trim().length > 1;
   const first = name.trim().split(' ')[0] || t.landing.nameFallback;
   const heads = 1 + plus;
@@ -307,6 +312,13 @@ export function LandingForm({
     }
     setNameErr(null);
 
+    // Turnstile only blocks submission when the widget is actually configured
+    // (site key present) — keyless-safe, mirrors the server-side skip.
+    if (TURNSTILE_ENABLED && !turnstileToken) {
+      setError(t.landing.turnstileError);
+      return;
+    }
+
     // Inline validation: e-mail (if given) and phone. libphonenumber validates
     // the number per the selected country (E.164); a wrong/incomplete one is
     // caught here before submit. The phone check is async — its metadata lives in
@@ -328,6 +340,7 @@ export function LandingForm({
         motivation: motiv.trim() || undefined,
         marketingOptIn: marketing,
         company,
+        turnstileToken: turnstileToken ?? undefined,
       });
       if (res.ok) setSent({ statusToken: res.statusToken, autoApproved: res.autoApproved });
       else setError(res.message);
@@ -344,6 +357,8 @@ export function LandingForm({
     setMotiv('');
     setMarketing(false);
     setCompany('');
+    setTurnstileToken(null);
+    setTurnstileKey((k) => k + 1);
     setNameErr(null);
     setEmailErr(null);
     setPhoneErr(null);
@@ -562,6 +577,8 @@ export function LandingForm({
             <input type="text" tabIndex={-1} autoComplete="off" value={company} onChange={(e) => setCompany(e.target.value)} />
           </label>
         </div>
+
+        <TurnstileWidget key={turnstileKey} onToken={setTurnstileToken} />
 
         <button
           type="button"
