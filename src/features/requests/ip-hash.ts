@@ -24,6 +24,12 @@ export function landingIpSalt(): string {
   return DEV_SALT;
 }
 
+async function rawClientIp(): Promise<string> {
+  const h = await headers();
+  const forwarded = h.get('x-forwarded-for');
+  return (forwarded ? forwarded.split(',')[0] : h.get('x-real-ip') ?? '').trim();
+}
+
 /**
  * SHA-256 of the request's client IP with the server-side salt, so the throttle
  * table never stores a reversible IP (CLAUDE.md §security: no PII in logs/stores).
@@ -31,8 +37,18 @@ export function landingIpSalt(): string {
  * in local/dev and still degrades gracefully.
  */
 export async function landingClientIpHash(): Promise<string> {
-  const h = await headers();
-  const forwarded = h.get('x-forwarded-for');
-  const ip = (forwarded ? forwarded.split(',')[0] : h.get('x-real-ip') ?? '').trim();
+  const ip = await rawClientIp();
   return createHash('sha256').update(`${landingIpSalt()}:${ip || 'no-ip'}`).digest('hex');
+}
+
+/**
+ * Raw (unhashed) client IP, ONLY for the Turnstile siteverify `remoteip` field
+ * (86ey2czr6) — Cloudflare uses it purely as a cross-check on the token it
+ * already issued, never returned to the caller or persisted. Never log or
+ * store this value anywhere new (CLAUDE.md §security: no PII in logs/stores);
+ * every other consumer must keep using landingClientIpHash().
+ */
+export async function landingClientIpForVerify(): Promise<string | undefined> {
+  const ip = await rawClientIp();
+  return ip || undefined;
 }

@@ -6,7 +6,7 @@
 // test hermetic and to avoid pulling the heavy libphonenumber chunk into a
 // unit test.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 vi.mock('./phone-lazy', () => ({
@@ -15,7 +15,7 @@ vi.mock('./phone-lazy', () => ({
   isPhoneValid: vi.fn(async () => true),
 }));
 
-import { LandingForm, type LandingEvent, type SubmitResult } from './landing';
+import { LandingForm, computeTurnstileBlocking, type LandingEvent, type SubmitResult } from './landing';
 
 const EVENT: LandingEvent = { name: 'Frenzy', date: 'Sat 12 Jul', time: '23:00' };
 
@@ -93,5 +93,62 @@ describe('LandingForm validation UX', () => {
     await waitFor(() => expect(action).toHaveBeenCalledTimes(1), { timeout: 3000 });
     expect(action.mock.calls[0][0]).toMatchObject({ slug: 'frenzy', fullName: 'Jip Jansen', email: 'jip@voorbeeld.nl' });
     await screen.findByText(/request sent/i);
+  });
+});
+
+// Review round 2, finding 2: 'ready' (script loaded) is not the same as a
+// token existing — submit must stay blocked until a token is actually in
+// hand, and 'failed' always blocks regardless of a stale token.
+describe('computeTurnstileBlocking', () => {
+  it('keyless (off) never blocks', () => {
+    expect(computeTurnstileBlocking('off', false)).toBe(false);
+    expect(computeTurnstileBlocking('off', true)).toBe(false);
+  });
+
+  it('failed always blocks, even with a stale token', () => {
+    expect(computeTurnstileBlocking('failed', false)).toBe(true);
+    expect(computeTurnstileBlocking('failed', true)).toBe(true);
+  });
+
+  it('loading and ready block until a token exists', () => {
+    expect(computeTurnstileBlocking('loading', false)).toBe(true);
+    expect(computeTurnstileBlocking('ready', false)).toBe(true);
+    expect(computeTurnstileBlocking('ready', true)).toBe(false);
+  });
+});
+
+// Review round 2, finding 3: next/script's onError never fires for a script
+// request that hangs silently (dropped by a proxy/firewall, no HTTP error),
+// so without the watchdog 'loading' — and a disabled submit button with no
+// explanation — would persist forever.
+describe('Turnstile watchdog — stuck script load', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.useRealTimers();
+  });
+
+  it('flips loading to failed after the timeout, disables submit, and shows a notice', async () => {
+    vi.resetModules();
+    vi.stubEnv('NEXT_PUBLIC_TURNSTILE_SITE_KEY', 'pk_test');
+    vi.useFakeTimers();
+    const { LandingForm: LandingFormWithKey } = await import('./landing');
+    const action = vi.fn<unknown[], Promise<SubmitResult>>();
+    render(<LandingFormWithKey event={EVENT} slug="frenzy" action={action} />);
+
+    fillName('Jip Jansen');
+    // jsdom never actually loads the Turnstile script — this test IS the
+    // "hangs forever" scenario, no mocking of a hang required.
+    expect(submitBtn()).toBeDisabled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    // Plain getByText, not findByText: findByText's internal wait-poll uses
+    // its own setTimeout loop, which deadlocks under fake timers unless
+    // advanced again — the state is already settled synchronously by the
+    // act() above, so no further waiting is needed.
+    expect(screen.getByText(/verification couldn't load/i)).toBeInTheDocument();
+    expect(submitBtn()).toBeDisabled();
   });
 });

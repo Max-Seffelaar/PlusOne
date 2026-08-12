@@ -8,6 +8,108 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-12 — Landing rate-limit hardening: throttle cleanup + Turnstile (86ey2czr6)
+
+Branch `claude/clickup-task-fix-6dec47`. Rate-limit hardening sweep, milestone: before the
+first real public event goes live (not a pilot blocker). Task's point 3 (log/alert on
+rate-limit) belongs to Prod-ready 08 (Sentry, `86ey7q790`) per its 9/7 update note and was
+left out here; point 2 (Vercel Firewall on `/e/*`) is dashboard-only config with no code
+path — documented for Max, not built.
+
+**Point 1. `landing_request_throttle` cleanup.** `consume_public_throttle` (20260706102000)
+upserts one row per prefixed key (`req:`/`pv:`/`st:`/`if:`/`slug:` + ip_hash) and never deleted
+anything — the table grew forever. `20260812120000_landing_throttle_cleanup_cron.sql` adds
+`cleanup_landing_request_throttle()` (owner-only, no app-role EXECUTE) + an hourly pg_cron
+schedule deleting rows `updated_at < now() - interval '2 hours'`, guarded the same way as
+`run_privacy_retention`'s schedule so `supabase db reset` stays green without pg_cron
+preloaded. pgTAP: `landing_throttle_cleanup.test.sql` (5 assertions).
+
+**Point 4. Cloudflare Turnstile on `/e/[slug]`.** Widget (`TurnstileWidget` in
+`src/components/po/landing.tsx`) renders only when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is set;
+`verifyTurnstileToken` (`src/features/requests/turnstile.ts`) checks the token server-side in
+`submitGuestRequest` before the rate-limited RPC. Keyless dev/CI is a hard requirement here —
+same stance as the Stripe stub: without `TURNSTILE_SECRET_KEY` the server passes verification
+open, so this ships inert until Max sets up the Cloudflare account. Two fail-open/fail-closed
+choices worth flagging for review: (a) a missing/invalid token fails **closed** once a secret
+is configured, but (b) an unreachable siteverify call fails **open** (logged) — a Cloudflare
+outage shouldn't block every real submission when the DB rate limit/honeypot/dedup are still
+standing. CSP (`next.config.js`) now allows `challenges.cloudflare.com` in
+`script-src`/`connect-src`/`frame-src`. Setup steps for Max (Cloudflare account, site/secret
+key → Vercel env) are in `docs/landing-rate-limit-hardening.md`, which also covers the Vercel
+Firewall rule (point 2 above).
+
+**Verified:** `pnpm type-check` clean, `pnpm lint` clean (pre-existing unrelated warnings
+only), `vitest run` 1142/1142 passing (incl. new `turnstile.test.ts` covering the
+keyless/fail-open/fail-closed matrix), `supabase db reset` clean on the full migration set,
+`supabase test db` 1074/1074 passing. Manually verified in the browser preview: keyless widget
+correctly renders nothing, full submission round-trip still succeeds, no console errors.
+
+**Review gate:** this PR adds a new `SECURITY DEFINER` function
+(`cleanup_landing_request_throttle`) — a CLAUDE.md high-risk surface — so it needs a
+fresh-session `/code-review` before merge; the fail-open siteverify call also makes it worth a
+`/security-review` pass given it's a new anon-facing external HTTP call.
+
+**Addendum (same day, review-response round).** The fresh-session `/code-review xhigh` this
+review gate asked for ran and returned 15 findings; all fixed on the same branch/PR (migration
+`20260812120000` is still unmerged, so its comment block was edited in place — the one
+documented exception to "never edit an applied migration"):
+- `turnstile.ts`: 3s timeout (`AbortSignal.timeout`, a hang now fails open instead of blocking
+  the submission indefinitely); `error-codes` from siteverify are now classified —
+  infra-shaped codes (`invalid-input-secret`, `internal-error`) fail open, genuine verdicts
+  (`invalid-input-response`, `timeout-or-duplicate`, `missing-input-response`) fail closed;
+  `hostname` from siteverify is compared against the request's own `Host` header, closing a
+  token-farming bypass (a token solved on an attacker's page, embedding our public site key,
+  replayed against our action); `remoteip` is now sent (raw IP, never logged/persisted — new
+  `landingClientIpForVerify()` in `ip-hash.ts`); enforcement now requires BOTH env vars, not
+  just the secret — exactly one set fails open, loudly logged, instead of silently rejecting
+  every submission on a half-finished env setup.
+- `landing.tsx`: the doc comment claiming "the server's fail-open is the backstop" was wrong —
+  a missing token fails CLOSED once configured, fixed to say so. `TurnstileWidget` split into a
+  `<Script>` that mounts once (never remounted) and a separate `TurnstileContainer` for the
+  widget itself (remounted on a failed submit for a fresh token) — verified against
+  next@15.5.19 source: a remounted `<Script>` never reliably re-fires `onError` for a
+  permanently failed src, so the fail state now lives where it survives that remount. A
+  permanent script-load failure (ad-blocker, etc.) now shows a visible notice and disables
+  submit instead of stranding the guest on a silent dead end.
+- `actions.ts`: documented why verify-before-RPC is accepted (the RPC is consume-on-check, so
+  there's no cheap way to check the throttle without also consuming it — the Vercel Firewall
+  rule is the compensating edge control). New `actions.test.ts`: honeypot short-circuits before
+  `verifyTurnstileToken` ever runs, and a rejected token never reaches the RPC.
+- `next.config.js`: the CSP widening for `challenges.cloudflare.com` is now scoped to
+  `/e/:path*` only (a second `headers()` entry after the strict global catch-all — order is
+  load-bearing, last-wins per header key) instead of applying to every route. Verified live:
+  `/` keeps the strict CSP, `/e/<slug>` gets the widened one.
+- Migration comment corrected (window is 15 min, not 10; prefix list includes `slug:`; the
+  DELETE is an unindexed seq scan that stays cheap only because the sweep keeps the table
+  small) + a new `comment on function consume_public_throttle` recording the 2h ceiling.
+  pgTAP de-flaked: drains the table before inserting fixtures, so a lived-in local/e2e stack
+  with old committed rows can't break the exact-count assertion. `database.types.ts`
+  regenerated against a fresh reset.
+- Docs: fixed the same point-numbering ambiguity in `docs/landing-rate-limit-hardening.md`
+  (headings now use the task's original point numbers) and removed the "add localhost to the
+  Turnstile site" advice, which would have reopened the token-farming bypass the hostname check
+  just closed.
+
+Re-verified after fixes: `pnpm type-check`/`pnpm lint` clean, `vitest run` green (incl. 19
+turnstile.test.ts cases + 3 new actions.test.ts cases), `supabase db reset` clean,
+`supabase test db` 1074/1074. A second fresh-session review of the new code (hostname check,
+error-codes handling, CSP split) is wanted before merge — see the PR for the security-research
+prompt.
+
+**Round-2 addendum.** Re-review confirmed all 15 findings above hold up in the actual code, and
+surfaced 3 new low-severity residuals from the fix round itself, all fixed (commit `fa34a76`):
+a port bug in the hostname check (`headers().get('host')` carries a port locally, Cloudflare's
+`hostname` never does — broke the doc's own local real-key testing instructions, prod
+unaffected); submit was gated on the script being `'ready'` instead of a token actually
+existing (a tap in that gap hit the fail-closed rejection and the remount could cut off an
+in-progress interactive challenge — fixed via a pure, unit-tested `computeTurnstileBlocking()`);
+and a missing watchdog for a script request that hangs without ever firing `onError` (10s
+timeout now flips it to the existing `'failed'` notice). Re-verified: `vitest run` 1163/1163.
+Merged after Max confirmed the two `/code-review xhigh` rounds were sufficient coverage —
+`/security-review` was intentionally skipped by his explicit call, not run.
+
+---
+
 ## 2026-08-12 — Dependabot cleanup: 5 GitHub Actions majors merged, 2 npm groups closed on confirmed breaks
 
 Repo hygiene, no ClickUp task (the npm-majors ignore-rule groundwork was already done in 86eyd39gn/#247).
