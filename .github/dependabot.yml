@@ -28,6 +28,20 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@types/react-dom"
         update-types: ["version-update:semver-major"]
+      # Confirmed breakers (PR #264, 2026-08-12): zod v4 dropped
+      # invalid_type_error (src/features/auth/schemas.ts); stripe v22 changed
+      # the pinned apiVersion literal type (stripe-adapter.ts,
+      # stripe-webhook.ts). Both need a dedicated migration task, not a
+      # grouped bump.
+      - dependency-name: "zod"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "stripe"
+        update-types: ["version-update:semver-major"]
+      # Confirmed breaker (PR #241, 2026-08-12): TypeScript 7 is explicitly
+      # rejected by Next 15.5's own typescript-setup guard, which fails
+      # `next lint` outright regardless of what else is in the group.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
