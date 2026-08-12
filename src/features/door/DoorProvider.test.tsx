@@ -556,11 +556,16 @@ describe('DoorProvider — render scope of the DoorToastContext split (86ey9e9vc
 // this task exists to fix.
 // ─────────────────────────────────────────────────────────────────────────────
 describe('DoorProvider — owner stamp without a network (86ey9et0h)', () => {
+  /** `H.client` is deliberately `unknown` (the mock factories read it lazily), so
+   *  reach its auth surface through one narrow cast rather than widening the
+   *  hoisted type for every other test in this file. */
+  const auth = (): Record<string, unknown> => (H.client as { auth: Record<string, unknown> }).auth;
+
   it('stamps the queued check-in with the local session when getUser() fails offline', async () => {
-    H.client.auth.getUser = async () => {
+    auth().getUser = async () => {
       throw new TypeError('Failed to fetch'); // offline: no auth round-trip
     };
-    H.client.auth.getSession = async () => ({ data: { session: { access_token: 'token', user: { id: UID } } } });
+    auth().getSession = async () => ({ data: { session: { access_token: 'token', user: { id: UID } } } });
 
     const h = renderDoor();
     await settle();
@@ -575,8 +580,8 @@ describe('DoorProvider — owner stamp without a network (86ey9et0h)', () => {
   it('still prefers the verified user id when the network is there', async () => {
     // getSession is local and can hold a stale/rotated id; getUser is the
     // authoritative answer whenever it can actually be obtained.
-    H.client.auth.getSession = async () => ({ data: { session: { access_token: 't', user: { id: 'stale-id' } } } });
-    H.client.auth.getUser = async () => ({ data: { user: { id: UID } } });
+    auth().getSession = async () => ({ data: { session: { access_token: 't', user: { id: 'stale-id' } } } });
+    auth().getUser = async () => ({ data: { user: { id: UID } } });
 
     const h = renderDoor();
     await settle();
