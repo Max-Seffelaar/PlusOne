@@ -544,3 +544,48 @@ describe('DoorProvider — render scope of the DoorToastContext split (86ey9e9vc
     expect(syncOnlyExtra).toBe(0);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Owner stamp resolves OFFLINE (86ey9et0h, found in Max's 12-8 test round).
+//
+// `ownerId` is the actor the row carries forever, and it is stamped at enqueue.
+// `getUser()` validates against the auth server, so on a door surface — where
+// offline is the normal case — it fails exactly when the stamp matters most.
+// The failure was silent: entries still queued and still synced, they just
+// carried no owner and fell back to drain-time attribution, i.e. the very bug
+// this task exists to fix.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('DoorProvider — owner stamp without a network (86ey9et0h)', () => {
+  it('stamps the queued check-in with the local session when getUser() fails offline', async () => {
+    H.client.auth.getUser = async () => {
+      throw new TypeError('Failed to fetch'); // offline: no auth round-trip
+    };
+    H.client.auth.getSession = async () => ({ data: { session: { access_token: 'token', user: { id: UID } } } });
+
+    const h = renderDoor();
+    await settle();
+    await act(async () => {
+      h.api().checkIn(GUEST_A, 1);
+    });
+
+    const entry = outbox.getSnapshot().find((e) => e.kind === 'check_in');
+    expect(entry?.ownerId).toBe(UID);
+  });
+
+  it('still prefers the verified user id when the network is there', async () => {
+    // getSession is local and can hold a stale/rotated id; getUser is the
+    // authoritative answer whenever it can actually be obtained.
+    H.client.auth.getSession = async () => ({ data: { session: { access_token: 't', user: { id: 'stale-id' } } } });
+    H.client.auth.getUser = async () => ({ data: { user: { id: UID } } });
+
+    const h = renderDoor();
+    await settle();
+    await act(async () => {
+      h.api().checkIn(GUEST_A, 1);
+    });
+
+    await waitFor(() => {
+      expect(outbox.getSnapshot().find((e) => e.kind === 'check_in')?.ownerId).toBe(UID);
+    });
+  });
+});

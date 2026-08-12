@@ -72,13 +72,42 @@ it sits in front of an unverified session and has no business discarding a doorh
 optional, because discarding the queue to enforce a schema is the exact data loss this PR exists
 to prevent.
 
-**Tests.** Vitest **1155 green** (55 new across `replay.test.ts`, `persistence.test.ts`,
+**Tests.** Vitest **1157 green** (57 new across `replay.test.ts`, `persistence.test.ts`,
 `sign-out.test.ts` — owner-mismatch drain, identity preservation, mixed-owner queue, legacy
 entries without `ownerId`, logout flush online/offline/discard). New pgTAP
 `outbox_owner_stamp.test.sql` **16/16 green** (allowed + denied per role, `synced_by` pinned,
 audit actor independent, UPDATE hole closed). `rls.test.sql` G3 rewritten: its subject moved from
 "cannot record as someone else" to "cannot record as a **non-door role**", since admin now
 legitimately passes. `pnpm lint` clean, `tsc --noEmit` clean.
+
+**Test-round fixes (Max, 12-8) — one silent bug, one gap that is not ours.**
+
+*The owner stamp did not survive going offline.* `meId` came from `supabase.auth.getUser()`, which
+**validates against the auth server** and therefore fails offline — on a door surface that is the
+normal case, not the edge one. Any reload during an offline shift left `meId` null, so every
+subsequent check-in was queued with no `ownerId` and silently degraded to the old drain-time
+attribution: the exact bug this task exists to fix, invisible because the queue still synced.
+Resolved from `getSession()` (local storage, no network) first, with `getUser()` refining it when
+a connection exists. Two regression tests in `DoorProvider.test.tsx`.
+
+*Reloading offline is alarming and unguarded.* The queue survives (it is in IndexedDB), but the
+doorhost lands on the browser's connection-error page with no way to tell whether their check-ins
+are safe. Added a `beforeunload` guard, bound to un-sent work only so it cannot become a prompt
+people click through by reflex. The browser owns the wording.
+
+*What could NOT be verified locally, and why.* `public/service-worker.js` has a deliberate dev
+kill-switch (`DEV = hostname is localhost`): on localhost it caches nothing and unregisters itself.
+So "offline" in `pnpm dev` means *no service worker at all*, and any navigation falls through to the
+browser's error page. Worse for this feature: a tab switch to Meer/Settings goes through
+`router.push`, which forces an RSC round-trip — `app.tsx:308` already documents this, which is why
+the door's own sub-navigation deliberately bypasses the router with raw History to keep invariant
+#25. So **the offline branch of the sign-out prompt is unreachable in practice**: a doorhost who is
+offline cannot open Settings, therefore cannot sign out, therefore cannot destroy their queue. That
+unreachability is protective rather than harmful — the destructive path is gated behind the network
+that would have flushed the queue anyway — but it does mean the prompt only fires in the
+online-but-writes-won't-land case (captive-portal wifi), which is covered by unit test 6. Making
+Settings reachable offline means extending the raw-History bypass to tab switches; deliberately NOT
+done here (it is app-wide navigation surgery, not outbox work) and left for Max to scope.
 
 **Local-stack note.** The full `supabase test db` run showed one unrelated failure,
 `rls.test.sql` N1 ("3 seed + 1 anon", have 5): the local DB carries a stray `guest_requests` row

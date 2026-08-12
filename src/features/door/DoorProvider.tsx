@@ -30,7 +30,7 @@ import { drainOutbox, guestKeyOf } from './outbox/replay';
 import { hasOpenCheckIn } from './outbox/dedup';
 import { supabaseGateway } from './outbox/gateway';
 import { outbox } from './outbox/store';
-import { foreignEntries, isPending, type OutboxEntry } from './outbox/types';
+import { foreignEntries, hasUnsynced, isPending, type OutboxEntry } from './outbox/types';
 import { useDoorSync, type DoorSyncState } from './sync/useDoorSync';
 import {
   doorSnapshotKey,
@@ -218,10 +218,37 @@ export function DoorProvider({
     outbox.getStatusServerSnapshot,
   );
 
+  // Who is at this door. Since 86ey9et0h this is load-bearing rather than
+  // cosmetic: it becomes the outbox entry's `ownerId`, i.e. the actor the row
+  // will carry forever.
+  //
+  // `getUser()` VALIDATES against the auth server, so it fails offline and used
+  // to leave `meId` null — on a door surface, offline is the normal case, not
+  // the edge one. Any reload during an offline shift would then stamp every
+  // subsequent check-in with no owner, silently degrading them to the old
+  // drain-time attribution: exactly the bug this task exists to fix, and
+  // invisible because the queue still syncs. `getSession()` reads local storage
+  // with no network at all, so it answers while offline; we take it first and
+  // let `getUser()` refine/confirm it when a connection exists (it also catches
+  // a server-side revoke, which is why it is still called).
   useEffect(() => {
-    getDoorClient()
-      .auth.getUser()
-      .then(({ data }) => setMeId(data.user?.id ?? null));
+    const client = getDoorClient();
+    let cancelled = false;
+    void (async () => {
+      const { data: sessionData } = await client.auth.getSession();
+      if (!cancelled && sessionData.session?.user?.id) setMeId(sessionData.session.user.id);
+      try {
+        const { data } = await client.auth.getUser();
+        if (!cancelled && data.user?.id) setMeId(data.user.id);
+      } catch {
+        // Offline: the local session above is the best answer available, and
+        // it is the right one — a queued write belongs to whoever is signed in
+        // on this device, which is precisely what storage records.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const snapshotQuery = useQuery({
@@ -309,6 +336,27 @@ export function DoorProvider({
   useEffect(() => {
     if (outboxPersistDegraded) showToast('Local storage unavailable — check-ins may not survive a reload');
   }, [outboxPersistDegraded, showToast]);
+
+  // Ask before leaving with un-sent door writes (86ey9et0h, test feedback Max
+  // 12-8). The queue itself survives a reload — it is in IndexedDB — but a
+  // doorhost who reloads while offline lands on the browser's connection-error
+  // page with no obvious way back, and cannot tell from there whether their
+  // check-ins are safe. The browser owns the wording (a custom string has been
+  // ignored since ~2016), so this buys the pause, not the message.
+  //
+  // Bound to un-sent work only: an unconditional handler would nag on every
+  // ordinary navigation and train people to click through it, which is worse
+  // than not having it at all.
+  const hasUnsent = useMemo(() => hasUnsynced([...outboxEntries]), [outboxEntries]);
+  useEffect(() => {
+    if (!hasUnsent || typeof window === 'undefined') return;
+    const onBeforeUnload = (e: BeforeUnloadEvent): void => {
+      e.preventDefault();
+      e.returnValue = ''; // required by Chrome to actually show the prompt
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [hasUnsent]);
 
   const patchSnapshot = useCallback(
     (updater: (s: DoorSnapshot) => DoorSnapshot) => {
