@@ -143,6 +143,30 @@ the PostgREST layer (unknown column → every door insert rejected) rather than 
 fix is `supabase migration repair --status reverted <version> --local` followed by `migration up`.
 Both occurrences coincided with another session resetting the shared local stack — the concrete cost
 of the one-DB-owner rule being broken mid-test.
+## 2026-08-12 — Dependabot cleanup: 5 GitHub Actions majors merged, 2 npm groups closed on confirmed breaks
+
+Repo hygiene, no ClickUp task (the npm-majors ignore-rule groundwork was already done in 86eyd39gn/#247).
+7 open Dependabot PRs triaged.
+
+**Merged (5, all CI-green, one-line version-pin bumps, no config changes needed):** #257
+`actions/setup-node` 4→7, #152 `supabase/setup-cli` 1→3, #151 `actions/checkout` 4→7, #150
+`pnpm/action-setup` 2→6, #149 `actions/upload-artifact` 4→7.
+
+**Closed (2, grouped npm bumps with confirmed-breaking majors riding along with safe patches):**
+- #264 `production-dependencies` (7 updates) — `zod` 3→4 drops `invalid_type_error`
+  (`src/features/auth/schemas.ts`); `stripe` 18→22 changes the pinned `apiVersion` literal type
+  (`stripe-adapter.ts`/`stripe-webhook.ts`). Both TS2353/TS2322 in CI.
+- #241 `development-dependencies` (17 updates) — `typescript` 5→7 is explicitly rejected by Next
+  15.5's own typescript-setup guard, failing `next lint` outright regardless of anything else in
+  the group. Left the group's other untested majors (eslint 8→10, eslint-config-next 15→16,
+  tailwindcss 3→4, vitest 1→4, jsdom 24→30, `@testing-library/jest-dom` 6→7) un-ignored — no CI
+  proof either way, so Dependabot resurfaces them individually next run instead of guessing.
+
+**dependabot.yml change (PR #265):** added `ignore` rules for `zod`, `stripe`, `typescript` majors,
+mirroring the existing next/react pattern — future weekly grouped bumps only carry safe minor/patch
+updates for these.
+
+Zero code changes; scope was CI/Dependabot config only.
 
 ---
 
