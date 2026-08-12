@@ -96,6 +96,45 @@ turnstile.test.ts cases + 3 new actions.test.ts cases), `supabase db reset` clea
 error-codes handling, CSP split) is wanted before merge — see the PR for the security-research
 prompt.
 
+**Round-2 addendum.** Re-review confirmed all 15 findings above hold up in the actual code, and
+surfaced 3 new low-severity residuals from the fix round itself, all fixed (commit `fa34a76`):
+a port bug in the hostname check (`headers().get('host')` carries a port locally, Cloudflare's
+`hostname` never does — broke the doc's own local real-key testing instructions, prod
+unaffected); submit was gated on the script being `'ready'` instead of a token actually
+existing (a tap in that gap hit the fail-closed rejection and the remount could cut off an
+in-progress interactive challenge — fixed via a pure, unit-tested `computeTurnstileBlocking()`);
+and a missing watchdog for a script request that hangs without ever firing `onError` (10s
+timeout now flips it to the existing `'failed'` notice). Re-verified: `vitest run` 1163/1163.
+Merged after Max confirmed the two `/code-review xhigh` rounds were sufficient coverage —
+`/security-review` was intentionally skipped by his explicit call, not run.
+
+---
+
+## 2026-08-12 — Dependabot cleanup: 5 GitHub Actions majors merged, 2 npm groups closed on confirmed breaks
+
+Repo hygiene, no ClickUp task (the npm-majors ignore-rule groundwork was already done in 86eyd39gn/#247).
+7 open Dependabot PRs triaged.
+
+**Merged (5, all CI-green, one-line version-pin bumps, no config changes needed):** #257
+`actions/setup-node` 4→7, #152 `supabase/setup-cli` 1→3, #151 `actions/checkout` 4→7, #150
+`pnpm/action-setup` 2→6, #149 `actions/upload-artifact` 4→7.
+
+**Closed (2, grouped npm bumps with confirmed-breaking majors riding along with safe patches):**
+- #264 `production-dependencies` (7 updates) — `zod` 3→4 drops `invalid_type_error`
+  (`src/features/auth/schemas.ts`); `stripe` 18→22 changes the pinned `apiVersion` literal type
+  (`stripe-adapter.ts`/`stripe-webhook.ts`). Both TS2353/TS2322 in CI.
+- #241 `development-dependencies` (17 updates) — `typescript` 5→7 is explicitly rejected by Next
+  15.5's own typescript-setup guard, failing `next lint` outright regardless of anything else in
+  the group. Left the group's other untested majors (eslint 8→10, eslint-config-next 15→16,
+  tailwindcss 3→4, vitest 1→4, jsdom 24→30, `@testing-library/jest-dom` 6→7) un-ignored — no CI
+  proof either way, so Dependabot resurfaces them individually next run instead of guessing.
+
+**dependabot.yml change (PR #265):** added `ignore` rules for `zod`, `stripe`, `typescript` majors,
+mirroring the existing next/react pattern — future weekly grouped bumps only carry safe minor/patch
+updates for these.
+
+Zero code changes; scope was CI/Dependabot config only.
+
 ---
 
 ## 2026-08-11 — Quota-engine forge closed; quarter chart + per-member present follow #44 (86ey9c5fp)
