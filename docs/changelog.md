@@ -109,6 +109,26 @@ online-but-writes-won't-land case (captive-portal wifi), which is covered by uni
 Settings reachable offline means extending the raw-History bypass to tab switches; deliberately NOT
 done here (it is app-wide navigation surgery, not outbox work) and left for Max to scope.
 
+**Verified end-to-end in a real browser (12-8).** Driven through the in-app browser against the
+local stack, both directions of a hand-off, with the transport to Supabase cut at `window.fetch` so
+the outbox sees the same code-less failure a real offline shift produces:
+
+| guest | checked_by | synced_by |
+|---|---|---|
+| Daniël Verhoeven, Eva Postma, Finn van Egmond, Julia Smeets, Lars Willems, Juri Braakman | `door@` | `admin@` |
+| Isa van der Laan, Jesse Dijkstra | `admin@` | `door@` |
+
+8 hand-off rows; `count(*) filter (where synced_by = checked_by)` = **0**, i.e. the column is set
+only on a genuine cross-user replay, never as a redundant copy of the session. `audit_log.actor_id`
+is the SYNCING user on all three of the first batch while the row keeps the performer — the
+guardrail holds in live data, not just in pgTAP. IndexedDB inspection mid-shift confirmed every
+queued entry carried `ownerId` = the doorhost who tapped it. The toast fires with correct
+pluralisation: *"1 check-in from the previous user was synced"*.
+
+Testing note worth keeping: `runFlush` drains regardless of `navigator.onLine` (only `maybeFlush`
+gates on it), so overriding that property does NOT simulate offline — the drain still succeeds.
+Cutting `fetch` to the Supabase origin is the faithful simulation.
+
 **Full suite on a fresh database.** `supabase test db`: **55 files, 1085 assertions, PASS** —
 including the new `outbox_owner_stamp.test.sql`. An earlier run had one failure in `rls.test.sql`
 N1 ("3 seed + 1 anon", have 5), diagnosed as a stray `guest_requests` row ("Test Verify", created
