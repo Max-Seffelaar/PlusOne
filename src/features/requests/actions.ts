@@ -2,8 +2,9 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
+import { headers } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
-import { landingClientIpHash } from './ip-hash';
+import { landingClientIpHash, landingClientIpForVerify } from './ip-hash';
 import { verifyTurnstileToken } from './turnstile';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
 import {
@@ -58,7 +59,17 @@ export async function submitGuestRequest(input: SubmitGuestRequestInput): Promis
   // status token either — a bot has no use for one).
   if (company && company.trim().length > 0) return { ok: true };
 
-  if (!(await verifyTurnstileToken(turnstileToken))) {
+  // Turnstile verifies BEFORE the rate-limited RPC, which inverts the
+  // 20260625100000 invariant "rate limit FIRST — every attempt burns quota"
+  // (consume_public_throttle is consume-on-check *inside* the RPC, so there
+  // is no cheap way to check the throttle without also consuming it first).
+  // Accepted exposure: a junk-token flood costs one outbound siteverify fetch
+  // per attempt, bounded by VERIFY_TIMEOUT_MS — the Vercel Firewall rule on
+  // /e/* (docs/landing-rate-limit-hardening.md §2) is the compensating edge
+  // control for volume the DB throttle would otherwise absorb first.
+  const requestHost = (await headers()).get('host') ?? undefined;
+  const remoteIp = await landingClientIpForVerify();
+  if (!(await verifyTurnstileToken(turnstileToken, { remoteIp, requestHost }))) {
     return {
       ok: false,
       code: 'verification_failed',

@@ -23,73 +23,72 @@ const LANDING_BG = 'radial-gradient(120% 70% at 50% -8%, #211d3a 0%, #100f18 42%
 
 // Cloudflare Turnstile (86ey2czr6). Keyless dev/CI: without the public site
 // key the widget never renders — matches the server's verifyTurnstileToken,
-// which passes open without TURNSTILE_SECRET_KEY.
+// which passes open only when BOTH env vars are unset.
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
-declare global {
-  interface Window {
-    turnstile?: {
-      render: (
-        container: HTMLElement,
-        options: {
-          sitekey: string;
-          callback: (token: string) => void;
-          'expired-callback'?: () => void;
-          'error-callback'?: () => void;
-        },
-      ) => string;
-      remove: (widgetId: string) => void;
-    };
-    onTurnstileLoad?: () => void;
-  }
+// Narrow local typing instead of a `declare global` Window augmentation —
+// this is the only file that touches window.turnstile.
+type TurnstileApi = {
+  render: (
+    container: HTMLElement,
+    options: {
+      sitekey: string;
+      callback: (token: string) => void;
+      'expired-callback'?: () => void;
+      'error-callback'?: () => void;
+    },
+  ) => string;
+  remove: (widgetId: string) => void;
+};
+function turnstileApi(): TurnstileApi | undefined {
+  return (window as unknown as { turnstile?: TurnstileApi }).turnstile;
 }
 
-/** Renders nothing when keyless (see TURNSTILE_SITE_KEY above) — a webview or
- *  ad/script blocker that drops the challenges.cloudflare.com script simply
- *  leaves the token unset; the server's fail-open siteverify handling is the
- *  backstop, not a client-side gate that could strand a real guest. */
-function TurnstileWidget({ onToken }: { onToken: (token: string | undefined) => void }): JSX.Element | null {
+type TurnstileStatus = 'off' | 'loading' | 'ready' | 'failed';
+
+/** Widget container ONLY — the `<Script>` that loads the Turnstile SDK lives
+ *  once at the LandingForm level (never remounted by `turnstileKey`, see
+ *  below). Verified against next@15.5.19: next/script's module-level
+ *  ScriptCache never retries a failed src, and a REMOUNTED Script is falsely
+ *  treated as already loaded — `onError` only ever fires reliably on the
+ *  first mount. Keeping the failure/ready state in the parent (not reset by
+ *  the container's own remounts) is what makes the 'failed' notice below
+ *  survive a fresh-token remount after a failed submit. This subcomponent is
+ *  safe to remount on its own: it only calls window.turnstile.render()/
+ *  .remove(), it never touches the script tag. */
+function TurnstileContainer({
+  ready,
+  onToken,
+}: {
+  ready: boolean;
+  onToken: (token: string | undefined) => void;
+}): JSX.Element | null {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!TURNSTILE_SITE_KEY || typeof window === 'undefined') return;
+    if (!ready || !TURNSTILE_SITE_KEY) return;
     const container = containerRef.current;
-    if (!container) return;
+    const turnstile = turnstileApi();
+    if (!container || !turnstile) return;
 
-    function renderWidget(): void {
-      if (!window.turnstile || widgetIdRef.current || !container) return;
-      widgetIdRef.current = window.turnstile.render(container, {
-        sitekey: TURNSTILE_SITE_KEY as string,
-        callback: (token) => onToken(token),
-        'expired-callback': () => onToken(undefined),
-        'error-callback': () => onToken(undefined),
-      });
-    }
-
-    if (window.turnstile) renderWidget();
-    else window.onTurnstileLoad = renderWidget;
+    widgetIdRef.current = turnstile.render(container, {
+      sitekey: TURNSTILE_SITE_KEY,
+      callback: (token) => onToken(token),
+      'expired-callback': () => onToken(undefined),
+      'error-callback': () => onToken(undefined),
+    });
 
     return () => {
-      if (widgetIdRef.current && window.turnstile) {
-        window.turnstile.remove(widgetIdRef.current);
+      if (widgetIdRef.current) {
+        turnstileApi()?.remove(widgetIdRef.current);
         widgetIdRef.current = null;
       }
     };
-  }, [onToken]);
+  }, [ready, onToken]);
 
   if (!TURNSTILE_SITE_KEY) return null;
-
-  return (
-    <>
-      <Script
-        id="cf-turnstile-script"
-        src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoad&render=explicit"
-        strategy="afterInteractive"
-      />
-      <div ref={containerRef} className="mb-[14px] flex justify-center" />
-    </>
-  );
+  return <div ref={containerRef} className="mb-[14px] flex justify-center" />;
 }
 
 export interface LandingEvent {
@@ -352,9 +351,17 @@ export function LandingForm({
   // Honeypot — must stay empty; bots that fill it get a fake success.
   const [company, setCompany] = useState('');
   const [turnstileToken, setTurnstileToken] = useState<string | undefined>(undefined);
-  // Bumped to force-remount the widget (fresh token) after a failed submit —
-  // Turnstile tokens are single-use.
+  // Bumped to force-remount the widget container (fresh token) after a failed
+  // submit — Turnstile tokens are single-use. Does NOT remount the <Script>
+  // below (see TurnstileContainer's doc comment for why that matters).
   const [turnstileKey, setTurnstileKey] = useState(0);
+  // 'off' when keyless. A missing token fails CLOSED server-side once a
+  // secret is configured (verifyTurnstileToken), so 'loading'/'failed' block
+  // submit below rather than letting a guest hit a confusing generic error.
+  const [turnstileStatus, setTurnstileStatus] = useState<TurnstileStatus>(
+    TURNSTILE_SITE_KEY ? 'loading' : 'off',
+  );
+  const turnstileBlocking = turnstileStatus === 'loading' || turnstileStatus === 'failed';
   const [nameErr, setNameErr] = useState<string | null>(null);
   const [emailErr, setEmailErr] = useState<string | null>(null);
   const [phoneErr, setPhoneErr] = useState<string | null>(null);
@@ -647,13 +654,31 @@ export function LandingForm({
           </label>
         </div>
 
-        <TurnstileWidget key={turnstileKey} onToken={setTurnstileToken} />
+        {/* The Script tag itself must NEVER remount on turnstileKey — see
+            TurnstileContainer's doc comment. It only needs to exist once for
+            the lifetime of this form. */}
+        {TURNSTILE_SITE_KEY && (
+          <Script
+            id="cf-turnstile-script"
+            src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"
+            strategy="afterInteractive"
+            onReady={() => setTurnstileStatus('ready')}
+            onError={() => setTurnstileStatus('failed')}
+          />
+        )}
+        <TurnstileContainer key={turnstileKey} ready={turnstileStatus === 'ready'} onToken={setTurnstileToken} />
+        {turnstileStatus === 'failed' && (
+          <div className={cn('mb-[14px] flex items-start gap-2 rounded-[12px] border border-red-300/40 bg-red-300/10 px-3 py-[11px]', fieldErrorText)} role="alert">
+            <Icon name="warn" size={14} className="mt-0.5" />
+            <span className="text-[12.5px] leading-[1.4]">{t.landing.turnstileFailed}</span>
+          </div>
+        )}
 
         <button
           type="button"
           onClick={submit}
-          disabled={pending}
-          className={cn('mt-1.5 inline-flex w-full items-center justify-center gap-[9px] rounded-[14px] border-none bg-acc px-4 py-4 font-display text-[16px] font-bold tracking-[-0.01em] text-on-acc', press, !pending ? 'cursor-pointer' : 'cursor-not-allowed opacity-[0.45]')}
+          disabled={pending || turnstileBlocking}
+          className={cn('mt-1.5 inline-flex w-full items-center justify-center gap-[9px] rounded-[14px] border-none bg-acc px-4 py-4 font-display text-[16px] font-bold tracking-[-0.01em] text-on-acc', press, !pending && !turnstileBlocking ? 'cursor-pointer' : 'cursor-not-allowed opacity-[0.45]')}
         >
           <Icon name="check2" size={19} sw={2.2} />
           {pending ? t.landing.submitting : t.landing.submit}

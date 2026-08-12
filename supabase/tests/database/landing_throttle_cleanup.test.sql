@@ -9,6 +9,13 @@ create extension if not exists pgtap with schema extensions;
 
 select plan(5);
 
+-- Drain first: cleanup_landing_request_throttle() sweeps the WHOLE table, not
+-- just our fixtures, and a lived-in local/e2e stack can carry committed rows
+-- >2h old from earlier runs (e.g. tests/e2e/landing-request.spec.ts). Without
+-- this, A2's exact-count assertion below would flake on anything but a
+-- freshly reset database.
+select public.cleanup_landing_request_throttle();
+
 -- ---------------------------------------------------------------------------
 -- Fixtures: one stale row (untouched 3h), one fresh row (touched 10min ago),
 -- one right at the edge (touched 2h ago minus a second — still fresh).
