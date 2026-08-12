@@ -17,6 +17,22 @@ type SiteverifyResponse = {
 };
 
 /**
+ * Cloudflare's `hostname` in the siteverify response never carries a port,
+ * but `headers().get('host')` does (always in local dev, e.g. `localhost:7000`
+ * — the exact setup this app's own docs recommend for real-key local
+ * testing). Strip it before comparing, or the hostname check below rejects
+ * every local submission even with matching domains. `new URL()` also
+ * handles bracketed IPv6 hosts correctly, unlike a naive `split(':')`.
+ */
+function hostnameOnly(host: string): string {
+  try {
+    return new URL(`http://${host}`).hostname;
+  } catch {
+    return host;
+  }
+}
+
+/**
  * Server-side verification of a Cloudflare Turnstile response token
  * (86ey2czr6 — bot defense on the public landing form, on top of the existing
  * DB rate limit/honeypot/dedup, which stay the hard boundary either way).
@@ -74,7 +90,7 @@ export async function verifyTurnstileToken(
       // — comparing it to the request's own Host kills token-farming (a valid
       // token solved on an attacker-controlled page embedding our public site
       // key, then replayed against our submit action).
-      if (opts.requestHost && data.hostname && data.hostname !== opts.requestHost) {
+      if (opts.requestHost && data.hostname && data.hostname !== hostnameOnly(opts.requestHost)) {
         console.error(
           '[verifyTurnstileToken] hostname mismatch:', data.hostname, 'vs', opts.requestHost,
         );

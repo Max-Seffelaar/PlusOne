@@ -89,6 +89,18 @@ describe('verifyTurnstileToken — siteverify success + hostname check', () => {
     ).resolves.toBe(false);
   });
 
+  it('strips the port from requestHost before comparing — siteverify hostname never carries one (review round 2, finding 1)', async () => {
+    stubBothKeys();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ success: true, hostname: 'localhost' }), { status: 200 })),
+    );
+    const { verifyTurnstileToken } = await loadVerify();
+    await expect(
+      verifyTurnstileToken('tok', { requestHost: 'localhost:7000' }),
+    ).resolves.toBe(true);
+  });
+
   it('sends remoteip in the form body when supplied', async () => {
     stubBothKeys();
     const fetchMock = vi.fn<[string, RequestInit], Promise<Response>>(

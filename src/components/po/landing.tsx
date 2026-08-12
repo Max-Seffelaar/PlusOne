@@ -44,7 +44,26 @@ function turnstileApi(): TurnstileApi | undefined {
   return (window as unknown as { turnstile?: TurnstileApi }).turnstile;
 }
 
-type TurnstileStatus = 'off' | 'loading' | 'ready' | 'failed';
+export type TurnstileStatus = 'off' | 'loading' | 'ready' | 'failed';
+
+// Time to wait for the Turnstile script before treating it as permanently
+// failed (review round 2, finding 3) — next/script's `onError` never fires
+// for a hung request (dropped silently by a proxy/firewall, no HTTP error),
+// so without this a guest could be stuck on a disabled button forever with
+// no notice at all.
+const TURNSTILE_LOAD_TIMEOUT_MS = 10_000;
+
+/** Gates the submit button (review round 2, finding 2): 'ready' alone isn't
+ *  enough — the script loading is not the same as a token existing. A tap
+ *  between "script ready" and "challenge callback fired" (or after a token
+ *  expires via 'expired-callback') must still block, or the submission hits
+ *  the server's fail-closed rejection and the resulting remount can cut off
+ *  an interactive challenge the guest was mid-way through solving. */
+export function computeTurnstileBlocking(status: TurnstileStatus, hasToken: boolean): boolean {
+  if (status === 'off') return false;
+  if (status === 'failed') return true;
+  return !hasToken;
+}
 
 /** Widget container ONLY — the `<Script>` that loads the Turnstile SDK lives
  *  once at the LandingForm level (never remounted by `turnstileKey`, see
@@ -356,12 +375,23 @@ export function LandingForm({
   // below (see TurnstileContainer's doc comment for why that matters).
   const [turnstileKey, setTurnstileKey] = useState(0);
   // 'off' when keyless. A missing token fails CLOSED server-side once a
-  // secret is configured (verifyTurnstileToken), so 'loading'/'failed' block
-  // submit below rather than letting a guest hit a confusing generic error.
+  // secret is configured (verifyTurnstileToken), so submit stays blocked
+  // until a token actually exists (see computeTurnstileBlocking above).
   const [turnstileStatus, setTurnstileStatus] = useState<TurnstileStatus>(
     TURNSTILE_SITE_KEY ? 'loading' : 'off',
   );
-  const turnstileBlocking = turnstileStatus === 'loading' || turnstileStatus === 'failed';
+  const turnstileBlocking = computeTurnstileBlocking(turnstileStatus, Boolean(turnstileToken));
+
+  // Watchdog: a script request that hangs without ever firing load or error
+  // (silently dropped by a proxy/firewall) would otherwise leave 'loading'
+  // — and the button disabled with no explanation — forever.
+  useEffect(() => {
+    if (turnstileStatus !== 'loading') return;
+    const timer = setTimeout(() => {
+      setTurnstileStatus((s) => (s === 'loading' ? 'failed' : s));
+    }, TURNSTILE_LOAD_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [turnstileStatus]);
   const [nameErr, setNameErr] = useState<string | null>(null);
   const [emailErr, setEmailErr] = useState<string | null>(null);
   const [phoneErr, setPhoneErr] = useState<string | null>(null);
