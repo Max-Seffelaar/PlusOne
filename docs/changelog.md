@@ -109,11 +109,20 @@ online-but-writes-won't-land case (captive-portal wifi), which is covered by uni
 Settings reachable offline means extending the raw-History bypass to tab switches; deliberately NOT
 done here (it is app-wide navigation surgery, not outbox work) and left for Max to scope.
 
-**Local-stack note.** The full `supabase test db` run showed one unrelated failure,
-`rls.test.sql` N1 ("3 seed + 1 anon", have 5): the local DB carries a stray `guest_requests` row
-("Test Verify", created two minutes after the seed timestamp) from a manual dev session. Proven
-environmental, not caused by this branch — a `supabase db reset` clears it, which is pending the
-one-DB-owner check.
+**Full suite on a fresh database.** `supabase test db`: **55 files, 1085 assertions, PASS** —
+including the new `outbox_owner_stamp.test.sql`. An earlier run had one failure in `rls.test.sql`
+N1 ("3 seed + 1 anon", have 5), diagnosed as a stray `guest_requests` row ("Test Verify", created
+two minutes after the seed timestamp) left by a manual dev session; a reset cleared it and the
+assertion passes, confirming the diagnosis and satisfying DoD #5 (applies cleanly on a fresh DB).
+
+**Gotcha worth remembering — a migration can be RECORDED without being APPLIED.** Twice during this
+task the local `supabase_migrations.schema_migrations` table listed `20260812120000` while neither
+`synced_by` nor `can_record_check_in_for` existed in the schema. In that state `supabase migration
+up` reports "Local database is up to date" and silently leaves the schema wrong, which then fails at
+the PostgREST layer (unknown column → every door insert rejected) rather than anywhere obvious. The
+fix is `supabase migration repair --status reverted <version> --local` followed by `migration up`.
+Both occurrences coincided with another session resetting the shared local stack — the concrete cost
+of the one-DB-owner rule being broken mid-test.
 
 ---
 
