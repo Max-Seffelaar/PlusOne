@@ -4,7 +4,7 @@ import { type JSX, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { describeAuthError } from '@/features/auth/errors';
 import { totpSchema } from '@/features/auth/schemas';
-import { signOutDevice } from '@/features/auth/sign-out-device';
+import { PendingOutboxError, signOutDevice } from '@/features/auth/sign-out-device';
 
 // Step-up challenge: a user with a verified TOTP factor on an AAL1 session
 // proves the second factor to reach AAL2 (required for sensitive routes).
@@ -60,11 +60,23 @@ export function MfaChallengeForm({ nextPath }: { nextPath: string }): JSX.Elemen
   // their identity) have to go with the session. Scope 'global' matches the
   // old default. `signOutDevice` throws rather than redirect when the token
   // cannot be cleared — surface that instead of stranding the user silently.
+  //
+  // Un-synced door writes (86ey9et0h) surface here as a REFUSAL to sign out,
+  // not as a prompt: this wall sits in front of an unverified session, so we
+  // cannot show a trustworthy "how many check-ins you're about to delete"
+  // dialog, and there is no legitimate reason to discard a doorhost's queued
+  // check-ins from an authentication screen. Passing them the count and telling
+  // them to reconnect keeps the recoverable path open — the entries sync
+  // themselves the moment the device is online, and the sign-out then works.
   async function signOut(): Promise<void> {
     try {
       await signOutDevice('global');
-    } catch {
-      setError('Could not sign out — check your connection and try again.');
+    } catch (e) {
+      setError(
+        e instanceof PendingOutboxError
+          ? `${e.pending} check-ins on this device haven't been synced yet. Reconnect so they upload, then sign out.`
+          : 'Could not sign out — check your connection and try again.',
+      );
     }
   }
 

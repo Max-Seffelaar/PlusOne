@@ -249,11 +249,16 @@ select throws_ok($$
           '66666666-6666-4666-8666-666666666666')
 $$, '23505', null, 'G2 double check-in blocked by unique constraint');
 
+-- The actor is bounded, not pinned, since 86ey9et0h: a shared tablet drained
+-- after a doorhost hand-off must keep naming whoever admitted the guest. The
+-- boundary moved from "must be me" to "must be someone who works this door", so
+-- the forgery target here is a STAFF member (never door-capable). Admin 1111
+-- would now legitimately pass — that case is covered in outbox_owner_stamp.test.sql.
 select throws_ok($$
   insert into public.check_ins (guest_id, checked_by)
   values ('cc000000-0000-7000-8000-000000000001',
-          '11111111-1111-4111-8111-111111111111')
-$$, '42501', null, 'G3 doorhost cannot record a check-in as someone else');
+          '55555555-5555-4555-8555-555555555555')
+$$, '42501', null, 'G3 doorhost cannot record a check-in as a non-door role');
 
 select pg_temp.login('55555555-5555-4555-8555-555555555555');
 select throws_ok($$

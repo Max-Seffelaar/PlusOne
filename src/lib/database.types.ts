@@ -107,6 +107,7 @@ export type Database = {
           id: string
           offline_synced: boolean
           plus_ones_arrived: number
+          synced_by: string | null
           venue_id: string
           voided_at: string | null
           voided_by: string | null
@@ -122,6 +123,7 @@ export type Database = {
           id?: string
           offline_synced?: boolean
           plus_ones_arrived?: number
+          synced_by?: string | null
           venue_id: string
           voided_at?: string | null
           voided_by?: string | null
@@ -137,6 +139,7 @@ export type Database = {
           id?: string
           offline_synced?: boolean
           plus_ones_arrived?: number
+          synced_by?: string | null
           venue_id?: string
           voided_at?: string | null
           voided_by?: string | null
@@ -161,6 +164,13 @@ export type Database = {
             columns: ["guest_id"]
             isOneToOne: true
             referencedRelation: "guests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "check_ins_synced_by_fkey"
+            columns: ["synced_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
             referencedColumns: ["id"]
           },
           {
@@ -1114,6 +1124,7 @@ export type Database = {
           reason: string
           refused_at: string
           refused_by: string
+          synced_by: string | null
           venue_id: string
         }
         Insert: {
@@ -1127,6 +1138,7 @@ export type Database = {
           reason: string
           refused_at?: string
           refused_by: string
+          synced_by?: string | null
           venue_id: string
         }
         Update: {
@@ -1140,6 +1152,7 @@ export type Database = {
           reason?: string
           refused_at?: string
           refused_by?: string
+          synced_by?: string | null
           venue_id?: string
         }
         Relationships: [
@@ -1160,6 +1173,13 @@ export type Database = {
           {
             foreignKeyName: "refusals_refused_by_fkey"
             columns: ["refused_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "refusals_synced_by_fkey"
+            columns: ["synced_by"]
             isOneToOne: false
             referencedRelation: "user_profiles"
             referencedColumns: ["id"]
@@ -1634,6 +1654,10 @@ export type Database = {
       can_check_in: { Args: { p_event_id: string }; Returns: boolean }
       can_read_event_stats: { Args: { p_event_id: string }; Returns: boolean }
       can_read_venue_stats: { Args: { p_venue_id: string }; Returns: boolean }
+      can_record_check_in_for: {
+        Args: { p_actor_id: string; p_event_id: string }
+        Returns: boolean
+      }
       can_view_profile: { Args: { p_profile_id: string }; Returns: boolean }
       can_write_guests: { Args: { p_event_id: string }; Returns: boolean }
       check_out_guest: {

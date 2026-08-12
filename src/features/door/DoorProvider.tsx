@@ -30,7 +30,7 @@ import { drainOutbox, guestKeyOf } from './outbox/replay';
 import { hasOpenCheckIn } from './outbox/dedup';
 import { supabaseGateway } from './outbox/gateway';
 import { outbox } from './outbox/store';
-import { isPending, type OutboxEntry } from './outbox/types';
+import { foreignEntries, isPending, type OutboxEntry } from './outbox/types';
 import { useDoorSync, type DoorSyncState } from './sync/useDoorSync';
 import {
   doorSnapshotKey,
@@ -331,6 +331,15 @@ export function DoorProvider({
       data: { user },
     } = await client.auth.getUser();
     if (user) {
+      // Entries the PREVIOUS user of this tablet queued and never got online to
+      // send (86ey9et0h). They drain under this session like any other — the
+      // whole point is that a doorhost hand-off never costs a check-in — but the
+      // rows keep naming whoever performed them, and the new doorhost is told
+      // afterwards so the sync is visible rather than silent. Captured before the
+      // drain because a settled entry is pruned by clearSettled() below.
+      const foreignBefore = foreignEntries([...outbox.getSnapshot()].filter(isPending), user.id).map(
+        (e) => e.clientId,
+      );
       const summary = await drainOutbox({
         list: () => [...outbox.getSnapshot()],
         update: (id, patch) => outbox.update(id, patch),
@@ -338,6 +347,19 @@ export function DoorProvider({
         uid: user.id,
         deviceId: getDeviceId(),
       });
+      if (foreignBefore.length > 0) {
+        const ids = new Set(foreignBefore);
+        const handedOver = outbox
+          .getSnapshot()
+          .filter((e) => ids.has(e.clientId) && (e.status === 'synced' || e.status === 'duplicate')).length;
+        if (handedOver > 0) {
+          showToast(
+            `${handedOver} check-in${handedOver === 1 ? '' : 's'} from the previous user ${
+              handedOver === 1 ? 'was' : 'were'
+            } synced`,
+          );
+        }
+      }
       if (summary.duplicates > 0) showToast('Was already checked in on another device');
       // The entry that JUST failed, carried out of the drain itself. Scanning the
       // store for the first `error` entry (the old code) returns the OLDEST one
@@ -418,13 +440,20 @@ export function DoorProvider({
         status: 'pending',
         attempts: 0,
         createdAt: new Date().toISOString(),
+        // Who is doing this, recorded NOW rather than inferred at drain time
+        // (86ey9et0h) — on a shared tablet the session can change between the
+        // tap and the sync. `meId` is resolved by an effect on mount, so it is
+        // set long before anyone taps a guest; a null here (an enqueue in the
+        // very first frames) simply falls back to the drain-time uid in replay,
+        // which is the pre-existing behaviour.
+        ownerId: meId ?? undefined,
         ...write,
       } as OutboxEntry);
       patchSnapshot(patchFn);
       if (toastMsg) showToast(toastMsg);
       maybeFlush();
     },
-    [eventId, patchSnapshot, showToast, maybeFlush],
+    [eventId, meId, patchSnapshot, showToast, maybeFlush],
   );
 
   // ── Mutations (thin wrappers over enqueueDoorWrite).
@@ -465,6 +494,9 @@ export function DoorProvider({
             event_id: eventId,
             venue_id: s.event.venueId,
             checked_by: meId ?? '',
+            // Optimistic row: this device is both actor and sender until proven
+            // otherwise, and replay recomputes synced_by at drain time anyway.
+            synced_by: null,
             checked_at: ts,
             client_timestamp: ts,
             device_id: getDeviceId(),
@@ -578,6 +610,7 @@ export function DoorProvider({
               event_id: eventId,
               venue_id: s.event.venueId,
               refused_by: meId ?? '',
+              synced_by: null,
               reason,
               refused_at: ts,
               client_timestamp: ts,

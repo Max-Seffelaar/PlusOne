@@ -8,6 +8,86 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-12 — Door outbox owner-stamp: a tablet hand-off no longer costs check-ins (86ey9et0h)
+
+Branch `claude/outbox-owner-stamp-sync-7aadf3`. Milestone: Now (a lost door check-in is the
+one failure mode a venue will not forgive). Spec decisions **#45** (this) and **#46**
+(`add_contact_to_event` reuse, task `86ey9e9nb`) added to `gastenlijst-app-spec.md`.
+
+**The decision that drove it (Max, 12/8): no data loss.** A venue tablet passes between
+doorhosts. When A works a shift offline, taps N check-ins into the outbox and hands the
+tablet over before it ever reconnects, those entries must still sync once B logs in on that
+same device — not quarantined until A returns, not dropped. This **partially reverses #233
+(`86ey9et07`)**, which introduced the sign-out wipe and thereby destroyed A's work in order to
+prevent misattribution. Hard guardrail attached to the reversal: the audit trail is never
+falsified. A stays the performer in the row, B is the actor who syncs.
+
+**Why this could not be done in the client alone.** The queued entry carried no identity at
+all — `replay.ts` took the actor from the live session at *drain* time. So the fix has two
+halves, and only having the first one would have made things worse:
+
+| half | without it |
+|---|---|
+| `ownerId` stamped at enqueue (`outbox/types.ts`) | the device doesn't know A did it; B's sync silently relabels the rows |
+| RLS accepts an actor ≠ `auth.uid()` (migration `20260812120000`) | the insert returns `42501`, which `replay.ts` classifies as TERMINAL → dead-lettered → **the check-in is lost anyway** |
+
+**The RLS change, stated precisely.** `check_ins_insert` pinned `checked_by = (select auth.uid())`
+since the first RLS migration. That pin is now a *bound* rather than an identity: a door write
+may name another actor, but only one who could themselves work that event's door
+(`can_record_check_in_for`, SECURITY DEFINER, caller must independently pass `can_check_in`).
+What the server deliberately does **not** claim is that A really tapped the button — A's session
+is long gone, so that is a client assertion; the bound keeps it inside the set of people the
+venue already trusts at the door, and `synced_by` + `audit_log.actor_id` record who transmitted
+it. `refusals_insert` and (scoped to `source='door'`) `guests_insert` get the same treatment, the
+last one because a dead-lettered door add takes the check-in chained behind it down with it (FK
+`23503`).
+
+**Bycatch — an UPDATE hole that predates this work.** `check_ins_update_door`
+(`20260617020000`) had **no predicate on `checked_by` at all**, and because permissive policies
+are OR-ed that made the sibling `check_ins_update_own_device` pin non-binding: any door-scoped
+user could UPDATE an existing check-in and rewrite the actor to an arbitrary uuid — including
+someone with no relation to the venue. `reviveCheckIn` writes that column on exactly this path.
+Bounded now to the same rule as INSERT, so the migration nets out **tighter** than the status quo
+despite relaxing the pin (pgTAP D1–D3).
+
+**Accepted residual, recorded rather than buried.** Because `enforce_guest_quota` charges
+`new.added_by`, the `source='door'` relaxation also lets a door-capable user attribute a walk-in
+to a door-capable *colleague's* allowance. The guest is never free (event capacity and tier max
+still move, the colleague's meter is still charged) and `audit_log.actor_id` still records the
+real session — it misattributes which door colleague paid. Weighed against silently destroying a
+queued door add, that is the smaller harm. Separately: if A's door role is revoked between the
+shift and the sync, their entries settle to `error` rather than syncing — surfaced in the sync bar
+and recoverable via force-sync once the role is restored, not silently dropped.
+
+**Sign-out with pending entries.** Online, `signOutDevice` now drains first and the doorhost never
+learns it happened. Offline it throws `PendingOutboxError(n)` and the caller shows a sheet naming
+the cost ("N check-ins have not been synced yet"), with *stay signed in* as the primary action;
+only an explicit `discardPending` proceeds. The wipe remains the endpoint (#233 / `86ey9e9mn`
+untouched), as does the `sign-out-incomplete` fail-safe. The MFA wall refuses rather than prompts —
+it sits in front of an unverified session and has no business discarding a doorhost's queue.
+
+**What was NOT regressed** (checked deliberately, all three are load-bearing): the wipe-epoch +
+`reset()` from #233, the `clearSettled`/tombstone-TTL housekeeping from #249, and the
+`OUTBOX_BUSTER` envelope from #212 — the buster is deliberately **not** bumped and `ownerId` is
+optional, because discarding the queue to enforce a schema is the exact data loss this PR exists
+to prevent.
+
+**Tests.** Vitest **1155 green** (55 new across `replay.test.ts`, `persistence.test.ts`,
+`sign-out.test.ts` — owner-mismatch drain, identity preservation, mixed-owner queue, legacy
+entries without `ownerId`, logout flush online/offline/discard). New pgTAP
+`outbox_owner_stamp.test.sql` **16/16 green** (allowed + denied per role, `synced_by` pinned,
+audit actor independent, UPDATE hole closed). `rls.test.sql` G3 rewritten: its subject moved from
+"cannot record as someone else" to "cannot record as a **non-door role**", since admin now
+legitimately passes. `pnpm lint` clean, `tsc --noEmit` clean.
+
+**Local-stack note.** The full `supabase test db` run showed one unrelated failure,
+`rls.test.sql` N1 ("3 seed + 1 anon", have 5): the local DB carries a stray `guest_requests` row
+("Test Verify", created two minutes after the seed timestamp) from a manual dev session. Proven
+environmental, not caused by this branch — a `supabase db reset` clears it, which is pending the
+one-DB-owner check.
+
+---
+
 ## 2026-08-11 — Quota-engine forge closed; quarter chart + per-member present follow #44 (86ey9c5fp)
 
 Branch `claude/86ey9c5fp-quarter-chart-pending-quota` (PR #262). Part 2 of the M4 review

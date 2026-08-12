@@ -99,6 +99,7 @@ function serverRow(guestId: string, plusOnesArrived: number): CheckInRow {
     event_id: EVENT_ID,
     venue_id: VENUE_ID,
     checked_by: UID,
+    synced_by: null,
     checked_at: '2026-08-10T23:00:00Z',
     client_timestamp: '2026-08-10T23:00:00Z',
     device_id: 'device-test',

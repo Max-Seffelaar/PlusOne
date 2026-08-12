@@ -87,7 +87,7 @@ describe('classifyError', () => {
 });
 
 describe('replayEntry', () => {
-  it('checks in: pins checked_by to the session user and stamps device + offline_synced', async () => {
+  it('checks in: falls back to the session user with no owner stamped, and marks device + offline_synced', async () => {
     const insertCheckIn = vi.fn(async () => ({ error: null }));
     const gw: DoorGateway = { ...gatewayReturning(null), insertCheckIn };
     const result = await replayEntry(gw, checkInEntry(), UID, DEVICE);
@@ -97,6 +97,8 @@ describe('replayEntry', () => {
         id: 'ci1',
         guest_id: 'g1',
         checked_by: UID,
+        // Same session did the tap and the send — no hand-off to record.
+        synced_by: null,
         plus_ones_arrived: 1,
         device_id: DEVICE,
         offline_synced: true,
@@ -564,5 +566,113 @@ describe('drainOutbox', () => {
     expect(insertCheckIn).toHaveBeenCalledTimes(1); // the once-orphaned check-in is re-sent
     expect(summary.synced).toBe(1);
     expect(store.entries[0].status).toBe('synced');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Owner stamp — a shared tablet that changes hands mid-queue (86ey9et0h).
+//
+// The rule under test, in one line: the entries SYNC (never quarantined, never
+// dropped — a lost door check-in is the failure mode this whole feature exists
+// to prevent), but they keep naming the doorhost who actually performed them.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('replayEntry — outbox owner ≠ draining session', () => {
+  const ALICE = '11111111-1111-4111-8111-111111111111'; // worked the door, went offline, left
+  const BOB = '22222222-2222-4222-8222-222222222222'; // logged in later, has the network
+
+  it('keeps the outbox owner as checked_by and records the syncing user as synced_by', async () => {
+    const insertCheckIn = vi.fn(async () => ({ error: null }));
+    const gw: DoorGateway = { ...gatewayReturning(null), insertCheckIn };
+    const result = await replayEntry(gw, checkInEntry({ ownerId: ALICE }), BOB, DEVICE);
+    expect(result.status).toBe('synced'); // it went up — no quarantine, no drop
+    expect(insertCheckIn).toHaveBeenCalledWith(
+      expect.objectContaining({ checked_by: ALICE, synced_by: BOB }),
+    );
+  });
+
+  it('never rewrites the actor to the draining session', async () => {
+    const insertCheckIn = vi.fn(async () => ({ error: null }));
+    await replayEntry({ ...gatewayReturning(null), insertCheckIn }, checkInEntry({ ownerId: ALICE }), BOB, DEVICE);
+    // The regression this guards: pre-86ey9et0h the actor came from the live
+    // session at drain time, so Alice's check-ins silently landed under Bob.
+    expect(insertCheckIn).not.toHaveBeenCalledWith(expect.objectContaining({ checked_by: BOB }));
+  });
+
+  it('carries the owner through refusals too', async () => {
+    const insertRefusal = vi.fn(async () => ({ error: null }));
+    const entry: OutboxEntry = {
+      clientId: 'r1',
+      eventId: 'ev1',
+      kind: 'refusal',
+      status: 'pending',
+      attempts: 0,
+      createdAt: '2026-08-12T01:00:00.000Z',
+      ownerId: ALICE,
+      payload: { id: 'rf1', guestId: 'g1', reason: 'Not on the list', clientTimestamp: '2026-08-12T01:00:00.000Z' },
+    };
+    await replayEntry({ ...gatewayReturning(null), insertRefusal }, entry, BOB, DEVICE);
+    expect(insertRefusal).toHaveBeenCalledWith(expect.objectContaining({ refused_by: ALICE, synced_by: BOB }));
+  });
+
+  it('carries the owner through a door-added guest (added_by owns the quota slot)', async () => {
+    const insertGuest = vi.fn(async () => ({ error: null }));
+    const entry: OutboxEntry = {
+      clientId: 'ag1',
+      eventId: 'ev1',
+      kind: 'add_guest',
+      status: 'pending',
+      attempts: 0,
+      createdAt: '2026-08-12T01:00:00.000Z',
+      ownerId: ALICE,
+      payload: { id: 'g9', tierId: 't1', fullName: 'Walk-in', plusOnes: 0 },
+    };
+    await replayEntry({ ...gatewayReturning(null), insertGuest }, entry, BOB, DEVICE);
+    expect(insertGuest).toHaveBeenCalledWith(expect.objectContaining({ added_by: ALICE, source: 'door' }));
+  });
+
+  it('attributes a queued void to the doorhost who sent the guest out, not the courier', async () => {
+    const voidCheckIn = vi.fn(async () => ({ error: null }));
+    const entry: OutboxEntry = {
+      clientId: 'v1',
+      eventId: 'ev1',
+      kind: 'check_in_void',
+      status: 'pending',
+      attempts: 0,
+      createdAt: '2026-08-12T01:00:00.000Z',
+      ownerId: ALICE,
+      payload: { guestId: 'g1', checkInId: 'ci1', clientTimestamp: '2026-08-12T01:00:00.000Z' },
+    };
+    await replayEntry({ ...gatewayReturning(null), voidCheckIn }, entry, BOB, DEVICE);
+    expect(voidCheckIn).toHaveBeenCalledWith('g1', ALICE, 'ci1');
+  });
+
+  it('an entry from an older bundle (no ownerId) still replays under the drain-time session', async () => {
+    // Back-compat is load-bearing: OUTBOX_BUSTER is deliberately not bumped, so
+    // pre-owner-stamp entries survive the upgrade and must keep working rather
+    // than be quarantined for a missing field.
+    const insertCheckIn = vi.fn(async () => ({ error: null }));
+    await replayEntry({ ...gatewayReturning(null), insertCheckIn }, checkInEntry(), BOB, DEVICE);
+    expect(insertCheckIn).toHaveBeenCalledWith(expect.objectContaining({ checked_by: BOB, synced_by: null }));
+  });
+
+  it('drains a mixed queue of both users in one pass, each row keeping its own actor', async () => {
+    const rows: CheckInRow[] = [];
+    const gw: DoorGateway = {
+      ...gatewayReturning(null),
+      insertCheckIn: async (row) => {
+        rows.push(row);
+        return { error: null };
+      },
+    };
+    const store = fakeStore([
+      checkInEntry({ clientId: 'a', ownerId: ALICE, payload: { id: 'ci-a', guestId: 'g-a', plusOnesArrived: 0, clientTimestamp: '2026-08-12T01:00:00.000Z' } }),
+      checkInEntry({ clientId: 'b', ownerId: BOB, payload: { id: 'ci-b', guestId: 'g-b', plusOnesArrived: 0, clientTimestamp: '2026-08-12T02:00:00.000Z' } }),
+    ]);
+    const summary = await drainOutbox({ ...store, gateway: gw, uid: BOB, deviceId: DEVICE });
+    expect(summary.synced).toBe(2); // nothing held back waiting for Alice to return
+    expect(rows.map((r) => [r.checked_by, r.synced_by])).toEqual([
+      [ALICE, BOB],
+      [BOB, null],
+    ]);
   });
 });

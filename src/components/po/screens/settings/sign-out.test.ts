@@ -9,14 +9,40 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // lingering-session fail-safe (#4).
 const signOut = vi.fn(async (_opts: { scope: 'local' | 'global' }) => ({ error: null }));
 const getSession = vi.fn(async () => ({ data: { session: null as unknown } }));
+const getUser = vi.fn(async () => ({ data: { user: { id: 'A' } } }));
 vi.mock('@/lib/supabase/client', () => ({
-  createClient: () => ({ auth: { signOut, getSession } }),
+  createClient: () => ({ auth: { signOut, getSession, getUser } }),
 }));
 vi.mock('@sentry/nextjs', () => ({ captureMessage: vi.fn() }));
 
+// The last-chance flush (86ey9et0h) drains through the real replay code, so the
+// gateway is the only seam that must not reach the network. Recording the rows
+// lets the tests assert what actually went up, not merely that a drain ran.
+const gw = vi.hoisted(() => ({ sent: [] as { checked_by?: string; synced_by?: string | null }[], fail: false }));
+vi.mock('@/features/door/outbox/gateway', () => {
+  const ok = async () => ({ error: null });
+  return {
+    supabaseGateway: () => ({
+      insertCheckIn: async (row: { checked_by?: string; synced_by?: string | null }) => {
+        if (gw.fail) return { error: { code: undefined, message: 'Failed to fetch' } };
+        gw.sent.push(row);
+        return { error: null };
+      },
+      topUpCheckIn: ok,
+      voidCheckIn: ok,
+      reviveCheckIn: ok,
+      checkOutGuest: ok,
+      insertRefusal: ok,
+      undoRefusal: ok,
+      insertGuest: ok,
+      ackNote: ok,
+    }),
+  };
+});
+
 import { idbGet, idbSet, idbClearAll } from '@/features/door/offline/idb';
 import { outbox } from '@/features/door/outbox/store';
-import { signOutDevice } from './_shared';
+import { PendingOutboxError, signOutDevice } from './_shared';
 
 // The two keys the door persists to the shared `plusone-door` IndexedDB.
 const OUTBOX_KEY = 'door-outbox';
@@ -168,5 +194,113 @@ describe('signOutDevice — shared-device isolation (86ey9et07)', () => {
       expect(outbox.reset).not.toHaveBeenCalled();
       expect(deletedCaches).toEqual([]);
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sign-out with un-synced door writes (86ey9et0h).
+//
+// #233 made sign-out wipe the device, which protected the next doorhost's
+// privacy by DESTROYING the previous one's queued check-ins. The wipe stays —
+// it is still the endpoint — but it no longer gets to happen behind the
+// doorhost's back: online we flush first, offline they are told the cost and
+// must say so out loud.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('signOutDevice — un-synced door writes (86ey9et0h)', () => {
+  const EVENT_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const OWNER = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+  /** A valid, replayable queued check-in — a guest physically standing inside. */
+  function queuedCheckIn(clientId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee') {
+    return {
+      clientId,
+      eventId: EVENT_ID,
+      kind: 'check_in',
+      status: 'pending',
+      attempts: 0,
+      createdAt: '2026-08-12T22:00:00.000Z',
+      ownerId: OWNER,
+      payload: {
+        id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+        guestId: '99999999-9999-4999-8999-999999999999',
+        plusOnesArrived: 0,
+        clientTimestamp: '2026-08-12T22:00:00.000Z',
+      },
+    };
+  }
+
+  beforeEach(() => {
+    gw.sent = [];
+    gw.fail = false;
+    outbox.reset(); // singleton outlives a test — start each case from empty
+  });
+
+  it('flushes the queue before wiping when the device is online', async () => {
+    await idbSet(OUTBOX_KEY, { buster: 'door-outbox-v1', entries: [queuedCheckIn()] });
+    vi.stubGlobal('navigator', { onLine: true });
+
+    await signOutDevice('local');
+
+    expect(gw.sent).toHaveLength(1); // the check-in reached the server FIRST …
+    expect(assign).toHaveBeenCalledWith('/login'); // … and only then did we leave
+    expect(await idbGet(OUTBOX_KEY)).toBeUndefined();
+  });
+
+  it('preserves the queueing doorhost as the actor on that last-chance flush', async () => {
+    // The flush runs under whoever is signing out; it must not relabel the rows.
+    await idbSet(OUTBOX_KEY, { buster: 'door-outbox-v1', entries: [queuedCheckIn()] });
+    vi.stubGlobal('navigator', { onLine: true });
+
+    await signOutDevice('local');
+
+    expect(gw.sent[0]).toMatchObject({ checked_by: OWNER, synced_by: 'A' });
+  });
+
+  it('refuses to sign out offline while entries are queued, and destroys nothing', async () => {
+    await idbSet(OUTBOX_KEY, { buster: 'door-outbox-v1', entries: [queuedCheckIn()] });
+    vi.stubGlobal('navigator', { onLine: false });
+
+    await expect(signOutDevice('local')).rejects.toBeInstanceOf(PendingOutboxError);
+
+    // Everything the doorhost had is still here: no wipe, no redirect, no signOut.
+    expect(signOut).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
+    expect(await idbGet(OUTBOX_KEY)).toBeDefined();
+  });
+
+  it('reports how many writes are at stake so the prompt can name the cost', async () => {
+    await idbSet(OUTBOX_KEY, {
+      buster: 'door-outbox-v1',
+      entries: [queuedCheckIn('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1'), queuedCheckIn('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee2')],
+    });
+    vi.stubGlobal('navigator', { onLine: false });
+
+    await expect(signOutDevice('local')).rejects.toMatchObject({ pending: 2 });
+  });
+
+  it('proceeds and wipes once the doorhost explicitly accepts the loss', async () => {
+    await idbSet(OUTBOX_KEY, { buster: 'door-outbox-v1', entries: [queuedCheckIn()] });
+    vi.stubGlobal('navigator', { onLine: false });
+
+    await signOutDevice('local', { discardPending: true });
+
+    expect(assign).toHaveBeenCalledWith('/login');
+    expect(await idbGet(OUTBOX_KEY)).toBeUndefined(); // the wipe is still the endpoint
+  });
+
+  it('still refuses when online but the flush cannot get the writes through', async () => {
+    // Captive-portal wifi: navigator.onLine lies. The queue is what decides.
+    await idbSet(OUTBOX_KEY, { buster: 'door-outbox-v1', entries: [queuedCheckIn()] });
+    vi.stubGlobal('navigator', { onLine: true });
+    gw.fail = true;
+
+    await expect(signOutDevice('local')).rejects.toBeInstanceOf(PendingOutboxError);
+    expect(await idbGet(OUTBOX_KEY)).toBeDefined();
+  });
+
+  it('signs out normally when nothing is queued', async () => {
+    vi.stubGlobal('navigator', { onLine: false });
+    await signOutDevice('local');
+    expect(assign).toHaveBeenCalledWith('/login');
   });
 });

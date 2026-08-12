@@ -10,7 +10,61 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
 import { idbClearAll } from '@/features/door/offline/idb';
 import { clearDeviceCaches } from '@/features/door/offline/sw-cache';
+import { getDeviceId } from '@/features/door/offline/device';
+import { supabaseGateway } from '@/features/door/outbox/gateway';
+import { drainOutbox } from '@/features/door/outbox/replay';
 import { outbox } from '@/features/door/outbox/store';
+import { isRetryable } from '@/features/door/outbox/types';
+
+/**
+ * Thrown when signing out would destroy door writes that never reached the
+ * server (86ey9et0h). `pending` is how many. The caller MUST surface this as an
+ * explicit choice — never swallow it and never auto-retry with
+ * `discardPending`, or the warning is decorative and the check-ins are gone.
+ */
+/** Same one-liner the door uses (DoorProvider) — no navigator in SSR/tests. */
+const isOnline = (): boolean => typeof navigator === 'undefined' || navigator.onLine;
+
+export class PendingOutboxError extends Error {
+  constructor(readonly pending: number) {
+    super('outbox-pending');
+    this.name = 'PendingOutboxError';
+  }
+}
+
+/**
+ * Last chance to get queued door writes to the server before the wipe destroys
+ * them. Returns how many still can't be sent.
+ *
+ * `outbox.init()` first because sign-out is reachable from Settings, where no
+ * DoorProvider has ever mounted — without it the in-memory store is empty and
+ * we would cheerfully report "nothing pending" while IndexedDB holds a full
+ * night of check-ins. `retryErrors()` is included deliberately: a dead-lettered
+ * entry is still a guest who physically walked in, the rejection may have been
+ * transient (a list unlocked since), and this is the last moment it can ever be
+ * retried. Offline we skip straight to the count — there is nothing to try.
+ */
+async function flushPendingOutbox(supabase: SupabaseClient): Promise<number> {
+  await outbox.init();
+  if (!outbox.getSnapshot().some(isRetryable)) return 0;
+  if (isOnline()) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) {
+      outbox.retryErrors();
+      await drainOutbox({
+        list: () => [...outbox.getSnapshot()],
+        update: (id, patch) => outbox.update(id, patch),
+        // The session is still alive here — signOut() has not run yet.
+        gateway: supabaseGateway(createClient()),
+        uid: user.id,
+        deviceId: getDeviceId(),
+      });
+    }
+  }
+  return outbox.getSnapshot().filter(isRetryable).length;
+}
 
 /** Whether an access token still lives in this device's storage. `getSession()`
  *  reads local storage (no server round-trip), so it answers "is a token still
@@ -70,8 +124,22 @@ async function wipeDevice(): Promise<void> {
  *  leave (and the device is wiped) or we stay (and the device is intact and
  *  still theirs). The wipes remain network-independent; only their position
  *  moved. */
-export async function signOutDevice(scope: 'local' | 'global'): Promise<void> {
+export async function signOutDevice(
+  scope: 'local' | 'global',
+  opts?: { discardPending?: boolean },
+): Promise<void> {
   const supabase = createClient();
+
+  // Queued door writes die with the wipe below, so they get one last flight
+  // first (86ey9et0h). Online this is silent and the doorhost never learns it
+  // happened. Offline there is nothing to send, so the caller is handed the
+  // count and must ask — signing out is a deliberate act, but losing a check-in
+  // never is. `discardPending` is the answer coming back from that prompt.
+  if (!opts?.discardPending) {
+    const stillPending = await flushPendingOutbox(supabase);
+    if (stillPending > 0) throw new PendingOutboxError(stillPending);
+  }
+
   try {
     await supabase.auth.signOut({ scope });
   } catch {

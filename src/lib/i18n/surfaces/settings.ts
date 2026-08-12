@@ -255,6 +255,14 @@ export const settings = {
     signOutSub: 'Log out on this device',
     signingOut: 'Signing out…',
     signOutFailed: 'Could not sign out — check your connection and try again.',
+    // Sign-out with door writes that never reached the server (86ey9et0h).
+    // Names the number and what is lost — "unsynced entries" would let a
+    // doorhost tap through a warning that actually costs them check-ins.
+    signOutPendingTitle: '{n} check-ins have not been synced yet',
+    signOutPendingBody:
+      'These were recorded at the door but never reached the server. Signing out on this device deletes them for good. Go back online and they sync by themselves.',
+    signOutPendingStay: 'Stay signed in',
+    signOutPendingDiscard: 'Sign out anyway ({n} lost)',
     saving: 'Saving…',
     save: 'Save',
     logoutAllConfirm:
