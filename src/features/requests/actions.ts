@@ -4,6 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { landingClientIpHash } from './ip-hash';
+import { verifyTurnstileToken } from './turnstile';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
 import {
   submitGuestRequestSchema,
@@ -40,12 +41,30 @@ export type SubmitOutcome =
 export async function submitGuestRequest(input: SubmitGuestRequestInput): Promise<SubmitOutcome> {
   const parsed = submitGuestRequestSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { slug, fullName, email, phone, plusOnes, motivation, birthdate, marketingOptIn, company } =
-    parsed.data;
+  const {
+    slug,
+    fullName,
+    email,
+    phone,
+    plusOnes,
+    motivation,
+    birthdate,
+    marketingOptIn,
+    company,
+    turnstileToken,
+  } = parsed.data;
 
   // Honeypot tripped → behave exactly like a success, but touch nothing (no
   // status token either — a bot has no use for one).
   if (company && company.trim().length > 0) return { ok: true };
+
+  if (!(await verifyTurnstileToken(turnstileToken))) {
+    return {
+      ok: false,
+      code: 'verification_failed',
+      message: "Couldn't verify you're human. Please try again.",
+    };
+  }
 
   const ipHash = await landingClientIpHash();
   const supabase = await createClient();

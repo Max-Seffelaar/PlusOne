@@ -14,14 +14,16 @@ const isDev = process.env.NODE_ENV !== 'production';
 // connect-src must reach Supabase: hosted over https/wss (incl. Realtime),
 // and the LOCAL stack over http/ws during development. Without the local
 // entries the browser blocks every auth call against 127.0.0.1 in dev.
+// challenges.cloudflare.com is Turnstile (86ey2czr6, landing form only) — the
+// widget script + its own challenge requests, keyless-inert everywhere else.
 const connectSrc = isDev
-  ? "'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:* https://*.supabase.co wss://*.supabase.co"
-  : "'self' https://*.supabase.co wss://*.supabase.co";
+  ? "'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:* https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com"
+  : "'self' https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com";
 
 // Next dev tooling (HMR / React Refresh) needs 'unsafe-eval'; production does not.
 const scriptSrc = isDev
-  ? "'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'"
-  : "'self' 'unsafe-inline' 'wasm-unsafe-eval'";
+  ? "'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://challenges.cloudflare.com"
+  : "'self' 'unsafe-inline' 'wasm-unsafe-eval' https://challenges.cloudflare.com";
 
 const csp = [
   "default-src 'self'",
@@ -30,6 +32,7 @@ const csp = [
   `connect-src ${connectSrc}`,
   "img-src 'self' data: https:",
   "font-src 'self' data:",
+  "frame-src https://challenges.cloudflare.com",
   "frame-ancestors 'none'",
 ].join('; ');
 

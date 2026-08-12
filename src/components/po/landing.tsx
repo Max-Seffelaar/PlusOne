@@ -7,7 +7,8 @@
  *  honeypot-protected submit action; a filled honeypot still shows success.
  *  Phone is collected WITH a country code (E.164); e-mail + phone get inline
  *  validation; a marketing opt-in box records AVG consent. */
-import { type JSX, useState, useTransition, type ReactNode } from 'react';
+import { type JSX, useEffect, useRef, useState, useTransition, type ReactNode } from 'react';
+import Script from 'next/script';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { useTransientValue } from '@/lib/use-transient-value';
@@ -19,6 +20,77 @@ import { fieldErrorBorder, fieldErrorText } from './kit';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.985]';
 const LANDING_BG = 'radial-gradient(120% 70% at 50% -8%, #211d3a 0%, #100f18 42%, #0B0B0D 100%)';
+
+// Cloudflare Turnstile (86ey2czr6). Keyless dev/CI: without the public site
+// key the widget never renders — matches the server's verifyTurnstileToken,
+// which passes open without TURNSTILE_SECRET_KEY.
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (
+        container: HTMLElement,
+        options: {
+          sitekey: string;
+          callback: (token: string) => void;
+          'expired-callback'?: () => void;
+          'error-callback'?: () => void;
+        },
+      ) => string;
+      remove: (widgetId: string) => void;
+    };
+    onTurnstileLoad?: () => void;
+  }
+}
+
+/** Renders nothing when keyless (see TURNSTILE_SITE_KEY above) — a webview or
+ *  ad/script blocker that drops the challenges.cloudflare.com script simply
+ *  leaves the token unset; the server's fail-open siteverify handling is the
+ *  backstop, not a client-side gate that could strand a real guest. */
+function TurnstileWidget({ onToken }: { onToken: (token: string | undefined) => void }): JSX.Element | null {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const widgetIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!TURNSTILE_SITE_KEY || typeof window === 'undefined') return;
+    const container = containerRef.current;
+    if (!container) return;
+
+    function renderWidget(): void {
+      if (!window.turnstile || widgetIdRef.current || !container) return;
+      widgetIdRef.current = window.turnstile.render(container, {
+        sitekey: TURNSTILE_SITE_KEY as string,
+        callback: (token) => onToken(token),
+        'expired-callback': () => onToken(undefined),
+        'error-callback': () => onToken(undefined),
+      });
+    }
+
+    if (window.turnstile) renderWidget();
+    else window.onTurnstileLoad = renderWidget;
+
+    return () => {
+      if (widgetIdRef.current && window.turnstile) {
+        window.turnstile.remove(widgetIdRef.current);
+        widgetIdRef.current = null;
+      }
+    };
+  }, [onToken]);
+
+  if (!TURNSTILE_SITE_KEY) return null;
+
+  return (
+    <>
+      <Script
+        id="cf-turnstile-script"
+        src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoad&render=explicit"
+        strategy="afterInteractive"
+      />
+      <div ref={containerRef} className="mb-[14px] flex justify-center" />
+    </>
+  );
+}
 
 export interface LandingEvent {
   name: string;
@@ -279,6 +351,10 @@ export function LandingForm({
   const [marketing, setMarketing] = useState(false);
   // Honeypot — must stay empty; bots that fill it get a fake success.
   const [company, setCompany] = useState('');
+  const [turnstileToken, setTurnstileToken] = useState<string | undefined>(undefined);
+  // Bumped to force-remount the widget (fresh token) after a failed submit —
+  // Turnstile tokens are single-use.
+  const [turnstileKey, setTurnstileKey] = useState(0);
   const [nameErr, setNameErr] = useState<string | null>(null);
   const [emailErr, setEmailErr] = useState<string | null>(null);
   const [phoneErr, setPhoneErr] = useState<string | null>(null);
@@ -328,9 +404,15 @@ export function LandingForm({
         motivation: motiv.trim() || undefined,
         marketingOptIn: marketing,
         company,
+        turnstileToken,
       });
-      if (res.ok) setSent({ statusToken: res.statusToken, autoApproved: res.autoApproved });
-      else setError(res.message);
+      if (res.ok) {
+        setSent({ statusToken: res.statusToken, autoApproved: res.autoApproved });
+      } else {
+        setError(res.message);
+        setTurnstileToken(undefined);
+        setTurnstileKey((k) => k + 1);
+      }
     });
   }
 
@@ -344,6 +426,8 @@ export function LandingForm({
     setMotiv('');
     setMarketing(false);
     setCompany('');
+    setTurnstileToken(undefined);
+    setTurnstileKey((k) => k + 1);
     setNameErr(null);
     setEmailErr(null);
     setPhoneErr(null);
@@ -562,6 +646,8 @@ export function LandingForm({
             <input type="text" tabIndex={-1} autoComplete="off" value={company} onChange={(e) => setCompany(e.target.value)} />
           </label>
         </div>
+
+        <TurnstileWidget key={turnstileKey} onToken={setTurnstileToken} />
 
         <button
           type="button"

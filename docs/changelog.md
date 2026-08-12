@@ -8,6 +8,49 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-12 — Landing rate-limit hardening: throttle cleanup + Turnstile (86ey2czr6)
+
+Branch `claude/clickup-task-fix-6dec47`. Rate-limit hardening sweep, milestone: before the
+first real public event goes live (not a pilot blocker). Task's point 3 (log/alert on
+rate-limit) belongs to Prod-ready 08 (Sentry, `86ey7q790`) per its 9/7 update note and was
+left out here; point 2 (Vercel Firewall on `/e/*`) is dashboard-only config with no code
+path — documented for Max, not built.
+
+**1. `landing_request_throttle` cleanup.** `consume_public_throttle` (20260706102000) upserts
+one row per prefixed key (`req:`/`pv:`/`st:`/`if:` + ip_hash) and never deleted anything — the
+table grew forever. `20260812120000_landing_throttle_cleanup_cron.sql` adds
+`cleanup_landing_request_throttle()` (owner-only, no app-role EXECUTE) + an hourly pg_cron
+schedule deleting rows `updated_at < now() - interval '2 hours'`, guarded the same way as
+`run_privacy_retention`'s schedule so `supabase db reset` stays green without pg_cron
+preloaded. pgTAP: `landing_throttle_cleanup.test.sql` (5 assertions).
+
+**2. Cloudflare Turnstile on `/e/[slug]`.** Widget (`TurnstileWidget` in
+`src/components/po/landing.tsx`) renders only when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is set;
+`verifyTurnstileToken` (`src/features/requests/turnstile.ts`) checks the token server-side in
+`submitGuestRequest` before the rate-limited RPC. Keyless dev/CI is a hard requirement here —
+same stance as the Stripe stub: without `TURNSTILE_SECRET_KEY` the server passes verification
+open, so this ships inert until Max sets up the Cloudflare account. Two fail-open/fail-closed
+choices worth flagging for review: (a) a missing/invalid token fails **closed** once a secret
+is configured, but (b) an unreachable siteverify call fails **open** (logged) — a Cloudflare
+outage shouldn't block every real submission when the DB rate limit/honeypot/dedup are still
+standing. CSP (`next.config.js`) now allows `challenges.cloudflare.com` in
+`script-src`/`connect-src`/`frame-src`. Setup steps for Max (Cloudflare account, site/secret
+key → Vercel env) are in `docs/landing-rate-limit-hardening.md`, which also covers the Vercel
+Firewall rule (point 3 above).
+
+**Verified:** `pnpm type-check` clean, `pnpm lint` clean (pre-existing unrelated warnings
+only), `vitest run` 1142/1142 passing (incl. new `turnstile.test.ts` covering the
+keyless/fail-open/fail-closed matrix), `supabase db reset` clean on the full migration set,
+`supabase test db` 1074/1074 passing. Manually verified in the browser preview: keyless widget
+correctly renders nothing, full submission round-trip still succeeds, no console errors.
+
+**Review gate:** this PR adds a new `SECURITY DEFINER` function
+(`cleanup_landing_request_throttle`) — a CLAUDE.md high-risk surface — so it needs a
+fresh-session `/code-review` before merge; the fail-open siteverify call also makes it worth a
+`/security-review` pass given it's a new anon-facing external HTTP call.
+
+---
+
 ## 2026-08-11 — Quota-engine forge closed; quarter chart + per-member present follow #44 (86ey9c5fp)
 
 Branch `claude/86ey9c5fp-quarter-chart-pending-quota` (PR #262). Part 2 of the M4 review
