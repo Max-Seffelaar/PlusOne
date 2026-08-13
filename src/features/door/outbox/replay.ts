@@ -79,10 +79,33 @@ export function classifyError(error: DbError | null): ReplayResult {
  * would make it a redundant copy of the session, and its non-null-ness is what
  * makes a cross-user replay legible in the data. RLS pins it to auth.uid(), so
  * this is the only value the server will accept anyway.
+ *
+ * Callers must OMIT the key entirely rather than send `synced_by: null` — see
+ * `syncedByCol` below. This is deploy-order safety, not style.
  */
 function actorOf(entry: OutboxEntry, uid: string): { actor: string; syncedBy: string | null } {
   const actor = entry.ownerId ?? uid;
   return { actor, syncedBy: actor === uid ? null : uid };
+}
+
+/**
+ * `synced_by` as a spreadable fragment: present only on a real hand-off.
+ *
+ * PostgREST derives an INSERT's column list from the JSON keys, so sending
+ * `synced_by: null` names the column — and a bundle that always names it breaks
+ * against a database where the column does not exist yet. That window is real:
+ * the prod migration is pushed AFTER the merge deploys (CLAUDE.md), so between
+ * those two moments every door write would come back PGRST204, which
+ * `classifyError` does not recognise → retried MAX_ATTEMPTS times → dead-lettered.
+ * The door would stop persisting check-ins entirely, which is the exact harm this
+ * feature exists to prevent (found in review of this PR).
+ *
+ * Omitting the key makes the same-session path byte-identical to the pre-PR
+ * bundle, and the hand-off path can only fire once a hand-off is possible, which
+ * is after the migration has landed.
+ */
+function syncedByCol(syncedBy: string | null): { synced_by?: string } {
+  return syncedBy ? { synced_by: syncedBy } : {};
 }
 
 export async function replayEntry(
@@ -100,7 +123,7 @@ export async function replayEntry(
         guest_id: p.guestId,
         event_id: entry.eventId,
         checked_by: actor,
-        synced_by: syncedBy,
+        ...syncedByCol(syncedBy),
         plus_ones_arrived: p.plusOnesArrived,
         client_timestamp: p.clientTimestamp,
         device_id: deviceId,
@@ -136,7 +159,7 @@ export async function replayEntry(
         guest_id: p.guestId,
         event_id: entry.eventId,
         refused_by: actor,
-        synced_by: syncedBy,
+        ...syncedByCol(syncedBy),
         reason: p.reason,
         client_timestamp: p.clientTimestamp,
         device_id: deviceId,

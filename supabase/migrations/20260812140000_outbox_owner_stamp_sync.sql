@@ -118,9 +118,9 @@ alter table public.refusals
   add column if not exists synced_by uuid references public.user_profiles (id) on delete restrict;
 
 comment on column public.check_ins.synced_by is
-  'Set only when the row was replayed from a door outbox owned by a DIFFERENT user than the draining session (shared tablet, doorhost hand-off). checked_by stays the doorhost who admitted the guest. Pinned to auth.uid() by RLS (86ey9et0h).';
+  'Who transmitted the INSERT that created this row, when that was not the doorhost who admitted the guest (shared tablet, doorhost hand-off). Scope is deliberately the insert only: later UPDATEs (top-up, uitchecken, revive) do not maintain it, so NULL means "this row was inserted by its own actor", never "no hand-off ever touched it". The audit log is the complete per-change record. Pinned to auth.uid() on INSERT by RLS; on UPDATE only check_ins_update_door pins it, so treat it as advisory provenance rather than a security control (86ey9et0h).';
 comment on column public.refusals.synced_by is
-  'See check_ins.synced_by — the user whose session transmitted this refusal, when that differs from refused_by (86ey9et0h).';
+  'See check_ins.synced_by — the session that transmitted this refusal''s INSERT, when that differs from refused_by. refusals has no UPDATE policy at all, so here the value is immutable (86ey9et0h).';
 
 -- ---------------------------------------------------------------------------
 -- Policies
@@ -140,18 +140,93 @@ alter policy refusals_insert on public.refusals
     and (synced_by is null or synced_by = (select auth.uid()))
   );
 
--- UPDATE: closes the unbounded-checked_by hole described in the header. voided_by
--- gets the same bound for the same reason — a queued "uitchecken" drained by a
--- colleague must keep naming the doorhost who sent the guest away, and until now
--- that column was equally unconstrained on this path. check_out_guest
--- (20260810183000) sets voided_by = auth.uid() and is SECURITY INVOKER, so it
--- satisfies the actor-is-caller branch unchanged.
+-- UPDATE: only `synced_by` is bounded by the policy. The actor columns are
+-- guarded by a trigger instead — see below for why a WITH CHECK cannot do this
+-- job correctly.
 alter policy check_ins_update_door on public.check_ins
   with check (
-    public.can_record_check_in_for(public.guest_event(guest_id), checked_by)
-    and (voided_by is null or public.can_record_check_in_for(public.guest_event(guest_id), voided_by))
+    public.can_check_in(public.guest_event(guest_id))
     and (synced_by is null or synced_by = (select auth.uid()))
   );
+
+-- ---------------------------------------------------------------------------
+-- Actor guard on UPDATE — a trigger, deliberately not a policy
+-- ---------------------------------------------------------------------------
+-- The hole being closed: `check_ins_update_door` (20260617020000) had NO
+-- predicate on `checked_by`, and because permissive policies are OR-ed that made
+-- the sibling `check_ins_update_own_device` pin non-binding — any door-scoped
+-- user could UPDATE an existing check-in and rewrite the actor to an arbitrary
+-- uuid. `reviveCheckIn` (src/features/door/outbox/gateway.ts) writes that column
+-- on exactly this path.
+--
+-- The first version of this migration closed it with `WITH CHECK
+-- (can_record_check_in_for(..., checked_by))`. That is WRONG, and the review of
+-- this PR caught it: WITH CHECK evaluates the RESULTING ROW, not the columns the
+-- statement touched. So a plain top-up or check-out — which never mention
+-- `checked_by` — would be re-validated against whoever already sat in that
+-- column. Concretely: an external organizer checks a guest in during build-up,
+-- an admin later removes them from `event_organizers` (the External-crew screen
+-- does precisely this), and from then on every "uitchecken" of that guest fails
+-- 42501 — and offline it dead-letters terminally, losing a real door action.
+-- Revoking someone's access must never retroactively freeze rows they touched.
+--
+-- A BEFORE UPDATE trigger can see OLD, so it can ask the question that actually
+-- matters: "is this statement CHANGING the actor?" Unchanged actors are left
+-- alone no matter what their role is today. It also binds strictly harder than a
+-- policy would: `check_ins` is not FORCE ROW LEVEL SECURITY, so a SECURITY
+-- DEFINER function bypasses RLS entirely — but never a trigger. Verified that no
+-- definer path writes `checked_by`: `check_out_guest` (20260810183000) only ever
+-- touches `voided_at`/`voided_by`/`plus_ones_arrived`.
+-- SECURITY INVOKER on purpose: the guard needs to see WHICH ROLE is writing, and
+-- inside a SECURITY DEFINER function `current_user` is always the owner, which
+-- would make the exemption below unreachable.
+create or replace function public.guard_check_in_actor_change()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  -- Client writes only. A trigger fires for EVERYONE — including the superuser
+  -- running migrations, seeds and pgTAP fixtures, and every SECURITY DEFINER
+  -- function. Those are exactly the paths RLS deliberately does not apply to
+  -- either (no table here is FORCE ROW LEVEL SECURITY), so bounding them would
+  -- be a behaviour change well outside this task: it broke two unrelated pgTAP
+  -- suites that arrange state by writing `voided_by` directly.
+  --
+  -- The discriminator is the ROLE, not `auth.uid()`. A first attempt exempted
+  -- "no JWT" and still broke, because `reset role` restores the role WITHOUT
+  -- clearing `request.jwt.claims` — so `auth.uid()` happily returns the last
+  -- logged-in user while the write is really running as a superuser. PostgREST
+  -- always executes client requests as `authenticated`/`anon`, so keying on that
+  -- exempts nothing a client can reach.
+  if current_user not in ('authenticated', 'anon') then
+    return new;
+  end if;
+  -- Only a CHANGE is validated; NULL-ing voided_by (check_out_guest's re-checkin
+  -- branch) is a clearing, not an attribution, so it needs no actor.
+  if new.checked_by is distinct from old.checked_by
+     and not public.can_record_check_in_for(new.event_id, new.checked_by) then
+    raise exception using errcode = '42501',
+      message = 'Je mag een check-in niet op naam van deze gebruiker zetten.';
+  end if;
+  if new.voided_by is distinct from old.voided_by
+     and new.voided_by is not null
+     and not public.can_record_check_in_for(new.event_id, new.voided_by) then
+    raise exception using errcode = '42501',
+      message = 'Je mag een uitcheck niet op naam van deze gebruiker zetten.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists check_ins_guard_actor_change on public.check_ins;
+create trigger check_ins_guard_actor_change
+  before update on public.check_ins
+  for each row execute function public.guard_check_in_actor_change();
+
+comment on function public.guard_check_in_actor_change() is
+  'Bounds check_ins.checked_by/voided_by to door-capable users of the event, but only when an UPDATE actually changes them — a WITH CHECK would re-validate an unchanged actor and freeze rows whose original actor later lost access (86ey9et0h).';
 
 -- guests: the outbox's `add_guest` kind carries the same hand-off problem —
 -- `added_by` was pinned to auth.uid() (20260613120000, last altered
@@ -165,12 +240,26 @@ alter policy check_ins_update_door on public.check_ins
 --
 -- Known consequence, accepted with the 2026-08-12 decision: `enforce_guest_quota`
 -- charges `new.added_by`, so this also lets a door-capable user attribute a
--- walk-in to a door-capable COLLEAGUE's allowance. It is not a way to add guests
--- for free — the shared pools (event capacity, tier max) still move, the named
--- colleague's meter is still charged, and audit_log.actor_id still records the
--- real session — it only misattributes WHICH door colleague paid. Weighed
--- against the alternative (a queued door add, and the check-in chained behind
--- it, silently destroyed on a tablet hand-off), that is the smaller harm.
+-- walk-in to a door-capable COLLEAGUE. Stated precisely, because the first
+-- version of this comment got it wrong and the review of this PR caught it:
+--   * named colleague is a doorhost/organizer -> their personal meter is charged;
+--   * named colleague is a venue ADMIN -> `user_is_quota_exempt`
+--     (20260625120000_external_crew_quota.sql) is true, so `enforce_guest_quota`
+--     skips the personal-quota branch entirely. NOBODY's meter is charged.
+-- Either way the SHARED pools still move (`events.capacity`, `guest_tiers.
+-- max_guests`) and `audit_log.actor_id` still records the real session, so this
+-- is a misattribution and an advisory-quota gap, not an unbounded free-guest
+-- machine.
+--
+-- Not a new capability, which is why it is accepted rather than blocking: the
+-- same outcome is already reachable on `main` in one write, because
+-- `guests_update`'s WITH CHECK (20260811160000) evaluates its role branch on
+-- `auth.uid()` rather than on `added_by` — any admin/doorhost/organizer can
+-- re-point `added_by` at an exempt admin today. Bounding `added_by` on
+-- `guests_update` is the real fix and belongs in its own task; it is pre-existing
+-- and out of scope here. Weighed against the alternative (a queued door add, and
+-- the check-in chained behind it, silently destroyed on a tablet hand-off), the
+-- relaxation is the smaller harm.
 alter policy guests_insert on public.guests
   with check (
     public.can_write_guests(event_id)

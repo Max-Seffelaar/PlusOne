@@ -97,13 +97,17 @@ describe('replayEntry', () => {
         id: 'ci1',
         guest_id: 'g1',
         checked_by: UID,
-        // Same session did the tap and the send — no hand-off to record.
-        synced_by: null,
         plus_ones_arrived: 1,
         device_id: DEVICE,
         offline_synced: true,
       }),
     );
+    // Same session tapped and sent it, so there is no hand-off to record — and
+    // the key must be ABSENT rather than null. PostgREST derives the INSERT's
+    // column list from the JSON keys, so a bundle that always names `synced_by`
+    // is rejected wholesale by a database where the column does not exist yet —
+    // i.e. every door write between the merge deploy and the prod migration.
+    expect(insertCheckIn).toHaveBeenCalledWith(expect.not.objectContaining({ synced_by: expect.anything() }));
   });
 
   it('check-in duplicate surfaces as duplicate', async () => {
@@ -652,7 +656,8 @@ describe('replayEntry — outbox owner ≠ draining session', () => {
     // than be quarantined for a missing field.
     const insertCheckIn = vi.fn(async () => ({ error: null }));
     await replayEntry({ ...gatewayReturning(null), insertCheckIn }, checkInEntry(), BOB, DEVICE);
-    expect(insertCheckIn).toHaveBeenCalledWith(expect.objectContaining({ checked_by: BOB, synced_by: null }));
+    expect(insertCheckIn).toHaveBeenCalledWith(expect.objectContaining({ checked_by: BOB }));
+    expect(insertCheckIn).toHaveBeenCalledWith(expect.not.objectContaining({ synced_by: expect.anything() }));
   });
 
   it('drains a mixed queue of both users in one pass, each row keeping its own actor', async () => {
@@ -670,9 +675,12 @@ describe('replayEntry — outbox owner ≠ draining session', () => {
     ]);
     const summary = await drainOutbox({ ...store, gateway: gw, uid: BOB, deviceId: DEVICE });
     expect(summary.synced).toBe(2); // nothing held back waiting for Alice to return
+    // Alice's row carries the hand-off; Bob's own row does not name the column
+    // at all (see the deploy-order note above).
     expect(rows.map((r) => [r.checked_by, r.synced_by])).toEqual([
       [ALICE, BOB],
-      [BOB, null],
+      [BOB, undefined],
     ]);
+    expect(rows[1]).not.toHaveProperty('synced_by');
   });
 });

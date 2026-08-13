@@ -1,5 +1,5 @@
 -- pgTAP — 86ey9et0h: door outbox owner-stamp + cross-user sync.
--- Proves migration 20260812120000_outbox_owner_stamp_sync: a door write may name
+-- Proves migration 20260812140000_outbox_owner_stamp_sync: a door write may name
 -- a DIFFERENT actor than the caller (a shared tablet drained after a doorhost
 -- hand-off), but only a door-capable one, and `synced_by` stays pinned to the
 -- caller. Also proves the UPDATE hole that migration closes on the way past.
@@ -28,7 +28,7 @@ begin
 end;
 $fn$;
 
-select plan(16);
+select plan(18);
 
 -- ---------------------------------------------------------------------------
 -- A. INSERT — the hand-off this feature exists for: ALLOWED
@@ -135,7 +135,7 @@ $$, '42501', null, 'C2 a refusal cannot be attributed to a non-door role');
 -- ---------------------------------------------------------------------------
 -- D. UPDATE — the pre-existing hole this migration closes
 -- ---------------------------------------------------------------------------
--- Before 20260812120000, `check_ins_update_door` carried NO predicate on
+-- Before 20260812140000, `check_ins_update_door` carried NO predicate on
 -- checked_by, and because permissive policies are OR-ed that made the sibling
 -- own-device pin non-binding: any door-scoped user could rewrite the actor of
 -- an existing check-in to an arbitrary uuid. `reviveCheckIn` writes that column
@@ -159,6 +159,39 @@ select lives_ok($$
      set checked_by = '66666666-6666-4666-8666-666666666666'
    where guest_id = (select id from public.guests where full_name = 'Nina Driessen')
 $$, 'D3 a door-capable actor is still an accepted value on UPDATE');
+
+-- D4/D5 — revoking someone's access must never freeze the rows they touched.
+-- The first version of this migration bounded `checked_by` in the policy's WITH
+-- CHECK, which evaluates the RESULTING ROW: a plain top-up or uitchecken (which
+-- never mention that column) was therefore re-validated against whoever already
+-- sat in it. Remove an external organizer from the event afterwards — the
+-- External-crew screen does exactly this — and every later update to their
+-- check-ins failed 42501, dead-lettering real door actions offline. The guard is
+-- a BEFORE UPDATE trigger instead, so it only fires when the actor CHANGES.
+select pg_temp.login('66666666-6666-4666-8666-666666666666');
+insert into public.check_ins (guest_id, checked_by, synced_by, plus_ones_arrived)
+values ((select id from public.guests where full_name = 'Lotte de Wit'),
+        '44444444-4444-4444-8444-444444444444',
+        '66666666-6666-4666-8666-666666666666', 0);
+
+-- The organizer loses their event scope, so they are no longer door-capable.
+reset role;
+delete from public.event_organizers
+ where event_id = 'ee000000-0000-7000-8000-000000000001'
+   and user_id = '44444444-4444-4444-8444-444444444444';
+
+select pg_temp.login('66666666-6666-4666-8666-666666666666');
+select lives_ok($$
+  update public.check_ins
+     set plus_ones_arrived = 1
+   where guest_id = (select id from public.guests where full_name = 'Lotte de Wit')
+$$, 'D4 a top-up still works after the original actor lost door access');
+
+select is(
+  (select checked_by from public.check_ins
+    where guest_id = (select id from public.guests where full_name = 'Lotte de Wit')),
+  '44444444-4444-4444-8444-444444444444'::uuid,
+  'D5 and that update leaves the original actor in place, unrewritten');
 
 -- ---------------------------------------------------------------------------
 -- E. guests — the same hand-off for a door-added walk-in, scoped to source='door'

@@ -29,7 +29,7 @@ halves, and only having the first one would have made things worse:
 | half | without it |
 |---|---|
 | `ownerId` stamped at enqueue (`outbox/types.ts`) | the device doesn't know A did it; B's sync silently relabels the rows |
-| RLS accepts an actor ≠ `auth.uid()` (migration `20260812120000`) | the insert returns `42501`, which `replay.ts` classifies as TERMINAL → dead-lettered → **the check-in is lost anyway** |
+| RLS accepts an actor ≠ `auth.uid()` (migration `20260812140000`) | the insert returns `42501`, which `replay.ts` classifies as TERMINAL → dead-lettered → **the check-in is lost anyway** |
 
 **The RLS change, stated precisely.** `check_ins_insert` pinned `checked_by = (select auth.uid())`
 since the first RLS migration. That pin is now a *bound* rather than an identity: a door write
@@ -72,7 +72,7 @@ it sits in front of an unverified session and has no business discarding a doorh
 optional, because discarding the queue to enforce a schema is the exact data loss this PR exists
 to prevent.
 
-**Tests.** Vitest **1157 green** (57 new across `replay.test.ts`, `persistence.test.ts`,
+**Tests.** Vitest **1161 green** (61 new across `replay.test.ts`, `persistence.test.ts`,
 `sign-out.test.ts` — owner-mismatch drain, identity preservation, mixed-owner queue, legacy
 entries without `ownerId`, logout flush online/offline/discard). New pgTAP
 `outbox_owner_stamp.test.sql` **16/16 green** (allowed + denied per role, `synced_by` pinned,
@@ -109,6 +109,42 @@ online-but-writes-won't-land case (captive-portal wifi), which is covered by uni
 Settings reachable offline means extending the raw-History bypass to tab switches; deliberately NOT
 done here (it is app-wide navigation surgery, not outbox work) and left for Max to scope.
 
+**Review round (fresh-session `/code-review` + `/security-review`, 12-8).** No confirmed
+vulnerabilities; three security candidates were raised and all three refuted on verification. The
+code review found two merge-blockers and four real defects, all fixed here:
+
+| # | defect | why it mattered |
+|---|---|---|
+| C1 | migration timestamp `20260812120000` collided with `…_landing_throttle_cleanup_cron` on `main` | `schema_migrations` keys on version — every `db push`/`db reset` after the merge aborts. Renamed to `20260812140000`. |
+| C2 | `synced_by` sent on every insert, `null` included | PostgREST derives the column list from the JSON keys, and the prod migration is pushed AFTER the merge deploys — so in that window every door write returns PGRST204, dead-letters, and the door stops persisting check-ins. Now omitted unless a hand-off actually happened. |
+| C3 | sign-out counted `isRetryable` (`pending \|\| error`) as blocking | a dead-lettered 45005 kept the doorhost behind a destructive-only prompt for the tombstone's full 12h, on any connection, claiming check-ins "have not been synced yet" that were in fact rejected. Counts unsent work only. |
+| C4 | the UPDATE bound sat in `WITH CHECK` | WITH CHECK evaluates the RESULTING row, so a plain top-up or uitchecken was re-validated against whoever already sat in `checked_by`. Remove an external organizer afterwards and every later update to their check-ins failed 42501 — offline, terminally. Moved to a BEFORE UPDATE trigger that fires only when the actor CHANGES. |
+| C5 | the sign-out flush drained queues it did not own | a staff session replaying a doorhost's entries gets 42501 → terminal, and automatic drains never retry those: the feature silently destroying the queue it exists to protect. Now skips when nothing in the queue belongs to the signing-out user. |
+| C6 | `getUser()` could escape the flush | it validates against the auth server, so it rejects on captive-portal wifi where `isOnline()` is true — surfacing as a generic failure instead of the count, in exactly the scenario the prompt is for. |
+
+Two smaller ones: the toast now says "door actions" when the queue is not all check-ins (C9), and
+the flush reuses the caller's Supabase client instead of building a second one on the same cookie
+storage (C10). Two documentation defects the review caught were corrected rather than papered over:
+the migration claimed "the named colleague's meter is still charged", which is false when that
+colleague is a venue admin (`user_is_quota_exempt` short-circuits the whole personal-quota branch),
+and `synced_by`'s column comment promised more than the column delivers — it records the INSERT
+only, since later updates do not maintain it.
+
+**The trigger's own trap, worth remembering.** A trigger fires for EVERYONE, including the superuser
+running seeds and pgTAP fixtures and every SECURITY DEFINER function — contexts RLS deliberately
+does not apply to. The first version broke two unrelated pgTAP suites that arrange state by writing
+`voided_by` directly. Exempting "no JWT" was NOT enough either: `reset role` restores the role
+without clearing `request.jwt.claims`, so `auth.uid()` still returns the last logged-in user while
+the write runs as a superuser. The correct discriminator is the ROLE — `current_user in
+('authenticated','anon')` — which also forces the function to be SECURITY INVOKER, since inside a
+DEFINER function `current_user` is always the owner.
+
+**Pre-existing, out of scope, worth its own task:** `guests_update`'s WITH CHECK evaluates its role
+branch on `auth.uid()` rather than on `added_by`, so any admin/doorhost/organizer can already
+re-point `added_by` at a quota-exempt admin in one write on `main` today. That is what makes this
+PR's `source='door'` relaxation a no-new-capability change rather than a new hole, and it is the
+real fix for advisory-quota enforcement.
+
 **Verified end-to-end in a real browser (12-8).** Driven through the in-app browser against the
 local stack, both directions of a hand-off, with the transport to Supabase cut at `window.fetch` so
 the outbox sees the same code-less failure a real offline shift produces:
@@ -136,7 +172,7 @@ two minutes after the seed timestamp) left by a manual dev session; a reset clea
 assertion passes, confirming the diagnosis and satisfying DoD #5 (applies cleanly on a fresh DB).
 
 **Gotcha worth remembering — a migration can be RECORDED without being APPLIED.** Twice during this
-task the local `supabase_migrations.schema_migrations` table listed `20260812120000` while neither
+task the local `supabase_migrations.schema_migrations` table listed `20260812140000` while neither
 `synced_by` nor `can_record_check_in_for` existed in the schema. In that state `supabase migration
 up` reports "Local database is up to date" and silently leaves the schema wrong, which then fails at
 the PostgREST layer (unknown column → every door insert rejected) rather than anywhere obvious. The

@@ -1677,6 +1677,7 @@ export type Database = {
           id: string
           offline_synced: boolean
           plus_ones_arrived: number
+          synced_by: string | null
           venue_id: string
           voided_at: string | null
           voided_by: string | null

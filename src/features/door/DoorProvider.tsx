@@ -397,15 +397,19 @@ export function DoorProvider({
       });
       if (foreignBefore.length > 0) {
         const ids = new Set(foreignBefore);
-        const handedOver = outbox
+        const settled = outbox
           .getSnapshot()
-          .filter((e) => ids.has(e.clientId) && (e.status === 'synced' || e.status === 'duplicate')).length;
-        if (handedOver > 0) {
-          showToast(
-            `${handedOver} check-in${handedOver === 1 ? '' : 's'} from the previous user ${
-              handedOver === 1 ? 'was' : 'were'
-            } synced`,
-          );
+          .filter((e) => ids.has(e.clientId) && (e.status === 'synced' || e.status === 'duplicate'));
+        if (settled.length > 0) {
+          // Say "check-ins" only when they all ARE check-ins. The queue also
+          // carries refusals, door-adds, voids and note acks, and a toast on the
+          // one screen whose entire purpose is accurate attribution must not
+          // announce two refusals as "2 check-ins" (review of this PR).
+          const n = settled.length;
+          const noun = settled.every((e) => e.kind === 'check_in')
+            ? `check-in${n === 1 ? '' : 's'}`
+            : `door action${n === 1 ? '' : 's'}`;
+          showToast(`${n} ${noun} from the previous user ${n === 1 ? 'was' : 'were'} synced`);
         }
       }
       if (summary.duplicates > 0) showToast('Was already checked in on another device');

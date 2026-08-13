@@ -18,12 +18,21 @@ vi.mock('@sentry/nextjs', () => ({ captureMessage: vi.fn() }));
 // The last-chance flush (86ey9et0h) drains through the real replay code, so the
 // gateway is the only seam that must not reach the network. Recording the rows
 // lets the tests assert what actually went up, not merely that a drain ran.
-const gw = vi.hoisted(() => ({ sent: [] as { checked_by?: string; synced_by?: string | null }[], fail: false }));
+const gw = vi.hoisted(() => ({
+  sent: [] as { checked_by?: string; synced_by?: string | null }[],
+  /** Code-LESS failure = network/offline: the entry stays `pending`. */
+  fail: false,
+  /** Coded TERMINAL rejection (quota/tier/capacity): the entry dead-letters to
+   *  `error`. The distinction matters — only the first kind should block a
+   *  sign-out, and conflating them is what trapped the doorhost (C3). */
+  terminal: false,
+}));
 vi.mock('@/features/door/outbox/gateway', () => {
   const ok = async () => ({ error: null });
   return {
     supabaseGateway: () => ({
       insertCheckIn: async (row: { checked_by?: string; synced_by?: string | null }) => {
+        if (gw.terminal) return { error: { code: '45005', message: 'This event is at capacity.' } };
         if (gw.fail) return { error: { code: undefined, message: 'Failed to fetch' } };
         gw.sent.push(row);
         return { error: null };
@@ -232,10 +241,13 @@ describe('signOutDevice — un-synced door writes (86ey9et0h)', () => {
   beforeEach(() => {
     gw.sent = [];
     gw.fail = false;
+    gw.terminal = false;
     outbox.reset(); // singleton outlives a test — start each case from empty
   });
 
   it('flushes the queue before wiping when the device is online', async () => {
+    // The signing-out user owns this entry, so it is theirs to send.
+    getUser.mockResolvedValue({ data: { user: { id: OWNER } } });
     await idbSet(OUTBOX_KEY, { buster: 'door-outbox-v1', entries: [queuedCheckIn()] });
     vi.stubGlobal('navigator', { onLine: true });
 
@@ -246,14 +258,19 @@ describe('signOutDevice — un-synced door writes (86ey9et0h)', () => {
     expect(await idbGet(OUTBOX_KEY)).toBeUndefined();
   });
 
-  it('preserves the queueing doorhost as the actor on that last-chance flush', async () => {
-    // The flush runs under whoever is signing out; it must not relabel the rows.
+  it('keeps the queueing doorhost as the actor, and omits synced_by on their own queue', async () => {
+    // Same session tapped and sent it, so there is no hand-off to record — and
+    // the key must be ABSENT, not null: PostgREST derives the column list from
+    // the JSON keys, so naming a column the deployed schema may not have yet
+    // would reject every door write until the migration lands.
+    getUser.mockResolvedValue({ data: { user: { id: OWNER } } });
     await idbSet(OUTBOX_KEY, { buster: 'door-outbox-v1', entries: [queuedCheckIn()] });
     vi.stubGlobal('navigator', { onLine: true });
 
     await signOutDevice('local');
 
-    expect(gw.sent[0]).toMatchObject({ checked_by: OWNER, synced_by: 'A' });
+    expect(gw.sent[0]).toMatchObject({ checked_by: OWNER });
+    expect(gw.sent[0]).not.toHaveProperty('synced_by');
   });
 
   it('refuses to sign out offline while entries are queued, and destroys nothing', async () => {
@@ -301,6 +318,98 @@ describe('signOutDevice — un-synced door writes (86ey9et0h)', () => {
   it('signs out normally when nothing is queued', async () => {
     vi.stubGlobal('navigator', { onLine: false });
     await signOutDevice('local');
+    expect(assign).toHaveBeenCalledWith('/login');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Regressions from the review of this PR (86ey9et0h). Each of these passed
+// silently before the fix, which is the point: the flush's failure modes all
+// look like success from the outside.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('signOutDevice — flush failure modes (86ey9et0h review)', () => {
+  const EVENT_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  /** Valid UUIDs on purpose: the persisted-entry schema quarantines anything
+   *  else, which would silently empty the queue and make these tests vacuous. */
+  const ME = '11111111-2222-4333-8444-555555555555';
+  const SOMEONE_ELSE = '99999999-8888-4777-8666-555555555555';
+
+  function entry(over: Record<string, unknown> = {}) {
+    return {
+      clientId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      eventId: EVENT_ID,
+      kind: 'check_in',
+      status: 'pending',
+      attempts: 0,
+      createdAt: '2026-08-12T22:00:00.000Z',
+      ownerId: ME,
+      payload: {
+        id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+        guestId: '99999999-9999-4999-8999-999999999999',
+        plusOnesArrived: 0,
+        clientTimestamp: '2026-08-12T22:00:00.000Z',
+      },
+      ...over,
+    };
+  }
+
+  beforeEach(() => {
+    gw.sent = [];
+    gw.fail = false;
+    gw.terminal = false;
+    outbox.reset();
+    vi.stubGlobal('navigator', { onLine: true });
+  });
+
+  it('does not let a dead-lettered entry block sign-out forever', async () => {
+    // A 45005 capacity rejection is terminal: retrying it changes nothing, and
+    // it lives 12h as a tombstone. Counting it as "not yet synced" trapped the
+    // doorhost behind a destructive-only prompt for the rest of the night.
+    getUser.mockResolvedValue({ data: { user: { id: ME } } });
+    gw.terminal = true; // the retry is rejected again, exactly as the real 45005 would be
+    await idbSet(OUTBOX_KEY, {
+      buster: 'door-outbox-v1',
+      entries: [entry({ status: 'error', message: 'This event is at capacity.' })],
+    });
+
+    await signOutDevice('local');
+
+    expect(assign).toHaveBeenCalledWith('/login');
+  });
+
+  it('surfaces the count when getUser() rejects on a lying-online connection', async () => {
+    // Captive-portal wifi: navigator.onLine is true, the auth round-trip fails.
+    // An escaping throw showed a generic "could not sign out" and the doorhost
+    // never saw the choice — in the exact scenario the prompt exists for.
+    getUser.mockRejectedValue(new TypeError('Failed to fetch'));
+    await idbSet(OUTBOX_KEY, { buster: 'door-outbox-v1', entries: [entry()] });
+
+    await expect(signOutDevice('local')).rejects.toBeInstanceOf(PendingOutboxError);
+    expect(await idbGet(OUTBOX_KEY)).toBeDefined();
+  });
+
+  it('leaves a previous doorhost\'s queue untouched when someone else signs out', async () => {
+    // A staff/finance session cannot pass can_check_in, so replaying A's entries
+    // returns 42501 — terminal — and would flip them to `error`. Automatic drains
+    // never retry those, so A's check-ins would be silently unrecoverable: the
+    // feature destroying the queue it exists to protect.
+    getUser.mockResolvedValue({ data: { user: { id: SOMEONE_ELSE } } });
+    await idbSet(OUTBOX_KEY, { buster: 'door-outbox-v1', entries: [entry({ ownerId: ME })] });
+
+    await expect(signOutDevice('local')).rejects.toBeInstanceOf(PendingOutboxError);
+
+    expect(gw.sent).toHaveLength(0); // never attempted under the wrong session
+    const stored = (await idbGet(OUTBOX_KEY)) as { entries: { status: string }[] };
+    expect(stored.entries[0].status).toBe('pending'); // still replayable by its owner
+  });
+
+  it('still drains an unattributed (pre-owner-stamp) entry rather than stranding it', async () => {
+    getUser.mockResolvedValue({ data: { user: { id: SOMEONE_ELSE } } });
+    await idbSet(OUTBOX_KEY, { buster: 'door-outbox-v1', entries: [entry({ ownerId: undefined })] });
+
+    await signOutDevice('local');
+
+    expect(gw.sent).toHaveLength(1);
     expect(assign).toHaveBeenCalledWith('/login');
   });
 });
