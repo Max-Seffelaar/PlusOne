@@ -61,6 +61,9 @@ export const landing = {
   nameError: 'Add your name so we can save your spot.',
   emailError: "That email doesn't look right. Mind checking it?",
   phoneError: 'Check your phone number, including the country code.',
+  // Cloudflare Turnstile permanently failed to load (86ey2czr6) — most often
+  // an ad-blocker dropping the challenges.cloudflare.com script.
+  turnstileFailed: "Verification couldn't load. Disable your ad-blocker or try a different browser, then refresh to submit.",
 
   // ── Success ──────────────────────────────────────────────────────────────
   successTitle: "Request sent. You're in the queue.",

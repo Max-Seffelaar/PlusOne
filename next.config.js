@@ -23,6 +23,9 @@ const scriptSrc = isDev
   ? "'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'"
   : "'self' 'unsafe-inline' 'wasm-unsafe-eval'";
 
+// The strict, global baseline — no Cloudflare entries here, and no frame-src
+// override (falls back to default-src 'self', i.e. no third-party frames
+// anywhere except where landingCsp below widens it).
 const csp = [
   "default-src 'self'",
   `script-src ${scriptSrc}`,
@@ -30,6 +33,26 @@ const csp = [
   `connect-src ${connectSrc}`,
   "img-src 'self' data: https:",
   "font-src 'self' data:",
+  "frame-ancestors 'none'",
+].join('; ');
+
+// Cloudflare Turnstile (86ey2czr6) is /e/* only — widen script-src/
+// connect-src/frame-src there instead of globally. Verified against
+// next@15.5.19 (resolve-routes.js): matching `headers()` entries are plain
+// last-wins per header key, so this more-specific entry must be appended
+// AFTER the catch-all in the returned array below (order is load-bearing) to
+// win on /e/*. Per-route CSP only governs hard navigations (a fresh document
+// response, not client-side RSC/fetch traffic) — safe today because /e/* is
+// always entered that way (no in-app <Link> reaches it); revisit if that
+// ever changes.
+const landingCsp = [
+  "default-src 'self'",
+  `script-src ${scriptSrc} https://challenges.cloudflare.com`,
+  "style-src 'self' 'unsafe-inline'",
+  `connect-src ${connectSrc} https://challenges.cloudflare.com`,
+  "img-src 'self' data: https:",
+  "font-src 'self' data:",
+  "frame-src 'self' https://challenges.cloudflare.com",
   "frame-ancestors 'none'",
 ].join('; ');
 
@@ -80,7 +103,12 @@ const nextConfig = {
         value: 'max-age=63072000; includeSubDomains; preload',
       });
     }
-    return [{ source: '/:path*', headers }];
+    return [
+      { source: '/:path*', headers },
+      // Must stay AFTER the catch-all above — last-wins per header key.
+      // '/e/:path*' also matches the bare '/e' segment.
+      { source: '/e/:path*', headers: [{ key: 'Content-Security-Policy', value: landingCsp }] },
+    ];
   },
 };
 

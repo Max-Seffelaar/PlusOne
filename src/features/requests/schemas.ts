@@ -61,6 +61,10 @@ export const submitGuestRequestSchema = z.object({
   marketingOptIn: z.boolean().optional().default(false),
   // Honeypot — must stay empty. Anything here means "bot".
   company: z.string().max(200).optional(),
+  // Cloudflare Turnstile response token (86ey2czr6). Absent whenever the
+  // widget didn't render (no NEXT_PUBLIC_TURNSTILE_SITE_KEY configured) —
+  // verifyTurnstileToken treats that the same as a keyless server.
+  turnstileToken: z.string().max(2048).optional(),
 });
 export type SubmitGuestRequestInput = z.input<typeof submitGuestRequestSchema>;
 
