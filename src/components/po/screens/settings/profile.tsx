@@ -13,7 +13,7 @@ import { Icon, type IconName } from '../../icon';
 import { Avatar, Btn, Empty, Field, Label, Loading, MiniChip, Note, Scroll, Top, press } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
 import { CountrySelect, PhoneInput, phoneCountryOf, type CountryCode } from '../../phone-lazy';
-import { col, FormError, signOutDevice } from './_shared';
+import { col, FormError, PendingOutboxError, PendingOutboxSheet, signOutDevice } from './_shared';
 
 // MFA row in the profile's security card (S4.3). MFA is OPTIONAL for every role
 // (#20 refinement 2026-07-02): anyone can enable it (reusing the enroll step from
@@ -150,6 +150,9 @@ export function Profile(): JSX.Element {
   const [loaded, setLoaded] = useState(false);
   const [confirmLogoutAll, setConfirmLogoutAll] = useState(false);
   const [signingOut, setSigningOut] = useState<'local' | 'global' | null>(null);
+  /** Un-synced door writes a sign-out would destroy, plus the scope the user
+   *  asked for so "sign out anyway" resumes the SAME action (86ey9et0h). */
+  const [pendingLoss, setPendingLoss] = useState<{ scope: 'local' | 'global'; n: number } | null>(null);
   const [signOutErr, setSignOutErr] = useState(false);
 
   // Prefill the editable fields once the profile arrives (and keep them in sync
@@ -312,9 +315,11 @@ export function Profile(): JSX.Element {
             setSigningOut('local');
             // Fail-safe reject (local session not cleared, e.g. offline): no
             // redirect happens — recover the button and warn.
-            void signOutDevice('local').catch(() => {
+            void signOutDevice('local').catch((e: unknown) => {
               setSigningOut(null);
-              setSignOutErr(true);
+              // Un-synced door writes: ask, never discard silently (86ey9et0h).
+              if (e instanceof PendingOutboxError) setPendingLoss({ scope: 'local', n: e.pending });
+              else setSignOutErr(true);
             });
           }}
         >
@@ -363,10 +368,11 @@ export function Profile(): JSX.Element {
             onClick={() => {
               setSignOutErr(false);
               setSigningOut('global');
-              void signOutDevice('global').catch(() => {
+              void signOutDevice('global').catch((e: unknown) => {
                 setSigningOut(null);
-                setSignOutErr(true);
-                setConfirmLogoutAll(false); // close the sheet so the error under the buttons shows
+                setConfirmLogoutAll(false); // close the sheet so what follows is visible
+                if (e instanceof PendingOutboxError) setPendingLoss({ scope: 'global', n: e.pending });
+                else setSignOutErr(true);
               });
             }}
           >
@@ -376,6 +382,21 @@ export function Profile(): JSX.Element {
             {t.settings.common.cancel}
           </Btn>
         </Sheet>
+      )}
+      {pendingLoss !== null && (
+        <PendingOutboxSheet
+          pending={pendingLoss.n}
+          onStay={() => setPendingLoss(null)}
+          onDiscard={() => {
+            const scope = pendingLoss.scope;
+            setPendingLoss(null);
+            setSigningOut(scope);
+            void signOutDevice(scope, { discardPending: true }).catch(() => {
+              setSigningOut(null);
+              setSignOutErr(true);
+            });
+          }}
+        />
       )}
     </div>
   );

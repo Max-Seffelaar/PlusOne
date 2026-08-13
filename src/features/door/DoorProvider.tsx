@@ -30,7 +30,7 @@ import { drainOutbox, guestKeyOf } from './outbox/replay';
 import { hasOpenCheckIn } from './outbox/dedup';
 import { supabaseGateway } from './outbox/gateway';
 import { outbox } from './outbox/store';
-import { isPending, type OutboxEntry } from './outbox/types';
+import { foreignEntries, hasUnsynced, isPending, type OutboxEntry } from './outbox/types';
 import { useDoorSync, type DoorSyncState } from './sync/useDoorSync';
 import {
   doorSnapshotKey,
@@ -218,10 +218,37 @@ export function DoorProvider({
     outbox.getStatusServerSnapshot,
   );
 
+  // Who is at this door. Since 86ey9et0h this is load-bearing rather than
+  // cosmetic: it becomes the outbox entry's `ownerId`, i.e. the actor the row
+  // will carry forever.
+  //
+  // `getUser()` VALIDATES against the auth server, so it fails offline and used
+  // to leave `meId` null — on a door surface, offline is the normal case, not
+  // the edge one. Any reload during an offline shift would then stamp every
+  // subsequent check-in with no owner, silently degrading them to the old
+  // drain-time attribution: exactly the bug this task exists to fix, and
+  // invisible because the queue still syncs. `getSession()` reads local storage
+  // with no network at all, so it answers while offline; we take it first and
+  // let `getUser()` refine/confirm it when a connection exists (it also catches
+  // a server-side revoke, which is why it is still called).
   useEffect(() => {
-    getDoorClient()
-      .auth.getUser()
-      .then(({ data }) => setMeId(data.user?.id ?? null));
+    const client = getDoorClient();
+    let cancelled = false;
+    void (async () => {
+      const { data: sessionData } = await client.auth.getSession();
+      if (!cancelled && sessionData.session?.user?.id) setMeId(sessionData.session.user.id);
+      try {
+        const { data } = await client.auth.getUser();
+        if (!cancelled && data.user?.id) setMeId(data.user.id);
+      } catch {
+        // Offline: the local session above is the best answer available, and
+        // it is the right one — a queued write belongs to whoever is signed in
+        // on this device, which is precisely what storage records.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const snapshotQuery = useQuery({
@@ -310,6 +337,27 @@ export function DoorProvider({
     if (outboxPersistDegraded) showToast('Local storage unavailable — check-ins may not survive a reload');
   }, [outboxPersistDegraded, showToast]);
 
+  // Ask before leaving with un-sent door writes (86ey9et0h, test feedback Max
+  // 12-8). The queue itself survives a reload — it is in IndexedDB — but a
+  // doorhost who reloads while offline lands on the browser's connection-error
+  // page with no obvious way back, and cannot tell from there whether their
+  // check-ins are safe. The browser owns the wording (a custom string has been
+  // ignored since ~2016), so this buys the pause, not the message.
+  //
+  // Bound to un-sent work only: an unconditional handler would nag on every
+  // ordinary navigation and train people to click through it, which is worse
+  // than not having it at all.
+  const hasUnsent = useMemo(() => hasUnsynced([...outboxEntries]), [outboxEntries]);
+  useEffect(() => {
+    if (!hasUnsent || typeof window === 'undefined') return;
+    const onBeforeUnload = (e: BeforeUnloadEvent): void => {
+      e.preventDefault();
+      e.returnValue = ''; // required by Chrome to actually show the prompt
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [hasUnsent]);
+
   const patchSnapshot = useCallback(
     (updater: (s: DoorSnapshot) => DoorSnapshot) => {
       queryClient.setQueryData<DoorSnapshot>(doorSnapshotKey(eventId), (prev) => (prev ? updater(prev) : prev));
@@ -331,6 +379,15 @@ export function DoorProvider({
       data: { user },
     } = await client.auth.getUser();
     if (user) {
+      // Entries the PREVIOUS user of this tablet queued and never got online to
+      // send (86ey9et0h). They drain under this session like any other — the
+      // whole point is that a doorhost hand-off never costs a check-in — but the
+      // rows keep naming whoever performed them, and the new doorhost is told
+      // afterwards so the sync is visible rather than silent. Captured before the
+      // drain because a settled entry is pruned by clearSettled() below.
+      const foreignBefore = foreignEntries([...outbox.getSnapshot()].filter(isPending), user.id).map(
+        (e) => e.clientId,
+      );
       const summary = await drainOutbox({
         list: () => [...outbox.getSnapshot()],
         update: (id, patch) => outbox.update(id, patch),
@@ -338,6 +395,23 @@ export function DoorProvider({
         uid: user.id,
         deviceId: getDeviceId(),
       });
+      if (foreignBefore.length > 0) {
+        const ids = new Set(foreignBefore);
+        const settled = outbox
+          .getSnapshot()
+          .filter((e) => ids.has(e.clientId) && (e.status === 'synced' || e.status === 'duplicate'));
+        if (settled.length > 0) {
+          // Say "check-ins" only when they all ARE check-ins. The queue also
+          // carries refusals, door-adds, voids and note acks, and a toast on the
+          // one screen whose entire purpose is accurate attribution must not
+          // announce two refusals as "2 check-ins" (review of this PR).
+          const n = settled.length;
+          const noun = settled.every((e) => e.kind === 'check_in')
+            ? `check-in${n === 1 ? '' : 's'}`
+            : `door action${n === 1 ? '' : 's'}`;
+          showToast(`${n} ${noun} from the previous user ${n === 1 ? 'was' : 'were'} synced`);
+        }
+      }
       if (summary.duplicates > 0) showToast('Was already checked in on another device');
       // The entry that JUST failed, carried out of the drain itself. Scanning the
       // store for the first `error` entry (the old code) returns the OLDEST one
@@ -418,13 +492,20 @@ export function DoorProvider({
         status: 'pending',
         attempts: 0,
         createdAt: new Date().toISOString(),
+        // Who is doing this, recorded NOW rather than inferred at drain time
+        // (86ey9et0h) — on a shared tablet the session can change between the
+        // tap and the sync. `meId` is resolved by an effect on mount, so it is
+        // set long before anyone taps a guest; a null here (an enqueue in the
+        // very first frames) simply falls back to the drain-time uid in replay,
+        // which is the pre-existing behaviour.
+        ownerId: meId ?? undefined,
         ...write,
       } as OutboxEntry);
       patchSnapshot(patchFn);
       if (toastMsg) showToast(toastMsg);
       maybeFlush();
     },
-    [eventId, patchSnapshot, showToast, maybeFlush],
+    [eventId, meId, patchSnapshot, showToast, maybeFlush],
   );
 
   // ── Mutations (thin wrappers over enqueueDoorWrite).
@@ -465,6 +546,9 @@ export function DoorProvider({
             event_id: eventId,
             venue_id: s.event.venueId,
             checked_by: meId ?? '',
+            // Optimistic row: this device is both actor and sender until proven
+            // otherwise, and replay recomputes synced_by at drain time anyway.
+            synced_by: null,
             checked_at: ts,
             client_timestamp: ts,
             device_id: getDeviceId(),
@@ -578,6 +662,7 @@ export function DoorProvider({
               event_id: eventId,
               venue_id: s.event.venueId,
               refused_by: meId ?? '',
+              synced_by: null,
               reason,
               refused_at: ts,
               client_timestamp: ts,

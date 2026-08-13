@@ -29,6 +29,14 @@ const base = {
   attempts: z.number().int().min(0),
   createdAt: ts,
   message: z.string().optional(),
+  // Nullish, NOT required (86ey9et0h): entries written by a pre-owner-stamp
+  // bundle carry no ownerId, and quarantining a doorhost's queued check-in over
+  // a missing envelope field is precisely the data loss the owner-stamp exists
+  // to prevent. They replay under the drain-time uid, exactly as before.
+  // OUTBOX_BUSTER is deliberately NOT bumped for the same reason.
+  // Normalised to undefined so the parsed entry matches OutboxBase's `ownerId?:
+  // string` exactly — a persisted explicit null must not widen the domain type.
+  ownerId: uuid.nullish().transform((v) => v ?? undefined),
 };
 
 const outboxEntrySchema = z.discriminatedUnion('kind', [
@@ -80,7 +88,11 @@ const outboxEntrySchema = z.discriminatedUnion('kind', [
     kind: z.literal('ack_note'),
     payload: z.object({ guestId: uuid, ack: z.boolean() }),
   }),
-]) satisfies z.ZodType<OutboxEntry>;
+  // Input is `unknown` on purpose: this parses whatever IndexedDB handed back,
+  // and `ownerId` accepts a persisted null it normalises away, so the schema's
+  // INPUT type is deliberately wider than OutboxEntry. The output type is what
+  // this assertion needs to keep pinned to the domain type.
+]) satisfies z.ZodType<OutboxEntry, z.ZodTypeDef, unknown>;
 
 export interface ParsedPersistedOutbox {
   entries: OutboxEntry[];

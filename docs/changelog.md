@@ -8,6 +8,177 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-12 — Door outbox owner-stamp: a tablet hand-off no longer costs check-ins (86ey9et0h)
+
+Branch `claude/outbox-owner-stamp-sync-7aadf3`. Milestone: Now (a lost door check-in is the
+one failure mode a venue will not forgive). Spec decisions **#45** (this) and **#46**
+(`add_contact_to_event` reuse, task `86ey9e9nb`) added to `gastenlijst-app-spec.md`.
+
+**The decision that drove it (Max, 12/8): no data loss.** A venue tablet passes between
+doorhosts. When A works a shift offline, taps N check-ins into the outbox and hands the
+tablet over before it ever reconnects, those entries must still sync once B logs in on that
+same device — not quarantined until A returns, not dropped. This **partially reverses #233
+(`86ey9et07`)**, which introduced the sign-out wipe and thereby destroyed A's work in order to
+prevent misattribution. Hard guardrail attached to the reversal: the audit trail is never
+falsified. A stays the performer in the row, B is the actor who syncs.
+
+**Why this could not be done in the client alone.** The queued entry carried no identity at
+all — `replay.ts` took the actor from the live session at *drain* time. So the fix has two
+halves, and only having the first one would have made things worse:
+
+| half | without it |
+|---|---|
+| `ownerId` stamped at enqueue (`outbox/types.ts`) | the device doesn't know A did it; B's sync silently relabels the rows |
+| RLS accepts an actor ≠ `auth.uid()` (migration `20260812140000`) | the insert returns `42501`, which `replay.ts` classifies as TERMINAL → dead-lettered → **the check-in is lost anyway** |
+
+**The RLS change, stated precisely.** `check_ins_insert` pinned `checked_by = (select auth.uid())`
+since the first RLS migration. That pin is now a *bound* rather than an identity: a door write
+may name another actor, but only one who could themselves work that event's door
+(`can_record_check_in_for`, SECURITY DEFINER, caller must independently pass `can_check_in`).
+What the server deliberately does **not** claim is that A really tapped the button — A's session
+is long gone, so that is a client assertion; the bound keeps it inside the set of people the
+venue already trusts at the door, and `synced_by` + `audit_log.actor_id` record who transmitted
+it. `refusals_insert` and (scoped to `source='door'`) `guests_insert` get the same treatment, the
+last one because a dead-lettered door add takes the check-in chained behind it down with it (FK
+`23503`).
+
+**Bycatch — an UPDATE hole that predates this work.** `check_ins_update_door`
+(`20260617020000`) had **no predicate on `checked_by` at all**, and because permissive policies
+are OR-ed that made the sibling `check_ins_update_own_device` pin non-binding: any door-scoped
+user could UPDATE an existing check-in and rewrite the actor to an arbitrary uuid — including
+someone with no relation to the venue. `reviveCheckIn` writes that column on exactly this path.
+Bounded now to the same rule as INSERT, so the migration nets out **tighter** than the status quo
+despite relaxing the pin (pgTAP D1–D3).
+
+**Accepted residual, recorded rather than buried.** Because `enforce_guest_quota` charges
+`new.added_by`, the `source='door'` relaxation also lets a door-capable user attribute a walk-in
+to a door-capable *colleague's* allowance. The guest is never free (event capacity and tier max
+still move, the colleague's meter is still charged) and `audit_log.actor_id` still records the
+real session — it misattributes which door colleague paid. Weighed against silently destroying a
+queued door add, that is the smaller harm. Separately: if A's door role is revoked between the
+shift and the sync, their entries settle to `error` rather than syncing — surfaced in the sync bar
+and recoverable via force-sync once the role is restored, not silently dropped.
+
+**Sign-out with pending entries.** Online, `signOutDevice` now drains first and the doorhost never
+learns it happened. Offline it throws `PendingOutboxError(n)` and the caller shows a sheet naming
+the cost ("N check-ins have not been synced yet"), with *stay signed in* as the primary action;
+only an explicit `discardPending` proceeds. The wipe remains the endpoint (#233 / `86ey9e9mn`
+untouched), as does the `sign-out-incomplete` fail-safe. The MFA wall refuses rather than prompts —
+it sits in front of an unverified session and has no business discarding a doorhost's queue.
+
+**What was NOT regressed** (checked deliberately, all three are load-bearing): the wipe-epoch +
+`reset()` from #233, the `clearSettled`/tombstone-TTL housekeeping from #249, and the
+`OUTBOX_BUSTER` envelope from #212 — the buster is deliberately **not** bumped and `ownerId` is
+optional, because discarding the queue to enforce a schema is the exact data loss this PR exists
+to prevent.
+
+**Tests.** Vitest **1161 green** (61 new across `replay.test.ts`, `persistence.test.ts`,
+`sign-out.test.ts` — owner-mismatch drain, identity preservation, mixed-owner queue, legacy
+entries without `ownerId`, logout flush online/offline/discard). New pgTAP
+`outbox_owner_stamp.test.sql` **16/16 green** (allowed + denied per role, `synced_by` pinned,
+audit actor independent, UPDATE hole closed). `rls.test.sql` G3 rewritten: its subject moved from
+"cannot record as someone else" to "cannot record as a **non-door role**", since admin now
+legitimately passes. `pnpm lint` clean, `tsc --noEmit` clean.
+
+**Test-round fixes (Max, 12-8) — one silent bug, one gap that is not ours.**
+
+*The owner stamp did not survive going offline.* `meId` came from `supabase.auth.getUser()`, which
+**validates against the auth server** and therefore fails offline — on a door surface that is the
+normal case, not the edge one. Any reload during an offline shift left `meId` null, so every
+subsequent check-in was queued with no `ownerId` and silently degraded to the old drain-time
+attribution: the exact bug this task exists to fix, invisible because the queue still synced.
+Resolved from `getSession()` (local storage, no network) first, with `getUser()` refining it when
+a connection exists. Two regression tests in `DoorProvider.test.tsx`.
+
+*Reloading offline is alarming and unguarded.* The queue survives (it is in IndexedDB), but the
+doorhost lands on the browser's connection-error page with no way to tell whether their check-ins
+are safe. Added a `beforeunload` guard, bound to un-sent work only so it cannot become a prompt
+people click through by reflex. The browser owns the wording.
+
+*What could NOT be verified locally, and why.* `public/service-worker.js` has a deliberate dev
+kill-switch (`DEV = hostname is localhost`): on localhost it caches nothing and unregisters itself.
+So "offline" in `pnpm dev` means *no service worker at all*, and any navigation falls through to the
+browser's error page. Worse for this feature: a tab switch to Meer/Settings goes through
+`router.push`, which forces an RSC round-trip — `app.tsx:308` already documents this, which is why
+the door's own sub-navigation deliberately bypasses the router with raw History to keep invariant
+#25. So **the offline branch of the sign-out prompt is unreachable in practice**: a doorhost who is
+offline cannot open Settings, therefore cannot sign out, therefore cannot destroy their queue. That
+unreachability is protective rather than harmful — the destructive path is gated behind the network
+that would have flushed the queue anyway — but it does mean the prompt only fires in the
+online-but-writes-won't-land case (captive-portal wifi), which is covered by unit test 6. Making
+Settings reachable offline means extending the raw-History bypass to tab switches; deliberately NOT
+done here (it is app-wide navigation surgery, not outbox work) and left for Max to scope.
+
+**Review round (fresh-session `/code-review` + `/security-review`, 12-8).** No confirmed
+vulnerabilities; three security candidates were raised and all three refuted on verification. The
+code review found two merge-blockers and four real defects, all fixed here:
+
+| # | defect | why it mattered |
+|---|---|---|
+| C1 | migration timestamp `20260812120000` collided with `…_landing_throttle_cleanup_cron` on `main` | `schema_migrations` keys on version — every `db push`/`db reset` after the merge aborts. Renamed to `20260812140000`. |
+| C2 | `synced_by` sent on every insert, `null` included | PostgREST derives the column list from the JSON keys, and the prod migration is pushed AFTER the merge deploys — so in that window every door write returns PGRST204, dead-letters, and the door stops persisting check-ins. Now omitted unless a hand-off actually happened. |
+| C3 | sign-out counted `isRetryable` (`pending \|\| error`) as blocking | a dead-lettered 45005 kept the doorhost behind a destructive-only prompt for the tombstone's full 12h, on any connection, claiming check-ins "have not been synced yet" that were in fact rejected. Counts unsent work only. |
+| C4 | the UPDATE bound sat in `WITH CHECK` | WITH CHECK evaluates the RESULTING row, so a plain top-up or uitchecken was re-validated against whoever already sat in `checked_by`. Remove an external organizer afterwards and every later update to their check-ins failed 42501 — offline, terminally. Moved to a BEFORE UPDATE trigger that fires only when the actor CHANGES. |
+| C5 | the sign-out flush drained queues it did not own | a staff session replaying a doorhost's entries gets 42501 → terminal, and automatic drains never retry those: the feature silently destroying the queue it exists to protect. Now skips when nothing in the queue belongs to the signing-out user. |
+| C6 | `getUser()` could escape the flush | it validates against the auth server, so it rejects on captive-portal wifi where `isOnline()` is true — surfacing as a generic failure instead of the count, in exactly the scenario the prompt is for. |
+
+Two smaller ones: the toast now says "door actions" when the queue is not all check-ins (C9), and
+the flush reuses the caller's Supabase client instead of building a second one on the same cookie
+storage (C10). Two documentation defects the review caught were corrected rather than papered over:
+the migration claimed "the named colleague's meter is still charged", which is false when that
+colleague is a venue admin (`user_is_quota_exempt` short-circuits the whole personal-quota branch),
+and `synced_by`'s column comment promised more than the column delivers — it records the INSERT
+only, since later updates do not maintain it.
+
+**The trigger's own trap, worth remembering.** A trigger fires for EVERYONE, including the superuser
+running seeds and pgTAP fixtures and every SECURITY DEFINER function — contexts RLS deliberately
+does not apply to. The first version broke two unrelated pgTAP suites that arrange state by writing
+`voided_by` directly. Exempting "no JWT" was NOT enough either: `reset role` restores the role
+without clearing `request.jwt.claims`, so `auth.uid()` still returns the last logged-in user while
+the write runs as a superuser. The correct discriminator is the ROLE — `current_user in
+('authenticated','anon')` — which also forces the function to be SECURITY INVOKER, since inside a
+DEFINER function `current_user` is always the owner.
+
+**Pre-existing, out of scope, worth its own task:** `guests_update`'s WITH CHECK evaluates its role
+branch on `auth.uid()` rather than on `added_by`, so any admin/doorhost/organizer can already
+re-point `added_by` at a quota-exempt admin in one write on `main` today. That is what makes this
+PR's `source='door'` relaxation a no-new-capability change rather than a new hole, and it is the
+real fix for advisory-quota enforcement.
+
+**Verified end-to-end in a real browser (12-8).** Driven through the in-app browser against the
+local stack, both directions of a hand-off, with the transport to Supabase cut at `window.fetch` so
+the outbox sees the same code-less failure a real offline shift produces:
+
+| guest | checked_by | synced_by |
+|---|---|---|
+| Daniël Verhoeven, Eva Postma, Finn van Egmond, Julia Smeets, Lars Willems, Juri Braakman | `door@` | `admin@` |
+| Isa van der Laan, Jesse Dijkstra | `admin@` | `door@` |
+
+8 hand-off rows; `count(*) filter (where synced_by = checked_by)` = **0**, i.e. the column is set
+only on a genuine cross-user replay, never as a redundant copy of the session. `audit_log.actor_id`
+is the SYNCING user on all three of the first batch while the row keeps the performer — the
+guardrail holds in live data, not just in pgTAP. IndexedDB inspection mid-shift confirmed every
+queued entry carried `ownerId` = the doorhost who tapped it. The toast fires with correct
+pluralisation: *"1 check-in from the previous user was synced"*.
+
+Testing note worth keeping: `runFlush` drains regardless of `navigator.onLine` (only `maybeFlush`
+gates on it), so overriding that property does NOT simulate offline — the drain still succeeds.
+Cutting `fetch` to the Supabase origin is the faithful simulation.
+
+**Full suite on a fresh database.** `supabase test db`: **55 files, 1085 assertions, PASS** —
+including the new `outbox_owner_stamp.test.sql`. An earlier run had one failure in `rls.test.sql`
+N1 ("3 seed + 1 anon", have 5), diagnosed as a stray `guest_requests` row ("Test Verify", created
+two minutes after the seed timestamp) left by a manual dev session; a reset cleared it and the
+assertion passes, confirming the diagnosis and satisfying DoD #5 (applies cleanly on a fresh DB).
+
+**Gotcha worth remembering — a migration can be RECORDED without being APPLIED.** Twice during this
+task the local `supabase_migrations.schema_migrations` table listed `20260812140000` while neither
+`synced_by` nor `can_record_check_in_for` existed in the schema. In that state `supabase migration
+up` reports "Local database is up to date" and silently leaves the schema wrong, which then fails at
+the PostgREST layer (unknown column → every door insert rejected) rather than anywhere obvious. The
+fix is `supabase migration repair --status reverted <version> --local` followed by `migration up`.
+Both occurrences coincided with another session resetting the shared local stack — the concrete cost
+of the one-DB-owner rule being broken mid-test.
 ## 2026-08-12 — Landing rate-limit hardening: throttle cleanup + Turnstile (86ey2czr6)
 
 Branch `claude/clickup-task-fix-6dec47`. Rate-limit hardening sweep, milestone: before the

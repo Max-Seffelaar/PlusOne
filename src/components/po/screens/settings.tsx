@@ -15,7 +15,7 @@ import { useNav, usePo } from '../context';
 import { Icon } from '../icon';
 import { Avatar, Label, Row, Scroll, Top, cardPress } from '../kit';
 import { armRegularsFilter } from './guests';
-import { col, signOutDevice } from './settings/_shared';
+import { col, PendingOutboxError, PendingOutboxSheet, signOutDevice } from './settings/_shared';
 
 export { Gebruikers } from './settings/team';
 export { Rollen, Allowance } from './settings/quota';
@@ -31,6 +31,8 @@ export function Meer(): JSX.Element {
   const { venueName, roles } = usePoIdentity();
   const [signingOut, setSigningOut] = useState(false);
   const [signOutErr, setSignOutErr] = useState(false);
+  /** Un-synced door writes that a sign-out would destroy; null = no prompt. */
+  const [pendingLoss, setPendingLoss] = useState<number | null>(null);
   const caps = venueCapabilities(roles);
   const isAdmin = roles.includes('admin');
   const isFinance = roles.includes('finance');
@@ -171,9 +173,12 @@ export function Meer(): JSX.Element {
               // On the fail-safe reject (the local session couldn't be cleared,
               // e.g. offline) signOutDevice does NOT redirect — recover the button
               // and warn rather than leaving it stuck on "Signing out…".
-              void signOutDevice('local').catch(() => {
+              void signOutDevice('local').catch((e: unknown) => {
                 setSigningOut(false);
-                setSignOutErr(true);
+                // Un-synced door writes: not an error, a decision. Ask instead of
+                // failing, and never discard without an explicit answer (86ey9et0h).
+                if (e instanceof PendingOutboxError) setPendingLoss(e.pending);
+                else setSignOutErr(true);
               });
             }}
           />
@@ -183,6 +188,20 @@ export function Meer(): JSX.Element {
             </p>
           )}
         </div>
+        {pendingLoss !== null && (
+          <PendingOutboxSheet
+            pending={pendingLoss}
+            onStay={() => setPendingLoss(null)}
+            onDiscard={() => {
+              setPendingLoss(null);
+              setSigningOut(true);
+              void signOutDevice('local', { discardPending: true }).catch(() => {
+                setSigningOut(false);
+                setSignOutErr(true);
+              });
+            }}
+          />
+        )}
       </Scroll>
     </div>
   );

@@ -103,6 +103,23 @@ interface OutboxBase {
   createdAt: string;
   /** Last error / duplicate note, Dutch, surfaced in the UI. */
   message?: string;
+  /**
+   * The user who PERFORMED this door action, stamped at enqueue (86ey9et0h).
+   *
+   * Replay used to take the actor from the live session at DRAIN time, which is
+   * only the same person while one doorhost owns the device for the whole shift.
+   * On a shared tablet that hands over mid-queue it silently rewrote history:
+   * A's un-synced check-ins landed under B. Recording it here makes the actor a
+   * property of the action instead of a property of whoever happens to be logged
+   * in when the network returns.
+   *
+   * Optional, and it must stay optional: entries persisted by an older bundle
+   * have no such field, and dropping a doorhost's queued check-in to enforce a
+   * schema would cause exactly the data loss this exists to prevent. Those
+   * entries fall back to the drain-time uid, i.e. the old behaviour. Same reason
+   * OUTBOX_BUSTER is NOT bumped for this change (a bump discards the queue).
+   */
+  ownerId?: string;
 }
 
 export type OutboxEntry =
@@ -139,4 +156,17 @@ export function isRetryable(e: OutboxEntry): boolean {
 /** True while any entry still needs the network (drives the sync-bar dot). */
 export function hasUnsynced(entries: OutboxEntry[]): boolean {
   return entries.some((e) => e.status === 'pending' || e.status === 'syncing');
+}
+
+/**
+ * Entries queued by a DIFFERENT user than the one now signed in (86ey9et0h).
+ *
+ * These are drained like any other — never quarantined, never dropped — but the
+ * new doorhost is told afterwards that work from the previous user went up under
+ * their session, so a hand-off is visible rather than silent. Entries with no
+ * `ownerId` (older bundle) are not counted: we genuinely don't know who queued
+ * them, and guessing "foreign" would fire the notice on every ordinary reload.
+ */
+export function foreignEntries(entries: OutboxEntry[], uid: string): OutboxEntry[] {
+  return entries.filter((e) => e.ownerId != null && e.ownerId !== uid);
 }

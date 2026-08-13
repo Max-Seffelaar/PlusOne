@@ -97,3 +97,53 @@ describe('mergeOutboxEntries (O1 cross-tab read-merge, O5 init-race fold-in)', (
     expect(mergeOutboxEntries(mine, other)[0].attempts).toBe(3);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Owner stamp round-trip (86ey9et0h). The whole feature rests on ownerId
+// surviving IndexedDB: if it were dropped on load, a hand-off would silently
+// fall back to drain-time attribution — exactly the bug being fixed.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('parsePersistedOutbox — ownerId (86ey9et0h)', () => {
+  const OWNER = '44444444-4444-4444-8444-444444444444';
+
+  it('round-trips ownerId through buildEnvelope → parse', () => {
+    const withOwner = { ...entry('c1', 'pending'), ownerId: OWNER };
+    const parsed = parsePersistedOutbox(buildEnvelope([withOwner]));
+    expect(parsed.entries[0].ownerId).toBe(OWNER);
+    expect(parsed.droppedInvalid).toBe(0);
+  });
+
+  it('keeps an entry written by a pre-owner-stamp bundle instead of quarantining it', () => {
+    // Load-bearing back-compat: OUTBOX_BUSTER is intentionally NOT bumped, so
+    // these entries are still on real devices. Dropping them for a missing
+    // field would destroy queued check-ins — the exact harm this PR prevents.
+    const parsed = parsePersistedOutbox(buildEnvelope([entry('c1', 'pending')]));
+    expect(parsed.entries).toHaveLength(1);
+    expect(parsed.entries[0].ownerId).toBeUndefined();
+    expect(parsed.droppedInvalid).toBe(0);
+  });
+
+  it('normalises a persisted null ownerId to undefined rather than dropping the entry', () => {
+    const parsed = parsePersistedOutbox({
+      buster: OUTBOX_BUSTER,
+      entries: [{ ...entry('c1', 'pending'), ownerId: null }],
+    });
+    expect(parsed.entries).toHaveLength(1);
+    expect(parsed.entries[0].ownerId).toBeUndefined();
+  });
+
+  it('quarantines a non-uuid ownerId (a corrupt stamp must not become a forged actor)', () => {
+    const parsed = parsePersistedOutbox({
+      buster: OUTBOX_BUSTER,
+      entries: [{ ...entry('c1', 'pending'), ownerId: 'not-a-uuid' }],
+    });
+    expect(parsed.entries).toHaveLength(0);
+    expect(parsed.droppedInvalid).toBe(1);
+  });
+
+  it('preserves ownerId across a cross-tab merge', () => {
+    const mine = { ...entry('c1', 'pending'), ownerId: OWNER };
+    expect(mergeOutboxEntries([mine], [])[0].ownerId).toBe(OWNER);
+    expect(mergeOutboxEntries([], [mine])[0].ownerId).toBe(OWNER);
+  });
+});

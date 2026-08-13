@@ -99,6 +99,7 @@ function serverRow(guestId: string, plusOnesArrived: number): CheckInRow {
     event_id: EVENT_ID,
     venue_id: VENUE_ID,
     checked_by: UID,
+    synced_by: null,
     checked_at: '2026-08-10T23:00:00Z',
     client_timestamp: '2026-08-10T23:00:00Z',
     device_id: 'device-test',
@@ -541,5 +542,55 @@ describe('DoorProvider — render scope of the DoorToastContext split (86ey9e9vc
     // what makes the element memo's bailout real" for PoDoorTab: it narrows
     // the subscription, it doesn't eliminate the residual re-render.
     expect(syncOnlyExtra).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Owner stamp resolves OFFLINE (86ey9et0h, found in Max's 12-8 test round).
+//
+// `ownerId` is the actor the row carries forever, and it is stamped at enqueue.
+// `getUser()` validates against the auth server, so on a door surface — where
+// offline is the normal case — it fails exactly when the stamp matters most.
+// The failure was silent: entries still queued and still synced, they just
+// carried no owner and fell back to drain-time attribution, i.e. the very bug
+// this task exists to fix.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('DoorProvider — owner stamp without a network (86ey9et0h)', () => {
+  /** `H.client` is deliberately `unknown` (the mock factories read it lazily), so
+   *  reach its auth surface through one narrow cast rather than widening the
+   *  hoisted type for every other test in this file. */
+  const auth = (): Record<string, unknown> => (H.client as { auth: Record<string, unknown> }).auth;
+
+  it('stamps the queued check-in with the local session when getUser() fails offline', async () => {
+    auth().getUser = async () => {
+      throw new TypeError('Failed to fetch'); // offline: no auth round-trip
+    };
+    auth().getSession = async () => ({ data: { session: { access_token: 'token', user: { id: UID } } } });
+
+    const h = renderDoor();
+    await settle();
+    await act(async () => {
+      h.api().checkIn(GUEST_A, 1);
+    });
+
+    const entry = outbox.getSnapshot().find((e) => e.kind === 'check_in');
+    expect(entry?.ownerId).toBe(UID);
+  });
+
+  it('still prefers the verified user id when the network is there', async () => {
+    // getSession is local and can hold a stale/rotated id; getUser is the
+    // authoritative answer whenever it can actually be obtained.
+    auth().getSession = async () => ({ data: { session: { access_token: 't', user: { id: 'stale-id' } } } });
+    auth().getUser = async () => ({ data: { user: { id: UID } } });
+
+    const h = renderDoor();
+    await settle();
+    await act(async () => {
+      h.api().checkIn(GUEST_A, 1);
+    });
+
+    await waitFor(() => {
+      expect(outbox.getSnapshot().find((e) => e.kind === 'check_in')?.ownerId).toBe(UID);
+    });
   });
 });

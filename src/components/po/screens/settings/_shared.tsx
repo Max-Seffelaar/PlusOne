@@ -5,17 +5,54 @@
  *  renderer, the role multi-select chips, and the real sign-out helper. */
 import type { JSX } from 'react';
 import { cn } from '@/lib/utils';
-import { t } from '@/lib/i18n';
+import { fmt, t } from '@/lib/i18n';
 import { VENUE_ROLES, ROLE_LABELS, type VenueRole } from '@/features/auth/roles';
 import { Icon } from '../../icon';
-import { press } from '../../kit';
+import { Btn, Note, press } from '../../kit';
+import { Sheet } from '../../shell';
 
 export const col = 'flex h-full flex-col';
 
 /** Re-exported so the settings screens keep their existing import site. The
  *  implementation moved to `features/auth` (86ey9e9mn) because the MFA wall
  *  needs it too, and `features/*` must not import from `components/po/screens/`. */
-export { signOutDevice } from '@/features/auth/sign-out-device';
+export { PendingOutboxError, signOutDevice } from '@/features/auth/sign-out-device';
+
+/**
+ * The un-synced-door-writes prompt (86ey9et0h). Shown when `signOutDevice`
+ * rejects with `PendingOutboxError` — i.e. the device is offline (or the writes
+ * are stuck) and signing out would delete check-ins that only exist here.
+ *
+ * Staying is the primary action on purpose: the recoverable outcome is the one
+ * a tired doorhost should reach for by reflex, and the destructive one names its
+ * own cost in the label rather than hiding behind "OK". Shared by the settings
+ * hub and the profile screen so both sign-out buttons behave identically.
+ */
+export function PendingOutboxSheet({
+  pending,
+  onStay,
+  onDiscard,
+}: {
+  pending: number;
+  onStay: () => void;
+  onDiscard: () => void;
+}): JSX.Element {
+  return (
+    <Sheet onClose={onStay} center={false}>
+      <Note icon="warn">
+        <span className="font-bold">{fmt(t.settings.profile.signOutPendingTitle, { n: pending })}</span>
+        <br />
+        {t.settings.profile.signOutPendingBody}
+      </Note>
+      <Btn kind="primary" full className="mt-2" onClick={onStay}>
+        {t.settings.profile.signOutPendingStay}
+      </Btn>
+      <Btn kind="ghost" full icon="logout" className="mt-2" onClick={onDiscard}>
+        {fmt(t.settings.profile.signOutPendingDiscard, { n: pending })}
+      </Btn>
+    </Sheet>
+  );
+}
 
 /** Inline action error, matching the desktop forms' `text-red-300` treatment. */
 export function FormError({ error }: { error: unknown }): JSX.Element | null {
