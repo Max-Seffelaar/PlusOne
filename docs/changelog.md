@@ -8,7 +8,7 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
-## 2026-08-19 — Stripe webhook: a malformed `client_reference_id` no longer poisons the retry queue (86ey9e9re)
+## 2026-08-19 — Stripe webhook: a malformed `client_reference_id` no longer retries forever (86ey9e9re)
 
 Branch `fix/86ey9e9re-stripe-webhook-uuid-guard`. Milestone: Now (a stuck webhook queue hides
 every *real* billing failure behind it). No migration — the fix is entirely application-layer.
@@ -28,6 +28,34 @@ malformed `client_reference_id` cannot become valid on redelivery, so a retry ha
 success path and 500 is simply the wrong answer. 500 stays reserved for what it was documented
 for — genuinely transient failures.
 
+**What this does NOT fix — the storm moves one event downstream.** Stated plainly because the
+first version of this entry did overclaim it. The guard retires *this* event; for the scenario
+that motivates the fix it does not make the venue work.
+
+Take a Stripe-**dashboard**-created checkout whose `client_reference_id` was typed by hand into
+something non-UUID. That venue's `subscriptions.stripe_customer_id` is `NULL`: `stamp_stripe_customer`
+runs only in `createCheckoutSessionAction`, i.e. the app's own path. The one remaining chance to
+link the customer is the webhook's own RPC, which writes
+`stripe_customer_id = coalesce(p_stripe_customer_id, …)`. The guard returns before that call — so
+the customer id is never stamped **at all**. Then `invoice.paid` arrives, carries no
+`client_reference_id`, matches on `stripe_customer_id`, finds nothing, and raises `P0002`. The
+handler's single error branch makes that a 500; the raise rolled back the ledger insert in the
+same transaction, so the redelivery is never recognised as a replay and re-raises identically,
+forever — now on the event that carries the money. The venue never activates and a real payment
+lands silently in nothing.
+
+**It is still strictly better, and the blast radius is narrow.** Pre-fix *both* events 500'd in a
+loop; post-fix only the second does. And the guard is unreachable from our own checkout:
+`stripe-adapter.ts` sets `client_reference_id: input.venueId` from a Zod-parsed, admin-checked
+venue id, and `stamp_stripe_customer` runs before the redirect. Only dashboard/external checkouts
+can reach it, and only those where somebody actually filled the field in — a dashboard checkout
+with the field left *blank* never trips the guard at all and lands in the same `P0002` loop it
+already had. So: this PR removes one permanent retry loop and routes a narrow, pre-existing
+second one onto the money event.
+
+**Therefore the `event.created`-age cutoff below is the priority follow-up**, not a nice-to-have:
+it is the piece that turns that surviving `P0002` loop into a bounded failure.
+
 Two boundaries worth stating, because both are load-bearing:
 
 - **A `null` venueId still flows through.** `invoice.paid` and the subscription events carry no
@@ -44,11 +72,29 @@ on a guess. A human reads the Sentry warning instead.
 
 **New: `src/lib/observability/sentry-server.ts`.** There was a lazy *browser* Sentry facade but
 no server one. It reaches the SDK (already initialised by `instrumentation.ts`) through a dynamic
-`import()`, including for its types — `tests/unit/sentry-lazy-imports.test.ts` scans all of `src/`
-without distinguishing server from client, and its regex spans a whole file, so `import
-'server-only'` plus any later `from '@sentry/nextjs'` (even `import type`) trips it. Writing the
-types as `typeof import('@sentry/nextjs')` leaves no `from` clause, so the guard stays intact and
-needs no allowlist entry. Telemetry swallows its own failures — it must never turn a 200 into a 500.
+`import()`, including for its types. Telemetry swallows its own failures — it must never turn a
+200 into a 500.
+
+The type-position workaround is worth recording, because **the lazy-import guard it routes around
+is itself buggy**. `tests/unit/sentry-lazy-imports.test.ts:35` uses
+`/import\s+(?!type\s)[\s\S]*?from\s+['"]@sentry\/nextjs['"]/`. The `[\s\S]*?` spans the whole file, so
+the negative lookahead only ever inspects the **first** import statement: any preceding import
+(`import 'server-only'`, `import { z } from 'zod'`) starts the match and the scan runs on to the
+Sentry `from` clause. Verified by running the real regex against constructed cases —
+
+| source | result |
+|---|---|
+| `import type { X } from '@sentry/nextjs'` alone | ok |
+| `import 'server-only'` + that same type import | **FLAGGED** |
+| `import { z } from 'zod'` + that same type import | **FLAGGED** |
+| `typeof import('@sentry/nextjs')` (what this module uses) | ok |
+| `import * as Sentry from '@sentry/nextjs'` | **FLAGGED** |
+
+— which contradicts the guard's own doc comment ("`import type … from '@sentry/nextjs'` is fine
+and not flagged"): it is flagged in every realistic file. Writing the types as
+`typeof import('@sentry/nextjs')` leaves no `from` clause, so the guard stays intact and this
+module needs no allowlist entry. **Fixed separately** (see the follow-up entry) — a CI-required
+guard deserves its own reviewable change, not a passenger seat in a billing PR.
 
 **Left open, reported not fixed (scope).** The same 500-means-retry-forever shape survives on the
 RPC side. `apply_stripe_subscription_update` (current definition:
@@ -69,11 +115,72 @@ racing ahead of `stamp_stripe_customer`, which the original migration comment ca
 subscription row). Separating "not yet" from "never" needs a decision, not a patch; an
 `event.created`-age cutoff is the obvious candidate. Detailed in the PR body; not touched here.
 
-**Tests.** Vitest **1197 passed / 115 files** (was 1188; +9). The 6 new guard assertions were each
-verified red against the unguarded handler — failing with `expected 500 to be 200`, the bug itself
-— with the RPC mock returning the real `22P02` cast error rather than a synthetic one. `pnpm lint`
-clean (2 pre-existing `datetime-field.tsx` a11y warnings, untouched), `pnpm type-check` zero errors.
-pgTAP not run here: no Docker in the session container, so CI owns it — the change touches no SQL.
+**Review round (fresh-session `/code-review` + `/security-review`: no blocking defect, four inline
+findings).** What changed in response, and what deliberately did not:
+
+- **Log levels now agree — `console.warn`, not `console.error`.** Sentry filed this at
+  `level: 'warning'` while the console call was `console.error`. On Vercel, log drains and
+  alerting key on `console.error`, so a branch that has *deliberately decided the event is not
+  actionable* (it answers 200 on purpose) was paging as an error. Both sinks are `warning` now,
+  pinned by a test that asserts `console.error` is **not** called on this path.
+- **The Sentry warning is now self-contained enough to triage.** Keeping the rejected value out
+  of the logs is right (unvalidated third-party input, CLAUDE.md §Security), but it left an
+  operator unable to tell *what* arrived without opening Stripe. New `fingerprintOf` emits only
+  derived facts: `valueType`, `valueLength`, and `valueCharset` — the set of character classes
+  present, `+`-joined. `dash+hex` at length 18 is a truncated uuid; `alpha+dash+hex` is a
+  hand-typed label; `punct`-heavy is a pasted blob. It cannot reconstruct the value (a test
+  asserts no substring of the input ever appears in the output), the class set is capped at six
+  members and the scan at 4 096 chars, so a megabyte of junk still yields one bounded log line.
+  `valueType` also names the case where `client_reference_id` deserialises to a non-string —
+  which is itself the finding.
+- **A dead-letter record for dropped billing events: deliberately NOT in this PR.** The review is
+  right that a discarded **billing** event currently survives only in two best-effort sinks —
+  Sentry (`enabled: Boolean(dsn)`, a silent no-op without a DSN) and Vercel runtime logs, which
+  age out — and that "how many did we drop last month?" has no queryable answer in a repo whose
+  stated core value is *fraud resistance — everything audited*. Three reasons it waits:
+  1. It needs a table, RLS policies, pgTAP coverage for both allowed and denied cases, and an AVG
+     retention decision. That is a migration-shaped change inside a PR that deliberately has no
+     migration; it belongs with the `P0002` work that will define what else lands in the same
+     store.
+  2. The event is not actually unrecoverable in the window that matters: Stripe retains event
+     objects and their delivery attempts for ~30 days, and the `eventId` we *do* log is the key to
+     look one up. The gap is real but it is a **retention** gap, not a total loss.
+  3. Milestone rule: the reachable population is dashboard/external checkouts with a hand-filled
+     non-UUID reference — near-zero today, and zero from our own checkout path by construction.
+     A new audited persistence surface for that is not "Now".
+  Recorded here rather than dropped: the correct shape is a record keyed **differently** from the
+  live `stripe_webhook_events` ledger (a separate table, or a `rejected_reason` column on a
+  distinctly-keyed row), because a ledger insert here would burn the event id and leave the event
+  permanently replay-suppressed even after the cause is fixed. The guard returning *before* the
+  RPC is what preserves that option, and that part is correct as it stands.
+
+**Follow-ups this PR consciously leaves open**, in priority order:
+1. **`event.created`-age cutoff on the RPC's `P0002` path** — the one that bounds the surviving
+   retry loop described above. Highest value.
+2. **Dead-letter record for discarded billing events**, per the reasoning above; pairs with (1).
+3. `45010` / `22004`, which are unfixable-by-construction retries with the same ledger-rollback
+   shape.
+
+**Tests.** Vitest **1212 passed / 115 files** (1188 → 1197 in the first round, → 1212 after the
+review round; +24 overall). pgTAP **1092 passed / 56 files** — run here this time, against a live
+local stack. `pnpm lint` clean (2 pre-existing `datetime-field.tsx` a11y warnings, file untouched),
+`pnpm type-check` zero errors.
+
+Every new assertion verified red against the behaviour it replaces, not assumed:
+- the 6 original guard assertions fail with `expected 500 to be 200` on the unguarded handler,
+  with the RPC mock returning the real `22P02` cast error rather than a synthetic one;
+- the 6 new level assertions fail with `expected "warn" to be called 1 times, but got 0 times`
+  when `console.warn` is reverted to `console.error`.
+
+**The `P0002` chain was reproduced on a real database**, not reasoned about. Against the local
+stack, an `invoice.paid` for a customer that was never linked raises `no subscription matches
+stripe event …`; `select count(*) from stripe_webhook_events` for that id returns **0** (the raise
+rolled the insert back); the redelivery raises identically. The contrast case — same call with a
+linked customer — returns `applied = t` and leaves **1** ledger row. And the linking chance the
+guard forecloses is real: a valid-UUID `checkout.session.completed` moves
+`subscriptions.stripe_customer_id` from `NULL` to the event's customer through the RPC itself,
+while the malformed sibling dies at the cast with `invalid input syntax for type uuid` before the
+function body runs.
 
 High-risk surface (billing webhook) → draft PR carries a proactive adversarial security-research
 prompt; a fresh session reviews before merge.

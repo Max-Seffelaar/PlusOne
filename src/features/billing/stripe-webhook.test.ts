@@ -261,7 +261,8 @@ describe('handleStripeWebhook', () => {
     'answers 2xx and never calls the RPC for %s as client_reference_id',
     async (_label, clientReferenceId) => {
       const { handleStripeWebhook } = await loadModule();
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       // What Postgres actually does with a non-UUID bound to `p_venue_id uuid`.
       // Modelling it here is what makes this test red against the unguarded
       // handler for the RIGHT reason: it returned this error as a 500.
@@ -277,13 +278,19 @@ describe('handleStripeWebhook', () => {
       expect(res.status).toBe(200);
       expect(res.body).toBe('unprocessable');
       expect(rpc).not.toHaveBeenCalled();
-      consoleSpy.mockRestore();
+      // Vercel log drains and alerting key on console.error. This branch has
+      // deliberately decided the event is NOT actionable (it answers 200 on
+      // purpose), so it must not page — warn, never error.
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(errorSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
     }
   );
 
   it('reports the rejected event to Sentry without leaking the venue id', async () => {
     const { handleStripeWebhook } = await loadModule();
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     rpc.mockResolvedValue({
       data: null,
       error: { code: '22P02', message: 'invalid input syntax for type uuid' },
@@ -295,9 +302,41 @@ describe('handleStripeWebhook', () => {
     expect(captureServerMessage).toHaveBeenCalledTimes(1);
     const [message, context] = captureServerMessage.mock.calls[0];
     expect(message).toContain('client_reference_id');
+    // Sentry's own level must agree with the console level — both `warning`.
+    expect(context.level).toBe('warning');
     // The raw value is unvalidated third-party input — it must not be logged.
     expect(JSON.stringify(context)).not.toContain('venue-uuid-1');
-    consoleSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it('carries a non-reversible fingerprint of the rejected value to both sinks', async () => {
+    const { handleStripeWebhook } = await loadModule();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    rpc.mockResolvedValue({
+      data: null,
+      error: { code: '22P02', message: 'invalid input syntax for type uuid' },
+    });
+    // A truncated UUID: exactly the case an operator must be able to tell
+    // apart from a pasted blob without opening the Stripe dashboard.
+    const value = '3f1c8a52-9d6b-4f2e';
+    const payload = JSON.stringify(checkout(value));
+
+    await handleStripeWebhook(payload, sign(payload));
+
+    const [, context] = captureServerMessage.mock.calls[0];
+    expect(context.extra).toMatchObject({
+      valueType: 'string',
+      valueLength: value.length,
+      // hex + dashes at length 18: unmistakably a truncated uuid.
+      valueCharset: 'dash+hex',
+    });
+    // Charset + length are DERIVED facts; the value itself never appears.
+    expect(JSON.stringify(context)).not.toContain(value);
+
+    const [, logged] = warnSpy.mock.calls[0];
+    expect(logged).toMatchObject({ valueLength: value.length });
+    expect(JSON.stringify(logged)).not.toContain(value);
+    warnSpy.mockRestore();
   });
 
   it('applies a valid UUID client_reference_id unchanged — the happy path still works', async () => {
@@ -340,5 +379,65 @@ describe('handleStripeWebhook', () => {
     const { handleStripeWebhook } = await loadModule();
     const res = await handleStripeWebhook('{}', 't=1,v1=abc');
     expect(res.status).toBe(503);
+  });
+});
+
+// --- fingerprintOf (ClickUp 86ey9e9re, review follow-up) --------------------
+// The rejected client_reference_id must stay out of the logs while still
+// leaving an operator able to triage. These pin BOTH halves of that deal.
+describe('fingerprintOf', () => {
+  it.each([
+    ['a truncated uuid', '3f1c8a52-9d6b-4f2e', 18, 'dash+hex'],
+    ['a full uuid (shape only — the guard never reaches this)', VENUE_ID, 36, 'dash+hex'],
+    ['a hand-typed label', 'venue-uuid-1', 12, 'alpha+dash+hex'],
+    ['an empty string', '', 0, ''],
+    ['a sql-ish probe', "' or 1=1--", 10, 'alpha+dash+hex+punct+space'],
+    ['a json blob', '{"venue":1}', 11, 'alpha+hex+punct'],
+    ['a non-ascii value', 'venue\u00e9\u2603', 7, 'alpha+hex+other'],
+  ])('describes %s without reproducing it', async (_label, value, length, charset) => {
+    const { fingerprintOf } = await loadModule();
+    expect(fingerprintOf(value)).toEqual({
+      valueType: 'string',
+      valueLength: length,
+      valueCharset: charset,
+    });
+  });
+
+  it.each([
+    ['an object', {}, 'object'],
+    ['an array', [], 'array'],
+    ['a number', 42, 'number'],
+    ['a boolean', true, 'boolean'],
+    ['null', null, 'null'],
+  ])('names the type for %s — a non-string reaching the guard is itself the finding', async (
+    _label,
+    value,
+    valueType
+  ) => {
+    const { fingerprintOf } = await loadModule();
+    expect(fingerprintOf(value)).toEqual({ valueType, valueLength: null, valueCharset: '' });
+  });
+
+  it('stays bounded on a megabyte of junk — true length, capped scan', async () => {
+    const { fingerprintOf } = await loadModule();
+    const huge = 'a'.repeat(1_000_000);
+
+    const result = fingerprintOf(huge);
+
+    expect(result.valueLength).toBe(1_000_000);
+    // One class in, one class out: the emitted charset can never exceed the
+    // six known class names however long the value is.
+    expect(result.valueCharset).toBe('hex');
+    expect(result.valueCharset.length).toBeLessThan(40);
+  });
+
+  it('never emits a substring of the value it describes', async () => {
+    const { fingerprintOf } = await loadModule();
+    const secret = 'zz-SUPERSECRET-zz';
+
+    const emitted = JSON.stringify(fingerprintOf(secret));
+
+    expect(emitted).not.toContain('SUPERSECRET');
+    expect(emitted).not.toContain(secret);
   });
 });
