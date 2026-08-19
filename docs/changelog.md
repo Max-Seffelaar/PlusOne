@@ -50,9 +50,10 @@ bare side-effect import it wrongly missed. All 8 other must-flag cases pass unde
 that is what makes this a fix rather than a weakening.
 
 **Tests.** `tests/unit/sentry-lazy-imports.test.ts` **21 passed** (was 2 — the 19 new cases are the
-rule's own contract). Full suite Vitest **1207 passed / 115 files** (main was 1188; +19, all of
-them here). `pnpm lint` clean (2 pre-existing `datetime-field.tsx` a11y warnings, file untouched),
-`pnpm type-check` zero errors. Touches no SQL and no `src/` file, so pgTAP is unaffected.
+rule's own contract). Full suite on the branch merged up to `main` (`daf0e58`): Vitest **1252
+passed / 120 files**; the +19 over that base are all from this change. `pnpm lint` clean (2
+pre-existing `datetime-field.tsx` a11y warnings, file untouched), `pnpm type-check` zero errors.
+Touches no SQL and no `src/` file, so pgTAP is unaffected.
 
 Follow-on: `src/lib/observability/sentry-server.ts` (PR #273) may now use the ordinary
 `import type` form. No need to change it — `typeof import(…)` is correct either way — but the trap
