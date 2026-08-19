@@ -8,6 +8,99 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-19 — Production ran blind: Sentry never initialised, and the build now refuses to ship without it (86eyp5w32)
+
+Branch `claude/performance-sweep-orchestration-e4t594`. Found while orchestrating the
+performance sweep, investigating `86eykdzf1` (the suspicion that `/e/[slug]` 500'd for
+five weeks on a missing `LANDING_IP_SALT`).
+
+**The finding is bigger than the incident it came from.** Sentry has received **zero
+events in 90 days** — both orgs, both projects, no events of any kind. Not "no errors":
+nothing at all.
+
+### Why it was invisible
+
+`sentry.server.config.ts:10`, `sentry.edge.config.ts:12` and `src/sentry.client.init.ts:24`
+all initialise with `enabled: Boolean(dsn)` where `dsn = process.env.NEXT_PUBLIC_SENTRY_DSN`.
+A missing var switches Sentry off silently — no warning, no log, no build failure.
+
+What made it genuinely hard to spot: **the build-time half worked perfectly on every
+deploy.** The shipped production bundle contains `_sentryDebugIds`,
+`globalThis.SENTRY_RELEASE`, and `_sentryRewritesTunnelPath="/monitoring"`. Per
+`next.config.js:133` the webpack plugin is `disable: !process.env.SENTRY_AUTH_TOKEN`, so
+debug IDs in the bundle prove a real auth token was present. The Vercel marketplace
+integration injects `SENTRY_ORG`/`SENTRY_PROJECT`/`SENTRY_AUTH_TOKEN` — but not the DSN
+under this app's variable name. So every deploy dutifully uploaded source maps for events
+that would never arrive, and every dashboard looked configured.
+
+### How it was proven without Vercel env access
+
+`NEXT_PUBLIC_*` vars are inlined into the client bundle at build time (the mechanic
+`src/lib/env.ts` documents), so their absence from the shipped JS is evidence, not
+inference. Fetching every chunk referenced by the prod landing page: **0 matches** for any
+`ingest…sentry.io` endpoint. Confirmed from a second angle: `/monitoring` returns **404**
+even though the tunnel path is compiled into the bundle — the route only registers once
+the SDK initialises with a DSN.
+
+### The fix, and why it's a build guard rather than a boot guard
+
+`scripts/hooks/lib/required-env.mjs` + `scripts/hooks/check-required-env.mjs`, wired as
+the first half of `pnpm build`.
+
+Throwing at runtime boot — the `landingIpSalt()` pattern — would be **worse than the
+disease here**: a mistyped monitoring var would take the door offline, and the door is the
+one surface that must keep working (door speed, offline-tolerant check-in). Failing the
+*build* keeps the loudness without ever risking a live venue: a bad deploy never becomes a
+running deploy.
+
+Keyed on `VERCEL_ENV === 'production'`, deliberately **not** `NODE_ENV`. Next sets
+`NODE_ENV=production` for preview deploys and for a plain local `pnpm build`, so a
+`NODE_ENV` gate would break every contributor and every CI run — and that exact conflation
+is what made `86eykdzf1` unfalsifiable ("it should have been throwing on preview too" was
+never verifiable). CI's build step sets no `VERCEL_ENV`, so it stays green; verified by
+running `pnpm build` under the exact CI env.
+
+Guarded vars carry a `why` string each, printed on failure — a guard that only prints a
+name teaches the next person nothing. `LANDING_IP_SALT` is in the list precisely because
+its runtime fail-closed only fires once a guest actually visits `/e/[slug]`; a build-time
+check turns a five-week silent outage into a failed deploy. Stripe keys were deliberately
+left out: the stub provider serving keyless dev/CI is documented behaviour, and requiring
+them in prod is a decision, not a cleanup.
+
+### Verification
+
+- `tests/unit/required-prod-env.test.ts` — 12 tests. Behavioural coverage of the predicate
+  plus a structural test asserting `pnpm build` still invokes the runner (a guard nobody
+  calls is the failure mode that produced this task — cf. `idbClearAll()` shipping with
+  zero call sites and a comment claiming otherwise, 86ey9et07).
+- **Both verified red-on-revert**: removing the guard from `package.json` fails the
+  structural test; removing empty-string handling fails two behavioural tests.
+- Guard exercised across all five env shapes (local, preview, `NODE_ENV=production`
+  without Vercel, prod-missing, prod-complete) — pass/block as intended.
+- Simulated `VERCEL_ENV=production` build blocks before `next build` runs, naming only the
+  actually-missing var.
+- `pnpm type-check` clean · `pnpm lint` clean (only the two pre-existing
+  `datetime-field.tsx` a11y warnings) · `pnpm vitest run` **116 files / 1200 tests
+  passing** · `pnpm build` green under CI env.
+- `docs/runbook.md`: new "Is monitoring even alive?" section — two copy-paste checks, since
+  "no Sentry alerts" must never again be read as "nothing is wrong".
+
+### Still open — needs Max, not code
+
+The guard prevents recurrence; it does **not** set the variable. `NEXT_PUBLIC_SENTRY_DSN`
+must still be added in Vercel (Production scope) and a real event confirmed via the
+existing `/sentry-test` route. Note the two Sentry orgs (`plus-one-hs/javascript-nextjs`,
+`plus-one-lk/sentry-citron-cloud`) — a DSN pointing at the wrong project produces exactly
+the same symptom as no DSN, so pick deliberately and retire the other. Also unverified: the
+Vercel project's build command must actually be `pnpm build` rather than a dashboard
+override, or the guard never runs.
+
+Related: `86eykdzf1` closed as investigated-but-unprovable — Vercel retains 7 days and
+Sentry held nothing, so the five-week question can no longer be answered from telemetry.
+A live probe did confirm `/e/[slug]` is healthy now.
+
+---
+
 ## 2026-08-12 — Door outbox owner-stamp: a tablet hand-off no longer costs check-ins (86ey9et0h)
 
 Branch `claude/outbox-owner-stamp-sync-7aadf3`. Milestone: Now (a lost door check-in is the
