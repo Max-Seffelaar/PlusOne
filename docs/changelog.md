@@ -8,6 +8,192 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-19 — Door: the implicit single-event choice is pinned, so a second live event no longer unmounts the door mid-shift (86eykm7qp)
+
+Branch `fix/86eykm7qp-door-candidate-pin`. Milestone: Now. No migration, no schema change,
+no new server state — the door stays local-first.
+
+**The bug.** `app.tsx` resolved the door's event as
+`doorState.eventId ?? (doorCandidates.length === 1 ? doorCandidates[0].id : null)`. The
+single-candidate branch is an *implicit* choice, and it was never written back to
+`doorOverride` or the URL — so it was re-derived from `length === 1` on every single render.
+The instant a second event appeared in the candidate list, `requestedDoorId` became `null`,
+`resolvedDoorId` followed, and `<DoorEventPicker>` rendered in the exact slot that had held
+`<DoorQueryProvider><DoorProvider>`. Different element type at the same position → React
+unmounts the whole door subtree → `useDoorSync`'s cleanup runs `client.removeChannel(...)`.
+
+**The scenario that makes it real.** A doorhost checks guests in on a tablet at a venue whose
+only non-past event is tonight's. The wifi drops and comes back; React Query's
+`refetchOnReconnect` is at its default `true` (`PoLiveProvider` sets only
+`staleTime`/`gcTime`/`retry`/`refetchOnWindowFocus:false`), so the candidate query refetches.
+If a colleague has meanwhile scheduled the next party, the door jumps to an event picker
+mid-check-in, with no explanation and no realtime.
+
+**Blast radius, stated honestly.** A venue with anything else on the calendar already has >1
+candidate, so it gets the picker on entry and the host picks explicitly — that path was always
+immune. The vulnerable venue is the one whose only non-past event is tonight's, where someone
+plans the next event during the shift. **The queue itself was never at risk**: the outbox is a
+module singleton and `DoorQueryProvider` uses a per-tab singleton client with `gcTime: WEEK_MS`.
+The damage was the unexplained jump plus losing realtime/sync mid-shift.
+
+**The fix** (`src/components/po/app.tsx`, one effect next to `replaceDoorState`). Pin the
+implicit choice the moment it resolves: `replaceDoorState({ seg, eventId: <resolved>, overlay })`
+writes it into `doorOverride` **and** the raw URL. `replaceDoorState` goes through
+`window.history.replaceState`, not `router.replace`, so there is no RSC round-trip and the
+door's offline invariant (#25) is untouched. Once pinned, `doorState.eventId` is non-null and
+the candidate list can grow freely without touching the door subtree.
+
+Guards on the effect:
+- **Mobile door tab only** (`isMobile && isDoorTab`). The desktop cockpit resolves its own
+  event via `EventDayCockpitGate` and must never carry a `doorOverride`; and firing this from
+  another screen would rewrite the URL to a door path under that screen.
+- **Render-loop safe.** `replaceDoorState` sets state, so the effect only writes when the
+  state is not already what it would write (`doorState.eventId === null && resolvedDoorId !==
+  null`): one write at mount, zero on idle re-renders.
+- **The pin is released when its event is gone.** If the pinned id drops out of the candidate
+  list (after the existing stale-id refetch has had its one retry), the pin is cleared so
+  derivation runs again. Without this the host would sit on "geen event" with no way out — the
+  "ander event" control only renders with >1 candidates.
+
+*(Round 1 implemented both of those with a `pinnedDoorRef` that also recorded whether the id
+was "our guess"; the round-2 review below took that ref out. The bullets describe the shipped
+code.)*
+
+**Behaviour change worth knowing.** The implicit choice now behaves like an explicit one: it
+sticks, and it survives a reload because it is in the URL. Auto-following to a different
+single event only happens through the release path above.
+
+**Test — and the red-on-revert check that PR #261 round 1 skipped.**
+`src/components/po/door-pin-keeps-subtree-mounted.test.tsx` (jsdom) drives the **real**
+`PlusOneApp` with only the periphery stubbed, goes from 1 candidate to 2 with
+`doorState.eventId === null`, and asserts the door subtree never unmounts. `DoorProvider` is
+stubbed with a probe that opens a channel on mount and removes it on unmount, mirroring
+`useDoorSync`'s own cleanup, so the assertion reads in the bug's own terms
+(`channelTeardowns === 0`, `doorMounts === 1`, picker never mounted). Two further cases cover
+the URL write-back and the pin release.
+
+`door-tab-render-scope.test.tsx` (the earlier attempt) failed by re-implementing the wiring in
+a local harness and never importing `app.tsx`. To avoid repeating that, the fix was reverted
+and the suite re-run: **3/3 red on unfixed `app.tsx`, 3/3 green with the fix**, verified
+mechanically, not assumed.
+
+**Gates.** `pnpm lint` clean (2 pre-existing `jsx-a11y` warnings in the unrelated
+`datetime-field.tsx`), `pnpm type-check` zero errors, `npx vitest run` **116 files / 1191
+tests, all passing**. The three protected guards were neither touched nor weakened:
+`app-shell-no-ssr-suspense.test.ts` (2) and `door-tab-element-identity-bailout.test.ts` (4)
+run green; `tests/e2e/app-home-events-visible.spec.ts` is unmodified but could not be executed
+in this container (no Docker → no local Supabase stack, and Playwright needs a dev server).
+
+### Round 2 — the pin's lifetime (fresh-session `/code-review` + `/security-review` on PR #278)
+
+The review raised three findings, two merge-blocking. Both blockers were about **how long the
+pin lives**, not about the pin itself, and both were confirmed here before being acted on —
+reproduced against the real `PlusOneApp`, with numbers matching the reviewer's own.
+
+The single root cause: **the write was guarded by a `useRef` while the pinned value lived in
+the URL.** A ref is per-mount; the URL is not. Every gap between those two lifetimes leaked.
+
+**Blocker 1 — the pin was one-shot per id, so the original bug came back after the first
+hardware-back gesture.** `pinnedDoorRef.current === resolvedDoorId` was doing double duty: the
+render-loop guard *and* a permanent record. Once `ev-a` had been pinned, that id could never be
+pinned again for the life of the mount — and `doorState.eventId` returns to `null` **without** a
+remount. `useDoorOverride`'s popstate listener drops the override on any back/forward by design
+(it exists precisely because Next's hooks don't re-fire on a raw-history pop, 86ey9tq62), and a
+door entered from the bottom tab has no `?event=` in Next's tracked search string to fall back
+to. So closing a guest overlay with the Android hardware back button — the door's single most
+common gesture — put the door back to being derived every render. Measured on the unfixed code:
+
+```
+after popstate, door : true
+door after 2nd event : false
+picker mounted       : true
+channelTeardowns     : 1     <- the realtime channel this whole PR exists to protect
+```
+
+**Blocker 2 — the pin was persisted in the URL but the mechanism releasing it was not, so a
+doorhost could land on a dead screen with no way out.** The pin survives a reload; a `useRef`
+does not. A tablet reloading last night's pinned URL (a plain refresh, or the Capacitor
+remote-URL shell restoring the last URL) hits: `requestedDoorId` = the stale `ev-a` from the
+URL, so the `length === 1` derivation never runs; `resolvedDoorId` = `null`, correctly rejected
+by validation; the release never fires because the fresh ref is `null`; and with exactly one
+candidate there is no picker either (`> 1` required). Measured on the unfixed code:
+
+```
+door mounted   : false
+picker mounted : false
+URL            : ?event=ev-a
+body text      : "Check-in — No event to check in to yet. Create or open one first."
+```
+
+This is a regression in kind, not degree: before the PR the implicit choice was never written
+to the URL, so the same reload just re-derived tonight's event. A stale *explicit* `?event=`
+could already strand a host, but only if they had deliberately picked one — after round 1 every
+single-candidate door tab acquired one automatically.
+
+**Finding 3 (minor) — an explicit re-pick of the already-pinned event was mislabelled as "our
+guess".** A pick from the in-door picker (`onChangeDoorEvent` → `onPick`) goes through
+`replaceDoorState` with no remount, so the ref kept its old value and the user's own choice
+became releasable by the branch above. The reviewer's own note — that deriving intent from
+state instead of tracking it in a ref removes all three at once — is what the fix does, so this
+one dissolved rather than being patched.
+
+**The fix: nothing is remembered about who chose an id; both halves read current state.**
+
+- The **write guard** now asks *"is the state already what I would write?"* instead of *"have I
+  ever written this?"* — it compares against `doorState.eventId`, which is self-healing: after
+  the write the state *is* the value, so the effect stops on its own. It re-pins after a
+  popstate, which is exactly what blocker 1 needed.
+- The **release** now fires on `rejectedDoorId` — the candidate list's own settled verdict,
+  published as state by the existing stale-id refetch effect once that id's one retry has come
+  back and still doesn't contain it. It needs no memory of who chose the id, so it is
+  re-derived on **every** mount, including the fresh one after a reload. That closes blocker 2.
+- `pinnedDoorRef` is gone entirely.
+
+Two details that are load-bearing rather than incidental:
+
+- `rejectedDoorId` is **state, not a ref**, on purpose. Effects in one component run in
+  declaration order, so a ref written by the refetch effect would already be readable by the
+  pin effect on the *same* commit — and the pin would then be released before its retry had a
+  chance to bring the event back. That retry exists for a real case ("Check-in" tapped for an
+  event a colleague created seconds ago), so collapsing the two into one commit would trade a
+  dead end for landing the host on the wrong event. A state update forces a later render.
+  Mutation-tested: replacing the `rejectedDoorId` gate with a plain settled-list check turns
+  that case red (`expected '?event=ev-b' to contain 'event=ev-a'`).
+- The release re-checks `!doorCandidates.some(...)` alongside `rejectedDoorId`, because on the
+  commit where the refetch effect *clears* the rejection the pin effect still reads the previous
+  state value.
+
+**Deliberate behaviour change.** The release no longer distinguishes our pin from an explicit
+user pick, so a stale explicit `?event=` is now released too. That is a fix, not collateral:
+`resolvedDoorId` already refuses to mount the door for a non-candidate, so such an id was only
+ever stranding the host.
+
+**Tests.** `src/components/po/door-pin-lifetime.test.tsx` (jsdom, real `PlusOneApp`) adds four
+cases; the round-1 file's candidate-query stub was made faithful (`refetch()` now flips
+`isFetching`, which is what `notifyOnChangeProps` actually re-renders on — a no-op stub modelled
+a retry that never lands).
+
+Red-on-revert verified per test, mechanically, against `git show HEAD:src/components/po/app.tsx`:
+
+| test | on unfixed code |
+| --- | --- |
+| re-pins after a hardware-back gesture drops the door override | **red** — `door-provider` null after the 2nd event |
+| releases a rejected pin on a FRESH mount (reload dead screen) | **red** — `door-provider` null, no picker |
+| writes the pin exactly once at mount, never on an idle re-render | green (loop guard was already correct) — **red under mutation**: dropping the guard gives `expected 2 to be 1` |
+| does not release before the stale-list retry has settled | green (unfixed code never releases there) — **red under mutation** as above |
+
+The reviewer explicitly confirmed the round-1 render-loop guard was sound (1 write at mount, 0
+on idle re-renders). Removing the ref must not cost that, so it is now asserted directly by
+counting real `history.replaceState` calls rather than left implicit.
+
+**Gates (round 2).** `pnpm lint` clean (same 2 pre-existing `jsx-a11y` warnings in the
+unrelated `datetime-field.tsx`), `pnpm type-check` zero errors, `npx vitest run` **117 files /
+1195 tests, all passing**. The three protected guards were neither touched nor weakened:
+`app-shell-no-ssr-suspense.test.ts` and `door-tab-element-identity-bailout.test.ts` green;
+`tests/e2e/app-home-events-visible.spec.ts` unmodified but still not runnable in this container
+(no Docker → no local Supabase stack, and Playwright needs a dev server). Door offline
+invariant #25 is untouched — the release, like the pin, goes through `replaceDoorState` on raw
+history, never `router.replace`.
 ## 2026-08-19 — Venue switch: a refused switch no longer reloads as if it worked (86eykm7rk)
 
 Branch `fix/86eykm7rk-venue-switch-silent-failure`. Milestone: **Now**. No migration, no schema
