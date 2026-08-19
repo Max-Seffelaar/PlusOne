@@ -75,8 +75,12 @@ React context, and `usePo()` throws.
 it mocks the module wholesale, so a missing export would have failed at import.
 
 **Diff discipline.** `src/components/po/app.tsx` is also touched by PR #278 (`requestedDoorId`
-~r. 437–466, pin logic ~r. 540–551). This PR's `app.tsx` change is confined to the `switchToVenue`
-callback and its one import line — no reformatting, no import reordering.
+~r. 437–466, pin logic ~r. 540–551). This PR's hunks are the `switchToVenue` callback, two imports,
+a module constant and the toast state/render lines — all clear of those regions, no reformatting,
+no import reordering. Re-verified after round 2 with a real trial merge against #278's branch:
+`app.tsx` **auto-merges cleanly**; the only conflict is this file, where both PRs prepend a
+newest-first entry at the same anchor — inherent to the convention, resolved by whichever merges
+second.
 
 ### What round-2 review changed (fresh-session `/code-review`, 6 findings)
 
@@ -151,6 +155,28 @@ untouched — unrelated to this bug, and dead-component removal has its own lane
 | error toast back to a bare `setTimeout` | `Unable to find … "Switching…"` — the stale timer clips the next toast |
 | `VenueCreate` back to `t.venue.switchFailed` | `Unable to find … "Venue created, but we could not open it…"` |
 | `VenueCreate`'s `denied` branch deleted | `expected "spy" to not be called at all, but actually been called 1 times` |
+
+**Finding 1 also proved against a real database, not only mocks.** The unit test mocks
+`getMyMemberships`/`getOrganizerVenues`, which is exactly the layer the bug lived in — so it was
+worth confirming the premise holds against real RLS. The seed already ships the case: **Yusuf
+(`organizer@plusone.test`) has no membership at Club Vesper, only an `event_organizers` row**
+(seed comment: *"organizer Yusuf has NO membership, only an event scope"*). Adding a membership at
+De Marktzaal makes him member-at-B / external-crew-at-A — the reviewer's exact scenario. Running
+the app's two reads under his JWT with RLS enforced (`supabase/tests`-style `pg_temp.login`,
+script kept out of the repo — it asserts seed shape, not app logic):
+
+```
+ok 1 - Club Vesper is NOT among Yusuf's memberships (external crew only)
+ok 2 - Club Vesper IS among Yusuf's organizer venues, visible under RLS
+ok 3 - round-1 (memberships only) would return 'denied' for a normal crew venue
+ok 4 - round-2 (memberships UNION organizer) returns 'ok' for the crew venue
+ok 5 - a venue in NEITHER set is still denied
+ok 6 - the real membership (De Marktzaal) is still allowed
+ok 7 - no membership row at the crew venue: selecting it grants no roles
+```
+
+The last one is the security half: writing the cookie for a crew venue grants no roles, so no
+role-gated action opens up and RLS still decides every read.
 
 ## 2026-08-12 — Door outbox owner-stamp: a tablet hand-off no longer costs check-ins (86ey9et0h)
 
