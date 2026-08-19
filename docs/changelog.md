@@ -8,6 +8,78 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-19 — Stripe webhook: a malformed `client_reference_id` no longer poisons the retry queue (86ey9e9re)
+
+Branch `fix/86ey9e9re-stripe-webhook-uuid-guard`. Milestone: Now (a stuck webhook queue hides
+every *real* billing failure behind it). No migration — the fix is entirely application-layer.
+
+**The bug.** `checkout.session.completed` carried `session.client_reference_id` straight into
+`apply_stripe_subscription_update` as `p_venue_id`, whose declared type is `uuid`. That field is
+an arbitrary Stripe-side string, not a validated id: a checkout started from the Stripe
+dashboard, a legacy/typo value, or an attacker-supplied one all arrived verbatim. Postgres
+failed the cast (`22P02`), the RPC returned an error, and the handler's one and only error
+branch answered **500** — the code Stripe reads as "retry me". The same unfixable event then
+came back with backoff for days, and genuine webhook failures drowned in that noise.
+
+**The fix, and the line it draws.** A `z.string().uuid()` guard runs between the mapping and the
+RPC. A present-but-malformed venue id is reported to Sentry and answered **200 `unprocessable`**;
+the RPC is never called. The reasoning is a property of the input, not a preference: a
+malformed `client_reference_id` cannot become valid on redelivery, so a retry has no possible
+success path and 500 is simply the wrong answer. 500 stays reserved for what it was documented
+for — genuinely transient failures.
+
+Two boundaries worth stating, because both are load-bearing:
+
+- **A `null` venueId still flows through.** `invoice.paid` and the subscription events carry no
+  `client_reference_id` at all and match on `stripe_customer_id`; the guard rejects *malformed*,
+  never *absent*. Regression-tested.
+- **`mapStripeEvent` stays pure.** It reports what Stripe actually sent, non-UUID included;
+  validation is the handler's concern. A test pins that passthrough so a later "helpful" null-ing
+  inside the mapper can't quietly turn a poison event into a silent no-op.
+
+**Deliberately rejected: falling back to customer-matching.** With `p_venue_id` null the RPC
+matches on `stripe_customer_id`, so a malformed venue id *could* have been nulled and the event
+applied anyway. That would infer intent from a malformed billing event and mutate a subscription
+on a guess. A human reads the Sentry warning instead.
+
+**New: `src/lib/observability/sentry-server.ts`.** There was a lazy *browser* Sentry facade but
+no server one. It reaches the SDK (already initialised by `instrumentation.ts`) through a dynamic
+`import()`, including for its types — `tests/unit/sentry-lazy-imports.test.ts` scans all of `src/`
+without distinguishing server from client, and its regex spans a whole file, so `import
+'server-only'` plus any later `from '@sentry/nextjs'` (even `import type`) trips it. Writing the
+types as `typeof import('@sentry/nextjs')` leaves no `from` clause, so the guard stays intact and
+needs no allowlist entry. Telemetry swallows its own failures — it must never turn a 200 into a 500.
+
+**Left open, reported not fixed (scope).** The same 500-means-retry-forever shape survives on the
+RPC side. `apply_stripe_subscription_update` (current definition:
+`20260714130000_stripe_event_ordering_guard.sql`) raises on three more conditions, and because the
+raise rolls back the `stripe_webhook_events` ledger insert too, the redelivery is never recognised
+as a replay — it re-raises identically, forever:
+
+| errcode | condition | retryable? |
+|---|---|---|
+| `45010` | venue already linked to another Stripe customer | **never** — same payload, same raise |
+| `22004` | event carries neither venue nor customer | **never** |
+| `P0002` | no subscription matches the event | **mixed** |
+
+`45010` is unfixable by construction and is the closest sibling of the bug fixed here. `P0002` is
+the one that cannot simply be mapped to 2xx: it has a legitimately transient sub-case — the webhook
+racing ahead of `stamp_stripe_customer`, which the original migration comment calls out as the
+*reason* it raises — alongside a permanent one (a dashboard-created customer, a deleted
+subscription row). Separating "not yet" from "never" needs a decision, not a patch; an
+`event.created`-age cutoff is the obvious candidate. Detailed in the PR body; not touched here.
+
+**Tests.** Vitest **1197 passed / 115 files** (was 1188; +9). The 6 new guard assertions were each
+verified red against the unguarded handler — failing with `expected 500 to be 200`, the bug itself
+— with the RPC mock returning the real `22P02` cast error rather than a synthetic one. `pnpm lint`
+clean (2 pre-existing `datetime-field.tsx` a11y warnings, untouched), `pnpm type-check` zero errors.
+pgTAP not run here: no Docker in the session container, so CI owns it — the change touches no SQL.
+
+High-risk surface (billing webhook) → draft PR carries a proactive adversarial security-research
+prompt; a fresh session reviews before merge.
+
+---
+
 ## 2026-08-12 — Door outbox owner-stamp: a tablet hand-off no longer costs check-ins (86ey9et0h)
 
 Branch `claude/outbox-owner-stamp-sync-7aadf3`. Milestone: Now (a lost door check-in is the

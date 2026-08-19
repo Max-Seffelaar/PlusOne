@@ -13,8 +13,17 @@ import 'server-only';
 // invoice.paid must not undo a newer customer.subscription.deleted.
 
 import Stripe from 'stripe';
+import { z } from 'zod';
 import { createServiceClient } from '@/lib/supabase/service';
+import { captureServerMessage } from '@/lib/observability/sentry-server';
 import { billingConfig, planIdForPrice, STRIPE_API_VERSION } from './config';
+
+// `client_reference_id` is an arbitrary Stripe-side string, not a validated id:
+// a checkout started from the Stripe dashboard, a legacy/typo value or an
+// attacker-supplied one all arrive here verbatim. The RPC declares
+// `p_venue_id uuid`, so anything non-UUID fails Postgres' cast — see the guard
+// in handleStripeWebhook (ClickUp 86ey9e9re).
+const venueIdSchema = z.string().uuid();
 
 type MappedStatus = 'trialing' | 'active' | 'past_due' | 'canceled';
 
@@ -167,9 +176,15 @@ export interface WebhookResult {
 
 /**
  * Verify + map + apply one webhook delivery. Response contract for Stripe:
- * 2xx = processed (including replays and ignored event types — never redeliver),
+ * 2xx = processed (including replays, ignored event types and unprocessable
+ *       events — never redeliver),
  * 400 = bad signature (misconfiguration; redelivery won't help),
  * 500 = transient processing failure (Stripe retries with backoff).
+ *
+ * The 2xx-for-unprocessable rule is what keeps a poison event out of Stripe's
+ * retry queue: a malformed `client_reference_id` can never become valid on
+ * redelivery, so answering 500 would make Stripe replay the same broken event
+ * with backoff for days and bury genuine webhook failures in the noise.
  */
 export async function handleStripeWebhook(
   rawBody: string,
@@ -189,6 +204,25 @@ export async function handleStripeWebhook(
 
   const update = mapStripeEvent(event);
   if (!update) return { status: 200, body: 'ignored' };
+
+  // A null venueId is normal and must keep flowing: invoice/subscription events
+  // carry no client_reference_id and the RPC matches them on stripe_customer_id.
+  // A PRESENT but non-UUID value is the poison case — the RPC's `p_venue_id uuid`
+  // cast would raise, and we would answer 500 to an event that can never succeed.
+  if (update.venueId !== null && !venueIdSchema.safeParse(update.venueId).success) {
+    // No venue id in the message body or tags: it is unvalidated third-party
+    // input and could carry anything (CLAUDE.md §Security — no PII in logs).
+    await captureServerMessage('stripe webhook: unusable client_reference_id', {
+      level: 'warning',
+      tags: { stripe_event_type: update.eventType },
+      extra: { eventId: update.eventId },
+    });
+    console.error('stripe webhook unprocessable client_reference_id', {
+      eventId: update.eventId,
+      eventType: update.eventType,
+    });
+    return { status: 200, body: 'unprocessable' };
+  }
 
   const supabase = createServiceClient();
   const { data: applied, error } = await supabase.rpc('apply_stripe_subscription_update', {
