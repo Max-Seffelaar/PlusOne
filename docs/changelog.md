@@ -8,7 +8,6 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
-<<<<<<< HEAD
 ## 2026-08-19 — Venue switch: a refused switch no longer reloads as if it worked (86eykm7rk)
 
 Branch `fix/86eykm7rk-venue-switch-silent-failure`. Milestone: **Now**. No migration, no schema
@@ -182,7 +181,6 @@ ok 7 - no membership row at the crew venue: selecting it grants no roles
 
 The last one is the security half: writing the cookie for a crew venue grants no roles, so no
 role-gated action opens up and RLS still decides every read.
-=======
 ## 2026-08-19 — pgTAP: a plan/run mismatch is now a red build (86eykjgrb)
 
 Branch `fix/86eykjgrb-pgtap-plan-mismatch`. Two test files had been printing
@@ -483,7 +481,6 @@ A6 geïsoleerd, zonder de guard:
 De pgTAP-job in GitHub Actions blijft het bindende bewijs.
 
 ---
->>>>>>> origin/main
 
 ## 2026-08-12 — Door outbox owner-stamp: a tablet hand-off no longer costs check-ins (86ey9et0h)
 
