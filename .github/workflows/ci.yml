@@ -53,11 +53,36 @@ jobs:
       - name: Start local Supabase stack
         run: supabase start
 
+      # ─────────────────────────────────────────────────────────────────────
+      # TEMP PROOF (86eykjgrb round 2) — these four steps and scripts/gate-proof/
+      # are DELETED in the next commit. They exist so the review's central
+      # question ("can you show the gate goes red where it must?") is answered by
+      # CI rather than by argument. Each step asserts its own claim against the
+      # real local stack and the real Supabase CLI, so the step's pass/fail IS the
+      # verdict — see scripts/gate-proof/run.sh.
+      # `if: always()` so one failing proof does not hide the others.
+      - name: PROOF A — pg_prove PASSes a drifted file, the gate turns it red
+        if: always()
+        run: bash scripts/gate-proof/run.sh A
+
+      - name: PROOF B1 — with the fix, "# No tests run!" survives and is named
+        if: always()
+        run: bash scripts/gate-proof/run.sh B1
+
+      - name: PROOF B2 — without the fix, currval() destroys that signal
+        if: always()
+        run: bash scripts/gate-proof/run.sh B2
+
+      - name: PROOF D — arguments reach the real CLI (Files=1, not 56)
+        if: always()
+        run: bash scripts/gate-proof/run.sh D
+
       # Wrapper, not bare `supabase test db`: pg_prove exits 0 on a file whose
       # plan() and assertion count have drifted apart, because pgTAP reports that
       # only as a TAP comment (86eykjgrb). scripts/db-test.mjs streams the normal
       # output through and turns that comment into a red build.
       - name: Run database tests (pgTAP)
+        if: always()
         run: node scripts/db-test.mjs
 
       # Real cross-connection concurrency test for the quota/capacity/tier-max
