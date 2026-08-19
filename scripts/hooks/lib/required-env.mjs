@@ -5,14 +5,13 @@
 // Why this exists at BUILD time and not at boot:
 //
 // Sentry was wired into this repo correctly and still reported nothing for
-// months. The build-time half worked on every deploy (`_sentryDebugIds` and
-// `SENTRY_RELEASE` are in the shipped bundle, so the webpack plugin ran with a
-// real SENTRY_AUTH_TOKEN), but `sentry.*.config.ts` initialises with
-// `enabled: Boolean(dsn)` — so a missing NEXT_PUBLIC_SENTRY_DSN turned the
-// runtime half off silently. Green deploy, source maps uploaded, zero events.
-// The Vercel marketplace integration injects SENTRY_ORG/SENTRY_PROJECT/
-// SENTRY_AUTH_TOKEN but NOT the DSN under this app's variable name, so nothing
-// ever pointed at the gap.
+// months: zero events in 90 days across both orgs, while Sentry kept receiving
+// releases and production deploy markers for those same commits. The build-time
+// half was working; `sentry.*.config.ts` initialises with `enabled: Boolean(dsn)`,
+// so a missing NEXT_PUBLIC_SENTRY_DSN turned the runtime half off in silence.
+// Green deploy, releases created, zero events. The Vercel marketplace integration
+// injects SENTRY_ORG/SENTRY_PROJECT/SENTRY_AUTH_TOKEN but NOT the DSN under this
+// app's variable name, so nothing ever pointed at the gap.
 //
 // Throwing at runtime boot instead would be worse than the disease: a
 // misconfigured monitoring var would take the door offline, and the door is the
@@ -32,7 +31,7 @@ export const PROD_REQUIRED_ENV = [
   },
   {
     name: 'LANDING_IP_SALT',
-    why: 'landingIpSalt() throws in production without it, so every visit to /e/[slug] 500s — but only once a guest actually tries to sign up (86ey9e9my, 86eykdzf1).',
+    why: 'landingIpSalt() throws in production without it. It runs during render — not at submit — so /e/[slug], /i/[token] and /r/[token] all 500 on first view: landing, invite and status links go down together (86ey9e9my, 86eykdzf1).',
   },
   {
     name: 'NEXT_PUBLIC_SUPABASE_URL',
@@ -43,6 +42,30 @@ export const PROD_REQUIRED_ENV = [
     why: 'Every data read and write goes through this client; the app is non-functional without it.',
   },
 ];
+
+/**
+ * Vars with a silent production failure mode that are deliberately NOT required
+ * here. Listed rather than omitted: an unexplained absence reads as an oversight,
+ * and the next person has to re-derive the reasoning (raised in review of #277).
+ *
+ * - STRIPE_SECRET_KEY / STRIPE_PRICE_* — the keyless stub provider serving
+ *   dev/CI is documented behaviour (CLAUDE.md, decision #32) and pilot venues
+ *   run `comped`. Requiring them in production is a product decision, not a
+ *   cleanup.
+ *
+ * - NEXT_PUBLIC_TURNSTILE_SITE_KEY / TURNSTILE_SECRET_KEY — `verifyTurnstileToken()`
+ *   passes OPEN when both are unset, and passes open with a `console.error` when
+ *   exactly one is. That is the same fail-open-and-silent shape as the Sentry DSN,
+ *   and on a more sensitive surface: bot protection on the only anonymous write
+ *   path. It is excluded for one blunt reason — **the site key is currently not
+ *   set in production**, so requiring it would block the next deploy rather than
+ *   protect it. Verified 2026-08-19: the prod /e/[slug] bundle still carries
+ *   `env.NEXT_PUBLIC_TURNSTILE_SITE_KEY` as a runtime lookup, while a var that IS
+ *   set inlines as a literal (the real Supabase URL appears verbatim in the same
+ *   build). Turnstile is defence-in-depth — the DB rate limit, honeypot and dedup
+ *   remain the hard boundary — but "off in production" should be a decision, not
+ *   a discovery. Set the keys, then move this entry up into the required list.
+ */
 
 /**
  * True only for a Vercel PRODUCTION build.
