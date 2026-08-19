@@ -12,6 +12,7 @@ import dynamic from 'next/dynamic';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { setTag as sentrySetTag, addBreadcrumb as sentryAddBreadcrumb } from '@/lib/observability/sentry-client';
+import { useTransientValue } from '@/lib/use-transient-value';
 import {
   usePoCanManageTemplates,
   usePoDoorCandidates,
@@ -28,7 +29,7 @@ import { canSeeAnyRequests, canWorkDoor } from '@/features/auth/roles';
 import { venueCapabilities } from '@/features/venues/access';
 import { DoorProvider } from '@/features/door/DoorProvider';
 import { DoorQueryProvider } from '@/features/door/DoorQueryProvider';
-import { setActiveVenueAction } from '@/features/venues/actions';
+import { switchActiveVenueAction } from '@/features/venues/actions';
 import { PoProvider, type Nav, type PoApp, type ScreenName, type ScreenProps } from './context';
 import { doorPath, parseAppUrl, screenPath, tabPath, type DoorSeg, type ParsedTarget } from './routes';
 import { useDoorOverride } from './use-door-override';
@@ -175,6 +176,11 @@ function navKeyForScreen(name: ScreenName, _props: ScreenProps): string {
  *  entry (Contacts/Requests/Analytics/Promotion/Team) onto "Meer", matching
  *  where those screens actually live in the mobile nav. */
 const MOBILE_TABS: ReadonlySet<string> = new Set(['start', 'events', 'guests', 'deur', 'meer']);
+
+/** How long a venue-switch error stays up. Longer than the 4s billing toast:
+ *  both strings ask the user to DO something (refresh, retry), so they have to
+ *  outlast a glance (86eykm7rk). */
+const TOAST_ERROR_MS = 6000;
 function mobileTabForScreen(name: ScreenName, props: ScreenProps): TabKey {
   const key = navKeyForScreen(name, props);
   return (MOBILE_TABS.has(key) ? key : 'meer') as TabKey;
@@ -322,7 +328,16 @@ export function PlusOneApp(): JSX.Element {
     [doorOverride, doorSeg, doorEventIdFromUrl, doorOverlay],
   );
 
+  // Sticky toasts: cleared by whoever set them. `t.venue.switching` lives here
+  // because the reload, not a timer, is what ends it.
   const [toast, setToast] = useState<string | null>(null);
+  // Self-clearing toasts go through the shared primitive (86eykm7rk). It is the
+  // codebase's answer to exactly the stacking bug a bare `setTimeout` in a
+  // promise callback causes — `trigger` cancels the pending timer before arming
+  // a new one, and a trigger landing after unmount is a no-op, which matters
+  // when the toast is armed from an async completion. Same hook as
+  // DoorProvider, home.tsx and the cockpit.
+  const [transientToast, showTransientToast, clearTransientToast] = useTransientValue<string>(TOAST_ERROR_MS);
   // Retriggers the CSS entrance animation on every navigation (any URL change).
   // A derived key, not a bumped useState — a state+effect pair here meant every
   // navigation mounted the new screen once with the OLD key, then the effect
@@ -640,19 +655,36 @@ export function PlusOneApp(): JSX.Element {
       // A no-op for the already-active venue (context.tsx) — unreachable from
       // the UI today, kept as a guard since this is public API (86ey9e9vc).
       if (venueId === activeVenueId) return;
-      setToast(t.venue.switching);
-      const fd = new FormData();
-      fd.set('venueId', venueId);
-      void setActiveVenueAction(fd)
-        .then(() => {
+      // A fresh attempt drops the previous attempt's error: leaving it up would
+      // render over "Switching…" and read as if the new tap had failed too.
+      clearTransientToast();
+      setToast(t.venue.switching); // sticky: the reload, not a timer, ends this one
+      void switchActiveVenueAction(venueId)
+        .then((result) => {
+          // The server can REFUSE the switch without throwing (86eykm7rk): an
+          // admin revoking the access between the render of `myVenues` and
+          // this tap leaves the cookie unwritten. Reloading then drops the user
+          // back on the OLD venue with no error and no way out, so 'denied' has
+          // to say so instead. 'unauthenticated' still reloads on purpose —
+          // middleware turns that into /login, which is where the user belongs.
+          if (result === 'denied') {
+            setToast(null);
+            showTransientToast(t.venue.switchFailed);
+            return;
+          }
           window.location.assign('/app');
         })
         .catch(() => {
-          // Switch failed (network blip / server error) — stay on the old venue.
+          // A thrown action (network blip, 500) has to speak too. Clearing the
+          // toast here was the SAME silent failure this task exists to remove,
+          // just via a different path: "Switching…" flashed, the venue never
+          // changed, and nothing said why. Deliberately NOT `switchFailed` —
+          // the user's access is fine, so "try again" is the honest advice.
           setToast(null);
+          showTransientToast(t.venue.switchError);
         });
     },
-    [activeVenueId],
+    [activeVenueId, showTransientToast, clearTransientToast],
   );
 
   const ev = (id?: string) => events.find((e) => e.id === id);
@@ -797,7 +829,9 @@ export function PlusOneApp(): JSX.Element {
       <div key={key} className="po-screen-anim flex min-h-0 flex-1 flex-col">
         {screen}
       </div>
-      {toast && <Toast>{toast}</Toast>}
+      {/* A self-clearing toast wins over a sticky one: the only overlap is a
+          venue switch, where the error REPLACES "Switching…". */}
+      {(transientToast ?? toast) && <Toast>{transientToast ?? toast}</Toast>}
     </>
   );
 
