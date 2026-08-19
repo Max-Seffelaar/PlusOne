@@ -8,6 +8,53 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-19 — The migration-collision guard had never run (pre-push hook mode)
+
+Branch `fix/pre-push-hook-not-executable`. Milestone: Now — a timestamp collision
+breaks `db push` and `db reset` for everyone, and it is discovered after the merge.
+
+**What was wrong.** `scripts/hooks/pre-push` was committed as mode **100644**. Git
+silently skips a non-executable hook, saying so only in a `hint:` line that scrolls
+past in normal push output. The hook has therefore never run — for anyone, on any
+push, since it was added. Meanwhile `scripts/setup-git-hooks.mjs` printed
+`pre-push migration-collision guard active` on every `pnpm install`, because it set
+`core.hooksPath` and then claimed success without checking anything else.
+
+**Why it went unnoticed.** The guard's logic is well covered:
+`tests/unit/migration-guard.test.ts` has 13 cases over
+`scripts/hooks/lib/migration-guard.mjs` — and states outright that it tests the
+pure logic "without touching git or fs". Nothing tested the delivery mechanism. A
+perfectly tested function nobody calls is not a guard, and the test suite could not
+tell the difference.
+
+**How it surfaced.** While merging the 2026-08 sweep, migration timestamps across
+the twelve open PRs were compared by hand, because CLAUDE.md says a collision
+breaks `db push` and nothing appeared to be enforcing it. The manual check came
+back clean (only two branches carry a migration, on the two pre-assigned
+timestamps). Pushing the merge resolution then printed git's `hint:` line about the
+ignored hook — which is what exposed the cause.
+
+**Fix.** Three parts, each verified:
+
+- `git update-index --chmod=+x scripts/hooks/pre-push` — mode is now 100755 in git,
+  so every clone gets an executable hook. Confirmed the hook then actually runs
+  (`./scripts/hooks/pre-push` → exit 0, no collisions on the current tree).
+- `tests/unit/pre-push-hook-is-executable.test.ts` — asserts the mode recorded in
+  **git**, not on disk: a local `chmod` would mask a regression for whoever ran it,
+  while every other clone stays broken. Also asserts `core.hooksPath`, since a
+  correct mode on a hook git never looks at is equally inert. Verified red on
+  revert: flipping the mode back gives `expected '100644' to be '100755'`.
+- `scripts/setup-git-hooks.mjs` — no longer announces a guard it has not verified.
+  It now reads the committed mode and, when it is not 100755, warns that the guard
+  is **not** running and prints the one-line fix. Both branches exercised.
+
+**Note on scope.** This does not make the hook a boundary — it stays bypassable
+with `git push --no-verify`, as its own comment says. Blocking CI remains the real
+backstop. What changed is that the local guard now does the job it claimed to be
+doing, and can no longer regress to silence unnoticed.
+
+---
+
 ## 2026-08-19 — `guests.added_by` gebonden op UPDATE (86eymckjt)
 
 Branch `fix/86eymckjt-guests-update-bind-added-by`. Milestone: Now. Migratie
