@@ -71,10 +71,19 @@ export async function fetchAllRanged<T>(
 }
 
 /**
- * Split `ids` into chunks no larger than `size`. Use this to keep `.in('x', ids)`
- * filters under both PostgREST's max-rows AND Kong's URI length — a 1500-id `.in()`
- * can blow the URL limit and still over-return. Each chunk is then queried (and,
- * if the chunk itself can yield >1000 rows, ranged) separately.
+ * Split `ids` into chunks no larger than `size`.
+ *
+ * The default (`PAGE_SIZE` = 1000) only bounds the RESPONSE row count — it does
+ * NOT keep a `.in('x', ids)` filter's REQUEST URL under Kong's URI length. That
+ * limit bites much earlier: ~210 ids ≈ 7.8 kB already throws HTTP 414 (see
+ * CLAUDE.md's scale rules / `perf-scale-audit-megaevent.md`). So a caller building
+ * an `.in()` filter for a URL-based request MUST pass an explicit `size` of ≤120 —
+ * relying on the default here for that purpose is the exact bug this comment
+ * exists to prevent (86eykknf8). The default stays at `PAGE_SIZE` because this
+ * helper is also used for plain row-count chunking where no URL is involved;
+ * changing the default wouldn't remove the need for callers to think about which
+ * limit applies, it would just hide it. Each chunk is then queried (and, if the
+ * chunk itself can yield >1000 rows, ranged) separately.
  */
 export function chunkIds<T>(ids: readonly T[], size = PAGE_SIZE): T[][] {
   if (size < 1) throw new Error('chunkIds: size must be >= 1');

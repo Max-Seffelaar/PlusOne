@@ -8,6 +8,69 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-19 — `contactEventCounts` no longer 414s at 210+ contacts: wrong Kong URI-length comment fixed (86eykknf8)
+
+Branch `fix/86eykknf8-chunkids-uri-limit`. Flagged during a fresh-session `/code-review`
+of PR #260 (`86ey9e9wv`) as a pre-existing bug that PR almost copied for a similar case.
+
+**The bug.** `contactEventCounts` (`src/features/po/queries.ts`, called from
+`fetchContacts` — the venue address book) chunked its `guests.in('contact_id', …)`
+filter with `chunkIds(contactIds)`, i.e. the bare default (`PAGE_SIZE` = 1000). The
+comment above it claimed this was "chunked (≤1000 ids per request) to stay under Kong's
+URI length" — wrong on the actual measured threshold: `perf-scale-audit-megaevent.md`
+puts it at ~210 ids ≈ 7.8 kB → HTTP 414, and CLAUDE.md's scale rule says explicitly
+"chunk to ≤120 ids if a list is truly unavoidable". So any venue with 210+ contacts
+matching a search/filter 414'd on `contactEventCounts`'s very first chunk.
+
+**Fix.** `chunkIds(contactIds, 120)` at the call site; the comment now states the real
+~210-id/7.8 kB/414 threshold instead of the invented ≤1000/Kong claim.
+
+**Call-site audit (grep `chunkIds(` across `src/`):** two real call sites existed.
+`src/features/door/queries.ts:204` already passes an explicit `PROFILE_ID_CHUNK_SIZE =
+120` (`door/queries.ts:21`, comment correctly cites CLAUDE.md's scale rule) — no change
+needed there. `src/features/po/queries.ts:1116` (`contactEventCounts`) was the only
+call site relying on the bare, wrong-for-URLs default; it's now fixed above. The
+`chunkIds` tests in `src/lib/supabase/paging.test.ts` aren't call sites, just direct
+unit coverage of the helper.
+
+**`chunkIds`'s own default — left at `PAGE_SIZE` (1000), deliberately.** Considered
+lowering it or introducing a separate `URI_CHUNK_SIZE` constant; decided against it.
+`chunkIds` is a generic size-based chunker, not exclusively a URL-`.in()` helper — a
+future caller might chunk for a pure row-count reason unrelated to any URL (e.g.
+batching a JSON-body RPC array), where 1000 is the right default. Silently dropping the
+default to 120 would also just move the footgun rather than remove it: a caller who
+never stops to ask "is this filter going into a URL?" is exactly the failure mode that
+produced this bug, and a lower default doesn't force that question — it just changes
+which wrong number gets used implicitly. So the invariant stays "the caller building an
+`.in()` URL filter must pass an explicit ≤120 size" (already how `door/queries.ts` does
+it), not "the utility's default happens to be safe." Strengthened `chunkIds`'s docstring
+in `src/lib/supabase/paging.ts` to state this plainly and point at 86eykknf8, since the
+previous docstring's "keeps `.in()` filters under both PostgREST's max-rows AND Kong's
+URI length" line was itself part of the false precedent — misleadingly implying the
+default handles both limits when it only handles the first.
+
+**Test.** `src/features/po/queries.test.ts` — new `describe('fetchContacts →
+contactEventCounts chunking (86eykknf8)')`: 121 mock contact ids through `fetchContacts`,
+asserting the `guests.in()` filter fires more than once and no single chunk exceeds 120
+ids. Verified red-on-revert: reverting `chunkIds(contactIds, 120)` back to the bare
+default made the test fail (`expected 1 to be greater than 1`) exactly as expected: 121
+ids collapse into a single over-sized chunk at the old default.
+
+**Results:** `pnpm lint` clean (2 pre-existing unrelated a11y warnings in
+`datetime-field.tsx`). `pnpm type-check` clean. `pnpm test -- --run`: **115 test files,
+1189 tests, all passed.**
+
+**Out of scope, noted for a follow-up:** several other `.in()` call sites in `src/`
+(`guests/actions.ts:198`, `auth/invite-actions.ts:102`, `po/queries.ts:397/479/484/559/1372`,
+`events/actions.ts:460/469`) build `.in()` filters from unbounded id lists without
+`chunkIds` at all. None are demonstrated to be reachable with 210+ ids in practice, and
+this task's scope was `contactEventCounts` specifically — flagging for a separate audit
+task rather than fixing here.
+
+Not touched: `src/components/po/app.tsx` (other sessions working on it), no migrations.
+
+---
+
 ## 2026-08-12 — Door outbox owner-stamp: a tablet hand-off no longer costs check-ins (86ey9et0h)
 
 Branch `claude/outbox-owner-stamp-sync-7aadf3`. Milestone: Now (a lost door check-in is the
