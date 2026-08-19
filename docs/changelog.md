@@ -8,6 +8,56 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-19 — pgTAP: a plan/run mismatch is now a red build (86eykjgrb)
+
+Branch `fix/86eykjgrb-pgtap-plan-mismatch`. Two test files had been printing
+`# Looks like you planned N tests but ran 2` into every suite run while `supabase test db`
+reported an overall PASS.
+
+**What was actually wrong — not what it looked like.** The symptom reads as "13 assertions
+never ran", and that was the working theory. It is not what happens. Every assertion in
+`tiers.vat.test.sql` runs, and every one passes; the same holds for `event_templates.test.sql`
+(41 planned). The defect is in pgTAP's own bookkeeping:
+
+- `finish()` compares `plan(N)` against `curr_test`, which pgTAP stores in the **temp table**
+  `__tcache__` — so `rollback to savepoint` reverts it along with the section's data.
+- The test *numbers* it prints come from `__tresults___numb_seq`, a **sequence**. Sequences are
+  non-transactional, so those keep counting correctly across the same rollback.
+
+The two drift apart, and `finish()` ends up comparing the plan against the last assertion that
+ran *outside* a savepoint — test 2 in both files. `event_templates.test.sql` already carried a
+comment showing the author had hit the edge of this ("finish() sees zero and raises *No tests
+run!*") and worked around the exception without noticing the count was also wrong.
+
+**Why pg_prove was right to say PASS.** The TAP stream it receives is complete and correct:
+`1..15`, then fifteen `ok` lines. pgTAP's contradicting self-check is emitted as a TAP
+*comment*, which a harness is free to ignore. Verified against the real binary rather than
+assumed — pg_prove **does** already fail on a `not ok` line, and it passes `ON_ERROR_STOP=1` to
+psql, so a file that genuinely dies mid-run truncates its stream and fails as
+`Bad plan. You planned 4 tests but ran 2`. Neither of those safety nets was broken. The one
+gap was the comment.
+
+**The fix.** Re-sync pgTAP's counter from the sequence — the only place that knows what actually
+executed — immediately before `finish()`, in the three files that use savepoints
+(`tiers.vat`, `event_templates`, `events`). `plan(N)` was **not** lowered to match; that would
+define the defect away. `events.test.sql` was not emitting the diagnostic, but only by accident
+of ordering (its last assertions happen to sit outside a savepoint), so it got the same
+treatment rather than being left to break on the next edit.
+
+**The gate (the weightier half).** `supabase test db` in CI is now `node scripts/db-test.mjs`,
+which streams pg_prove's output through unchanged and fails the build on
+`planned N tests but ran M`, `Looks like you failed N tests of M`, and `# No tests run!`.
+Detection lives in `scripts/lib/pgtap-gate.mjs` with a Vitest suite
+(`tests/unit/pgtap-plan-run-gate.test.ts`, 7 tests) built from real captured pg_prove output.
+Proven by running the gate against the unfixed file: pg_prove exits 0 and reports `Result: PASS`,
+the gate exits 1.
+
+**Scope of the rot: 2 files of 56.** The full suite was run file-by-file to check, not sampled.
+1092 assertions, no mismatches remaining.
+
+
+---
+
 ## 2026-08-12 — Door outbox owner-stamp: a tablet hand-off no longer costs check-ins (86ey9et0h)
 
 Branch `claude/outbox-owner-stamp-sync-7aadf3`. Milestone: Now (a lost door check-in is the

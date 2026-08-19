@@ -60,6 +60,8 @@ select plan(41);
 -- Section A runs in the MAIN transaction (no savepoint): every later section
 -- rolls back its savepoint, which also reverts pgTAP's result cache — so without
 -- at least one non-rolled-back test, finish() sees zero and raises "No tests run!".
+-- The counter that same rollback corrupts is repaired just before finish(); see
+-- the comment there for why it drifted and what it is re-synced from.
 -- The two temp tiers are deleted right after, so T1 keeps its single fixture tier.
 insert into public.event_template_tiers (id, template_id, name)
 values ('7d000000-0000-7000-8000-0000000000a1', '7e000000-0000-7000-8000-000000000001', 'ScopeT');
@@ -364,6 +366,25 @@ select throws_ok(
   '42501', null, 'G6 staff cannot save an event as a template');
 reset role;
 rollback to savepoint g4;
+
+-- ---------------------------------------------------------------------------
+-- Re-sync pgTAP's own counter before finish().
+--
+-- pgTAP keeps "how many tests ran" (curr_test) in the temp TABLE __tcache__, so
+-- `rollback to savepoint` reverts it along with everything else in the section.
+-- The test *numbers* it prints come from __tresults___numb_seq — a SEQUENCE, and
+-- sequences are non-transactional, so those keep counting correctly. The two
+-- therefore drift apart: finish() compared plan() against the last assertion that
+-- ran outside a savepoint and printed "Looks like you planned N tests but ran 2",
+-- even though every assertion had run and passed. Take the count from the
+-- sequence, the one place that actually knows what executed.
+--
+-- num_failed() is reverted the same way and cannot be recovered from a sequence,
+-- but a failing assertion still reaches the harness as its own "not ok" line, so
+-- pg_prove remains the source of truth for pass/fail.
+do $resync$ begin
+  perform _set('curr_test', currval('__tresults___numb_seq')::int);
+end $resync$;
 
 select * from finish();
 
