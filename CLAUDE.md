@@ -106,7 +106,7 @@ Open work (ClickUp list `901818739469`, one task per session): **Prod-ready 9/7*
 
 **Prod-push flow** (schema deploy after a merge — run from the **linked main checkout** `…/PlusOne Guestlist`, never a worktree: worktrees aren't `supabase link`-ed, `db push` fails there):
 1. `git pull --ff-only origin main` — push the COMPLETE merged migration set, never one branch's subset.
-2. `supabase db reset` + `supabase test db` on that full set — a clean reset proves no duplicate/broken migrations; the suite must be green.
+2. `supabase db reset` + `pnpm db:test` on that full set — a clean reset proves no duplicate/broken migrations; the suite must be green. **Always `pnpm db:test`, never bare `supabase test db`:** the wrapper adds the plan/run gate (86eykjgrb) — pg_prove exits 0 on a file whose `plan()` and assertion count have drifted, and on a run that executed nothing at all. This is the last check before a schema reaches prod and there is no staging behind it. The wrapper forwards its arguments, so `pnpm db:test -- <file>` still targets one file.
 3. `supabase db push --dry-run` — review the pending list.
 4. `supabase db push`; then `--dry-run` again to confirm "Remote database is up to date".
 
