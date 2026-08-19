@@ -88,6 +88,16 @@ passeren om überhaupt bij de slug-resolutie of de throttle te komen. Eén test 
 betekenis: `contacts.capture` C1 was "een naam-only aanvraag wordt geaccepteerd maar niet
 vastgelegd" en is nu "een naam-only aanvraag wordt geweigerd".
 
+**Bekende beperking, expliciet niet gedicht.** De regel bindt `anon`, niet `authenticated`.
+Voor `anon` is de RPC echt het enige schrijfpad — `20260707170000` C2 trok de directe
+INSERT-grant op `guest_requests` in — dus voor het bedreigingsmodel van deze taak is de guard
+compleet. Maar `authenticated` heeft nog steeds `grant select, insert, update` op die tabel
+(`20260613000000_full_schema.sql:405`) en de compat-policy `guest_requests_insert_public` stelt
+géén eis aan contactgegevens: een ingelogde gebruiker kan een contactloze aanvraag rechtstreeks
+wegschrijven. Bewust niet meegenomen — dat valt buiten de scope, en die policy raakt ook de
+interne paden die deze taak juist met rust moest laten. Vervolgtaak voor Max: óf dezelfde regel
+in de policy, óf de directe insert-grant voor `authenticated` helemaal weg.
+
 **Openstaand voor Max:** de per-screen test handoff op de PR, en `/security-review` door een
 verse sessie (SECURITY DEFINER op een publiek anoniem schrijfpad = high-risk). Niet zelf
 gemerged. Typegeneratie (`src/lib/database.types.ts`) is **niet** nodig: de signatuur van de
