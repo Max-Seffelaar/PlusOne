@@ -54,6 +54,750 @@ backstop. What changed is that the local guard now does the job it claimed to be
 doing, and can no longer regress to silence unnoticed.
 
 ---
+## 2026-08-19 — Production ran blind: Sentry never initialised, and the build now refuses to ship without it (86eyp5w32)
+
+Branch `claude/performance-sweep-orchestration-e4t594`. Found while orchestrating the
+performance sweep, investigating `86eykdzf1` (the suspicion that `/e/[slug]` 500'd for
+five weeks on a missing `LANDING_IP_SALT`).
+
+**The finding is bigger than the incident it came from.** Sentry has received **zero
+events in 90 days** — both orgs, both projects, no events of any kind. Not "no errors":
+nothing at all.
+
+### Why it was invisible
+
+`sentry.server.config.ts:10`, `sentry.edge.config.ts:12` and `src/sentry.client.init.ts:24`
+all initialise with `enabled: Boolean(dsn)` where `dsn = process.env.NEXT_PUBLIC_SENTRY_DSN`.
+A missing var switches Sentry off silently — no warning, no log, no build failure.
+
+What made it genuinely hard to spot: **the build-time half kept working.** Sentry holds
+releases for these commits — `2790498b7a9a…` (the merge commit of PR #271, i.e. the
+current tip of `main`) carries `lastDeploy.environment: "vercel-production"`. Creating a
+release requires an authenticated token, so `SENTRY_AUTH_TOKEN` and the Vercel↔Sentry
+integration are demonstrably fine. The marketplace integration injects
+`SENTRY_ORG`/`SENTRY_PROJECT`/`SENTRY_AUTH_TOKEN` — but not the DSN under this app's
+variable name. So every deploy registered a release for events that would never arrive,
+and every dashboard looked configured.
+
+### How it was proven without Vercel env access
+
+The load-bearing evidence is Sentry's own API, not the bundle:
+
+- **0 events in 90 days**, both orgs (`plus-one-hs/javascript-nextjs`,
+  `plus-one-lk/sentry-citron-cloud`) — no events of any kind, not merely no errors.
+- **Every release** in the populated project reports `firstEvent: null`,
+  `lastEvent: null`, `newIssues: 0` — across many deploys, never one event.
+- `/monitoring` returns **404** even though `_sentryRewritesTunnelPath="/monitoring"` is
+  compiled into the bundle: the tunnel route only registers once the SDK initialises with
+  a DSN.
+
+**Correction, from the review of this PR.** The first draft argued from the bundle:
+`_sentryDebugIds`/`SENTRY_RELEASE` present ⇒ a real auth token. That inference is wrong.
+`disable: !process.env.SENTRY_AUTH_TOKEN` at `next.config.js:133` sits inside the
+`sourcemaps` block, so it gates source-map *upload* — not the plugin, and not debug-ID
+injection. The reviewer built this branch with `SENTRY_AUTH_TOKEN` entirely unset and got
+all three markers anyway. The conclusion survived on other evidence, but the stated proof
+did not, and it is corrected here rather than quietly dropped.
+
+A second claim was softened while checking the first: "`NEXT_PUBLIC_*` is inlined, so
+absence from the shipped JS is evidence". The inlining behaviour is real and was verified
+both ways — a var that IS set appears as a literal (the production Supabase URL is
+verbatim in the prod bundle), a var that is NOT set survives as a runtime `env.X` lookup —
+but the Sentry client-init code is not present in the chunks that were grepped, so that
+particular grep showed nothing either way. Corroborating, not proof.
+
+### The fix, and why it's a build guard rather than a boot guard
+
+`scripts/hooks/lib/required-env.mjs` + `scripts/hooks/check-required-env.mjs`, wired as
+the first half of `pnpm build`.
+
+Throwing at runtime boot — the `landingIpSalt()` pattern — would be **worse than the
+disease here**: a mistyped monitoring var would take the door offline, and the door is the
+one surface that must keep working (door speed, offline-tolerant check-in). Failing the
+*build* keeps the loudness without ever risking a live venue: a bad deploy never becomes a
+running deploy.
+
+Keyed on `VERCEL_ENV === 'production'`, deliberately **not** `NODE_ENV`. Next sets
+`NODE_ENV=production` for preview deploys and for a plain local `pnpm build`, so a
+`NODE_ENV` gate would break every contributor and every CI run — and that exact conflation
+is what made `86eykdzf1` unfalsifiable ("it should have been throwing on preview too" was
+never verifiable). CI's build step sets no `VERCEL_ENV`, so it stays green; verified by
+running `pnpm build` under the exact CI env.
+
+Guarded vars carry a `why` string each, printed on failure — a guard that only prints a
+name teaches the next person nothing. `LANDING_IP_SALT` is in the list precisely because
+its runtime fail-closed fires at *render*, not at submit: `/e/[slug]`, `/i/[token]` and
+`/r/[token]` all 500 on first view, so landing, invite and status links go down together.
+A build-time check turns a five-week silent outage into a failed deploy.
+
+**Two exclusions, both stated rather than omitted** (an unexplained absence reads as an
+oversight — raised in review):
+
+- **Stripe** — the keyless stub provider is documented behaviour (decision #32) and pilots
+  run `comped`. Requiring the keys in production is a product decision, not a cleanup.
+- **Turnstile** — `verifyTurnstileToken()` passes OPEN when both keys are unset, which is
+  the same fail-open-and-silent shape as the DSN on a more sensitive surface: bot
+  protection on the only anonymous write path. Excluded for one blunt reason — **the site
+  key is currently not set in production**, so requiring it would block the next deploy
+  rather than protect it. Verified with the inlining behaviour described above: the prod
+  `/e/[slug]` bundle still carries `env.NEXT_PUBLIC_TURNSTILE_SITE_KEY` as a runtime
+  lookup. Filed as a separate finding; "off in production" should be a decision, not a
+  discovery.
+
+### Verification
+
+- `tests/unit/required-prod-env.test.ts` — 12 tests. Behavioural coverage of the predicate
+  plus a structural test asserting `pnpm build` still invokes the runner (a guard nobody
+  calls is the failure mode that produced this task — cf. `idbClearAll()` shipping with
+  zero call sites and a comment claiming otherwise, 86ey9et07).
+- **Both verified red-on-revert**: removing the guard from `package.json` fails the
+  structural test; removing empty-string handling fails two behavioural tests.
+- Guard exercised across all five env shapes (local, preview, `NODE_ENV=production`
+  without Vercel, prod-missing, prod-complete) — pass/block as intended.
+- Simulated `VERCEL_ENV=production` build blocks before `next build` runs, naming only the
+  actually-missing var.
+- `pnpm type-check` clean · `pnpm lint` clean (only the two pre-existing
+  `datetime-field.tsx` a11y warnings) · `pnpm vitest run` **116 files / 1200 tests
+  passing** · `pnpm build` green under CI env.
+- `docs/runbook.md`: new "Is monitoring even alive?" section — two copy-paste checks, since
+  "no Sentry alerts" must never again be read as "nothing is wrong".
+
+### Still open — needs Max, not code
+
+The guard prevents recurrence; it does **not** set the variable. `NEXT_PUBLIC_SENTRY_DSN`
+must still be added in Vercel (Production scope) and a real event confirmed via the
+existing `/sentry-test` route.
+
+**Which project is settled**, and was an open question in the first draft:
+`plus-one-hs/javascript-nextjs` holds every release including the current production
+deploy, while `plus-one-lk/sentry-citron-cloud` has **zero** releases. That also verifies
+the `next.config.js` fallbacks and answers the comment beside them ("fase 7.2 — verify the
+real org slug"). Retiring the empty second project removes a real triage hazard: a DSN
+aimed at the wrong project is indistinguishable from no DSN at all.
+
+**The build-command bypass is narrower than first written.** `vercel.json` pins
+`"framework": "nextjs"` and sets no `buildCommand`, so absent a dashboard override the
+default resolves to `pnpm build` and the guard is in the path today. A dashboard override
+stays invisible from the repo, so it is still worth one look — but "unverified" overstated
+it. Moving the check into `next.config.js` would close that gap and should **not** be
+done: Next also loads next.config in the server runtime, which would reintroduce exactly
+the boot-time failure mode this guard was designed to avoid. The durable answer is a
+post-deploy probe on a schedule — it catches a skipped guard, a var deleted after a good
+build, *and* the wrong-project DSN case that no build-time check can see. The two curl
+checks added to `docs/runbook.md` are that probe; they are one cron away from being
+sufficient.
+
+**Separate finding: Turnstile bot protection is currently off in production.** The site
+key is unset, and `verifyTurnstileToken()` passes open in that state. The DB rate limit,
+honeypot and dedup still stand, so the public funnel is not unprotected — but the
+Cloudflare layer is silently absent. Needs its own task (ClickUp was rate-limited when
+this was found).
+
+Related: `86eykdzf1` closed as investigated-but-unprovable — Vercel retains 7 days and
+Sentry held nothing, so the five-week question can no longer be answered from telemetry.
+A live probe did confirm `/e/[slug]` is healthy now.
+## 2026-08-19 — Stats dead-code follow-up: EventPicker/StatCard removed (86eykhqty)
+
+Branch `chore/86eykhqty-stats-dead-code`. Milestone: Now (codebase hygiene, no behavior
+change). Follow-up to the 2026-08-11 dead-code sweep (86ey9e9xx, above), which flagged
+`src/features/stats/components/{EventPicker,StatCard}.tsx` as zero-importer but left them
+untouched to avoid scope creep.
+
+- **Removed, confirmed zero importers repo-wide:**
+  - `src/features/stats/components/EventPicker.tsx` (exported `EventPicker`, `PickerOption`).
+  - `src/features/stats/components/StatCard.tsx` (exported `StatCard`).
+  - Fresh `grep -rn "stats/components/EventPicker\|stats/components/StatCard" src/` — zero
+    hits, same as 11/8. Widened the search past that one pattern before deleting anything:
+    bare-name grep (`EventPicker`/`StatCard`) across `src/` and `tests/` — the only hits
+    left are unrelated same-named local symbols (`DoorEventPicker` in
+    `src/components/po/screens/door.tsx`, a distinct `EventPicker` in
+    `src/components/po/screens/promotion/shared.tsx`, both actively used elsewhere); no
+    other `StatCard` definition exists in the repo (the task's warning about a same-named
+    `po/kit.tsx` component didn't apply — no such component currently exists there); no
+    `index.ts`/barrel in `src/features/stats/`; no import of the `stats/components` path
+    as a whole; no dynamic import or path-alias reference resolving to either file; no
+    dedicated test file for either component. `PickerOption` (the only other export from
+    `EventPicker.tsx`) has no importers either.
+  - `src/features/stats/components/` is now empty and was removed along with the files
+    (git drops the now-empty dir automatically). Both files only imported shared kit
+    primitives (`Card`, `Icon`, `cn`) — nothing else in `src/features/stats/` was orphaned
+    by the removal (`data.ts`, `format.ts`, `po-adapter.ts`, `queries.ts` all stay, still
+    imported via `@/features/stats/*` elsewhere).
+- **DoD suites, fresh run:** `pnpm lint` clean (only the 2 pre-existing unrelated
+  `datetime-field.tsx` a11y warnings). `pnpm type-check` — 0 errors. `npx vitest run` — 115
+  test files / 1188 tests passed (note: `pnpm test` is watch-mode `vitest`, not `vitest run`
+  — ran the latter directly to get a terminating result). `pnpm build` — compiles and
+  generates all 15 static/dynamic routes cleanly.
+## 2026-08-19 — `contactEventCounts` no longer 414s at 210+ contacts: wrong Kong URI-length comment fixed (86eykknf8)
+
+Branch `fix/86eykknf8-chunkids-uri-limit`. Flagged during a fresh-session `/code-review`
+of PR #260 (`86ey9e9wv`) as a pre-existing bug that PR almost copied for a similar case.
+
+**The bug.** `contactEventCounts` (`src/features/po/queries.ts`, called from
+`fetchContacts` — the venue address book) chunked its `guests.in('contact_id', …)`
+filter with `chunkIds(contactIds)`, i.e. the bare default (`PAGE_SIZE` = 1000). The
+comment above it claimed this was "chunked (≤1000 ids per request) to stay under Kong's
+URI length" — wrong on the actual measured threshold: `perf-scale-audit-megaevent.md`
+puts it at ~210 ids ≈ 7.8 kB → HTTP 414, and CLAUDE.md's scale rule says explicitly
+"chunk to ≤120 ids if a list is truly unavoidable". So any venue with 210+ contacts
+matching a search/filter 414'd on `contactEventCounts`'s very first chunk.
+
+**Fix.** `chunkIds(contactIds, 120)` at the call site; the comment now states the real
+~210-id/7.8 kB/414 threshold instead of the invented ≤1000/Kong claim.
+
+**Call-site audit (grep `chunkIds(` across `src/`):** two real call sites existed.
+`src/features/door/queries.ts:204` already passes an explicit `PROFILE_ID_CHUNK_SIZE =
+120` (`door/queries.ts:21`, comment correctly cites CLAUDE.md's scale rule) — no change
+needed there. `src/features/po/queries.ts:1116` (`contactEventCounts`) was the only
+call site relying on the bare, wrong-for-URLs default; it's now fixed above. The
+`chunkIds` tests in `src/lib/supabase/paging.test.ts` aren't call sites, just direct
+unit coverage of the helper.
+
+**`chunkIds`'s own default — left at `PAGE_SIZE` (1000), deliberately.** Considered
+lowering it or introducing a separate `URI_CHUNK_SIZE` constant; decided against it.
+`chunkIds` is a generic size-based chunker, not exclusively a URL-`.in()` helper — a
+future caller might chunk for a pure row-count reason unrelated to any URL (e.g.
+batching a JSON-body RPC array), where 1000 is the right default. Silently dropping the
+default to 120 would also just move the footgun rather than remove it: a caller who
+never stops to ask "is this filter going into a URL?" is exactly the failure mode that
+produced this bug, and a lower default doesn't force that question — it just changes
+which wrong number gets used implicitly. So the invariant stays "the caller building an
+`.in()` URL filter must pass an explicit ≤120 size" (already how `door/queries.ts` does
+it), not "the utility's default happens to be safe." Strengthened `chunkIds`'s docstring
+in `src/lib/supabase/paging.ts` to state this plainly and point at 86eykknf8, since the
+previous docstring's "keeps `.in()` filters under both PostgREST's max-rows AND Kong's
+URI length" line was itself part of the false precedent — misleadingly implying the
+default handles both limits when it only handles the first.
+
+**Test.** `src/features/po/queries.test.ts` — new `describe('fetchContacts →
+contactEventCounts chunking (86eykknf8)')`: 121 mock contact ids through `fetchContacts`,
+asserting the `guests.in()` filter fires more than once and no single chunk exceeds 120
+ids. Verified red-on-revert: reverting `chunkIds(contactIds, 120)` back to the bare
+default made the test fail (`expected 1 to be greater than 1`) exactly as expected: 121
+ids collapse into a single over-sized chunk at the old default.
+
+**Results:** `pnpm lint` clean (2 pre-existing unrelated a11y warnings in
+`datetime-field.tsx`). `pnpm type-check` clean. `pnpm test -- --run`: **115 test files,
+1189 tests, all passed.**
+
+**Out of scope, noted for a follow-up:** several other `.in()` call sites in `src/`
+(`guests/actions.ts:198`, `auth/invite-actions.ts:102`, `po/queries.ts:397/479/484/559/1372`,
+`events/actions.ts:460/469`) build `.in()` filters from unbounded id lists without
+`chunkIds` at all. None are demonstrated to be reachable with 210+ ids in practice, and
+this task's scope was `contactEventCounts` specifically — flagging for a separate audit
+task rather than fixing here.
+
+Not touched: `src/components/po/app.tsx` (other sessions working on it), no migrations.
+## 2026-08-19 — Door: the implicit single-event choice is pinned, so a second live event no longer unmounts the door mid-shift (86eykm7qp)
+
+Branch `fix/86eykm7qp-door-candidate-pin`. Milestone: Now. No migration, no schema change,
+no new server state — the door stays local-first.
+
+**The bug.** `app.tsx` resolved the door's event as
+`doorState.eventId ?? (doorCandidates.length === 1 ? doorCandidates[0].id : null)`. The
+single-candidate branch is an *implicit* choice, and it was never written back to
+`doorOverride` or the URL — so it was re-derived from `length === 1` on every single render.
+The instant a second event appeared in the candidate list, `requestedDoorId` became `null`,
+`resolvedDoorId` followed, and `<DoorEventPicker>` rendered in the exact slot that had held
+`<DoorQueryProvider><DoorProvider>`. Different element type at the same position → React
+unmounts the whole door subtree → `useDoorSync`'s cleanup runs `client.removeChannel(...)`.
+
+**The scenario that makes it real.** A doorhost checks guests in on a tablet at a venue whose
+only non-past event is tonight's. The wifi drops and comes back; React Query's
+`refetchOnReconnect` is at its default `true` (`PoLiveProvider` sets only
+`staleTime`/`gcTime`/`retry`/`refetchOnWindowFocus:false`), so the candidate query refetches.
+If a colleague has meanwhile scheduled the next party, the door jumps to an event picker
+mid-check-in, with no explanation and no realtime.
+
+**Blast radius, stated honestly.** A venue with anything else on the calendar already has >1
+candidate, so it gets the picker on entry and the host picks explicitly — that path was always
+immune. The vulnerable venue is the one whose only non-past event is tonight's, where someone
+plans the next event during the shift. **The queue itself was never at risk**: the outbox is a
+module singleton and `DoorQueryProvider` uses a per-tab singleton client with `gcTime: WEEK_MS`.
+The damage was the unexplained jump plus losing realtime/sync mid-shift.
+
+**The fix** (`src/components/po/app.tsx`, one effect next to `replaceDoorState`). Pin the
+implicit choice the moment it resolves: `replaceDoorState({ seg, eventId: <resolved>, overlay })`
+writes it into `doorOverride` **and** the raw URL. `replaceDoorState` goes through
+`window.history.replaceState`, not `router.replace`, so there is no RSC round-trip and the
+door's offline invariant (#25) is untouched. Once pinned, `doorState.eventId` is non-null and
+the candidate list can grow freely without touching the door subtree.
+
+Guards on the effect:
+- **Mobile door tab only** (`isMobile && isDoorTab`). The desktop cockpit resolves its own
+  event via `EventDayCockpitGate` and must never carry a `doorOverride`; and firing this from
+  another screen would rewrite the URL to a door path under that screen.
+- **Render-loop safe.** `replaceDoorState` sets state, so the effect only writes when the
+  state is not already what it would write (`doorState.eventId === null && resolvedDoorId !==
+  null`): one write at mount, zero on idle re-renders.
+- **The pin is released when its event is gone.** If the pinned id drops out of the candidate
+  list (after the existing stale-id refetch has had its one retry), the pin is cleared so
+  derivation runs again. Without this the host would sit on "geen event" with no way out — the
+  "ander event" control only renders with >1 candidates.
+
+*(Round 1 implemented both of those with a `pinnedDoorRef` that also recorded whether the id
+was "our guess"; the round-2 review below took that ref out. The bullets describe the shipped
+code.)*
+
+**Behaviour change worth knowing.** The implicit choice now behaves like an explicit one: it
+sticks, and it survives a reload because it is in the URL. Auto-following to a different
+single event only happens through the release path above.
+
+**Test — and the red-on-revert check that PR #261 round 1 skipped.**
+`src/components/po/door-pin-keeps-subtree-mounted.test.tsx` (jsdom) drives the **real**
+`PlusOneApp` with only the periphery stubbed, goes from 1 candidate to 2 with
+`doorState.eventId === null`, and asserts the door subtree never unmounts. `DoorProvider` is
+stubbed with a probe that opens a channel on mount and removes it on unmount, mirroring
+`useDoorSync`'s own cleanup, so the assertion reads in the bug's own terms
+(`channelTeardowns === 0`, `doorMounts === 1`, picker never mounted). Two further cases cover
+the URL write-back and the pin release.
+
+`door-tab-render-scope.test.tsx` (the earlier attempt) failed by re-implementing the wiring in
+a local harness and never importing `app.tsx`. To avoid repeating that, the fix was reverted
+and the suite re-run: **3/3 red on unfixed `app.tsx`, 3/3 green with the fix**, verified
+mechanically, not assumed.
+
+**Gates.** `pnpm lint` clean (2 pre-existing `jsx-a11y` warnings in the unrelated
+`datetime-field.tsx`), `pnpm type-check` zero errors, `npx vitest run` **116 files / 1191
+tests, all passing**. The three protected guards were neither touched nor weakened:
+`app-shell-no-ssr-suspense.test.ts` (2) and `door-tab-element-identity-bailout.test.ts` (4)
+run green; `tests/e2e/app-home-events-visible.spec.ts` is unmodified but could not be executed
+in this container (no Docker → no local Supabase stack, and Playwright needs a dev server).
+
+### Round 2 — the pin's lifetime (fresh-session `/code-review` + `/security-review` on PR #278)
+
+The review raised three findings, two merge-blocking. Both blockers were about **how long the
+pin lives**, not about the pin itself, and both were confirmed here before being acted on —
+reproduced against the real `PlusOneApp`, with numbers matching the reviewer's own.
+
+The single root cause: **the write was guarded by a `useRef` while the pinned value lived in
+the URL.** A ref is per-mount; the URL is not. Every gap between those two lifetimes leaked.
+
+**Blocker 1 — the pin was one-shot per id, so the original bug came back after the first
+hardware-back gesture.** `pinnedDoorRef.current === resolvedDoorId` was doing double duty: the
+render-loop guard *and* a permanent record. Once `ev-a` had been pinned, that id could never be
+pinned again for the life of the mount — and `doorState.eventId` returns to `null` **without** a
+remount. `useDoorOverride`'s popstate listener drops the override on any back/forward by design
+(it exists precisely because Next's hooks don't re-fire on a raw-history pop, 86ey9tq62), and a
+door entered from the bottom tab has no `?event=` in Next's tracked search string to fall back
+to. So closing a guest overlay with the Android hardware back button — the door's single most
+common gesture — put the door back to being derived every render. Measured on the unfixed code:
+
+```
+after popstate, door : true
+door after 2nd event : false
+picker mounted       : true
+channelTeardowns     : 1     <- the realtime channel this whole PR exists to protect
+```
+
+**Blocker 2 — the pin was persisted in the URL but the mechanism releasing it was not, so a
+doorhost could land on a dead screen with no way out.** The pin survives a reload; a `useRef`
+does not. A tablet reloading last night's pinned URL (a plain refresh, or the Capacitor
+remote-URL shell restoring the last URL) hits: `requestedDoorId` = the stale `ev-a` from the
+URL, so the `length === 1` derivation never runs; `resolvedDoorId` = `null`, correctly rejected
+by validation; the release never fires because the fresh ref is `null`; and with exactly one
+candidate there is no picker either (`> 1` required). Measured on the unfixed code:
+
+```
+door mounted   : false
+picker mounted : false
+URL            : ?event=ev-a
+body text      : "Check-in — No event to check in to yet. Create or open one first."
+```
+
+This is a regression in kind, not degree: before the PR the implicit choice was never written
+to the URL, so the same reload just re-derived tonight's event. A stale *explicit* `?event=`
+could already strand a host, but only if they had deliberately picked one — after round 1 every
+single-candidate door tab acquired one automatically.
+
+**Finding 3 (minor) — an explicit re-pick of the already-pinned event was mislabelled as "our
+guess".** A pick from the in-door picker (`onChangeDoorEvent` → `onPick`) goes through
+`replaceDoorState` with no remount, so the ref kept its old value and the user's own choice
+became releasable by the branch above. The reviewer's own note — that deriving intent from
+state instead of tracking it in a ref removes all three at once — is what the fix does, so this
+one dissolved rather than being patched.
+
+**The fix: nothing is remembered about who chose an id; both halves read current state.**
+
+- The **write guard** now asks *"is the state already what I would write?"* instead of *"have I
+  ever written this?"* — it compares against `doorState.eventId`, which is self-healing: after
+  the write the state *is* the value, so the effect stops on its own. It re-pins after a
+  popstate, which is exactly what blocker 1 needed.
+- The **release** now fires on `rejectedDoorId` — the candidate list's own settled verdict,
+  published as state by the existing stale-id refetch effect once that id's one retry has come
+  back and still doesn't contain it. It needs no memory of who chose the id, so it is
+  re-derived on **every** mount, including the fresh one after a reload. That closes blocker 2.
+- `pinnedDoorRef` is gone entirely.
+
+Two details that are load-bearing rather than incidental:
+
+- `rejectedDoorId` is **state, not a ref**, on purpose. Effects in one component run in
+  declaration order, so a ref written by the refetch effect would already be readable by the
+  pin effect on the *same* commit — and the pin would then be released before its retry had a
+  chance to bring the event back. That retry exists for a real case ("Check-in" tapped for an
+  event a colleague created seconds ago), so collapsing the two into one commit would trade a
+  dead end for landing the host on the wrong event. A state update forces a later render.
+  Mutation-tested: replacing the `rejectedDoorId` gate with a plain settled-list check turns
+  that case red (`expected '?event=ev-b' to contain 'event=ev-a'`).
+- The release re-checks `!doorCandidates.some(...)` alongside `rejectedDoorId`, because on the
+  commit where the refetch effect *clears* the rejection the pin effect still reads the previous
+  state value.
+
+**Deliberate behaviour change.** The release no longer distinguishes our pin from an explicit
+user pick, so a stale explicit `?event=` is now released too. That is a fix, not collateral:
+`resolvedDoorId` already refuses to mount the door for a non-candidate, so such an id was only
+ever stranding the host.
+
+**Tests.** `src/components/po/door-pin-lifetime.test.tsx` (jsdom, real `PlusOneApp`) adds four
+cases; the round-1 file's candidate-query stub was made faithful (`refetch()` now flips
+`isFetching`, which is what `notifyOnChangeProps` actually re-renders on — a no-op stub modelled
+a retry that never lands).
+
+Red-on-revert verified per test, mechanically, against `git show HEAD:src/components/po/app.tsx`:
+
+| test | on unfixed code |
+| --- | --- |
+| re-pins after a hardware-back gesture drops the door override | **red** — `door-provider` null after the 2nd event |
+| releases a rejected pin on a FRESH mount (reload dead screen) | **red** — `door-provider` null, no picker |
+| writes the pin exactly once at mount, never on an idle re-render | green (loop guard was already correct) — **red under mutation**: dropping the guard gives `expected 2 to be 1` |
+| does not release before the stale-list retry has settled | green (unfixed code never releases there) — **red under mutation** as above |
+
+The reviewer explicitly confirmed the round-1 render-loop guard was sound (1 write at mount, 0
+on idle re-renders). Removing the ref must not cost that, so it is now asserted directly by
+counting real `history.replaceState` calls rather than left implicit.
+
+**Gates (round 2).** `pnpm lint` clean (same 2 pre-existing `jsx-a11y` warnings in the
+unrelated `datetime-field.tsx`), `pnpm type-check` zero errors, `npx vitest run` **117 files /
+1195 tests, all passing**. The three protected guards were neither touched nor weakened:
+`app-shell-no-ssr-suspense.test.ts` and `door-tab-element-identity-bailout.test.ts` green;
+`tests/e2e/app-home-events-visible.spec.ts` unmodified but still not runnable in this container
+(no Docker → no local Supabase stack, and Playwright needs a dev server). Door offline
+invariant #25 is untouched — the release, like the pin, goes through `replaceDoorState` on raw
+history, never `router.replace`.
+## 2026-08-19 — Venue switch: a refused switch no longer reloads as if it worked (86eykm7rk)
+
+Branch `fix/86eykm7rk-venue-switch-silent-failure`. Milestone: **Now**. No migration, no schema
+change — five source files, one dead component deleted, three unit suites, and one CLAUDE.md
+invariant line.
+
+**The bug.** `persistActiveVenue` (`src/features/venues/actions.ts`) refuses on three paths
+*without throwing*: no session, Zod rejects the id, or the id is not one of the caller's live
+memberships. Its only caller, `setActiveVenueAction`, dropped that boolean on the floor and
+resolved as `Promise<void>`. The po shell's `switchToVenue` then did:
+
+```ts
+void setActiveVenueAction(fd).then(() => window.location.assign('/app')).catch(() => setToast(null));
+```
+
+`.then()` fires on a refusal exactly as it does on success — `.catch()` only ever saw real
+exceptions. So the cookie was never written, the reload re-resolved identity to the **old**
+venue, and the user landed back where they started with no error and nothing to act on.
+Repeatable forever. **Trigger:** an admin revokes someone's membership of venue B between the
+render of `myVenues` and their tap on "switch".
+
+**Why the fix is not just "return the boolean".** One constraint shaped it: an expired session
+must keep reloading, because that routes through middleware to `/login` — the right destination,
+where an error toast would instead be a dead end. So the outcome is three states, not a boolean,
+precisely because `unauthenticated` and `denied` must diverge in the UI:
+
+```ts
+export type SwitchVenueResult = 'ok' | 'unauthenticated' | 'denied';
+export async function switchActiveVenueAction(venueId: string): Promise<SwitchVenueResult>
+```
+
+`switchToVenue` reloads on `ok` **and** on `unauthenticated`; only `denied` raises a message. The
+refusal reasons stay server-side — the client learns the outcome, not the membership list.
+
+*(Round 1 shipped a second, `Promise<void>` export as well, to keep `VenueSwitcher.tsx`'s
+`<form action={…}>` call site compiling. Round-2 review found that component is rendered nowhere;
+see "What round-2 review changed" below — that constraint and the second export are both gone.)*
+
+**Second caller fixed too.** `screens/onboarding.tsx:72` (the switcher's "New venue" quick-create)
+had the identical swallow — `await setActiveVenueAction(fd)` then an unconditional reload. It now
+branches on the same contract — with its OWN string, because the venue *was* created at that
+point (see finding 3 below).
+
+**Copy is English, and that is now settled — and CLAUDE.md says so.** Max decided on 19/8 that
+the product's UI copy is English; `tone-of-voice.md`, `copy-deck.md` and `ia-audit-claude-code.md`
+§8 already said so, and `src/lib/i18n/en.ts` is headed "English UI copy — the single source of
+truth". Round 1 flagged CLAUDE.md's Conventions line ("Dutch UI copy") as the odd one out and
+asked for one of the two to move. **The correction was not actually in the repo** — not on `main`
+and not on any remote branch — so this PR makes the one-line edit rather than shipping a changelog
+that references a fix that does not exist. Invariant change only; no string in this PR is Dutch,
+and the existing `switchFailed` text is unchanged.
+
+**Red-on-revert verified on both halves** (not assumed — each was reverted and re-run):
+
+| revert | failure |
+|---|---|
+| `switchToVenue` back to `.then(() => assign('/app'))` | `expected "spy" to not be called at all, but actually been called 1 times` — the buggy code navigates |
+| `switchActiveVenueAction` swallowing the result (`await …; return 'ok'`) | 3 failures: `expected 'ok' to be 'denied'` ×2, `expected 'ok' to be 'unauthenticated'` |
+
+**Gotcha for the next component test in this shell.** jsdom's `window.location` is
+`[LegacyUnforgeable]`: `vi.spyOn(window.location, 'assign')` throws `Cannot redefine property`.
+Replacing the whole property with `Object.defineProperty(window, 'location', { configurable: true,
+… })` works and is what `app.venue-switch.test.tsx` does. The same file also shows how to drive a
+real `usePo()` callback from a mocked screen — `await import('./context')` **inside** the
+`vi.mock` factory, never a closed-over binding, or you get a second module instance, a second
+React context, and `usePo()` throws.
+
+`app.auto-open.test.tsx` needed its `@/features/venues/actions` mock renamed to the new export;
+it mocks the module wholesale, so a missing export would have failed at import.
+
+**Diff discipline.** `src/components/po/app.tsx` is also touched by PR #278 (`requestedDoorId`
+~r. 437–466, pin logic ~r. 540–551). This PR's hunks are the `switchToVenue` callback, two imports,
+a module constant and the toast state/render lines — all clear of those regions, no reformatting,
+no import reordering. Re-verified after round 2 with a real trial merge against #278's branch:
+`app.tsx` **auto-merges cleanly**; the only conflict is this file, where both PRs prepend a
+newest-first entry at the same anchor — inherent to the convention, resolved by whichever merges
+second.
+
+### What round-2 review changed (fresh-session `/code-review`, 6 findings)
+
+All six were verified against the code before being acted on; all six held.
+
+**1 — `denied` also fired for external-crew venues (the serious one).** `src/app/app/layout.tsx:70`
+builds the shell's `myVenues` as memberships **plus** organizer-only venues, and `VenueSwitch`
+renders a Switch button on every one of them — labelling the crew ones "External crew".
+`persistActiveVenue` validated against `getMyMemberships()` alone, so tapping Switch on a crew
+venue returned `denied` and round 1 answered it with *"You no longer have access to that venue."*
+Deterministic, on a completely normal path, for a user who had lost nothing — the PR's own premise
+(`denied` ⇒ revoked access) did not hold. The check now mirrors `layout.tsx` exactly: memberships
+∪ organizer venues, with the organizer lookup best-effort (`.catch(() => [])`) so a failing crew
+read can never lock a real member out of their own venue. This is the same set
+`resolveActiveVenueId` accepts a cookie against, so the write resolves correctly on reload. **`roles: []` is
+not "no access": event scope IS access (#24/86ey21vre).** RLS remains the boundary either way —
+this only decides whether the cookie is written.
+
+**2 — the thrown-error path was still silent.** `.catch(() => setToast(null))` made a network blip
+or a 500 indistinguishable from the silent refusal this PR exists to remove: "Switching…" flashed,
+the venue did not change, nothing said why. It now raises `t.venue.switchError` — deliberately
+**not** `switchFailed`, because the user's access is fine and "try again" is the opposite advice
+from "refresh your venues".
+
+**3 — the create message contradicted itself.** `VenueCreate` reused `venue.switchFailed`, telling
+someone who had just become a venue's Admin that they no longer had access to it, and pointing
+them at a list that *does* contain it. Its own key now: `onboarding.venueCreate.createdNotOpened`
+— "Venue created, but we could not open it. You'll find it under More → Venues."
+
+**4 — the toast timer diverged from the codebase's idiom, and there is a hook for it.** A bare
+`setTimeout` in a promise callback outlived unmount and could clear a *later* toast: refuse a
+switch (6s timer armed), tap a valid venue 3s later, and at t=6s the stale timer wiped the
+in-flight "Switching…". The review pointed at the hand-rolled effects in `app.tsx:379` and
+`guests/profile.tsx`, but the canonical answer is `src/lib/use-transient-value.ts` —
+**11 call sites** (DoorProvider, `home.tsx`, the cockpit, every copy-link flag), and its docstring
+names this exact bug: *"an earlier trigger's timer can never fire after a later value was set and
+wipe it prematurely (86ey9ea1g — the home.tsx toast had exactly this bug before this hook
+existed)"*. So `switchToVenue` now uses that hook rather than a fourth private timer, and gets its
+trigger-after-unmount no-op for free — which matters, because this toast IS armed from an async
+completion.
+
+The one thing the hook cannot express is a **sticky** toast, and "Switching…" must be sticky: the
+reload ends it, not a timer. So the two live side by side — sticky `toast` state for "Switching…"
+and the billing toast, transient hook for the two errors — with `{(transientToast ?? toast)}`
+rendering, and a new switch calling `clearTransientToast()` so a previous attempt's error cannot
+render over the new "Switching…".
+
+**5 — the onboarding branch had no test** while its `app.tsx` twin had four.
+`screens/onboarding.venue-create.test.tsx` adds four: `denied` (no reload, create-specific string,
+explicitly `not.toBe(switchFailed)`), `ok`, `unauthenticated`, and a failed create that must never
+reach the switch. `actions.venue-switch.test.ts` gains the external-crew case from finding 1, a
+"venue in neither set is still denied" guard so the widened set does not become accept-anything,
+and the organizer-lookup-fails fallback. `app.venue-switch.test.tsx` gains the two timer tests and
+its thrown-error test was rewritten — round 1's version *pinned the silence*.
+
+**6 — the constraint that shaped the design came from dead code, so the design got simpler.**
+`VenueSwitcher.tsx` was the sole consumer of the void-returning `setActiveVenueAction`, and
+`grep -rn "VenueSwitcher" src/` returned only its own definition. It is a leftover of the retired
+`(app)` dashboard (the branches that still import it are all June-2026 and pre-date `/app`), and
+if it were ever mounted it carried the exact silent failure this PR removes. Deleted, and with it
+`setActiveVenueAction` and the `persistActiveVenue`/two-export split: one exported
+`switchActiveVenueAction`, no void/non-void justification, **net fewer lines than round 1**. Its
+two dead siblings in that directory (`RemoveMemberButton.tsx`, `VenueSettingsForm.tsx`) are
+untouched — unrelated to this bug, and dead-component removal has its own lane (PR #274).
+
+**Red-on-revert verified on all five new guards** (each reverted and re-run, not assumed):
+
+| revert | failure |
+|---|---|
+| access set back to memberships-only | `expected 'denied' to be 'ok'` — the external-crew test |
+| `.catch()` back to `setToast(null)` | `Unable to find … "Could not switch venue…"` |
+| error toast back to a bare `setTimeout` | `Unable to find … "Switching…"` — the stale timer clips the next toast |
+| `VenueCreate` back to `t.venue.switchFailed` | `Unable to find … "Venue created, but we could not open it…"` |
+| `VenueCreate`'s `denied` branch deleted | `expected "spy" to not be called at all, but actually been called 1 times` |
+
+**Finding 1 also proved against a real database, not only mocks.** The unit test mocks
+`getMyMemberships`/`getOrganizerVenues`, which is exactly the layer the bug lived in — so it was
+worth confirming the premise holds against real RLS. The seed already ships the case: **Yusuf
+(`organizer@plusone.test`) has no membership at Club Vesper, only an `event_organizers` row**
+(seed comment: *"organizer Yusuf has NO membership, only an event scope"*). Adding a membership at
+De Marktzaal makes him member-at-B / external-crew-at-A — the reviewer's exact scenario. Running
+the app's two reads under his JWT with RLS enforced (`supabase/tests`-style `pg_temp.login`,
+script kept out of the repo — it asserts seed shape, not app logic):
+
+```
+ok 1 - Club Vesper is NOT among Yusuf's memberships (external crew only)
+ok 2 - Club Vesper IS among Yusuf's organizer venues, visible under RLS
+ok 3 - round-1 (memberships only) would return 'denied' for a normal crew venue
+ok 4 - round-2 (memberships UNION organizer) returns 'ok' for the crew venue
+ok 5 - a venue in NEITHER set is still denied
+ok 6 - the real membership (De Marktzaal) is still allowed
+ok 7 - no membership row at the crew venue: selecting it grants no roles
+```
+
+The last one is the security half: writing the cookie for a crew venue grants no roles, so no
+role-gated action opens up and RLS still decides every read.
+## 2026-08-19 — pgTAP: a plan/run mismatch is now a red build (86eykjgrb)
+
+Branch `fix/86eykjgrb-pgtap-plan-mismatch`. Two test files had been printing
+`# Looks like you planned N tests but ran 2` into every suite run while `supabase test db`
+reported an overall PASS.
+
+**What was actually wrong — not what it looked like.** The symptom reads as "13 assertions
+never ran", and that was the working theory. It is not what happens. Every assertion in
+`tiers.vat.test.sql` runs, and every one passes; the same holds for `event_templates.test.sql`
+(41 planned). The defect is in pgTAP's own bookkeeping:
+
+- `finish()` compares `plan(N)` against `curr_test`, which pgTAP stores in the **temp table**
+  `__tcache__` — so `rollback to savepoint` reverts it along with the section's data.
+- The test *numbers* it prints come from `__tresults___numb_seq`, a **sequence**. Sequences are
+  non-transactional, so those keep counting correctly across the same rollback.
+
+The two drift apart, and `finish()` ends up comparing the plan against the last assertion that
+ran *outside* a savepoint — test 2 in both files. `event_templates.test.sql` already carried a
+comment showing the author had hit the edge of this ("finish() sees zero and raises *No tests
+run!*") and worked around the exception without noticing the count was also wrong.
+
+**Why pg_prove was right to say PASS.** The TAP stream it receives is complete and correct:
+`1..15`, then fifteen `ok` lines. pgTAP's contradicting self-check is emitted as a TAP
+*comment*, which a harness is free to ignore. Verified against the real binary rather than
+assumed — pg_prove **does** already fail on a `not ok` line, and it passes `ON_ERROR_STOP=1` to
+psql, so a file that genuinely dies mid-run truncates its stream and fails as
+`Bad plan. You planned 4 tests but ran 2`. Neither of those safety nets was broken. The one
+gap was the comment.
+
+**The fix.** Re-sync pgTAP's counter from the sequence — the only place that knows what actually
+executed — immediately before `finish()`, in the three files that use savepoints
+(`tiers.vat`, `event_templates`, `events`). `plan(N)` was **not** lowered to match; that would
+define the defect away. `events.test.sql` was not emitting the diagnostic, but only by accident
+of ordering (its last assertions happen to sit outside a savepoint), so it got the same
+treatment rather than being left to break on the next edit.
+
+**The gate (the weightier half).** `supabase test db` in CI is now `node scripts/db-test.mjs`,
+which streams pg_prove's output through unchanged and fails the build on
+`planned N tests but ran M`, `Looks like you failed N tests of M`, and `# No tests run!`.
+Detection lives in `scripts/lib/pgtap-gate.mjs` with a Vitest suite
+(`tests/unit/pgtap-plan-run-gate.test.ts`, 7 tests) built from real captured pg_prove output.
+Proven by running the gate against the unfixed file: pg_prove exits 0 and reports `Result: PASS`,
+the gate exits 1.
+
+**Scope of the rot: 2 files of 56.** The full suite was run file-by-file to check, not sampled.
+1092 assertions, no mismatches remaining.
+
+### Round 2 — review: the gate's own reliability (7 findings)
+
+Reviewed as "no blockers", but five of the seven were about whether the gate can be
+trusted to go red, which is the entire point of it. Each is now pinned by a test that
+was checked to FAIL against the pre-fix code — a gate you only argue about is the thing
+this PR exists to stop.
+
+**Confirmed and fixed:**
+
+- **stdout and stderr were merged into one buffer, then matched line by line.** They are
+  independent pipes. Reproduced: a fake pg_prove writing `# Looks like you planned 15
+  tests but `, a stderr warning, then `ran 2` yields the merged line
+  `# Looks like you planned 15 tests but WARN: local stack is still warming up` — the
+  old code found **0 hits** and exited 0 on a real mismatch. Every entry point in
+  `pgtap-gate.mjs` now takes one string per stream and scans each on its own.
+- **`process.exit()` on a piped stderr truncated the diagnostic the script exists to
+  print.** Measured, not reasoned: ~200 KB of gate output, a reader busy for 250 ms
+  (a CI log collector), stderr a pipe — `process.exit(1)` delivered **0 bytes**;
+  `process.exitCode = 1` delivered all 199,569 with the tail intact. Both exit paths
+  now set `exitCode`.
+- **The success line asserted something nothing had verified.** "No failure pattern
+  matched" is also what zero coverage looks like — a renamed tests directory, a changed
+  CLI glob, a `config.toml` edit. `findMissingRunEvidence()` now demands positive proof
+  (`Files=N` ≥ 1, `Tests=M` ≥ 1, a `Result: PASS` line) before success may be printed,
+  and the success line names the numbers it checked instead of claiming a property.
+- **`currval()` raised when no assertion had advanced the sequence.** SQLSTATE 55000
+  aborted the transaction before `finish()` could raise `# No tests run!` — replacing a
+  signal the gate catches by name with a sequence error it does not recognize, in
+  exactly the case the gate must catch. The three resync blocks now swallow 55000 and
+  leave `finish()` to raise its own diagnostic.
+- **The gate was bypassed by every documented local workflow.** It lived in CI and
+  `pnpm db:test` and nowhere else, so **CLAUDE.md's prod-push flow — the last check
+  before a schema reaches the one prod project, with no staging behind it — stayed
+  blind.** Nine call sites repointed at `pnpm db:test` (CLAUDE.md, README ×2,
+  docs/ARCHITECTURE.md, bouwplan ×4, launchplan). Cost is zero: the wrapper needs no
+  `node_modules`, adds no DB work, and now forwards arguments, so it is a strict
+  superset of the bare command. `tests/unit/pgtap-gate-is-the-documented-command.test.ts`
+  keeps the sweep from rotting — a live instruction doc may name the bare command only
+  on a line that also points at the wrapper. Historical records (changelog,
+  security-audit, plan-*) are deliberately untouched.
+- **Arguments were silently dropped**, so `pnpm db:test -- one.test.sql` quietly ran all
+  56 files against the shared local stack. `process.argv.slice(2)` is forwarded.
+- **Two comment blocks stated an invariant the fix had removed** ("this final assertion
+  must commit so curr_test reaches 46"; "without at least one non-rolled-back test,
+  finish() sees zero"). Both rewritten — the resync takes the count from the sequence, so
+  section ordering is now free. `event_templates.test.sql` carried the same stale rule
+  and was fixed with it, though the review only flagged `events.test.sql`.
+
+**One behaviour change beyond the findings.** The gate's patterns are now applied on the
+non-zero-exit path too. `# No tests run!` is RAISEd by pgTAP, so psql (`ON_ERROR_STOP=1`)
+exits non-zero and the old control flow returned before the gate ever looked — the pattern
+was dead. It now names what it found on top of the exit code, instead of leaving the reader
+to hunt through 56 files of output.
+
+**How the gate was proven, not argued.** `tests/unit/pgtap-plan-run-gate.test.ts` (21 tests)
+spawns the real `scripts/db-test.mjs` against a scripted fake `supabase` with its
+stdout/stderr as pipes — the exact shape CI gives it — and covers the interleaved split, the
+slow-reader truncation, the zero-coverage exit 0, the silent exit 0, argument forwarding, and
+a non-zero exit that still gets labelled. Each guard was verified by reintroducing the defect:
+merging the streams flips the interleave test to exit 0, restoring `process.exit()` drops the
+diagnostic to 0 bytes, removing the evidence check turns both zero-coverage tests green.
+
+The SQL half cannot be unit-tested — pgTAP's counter, `currval()` and `finish()` need a real
+Postgres — so it was proven in CI instead, as four temporary workflow steps that assert their
+own claims against the live stack and were removed again in the following commit (runs
+`32271276799`, all four green). Each assertion was emitted as a workflow annotation, since this
+session could not reach the log-storage host; the verdicts, verbatim:
+
+**A — the gate turns a pg_prove PASS into a red build.** A savepoint-drifted file added to the
+real 56-file suite:
+
+```
+bare `supabase test db` exit=0 ; gate exit=1
+bare: # Looks like you planned 4 tests but ran 1
+bare: Files=57, Tests=1096,  5 wallclock secs
+bare: Result: PASS
+gate: ✖ pgTAP plan/run gate failed — pg_prove reported PASS, but:
+gate:   a pgTAP file's plan() does not match the number of assertions it ran:
+gate:     # Looks like you planned 4 tests but ran 1
+```
+
+**B — the `currval()` finding, reproduced and then fixed, as an A/B on one database.** The same
+zero-assertion file, differing only in the exception handler:
+
+```
+B2 (pre-fix):  ERROR:  currval of sequence "__tresults___numb_seq" is not yet defined in this session
+               CONTEXT:  SQL statement "SELECT _set('curr_test', currval('__tresults___numb_seq')::int)"
+               → Tests: 0, and `# No tests run!` never appears at all
+B1 (fixed):    ERROR:  # No tests run!
+               → gate: "a pgTAP file planned tests but ran none"
+```
+
+**D — arguments reach the real Supabase CLI**, which the unit test cannot show (it only sees a
+fake binary): `Files=1, Tests=15` and `✔ pgTAP plan/run gate: 1 files / 15 assertions ran`.
+
+**One false start worth recording.** The first version of proof A put its surviving assertion
+*after* the rollback. CI reported `Files=57, Tests=1096`, `Result: PASS`, the proof file marked
+`ok` — and no mismatch emitted. The gate exited 0 because there was genuinely nothing wrong:
+that file only drifts if pgTAP's `ok()` increments `curr_test`, and not if it assigns it from
+the sequence. The fixture was wrong, not the gate. Reshaped to mirror `tiers.vat.test.sql`
+exactly — surviving assertion first, savepoint sections last, rollback immediately before
+`finish()` — which drifts under either mechanism. Worth keeping in the record twice over: it is
+also the one run in this PR where the gate was shown NOT to fire on a file that had not actually
+drifted.
 
 ## 2026-08-19 — `guests.added_by` gebonden op UPDATE (86eymckjt)
 
