@@ -65,7 +65,13 @@ export const landing = {
   // ── Validation ───────────────────────────────────────────────────────────
   nameError: 'Add your name so we can save your spot.',
   emailError: "That email doesn't look right. Mind checking it?",
-  phoneError: 'Check your phone number, including the country code.',
+  // 86eyke279 (visual QA): the old copy read "…including the country code",
+  // which accuses someone who pasted `+44 7911 123456` into an NL-selected
+  // field of leaving out the very thing they typed. The selector does not
+  // follow a pasted country code, so naming the selector is accurate for BOTH
+  // failure modes — an incomplete national number and a right number under the
+  // wrong flag.
+  phoneError: "That number doesn't look right. Check it, and make sure the country selector matches it.",
   // Missing-vs-malformed are deliberately different messages (86eyke279): an
   // empty field is not a typo, and "check your email" reads as nonsense when
   // there is nothing to check.

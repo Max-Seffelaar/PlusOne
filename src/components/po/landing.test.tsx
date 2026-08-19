@@ -138,13 +138,16 @@ describe('LandingForm validation UX', () => {
 // The RPC enforces the same rule independently (migration 20260819110000);
 // this describe covers the form half only.
 describe('LandingForm — e-mail and phone are required', () => {
-  it('labels both fields as required, and leaves the genuinely optional ones optional', () => {
+  it('labels every required field as required, and the optional one as optional', () => {
     const action = vi.fn<unknown[], Promise<SubmitResult>>();
     render(<LandingForm event={EVENT} slug="frenzy" action={action} />);
 
-    // Two required badges (e-mail + phone), and the message field keeps its
-    // "optional" one — the contrast is what carries the meaning.
-    expect(screen.getAllByText('required')).toHaveLength(2);
+    // THREE required badges: name, e-mail and phone. The visual QA caught the
+    // form shipping three required fields with only two badges — name is just
+    // as blocking as the other two, so a reader who trusts the badges was
+    // reading a wrong form. The message field keeps its "optional" one; the
+    // contrast is what carries the meaning.
+    expect(screen.getAllByText('required')).toHaveLength(3);
     expect(screen.getAllByText('optional')).toHaveLength(1);
   });
 

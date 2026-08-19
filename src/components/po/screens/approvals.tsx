@@ -385,6 +385,10 @@ export function Aanvragen({
                           ? fmt(t.requests.cardPhoneVia, { last4: r.phoneLast4, at: r.at })
                           : fmt(t.requests.cardVia, { at: r.at })}
                       </div>
+                      {/* 86eyke279: the address is the channel the required
+                          field exists for — it belongs on the card you decide
+                          from, not only in Contacts one screen over. */}
+                      {r.email && <div className="truncate text-[12px] text-dim">{r.email}</div>}
                     </div>
                   </div>
                   {r.viaLabel && (
@@ -439,6 +443,7 @@ export function Aanvragen({
                               {r.plus > 0 && <span className="text-faint"> +{r.plus}</span>}
                             </div>
                             <div className="truncate text-[12px] text-faint">{r.phoneLast4 ? fmt(t.requests.deniedPhone, { last4: r.phoneLast4, at: r.at }) : r.at}</div>
+                            {r.email && <div className="truncate text-[12px] text-dim">{r.email}</div>}
                           </div>
                         </div>
                         {r.viaLabel && (
@@ -738,6 +743,27 @@ function AssignSheet({
               ? fmt(t.requests.assignHeads, { event: eventName, n: heads })
               : fmt(t.requests.assignHeadsNoEvent, { n: heads })}
           </div>
+        </div>
+      </div>
+      {/* Approving is the moment the venue commits to reaching this person
+          (86eyke279 made both fields required for exactly that). Full values,
+          not the card's `•••• 5610` hint — you cannot mail or call a hint. Same
+          RLS-scoped roles already see the complete address in Contacts. Rows
+          filed before the rule stay NULLable and say so instead of reading as
+          an empty box. */}
+      <Label className="mb-[8px]">{t.requests.contactHeading}</Label>
+      <div className="mb-[16px] flex flex-col gap-[7px] rounded-[13px] bg-elev2 px-[13px] py-[11px]">
+        <div className="flex items-center gap-[9px]">
+          <Icon name="mail" size={14} stroke="rgba(255,255,255,0.40)" className="shrink-0" />
+          <span className={cn('min-w-0 flex-1 break-all text-[13px]', req.email ? 'text-text' : 'text-faint')}>
+            {req.email ?? t.requests.contactNoEmail}
+          </span>
+        </div>
+        <div className="flex items-center gap-[9px]">
+          <Icon name="phone" size={14} stroke="rgba(255,255,255,0.40)" className="shrink-0" />
+          <span className={cn('min-w-0 flex-1 break-all text-[13px] tabular-nums', req.phone ? 'text-text' : 'text-faint')}>
+            {req.phone ?? t.requests.contactNoPhone}
+          </span>
         </div>
       </div>
       <Label className="mb-[10px]">{t.requests.assignTierQuestion}</Label>

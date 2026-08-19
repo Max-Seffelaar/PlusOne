@@ -452,6 +452,7 @@ export type PoGuestRequestRow = Pick<
   Tables['guest_requests']['Row'],
   | 'id'
   | 'full_name'
+  | 'email'
   | 'phone'
   | 'plus_ones'
   | 'motivation'
@@ -509,7 +510,7 @@ export async function fetchGuestRequests(
   const { data, error } = await client
     .from('guest_requests')
     .select(
-      'id, full_name, phone, plus_ones, motivation, created_at, event_id, status, decision_reason, request_link_id, decided_via'
+      'id, full_name, email, phone, plus_ones, motivation, created_at, event_id, status, decision_reason, request_link_id, decided_via'
     )
     .eq('venue_id', venueId)
     .or('status.in.(pending,denied),and(status.eq.approved,decided_via.eq.auto)')

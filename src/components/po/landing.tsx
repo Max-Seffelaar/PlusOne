@@ -602,6 +602,7 @@ export function LandingForm({
             if (nameErr) setNameErr(null);
           }}
           placeholder={t.landing.namePlaceholder}
+          required
           error={nameErr}
         />
 
