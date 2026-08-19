@@ -8,6 +8,58 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-19 — Lazy-Sentry import guard: the rule now matches its own documented contract
+
+Branch `fix/sentry-lazy-import-guard-regex`. Milestone: Now (a CI guard that is wrong about what
+it flags trains the next author to route around it). No migration, no `src/` change — the fix is
+in `tests/unit/sentry-lazy-imports.test.ts` alone.
+
+Found during the fresh-session review of the Stripe webhook PR (86ey9e9re, PR #273), which had to
+work around this to add a server-side Sentry facade.
+
+**The bug.** The rule was
+
+```
+/import\s+(?!type\s)[\s\S]*?from\s+['"]@sentry\/nextjs['"]/
+```
+
+`[\s\S]*?` spans the entire file, so the `(?!type\s)` negative lookahead only ever inspects the
+**first** import statement. Any import above the Sentry one — `import 'server-only'`,
+`import { z } from 'zod'` — starts the match, and the scan then runs on to the Sentry `from`
+clause regardless of whether that statement said `type`. The guard's own doc comment promises
+"`import type { … } from '@sentry/nextjs'` is fine (erased at build) and not flagged". It was
+flagged, in every file that had any import above it. `src/lib/observability/sentry-client.ts`
+passes only by accident: its type-only Sentry import happens to be the file's first.
+
+**The fix.** Confine a match to one statement. The clause between `import` and `from` may span
+lines (prettier wraps long named imports) but may never cross a `;`, a quote, or another `import`
+keyword, and `^` under the `m` flag anchors the start to a statement — so a mid-line
+`await import('…')` or `typeof import('…')` can never start one.
+
+**It is strictly stronger, not weaker.** The bare side-effect form `import '@sentry/nextjs'` has
+no `from` clause and was invisible to the old rule; it eagerizes the SDK just the same, and is now
+caught. An inline type specifier mixed into a value import (`import { type Scope, captureMessage }
+from …`) is flagged too — deliberately conservative, since whether that elides at runtime depends
+on compiler settings.
+
+**Evidence, both directions.** A new `describe('VALUE_IMPORT (the rule itself)')` pins 9
+must-not-flag cases and 9 must-flag cases, plus an assertion that all three allowlisted files still
+match the rule (an allowlist that no longer matches anything is dead code hiding a regression). Run
+against the OLD regex, exactly 5 fail: the 4 legal `import type` forms it wrongly flagged, and the
+bare side-effect import it wrongly missed. All 8 other must-flag cases pass under both regexes —
+that is what makes this a fix rather than a weakening.
+
+**Tests.** `tests/unit/sentry-lazy-imports.test.ts` **21 passed** (was 2 — the 19 new cases are the
+rule's own contract). Full suite Vitest **1207 passed / 115 files** (main was 1188; +19, all of
+them here). `pnpm lint` clean (2 pre-existing `datetime-field.tsx` a11y warnings, file untouched),
+`pnpm type-check` zero errors. Touches no SQL and no `src/` file, so pgTAP is unaffected.
+
+Follow-on: `src/lib/observability/sentry-server.ts` (PR #273) may now use the ordinary
+`import type` form. No need to change it — `typeof import(…)` is correct either way — but the trap
+it documents is disarmed.
+
+---
+
 ## 2026-08-12 — Door outbox owner-stamp: a tablet hand-off no longer costs check-ins (86ey9et0h)
 
 Branch `claude/outbox-owner-stamp-sync-7aadf3`. Milestone: Now (a lost door check-in is the
