@@ -686,6 +686,22 @@ export interface PoGuestRequest {
   plus: number;
   /** Last-4 phone digits as a privacy-light identity hint, or null. */
   phoneLast4: string | null;
+  /**
+   * The requester's e-mail, in full, or null for a pre-86eyke279 row (the
+   * column stays NULLable — existing contactless requests must keep working).
+   *
+   * Both contact fields are required on the public form so the venue can reach
+   * an approved guest — but until 86eyke279 neither the card nor the approve
+   * sheet showed the address, so the organizer approved without ever seeing the
+   * channel the requirement exists for. Full, not masked: `•••• 5610` is an
+   * identity hint, and you cannot mail a hint. The same roles already read the
+   * complete address one screen over in Contacts, so this is not a new exposure
+   * class — RLS (admin/finance/organizer) is the boundary, as always.
+   */
+  email: string | null;
+  /** The requester's phone in full (E.164), or null. Same reasoning as `email`;
+   *  `phoneLast4` stays for the compact scan lines that only need a hint. */
+  phone: string | null;
   motivation: string;
   /** Relative time of submission. */
   at: string;
@@ -728,6 +744,8 @@ export function toPoGuestRequest(row: PoGuestRequestRow, now?: Date): PoGuestReq
     name: row.full_name,
     plus: row.plus_ones,
     phoneLast4: digits.length >= 4 ? digits.slice(-4) : null,
+    email: row.email ?? null,
+    phone: row.phone ?? null,
     motivation: row.motivation ?? '',
     at: relativeTime(row.created_at, now),
     status,

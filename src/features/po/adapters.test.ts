@@ -932,6 +932,7 @@ describe('toPoGuestRequest', () => {
     id: 'gr1',
     event_id: 'ee1',
     full_name: 'Mara Visser',
+    email: 'mara@example.com',
     phone: '+31612344821',
     plus_ones: 1,
     motivation: 'Vriendin van de DJ',
@@ -950,6 +951,8 @@ describe('toPoGuestRequest', () => {
       name: 'Mara Visser',
       plus: 1,
       phoneLast4: '4821',
+      email: 'mara@example.com',
+      phone: '+31612344821',
       motivation: 'Vriendin van de DJ',
       at: '18 min ago',
       status: 'pending',
@@ -985,7 +988,23 @@ describe('toPoGuestRequest', () => {
 
   it('flags a large party (+3 or more) and tolerates a null phone/motivation', () => {
     const r = toPoGuestRequest({ ...base, phone: null, motivation: null, plus_ones: 3 }, now);
-    expect(r).toMatchObject({ phoneLast4: null, motivation: '', flag: 'Large group (+3)' });
+    expect(r).toMatchObject({ phoneLast4: null, phone: null, motivation: '', flag: 'Large group (+3)' });
+  });
+
+  // 86eyke279: the approve surface has to be able to SHOW the channel the
+  // public form now requires. A pre-rule row keeps both columns NULLable, so
+  // the adapter must pass a missing address through as null rather than ''.
+  it('carries the full e-mail and phone through for the approve surface', () => {
+    const r = toPoGuestRequest(base, now);
+    expect(r.email).toBe('mara@example.com');
+    expect(r.phone).toBe('+31612344821');
+    // The masked hint stays alongside the full value — the card still scans.
+    expect(r.phoneLast4).toBe('4821');
+  });
+
+  it('passes a pre-86eyke279 contactless row through as null, not empty string', () => {
+    const r = toPoGuestRequest({ ...base, email: null, phone: null }, now);
+    expect(r).toMatchObject({ email: null, phone: null, phoneLast4: null });
   });
 
   it('does not mask a phone too short to yield 4 digits', () => {

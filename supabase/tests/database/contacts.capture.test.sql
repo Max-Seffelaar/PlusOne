@@ -31,7 +31,7 @@ select plan(10);
 select pg_temp.login_anon();
 select is(
   (select public.submit_guest_request(
-    'plusone-launch-night', 'Test Aanvrager', 'test-capture@example.test', '',
+    'plusone-launch-night', 'Test Aanvrager', 'test-capture@example.test', '+31611110001',
     0, '', null, false, '1995-05-05'::date) ->> 'status'),
   'ok', 'A1 submission accepted');
 reset role;  -- query contacts/requests as superuser (anon may not read them)
@@ -50,7 +50,7 @@ select is(
 select pg_temp.login_anon();
 select is(
   (select public.submit_guest_request(
-    'plusone-launch-night', 'Test Aanvrager Twee', 'test-capture@example.test', '',
+    'plusone-launch-night', 'Test Aanvrager Twee', 'test-capture@example.test', '+31611110002',
     0, '', null, false, null) ->> 'status'),
   'ok', 'B1 duplicate submission still reports ok (silent dedup)');
 reset role;
@@ -60,18 +60,20 @@ select is(
      and email_norm = 'test-capture@example.test'),
   1, 'B2 the address book still holds exactly one contact for that e-mail');
 
--- 3. A name-only submission (no e-mail/phone) is NOT captured.
+-- 3. A name-only submission is REJECTED outright (86eyke279) — it used to be
+--    accepted-but-not-captured. Nothing reaches the address book either way,
+--    but now nothing reaches guest_requests either.
 select pg_temp.login_anon();
 select is(
   (select public.submit_guest_request(
     'plusone-launch-night', 'Naam Only Aanvrager', '', '', 0, '', null, false, null) ->> 'status'),
-  'ok', 'C1 name-only submission accepted');
+  'invalid', 'C1 a name-only submission is refused (e-mail + phone required)');
 reset role;
 select is(
   (select count(*)::int from public.contacts
    where venue_id = 'aa000000-0000-7000-8000-000000000001'
      and full_name = 'Naam Only Aanvrager'),
-  0, 'C2 a name-only request is not captured (no dedup key)');
+  0, 'C2 a name-only request is not captured into the address book');
 
 -- 4. Approval links the created guest back to the captured contact.
 select pg_temp.login('11111111-1111-4111-8111-111111111111');

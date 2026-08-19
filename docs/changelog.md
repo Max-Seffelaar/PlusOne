@@ -8,6 +8,276 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-19 — PR #276 visual-QA response: phone accepted a non-number, approve screen hid the e-mail (86eyke279)
+
+Branch `feat/86eyke279-landing-contact-required`, same PR/task as the two entries below —
+the visual-QA response pass, not a new task. A QA session walked the whole PR on a real local
+stack (15 handoff questions: 12 ✅ · 3 ⚠️ · 0 ❌, plus eight edge-case blocks) and came back
+with one blocker and three smaller items. Every finding was re-measured here before it was
+touched.
+
+**BLOCKER — `12345` was accepted and stored as `+3112345`.** Reproduced in one pass: a valid
+name + e-mail, `12345` in the phone field with the selector on 🇳🇱 +31, submit → *"Request
+sent."* and `guest_requests.phone` holding `+3112345`. Not a number anybody can call.
+
+Root cause, re-measured against the installed `react-phone-number-input` 3.4.17 /
+`libphonenumber-js` 1.13.6 rather than taken on report:
+
+```
+                     +3112345   +31612345678   +31201234567
+default (= /min)     true       true           true
+/max                 false      true           true
+/mobile              false      true           false
+```
+
+The default entry ships libphonenumber's **`min`** metadata — per-country *length bands*, no
+numbering plan — so a five-digit non-number sits inside the NL band and passes. The DB regex
+`^\+[1-9][0-9]{1,14}$` is a deliberate **shape** check and cannot catch it either. The field
+this PR makes mandatory was therefore the path of least resistance for anyone unwilling to
+give a real number, which contradicts the PR's own premise that *"a required field that
+accepts `x` is theatre"*.
+
+**Fixed by moving the WHOLE phone surface to `/max`**, not just the validator: `isPhoneValid`
+and `phoneCountryOf` (`react-phone-number-input/max`), the input build (`/input-max`) and the
+country picker (`country-select.tsx`). Changing only the validator would have bundled *two*
+metadata blobs and left the input formatting numbers under `min` that the validator then
+rejects under `max`. `/mobile` was considered and rejected: it refuses the valid Amsterdam
+landline `+31201234567`.
+
+**Bundle cost — measured, not estimated.** Two full production builds (`pnpm build`),
+baseline `993196f` vs the patched tree:
+
+| | before | after | delta |
+|---|---|---|---|
+| First Load JS, **every** route | — | — | **identical** (route-table diff empty) |
+| `/e/[slug]` First Load | 147 kB | 147 kB | 0 |
+| lazy phone chunk, raw | 164.5 kB | 236.4 kB | +71.9 kB |
+| lazy phone chunk, gz | **39.6 kB** | **59.8 kB** | **+20.2 kB** |
+
+The metadata already sat behind the #B4 lazy boundary, so the delta lands **only** on users
+who actually render a phone field — never on first paint of the public landing page. The
++71.9 kB raw is exactly one metadata blob (`metadata.max.json` 154.3 kB − `metadata.min.json`
+82.3 kB = 72.0 kB), which confirms the single-build approach worked and no `min`+`max`
+duplication crept in. Judged acceptable: 20 kB gz on a deferred chunk buys correctness on the
+one field the PR makes mandatory.
+
+**The server-side alternative was considered and rejected.** Tightening `submit_guest_request`
+cannot express a numbering-plan check without hand-porting libphonenumber's per-country plans
+into SQL, which is strictly worse to write and to keep current. The RPC keeps its shape check
+by design, and the PR body records the residual: a hand-rolled caller can still post its own
+junk number — it just cannot post it *through the form*.
+
+**Guard.** New `tests/unit/phone-metadata-max.test.ts` locks both halves: the behaviour
+(`/max` refuses the blocker, keeps NL mobile **and** landline, keeps international numbers)
+and the wiring (every phone entry point resolves to the same `/max` build). It **complements**
+`tests/unit/phone-lazy-imports.test.ts` — which keeps the library out of First Load JS and was
+neither relaxed nor edited. Red-on-revert verified against the previous code:
+
+```
+FAIL  the app's own isPhoneValid (what the landing form calls) > refuses the reported blocker
+AssertionError: expected true to be false
+FAIL  src/components/po/phone-lazy.tsx imports only /max phone builds
+FAIL  src/components/po/country-select.tsx imports only /max phone builds
+```
+
+**The e-mail was invisible on the screen where requests are approved.** The PR requires the
+field *"so the organizer can reach the guest"*, but the Requests card showed only
+`phone •••• 5610` and the Approve sheet showed no contact at all — the address existed
+correctly in the DB and appeared one screen over in Contacts, which is exactly one screen too
+far at the moment of deciding. `guest_requests.email` is now selected
+(`fetchGuestRequests`), carried on the domain type (`PoGuestRequest.email` / `.phone`, full
+values alongside the existing `phoneLast4` hint), rendered on the pending **and** declined
+cards, and spelled out in full in a Contact block in the Approve sheet — you cannot mail a
+masked hint, and the same RLS-scoped roles (admin/finance/organizer) already read the complete
+address in Contacts, so this is not a new exposure class. Pre-rule rows keep both columns
+NULLable and say so ("No email — filed before it was required") instead of rendering an empty
+box.
+
+**Three smaller items, all from the same QA pass.**
+- The country-code button was a **31px** tap target, under the 44px rule, on the very field
+  this PR makes required. A `before:` overlay lifts the hit area to 44px **without** changing
+  the 53px row height or the visual — 44px fits inside the row, so nothing reflows.
+- **Name carried no `required` badge** while being just as blocking: three required fields,
+  two badges. Now three. A reader who trusted the badges was reading a wrong form.
+- The phone error said *"…including the country code"* to someone who pasted
+  `+44 7911 123456` into an NL-selected field — accusing them of omitting the one thing they
+  typed. It now names the **country selector**, which is accurate for both failure modes (an
+  incomplete national number, and a correct number under the wrong flag).
+
+**Deliberately left alone**, both confirmed pre-existing and out of this PR's scope: the
+`auto_approved` e-mail-existence oracle on auto-approve links (already recorded as a follow-up
+in the PR body) and the fixed `manager@` role restriction on Requests. The handoff link in the
+PR body pointed at `manager@plusone.test`, which is `user_manager` on Club Vesper and gets
+*"You don't have access to requests."* — corrected to `admin@plusone.test`. This was the
+**second** handoff this sweep pointing at a role that cannot reach the screen it names (#278's
+QA found the same for the Deur tab, where `manager@` is not in `DOOR_ROLES`); a cheap
+structural catch is sketched in the PR body but deliberately **not** built unasked.
+
+**Suites:** vitest **1220 passed / 116 files**, `pnpm type-check` **0 errors**, `pnpm lint`
+clean (pre-existing `datetime-field.tsx` a11y warnings only). No migration, no type
+regeneration — this pass is client-side plus one added column in an existing `select`. pgTAP
+unchanged and still CI's verdict.
+
+---
+
+## 2026-08-19 — PR #276 review response: e-mail length cap + K10 guard hardening (86eyke279)
+
+Branch `feat/86eyke279-landing-contact-required`, same PR/task as the entry directly below —
+this is the fresh-session review-response pass, not a new task. The `/code-review` on PR #276
+found **no merge-blockers** (server-side half re-measured against a real Postgres 16: all
+eleven empty/unusable variants refuse and write zero rows, red-on-revert holds). Three
+non-blocking points remained; this session closed two and recorded the third.
+
+**Fixed — `v_email` had no length cap (migration `20260819110000:93`).** The comment claimed
+"a raw anon caller still can't store junk", which wasn't quite true: `full_name` caps at 120,
+`motivation` truncates at 1000, `v_phone` is implicitly bounded by the E.164 regex (~16
+chars) — but the e-mail shape regex alone puts no ceiling on length, and this is an anon write
+path. Measured on a bare local Postgres 16 (no Docker here either; same "minimal stubs"
+method as the entry below, this time with all 99 migrations + `seed.sql` applied for real
+fixtures instead of hand-built ones):
+
+- An e-mail made of **repeated** characters compresses under TOAST and can slip past the
+  `guest_requests_dedupe_idx` btree row-size ceiling even at 5000 chars — silently stored.
+- An **incompressible** (random) 4000+ char local-part reproduces exactly what the reviewer
+  reported: `ERROR 54000: index row size 4208 exceeds btree version 4 maximum 2704` — escapes
+  the function entirely (not caught by the `unique_violation` handler), so the whole RPC call
+  fails instead of returning a clean `invalid`.
+
+Fix: `char_length(v_email) > 254` added to the same `if` as the shape checks (254 matches
+Zod's `.max(254)`, keeping "everything the client accepts passes here" true). Applied
+identically to the migration and `supabase/canonical/submit_guest_request.sql` (verified
+byte-for-byte equal, K10 guard passes). **Red-on-revert:** reapplying the previous (unpatched)
+body against the same random 4000-char e-mail reproduces the 54000 error; the patched body
+returns `invalid` and writes zero rows. New pgTAP (`landing.test.sql` A25–A27): 254 chars
+accepted, 255 refused, zero rows on refusal — extends `plan(39)` to `plan(42)`.
+
+**Fixed — the K10 canonical guard could repeat the exact drift it just caught.**
+`tests/unit/canonical-functions.test.ts` scanned only for `create or replace function
+public.<name>(...)`. The reviewer traced why the guard went silently green for six migrations
+while `supabase/canonical/submit_guest_request.sql` described a function that no longer
+existed: `20260706103000` changed the arg list, which Postgres can only do via `drop` +
+**bare** `create function` (no `or replace`) — a shape the old regex never matched. This PR's
+migration uses `create or replace` and fixes the symptom, but the next arg-list change would
+trip the same gap again. Widened the pattern to `create (?:or replace )?function public\.` and
+added two focused unit tests (bare `create function` matches; `create or replace` still
+matches) — red-on-revert verified by reverting the regex locally and confirming the bare-create
+test goes red.
+
+**Recorded, not fixed — `auto_approved` is an e-mail-existence oracle (`…sql:208`).** Pre-existing
+(introduced in `20260706103000`'s auto-approve feature, unrelated to and unchanged by this PR's
+scope), so left alone per instructions; written up as a suggested follow-up task in the PR body
+so it doesn't get lost. On an `auto_approve = true` link, the `auto_approved` field in the RPC's
+return value is `true` for a fresh submission and `false` when the same e-mail is already
+approved on that event — an anonymous caller can use it to test whether a specific e-mail is on
+the guest list, with no rate limit of its own (`p_ip_hash` is caller-supplied). This is narrower
+than the blanket "no enumeration" framing in `docs/security-audit.md:101` (which is about the
+`closed` slug/event answer, a different and still-true claim) — worth a follow-up nuance to that
+doc alongside the fix, not done here to keep this PR narrow.
+
+Suites: `pnpm lint` clean (same pre-existing `datetime-field.tsx` a11y warnings), `pnpm
+type-check` 0 errors, Vitest **1208 passed / 115 files** (+2 from the new
+`canonical-functions.test.ts` cases). pgTAP not runnable here (no Docker) — CI is the verdict,
+same as the building session; the new A25–A27 assertions were dry-run as plain SQL against the
+bare-Postgres fixture above and match the expected pgTAP outcome.
+
+Not merged. Replied to and resolved all three review threads on PR #276.
+
+---
+
+## 2026-08-19 — E-mail én telefoon verplicht op het publieke aanvraagformulier (86eyke279)
+
+Branch `feat/86eyke279-landing-contact-required`. Milestone: **Now** — dit raakt het vermogen
+van een pilot-venue om een goedgekeurde gast te bereiken. Spec: **#9 verfijnd** (niet een
+nieuw nummer — dit versmalt een bestaande beslissing) + de datamodelregel bij `guests`/
+`guest_requests` in `gastenlijst-app-spec.md`.
+
+**Wat er mis was.** Max vond het op 2026-08-10 tijdens het testen van `86eyd3men` (PR #245):
+een bezoeker kon op `/e/[slug]` een aanvraag indienen met **alleen een naam**. De venue hield
+daar een goedgekeurde gast aan over zonder één kanaal om die te bereiken — geen bevestiging,
+geen wijziging, geen afmelding. Dat was geen bug maar een gedocumenteerde keuze (#9,
+dataminimalisatie); het besluit van 2026-08-10 draait die keuze **voor dit ene pad** terug.
+
+**Reikwijdte, expliciet.** Alleen de publieke landing/influencer-linkflow: `/e/[slug]`,
+`/r/[token]`, `submitGuestRequestSchema` en de `submit_guest_request`-RPC. De **interne**
+toevoegpaden (quick-add #33, bulk-paste, admin- en deur-add) blijven ongemoeid en optioneel —
+daar staat een medewerker naast de gast en is anoniem "Jan +2" nog steeds de bedoeling.
+
+**Twee lagen, allebei nodig.**
+
+| laag | wat het doet | waarom het alleen niet genoeg is |
+|---|---|---|
+| `submitGuestRequestSchema` + het formulier | `email`/`phone` van optioneel naar verplicht; directe veldfeedback | de RPC is aan `anon` gegrant — een hand-geschreven PostgREST-call slaat de client volledig over |
+| `submit_guest_request` (SECURITY DEFINER, migratie `20260819110000`) | weigert dezelfde gevallen met `status: 'invalid'` | een DB-only regel zou de aanvrager pas ná het versturen een generieke fout geven |
+
+**Wat "leeg" betekent — aan beide kanten hetzelfde.** `null`, `''` en whitespace-only worden
+alle drie geweigerd. In SQL was dat niet vanzelfsprekend: `btrim(x)` strijkt **alleen ASCII
+spatie** weg, dus een telefoonnummer van één tab overleefde het als "waarde". De functie
+gebruikt nu één benoemde whitespace-set (`E' \t\n\r\f\x0B'`) voor naam, e-mail, telefoon
+én motivatie. Bovenop de aanwezigheidscheck staat een **bruikbaarheidscheck** (e-mailvorm,
+E.164) — een verplicht veld dat `x` accepteert is theater, en zonder die tweede check glipt
+een NBSP-only waarde er alsnog doorheen (die overleeft `btrim` wél). De DB-checks zijn
+bewust **losser** dan de Zod-regels: alles wat de client accepteert komt hier langs, zodat een
+strengere client nooit stil door de database wordt overruled.
+
+**Waar de guard staat, en waarom dat uitmaakt.** Direct naast de bestaande naamcheck, dus
+**vóór** de throttle. Dat is verdedigbaar juist omdat het antwoord volledig uit de argumenten
+van de aanvrager zelf volgt: er wordt geen slug, link of rij van ons gelezen voordat
+`invalid` terugkomt, dus het lekt niets over welke events of links bestaan (#28). Onder de
+throttle zetten zou niets opleveren — wie slugs probeert stuurt gewoon geldige contactgegevens
+mee — en zou een legitieme bezoeker met een typefout zijn budget kosten.
+
+**Bestaande rijen blijven staan — bewust geen NOT NULL.** `guest_requests.email`/`.phone`
+blijven NULLable. Aanvragen van vóór vandaag blijven bestaan, blijven goedkeurbaar en blijven
+door de retentie-job geanonimiseerd worden. Dit is een **toelatingsregel op nieuwe publieke
+indieningen**, geen invariant van de tabel; een kolomconstraint zou expand-contract breken en
+historische data ongeldig maken.
+
+**Bijvangst, los van de taak maar in dezelfde bestanden.**
+
+- De **K10-canonical-guard klopte niet meer**: `supabase/canonical/submit_guest_request.sql`
+  hield de 7-args-versie uit `20260624200000` bij, terwijl `20260706103000` die overload
+  **droppte** en de live functie met `create function` (niet `create or replace`) opnieuw
+  aanmaakte — waar de guard-test niet op scant. Het canonieke bestand beschreef dus een
+  functie die niet meer bestond. Deze migratie gebruikt `create or replace`, waardoor het
+  bestand weer de echt gedeployde body bevat.
+- **Twee beslissingen stonden buiten de beslistabel.** #45 en #46 (sessie `86ey9et0h`,
+  12/8) waren aan regel 3 van de spec geplakt, achter de statusregel, in plaats van onder
+  #44. Verplaatst; de tabel loopt weer 1–46 op volgorde. Geen inhoudelijke wijziging.
+- `tests/e2e/landing-request.spec.ts` vult nu een e-mail. Die spec is verder **gedrift**
+  (Nederlandse labels tegen een EN-only surface, de uitgefaseerde `/dashboard` + `/events/*`
+  routes) en draait niet in CI (`pnpm e2e:smoke` bevat hem niet); alleen de contactvelden
+  zijn bijgetrokken, de rest is een eigen taak.
+
+**Bewezen, niet aangenomen.** Deze container heeft geen Docker, dus `supabase db reset` /
+`test db` konden hier niet draaien — CI doet dat. Wat hier wél kon: een kale lokale
+PostgreSQL 16 met minimale stubs, waarin de migratie schoon toepast, alle elf lege/onbruikbare
+varianten `invalid` teruggeven en geen rij schrijven, en de complete aanvraag `ok` geeft.
+**Red-on-revert is aan beide kanten gecontroleerd:** met de vorige functiebody
+(`20260706103000`) geven diezelfde vier contactloze gevallen `ok` en schrijven ze vier rijen.
+
+**Bestaande pgTAP moest mee.** Zeven suites riepen de RPC aan met `null, null` als
+contactgegevens; die zouden na deze migratie op `invalid` stuklopen. Alle call-sites in
+`landing`, `contacts.capture`, `auto_approve`, `event_lifecycle_capacity`, `rls`,
+`status_token` en `attacker_landing_spam` dragen nu geldige contactgegevens — inclusief de
+gevallen die `closed` of `rate_limited` moeten bewijzen, want die moeten de guard eerst
+passeren om überhaupt bij de slug-resolutie of de throttle te komen. Eén test veranderde van
+betekenis: `contacts.capture` C1 was "een naam-only aanvraag wordt geaccepteerd maar niet
+vastgelegd" en is nu "een naam-only aanvraag wordt geweigerd".
+
+**Bekende beperking, expliciet niet gedicht.** De regel bindt `anon`, niet `authenticated`.
+Voor `anon` is de RPC echt het enige schrijfpad — `20260707170000` C2 trok de directe
+INSERT-grant op `guest_requests` in — dus voor het bedreigingsmodel van deze taak is de guard
+compleet. Maar `authenticated` heeft nog steeds `grant select, insert, update` op die tabel
+(`20260613000000_full_schema.sql:405`) en de compat-policy `guest_requests_insert_public` stelt
+géén eis aan contactgegevens: een ingelogde gebruiker kan een contactloze aanvraag rechtstreeks
+wegschrijven. Bewust niet meegenomen — dat valt buiten de scope, en die policy raakt ook de
+interne paden die deze taak juist met rust moest laten. Vervolgtaak voor Max: óf dezelfde regel
+in de policy, óf de directe insert-grant voor `authenticated` helemaal weg.
+
+**Openstaand voor Max:** de per-screen test handoff op de PR, en `/security-review` door een
+verse sessie (SECURITY DEFINER op een publiek anoniem schrijfpad = high-risk). Niet zelf
+gemerged. Typegeneratie (`src/lib/database.types.ts`) is **niet** nodig: de signatuur van de
+RPC is ongewijzigd, alleen de body.
 ## 2026-08-19 — `contactEventCounts` no longer 414s at 210+ contacts: wrong Kong URI-length comment fixed (86eykknf8)
 
 Branch `fix/86eykknf8-chunkids-uri-limit`. Flagged during a fresh-session `/code-review`

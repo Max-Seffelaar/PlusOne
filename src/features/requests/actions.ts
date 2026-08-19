@@ -85,13 +85,16 @@ export async function submitGuestRequest(input: SubmitGuestRequestInput): Promis
   const statusToken = randomBytes(32).toString('base64url');
   const statusTokenHash = createHash('sha256').update(statusToken).digest('hex');
 
-  // Optionals collapse to '' — the RPC treats '' as "not provided" (and the
-  // generated arg types are non-nullable strings).
+  // email/phone are required by the schema (86eyke279) and already trimmed +
+  // shape-checked, so they go through as-is; the remaining optionals collapse
+  // to '' — the RPC treats '' as "not provided" (and the generated arg types
+  // are non-nullable strings). The RPC re-checks both fields itself: this
+  // action is not the boundary, the SECURITY DEFINER function is.
   const { data, error } = await supabase.rpc('submit_guest_request', {
     p_slug: slug,
     p_full_name: fullName,
-    p_email: email ?? '',
-    p_phone: phone ?? '',
+    p_email: email,
+    p_phone: phone,
     p_plus_ones: plusOnes,
     p_motivation: motivation ?? '',
     p_ip_hash: ipHash,

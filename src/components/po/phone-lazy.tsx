@@ -15,6 +15,17 @@
  * (`tests/unit/phone-lazy-imports.test.ts`) enforces it so the deps can never
  * creep back into a First Load graph. Capacitor-safe (#37): pure client, no
  * browser-only global touched at import time.
+ *
+ * METADATA: every entry point here is the `/max` build (86eyke279). The default
+ * entry ships `min` metadata, which only knows each country's *length bands* —
+ * it has no per-country numbering plan, so `isValidPhoneNumber('+3112345')`
+ * returns TRUE and a five-digit non-number sailed through the landing form's
+ * required phone field. `/max` carries the real plans and refuses it while
+ * keeping both mobile (`+31612345678`) and landline (`+31201234567`) valid;
+ * `/mobile` would wrongly reject the landline. The input, the country picker
+ * and the validators must all resolve to the SAME metadata build — mixing them
+ * bundles two metadata blobs AND lets the input format a number the validator
+ * then rejects. Guarded by `tests/unit/phone-metadata-max.test.ts`.
  */
 import { type JSX, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
@@ -66,14 +77,15 @@ type PhoneInputProps = {
 };
 
 export const PhoneInput = dynamic<PhoneInputProps>(
-  () => import('react-phone-number-input/input'),
+  () => import('react-phone-number-input/input-max'),
   { ssr: false, loading: PhoneInputFallback },
 );
 
-/** Validate an E.164 string. Defers the libphonenumber metadata: the phone chunk
- *  is already cached by the time a user submits, so this resolves instantly. */
+/** Validate an E.164 string against the full numbering plans (`/max`, see the
+ *  METADATA note above). Defers the libphonenumber metadata: the phone chunk is
+ *  already cached by the time a user submits, so this resolves instantly. */
 export async function isPhoneValid(value: string): Promise<boolean> {
-  const { isValidPhoneNumber } = await import('react-phone-number-input');
+  const { isValidPhoneNumber } = await import('react-phone-number-input/max');
   return isValidPhoneNumber(value);
 }
 
@@ -84,7 +96,7 @@ export async function phoneCountryOf(
 ): Promise<CountryCode | undefined> {
   if (!value) return undefined;
   try {
-    const { parsePhoneNumber } = await import('react-phone-number-input');
+    const { parsePhoneNumber } = await import('react-phone-number-input/max');
     return parsePhoneNumber(value)?.country as CountryCode | undefined;
   } catch {
     return undefined;
