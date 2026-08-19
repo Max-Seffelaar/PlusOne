@@ -8,6 +8,148 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-19 — Production ran blind: Sentry never initialised, and the build now refuses to ship without it (86eyp5w32)
+
+Branch `claude/performance-sweep-orchestration-e4t594`. Found while orchestrating the
+performance sweep, investigating `86eykdzf1` (the suspicion that `/e/[slug]` 500'd for
+five weeks on a missing `LANDING_IP_SALT`).
+
+**The finding is bigger than the incident it came from.** Sentry has received **zero
+events in 90 days** — both orgs, both projects, no events of any kind. Not "no errors":
+nothing at all.
+
+### Why it was invisible
+
+`sentry.server.config.ts:10`, `sentry.edge.config.ts:12` and `src/sentry.client.init.ts:24`
+all initialise with `enabled: Boolean(dsn)` where `dsn = process.env.NEXT_PUBLIC_SENTRY_DSN`.
+A missing var switches Sentry off silently — no warning, no log, no build failure.
+
+What made it genuinely hard to spot: **the build-time half kept working.** Sentry holds
+releases for these commits — `2790498b7a9a…` (the merge commit of PR #271, i.e. the
+current tip of `main`) carries `lastDeploy.environment: "vercel-production"`. Creating a
+release requires an authenticated token, so `SENTRY_AUTH_TOKEN` and the Vercel↔Sentry
+integration are demonstrably fine. The marketplace integration injects
+`SENTRY_ORG`/`SENTRY_PROJECT`/`SENTRY_AUTH_TOKEN` — but not the DSN under this app's
+variable name. So every deploy registered a release for events that would never arrive,
+and every dashboard looked configured.
+
+### How it was proven without Vercel env access
+
+The load-bearing evidence is Sentry's own API, not the bundle:
+
+- **0 events in 90 days**, both orgs (`plus-one-hs/javascript-nextjs`,
+  `plus-one-lk/sentry-citron-cloud`) — no events of any kind, not merely no errors.
+- **Every release** in the populated project reports `firstEvent: null`,
+  `lastEvent: null`, `newIssues: 0` — across many deploys, never one event.
+- `/monitoring` returns **404** even though `_sentryRewritesTunnelPath="/monitoring"` is
+  compiled into the bundle: the tunnel route only registers once the SDK initialises with
+  a DSN.
+
+**Correction, from the review of this PR.** The first draft argued from the bundle:
+`_sentryDebugIds`/`SENTRY_RELEASE` present ⇒ a real auth token. That inference is wrong.
+`disable: !process.env.SENTRY_AUTH_TOKEN` at `next.config.js:133` sits inside the
+`sourcemaps` block, so it gates source-map *upload* — not the plugin, and not debug-ID
+injection. The reviewer built this branch with `SENTRY_AUTH_TOKEN` entirely unset and got
+all three markers anyway. The conclusion survived on other evidence, but the stated proof
+did not, and it is corrected here rather than quietly dropped.
+
+A second claim was softened while checking the first: "`NEXT_PUBLIC_*` is inlined, so
+absence from the shipped JS is evidence". The inlining behaviour is real and was verified
+both ways — a var that IS set appears as a literal (the production Supabase URL is
+verbatim in the prod bundle), a var that is NOT set survives as a runtime `env.X` lookup —
+but the Sentry client-init code is not present in the chunks that were grepped, so that
+particular grep showed nothing either way. Corroborating, not proof.
+
+### The fix, and why it's a build guard rather than a boot guard
+
+`scripts/hooks/lib/required-env.mjs` + `scripts/hooks/check-required-env.mjs`, wired as
+the first half of `pnpm build`.
+
+Throwing at runtime boot — the `landingIpSalt()` pattern — would be **worse than the
+disease here**: a mistyped monitoring var would take the door offline, and the door is the
+one surface that must keep working (door speed, offline-tolerant check-in). Failing the
+*build* keeps the loudness without ever risking a live venue: a bad deploy never becomes a
+running deploy.
+
+Keyed on `VERCEL_ENV === 'production'`, deliberately **not** `NODE_ENV`. Next sets
+`NODE_ENV=production` for preview deploys and for a plain local `pnpm build`, so a
+`NODE_ENV` gate would break every contributor and every CI run — and that exact conflation
+is what made `86eykdzf1` unfalsifiable ("it should have been throwing on preview too" was
+never verifiable). CI's build step sets no `VERCEL_ENV`, so it stays green; verified by
+running `pnpm build` under the exact CI env.
+
+Guarded vars carry a `why` string each, printed on failure — a guard that only prints a
+name teaches the next person nothing. `LANDING_IP_SALT` is in the list precisely because
+its runtime fail-closed fires at *render*, not at submit: `/e/[slug]`, `/i/[token]` and
+`/r/[token]` all 500 on first view, so landing, invite and status links go down together.
+A build-time check turns a five-week silent outage into a failed deploy.
+
+**Two exclusions, both stated rather than omitted** (an unexplained absence reads as an
+oversight — raised in review):
+
+- **Stripe** — the keyless stub provider is documented behaviour (decision #32) and pilots
+  run `comped`. Requiring the keys in production is a product decision, not a cleanup.
+- **Turnstile** — `verifyTurnstileToken()` passes OPEN when both keys are unset, which is
+  the same fail-open-and-silent shape as the DSN on a more sensitive surface: bot
+  protection on the only anonymous write path. Excluded for one blunt reason — **the site
+  key is currently not set in production**, so requiring it would block the next deploy
+  rather than protect it. Verified with the inlining behaviour described above: the prod
+  `/e/[slug]` bundle still carries `env.NEXT_PUBLIC_TURNSTILE_SITE_KEY` as a runtime
+  lookup. Filed as a separate finding; "off in production" should be a decision, not a
+  discovery.
+
+### Verification
+
+- `tests/unit/required-prod-env.test.ts` — 12 tests. Behavioural coverage of the predicate
+  plus a structural test asserting `pnpm build` still invokes the runner (a guard nobody
+  calls is the failure mode that produced this task — cf. `idbClearAll()` shipping with
+  zero call sites and a comment claiming otherwise, 86ey9et07).
+- **Both verified red-on-revert**: removing the guard from `package.json` fails the
+  structural test; removing empty-string handling fails two behavioural tests.
+- Guard exercised across all five env shapes (local, preview, `NODE_ENV=production`
+  without Vercel, prod-missing, prod-complete) — pass/block as intended.
+- Simulated `VERCEL_ENV=production` build blocks before `next build` runs, naming only the
+  actually-missing var.
+- `pnpm type-check` clean · `pnpm lint` clean (only the two pre-existing
+  `datetime-field.tsx` a11y warnings) · `pnpm vitest run` **116 files / 1200 tests
+  passing** · `pnpm build` green under CI env.
+- `docs/runbook.md`: new "Is monitoring even alive?" section — two copy-paste checks, since
+  "no Sentry alerts" must never again be read as "nothing is wrong".
+
+### Still open — needs Max, not code
+
+The guard prevents recurrence; it does **not** set the variable. `NEXT_PUBLIC_SENTRY_DSN`
+must still be added in Vercel (Production scope) and a real event confirmed via the
+existing `/sentry-test` route.
+
+**Which project is settled**, and was an open question in the first draft:
+`plus-one-hs/javascript-nextjs` holds every release including the current production
+deploy, while `plus-one-lk/sentry-citron-cloud` has **zero** releases. That also verifies
+the `next.config.js` fallbacks and answers the comment beside them ("fase 7.2 — verify the
+real org slug"). Retiring the empty second project removes a real triage hazard: a DSN
+aimed at the wrong project is indistinguishable from no DSN at all.
+
+**The build-command bypass is narrower than first written.** `vercel.json` pins
+`"framework": "nextjs"` and sets no `buildCommand`, so absent a dashboard override the
+default resolves to `pnpm build` and the guard is in the path today. A dashboard override
+stays invisible from the repo, so it is still worth one look — but "unverified" overstated
+it. Moving the check into `next.config.js` would close that gap and should **not** be
+done: Next also loads next.config in the server runtime, which would reintroduce exactly
+the boot-time failure mode this guard was designed to avoid. The durable answer is a
+post-deploy probe on a schedule — it catches a skipped guard, a var deleted after a good
+build, *and* the wrong-project DSN case that no build-time check can see. The two curl
+checks added to `docs/runbook.md` are that probe; they are one cron away from being
+sufficient.
+
+**Separate finding: Turnstile bot protection is currently off in production.** The site
+key is unset, and `verifyTurnstileToken()` passes open in that state. The DB rate limit,
+honeypot and dedup still stand, so the public funnel is not unprotected — but the
+Cloudflare layer is silently absent. Needs its own task (ClickUp was rate-limited when
+this was found).
+
+Related: `86eykdzf1` closed as investigated-but-unprovable — Vercel retains 7 days and
+Sentry held nothing, so the five-week question can no longer be answered from telemetry.
+A live probe did confirm `/e/[slug]` is healthy now.
 ## 2026-08-19 — Stats dead-code follow-up: EventPicker/StatCard removed (86eykhqty)
 
 Branch `chore/86eykhqty-stats-dead-code`. Milestone: Now (codebase hygiene, no behavior
