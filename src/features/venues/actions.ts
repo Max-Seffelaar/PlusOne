@@ -62,21 +62,39 @@ async function otherAdminCount(venueId: string, excludeUserId: string): Promise<
 }
 
 /**
+ * Outcome of an active-venue switch. Three cases, because the caller has to
+ * treat them differently (86eykm7rk):
+ *  - `ok`             cookie written, the caller may reload onto the new venue.
+ *  - `unauthenticated` no server session — a reload lands on middleware, which
+ *                     sends the user to /login. That is the right destination,
+ *                     so callers keep reloading on this one.
+ *  - `denied`         the id is not (or no longer) one of the caller's
+ *                     memberships, or it isn't a UUID at all. Reloading here
+ *                     silently returns the user to the OLD venue, so callers
+ *                     must surface an error instead.
+ */
+export type SwitchVenueResult = 'ok' | 'unauthenticated' | 'denied';
+
+/**
  * Persist the active-venue choice (decision #1). Validates the id is a UUID and
  * one of the caller's own memberships before writing the cookie — a forged value
  * is ignored, so the switcher can never select a venue the user lacks access to.
  * No PII in the cookie; RLS still scopes every read. Backs the form-action
  * switcher used by both the desktop and po surfaces.
+ *
+ * Returns WHY it refused, never throws on a refusal: the membership check is a
+ * live read, so a member removed between the render of `myVenues` and the click
+ * legitimately lands here. The caller decides what the user sees.
  */
-async function persistActiveVenue(venueId: unknown): Promise<boolean> {
+async function persistActiveVenue(venueId: unknown): Promise<SwitchVenueResult> {
   const user = await getSessionUser();
-  if (!user) return false;
+  if (!user) return 'unauthenticated';
 
   const parsed = setActiveVenueSchema.safeParse({ venueId });
-  if (!parsed.success) return false;
+  if (!parsed.success) return 'denied';
 
   const memberships = await getMyMemberships();
-  if (!memberships.some((m) => m.venueId === parsed.data.venueId)) return false;
+  if (!memberships.some((m) => m.venueId === parsed.data.venueId)) return 'denied';
 
   const cookieStore = await cookies();
   cookieStore.set(ACTIVE_VENUE_COOKIE, parsed.data.venueId, {
@@ -87,12 +105,31 @@ async function persistActiveVenue(venueId: unknown): Promise<boolean> {
     maxAge: 60 * 60 * 24 * 365,
   });
   revalidatePath('/', 'layout');
-  return true;
+  return 'ok';
 }
 
-/** Form-action switcher: validate + persist the active-venue cookie (returns void). */
+/**
+ * Form-action switcher: validate + persist the active-venue cookie.
+ *
+ * Deliberately still `Promise<void>`: it is passed straight to `<form action={…}>`
+ * (VenueSwitcher), and a Next 15 / React 19 form action must return void — a
+ * non-void return is a type error there and is not delivered to the client
+ * anyway. Programmatic callers that need the outcome use
+ * `switchActiveVenueAction` below.
+ */
 export async function setActiveVenueAction(formData: FormData): Promise<void> {
   await persistActiveVenue(formData.get('venueId'));
+}
+
+/**
+ * Programmatic switcher (86eykm7rk): same validation as the form action, but it
+ * REPORTS the outcome instead of swallowing it. `setActiveVenueAction` resolves
+ * even when the switch was refused server-side, so a caller that just chained
+ * `.then(reload)` sent the user back to the old venue with no error — an
+ * infinitely repeatable dead end once an admin revoked the membership.
+ */
+export async function switchActiveVenueAction(venueId: string): Promise<SwitchVenueResult> {
+  return persistActiveVenue(venueId);
 }
 
 /**

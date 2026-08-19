@@ -35,6 +35,10 @@ export const en = {
   },
   venue: {
     switching: 'Switching…',
+    /** The switch was refused server-side — almost always a membership revoked
+     *  between the render of the venue list and the tap (86eykm7rk). Names the
+     *  cause and the one action that helps, because a retry never will. */
+    switchFailed: 'You no longer have access to that venue. Refresh to see your current venues.',
   },
   sections: {
     account: 'Account',

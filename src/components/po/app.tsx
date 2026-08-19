@@ -28,7 +28,7 @@ import { canSeeAnyRequests, canWorkDoor } from '@/features/auth/roles';
 import { venueCapabilities } from '@/features/venues/access';
 import { DoorProvider } from '@/features/door/DoorProvider';
 import { DoorQueryProvider } from '@/features/door/DoorQueryProvider';
-import { setActiveVenueAction } from '@/features/venues/actions';
+import { switchActiveVenueAction } from '@/features/venues/actions';
 import { PoProvider, type Nav, type PoApp, type ScreenName, type ScreenProps } from './context';
 import { doorPath, parseAppUrl, screenPath, tabPath, type DoorSeg, type ParsedTarget } from './routes';
 import { useDoorOverride } from './use-door-override';
@@ -641,10 +641,19 @@ export function PlusOneApp(): JSX.Element {
       // the UI today, kept as a guard since this is public API (86ey9e9vc).
       if (venueId === activeVenueId) return;
       setToast(t.venue.switching);
-      const fd = new FormData();
-      fd.set('venueId', venueId);
-      void setActiveVenueAction(fd)
-        .then(() => {
+      void switchActiveVenueAction(venueId)
+        .then((result) => {
+          // The server can REFUSE the switch without throwing (86eykm7rk): an
+          // admin revoking the membership between the render of `myVenues` and
+          // this tap leaves the cookie unwritten. Reloading then drops the user
+          // back on the OLD venue with no error and no way out, so 'denied' has
+          // to say so instead. 'unauthenticated' still reloads on purpose —
+          // middleware turns that into /login, which is where the user belongs.
+          if (result === 'denied') {
+            setToast(t.venue.switchFailed);
+            setTimeout(() => setToast(null), 6000);
+            return;
+          }
           window.location.assign('/app');
         })
         .catch(() => {

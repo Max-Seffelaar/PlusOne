@@ -10,7 +10,7 @@
 import { type JSX, useState, useTransition } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
-import { createVenueAction, setActiveVenueAction } from '@/features/venues/actions';
+import { createVenueAction, switchActiveVenueAction } from '@/features/venues/actions';
 import { VENUE_TYPES, type VenueType } from '@/features/venues/schemas';
 import { TERMS_URL, PRIVACY_URL } from '@/lib/legal';
 import { useNav } from '../context';
@@ -67,9 +67,15 @@ export function VenueCreate(): JSX.Element {
       // identity and every live query re-scopes to it (#1, mirrors switchToVenue).
       // The reload navigates to the bare /app URL (G1: the URL is the nav state,
       // so there's nothing to clear) — the new owner lands on the venue's Start tab.
-      const fd = new FormData();
-      fd.set('venueId', res.venueId);
-      await setActiveVenueAction(fd);
+      // Same refusal contract as switchToVenue (86eykm7rk): 'denied' means the
+      // cookie was never written, so reloading would land the fresh owner back
+      // on their previous venue as if nothing happened. The venue itself DOES
+      // exist at that point — say so rather than implying the create failed.
+      const switched = await switchActiveVenueAction(res.venueId);
+      if (switched === 'denied') {
+        setError(t.venue.switchFailed);
+        return;
+      }
       window.location.assign('/app');
     });
   }

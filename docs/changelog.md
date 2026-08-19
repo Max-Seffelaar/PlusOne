@@ -8,6 +8,79 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-19 — Venue switch: a refused switch no longer reloads as if it worked (86eykm7rk)
+
+Branch `fix/86eykm7rk-venue-switch-silent-failure`. Milestone: **Now**. No migration, no schema
+change — three source files plus two new unit suites.
+
+**The bug.** `persistActiveVenue` (`src/features/venues/actions.ts`) refuses on three paths
+*without throwing*: no session, Zod rejects the id, or the id is not one of the caller's live
+memberships. Its only caller, `setActiveVenueAction`, dropped that boolean on the floor and
+resolved as `Promise<void>`. The po shell's `switchToVenue` then did:
+
+```ts
+void setActiveVenueAction(fd).then(() => window.location.assign('/app')).catch(() => setToast(null));
+```
+
+`.then()` fires on a refusal exactly as it does on success — `.catch()` only ever saw real
+exceptions. So the cookie was never written, the reload re-resolved identity to the **old**
+venue, and the user landed back where they started with no error and nothing to act on.
+Repeatable forever. **Trigger:** an admin revokes someone's membership of venue B between the
+render of `myVenues` and their tap on "switch".
+
+**Why the fix is not just "return the boolean".** Two constraints shaped it:
+
+| constraint | consequence |
+|---|---|
+| `VenueSwitcher.tsx` passes the action to `<form action={…}>` | a Next 15 / React 19 form action must return void — widening the existing export's signature is a type error at that call site |
+| an expired session must keep reloading | reloading routes it through middleware to `/login`, which is the right destination; an error toast there is a dead end |
+
+So `setActiveVenueAction` keeps its exact `Promise<void>` shape and its form-action role, and a
+second explicitly-named export carries the outcome:
+
+```ts
+export type SwitchVenueResult = 'ok' | 'unauthenticated' | 'denied';
+export async function switchActiveVenueAction(venueId: string): Promise<SwitchVenueResult>
+```
+
+Three states, not a boolean, precisely because `unauthenticated` and `denied` must diverge in the
+UI. `switchToVenue` reloads on `ok` **and** on `unauthenticated`, and only `denied` raises
+`t.venue.switchFailed`. The refusal reasons stay server-side; the client learns the outcome, not
+the membership list.
+
+**Second caller fixed too.** `screens/onboarding.tsx:72` (the switcher's "New venue" quick-create)
+had the identical swallow — `await setActiveVenueAction(fd)` then an unconditional reload. It now
+branches on the same contract. Note its `denied` copy problem: the venue *was* created at that
+point, so the message must not imply the create failed.
+
+**Copy deviates from CLAUDE.md's "Dutch UI copy" line, deliberately.** `src/lib/i18n/en.ts` is
+headed "English UI copy — the single source of truth … English is the default and, for now, the
+only locale", and its neighbour is `venue.switching: 'Switching…'`. Dropping a Dutch string beside
+it would be the only Dutch key in the catalogue. Written in English to match the file; flagged
+here because CLAUDE.md's Conventions section still says otherwise and one of the two should move.
+
+**Red-on-revert verified on both halves** (not assumed — each was reverted and re-run):
+
+| revert | failure |
+|---|---|
+| `switchToVenue` back to `.then(() => assign('/app'))` | `expected "spy" to not be called at all, but actually been called 1 times` — the buggy code navigates |
+| `switchActiveVenueAction` swallowing the result (`await …; return 'ok'`) | 3 failures: `expected 'ok' to be 'denied'` ×2, `expected 'ok' to be 'unauthenticated'` |
+
+**Gotcha for the next component test in this shell.** jsdom's `window.location` is
+`[LegacyUnforgeable]`: `vi.spyOn(window.location, 'assign')` throws `Cannot redefine property`.
+Replacing the whole property with `Object.defineProperty(window, 'location', { configurable: true,
+… })` works and is what `app.venue-switch.test.tsx` does. The same file also shows how to drive a
+real `usePo()` callback from a mocked screen — `await import('./context')` **inside** the
+`vi.mock` factory, never a closed-over binding, or you get a second module instance, a second
+React context, and `usePo()` throws.
+
+`app.auto-open.test.tsx` needed its `@/features/venues/actions` mock renamed to the new export;
+it mocks the module wholesale, so a missing export would have failed at import.
+
+**Diff discipline.** `src/components/po/app.tsx` is also touched by PR #278 (`requestedDoorId`
+~r. 437–466, pin logic ~r. 540–551). This PR's `app.tsx` change is confined to the `switchToVenue`
+callback and its one import line — no reformatting, no import reordering.
+
 ## 2026-08-12 — Door outbox owner-stamp: a tablet hand-off no longer costs check-ins (86ey9et0h)
 
 Branch `claude/outbox-owner-stamp-sync-7aadf3`. Milestone: Now (a lost door check-in is the
