@@ -8,6 +8,158 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-19 — pgTAP: a plan/run mismatch is now a red build (86eykjgrb)
+
+Branch `fix/86eykjgrb-pgtap-plan-mismatch`. Two test files had been printing
+`# Looks like you planned N tests but ran 2` into every suite run while `supabase test db`
+reported an overall PASS.
+
+**What was actually wrong — not what it looked like.** The symptom reads as "13 assertions
+never ran", and that was the working theory. It is not what happens. Every assertion in
+`tiers.vat.test.sql` runs, and every one passes; the same holds for `event_templates.test.sql`
+(41 planned). The defect is in pgTAP's own bookkeeping:
+
+- `finish()` compares `plan(N)` against `curr_test`, which pgTAP stores in the **temp table**
+  `__tcache__` — so `rollback to savepoint` reverts it along with the section's data.
+- The test *numbers* it prints come from `__tresults___numb_seq`, a **sequence**. Sequences are
+  non-transactional, so those keep counting correctly across the same rollback.
+
+The two drift apart, and `finish()` ends up comparing the plan against the last assertion that
+ran *outside* a savepoint — test 2 in both files. `event_templates.test.sql` already carried a
+comment showing the author had hit the edge of this ("finish() sees zero and raises *No tests
+run!*") and worked around the exception without noticing the count was also wrong.
+
+**Why pg_prove was right to say PASS.** The TAP stream it receives is complete and correct:
+`1..15`, then fifteen `ok` lines. pgTAP's contradicting self-check is emitted as a TAP
+*comment*, which a harness is free to ignore. Verified against the real binary rather than
+assumed — pg_prove **does** already fail on a `not ok` line, and it passes `ON_ERROR_STOP=1` to
+psql, so a file that genuinely dies mid-run truncates its stream and fails as
+`Bad plan. You planned 4 tests but ran 2`. Neither of those safety nets was broken. The one
+gap was the comment.
+
+**The fix.** Re-sync pgTAP's counter from the sequence — the only place that knows what actually
+executed — immediately before `finish()`, in the three files that use savepoints
+(`tiers.vat`, `event_templates`, `events`). `plan(N)` was **not** lowered to match; that would
+define the defect away. `events.test.sql` was not emitting the diagnostic, but only by accident
+of ordering (its last assertions happen to sit outside a savepoint), so it got the same
+treatment rather than being left to break on the next edit.
+
+**The gate (the weightier half).** `supabase test db` in CI is now `node scripts/db-test.mjs`,
+which streams pg_prove's output through unchanged and fails the build on
+`planned N tests but ran M`, `Looks like you failed N tests of M`, and `# No tests run!`.
+Detection lives in `scripts/lib/pgtap-gate.mjs` with a Vitest suite
+(`tests/unit/pgtap-plan-run-gate.test.ts`, 7 tests) built from real captured pg_prove output.
+Proven by running the gate against the unfixed file: pg_prove exits 0 and reports `Result: PASS`,
+the gate exits 1.
+
+**Scope of the rot: 2 files of 56.** The full suite was run file-by-file to check, not sampled.
+1092 assertions, no mismatches remaining.
+
+### Round 2 — review: the gate's own reliability (7 findings)
+
+Reviewed as "no blockers", but five of the seven were about whether the gate can be
+trusted to go red, which is the entire point of it. Each is now pinned by a test that
+was checked to FAIL against the pre-fix code — a gate you only argue about is the thing
+this PR exists to stop.
+
+**Confirmed and fixed:**
+
+- **stdout and stderr were merged into one buffer, then matched line by line.** They are
+  independent pipes. Reproduced: a fake pg_prove writing `# Looks like you planned 15
+  tests but `, a stderr warning, then `ran 2` yields the merged line
+  `# Looks like you planned 15 tests but WARN: local stack is still warming up` — the
+  old code found **0 hits** and exited 0 on a real mismatch. Every entry point in
+  `pgtap-gate.mjs` now takes one string per stream and scans each on its own.
+- **`process.exit()` on a piped stderr truncated the diagnostic the script exists to
+  print.** Measured, not reasoned: ~200 KB of gate output, a reader busy for 250 ms
+  (a CI log collector), stderr a pipe — `process.exit(1)` delivered **0 bytes**;
+  `process.exitCode = 1` delivered all 199,569 with the tail intact. Both exit paths
+  now set `exitCode`.
+- **The success line asserted something nothing had verified.** "No failure pattern
+  matched" is also what zero coverage looks like — a renamed tests directory, a changed
+  CLI glob, a `config.toml` edit. `findMissingRunEvidence()` now demands positive proof
+  (`Files=N` ≥ 1, `Tests=M` ≥ 1, a `Result: PASS` line) before success may be printed,
+  and the success line names the numbers it checked instead of claiming a property.
+- **`currval()` raised when no assertion had advanced the sequence.** SQLSTATE 55000
+  aborted the transaction before `finish()` could raise `# No tests run!` — replacing a
+  signal the gate catches by name with a sequence error it does not recognize, in
+  exactly the case the gate must catch. The three resync blocks now swallow 55000 and
+  leave `finish()` to raise its own diagnostic.
+- **The gate was bypassed by every documented local workflow.** It lived in CI and
+  `pnpm db:test` and nowhere else, so **CLAUDE.md's prod-push flow — the last check
+  before a schema reaches the one prod project, with no staging behind it — stayed
+  blind.** Nine call sites repointed at `pnpm db:test` (CLAUDE.md, README ×2,
+  docs/ARCHITECTURE.md, bouwplan ×4, launchplan). Cost is zero: the wrapper needs no
+  `node_modules`, adds no DB work, and now forwards arguments, so it is a strict
+  superset of the bare command. `tests/unit/pgtap-gate-is-the-documented-command.test.ts`
+  keeps the sweep from rotting — a live instruction doc may name the bare command only
+  on a line that also points at the wrapper. Historical records (changelog,
+  security-audit, plan-*) are deliberately untouched.
+- **Arguments were silently dropped**, so `pnpm db:test -- one.test.sql` quietly ran all
+  56 files against the shared local stack. `process.argv.slice(2)` is forwarded.
+- **Two comment blocks stated an invariant the fix had removed** ("this final assertion
+  must commit so curr_test reaches 46"; "without at least one non-rolled-back test,
+  finish() sees zero"). Both rewritten — the resync takes the count from the sequence, so
+  section ordering is now free. `event_templates.test.sql` carried the same stale rule
+  and was fixed with it, though the review only flagged `events.test.sql`.
+
+**One behaviour change beyond the findings.** The gate's patterns are now applied on the
+non-zero-exit path too. `# No tests run!` is RAISEd by pgTAP, so psql (`ON_ERROR_STOP=1`)
+exits non-zero and the old control flow returned before the gate ever looked — the pattern
+was dead. It now names what it found on top of the exit code, instead of leaving the reader
+to hunt through 56 files of output.
+
+**How the gate was proven, not argued.** `tests/unit/pgtap-plan-run-gate.test.ts` (21 tests)
+spawns the real `scripts/db-test.mjs` against a scripted fake `supabase` with its
+stdout/stderr as pipes — the exact shape CI gives it — and covers the interleaved split, the
+slow-reader truncation, the zero-coverage exit 0, the silent exit 0, argument forwarding, and
+a non-zero exit that still gets labelled. Each guard was verified by reintroducing the defect:
+merging the streams flips the interleave test to exit 0, restoring `process.exit()` drops the
+diagnostic to 0 bytes, removing the evidence check turns both zero-coverage tests green.
+
+The SQL half cannot be unit-tested — pgTAP's counter, `currval()` and `finish()` need a real
+Postgres — so it was proven in CI instead, as four temporary workflow steps that assert their
+own claims against the live stack and were removed again in the following commit (runs
+`32271276799`, all four green). Each assertion was emitted as a workflow annotation, since this
+session could not reach the log-storage host; the verdicts, verbatim:
+
+**A — the gate turns a pg_prove PASS into a red build.** A savepoint-drifted file added to the
+real 56-file suite:
+
+```
+bare `supabase test db` exit=0 ; gate exit=1
+bare: # Looks like you planned 4 tests but ran 1
+bare: Files=57, Tests=1096,  5 wallclock secs
+bare: Result: PASS
+gate: ✖ pgTAP plan/run gate failed — pg_prove reported PASS, but:
+gate:   a pgTAP file's plan() does not match the number of assertions it ran:
+gate:     # Looks like you planned 4 tests but ran 1
+```
+
+**B — the `currval()` finding, reproduced and then fixed, as an A/B on one database.** The same
+zero-assertion file, differing only in the exception handler:
+
+```
+B2 (pre-fix):  ERROR:  currval of sequence "__tresults___numb_seq" is not yet defined in this session
+               CONTEXT:  SQL statement "SELECT _set('curr_test', currval('__tresults___numb_seq')::int)"
+               → Tests: 0, and `# No tests run!` never appears at all
+B1 (fixed):    ERROR:  # No tests run!
+               → gate: "a pgTAP file planned tests but ran none"
+```
+
+**D — arguments reach the real Supabase CLI**, which the unit test cannot show (it only sees a
+fake binary): `Files=1, Tests=15` and `✔ pgTAP plan/run gate: 1 files / 15 assertions ran`.
+
+**One false start worth recording.** The first version of proof A put its surviving assertion
+*after* the rollback. CI reported `Files=57, Tests=1096`, `Result: PASS`, the proof file marked
+`ok` — and no mismatch emitted. The gate exited 0 because there was genuinely nothing wrong:
+that file only drifts if pgTAP's `ok()` increments `curr_test`, and not if it assigns it from
+the sequence. The fixture was wrong, not the gate. Reshaped to mirror `tiers.vat.test.sql`
+exactly — surviving assertion first, savepoint sections last, rollback immediately before
+`finish()` — which drifts under either mechanism. Worth keeping in the record twice over: it is
+also the one run in this PR where the gate was shown NOT to fire on a file that had not actually
+drifted.
+
 ## 2026-08-19 — `guests.added_by` gebonden op UPDATE (86eymckjt)
 
 Branch `fix/86eymckjt-guests-update-bind-added-by`. Milestone: Now. Migratie

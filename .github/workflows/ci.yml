@@ -53,8 +53,12 @@ jobs:
       - name: Start local Supabase stack
         run: supabase start
 
+      # Wrapper, not bare `supabase test db`: pg_prove exits 0 on a file whose
+      # plan() and assertion count have drifted apart, because pgTAP reports that
+      # only as a TAP comment (86eykjgrb). scripts/db-test.mjs streams the normal
+      # output through and turns that comment into a red build.
       - name: Run database tests (pgTAP)
-        run: supabase test db
+        run: node scripts/db-test.mjs
 
       # Real cross-connection concurrency test for the quota/capacity/tier-max
       # trigger locking fix (86ey9e8ar) — needs two genuinely separate, racing
