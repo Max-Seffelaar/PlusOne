@@ -159,4 +159,87 @@ describe('openDb — blocked on a VERSION bump (86ey9e9wc)', () => {
     });
     expect(deleteOutcome).toBe('deleted');
   });
+
+  it('does not adopt an attempt that a sign-out wipe landed on, so a pre-wipe write cannot reach the next doorhost (review 86ey9e9wc)', async () => {
+    const { idbSet, idbClearAll } = await loadIdb();
+
+    // Doorhost A's outbox write parks inside `openDb` — blocked by the sibling.
+    const write = idbSet('door-outbox', { entries: ['A: Alice +2 (PII)'] });
+    expect(await outcome(write)).toBe(PENDING);
+
+    // A signs out. `idbClearAll` bumps the epoch synchronously, closes what it
+    // tracks (nothing yet — this attempt never resolved) and deletes the database.
+    const wipe = idbClearAll();
+
+    // Mid-wipe, the frozen tab dies — well inside the grace period, so the attempt
+    // above has NOT given up and its `settled` flag is still false. This is the
+    // window the give-up branch cannot cover.
+    blocker.close();
+    await wipe;
+    await flush();
+
+    // Without the epoch guard this attempt takes the success path: it adopts the
+    // connection as `dbConn` and resolves, and A's write — which passed the
+    // outbox's own epoch check BEFORE it parked in `openDb` — lands in the
+    // database the next doorhost will boot on. It must report failure instead.
+    expect(await outcome(write)).toBe(false);
+
+    // WHAT THIS TEST DOES NOT CAPTURE — checked, not assumed. The downstream
+    // consequences of the adoption were both probed against the unfixed code and
+    // came out GREEN under fake-indexeddb, so asserting them here would be a test
+    // that can never fail:
+    //   - A's record surviving on disk after the wipe (`deleteDatabase` still
+    //     wins the race in this harness, so the bytes go);
+    //   - the adopted connection blocking a later `deleteDatabase` once a
+    //     subsequent `openDb` has overwritten `dbConn` (reports 'deleted', not
+    //     'blocked').
+    // Both depend on browser event ordering that fake-indexeddb does not model.
+    // What IS deterministic — and is what the assertion above pins — is the step
+    // they all hang off: a post-wipe attempt being adopted and its pre-wipe write
+    // reported as landed. Fix that and the rest cannot follow.
+  });
+
+  it('fails fast during the cooldown instead of paying another grace period and another Sentry event', async () => {
+    const { idbSet, IDB_OPEN_BLOCKED_GRACE_MS, IDB_OPEN_BLOCKED_COOLDOWN_MS, captureMessage } = await loadIdb();
+
+    const first = idbSet('k', 'v');
+    expect(await outcome(first)).toBe(PENDING);
+    vi.advanceTimersByTime(IDB_OPEN_BLOCKED_GRACE_MS);
+    expect(await outcome(first)).toBe(false);
+    expect(captureMessage).toHaveBeenCalledTimes(1);
+
+    // The blocking tab is still frozen. persister.ts (2 s throttle), every
+    // `outbox.commit()` and the 60 s safety sync keep calling in. Each such call
+    // must NOT arm its own grace period — it settles immediately, with no second
+    // report, so a frozen sibling cannot turn into a repeating 2 s cycle.
+    const during = idbSet('k', 'v2');
+    expect(await outcome(during)).toBe(false); // settled without advancing any timer
+    expect(captureMessage).toHaveBeenCalledTimes(1);
+
+    // Once the cooldown expires we retry for real: recovery is not given up on,
+    // it is only rate-limited. The sibling is gone now, so this one succeeds.
+    blocker.close();
+    vi.advanceTimersByTime(IDB_OPEN_BLOCKED_COOLDOWN_MS);
+    expect(await outcome(idbSet('k', 'v3'))).toBe(true);
+  });
+
+  it('gives the boot restore the longer grace, so a slow-but-healthy sibling does not cost the door its cache', async () => {
+    const { IDB_OPEN_BLOCKED_GRACE_MS, IDB_OPEN_BLOCKED_RESTORE_GRACE_MS } = await loadIdb();
+    const { createIdbPersister } = await import('./persister');
+
+    const restore = createIdbPersister().restoreClient() as Promise<unknown>;
+    expect(await outcome(restore)).toBe(PENDING);
+
+    // Past the WRITE grace a write would already have given up. The restore has
+    // not: this is the low-end webview whose healthy sibling takes seconds to
+    // release, where failing would drop the cached guest list with no refetch.
+    vi.advanceTimersByTime(IDB_OPEN_BLOCKED_GRACE_MS + 1);
+    expect(await outcome(restore)).toBe(PENDING);
+
+    // It releases in time, so the door keeps its cache (empty here — the point is
+    // that the open succeeded rather than being abandoned).
+    blocker.close();
+    expect(await outcome(restore)).toBeUndefined();
+    expect(IDB_OPEN_BLOCKED_RESTORE_GRACE_MS).toBeGreaterThan(IDB_OPEN_BLOCKED_GRACE_MS);
+  });
 });

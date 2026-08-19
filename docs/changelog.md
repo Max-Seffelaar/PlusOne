@@ -8,6 +8,74 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-19 (later) — Code-review round on the `onblocked` fix: the wipe guard now covers the open path too (86ey9e9wc)
+
+Branch `fix/86ey9e9wc-idb-open-onblocked`, PR #283. A fresh-session `/code-review` left four
+inline findings. All four were re-checked against the code before acting — the reviewer was
+right on all four, and one of them is a real PII defect.
+
+**Finding 1 (blocker, fixed).** `settled` only becomes `true` when the grace timer fires, so the
+existing `close()` on late arrival covered the window *after* give-up but not the one *before*
+it. A `blocked` open that is still in flight when the doorhost signs out took the normal success
+path: it adopted itself as `dbConn` and resolved. `openDb()` never consulted the wipe epoch, and
+`idbClearAll` has no way to mark an in-flight attempt as abandoned.
+
+The blast radius is wider than "an untracked connection". `idbSet` awaits `openDb()` *after* the
+outbox's own epoch re-check (`outbox/store.ts:271`), so a write that legitimately passed the
+guard and then parked inside a blocked open lands **after** the wipe — the previous doorhost's
+queued check-ins written into the database the next doorhost boots on, on a shared tablet.
+Device storage is session-scoped unless provably PII-free (CLAUDE.md), so this had to be fixed
+before merge. `onsuccess` now bails on `settled || epoch !== openedAt`, closing the connection
+and **rejecting** — the reviewer's suggested snippet returned without settling, which would have
+hung every awaiting caller, i.e. the bug this file exists to remove.
+
+**Finding 2 (fixed).** Give-up nulled `dbPromise` with no backoff, and the callers are not
+occasional (persister on a 2 s trailing throttle, `outbox.commit()` on every enqueue,
+`useDoorSync` every 60 s), so a persistently frozen sibling meant open → 2 s → give up → Sentry,
+every few seconds indefinitely. Added `IDB_OPEN_BLOCKED_COOLDOWN_MS` (30 s): during it every
+`openDb` fails fast instead of arming its own grace period, and because no attempt runs there is
+no second report — the same transition-guard shape `setPersistDegraded` already uses two files
+over. Time-boxed, and cleared by `idbClearAll`, so it can never leave IndexedDB switched off for
+whoever uses the device next.
+
+**Finding 4 (fixed) and 3 (decided, not fixed).** The 2 s was a guess, and one constant was
+doing two jobs with opposite cost asymmetries: a failed *write* costs nothing user-visible (the
+entry is in memory, every persist path is fire-and-forget), while a failed *boot restore* costs
+the whole cached guest list — and at the door offline is the normal case, so there is no refetch.
+Split: writes keep 2 s, the boot restore gets `IDB_OPEN_BLOCKED_RESTORE_GRACE_MS` (8 s), plumbed
+as `idbGet(key, { graceMs })` with an in-flight attempt taking the longest grace any current
+waiter asked for. Both numbers are now documented as **accepted guesses, not measurements** —
+which is what the finding asked for; measuring `close()`-to-release on a throttled webview is the
+way to replace them.
+
+Finding 3 — a blocked restore is silent, because `idbGet` swallows the rejection and `undefined`
+is indistinguishable from a cold cache — is **acknowledged and deliberately not fixed here**. The
+longer restore grace reduces how often it happens and telemetry already covers it, but a
+doorhost-facing "your cached list could not be loaded" signal applies to *every* restore failure
+(corrupt snapshot, quota exceeded), not just a blocked open. It belongs to `restoreClient`'s
+error contract and its own UI decision, not bolted onto this fix. Recorded at the call site in
+`persister.ts` so it is discoverable rather than lost; needs its own task.
+
+**Tests** — 3 added (7 total in `idb.test.ts`), each verified **red against its own revert**:
+removing the epoch guard fails the wipe test with `expected true to be false` (the pre-wipe write
+reports as landed); removing the cooldown fails with `expected Symbol(pending) to be false`;
+removing the restore split fails with `expected undefined to be Symbol(pending)`.
+
+**What the harness cannot prove — stated rather than papered over.** Two downstream consequences
+of the adoption were probed against the unfixed code and came out **green** under
+`fake-indexeddb`: the previous doorhost's record surviving on disk past the wipe, and the adopted
+connection blocking a later `deleteDatabase`. Both depend on browser event ordering that
+fake-indexeddb does not model, which matches the reviewer's own experience of getting the disk
+outcome once and clean on repeat. Asserting either would be a test that can never fail, so
+neither is asserted; the test pins the one deterministic step they all hang off — a post-wipe
+attempt being adopted and its pre-wipe write reported as landed.
+
+Gates: `pnpm lint` clean (exit 0; the 2 pre-existing `datetime-field.tsx` a11y warnings are
+untouched), `pnpm type-check` 0 errors, **116 files / 1195 tests / 0 failures**. No migration and
+no route change, so pgTAP and e2e were not run.
+
+---
+
 ## 2026-08-19 — `indexedDB.open` no longer hangs the door when a sibling tab blocks a VERSION bump (86ey9e9wc)
 
 Branch `fix/86ey9e9wc-idb-open-onblocked`. Milestone: Now (a door that never finishes booting
