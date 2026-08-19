@@ -162,13 +162,79 @@ describe('PlusOneApp switchToVenue (86eykm7rk)', () => {
     expect(screen.queryByText(t.venue.switchFailed)).toBeNull();
   });
 
-  it('passes the venue id to the action and keeps the old venue on a thrown error', async () => {
+  it('passes the venue id and SAYS SO on a thrown error, instead of going quiet', async () => {
+    // Round-2 review: `.catch()` used to `setToast(null)`, which is the very
+    // silent failure this task exists to remove, reached by a different door —
+    // "Switching…" flashed, the venue never changed, nothing explained why.
+    // Deliberately NOT `switchFailed`: the user's access is fine here, so the
+    // honest advice is "try again", the opposite of "refresh your venues".
     H.switchActiveVenueAction.mockRejectedValue(new Error('network'));
     renderApp();
     await clickSwitch();
 
     expect(H.switchActiveVenueAction).toHaveBeenCalledWith(VENUE_B);
-    await waitFor(() => expect(screen.queryByText(t.venue.switching)).toBeNull());
+    await waitFor(() => expect(screen.getByText(t.venue.switchError)).toBeDefined());
+    expect(screen.queryByText(t.venue.switching)).toBeNull();
+    expect(screen.queryByText(t.venue.switchFailed)).toBeNull();
     expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('does not let a refused switch clear the NEXT switch\'s "Switching…" toast', async () => {
+    // Round-2 review: the error toast used to arm a bare `setTimeout` inside a
+    // promise callback, so its 6s clear survived into whatever came next. Tap a
+    // refused venue, then a valid one 3s later, and at t=6s the stale timer wiped
+    // the in-flight "Switching…" while that second switch was still running.
+    // The effect + cleanup idiom (app.tsx's billing toast, guests/profile.tsx)
+    // cancels the old timer when a new toast replaces it.
+    vi.useFakeTimers();
+    try {
+      H.switchActiveVenueAction.mockResolvedValue('denied');
+      renderApp();
+      await clickSwitch();
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(screen.getByText(t.venue.switchFailed)).toBeDefined();
+
+      // 3s later: a second switch that the server has not answered yet.
+      await act(async () => {
+        vi.advanceTimersByTime(3000);
+      });
+      H.switchActiveVenueAction.mockReturnValue(new Promise(() => {})); // never settles
+      await act(async () => {
+        screen.getByTestId('switch').click();
+        await Promise.resolve();
+      });
+      expect(screen.getByText(t.venue.switching)).toBeDefined();
+
+      // t=6s from the FIRST tap: the old timer must not be alive any more.
+      await act(async () => {
+        vi.advanceTimersByTime(3500);
+      });
+      expect(screen.getByText(t.venue.switching)).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears the refusal toast on its own timer', async () => {
+    // The other half of the same contract: sticky is right for "Switching…"
+    // (the reload ends it), but an error the user has read must go away.
+    vi.useFakeTimers();
+    try {
+      H.switchActiveVenueAction.mockResolvedValue('denied');
+      renderApp();
+      await clickSwitch();
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(screen.getByText(t.venue.switchFailed)).toBeDefined();
+      await act(async () => {
+        vi.advanceTimersByTime(6500);
+      });
+      expect(screen.queryByText(t.venue.switchFailed)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

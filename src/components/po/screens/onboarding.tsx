@@ -70,10 +70,13 @@ export function VenueCreate(): JSX.Element {
       // Same refusal contract as switchToVenue (86eykm7rk): 'denied' means the
       // cookie was never written, so reloading would land the fresh owner back
       // on their previous venue as if nothing happened. The venue itself DOES
-      // exist at that point — say so rather than implying the create failed.
+      // exist at that point — hence its own string, NOT `venue.switchFailed`:
+      // "you no longer have access to that venue" is simply false one call after
+      // this user became its Admin, and its "refresh to see your current venues"
+      // points at a list that will contain the venue it says they lost.
       const switched = await switchActiveVenueAction(res.venueId);
       if (switched === 'denied') {
-        setError(t.venue.switchFailed);
+        setError(vc.createdNotOpened);
         return;
       }
       window.location.assign('/app');

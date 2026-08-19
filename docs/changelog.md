@@ -11,7 +11,7 @@ records (repo root), and `engineering-review-2026-07.md`.
 ## 2026-08-19 — Venue switch: a refused switch no longer reloads as if it worked (86eykm7rk)
 
 Branch `fix/86eykm7rk-venue-switch-silent-failure`. Milestone: **Now**. No migration, no schema
-change — three source files plus two new unit suites.
+change — four source files, one dead component deleted, and three unit suites.
 
 **The bug.** `persistActiveVenue` (`src/features/venues/actions.ts`) refuses on three paths
 *without throwing*: no session, Zod rejects the id, or the id is not one of the caller's live
@@ -28,36 +28,33 @@ venue, and the user landed back where they started with no error and nothing to 
 Repeatable forever. **Trigger:** an admin revokes someone's membership of venue B between the
 render of `myVenues` and their tap on "switch".
 
-**Why the fix is not just "return the boolean".** Two constraints shaped it:
-
-| constraint | consequence |
-|---|---|
-| `VenueSwitcher.tsx` passes the action to `<form action={…}>` | a Next 15 / React 19 form action must return void — widening the existing export's signature is a type error at that call site |
-| an expired session must keep reloading | reloading routes it through middleware to `/login`, which is the right destination; an error toast there is a dead end |
-
-So `setActiveVenueAction` keeps its exact `Promise<void>` shape and its form-action role, and a
-second explicitly-named export carries the outcome:
+**Why the fix is not just "return the boolean".** One constraint shaped it: an expired session
+must keep reloading, because that routes through middleware to `/login` — the right destination,
+where an error toast would instead be a dead end. So the outcome is three states, not a boolean,
+precisely because `unauthenticated` and `denied` must diverge in the UI:
 
 ```ts
 export type SwitchVenueResult = 'ok' | 'unauthenticated' | 'denied';
 export async function switchActiveVenueAction(venueId: string): Promise<SwitchVenueResult>
 ```
 
-Three states, not a boolean, precisely because `unauthenticated` and `denied` must diverge in the
-UI. `switchToVenue` reloads on `ok` **and** on `unauthenticated`, and only `denied` raises
-`t.venue.switchFailed`. The refusal reasons stay server-side; the client learns the outcome, not
-the membership list.
+`switchToVenue` reloads on `ok` **and** on `unauthenticated`; only `denied` raises a message. The
+refusal reasons stay server-side — the client learns the outcome, not the membership list.
+
+*(Round 1 shipped a second, `Promise<void>` export as well, to keep `VenueSwitcher.tsx`'s
+`<form action={…}>` call site compiling. Round-2 review found that component is rendered nowhere;
+see "What round-2 review changed" below — that constraint and the second export are both gone.)*
 
 **Second caller fixed too.** `screens/onboarding.tsx:72` (the switcher's "New venue" quick-create)
 had the identical swallow — `await setActiveVenueAction(fd)` then an unconditional reload. It now
-branches on the same contract. Note its `denied` copy problem: the venue *was* created at that
-point, so the message must not imply the create failed.
+branches on the same contract — with its OWN string, because the venue *was* created at that
+point (see finding 3 below).
 
-**Copy deviates from CLAUDE.md's "Dutch UI copy" line, deliberately.** `src/lib/i18n/en.ts` is
-headed "English UI copy — the single source of truth … English is the default and, for now, the
-only locale", and its neighbour is `venue.switching: 'Switching…'`. Dropping a Dutch string beside
-it would be the only Dutch key in the catalogue. Written in English to match the file; flagged
-here because CLAUDE.md's Conventions section still says otherwise and one of the two should move.
+**Copy is English, and that is now settled.** Max decided on 19/8 that the product's UI copy is
+English; `tone-of-voice.md`, `copy-deck.md` and `ia-audit-claude-code.md` §8 already said so, and
+`src/lib/i18n/en.ts` is headed "English UI copy — the single source of truth". Round 1 flagged
+CLAUDE.md's Conventions line ("Dutch UI copy") as the odd one out; that line is the one that is
+wrong. No string in this PR is Dutch.
 
 **Red-on-revert verified on both halves** (not assumed — each was reverted and re-run):
 
@@ -80,6 +77,80 @@ it mocks the module wholesale, so a missing export would have failed at import.
 **Diff discipline.** `src/components/po/app.tsx` is also touched by PR #278 (`requestedDoorId`
 ~r. 437–466, pin logic ~r. 540–551). This PR's `app.tsx` change is confined to the `switchToVenue`
 callback and its one import line — no reformatting, no import reordering.
+
+### What round-2 review changed (fresh-session `/code-review`, 6 findings)
+
+All six were verified against the code before being acted on; all six held.
+
+**1 — `denied` also fired for external-crew venues (the serious one).** `src/app/app/layout.tsx:70`
+builds the shell's `myVenues` as memberships **plus** organizer-only venues, and `VenueSwitch`
+renders a Switch button on every one of them — labelling the crew ones "External crew".
+`persistActiveVenue` validated against `getMyMemberships()` alone, so tapping Switch on a crew
+venue returned `denied` and round 1 answered it with *"You no longer have access to that venue."*
+Deterministic, on a completely normal path, for a user who had lost nothing — the PR's own premise
+(`denied` ⇒ revoked access) did not hold. The check now mirrors `layout.tsx` exactly: memberships
+∪ organizer venues, with the organizer lookup best-effort (`.catch(() => [])`) so a failing crew
+read can never lock a real member out of their own venue. This is the same set
+`resolveActiveVenueId` accepts a cookie against, so the write resolves correctly on reload. **`roles: []` is
+not "no access": event scope IS access (#24/86ey21vre).** RLS remains the boundary either way —
+this only decides whether the cookie is written.
+
+**2 — the thrown-error path was still silent.** `.catch(() => setToast(null))` made a network blip
+or a 500 indistinguishable from the silent refusal this PR exists to remove: "Switching…" flashed,
+the venue did not change, nothing said why. It now raises `t.venue.switchError` — deliberately
+**not** `switchFailed`, because the user's access is fine and "try again" is the opposite advice
+from "refresh your venues".
+
+**3 — the create message contradicted itself.** `VenueCreate` reused `venue.switchFailed`, telling
+someone who had just become a venue's Admin that they no longer had access to it, and pointing
+them at a list that *does* contain it. Its own key now: `onboarding.venueCreate.createdNotOpened`
+— "Venue created, but we could not open it. You'll find it under More → Venues."
+
+**4 — the toast timer diverged from the codebase's idiom, and there is a hook for it.** A bare
+`setTimeout` in a promise callback outlived unmount and could clear a *later* toast: refuse a
+switch (6s timer armed), tap a valid venue 3s later, and at t=6s the stale timer wiped the
+in-flight "Switching…". The review pointed at the hand-rolled effects in `app.tsx:379` and
+`guests/profile.tsx`, but the canonical answer is `src/lib/use-transient-value.ts` —
+**11 call sites** (DoorProvider, `home.tsx`, the cockpit, every copy-link flag), and its docstring
+names this exact bug: *"an earlier trigger's timer can never fire after a later value was set and
+wipe it prematurely (86ey9ea1g — the home.tsx toast had exactly this bug before this hook
+existed)"*. So `switchToVenue` now uses that hook rather than a fourth private timer, and gets its
+trigger-after-unmount no-op for free — which matters, because this toast IS armed from an async
+completion.
+
+The one thing the hook cannot express is a **sticky** toast, and "Switching…" must be sticky: the
+reload ends it, not a timer. So the two live side by side — sticky `toast` state for "Switching…"
+and the billing toast, transient hook for the two errors — with `{(transientToast ?? toast)}`
+rendering, and a new switch calling `clearTransientToast()` so a previous attempt's error cannot
+render over the new "Switching…".
+
+**5 — the onboarding branch had no test** while its `app.tsx` twin had four.
+`screens/onboarding.venue-create.test.tsx` adds four: `denied` (no reload, create-specific string,
+explicitly `not.toBe(switchFailed)`), `ok`, `unauthenticated`, and a failed create that must never
+reach the switch. `actions.venue-switch.test.ts` gains the external-crew case from finding 1, a
+"venue in neither set is still denied" guard so the widened set does not become accept-anything,
+and the organizer-lookup-fails fallback. `app.venue-switch.test.tsx` gains the two timer tests and
+its thrown-error test was rewritten — round 1's version *pinned the silence*.
+
+**6 — the constraint that shaped the design came from dead code, so the design got simpler.**
+`VenueSwitcher.tsx` was the sole consumer of the void-returning `setActiveVenueAction`, and
+`grep -rn "VenueSwitcher" src/` returned only its own definition. It is a leftover of the retired
+`(app)` dashboard (the branches that still import it are all June-2026 and pre-date `/app`), and
+if it were ever mounted it carried the exact silent failure this PR removes. Deleted, and with it
+`setActiveVenueAction` and the `persistActiveVenue`/two-export split: one exported
+`switchActiveVenueAction`, no void/non-void justification, **net fewer lines than round 1**. Its
+two dead siblings in that directory (`RemoveMemberButton.tsx`, `VenueSettingsForm.tsx`) are
+untouched — unrelated to this bug, and dead-component removal has its own lane (PR #274).
+
+**Red-on-revert verified on all five new guards** (each reverted and re-run, not assumed):
+
+| revert | failure |
+|---|---|
+| access set back to memberships-only | `expected 'denied' to be 'ok'` — the external-crew test |
+| `.catch()` back to `setToast(null)` | `Unable to find … "Could not switch venue…"` |
+| error toast back to a bare `setTimeout` | `Unable to find … "Switching…"` — the stale timer clips the next toast |
+| `VenueCreate` back to `t.venue.switchFailed` | `Unable to find … "Venue created, but we could not open it…"` |
+| `VenueCreate`'s `denied` branch deleted | `expected "spy" to not be called at all, but actually been called 1 times` |
 
 ## 2026-08-12 — Door outbox owner-stamp: a tablet hand-off no longer costs check-ins (86ey9et0h)
 
