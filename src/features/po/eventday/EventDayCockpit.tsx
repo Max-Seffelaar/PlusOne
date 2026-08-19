@@ -165,11 +165,10 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   const canSeeStats = canManage || roles.includes('finance');
 
   // The query objects are kept (not just `.data`) because the stale-resume guard
-  // below reads their `dataUpdatedAt`/`fetchStatus` and calls their `refetch`.
-  // Touching `fetchStatus` opts these four into re-rendering the cockpit when a
-  // fetch starts/ends as well as when data changes — that is the price of
-  // knowing a refresh is in flight, and the expensive parts of this screen
-  // (filtering + the virtualized list) are memoized against data, not renders.
+  // below reads their `dataUpdatedAt` and calls their `refetch`. `dataUpdatedAt`
+  // only moves on a SUCCESSFUL fetch, so reading it costs no extra renders —
+  // `fetchStatus`, which flips on every fetch start/end, is deliberately not
+  // read any more (see ./useCockpitSync on where `syncing` comes from instead).
   const guestsQuery = usePoGuests(eventId, COCKPIT_SAFETY_POLL);
   const tiersQuery = usePoTiers(eventId, COCKPIT_SAFETY_POLL);
   const statsQuery = usePoEventStats(eventId, COCKPIT_SAFETY_POLL);
@@ -205,22 +204,38 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   // is a re-unlock in front of a waiting guest. Not worth the permission surface
   // and an extra toggle nobody asked for.
   //
-  // Only the four 60s-polled reads above vote on staleness. The event-config and
-  // request reads have no refresh cadence of their own, so their age would drift
-  // past the threshold while the screen sits perfectly live and fire the overlay
-  // on every resume — see ./useCockpitSync for the full reasoning. They are still
-  // refreshed by `refreshCockpit`, they just do not get to raise the alarm.
+  // Which reads get to raise the alarm. Two exclusions, for two different
+  // reasons — both narrowing, because membership here is a VETO: any single
+  // tracked query that stops succeeding pins `lastSyncAt` stale forever (see
+  // `oldestDataUpdatedAt`), and no amount of forced refreshing clears it.
+  //
+  //  - `usePoEventForEdit` and the two request reads have no refresh cadence of
+  //    their own, so their age would drift past the threshold while the screen
+  //    sits perfectly live and fire the overlay on every resume.
+  //  - `usePoEventStats` DOES poll, but it is not load-bearing for the door
+  //    (86eykg2x1 review round 2). It feeds the peak tile and the per-quarter
+  //    card, both `canSeeStats`-gated, so a doorhost never sees it at all — yet
+  //    `fetchEventStats` bundles five RPCs and throws if ANY of them errors, so
+  //    one drifting/500-ing RPC would hand a decorative read a permanent veto
+  //    over check-in: every alt-tab blocks, the forced refresh and its retry
+  //    cannot clear it, and the doorhost waits out the 8s backstop before
+  //    "continue anyway" even appears. Guests/tiers/arrivals keep the veto —
+  //    there a persistent failure really does mean the screen is wrong.
+  //
+  // Everything excluded here is still repaired by `refreshCockpit`; it just does
+  // not get to raise the alarm. See ./useCockpitSync for the full split.
   const trackedFreshness: QueryFreshness[] = [
-    { dataUpdatedAt: guestsQuery.dataUpdatedAt, fetchStatus: guestsQuery.fetchStatus },
-    { dataUpdatedAt: tiersQuery.dataUpdatedAt, fetchStatus: tiersQuery.fetchStatus },
-    { dataUpdatedAt: statsQuery.dataUpdatedAt, fetchStatus: statsQuery.fetchStatus },
-    { dataUpdatedAt: arrivalsQuery.dataUpdatedAt, fetchStatus: arrivalsQuery.fetchStatus },
+    { dataUpdatedAt: guestsQuery.dataUpdatedAt },
+    { dataUpdatedAt: tiersQuery.dataUpdatedAt },
+    { dataUpdatedAt: arrivalsQuery.dataUpdatedAt },
   ];
-  const refreshCockpit = (): void => {
+  const refreshCockpit = (): Promise<unknown> =>
     // `refetch()` resolves with the (possibly failed) query state rather than
     // rejecting, but never let an unexpected rejection surface as an unhandled
-    // promise on a screen that is running a door.
-    void Promise.all([
+    // promise on a screen that is running a door. The returned promise is what
+    // `useCockpitSync` derives `syncing` from, so it must settle only once the
+    // whole forced refresh has.
+    Promise.all([
       guestsQuery.refetch(),
       tiersQuery.refetch(),
       statsQuery.refetch(),
@@ -229,7 +244,6 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
       guestRequestsQuery.refetch(),
       quotaRequestsQuery.refetch(),
     ]).catch(() => undefined);
-  };
   const cockpitSync = useCockpitSync({ tracked: trackedFreshness, refresh: refreshCockpit });
   // Called ONCE, here, so the phase can also `inert` the cockpit body while
   // blocking — a second call would run a second state machine against the same

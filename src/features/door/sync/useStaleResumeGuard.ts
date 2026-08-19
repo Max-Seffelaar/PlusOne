@@ -25,6 +25,10 @@
  *                 hatch. The door must never lock up with no way out (hard
  *                 requirement).
  *
+ * Both consumers render the overlay AND `inert` their own content behind it, so
+ * this hook also owns focus restoration across that transition — see
+ * `restoreFocusRef` below.
+ *
  * `blocked` self-heals back to `closed` the moment `lastSyncAt` is fresh again
  * — from this guard's own retry, the 60s safety interval, or a realtime
  * reconnect (routed through `runSync` in useDoorSync so it actually updates
@@ -94,6 +98,17 @@ export function useStaleResumeGuard(
   // Set once `continueAnyway` is used while offline; cleared the moment
   // connectivity returns (see the effect below).
   const suppressWhileOfflineRef = useRef(false);
+  // What had focus when the overlay opened, so it can be handed back when the
+  // overlay closes. Both consumers set `inert` on their own subtree while
+  // blocked, and the browser blurs the focused element the moment its ancestor
+  // becomes inert — on the door that is AddOnSpot's autofocused Enter-to-commit
+  // field, on the cockpit the Enter-to-check-in search box, i.e. exactly the
+  // keyboard/scanner-wedge target `inert` is there to protect. Nothing puts it
+  // back by itself. On the common online path the overlay flashes for about a
+  // second and auto-closes, and the next scan then types into `<body>`: no
+  // check-in, no error, nothing on screen to explain it. Same after
+  // `continueAnyway`, whose autofocused button is unmounted with focus on it.
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
 
   // Edge-detect a real resume (hidden → visible) and open the blocking
   // overlay when the last successful sync is too old to trust. Seeded from
@@ -118,6 +133,16 @@ export function useStaleResumeGuard(
       prevVisibility.current = next;
       if (!trigger) return;
       if (suppressWhileOfflineRef.current && !syncRef.current.online) return; // already acknowledged this offline period
+      // Capture BEFORE the state update: `inert` lands during React's commit,
+      // which is also when the browser blurs — by the time any effect runs,
+      // `document.activeElement` is already `<body>`. This handler is the only
+      // closed→open edge (`retry` only ever runs from `blocked`, i.e. already
+      // open and already blurred).
+      const active = document.activeElement;
+      restoreFocusRef.current =
+        active && active !== document.body && typeof (active as HTMLElement).focus === 'function'
+          ? (active as HTMLElement)
+          : null;
       setPhase('syncing');
       // useDoorSync's own visibility listener also fires on this same event
       // and shares the same in-flight guard (runSync), so this either kicks
@@ -171,6 +196,22 @@ export function useStaleResumeGuard(
       setPhase('blocked');
     }
   }, [phase, sync.syncing, sync.lastSyncAt, thresholdMs]);
+
+  // Hand focus back on the closed transition. Only when focus actually went
+  // nowhere (`<body>`, where the inert-blur and the unmounted overlay button
+  // both leave it) — if the operator has meanwhile focused something else, or
+  // the browser never blurred in the first place, stealing it back would be the
+  // worse bug. `isConnected` because the element may have been unmounted by a
+  // re-render while the overlay was up. No-ops on mount: the ref starts null.
+  useEffect(() => {
+    if (phase !== 'closed') return;
+    const el = restoreFocusRef.current;
+    restoreFocusRef.current = null;
+    if (!el || !el.isConnected) return;
+    if (typeof document === 'undefined') return;
+    if (document.activeElement && document.activeElement !== document.body) return;
+    el.focus({ preventScroll: true });
+  }, [phase]);
 
   // Backstop: a hung/never-settling request must not block the door forever,
   // regardless of how many internal retries are still in flight above.

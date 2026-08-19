@@ -20,16 +20,29 @@
  *     must not look like a fresh one). A 0 in the set means part of the screen has
  *     no truth behind it at all, which is at least as bad as an old truth.
  *
+ * Both rules make this a hard AND across the set: any single member can pin the
+ * whole cockpit stale, and — because a query that never succeeds never gets a
+ * stamp — with no path back to fresh. That veto is only acceptable over reads
+ * the doorhost genuinely steers on, which is why the caller's `tracked` set is
+ * deliberately narrow (see `useCockpitSync`) and why a decorative read must not
+ * be in it (86eykg2x1 review round 2).
+ *
  * Pure and DOM-free on purpose, same as `features/door/sync/staleResume.ts`: the
  * hook around it (`useCockpitSync`) owns the React/browser wiring.
  */
 
-/** The slice of a React Query result this module needs. `fetchStatus` is RQ's own
- *  field: `'fetching'` while a request is in flight, `'paused'` when RQ is holding
- *  the request back because it believes the device is offline, `'idle'` otherwise. */
+/** The slice of a React Query result this module needs.
+ *
+ *  `fetchStatus` is deliberately NOT part of this contract. It used to be, to
+ *  derive `syncing` from "is any tracked query fetching" — but on this surface
+ *  that conflates the guard's own forced refresh with ambient traffic (60s
+ *  polling + realtime invalidation), which is not what `useStaleResumeGuard`
+ *  means by `syncing`. `useCockpitSync` now tracks the forced refresh itself;
+ *  see the note there. Dropping it also stops the cockpit re-rendering on every
+ *  fetch start/end, since React Query only subscribes a component to the result
+ *  fields it actually reads. */
 export interface QueryFreshness {
   dataUpdatedAt: number;
-  fetchStatus: 'fetching' | 'paused' | 'idle';
 }
 
 /**
@@ -47,15 +60,4 @@ export function oldestDataUpdatedAt(queries: readonly QueryFreshness[]): number 
     if (q.dataUpdatedAt < oldest) oldest = q.dataUpdatedAt;
   }
   return oldest;
-}
-
-/**
- * True while any tracked query still has an outstanding request — including one
- * React Query has PAUSED because it thinks we're offline. Paused counts as
- * in-flight deliberately: the attempt exists and will resume by itself the moment
- * connectivity returns, so reporting it as "settled" would tell the guard the
- * refresh already failed when it has not actually been tried yet.
- */
-export function anyQueryInFlight(queries: readonly QueryFreshness[]): boolean {
-  return queries.some((q) => q.fetchStatus !== 'idle');
 }

@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { anyQueryInFlight, oldestDataUpdatedAt, type QueryFreshness } from './cockpitFreshness';
+import { oldestDataUpdatedAt, type QueryFreshness } from './cockpitFreshness';
 
-const q = (dataUpdatedAt: number, fetchStatus: QueryFreshness['fetchStatus'] = 'idle'): QueryFreshness => ({
-  dataUpdatedAt,
-  fetchStatus,
-});
+const q = (dataUpdatedAt: number): QueryFreshness => ({ dataUpdatedAt });
 
 describe('oldestDataUpdatedAt', () => {
   it('returns the OLDEST stamp, not the newest', () => {
@@ -32,24 +29,23 @@ describe('oldestDataUpdatedAt', () => {
   });
 });
 
-describe('anyQueryInFlight', () => {
-  it('is false when every query is idle', () => {
-    expect(anyQueryInFlight([q(1), q(2), q(3)])).toBe(false);
+
+describe('oldestDataUpdatedAt — the veto property', () => {
+  it('lets ONE never-succeeding query pin the whole set at "never synced"', () => {
+    // This is why membership in `tracked` is a deliberate, narrow decision
+    // (86eykg2x1 review round 2). React Query leaves `dataUpdatedAt` at 0 until
+    // a query's first success, so a read that never succeeds never gets a stamp
+    // — no forced refresh can move this result off null, on any surface.
+    const brokenForever = q(0);
+    const fresh = [q(9_000), q(9_500), q(9_900)];
+    expect(oldestDataUpdatedAt(fresh)).toBe(9_000);
+    expect(oldestDataUpdatedAt([...fresh, brokenForever])).toBeNull();
   });
 
-  it('is true while any query is fetching', () => {
-    expect(anyQueryInFlight([q(1), q(2, 'fetching'), q(3)])).toBe(true);
-  });
-
-  it('counts a PAUSED query as in flight', () => {
-    // React Query pauses rather than runs a refetch when it believes the device
-    // is offline. The attempt exists and resumes by itself once connectivity is
-    // back, so reporting it as settled would tell the guard the refresh already
-    // failed when it has not been tried yet.
-    expect(anyQueryInFlight([q(1), q(2, 'paused')])).toBe(true);
-  });
-
-  it('is false for an empty set', () => {
-    expect(anyQueryInFlight([])).toBe(false);
+  it('keeps the LAST good stamp of a query whose refetches now fail, so it ages out', () => {
+    // The other half of the same veto: a query that succeeded once and then
+    // started failing keeps its old stamp, which simply drifts past the
+    // threshold and pins the set stale from below.
+    expect(oldestDataUpdatedAt([q(9_000), q(1_000)])).toBe(1_000);
   });
 });
