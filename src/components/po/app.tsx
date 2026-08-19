@@ -257,23 +257,50 @@ function DoorTabState({ title, text }: { title: string; text: string }): JSX.Ele
 // parent path. `router.replace` never sets it: swapping the current entry
 // doesn't create anything new to go back to.
 //
-// MODULE-level, not a `useRef` inside `PlusOneApp`: every `router.push`/
-// `replace`-driven navigation on this fully-dynamic catch-all route remounts
-// `PlusOneApp` entirely (confirmed empirically — a mount/unmount probe fired
-// on every single navigation, including plain screen-to-screen pushes). A
-// `useRef` is scoped to the component INSTANCE, so it reset to its initial
-// `false` on every navigation and `back()` NEVER took the real-history
-// branch — the e2e core-flow test caught this: clicking Back after creating
-// an event landed on the event's own detail page (the cold-deep-link
-// fallback's target) instead of the events list a real `router.back()` would
-// have reached. A plain module variable survives the remount (same JS module
-// instance across client-side navigations) and only resets on an actual full
-// page load — exactly the "cold deep link" signal this needs. Door sub-nav
-// (`pushDoorState`) doesn't have this problem — it bypasses `router.push`
-// entirely, so it never triggers the remount in the first place.
+// MODULE-level, not a `useRef` inside `PlusOneApp`. The original reason was
+// that every `router.push` remounted `PlusOneApp` on this catch-all route, so
+// an instance-scoped ref reset to `false` on every navigation and `back()`
+// never took the real-history branch (the e2e core-flow test caught it:
+// clicking Back after creating an event landed on the event's own detail page
+// instead of the events list). 86ey9uc87 removed that remount — the shell now
+// renders from `/app/layout.tsx`, which Next keeps mounted across navigations
+// — so a ref would survive screen-to-screen pushes today.
+//
+// It stays module-level anyway, because module scope is what this flag
+// actually means. The question it answers is "does this BROWSER TAB have a
+// history entry we may pop?", and history is owned by the tab, not by any
+// React instance. `PlusOneApp` still unmounts whenever the user leaves /app
+// for a sibling route (`/door/[id]`, `/e/[slug]`, a settings redirect) and
+// remounts on the way back — a client-side navigation that pushes real history
+// entries while the component is gone. A ref would forget them and send the
+// next `back()` down the cold-deep-link branch, silently reintroducing the
+// original bug on a path the e2e test doesn't cover. A module variable resets
+// only on a genuine full page load, which is exactly the "nothing to pop yet"
+// signal this needs. Door sub-nav (`pushDoorState`) bypasses `router.push`
+// entirely and sets the flag directly.
 let hasPushedThisSession = false;
 
+/**
+ * Remount probe (86ey9uc87). Counts how often the shell MOUNTS, on `window` so
+ * an e2e test can read it across real navigations — the acceptance criterion
+ * for this task is a measured 0 remounts, not a subjective "feels faster".
+ *
+ * Dev/test only: the `NODE_ENV` check is statically replaced at build time, so
+ * the whole body folds away in a production build. Kept in the shipped source
+ * (rather than being a throwaway) because it is the only cheap way to catch a
+ * regression — moving the shell back under `page.tsx`, or introducing a
+ * remounting wrapper, is invisible to every other test we have.
+ */
+function useShellMountProbe(): void {
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'production') return;
+    const w = window as Window & { __poShellMounts?: number };
+    w.__poShellMounts = (w.__poShellMounts ?? 0) + 1;
+  }, []);
+}
+
 export function PlusOneApp(): JSX.Element {
+  useShellMountProbe();
   // Server-resolved display data (venue list, stats access, live names) — set
   // once by the /app layout (G1), not re-fetched per screen navigation.
   const {
@@ -349,12 +376,17 @@ export function PlusOneApp(): JSX.Element {
 
   // Stripe Checkout return (fase 13, #32): the hosted checkout redirects back to
   // /app?billing=success|canceled. Strip the flag from the URL immediately (a
-  // refresh must not re-toast) and park it in sessionStorage with a timestamp:
-  // the shell remounts once identity/live data settles, which would wipe a
-  // plain useState toast set on the first mount. Every mount re-reads the
-  // parked flag while it is fresh (< toast duration), so the surviving mount
-  // shows the toast; the flag is deleted when the toast clears (or ignored
-  // once stale, if the user navigated away mid-toast).
+  // refresh must not re-toast) and park it in sessionStorage with a timestamp
+  // rather than jumping straight to `setToast`. The parking originally existed
+  // because the shell remounted while identity/live data settled, which wiped a
+  // plain useState toast set on the first mount; since 86ey9uc87 the shell
+  // mounts once, so the same mount now reads its own parked flag straight back.
+  // Keeping the round-trip is still the right call: it costs nothing, and it is
+  // what makes the toast survive the strip-and-replaceState above plus any
+  // reload/remount the return path can still produce (auth refresh, venue
+  // switch). Whichever mount reads the flag while it is fresh (< toast
+  // duration) shows the toast; the flag is deleted when the toast clears (or
+  // ignored once stale, if the user navigated away mid-toast).
   const qc = useQueryClient();
   useEffect(() => {
     const KEY = 'po:billing-return';
@@ -484,15 +516,26 @@ export function PlusOneApp(): JSX.Element {
   // created seconds ago is exactly that case). A state update forces a later
   // render, so "issued" and "confirmed" cannot collapse into one commit.
   //
-  // Per mount, and that is the point: it is re-derived from the candidate list
-  // on every mount, so it is still there after a reload — unlike the round-1
-  // `pinnedDoorRef`, which recorded who had chosen an id and therefore knew
+  // Derived from the candidate list, never from a memory of who chose the id,
+  // so it is re-established on any fresh mount and survives a reload — unlike
+  // the round-1 `pinnedDoorRef`, which recorded the chooser and therefore knew
   // nothing on the fresh mount where a URL-persisted pin needed releasing.
+  // (Since 86ey9uc87 the shell no longer remounts per navigation, so this state
+  // now persists across screen changes too; that is harmless because every
+  // branch above recomputes it from the CURRENT list rather than trusting it.)
   const [rejectedDoorId, setRejectedDoorId] = useState<string | null>(null);
   useEffect(() => {
     if (!requestedDoorId || doorCandidatesQuery.isLoading || doorCandidatesQuery.isFetching) return;
     if (doorCandidates.some((e) => e.id === requestedDoorId)) {
-      // Present after all (or back again) — clear any standing rejection.
+      // Present after all (or back again) — clear any standing rejection, and
+      // release the spent retry with it (86ey9uc87). The retry marker used to
+      // be reset for free by the per-navigation remount; without that remount
+      // it would live for the whole tab session, so an id that went
+      // absent → present → absent again would be rejected on a possibly-stale
+      // list with no refetch. Releasing it here restores "one retry per
+      // rejection episode" without reintroducing any memory of who chose the
+      // id — the release still fires on the candidate list's own verdict.
+      staleDoorRefetchRef.current = null;
       setRejectedDoorId((prev) => (prev === null ? prev : null));
       return;
     }

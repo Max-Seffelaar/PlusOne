@@ -1,27 +1,29 @@
-import type { JSX } from 'react';
 import type { Metadata } from 'next';
-import { PlusOneAppClient } from '@/components/po/app-client';
 
 export const metadata: Metadata = {
   title: 'Guest list · PlusOne',
 };
 
 /**
- * Every screen has a real URL now (G1: `../layout.tsx` + `components/po/routes.ts`).
- * This page intentionally does NO server data work of its own (no `params`, no
- * `searchParams`) — `PlusOneApp` re-derives the active screen from the live URL
- * client-side via `usePathname()`/`useSearchParams()`. Keeping this page free of
- * server-side searchParams reads is what lets Next.js treat query-string-only
- * navigations (door overlay open/close, event picks) as pure client-side
- * updates instead of forcing a network round-trip on every one — see the
- * layout's doc comment for why that matters for the door's offline invariant.
+ * Deliberately empty (86ey9uc87). The shell lives in `../layout.tsx`.
  *
- * The shell mounts through `PlusOneAppClient` (`ssr: false`) — NOT directly
- * under a page-level `<Suspense>`. `useSearchParams()` suspends during SSR, and
- * a server-streamed app boundary never reveals/hydrates in a tab that hasn't
- * painted yet (86eya4yuf — see app-client.tsx). Don't reintroduce a direct
- * `<Suspense><PlusOneApp /></Suspense>` render here.
+ * This page exists only so the catch-all route MATCHES — every screen has a
+ * real, bookmarkable URL (G1) and the layout above renders `PlusOneApp` for
+ * all of them. It must stay empty: Next rebuilds the page subtree on every
+ * segment-path navigation, so anything rendered from here would remount per
+ * navigation, while the layout instance is preserved. Rendering the shell from
+ * here is exactly what made `PlusOneApp` remount on every `router.push`.
+ *
+ * It also still does NO server data work (no `params`, no `searchParams`) —
+ * that is what keeps query-string-only navigation (door overlay open/close,
+ * event picks) fully client-side, which the door's offline invariant (#25)
+ * depends on. See the layout's doc comment.
+ *
+ * Do not render `PlusOneApp` (or `PlusOneAppClient`) from here again, and never
+ * under a page-level `<Suspense>`: `useSearchParams()` suspends during SSR and
+ * a server-streamed boundary never hydrates in a tab that has not painted
+ * (86eya4yuf). Guarded by `tests/unit/app-shell-no-ssr-suspense.test.ts`.
  */
-export default function AppPage(): JSX.Element {
-  return <PlusOneAppClient />;
+export default function AppPage(): null {
+  return null;
 }
