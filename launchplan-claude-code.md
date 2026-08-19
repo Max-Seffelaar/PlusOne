@@ -278,7 +278,7 @@ Ontwerp-track Max: S0 → S5 → S3 → S6/S7 → S8/S9 → S10/S11. Elk ontwerp
 Gedeelde preamble (impliciet boven elke prompt): *Lees CLAUDE.md, `gastenlijst-app-spec.md` (#38/#40)
 en Werkwijze v2. Architectuur = Strategy A (viewport-switch; desktop `(app)` breed, `po` smal; één live
 datalaag via `src/features/*`). Behoud de component-API; `stats.tsx` is het template. Security-checklist
-op elk pad. DoD: `pnpm lint && pnpm test` groen (+ `supabase db reset && supabase test db` bij DB-werk),
+op elk pad. DoD: `pnpm lint && pnpm test` groen (+ `supabase db reset && pnpm db:test` bij DB-werk),
 nageklikt op ≤390px én ≥1280px, kleine commits, NL UI / Engelse code. Sluit af met samenvatting + open
 vragen.*
 
