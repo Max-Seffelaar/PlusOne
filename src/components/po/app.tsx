@@ -510,6 +510,59 @@ export function PlusOneApp(): JSX.Element {
     [setDoorOverride],
   );
 
+  // Pin the implicit single-candidate door choice (86eykm7qp). `requestedDoorId`
+  // above only DERIVES it from `doorCandidates.length === 1` and never writes it
+  // back, so it was recomputed every render: the moment a second event went live
+  // mid-shift — React Query's `refetchOnReconnect` default refires the candidate
+  // query after any wifi hiccup, and `PoLiveProvider` doesn't disable it — the id
+  // flipped to null, `<DoorEventPicker>` took `<DoorQueryProvider>`'s place in the
+  // same slot, and React unmounted the entire door tree, tearing down
+  // `useDoorSync`'s realtime channel in the middle of a check-in. Writing the
+  // choice through `replaceDoorState` lands it in `doorOverride` AND the raw URL
+  // with no router round-trip, so the door's offline invariant (#25) is untouched
+  // and a growing candidate list can no longer unmount the door.
+  // Mobile door tab only: the desktop cockpit resolves its own event and must
+  // never carry an override, and firing this off the door tab would rewrite the
+  // URL to a door path under an unrelated screen.
+  // `pinnedDoorRef` is both the render-loop guard (`replaceDoorState` sets state)
+  // and the record that THIS id was our own guess rather than a user's pick, so
+  // the release below can only ever undo our guess.
+  const pinnedDoorRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isMobile || !isDoorTab) return;
+    if (doorState.eventId !== null) {
+      // Release our own pin once it drops out of the candidate list (the event
+      // ended) — the stale-id refetch above has had its one retry by then.
+      // Without this the host would sit on "geen event" with no way out: the
+      // "ander event" control only renders with >1 candidates. An explicit user
+      // pick is deliberately left alone and keeps behaving as it does today.
+      if (
+        pinnedDoorRef.current === doorState.eventId &&
+        !doorCandidatesQuery.isLoading &&
+        !doorCandidatesQuery.isFetching &&
+        !doorCandidates.some((e) => e.id === doorState.eventId)
+      ) {
+        pinnedDoorRef.current = null;
+        replaceDoorState({ seg: doorState.seg, eventId: null, overlay: doorState.overlay });
+      }
+      return;
+    }
+    if (resolvedDoorId === null || pinnedDoorRef.current === resolvedDoorId) return;
+    pinnedDoorRef.current = resolvedDoorId;
+    replaceDoorState({ seg: doorState.seg, eventId: resolvedDoorId, overlay: doorState.overlay });
+  }, [
+    isMobile,
+    isDoorTab,
+    doorState.eventId,
+    doorState.seg,
+    doorState.overlay,
+    resolvedDoorId,
+    doorCandidates,
+    doorCandidatesQuery.isLoading,
+    doorCandidatesQuery.isFetching,
+    replaceDoorState,
+  ]);
+
   // T6 auto-open (decided 1/7): on the FIRST visit of this browser session (per
   // user), when the desktop shell (≥1024px) has exactly ONE event inside its door
   // window (start − 1h through event end) AND the user landed on the bare Start
