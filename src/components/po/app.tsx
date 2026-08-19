@@ -456,10 +456,37 @@ export function PlusOneApp(): JSX.Element {
   // with the doorCandidates invalidation added to the event mutations, which
   // only covers changes made from THIS client).
   const staleDoorRefetchRef = useRef<string | null>(null);
+  // The verdict that retry produces, published as state (86eykm7qp round 2): the
+  // id whose absence survived its own refetch, so the candidate list has now
+  // REJECTED it against a freshly fetched list rather than merely a stale
+  // snapshot. The pin effect below releases on this and nothing else.
+  //
+  // State, not a ref, and deliberately so. The release must never be decided on
+  // the same commit that issues the refetch — effects in one component run in
+  // declaration order, so a ref written here would already be readable by the
+  // pin effect below, which would then drop a pin whose event the retry is
+  // about to bring back (an explicit "Check-in" pick for an event a colleague
+  // created seconds ago is exactly that case). A state update forces a later
+  // render, so "issued" and "confirmed" cannot collapse into one commit.
+  //
+  // Per mount, and that is the point: it is re-derived from the candidate list
+  // on every mount, so it is still there after a reload — unlike the round-1
+  // `pinnedDoorRef`, which recorded who had chosen an id and therefore knew
+  // nothing on the fresh mount where a URL-persisted pin needed releasing.
+  const [rejectedDoorId, setRejectedDoorId] = useState<string | null>(null);
   useEffect(() => {
     if (!requestedDoorId || doorCandidatesQuery.isLoading || doorCandidatesQuery.isFetching) return;
-    if (doorCandidates.some((e) => e.id === requestedDoorId)) return;
-    if (staleDoorRefetchRef.current === requestedDoorId) return; // already retried this one
+    if (doorCandidates.some((e) => e.id === requestedDoorId)) {
+      // Present after all (or back again) — clear any standing rejection.
+      setRejectedDoorId((prev) => (prev === null ? prev : null));
+      return;
+    }
+    if (staleDoorRefetchRef.current === requestedDoorId) {
+      // Retry already spent for this id and `isFetching` is false again, so this
+      // is the settled list: the rejection is now confirmed.
+      setRejectedDoorId((prev) => (prev === requestedDoorId ? prev : requestedDoorId));
+      return;
+    }
     staleDoorRefetchRef.current = requestedDoorId;
     void doorCandidatesQuery.refetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- doorCandidatesQuery itself (incl. .refetch) is intentionally omitted: it's a new object each render, and including it would refire this every render instead of only when the inputs actually change
@@ -524,31 +551,43 @@ export function PlusOneApp(): JSX.Element {
   // Mobile door tab only: the desktop cockpit resolves its own event and must
   // never carry an override, and firing this off the door tab would rewrite the
   // URL to a door path under an unrelated screen.
-  // `pinnedDoorRef` is both the render-loop guard (`replaceDoorState` sets state)
-  // and the record that THIS id was our own guess rather than a user's pick, so
-  // the release below can only ever undo our guess.
-  const pinnedDoorRef = useRef<string | null>(null);
+  //
+  // Both halves are derived from CURRENT state, never from a memory of what this
+  // mount has written before (round-2 review of #278). The round-1 version used a
+  // `pinnedDoorRef` for both jobs and leaked at both ends, because a ref and the
+  // URL have different lifetimes:
+  //  - The write guard asks "is the state already what I would write?", not "have
+  //    I ever written this?". `doorState.eventId` returns to null WITHOUT a
+  //    remount — `useDoorOverride`'s popstate listener drops the override on any
+  //    back/forward (86ey9tq62), and a door entered from the bottom tab has no
+  //    `?event=` in Next's tracked search string to fall back to. A sticky ref
+  //    refused the re-pin there, so one hardware-back out of a guest overlay —
+  //    the door's most common gesture — restored the original bug. Comparing
+  //    against `doorState.eventId` is self-healing: after the write the state IS
+  //    the value, so the effect stops on its own (still exactly one write per
+  //    mount, zero on idle re-renders).
+  //  - The release fires on `rejectedDoorId`, the candidate list's own settled
+  //    verdict, so it needs no memory of who chose the id. That is what makes it
+  //    work on a FRESH mount: the pin survives a reload (it is in the URL) but a
+  //    ref does not, so a tablet reloading last night's pinned URL used to land
+  //    on "geen event" with no picker (only >1 candidates renders one) and no way
+  //    out. It also means a stale EXPLICIT `?event=` is now released the same
+  //    way — deliberate: `resolvedDoorId` already refuses to mount the door for a
+  //    non-candidate, so that id was only ever stranding the host.
   useEffect(() => {
     if (!isMobile || !isDoorTab) return;
     if (doorState.eventId !== null) {
-      // Release our own pin once it drops out of the candidate list (the event
-      // ended) — the stale-id refetch above has had its one retry by then.
-      // Without this the host would sit on "geen event" with no way out: the
-      // "ander event" control only renders with >1 candidates. An explicit user
-      // pick is deliberately left alone and keeps behaving as it does today.
+      // Re-check the list here too: `rejectedDoorId` is state, so on the commit
+      // where the effect above clears it this still reads the previous value.
       if (
-        pinnedDoorRef.current === doorState.eventId &&
-        !doorCandidatesQuery.isLoading &&
-        !doorCandidatesQuery.isFetching &&
+        rejectedDoorId === doorState.eventId &&
         !doorCandidates.some((e) => e.id === doorState.eventId)
       ) {
-        pinnedDoorRef.current = null;
         replaceDoorState({ seg: doorState.seg, eventId: null, overlay: doorState.overlay });
       }
       return;
     }
-    if (resolvedDoorId === null || pinnedDoorRef.current === resolvedDoorId) return;
-    pinnedDoorRef.current = resolvedDoorId;
+    if (resolvedDoorId === null) return;
     replaceDoorState({ seg: doorState.seg, eventId: resolvedDoorId, overlay: doorState.overlay });
   }, [
     isMobile,
@@ -557,9 +596,8 @@ export function PlusOneApp(): JSX.Element {
     doorState.seg,
     doorState.overlay,
     resolvedDoorId,
+    rejectedDoorId,
     doorCandidates,
-    doorCandidatesQuery.isLoading,
-    doorCandidatesQuery.isFetching,
     replaceDoorState,
   ]);
 

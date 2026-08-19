@@ -35,6 +35,8 @@ const EVENT_B = 'ev-b';
 /** Mutable wiring the hoisted mock factories read lazily. */
 const H = vi.hoisted(() => ({
   candidates: [] as { id: string; name: string }[],
+  isFetching: false,
+  refetchCalls: 0,
   doorMounts: 0,
   doorUnmounts: 0,
   channelTeardowns: 0,
@@ -72,11 +74,19 @@ vi.mock('@/features/po/PoLiveProvider', () => ({
 }));
 
 vi.mock('@/features/po/hooks', () => ({
+  // `refetch` flips `isFetching`, exactly like the real query — and `isFetching`
+  // is in this query's `notifyOnChangeProps`, so it is the re-render signal the
+  // stale-id rejection waits on before it is treated as settled. A no-op stub
+  // here would model a retry that never lands.
   usePoDoorCandidates: () => ({
     data: H.candidates,
     isLoading: false,
-    isFetching: false,
-    refetch: vi.fn(),
+    isFetching: H.isFetching,
+    isSuccess: true,
+    refetch: () => {
+      H.refetchCalls += 1;
+      return Promise.resolve();
+    },
   }),
   usePoEvents: () => ({ data: [] }),
   usePoGuestRequests: () => ({ data: [] }),
@@ -176,6 +186,8 @@ describe('door subtree survives the candidate list growing (86eykm7qp)', () => {
   beforeEach(() => {
     window.history.replaceState({}, '', '/app/door');
     H.candidates = [{ id: EVENT_A, name: 'Vrijdag' }];
+    H.isFetching = false;
+    H.refetchCalls = 0;
     H.doorMounts = 0;
     H.doorUnmounts = 0;
     H.channelTeardowns = 0;
@@ -226,17 +238,30 @@ describe('door subtree survives the candidate list growing (86eykm7qp)', () => {
     view.unmount();
   });
 
-  it('releases its own pin when the pinned event ends, so the host is not stranded', async () => {
+  it('releases the pin when the pinned event ends, so the host is not stranded', async () => {
     const view = render(tree());
     expect(H.doorMounts).toBe(1);
     expect(window.location.search).toContain(`event=${EVENT_A}`);
 
-    // Vrijdag closes and Zaterdag is now the only candidate. A pin we made
-    // ourselves must not outlive its event: the "ander event" control only
-    // appears with >1 candidates, so a stuck pin would leave the host on the
-    // empty state with no way back. The door follows to the new single event.
+    // Vrijdag closes and Zaterdag is now the only candidate. A pin must not
+    // outlive its event: the "ander event" control only appears with >1
+    // candidates, so a stuck pin would leave the host on the empty state with no
+    // way back. The door follows to the new single event.
     await act(async () => {
       H.candidates = [{ id: EVENT_B, name: 'Zaterdag' }];
+      view.rerender(tree());
+    });
+    // The list rejecting an id is not enough on its own — it gets one refetch
+    // first, in case the list is merely stale. Drive that retry to its settle.
+    await act(async () => {
+      H.isFetching = true;
+      view.rerender(tree());
+    });
+    await act(async () => {
+      H.isFetching = false;
+      view.rerender(tree());
+    });
+    await act(async () => {
       view.rerender(tree());
     });
 
