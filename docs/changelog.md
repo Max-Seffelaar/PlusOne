@@ -161,10 +161,13 @@ findings).** What changed in response, and what deliberately did not:
 3. `45010` / `22004`, which are unfixable-by-construction retries with the same ledger-rollback
    shape.
 
-**Tests.** Vitest **1212 passed / 115 files** (1188 → 1197 in the first round, → 1212 after the
-review round; +24 overall). pgTAP **1092 passed / 56 files** — run here this time, against a live
-local stack. `pnpm lint` clean (2 pre-existing `datetime-field.tsx` a11y warnings, file untouched),
-`pnpm type-check` zero errors.
+**Tests.** On the branch merged up to `main` (`daf0e58`): Vitest **1257 passed / 120 files**,
+pgTAP **1112 passed / 57 files** — both run here against a live local stack, on the complete merged
+migration set. `pnpm lint` clean (2 pre-existing `datetime-field.tsx` a11y warnings, file
+untouched), `pnpm type-check` zero errors.
+
+This PR's own contribution, measured on its pre-merge base: **+24 vitest tests** (1188 → 1197 in
+the first round, → 1212 after the review round). No SQL, so the pgTAP delta is zero.
 
 Every new assertion verified red against the behaviour it replaces, not assumed:
 - the 6 original guard assertions fail with `expected 500 to be 200` on the unguarded handler,
