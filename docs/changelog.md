@@ -8,6 +8,49 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-19 — `add_contact_to_event` PII-reuse is by design, documented (86ey9e9nb)
+
+Branch `docs/86ey9e9nb-contact-reuse-by-design`. Documentation only — no policy, function,
+or permission changed. Spec decision **#47** added to `gastenlijst-app-spec.md` (with a
+pointer amendment on the Adresboek & auto-contact paragraph); explanatory comments added at
+the call sites in `src/features/contacts/actions.ts`.
+
+**The finding this closes out.** `add_contact_to_event` (`SECURITY DEFINER`,
+`supabase/migrations/20260619000000_add_contact_to_event_plus_ones.sql:38,55`) gates only on
+`can_write_guests(p_event_id)` — true for staff and doorhost, not just managers. It reads the
+contact via DEFINER rights (past `contacts_select`, which denies staff/doorhost direct PII
+reads) and copies `full_name`/`email`/`phone` into the new `guests` row (`added_by =
+auth.uid()`); because `guests_select` shows a caller their own `added_by = self` rows, the
+staffer reads that PII straight back. A repeat `/security-review` kept re-surfacing this
+because the bulk sibling, `add_contacts_to_event`, is admin/organizer-only while this
+single-add path isn't — an unexplained asymmetry reads as a forgotten tightening.
+
+**The decision (Max, 19/8): by design, not a gap.** This is exactly the "reuse in one tap"
+path `search_contacts_for_reuse()` exists to power. Anyone who reaches this RPC already holds
+unrestricted `can_write_guests` — they could type that same name/e-mail/phone into a manual
+guest add regardless, so copying an existing contact's PII into a guest row they own grants no
+new capability. The managers-only read on `contacts` governs *browsing* the whole address
+book; it was never meant to gate reusing one already-identified contact. The bulk RPC stays
+admin/organizer-only because it's the tail of the admin-only CRM-import flow
+(`upsert_contacts`), not the "I recognize this person" moment the single-add path serves — the
+asymmetry is intentional. **The gate stays `can_write_guests(p_event_id)`; nothing in the code
+changed.**
+
+**Why documentation only, no new migration.** A `COMMENT ON FUNCTION` migration was
+considered so the explanation would live next to the SQL itself, but the applied migration
+can't be edited in place (repo convention), and a comment-only migration still carries a
+`db push` + fresh-`supabase db reset` + pgTAP cycle for zero behavioural change. Chose instead:
+the full write-up in the spec's decision table (#47, the durable source of truth per
+`CLAUDE.md`) plus a pointer comment at both TypeScript call sites
+(`addContactToEvent`/`addContactsToEvent` in `src/features/contacts/actions.ts`) — a future
+reader hits the explanation exactly where they'd look, without a schema change for a comment.
+
+**Verification:** `pnpm lint` clean (pre-existing warnings only, unrelated file), `pnpm
+type-check` clean, `pnpm vitest run` — 115 files / 1188 tests green. No RLS/pgTAP change, so no
+`supabase db reset` was needed for this PR.
+
+---
+
 ## 2026-08-12 — Door outbox owner-stamp: a tablet hand-off no longer costs check-ins (86ey9et0h)
 
 Branch `claude/outbox-owner-stamp-sync-7aadf3`. Milestone: Now (a lost door check-in is the

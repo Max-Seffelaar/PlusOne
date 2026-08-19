@@ -158,6 +158,21 @@ export async function toggleContactPermanent(input: TogglePermanentInput): Promi
  * Add one address-book contact to an event (Adresboek "+"). A deliberate manual
  * add clears any prior "respect the removal" exclusion. The RPC self-guards
  * can_write_guests; the quota engine charges the actor as for any source=app add.
+ *
+ * By design (Max, 2026-08-19, ClickUp 86ey9e9nb, spec #47): the RPC
+ * (`add_contact_to_event`, SECURITY DEFINER) copies the contact's full_name/
+ * email/phone into the new guests row, and a caller can read that PII straight
+ * back via `guests_select` (added_by = self) — even staff/doorhost, who have no
+ * direct `contacts` read access. That is intentional, not a gap: this is the
+ * "reuse in one tap" path `search_contacts_for_reuse()` exists to power, and
+ * anyone who reaches this RPC already has unrestricted `can_write_guests` — they
+ * could type that same name/e-mail/phone into a manual add regardless. The
+ * managers-only read on `contacts` (admin/finance/organizer) governs *browsing*
+ * the whole address book, not reusing one already-identified contact. This is
+ * also why `add_contacts_to_event` below stays admin/organizer-only while this
+ * single-add path doesn't: the bulk RPC is the tail of the admin-only CRM-import
+ * flow, not the "I recognize this person" moment this one serves. See spec
+ * decision #47 for the full write-up; nothing here changes the gate.
  */
 export async function addContactToEvent(input: AddContactToEventInput): Promise<ActionResult> {
   const parsed = addContactToEventSchema.safeParse(input);
@@ -238,6 +253,10 @@ export async function importContacts(input: ImportContactsInput): Promise<Import
  * to an event" flow (#3). Optional tierId overrides the per-contact tier
  * resolution (preferred_role → this event's tier, else default). The RPC
  * self-guards admin/organizer + list-lock; the quota engine charges per contact.
+ *
+ * Deliberately stricter than the single addContactToEvent above (admin/organizer
+ * only, vs. anyone with can_write_guests) — see that function's comment and spec
+ * decision #47 for why the asymmetry is by design, not a forgotten tightening.
  */
 export async function addContactsToEvent(input: AddContactsToEventInput): Promise<AddContactsToEventResult> {
   const parsed = addContactsToEventSchema.safeParse(input);
