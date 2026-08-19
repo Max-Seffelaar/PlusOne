@@ -371,15 +371,12 @@ reset role;
 rollback to savepoint f4;
 
 -- F5: admin always keeps write access.
--- This is the LAST assertion in the file and is deliberately NOT savepoint-wrapped.
--- pgTAP's test counter (curr_test, which finish() reports) lives in a temp table and
--- is transactional, while the printed `ok N` numbering comes from a non-transactional
--- sequence. `rollback to savepoint` reverts the counter but not the numbering, so a
--- trailing savepoint-isolated section desyncs finish() from the plan (it under-reports
--- the tests run). The earlier savepoint sections (B, E, F1–F4) stay correct only because
--- committed assertions run after them; this final assertion must commit so curr_test
--- reaches 46. The outer `rollback` still discards its writes. Any section added below
--- MUST keep a committed (non-rolled-back) assertion last.
+-- Deliberately NOT savepoint-wrapped, but no longer for counter reasons: the resync
+-- block below takes curr_test from the sequence, so finish() is correct regardless of
+-- where the last assertion sits. F5 stays uncommitted-but-unrolled-back simply because
+-- it has no fixture to undo; the outer `rollback` discards its writes anyway.
+-- Ordering is now free — a section added below may be savepoint-wrapped. See the
+-- resync block before finish() for the mechanism.
 update public.events set auto_lock_at = now() - interval '1 hour'
   where id = 'ee000000-0000-7000-8000-000000000001';
 select pg_temp.login('11111111-1111-4111-8111-111111111111');
@@ -406,8 +403,18 @@ reset role;
 -- num_failed() is reverted the same way and cannot be recovered from a sequence,
 -- but a failing assertion still reaches the harness as its own "not ok" line, so
 -- pg_prove remains the source of truth for pass/fail.
+--
+-- The exception handler is not defensive padding. currval() raises SQLSTATE 55000
+-- ("not yet defined in this session") when NOTHING in the session ever called
+-- nextval() — i.e. when no assertion ran at all. Without the handler that error
+-- aborts the transaction, finish() never runs, and the build fails with a sequence
+-- error nobody recognizes, in place of pgTAP's own "# No tests run!" — which is one
+-- of the three things scripts/lib/pgtap-gate.mjs exists to catch by name. Swallow
+-- the 55000 and leave curr_test untouched so finish() raises that signal itself.
 do $resync$ begin
   perform _set('curr_test', currval('__tresults___numb_seq')::int);
+exception when object_not_in_prerequisite_state then
+  null;
 end $resync$;
 
 select * from finish();

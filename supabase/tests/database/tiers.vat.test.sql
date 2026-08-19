@@ -157,8 +157,18 @@ rollback to savepoint e1;
 -- num_failed() is reverted the same way and cannot be recovered from a sequence,
 -- but a failing assertion still reaches the harness as its own "not ok" line, so
 -- pg_prove remains the source of truth for pass/fail.
+--
+-- The exception handler is not defensive padding. currval() raises SQLSTATE 55000
+-- ("not yet defined in this session") when NOTHING in the session ever called
+-- nextval() — i.e. when no assertion ran at all. Without the handler that error
+-- aborts the transaction, finish() never runs, and the build fails with a sequence
+-- error nobody recognizes, in place of pgTAP's own "# No tests run!" — which is one
+-- of the three things scripts/lib/pgtap-gate.mjs exists to catch by name. Swallow
+-- the 55000 and leave curr_test untouched so finish() raises that signal itself.
 do $resync$ begin
   perform _set('curr_test', currval('__tresults___numb_seq')::int);
+exception when object_not_in_prerequisite_state then
+  null;
 end $resync$;
 
 select * from finish();

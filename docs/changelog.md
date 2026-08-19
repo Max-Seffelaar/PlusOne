@@ -55,6 +55,68 @@ the gate exits 1.
 **Scope of the rot: 2 files of 56.** The full suite was run file-by-file to check, not sampled.
 1092 assertions, no mismatches remaining.
 
+### Round 2 — review: the gate's own reliability (7 findings)
+
+Reviewed as "no blockers", but five of the seven were about whether the gate can be
+trusted to go red, which is the entire point of it. Each is now pinned by a test that
+was checked to FAIL against the pre-fix code — a gate you only argue about is the thing
+this PR exists to stop.
+
+**Confirmed and fixed:**
+
+- **stdout and stderr were merged into one buffer, then matched line by line.** They are
+  independent pipes. Reproduced: a fake pg_prove writing `# Looks like you planned 15
+  tests but `, a stderr warning, then `ran 2` yields the merged line
+  `# Looks like you planned 15 tests but WARN: local stack is still warming up` — the
+  old code found **0 hits** and exited 0 on a real mismatch. Every entry point in
+  `pgtap-gate.mjs` now takes one string per stream and scans each on its own.
+- **`process.exit()` on a piped stderr truncated the diagnostic the script exists to
+  print.** Measured, not reasoned: ~200 KB of gate output, a reader busy for 250 ms
+  (a CI log collector), stderr a pipe — `process.exit(1)` delivered **0 bytes**;
+  `process.exitCode = 1` delivered all 199,569 with the tail intact. Both exit paths
+  now set `exitCode`.
+- **The success line asserted something nothing had verified.** "No failure pattern
+  matched" is also what zero coverage looks like — a renamed tests directory, a changed
+  CLI glob, a `config.toml` edit. `findMissingRunEvidence()` now demands positive proof
+  (`Files=N` ≥ 1, `Tests=M` ≥ 1, a `Result: PASS` line) before success may be printed,
+  and the success line names the numbers it checked instead of claiming a property.
+- **`currval()` raised when no assertion had advanced the sequence.** SQLSTATE 55000
+  aborted the transaction before `finish()` could raise `# No tests run!` — replacing a
+  signal the gate catches by name with a sequence error it does not recognize, in
+  exactly the case the gate must catch. The three resync blocks now swallow 55000 and
+  leave `finish()` to raise its own diagnostic.
+- **The gate was bypassed by every documented local workflow.** It lived in CI and
+  `pnpm db:test` and nowhere else, so **CLAUDE.md's prod-push flow — the last check
+  before a schema reaches the one prod project, with no staging behind it — stayed
+  blind.** Nine call sites repointed at `pnpm db:test` (CLAUDE.md, README ×2,
+  docs/ARCHITECTURE.md, bouwplan ×4, launchplan). Cost is zero: the wrapper needs no
+  `node_modules`, adds no DB work, and now forwards arguments, so it is a strict
+  superset of the bare command. `tests/unit/pgtap-gate-is-the-documented-command.test.ts`
+  keeps the sweep from rotting — a live instruction doc may name the bare command only
+  on a line that also points at the wrapper. Historical records (changelog,
+  security-audit, plan-*) are deliberately untouched.
+- **Arguments were silently dropped**, so `pnpm db:test -- one.test.sql` quietly ran all
+  56 files against the shared local stack. `process.argv.slice(2)` is forwarded.
+- **Two comment blocks stated an invariant the fix had removed** ("this final assertion
+  must commit so curr_test reaches 46"; "without at least one non-rolled-back test,
+  finish() sees zero"). Both rewritten — the resync takes the count from the sequence, so
+  section ordering is now free. `event_templates.test.sql` carried the same stale rule
+  and was fixed with it, though the review only flagged `events.test.sql`.
+
+**One behaviour change beyond the findings.** The gate's patterns are now applied on the
+non-zero-exit path too. `# No tests run!` is RAISEd by pgTAP, so psql (`ON_ERROR_STOP=1`)
+exits non-zero and the old control flow returned before the gate ever looked — the pattern
+was dead. It now names what it found on top of the exit code, instead of leaving the reader
+to hunt through 56 files of output.
+
+**How the gate was proven, not argued.** `tests/unit/pgtap-plan-run-gate.test.ts` (21 tests)
+spawns the real `scripts/db-test.mjs` against a scripted fake `supabase` with its
+stdout/stderr as pipes — the exact shape CI gives it — and covers the interleaved split, the
+slow-reader truncation, the zero-coverage exit 0, the silent exit 0, argument forwarding, and
+a non-zero exit that still gets labelled. Each guard was verified by reintroducing the defect:
+merging the streams flips the interleave test to exit 0, restoring `process.exit()` drops the
+diagnostic to 0 bytes, removing the evidence check turns both zero-coverage tests green.
+
 
 ---
 
