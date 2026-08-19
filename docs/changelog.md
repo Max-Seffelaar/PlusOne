@@ -8,6 +8,39 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-19 — Stats dead-code follow-up: EventPicker/StatCard removed (86eykhqty)
+
+Branch `chore/86eykhqty-stats-dead-code`. Milestone: Now (codebase hygiene, no behavior
+change). Follow-up to the 2026-08-11 dead-code sweep (86ey9e9xx, above), which flagged
+`src/features/stats/components/{EventPicker,StatCard}.tsx` as zero-importer but left them
+untouched to avoid scope creep.
+
+- **Removed, confirmed zero importers repo-wide:**
+  - `src/features/stats/components/EventPicker.tsx` (exported `EventPicker`, `PickerOption`).
+  - `src/features/stats/components/StatCard.tsx` (exported `StatCard`).
+  - Fresh `grep -rn "stats/components/EventPicker\|stats/components/StatCard" src/` — zero
+    hits, same as 11/8. Widened the search past that one pattern before deleting anything:
+    bare-name grep (`EventPicker`/`StatCard`) across `src/` and `tests/` — the only hits
+    left are unrelated same-named local symbols (`DoorEventPicker` in
+    `src/components/po/screens/door.tsx`, a distinct `EventPicker` in
+    `src/components/po/screens/promotion/shared.tsx`, both actively used elsewhere); no
+    other `StatCard` definition exists in the repo (the task's warning about a same-named
+    `po/kit.tsx` component didn't apply — no such component currently exists there); no
+    `index.ts`/barrel in `src/features/stats/`; no import of the `stats/components` path
+    as a whole; no dynamic import or path-alias reference resolving to either file; no
+    dedicated test file for either component. `PickerOption` (the only other export from
+    `EventPicker.tsx`) has no importers either.
+  - `src/features/stats/components/` is now empty and was removed along with the files
+    (git drops the now-empty dir automatically). Both files only imported shared kit
+    primitives (`Card`, `Icon`, `cn`) — nothing else in `src/features/stats/` was orphaned
+    by the removal (`data.ts`, `format.ts`, `po-adapter.ts`, `queries.ts` all stay, still
+    imported via `@/features/stats/*` elsewhere).
+- **DoD suites, fresh run:** `pnpm lint` clean (only the 2 pre-existing unrelated
+  `datetime-field.tsx` a11y warnings). `pnpm type-check` — 0 errors. `npx vitest run` — 115
+  test files / 1188 tests passed (note: `pnpm test` is watch-mode `vitest`, not `vitest run`
+  — ran the latter directly to get a terminating result). `pnpm build` — compiles and
+  generates all 15 static/dynamic routes cleanly.
+
 ## 2026-08-12 — Door outbox owner-stamp: a tablet hand-off no longer costs check-ins (86ey9et0h)
 
 Branch `claude/outbox-owner-stamp-sync-7aadf3`. Milestone: Now (a lost door check-in is the
