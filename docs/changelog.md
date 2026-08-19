@@ -10,7 +10,7 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ## 2026-08-19 — Stale-resume guard extended to the desktop Event-dag cockpit; wake lock deliberately not (86eykg2x1)
 
-Branch `feat/86eykg2x1-cockpit-stale-resume` (PR TBD, **not merged**). Milestone: Now. No
+Branch `feat/86eykg2x1-cockpit-stale-resume` (PR #279, draft, **not merged**). Milestone: Now. No
 migration. No RLS/auth/`service_role`/PII surface touched — this is a read-only consumer of
 existing React Query state plus one already-shipped overlay component.
 
