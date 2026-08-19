@@ -13,8 +13,75 @@ import 'server-only';
 // invoice.paid must not undo a newer customer.subscription.deleted.
 
 import Stripe from 'stripe';
+import { z } from 'zod';
 import { createServiceClient } from '@/lib/supabase/service';
+import { captureServerMessage } from '@/lib/observability/sentry-server';
 import { billingConfig, planIdForPrice, STRIPE_API_VERSION } from './config';
+
+// `client_reference_id` is an arbitrary Stripe-side string, not a validated id:
+// a checkout started from the Stripe dashboard, a legacy/typo value or an
+// attacker-supplied one all arrive here verbatim. The RPC declares
+// `p_venue_id uuid`, so anything non-UUID fails Postgres' cast — see the guard
+// in handleStripeWebhook (ClickUp 86ey9e9re).
+const venueIdSchema = z.string().uuid();
+
+/** How much of an arbitrarily long third-party value is worth scanning. */
+const FINGERPRINT_SCAN_MAX = 4096;
+
+export interface RejectedValueFingerprint {
+  valueType: string;
+  valueLength: number | null;
+  /** `+`-joined character classes present, e.g. `dash+hex` for a uuid. */
+  valueCharset: string;
+}
+
+/** Exactly one bucket per character; `hex` is checked before `alpha` so a
+ *  uuid reads as `dash+hex` rather than a mix of alpha and digits. */
+function charClassOf(char: string): string {
+  if (/[0-9a-fA-F]/.test(char)) return 'hex';
+  if (/[a-zA-Z]/.test(char)) return 'alpha';
+  if (char === '-') return 'dash';
+  if (/\s/.test(char)) return 'space';
+  return /[\x21-\x7e]/.test(char) ? 'punct' : 'other';
+}
+
+const CHAR_CLASS_COUNT = 6;
+
+/**
+ * A NON-REVERSIBLE description of a rejected `client_reference_id`, for logs.
+ *
+ * Only derived facts leave this function — never a character of the value.
+ * Length plus the set of character classes present is what an operator needs
+ * to triage without opening the Stripe dashboard: `dash+hex` at length 18 is a
+ * truncated uuid, `alpha+dash+hex` is a hand-typed label, `punct` alone is a
+ * pasted JSON blob. It cannot reconstruct the value, and the class set is
+ * capped at six members, so the log line is bounded however long the junk is.
+ *
+ * Takes `unknown`: `venueId` is `string | null` to TypeScript, but it is
+ * deserialised from a third-party JSON body, so a non-string can reach here at
+ * runtime — which is itself the single most useful thing to log.
+ */
+export function fingerprintOf(value: unknown): RejectedValueFingerprint {
+  if (typeof value !== 'string') {
+    return {
+      valueType: value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value,
+      valueLength: null,
+      valueCharset: '',
+    };
+  }
+
+  const classes = new Set<string>();
+  for (const char of value.slice(0, FINGERPRINT_SCAN_MAX)) {
+    classes.add(charClassOf(char));
+    if (classes.size === CHAR_CLASS_COUNT) break; // nothing left to learn
+  }
+
+  return {
+    valueType: 'string',
+    valueLength: value.length,
+    valueCharset: [...classes].sort().join('+'),
+  };
+}
 
 type MappedStatus = 'trialing' | 'active' | 'past_due' | 'canceled';
 
@@ -167,9 +234,15 @@ export interface WebhookResult {
 
 /**
  * Verify + map + apply one webhook delivery. Response contract for Stripe:
- * 2xx = processed (including replays and ignored event types — never redeliver),
+ * 2xx = processed (including replays, ignored event types and unprocessable
+ *       events — never redeliver),
  * 400 = bad signature (misconfiguration; redelivery won't help),
  * 500 = transient processing failure (Stripe retries with backoff).
+ *
+ * The 2xx-for-unprocessable rule is what keeps a poison event out of Stripe's
+ * retry queue: a malformed `client_reference_id` can never become valid on
+ * redelivery, so answering 500 would make Stripe replay the same broken event
+ * with backoff for days and bury genuine webhook failures in the noise.
  */
 export async function handleStripeWebhook(
   rawBody: string,
@@ -189,6 +262,34 @@ export async function handleStripeWebhook(
 
   const update = mapStripeEvent(event);
   if (!update) return { status: 200, body: 'ignored' };
+
+  // A null venueId is normal and must keep flowing: invoice/subscription events
+  // carry no client_reference_id and the RPC matches them on stripe_customer_id.
+  // A PRESENT but non-UUID value is the poison case — the RPC's `p_venue_id uuid`
+  // cast would raise, and we would answer 500 to an event that can never succeed.
+  if (update.venueId !== null && !venueIdSchema.safeParse(update.venueId).success) {
+    // Never the raw value: it is unvalidated third-party input and could carry
+    // anything (CLAUDE.md §Security — no PII in logs). Length and character
+    // classes are derived facts ABOUT the junk, not the junk itself, and are
+    // what lets an operator tell a truncated uuid from a pasted blob without
+    // opening the Stripe dashboard.
+    const fingerprint = fingerprintOf(update.venueId);
+    // `warning`, not `error`, on BOTH sinks: this branch has deliberately
+    // decided the event is not actionable (it answers 200 on purpose). Vercel
+    // log drains and alerting key on console.error, so console.error here
+    // would page for a condition the code already resolved.
+    await captureServerMessage('stripe webhook: unusable client_reference_id', {
+      level: 'warning',
+      tags: { stripe_event_type: update.eventType },
+      extra: { eventId: update.eventId, ...fingerprint },
+    });
+    console.warn('stripe webhook unprocessable client_reference_id', {
+      eventId: update.eventId,
+      eventType: update.eventType,
+      ...fingerprint,
+    });
+    return { status: 200, body: 'unprocessable' };
+  }
 
   const supabase = createServiceClient();
   const { data: applied, error } = await supabase.rpc('apply_stripe_subscription_update', {

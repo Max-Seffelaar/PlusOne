@@ -20,12 +20,20 @@ function event(type: string, object: Record<string, unknown>): Stripe.Event {
   } as unknown as Stripe.Event;
 }
 
-const checkoutCompleted = event('checkout.session.completed', {
-  mode: 'subscription',
-  client_reference_id: 'venue-uuid-1',
-  customer: 'cus_123',
-  subscription: 'sub_123',
-});
+// A real UUID: `client_reference_id` is cast to `p_venue_id uuid` by the RPC,
+// so the valid/invalid distinction is load-bearing here (ClickUp 86ey9e9re).
+const VENUE_ID = '3f1c8a52-9d6b-4f2e-8a11-7c0d5e9b4a63';
+
+function checkout(clientReferenceId: unknown): Stripe.Event {
+  return event('checkout.session.completed', {
+    mode: 'subscription',
+    client_reference_id: clientReferenceId,
+    customer: 'cus_123',
+    subscription: 'sub_123',
+  });
+}
+
+const checkoutCompleted = checkout(VENUE_ID);
 
 const invoicePaid = event('invoice.paid', {
   customer: 'cus_123',
@@ -74,11 +82,18 @@ describe('mapStripeEvent', () => {
     const { mapStripeEvent } = await loadModule();
     const update = mapStripeEvent(checkoutCompleted);
     expect(update).toMatchObject({
-      venueId: 'venue-uuid-1',
+      venueId: VENUE_ID,
       stripeCustomerId: 'cus_123',
       stripeSubscriptionId: 'sub_123',
       status: null,
     });
+  });
+
+  it('passes a non-UUID client_reference_id through unchanged — mapping stays pure', async () => {
+    const { mapStripeEvent } = await loadModule();
+    // The mapper reports what Stripe actually sent; rejecting it is the
+    // handler's job, so this must NOT be silently nulled or dropped here.
+    expect(mapStripeEvent(checkout('venue-uuid-1'))?.venueId).toBe('venue-uuid-1');
   });
 
   it('ignores a non-subscription checkout (e.g. future door payments #34)', async () => {
@@ -142,19 +157,23 @@ describe('mapStripeEvent', () => {
 
 describe('handleStripeWebhook', () => {
   const rpc = vi.fn();
+  const captureServerMessage = vi.fn();
 
   beforeEach(() => {
     rpc.mockReset();
+    captureServerMessage.mockReset();
     vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_dummy');
     vi.stubEnv('STRIPE_WEBHOOK_SECRET', WEBHOOK_SECRET);
     vi.stubEnv('STRIPE_PRICE_PREMIUM_MONTHLY', 'price_premium_test');
     vi.doMock('@/lib/supabase/service', () => ({
       createServiceClient: () => ({ rpc }),
     }));
+    vi.doMock('@/lib/observability/sentry-server', () => ({ captureServerMessage }));
   });
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.doUnmock('@/lib/supabase/service');
+    vi.doUnmock('@/lib/observability/sentry-server');
   });
 
   function sign(payload: string): string {
@@ -227,11 +246,198 @@ describe('handleStripeWebhook', () => {
     consoleSpy.mockRestore();
   });
 
+  // --- client_reference_id UUID guard (ClickUp 86ey9e9re) -------------------
+  // The RPC signature is `p_venue_id uuid`. A non-UUID fails Postgres' cast, so
+  // WITHOUT the guard the handler answered 500 and Stripe redelivered the same
+  // unfixable event with backoff for days, burying real webhook failures.
+
+  it.each([
+    ['a legacy/typo value', 'venue-uuid-1'],
+    ['a dashboard-created test checkout', 'test-checkout-from-dashboard'],
+    ['an attacker-supplied cast probe', "' or 1=1--"],
+    ['an empty string', ''],
+    ['a UUID with trailing junk', '3f1c8a52-9d6b-4f2e-8a11-7c0d5e9b4a63x'],
+  ])(
+    'answers 2xx and never calls the RPC for %s as client_reference_id',
+    async (_label, clientReferenceId) => {
+      const { handleStripeWebhook } = await loadModule();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      // What Postgres actually does with a non-UUID bound to `p_venue_id uuid`.
+      // Modelling it here is what makes this test red against the unguarded
+      // handler for the RIGHT reason: it returned this error as a 500.
+      rpc.mockResolvedValue({
+        data: null,
+        error: { code: '22P02', message: 'invalid input syntax for type uuid' },
+      });
+      const payload = JSON.stringify(checkout(clientReferenceId));
+
+      const res = await handleStripeWebhook(payload, sign(payload));
+
+      // 2xx is the whole point: Stripe must retire the event, not retry it.
+      expect(res.status).toBe(200);
+      expect(res.body).toBe('unprocessable');
+      expect(rpc).not.toHaveBeenCalled();
+      // Vercel log drains and alerting key on console.error. This branch has
+      // deliberately decided the event is NOT actionable (it answers 200 on
+      // purpose), so it must not page — warn, never error.
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(errorSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  );
+
+  it('reports the rejected event to Sentry without leaking the venue id', async () => {
+    const { handleStripeWebhook } = await loadModule();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    rpc.mockResolvedValue({
+      data: null,
+      error: { code: '22P02', message: 'invalid input syntax for type uuid' },
+    });
+    const payload = JSON.stringify(checkout('venue-uuid-1'));
+
+    await handleStripeWebhook(payload, sign(payload));
+
+    expect(captureServerMessage).toHaveBeenCalledTimes(1);
+    const [message, context] = captureServerMessage.mock.calls[0];
+    expect(message).toContain('client_reference_id');
+    // Sentry's own level must agree with the console level — both `warning`.
+    expect(context.level).toBe('warning');
+    // The raw value is unvalidated third-party input — it must not be logged.
+    expect(JSON.stringify(context)).not.toContain('venue-uuid-1');
+    warnSpy.mockRestore();
+  });
+
+  it('carries a non-reversible fingerprint of the rejected value to both sinks', async () => {
+    const { handleStripeWebhook } = await loadModule();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    rpc.mockResolvedValue({
+      data: null,
+      error: { code: '22P02', message: 'invalid input syntax for type uuid' },
+    });
+    // A truncated UUID: exactly the case an operator must be able to tell
+    // apart from a pasted blob without opening the Stripe dashboard.
+    const value = '3f1c8a52-9d6b-4f2e';
+    const payload = JSON.stringify(checkout(value));
+
+    await handleStripeWebhook(payload, sign(payload));
+
+    const [, context] = captureServerMessage.mock.calls[0];
+    expect(context.extra).toMatchObject({
+      valueType: 'string',
+      valueLength: value.length,
+      // hex + dashes at length 18: unmistakably a truncated uuid.
+      valueCharset: 'dash+hex',
+    });
+    // Charset + length are DERIVED facts; the value itself never appears.
+    expect(JSON.stringify(context)).not.toContain(value);
+
+    const [, logged] = warnSpy.mock.calls[0];
+    expect(logged).toMatchObject({ valueLength: value.length });
+    expect(JSON.stringify(logged)).not.toContain(value);
+    warnSpy.mockRestore();
+  });
+
+  it('applies a valid UUID client_reference_id unchanged — the happy path still works', async () => {
+    const { handleStripeWebhook } = await loadModule();
+    rpc.mockResolvedValue({ data: true, error: null });
+    const payload = JSON.stringify(checkoutCompleted);
+
+    const res = await handleStripeWebhook(payload, sign(payload));
+
+    expect(res).toEqual({ status: 200, body: 'ok' });
+    expect(rpc).toHaveBeenCalledWith(
+      'apply_stripe_subscription_update',
+      expect.objectContaining({
+        p_event_id: checkoutCompleted.id,
+        p_venue_id: VENUE_ID,
+        p_stripe_customer_id: 'cus_123',
+        p_stripe_subscription_id: 'sub_123',
+      })
+    );
+    expect(captureServerMessage).not.toHaveBeenCalled();
+  });
+
+  it('still reaches the RPC when there is no client_reference_id at all', async () => {
+    const { handleStripeWebhook } = await loadModule();
+    rpc.mockResolvedValue({ data: true, error: null });
+    // invoice.paid carries no venue id — the RPC matches on stripe_customer_id.
+    // The guard must not mistake "absent" for "malformed".
+    const payload = JSON.stringify(invoicePaid);
+
+    const res = await handleStripeWebhook(payload, sign(payload));
+
+    expect(res.status).toBe(200);
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(captureServerMessage).not.toHaveBeenCalled();
+  });
+
   it('returns 503 when billing is not configured', async () => {
     vi.unstubAllEnvs();
     vi.stubEnv('STRIPE_SECRET_KEY', '');
     const { handleStripeWebhook } = await loadModule();
     const res = await handleStripeWebhook('{}', 't=1,v1=abc');
     expect(res.status).toBe(503);
+  });
+});
+
+// --- fingerprintOf (ClickUp 86ey9e9re, review follow-up) --------------------
+// The rejected client_reference_id must stay out of the logs while still
+// leaving an operator able to triage. These pin BOTH halves of that deal.
+describe('fingerprintOf', () => {
+  it.each([
+    ['a truncated uuid', '3f1c8a52-9d6b-4f2e', 18, 'dash+hex'],
+    ['a full uuid (shape only — the guard never reaches this)', VENUE_ID, 36, 'dash+hex'],
+    ['a hand-typed label', 'venue-uuid-1', 12, 'alpha+dash+hex'],
+    ['an empty string', '', 0, ''],
+    ['a sql-ish probe', "' or 1=1--", 10, 'alpha+dash+hex+punct+space'],
+    ['a json blob', '{"venue":1}', 11, 'alpha+hex+punct'],
+    ['a non-ascii value', 'venue\u00e9\u2603', 7, 'alpha+hex+other'],
+  ])('describes %s without reproducing it', async (_label, value, length, charset) => {
+    const { fingerprintOf } = await loadModule();
+    expect(fingerprintOf(value)).toEqual({
+      valueType: 'string',
+      valueLength: length,
+      valueCharset: charset,
+    });
+  });
+
+  it.each([
+    ['an object', {}, 'object'],
+    ['an array', [], 'array'],
+    ['a number', 42, 'number'],
+    ['a boolean', true, 'boolean'],
+    ['null', null, 'null'],
+  ])('names the type for %s — a non-string reaching the guard is itself the finding', async (
+    _label,
+    value,
+    valueType
+  ) => {
+    const { fingerprintOf } = await loadModule();
+    expect(fingerprintOf(value)).toEqual({ valueType, valueLength: null, valueCharset: '' });
+  });
+
+  it('stays bounded on a megabyte of junk — true length, capped scan', async () => {
+    const { fingerprintOf } = await loadModule();
+    const huge = 'a'.repeat(1_000_000);
+
+    const result = fingerprintOf(huge);
+
+    expect(result.valueLength).toBe(1_000_000);
+    // One class in, one class out: the emitted charset can never exceed the
+    // six known class names however long the value is.
+    expect(result.valueCharset).toBe('hex');
+    expect(result.valueCharset.length).toBeLessThan(40);
+  });
+
+  it('never emits a substring of the value it describes', async () => {
+    const { fingerprintOf } = await loadModule();
+    const secret = 'zz-SUPERSECRET-zz';
+
+    const emitted = JSON.stringify(fingerprintOf(secret));
+
+    expect(emitted).not.toContain('SUPERSECRET');
+    expect(emitted).not.toContain(secret);
   });
 });
