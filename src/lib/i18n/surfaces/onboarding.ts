@@ -34,6 +34,11 @@ export const onboarding = {
     vatLabel: 'VAT (optional)',
     vatPlaceholder: 'NL000000000B00',
     paymentNote: "We never store your IBAN or card details. The payment provider handles that (SEPA Direct Debit / iDEAL).",
+    /** The venue WAS created; only the follow-up active-venue switch was refused
+     *  (86eykm7rk). Never reuse `venue.switchFailed` here: telling someone they
+     *  have lost access to the venue they just made is false, and its "refresh
+     *  your venues" advice points at a list that does contain it. */
+    createdNotOpened: 'Venue created, but we could not open it. You’ll find it under More → Venues.',
     submit: 'Create venue',
     submitBusy: 'Working…',
     // Consent (#40) — split so the Terms/Privacy words can be links.
