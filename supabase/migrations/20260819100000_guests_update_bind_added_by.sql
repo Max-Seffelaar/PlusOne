@@ -13,8 +13,48 @@
 --
 -- Enter through the second or third branch and NOTHING constrains what
 -- `added_by` ends up holding. Any admin, doorhost or organizer could therefore
--- re-point that column at an arbitrary user in a single UPDATE — while
--- `guests_insert` has pinned it since day one (#27).
+-- re-point that column at an arbitrary user in a single UPDATE.
+--
+-- ── Scope: this closes the UPDATE side only ─────────────────────────────────
+-- An earlier draft of this header claimed `guests_insert` had pinned `added_by`
+-- "since day one (#27)". That was true until 2026-08-12 and is NOT true now.
+-- `20260812140000_outbox_owner_stamp_sync.sql` (PR #271, decision #45) widened
+-- the pin into a BOUND so a door tablet can drain entries queued by the
+-- previous doorhost:
+--
+--   and ( added_by = (select auth.uid())
+--         or (source = 'door' and public.can_record_check_in_for(event_id, added_by)) )
+--
+-- `can_record_check_in_for` accepts any admin/doorhost/organizer of the event as
+-- the NAMED adder, and venue admins are quota-exempt — so the very exploit this
+-- migration closes on UPDATE is still reachable on INSERT, in one write, with no
+-- UPDATE at all. Measured on a full schema build of all 99 migrations + seed
+-- (Postgres 16), doorhost Lisa, personal quota 5:
+--
+--   honest add #1..#3 (own name)                        -> ALLOWED
+--   honest add #4 (own name)                            -> REFUSED 45001 "6 van 5"
+--   FORGE #1..#3  added_by=<venue admin>, source='door' -> ALLOWED
+--   after: Lisa consumption 5/5, 3 forged rows, 30 extra heads on the list
+--
+-- Deliberately NOT fixed here, because closing it is a DECISION, not a tightening:
+--   * Decision #45 already records this relaxation as a "bekende prijs, aanvaard",
+--     on the stated ground that "de collega's meter wordt belast". That ground
+--     holds for a doorhost or organizer and fails for an ADMIN, who is exempt —
+--     so what needs amending first is the decision's own reasoning, by Max.
+--   * The obvious one-liner (`and not public.user_is_quota_exempt(event_id, added_by)`
+--     in that OR-branch) does not work as written: `user_is_quota_exempt` is not
+--     executable by `authenticated`, so every cross-user door drain would fail
+--     with 42501 "permission denied for function" — and 42501 is TERMINAL in
+--     `replay.ts`, i.e. dead-lettered, i.e. the lost door add that #45 forbids.
+--     With the missing GRANT added it does block the forge, but it then also
+--     refuses the legitimate drain of an ADMIN's own queued door adds (measured).
+--   * Requiring the named adder to be the outbox owner is not verifiable
+--     server-side: `ownerId` is a client assertion, as 20260812140000 states.
+-- Follow-up: "INSERT-side `added_by` bound / decision #45 amendment", to be
+-- filed in ClickUp list 901818739469 — ClickUp answered with a ~19h rate limit
+-- during this session, so no task id is quoted here rather than an invented one.
+-- Until it lands, the personal quota stays walkable — see the changelog entry,
+-- which says so in those words.
 --
 -- ── Why that made quota enforcement advisory ────────────────────────────────
 -- `enforce_guest_quota` (20260714100000, l.55) tests the exemption on the NAMED
@@ -127,8 +167,17 @@ begin
   -- `added_by` is already NULL (auto-approved via a request link, F1) stays
   -- editable, and re-pointing any row AT NULL is a change to a third party
   -- (namely: to nobody, and therefore to no quota meter) and is refused.
+  --
+  -- The `new.added_by is null` arm is not redundant: without it this branch
+  -- leans on the policy rather than on itself. If `auth.uid()` were ever NULL
+  -- while `current_user` is still `authenticated`/`anon`, then
+  -- `null is distinct from null` is FALSE and a move to NULL would slip past
+  -- the guard in silence. Not reachable today — `guests_update` is
+  -- `to authenticated` and every branch needs a uid — but this trigger is sold
+  -- as a bound that holds independently of the policy, so it should not depend
+  -- on one for the one value that charges no meter at all.
   if new.added_by is distinct from old.added_by
-     and new.added_by is distinct from auth.uid() then
+     and (new.added_by is null or new.added_by is distinct from auth.uid()) then
     raise exception using errcode = '42501',
       message = 'Je mag een gast niet op naam van een andere gebruiker zetten.';
   end if;

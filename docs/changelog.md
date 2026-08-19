@@ -8,7 +8,7 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
-## 2026-08-19 — `guests.added_by` gebonden op UPDATE: quotum-handhaving is niet langer adviserend (86eymckjt)
+## 2026-08-19 — `guests.added_by` gebonden op UPDATE (86eymckjt)
 
 Branch `fix/86eymckjt-guests-update-bind-added-by`. Milestone: Now. Migratie
 `20260819100000_guests_update_bind_added_by.sql`, pgTAP `guests_added_by_bind.test.sql` (20
@@ -35,7 +35,8 @@ de vrijstelling op de **genoemde adder**, niet op de schrijver
 (`20260625120000`) is waar voor elke venue-admin. Wijs `added_by` naar een admin en de hele
 persoonlijke-quotumtak slaat over: niemands meter wordt belast — niet die van de schrijver, niet
 die van de admin. Een doorhost of staflid met nul vrije plekken kon zo onbeperkt gasten toevoegen
-door één normaal belaste rij toe te voegen en die daarna te herattribueren. Dezelfde truc wijst een
+door één normaal belaste rij toe te voegen en die daarna te herattribueren. **Dat sluit deze PR —
+maar het quotum wordt er nog niet afdwingbaar van; zie "Wat hierna nog openstaat".** Dezelfde truc wijst een
 rij naar `NULL`, de "auto-goedgekeurd via aanvraaglink"-attributie (#43(c)), die op géén meter drukt.
 
 Wat wél bleef staan, en waarom dit geen gratis-gastenmachine was: de gedeelde pools bewogen nog
@@ -85,10 +86,74 @@ die namens een staflid toevoegt belast dan diens quotum — en vereist een expli
 wijziging blijft één legitieme route bestaan waarlangs een gast op niemands meter landt: een admin
 die zelf toevoegt (source `app`), wat het bedoelde gedrag van de exemptie is.
 
+**Wat hierna nog openstaat — het quotum blijft adviserend.** Een eerdere versie van deze kop en
+van de spec-bullet zei "quotum-handhaving is niet langer adviserend". Dat klopte niet en is
+teruggebracht tot wat deze PR feitelijk doet: `added_by` is gebonden op **UPDATE**. Na deze merge
+blijven er twee één-write-routes over waarlangs een gebruiker over zijn persoonlijke quotum heen
+komt. Beide zijn nagemeten op een volledige schemabouw (alle 99 migraties + `seed.sql` op een kale
+Postgres 16, met een Supabase-shim voor `auth`), niet op een handmatig model:
+
+1. **INSERT-forge langs `source='door'` (doorhost/organisator).** `20260812140000` (PR #271,
+   besluit **#45**) versoepelde `guests_insert` van een pin naar een grens, zodat een deurtablet de
+   entries van de vórige doorhost kan legen. `can_record_check_in_for` accepteert elke
+   admin/doorhost/organisator van het event als *genoemde* adder, en een venue-admin is
+   quota-exempt — dus precies de exploit die deze PR op UPDATE dicht, staat open op INSERT:
+
+   ```
+   honest add #1..#3 (eigen naam)                       -> ALLOWED
+   honest add #4 (eigen naam)                           -> REFUSED 45001 "6 van 5"
+   FORGE #1..#3  added_by=<venue admin>, source='door'  -> ALLOWED
+   na afloop: doorhost 5/5 verbruikt | 3 gesmede rijen | 30 extra koppen op de lijst
+   ```
+
+   Besluit #45 noteert deze versoepeling al als "bekende prijs, aanvaard", op de grond dat "de
+   collega's meter wordt belast". Die grond klopt voor een doorhost of organisator en **klopt niet
+   voor een admin**, die is vrijgesteld — dan wordt er helemaal geen meter belast. Wat hier dus
+   eerst moet gebeuren is een amendement op besluit #45 door Max, niet een stille aanscherping in
+   een review-fix-PR. Bovendien werkt de voor de hand liggende one-liner
+   (`and not public.user_is_quota_exempt(event_id, added_by)` in die OR-tak) niet zoals hij staat:
+   `user_is_quota_exempt` is niet uitvoerbaar door `authenticated`, dus élke cross-user drain zou
+   falen op 42501 "permission denied for function" — en 42501 is TERMINAL in `replay.ts`, oftewel
+   dead-letter, oftewel exact het verloren deur-item dat #45 verbiedt. Mét de ontbrekende GRANT
+   blokkeert hij de forge wél, maar weigert hij dan ook de legitieme drain van de eigen deur-adds
+   van een **admin** (nagemeten). De derde optie — eisen dat de genoemde adder de outbox-eigenaar
+   is — is server-side niet verifieerbaar: `ownerId` is een client-bewering, zoals de header van
+   `20260812140000` zelf vaststelt. Vervolgtaak: vervolgtaak *"INSERT-kant van `guests.added_by` begrenzen + besluit #45 amenderen"* in ClickUp-lijst `901818739469` — nog aan te maken, ClickUp gaf tijdens deze sessie een rate-limit van ~19 uur.
+
+2. **`source`-flip op UPDATE (gewoon staflid).** `guest_personal_contribution` telt
+   `source in ('landing','permanent')` als 0 (#31/#11), en niets bindt `source` op UPDATE. Een
+   staflid op zijn cap zet zijn eigen rijen om en begint opnieuw:
+
+   ```
+   staff honest add (over de cap)      -> REFUSED 45001 "13 van 12"
+   staff flipt 12 eigen rijen->landing -> ALLOWED
+   staff verbruik na de flip           -> 6/12   (18 rijen op zijn naam)
+   ```
+
+   Dezelfde vorm als de `guests.status`-les van 11/8 en als deze taak: een kolom die de
+   quota-engine leest, maar die de client vrij mag schrijven. Vervolgtaak: vervolgtaak *"`guests.source` binden op UPDATE"* in ClickUp-lijst `901818739469` — idem nog aan te maken.
+
+Kortom: deze PR haalt één van de drie routes weg en verkleint het gat; hij sluit het niet. De
+kop, de spec-bullet en deze sectie zeggen dat nu in die woorden — een correcte fix met een
+overdreven changelog is een slechtere PR dan een correcte fix met een eerlijke (de les van #252).
+
 **Testen.** `pnpm lint` schoon (2 pre-existing a11y-warnings in `datetime-field.tsx`),
-`pnpm type-check` 0 fouten, `pnpm test` groen. pgTAP draaide **niet** lokaal — de sessiecontainer
-heeft geen Docker, dus `supabase start`/`db reset`/`test db` konden daar niet draaien; de
-pgTAP-job in GitHub Actions is het bewijs.
+`pnpm type-check` 0 fouten, `pnpm test` groen. Geen Docker in de sessiecontainer, dus
+`supabase start`/`db reset`/`test db` konden niet draaien — in plaats daarvan is de review-ronde
+van 19/8 geverifieerd op een **volledige schemabouw**: alle 99 migraties + `seed.sql` toegepast op
+een kale Postgres 16 met een minimale Supabase-shim (`auth.uid()/jwt()`, `auth.users`,
+`auth.sessions`, de rollen `anon`/`authenticated`/`service_role`), waarna
+`guests_added_by_bind.test.sql` er ongewijzigd op draait. Daarop gemeten: **20/20 groen met de
+trigger**, en met de trigger gedropt (= `main`) zijn A1–A7 en B7 rood. A6 is apart nagemeten,
+buiten de cascade van A1–A5 om, omdat dáár de review-bevinding zat:
+
+```
+A6 geïsoleerd, zonder de guard:
+  caught: 42501: new row violates row-level security policy for table "guests"
+  wanted: 42501: Je mag een gast niet op naam van een andere gebruiker zetten.   -> not ok
+```
+
+De pgTAP-job in GitHub Actions blijft het bindende bewijs.
 
 ---
 

@@ -54,7 +54,8 @@ select throws_ok($$
   update public.guests
      set added_by = '11111111-1111-4111-8111-111111111111'
    where full_name = 'Femke Aalders'
-$$, '42501', null, 'A1 a doorhost cannot re-point added_by at the quota-exempt admin');
+$$, '42501', 'Je mag een gast niet op naam van een andere gebruiker zetten.',
+   'A1 a doorhost cannot re-point added_by at the quota-exempt admin');
 
 reset role;
 select is(
@@ -70,7 +71,8 @@ select throws_ok($$
   update public.guests
      set added_by = null
    where full_name = 'Femke Aalders'
-$$, '42501', null, 'A3 nor at NULL, which would charge no meter at all');
+$$, '42501', 'Je mag een gast niet op naam van een andere gebruiker zetten.',
+   'A3 nor at NULL, which would charge no meter at all');
 
 -- An organizer reaches the row through event scope rather than a venue role —
 -- the third branch of the policy, equally unconstrained before this migration.
@@ -79,7 +81,8 @@ select throws_ok($$
   update public.guests
      set added_by = '11111111-1111-4111-8111-111111111111'
    where full_name = 'Femke Aalders'
-$$, '42501', null, 'A4 an event organizer cannot re-attribute either');
+$$, '42501', 'Je mag een gast niet op naam van een andere gebruiker zetten.',
+   'A4 an event organizer cannot re-attribute either');
 
 -- The rule binds the VALUE, not the role: an admin may edit anyone's guest, but
 -- may not hand one to a third party. This is the case the WITH CHECK could never
@@ -89,16 +92,31 @@ select throws_ok($$
   update public.guests
      set added_by = '66666666-6666-4666-8666-666666666666'
    where full_name = 'Femke Aalders'
-$$, '42501', null, 'A5 not even an admin may hand a guest to a third party');
+$$, '42501', 'Je mag een gast niet op naam van een andere gebruiker zetten.',
+   'A5 not even an admin may hand a guest to a third party');
 
 -- Staff reach their own rows through `added_by = auth.uid()`, so the row is
--- matched and the guard — not a silent 0-row update — is what stops them.
+-- matched rather than silently skipped. What stops them, however, is NOT the
+-- guard alone: `guests_update`'s WITH CHECK independently refuses this exact
+-- statement, because the RESULTING row names 6666 and a staff member passes no
+-- branch of that policy for someone else's row. Both refusals are SQLSTATE
+-- 42501, so asserting the code alone proves nothing about this migration —
+-- measured without the trigger, in isolation:
+--
+--   A6 without the guard -> 42501 : new row violates row-level security policy
+--                                   for table "guests"
+--
+-- (and inside a full run of this file it degenerates further: A1–A5 have by then
+-- moved the row, so A6 matches 0 rows and raises nothing at all). Asserting the
+-- guard's own message is what makes A6 discriminate — and therefore what makes
+-- it the real denied-case for role `staff` from DoD 3.
 select pg_temp.login('55555555-5555-4555-8555-555555555555');
 select throws_ok($$
   update public.guests
      set added_by = '66666666-6666-4666-8666-666666666666'
    where full_name = 'Femke Aalders'
-$$, '42501', null, 'A6 a staff member cannot push their own guest onto a colleague');
+$$, '42501', 'Je mag een gast niet op naam van een andere gebruiker zetten.',
+   'A6 a staff member cannot push their own guest onto a colleague');
 
 reset role;
 select is(
