@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
 import { getSessionUser, getAuthContext } from '@/lib/auth/context';
-import { getMyMemberships } from '@/lib/auth/memberships';
+import { getMyMemberships, getOrganizerVenues } from '@/lib/auth/memberships';
 import { ACTIVE_VENUE_COOKIE } from '@/lib/auth/active-venue';
 import { canGrantRoles, type VenueRole } from '@/features/auth/roles';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
@@ -62,21 +62,53 @@ async function otherAdminCount(venueId: string, excludeUserId: string): Promise<
 }
 
 /**
- * Persist the active-venue choice (decision #1). Validates the id is a UUID and
- * one of the caller's own memberships before writing the cookie — a forged value
- * is ignored, so the switcher can never select a venue the user lacks access to.
- * No PII in the cookie; RLS still scopes every read. Backs the form-action
- * switcher used by both the desktop and po surfaces.
+ * Outcome of an active-venue switch. Three cases, because the caller has to
+ * treat them differently (86eykm7rk):
+ *  - `ok`             cookie written, the caller may reload onto the new venue.
+ *  - `unauthenticated` no server session — a reload lands on middleware, which
+ *                     sends the user to /login. That is the right destination,
+ *                     so callers keep reloading on this one.
+ *  - `denied`         the id is not (or no longer) one of the venues the caller
+ *                     can reach, or it isn't a UUID at all. Reloading here
+ *                     silently returns the user to the OLD venue, so callers
+ *                     must surface an error instead.
  */
-async function persistActiveVenue(venueId: unknown): Promise<boolean> {
+export type SwitchVenueResult = 'ok' | 'unauthenticated' | 'denied';
+
+/**
+ * Persist the active-venue choice (decision #1) and REPORT the outcome.
+ *
+ * Validates the id is a UUID and one of the caller's own venues before writing
+ * the cookie — a forged value is ignored, so the switcher can never select a
+ * venue the user lacks access to. No PII in the cookie; RLS still scopes every
+ * read.
+ *
+ * The access set is memberships PLUS external-crew (event-organizer) venues —
+ * the SAME set `src/app/app/layout.tsx` builds for `myVenues`, and the same set
+ * `resolveActiveVenueId` accepts a cookie against. Checking memberships alone
+ * (the first cut of 86eykm7rk) rejected every crew-only venue the switcher
+ * renders a Switch button for, so a user who is admin at A and external crew at
+ * B got "you no longer have access" on a completely normal tap — deterministic,
+ * not the revocation race this is about. `roles: []` is not "no access": event
+ * scope IS access (#24/86ey21vre).
+ *
+ * Never throws on a refusal: the access check is a live read, so a member
+ * removed between the render of `myVenues` and the click legitimately lands
+ * here. The caller decides what the user sees.
+ */
+export async function switchActiveVenueAction(venueId: string): Promise<SwitchVenueResult> {
   const user = await getSessionUser();
-  if (!user) return false;
+  if (!user) return 'unauthenticated';
 
   const parsed = setActiveVenueSchema.safeParse({ venueId });
-  if (!parsed.success) return false;
+  if (!parsed.success) return 'denied';
 
-  const memberships = await getMyMemberships();
-  if (!memberships.some((m) => m.venueId === parsed.data.venueId)) return false;
+  const [memberships, organizerVenues] = await Promise.all([
+    getMyMemberships(),
+    getOrganizerVenues().catch(() => []),
+  ]);
+  const reachable = new Set([...memberships, ...organizerVenues].map((m) => m.venueId));
+  if (!reachable.has(parsed.data.venueId)) return 'denied';
 
   const cookieStore = await cookies();
   cookieStore.set(ACTIVE_VENUE_COOKIE, parsed.data.venueId, {
@@ -87,12 +119,7 @@ async function persistActiveVenue(venueId: unknown): Promise<boolean> {
     maxAge: 60 * 60 * 24 * 365,
   });
   revalidatePath('/', 'layout');
-  return true;
-}
-
-/** Form-action switcher: validate + persist the active-venue cookie (returns void). */
-export async function setActiveVenueAction(formData: FormData): Promise<void> {
-  await persistActiveVenue(formData.get('venueId'));
+  return 'ok';
 }
 
 /**

@@ -8,6 +8,118 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-19 — PR #276 visual-QA response: phone accepted a non-number, approve screen hid the e-mail (86eyke279)
+
+Branch `feat/86eyke279-landing-contact-required`, same PR/task as the two entries below —
+the visual-QA response pass, not a new task. A QA session walked the whole PR on a real local
+stack (15 handoff questions: 12 ✅ · 3 ⚠️ · 0 ❌, plus eight edge-case blocks) and came back
+with one blocker and three smaller items. Every finding was re-measured here before it was
+touched.
+
+**BLOCKER — `12345` was accepted and stored as `+3112345`.** Reproduced in one pass: a valid
+name + e-mail, `12345` in the phone field with the selector on 🇳🇱 +31, submit → *"Request
+sent."* and `guest_requests.phone` holding `+3112345`. Not a number anybody can call.
+
+Root cause, re-measured against the installed `react-phone-number-input` 3.4.17 /
+`libphonenumber-js` 1.13.6 rather than taken on report:
+
+```
+                     +3112345   +31612345678   +31201234567
+default (= /min)     true       true           true
+/max                 false      true           true
+/mobile              false      true           false
+```
+
+The default entry ships libphonenumber's **`min`** metadata — per-country *length bands*, no
+numbering plan — so a five-digit non-number sits inside the NL band and passes. The DB regex
+`^\+[1-9][0-9]{1,14}$` is a deliberate **shape** check and cannot catch it either. The field
+this PR makes mandatory was therefore the path of least resistance for anyone unwilling to
+give a real number, which contradicts the PR's own premise that *"a required field that
+accepts `x` is theatre"*.
+
+**Fixed by moving the WHOLE phone surface to `/max`**, not just the validator: `isPhoneValid`
+and `phoneCountryOf` (`react-phone-number-input/max`), the input build (`/input-max`) and the
+country picker (`country-select.tsx`). Changing only the validator would have bundled *two*
+metadata blobs and left the input formatting numbers under `min` that the validator then
+rejects under `max`. `/mobile` was considered and rejected: it refuses the valid Amsterdam
+landline `+31201234567`.
+
+**Bundle cost — measured, not estimated.** Two full production builds (`pnpm build`),
+baseline `993196f` vs the patched tree:
+
+| | before | after | delta |
+|---|---|---|---|
+| First Load JS, **every** route | — | — | **identical** (route-table diff empty) |
+| `/e/[slug]` First Load | 147 kB | 147 kB | 0 |
+| lazy phone chunk, raw | 164.5 kB | 236.4 kB | +71.9 kB |
+| lazy phone chunk, gz | **39.6 kB** | **59.8 kB** | **+20.2 kB** |
+
+The metadata already sat behind the #B4 lazy boundary, so the delta lands **only** on users
+who actually render a phone field — never on first paint of the public landing page. The
++71.9 kB raw is exactly one metadata blob (`metadata.max.json` 154.3 kB − `metadata.min.json`
+82.3 kB = 72.0 kB), which confirms the single-build approach worked and no `min`+`max`
+duplication crept in. Judged acceptable: 20 kB gz on a deferred chunk buys correctness on the
+one field the PR makes mandatory.
+
+**The server-side alternative was considered and rejected.** Tightening `submit_guest_request`
+cannot express a numbering-plan check without hand-porting libphonenumber's per-country plans
+into SQL, which is strictly worse to write and to keep current. The RPC keeps its shape check
+by design, and the PR body records the residual: a hand-rolled caller can still post its own
+junk number — it just cannot post it *through the form*.
+
+**Guard.** New `tests/unit/phone-metadata-max.test.ts` locks both halves: the behaviour
+(`/max` refuses the blocker, keeps NL mobile **and** landline, keeps international numbers)
+and the wiring (every phone entry point resolves to the same `/max` build). It **complements**
+`tests/unit/phone-lazy-imports.test.ts` — which keeps the library out of First Load JS and was
+neither relaxed nor edited. Red-on-revert verified against the previous code:
+
+```
+FAIL  the app's own isPhoneValid (what the landing form calls) > refuses the reported blocker
+AssertionError: expected true to be false
+FAIL  src/components/po/phone-lazy.tsx imports only /max phone builds
+FAIL  src/components/po/country-select.tsx imports only /max phone builds
+```
+
+**The e-mail was invisible on the screen where requests are approved.** The PR requires the
+field *"so the organizer can reach the guest"*, but the Requests card showed only
+`phone •••• 5610` and the Approve sheet showed no contact at all — the address existed
+correctly in the DB and appeared one screen over in Contacts, which is exactly one screen too
+far at the moment of deciding. `guest_requests.email` is now selected
+(`fetchGuestRequests`), carried on the domain type (`PoGuestRequest.email` / `.phone`, full
+values alongside the existing `phoneLast4` hint), rendered on the pending **and** declined
+cards, and spelled out in full in a Contact block in the Approve sheet — you cannot mail a
+masked hint, and the same RLS-scoped roles (admin/finance/organizer) already read the complete
+address in Contacts, so this is not a new exposure class. Pre-rule rows keep both columns
+NULLable and say so ("No email — filed before it was required") instead of rendering an empty
+box.
+
+**Three smaller items, all from the same QA pass.**
+- The country-code button was a **31px** tap target, under the 44px rule, on the very field
+  this PR makes required. A `before:` overlay lifts the hit area to 44px **without** changing
+  the 53px row height or the visual — 44px fits inside the row, so nothing reflows.
+- **Name carried no `required` badge** while being just as blocking: three required fields,
+  two badges. Now three. A reader who trusted the badges was reading a wrong form.
+- The phone error said *"…including the country code"* to someone who pasted
+  `+44 7911 123456` into an NL-selected field — accusing them of omitting the one thing they
+  typed. It now names the **country selector**, which is accurate for both failure modes (an
+  incomplete national number, and a correct number under the wrong flag).
+
+**Deliberately left alone**, both confirmed pre-existing and out of this PR's scope: the
+`auto_approved` e-mail-existence oracle on auto-approve links (already recorded as a follow-up
+in the PR body) and the fixed `manager@` role restriction on Requests. The handoff link in the
+PR body pointed at `manager@plusone.test`, which is `user_manager` on Club Vesper and gets
+*"You don't have access to requests."* — corrected to `admin@plusone.test`. This was the
+**second** handoff this sweep pointing at a role that cannot reach the screen it names (#278's
+QA found the same for the Deur tab, where `manager@` is not in `DOOR_ROLES`); a cheap
+structural catch is sketched in the PR body but deliberately **not** built unasked.
+
+**Suites:** vitest **1220 passed / 116 files**, `pnpm type-check` **0 errors**, `pnpm lint`
+clean (pre-existing `datetime-field.tsx` a11y warnings only). No migration, no type
+regeneration — this pass is client-side plus one added column in an existing `select`. pgTAP
+unchanged and still CI's verdict.
+
+---
+
 ## 2026-08-19 — PR #276 review response: e-mail length cap + K10 guard hardening (86eyke279)
 
 Branch `feat/86eyke279-landing-contact-required`, same PR/task as the entry directly below —
@@ -166,6 +278,723 @@ in de policy, óf de directe insert-grant voor `authenticated` helemaal weg.
 verse sessie (SECURITY DEFINER op een publiek anoniem schrijfpad = high-risk). Niet zelf
 gemerged. Typegeneratie (`src/lib/database.types.ts`) is **niet** nodig: de signatuur van de
 RPC is ongewijzigd, alleen de body.
+## 2026-08-19 — `contactEventCounts` no longer 414s at 210+ contacts: wrong Kong URI-length comment fixed (86eykknf8)
+
+Branch `fix/86eykknf8-chunkids-uri-limit`. Flagged during a fresh-session `/code-review`
+of PR #260 (`86ey9e9wv`) as a pre-existing bug that PR almost copied for a similar case.
+
+**The bug.** `contactEventCounts` (`src/features/po/queries.ts`, called from
+`fetchContacts` — the venue address book) chunked its `guests.in('contact_id', …)`
+filter with `chunkIds(contactIds)`, i.e. the bare default (`PAGE_SIZE` = 1000). The
+comment above it claimed this was "chunked (≤1000 ids per request) to stay under Kong's
+URI length" — wrong on the actual measured threshold: `perf-scale-audit-megaevent.md`
+puts it at ~210 ids ≈ 7.8 kB → HTTP 414, and CLAUDE.md's scale rule says explicitly
+"chunk to ≤120 ids if a list is truly unavoidable". So any venue with 210+ contacts
+matching a search/filter 414'd on `contactEventCounts`'s very first chunk.
+
+**Fix.** `chunkIds(contactIds, 120)` at the call site; the comment now states the real
+~210-id/7.8 kB/414 threshold instead of the invented ≤1000/Kong claim.
+
+**Call-site audit (grep `chunkIds(` across `src/`):** two real call sites existed.
+`src/features/door/queries.ts:204` already passes an explicit `PROFILE_ID_CHUNK_SIZE =
+120` (`door/queries.ts:21`, comment correctly cites CLAUDE.md's scale rule) — no change
+needed there. `src/features/po/queries.ts:1116` (`contactEventCounts`) was the only
+call site relying on the bare, wrong-for-URLs default; it's now fixed above. The
+`chunkIds` tests in `src/lib/supabase/paging.test.ts` aren't call sites, just direct
+unit coverage of the helper.
+
+**`chunkIds`'s own default — left at `PAGE_SIZE` (1000), deliberately.** Considered
+lowering it or introducing a separate `URI_CHUNK_SIZE` constant; decided against it.
+`chunkIds` is a generic size-based chunker, not exclusively a URL-`.in()` helper — a
+future caller might chunk for a pure row-count reason unrelated to any URL (e.g.
+batching a JSON-body RPC array), where 1000 is the right default. Silently dropping the
+default to 120 would also just move the footgun rather than remove it: a caller who
+never stops to ask "is this filter going into a URL?" is exactly the failure mode that
+produced this bug, and a lower default doesn't force that question — it just changes
+which wrong number gets used implicitly. So the invariant stays "the caller building an
+`.in()` URL filter must pass an explicit ≤120 size" (already how `door/queries.ts` does
+it), not "the utility's default happens to be safe." Strengthened `chunkIds`'s docstring
+in `src/lib/supabase/paging.ts` to state this plainly and point at 86eykknf8, since the
+previous docstring's "keeps `.in()` filters under both PostgREST's max-rows AND Kong's
+URI length" line was itself part of the false precedent — misleadingly implying the
+default handles both limits when it only handles the first.
+
+**Test.** `src/features/po/queries.test.ts` — new `describe('fetchContacts →
+contactEventCounts chunking (86eykknf8)')`: 121 mock contact ids through `fetchContacts`,
+asserting the `guests.in()` filter fires more than once and no single chunk exceeds 120
+ids. Verified red-on-revert: reverting `chunkIds(contactIds, 120)` back to the bare
+default made the test fail (`expected 1 to be greater than 1`) exactly as expected: 121
+ids collapse into a single over-sized chunk at the old default.
+
+**Results:** `pnpm lint` clean (2 pre-existing unrelated a11y warnings in
+`datetime-field.tsx`). `pnpm type-check` clean. `pnpm test -- --run`: **115 test files,
+1189 tests, all passed.**
+
+**Out of scope, noted for a follow-up:** several other `.in()` call sites in `src/`
+(`guests/actions.ts:198`, `auth/invite-actions.ts:102`, `po/queries.ts:397/479/484/559/1372`,
+`events/actions.ts:460/469`) build `.in()` filters from unbounded id lists without
+`chunkIds` at all. None are demonstrated to be reachable with 210+ ids in practice, and
+this task's scope was `contactEventCounts` specifically — flagging for a separate audit
+task rather than fixing here.
+
+Not touched: `src/components/po/app.tsx` (other sessions working on it), no migrations.
+## 2026-08-19 — Door: the implicit single-event choice is pinned, so a second live event no longer unmounts the door mid-shift (86eykm7qp)
+
+Branch `fix/86eykm7qp-door-candidate-pin`. Milestone: Now. No migration, no schema change,
+no new server state — the door stays local-first.
+
+**The bug.** `app.tsx` resolved the door's event as
+`doorState.eventId ?? (doorCandidates.length === 1 ? doorCandidates[0].id : null)`. The
+single-candidate branch is an *implicit* choice, and it was never written back to
+`doorOverride` or the URL — so it was re-derived from `length === 1` on every single render.
+The instant a second event appeared in the candidate list, `requestedDoorId` became `null`,
+`resolvedDoorId` followed, and `<DoorEventPicker>` rendered in the exact slot that had held
+`<DoorQueryProvider><DoorProvider>`. Different element type at the same position → React
+unmounts the whole door subtree → `useDoorSync`'s cleanup runs `client.removeChannel(...)`.
+
+**The scenario that makes it real.** A doorhost checks guests in on a tablet at a venue whose
+only non-past event is tonight's. The wifi drops and comes back; React Query's
+`refetchOnReconnect` is at its default `true` (`PoLiveProvider` sets only
+`staleTime`/`gcTime`/`retry`/`refetchOnWindowFocus:false`), so the candidate query refetches.
+If a colleague has meanwhile scheduled the next party, the door jumps to an event picker
+mid-check-in, with no explanation and no realtime.
+
+**Blast radius, stated honestly.** A venue with anything else on the calendar already has >1
+candidate, so it gets the picker on entry and the host picks explicitly — that path was always
+immune. The vulnerable venue is the one whose only non-past event is tonight's, where someone
+plans the next event during the shift. **The queue itself was never at risk**: the outbox is a
+module singleton and `DoorQueryProvider` uses a per-tab singleton client with `gcTime: WEEK_MS`.
+The damage was the unexplained jump plus losing realtime/sync mid-shift.
+
+**The fix** (`src/components/po/app.tsx`, one effect next to `replaceDoorState`). Pin the
+implicit choice the moment it resolves: `replaceDoorState({ seg, eventId: <resolved>, overlay })`
+writes it into `doorOverride` **and** the raw URL. `replaceDoorState` goes through
+`window.history.replaceState`, not `router.replace`, so there is no RSC round-trip and the
+door's offline invariant (#25) is untouched. Once pinned, `doorState.eventId` is non-null and
+the candidate list can grow freely without touching the door subtree.
+
+Guards on the effect:
+- **Mobile door tab only** (`isMobile && isDoorTab`). The desktop cockpit resolves its own
+  event via `EventDayCockpitGate` and must never carry a `doorOverride`; and firing this from
+  another screen would rewrite the URL to a door path under that screen.
+- **Render-loop safe.** `replaceDoorState` sets state, so the effect only writes when the
+  state is not already what it would write (`doorState.eventId === null && resolvedDoorId !==
+  null`): one write at mount, zero on idle re-renders.
+- **The pin is released when its event is gone.** If the pinned id drops out of the candidate
+  list (after the existing stale-id refetch has had its one retry), the pin is cleared so
+  derivation runs again. Without this the host would sit on "geen event" with no way out — the
+  "ander event" control only renders with >1 candidates.
+
+*(Round 1 implemented both of those with a `pinnedDoorRef` that also recorded whether the id
+was "our guess"; the round-2 review below took that ref out. The bullets describe the shipped
+code.)*
+
+**Behaviour change worth knowing.** The implicit choice now behaves like an explicit one: it
+sticks, and it survives a reload because it is in the URL. Auto-following to a different
+single event only happens through the release path above.
+
+**Test — and the red-on-revert check that PR #261 round 1 skipped.**
+`src/components/po/door-pin-keeps-subtree-mounted.test.tsx` (jsdom) drives the **real**
+`PlusOneApp` with only the periphery stubbed, goes from 1 candidate to 2 with
+`doorState.eventId === null`, and asserts the door subtree never unmounts. `DoorProvider` is
+stubbed with a probe that opens a channel on mount and removes it on unmount, mirroring
+`useDoorSync`'s own cleanup, so the assertion reads in the bug's own terms
+(`channelTeardowns === 0`, `doorMounts === 1`, picker never mounted). Two further cases cover
+the URL write-back and the pin release.
+
+`door-tab-render-scope.test.tsx` (the earlier attempt) failed by re-implementing the wiring in
+a local harness and never importing `app.tsx`. To avoid repeating that, the fix was reverted
+and the suite re-run: **3/3 red on unfixed `app.tsx`, 3/3 green with the fix**, verified
+mechanically, not assumed.
+
+**Gates.** `pnpm lint` clean (2 pre-existing `jsx-a11y` warnings in the unrelated
+`datetime-field.tsx`), `pnpm type-check` zero errors, `npx vitest run` **116 files / 1191
+tests, all passing**. The three protected guards were neither touched nor weakened:
+`app-shell-no-ssr-suspense.test.ts` (2) and `door-tab-element-identity-bailout.test.ts` (4)
+run green; `tests/e2e/app-home-events-visible.spec.ts` is unmodified but could not be executed
+in this container (no Docker → no local Supabase stack, and Playwright needs a dev server).
+
+### Round 2 — the pin's lifetime (fresh-session `/code-review` + `/security-review` on PR #278)
+
+The review raised three findings, two merge-blocking. Both blockers were about **how long the
+pin lives**, not about the pin itself, and both were confirmed here before being acted on —
+reproduced against the real `PlusOneApp`, with numbers matching the reviewer's own.
+
+The single root cause: **the write was guarded by a `useRef` while the pinned value lived in
+the URL.** A ref is per-mount; the URL is not. Every gap between those two lifetimes leaked.
+
+**Blocker 1 — the pin was one-shot per id, so the original bug came back after the first
+hardware-back gesture.** `pinnedDoorRef.current === resolvedDoorId` was doing double duty: the
+render-loop guard *and* a permanent record. Once `ev-a` had been pinned, that id could never be
+pinned again for the life of the mount — and `doorState.eventId` returns to `null` **without** a
+remount. `useDoorOverride`'s popstate listener drops the override on any back/forward by design
+(it exists precisely because Next's hooks don't re-fire on a raw-history pop, 86ey9tq62), and a
+door entered from the bottom tab has no `?event=` in Next's tracked search string to fall back
+to. So closing a guest overlay with the Android hardware back button — the door's single most
+common gesture — put the door back to being derived every render. Measured on the unfixed code:
+
+```
+after popstate, door : true
+door after 2nd event : false
+picker mounted       : true
+channelTeardowns     : 1     <- the realtime channel this whole PR exists to protect
+```
+
+**Blocker 2 — the pin was persisted in the URL but the mechanism releasing it was not, so a
+doorhost could land on a dead screen with no way out.** The pin survives a reload; a `useRef`
+does not. A tablet reloading last night's pinned URL (a plain refresh, or the Capacitor
+remote-URL shell restoring the last URL) hits: `requestedDoorId` = the stale `ev-a` from the
+URL, so the `length === 1` derivation never runs; `resolvedDoorId` = `null`, correctly rejected
+by validation; the release never fires because the fresh ref is `null`; and with exactly one
+candidate there is no picker either (`> 1` required). Measured on the unfixed code:
+
+```
+door mounted   : false
+picker mounted : false
+URL            : ?event=ev-a
+body text      : "Check-in — No event to check in to yet. Create or open one first."
+```
+
+This is a regression in kind, not degree: before the PR the implicit choice was never written
+to the URL, so the same reload just re-derived tonight's event. A stale *explicit* `?event=`
+could already strand a host, but only if they had deliberately picked one — after round 1 every
+single-candidate door tab acquired one automatically.
+
+**Finding 3 (minor) — an explicit re-pick of the already-pinned event was mislabelled as "our
+guess".** A pick from the in-door picker (`onChangeDoorEvent` → `onPick`) goes through
+`replaceDoorState` with no remount, so the ref kept its old value and the user's own choice
+became releasable by the branch above. The reviewer's own note — that deriving intent from
+state instead of tracking it in a ref removes all three at once — is what the fix does, so this
+one dissolved rather than being patched.
+
+**The fix: nothing is remembered about who chose an id; both halves read current state.**
+
+- The **write guard** now asks *"is the state already what I would write?"* instead of *"have I
+  ever written this?"* — it compares against `doorState.eventId`, which is self-healing: after
+  the write the state *is* the value, so the effect stops on its own. It re-pins after a
+  popstate, which is exactly what blocker 1 needed.
+- The **release** now fires on `rejectedDoorId` — the candidate list's own settled verdict,
+  published as state by the existing stale-id refetch effect once that id's one retry has come
+  back and still doesn't contain it. It needs no memory of who chose the id, so it is
+  re-derived on **every** mount, including the fresh one after a reload. That closes blocker 2.
+- `pinnedDoorRef` is gone entirely.
+
+Two details that are load-bearing rather than incidental:
+
+- `rejectedDoorId` is **state, not a ref**, on purpose. Effects in one component run in
+  declaration order, so a ref written by the refetch effect would already be readable by the
+  pin effect on the *same* commit — and the pin would then be released before its retry had a
+  chance to bring the event back. That retry exists for a real case ("Check-in" tapped for an
+  event a colleague created seconds ago), so collapsing the two into one commit would trade a
+  dead end for landing the host on the wrong event. A state update forces a later render.
+  Mutation-tested: replacing the `rejectedDoorId` gate with a plain settled-list check turns
+  that case red (`expected '?event=ev-b' to contain 'event=ev-a'`).
+- The release re-checks `!doorCandidates.some(...)` alongside `rejectedDoorId`, because on the
+  commit where the refetch effect *clears* the rejection the pin effect still reads the previous
+  state value.
+
+**Deliberate behaviour change.** The release no longer distinguishes our pin from an explicit
+user pick, so a stale explicit `?event=` is now released too. That is a fix, not collateral:
+`resolvedDoorId` already refuses to mount the door for a non-candidate, so such an id was only
+ever stranding the host.
+
+**Tests.** `src/components/po/door-pin-lifetime.test.tsx` (jsdom, real `PlusOneApp`) adds four
+cases; the round-1 file's candidate-query stub was made faithful (`refetch()` now flips
+`isFetching`, which is what `notifyOnChangeProps` actually re-renders on — a no-op stub modelled
+a retry that never lands).
+
+Red-on-revert verified per test, mechanically, against `git show HEAD:src/components/po/app.tsx`:
+
+| test | on unfixed code |
+| --- | --- |
+| re-pins after a hardware-back gesture drops the door override | **red** — `door-provider` null after the 2nd event |
+| releases a rejected pin on a FRESH mount (reload dead screen) | **red** — `door-provider` null, no picker |
+| writes the pin exactly once at mount, never on an idle re-render | green (loop guard was already correct) — **red under mutation**: dropping the guard gives `expected 2 to be 1` |
+| does not release before the stale-list retry has settled | green (unfixed code never releases there) — **red under mutation** as above |
+
+The reviewer explicitly confirmed the round-1 render-loop guard was sound (1 write at mount, 0
+on idle re-renders). Removing the ref must not cost that, so it is now asserted directly by
+counting real `history.replaceState` calls rather than left implicit.
+
+**Gates (round 2).** `pnpm lint` clean (same 2 pre-existing `jsx-a11y` warnings in the
+unrelated `datetime-field.tsx`), `pnpm type-check` zero errors, `npx vitest run` **117 files /
+1195 tests, all passing**. The three protected guards were neither touched nor weakened:
+`app-shell-no-ssr-suspense.test.ts` and `door-tab-element-identity-bailout.test.ts` green;
+`tests/e2e/app-home-events-visible.spec.ts` unmodified but still not runnable in this container
+(no Docker → no local Supabase stack, and Playwright needs a dev server). Door offline
+invariant #25 is untouched — the release, like the pin, goes through `replaceDoorState` on raw
+history, never `router.replace`.
+## 2026-08-19 — Venue switch: a refused switch no longer reloads as if it worked (86eykm7rk)
+
+Branch `fix/86eykm7rk-venue-switch-silent-failure`. Milestone: **Now**. No migration, no schema
+change — five source files, one dead component deleted, three unit suites, and one CLAUDE.md
+invariant line.
+
+**The bug.** `persistActiveVenue` (`src/features/venues/actions.ts`) refuses on three paths
+*without throwing*: no session, Zod rejects the id, or the id is not one of the caller's live
+memberships. Its only caller, `setActiveVenueAction`, dropped that boolean on the floor and
+resolved as `Promise<void>`. The po shell's `switchToVenue` then did:
+
+```ts
+void setActiveVenueAction(fd).then(() => window.location.assign('/app')).catch(() => setToast(null));
+```
+
+`.then()` fires on a refusal exactly as it does on success — `.catch()` only ever saw real
+exceptions. So the cookie was never written, the reload re-resolved identity to the **old**
+venue, and the user landed back where they started with no error and nothing to act on.
+Repeatable forever. **Trigger:** an admin revokes someone's membership of venue B between the
+render of `myVenues` and their tap on "switch".
+
+**Why the fix is not just "return the boolean".** One constraint shaped it: an expired session
+must keep reloading, because that routes through middleware to `/login` — the right destination,
+where an error toast would instead be a dead end. So the outcome is three states, not a boolean,
+precisely because `unauthenticated` and `denied` must diverge in the UI:
+
+```ts
+export type SwitchVenueResult = 'ok' | 'unauthenticated' | 'denied';
+export async function switchActiveVenueAction(venueId: string): Promise<SwitchVenueResult>
+```
+
+`switchToVenue` reloads on `ok` **and** on `unauthenticated`; only `denied` raises a message. The
+refusal reasons stay server-side — the client learns the outcome, not the membership list.
+
+*(Round 1 shipped a second, `Promise<void>` export as well, to keep `VenueSwitcher.tsx`'s
+`<form action={…}>` call site compiling. Round-2 review found that component is rendered nowhere;
+see "What round-2 review changed" below — that constraint and the second export are both gone.)*
+
+**Second caller fixed too.** `screens/onboarding.tsx:72` (the switcher's "New venue" quick-create)
+had the identical swallow — `await setActiveVenueAction(fd)` then an unconditional reload. It now
+branches on the same contract — with its OWN string, because the venue *was* created at that
+point (see finding 3 below).
+
+**Copy is English, and that is now settled — and CLAUDE.md says so.** Max decided on 19/8 that
+the product's UI copy is English; `tone-of-voice.md`, `copy-deck.md` and `ia-audit-claude-code.md`
+§8 already said so, and `src/lib/i18n/en.ts` is headed "English UI copy — the single source of
+truth". Round 1 flagged CLAUDE.md's Conventions line ("Dutch UI copy") as the odd one out and
+asked for one of the two to move. **The correction was not actually in the repo** — not on `main`
+and not on any remote branch — so this PR makes the one-line edit rather than shipping a changelog
+that references a fix that does not exist. Invariant change only; no string in this PR is Dutch,
+and the existing `switchFailed` text is unchanged.
+
+**Red-on-revert verified on both halves** (not assumed — each was reverted and re-run):
+
+| revert | failure |
+|---|---|
+| `switchToVenue` back to `.then(() => assign('/app'))` | `expected "spy" to not be called at all, but actually been called 1 times` — the buggy code navigates |
+| `switchActiveVenueAction` swallowing the result (`await …; return 'ok'`) | 3 failures: `expected 'ok' to be 'denied'` ×2, `expected 'ok' to be 'unauthenticated'` |
+
+**Gotcha for the next component test in this shell.** jsdom's `window.location` is
+`[LegacyUnforgeable]`: `vi.spyOn(window.location, 'assign')` throws `Cannot redefine property`.
+Replacing the whole property with `Object.defineProperty(window, 'location', { configurable: true,
+… })` works and is what `app.venue-switch.test.tsx` does. The same file also shows how to drive a
+real `usePo()` callback from a mocked screen — `await import('./context')` **inside** the
+`vi.mock` factory, never a closed-over binding, or you get a second module instance, a second
+React context, and `usePo()` throws.
+
+`app.auto-open.test.tsx` needed its `@/features/venues/actions` mock renamed to the new export;
+it mocks the module wholesale, so a missing export would have failed at import.
+
+**Diff discipline.** `src/components/po/app.tsx` is also touched by PR #278 (`requestedDoorId`
+~r. 437–466, pin logic ~r. 540–551). This PR's hunks are the `switchToVenue` callback, two imports,
+a module constant and the toast state/render lines — all clear of those regions, no reformatting,
+no import reordering. Re-verified after round 2 with a real trial merge against #278's branch:
+`app.tsx` **auto-merges cleanly**; the only conflict is this file, where both PRs prepend a
+newest-first entry at the same anchor — inherent to the convention, resolved by whichever merges
+second.
+
+### What round-2 review changed (fresh-session `/code-review`, 6 findings)
+
+All six were verified against the code before being acted on; all six held.
+
+**1 — `denied` also fired for external-crew venues (the serious one).** `src/app/app/layout.tsx:70`
+builds the shell's `myVenues` as memberships **plus** organizer-only venues, and `VenueSwitch`
+renders a Switch button on every one of them — labelling the crew ones "External crew".
+`persistActiveVenue` validated against `getMyMemberships()` alone, so tapping Switch on a crew
+venue returned `denied` and round 1 answered it with *"You no longer have access to that venue."*
+Deterministic, on a completely normal path, for a user who had lost nothing — the PR's own premise
+(`denied` ⇒ revoked access) did not hold. The check now mirrors `layout.tsx` exactly: memberships
+∪ organizer venues, with the organizer lookup best-effort (`.catch(() => [])`) so a failing crew
+read can never lock a real member out of their own venue. This is the same set
+`resolveActiveVenueId` accepts a cookie against, so the write resolves correctly on reload. **`roles: []` is
+not "no access": event scope IS access (#24/86ey21vre).** RLS remains the boundary either way —
+this only decides whether the cookie is written.
+
+**2 — the thrown-error path was still silent.** `.catch(() => setToast(null))` made a network blip
+or a 500 indistinguishable from the silent refusal this PR exists to remove: "Switching…" flashed,
+the venue did not change, nothing said why. It now raises `t.venue.switchError` — deliberately
+**not** `switchFailed`, because the user's access is fine and "try again" is the opposite advice
+from "refresh your venues".
+
+**3 — the create message contradicted itself.** `VenueCreate` reused `venue.switchFailed`, telling
+someone who had just become a venue's Admin that they no longer had access to it, and pointing
+them at a list that *does* contain it. Its own key now: `onboarding.venueCreate.createdNotOpened`
+— "Venue created, but we could not open it. You'll find it under More → Venues."
+
+**4 — the toast timer diverged from the codebase's idiom, and there is a hook for it.** A bare
+`setTimeout` in a promise callback outlived unmount and could clear a *later* toast: refuse a
+switch (6s timer armed), tap a valid venue 3s later, and at t=6s the stale timer wiped the
+in-flight "Switching…". The review pointed at the hand-rolled effects in `app.tsx:379` and
+`guests/profile.tsx`, but the canonical answer is `src/lib/use-transient-value.ts` —
+**11 call sites** (DoorProvider, `home.tsx`, the cockpit, every copy-link flag), and its docstring
+names this exact bug: *"an earlier trigger's timer can never fire after a later value was set and
+wipe it prematurely (86ey9ea1g — the home.tsx toast had exactly this bug before this hook
+existed)"*. So `switchToVenue` now uses that hook rather than a fourth private timer, and gets its
+trigger-after-unmount no-op for free — which matters, because this toast IS armed from an async
+completion.
+
+The one thing the hook cannot express is a **sticky** toast, and "Switching…" must be sticky: the
+reload ends it, not a timer. So the two live side by side — sticky `toast` state for "Switching…"
+and the billing toast, transient hook for the two errors — with `{(transientToast ?? toast)}`
+rendering, and a new switch calling `clearTransientToast()` so a previous attempt's error cannot
+render over the new "Switching…".
+
+**5 — the onboarding branch had no test** while its `app.tsx` twin had four.
+`screens/onboarding.venue-create.test.tsx` adds four: `denied` (no reload, create-specific string,
+explicitly `not.toBe(switchFailed)`), `ok`, `unauthenticated`, and a failed create that must never
+reach the switch. `actions.venue-switch.test.ts` gains the external-crew case from finding 1, a
+"venue in neither set is still denied" guard so the widened set does not become accept-anything,
+and the organizer-lookup-fails fallback. `app.venue-switch.test.tsx` gains the two timer tests and
+its thrown-error test was rewritten — round 1's version *pinned the silence*.
+
+**6 — the constraint that shaped the design came from dead code, so the design got simpler.**
+`VenueSwitcher.tsx` was the sole consumer of the void-returning `setActiveVenueAction`, and
+`grep -rn "VenueSwitcher" src/` returned only its own definition. It is a leftover of the retired
+`(app)` dashboard (the branches that still import it are all June-2026 and pre-date `/app`), and
+if it were ever mounted it carried the exact silent failure this PR removes. Deleted, and with it
+`setActiveVenueAction` and the `persistActiveVenue`/two-export split: one exported
+`switchActiveVenueAction`, no void/non-void justification, **net fewer lines than round 1**. Its
+two dead siblings in that directory (`RemoveMemberButton.tsx`, `VenueSettingsForm.tsx`) are
+untouched — unrelated to this bug, and dead-component removal has its own lane (PR #274).
+
+**Red-on-revert verified on all five new guards** (each reverted and re-run, not assumed):
+
+| revert | failure |
+|---|---|
+| access set back to memberships-only | `expected 'denied' to be 'ok'` — the external-crew test |
+| `.catch()` back to `setToast(null)` | `Unable to find … "Could not switch venue…"` |
+| error toast back to a bare `setTimeout` | `Unable to find … "Switching…"` — the stale timer clips the next toast |
+| `VenueCreate` back to `t.venue.switchFailed` | `Unable to find … "Venue created, but we could not open it…"` |
+| `VenueCreate`'s `denied` branch deleted | `expected "spy" to not be called at all, but actually been called 1 times` |
+
+**Finding 1 also proved against a real database, not only mocks.** The unit test mocks
+`getMyMemberships`/`getOrganizerVenues`, which is exactly the layer the bug lived in — so it was
+worth confirming the premise holds against real RLS. The seed already ships the case: **Yusuf
+(`organizer@plusone.test`) has no membership at Club Vesper, only an `event_organizers` row**
+(seed comment: *"organizer Yusuf has NO membership, only an event scope"*). Adding a membership at
+De Marktzaal makes him member-at-B / external-crew-at-A — the reviewer's exact scenario. Running
+the app's two reads under his JWT with RLS enforced (`supabase/tests`-style `pg_temp.login`,
+script kept out of the repo — it asserts seed shape, not app logic):
+
+```
+ok 1 - Club Vesper is NOT among Yusuf's memberships (external crew only)
+ok 2 - Club Vesper IS among Yusuf's organizer venues, visible under RLS
+ok 3 - round-1 (memberships only) would return 'denied' for a normal crew venue
+ok 4 - round-2 (memberships UNION organizer) returns 'ok' for the crew venue
+ok 5 - a venue in NEITHER set is still denied
+ok 6 - the real membership (De Marktzaal) is still allowed
+ok 7 - no membership row at the crew venue: selecting it grants no roles
+```
+
+The last one is the security half: writing the cookie for a crew venue grants no roles, so no
+role-gated action opens up and RLS still decides every read.
+## 2026-08-19 — pgTAP: a plan/run mismatch is now a red build (86eykjgrb)
+
+Branch `fix/86eykjgrb-pgtap-plan-mismatch`. Two test files had been printing
+`# Looks like you planned N tests but ran 2` into every suite run while `supabase test db`
+reported an overall PASS.
+
+**What was actually wrong — not what it looked like.** The symptom reads as "13 assertions
+never ran", and that was the working theory. It is not what happens. Every assertion in
+`tiers.vat.test.sql` runs, and every one passes; the same holds for `event_templates.test.sql`
+(41 planned). The defect is in pgTAP's own bookkeeping:
+
+- `finish()` compares `plan(N)` against `curr_test`, which pgTAP stores in the **temp table**
+  `__tcache__` — so `rollback to savepoint` reverts it along with the section's data.
+- The test *numbers* it prints come from `__tresults___numb_seq`, a **sequence**. Sequences are
+  non-transactional, so those keep counting correctly across the same rollback.
+
+The two drift apart, and `finish()` ends up comparing the plan against the last assertion that
+ran *outside* a savepoint — test 2 in both files. `event_templates.test.sql` already carried a
+comment showing the author had hit the edge of this ("finish() sees zero and raises *No tests
+run!*") and worked around the exception without noticing the count was also wrong.
+
+**Why pg_prove was right to say PASS.** The TAP stream it receives is complete and correct:
+`1..15`, then fifteen `ok` lines. pgTAP's contradicting self-check is emitted as a TAP
+*comment*, which a harness is free to ignore. Verified against the real binary rather than
+assumed — pg_prove **does** already fail on a `not ok` line, and it passes `ON_ERROR_STOP=1` to
+psql, so a file that genuinely dies mid-run truncates its stream and fails as
+`Bad plan. You planned 4 tests but ran 2`. Neither of those safety nets was broken. The one
+gap was the comment.
+
+**The fix.** Re-sync pgTAP's counter from the sequence — the only place that knows what actually
+executed — immediately before `finish()`, in the three files that use savepoints
+(`tiers.vat`, `event_templates`, `events`). `plan(N)` was **not** lowered to match; that would
+define the defect away. `events.test.sql` was not emitting the diagnostic, but only by accident
+of ordering (its last assertions happen to sit outside a savepoint), so it got the same
+treatment rather than being left to break on the next edit.
+
+**The gate (the weightier half).** `supabase test db` in CI is now `node scripts/db-test.mjs`,
+which streams pg_prove's output through unchanged and fails the build on
+`planned N tests but ran M`, `Looks like you failed N tests of M`, and `# No tests run!`.
+Detection lives in `scripts/lib/pgtap-gate.mjs` with a Vitest suite
+(`tests/unit/pgtap-plan-run-gate.test.ts`, 7 tests) built from real captured pg_prove output.
+Proven by running the gate against the unfixed file: pg_prove exits 0 and reports `Result: PASS`,
+the gate exits 1.
+
+**Scope of the rot: 2 files of 56.** The full suite was run file-by-file to check, not sampled.
+1092 assertions, no mismatches remaining.
+
+### Round 2 — review: the gate's own reliability (7 findings)
+
+Reviewed as "no blockers", but five of the seven were about whether the gate can be
+trusted to go red, which is the entire point of it. Each is now pinned by a test that
+was checked to FAIL against the pre-fix code — a gate you only argue about is the thing
+this PR exists to stop.
+
+**Confirmed and fixed:**
+
+- **stdout and stderr were merged into one buffer, then matched line by line.** They are
+  independent pipes. Reproduced: a fake pg_prove writing `# Looks like you planned 15
+  tests but `, a stderr warning, then `ran 2` yields the merged line
+  `# Looks like you planned 15 tests but WARN: local stack is still warming up` — the
+  old code found **0 hits** and exited 0 on a real mismatch. Every entry point in
+  `pgtap-gate.mjs` now takes one string per stream and scans each on its own.
+- **`process.exit()` on a piped stderr truncated the diagnostic the script exists to
+  print.** Measured, not reasoned: ~200 KB of gate output, a reader busy for 250 ms
+  (a CI log collector), stderr a pipe — `process.exit(1)` delivered **0 bytes**;
+  `process.exitCode = 1` delivered all 199,569 with the tail intact. Both exit paths
+  now set `exitCode`.
+- **The success line asserted something nothing had verified.** "No failure pattern
+  matched" is also what zero coverage looks like — a renamed tests directory, a changed
+  CLI glob, a `config.toml` edit. `findMissingRunEvidence()` now demands positive proof
+  (`Files=N` ≥ 1, `Tests=M` ≥ 1, a `Result: PASS` line) before success may be printed,
+  and the success line names the numbers it checked instead of claiming a property.
+- **`currval()` raised when no assertion had advanced the sequence.** SQLSTATE 55000
+  aborted the transaction before `finish()` could raise `# No tests run!` — replacing a
+  signal the gate catches by name with a sequence error it does not recognize, in
+  exactly the case the gate must catch. The three resync blocks now swallow 55000 and
+  leave `finish()` to raise its own diagnostic.
+- **The gate was bypassed by every documented local workflow.** It lived in CI and
+  `pnpm db:test` and nowhere else, so **CLAUDE.md's prod-push flow — the last check
+  before a schema reaches the one prod project, with no staging behind it — stayed
+  blind.** Nine call sites repointed at `pnpm db:test` (CLAUDE.md, README ×2,
+  docs/ARCHITECTURE.md, bouwplan ×4, launchplan). Cost is zero: the wrapper needs no
+  `node_modules`, adds no DB work, and now forwards arguments, so it is a strict
+  superset of the bare command. `tests/unit/pgtap-gate-is-the-documented-command.test.ts`
+  keeps the sweep from rotting — a live instruction doc may name the bare command only
+  on a line that also points at the wrapper. Historical records (changelog,
+  security-audit, plan-*) are deliberately untouched.
+- **Arguments were silently dropped**, so `pnpm db:test -- one.test.sql` quietly ran all
+  56 files against the shared local stack. `process.argv.slice(2)` is forwarded.
+- **Two comment blocks stated an invariant the fix had removed** ("this final assertion
+  must commit so curr_test reaches 46"; "without at least one non-rolled-back test,
+  finish() sees zero"). Both rewritten — the resync takes the count from the sequence, so
+  section ordering is now free. `event_templates.test.sql` carried the same stale rule
+  and was fixed with it, though the review only flagged `events.test.sql`.
+
+**One behaviour change beyond the findings.** The gate's patterns are now applied on the
+non-zero-exit path too. `# No tests run!` is RAISEd by pgTAP, so psql (`ON_ERROR_STOP=1`)
+exits non-zero and the old control flow returned before the gate ever looked — the pattern
+was dead. It now names what it found on top of the exit code, instead of leaving the reader
+to hunt through 56 files of output.
+
+**How the gate was proven, not argued.** `tests/unit/pgtap-plan-run-gate.test.ts` (21 tests)
+spawns the real `scripts/db-test.mjs` against a scripted fake `supabase` with its
+stdout/stderr as pipes — the exact shape CI gives it — and covers the interleaved split, the
+slow-reader truncation, the zero-coverage exit 0, the silent exit 0, argument forwarding, and
+a non-zero exit that still gets labelled. Each guard was verified by reintroducing the defect:
+merging the streams flips the interleave test to exit 0, restoring `process.exit()` drops the
+diagnostic to 0 bytes, removing the evidence check turns both zero-coverage tests green.
+
+The SQL half cannot be unit-tested — pgTAP's counter, `currval()` and `finish()` need a real
+Postgres — so it was proven in CI instead, as four temporary workflow steps that assert their
+own claims against the live stack and were removed again in the following commit (runs
+`32271276799`, all four green). Each assertion was emitted as a workflow annotation, since this
+session could not reach the log-storage host; the verdicts, verbatim:
+
+**A — the gate turns a pg_prove PASS into a red build.** A savepoint-drifted file added to the
+real 56-file suite:
+
+```
+bare `supabase test db` exit=0 ; gate exit=1
+bare: # Looks like you planned 4 tests but ran 1
+bare: Files=57, Tests=1096,  5 wallclock secs
+bare: Result: PASS
+gate: ✖ pgTAP plan/run gate failed — pg_prove reported PASS, but:
+gate:   a pgTAP file's plan() does not match the number of assertions it ran:
+gate:     # Looks like you planned 4 tests but ran 1
+```
+
+**B — the `currval()` finding, reproduced and then fixed, as an A/B on one database.** The same
+zero-assertion file, differing only in the exception handler:
+
+```
+B2 (pre-fix):  ERROR:  currval of sequence "__tresults___numb_seq" is not yet defined in this session
+               CONTEXT:  SQL statement "SELECT _set('curr_test', currval('__tresults___numb_seq')::int)"
+               → Tests: 0, and `# No tests run!` never appears at all
+B1 (fixed):    ERROR:  # No tests run!
+               → gate: "a pgTAP file planned tests but ran none"
+```
+
+**D — arguments reach the real Supabase CLI**, which the unit test cannot show (it only sees a
+fake binary): `Files=1, Tests=15` and `✔ pgTAP plan/run gate: 1 files / 15 assertions ran`.
+
+**One false start worth recording.** The first version of proof A put its surviving assertion
+*after* the rollback. CI reported `Files=57, Tests=1096`, `Result: PASS`, the proof file marked
+`ok` — and no mismatch emitted. The gate exited 0 because there was genuinely nothing wrong:
+that file only drifts if pgTAP's `ok()` increments `curr_test`, and not if it assigns it from
+the sequence. The fixture was wrong, not the gate. Reshaped to mirror `tiers.vat.test.sql`
+exactly — surviving assertion first, savepoint sections last, rollback immediately before
+`finish()` — which drifts under either mechanism. Worth keeping in the record twice over: it is
+also the one run in this PR where the gate was shown NOT to fire on a file that had not actually
+drifted.
+
+## 2026-08-19 — `guests.added_by` gebonden op UPDATE (86eymckjt)
+
+Branch `fix/86eymckjt-guests-update-bind-added-by`. Milestone: Now. Migratie
+`20260819100000_guests_update_bind_added_by.sql`, pgTAP `guests_added_by_bind.test.sql` (20
+assertions). Spec-bullet toegevoegd onder de quota-implementatie in `gastenlijst-app-spec.md`,
+naast de `guests.status`-bullet van 11/8 — dezelfde les, één kolom verder.
+
+**Het gat.** `guests_update` (`20260613120000`, laatst gewijzigd `20260811160000`) evalueerde zijn
+rol-tak op `auth.uid()` en stelde nooit een eis aan de *waarde* van `added_by`:
+
+```sql
+and (
+  added_by = (select auth.uid())
+  or public.has_venue_role(public.event_venue(event_id), '{admin,doorhost}')
+  or public.is_event_organizer(event_id)
+)
+```
+
+Kom je binnen via de tweede of derde tak, dan is die kolom vrij beschrijfbaar. `guests_insert`
+pinde hem sinds dag één (#27); de UPDATE-kant nooit.
+
+**Waarom dat het quotum adviserend maakte.** `enforce_guest_quota` (`20260714100000`, r.55) toetst
+de vrijstelling op de **genoemde adder**, niet op de schrijver
+(`not public.user_is_quota_exempt(new.event_id, new.added_by)`), en `user_is_quota_exempt`
+(`20260625120000`) is waar voor elke venue-admin. Wijs `added_by` naar een admin en de hele
+persoonlijke-quotumtak slaat over: niemands meter wordt belast — niet die van de schrijver, niet
+die van de admin. Een doorhost of staflid met nul vrije plekken kon zo onbeperkt gasten toevoegen
+door één normaal belaste rij toe te voegen en die daarna te herattribueren. **Dat sluit deze PR —
+maar het quotum wordt er nog niet afdwingbaar van; zie "Wat hierna nog openstaat".** Dezelfde truc wijst een
+rij naar `NULL`, de "auto-goedgekeurd via aanvraaglink"-attributie (#43(c)), die op géén meter drukt.
+
+Wat wél bleef staan, en waarom dit geen gratis-gastenmachine was: de gedeelde pools bewogen nog
+steeds (`events.capacity`, `guest_tiers.max_guests`) en `audit_log.actor_id` legde altijd de echte
+sessie vast. De schade is misattributie plus een omzeilbaar persoonlijk quotum.
+
+**Herkomst.** Gevonden door fresh-session `/code-review` + `/security-review` op PR #271
+(`86ey9et0h`, door-outbox owner-stamp). Daar opgevoerd, vervolgens geverifieerd als pre-existing en
+op `main` in één write bereikbaar — geen regressie van die PR. De migratie-header van
+`20260812140000` noemt deze taak expliciet als de echte fix.
+
+**De regel.** `added_by` mag ongewijzigd blijven of naar de caller zélf bewegen; nooit naar een
+derde, nooit naar `NULL`. Eigenaarschap overnemen geeft niets weg: `enforce_guest_quota` ziet
+`old.added_by <> new.added_by`, telt de oude bijdrage als 0 en zet de volle nieuwe op de meter van
+de overnemer (bewezen in C3: de doorhost gaat van 2 naar 3 van haar 5). Eén bewuste asymmetrie,
+genoteerd in de migratie-header: een venue-**admin** is quota-exempt, dus een admin die een gast van
+een staflid overneemt geeft diens plek vrij. Admins bezitten de quotatabel sowieso en kunnen die
+direct ophogen, dus dat voegt geen capability toe.
+
+**Een trigger, geen `WITH CHECK` — precies de valkuil die de review van PR #271 (C4) ving.**
+`WITH CHECK` evalueert de RESULTERENDE rij, niet de gewijzigde kolommen. Een grens op `added_by` in
+de policy hervalideert dus élke update die de kolom niet aanraakt — notitie bewerken, tier wijzigen
+(enkel + bulk), `undoRefusal`, `ackNote`, soft delete — tegen wie er toevallig in staat, en zou
+daarmee juist de rijen bevriezen die een admin/doorhost/organisator hoort te kunnen bewerken. Een
+BEFORE UPDATE-trigger ziet `OLD` en kan de enige vraag stellen die telt: *verandert* deze statement
+de attributie? De trigger bindt bovendien strikter dan een policy: `guests` staat niet op
+`FORCE ROW LEVEL SECURITY`, dus een SECURITY DEFINER-functie passeert RLS — maar nooit een trigger.
+
+**Tweede valkuil uit dezelfde PR, ook overgenomen:** niet-client-contexten worden uitgesloten op
+`current_user in ('authenticated','anon')`, **niet** op `auth.uid() is null`. `reset role` herstelt
+de rol zónder `request.jwt.claims` te wissen, dus `auth.uid()` blijft vrolijk de laatst ingelogde
+gebruiker teruggeven terwijl de write als superuser draait. Test D2 pint die val open: hij bewijst
+dat de JWT-claim er nog stond toen D1 als superuser slaagde.
+
+**Legitieme paden geverifieerd (bron, niet aanname).** Geen enkel pad schrijft `added_by` op een
+bestaande rij: `src/features/guests/actions.ts` (updateGuest, changeGuestTier, bulk-tierwijziging,
+soft delete), `src/features/door/outbox/gateway.ts` (`undoRefusal` = alleen `status`, `ackNote` =
+alleen de ack-kolommen, `insertGuest` = een gewone INSERT, geen upsert, dus die raakt de trigger
+nooit), en in SQL `promote_guest_to_contact` (`20260714140000`), `mark_guest_regular`
+(`20260707150000`) en de anonimiseringssweeps — die raken `contact_id`/`full_name`/`email`/`phone`/
+`note`/`anonymized_at` en zijn bovendien SECURITY DEFINER, dus de client-context-test sluit ze uit.
+pgTAP sectie B dekt alle zes de client-updates expliciet af.
+
+**Bewust niet meegenomen (open beslissing voor Max).** Of `enforce_guest_quota` de vrijstelling op
+de **schrijver** moet toetsen in plaats van op `added_by`. Dat is een gedragswijziging — een admin
+die namens een staflid toevoegt belast dan diens quotum — en vereist een expliciete go. Zonder die
+wijziging blijft één legitieme route bestaan waarlangs een gast op niemands meter landt: een admin
+die zelf toevoegt (source `app`), wat het bedoelde gedrag van de exemptie is.
+
+**Wat hierna nog openstaat — het quotum blijft adviserend.** Een eerdere versie van deze kop en
+van de spec-bullet zei "quotum-handhaving is niet langer adviserend". Dat klopte niet en is
+teruggebracht tot wat deze PR feitelijk doet: `added_by` is gebonden op **UPDATE**. Na deze merge
+blijven er twee één-write-routes over waarlangs een gebruiker over zijn persoonlijke quotum heen
+komt. Beide zijn nagemeten op een volledige schemabouw (alle 99 migraties + `seed.sql` op een kale
+Postgres 16, met een Supabase-shim voor `auth`), niet op een handmatig model:
+
+1. **INSERT-forge langs `source='door'` (doorhost/organisator).** `20260812140000` (PR #271,
+   besluit **#45**) versoepelde `guests_insert` van een pin naar een grens, zodat een deurtablet de
+   entries van de vórige doorhost kan legen. `can_record_check_in_for` accepteert elke
+   admin/doorhost/organisator van het event als *genoemde* adder, en een venue-admin is
+   quota-exempt — dus precies de exploit die deze PR op UPDATE dicht, staat open op INSERT:
+
+   ```
+   honest add #1..#3 (eigen naam)                       -> ALLOWED
+   honest add #4 (eigen naam)                           -> REFUSED 45001 "6 van 5"
+   FORGE #1..#3  added_by=<venue admin>, source='door'  -> ALLOWED
+   na afloop: doorhost 5/5 verbruikt | 3 gesmede rijen | 30 extra koppen op de lijst
+   ```
+
+   Besluit #45 noteert deze versoepeling al als "bekende prijs, aanvaard", op de grond dat "de
+   collega's meter wordt belast". Die grond klopt voor een doorhost of organisator en **klopt niet
+   voor een admin**, die is vrijgesteld — dan wordt er helemaal geen meter belast. Wat hier dus
+   eerst moet gebeuren is een amendement op besluit #45 door Max, niet een stille aanscherping in
+   een review-fix-PR. Bovendien werkt de voor de hand liggende one-liner
+   (`and not public.user_is_quota_exempt(event_id, added_by)` in die OR-tak) niet zoals hij staat:
+   `user_is_quota_exempt` is niet uitvoerbaar door `authenticated`, dus élke cross-user drain zou
+   falen op 42501 "permission denied for function" — en 42501 is TERMINAL in `replay.ts`, oftewel
+   dead-letter, oftewel exact het verloren deur-item dat #45 verbiedt. Mét de ontbrekende GRANT
+   blokkeert hij de forge wél, maar weigert hij dan ook de legitieme drain van de eigen deur-adds
+   van een **admin** (nagemeten). De derde optie — eisen dat de genoemde adder de outbox-eigenaar
+   is — is server-side niet verifieerbaar: `ownerId` is een client-bewering, zoals de header van
+   `20260812140000` zelf vaststelt. Vervolgtaak: vervolgtaak *"INSERT-kant van `guests.added_by` begrenzen + besluit #45 amenderen"* in ClickUp-lijst `901818739469` — nog aan te maken, ClickUp gaf tijdens deze sessie een rate-limit van ~19 uur.
+
+2. **`source`-flip op UPDATE (gewoon staflid).** `guest_personal_contribution` telt
+   `source in ('landing','permanent')` als 0 (#31/#11), en niets bindt `source` op UPDATE. Een
+   staflid op zijn cap zet zijn eigen rijen om en begint opnieuw:
+
+   ```
+   staff honest add (over de cap)      -> REFUSED 45001 "13 van 12"
+   staff flipt 12 eigen rijen->landing -> ALLOWED
+   staff verbruik na de flip           -> 6/12   (18 rijen op zijn naam)
+   ```
+
+   Dezelfde vorm als de `guests.status`-les van 11/8 en als deze taak: een kolom die de
+   quota-engine leest, maar die de client vrij mag schrijven. Vervolgtaak: vervolgtaak *"`guests.source` binden op UPDATE"* in ClickUp-lijst `901818739469` — idem nog aan te maken.
+
+Kortom: deze PR haalt één van de drie routes weg en verkleint het gat; hij sluit het niet. De
+kop, de spec-bullet en deze sectie zeggen dat nu in die woorden — een correcte fix met een
+overdreven changelog is een slechtere PR dan een correcte fix met een eerlijke (de les van #252).
+
+**Testen.** `pnpm lint` schoon (2 pre-existing a11y-warnings in `datetime-field.tsx`),
+`pnpm type-check` 0 fouten, `pnpm test` groen. Geen Docker in de sessiecontainer, dus
+`supabase start`/`db reset`/`test db` konden niet draaien — in plaats daarvan is de review-ronde
+van 19/8 geverifieerd op een **volledige schemabouw**: alle 99 migraties + `seed.sql` toegepast op
+een kale Postgres 16 met een minimale Supabase-shim (`auth.uid()/jwt()`, `auth.users`,
+`auth.sessions`, de rollen `anon`/`authenticated`/`service_role`), waarna
+`guests_added_by_bind.test.sql` er ongewijzigd op draait. Daarop gemeten: **20/20 groen met de
+trigger**, en met de trigger gedropt (= `main`) zijn A1–A7 en B7 rood. A6 is apart nagemeten,
+buiten de cascade van A1–A5 om, omdat dáár de review-bevinding zat:
+
+```
+A6 geïsoleerd, zonder de guard:
+  caught: 42501: new row violates row-level security policy for table "guests"
+  wanted: 42501: Je mag een gast niet op naam van een andere gebruiker zetten.   -> not ok
+```
+
+De pgTAP-job in GitHub Actions blijft het bindende bewijs.
 
 ---
 
