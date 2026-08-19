@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  fetchContacts,
   fetchEventCrew,
   fetchEventQuota,
   fetchEvents,
@@ -602,5 +603,86 @@ describe('fetchRequestLinks (86ey9e9wv/D1)', () => {
         checkedInHeads: 3,
       },
     ]);
+  });
+});
+
+// ── fetchContacts → contactEventCounts chunking (86eykknf8) ─────────────────
+// contactEventCounts chunks its `guests.in('contact_id', …)` filter to stay
+// under Kong's URI length (~210 ids ≈ 7.8 kB → 414), NOT under PostgREST's
+// 1000-row response cap — so it must pass an explicit ≤120 chunk size to
+// chunkIds() rather than relying on the (1000) default. This pins that
+// behavior: with 121 contacts, the `.in()` filter must fire more than once,
+// and no single chunk may exceed 120 ids.
+
+describe('fetchContacts → contactEventCounts chunking (86eykknf8)', () => {
+  it('chunks the guests .in(contact_id) filter to ≤120 ids, not the 1000-id paging default', async () => {
+    const contactIds = Array.from({ length: 121 }, (_, i) => `c${i}`);
+    const inCalls: unknown[][] = [];
+
+    interface ContactsChain {
+      select: () => ContactsChain;
+      eq: () => ContactsChain;
+      is: () => ContactsChain;
+      order: () => ContactsChain;
+      range: () => Promise<unknown>;
+    }
+    interface GuestsChain {
+      select: () => GuestsChain;
+      in: (col: string, ids: unknown[]) => GuestsChain;
+      neq: () => GuestsChain;
+      order: () => GuestsChain;
+      range: () => Promise<unknown>;
+    }
+
+    const client = {
+      from: vi.fn((table: string) => {
+        if (table === 'contacts') {
+          const chain: ContactsChain = {
+            select: vi.fn(() => chain),
+            eq: vi.fn(() => chain),
+            is: vi.fn(() => chain),
+            order: vi.fn(() => chain),
+            range: vi.fn(() =>
+              Promise.resolve({
+                data: contactIds.map((id) => ({
+                  id,
+                  full_name: id,
+                  email: null,
+                  phone: null,
+                  birthdate: null,
+                  preferred_role: null,
+                  note: null,
+                  is_permanent: false,
+                })),
+                error: null,
+              }),
+            ),
+          };
+          return chain;
+        }
+        // `guests` — chunked `.in('contact_id', …)` lookup.
+        const chain: GuestsChain = {
+          select: vi.fn(() => chain),
+          in: vi.fn((_col: string, ids: unknown[]) => {
+            inCalls.push(ids);
+            return chain;
+          }),
+          neq: vi.fn(() => chain),
+          order: vi.fn(() => chain),
+          range: vi.fn(() => Promise.resolve({ data: [], error: null })),
+        };
+        return chain;
+      }),
+    } as never;
+
+    await fetchContacts(client, 'venue-1');
+
+    // 121 ids at a ≤120-id chunk size must span at least 2 chunks — the
+    // wrong (1000) default would collapse this to a single 121-id chunk.
+    expect(inCalls.length).toBeGreaterThan(1);
+    for (const ids of inCalls) {
+      expect(ids.length).toBeLessThanOrEqual(120);
+    }
+    expect(inCalls.flat()).toHaveLength(121);
   });
 });
