@@ -1,5 +1,33 @@
--- Canonical body (K10 drift guard, see supabase/canonical/README.md).
--- Newest source: supabase/migrations/20260819110000_landing_contact_required.sql:32.
+-- 86eyke279 — E-mail AND phone are mandatory on the PUBLIC request path.
+--
+-- Found by Max on 2026-08-10 while testing 86eyd3men (PR #245): a guest could
+-- file a landing-page request with a name and nothing else, leaving the venue
+-- with an approved guest it has no way to reach. The client-side half of the
+-- fix lives in `submitGuestRequestSchema` (src/features/requests/schemas.ts) +
+-- the form; this migration is the half that actually holds, because
+-- `submit_guest_request` is granted to `anon` and can be called directly
+-- against PostgREST with no browser involved. Without the guard here, the
+-- "requirement" is a suggestion the client is free to ignore.
+--
+-- SCOPE: the public landing/influencer-link flow only (/e/[slug], /r/[token]).
+-- The internal add-guest paths (quick-add, bulk-paste, admin/door add) still
+-- accept a bare name — that is deliberate and unchanged, see decision #9.
+--
+-- NOT a column constraint, on purpose:
+--   * `guest_requests.email` / `.phone` stay NULLable. Existing rows filed
+--     under the old rule keep working — they are still approvable, still
+--     visible in the inbox, still anonymized by the retention job. A NOT NULL
+--     here would break both expand-contract (#the deployed app version must
+--     survive the migration) and the historical data.
+--   * The rule is an RPC-level admission check on NEW public submissions, not
+--     an invariant of the table. `guests` (the internal paths) is untouched.
+--
+-- Body = 20260706103000_submit_via_request_link.sql with the contact guard
+-- added and the emptiness rule made whitespace-proof. Everything else — the
+-- throttle-first ordering, link resolution, silent dedup + status-token
+-- rotation, contact capture, auto-approve — is byte-for-byte unchanged.
+-- supabase/canonical/submit_guest_request.sql is updated in the same PR
+-- (K10 drift guard, tests/unit/canonical-functions.test.ts).
 
 create or replace function public.submit_guest_request(
   p_slug              text,
@@ -205,3 +233,12 @@ begin
   return jsonb_build_object('status', 'ok', 'auto_approved', v_auto);
 end;
 $$;
+
+-- `create or replace` preserves privileges, but the grant is restated so this
+-- migration is self-contained and readable next to 20260706103000.
+revoke execute on function
+  public.submit_guest_request(text, text, text, text, integer, text, text, boolean, date, text)
+from public, anon, authenticated, service_role;
+grant execute on function
+  public.submit_guest_request(text, text, text, text, integer, text, text, boolean, date, text)
+to anon, authenticated, service_role;

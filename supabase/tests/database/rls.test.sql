@@ -473,7 +473,7 @@ select throws_ok(
 -- is revoked, C2); the row still lands for the organizer (N1 below).
 select is(
   public.submit_guest_request(
-    'plusone-launch-night', 'Anon Aanvrager', null, null, 0, 'Via de landingpage',
+    'plusone-launch-night', 'Anon Aanvrager', 'anon-m3@x.test', '+31611440003', 0, 'Via de landingpage',
     'ip-m3', false) ->> 'status',
   'ok', 'M3 anon files a landing request via the RPC (#12/#28)');
 
@@ -489,7 +489,7 @@ select is(
 -- M5 a deactivated event refuses new requests (closed, indistinguishable, #28).
 select is(
   public.submit_guest_request(
-    'plusone-launch-night', 'Te Laat', null, null, 0, null, 'ip-m5', false) ->> 'status',
+    'plusone-launch-night', 'Te Laat', 'telaat@x.test', '+31611440005', 0, null, 'ip-m5', false) ->> 'status',
   'closed', 'M5 deactivated landing link refuses new requests (#28)');
 
 reset role;

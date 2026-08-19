@@ -8,6 +8,93 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-19 — E-mail én telefoon verplicht op het publieke aanvraagformulier (86eyke279)
+
+Branch `feat/86eyke279-landing-contact-required`. Milestone: **Now** — dit raakt het vermogen
+van een pilot-venue om een goedgekeurde gast te bereiken. Spec: **#9 verfijnd** (niet een
+nieuw nummer — dit versmalt een bestaande beslissing) + de datamodelregel bij `guests`/
+`guest_requests` in `gastenlijst-app-spec.md`.
+
+**Wat er mis was.** Max vond het op 2026-08-10 tijdens het testen van `86eyd3men` (PR #245):
+een bezoeker kon op `/e/[slug]` een aanvraag indienen met **alleen een naam**. De venue hield
+daar een goedgekeurde gast aan over zonder één kanaal om die te bereiken — geen bevestiging,
+geen wijziging, geen afmelding. Dat was geen bug maar een gedocumenteerde keuze (#9,
+dataminimalisatie); het besluit van 2026-08-10 draait die keuze **voor dit ene pad** terug.
+
+**Reikwijdte, expliciet.** Alleen de publieke landing/influencer-linkflow: `/e/[slug]`,
+`/r/[token]`, `submitGuestRequestSchema` en de `submit_guest_request`-RPC. De **interne**
+toevoegpaden (quick-add #33, bulk-paste, admin- en deur-add) blijven ongemoeid en optioneel —
+daar staat een medewerker naast de gast en is anoniem "Jan +2" nog steeds de bedoeling.
+
+**Twee lagen, allebei nodig.**
+
+| laag | wat het doet | waarom het alleen niet genoeg is |
+|---|---|---|
+| `submitGuestRequestSchema` + het formulier | `email`/`phone` van optioneel naar verplicht; directe veldfeedback | de RPC is aan `anon` gegrant — een hand-geschreven PostgREST-call slaat de client volledig over |
+| `submit_guest_request` (SECURITY DEFINER, migratie `20260819110000`) | weigert dezelfde gevallen met `status: 'invalid'` | een DB-only regel zou de aanvrager pas ná het versturen een generieke fout geven |
+
+**Wat "leeg" betekent — aan beide kanten hetzelfde.** `null`, `''` en whitespace-only worden
+alle drie geweigerd. In SQL was dat niet vanzelfsprekend: `btrim(x)` strijkt **alleen ASCII
+spatie** weg, dus een telefoonnummer van één tab overleefde het als "waarde". De functie
+gebruikt nu één benoemde whitespace-set (`E' \t\n\r\f\x0B'`) voor naam, e-mail, telefoon
+én motivatie. Bovenop de aanwezigheidscheck staat een **bruikbaarheidscheck** (e-mailvorm,
+E.164) — een verplicht veld dat `x` accepteert is theater, en zonder die tweede check glipt
+een NBSP-only waarde er alsnog doorheen (die overleeft `btrim` wél). De DB-checks zijn
+bewust **losser** dan de Zod-regels: alles wat de client accepteert komt hier langs, zodat een
+strengere client nooit stil door de database wordt overruled.
+
+**Waar de guard staat, en waarom dat uitmaakt.** Direct naast de bestaande naamcheck, dus
+**vóór** de throttle. Dat is verdedigbaar juist omdat het antwoord volledig uit de argumenten
+van de aanvrager zelf volgt: er wordt geen slug, link of rij van ons gelezen voordat
+`invalid` terugkomt, dus het lekt niets over welke events of links bestaan (#28). Onder de
+throttle zetten zou niets opleveren — wie slugs probeert stuurt gewoon geldige contactgegevens
+mee — en zou een legitieme bezoeker met een typefout zijn budget kosten.
+
+**Bestaande rijen blijven staan — bewust geen NOT NULL.** `guest_requests.email`/`.phone`
+blijven NULLable. Aanvragen van vóór vandaag blijven bestaan, blijven goedkeurbaar en blijven
+door de retentie-job geanonimiseerd worden. Dit is een **toelatingsregel op nieuwe publieke
+indieningen**, geen invariant van de tabel; een kolomconstraint zou expand-contract breken en
+historische data ongeldig maken.
+
+**Bijvangst, los van de taak maar in dezelfde bestanden.**
+
+- De **K10-canonical-guard klopte niet meer**: `supabase/canonical/submit_guest_request.sql`
+  hield de 7-args-versie uit `20260624200000` bij, terwijl `20260706103000` die overload
+  **droppte** en de live functie met `create function` (niet `create or replace`) opnieuw
+  aanmaakte — waar de guard-test niet op scant. Het canonieke bestand beschreef dus een
+  functie die niet meer bestond. Deze migratie gebruikt `create or replace`, waardoor het
+  bestand weer de echt gedeployde body bevat.
+- **Twee beslissingen stonden buiten de beslistabel.** #45 en #46 (sessie `86ey9et0h`,
+  12/8) waren aan regel 3 van de spec geplakt, achter de statusregel, in plaats van onder
+  #44. Verplaatst; de tabel loopt weer 1–46 op volgorde. Geen inhoudelijke wijziging.
+- `tests/e2e/landing-request.spec.ts` vult nu een e-mail. Die spec is verder **gedrift**
+  (Nederlandse labels tegen een EN-only surface, de uitgefaseerde `/dashboard` + `/events/*`
+  routes) en draait niet in CI (`pnpm e2e:smoke` bevat hem niet); alleen de contactvelden
+  zijn bijgetrokken, de rest is een eigen taak.
+
+**Bewezen, niet aangenomen.** Deze container heeft geen Docker, dus `supabase db reset` /
+`test db` konden hier niet draaien — CI doet dat. Wat hier wél kon: een kale lokale
+PostgreSQL 16 met minimale stubs, waarin de migratie schoon toepast, alle elf lege/onbruikbare
+varianten `invalid` teruggeven en geen rij schrijven, en de complete aanvraag `ok` geeft.
+**Red-on-revert is aan beide kanten gecontroleerd:** met de vorige functiebody
+(`20260706103000`) geven diezelfde vier contactloze gevallen `ok` en schrijven ze vier rijen.
+
+**Bestaande pgTAP moest mee.** Zeven suites riepen de RPC aan met `null, null` als
+contactgegevens; die zouden na deze migratie op `invalid` stuklopen. Alle call-sites in
+`landing`, `contacts.capture`, `auto_approve`, `event_lifecycle_capacity`, `rls`,
+`status_token` en `attacker_landing_spam` dragen nu geldige contactgegevens — inclusief de
+gevallen die `closed` of `rate_limited` moeten bewijzen, want die moeten de guard eerst
+passeren om überhaupt bij de slug-resolutie of de throttle te komen. Eén test veranderde van
+betekenis: `contacts.capture` C1 was "een naam-only aanvraag wordt geaccepteerd maar niet
+vastgelegd" en is nu "een naam-only aanvraag wordt geweigerd".
+
+**Openstaand voor Max:** de per-screen test handoff op de PR, en `/security-review` door een
+verse sessie (SECURITY DEFINER op een publiek anoniem schrijfpad = high-risk). Niet zelf
+gemerged. Typegeneratie (`src/lib/database.types.ts`) is **niet** nodig: de signatuur van de
+RPC is ongewijzigd, alleen de body.
+
+---
+
 ## 2026-08-12 — Door outbox owner-stamp: a tablet hand-off no longer costs check-ins (86ey9et0h)
 
 Branch `claude/outbox-owner-stamp-sync-7aadf3`. Milestone: Now (a lost door check-in is the

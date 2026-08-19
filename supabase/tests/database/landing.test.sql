@@ -37,21 +37,25 @@ begin
 end;
 $fn$;
 
--- Calls submit_guest_request p_n times (distinct names so each is a real
--- insert), returns the LAST status — used to exhaust the rate-limit window.
+-- Calls submit_guest_request p_n times (distinct names AND contact details so
+-- each is a real insert), returns the LAST status — used to exhaust the
+-- rate-limit window. Since 86eyke279 every attempt must carry a usable e-mail
+-- and phone, otherwise it is refused before it reaches the throttle at all.
 create function pg_temp.submit_n(p_n int, p_ip text)
 returns text language plpgsql as $fn$
 declare r text; i int;
 begin
   for i in 1..p_n loop
     r := public.submit_guest_request(
-      'plusone-launch-night', 'RL ' || i, null, null, 0, null, p_ip, false) ->> 'status';
+      'plusone-launch-night', 'RL ' || i,
+      'rl' || i || '@x.test', '+3161100' || lpad(i::text, 4, '0'),
+      0, null, p_ip, false) ->> 'status';
   end loop;
   return r;
 end;
 $fn$;
 
-select plan(24);
+select plan(39);
 
 -- ---------------------------------------------------------------------------
 -- A. submit_guest_request — the hardened anon path (#12/#28) + marketing (8b)
@@ -59,10 +63,10 @@ select plan(24);
 
 select pg_temp.login_anon();
 select is(
-  public.submit_guest_request('plusone-launch-night', 'Dup Tester', 'dup@x.test', null, 0, null, 'ip-a', false) ->> 'status',
+  public.submit_guest_request('plusone-launch-night', 'Dup Tester', 'dup@x.test', '+31612000001', 0, null, 'ip-a', false) ->> 'status',
   'ok', 'A1 anon files a landing request → ok');
 select is(
-  public.submit_guest_request('plusone-launch-night', 'Dup Tester 2', 'dup@x.test', null, 1, null, 'ip-a', false) ->> 'status',
+  public.submit_guest_request('plusone-launch-night', 'Dup Tester 2', 'dup@x.test', '+31612000002', 1, null, 'ip-a', false) ->> 'status',
   'ok', 'A2 a duplicate (same e-mail) is silently accepted (no leak, #28)');
 
 reset role;
@@ -72,7 +76,7 @@ select is(
 
 select pg_temp.login_anon();
 select is(
-  public.submit_guest_request('this-slug-does-not-exist', 'Ghost Aanvrager', null, null, 0, null, 'ip-a', false) ->> 'status',
+  public.submit_guest_request('this-slug-does-not-exist', 'Ghost Aanvrager', 'ghost@x.test', '+31612000004', 0, null, 'ip-a', false) ->> 'status',
   'closed', 'A4 unknown/closed slug → closed (unknown and inactive are identical: no enumeration)');
 reset role;
 select is(
@@ -81,25 +85,94 @@ select is(
 
 select pg_temp.login_anon();
 select is(
-  public.submit_guest_request('plusone-launch-night', 'A', null, null, 0, null, 'ip-a', false) ->> 'status',
-  'invalid', 'A6 a too-short name is rejected server-side');
+  public.submit_guest_request('plusone-launch-night', 'A', 'shortname@x.test', '+31612000006', 0, null, 'ip-a', false) ->> 'status',
+  'invalid', 'A6 a too-short name is rejected server-side (contacts valid — this isolates the name rule)');
 
 -- Rate limit: a fresh IP, window max = 5 (tightened in 20260625100000). The 5th
 -- still passes, the 6th trips.
 select is(pg_temp.submit_n(5, 'ip-rl'), 'ok', 'A7a five submissions within the window stay ok');
 select is(
-  public.submit_guest_request('plusone-launch-night', 'RL Over', null, null, 0, null, 'ip-rl', false) ->> 'status',
+  public.submit_guest_request('plusone-launch-night', 'RL Over', 'rlover@x.test', '+31612000007', 0, null, 'ip-rl', false) ->> 'status',
   'rate_limited', 'A7b the 6th submission from the same IP is rate-limited');
 
 -- Marketing opt-in (8b): the consent flag is persisted as given.
 select pg_temp.login_anon();
 select is(
-  public.submit_guest_request('plusone-launch-night', 'Marketing Janus', 'market@x.test', null, 0, null, 'ip-mk', true) ->> 'status',
+  public.submit_guest_request('plusone-launch-night', 'Marketing Janus', 'market@x.test', '+31612000008', 0, null, 'ip-mk', true) ->> 'status',
   'ok', 'A8 a submission with marketing consent → ok');
 reset role;
 select is(
   (select marketing_opt_in from public.guest_requests where email = 'market@x.test'),
   true, 'A9 the marketing opt-in is stored on the request (AVG)');
+
+-- ---------------------------------------------------------------------------
+-- A'. 86eyke279 — e-mail AND phone are mandatory on the public request path
+-- ---------------------------------------------------------------------------
+-- The client (submitGuestRequestSchema + the form) enforces the same rule, but
+-- this RPC is granted to `anon`: a hand-rolled PostgREST call skips the client
+-- entirely. These cases are the ones that must hold when it does.
+--
+-- Each uses its OWN ip hash: a refusal must be provable on its own merits, not
+-- accidentally passing because a shared bucket ran out of throttle budget.
+
+select pg_temp.login_anon();
+select is(
+  public.submit_guest_request('plusone-launch-night', 'Geen Mail', null, '+31612100001', 0, null, 'ip-rq-1', false) ->> 'status',
+  'invalid', 'A10 a request WITHOUT an e-mail is refused (null)');
+select is(
+  public.submit_guest_request('plusone-launch-night', 'Lege Mail', '', '+31612100002', 0, null, 'ip-rq-2', false) ->> 'status',
+  'invalid', 'A11 an empty-string e-mail is refused');
+select is(
+  public.submit_guest_request('plusone-launch-night', 'Spatie Mail', '   ', '+31612100003', 0, null, 'ip-rq-3', false) ->> 'status',
+  'invalid', 'A12 a whitespace-only e-mail is refused (spaces are not a value)');
+select is(
+  public.submit_guest_request('plusone-launch-night', 'Tab Mail', E'\t\n', '+31612100004', 0, null, 'ip-rq-4', false) ->> 'status',
+  'invalid', 'A13 a tab/newline-only e-mail is refused (btrim(x) alone would have let this through)');
+select is(
+  public.submit_guest_request('plusone-launch-night', 'Junk Mail', 'x', '+31612100005', 0, null, 'ip-rq-5', false) ->> 'status',
+  'invalid', 'A14 a present-but-unusable e-mail is refused — the rule is a reachable channel, not a filled box');
+
+select is(
+  public.submit_guest_request('plusone-launch-night', 'Geen Tel', 'tel0@x.test', null, 0, null, 'ip-rq-6', false) ->> 'status',
+  'invalid', 'A15 a request WITHOUT a phone is refused (null)');
+select is(
+  public.submit_guest_request('plusone-launch-night', 'Lege Tel', 'tel1@x.test', '', 0, null, 'ip-rq-7', false) ->> 'status',
+  'invalid', 'A16 an empty-string phone is refused');
+select is(
+  public.submit_guest_request('plusone-launch-night', 'Spatie Tel', 'tel2@x.test', '   ', 0, null, 'ip-rq-8', false) ->> 'status',
+  'invalid', 'A17 a whitespace-only phone is refused');
+select is(
+  public.submit_guest_request('plusone-launch-night', 'Tab Tel', 'tel3@x.test', E'\t', 0, null, 'ip-rq-9', false) ->> 'status',
+  'invalid', 'A18 a tab-only phone is refused');
+select is(
+  public.submit_guest_request('plusone-launch-night', 'Nationaal Tel', 'tel4@x.test', '0612345678', 0, null, 'ip-rq-10', false) ->> 'status',
+  'invalid', 'A19 a national number without a country code is refused (unreachable from the door)');
+
+select is(
+  public.submit_guest_request('plusone-launch-night', 'Niks Erbij', '', '', 0, null, 'ip-rq-11', false) ->> 'status',
+  'invalid', 'A20 a name-only request is refused');
+
+-- The positive control: the SAME shape, now complete, is accepted — so A10-A20
+-- prove the guard, not some unrelated breakage of the whole RPC.
+select is(
+  public.submit_guest_request('plusone-launch-night', 'Compleet Persoon', 'compleet@x.test', '+31612100099', 0, null, 'ip-rq-12', false) ->> 'status',
+  'ok', 'A21 the same request WITH both e-mail and phone is accepted');
+
+reset role;
+select is(
+  (select count(*)::int from public.guest_requests
+   where full_name in ('Geen Mail','Lege Mail','Spatie Mail','Tab Mail','Junk Mail',
+                       'Geen Tel','Lege Tel','Spatie Tel','Tab Tel','Nationaal Tel','Niks Erbij')),
+  0, 'A22 not one refused request reached the table — refusal, not a silent partial insert');
+select is(
+  (select count(*)::int from public.guest_requests where email = 'compleet@x.test'),
+  1, 'A23 the complete request DID land');
+-- The address book must not be polluted by refused submissions either (#8).
+select is(
+  (select count(*)::int from public.contacts
+   where venue_id = 'aa000000-0000-7000-8000-000000000001'
+     and email_norm in ('tel0@x.test','tel1@x.test','tel2@x.test','tel3@x.test','tel4@x.test')),
+  0, 'A24 a refused request captures no contact into the address book');
 
 -- ---------------------------------------------------------------------------
 -- B. approve_guest_request — atomic create + tier-max + permissions (#12/#31)

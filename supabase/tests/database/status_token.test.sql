@@ -36,7 +36,7 @@ select plan(12);
 select pg_temp.login_anon();
 select is(
   public.submit_guest_request('plusone-launch-night', 'Status Tester', 'st1@x.test',
-    null, 2, 'graag!', 'ip-st-1', false, null, 'tok-st-1') ->> 'status',
+    '+31611550001', 2, 'graag!', 'ip-st-1', false, null, 'tok-st-1') ->> 'status',
   'ok', 'A1 a submission carries the app-generated status-token hash');
 select is(
   (select r ->> 'found' || ':' || (r ->> 'status')
@@ -70,11 +70,11 @@ reset role;
 select pg_temp.login_anon();
 select is(
   public.submit_guest_request('plusone-launch-night', 'Rotatie Tester', 'st2@x.test',
-    null, 0, null, 'ip-st-2', false, null, 'tok-rot-a') ->> 'status',
+    '+31611550002', 0, null, 'ip-st-2', false, null, 'tok-rot-a') ->> 'status',
   'ok', 'B1 first submission with token A');
 select is(
   public.submit_guest_request('plusone-launch-night', 'Rotatie Tester Dubbel', 'st2@x.test',
-    null, 0, null, 'ip-st-3', false, null, 'tok-rot-b') ->> 'status',
+    '+31611550002', 0, null, 'ip-st-3', false, null, 'tok-rot-b') ->> 'status',
   'ok', 'B2 the duplicate still reports ok (silent dedup)');
 select is(
   (select (public.get_request_status('tok-rot-b', 'ip-st-d') ->> 'found')
