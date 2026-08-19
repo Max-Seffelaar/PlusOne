@@ -8,6 +8,96 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-19 — Stale-resume guard extended to the desktop Event-dag cockpit; wake lock deliberately not (86eykg2x1)
+
+Branch `feat/86eykg2x1-cockpit-stale-resume` (PR TBD, **not merged**). Milestone: Now. No
+migration. No RLS/auth/`service_role`/PII surface touched — this is a read-only consumer of
+existing React Query state plus one already-shipped overlay component.
+
+Follow-up on `86ey6x56p` / PR #252, which shipped the wake lock and the stale-resume guard into
+`PoDoorTab` only — i.e. the **mobile** `/door/[eventId]` route and the mobile `/app` Deur tab. The
+desktop (≥1024px) Deur tab renders something else entirely (`EventDayCockpitGate`), so it had zero
+coverage. PR #252 corrected its own false "covers the cockpit too" claims; this task builds the
+thing those claims described.
+
+**What is actually connected now** (and nothing beyond it):
+
+- `src/features/po/eventday/cockpitFreshness.ts` — pure freshness math, DOM-free, same role as
+  `features/door/sync/staleResume.ts`. Two rules: take the **oldest** `dataUpdatedAt` across the
+  tracked queries, never the newest (one query that refetched a second ago next to four that last
+  succeeded eleven hours ago is still an eleven-hour-old screen); and treat a query that has never
+  loaded (`dataUpdatedAt === 0`) as *never synced*, because part of the screen then has no truth
+  behind it at all.
+- `src/features/po/eventday/useCockpitSync.ts` — adapter that synthesises the exact four fields
+  `useStaleResumeGuard` needs (`online` / `syncing` / `lastSyncAt` / `forceSync`) out of React
+  Query. **No second state machine and no second overlay were written**: the guard, its one-retry
+  path, the 8s backstop, the self-heal and `StaleResumeOverlay` are the door's, reused verbatim.
+  `online` comes from React Query's own `onlineManager` rather than a second `navigator.onLine`
+  listener — it is the very flag RQ consults when deciding whether to run or pause the refetch we
+  are waiting on, so the two can never disagree.
+- `useStaleResumeGuard`'s parameter type was narrowed from `DoorSyncState` to a new structural
+  `StaleResumeSyncSource` (declared in `staleResume.ts`). Behaviour unchanged; `DoorSyncState`
+  satisfies it structurally, so the door side is untouched.
+- `EventDayCockpit.tsx` mounts the guard once and `inert`s its own body while blocking — the
+  cockpit's search field is Enter-to-check-in, so a barcode-scanner wedge must not reach it behind
+  the overlay (same reasoning as `PoDoorTab`).
+
+**Why the cockpit needs this despite having no outbox.** `refetchOnWindowFocus` is off on the
+`/app` query client and React Query pauses `refetchInterval` while the document is hidden. So a
+cockpit that was backgrounded — lid closed overnight is the canonical case — resumes on last
+night's numbers and self-corrects only up to 60s later, or never if the realtime channel died
+while it slept. The missing outbox makes this *worse*, not milder: a check-in attempted against
+those stale numbers has nowhere to queue, it simply fails.
+
+**Detect on the polled set, repair the whole set.** Only the four 60s-polled live reads
+(`usePoGuests`, `usePoTiers`, `usePoEventStats`, `usePoCheckinArrivals`) vote on staleness. The
+event-config read (`usePoEventForEdit`) and the two request reads have no refresh cadence of their
+own, so their age drifts past the 5 min threshold while the screen sits perfectly live in the
+foreground — including them would fire the overlay on every resume and train doorhosts to click
+straight through it. They are still refetched by the resume repair; they just do not get to raise
+the alarm.
+
+**One string had to differ, so it is a prop and not a fork.** The door's offline copy promises
+"check-ins will queue and sync once you're back online" — true there, a lie on an online-only
+cockpit. `StaleResumeOverlay` gained an optional `offlineSub` override (default unchanged);
+`t.cockpit.resumeOfflineSub` says the opposite and points at a phone. Every other string in that
+overlay reads correctly on both surfaces, so nothing else was duplicated.
+
+**Wake lock: deliberately NOT built, and this is the reasoning.** The Screen Wake Lock API is
+released by the OS the moment the document becomes hidden and never prevents system sleep or a lid
+close — so it cannot prevent the very scenario the stale-resume guard exists for. All it would buy
+on a desktop is "the monitor doesn't dim while you are looking at this tab", which costs one mouse
+move to undo and zero check-in throughput. That is categorically unlike a phone at the door, where
+every auto-lock is a re-unlock in front of a waiting guest, which is why it earned its place on the
+mobile door. Building it here would add a permission surface and a toggle nobody asked for, for no
+measurable gain. If a concrete counter-scenario turns up (an unattended kiosk-mode display running
+the cockpit as the primary check-in surface), it is a small, separable follow-up.
+
+**Stated limit, rather than a repeat of the #252 mistake.** This is a *resume* guard. A cockpit
+that stays continuously visible — a wall display that never goes hidden — produces no
+hidden→visible edge and is therefore **not** covered by it; the realtime "live" indicator is what
+speaks to that case. Nothing else on the desktop surface gained wake-lock or offline behaviour.
+
+**Tests.** `pnpm vitest run` **1211 passed / 118 files, 0 failures** (23 new). New:
+`cockpitFreshness.test.ts` (9 — oldest-not-newest, never-loaded, negative stamp, paused counts as
+in-flight), `useCockpitSync.test.tsx` (6 — lastSyncAt derivation, `forceSync` identity stability +
+reaching the current `refresh`, `onlineManager` tracking, no listener leak),
+`EventDayCockpit.staleResume.test.tsx` (8 — mounts the REAL gate/guard/overlay and proves the
+wiring PR #252 was missing: fresh resume stays silent, stale resume blocks and refetches all seven
+reads, `inert` applied and released, auto-close on fresh data, never-loaded arms the guard, the
+cockpit's own offline copy shows and the door's does NOT, continue-anyway always escapes).
+**Red-on-revert verified on four independent reverts**: removing the overlay render → 5 fail;
+flipping oldest→newest in `cockpitFreshness` → 2 fail; dropping the `offlineSub` override → 1
+fail; dropping `inert` → 1 fail. `pnpm lint` clean (2 pre-existing `jsx-a11y` warnings in
+`datetime-field.tsx`, untouched); `pnpm type-check` clean. pgTAP not run — no Docker in this
+container, and no migration in this branch.
+
+**Diff-reading note:** `EventDayCockpit.tsx`'s JSX body shifted 2 spaces because the root div is
+now wrapped in a fragment alongside the overlay. Review with `git diff -w` — the real change there
+is ~95 lines, not ~800.
+
+---
+
 ## 2026-08-12 — Door outbox owner-stamp: a tablet hand-off no longer costs check-ins (86ey9et0h)
 
 Branch `claude/outbox-owner-stamp-sync-7aadf3`. Milestone: Now (a lost door check-in is the

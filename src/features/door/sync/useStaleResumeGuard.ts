@@ -1,10 +1,16 @@
 'use client';
 
 /**
- * React glue for the stale-resume guard (86ey6x56p). Consumes the EXISTING
- * sync status from useDoorSync (`sync.ts`/`useDoorSync.ts`) rather than
- * building a second sync mechanism — CLAUDE.md forbids duplicating the door's
- * offline outbox/sync path, and this only needs to observe + kick it.
+ * React glue for the stale-resume guard (86ey6x56p). Consumes an EXISTING sync
+ * status (a `StaleResumeSyncSource`) rather than building a second sync
+ * mechanism — CLAUDE.md forbids duplicating the door's offline outbox/sync
+ * path, and this only needs to observe + kick it.
+ *
+ * Two surfaces feed it today: the mobile door passes `useDoorSync`'s state
+ * (`sync.ts`/`useDoorSync.ts`), and the desktop Event-day cockpit passes a
+ * React-Query-derived equivalent (`features/po/eventday/useCockpitSync`,
+ * 86eykg2x1). Everything below is written against the four-field contract only,
+ * so neither surface gets its own copy of this state machine.
  *
  * State machine:
  *  - `closed`   → nothing to show.
@@ -27,8 +33,13 @@
  * every subsequent screen unlock until connectivity returns (see below).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { DoorSyncState } from './useDoorSync';
-import { DEFAULT_STALE_RESUME_MS, isSyncStale, shouldShowStaleResumeOverlay, type PageVisibility } from './staleResume';
+import {
+  DEFAULT_STALE_RESUME_MS,
+  isSyncStale,
+  shouldShowStaleResumeOverlay,
+  type PageVisibility,
+  type StaleResumeSyncSource,
+} from './staleResume';
 
 /** Escape-hatch timeout: if a forced resume-sync hasn't settled within this
  *  window, offer "continue anyway" even though `online` may still read true —
@@ -56,7 +67,7 @@ export interface StaleResumeGuardState {
 }
 
 export function useStaleResumeGuard(
-  sync: DoorSyncState,
+  sync: StaleResumeSyncSource,
   thresholdMs: number = DEFAULT_STALE_RESUME_MS,
   syncWaitTimeoutMs: number = DEFAULT_SYNC_WAIT_TIMEOUT_MS,
 ): StaleResumeGuardState {

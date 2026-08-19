@@ -17,6 +17,22 @@
 
 export type PageVisibility = 'visible' | 'hidden';
 
+/**
+ * The minimum a caller must supply for `useStaleResumeGuard` to drive itself.
+ * `useDoorSync`'s `DoorSyncState` satisfies this structurally; the desktop
+ * cockpit synthesises it from React Query (`features/po/eventday/useCockpitSync`).
+ * Declared here, in the pure module, so the guard does not have to import a
+ * door-specific type to serve a second, outbox-less surface.
+ */
+export interface StaleResumeSyncSource {
+  online: boolean;
+  syncing: boolean;
+  /** Epoch ms of the last load this surface can vouch for, or null if none. */
+  lastSyncAt: number | null;
+  /** Kick a refresh now. Must be safe to call repeatedly. */
+  forceSync: () => void;
+}
+
 export interface StaleResumeInputs {
   /** Previous visibility this guard observed, or null before the first one. */
   prev: PageVisibility | null;

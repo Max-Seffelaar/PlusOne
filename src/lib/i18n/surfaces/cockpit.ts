@@ -149,4 +149,11 @@ export const cockpit = {
   feedUndoRefusal: '{name} back on the list',
   // reason stored on a cockpit deny (server-side, English)
   denyReason: 'Declined from cockpit',
+
+  // ── Stale-resume guard (86eykg2x1) ───────────────────────────────────────
+  // Replaces t.door.resumeOfflineSub on this surface only. The door's version
+  // promises the offline outbox will queue check-ins; the cockpit has no outbox,
+  // so it must say the opposite instead of inheriting a false reassurance.
+  resumeOfflineSub:
+    'This screen is offline, so these numbers may be out of date. The cockpit has no offline queue, so check-in will not work until the connection is back. Use a phone at the door if you need to keep checking people in.',
 } as const;
