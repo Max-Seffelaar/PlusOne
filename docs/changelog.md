@@ -8,6 +8,90 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-19 — `guests.added_by` gebonden op UPDATE: quotum-handhaving is niet langer adviserend (86eymckjt)
+
+Branch `fix/86eymckjt-guests-update-bind-added-by`. Milestone: Now. Migratie
+`20260819100000_guests_update_bind_added_by.sql`, pgTAP `guests_added_by_bind.test.sql` (20
+assertions). Spec-bullet toegevoegd onder de quota-implementatie in `gastenlijst-app-spec.md`,
+naast de `guests.status`-bullet van 11/8 — dezelfde les, één kolom verder.
+
+**Het gat.** `guests_update` (`20260613120000`, laatst gewijzigd `20260811160000`) evalueerde zijn
+rol-tak op `auth.uid()` en stelde nooit een eis aan de *waarde* van `added_by`:
+
+```sql
+and (
+  added_by = (select auth.uid())
+  or public.has_venue_role(public.event_venue(event_id), '{admin,doorhost}')
+  or public.is_event_organizer(event_id)
+)
+```
+
+Kom je binnen via de tweede of derde tak, dan is die kolom vrij beschrijfbaar. `guests_insert`
+pinde hem sinds dag één (#27); de UPDATE-kant nooit.
+
+**Waarom dat het quotum adviserend maakte.** `enforce_guest_quota` (`20260714100000`, r.55) toetst
+de vrijstelling op de **genoemde adder**, niet op de schrijver
+(`not public.user_is_quota_exempt(new.event_id, new.added_by)`), en `user_is_quota_exempt`
+(`20260625120000`) is waar voor elke venue-admin. Wijs `added_by` naar een admin en de hele
+persoonlijke-quotumtak slaat over: niemands meter wordt belast — niet die van de schrijver, niet
+die van de admin. Een doorhost of staflid met nul vrije plekken kon zo onbeperkt gasten toevoegen
+door één normaal belaste rij toe te voegen en die daarna te herattribueren. Dezelfde truc wijst een
+rij naar `NULL`, de "auto-goedgekeurd via aanvraaglink"-attributie (#43(c)), die op géén meter drukt.
+
+Wat wél bleef staan, en waarom dit geen gratis-gastenmachine was: de gedeelde pools bewogen nog
+steeds (`events.capacity`, `guest_tiers.max_guests`) en `audit_log.actor_id` legde altijd de echte
+sessie vast. De schade is misattributie plus een omzeilbaar persoonlijk quotum.
+
+**Herkomst.** Gevonden door fresh-session `/code-review` + `/security-review` op PR #271
+(`86ey9et0h`, door-outbox owner-stamp). Daar opgevoerd, vervolgens geverifieerd als pre-existing en
+op `main` in één write bereikbaar — geen regressie van die PR. De migratie-header van
+`20260812140000` noemt deze taak expliciet als de echte fix.
+
+**De regel.** `added_by` mag ongewijzigd blijven of naar de caller zélf bewegen; nooit naar een
+derde, nooit naar `NULL`. Eigenaarschap overnemen geeft niets weg: `enforce_guest_quota` ziet
+`old.added_by <> new.added_by`, telt de oude bijdrage als 0 en zet de volle nieuwe op de meter van
+de overnemer (bewezen in C3: de doorhost gaat van 2 naar 3 van haar 5). Eén bewuste asymmetrie,
+genoteerd in de migratie-header: een venue-**admin** is quota-exempt, dus een admin die een gast van
+een staflid overneemt geeft diens plek vrij. Admins bezitten de quotatabel sowieso en kunnen die
+direct ophogen, dus dat voegt geen capability toe.
+
+**Een trigger, geen `WITH CHECK` — precies de valkuil die de review van PR #271 (C4) ving.**
+`WITH CHECK` evalueert de RESULTERENDE rij, niet de gewijzigde kolommen. Een grens op `added_by` in
+de policy hervalideert dus élke update die de kolom niet aanraakt — notitie bewerken, tier wijzigen
+(enkel + bulk), `undoRefusal`, `ackNote`, soft delete — tegen wie er toevallig in staat, en zou
+daarmee juist de rijen bevriezen die een admin/doorhost/organisator hoort te kunnen bewerken. Een
+BEFORE UPDATE-trigger ziet `OLD` en kan de enige vraag stellen die telt: *verandert* deze statement
+de attributie? De trigger bindt bovendien strikter dan een policy: `guests` staat niet op
+`FORCE ROW LEVEL SECURITY`, dus een SECURITY DEFINER-functie passeert RLS — maar nooit een trigger.
+
+**Tweede valkuil uit dezelfde PR, ook overgenomen:** niet-client-contexten worden uitgesloten op
+`current_user in ('authenticated','anon')`, **niet** op `auth.uid() is null`. `reset role` herstelt
+de rol zónder `request.jwt.claims` te wissen, dus `auth.uid()` blijft vrolijk de laatst ingelogde
+gebruiker teruggeven terwijl de write als superuser draait. Test D2 pint die val open: hij bewijst
+dat de JWT-claim er nog stond toen D1 als superuser slaagde.
+
+**Legitieme paden geverifieerd (bron, niet aanname).** Geen enkel pad schrijft `added_by` op een
+bestaande rij: `src/features/guests/actions.ts` (updateGuest, changeGuestTier, bulk-tierwijziging,
+soft delete), `src/features/door/outbox/gateway.ts` (`undoRefusal` = alleen `status`, `ackNote` =
+alleen de ack-kolommen, `insertGuest` = een gewone INSERT, geen upsert, dus die raakt de trigger
+nooit), en in SQL `promote_guest_to_contact` (`20260714140000`), `mark_guest_regular`
+(`20260707150000`) en de anonimiseringssweeps — die raken `contact_id`/`full_name`/`email`/`phone`/
+`note`/`anonymized_at` en zijn bovendien SECURITY DEFINER, dus de client-context-test sluit ze uit.
+pgTAP sectie B dekt alle zes de client-updates expliciet af.
+
+**Bewust niet meegenomen (open beslissing voor Max).** Of `enforce_guest_quota` de vrijstelling op
+de **schrijver** moet toetsen in plaats van op `added_by`. Dat is een gedragswijziging — een admin
+die namens een staflid toevoegt belast dan diens quotum — en vereist een expliciete go. Zonder die
+wijziging blijft één legitieme route bestaan waarlangs een gast op niemands meter landt: een admin
+die zelf toevoegt (source `app`), wat het bedoelde gedrag van de exemptie is.
+
+**Testen.** `pnpm lint` schoon (2 pre-existing a11y-warnings in `datetime-field.tsx`),
+`pnpm type-check` 0 fouten, `pnpm test` groen. pgTAP draaide **niet** lokaal — de sessiecontainer
+heeft geen Docker, dus `supabase start`/`db reset`/`test db` konden daar niet draaien; de
+pgTAP-job in GitHub Actions is het bewijs.
+
+---
+
 ## 2026-08-12 — Door outbox owner-stamp: a tablet hand-off no longer costs check-ins (86ey9et0h)
 
 Branch `claude/outbox-owner-stamp-sync-7aadf3`. Milestone: Now (a lost door check-in is the
