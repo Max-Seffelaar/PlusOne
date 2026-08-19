@@ -86,8 +86,13 @@ begin
   -- be silently overruled by the database, while a raw anon caller still can't
   -- store junk. The phone shape is the app's own E.164 rule: it is what the
   -- form already emits, and a number without a country code is unreachable
-  -- from a Dutch door phone anyway.
-  if v_email !~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]{2,}$'
+  -- from a Dutch door phone anyway. v_email also gets an explicit length cap
+  -- (matching Zod's `.max(254)`) — unlike phone, the shape regex alone puts no
+  -- upper bound on it, and this is an anon write path: a multi-KB "e-mail"
+  -- would otherwise sit in the table (up to ~2.7KB, the dedupe index's row-size
+  -- ceiling) or blow past that ceiling and 500 the whole request (86eyke279).
+  if char_length(v_email) > 254
+     or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]{2,}$'
      or v_phone !~ '^\+[1-9][0-9]{1,14}$' then
     return jsonb_build_object('status', 'invalid');
   end if;

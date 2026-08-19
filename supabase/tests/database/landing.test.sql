@@ -55,7 +55,7 @@ begin
 end;
 $fn$;
 
-select plan(39);
+select plan(42);
 
 -- ---------------------------------------------------------------------------
 -- A. submit_guest_request — the hardened anon path (#12/#28) + marketing (8b)
@@ -173,6 +173,30 @@ select is(
    where venue_id = 'aa000000-0000-7000-8000-000000000001'
      and email_norm in ('tel0@x.test','tel1@x.test','tel2@x.test','tel3@x.test','tel4@x.test')),
   0, 'A24 a refused request captures no contact into the address book');
+
+-- v_email has an explicit char_length cap (matching Zod's `.max(254)`) — unlike
+-- phone, the shape regex alone puts no upper bound on it, and this is an anon
+-- write path. Below the cap, still accepted; at 255 it must be refused as
+-- cleanly as any other unusable value, not merely "eventually rejected by a
+-- storage limit" (an oversized-but-compressible value can slip under Postgres's
+-- btree row-size ceiling and land anyway; an incompressible one can escape the
+-- function entirely with a raw 54000 error — the cap must catch both before
+-- either happens).
+select pg_temp.login_anon();
+select is(
+  public.submit_guest_request('plusone-launch-night', 'Lengte Op De Grens',
+    repeat('a', 247) || '@x.test',  -- 254 chars total, exactly at the cap
+    '+31612100013', 0, null, 'ip-rq-13', false) ->> 'status',
+  'ok', 'A25 an e-mail exactly at the 254-char cap is accepted');
+select is(
+  public.submit_guest_request('plusone-launch-night', 'Lengte Over De Grens',
+    repeat('a', 248) || '@x.test',  -- 255 chars total, one over the cap
+    '+31612100014', 0, null, 'ip-rq-14', false) ->> 'status',
+  'invalid', 'A26 an e-mail one char over the 254-char cap is refused');
+reset role;
+select is(
+  (select count(*)::int from public.guest_requests where full_name = 'Lengte Over De Grens'),
+  0, 'A27 the over-cap e-mail landed no row (refused before the insert, not by a storage limit)');
 
 -- ---------------------------------------------------------------------------
 -- B. approve_guest_request — atomic create + tier-max + permissions (#12/#31)

@@ -8,6 +8,70 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-19 — PR #276 review response: e-mail length cap + K10 guard hardening (86eyke279)
+
+Branch `feat/86eyke279-landing-contact-required`, same PR/task as the entry directly below —
+this is the fresh-session review-response pass, not a new task. The `/code-review` on PR #276
+found **no merge-blockers** (server-side half re-measured against a real Postgres 16: all
+eleven empty/unusable variants refuse and write zero rows, red-on-revert holds). Three
+non-blocking points remained; this session closed two and recorded the third.
+
+**Fixed — `v_email` had no length cap (migration `20260819110000:93`).** The comment claimed
+"a raw anon caller still can't store junk", which wasn't quite true: `full_name` caps at 120,
+`motivation` truncates at 1000, `v_phone` is implicitly bounded by the E.164 regex (~16
+chars) — but the e-mail shape regex alone puts no ceiling on length, and this is an anon write
+path. Measured on a bare local Postgres 16 (no Docker here either; same "minimal stubs"
+method as the entry below, this time with all 99 migrations + `seed.sql` applied for real
+fixtures instead of hand-built ones):
+
+- An e-mail made of **repeated** characters compresses under TOAST and can slip past the
+  `guest_requests_dedupe_idx` btree row-size ceiling even at 5000 chars — silently stored.
+- An **incompressible** (random) 4000+ char local-part reproduces exactly what the reviewer
+  reported: `ERROR 54000: index row size 4208 exceeds btree version 4 maximum 2704` — escapes
+  the function entirely (not caught by the `unique_violation` handler), so the whole RPC call
+  fails instead of returning a clean `invalid`.
+
+Fix: `char_length(v_email) > 254` added to the same `if` as the shape checks (254 matches
+Zod's `.max(254)`, keeping "everything the client accepts passes here" true). Applied
+identically to the migration and `supabase/canonical/submit_guest_request.sql` (verified
+byte-for-byte equal, K10 guard passes). **Red-on-revert:** reapplying the previous (unpatched)
+body against the same random 4000-char e-mail reproduces the 54000 error; the patched body
+returns `invalid` and writes zero rows. New pgTAP (`landing.test.sql` A25–A27): 254 chars
+accepted, 255 refused, zero rows on refusal — extends `plan(39)` to `plan(42)`.
+
+**Fixed — the K10 canonical guard could repeat the exact drift it just caught.**
+`tests/unit/canonical-functions.test.ts` scanned only for `create or replace function
+public.<name>(...)`. The reviewer traced why the guard went silently green for six migrations
+while `supabase/canonical/submit_guest_request.sql` described a function that no longer
+existed: `20260706103000` changed the arg list, which Postgres can only do via `drop` +
+**bare** `create function` (no `or replace`) — a shape the old regex never matched. This PR's
+migration uses `create or replace` and fixes the symptom, but the next arg-list change would
+trip the same gap again. Widened the pattern to `create (?:or replace )?function public\.` and
+added two focused unit tests (bare `create function` matches; `create or replace` still
+matches) — red-on-revert verified by reverting the regex locally and confirming the bare-create
+test goes red.
+
+**Recorded, not fixed — `auto_approved` is an e-mail-existence oracle (`…sql:208`).** Pre-existing
+(introduced in `20260706103000`'s auto-approve feature, unrelated to and unchanged by this PR's
+scope), so left alone per instructions; written up as a suggested follow-up task in the PR body
+so it doesn't get lost. On an `auto_approve = true` link, the `auto_approved` field in the RPC's
+return value is `true` for a fresh submission and `false` when the same e-mail is already
+approved on that event — an anonymous caller can use it to test whether a specific e-mail is on
+the guest list, with no rate limit of its own (`p_ip_hash` is caller-supplied). This is narrower
+than the blanket "no enumeration" framing in `docs/security-audit.md:101` (which is about the
+`closed` slug/event answer, a different and still-true claim) — worth a follow-up nuance to that
+doc alongside the fix, not done here to keep this PR narrow.
+
+Suites: `pnpm lint` clean (same pre-existing `datetime-field.tsx` a11y warnings), `pnpm
+type-check` 0 errors, Vitest **1208 passed / 115 files** (+2 from the new
+`canonical-functions.test.ts` cases). pgTAP not runnable here (no Docker) — CI is the verdict,
+same as the building session; the new A25–A27 assertions were dry-run as plain SQL against the
+bare-Postgres fixture above and match the expected pgTAP outcome.
+
+Not merged. Replied to and resolved all three review threads on PR #276.
+
+---
+
 ## 2026-08-19 — E-mail én telefoon verplicht op het publieke aanvraagformulier (86eyke279)
 
 Branch `feat/86eyke279-landing-contact-required`. Milestone: **Now** — dit raakt het vermogen
