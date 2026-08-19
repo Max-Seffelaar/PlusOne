@@ -8,6 +8,66 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-19 — `indexedDB.open` no longer hangs the door when a sibling tab blocks a VERSION bump (86ey9e9wc)
+
+Branch `fix/86ey9e9wc-idb-open-onblocked`. Milestone: Now (a door that never finishes booting
+is a door that cannot check anyone in). **Scope note:** four of this task's five points had
+already shipped under `86ey9et07` (PR #233) and were re-verified on `main` before any code was
+written — connection closed before `deleteDatabase` (`idb.ts`), the PII wipe on sign-out
+(`sign-out-device.ts`, with test), `onversionchange` on the open DB, and the HMR-accumulation
+fix that follows from the tracked connection. Only the fifth was genuinely missing.
+
+**The gap.** `openDb()` wired `onupgradeneeded`, `onsuccess` and `onerror` on its
+`indexedDB.open` request — but not `onblocked`. `blocked` fires only when a version bump has to
+run while another connection still holds the old version. Our own tabs release on
+`versionchange`, so in practice this needs a tab that *cannot* respond: a frozen or backgrounded
+webview, or one whose `close()` is deferred behind an in-flight transaction. An open request has
+no timeout of its own, so in that case `dbPromise` stayed pending **forever**: `restoreClient`
+(persister.ts) never settled, `PersistQueryClientProvider` never left `isRestoring`, and the
+door sat on the restore gate with nothing logged anywhere.
+
+**Why it was worth fixing before it ever fired.** `VERSION` is still `1`, so this could not
+happen yet — it is armed by the *next* schema bump. The failure would therefore first appear as
+"the door stopped booting after the deploy", on the venue's tablet, at the door.
+
+**The behaviour chosen.** Hanging is wrong, but so is silently carrying on without a store —
+the door must not serve an empty cache as though everything were fine. So `onblocked` starts a
+grace period (`IDB_OPEN_BLOCKED_GRACE_MS`, 2 s) rather than failing instantly: a merely *busy*
+sibling clears within a few frames and keeps its cache. If the block outlasts it, the open is
+abandoned and the promise **rejects**, which the existing helpers already turn into visible
+degradation — `idbSet` returns `false`, which flips the outbox's `persistDegraded` (doorhost
+warning + Sentry, O4), and `idbGet` returns `undefined` so the restore gate releases. A static
+`captureMessage` (no keys, no values — door payloads carry guest PII) names the real cause,
+because otherwise the helpers' `catch` would make the frozen-tab case invisible in telemetry.
+`dbPromise` is cleared on give-up so the *next* call opens from scratch instead of inheriting
+one stale rejection for the rest of the session.
+
+**The second-order bug this had to avoid.** An open request cannot be cancelled, so the one we
+abandoned can still succeed later, once the frozen tab dies. Left alone, that late connection
+would be untracked — `idbClearAll` closes only `dbConn` — and would go on to block sign-out's
+`deleteDatabase` (previous doorhost's guest data surviving on a shared tablet) and the *next*
+version change: precisely the failure just recovered from, re-created. The late `onsuccess`
+therefore closes its own result when the attempt was already abandoned.
+
+**Deliberately not changed:** `idbClearAll` still *resolves* on `onblocked` (`idb.ts`, reasoning
+in place there). That is the opposite trade-off to this one and it is the right one — a
+sign-out must not be held hostage by a sibling tab, and that tab's own unload finalizes the
+delete.
+
+**Tests** — `src/features/door/offline/idb.test.ts` (4). They drive a real `blocked` event via
+`fake-indexeddb` against a real second connection; the version bump is simulated by rewriting
+the version the module requests, since `VERSION` is a module constant. Only `setTimeout` is
+faked, so fake-indexeddb's `setImmediate`-based scheduler keeps delivering events. A `PENDING`
+sentinel raced against the promise turns "hangs forever" into an immediate assertion failure
+instead of a suite timeout. **Red-on-revert verified:** against the unfixed `openDb`, 3 of the 4
+fail with `expected Symbol(pending) to be false` — and still fail after advancing 60 s of fake
+time, confirming a true hang rather than a slow settle. The fourth (a busy tab that releases
+inside the grace period still gets its connection, no false alarm) passes both ways by design.
+
+**Review posture:** door surface = high-risk, so this does not self-merge.
+
+---
+
 ## 2026-08-12 — Door outbox owner-stamp: a tablet hand-off no longer costs check-ins (86ey9et0h)
 
 Branch `claude/outbox-owner-stamp-sync-7aadf3`. Milestone: Now (a lost door check-in is the

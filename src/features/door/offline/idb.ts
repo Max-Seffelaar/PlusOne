@@ -8,9 +8,28 @@
  * older webview without the API), so importing this never throws.
  */
 
+import { captureMessage } from '@/lib/observability/sentry-client';
+
 const DB_NAME = 'plusone-door';
 const STORE = 'kv';
 const VERSION = 1;
+
+/**
+ * How long an `indexedDB.open` may stay `blocked` before we give up on it.
+ *
+ * `blocked` fires only when a VERSION bump needs to run while another connection
+ * still holds the old version. Our own tabs release on `versionchange` (see
+ * `onsuccess`), but `close()` waits for that tab's in-flight transactions — so a
+ * merely BUSY sibling blocks for a few frames and then clears. A FROZEN one
+ * (backgrounded webview, hung renderer) never clears, and an open request has no
+ * timeout of its own: `dbPromise` would stay pending forever, `restoreClient`
+ * would never settle, and the door would sit on the restore gate with nothing
+ * logged anywhere. Latent until VERSION is bumped — i.e. it bites on a deploy.
+ *
+ * Long enough to ride out the busy case and keep the cache, short enough that a
+ * doorhost is not left staring at a boot spinner when it is the frozen case.
+ */
+export const IDB_OPEN_BLOCKED_GRACE_MS = 2000;
 
 function hasIdb(): boolean {
   return typeof indexedDB !== 'undefined';
@@ -38,12 +57,29 @@ export function idbEpoch(): number {
 
 function openDb(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
-  dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
+  const attempt = new Promise<IDBDatabase>((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, VERSION);
+    /** Whether this request has already produced an outcome for our callers.
+     *  An open request cannot be cancelled, so giving up has to disarm the
+     *  handlers rather than stop the request. */
+    let settled = false;
+    let blockedTimer: ReturnType<typeof setTimeout> | null = null;
+
     req.onupgradeneeded = () => {
       if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE);
     };
     req.onsuccess = () => {
+      if (blockedTimer) clearTimeout(blockedTimer);
+      if (settled) {
+        // The block outlasted the grace period, we already rejected, and later
+        // callers have opened their own connection. Close this late arrival:
+        // an untracked connection would sit there blocking the NEXT version
+        // change and defeating `idbClearAll`'s close — re-creating the exact
+        // failure we just recovered from.
+        req.result.close();
+        return;
+      }
+      settled = true;
       dbConn = req.result;
       // A sibling tab (the Deur tab and the standalone /door/[id] route can both
       // be open) must release its connection when THIS tab runs deleteDatabase,
@@ -56,9 +92,37 @@ function openDb(): Promise<IDBDatabase> {
       };
       resolve(req.result);
     };
-    req.onerror = () => reject(req.error);
+    req.onerror = () => {
+      if (blockedTimer) clearTimeout(blockedTimer);
+      if (settled) return;
+      settled = true;
+      reject(req.error);
+    };
+    // Another connection is holding the old version open. Wait out the busy
+    // case, then fail instead of hanging: every idb* helper turns a rejection
+    // into a reported miss (`idbGet` -> undefined, `idbSet` -> false, which
+    // flips the outbox's `persistDegraded` -> doorhost warning + Sentry), so
+    // the door degrades visibly rather than freezing on the restore gate.
+    req.onblocked = () => {
+      blockedTimer ??= setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        // Let the NEXT call open from scratch rather than handing every future
+        // caller this one rejection — the blocking tab is usually gone by then.
+        if (dbPromise === attempt) dbPromise = null;
+        // Static string: never attach keys or values, the door's IDB payloads
+        // carry guest PII. `idbGet`/`idbSet` swallow the rejection, so without
+        // this the frozen-tab case would be invisible in telemetry.
+        captureMessage(
+          'door-idb: indexedDB.open stayed blocked by another connection — door storage unavailable',
+          'warning',
+        );
+        reject(new Error('IndexedDB open blocked by another connection'));
+      }, IDB_OPEN_BLOCKED_GRACE_MS);
+    };
   });
-  return dbPromise;
+  dbPromise = attempt;
+  return attempt;
 }
 
 function tx<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
