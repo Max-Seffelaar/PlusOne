@@ -117,6 +117,49 @@ a non-zero exit that still gets labelled. Each guard was verified by reintroduci
 merging the streams flips the interleave test to exit 0, restoring `process.exit()` drops the
 diagnostic to 0 bytes, removing the evidence check turns both zero-coverage tests green.
 
+The SQL half cannot be unit-tested — pgTAP's counter, `currval()` and `finish()` need a real
+Postgres — so it was proven in CI instead, as four temporary workflow steps that assert their
+own claims against the live stack and were removed again in the following commit (runs
+`32271276799`, all four green). Each assertion was emitted as a workflow annotation, since this
+session could not reach the log-storage host; the verdicts, verbatim:
+
+**A — the gate turns a pg_prove PASS into a red build.** A savepoint-drifted file added to the
+real 56-file suite:
+
+```
+bare `supabase test db` exit=0 ; gate exit=1
+bare: # Looks like you planned 4 tests but ran 1
+bare: Files=57, Tests=1096,  5 wallclock secs
+bare: Result: PASS
+gate: ✖ pgTAP plan/run gate failed — pg_prove reported PASS, but:
+gate:   a pgTAP file's plan() does not match the number of assertions it ran:
+gate:     # Looks like you planned 4 tests but ran 1
+```
+
+**B — the `currval()` finding, reproduced and then fixed, as an A/B on one database.** The same
+zero-assertion file, differing only in the exception handler:
+
+```
+B2 (pre-fix):  ERROR:  currval of sequence "__tresults___numb_seq" is not yet defined in this session
+               CONTEXT:  SQL statement "SELECT _set('curr_test', currval('__tresults___numb_seq')::int)"
+               → Tests: 0, and `# No tests run!` never appears at all
+B1 (fixed):    ERROR:  # No tests run!
+               → gate: "a pgTAP file planned tests but ran none"
+```
+
+**D — arguments reach the real Supabase CLI**, which the unit test cannot show (it only sees a
+fake binary): `Files=1, Tests=15` and `✔ pgTAP plan/run gate: 1 files / 15 assertions ran`.
+
+**One false start worth recording.** The first version of proof A put its surviving assertion
+*after* the rollback. CI reported `Files=57, Tests=1096`, `Result: PASS`, the proof file marked
+`ok` — and no mismatch emitted. The gate exited 0 because there was genuinely nothing wrong:
+that file only drifts if pgTAP's `ok()` increments `curr_test`, and not if it assigns it from
+the sequence. The fixture was wrong, not the gate. Reshaped to mirror `tiers.vat.test.sql`
+exactly — surviving assertion first, savepoint sections last, rollback immediately before
+`finish()` — which drifts under either mechanism. Worth keeping in the record twice over: it is
+also the one run in this PR where the gate was shown NOT to fire on a file that had not actually
+drifted.
+
 
 ---
 
