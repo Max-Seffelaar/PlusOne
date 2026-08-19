@@ -11,7 +11,8 @@ records (repo root), and `engineering-review-2026-07.md`.
 ## 2026-08-19 — Venue switch: a refused switch no longer reloads as if it worked (86eykm7rk)
 
 Branch `fix/86eykm7rk-venue-switch-silent-failure`. Milestone: **Now**. No migration, no schema
-change — four source files, one dead component deleted, and three unit suites.
+change — five source files, one dead component deleted, three unit suites, and one CLAUDE.md
+invariant line.
 
 **The bug.** `persistActiveVenue` (`src/features/venues/actions.ts`) refuses on three paths
 *without throwing*: no session, Zod rejects the id, or the id is not one of the caller's live
