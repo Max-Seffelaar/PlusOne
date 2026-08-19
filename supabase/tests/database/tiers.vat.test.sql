@@ -142,6 +142,25 @@ select is(
   9.0::numeric, 'E3 the snapshotted tier carries vat_percent');
 rollback to savepoint e1;
 
+-- ---------------------------------------------------------------------------
+-- Re-sync pgTAP's own counter before finish().
+--
+-- pgTAP keeps "how many tests ran" (curr_test) in the temp TABLE __tcache__, so
+-- `rollback to savepoint` reverts it along with everything else in the section.
+-- The test *numbers* it prints come from __tresults___numb_seq — a SEQUENCE, and
+-- sequences are non-transactional, so those keep counting correctly. The two
+-- therefore drift apart: finish() compared plan() against the last assertion that
+-- ran outside a savepoint and printed "Looks like you planned N tests but ran 2",
+-- even though every assertion had run and passed. Take the count from the
+-- sequence, the one place that actually knows what executed.
+--
+-- num_failed() is reverted the same way and cannot be recovered from a sequence,
+-- but a failing assertion still reaches the harness as its own "not ok" line, so
+-- pg_prove remains the source of truth for pass/fail.
+do $resync$ begin
+  perform _set('curr_test', currval('__tresults___numb_seq')::int);
+end $resync$;
+
 select * from finish();
 
 rollback;
