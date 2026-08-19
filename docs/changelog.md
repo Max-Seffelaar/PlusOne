@@ -50,11 +50,14 @@ had the identical swallow — `await setActiveVenueAction(fd)` then an unconditi
 branches on the same contract — with its OWN string, because the venue *was* created at that
 point (see finding 3 below).
 
-**Copy is English, and that is now settled.** Max decided on 19/8 that the product's UI copy is
-English; `tone-of-voice.md`, `copy-deck.md` and `ia-audit-claude-code.md` §8 already said so, and
-`src/lib/i18n/en.ts` is headed "English UI copy — the single source of truth". Round 1 flagged
-CLAUDE.md's Conventions line ("Dutch UI copy") as the odd one out; that line is the one that is
-wrong. No string in this PR is Dutch.
+**Copy is English, and that is now settled — and CLAUDE.md says so.** Max decided on 19/8 that
+the product's UI copy is English; `tone-of-voice.md`, `copy-deck.md` and `ia-audit-claude-code.md`
+§8 already said so, and `src/lib/i18n/en.ts` is headed "English UI copy — the single source of
+truth". Round 1 flagged CLAUDE.md's Conventions line ("Dutch UI copy") as the odd one out and
+asked for one of the two to move. **The correction was not actually in the repo** — not on `main`
+and not on any remote branch — so this PR makes the one-line edit rather than shipping a changelog
+that references a fix that does not exist. Invariant change only; no string in this PR is Dutch,
+and the existing `switchFailed` text is unchanged.
 
 **Red-on-revert verified on both halves** (not assumed — each was reverted and re-run):
 
