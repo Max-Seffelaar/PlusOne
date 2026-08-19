@@ -195,3 +195,13 @@ Number them so Max can answer "1 ✅, 2 ❌ — …" as feedback per component.
 - Do not start a task by rewriting earlier phases; build incrementally on the existing migrations.
 - Do not put shipped-work history in this file — it goes in `docs/changelog.md`.
 - Do not render a client component that suspends during SSR (`useSearchParams`, `use(promise)`, …) at a route root under a page `<Suspense>` — mount it `ssr:false` instead. In Next 15.5 the server-streamed boundary is rAF-gated and never hydrates in a never-painted tab (background/webview), silently freezing the whole route on zero-data SSR HTML (86eya4yuf). `/app` mounts via `app-client.tsx`; guarded by `app-shell-no-ssr-suspense.test.ts` + `app-home-events-visible.spec.ts`. Never weaken/skip those guards to make CI pass.
+
+## Frontend verifiëren via gstack-tunnel
+
+Is er in deze sessie een gstack-pairingblok verstrekt, gebruik die browser dan om
+frontend-wijzigingen te verifiëren voordat je ze als klaar meldt. Zonder zo'n blok
+is er geen browser beschikbaar — ga er dan niet naar zoeken.
+
+De browser draait headless, dus maak screenshots. Vul testdata in, maar verstuur
+geen formulieren die iets aanmaken of mailen, en log niet in op echte accounts.
+Rapporteer per bevinding: URL, stap, verwacht, werkelijk, screenshot.
