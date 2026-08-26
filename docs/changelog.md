@@ -8,6 +8,41 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-26 — One setup codepath: session-setup script, web SessionStart hook, CI routed through it
+
+Branch `claude/script-sessionstart-workflow-f2mmid`. Claude Code web sessions start in
+a fresh container (no `node_modules`, no supabase CLI, no reachable docker daemon), so
+lint/type-check/vitest silently weren't runnable until someone set them up by hand —
+and a session that starts working before looking is one bad afternoon away from
+"disabling the guard that refused" instead of fixing its environment.
+
+**Shipped:**
+
+- `scripts/session-setup.mjs` — the ONE environment-setup codepath, three modes:
+  `inventory` (read-only, always first: versions, tools, which suites can run here,
+  and the never-weaken rule), `install` (inventory + `pnpm install --frozen-lockfile`,
+  with an explicit "regenerate the lockfile properly, never hand-edit/drop the flag"
+  failure message), `check` (the pure-node half of CI's `lint-and-test`: lint,
+  type-check, `vitest run`).
+- `.claude/hooks/session-start.sh` + registration in `.claude/settings.json` — remote
+  sessions only (`CLAUDE_CODE_REMOTE` guard, verified no-op locally); runs `install`,
+  so every web session starts with the inventory + rule in its context.
+- `.github/workflows/ci.yml` — the inline `pnpm install/lint/type-check/test` steps
+  replaced by `install` + `check` through the same script. Job name `lint-and-test`
+  and the whole Supabase/e2e/build half untouched.
+
+**The two generalized lessons (26/8):** the suite list is validated against
+`package.json` before anything runs — a from-memory list once named a suite that
+doesn't exist on main, and that must fail as "list drifted", not as a mid-run pnpm
+mystery. And `check` ends by naming what it did NOT run (pgTAP, concurrency, e2e,
+build), so a green `check` is never mistaken for green CI.
+
+**Validated in the remote container:** hook end-to-end with `CLAUDE_CODE_REMOTE=true`
+(cold install 13.9s, idempotent re-run 4s), `check` green (lint + type-check + vitest
+123 files / 1253 tests), ci.yml parses and keeps all 16 steps. **Not validated here:**
+the Actions run itself — a session can't execute GitHub-hosted workflows, so the first
+real run of the reworked job is this PR's own CI.
+
 ## 2026-08-19 — Production ran blind: Sentry never initialised, and the build now refuses to ship without it (86eyp5w32)
 
 Branch `claude/performance-sweep-orchestration-e4t594`. Found while orchestrating the
