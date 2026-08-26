@@ -10,6 +10,12 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ## 2026-08-26 — One setup codepath: session-setup script, web SessionStart hook, CI routed through it
 
+**Follow-up (same day, after the merge of #288):** local sessions no longer no-op —
+the SessionStart hook now runs the read-only `inventory` on the laptop too (~1s,
+writes nothing, installs nothing), so every session, local or web, starts with the
+environment report + the never-weaken rule in its context. `install` stays
+remote-only. Asked for by Max after seeing the web hook live.
+
 Branch `claude/script-sessionstart-workflow-f2mmid`. Claude Code web sessions start in
 a fresh container (no `node_modules`, no supabase CLI, no reachable docker daemon), so
 lint/type-check/vitest silently weren't runnable until someone set them up by hand —
