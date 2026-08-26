@@ -20,7 +20,7 @@
 // the frozen lockfile, or a build guard refuses, the refusal is the signal —
 // fix the environment or flag the conflict. A setup that goes green by
 // disabling a guard tests something other than what runs in prod.
-import { existsSync, readFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -117,6 +117,31 @@ function inventory(manifest) {
       `node_modules ${existsSync(resolve(root, 'node_modules')) ? 'present' : 'absent'}; ` +
       `.env.local ${existsSync(resolve(root, '.env.local')) ? 'present' : 'absent (only pnpm dev/e2e need it — unit suites need no env)'}`
   );
+
+  // The pre-push migration-collision guard only runs if git can execute it:
+  // core.hooksPath must point at scripts/hooks (postinstall wires it) AND the
+  // file must carry the executable bit — a 644 mode makes git IGNORE the hook
+  // with only a hint, which is how the guard sat silently dead until 26/8.
+  const hooksPath = capture('git', ['config', 'core.hooksPath'], 5_000);
+  let prePushExecutable = false;
+  try {
+    accessSync(resolve(root, 'scripts/hooks/pre-push'), constants.X_OK);
+    prePushExecutable = true;
+  } catch {
+    /* not executable or missing */
+  }
+  out.push(
+    'pre-push migration guard: ' +
+      (hooksPath === 'scripts/hooks' ? 'hooksPath wired' : `hooksPath ${hooksPath ?? 'unset'} (pnpm install wires it)`) +
+      (prePushExecutable ? ', executable' : '')
+  );
+  if (!prePushExecutable) {
+    warn.push(
+      'scripts/hooks/pre-push is NOT executable — git ignores it silently, so the ' +
+        'migration-collision guard never runs. Fix the tracked mode ' +
+        '(git update-index --chmod=+x scripts/hooks/pre-push), never delete the hook.'
+    );
+  }
 
   const supabase = capture('supabase', ['--version'], 5_000);
   const dockerUp =

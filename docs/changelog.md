@@ -37,6 +37,13 @@ doesn't exist on main, and that must fail as "list drifted", not as a mid-run pn
 mystery. And `check` ends by naming what it did NOT run (pgTAP, concurrency, e2e,
 build), so a green `check` is never mistaken for green CI.
 
+**Found along the way, fixed here:** `scripts/hooks/pre-push` was tracked as mode
+`100644` since it landed (#201) — git only runs an *executable* hook and skips a 644
+one with nothing but a hint, so the pre-push migration-collision guard has been
+silently dead on every fresh clone. Tracked mode is now `100755`, and `inventory`
+checks hooksPath + the executable bit so a regression shows up at session start
+instead of never.
+
 **Validated in the remote container:** hook end-to-end with `CLAUDE_CODE_REMOTE=true`
 (cold install 13.9s, idempotent re-run 4s), `check` green (lint + type-check + vitest
 123 files / 1253 tests), ci.yml parses and keeps all 16 steps. **Not validated here:**
