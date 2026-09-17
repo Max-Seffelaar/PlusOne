@@ -23,6 +23,35 @@ Detailed restore steps: [backup-restore.md](backup-restore.md).
 | **Billing / webhook** | Supabase → `stripe_webhook_events` ledger; Stripe Dashboard → webhook deliveries. | Webhook failures do **not** block the door or data. Replay the event from Stripe; the ledger is idempotent. Non-urgent — can wait for morning. |
 | **DB fully down / corrupt** | Supabase status + Database health. | [backup-restore.md](backup-restore.md) → "Real incident: restoring prod". Accept the data-loss window since last daily backup. Communicate it. |
 
+## Is monitoring even alive? (30 seconds)
+
+Don't read "no Sentry alerts" as "nothing is wrong" until you've confirmed Sentry is
+reporting at all. It ran dead for at least 90 days without anyone noticing — the
+build-time half worked on every deploy (source maps uploaded, releases stamped) while
+the runtime half was off, because `sentry.*.config.ts` initialises with
+`enabled: Boolean(dsn)` and `NEXT_PUBLIC_SENTRY_DSN` was never set in Vercel
+(86eyp5w32). Everything looked configured; nothing reported.
+
+Two checks, neither needs dashboard access:
+
+```bash
+# 1. Is the DSN in the shipped bundle? NEXT_PUBLIC_* is inlined at build time,
+#    so absence here proves it was unset for that build.
+curl -s https://plus-one-phi.vercel.app/ \
+  | grep -o '/_next/static/chunks/[a-zA-Z0-9._/-]*\.js' | sort -u \
+  | while read -r c; do curl -s "https://plus-one-phi.vercel.app$c"; done \
+  | grep -c 'ingest.*sentry\.io'          # 0 = Sentry is NOT reporting
+
+# 2. The same-origin tunnel only exists once the SDK initialises with a DSN.
+curl -s -o /dev/null -w '%{http_code}\n' https://plus-one-phi.vercel.app/monitoring
+                                          # 404 = SDK never initialised
+```
+
+`pnpm build` now refuses a `VERCEL_ENV=production` build with the DSN (or
+`LANDING_IP_SALT`, or the Supabase vars) missing — see
+`scripts/hooks/lib/required-env.mjs`. So this failure mode should not recur; the checks
+above are for confirming that, and for any environment the guard doesn't cover.
+
 ## Rollback = the default first move
 
 Vercel deploys are immutable and instant to promote. If anything broke right after

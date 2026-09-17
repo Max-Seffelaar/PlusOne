@@ -37,6 +37,10 @@ import {
   usePoTiers,
 } from '@/features/po/hooks';
 import { DoorEventPicker } from '@/components/po/screens/door';
+import { StaleResumeOverlay } from '@/features/door/components/StaleResumeOverlay';
+import { useStaleResumeGuard } from '@/features/door/sync/useStaleResumeGuard';
+import type { QueryFreshness } from './cockpitFreshness';
+import { useCockpitSync } from './useCockpitSync';
 import { CockpitTasksCard } from './CockpitTasksCard';
 import { CockpitRefuseModal } from './CockpitRefuseModal';
 import {
@@ -160,13 +164,91 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   const canCheckIn = canWorkDoor(roles) || canManage; // admin/doorhost + organizer; RLS still decides
   const canSeeStats = canManage || roles.includes('finance');
 
-  const guests = usePoGuests(eventId, COCKPIT_SAFETY_POLL).data ?? EMPTY_GUESTS;
-  const tiers = usePoTiers(eventId, COCKPIT_SAFETY_POLL).data ?? EMPTY_TIERS;
-  const stats = usePoEventStats(eventId, COCKPIT_SAFETY_POLL).data;
-  const arrivals = usePoCheckinArrivals(eventId, COCKPIT_SAFETY_POLL).data ?? EMPTY_ARRIVALS;
+  // The query objects are kept (not just `.data`) because the stale-resume guard
+  // below reads their `dataUpdatedAt` and calls their `refetch`. `dataUpdatedAt`
+  // only moves on a SUCCESSFUL fetch, so reading it costs no extra renders —
+  // `fetchStatus`, which flips on every fetch start/end, is deliberately not
+  // read any more (see ./useCockpitSync on where `syncing` comes from instead).
+  const guestsQuery = usePoGuests(eventId, COCKPIT_SAFETY_POLL);
+  const tiersQuery = usePoTiers(eventId, COCKPIT_SAFETY_POLL);
+  const statsQuery = usePoEventStats(eventId, COCKPIT_SAFETY_POLL);
+  const arrivalsQuery = usePoCheckinArrivals(eventId, COCKPIT_SAFETY_POLL);
+  const guests = guestsQuery.data ?? EMPTY_GUESTS;
+  const tiers = tiersQuery.data ?? EMPTY_TIERS;
+  const stats = statsQuery.data;
+  const arrivals = arrivalsQuery.data ?? EMPTY_ARRIVALS;
   const { realtimeConnected } = usePoEventRealtime(eventId);
-  const guestRequests = usePoGuestRequests().data ?? [];
-  const quotaRequests = usePoQuotaRequests().data ?? [];
+  const guestRequestsQuery = usePoGuestRequests();
+  const quotaRequestsQuery = usePoQuotaRequests();
+  const guestRequests = guestRequestsQuery.data ?? [];
+  const quotaRequests = quotaRequestsQuery.data ?? [];
+
+  // ── Stale-resume guard (86eykg2x1) ─────────────────────────────────────────
+  // A cockpit that was backgrounded (lid closed overnight, another tab in front,
+  // window minimized) resumes on whatever it last fetched: `refetchOnWindowFocus`
+  // is off on the /app query client and React Query pauses `refetchInterval`
+  // while the document is hidden, so nothing corrects the screen for up to 60s
+  // after a resume — or not at all if the realtime channel died meanwhile. A
+  // doorhost steering on last night's counts makes real decisions on them, and
+  // unlike the mobile door there is no outbox to catch a check-in attempted
+  // against them; it simply fails. So: block loudly on resume until a refresh
+  // lands. Same guard + same overlay as the door; only the sync source differs
+  // (see ./useCockpitSync, which also records what this does NOT cover).
+  //
+  // WAKE LOCK is deliberately not wired here (86eykg2x1 decision). The Screen
+  // Wake Lock API is released by the OS the moment the document is hidden and
+  // never prevents system sleep or a lid close, so it cannot prevent the very
+  // scenario above; all it would buy on a desktop is "the monitor doesn't dim
+  // while you are looking at this tab", which costs one mouse move to undo and
+  // zero check-in throughput — unlike a phone at the door, where every auto-lock
+  // is a re-unlock in front of a waiting guest. Not worth the permission surface
+  // and an extra toggle nobody asked for.
+  //
+  // Which reads get to raise the alarm. Two exclusions, for two different
+  // reasons — both narrowing, because membership here is a VETO: any single
+  // tracked query that stops succeeding pins `lastSyncAt` stale forever (see
+  // `oldestDataUpdatedAt`), and no amount of forced refreshing clears it.
+  //
+  //  - `usePoEventForEdit` and the two request reads have no refresh cadence of
+  //    their own, so their age would drift past the threshold while the screen
+  //    sits perfectly live and fire the overlay on every resume.
+  //  - `usePoEventStats` DOES poll, but it is not load-bearing for the door
+  //    (86eykg2x1 review round 2). It feeds the peak tile and the per-quarter
+  //    card, both `canSeeStats`-gated, so a doorhost never sees it at all — yet
+  //    `fetchEventStats` bundles five RPCs and throws if ANY of them errors, so
+  //    one drifting/500-ing RPC would hand a decorative read a permanent veto
+  //    over check-in: every alt-tab blocks, the forced refresh and its retry
+  //    cannot clear it, and the doorhost waits out the 8s backstop before
+  //    "continue anyway" even appears. Guests/tiers/arrivals keep the veto —
+  //    there a persistent failure really does mean the screen is wrong.
+  //
+  // Everything excluded here is still repaired by `refreshCockpit`; it just does
+  // not get to raise the alarm. See ./useCockpitSync for the full split.
+  const trackedFreshness: QueryFreshness[] = [
+    { dataUpdatedAt: guestsQuery.dataUpdatedAt },
+    { dataUpdatedAt: tiersQuery.dataUpdatedAt },
+    { dataUpdatedAt: arrivalsQuery.dataUpdatedAt },
+  ];
+  const refreshCockpit = (): Promise<unknown> =>
+    // `refetch()` resolves with the (possibly failed) query state rather than
+    // rejecting, but never let an unexpected rejection surface as an unhandled
+    // promise on a screen that is running a door. The returned promise is what
+    // `useCockpitSync` derives `syncing` from, so it must settle only once the
+    // whole forced refresh has.
+    Promise.all([
+      guestsQuery.refetch(),
+      tiersQuery.refetch(),
+      statsQuery.refetch(),
+      arrivalsQuery.refetch(),
+      edit.refetch(),
+      guestRequestsQuery.refetch(),
+      quotaRequestsQuery.refetch(),
+    ]).catch(() => undefined);
+  const cockpitSync = useCockpitSync({ tracked: trackedFreshness, refresh: refreshCockpit });
+  // Called ONCE, here, so the phase can also `inert` the cockpit body while
+  // blocking — a second call would run a second state machine against the same
+  // freshness and the two could disagree (same rule as PoDoorTab).
+  const staleResume = useStaleResumeGuard(cockpitSync);
 
   const checkIn = usePoCheckIn(eventId);
   const checkOut = usePoCheckOut(eventId);
@@ -357,398 +439,412 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   const doorTime = editRow?.startsAt ? amsterdamHM(new Date(editRow.startsAt)) : null;
 
   return (
-    <div className="flex flex-col gap-[18px]">
-      {/* page header */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="font-display text-[22px] font-extrabold tracking-[-0.02em] text-text">{t.cockpit.pageTitle}</h1>
-          <div className="truncate text-[13px] text-faint">
-            {fmt(event.phase === 'live' ? t.cockpit.pageSub : t.cockpit.pageSubUpcoming, { name: event.name })}
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {onChangeEvent && (
-            <Btn desktop kind="ghost" icon="cal" onClick={onChangeEvent}>
-              {t.cockpit.switchEvent}
-            </Btn>
-          )}
-          {canCheckIn && (
-            <Btn desktop icon="plus" onClick={() => nav.push('quickadd', { id: eventId })}>
-              {t.events.addGuest}
-            </Btn>
-          )}
-        </div>
-      </div>
-
-      {/* LIVE strip */}
-      <div
-        className="rounded-[20px] border border-line p-[22px]"
-        style={{ background: 'radial-gradient(120% 160% at 0% 0%, rgba(181,166,255,0.13), #161618 58%)' }}
-      >
-        <div className="flex flex-wrap items-center gap-4">
-          {/* Phase-aware (T6 test 8): the LIVE badge only when the event is actually
-              running; before doors it reads UPCOMING. The dot pulses only while the
-              realtime subscription is really connected. */}
-          {event.phase === 'live' ? (
-            <span className="inline-flex items-center gap-[7px] rounded-full bg-acc-dim px-3 py-1.5 font-body text-[12px] font-extrabold tracking-[0.04em] text-acc">
-              <span className={cn('h-[7px] w-[7px] rounded-full bg-acc', realtimeConnected && 'animate-pulse')} />
-              {t.cockpit.liveBadge}
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-[7px] rounded-full border border-line px-3 py-1.5 font-body text-[12px] font-extrabold tracking-[0.04em] text-faint">
-              <span className="h-[7px] w-[7px] rounded-full bg-ghost" />
-              {t.cockpit.upcomingBadge}
-            </span>
-          )}
+    <>
+      <StaleResumeOverlay
+        phase={staleResume.phase}
+        offline={staleResume.offline}
+        continueAnyway={staleResume.continueAnyway}
+        retry={staleResume.retry}
+        // The door's offline copy promises the outbox will queue check-ins. This
+        // surface has no outbox, so it says the opposite instead.
+        offlineSub={t.cockpit.resumeOfflineSub}
+      />
+      {/* `inert`, not just the overlay's z-index: the cockpit's search field and
+          its Enter-to-check-in handler must not receive keyboard or
+          scanner-wedge input while the screen is blocked on stale data. */}
+      <div inert={staleResume.phase !== 'closed'} className="flex flex-col gap-[18px]">
+        {/* page header */}
+        <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="truncate font-display text-[23px] font-extrabold tracking-[-0.02em] text-text">{event.name}</div>
-            <div className="text-[13px] text-faint">
-              {event.venueName}
-              {doorTime ? ` · ${fmt(t.cockpit.doorTime, { time: doorTime })}` : ''}
+            <h1 className="font-display text-[22px] font-extrabold tracking-[-0.02em] text-text">{t.cockpit.pageTitle}</h1>
+            <div className="truncate text-[13px] text-faint">
+              {fmt(event.phase === 'live' ? t.cockpit.pageSub : t.cockpit.pageSubUpcoming, { name: event.name })}
             </div>
           </div>
-          <div className="flex-1" />
-          <LiveClock />
-          <button
-            type="button"
-            onClick={toggleLock}
-            disabled={!canManage || setLock.isPending}
-            title={canManage ? t.cockpit.lockTitleManage : t.cockpit.lockTitleNoRights}
-            className={cn(
-              'inline-flex items-center gap-2 whitespace-nowrap rounded-[12px] border px-[15px] py-[11px] font-display text-[14px] font-bold',
-              canManage && press,
-              !canManage && 'cursor-default',
-              listLocked ? 'border-transparent bg-acc-dim text-acc' : 'border-line text-dim'
+          <div className="flex shrink-0 items-center gap-2">
+            {onChangeEvent && (
+              <Btn desktop kind="ghost" icon="cal" onClick={onChangeEvent}>
+                {t.cockpit.switchEvent}
+              </Btn>
             )}
-          >
-            <Icon name={listLocked ? 'lock' : 'history'} size={16} sw={2.1} />
-            {listLocked ? t.cockpit.listLocked : t.cockpit.listOpen}
-          </button>
-        </div>
-
-        <div className="mb-[9px] mt-5 flex items-baseline justify-between">
-          <Label>{t.cockpit.turnoutNow}</Label>
-          <span className="font-display text-[15px] font-bold">
-            <span className="text-acc">{tiles.binnenH}</span>{' '}
-            <span className="text-faint">
-              / {fmt(t.cockpit.turnoutTail, { total: tiles.aangemeldH, pct: Math.round(tiles.pct * 100) })}
-            </span>
-          </span>
-        </div>
-        <div className="h-3 overflow-hidden rounded-[7px] bg-elev2">
-          <div
-            className="h-full rounded-[7px] bg-acc transition-[width] duration-500 ease-out"
-            style={{ width: `${tiles.pct * 100}%` }}
-          />
-        </div>
-        <div className="mt-3 flex items-center gap-[7px] text-[12.5px] text-faint">
-          <Icon name="shield" size={13} className="text-faint" />
-          {listLocked ? t.cockpit.lockedHint : t.cockpit.openHint}
-        </div>
-      </div>
-
-      {/* KPI tiles */}
-      <div className="grid grid-cols-4 gap-4">
-        <Tile v={tiles.binnenH} l={t.cockpit.tileInside} s={fmt(t.cockpit.tileInsideSub, { total: tiles.aangemeldH })} accent />
-        <Tile v={tiles.onderwegH} l={t.cockpit.tileOnTheWay} s={t.cockpit.tileOnTheWaySub} />
-        <Tile v={`${Math.round(tiles.pct * 100)}%`} l={t.cockpit.tilePresence} s={t.cockpit.tilePresenceSub} />
-        <Tile
-          v={canSeeStats ? stats?.peak ?? '—' : '—'}
-          l={t.cockpit.tilePeak}
-          s={canSeeStats && stats?.peak ? fmt(t.cockpit.tilePeakSub, { n: stats.peakCount }) : t.cockpit.tilePeakNone}
-        />
-      </div>
-
-      {/* main grid */}
-      <div className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] items-start gap-4">
-        {/* cockpit list */}
-        <Card className="overflow-hidden p-0">
-          <div className="flex flex-col gap-[13px] border-b border-line2 p-[18px]">
-            <div className="flex flex-wrap items-center gap-[10px]">
-              <div className="inline-flex min-w-[240px] flex-1 items-center gap-[9px] rounded-[12px] border border-line bg-bg px-[14px] py-[11px]">
-                <Icon name="search" size={17} className="text-faint" />
-                <input
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  onKeyDown={onSearchKey}
-                  placeholder={canCheckIn ? t.cockpit.searchCheckIn : t.cockpit.searchPlaceholder}
-                  className="min-w-0 flex-1 border-none bg-transparent text-[14px] text-text outline-none placeholder:text-faint"
-                />
-                {q && (
-                  <button type="button" onClick={() => setQ('')} className="flex text-faint" aria-label={t.cockpit.clearAria}>
-                    <Icon name="close" size={15} />
-                  </button>
-                )}
-              </div>
-              <div className="inline-flex gap-[3px] rounded-[12px] border border-line bg-bg p-[3px]">
-                {(
-                  [
-                    ['all', t.cockpit.filterAll, counts.all],
-                    ['wait', t.cockpit.filterOnTheWay, counts.wait],
-                    ['in', t.cockpit.filterInside, counts.in],
-                    // Only shown once someone has actually been refused (mirrors
-                    // the door's REFUSED group, which stays hidden until non-empty).
-                    ...(counts.refused > 0 || statF === 'refused'
-                      ? ([['refused', t.cockpit.filterRefused, counts.refused]] as const)
-                      : []),
-                  ] as const
-                ).map(([k, l, n]) => {
-                  const on = statF === k;
-                  return (
-                    <button
-                      key={k}
-                      type="button"
-                      onClick={() => setStatF(k)}
-                      className={cn(
-                        'inline-flex items-center gap-[7px] rounded-[9px] px-[13px] py-2 font-display text-[13.5px] font-bold',
-                        press,
-                        on ? 'bg-elev2 text-text' : 'text-faint'
-                      )}
-                    >
-                      {l}
-                      <span className={cn('tabular-nums text-[11.5px]', on ? 'text-dim' : 'text-ghost')}>{n}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-[7px]">
-              <TierChip on={tierF === 'all'} onClick={() => setTierF('all')}>
-                {t.cockpit.allTiers}
-              </TierChip>
-              {tierRows.map((t) => (
-                <TierChip key={t.tierId} on={tierF === t.tierId} color={t.color} onClick={() => setTierF(t.tierId)}>
-                  {t.tier}
-                </TierChip>
-              ))}
-            </div>
+            {canCheckIn && (
+              <Btn desktop icon="plus" onClick={() => nav.push('quickadd', { id: eventId })}>
+                {t.events.addGuest}
+              </Btn>
+            )}
           </div>
+        </div>
 
-          <CockpitGuestList
-            rows={filtered}
-            totalGuests={guests.length}
-            arrivals={arrivals}
-            tierDisplay={tierDisplay}
-            flashId={flashId}
-            canCheckIn={canCheckIn}
-            allowUncheck={allowUncheck}
-            onCheckInClick={onCheckInClick}
-            onVoid={onVoidClick}
-            onRefuseClick={setRefuseTarget}
-            onUndoRefuse={onUndoRefuse}
-          />
-
-          <div className="flex min-h-[44px] items-center gap-[10px] border-t border-line px-[18px] py-[11px]">
-            {feed.length > 0 ? (
-              <>
-                <span
-                  className="h-[7px] w-[7px] shrink-0 rounded-full"
-                  style={{ background: feedIsAccent(feed[0]) ? '#B5A6FF' : 'rgba(255,255,255,0.26)' }}
-                />
-                <span className="text-[13px] text-dim">
-                  <span className="font-display font-bold text-text">{feed[0].t}</span> — {liveFeedLabel(feed[0])}
-                </span>
-              </>
+        {/* LIVE strip */}
+        <div
+          className="rounded-[20px] border border-line p-[22px]"
+          style={{ background: 'radial-gradient(120% 160% at 0% 0%, rgba(181,166,255,0.13), #161618 58%)' }}
+        >
+          <div className="flex flex-wrap items-center gap-4">
+            {/* Phase-aware (T6 test 8): the LIVE badge only when the event is actually
+                running; before doors it reads UPCOMING. The dot pulses only while the
+                realtime subscription is really connected. */}
+            {event.phase === 'live' ? (
+              <span className="inline-flex items-center gap-[7px] rounded-full bg-acc-dim px-3 py-1.5 font-body text-[12px] font-extrabold tracking-[0.04em] text-acc">
+                <span className={cn('h-[7px] w-[7px] rounded-full bg-acc', realtimeConnected && 'animate-pulse')} />
+                {t.cockpit.liveBadge}
+              </span>
             ) : (
-              <span className="text-[12.5px] text-faint">
-                {fmt(t.cockpit.feedShown, { n: filtered.length })}
+              <span className="inline-flex items-center gap-[7px] rounded-full border border-line px-3 py-1.5 font-body text-[12px] font-extrabold tracking-[0.04em] text-faint">
+                <span className="h-[7px] w-[7px] rounded-full bg-ghost" />
+                {t.cockpit.upcomingBadge}
               </span>
             )}
-          </div>
-        </Card>
-
-        {/* right column */}
-        <div className="flex flex-col gap-4">
-          {canManage && (
-            <Card className="p-[22px]">
-              <div className="mb-1 flex items-center justify-between">
-                <div className="font-display text-[17px] font-bold text-text">{t.cockpit.approvalsTitle}</div>
-                {openReqs > 0 && (
-                  <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-acc px-[7px] font-display text-[13px] font-extrabold text-on-acc">
-                    {openReqs}
-                  </span>
-                )}
-              </div>
-              <div className="mb-4 text-[12.5px] text-faint">{t.cockpit.approvalsSub}</div>
-              {openReqs === 0 ? (
-                <div className="flex flex-col items-center gap-[10px] py-2 text-center text-[13.5px] text-faint">
-                  <span className="flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line bg-elev2 text-acc">
-                    <Icon name="check" size={19} sw={2.3} />
-                  </span>
-                  {t.cockpit.approvalsEmpty}
-                </div>
-              ) : (
-                <div className="flex flex-col gap-[18px]">
-                  {evQuotaReqs.length > 0 && (
-                    <div>
-                      <Label className="mb-[11px]">{t.cockpit.approvalsQuotaLabel}</Label>
-                      <div className="flex flex-col gap-[13px]">
-                        {evQuotaReqs.map((r) => (
-                          <div key={r.id} className="flex items-center gap-[11px]">
-                            <Avatar name={r.who} size={34} />
-                            <div className="min-w-0 flex-1">
-                              <div className="truncate text-[13.5px] font-semibold text-text">{r.who}</div>
-                              <div className="truncate text-[11.5px] text-faint">
-                                {fmt(t.cockpit.quotaPlus, { n: r.extra })}
-                                {r.reason ? ` · ${r.reason}` : ''}
-                              </div>
-                            </div>
-                            <div className="flex shrink-0 gap-[6px]">
-                              <MiniBtn icon="check" accent title={t.cockpit.approveQuotaTitle} onClick={() => approveQuota(r)} />
-                              <MiniBtn icon="close" title={t.cockpit.denyTitle} onClick={() => denyQuota(r)} />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {evGuestReqs.length > 0 && (
-                    <div>
-                      <Label className="mb-[11px]">{t.cockpit.approvalsLandingLabel}</Label>
-                      <div className="flex flex-col gap-[13px]">
-                        {evGuestReqs.map((r) => (
-                          <div key={r.id} className="flex items-center gap-[11px]">
-                            <Avatar name={r.name} size={34} />
-                            <div className="min-w-0 flex-1">
-                              <div className="truncate text-[13.5px] font-semibold text-text">
-                                {r.name}
-                                {r.plus > 0 && <span className="font-extrabold text-acc"> +{r.plus}</span>}
-                              </div>
-                              <div className={cn('truncate text-[11.5px]', r.flag ? 'text-acc' : 'text-faint')}>
-                                {r.flag ?? r.motivation ?? (r.phoneLast4 ? fmt(t.cockpit.phoneLast4, { last4: r.phoneLast4 }) : t.cockpit.requestFallback)}
-                              </div>
-                            </div>
-                            <div className="flex shrink-0 gap-[6px]">
-                              <MiniBtn
-                                icon="check"
-                                accent
-                                title={defaultTierId ? t.cockpit.approveTitle : t.cockpit.approveNoTier}
-                                disabled={!defaultTierId}
-                                onClick={() => approveLanding(r)}
-                              />
-                              <MiniBtn icon="close" title={t.cockpit.denyTitle} onClick={() => denyLanding(r)} />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </Card>
-          )}
-
-          {/* tasks — G2 door-parity */}
-          {canCheckIn && <CockpitTasksCard guests={guests} onAck={onAckNote} />}
-
-          {/* aanwezig per tier */}
-          <Card className="p-[22px]">
-            <div className="mb-1 font-display text-[17px] font-bold text-text">{t.cockpit.perTierTitle}</div>
-            <div className="mb-[18px] text-[12.5px] text-faint">{t.cockpit.perTierSub}</div>
-            <PerTierBars rows={tierRows} />
-          </Card>
-
-          {/* instroom per kwartier */}
-          {canSeeStats && <KwartierCard perKwartier={stats?.perKwartier ?? []} />}
-        </div>
-      </div>
-
-      {modal &&
-        (() => {
-          const g = modal.guest;
-          const ps = partyState(g, arrivals);
-          const isOut = modal.kind === 'checkout';
-          const max = modal.kind === 'checkin' ? ps.totalHeads : modal.kind === 'topup' ? ps.remaining : ps.insideHeads;
-          const v = Math.min(max, Math.max(1, modal.value));
-          const afterInside =
-            modal.kind === 'checkin' ? v : modal.kind === 'topup' ? ps.insideHeads + v : ps.insideHeads - v;
-          const setV = (nv: number): void =>
-            setModal((s) => (s ? { ...s, value: Math.min(max, Math.max(1, nv)) } : s));
-          const heading =
-            modal.kind === 'checkin'
-              ? t.cockpit.modalHowManyIn
-              : modal.kind === 'topup'
-                ? fmt(t.cockpit.modalTopupHeading, { inside: ps.insideHeads, total: ps.totalHeads, n: ps.remaining })
-                : fmt(t.cockpit.modalCheckoutHeading, { inside: ps.insideHeads, unit: ps.insideHeads === 1 ? t.cockpit.personSingular : t.cockpit.personPlural });
-          const stepLabel = modal.kind === 'checkin' ? t.cockpit.stepInside : modal.kind === 'topup' ? t.cockpit.stepMore : t.cockpit.stepCheckOut;
-          const confirmLine =
-            modal.kind === 'checkin'
-              ? fmt(t.cockpit.modalCheckinLine, { v, total: ps.totalHeads, unit: ps.totalHeads === 1 ? t.cockpit.personSingular : t.cockpit.personPlural })
-              : modal.kind === 'topup'
-                ? fmt(t.cockpit.modalTopupLine, { after: afterInside, total: ps.totalHeads })
-                : fmt(t.cockpit.modalCheckoutLine, {
-                    v,
-                    inside: ps.insideHeads,
-                    unit: ps.insideHeads === 1 ? t.cockpit.personSingular : t.cockpit.personPlural,
-                    tail: afterInside > 0 ? fmt(t.cockpit.modalCheckoutLineTail, { after: afterInside }) : '',
-                  });
-          const confirmBtn =
-            modal.kind === 'checkin' ? t.cockpit.modalConfirmCheckin : modal.kind === 'topup' ? fmt(t.cockpit.modalConfirmTopup, { n: v }) : t.cockpit.modalConfirmCheckout;
-          return (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setModal(null)}>
-              <div className="w-[340px] rounded-[18px] border border-line bg-elev p-5" onClick={(e) => e.stopPropagation()}>
-                <div className="font-display text-[17px] font-bold text-text">
-                  {g.name}
-                  {g.plus > 0 && <span className="text-acc"> +{g.plus}</span>}
-                </div>
-                <div className="mt-0.5 text-[12.5px] text-faint">{heading}</div>
-                <div className={cn('mt-4 flex items-center justify-between gap-3 rounded-[14px] p-2.5', isOut ? 'bg-elev2' : 'bg-acc-dim')}>
-                  <button
-                    type="button"
-                    onClick={() => setV(v - 1)}
-                    disabled={v <= 1}
-                    className={cn('flex h-11 w-11 items-center justify-center rounded-[12px] border border-line bg-elev2 text-text disabled:opacity-40', v > 1 && press)}
-                    aria-label={t.cockpit.modalMinusAria}
-                  >
-                    <Icon name="minus" size={20} sw={2.4} />
-                  </button>
-                  <div className="text-center">
-                    <div className="font-display text-[26px] font-bold leading-none text-text">
-                      {v}
-                      <span className="text-faint">/{max}</span>
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-dim">{stepLabel}</div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setV(v + 1)}
-                    disabled={v >= max}
-                    className={cn('flex h-11 w-11 items-center justify-center rounded-[12px] border border-line bg-elev2 disabled:opacity-40', v < max && press)}
-                    aria-label={t.cockpit.modalPlusAria}
-                  >
-                    <Icon name="plus" size={20} sw={2.4} stroke="#B5A6FF" />
-                  </button>
-                </div>
-                <div className="mt-3 text-center text-[12.5px] text-faint">{confirmLine}</div>
-                <div className="mt-4 flex gap-2">
-                  <Btn desktop kind="ghost" className="flex-1 justify-center" onClick={() => setModal(null)}>
-                    {t.cockpit.modalCancel}
-                  </Btn>
-                  <Btn desktop kind={isOut ? 'dark' : undefined} className="flex-1 justify-center" onClick={confirmModal}>
-                    {confirmBtn}
-                  </Btn>
-                </div>
+            <div className="min-w-0">
+              <div className="truncate font-display text-[23px] font-extrabold tracking-[-0.02em] text-text">{event.name}</div>
+              <div className="text-[13px] text-faint">
+                {event.venueName}
+                {doorTime ? ` · ${fmt(t.cockpit.doorTime, { time: doorTime })}` : ''}
               </div>
             </div>
-          );
-        })()}
-      {toast && (
-        <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
-          <div
-            className={cn(
-              'flex items-center gap-2.5 rounded-[14px] border px-[18px] py-[13px] font-body text-[14px] font-bold shadow-lg',
-              toast.tone === 'in' ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev2 text-text'
-            )}
-          >
-            <Icon name={toast.tone === 'in' ? 'check' : 'history'} size={17} sw={2.4} stroke={toast.tone === 'in' ? '#16132B' : undefined} />
-            {toast.msg}
+            <div className="flex-1" />
+            <LiveClock />
+            <button
+              type="button"
+              onClick={toggleLock}
+              disabled={!canManage || setLock.isPending}
+              title={canManage ? t.cockpit.lockTitleManage : t.cockpit.lockTitleNoRights}
+              className={cn(
+                'inline-flex items-center gap-2 whitespace-nowrap rounded-[12px] border px-[15px] py-[11px] font-display text-[14px] font-bold',
+                canManage && press,
+                !canManage && 'cursor-default',
+                listLocked ? 'border-transparent bg-acc-dim text-acc' : 'border-line text-dim'
+              )}
+            >
+              <Icon name={listLocked ? 'lock' : 'history'} size={16} sw={2.1} />
+              {listLocked ? t.cockpit.listLocked : t.cockpit.listOpen}
+            </button>
+          </div>
+
+          <div className="mb-[9px] mt-5 flex items-baseline justify-between">
+            <Label>{t.cockpit.turnoutNow}</Label>
+            <span className="font-display text-[15px] font-bold">
+              <span className="text-acc">{tiles.binnenH}</span>{' '}
+              <span className="text-faint">
+                / {fmt(t.cockpit.turnoutTail, { total: tiles.aangemeldH, pct: Math.round(tiles.pct * 100) })}
+              </span>
+            </span>
+          </div>
+          <div className="h-3 overflow-hidden rounded-[7px] bg-elev2">
+            <div
+              className="h-full rounded-[7px] bg-acc transition-[width] duration-500 ease-out"
+              style={{ width: `${tiles.pct * 100}%` }}
+            />
+          </div>
+          <div className="mt-3 flex items-center gap-[7px] text-[12.5px] text-faint">
+            <Icon name="shield" size={13} className="text-faint" />
+            {listLocked ? t.cockpit.lockedHint : t.cockpit.openHint}
           </div>
         </div>
-      )}
-      {refuseTarget && (
-        <CockpitRefuseModal guest={refuseTarget} onCancel={() => setRefuseTarget(null)} onConfirm={confirmRefuse} />
-      )}
-    </div>
+
+        {/* KPI tiles */}
+        <div className="grid grid-cols-4 gap-4">
+          <Tile v={tiles.binnenH} l={t.cockpit.tileInside} s={fmt(t.cockpit.tileInsideSub, { total: tiles.aangemeldH })} accent />
+          <Tile v={tiles.onderwegH} l={t.cockpit.tileOnTheWay} s={t.cockpit.tileOnTheWaySub} />
+          <Tile v={`${Math.round(tiles.pct * 100)}%`} l={t.cockpit.tilePresence} s={t.cockpit.tilePresenceSub} />
+          <Tile
+            v={canSeeStats ? stats?.peak ?? '—' : '—'}
+            l={t.cockpit.tilePeak}
+            s={canSeeStats && stats?.peak ? fmt(t.cockpit.tilePeakSub, { n: stats.peakCount }) : t.cockpit.tilePeakNone}
+          />
+        </div>
+
+        {/* main grid */}
+        <div className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] items-start gap-4">
+          {/* cockpit list */}
+          <Card className="overflow-hidden p-0">
+            <div className="flex flex-col gap-[13px] border-b border-line2 p-[18px]">
+              <div className="flex flex-wrap items-center gap-[10px]">
+                <div className="inline-flex min-w-[240px] flex-1 items-center gap-[9px] rounded-[12px] border border-line bg-bg px-[14px] py-[11px]">
+                  <Icon name="search" size={17} className="text-faint" />
+                  <input
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    onKeyDown={onSearchKey}
+                    placeholder={canCheckIn ? t.cockpit.searchCheckIn : t.cockpit.searchPlaceholder}
+                    className="min-w-0 flex-1 border-none bg-transparent text-[14px] text-text outline-none placeholder:text-faint"
+                  />
+                  {q && (
+                    <button type="button" onClick={() => setQ('')} className="flex text-faint" aria-label={t.cockpit.clearAria}>
+                      <Icon name="close" size={15} />
+                    </button>
+                  )}
+                </div>
+                <div className="inline-flex gap-[3px] rounded-[12px] border border-line bg-bg p-[3px]">
+                  {(
+                    [
+                      ['all', t.cockpit.filterAll, counts.all],
+                      ['wait', t.cockpit.filterOnTheWay, counts.wait],
+                      ['in', t.cockpit.filterInside, counts.in],
+                      // Only shown once someone has actually been refused (mirrors
+                      // the door's REFUSED group, which stays hidden until non-empty).
+                      ...(counts.refused > 0 || statF === 'refused'
+                        ? ([['refused', t.cockpit.filterRefused, counts.refused]] as const)
+                        : []),
+                    ] as const
+                  ).map(([k, l, n]) => {
+                    const on = statF === k;
+                    return (
+                      <button
+                        key={k}
+                        type="button"
+                        onClick={() => setStatF(k)}
+                        className={cn(
+                          'inline-flex items-center gap-[7px] rounded-[9px] px-[13px] py-2 font-display text-[13.5px] font-bold',
+                          press,
+                          on ? 'bg-elev2 text-text' : 'text-faint'
+                        )}
+                      >
+                        {l}
+                        <span className={cn('tabular-nums text-[11.5px]', on ? 'text-dim' : 'text-ghost')}>{n}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-[7px]">
+                <TierChip on={tierF === 'all'} onClick={() => setTierF('all')}>
+                  {t.cockpit.allTiers}
+                </TierChip>
+                {tierRows.map((t) => (
+                  <TierChip key={t.tierId} on={tierF === t.tierId} color={t.color} onClick={() => setTierF(t.tierId)}>
+                    {t.tier}
+                  </TierChip>
+                ))}
+              </div>
+            </div>
+
+            <CockpitGuestList
+              rows={filtered}
+              totalGuests={guests.length}
+              arrivals={arrivals}
+              tierDisplay={tierDisplay}
+              flashId={flashId}
+              canCheckIn={canCheckIn}
+              allowUncheck={allowUncheck}
+              onCheckInClick={onCheckInClick}
+              onVoid={onVoidClick}
+              onRefuseClick={setRefuseTarget}
+              onUndoRefuse={onUndoRefuse}
+            />
+
+            <div className="flex min-h-[44px] items-center gap-[10px] border-t border-line px-[18px] py-[11px]">
+              {feed.length > 0 ? (
+                <>
+                  <span
+                    className="h-[7px] w-[7px] shrink-0 rounded-full"
+                    style={{ background: feedIsAccent(feed[0]) ? '#B5A6FF' : 'rgba(255,255,255,0.26)' }}
+                  />
+                  <span className="text-[13px] text-dim">
+                    <span className="font-display font-bold text-text">{feed[0].t}</span> — {liveFeedLabel(feed[0])}
+                  </span>
+                </>
+              ) : (
+                <span className="text-[12.5px] text-faint">
+                  {fmt(t.cockpit.feedShown, { n: filtered.length })}
+                </span>
+              )}
+            </div>
+          </Card>
+
+          {/* right column */}
+          <div className="flex flex-col gap-4">
+            {canManage && (
+              <Card className="p-[22px]">
+                <div className="mb-1 flex items-center justify-between">
+                  <div className="font-display text-[17px] font-bold text-text">{t.cockpit.approvalsTitle}</div>
+                  {openReqs > 0 && (
+                    <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-acc px-[7px] font-display text-[13px] font-extrabold text-on-acc">
+                      {openReqs}
+                    </span>
+                  )}
+                </div>
+                <div className="mb-4 text-[12.5px] text-faint">{t.cockpit.approvalsSub}</div>
+                {openReqs === 0 ? (
+                  <div className="flex flex-col items-center gap-[10px] py-2 text-center text-[13.5px] text-faint">
+                    <span className="flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line bg-elev2 text-acc">
+                      <Icon name="check" size={19} sw={2.3} />
+                    </span>
+                    {t.cockpit.approvalsEmpty}
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-[18px]">
+                    {evQuotaReqs.length > 0 && (
+                      <div>
+                        <Label className="mb-[11px]">{t.cockpit.approvalsQuotaLabel}</Label>
+                        <div className="flex flex-col gap-[13px]">
+                          {evQuotaReqs.map((r) => (
+                            <div key={r.id} className="flex items-center gap-[11px]">
+                              <Avatar name={r.who} size={34} />
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-[13.5px] font-semibold text-text">{r.who}</div>
+                                <div className="truncate text-[11.5px] text-faint">
+                                  {fmt(t.cockpit.quotaPlus, { n: r.extra })}
+                                  {r.reason ? ` · ${r.reason}` : ''}
+                                </div>
+                              </div>
+                              <div className="flex shrink-0 gap-[6px]">
+                                <MiniBtn icon="check" accent title={t.cockpit.approveQuotaTitle} onClick={() => approveQuota(r)} />
+                                <MiniBtn icon="close" title={t.cockpit.denyTitle} onClick={() => denyQuota(r)} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {evGuestReqs.length > 0 && (
+                      <div>
+                        <Label className="mb-[11px]">{t.cockpit.approvalsLandingLabel}</Label>
+                        <div className="flex flex-col gap-[13px]">
+                          {evGuestReqs.map((r) => (
+                            <div key={r.id} className="flex items-center gap-[11px]">
+                              <Avatar name={r.name} size={34} />
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-[13.5px] font-semibold text-text">
+                                  {r.name}
+                                  {r.plus > 0 && <span className="font-extrabold text-acc"> +{r.plus}</span>}
+                                </div>
+                                <div className={cn('truncate text-[11.5px]', r.flag ? 'text-acc' : 'text-faint')}>
+                                  {r.flag ?? r.motivation ?? (r.phoneLast4 ? fmt(t.cockpit.phoneLast4, { last4: r.phoneLast4 }) : t.cockpit.requestFallback)}
+                                </div>
+                              </div>
+                              <div className="flex shrink-0 gap-[6px]">
+                                <MiniBtn
+                                  icon="check"
+                                  accent
+                                  title={defaultTierId ? t.cockpit.approveTitle : t.cockpit.approveNoTier}
+                                  disabled={!defaultTierId}
+                                  onClick={() => approveLanding(r)}
+                                />
+                                <MiniBtn icon="close" title={t.cockpit.denyTitle} onClick={() => denyLanding(r)} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </Card>
+            )}
+
+            {/* tasks — G2 door-parity */}
+            {canCheckIn && <CockpitTasksCard guests={guests} onAck={onAckNote} />}
+
+            {/* aanwezig per tier */}
+            <Card className="p-[22px]">
+              <div className="mb-1 font-display text-[17px] font-bold text-text">{t.cockpit.perTierTitle}</div>
+              <div className="mb-[18px] text-[12.5px] text-faint">{t.cockpit.perTierSub}</div>
+              <PerTierBars rows={tierRows} />
+            </Card>
+
+            {/* instroom per kwartier */}
+            {canSeeStats && <KwartierCard perKwartier={stats?.perKwartier ?? []} />}
+          </div>
+        </div>
+
+        {modal &&
+          (() => {
+            const g = modal.guest;
+            const ps = partyState(g, arrivals);
+            const isOut = modal.kind === 'checkout';
+            const max = modal.kind === 'checkin' ? ps.totalHeads : modal.kind === 'topup' ? ps.remaining : ps.insideHeads;
+            const v = Math.min(max, Math.max(1, modal.value));
+            const afterInside =
+              modal.kind === 'checkin' ? v : modal.kind === 'topup' ? ps.insideHeads + v : ps.insideHeads - v;
+            const setV = (nv: number): void =>
+              setModal((s) => (s ? { ...s, value: Math.min(max, Math.max(1, nv)) } : s));
+            const heading =
+              modal.kind === 'checkin'
+                ? t.cockpit.modalHowManyIn
+                : modal.kind === 'topup'
+                  ? fmt(t.cockpit.modalTopupHeading, { inside: ps.insideHeads, total: ps.totalHeads, n: ps.remaining })
+                  : fmt(t.cockpit.modalCheckoutHeading, { inside: ps.insideHeads, unit: ps.insideHeads === 1 ? t.cockpit.personSingular : t.cockpit.personPlural });
+            const stepLabel = modal.kind === 'checkin' ? t.cockpit.stepInside : modal.kind === 'topup' ? t.cockpit.stepMore : t.cockpit.stepCheckOut;
+            const confirmLine =
+              modal.kind === 'checkin'
+                ? fmt(t.cockpit.modalCheckinLine, { v, total: ps.totalHeads, unit: ps.totalHeads === 1 ? t.cockpit.personSingular : t.cockpit.personPlural })
+                : modal.kind === 'topup'
+                  ? fmt(t.cockpit.modalTopupLine, { after: afterInside, total: ps.totalHeads })
+                  : fmt(t.cockpit.modalCheckoutLine, {
+                      v,
+                      inside: ps.insideHeads,
+                      unit: ps.insideHeads === 1 ? t.cockpit.personSingular : t.cockpit.personPlural,
+                      tail: afterInside > 0 ? fmt(t.cockpit.modalCheckoutLineTail, { after: afterInside }) : '',
+                    });
+            const confirmBtn =
+              modal.kind === 'checkin' ? t.cockpit.modalConfirmCheckin : modal.kind === 'topup' ? fmt(t.cockpit.modalConfirmTopup, { n: v }) : t.cockpit.modalConfirmCheckout;
+            return (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setModal(null)}>
+                <div className="w-[340px] rounded-[18px] border border-line bg-elev p-5" onClick={(e) => e.stopPropagation()}>
+                  <div className="font-display text-[17px] font-bold text-text">
+                    {g.name}
+                    {g.plus > 0 && <span className="text-acc"> +{g.plus}</span>}
+                  </div>
+                  <div className="mt-0.5 text-[12.5px] text-faint">{heading}</div>
+                  <div className={cn('mt-4 flex items-center justify-between gap-3 rounded-[14px] p-2.5', isOut ? 'bg-elev2' : 'bg-acc-dim')}>
+                    <button
+                      type="button"
+                      onClick={() => setV(v - 1)}
+                      disabled={v <= 1}
+                      className={cn('flex h-11 w-11 items-center justify-center rounded-[12px] border border-line bg-elev2 text-text disabled:opacity-40', v > 1 && press)}
+                      aria-label={t.cockpit.modalMinusAria}
+                    >
+                      <Icon name="minus" size={20} sw={2.4} />
+                    </button>
+                    <div className="text-center">
+                      <div className="font-display text-[26px] font-bold leading-none text-text">
+                        {v}
+                        <span className="text-faint">/{max}</span>
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-dim">{stepLabel}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setV(v + 1)}
+                      disabled={v >= max}
+                      className={cn('flex h-11 w-11 items-center justify-center rounded-[12px] border border-line bg-elev2 disabled:opacity-40', v < max && press)}
+                      aria-label={t.cockpit.modalPlusAria}
+                    >
+                      <Icon name="plus" size={20} sw={2.4} stroke="#B5A6FF" />
+                    </button>
+                  </div>
+                  <div className="mt-3 text-center text-[12.5px] text-faint">{confirmLine}</div>
+                  <div className="mt-4 flex gap-2">
+                    <Btn desktop kind="ghost" className="flex-1 justify-center" onClick={() => setModal(null)}>
+                      {t.cockpit.modalCancel}
+                    </Btn>
+                    <Btn desktop kind={isOut ? 'dark' : undefined} className="flex-1 justify-center" onClick={confirmModal}>
+                      {confirmBtn}
+                    </Btn>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        {toast && (
+          <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
+            <div
+              className={cn(
+                'flex items-center gap-2.5 rounded-[14px] border px-[18px] py-[13px] font-body text-[14px] font-bold shadow-lg',
+                toast.tone === 'in' ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev2 text-text'
+              )}
+            >
+              <Icon name={toast.tone === 'in' ? 'check' : 'history'} size={17} sw={2.4} stroke={toast.tone === 'in' ? '#16132B' : undefined} />
+              {toast.msg}
+            </div>
+          </div>
+        )}
+        {refuseTarget && (
+          <CockpitRefuseModal guest={refuseTarget} onCancel={() => setRefuseTarget(null)} onConfirm={confirmRefuse} />
+        )}
+      </div>
+    </>
   );
 }
 
