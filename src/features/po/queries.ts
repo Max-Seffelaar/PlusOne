@@ -452,6 +452,7 @@ export type PoGuestRequestRow = Pick<
   Tables['guest_requests']['Row'],
   | 'id'
   | 'full_name'
+  | 'email'
   | 'phone'
   | 'plus_ones'
   | 'motivation'
@@ -509,7 +510,7 @@ export async function fetchGuestRequests(
   const { data, error } = await client
     .from('guest_requests')
     .select(
-      'id, full_name, phone, plus_ones, motivation, created_at, event_id, status, decision_reason, request_link_id, decided_via'
+      'id, full_name, email, phone, plus_ones, motivation, created_at, event_id, status, decision_reason, request_link_id, decided_via'
     )
     .eq('venue_id', venueId)
     .or('status.in.(pending,denied),and(status.eq.approved,decided_via.eq.auto)')
@@ -1109,11 +1110,12 @@ async function contactEventCounts(client: Client, contactIds: string[]): Promise
   if (contactIds.length === 0) return counts;
 
   // A venue can have >1000 contacts, so the `.in('contact_id', …)` filter is
-  // chunked (≤1000 ids per request) to stay under Kong's URI length; each chunk's
-  // guest rows can themselves exceed 1000, so every chunk is ranged. `.order('id')`
-  // keys the paging.
+  // chunked to ≤120 ids per request (CLAUDE.md scale rule) — a ~210-id `.in()`
+  // list already hits ~7.8 kB and throws HTTP 414 (Kong's URI length limit), well
+  // under PostgREST's 1000-row cap; each chunk's guest rows can themselves exceed
+  // 1000, so every chunk is ranged too. `.order('id')` keys the paging.
   const seen = new Map<string, Set<string>>();
-  for (const chunk of chunkIds(contactIds)) {
+  for (const chunk of chunkIds(contactIds, 120)) {
     const rows = await fetchAllRanged<Pick<Tables['guests']['Row'], 'contact_id' | 'event_id'>>((from, to) =>
       client
         .from('guests')

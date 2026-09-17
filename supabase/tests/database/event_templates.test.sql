@@ -57,9 +57,12 @@ select plan(41);
 -- A. Scope trigger — venue_id is stamped from the parent template, and a forged
 --    venue_id is overwritten (closing the RLS hole).
 -- ---------------------------------------------------------------------------
--- Section A runs in the MAIN transaction (no savepoint): every later section
--- rolls back its savepoint, which also reverts pgTAP's result cache — so without
--- at least one non-rolled-back test, finish() sees zero and raises "No tests run!".
+-- Section A runs in the MAIN transaction (no savepoint). That used to be load-
+-- bearing: every later section rolls back its savepoint, which reverts pgTAP's
+-- result cache with it, so a file whose every assertion was rolled back left
+-- finish() seeing zero and raising "No tests run!". The resync block before
+-- finish() removes that constraint — it takes the count from the sequence, which
+-- survives a rollback — so section placement is now free. See the comment there.
 -- The two temp tiers are deleted right after, so T1 keeps its single fixture tier.
 insert into public.event_template_tiers (id, template_id, name)
 values ('7d000000-0000-7000-8000-0000000000a1', '7e000000-0000-7000-8000-000000000001', 'ScopeT');
@@ -364,6 +367,35 @@ select throws_ok(
   '42501', null, 'G6 staff cannot save an event as a template');
 reset role;
 rollback to savepoint g4;
+
+-- ---------------------------------------------------------------------------
+-- Re-sync pgTAP's own counter before finish().
+--
+-- pgTAP keeps "how many tests ran" (curr_test) in the temp TABLE __tcache__, so
+-- `rollback to savepoint` reverts it along with everything else in the section.
+-- The test *numbers* it prints come from __tresults___numb_seq — a SEQUENCE, and
+-- sequences are non-transactional, so those keep counting correctly. The two
+-- therefore drift apart: finish() compared plan() against the last assertion that
+-- ran outside a savepoint and printed "Looks like you planned N tests but ran 2",
+-- even though every assertion had run and passed. Take the count from the
+-- sequence, the one place that actually knows what executed.
+--
+-- num_failed() is reverted the same way and cannot be recovered from a sequence,
+-- but a failing assertion still reaches the harness as its own "not ok" line, so
+-- pg_prove remains the source of truth for pass/fail.
+--
+-- The exception handler is not defensive padding. currval() raises SQLSTATE 55000
+-- ("not yet defined in this session") when NOTHING in the session ever called
+-- nextval() — i.e. when no assertion ran at all. Without the handler that error
+-- aborts the transaction, finish() never runs, and the build fails with a sequence
+-- error nobody recognizes, in place of pgTAP's own "# No tests run!" — which is one
+-- of the three things scripts/lib/pgtap-gate.mjs exists to catch by name. Swallow
+-- the 55000 and leave curr_test untouched so finish() raises that signal itself.
+do $resync$ begin
+  perform _set('curr_test', currval('__tresults___numb_seq')::int);
+exception when object_not_in_prerequisite_state then
+  null;
+end $resync$;
 
 select * from finish();
 

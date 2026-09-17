@@ -68,7 +68,7 @@ vi.mock('@/features/po/hooks', () => ({
 }));
 vi.mock('@/features/door/DoorProvider', () => ({ DoorProvider: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock('@/features/door/DoorQueryProvider', () => ({ DoorQueryProvider: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
-vi.mock('@/features/venues/actions', () => ({ setActiveVenueAction: vi.fn() }));
+vi.mock('@/features/venues/actions', () => ({ switchActiveVenueAction: vi.fn() }));
 vi.mock('./screens/events', () => ({ Crew: () => null, EventEdit: () => null, EventView: () => null, Events: () => null, PastEvent: () => null, Tiers: () => null }));
 vi.mock('./screens/guests', () => ({ BulkPaste: () => null, Contacten: () => null, ContactProfile: () => null, GuestsTab: () => null }));
 vi.mock('./screens/door', () => ({ DoorEventPicker: () => null, PoDoorTab: () => null }));

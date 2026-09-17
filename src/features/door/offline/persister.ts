@@ -15,7 +15,7 @@
  * worst case is a refetch on next boot.
  */
 import type { PersistedClient, Persister } from '@tanstack/react-query-persist-client';
-import { idbDel, idbEpoch, idbGet, idbSet } from './idb';
+import { IDB_OPEN_BLOCKED_RESTORE_GRACE_MS, idbDel, idbEpoch, idbGet, idbSet } from './idb';
 
 const CACHE_KEY = 'door-query-cache';
 
@@ -46,7 +46,23 @@ export function createIdbPersister(key = CACHE_KEY, throttleMs = PERSIST_THROTTL
       pendingEpoch = idbEpoch();
       timer ??= setTimeout(write, throttleMs);
     },
-    restoreClient: () => idbGet<PersistedClient>(key),
+    // The boot gate: while this is pending PersistQueryClientProvider stays in
+    // `isRestoring`. It gets the LONGER blocked-open grace — losing this read
+    // costs the whole cached guest list, and at the door offline is the normal
+    // case, so there is no refetch to fall back on (writes, which nothing waits
+    // on, keep the short one). See the constants in `idb.ts`.
+    //
+    // DECIDED, not overlooked (86ey9e9wc review): a restore that fails anyway is
+    // still SILENT — `idbGet` swallows the rejection and returns `undefined`,
+    // which is indistinguishable from a cold cache, so the door boots on an empty
+    // list with no storage-attributable warning (the `persistDegraded` toast only
+    // fires once a WRITE fails, and it describes a different problem). Telemetry
+    // does cover it (`captureMessage` on give-up, in `idb.ts`). A doorhost-facing
+    // "your cached list could not be loaded" signal is deliberately NOT added here:
+    // it applies to every restore failure (corrupt snapshot, quota exceeded), not
+    // just a blocked open, so it belongs to `restoreClient`'s error contract and
+    // its own UI decision — not bolted onto this fix. Own task.
+    restoreClient: () => idbGet<PersistedClient>(key, { graceMs: IDB_OPEN_BLOCKED_RESTORE_GRACE_MS }),
     // Cancel any queued write first: a throttled stale write firing after
     // removeClient would resurrect a cache we were told to discard (corrupt
     // restore, or sign-out clearing PII on a shared door phone).

@@ -51,10 +51,21 @@ function migrationFiles(): string[] {
     .sort();
 }
 
-/** The LAST `create or replace function public.<name>(...) ... $$;` body
+/** Matches bare `create function` too, not just `create or replace` — a
+ * migration that changes the function's arg list has to `drop` + plain
+ * `create` (postgres refuses `or replace` across a signature change), and
+ * that body must not go invisible to the guard the way it did once already
+ * (20260706103000 dropped the 7-arg overload via a bare `create function`;
+ * supabase/canonical/submit_guest_request.sql kept describing that stale
+ * 7-arg body for six migrations before 86eyke279 caught it by accident). */
+function functionPattern(name: string): RegExp {
+  return new RegExp(`create (?:or replace )?function public\\.${name}\\s*\\([\\s\\S]*?\\$\\$;`, 'g');
+}
+
+/** The LAST `create [or replace] function public.<name>(...) ... $$;` body
  * across every migration, in chronological (filename-timestamp) order. */
 function newestDeployedBody(name: string): { file: string; sql: string } | null {
-  const pattern = new RegExp(`create or replace function public\\.${name}\\s*\\([\\s\\S]*?\\$\\$;`, 'g');
+  const pattern = functionPattern(name);
   let found: { file: string; sql: string } | null = null;
   for (const file of migrationFiles()) {
     const content = readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8');
@@ -80,4 +91,35 @@ describe('canonical function bodies (K10 drift guard)', () => {
       );
     }
   );
+});
+
+describe('functionPattern (regex) — must not go blind to a signature-change migration', () => {
+  // 20260706103000 dropped submit_guest_request's 7-arg overload with a bare
+  // `create function` (no `or replace` — postgres rejects `or replace` across
+  // an arg-list change) and the guard missed it for six migrations. This
+  // proves the pattern still matches that shape, so a future arg-list change
+  // can't repeat it silently.
+  it('matches a bare `create function` (no `or replace`)', () => {
+    const sample = [
+      'create function public.audit_trigger(p_extra text)',
+      'returns trigger language plpgsql as $$',
+      'begin',
+      '  return new;',
+      'end;',
+      '$$;',
+    ].join('\n');
+    expect(functionPattern('audit_trigger').test(sample)).toBe(true);
+  });
+
+  it('still matches `create or replace function` (unchanged behaviour)', () => {
+    const sample = [
+      'create or replace function public.audit_trigger()',
+      'returns trigger language plpgsql as $$',
+      'begin',
+      '  return new;',
+      'end;',
+      '$$;',
+    ].join('\n');
+    expect(functionPattern('audit_trigger').test(sample)).toBe(true);
+  });
 });

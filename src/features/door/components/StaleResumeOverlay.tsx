@@ -19,11 +19,14 @@
  *
  * Covers the mobile `/door/[eventId]` route AND the mobile `/app` Deur tab —
  * both render `PoDoorTab` under the same `DoorProvider`, including the
- * guest-detail and add-on-spot overlays. Does NOT cover the desktop (≥1024px)
- * `/app` cockpit (`EventDayCockpitGate` in app.tsx) — that surface is a
- * separate, online-only React Query tree with no wake-lock/stale-resume
- * wiring; extending this feature there is tracked as a follow-up, not built
- * in this PR.
+ * guest-detail and add-on-spot overlays. Since 86eykg2x1 it also covers the
+ * desktop (≥1024px) `/app` Event-day cockpit, which drives the same guard from
+ * React Query freshness instead of `useDoorSync` (see
+ * `features/po/eventday/useCockpitSync`). The cockpit passes `offlineSub`
+ * because it has no outbox — see that prop.
+ *
+ * Wake lock is deliberately NOT part of the cockpit's wiring; the reasoning is
+ * in `features/po/eventday/useCockpitSync`'s call site in EventDayCockpit.
  */
 import type { JSX } from 'react';
 import { Icon } from '@/components/po/icon';
@@ -36,9 +39,26 @@ export interface StaleResumeOverlayProps {
   offline: boolean;
   continueAnyway: () => void;
   retry: () => void;
+  /**
+   * Override for the offline body copy only. The default (`t.door.resumeOffline
+   * Sub`) promises that "check-ins will queue and sync once you're back online"
+   * — true on the door, which has the offline outbox, and a straight lie on the
+   * desktop cockpit, which is online-only by design and simply fails the write.
+   * Telling a doorhost their check-ins are safely queued when they are not is
+   * the worst possible thing this overlay could do, so the one sentence that
+   * differs is a prop rather than a second copy of the component. Every other
+   * string reads correctly on both surfaces.
+   */
+  offlineSub?: string;
 }
 
-export function StaleResumeOverlay({ phase, offline, continueAnyway, retry }: StaleResumeOverlayProps): JSX.Element | null {
+export function StaleResumeOverlay({
+  phase,
+  offline,
+  continueAnyway,
+  retry,
+  offlineSub,
+}: StaleResumeOverlayProps): JSX.Element | null {
   if (phase === 'closed') return null;
 
   return (
@@ -65,7 +85,7 @@ export function StaleResumeOverlay({ phase, offline, continueAnyway, retry }: St
             {offline ? t.door.resumeOfflineTitle : t.door.resumeStuckTitle}
           </div>
           <p className="max-w-[280px] text-[13.5px] leading-[1.5] text-faint">
-            {offline ? t.door.resumeOfflineSub : t.door.resumeStuckSub}
+            {offline ? (offlineSub ?? t.door.resumeOfflineSub) : t.door.resumeStuckSub}
           </p>
           <div className="flex w-full max-w-[280px] flex-col gap-[10px]">
             {/* The guaranteed-safe escape hatch is primary + focused first — the
