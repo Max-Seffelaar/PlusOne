@@ -8,50 +8,42 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
-## 2026-08-19 — The migration-collision guard had never run (pre-push hook mode)
+## 2026-09-17 — A regression guard for the pre-push hook mode (the fix itself landed elsewhere)
 
-Branch `fix/pre-push-hook-not-executable`. Milestone: Now — a timestamp collision
-breaks `db push` and `db reset` for everyone, and it is discovered after the merge.
+Branch `fix/pre-push-hook-not-executable`. Milestone: Now — a migration-timestamp
+collision breaks `db push` and `db reset` for everyone, and is discovered only after
+the merge.
 
-**What was wrong.** `scripts/hooks/pre-push` was committed as mode **100644**. Git
-silently skips a non-executable hook, saying so only in a `hint:` line that scrolls
-past in normal push output. The hook has therefore never run — for anyone, on any
-push, since it was added. Meanwhile `scripts/setup-git-hooks.mjs` printed
-`pre-push migration-collision guard active` on every `pnpm install`, because it set
-`core.hooksPath` and then claimed success without checking anything else.
+**Scope correction, written after the fact.** This branch was opened on 2026-08-19,
+when `scripts/hooks/pre-push` was still committed as mode **100644**. Git silently
+skips a non-executable hook — it says so only in a `hint:` line that scrolls past in
+normal push output — so the migration-collision guard had never run, for anyone,
+while `scripts/setup-git-hooks.mjs` printed `pre-push migration-collision guard
+active` on every `pnpm install`.
 
-**Why it went unnoticed.** The guard's logic is well covered:
-`tests/unit/migration-guard.test.ts` has 13 cases over
-`scripts/hooks/lib/migration-guard.mjs` — and states outright that it tests the
-pure logic "without touching git or fs". Nothing tested the delivery mechanism. A
-perfectly tested function nobody calls is not a guard, and the test suite could not
-tell the difference.
+The mode fix then landed independently on `main` a week later, in `834012f`
+(2026-08-26, PR #288): *"track pre-push guard as executable — git silently ignored
+it"*. Two people found the same hole a week apart, which says something about how
+invisible it was. **The chmod in this branch is therefore redundant** and merges as a
+no-op against today's `main`.
 
-**How it surfaced.** While merging the 2026-08 sweep, migration timestamps across
-the twelve open PRs were compared by hand, because CLAUDE.md says a collision
-breaks `db push` and nothing appeared to be enforcing it. The manual check came
-back clean (only two branches carry a migration, on the two pre-assigned
-timestamps). Pushing the merge resolution then printed git's `hint:` line about the
-ignored hook — which is what exposed the cause.
+**What this PR still contributes**, and neither half is on `main`:
 
-**Fix.** Three parts, each verified:
+- `tests/unit/pre-push-hook-is-executable.test.ts` — asserts the mode **git records**,
+  not the mode on disk. A local `chmod` would mask a regression for whoever ran it
+  while every other clone stayed broken. It also asserts `core.hooksPath`, because a
+  correct mode on a hook git never looks at is equally inert. Verified red on revert:
+  flipping the mode back gives `expected '100644' to be '100755'`. Without this, the
+  mode can silently regress again and nothing would notice — which is exactly how it
+  got here the first time.
+- `scripts/setup-git-hooks.mjs` no longer announces a guard it has not verified. It
+  reads the committed mode and, when it is not `100755`, warns that the guard is **not**
+  running and prints the one-line fix. Both branches exercised.
 
-- `git update-index --chmod=+x scripts/hooks/pre-push` — mode is now 100755 in git,
-  so every clone gets an executable hook. Confirmed the hook then actually runs
-  (`./scripts/hooks/pre-push` → exit 0, no collisions on the current tree).
-- `tests/unit/pre-push-hook-is-executable.test.ts` — asserts the mode recorded in
-  **git**, not on disk: a local `chmod` would mask a regression for whoever ran it,
-  while every other clone stays broken. Also asserts `core.hooksPath`, since a
-  correct mode on a hook git never looks at is equally inert. Verified red on
-  revert: flipping the mode back gives `expected '100644' to be '100755'`.
-- `scripts/setup-git-hooks.mjs` — no longer announces a guard it has not verified.
-  It now reads the committed mode and, when it is not 100755, warns that the guard
-  is **not** running and prints the one-line fix. Both branches exercised.
-
-**Note on scope.** This does not make the hook a boundary — it stays bypassable
-with `git push --no-verify`, as its own comment says. Blocking CI remains the real
-backstop. What changed is that the local guard now does the job it claimed to be
-doing, and can no longer regress to silence unnoticed.
+**Scope.** This does not make the hook a security boundary — it stays bypassable with
+`git push --no-verify`, as its own comment says, and blocking CI remains the real
+backstop. What changed is that the local guard can no longer regress to silence
+unnoticed, and the installer can no longer lie about it.
 
 ---
 ## 2026-08-26 — One setup codepath: session-setup script, web SessionStart hook, CI routed through it
