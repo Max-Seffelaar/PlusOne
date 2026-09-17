@@ -22,7 +22,9 @@ export const landing = {
 
   // ── Form card ────────────────────────────────────────────────────────────
   formTitle: 'Get yourself on the list',
-  formSub: 'Drop your name. The rest helps us spot you faster at the door.',
+  // 86eyke279: e-mail + phone are required now, so the sub no longer promises
+  // that "the rest" is a bonus — it says what we need and why.
+  formSub: 'Name, email and phone. The organizer needs a way to reach you once your spot is confirmed.',
   closesBanner: 'Sign-ups close {closes}',
 
   nameLabel: 'Name',
@@ -42,6 +44,9 @@ export const landing = {
   emailLabel: 'Email',
   emailPlaceholder: 'you@example.com',
   optional: 'optional',
+  // Shown on the two fields that are NOT optional but sit next to ones that
+  // are, so the asymmetry is readable at a glance (86eyke279).
+  required: 'required',
 
   phoneLabel: 'Phone number',
   phoneAria: 'Phone number',
@@ -60,7 +65,18 @@ export const landing = {
   // ── Validation ───────────────────────────────────────────────────────────
   nameError: 'Add your name so we can save your spot.',
   emailError: "That email doesn't look right. Mind checking it?",
-  phoneError: 'Check your phone number, including the country code.',
+  // 86eyke279 (visual QA): the old copy read "…including the country code",
+  // which accuses someone who pasted `+44 7911 123456` into an NL-selected
+  // field of leaving out the very thing they typed. The selector does not
+  // follow a pasted country code, so naming the selector is accurate for BOTH
+  // failure modes — an incomplete national number and a right number under the
+  // wrong flag.
+  phoneError: "That number doesn't look right. Check it, and make sure the country selector matches it.",
+  // Missing-vs-malformed are deliberately different messages (86eyke279): an
+  // empty field is not a typo, and "check your email" reads as nonsense when
+  // there is nothing to check.
+  emailRequired: 'Add your email so the organizer can reach you.',
+  phoneRequired: 'Add your phone number so the door can find you.',
   // Cloudflare Turnstile permanently failed to load (86ey2czr6) — most often
   // an ad-blocker dropping the challenges.cloudflare.com script.
   turnstileFailed: "Verification couldn't load. Disable your ad-blocker or try a different browser, then refresh to submit.",

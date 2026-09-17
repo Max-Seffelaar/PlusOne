@@ -7,7 +7,7 @@
     "dev": "node scripts/dev-env.mjs --serve",
     "dev:env": "node scripts/dev-env.mjs",
     "clean:next": "node -e \"require('node:fs').rmSync('.next', { recursive: true, force: true }); console.log('.next removed')\"",
-    "build": "next build",
+    "build": "node scripts/hooks/check-required-env.mjs && next build",
     "start": "next start",
     "lint": "next lint",
     "format": "prettier --write .",

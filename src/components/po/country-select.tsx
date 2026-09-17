@@ -5,9 +5,14 @@
  *  with an external `country` state, so the flag is ALWAYS the chosen country
  *  (no globe-while-typing) and the list matches the PLUSONE dark design.
  *  Country names are English (the app is English); search matches name, ISO
- *  code or dial code. */
+ *  code or dial code.
+ *
+ *  Metadata: `/max`, matching `phone-lazy.tsx` (86eyke279). `getCountries` /
+ *  `getCountryCallingCode` return the same values on every build, so this is not
+ *  a behaviour change here — it keeps the picker, the input and the validator on
+ *  ONE metadata blob instead of bundling `min` alongside `max`. */
 import { type JSX, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
-import { getCountries, getCountryCallingCode, type Country } from 'react-phone-number-input';
+import { getCountries, getCountryCallingCode, type Country } from 'react-phone-number-input/max';
 import flagComponents from 'react-phone-number-input/flags';
 import enLabels from 'react-phone-number-input/locale/en.json';
 import { cn } from '@/lib/utils';
@@ -98,7 +103,13 @@ export function CountrySelect({
         aria-label={t.shared.country.pickAria}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="flex items-center gap-[6px] rounded-[9px] px-[5px] py-[5px] text-text transition-[filter,background-color] hover:bg-elev2 active:scale-[0.97]"
+        // Visually 31px (the phone row is 53px and the design keeps this button
+        // compact), but a 31px tap target fails the >=44px rule — and 86eyke279
+        // makes phone a REQUIRED field, so this button is now on the critical
+        // path for every public request. The `before:` overlay extends the hit
+        // area to 44px, centred, WITHOUT growing the row: 44px fits inside the
+        // 53px row, so nothing reflows and the visual stays on-design.
+        className="relative flex items-center gap-[6px] rounded-[9px] px-[5px] py-[5px] text-text transition-[filter,background-color] before:absolute before:inset-x-0 before:top-1/2 before:h-[44px] before:-translate-y-1/2 before:content-[''] hover:bg-elev2 active:scale-[0.97]"
       >
         <Flag code={value} />
         <span className="font-body text-[14px] font-semibold tabular-nums text-dim">
