@@ -38,7 +38,7 @@ pnpm test
 pnpm e2e
 
 # Database + RLS tests
-supabase db reset && supabase test db
+supabase db reset && pnpm db:test
 ```
 
 ### Database
@@ -111,7 +111,7 @@ After `pnpm install`:
 
 6. **Run tests:**
    ```bash
-   pnpm lint && pnpm test && supabase test db
+   pnpm lint && pnpm test && pnpm db:test
    ```
 
 All phases are built incrementally — no rewriting prior work.

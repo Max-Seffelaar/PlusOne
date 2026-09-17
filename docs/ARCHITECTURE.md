@@ -55,7 +55,7 @@ docs/
 3. `pnpm dev` → Next.js dev server at `http://localhost:3000`
 4. `pnpm test` → unit tests
 5. `pnpm e2e` → Playwright e2e tests
-6. `supabase db reset && supabase test db` → run database + RLS tests
+6. `supabase db reset && pnpm db:test` → run database + RLS tests (`pnpm db:test` = `supabase test db` + the plan/run gate)
 
 ## Phases (Phases 1–12 for MVP)
 
