@@ -56,13 +56,21 @@ revoke all on table public.request_link_pageviews_daily from anon;
 revoke all on table public.audit_feed                   from anon;
 
 -- request_links is the ONE deliberate exception, and SELECT is the only part
--- of it that is deliberate. `20260706103000_submit_via_request_link.sql:426`
--- grants it on purpose, and two things depend on it:
---   * the `guest_requests_insert_public` RLS policy, whose WITH CHECK subquery
---     reads request_links as the anon caller — no table privilege, no insert;
---   * `/api/health`, which probes exactly this table because the grant means
---     the query never 42501s while the absent anon SELECT policy means it
---     always returns zero rows (see src/app/api/health/route.ts).
+-- of it that is deliberate: `20260706103000_submit_via_request_link.sql:426`
+-- grants it on purpose. Exactly one live thing depends on it — `/api/health`,
+-- which probes this table precisely because the grant means the query never
+-- 42501s while the absent anon SELECT policy means it always returns zero rows
+-- (src/app/api/health/route.ts spells the reasoning out, including a warning to
+-- grep every migration before repointing the probe).
+--
+-- The grant's ORIGINAL second reason no longer applies: `guest_requests_insert_public`
+-- is scoped {anon, authenticated} and its WITH CHECK subquery reads request_links
+-- as the caller, but `20260707170000_p0_security_hotfixes.sql` (C2) revoked INSERT
+-- on guest_requests from anon, so that half of the policy is dead for anon and the
+-- live half runs as authenticated, which has its own SELECT. Follow-up worth doing
+-- separately: point the health probe at a trivial anon-executable RPC instead, and
+-- this last anon table grant in the whole schema can go too.
+--
 -- So: keep SELECT, drop everything the default ACL added on top of it.
 revoke insert, update, delete, truncate, references, trigger
   on table public.request_links from anon;

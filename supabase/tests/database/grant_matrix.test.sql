@@ -26,18 +26,20 @@ select plan(13);
 -- 1. anon holds no table privilege in public, bar one documented exception
 -- ---------------------------------------------------------------------------
 -- Every anon-facing flow goes through a SECURITY DEFINER RPC with its own
--- execute grant. The exception is request_links.SELECT, granted on purpose by
--- 20260706103000: the `guest_requests_insert_public` policy's WITH CHECK
--- subquery reads that table as the anon caller, and /api/health probes it
--- because the grant means the query never 42501s while the absent anon SELECT
--- policy means it always returns zero rows.
+-- execute grant. The one exception is request_links.SELECT, granted on purpose
+-- by 20260706103000: /api/health probes that table because the grant means the
+-- query never 42501s while the absent anon SELECT policy means it always
+-- returns zero rows. That probe is the only live dependant — the grant's
+-- original second reason (the `guest_requests_insert_public` WITH CHECK
+-- subquery) went dead for anon when 20260707170000 revoked anon's INSERT on
+-- guest_requests.
 select is_empty($$
   select c.relname || ' -> ' || p as offender
   from pg_class c
   join pg_namespace n on n.oid = c.relnamespace
   cross join unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) p
   where n.nspname = 'public'
-    and c.relkind in ('r','p','v','m')
+    and c.relkind in ('r','p','v','m','f')
     and has_table_privilege('anon', c.oid, p)
     and (c.relname || ':' || p) <> all (array[
       'request_links:SELECT'  -- /api/health probe + guest_requests insert policy
@@ -72,7 +74,7 @@ select is_empty($$
   join pg_namespace n on n.oid = c.relnamespace
   cross join unnest(array['anon','authenticated']) r
   where n.nspname = 'public'
-    and c.relkind in ('r','p','v','m')
+    and c.relkind in ('r','p','v','m','f')
     and has_table_privilege(r, c.oid, 'TRUNCATE')
 $$, 'no app role holds TRUNCATE on any relation in public');
 
@@ -87,7 +89,7 @@ select is_empty($$
   from pg_class c
   join pg_namespace n on n.oid = c.relnamespace
   where n.nspname = 'public'
-    and c.relkind in ('r','p','v','m')
+    and c.relkind in ('r','p','v','m','f')
     and has_table_privilege('authenticated', c.oid, 'DELETE')
     and c.relname <> all (array[
       'event_organizers', 'event_quotas',        -- event scoping + per-event quota rows
@@ -103,18 +105,25 @@ $$, 'authenticated holds DELETE only on the tables where a hard delete is intend
 -- 5. The default ACLs that caused this cannot cause it again
 -- ---------------------------------------------------------------------------
 -- Scoped to the roles that actually OWN relations here rather than to `postgres`
--- by name. 20260917100000 can only close the postgres defaults — postgres is not
--- a member of supabase_admin on hosted Supabase, so revoking that role's
--- defaults would succeed locally and fail in production. Deriving the role set
--- from pg_class instead means a table that ever arrives under a different owner
--- (the dashboard, a platform upgrade, `create extension … schema public`) fails
--- the build rather than quietly inheriting that owner's open defaults.
+-- by name. 20260917100000 can only close the postgres defaults: `alter default
+-- privileges for role supabase_admin …` fails with "permission denied to change
+-- default privileges" — postgres is neither superuser nor a member of
+-- supabase_admin, locally or on hosted Supabase. Deriving the role set from
+-- pg_class instead means a table that ever arrives under a different owner (the
+-- dashboard, a platform upgrade, `create extension … schema public`) fails the
+-- build rather than quietly inheriting that owner's open defaults.
+--
+-- Be honest about what that buys: PREVENTION for objects created by postgres,
+-- which is every migration, and DETECTION for everything else. A table created
+-- as supabase_admin really does start open — verified empirically — and this
+-- file catches it on the NEXT CI run, not at creation. The window between those
+-- two is the residual, and it is accepted rather than closed.
 select is_empty($$
   select pg_get_userbyid(o.owner) || ' default-grants ' || a.privilege_type || ' to anon' as offender
   from (
     select distinct c.relowner as owner
     from pg_class c join pg_namespace n on n.oid = c.relnamespace
-    where n.nspname = 'public' and c.relkind in ('r','p','v','m')
+    where n.nspname = 'public' and c.relkind in ('r','p','v','m','f')
   ) o
   join pg_default_acl d on d.defaclrole = o.owner and d.defaclobjtype = 'r'
   left join pg_namespace dn on dn.oid = d.defaclnamespace
@@ -128,7 +137,7 @@ select is_empty($$
   from (
     select distinct c.relowner as owner
     from pg_class c join pg_namespace n on n.oid = c.relnamespace
-    where n.nspname = 'public' and c.relkind in ('r','p','v','m')
+    where n.nspname = 'public' and c.relkind in ('r','p','v','m','f')
   ) o
   join pg_default_acl d on d.defaclrole = o.owner and d.defaclobjtype = 'r'
   left join pg_namespace dn on dn.oid = d.defaclnamespace
@@ -180,7 +189,7 @@ select ok(
 -- say so HERE rather than 21 subtests deep in request_links.test.sql.
 select ok(
   has_table_privilege('anon', 'public.request_links', 'SELECT'),
-  'anon keeps SELECT on request_links (/api/health probe + insert-policy subquery)');
+  'anon keeps SELECT on request_links (the /api/health probe reads it)');
 
 -- service_role is the trusted server role: it bypasses RLS by design and its
 -- key never reaches client code, so this migration deliberately left it alone.

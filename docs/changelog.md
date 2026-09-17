@@ -70,11 +70,14 @@ time; the environment they ran in was the thing that had been lying.
 **Shipped:**
 
 - `supabase/migrations/20260917100000_public_grant_matrix_hardening.sql` — revokes the
-  accidental privileges from `anon` (one grant is deliberate and stays: `request_links.
-  SELECT`, from `20260706103000:426` — the `guest_requests_insert_public` policy's WITH
-  CHECK subquery reads that table as the anon caller, and `/api/health` probes it
+  accidental privileges from `anon` (one grant is deliberate and stays:
+  `request_links.SELECT`, from `20260706103000:426` — `/api/health` probes that table
   precisely because the grant means the query never 42501s while the absent anon SELECT
-  policy means it always returns zero rows); brings `authenticated` back
+  policy means it always returns zero rows. That probe is its only live dependant; the
+  grant's original second reason, the `guest_requests_insert_public` WITH CHECK
+  subquery, went dead for anon when `20260707170000` revoked anon's INSERT on
+  `guest_requests`. Follow-up worth doing separately: point the probe at a trivial
+  anon-executable RPC and the last anon table grant in the schema can go too); brings `authenticated` back
   to exactly the matrix each migration declared (TRUNCATE off everywhere, DELETE off
   `influencers`/`request_links`/`request_link_pageviews_daily`/`audit_feed`, writes off
   the read-only counter table). `service_role` is deliberately untouched: it bypasses
@@ -99,8 +102,13 @@ time; the environment they ran in was the thing that had been lying.
   `postgres` by name, so a table arriving under a different owner (dashboard, platform
   upgrade, `create extension … schema public`) fails the build instead of inheriting
   that owner's open defaults. That is the one loophole the migration itself cannot
-  close: `postgres` is not a member of `supabase_admin` on hosted Supabase, so revoking
-  that role's defaults would succeed locally and fail in prod.
+  close: `alter default privileges for role supabase_admin …` fails with *"permission
+  denied to change default privileges"* — `postgres` is neither superuser nor a member
+  of `supabase_admin`, locally or hosted. **Known residual, named rather than asserted
+  away:** what we get is prevention for objects created by `postgres` (every migration)
+  and detection for everything else. A table created as `supabase_admin` really does
+  start open — the reviewing session demonstrated it — and the guard catches it on the
+  *next* CI run, not at creation. That window is accepted.
 
   Seven further assertions prove the revokes did not overshoot — without them the whole
   file could be satisfied by revoking everything from everyone, which passes CI and
