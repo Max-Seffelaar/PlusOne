@@ -42,7 +42,7 @@ select is_empty($$
     and c.relkind in ('r','p','v','m','f')
     and has_table_privilege('anon', c.oid, p)
     and (c.relname || ':' || p) <> all (array[
-      'request_links:SELECT'  -- /api/health probe + guest_requests insert policy
+      'request_links:SELECT'  -- the /api/health probe reads it (see above)
     ])
 $$, 'anon holds no privilege in public beyond the documented request_links.SELECT');
 
