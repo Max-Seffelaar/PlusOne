@@ -295,4 +295,108 @@ describe('useStaleResumeGuard', () => {
     expect(result.current.phase).toBe('syncing');
     expect(sync.forceSync).toHaveBeenCalledTimes(2);
   });
+  // ── Focus restoration across the inert window (86eykg2x1 review round 2) ────
+  //
+  // Both consumers set `inert` on their own subtree while the overlay is up, and
+  // the browser blurs whatever was focused inside it — on the door AddOnSpot's
+  // autofocused Enter-to-commit field, on the cockpit the Enter-to-check-in
+  // search box. jsdom implements the `inert` ATTRIBUTE but not those focus
+  // semantics, so the blur is modelled explicitly below; what is under test is
+  // the hand-back, which nothing else performed.
+
+  it('restores focus to the pre-resume element when the guard closes', () => {
+    const field = document.createElement('input');
+    document.body.appendChild(field);
+    field.focus();
+
+    let sync = makeSync({ lastSyncAt: Date.now() - (THRESHOLD + 1) });
+    const { result, rerender } = renderHook(({ s }) => useStaleResumeGuard(s, THRESHOLD, WAIT_TIMEOUT), {
+      initialProps: { s: sync },
+    });
+
+    act(() => setVisibility('hidden'));
+    act(() => setVisibility('visible'));
+    expect(result.current.phase).toBe('syncing');
+    act(() => field.blur()); // what `inert` does in a real browser
+    expect(document.activeElement).toBe(document.body);
+
+    // A fresh sync lands and the guard self-closes — the common online path,
+    // where the overlay is visible for about a second and the operator never
+    // touches it.
+    sync = makeSync({ ...sync, lastSyncAt: Date.now() });
+    rerender({ s: sync });
+    expect(result.current.phase).toBe('closed');
+    expect(document.activeElement).toBe(field);
+
+    field.remove();
+  });
+
+  it('restores focus after continueAnyway', () => {
+    const field = document.createElement('input');
+    document.body.appendChild(field);
+    field.focus();
+
+    const sync = makeSync({ lastSyncAt: Date.now() - (THRESHOLD + 1), online: false });
+    const { result } = renderHook(({ s }) => useStaleResumeGuard(s, THRESHOLD, WAIT_TIMEOUT), {
+      initialProps: { s: sync },
+    });
+
+    act(() => setVisibility('hidden'));
+    act(() => setVisibility('visible'));
+    act(() => field.blur());
+    act(() => vi.advanceTimersByTime(WAIT_TIMEOUT + 1));
+    expect(result.current.phase).toBe('blocked');
+
+    act(() => result.current.continueAnyway());
+    expect(result.current.phase).toBe('closed');
+    expect(document.activeElement).toBe(field);
+
+    field.remove();
+  });
+
+  it('does not steal focus back when it has since landed somewhere real', () => {
+    const field = document.createElement('input');
+    const elsewhere = document.createElement('input');
+    document.body.append(field, elsewhere);
+    field.focus();
+
+    let sync = makeSync({ lastSyncAt: Date.now() - (THRESHOLD + 1) });
+    const { result, rerender } = renderHook(({ s }) => useStaleResumeGuard(s, THRESHOLD, WAIT_TIMEOUT), {
+      initialProps: { s: sync },
+    });
+
+    act(() => setVisibility('hidden'));
+    act(() => setVisibility('visible'));
+    act(() => field.blur());
+    elsewhere.focus();
+
+    sync = makeSync({ ...sync, lastSyncAt: Date.now() });
+    rerender({ s: sync });
+    expect(result.current.phase).toBe('closed');
+    expect(document.activeElement).toBe(elsewhere);
+
+    field.remove();
+    elsewhere.remove();
+  });
+
+  it('does not restore focus to an element that was unmounted meanwhile', () => {
+    const field = document.createElement('input');
+    document.body.appendChild(field);
+    field.focus();
+
+    let sync = makeSync({ lastSyncAt: Date.now() - (THRESHOLD + 1) });
+    const { result, rerender } = renderHook(({ s }) => useStaleResumeGuard(s, THRESHOLD, WAIT_TIMEOUT), {
+      initialProps: { s: sync },
+    });
+
+    act(() => setVisibility('hidden'));
+    act(() => setVisibility('visible'));
+    act(() => field.blur());
+    field.remove(); // a re-render replaced the subtree while the overlay was up
+
+    sync = makeSync({ ...sync, lastSyncAt: Date.now() });
+    rerender({ s: sync });
+    expect(result.current.phase).toBe('closed');
+    expect(document.activeElement).toBe(document.body);
+  });
 });
