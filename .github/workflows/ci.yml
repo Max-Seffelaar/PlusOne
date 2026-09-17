@@ -32,13 +32,18 @@ jobs:
       - name: Check for migration timestamp collisions
         run: node scripts/hooks/check-migration-duplicates.mjs
 
-      - run: pnpm install --frozen-lockfile
+      # Install + the pure-node suites go through the ONE setup script the
+      # laptop and the Claude web SessionStart hook also run — a second inline
+      # copy of these steps drifts from the local one, and then you debug
+      # environment differences instead of code (26/8). The suite list lives in
+      # the script and is validated against package.json before anything runs,
+      # so a renamed/removed script fails as "list drifted", not as a
+      # confusing mid-run pnpm error.
+      - name: Install dependencies (shared session-setup script)
+        run: node scripts/session-setup.mjs install
 
-      - run: pnpm lint
-
-      - run: pnpm type-check
-
-      - run: pnpm test
+      - name: Lint, type-check, unit tests (shared session-setup script)
+        run: node scripts/session-setup.mjs check
 
       # pgTAP RLS/trigger tests run against a real local Postgres started by the
       # Supabase CLI (migrations applied from supabase/migrations + seed).
@@ -53,8 +58,12 @@ jobs:
       - name: Start local Supabase stack
         run: supabase start
 
+      # Wrapper, not bare `supabase test db`: pg_prove exits 0 on a file whose
+      # plan() and assertion count have drifted apart, because pgTAP reports that
+      # only as a TAP comment (86eykjgrb). scripts/db-test.mjs streams the normal
+      # output through and turns that comment into a red build.
       - name: Run database tests (pgTAP)
-        run: supabase test db
+        run: node scripts/db-test.mjs
 
       # Real cross-connection concurrency test for the quota/capacity/tier-max
       # trigger locking fix (86ey9e8ar) — needs two genuinely separate, racing

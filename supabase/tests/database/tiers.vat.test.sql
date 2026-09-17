@@ -142,6 +142,35 @@ select is(
   9.0::numeric, 'E3 the snapshotted tier carries vat_percent');
 rollback to savepoint e1;
 
+-- ---------------------------------------------------------------------------
+-- Re-sync pgTAP's own counter before finish().
+--
+-- pgTAP keeps "how many tests ran" (curr_test) in the temp TABLE __tcache__, so
+-- `rollback to savepoint` reverts it along with everything else in the section.
+-- The test *numbers* it prints come from __tresults___numb_seq — a SEQUENCE, and
+-- sequences are non-transactional, so those keep counting correctly. The two
+-- therefore drift apart: finish() compared plan() against the last assertion that
+-- ran outside a savepoint and printed "Looks like you planned N tests but ran 2",
+-- even though every assertion had run and passed. Take the count from the
+-- sequence, the one place that actually knows what executed.
+--
+-- num_failed() is reverted the same way and cannot be recovered from a sequence,
+-- but a failing assertion still reaches the harness as its own "not ok" line, so
+-- pg_prove remains the source of truth for pass/fail.
+--
+-- The exception handler is not defensive padding. currval() raises SQLSTATE 55000
+-- ("not yet defined in this session") when NOTHING in the session ever called
+-- nextval() — i.e. when no assertion ran at all. Without the handler that error
+-- aborts the transaction, finish() never runs, and the build fails with a sequence
+-- error nobody recognizes, in place of pgTAP's own "# No tests run!" — which is one
+-- of the three things scripts/lib/pgtap-gate.mjs exists to catch by name. Swallow
+-- the 55000 and leave curr_test untouched so finish() raises that signal itself.
+do $resync$ begin
+  perform _set('curr_test', currval('__tresults___numb_seq')::int);
+exception when object_not_in_prerequisite_state then
+  null;
+end $resync$;
+
 select * from finish();
 
 rollback;

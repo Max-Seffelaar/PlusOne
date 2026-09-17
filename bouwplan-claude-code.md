@@ -3,7 +3,7 @@
 ## Werkwijze v2 (herzien)
 
 - **Eén fase = één ClickUp-taak = één (of enkele) Claude Code-sessie(s).** Plak de prompt, review tegen de Definition of Done, vink de test-subtaak af, plak Claude's eindsamenvatting als comment.
-- **Geen staging-omgeving (besloten 13-06-2026):** er is géén aparte staging-database. Verificatie is volledig lokaal: `pnpm lint && pnpm test`, `supabase db reset && supabase test db`, en de fase naklikken in `pnpm dev` op een telefoon-viewport. **Een fase is pas klaar als die tests groen zijn en het scherm lokaal is nageklikt.** Er is één Supabase-project (**prod**, ref `tolxwgqhppdcvnogdpel`); na een merge naar `main` gaat het schema er via `supabase db push` naartoe. Prod blijft leeg van echte venue-data tot de pilot.
+- **Geen staging-omgeving (besloten 13-06-2026):** er is géén aparte staging-database. Verificatie is volledig lokaal: `pnpm lint && pnpm test`, `supabase db reset && pnpm db:test`, en de fase naklikken in `pnpm dev` op een telefoon-viewport. **Een fase is pas klaar als die tests groen zijn en het scherm lokaal is nageklikt.** Er is één Supabase-project (**prod**, ref `tolxwgqhppdcvnogdpel`); na een merge naar `main` gaat het schema er via `supabase db push` naartoe. Prod blijft leeg van echte venue-data tot de pilot.
 - **Fases 1–3 (schema, RLS, audit) zijn klaar en gemerged** — backend-only, zichtbaarheid via pgTAP. Dit fundament wordt nooit "per scherm" gebouwd; security achteraf toevoegen is hoe lekken ontstaan.
 - **Fases 4–10 zijn verticale plakken, scherm-eerst — en de schermen bestaan nu al in `src/` met mock-data.** Per fase dus: (1) bouw de backend eronder; (2) vervang de mock-data door echte Supabase-data **met behoud van de component-API** — schermen worden niet opnieuw gebouwd; (3) klik het lokaal na (`pnpm dev`, telefoon-viewport).
 - Niet door naar de volgende fase zolang de tests van de vorige niet groen zijn (lint, unit, pgTAP, e2e waar van toepassing).
@@ -16,7 +16,7 @@ Begin elke fase-prompt met: *"Lees CLAUDE.md, `gastenlijst-app-spec.md` (incl. #
 - **Fase 4 (auth):** een super-admin kan een invite markeren → de uitgenodigde belandt na de eerste OTP-login direct in de venue-aanmaakflow (#40b). AAL2-regels ongemoeid.
 - **Fase 5 (venue-/userbeheer):** self-service venue-creatie — elke geauthenticeerde user maakt zelf een nieuwe venue aan en wordt Admin; elke venue krijgt een eigen `subscriptions`-record (onboarding-status, per venue gegevens achterlaten). Super-admin-beheer toevoegen.
 - **Fase 8 (landing):** het MVP stuurt **géén** bevestiging aan goedgekeurde aanvragers (#30/#40d) — alleen de on-page "aanvraag binnen". Bevestiging (link/e-mail) én first-run/intro-schermen staan in de ClickUp-backlog.
-- **No staging:** lokaal verifiëren (`pnpm lint && pnpm test`, `supabase db reset && supabase test db`, naklikken in `pnpm dev`) → merge → `supabase db push` naar prod.
+- **No staging:** lokaal verifiëren (`pnpm lint && pnpm test`, `supabase db reset && pnpm db:test`, naklikken in `pnpm dev`) → merge → `supabase db push` naar prod.
 
 ---
 
@@ -67,7 +67,7 @@ Schrijf RLS-policies die de rollenmatrix exact implementeren:
 - Per tabel policies voor SELECT/INSERT/UPDATE per rol. Let op de subtiele gevallen: staff ziet alleen eigen gasten; finance is venue-breed read-only; organisator alleen eigen events; doorhost leest de hele eventlijst maar muteert alleen check-ins/refusals en gasten binnen eigen quotum; lijst-lock (beslissing #23) blokkeert staff-mutaties; quota-verhogingen en rolwijzigingen vereisen AAL2.
 - E-mailwijziging alleen door de user zelf (beslissing #24).
 
-Schrijf pgTAP-tests die voor ELKE policy zowel het toegestane als het geweigerde pad bewijzen, per rol, inclusief: cross-venue-lek (user van venue A probeert gasten van venue B te lezen), staff die andermans gast wijzigt, mutatie op een gelockte lijst, quota-grant zonder AAL2. Minimaal 40 testcases. Alles groen bij supabase db reset && supabase test db.
+Schrijf pgTAP-tests die voor ELKE policy zowel het toegestane als het geweigerde pad bewijzen, per rol, inclusief: cross-venue-lek (user van venue A probeert gasten van venue B te lezen), staff die andermans gast wijzigt, mutatie op een gelockte lijst, quota-grant zonder AAL2. Minimaal 40 testcases. Alles groen bij supabase db reset && pnpm db:test.
 ```
 
 ---
@@ -285,7 +285,7 @@ Tests: webhook-replay (zelfde event 2x = geen dubbele mutatie), elke statusoverg
 ## Vaste reviewroutine per fase (Max)
 
 1. Prompt plakken in Claude Code, laten draaien.
-2. De **test-subtaak** van de fase uitvoeren: Claude Code de tests laten schrijven én draaien, daarna zelf `pnpm lint && pnpm test && supabase db reset && supabase test db` (en waar van toepassing `pnpm e2e`) draaien — groen of niet door. Subtaak pas afvinken als alles groen is.
+2. De **test-subtaak** van de fase uitvoeren: Claude Code de tests laten schrijven én draaien, daarna zelf `pnpm lint && pnpm test && supabase db reset && pnpm db:test` (en waar van toepassing `pnpm e2e`) draaien — groen of niet door. Subtaak pas afvinken als alles groen is.
 3. Staging-deploy openen op je telefoon en de fase live naklikken.
 4. Diff reviewen met de bril: "kan een rol hier iets wat de matrix verbiedt?"
 5. Claude's eindsamenvatting als comment in de ClickUp-taak, taak afvinken.
