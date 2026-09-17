@@ -10,86 +10,128 @@ const EVENT = '00000000-0000-7000-8000-000000000001';
 const TIER = '00000000-0000-7000-8000-000000000002';
 const REQ = '00000000-0000-7000-8000-000000000003';
 
+/** A complete, valid submission — the base every case below varies from. Since
+ *  86eyke279 e-mail AND phone are part of the minimum, so "name only" is no
+ *  longer a valid request anywhere in this file. */
+const VALID = {
+  slug: 'frenzy-x4',
+  fullName: 'Jip Jansen',
+  email: 'jip@voorbeeld.nl',
+  phone: '+31612345678',
+} as const;
+
 describe('submitGuestRequestSchema', () => {
-  it('accepts a name-only request and defaults plusOnes to 0', () => {
-    const r = submitGuestRequestSchema.safeParse({ slug: 'frenzy-x4', fullName: 'Jip Jansen' });
+  it('accepts a complete request and defaults plusOnes to 0', () => {
+    const r = submitGuestRequestSchema.safeParse(VALID);
     expect(r.success).toBe(true);
     if (r.success) {
       expect(r.data.plusOnes).toBe(0);
-      expect(r.data.email).toBeUndefined();
+      expect(r.data.email).toBe('jip@voorbeeld.nl');
+      expect(r.data.phone).toBe('+31612345678');
       expect(r.data.fullName).toBe('Jip Jansen');
     }
   });
 
   it('trims the name and rejects one shorter than 2 chars', () => {
-    expect(submitGuestRequestSchema.safeParse({ slug: 'a', fullName: ' J ' }).success).toBe(false);
-    const r = submitGuestRequestSchema.safeParse({ slug: 'a', fullName: '  Noa Bos  ' });
+    expect(submitGuestRequestSchema.safeParse({ ...VALID, fullName: ' J ' }).success).toBe(false);
+    const r = submitGuestRequestSchema.safeParse({ ...VALID, fullName: '  Noa Bos  ' });
     expect(r.success && r.data.fullName).toBe('Noa Bos');
   });
 
-  it('treats an empty e-mail as "not provided" but rejects a malformed one', () => {
-    const ok = submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos', email: '' });
-    expect(ok.success && ok.data.email).toBeUndefined();
-    expect(
-      submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos', email: 'nope' }).success
-    ).toBe(false);
+  // ── 86eyke279: e-mail + phone are hard-required on the public request form ──
+  // Both are enforced AGAIN inside the submit_guest_request RPC (migration
+  // 20260819110000); these tests only cover the app-path half.
+  it('rejects a request without an e-mail — absent, empty and whitespace-only alike', () => {
+    // `email: undefined` is the same case as an absent key for a required
+    // Zod field, and avoids an unused destructured binding.
+    expect(submitGuestRequestSchema.safeParse({ ...VALID, email: undefined }).success).toBe(false);
+    expect(submitGuestRequestSchema.safeParse({ ...VALID, email: '' }).success).toBe(false);
+    expect(submitGuestRequestSchema.safeParse({ ...VALID, email: '   ' }).success).toBe(false);
+    expect(submitGuestRequestSchema.safeParse({ ...VALID, email: '\t\n ' }).success).toBe(false);
+  });
+
+  it('rejects a request without a phone — absent, empty and whitespace-only alike', () => {
+    expect(submitGuestRequestSchema.safeParse({ ...VALID, phone: undefined }).success).toBe(false);
+    expect(submitGuestRequestSchema.safeParse({ ...VALID, phone: '' }).success).toBe(false);
+    expect(submitGuestRequestSchema.safeParse({ ...VALID, phone: '   ' }).success).toBe(false);
+    expect(submitGuestRequestSchema.safeParse({ ...VALID, phone: '\u00a0' }).success).toBe(false);
+  });
+
+  it('rejects null for either contact field (not just undefined)', () => {
+    expect(submitGuestRequestSchema.safeParse({ ...VALID, email: null }).success).toBe(false);
+    expect(submitGuestRequestSchema.safeParse({ ...VALID, phone: null }).success).toBe(false);
+  });
+
+  it('reports a missing contact field as "required", not as a shape complaint', () => {
+    const r = submitGuestRequestSchema.safeParse({ ...VALID, email: undefined });
+    expect(r.success).toBe(false);
+    if (!r.success) expect(r.error.issues[0]?.message).toBe('Enter your email address');
+
+    const blankPhone = submitGuestRequestSchema.safeParse({ ...VALID, phone: '  ' });
+    expect(blankPhone.success).toBe(false);
+    if (!blankPhone.success) {
+      expect(blankPhone.error.issues[0]?.message).toBe('Enter your phone number');
+    }
+  });
+
+  it('still rejects a malformed e-mail (shape check survives the required change)', () => {
+    expect(submitGuestRequestSchema.safeParse({ ...VALID, email: 'nope' }).success).toBe(false);
   });
 
   // 86eyd3men: server-side follows the same rule as the form's inline
   // isValidEmail (both import EMAIL_RE from validation.ts) — a request that
   // slips past the client check would otherwise be silently rejected here.
   it('applies the same e-mail sanity check as the client (EMAIL_RE)', () => {
-    const ok = submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos', email: 'noa@voorbeeld.nl' });
+    const ok = submitGuestRequestSchema.safeParse({ ...VALID, email: 'noa@voorbeeld.nl' });
     expect(ok.success).toBe(true);
     expect(
-      submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos', email: 'noa@hoiu.d' }).success
+      submitGuestRequestSchema.safeParse({ ...VALID, email: 'noa@hoiu.d' }).success
     ).toBe(false); // TLD too short
     expect(
-      submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos', email: 'noa@hoiu..com' }).success
+      submitGuestRequestSchema.safeParse({ ...VALID, email: 'noa@hoiu..com' }).success
     ).toBe(false); // double dot
   });
 
+  it('trims a padded e-mail and phone instead of rejecting them', () => {
+    const r = submitGuestRequestSchema.safeParse({
+      ...VALID,
+      email: '  noa@voorbeeld.nl  ',
+      phone: '  +31612345678  ',
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.email).toBe('noa@voorbeeld.nl');
+      expect(r.data.phone).toBe('+31612345678');
+    }
+  });
+
   it('coerces plusOnes and bounds it to 0..20', () => {
-    const r = submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos', plusOnes: '3' });
+    const r = submitGuestRequestSchema.safeParse({ ...VALID, plusOnes: '3' });
     expect(r.success && r.data.plusOnes).toBe(3);
-    expect(
-      submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos', plusOnes: 21 }).success
-    ).toBe(false);
-    expect(
-      submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos', plusOnes: -1 }).success
-    ).toBe(false);
+    expect(submitGuestRequestSchema.safeParse({ ...VALID, plusOnes: 21 }).success).toBe(false);
+    expect(submitGuestRequestSchema.safeParse({ ...VALID, plusOnes: -1 }).success).toBe(false);
   });
 
   it('rejects a slug with illegal characters', () => {
-    expect(
-      submitGuestRequestSchema.safeParse({ slug: 'bad slug!', fullName: 'Noa Bos' }).success
-    ).toBe(false);
+    expect(submitGuestRequestSchema.safeParse({ ...VALID, slug: 'bad slug!' }).success).toBe(false);
   });
 
   it('keeps the honeypot field (the action, not the schema, drops it)', () => {
-    const r = submitGuestRequestSchema.safeParse({
-      slug: 'a',
-      fullName: 'Noa Bos',
-      company: 'Acme BV',
-    });
+    const r = submitGuestRequestSchema.safeParse({ ...VALID, company: 'Acme BV' });
     expect(r.success && r.data.company).toBe('Acme BV');
   });
 
-  it('requires the phone to be E.164 (with country code) when given', () => {
-    const ok = submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos', phone: '+31612345678' });
+  it('requires the phone to be E.164 (with country code)', () => {
+    const ok = submitGuestRequestSchema.safeParse({ ...VALID, phone: '+31612345678' });
     expect(ok.success && ok.data.phone).toBe('+31612345678');
-    const empty = submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos', phone: '' });
-    expect(empty.success && empty.data.phone).toBeUndefined();
     // A bare national number (no country code) is rejected.
-    expect(
-      submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos', phone: '0612345678' }).success
-    ).toBe(false);
+    expect(submitGuestRequestSchema.safeParse({ ...VALID, phone: '0612345678' }).success).toBe(false);
   });
 
   it('defaults marketingOptIn to false and accepts an explicit true', () => {
-    const def = submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos' });
+    const def = submitGuestRequestSchema.safeParse(VALID);
     expect(def.success && def.data.marketingOptIn).toBe(false);
-    const on = submitGuestRequestSchema.safeParse({ slug: 'a', fullName: 'Noa Bos', marketingOptIn: true });
+    const on = submitGuestRequestSchema.safeParse({ ...VALID, marketingOptIn: true });
     expect(on.success && on.data.marketingOptIn).toBe(true);
   });
 });

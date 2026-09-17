@@ -3,6 +3,12 @@ import { EMAIL_RE } from './validation';
 
 const uuid = z.string().uuid();
 
+/** Missing-contact messages (86eyke279). Shared by the "absent", "empty string"
+ *  and "whitespace only" cases so all three read identically to the requester —
+ *  the field is missing, the shape is not the complaint. */
+const EMAIL_REQUIRED = 'Enter your email address';
+const PHONE_REQUIRED = 'Enter your phone number';
+
 /** Trimmed free text that treats an empty string as "not provided". */
 const optionalText = (max: number) =>
   z
@@ -13,9 +19,13 @@ const optionalText = (max: number) =>
     .transform((v) => (v && v.length > 0 ? v : undefined));
 
 /**
- * Public landing-page submission (#12). Name is the only required field; the
- * rest is optional (#9: more data is better, but never mandatory). `company` is
- * a honeypot — a hidden field real users leave empty; the server action drops
+ * Public landing-page submission (#12). Name, e-mail AND phone are all
+ * required (86eyke279, 2026-08-19 — narrows #9's "never mandatory" for THIS
+ * path only: a venue that approves a guest must be able to reach them). The
+ * rest stays optional. Enforced again inside the SECURITY DEFINER
+ * `submit_guest_request` RPC (migration 20260819110000) — this schema only
+ * guards the app path, the RPC guards the raw anon call. `company` is a
+ * honeypot — a hidden field real users leave empty; the server action drops
  * the request silently when it is filled.
  */
 export const submitGuestRequestSchema = z.object({
@@ -29,24 +39,25 @@ export const submitGuestRequestSchema = z.object({
   fullName: z.string().trim().min(2, 'Enter your name').max(120),
   // Same shape check as the form's inline `isValidEmail` (validation.ts) — a
   // request that passes client-side never gets silently rejected here.
+  // Required (86eyke279). `.trim()` runs before `.min(1)` in Zod's ordered
+  // check list, so '   ' collapses to '' and fails "required" rather than
+  // sneaking through as a non-empty string; a non-string (null included) is
+  // already rejected by `z.string()` itself.
   email: z
-    .string()
+    .string({ required_error: EMAIL_REQUIRED, invalid_type_error: EMAIL_REQUIRED })
     .trim()
+    .min(1, EMAIL_REQUIRED)
     .max(254)
-    .regex(EMAIL_RE, 'Invalid email')
-    .optional()
-    .or(z.literal(''))
-    .transform((v) => (v && v.length > 0 ? v : undefined)),
+    .regex(EMAIL_RE, 'Invalid email'),
   // Phone arrives already normalised to E.164 by the form (libphonenumber); it
   // must carry a country code or it is useless to the venue. Canonical E.164
-  // shape (+ then up to 15 digits) so no valid international number is rejected.
+  // shape (+ then up to 15 digits) so no valid international number is
+  // rejected. Required since 86eyke279, same empty-value handling as e-mail.
   phone: z
-    .string()
+    .string({ required_error: PHONE_REQUIRED, invalid_type_error: PHONE_REQUIRED })
     .trim()
-    .regex(/^\+[1-9]\d{1,14}$/, 'Invalid phone number')
-    .optional()
-    .or(z.literal(''))
-    .transform((v) => (v && v.length > 0 ? v : undefined)),
+    .min(1, PHONE_REQUIRED)
+    .regex(/^\+[1-9]\d{1,14}$/, 'Invalid phone number'),
   plusOnes: z.coerce.number().int().min(0).max(20).default(0),
   motivation: optionalText(1000),
   // Optional birthdate (#8) — captured into the venue address book. ISO date.

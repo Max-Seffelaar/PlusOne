@@ -148,6 +148,7 @@ function LField({
   type = 'text',
   inputMode,
   optional,
+  required,
   area,
   error,
 }: {
@@ -159,6 +160,9 @@ function LField({
   type?: string;
   inputMode?: 'text' | 'tel' | 'email';
   optional?: boolean;
+  /** Renders the "required" badge (86eyke279). Only meaningful on a form that
+   *  also has optional fields — it is the contrast that carries the message. */
+  required?: boolean;
   area?: boolean;
   error?: string | null;
 }): JSX.Element {
@@ -167,6 +171,7 @@ function LField({
       <div className="mb-[7px] flex items-center justify-between">
         <span className="text-[12px] font-bold uppercase tracking-[0.04em] text-faint">{label}</span>
         {optional && <span className="text-[11.5px] text-ghost">{t.landing.optional}</span>}
+        {required && <span className="text-[11.5px] text-faint">{t.landing.required}</span>}
       </div>
       <div className={cn('flex gap-[11px] rounded-[14px] border bg-elev px-[15px] transition-colors focus-within:border-acc', error ? fieldErrorBorder : 'border-line', area ? 'items-start py-[13px]' : 'items-center py-[14px]')}>
         <span className={cn('text-faint', area && 'mt-0.5')}>
@@ -411,32 +416,49 @@ export function LandingForm({
     if (pending) return;
     setError(null);
 
-    // The button stays tappable even with an empty name (86eyd3men) — a silent
-    // disabled state gave no feedback. A submit attempt with no name surfaces an
-    // explicit error on the field instead.
-    if (!ok) {
-      setNameErr(t.landing.nameError);
-      return;
-    }
-    setNameErr(null);
-
-    // Inline validation: e-mail (if given) and phone. libphonenumber validates
-    // the number per the selected country (E.164); a wrong/incomplete one is
-    // caught here before submit. The phone check is async — its metadata lives in
-    // the lazy phone chunk (#B4) — so it runs inside the transition.
-    const eErr = email.trim() && !isValidEmail(email) ? t.landing.emailError : null;
+    // The button stays tappable even with empty fields (86eyd3men) — a silent
+    // disabled state gave no feedback. A submit attempt surfaces explicit
+    // per-field errors instead.
+    //
+    // All three required fields report AT ONCE (86eyke279). Before, name
+    // short-circuited before e-mail and phone were ever looked at; with three
+    // blocking fields that cascade would cost the requester three round trips
+    // to discover three empty boxes.
+    //
+    // Missing and malformed are separate messages: "check your email" is
+    // nonsense when the box is empty. Trim first — '   ' is empty, not a value
+    // (the same rule the Zod schema and the RPC apply).
+    const nErr = ok ? null : t.landing.nameError;
+    const trimmedEmail = email.trim();
+    const eErr = !trimmedEmail
+      ? t.landing.emailRequired
+      : isValidEmail(trimmedEmail)
+        ? null
+        : t.landing.emailError;
+    // PhoneInput emits E.164 or undefined; trim defensively so a whitespace
+    // value can never be mistaken for a number.
+    const trimmedPhone = phone?.trim() ?? '';
+    setNameErr(nErr);
+    setEmailErr(eErr);
 
     startTransition(async () => {
-      const pErr = phone && !(await isPhoneValid(phone)) ? t.landing.phoneError : null;
-      setEmailErr(eErr);
+      // libphonenumber validates the number per the selected country (E.164);
+      // a wrong/incomplete one is caught here before submit. The check is
+      // async — its metadata lives in the lazy phone chunk (#B4) — so it runs
+      // inside the transition. "Empty" needs no metadata and is decided above.
+      const pErr = !trimmedPhone
+        ? t.landing.phoneRequired
+        : (await isPhoneValid(trimmedPhone))
+          ? null
+          : t.landing.phoneError;
       setPhoneErr(pErr);
-      if (eErr || pErr) return;
+      if (nErr || eErr || pErr) return;
 
       const res = await action({
         slug,
         fullName: name.trim(),
-        email: email.trim() || undefined,
-        phone: phone || undefined,
+        email: trimmedEmail,
+        phone: trimmedPhone,
         plusOnes: plus,
         motivation: motiv.trim() || undefined,
         marketingOptIn: marketing,
@@ -580,6 +602,7 @@ export function LandingForm({
             if (nameErr) setNameErr(null);
           }}
           placeholder={t.landing.namePlaceholder}
+          required
           error={nameErr}
         />
 
@@ -625,13 +648,13 @@ export function LandingForm({
           placeholder={t.landing.emailPlaceholder}
           type="email"
           inputMode="email"
-          optional
+          required
           error={emailErr}
         />
         <div className="mb-[14px]">
           <div className="mb-[7px] flex items-center justify-between">
             <span className="text-[12px] font-bold uppercase tracking-[0.04em] text-faint">{t.landing.phoneLabel}</span>
-            <span className="text-[11.5px] text-ghost">{t.landing.optional}</span>
+            <span className="text-[11.5px] text-faint">{t.landing.required}</span>
           </div>
           <div className={cn('flex items-center gap-[8px] rounded-[14px] border bg-elev py-[10px] pl-[9px] pr-[15px] transition-colors focus-within:border-acc', phoneErr ? fieldErrorBorder : 'border-line')}>
             <CountrySelect

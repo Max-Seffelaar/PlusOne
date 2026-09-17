@@ -9,6 +9,13 @@ import { adminClient } from './helpers/supabase-admin';
 // Seed: event ee..01 'PLUSONE Launch Night' (open, landing_active) at slug
 // 'plusone-launch-night'; Yusuf (organizer@plusone.test) is its organizer and
 // has no MFA requirement, so a plain OTP login reaches the approval screen.
+//
+// NOTE (86eyke279): this spec is NOT in `pnpm e2e:smoke` and does not run in
+// CI, and it has drifted from the app in ways unrelated to this task — it
+// still drives Dutch form labels (the landing surface is EN-only, see
+// src/lib/i18n) and the retired `/dashboard` + `/events/*` routes (#41
+// redirects both to /app). Only the contact-field expectations below were
+// brought in line here; the rest of the drift is its own task.
 
 const SLUG = 'plusone-launch-night';
 const EVENT_ID = 'ee000000-0000-7000-8000-000000000001';
@@ -42,6 +49,9 @@ test.describe('Landing-page aanvraagflow', () => {
 
     await page.getByPlaceholder('Voor- en achternaam').fill(guestName);
     await page.getByRole('button', { name: 'Meer' }).click(); // +1 → 2 personen
+    // E-mail and phone are both required since 86eyke279 — a name-only
+    // submission no longer passes the form, the Zod schema or the RPC.
+    await page.getByPlaceholder('you@example.com').fill(`${guestName.replace(/\W+/g, '.').toLowerCase()}@voorbeeld.nl`);
     // National number for the default country (NL) → stored as E.164 (+31…).
     await page.getByLabel('Telefoonnummer').fill('0612345678');
     await page.getByRole('button', { name: /Houd me op de hoogte/ }).click(); // marketing consent

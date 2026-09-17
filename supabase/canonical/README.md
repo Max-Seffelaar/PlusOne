@@ -20,7 +20,7 @@ Covered functions:
 
 - `audit_trigger.sql` — newest source: `20260706100000_influencers_request_links.sql`
 - `run_privacy_retention.sql` — newest source: `20260706101000_request_link_attribution.sql`
-- `submit_guest_request.sql` — newest source: `20260624200000_event_lifecycle_capacity.sql`
+- `submit_guest_request.sql` — newest source: `20260819110000_landing_contact_required.sql`
 - `approve_guest_request.sql` — newest source: `20260707170000_p0_security_hotfixes.sql`
 
 ## When you touch one of these functions
