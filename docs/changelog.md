@@ -8,6 +8,139 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-08-19 — Perf: the /app shell stops remounting on every navigation (86ey9uc87)
+
+Branch `perf/86ey9uc87-no-remount-shell`. Milestone: Now. No migration, no schema change, no
+new dependency. Three files of production code, and two of them are almost entirely comments.
+
+**The bug.** `PlusOneApp` — the entire `/app` shell — was torn down and recreated on every
+`router.push`. It was rendered by `src/app/app/[[...segments]]/page.tsx`, and Next rebuilds
+the *page* subtree for each segment path; only the *layout* instance is preserved across
+client-side navigation. So every screen change re-ran every shell effect (billing-return,
+Sentry screen tag, viewport resolution, nav construction, the door auto-open one-shot, the
+entrance animation) and reset every piece of shell state.
+
+This was known, not suspected: the `hasPushedThisSession` comment in `app.tsx` documented a
+mount/unmount probe firing on every navigation, and the module-level variable exists *because*
+a `useRef` could not survive it.
+
+**The measurement, since "feels faster" is not evidence.** A mount counter on `PlusOneApp`
+(`window.__poShellMounts`, dev/test builds only), read across one real browser session on the
+mobile viewport. Counts are doubled by `reactStrictMode`'s dev double-invoke, so one real
+mount reads as 2 — what matters is whether the number moves at all.
+
+| step | before (`main`) | after |
+| --- | --- | --- |
+| initial `/app` load | 2 | 2 |
+| tab → Events | 2 | 2 |
+| push → event detail | **4** | 2 |
+| browser Back → events | **8** | 2 |
+| tab → Guests | 8 | 2 |
+| tab → Door (+ `?event=` pin) | **12** | 2 |
+
+Before: five navigations, the shell mounted six times. After: it mounts once and never again.
+Note the *shape* of the old behaviour — tab-root switches at the same segment depth did not
+rebuild, deeper segment paths did. That is why this never showed up as an obvious break: the
+cheapest navigation to try by hand was the one that already worked.
+
+**The fix.** Render `<PlusOneAppClient />` from `src/app/app/layout.tsx` instead of from
+`page.tsx`; `page.tsx` now renders `null` and exists only so the catch-all route matches.
+`PlusOneApp` already derives its active screen from `usePathname()`/`useSearchParams()` (G1),
+which are client hooks that re-render in place — it never needed the page slot to re-render in
+order to follow the URL.
+
+**The `ssr:false` trap was checked, not assumed (86eya4yuf).** CLAUDE.md forbids a client
+component that suspends during SSR from hanging under a page `<Suspense>` at a route root, and
+`/app` mounts via `app-client.tsx` with `ssr:false` for exactly that reason. Moving the mount
+point does not touch that property: `app-client.tsx` carries `'use client'`, so its
+`next/dynamic(..., { ssr: false })` runs in a *client* module and removes the server suspension
+by construction, regardless of which server parent renders it — and the layout is the same kind
+of server parent `page.tsx` was. `tests/unit/app-shell-no-ssr-suspense.test.ts` was widened
+rather than relaxed: it now forbids a direct shell import from *either* file, requires exactly
+one of them to mount via `app-client` (two mounts would mean two `DoorProvider`s and two
+outboxes), and pins that the one is the layout. `tests/e2e/app-home-events-visible.spec.ts` —
+including its `requestAnimationFrame`-stubbed never-painted-tab case — is untouched and green.
+
+**Blast radius, walked deliberately.** Every piece of state that was silently
+remount-scoped is now session-scoped:
+
+- `hasPushedThisSession` **stays module-level.** A ref would work for screen-to-screen pushes
+  now, but the flag's real question is "does this browser tab have history to pop?", and
+  history belongs to the tab. `PlusOneApp` still unmounts when the user leaves `/app` for a
+  sibling route (`/door/[id]`, `/e/[slug]`) and remounts on return — a client-side navigation
+  that pushes real history entries while the component is gone. A ref would forget them and
+  send the next `back()` down the cold-deep-link branch, reintroducing the original bug on a
+  path the e2e suite does not cover. Left alone; comment rewritten to say why.
+- **The #278 door-candidate pin is intact.** Both halves are derived from current state, not
+  from a memory of what this mount wrote, which is precisely what makes them remount-count
+  independent. One adjustment: `staleDoorRefetchRef` (one refetch per rejected `?event=`) used
+  to be reset for free by the per-navigation remount. Without that it would live for the whole
+  tab session, so an id going absent → present → absent again would be rejected against a
+  possibly-stale list with no retry. It is now released alongside `rejectedDoorId` when the id
+  reappears — "one retry per rejection episode", with no new memory of who chose the id.
+- **The #281 venue-switch fix is untouched** (it ends in `window.location.assign`, a full load).
+- **Door offline invariant #25 holds.** Overlay open/close still goes through `pushDoorState`
+  on raw history, which never involved the router in the first place. `page.tsx` still does
+  zero server data work, so query-string-only navigation stays fully client-side.
+- The billing-return `sessionStorage` round-trip is kept even though the same mount now reads
+  its own parked flag straight back: it costs nothing and still carries the toast across the
+  strip-and-`replaceState` and any genuine reload.
+
+**86ey9tq62 re-tested** (overlay stays open / Back lands wrong after check-in), since this
+remount was its suspected cause: `tests/e2e/door-overlay-back.spec.ts` passes both before and
+after. It was already fixed by the popstate listener in `use-door-override.ts`; the remount was
+not what kept it alive. Reported as-is rather than claimed.
+
+**New guard.** `tests/e2e/app-shell-no-remount.spec.ts` drives tab switches, a pushed detail
+screen, browser Back, the door's `?event=` pin, the guest overlay's `?guest=` and the popstate
+back out of it, asserting the mount count never leaves its baseline. Verified adversarially: on
+`main`'s arrangement it fails on the first pushed screen (expected 2, received 4).
+
+**Gates.** `pnpm lint` clean (2 pre-existing a11y warnings in `datetime-field.tsx`, untouched),
+`pnpm type-check` clean, `npx vitest run` 122 files / 1242 tests green, Playwright e2e green
+(see PR body for the run's real counts).
+
+**Fresh-session `/code-review` (PR #287) — no correctness bug in the production code**, and the
+acceptance criterion was reproduced in both directions by the reviewer. Three findings, all in
+the new *test* material, all fixed on the branch:
+
+1. **The guard never ran in CI.** `.github/workflows/ci.yml` has exactly one Playwright step,
+   `pnpm e2e:smoke`, and that script named three files — not this one. `pnpm e2e` is never
+   invoked by CI. So moving the mount back under `page.tsx` would have stayed green forever,
+   in a file that exists precisely because the regression is invisible to every other test.
+   `app-shell-no-remount.spec.ts` is now in `e2e:smoke`, next to the sibling guard
+   `app-home-events-visible.spec.ts` that is wired in for the same reason. `STACK_SUITES` in
+   `scripts/session-setup.mjs` names the *script*, not its files, so its runtime validation
+   against `package.json` still passes unchanged.
+2. **The spec was not hermetic** — fixed FIRST, because wiring a DB-order-dependent spec into
+   CI is how you buy a flaky pipeline. It entered the door through the bottom tab and so
+   depended on the door's implicit single-candidate auto-pin, i.e. on the venue having exactly
+   ONE open event. `core-flow.spec.ts` leaves extra open events behind, so on a second run
+   against the same database the picker rendered instead of the check-in list and the spec
+   failed on a missing search box — reading as a broken door rather than a dirty database. It
+   survived a full `pnpm e2e` only because alphabetical file order happened to put it ahead of
+   `core-flow`. The measurement now enters the door explicitly via the event's own "Check-in"
+   button (`nav.openDoor` → `/app/door?event=<id>`, the same URL `door-overlay-back.spec.ts`
+   uses), which is independent of the candidate count and still exercises the `?event=`
+   query-string leg. The implicit pin keeps its own assertion in a second test, written to
+   cover both database states: one candidate → the pin fires, more than one → the picker is
+   correct, and a picker offering a *single* card fails it.
+3. **The one behavioural change had no test.** The `staleDoorRefetchRef` release above is the
+   PR's only logic change, and deleting the line left the entire suite green (DoD #4).
+   `src/components/po/door-pin-lifetime.test.tsx` gains a third phase on the existing retry
+   test: it drives the requested id absent → present → **absent again** and asserts the refetch
+   fires a second time. Red-on-revert, measured: with the line deleted the file runs
+   **1 failed | 3 passed** (`expected 1 to be 2`); restored, **4 passed**.
+
+**Post-review gates** (this branch, local Supabase): `pnpm lint` clean (same 2 pre-existing
+a11y warnings), `pnpm type-check` clean, `npx vitest run` **122 files / 1242 tests passed**,
+`pnpm e2e:smoke` **6 passed (53.2s)** on a `pnpm db:fresh` database and **6 passed (47.6s)** on
+an immediate second run with no reset in between — the exact scenario that used to fail. For
+the record, the pre-fix spec re-run against that same dirty database still fails on
+`getByPlaceholder('Search a name…')`, so the hermeticity fix is what changed the outcome.
+
+---
+
 ## 2026-08-19 — `add_contact_to_event` PII-reuse is by design, documented (86ey9e9nb)
 
 Branch `docs/86ey9e9nb-contact-reuse-by-design`. Documentation only — no policy, function,
