@@ -61,6 +61,635 @@ it documents is disarmed.
 
 ---
 
+## 2026-09-17 — A regression guard for the pre-push hook mode (the fix itself landed elsewhere)
+
+Branch `fix/pre-push-hook-not-executable`. Milestone: Now — a migration-timestamp
+collision breaks `db push` and `db reset` for everyone, and is discovered only after
+the merge.
+
+**Scope correction, written after the fact.** This branch was opened on 2026-08-19,
+when `scripts/hooks/pre-push` was still committed as mode **100644**. Git silently
+skips a non-executable hook — it says so only in a `hint:` line that scrolls past in
+normal push output — so the migration-collision guard had never run, for anyone,
+while `scripts/setup-git-hooks.mjs` printed `pre-push migration-collision guard
+active` on every `pnpm install`.
+
+The mode fix then landed independently on `main` a week later, in `834012f`
+(2026-08-26, PR #288): *"track pre-push guard as executable — git silently ignored
+it"*. Two people found the same hole a week apart, which says something about how
+invisible it was. **The chmod in this branch is therefore redundant** and merges as a
+no-op against today's `main`.
+
+**What this PR still contributes**, and neither half is on `main`:
+
+- `tests/unit/pre-push-hook-is-executable.test.ts` — asserts the mode **git records**,
+  not the mode on disk. A local `chmod` would mask a regression for whoever ran it
+  while every other clone stayed broken. It also asserts `core.hooksPath`, because a
+  correct mode on a hook git never looks at is equally inert. Verified red on revert:
+  flipping the mode back gives `expected '100644' to be '100755'`. Without this, the
+  mode can silently regress again and nothing would notice — which is exactly how it
+  got here the first time.
+- `scripts/setup-git-hooks.mjs` no longer announces a guard it has not verified. It
+  reads the committed mode and, when it is not `100755`, warns that the guard is **not**
+  running and prints the one-line fix. Both branches exercised.
+
+**Scope.** This does not make the hook a security boundary — it stays bypassable with
+`git push --no-verify`, as its own comment says, and blocking CI remains the real
+backstop. What changed is that the local guard can no longer regress to silence
+unnoticed, and the installer can no longer lie about it.
+
+---
+## 2026-09-17 — The grant matrix that was only ever a comment: anon/authenticated privileges in `public`
+
+Branch `fix/anon-default-grant-matrix`. Found while diagnosing why `main` itself went
+red on pgTAP with nothing in the repo changed — three assertions in
+`influencers.test.sql`, `request_link_funnel.test.sql` and `analytics.test.sql` that
+expect `42501 permission denied` suddenly caught no exception. They were true
+positives about production, four months old.
+
+**Root cause — and it is not "nobody thought about it".**
+`20260613000000_full_schema.sql` got this exactly right, and said so in a comment:
+
+```sql
+-- Default ACLs differ between local and hosted Supabase, so we reset to
+-- zero and grant exactly the intended surface.
+revoke all on all tables in schema public from anon, authenticated, service_role;
+```
+
+The design was correct. The mechanism was not: `all tables in schema` is a **snapshot,
+not a rule**. It zeroed the fifteen tables that existed on 2026-06-13 and has protected
+nothing created since. Supabase's stock default ACL —
+
+```sql
+alter default privileges for role postgres in schema public
+  grant all on tables to postgres, anon, authenticated, service_role;
+```
+
+— then handed the full privilege set to `anon` and `authenticated` on every table and
+view a later migration created. Most later migrations repeated the revoke by hand and
+stayed clean. Three did not, leaving six objects open: `event_templates`,
+`event_template_tiers` (20260624091000), `influencers`, `request_links`,
+`request_link_pageviews_daily` (20260706100000), and the `audit_feed` view. On prod,
+`anon` held SELECT/INSERT/UPDATE/DELETE/TRUNCATE on all five tables.
+
+20260706100000 even carries the comment *"Table privileges (explicit grant matrix; RLS
+is the row boundary on top)"* and, four lines down, *"No DELETE for app roles anywhere
+(soft delete only, #21)"* — above a block that only ever `grant`s. Every grant it wrote
+was a subset of what the table already had, so the block changed nothing and the comment
+described a state the database never reached. Third instance this sweep of the same
+failure shape: a guard that announces itself and does nothing (the others: pgTAP
+reporting `ok` while running 2 of 15 planned assertions, 86eykjgrb; the pre-push hook
+committed 100644 so git skipped it, #288).
+
+**Reachability — measured on prod before writing the fix, not assumed.** Nothing was
+exploitable. RLS is on for all five tables and every policy on them is scoped
+`to authenticated`, so an anon PostgREST request matches no policy and default-denies.
+TRUNCATE ignores RLS, but PostgREST never issues it and `anon` cannot run raw SQL.
+`audit_feed` is `security_invoker=on` over a CTE plus six LEFT JOINs, so it is not
+auto-updatable and its INSERT/UPDATE/DELETE grants cannot execute — no
+write-through-view path to the audit log. So: a defence-in-depth hole, not a breach.
+What it cost is the second line of defence — one policy ever written without
+`to authenticated` on those five tables would have been live for the public anon key
+on the same day.
+
+**Why CI only noticed now.** Prod has had these default ACLs all along; they are stock.
+CI pins `supabase/setup-cli@v3` with `version: latest`, so the local image floats. The
+moment it caught up with prod's defaults, three assertions that had always been true
+statements about production started reporting honestly. The tests were right the whole
+time; the environment they ran in was the thing that had been lying.
+
+**Shipped:**
+
+- `supabase/migrations/20260917100000_public_grant_matrix_hardening.sql` — revokes the
+  accidental privileges from `anon` (one grant is deliberate and stays:
+  `request_links.SELECT`, from `20260706103000:426` — `/api/health` probes that table
+  precisely because the grant means the query never 42501s while the absent anon SELECT
+  policy means it always returns zero rows. That probe is its only live dependant; the
+  grant's original second reason, the `guest_requests_insert_public` WITH CHECK
+  subquery, went dead for anon when `20260707170000` revoked anon's INSERT on
+  `guest_requests`. Follow-up worth doing separately: point the probe at a trivial
+  anon-executable RPC and the last anon table grant in the schema can go too); brings `authenticated` back
+  to exactly the matrix each migration declared (TRUNCATE off everywhere, DELETE off
+  `influencers`/`request_links`/`request_link_pageviews_daily`/`audit_feed`, writes off
+  the read-only counter table). `service_role` is deliberately untouched: it bypasses
+  RLS by design and its key never reaches client code.
+- Recurrence closed at the source, in the same migration: `alter default privileges for
+  role postgres in schema public revoke all on tables from anon, and from authenticated`
+  — the snapshot turned into a rule. A new table or view now starts CLOSED for both app
+  roles, which makes the `grant select, insert, update on table X to authenticated`
+  lines our migrations already write stop being decorative and start being the thing
+  that actually opens the table. A migration that forgets them now fails loudly (403 in
+  dev, e2e smoke red) instead of silently shipping an open table. `service_role` keeps
+  its defaults: it bypasses RLS by design and its key never reaches client code.
+- `supabase/tests/database/grant_matrix.test.sql` (13 assertions) — catalog-driven, not
+  list-driven, for the same reason the original blanket revoke failed: anything that
+  enumerates today's objects stops covering tomorrow's. `tables.test.sql` already
+  checked DELETE on four tables *by name*, which is exactly why it never saw these six.
+  The new file walks every relation in `public`: anon holds nothing beyond the one
+  documented exception, no column-level anon grant hides where `has_table_privilege`
+  cannot see it, no app role holds TRUNCATE, `authenticated` holds DELETE only on an
+  allowlist of config/membership tables, and the default ACLs cannot re-open the hole —
+  the last check scoped to the roles that actually *own* relations here rather than to
+  `postgres` by name, so a table arriving under a different owner (dashboard, platform
+  upgrade, `create extension … schema public`) fails the build instead of inheriting
+  that owner's open defaults. That is the one loophole the migration itself cannot
+  close: `alter default privileges for role supabase_admin …` fails with *"permission
+  denied to change default privileges"* — `postgres` is neither superuser nor a member
+  of `supabase_admin`, locally or hosted. **Known residual, named rather than asserted
+  away:** what we get is prevention for objects created by `postgres` (every migration)
+  and detection for everything else. A table created as `supabase_admin` really does
+  start open — the reviewing session demonstrated it — and the guard catches it on the
+  *next* CI run, not at creation. That window is accepted.
+
+  Seven further assertions prove the revokes did not overshoot — without them the whole
+  file could be satisfied by revoking everything from everyone, which passes CI and
+  breaks the product. **Not hypothetical: the first CI run proved it.** The initial
+  draft did `revoke all … from anon` on `request_links` and took out `/api/health` and
+  every attributed public request with it. `request_links.test.sql` caught it 21
+  subtests deep, where it read as a broken test rather than a broken revoke. The guard
+  now asserts that exception *positively*, so the next over-eager revoke says so in the
+  file whose job it is to know.
+
+**Generalized lesson.** The bug was not a missing thought — the right thought is written
+in a comment in the June schema migration. The bug is that it was expressed as a
+statement over *the objects that exist right now* instead of as a rule about *objects*.
+Anything phrased that way — `all tables in schema`, a hand-kept list in a test, a
+checklist in CLAUDE.md — decays silently from the day it is written, and decays fastest
+in exactly the places that are growing. Where the intent is "exactly these privileges
+and no others", say `revoke` before `grant`, make the default a rule, and let the
+catalog rather than a list be the witness: the list is maintained by the same person who
+just forgot.
+
+---
+
+## 2026-08-26 — One setup codepath: session-setup script, web SessionStart hook, CI routed through it
+
+**Follow-up (same day, after the merge of #288):** local sessions no longer no-op —
+the SessionStart hook now runs the read-only `inventory` on the laptop too (~1s,
+writes nothing, installs nothing), so every session, local or web, starts with the
+environment report + the never-weaken rule in its context. `install` stays
+remote-only. Asked for by Max after seeing the web hook live.
+
+Branch `claude/script-sessionstart-workflow-f2mmid`. Claude Code web sessions start in
+a fresh container (no `node_modules`, no supabase CLI, no reachable docker daemon), so
+lint/type-check/vitest silently weren't runnable until someone set them up by hand —
+and a session that starts working before looking is one bad afternoon away from
+"disabling the guard that refused" instead of fixing its environment.
+
+**Shipped:**
+
+- `scripts/session-setup.mjs` — the ONE environment-setup codepath, three modes:
+  `inventory` (read-only, always first: versions, tools, which suites can run here,
+  and the never-weaken rule), `install` (inventory + `pnpm install --frozen-lockfile`,
+  with an explicit "regenerate the lockfile properly, never hand-edit/drop the flag"
+  failure message), `check` (the pure-node half of CI's `lint-and-test`: lint,
+  type-check, `vitest run`).
+- `.claude/hooks/session-start.sh` + registration in `.claude/settings.json` — remote
+  sessions only (`CLAUDE_CODE_REMOTE` guard, verified no-op locally); runs `install`,
+  so every web session starts with the inventory + rule in its context.
+- `.github/workflows/ci.yml` — the inline `pnpm install/lint/type-check/test` steps
+  replaced by `install` + `check` through the same script. Job name `lint-and-test`
+  and the whole Supabase/e2e/build half untouched.
+
+**The two generalized lessons (26/8):** the suite list is validated against
+`package.json` before anything runs — a from-memory list once named a suite that
+doesn't exist on main, and that must fail as "list drifted", not as a mid-run pnpm
+mystery. And `check` ends by naming what it did NOT run (pgTAP, concurrency, e2e,
+build), so a green `check` is never mistaken for green CI.
+
+**Found along the way, fixed here:** `scripts/hooks/pre-push` was tracked as mode
+`100644` since it landed (#201) — git only runs an *executable* hook and skips a 644
+one with nothing but a hint, so the pre-push migration-collision guard has been
+silently dead on every fresh clone. Tracked mode is now `100755`, and `inventory`
+checks hooksPath + the executable bit so a regression shows up at session start
+instead of never.
+
+**Validated in the remote container:** hook end-to-end with `CLAUDE_CODE_REMOTE=true`
+(cold install 13.9s, idempotent re-run 4s), `check` green (lint + type-check + vitest
+123 files / 1253 tests), ci.yml parses and keeps all 16 steps. **Not validated here:**
+the Actions run itself — a session can't execute GitHub-hosted workflows, so the first
+real run of the reworked job is this PR's own CI.
+
+## 2026-08-19 — Production ran blind: Sentry never initialised, and the build now refuses to ship without it (86eyp5w32)
+
+Branch `claude/performance-sweep-orchestration-e4t594`. Found while orchestrating the
+performance sweep, investigating `86eykdzf1` (the suspicion that `/e/[slug]` 500'd for
+five weeks on a missing `LANDING_IP_SALT`).
+
+**The finding is bigger than the incident it came from.** Sentry has received **zero
+events in 90 days** — both orgs, both projects, no events of any kind. Not "no errors":
+nothing at all.
+
+### Why it was invisible
+
+`sentry.server.config.ts:10`, `sentry.edge.config.ts:12` and `src/sentry.client.init.ts:24`
+all initialise with `enabled: Boolean(dsn)` where `dsn = process.env.NEXT_PUBLIC_SENTRY_DSN`.
+A missing var switches Sentry off silently — no warning, no log, no build failure.
+
+What made it genuinely hard to spot: **the build-time half kept working.** Sentry holds
+releases for these commits — `2790498b7a9a…` (the merge commit of PR #271, i.e. the
+current tip of `main`) carries `lastDeploy.environment: "vercel-production"`. Creating a
+release requires an authenticated token, so `SENTRY_AUTH_TOKEN` and the Vercel↔Sentry
+integration are demonstrably fine. The marketplace integration injects
+`SENTRY_ORG`/`SENTRY_PROJECT`/`SENTRY_AUTH_TOKEN` — but not the DSN under this app's
+variable name. So every deploy registered a release for events that would never arrive,
+and every dashboard looked configured.
+
+### How it was proven without Vercel env access
+
+The load-bearing evidence is Sentry's own API, not the bundle:
+
+- **0 events in 90 days**, both orgs (`plus-one-hs/javascript-nextjs`,
+  `plus-one-lk/sentry-citron-cloud`) — no events of any kind, not merely no errors.
+- **Every release** in the populated project reports `firstEvent: null`,
+  `lastEvent: null`, `newIssues: 0` — across many deploys, never one event.
+- `/monitoring` returns **404** even though `_sentryRewritesTunnelPath="/monitoring"` is
+  compiled into the bundle: the tunnel route only registers once the SDK initialises with
+  a DSN.
+
+**Correction, from the review of this PR.** The first draft argued from the bundle:
+`_sentryDebugIds`/`SENTRY_RELEASE` present ⇒ a real auth token. That inference is wrong.
+`disable: !process.env.SENTRY_AUTH_TOKEN` at `next.config.js:133` sits inside the
+`sourcemaps` block, so it gates source-map *upload* — not the plugin, and not debug-ID
+injection. The reviewer built this branch with `SENTRY_AUTH_TOKEN` entirely unset and got
+all three markers anyway. The conclusion survived on other evidence, but the stated proof
+did not, and it is corrected here rather than quietly dropped.
+
+A second claim was softened while checking the first: "`NEXT_PUBLIC_*` is inlined, so
+absence from the shipped JS is evidence". The inlining behaviour is real and was verified
+both ways — a var that IS set appears as a literal (the production Supabase URL is
+verbatim in the prod bundle), a var that is NOT set survives as a runtime `env.X` lookup —
+but the Sentry client-init code is not present in the chunks that were grepped, so that
+particular grep showed nothing either way. Corroborating, not proof.
+
+### The fix, and why it's a build guard rather than a boot guard
+
+`scripts/hooks/lib/required-env.mjs` + `scripts/hooks/check-required-env.mjs`, wired as
+the first half of `pnpm build`.
+
+Throwing at runtime boot — the `landingIpSalt()` pattern — would be **worse than the
+disease here**: a mistyped monitoring var would take the door offline, and the door is the
+one surface that must keep working (door speed, offline-tolerant check-in). Failing the
+*build* keeps the loudness without ever risking a live venue: a bad deploy never becomes a
+running deploy.
+
+Keyed on `VERCEL_ENV === 'production'`, deliberately **not** `NODE_ENV`. Next sets
+`NODE_ENV=production` for preview deploys and for a plain local `pnpm build`, so a
+`NODE_ENV` gate would break every contributor and every CI run — and that exact conflation
+is what made `86eykdzf1` unfalsifiable ("it should have been throwing on preview too" was
+never verifiable). CI's build step sets no `VERCEL_ENV`, so it stays green; verified by
+running `pnpm build` under the exact CI env.
+
+Guarded vars carry a `why` string each, printed on failure — a guard that only prints a
+name teaches the next person nothing. `LANDING_IP_SALT` is in the list precisely because
+its runtime fail-closed fires at *render*, not at submit: `/e/[slug]`, `/i/[token]` and
+`/r/[token]` all 500 on first view, so landing, invite and status links go down together.
+A build-time check turns a five-week silent outage into a failed deploy.
+
+**Two exclusions, both stated rather than omitted** (an unexplained absence reads as an
+oversight — raised in review):
+
+- **Stripe** — the keyless stub provider is documented behaviour (decision #32) and pilots
+  run `comped`. Requiring the keys in production is a product decision, not a cleanup.
+- **Turnstile** — `verifyTurnstileToken()` passes OPEN when both keys are unset, which is
+  the same fail-open-and-silent shape as the DSN on a more sensitive surface: bot
+  protection on the only anonymous write path. Excluded for one blunt reason — **the site
+  key is currently not set in production**, so requiring it would block the next deploy
+  rather than protect it. Verified with the inlining behaviour described above: the prod
+  `/e/[slug]` bundle still carries `env.NEXT_PUBLIC_TURNSTILE_SITE_KEY` as a runtime
+  lookup. Filed as a separate finding; "off in production" should be a decision, not a
+  discovery.
+
+### Verification
+
+- `tests/unit/required-prod-env.test.ts` — 12 tests. Behavioural coverage of the predicate
+  plus a structural test asserting `pnpm build` still invokes the runner (a guard nobody
+  calls is the failure mode that produced this task — cf. `idbClearAll()` shipping with
+  zero call sites and a comment claiming otherwise, 86ey9et07).
+- **Both verified red-on-revert**: removing the guard from `package.json` fails the
+  structural test; removing empty-string handling fails two behavioural tests.
+- Guard exercised across all five env shapes (local, preview, `NODE_ENV=production`
+  without Vercel, prod-missing, prod-complete) — pass/block as intended.
+- Simulated `VERCEL_ENV=production` build blocks before `next build` runs, naming only the
+  actually-missing var.
+- `pnpm type-check` clean · `pnpm lint` clean (only the two pre-existing
+  `datetime-field.tsx` a11y warnings) · `pnpm vitest run` **116 files / 1200 tests
+  passing** · `pnpm build` green under CI env.
+- `docs/runbook.md`: new "Is monitoring even alive?" section — two copy-paste checks, since
+  "no Sentry alerts" must never again be read as "nothing is wrong".
+
+### Still open — needs Max, not code
+
+The guard prevents recurrence; it does **not** set the variable. `NEXT_PUBLIC_SENTRY_DSN`
+must still be added in Vercel (Production scope) and a real event confirmed via the
+existing `/sentry-test` route.
+
+**Which project is settled**, and was an open question in the first draft:
+`plus-one-hs/javascript-nextjs` holds every release including the current production
+deploy, while `plus-one-lk/sentry-citron-cloud` has **zero** releases. That also verifies
+the `next.config.js` fallbacks and answers the comment beside them ("fase 7.2 — verify the
+real org slug"). Retiring the empty second project removes a real triage hazard: a DSN
+aimed at the wrong project is indistinguishable from no DSN at all.
+
+**The build-command bypass is narrower than first written.** `vercel.json` pins
+`"framework": "nextjs"` and sets no `buildCommand`, so absent a dashboard override the
+default resolves to `pnpm build` and the guard is in the path today. A dashboard override
+stays invisible from the repo, so it is still worth one look — but "unverified" overstated
+it. Moving the check into `next.config.js` would close that gap and should **not** be
+done: Next also loads next.config in the server runtime, which would reintroduce exactly
+the boot-time failure mode this guard was designed to avoid. The durable answer is a
+post-deploy probe on a schedule — it catches a skipped guard, a var deleted after a good
+build, *and* the wrong-project DSN case that no build-time check can see. The two curl
+checks added to `docs/runbook.md` are that probe; they are one cron away from being
+sufficient.
+
+**Separate finding: Turnstile bot protection is currently off in production.** The site
+key is unset, and `verifyTurnstileToken()` passes open in that state. The DB rate limit,
+honeypot and dedup still stand, so the public funnel is not unprotected — but the
+Cloudflare layer is silently absent. Needs its own task (ClickUp was rate-limited when
+this was found).
+
+Related: `86eykdzf1` closed as investigated-but-unprovable — Vercel retains 7 days and
+Sentry held nothing, so the five-week question can no longer be answered from telemetry.
+A live probe did confirm `/e/[slug]` is healthy now.
+## 2026-08-19 — Stats dead-code follow-up: EventPicker/StatCard removed (86eykhqty)
+
+Branch `chore/86eykhqty-stats-dead-code`. Milestone: Now (codebase hygiene, no behavior
+change). Follow-up to the 2026-08-11 dead-code sweep (86ey9e9xx, above), which flagged
+`src/features/stats/components/{EventPicker,StatCard}.tsx` as zero-importer but left them
+untouched to avoid scope creep.
+
+- **Removed, confirmed zero importers repo-wide:**
+  - `src/features/stats/components/EventPicker.tsx` (exported `EventPicker`, `PickerOption`).
+  - `src/features/stats/components/StatCard.tsx` (exported `StatCard`).
+  - Fresh `grep -rn "stats/components/EventPicker\|stats/components/StatCard" src/` — zero
+    hits, same as 11/8. Widened the search past that one pattern before deleting anything:
+    bare-name grep (`EventPicker`/`StatCard`) across `src/` and `tests/` — the only hits
+    left are unrelated same-named local symbols (`DoorEventPicker` in
+    `src/components/po/screens/door.tsx`, a distinct `EventPicker` in
+    `src/components/po/screens/promotion/shared.tsx`, both actively used elsewhere); no
+    other `StatCard` definition exists in the repo (the task's warning about a same-named
+    `po/kit.tsx` component didn't apply — no such component currently exists there); no
+    `index.ts`/barrel in `src/features/stats/`; no import of the `stats/components` path
+    as a whole; no dynamic import or path-alias reference resolving to either file; no
+    dedicated test file for either component. `PickerOption` (the only other export from
+    `EventPicker.tsx`) has no importers either.
+  - `src/features/stats/components/` is now empty and was removed along with the files
+    (git drops the now-empty dir automatically). Both files only imported shared kit
+    primitives (`Card`, `Icon`, `cn`) — nothing else in `src/features/stats/` was orphaned
+    by the removal (`data.ts`, `format.ts`, `po-adapter.ts`, `queries.ts` all stay, still
+    imported via `@/features/stats/*` elsewhere).
+- **DoD suites, fresh run:** `pnpm lint` clean (only the 2 pre-existing unrelated
+  `datetime-field.tsx` a11y warnings). `pnpm type-check` — 0 errors. `npx vitest run` — 115
+  test files / 1188 tests passed (note: `pnpm test` is watch-mode `vitest`, not `vitest run`
+  — ran the latter directly to get a terminating result). `pnpm build` — compiles and
+  generates all 15 static/dynamic routes cleanly.
+## 2026-08-19 — `contactEventCounts` no longer 414s at 210+ contacts: wrong Kong URI-length comment fixed (86eykknf8)
+
+Branch `fix/86eykknf8-chunkids-uri-limit`. Flagged during a fresh-session `/code-review`
+of PR #260 (`86ey9e9wv`) as a pre-existing bug that PR almost copied for a similar case.
+
+**The bug.** `contactEventCounts` (`src/features/po/queries.ts`, called from
+`fetchContacts` — the venue address book) chunked its `guests.in('contact_id', …)`
+filter with `chunkIds(contactIds)`, i.e. the bare default (`PAGE_SIZE` = 1000). The
+comment above it claimed this was "chunked (≤1000 ids per request) to stay under Kong's
+URI length" — wrong on the actual measured threshold: `perf-scale-audit-megaevent.md`
+puts it at ~210 ids ≈ 7.8 kB → HTTP 414, and CLAUDE.md's scale rule says explicitly
+"chunk to ≤120 ids if a list is truly unavoidable". So any venue with 210+ contacts
+matching a search/filter 414'd on `contactEventCounts`'s very first chunk.
+
+**Fix.** `chunkIds(contactIds, 120)` at the call site; the comment now states the real
+~210-id/7.8 kB/414 threshold instead of the invented ≤1000/Kong claim.
+
+**Call-site audit (grep `chunkIds(` across `src/`):** two real call sites existed.
+`src/features/door/queries.ts:204` already passes an explicit `PROFILE_ID_CHUNK_SIZE =
+120` (`door/queries.ts:21`, comment correctly cites CLAUDE.md's scale rule) — no change
+needed there. `src/features/po/queries.ts:1116` (`contactEventCounts`) was the only
+call site relying on the bare, wrong-for-URLs default; it's now fixed above. The
+`chunkIds` tests in `src/lib/supabase/paging.test.ts` aren't call sites, just direct
+unit coverage of the helper.
+
+**`chunkIds`'s own default — left at `PAGE_SIZE` (1000), deliberately.** Considered
+lowering it or introducing a separate `URI_CHUNK_SIZE` constant; decided against it.
+`chunkIds` is a generic size-based chunker, not exclusively a URL-`.in()` helper — a
+future caller might chunk for a pure row-count reason unrelated to any URL (e.g.
+batching a JSON-body RPC array), where 1000 is the right default. Silently dropping the
+default to 120 would also just move the footgun rather than remove it: a caller who
+never stops to ask "is this filter going into a URL?" is exactly the failure mode that
+produced this bug, and a lower default doesn't force that question — it just changes
+which wrong number gets used implicitly. So the invariant stays "the caller building an
+`.in()` URL filter must pass an explicit ≤120 size" (already how `door/queries.ts` does
+it), not "the utility's default happens to be safe." Strengthened `chunkIds`'s docstring
+in `src/lib/supabase/paging.ts` to state this plainly and point at 86eykknf8, since the
+previous docstring's "keeps `.in()` filters under both PostgREST's max-rows AND Kong's
+URI length" line was itself part of the false precedent — misleadingly implying the
+default handles both limits when it only handles the first.
+
+**Test.** `src/features/po/queries.test.ts` — new `describe('fetchContacts →
+contactEventCounts chunking (86eykknf8)')`: 121 mock contact ids through `fetchContacts`,
+asserting the `guests.in()` filter fires more than once and no single chunk exceeds 120
+ids. Verified red-on-revert: reverting `chunkIds(contactIds, 120)` back to the bare
+default made the test fail (`expected 1 to be greater than 1`) exactly as expected: 121
+ids collapse into a single over-sized chunk at the old default.
+
+**Results:** `pnpm lint` clean (2 pre-existing unrelated a11y warnings in
+`datetime-field.tsx`). `pnpm type-check` clean. `pnpm test -- --run`: **115 test files,
+1189 tests, all passed.**
+
+**Out of scope, noted for a follow-up:** several other `.in()` call sites in `src/`
+(`guests/actions.ts:198`, `auth/invite-actions.ts:102`, `po/queries.ts:397/479/484/559/1372`,
+`events/actions.ts:460/469`) build `.in()` filters from unbounded id lists without
+`chunkIds` at all. None are demonstrated to be reachable with 210+ ids in practice, and
+this task's scope was `contactEventCounts` specifically — flagging for a separate audit
+task rather than fixing here.
+
+Not touched: `src/components/po/app.tsx` (other sessions working on it), no migrations.
+## 2026-08-19 — Door: the implicit single-event choice is pinned, so a second live event no longer unmounts the door mid-shift (86eykm7qp)
+
+Branch `fix/86eykm7qp-door-candidate-pin`. Milestone: Now. No migration, no schema change,
+no new server state — the door stays local-first.
+
+**The bug.** `app.tsx` resolved the door's event as
+`doorState.eventId ?? (doorCandidates.length === 1 ? doorCandidates[0].id : null)`. The
+single-candidate branch is an *implicit* choice, and it was never written back to
+`doorOverride` or the URL — so it was re-derived from `length === 1` on every single render.
+The instant a second event appeared in the candidate list, `requestedDoorId` became `null`,
+`resolvedDoorId` followed, and `<DoorEventPicker>` rendered in the exact slot that had held
+`<DoorQueryProvider><DoorProvider>`. Different element type at the same position → React
+unmounts the whole door subtree → `useDoorSync`'s cleanup runs `client.removeChannel(...)`.
+
+**The scenario that makes it real.** A doorhost checks guests in on a tablet at a venue whose
+only non-past event is tonight's. The wifi drops and comes back; React Query's
+`refetchOnReconnect` is at its default `true` (`PoLiveProvider` sets only
+`staleTime`/`gcTime`/`retry`/`refetchOnWindowFocus:false`), so the candidate query refetches.
+If a colleague has meanwhile scheduled the next party, the door jumps to an event picker
+mid-check-in, with no explanation and no realtime.
+
+**Blast radius, stated honestly.** A venue with anything else on the calendar already has >1
+candidate, so it gets the picker on entry and the host picks explicitly — that path was always
+immune. The vulnerable venue is the one whose only non-past event is tonight's, where someone
+plans the next event during the shift. **The queue itself was never at risk**: the outbox is a
+module singleton and `DoorQueryProvider` uses a per-tab singleton client with `gcTime: WEEK_MS`.
+The damage was the unexplained jump plus losing realtime/sync mid-shift.
+
+**The fix** (`src/components/po/app.tsx`, one effect next to `replaceDoorState`). Pin the
+implicit choice the moment it resolves: `replaceDoorState({ seg, eventId: <resolved>, overlay })`
+writes it into `doorOverride` **and** the raw URL. `replaceDoorState` goes through
+`window.history.replaceState`, not `router.replace`, so there is no RSC round-trip and the
+door's offline invariant (#25) is untouched. Once pinned, `doorState.eventId` is non-null and
+the candidate list can grow freely without touching the door subtree.
+
+Guards on the effect:
+- **Mobile door tab only** (`isMobile && isDoorTab`). The desktop cockpit resolves its own
+  event via `EventDayCockpitGate` and must never carry a `doorOverride`; and firing this from
+  another screen would rewrite the URL to a door path under that screen.
+- **Render-loop safe.** `replaceDoorState` sets state, so the effect only writes when the
+  state is not already what it would write (`doorState.eventId === null && resolvedDoorId !==
+  null`): one write at mount, zero on idle re-renders.
+- **The pin is released when its event is gone.** If the pinned id drops out of the candidate
+  list (after the existing stale-id refetch has had its one retry), the pin is cleared so
+  derivation runs again. Without this the host would sit on "geen event" with no way out — the
+  "ander event" control only renders with >1 candidates.
+
+*(Round 1 implemented both of those with a `pinnedDoorRef` that also recorded whether the id
+was "our guess"; the round-2 review below took that ref out. The bullets describe the shipped
+code.)*
+
+**Behaviour change worth knowing.** The implicit choice now behaves like an explicit one: it
+sticks, and it survives a reload because it is in the URL. Auto-following to a different
+single event only happens through the release path above.
+
+**Test — and the red-on-revert check that PR #261 round 1 skipped.**
+`src/components/po/door-pin-keeps-subtree-mounted.test.tsx` (jsdom) drives the **real**
+`PlusOneApp` with only the periphery stubbed, goes from 1 candidate to 2 with
+`doorState.eventId === null`, and asserts the door subtree never unmounts. `DoorProvider` is
+stubbed with a probe that opens a channel on mount and removes it on unmount, mirroring
+`useDoorSync`'s own cleanup, so the assertion reads in the bug's own terms
+(`channelTeardowns === 0`, `doorMounts === 1`, picker never mounted). Two further cases cover
+the URL write-back and the pin release.
+
+`door-tab-render-scope.test.tsx` (the earlier attempt) failed by re-implementing the wiring in
+a local harness and never importing `app.tsx`. To avoid repeating that, the fix was reverted
+and the suite re-run: **3/3 red on unfixed `app.tsx`, 3/3 green with the fix**, verified
+mechanically, not assumed.
+
+**Gates.** `pnpm lint` clean (2 pre-existing `jsx-a11y` warnings in the unrelated
+`datetime-field.tsx`), `pnpm type-check` zero errors, `npx vitest run` **116 files / 1191
+tests, all passing**. The three protected guards were neither touched nor weakened:
+`app-shell-no-ssr-suspense.test.ts` (2) and `door-tab-element-identity-bailout.test.ts` (4)
+run green; `tests/e2e/app-home-events-visible.spec.ts` is unmodified but could not be executed
+in this container (no Docker → no local Supabase stack, and Playwright needs a dev server).
+
+### Round 2 — the pin's lifetime (fresh-session `/code-review` + `/security-review` on PR #278)
+
+The review raised three findings, two merge-blocking. Both blockers were about **how long the
+pin lives**, not about the pin itself, and both were confirmed here before being acted on —
+reproduced against the real `PlusOneApp`, with numbers matching the reviewer's own.
+
+The single root cause: **the write was guarded by a `useRef` while the pinned value lived in
+the URL.** A ref is per-mount; the URL is not. Every gap between those two lifetimes leaked.
+
+**Blocker 1 — the pin was one-shot per id, so the original bug came back after the first
+hardware-back gesture.** `pinnedDoorRef.current === resolvedDoorId` was doing double duty: the
+render-loop guard *and* a permanent record. Once `ev-a` had been pinned, that id could never be
+pinned again for the life of the mount — and `doorState.eventId` returns to `null` **without** a
+remount. `useDoorOverride`'s popstate listener drops the override on any back/forward by design
+(it exists precisely because Next's hooks don't re-fire on a raw-history pop, 86ey9tq62), and a
+door entered from the bottom tab has no `?event=` in Next's tracked search string to fall back
+to. So closing a guest overlay with the Android hardware back button — the door's single most
+common gesture — put the door back to being derived every render. Measured on the unfixed code:
+
+```
+after popstate, door : true
+door after 2nd event : false
+picker mounted       : true
+channelTeardowns     : 1     <- the realtime channel this whole PR exists to protect
+```
+
+**Blocker 2 — the pin was persisted in the URL but the mechanism releasing it was not, so a
+doorhost could land on a dead screen with no way out.** The pin survives a reload; a `useRef`
+does not. A tablet reloading last night's pinned URL (a plain refresh, or the Capacitor
+remote-URL shell restoring the last URL) hits: `requestedDoorId` = the stale `ev-a` from the
+URL, so the `length === 1` derivation never runs; `resolvedDoorId` = `null`, correctly rejected
+by validation; the release never fires because the fresh ref is `null`; and with exactly one
+candidate there is no picker either (`> 1` required). Measured on the unfixed code:
+
+```
+door mounted   : false
+picker mounted : false
+URL            : ?event=ev-a
+body text      : "Check-in — No event to check in to yet. Create or open one first."
+```
+
+This is a regression in kind, not degree: before the PR the implicit choice was never written
+to the URL, so the same reload just re-derived tonight's event. A stale *explicit* `?event=`
+could already strand a host, but only if they had deliberately picked one — after round 1 every
+single-candidate door tab acquired one automatically.
+
+**Finding 3 (minor) — an explicit re-pick of the already-pinned event was mislabelled as "our
+guess".** A pick from the in-door picker (`onChangeDoorEvent` → `onPick`) goes through
+`replaceDoorState` with no remount, so the ref kept its old value and the user's own choice
+became releasable by the branch above. The reviewer's own note — that deriving intent from
+state instead of tracking it in a ref removes all three at once — is what the fix does, so this
+one dissolved rather than being patched.
+
+**The fix: nothing is remembered about who chose an id; both halves read current state.**
+
+- The **write guard** now asks *"is the state already what I would write?"* instead of *"have I
+  ever written this?"* — it compares against `doorState.eventId`, which is self-healing: after
+  the write the state *is* the value, so the effect stops on its own. It re-pins after a
+  popstate, which is exactly what blocker 1 needed.
+- The **release** now fires on `rejectedDoorId` — the candidate list's own settled verdict,
+  published as state by the existing stale-id refetch effect once that id's one retry has come
+  back and still doesn't contain it. It needs no memory of who chose the id, so it is
+  re-derived on **every** mount, including the fresh one after a reload. That closes blocker 2.
+- `pinnedDoorRef` is gone entirely.
+
+Two details that are load-bearing rather than incidental:
+
+- `rejectedDoorId` is **state, not a ref**, on purpose. Effects in one component run in
+  declaration order, so a ref written by the refetch effect would already be readable by the
+  pin effect on the *same* commit — and the pin would then be released before its retry had a
+  chance to bring the event back. That retry exists for a real case ("Check-in" tapped for an
+  event a colleague created seconds ago), so collapsing the two into one commit would trade a
+  dead end for landing the host on the wrong event. A state update forces a later render.
+  Mutation-tested: replacing the `rejectedDoorId` gate with a plain settled-list check turns
+  that case red (`expected '?event=ev-b' to contain 'event=ev-a'`).
+- The release re-checks `!doorCandidates.some(...)` alongside `rejectedDoorId`, because on the
+  commit where the refetch effect *clears* the rejection the pin effect still reads the previous
+  state value.
+
+**Deliberate behaviour change.** The release no longer distinguishes our pin from an explicit
+user pick, so a stale explicit `?event=` is now released too. That is a fix, not collateral:
+`resolvedDoorId` already refuses to mount the door for a non-candidate, so such an id was only
+ever stranding the host.
+
+**Tests.** `src/components/po/door-pin-lifetime.test.tsx` (jsdom, real `PlusOneApp`) adds four
+cases; the round-1 file's candidate-query stub was made faithful (`refetch()` now flips
+`isFetching`, which is what `notifyOnChangeProps` actually re-renders on — a no-op stub modelled
+a retry that never lands).
+
+Red-on-revert verified per test, mechanically, against `git show HEAD:src/components/po/app.tsx`:
+
+| test | on unfixed code |
+| --- | --- |
+| re-pins after a hardware-back gesture drops the door override | **red** — `door-provider` null after the 2nd event |
+| releases a rejected pin on a FRESH mount (reload dead screen) | **red** — `door-provider` null, no picker |
+| writes the pin exactly once at mount, never on an idle re-render | green (loop guard was already correct) — **red under mutation**: dropping the guard gives `expected 2 to be 1` |
+| does not release before the stale-list retry has settled | green (unfixed code never releases there) — **red under mutation** as above |
+
+The reviewer explicitly confirmed the round-1 render-loop guard was sound (1 write at mount, 0
+on idle re-renders). Removing the ref must not cost that, so it is now asserted directly by
+counting real `history.replaceState` calls rather than left implicit.
+
+**Gates (round 2).** `pnpm lint` clean (same 2 pre-existing `jsx-a11y` warnings in the
+unrelated `datetime-field.tsx`), `pnpm type-check` zero errors, `npx vitest run` **117 files /
+1195 tests, all passing**. The three protected guards were neither touched nor weakened:
+`app-shell-no-ssr-suspense.test.ts` and `door-tab-element-identity-bailout.test.ts` green;
+`tests/e2e/app-home-events-visible.spec.ts` unmodified but still not runnable in this container
+(no Docker → no local Supabase stack, and Playwright needs a dev server). Door offline
+invariant #25 is untouched — the release, like the pin, goes through `replaceDoorState` on raw
+history, never `router.replace`.
 ## 2026-08-19 — Venue switch: a refused switch no longer reloads as if it worked (86eykm7rk)
 
 Branch `fix/86eykm7rk-venue-switch-silent-failure`. Milestone: **Now**. No migration, no schema
