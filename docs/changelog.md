@@ -8,6 +8,129 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-17 — The grant matrix that was only ever a comment: anon/authenticated privileges in `public`
+
+Branch `fix/anon-default-grant-matrix`. Found while diagnosing why `main` itself went
+red on pgTAP with nothing in the repo changed — three assertions in
+`influencers.test.sql`, `request_link_funnel.test.sql` and `analytics.test.sql` that
+expect `42501 permission denied` suddenly caught no exception. They were true
+positives about production, four months old.
+
+**Root cause — and it is not "nobody thought about it".**
+`20260613000000_full_schema.sql` got this exactly right, and said so in a comment:
+
+```sql
+-- Default ACLs differ between local and hosted Supabase, so we reset to
+-- zero and grant exactly the intended surface.
+revoke all on all tables in schema public from anon, authenticated, service_role;
+```
+
+The design was correct. The mechanism was not: `all tables in schema` is a **snapshot,
+not a rule**. It zeroed the fifteen tables that existed on 2026-06-13 and has protected
+nothing created since. Supabase's stock default ACL —
+
+```sql
+alter default privileges for role postgres in schema public
+  grant all on tables to postgres, anon, authenticated, service_role;
+```
+
+— then handed the full privilege set to `anon` and `authenticated` on every table and
+view a later migration created. Most later migrations repeated the revoke by hand and
+stayed clean. Three did not, leaving six objects open: `event_templates`,
+`event_template_tiers` (20260624091000), `influencers`, `request_links`,
+`request_link_pageviews_daily` (20260706100000), and the `audit_feed` view. On prod,
+`anon` held SELECT/INSERT/UPDATE/DELETE/TRUNCATE on all five tables.
+
+20260706100000 even carries the comment *"Table privileges (explicit grant matrix; RLS
+is the row boundary on top)"* and, four lines down, *"No DELETE for app roles anywhere
+(soft delete only, #21)"* — above a block that only ever `grant`s. Every grant it wrote
+was a subset of what the table already had, so the block changed nothing and the comment
+described a state the database never reached. Third instance this sweep of the same
+failure shape: a guard that announces itself and does nothing (the others: pgTAP
+reporting `ok` while running 2 of 15 planned assertions, 86eykjgrb; the pre-push hook
+committed 100644 so git skipped it, #288).
+
+**Reachability — measured on prod before writing the fix, not assumed.** Nothing was
+exploitable. RLS is on for all five tables and every policy on them is scoped
+`to authenticated`, so an anon PostgREST request matches no policy and default-denies.
+TRUNCATE ignores RLS, but PostgREST never issues it and `anon` cannot run raw SQL.
+`audit_feed` is `security_invoker=on` over a CTE plus six LEFT JOINs, so it is not
+auto-updatable and its INSERT/UPDATE/DELETE grants cannot execute — no
+write-through-view path to the audit log. So: a defence-in-depth hole, not a breach.
+What it cost is the second line of defence — one policy ever written without
+`to authenticated` on those five tables would have been live for the public anon key
+on the same day.
+
+**Why CI only noticed now.** Prod has had these default ACLs all along; they are stock.
+CI pins `supabase/setup-cli@v3` with `version: latest`, so the local image floats. The
+moment it caught up with prod's defaults, three assertions that had always been true
+statements about production started reporting honestly. The tests were right the whole
+time; the environment they ran in was the thing that had been lying.
+
+**Shipped:**
+
+- `supabase/migrations/20260917100000_public_grant_matrix_hardening.sql` — revokes the
+  accidental privileges from `anon` (one grant is deliberate and stays:
+  `request_links.SELECT`, from `20260706103000:426` — `/api/health` probes that table
+  precisely because the grant means the query never 42501s while the absent anon SELECT
+  policy means it always returns zero rows. That probe is its only live dependant; the
+  grant's original second reason, the `guest_requests_insert_public` WITH CHECK
+  subquery, went dead for anon when `20260707170000` revoked anon's INSERT on
+  `guest_requests`. Follow-up worth doing separately: point the probe at a trivial
+  anon-executable RPC and the last anon table grant in the schema can go too); brings `authenticated` back
+  to exactly the matrix each migration declared (TRUNCATE off everywhere, DELETE off
+  `influencers`/`request_links`/`request_link_pageviews_daily`/`audit_feed`, writes off
+  the read-only counter table). `service_role` is deliberately untouched: it bypasses
+  RLS by design and its key never reaches client code.
+- Recurrence closed at the source, in the same migration: `alter default privileges for
+  role postgres in schema public revoke all on tables from anon, and from authenticated`
+  — the snapshot turned into a rule. A new table or view now starts CLOSED for both app
+  roles, which makes the `grant select, insert, update on table X to authenticated`
+  lines our migrations already write stop being decorative and start being the thing
+  that actually opens the table. A migration that forgets them now fails loudly (403 in
+  dev, e2e smoke red) instead of silently shipping an open table. `service_role` keeps
+  its defaults: it bypasses RLS by design and its key never reaches client code.
+- `supabase/tests/database/grant_matrix.test.sql` (13 assertions) — catalog-driven, not
+  list-driven, for the same reason the original blanket revoke failed: anything that
+  enumerates today's objects stops covering tomorrow's. `tables.test.sql` already
+  checked DELETE on four tables *by name*, which is exactly why it never saw these six.
+  The new file walks every relation in `public`: anon holds nothing beyond the one
+  documented exception, no column-level anon grant hides where `has_table_privilege`
+  cannot see it, no app role holds TRUNCATE, `authenticated` holds DELETE only on an
+  allowlist of config/membership tables, and the default ACLs cannot re-open the hole —
+  the last check scoped to the roles that actually *own* relations here rather than to
+  `postgres` by name, so a table arriving under a different owner (dashboard, platform
+  upgrade, `create extension … schema public`) fails the build instead of inheriting
+  that owner's open defaults. That is the one loophole the migration itself cannot
+  close: `alter default privileges for role supabase_admin …` fails with *"permission
+  denied to change default privileges"* — `postgres` is neither superuser nor a member
+  of `supabase_admin`, locally or hosted. **Known residual, named rather than asserted
+  away:** what we get is prevention for objects created by `postgres` (every migration)
+  and detection for everything else. A table created as `supabase_admin` really does
+  start open — the reviewing session demonstrated it — and the guard catches it on the
+  *next* CI run, not at creation. That window is accepted.
+
+  Seven further assertions prove the revokes did not overshoot — without them the whole
+  file could be satisfied by revoking everything from everyone, which passes CI and
+  breaks the product. **Not hypothetical: the first CI run proved it.** The initial
+  draft did `revoke all … from anon` on `request_links` and took out `/api/health` and
+  every attributed public request with it. `request_links.test.sql` caught it 21
+  subtests deep, where it read as a broken test rather than a broken revoke. The guard
+  now asserts that exception *positively*, so the next over-eager revoke says so in the
+  file whose job it is to know.
+
+**Generalized lesson.** The bug was not a missing thought — the right thought is written
+in a comment in the June schema migration. The bug is that it was expressed as a
+statement over *the objects that exist right now* instead of as a rule about *objects*.
+Anything phrased that way — `all tables in schema`, a hand-kept list in a test, a
+checklist in CLAUDE.md — decays silently from the day it is written, and decays fastest
+in exactly the places that are growing. Where the intent is "exactly these privileges
+and no others", say `revoke` before `grant`, make the default a rule, and let the
+catalog rather than a list be the witness: the list is maintained by the same person who
+just forgot.
+
+---
+
 ## 2026-08-26 — One setup codepath: session-setup script, web SessionStart hook, CI routed through it
 
 **Follow-up (same day, after the merge of #288):** local sessions no longer no-op —
