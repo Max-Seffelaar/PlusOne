@@ -46,16 +46,26 @@
 -- ---------------------------------------------------------------------------
 -- 1. anon owns nothing in public
 -- ---------------------------------------------------------------------------
--- No table in this schema is meant to be reachable by the anon key. Every
--- anon-facing flow (landing requests, /i/<token> pageviews, status tokens)
--- goes through a SECURITY DEFINER RPC with its own execute grant, never a
--- table privilege.
+-- Almost nothing in this schema is meant to be reachable by the anon key:
+-- landing requests, /i/<token> pageviews and status tokens all go through a
+-- SECURITY DEFINER RPC with its own execute grant, never a table privilege.
 revoke all on table public.event_templates              from anon;
 revoke all on table public.event_template_tiers         from anon;
 revoke all on table public.influencers                  from anon;
-revoke all on table public.request_links                from anon;
 revoke all on table public.request_link_pageviews_daily from anon;
 revoke all on table public.audit_feed                   from anon;
+
+-- request_links is the ONE deliberate exception, and SELECT is the only part
+-- of it that is deliberate. `20260706103000_submit_via_request_link.sql:426`
+-- grants it on purpose, and two things depend on it:
+--   * the `guest_requests_insert_public` RLS policy, whose WITH CHECK subquery
+--     reads request_links as the anon caller — no table privilege, no insert;
+--   * `/api/health`, which probes exactly this table because the grant means
+--     the query never 42501s while the absent anon SELECT policy means it
+--     always returns zero rows (see src/app/api/health/route.ts).
+-- So: keep SELECT, drop everything the default ACL added on top of it.
+revoke insert, update, delete, truncate, references, trigger
+  on table public.request_links from anon;
 
 -- ---------------------------------------------------------------------------
 -- 2. authenticated gets exactly what each migration declared it should
@@ -98,6 +108,15 @@ revoke insert, update, delete, truncate on table public.audit_feed from authenti
 -- actually opens the table — which is what "explicit grant matrix" was supposed
 -- to mean all along. A migration that forgets them now fails loudly (403 in dev,
 -- e2e smoke red) instead of silently shipping an open table.
+--
+-- This only covers objects created BY ROLE postgres, which is every object in
+-- public today (`pg_class.relowner`). The `supabase_admin` default ACL in this
+-- schema still grants anon everything, and we cannot change it: postgres is not
+-- a member of supabase_admin on hosted Supabase, so the statement would fail
+-- there while succeeding locally — a divergence worse than the gap. The guard
+-- test closes it from the other side instead: it checks the default ACL of
+-- every role that actually owns a relation in public, so an object arriving
+-- under a different owner fails the build rather than inheriting open defaults.
 --
 -- service_role is deliberately left alone: it is the trusted server role, it
 -- bypasses RLS by design, and its key never reaches client code (CLAUDE.md).

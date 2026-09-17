@@ -69,8 +69,12 @@ time; the environment they ran in was the thing that had been lying.
 
 **Shipped:**
 
-- `supabase/migrations/20260917100000_public_grant_matrix_hardening.sql` — revokes all
-  privileges on the five tables and the view from `anon`; brings `authenticated` back
+- `supabase/migrations/20260917100000_public_grant_matrix_hardening.sql` — revokes the
+  accidental privileges from `anon` (one grant is deliberate and stays: `request_links.
+  SELECT`, from `20260706103000:426` — the `guest_requests_insert_public` policy's WITH
+  CHECK subquery reads that table as the anon caller, and `/api/health` probes it
+  precisely because the grant means the query never 42501s while the absent anon SELECT
+  policy means it always returns zero rows); brings `authenticated` back
   to exactly the matrix each migration declared (TRUNCATE off everywhere, DELETE off
   `influencers`/`request_links`/`request_link_pageviews_daily`/`audit_feed`, writes off
   the read-only counter table). `service_role` is deliberately untouched: it bypasses
@@ -83,15 +87,29 @@ time; the environment they ran in was the thing that had been lying.
   that actually opens the table. A migration that forgets them now fails loudly (403 in
   dev, e2e smoke red) instead of silently shipping an open table. `service_role` keeps
   its defaults: it bypasses RLS by design and its key never reaches client code.
-- `supabase/tests/database/grant_matrix.test.sql` (11 assertions) — catalog-driven, not
+- `supabase/tests/database/grant_matrix.test.sql` (13 assertions) — catalog-driven, not
   list-driven, for the same reason the original blanket revoke failed: anything that
   enumerates today's objects stops covering tomorrow's. `tables.test.sql` already
-  checked DELETE on four tables *by name*, which is exactly why it never saw these six. The new file walks every relation in `public`:
-  anon holds nothing, no app role holds TRUNCATE, `authenticated` holds DELETE only on
-  an allowlist of config/membership tables, and the default ACLs cannot re-open the
-  hole. Five further assertions prove the revokes did not overshoot — without them the
-  whole file could be satisfied by revoking everything from everyone, which passes CI
-  and breaks the product.
+  checked DELETE on four tables *by name*, which is exactly why it never saw these six.
+  The new file walks every relation in `public`: anon holds nothing beyond the one
+  documented exception, no column-level anon grant hides where `has_table_privilege`
+  cannot see it, no app role holds TRUNCATE, `authenticated` holds DELETE only on an
+  allowlist of config/membership tables, and the default ACLs cannot re-open the hole —
+  the last check scoped to the roles that actually *own* relations here rather than to
+  `postgres` by name, so a table arriving under a different owner (dashboard, platform
+  upgrade, `create extension … schema public`) fails the build instead of inheriting
+  that owner's open defaults. That is the one loophole the migration itself cannot
+  close: `postgres` is not a member of `supabase_admin` on hosted Supabase, so revoking
+  that role's defaults would succeed locally and fail in prod.
+
+  Seven further assertions prove the revokes did not overshoot — without them the whole
+  file could be satisfied by revoking everything from everyone, which passes CI and
+  breaks the product. **Not hypothetical: the first CI run proved it.** The initial
+  draft did `revoke all … from anon` on `request_links` and took out `/api/health` and
+  every attributed public request with it. `request_links.test.sql` caught it 21
+  subtests deep, where it read as a broken test rather than a broken revoke. The guard
+  now asserts that exception *positively*, so the next over-eager revoke says so in the
+  file whose job it is to know.
 
 **Generalized lesson.** The bug was not a missing thought — the right thought is written
 in a comment in the June schema migration. The bug is that it was expressed as a
