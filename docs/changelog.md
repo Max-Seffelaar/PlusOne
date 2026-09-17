@@ -8,6 +8,44 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-17 — A regression guard for the pre-push hook mode (the fix itself landed elsewhere)
+
+Branch `fix/pre-push-hook-not-executable`. Milestone: Now — a migration-timestamp
+collision breaks `db push` and `db reset` for everyone, and is discovered only after
+the merge.
+
+**Scope correction, written after the fact.** This branch was opened on 2026-08-19,
+when `scripts/hooks/pre-push` was still committed as mode **100644**. Git silently
+skips a non-executable hook — it says so only in a `hint:` line that scrolls past in
+normal push output — so the migration-collision guard had never run, for anyone,
+while `scripts/setup-git-hooks.mjs` printed `pre-push migration-collision guard
+active` on every `pnpm install`.
+
+The mode fix then landed independently on `main` a week later, in `834012f`
+(2026-08-26, PR #288): *"track pre-push guard as executable — git silently ignored
+it"*. Two people found the same hole a week apart, which says something about how
+invisible it was. **The chmod in this branch is therefore redundant** and merges as a
+no-op against today's `main`.
+
+**What this PR still contributes**, and neither half is on `main`:
+
+- `tests/unit/pre-push-hook-is-executable.test.ts` — asserts the mode **git records**,
+  not the mode on disk. A local `chmod` would mask a regression for whoever ran it
+  while every other clone stayed broken. It also asserts `core.hooksPath`, because a
+  correct mode on a hook git never looks at is equally inert. Verified red on revert:
+  flipping the mode back gives `expected '100644' to be '100755'`. Without this, the
+  mode can silently regress again and nothing would notice — which is exactly how it
+  got here the first time.
+- `scripts/setup-git-hooks.mjs` no longer announces a guard it has not verified. It
+  reads the committed mode and, when it is not `100755`, warns that the guard is **not**
+  running and prints the one-line fix. Both branches exercised.
+
+**Scope.** This does not make the hook a security boundary — it stays bypassable with
+`git push --no-verify`, as its own comment says, and blocking CI remains the real
+backstop. What changed is that the local guard can no longer regress to silence
+unnoticed, and the installer can no longer lie about it.
+
+---
 ## 2026-09-17 — The grant matrix that was only ever a comment: anon/authenticated privileges in `public`
 
 Branch `fix/anon-default-grant-matrix`. Found while diagnosing why `main` itself went
