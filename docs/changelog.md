@@ -100,6 +100,45 @@ back out of it, asserting the mount count never leaves its baseline. Verified ad
 `pnpm type-check` clean, `npx vitest run` 122 files / 1242 tests green, Playwright e2e green
 (see PR body for the run's real counts).
 
+**Fresh-session `/code-review` (PR #287) — no correctness bug in the production code**, and the
+acceptance criterion was reproduced in both directions by the reviewer. Three findings, all in
+the new *test* material, all fixed on the branch:
+
+1. **The guard never ran in CI.** `.github/workflows/ci.yml` has exactly one Playwright step,
+   `pnpm e2e:smoke`, and that script named three files — not this one. `pnpm e2e` is never
+   invoked by CI. So moving the mount back under `page.tsx` would have stayed green forever,
+   in a file that exists precisely because the regression is invisible to every other test.
+   `app-shell-no-remount.spec.ts` is now in `e2e:smoke`, next to the sibling guard
+   `app-home-events-visible.spec.ts` that is wired in for the same reason. `STACK_SUITES` in
+   `scripts/session-setup.mjs` names the *script*, not its files, so its runtime validation
+   against `package.json` still passes unchanged.
+2. **The spec was not hermetic** — fixed FIRST, because wiring a DB-order-dependent spec into
+   CI is how you buy a flaky pipeline. It entered the door through the bottom tab and so
+   depended on the door's implicit single-candidate auto-pin, i.e. on the venue having exactly
+   ONE open event. `core-flow.spec.ts` leaves extra open events behind, so on a second run
+   against the same database the picker rendered instead of the check-in list and the spec
+   failed on a missing search box — reading as a broken door rather than a dirty database. It
+   survived a full `pnpm e2e` only because alphabetical file order happened to put it ahead of
+   `core-flow`. The measurement now enters the door explicitly via the event's own "Check-in"
+   button (`nav.openDoor` → `/app/door?event=<id>`, the same URL `door-overlay-back.spec.ts`
+   uses), which is independent of the candidate count and still exercises the `?event=`
+   query-string leg. The implicit pin keeps its own assertion in a second test, written to
+   cover both database states: one candidate → the pin fires, more than one → the picker is
+   correct, and a picker offering a *single* card fails it.
+3. **The one behavioural change had no test.** The `staleDoorRefetchRef` release above is the
+   PR's only logic change, and deleting the line left the entire suite green (DoD #4).
+   `src/components/po/door-pin-lifetime.test.tsx` gains a third phase on the existing retry
+   test: it drives the requested id absent → present → **absent again** and asserts the refetch
+   fires a second time. Red-on-revert, measured: with the line deleted the file runs
+   **1 failed | 3 passed** (`expected 1 to be 2`); restored, **4 passed**.
+
+**Post-review gates** (this branch, local Supabase): `pnpm lint` clean (same 2 pre-existing
+a11y warnings), `pnpm type-check` clean, `npx vitest run` **122 files / 1242 tests passed**,
+`pnpm e2e:smoke` **6 passed (53.2s)** on a `pnpm db:fresh` database and **6 passed (47.6s)** on
+an immediate second run with no reset in between — the exact scenario that used to fail. For
+the record, the pre-fix spec re-run against that same dirty database still fails on
+`getByPlaceholder('Search a name…')`, so the hermeticity fix is what changed the outcome.
+
 ---
 
 ## 2026-08-19 — Door: the implicit single-event choice is pinned, so a second live event no longer unmounts the door mid-shift (86eykm7qp)

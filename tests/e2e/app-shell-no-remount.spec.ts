@@ -29,9 +29,23 @@ import { acceptConsent, adminClient } from './helpers/supabase-admin';
  *
  * Covers both navigation shapes the task calls out:
  *   · screen navigation — tab switches, a pushed detail screen, browser Back;
- *   · query-string navigation — the door's `?event=`, the guest overlay's
- *     `?guest=` (raw History, the door's offline invariant #25), and the
- *     popstate back out of it, which IS a router-level query-only navigation.
+ *   · query-string navigation — the door's `?event=` (pushed explicitly from
+ *     the event's "Check-in" button), the guest overlay's `?guest=` (raw
+ *     History, the door's offline invariant #25), and the popstate back out of
+ *     it, which IS a router-level query-only navigation.
+ *
+ * HERMETIC BY CONSTRUCTION (review of #287). The measurement deliberately does
+ * NOT enter the door through the bottom tab: a bare `/app/door` resolves its
+ * event from the door's IMPLICIT single-candidate pin, which only fires when
+ * the venue has exactly one open candidate — i.e. only on a freshly reset DB.
+ * `core-flow.spec.ts` leaves extra open events behind, so on any second run
+ * against the same database the picker rendered instead of the check-in list
+ * and this spec failed on a missing search box, reading as a broken door
+ * rather than as a dirty database. Both specs now live in `pnpm e2e:smoke`
+ * side by side, so that could not stay a matter of file ordering. Entering via
+ * `openDoor` (→ `/app/door?event=<id>`, the same URL `door-overlay-back.spec.ts`
+ * uses) is independent of how many other events exist, and still exercises the
+ * `?event=` query-string leg. The implicit pin keeps its own test below.
  *
  * door@ = Lisa (doorhost + staff at Club Vesper): needs no MFA and is the one
  * seed user who sees both the ordinary tabs and the Deur tab.
@@ -50,6 +64,14 @@ async function shellMounts(page: Page): Promise<number> {
   return page.evaluate(() => (window as Window & { __poShellMounts?: number }).__poShellMounts ?? 0);
 }
 
+/** Clear everything that would bounce the doorhost off `/app` (consent gate,
+ *  MFA enroll nudge) so a login lands straight on the shell. */
+async function prepareDoorhost(): Promise<void> {
+  const db = adminClient();
+  await acceptConsent(DOOR_EMAIL);
+  await db.from('user_profiles').update({ mfa_snooze_until: 'infinity' }).eq('id', DOOR_ID);
+}
+
 /**
  * Next's dev-tools indicator is a fixed badge in the bottom-LEFT corner, which
  * sits exactly on top of the first bottom-tab ("Home") and swallows its clicks.
@@ -65,8 +87,7 @@ function tab(page: Page, name: string) {
 test('the /app shell mounts once and survives screen + query-string navigation', async ({ page }) => {
   test.setTimeout(180_000); // the dev server compiles /app and /app/door on first hit
   const db = adminClient();
-  await acceptConsent(DOOR_EMAIL);
-  await db.from('user_profiles').update({ mfa_snooze_until: 'infinity' }).eq('id', DOOR_ID);
+  await prepareDoorhost();
 
   // A known guest so the door's guest overlay can be opened by name (the
   // check-in list is virtualized, so search first).
@@ -99,31 +120,29 @@ test('the /app shell mounts once and survives screen + query-string navigation',
     expect(await shellMounts(page), `PlusOneApp remounted on: ${step}`).toBe(baseline);
   };
 
-  // ── Screen navigation: tab → pushed detail screen → browser Back → tab. ──
+  // ── Screen navigation: tab → tab → pushed detail screen. ──
+  await tab(page, 'Guests').click();
+  await page.waitForURL('**/app/guests', { timeout: 30_000 });
+  await expectNoRemount('tab switch to Guests');
+
   await tab(page, 'Events').click();
   await page.waitForURL('**/app/events', { timeout: 30_000 });
   await expectNoRemount('tab switch to Events');
 
   await page.getByText(EVENT_A_NAME).first().click();
   await page.waitForURL(/\/app\/events\/[0-9a-f-]+$/, { timeout: 30_000 });
+  const eventDetailUrl = page.url();
   await expectNoRemount('push to the event detail screen');
 
-  await page.goBack();
-  await page.waitForURL('**/app/events', { timeout: 30_000 });
-  await expectNoRemount('browser Back out of the event detail screen');
-
-  await tab(page, 'Guests').click();
-  await page.waitForURL('**/app/guests', { timeout: 30_000 });
-  await expectNoRemount('tab switch to Guests');
-
-  // ── Query-string navigation: the door pins `?event=` on its own (one
-  //    candidate in the seed), then the guest overlay adds `?guest=`. ──
-  await tab(page, 'Door').click();
-  await page.waitForURL(/\/app\/door/, { timeout: 30_000 });
+  // ── Query-string navigation: the event's own "Check-in" button is
+  //    `nav.openDoor(id)` → `router.push('/app/door?event=<id>')`, a navigation
+  //    whose target differs from a bare door tab ONLY by the query string. No
+  //    dependency on the candidate count (see the header note). ──
+  await page.getByRole('button', { name: 'Check-in', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/app/door\\?event=${EVENT_A}`), { timeout: 30_000 });
   const searchBox = page.getByPlaceholder('Search a name…');
   await expect(searchBox).toBeVisible({ timeout: 60_000 });
-  await expect(page).toHaveURL(new RegExp(`/app/door\\?event=${EVENT_A}`), { timeout: 30_000 });
-  await expectNoRemount('door tab pinning ?event= (query-string change)');
+  await expectNoRemount('opening the door for one event (?event=, query-string change)');
 
   await searchBox.fill(guestName);
   await page.getByRole('button', { name: new RegExp(guestName) }).click();
@@ -140,6 +159,55 @@ test('the /app shell mounts once and survives screen + query-string navigation',
   await expect(page).not.toHaveURL(/[?&]guest=/);
   await expectNoRemount('closing the door guest overlay via Back (popstate, query-only)');
 
+  // ── Browser Back out of the door, all the way back to the pushed screen it
+  //    was opened from. The overlay pushed and popped one entry of its own, so
+  //    this must land on the event detail, not somewhere inside the door. ──
+  await page.goBack();
+  await page.waitForURL(eventDetailUrl, { timeout: 30_000 });
+  await expectNoRemount('browser Back out of the door onto the event detail screen');
+
   // Final statement of the acceptance criterion, in one line.
   expect(await shellMounts(page), 'total /app shell mounts across the whole flow').toBe(baseline);
+});
+
+/**
+ * The implicit single-candidate pin (`doorCandidates.length === 1` in
+ * `app.tsx`), kept as its own assertion now that the measurement above no
+ * longer leans on it. It cannot assert the pin unconditionally — it is only
+ * the correct behaviour while the venue really has one open candidate, and
+ * this suite deliberately shares one database (`workers: 1`, CLAUDE.md's "One
+ * DB owner"), so `core-flow.spec.ts` legitimately leaves a second open event
+ * behind. The two branches are both real behaviour, and the picker branch is
+ * not a free pass: a picker offering a SINGLE card would mean the implicit pin
+ * stopped firing, which is what fails the assertion there.
+ */
+test('the door tab resolves its event on its own: pins the only candidate, otherwise offers the picker', async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await prepareDoorhost();
+
+  await page.goto(`/auth/dev-login?email=${DOOR_EMAIL}&next=/app`);
+  await page.waitForURL('**/app', { timeout: 90_000 });
+
+  await tab(page, 'Door').click();
+  await page.waitForURL(/\/app\/door/, { timeout: 30_000 });
+
+  const pickerTitle = page.getByRole('heading', { name: 'Pick an event' });
+  const searchBox = page.getByPlaceholder('Search a name…');
+  // Whichever way it resolves, the door must settle on one of the two — never
+  // an empty screen.
+  await expect(pickerTitle.or(searchBox).first()).toBeVisible({ timeout: 60_000 });
+
+  if (await pickerTitle.isVisible()) {
+    // Used database: more than one open candidate, so not picking is right.
+    expect(
+      await page.locator('.evcard').count(),
+      'the picker rendered for a single candidate — the implicit single-candidate pin stopped firing',
+    ).toBeGreaterThan(1);
+  } else {
+    // Fresh database (one seeded open event): the pin fires and lands the
+    // doorhost straight on the check-in list, with the choice in the URL.
+    await expect(page).toHaveURL(new RegExp(`/app/door\\?event=${EVENT_A}`), { timeout: 30_000 });
+  }
 });
