@@ -190,7 +190,7 @@ test('the door tab resolves its event on its own: pins the only candidate, other
   await page.goto(`/auth/dev-login?email=${DOOR_EMAIL}&next=/app`);
   await page.waitForURL('**/app', { timeout: 90_000 });
 
-  await tab(page, 'Door').click();
+  await tab(page, 'Check-in').click();
   await page.waitForURL(/\/app\/door/, { timeout: 30_000 });
 
   const pickerTitle = page.getByRole('heading', { name: 'Pick an event' });
