@@ -19,7 +19,7 @@
  * The override must be dropped again the moment the URL becomes authoritative, or
  * it would mask a real navigation. Two triggers do that:
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { DoorSeg, DoorOverlayState } from './routes';
 
 export interface DoorOverrideState {
@@ -32,17 +32,32 @@ export function useDoorOverride(
   pathname: string,
   searchParamsStr: string,
 ): readonly [DoorOverrideState | null, (next: DoorOverrideState | null) => void] {
+  const urlKey = `${pathname}?${searchParamsStr}`;
   const [doorOverride, setDoorOverride] = useState<DoorOverrideState | null>(null);
+  const [shadowedUrl, setShadowedUrl] = useState(urlKey);
 
   // 1. Next's own hooks reported a change — a genuine router-driven navigation
   //    (Next also resyncs these on a popstate, but not always: see #2).
-  useEffect(() => {
+  //
+  //    Done DURING RENDER, not in an effect (React's documented "adjusting state
+  //    when a prop changes" pattern: React discards this render's output and
+  //    immediately re-renders with the reset value, committing nothing in
+  //    between). An effect would be wrong here now that the door branch is a
+  //    separate component (86eykm76k): child effects run BEFORE parent effects,
+  //    so the door's single-candidate pin (#278) would write an override and
+  //    this parent effect would wipe it in the very same commit — the pin was
+  //    silently lost and the door fell back to re-deriving it from
+  //    `candidates.length === 1` every render, which is the exact bug #278
+  //    fixed. Resetting in render happens before any child renders or effects,
+  //    so there is no window in which the two can race.
+  if (shadowedUrl !== urlKey) {
+    setShadowedUrl(urlKey);
     setDoorOverride(null);
-  }, [pathname, searchParamsStr]);
+  }
 
   // 2. Any browser back/forward, directly. A popstate can land on a URL whose
-  //    search string is IDENTICAL to the one Next last tracked, so effect #1
-  //    never re-runs: the door is entered via `?event=A`, which freezes
+  //    search string is IDENTICAL to the one Next last tracked, so the check
+  //    above never fires: the door is entered via `?event=A`, which freezes
   //    `useSearchParams` at `event=A`; the raw-history sub-nav (switch → picker →
   //    re-pick → open overlay) never changes Next's tracked value; and popping
   //    the overlay returns to `?event=A` — the same frozen string. Without this
@@ -57,5 +72,9 @@ export function useDoorOverride(
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  return [doorOverride, setDoorOverride] as const;
+  // Stable across the shell's whole life, so the callbacks built on it in
+  // `app.tsx` are stable too.
+  const set = useCallback((next: DoorOverrideState | null): void => setDoorOverride(next), []);
+
+  return [doorOverride, set] as const;
 }
