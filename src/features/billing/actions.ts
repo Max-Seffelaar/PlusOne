@@ -148,7 +148,7 @@ export async function createCheckoutSessionAction(
   if (!venue || !sub) return invalidInput('No subscription found for this venue.');
 
   if (sub.status === 'comped') {
-    return billingErr('comped', 'This venue runs on a pilot agreement — billing is handled by us.');
+    return billingErr('comped', 'This venue runs on a pilot agreement. Billing is handled by us.');
   }
   if (sub.stripe_subscription_id && sub.status !== 'canceled') {
     return billingErr(
@@ -230,7 +230,7 @@ export async function createPortalSessionAction(
     .eq('venue_id', venueId)
     .maybeSingle();
   if (!sub?.stripe_customer_id) {
-    return billingErr('no_customer', 'Set up your payment first — the portal opens after that.');
+    return billingErr('no_customer', 'Set up your payment first. The portal opens after that.');
   }
 
   const origin = await appOrigin();

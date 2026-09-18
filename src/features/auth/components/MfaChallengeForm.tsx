@@ -75,7 +75,7 @@ export function MfaChallengeForm({ nextPath }: { nextPath: string }): JSX.Elemen
       setError(
         e instanceof PendingOutboxError
           ? `${e.pending} check-ins on this device haven't been synced yet. Reconnect so they upload, then sign out.`
-          : 'Could not sign out — check your connection and try again.',
+          : 'Could not sign out. Check your connection and try again.',
       );
     }
   }

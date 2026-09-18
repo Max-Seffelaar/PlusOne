@@ -36,7 +36,7 @@ export const influencerStats = {
   funnelRequests: 'Requests',
   funnelApproved: 'Approved',
   funnelIn: 'In',
-  notLive: 'Not live yet — share to get this rolling.',
+  notLive: 'Not live yet. Share to get this rolling.',
   copyLink: 'Copy link',
   copied: 'Copied',
   qrCode: 'QR code',

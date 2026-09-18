@@ -121,7 +121,7 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
       <h1 className="font-display text-2xl font-bold">Protect your account</h1>
       <p className="text-dim mt-1 text-sm">
         We recommend enabling two-factor authentication (MFA). Your role can invite people and
-        change access, so a stolen email login could do real damage — a 6-digit code from an
+        change access, so a stolen email login could do real damage. A 6-digit code from an
         authenticator app (e.g. Google Authenticator, 1Password) prevents that. You can skip
         this if you prefer and turn it on later under Profile.
       </p>
