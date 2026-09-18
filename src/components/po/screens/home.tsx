@@ -596,18 +596,29 @@ export function Home(): JSX.Element {
                 )}
               </div>
             </div>
-            {showNewGuest && (
-              <div className="flex gap-2.5">
-                <Btn
-                  sm
-                  icon="plus"
-                  onClick={() => {
-                    setGuestQuery('');
-                    setGuestPickOpen(true);
-                  }}
-                >
-                  {t.home.newGuest}
-                </Btn>
+            {(isAdmin || showNewGuest) && (
+              // Both primary "start something" actions sit on one row under the
+              // greeting (ADE UX round, item A). On phones the row wraps; every
+              // button keeps the kit's ≥44px tap height.
+              <div className="flex flex-wrap gap-2.5">
+                {isAdmin && (
+                  <Btn kind="ghost" sm icon="cal" className="min-h-[44px]" onClick={() => nav.push('eventedit', { isNew: true })}>
+                    {t.home.newEvent}
+                  </Btn>
+                )}
+                {showNewGuest && (
+                  <Btn
+                    sm
+                    icon="plus"
+                    className="min-h-[44px]"
+                    onClick={() => {
+                      setGuestQuery('');
+                      setGuestPickOpen(true);
+                    }}
+                  >
+                    {t.home.newGuest}
+                  </Btn>
+                )}
               </div>
             )}
           </div>
