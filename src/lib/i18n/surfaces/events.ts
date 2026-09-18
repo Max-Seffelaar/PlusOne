@@ -19,6 +19,12 @@ export const events = {
   cardDoors: 'Doors {time} · {venue}',
   cardTurnoutSuffix: '% attendance',
   cardGuests: 'guests',
+  // Inline search on the Events tab (z8uq9m0hw3, item 2): filters the Upcoming /
+  // Past list by event name.
+  searchOpenAria: 'Search events',
+  searchCloseAria: 'Close search',
+  searchPlaceholder: 'Search by event name…',
+  searchEmpty: 'No events match "{q}".',
 
   // ── Event detail ────────────────────────────────────────────────────────────
   detailTitle: 'Event',

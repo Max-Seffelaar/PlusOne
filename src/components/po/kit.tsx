@@ -7,7 +7,7 @@
  * handoff. Interaction: hover `brightness(1.07)`, active `scale(0.975)`.
  */
 import { useEffect, useId, useRef, useState } from 'react';
-import type { CSSProperties, JSX, ReactNode } from 'react';
+import type { CSSProperties, JSX, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import type { Tier } from '@/lib/po/types';
@@ -315,6 +315,8 @@ export function Field({
   inputMode,
   maxLength,
   className,
+  ariaLabel,
+  onKeyDown,
 }: {
   icon?: IconName;
   placeholder?: string;
@@ -325,6 +327,9 @@ export function Field({
   inputMode?: 'text' | 'numeric' | 'email' | 'tel';
   maxLength?: number;
   className?: string;
+  /** Accessible name for an input with no visible label (e.g. an inline search). */
+  ariaLabel?: string;
+  onKeyDown?: (e: ReactKeyboardEvent<HTMLInputElement>) => void;
 }): JSX.Element {
   return (
     <div className={cn('flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]', className)}>
@@ -342,6 +347,8 @@ export function Field({
           type={type}
           inputMode={inputMode}
           maxLength={maxLength}
+          aria-label={ariaLabel}
+          onKeyDown={onKeyDown}
           className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none placeholder:text-faint"
         />
       ) : (

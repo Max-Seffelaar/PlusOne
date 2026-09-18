@@ -22,7 +22,7 @@ import { canManageGuests, canWorkDoor } from '@/features/auth/roles';
 import { formatClock } from '@/features/stats/format';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Avatar, Btn, Empty, GuideCard, IconBtn, Label, Note, Scroll, Top, cardPress, press } from '../kit';
+import { Avatar, Btn, Empty, Field, GuideCard, IconBtn, Label, Note, Scroll, Top, cardPress, press } from '../kit';
 import { col, ScreenState } from './events/shared';
 import { EventActivitySection } from './events/past';
 
@@ -62,11 +62,47 @@ export function Events(): JSX.Element {
   // (z8uq9m0hw3, item 1). A pure user_manager/finance would only reach a
   // quick-add that says "no rights".
   const canAddGuest = canManageGuests(roles) || canManageTemplates;
-  const evs = (data ?? []).filter((e) => e.when === when);
+  // Inline name search (z8uq9m0hw3, item 2). Client-side over the loaded list:
+  // usePoEvents isn't windowed (the venue's events, not their guests), so this
+  // filters what's already on screen and adds no query.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const closeSearch = (): void => {
+    setSearchOpen(false);
+    setQuery('');
+  };
+  const evs = (data ?? []).filter((e) => e.when === when && (!q || e.name.toLowerCase().includes(q)));
   const months = [...new Set(evs.map((e) => e.month))];
   return (
     <div className={col}>
-      <Top big title={t.events.title} onBack={nav.canGoBack ? nav.back : undefined} right={<IconBtn name="search" />} />
+      <Top
+        big
+        title={t.events.title}
+        onBack={nav.canGoBack ? nav.back : undefined}
+        right={
+          <IconBtn
+            name={searchOpen ? 'close' : 'search'}
+            ariaLabel={searchOpen ? t.events.searchCloseAria : t.events.searchOpenAria}
+            onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
+          />
+        }
+      />
+      {searchOpen && (
+        <div className="flex-none px-5 pb-[14px]">
+          <Field
+            icon="search"
+            autoFocus
+            value={query}
+            onChange={setQuery}
+            placeholder={t.events.searchPlaceholder}
+            ariaLabel={t.events.searchOpenAria}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') closeSearch();
+            }}
+          />
+        </div>
+      )}
       <div className="flex flex-none items-center gap-2 px-5 pb-[14px]">
         {([['upcoming', t.events.tabUpcoming], ['past', t.events.tabPast]] as const).map(([k, l]) => (
           <button
@@ -118,7 +154,9 @@ export function Events(): JSX.Element {
         ) : isError ? (
           <Empty text={t.events.loadEventsError} />
         ) : evs.length === 0 ? (
-          <Empty text={when === 'upcoming' ? t.events.emptyUpcoming : t.events.emptyPast} />
+          <Empty
+            text={q ? fmt(t.events.searchEmpty, { q: query.trim() }) : when === 'upcoming' ? t.events.emptyUpcoming : t.events.emptyPast}
+          />
         ) : (
           months.map((m) => (
             <div key={m} className="mb-2">
