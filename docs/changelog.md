@@ -8,6 +8,52 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-18 — dev-login deep links landing on Home (z8uqXXXXXX)
+
+Branch `fix/z8uqXXXXXX-dev-login-deep-link`. Milestone: **Now** (dev/test loop
+correctness; the route 404s in prod). Found while building PR #304: in the fixture
+harness, `…/auth/dev-login?email=manager@plusone.test&next=/app/contacts` landed on
+Home, while opening `/app/contacts` after login worked.
+
+**Root cause (fixture harness): not the app.** The PR #304 screenshot script was called
+from Git Bash as `node hw5-shot.mjs <name> "/app/contacts" …`. MSYS path conversion
+rewrote that argument to `C:/Program Files/Git/app/contacts` before Node saw it. The
+request that reached dev-login was `next=C%3A%2FProgram%20Files%2FGit%2Fapp%2Fcontacts`.
+`safeNextPath` rejected it correctly (not root-relative) and fell back to `/app`. With
+`MSYS_NO_PATHCONV=1` the same script lands on `/app/contacts`. The steps that worked had
+the path inside a JSON string argument, which MSYS doesn't rewrite. Reproduced both ways
+with a request trace on :7100 (fixture) and :7000 (local stack).
+
+**Second cause (local stack): a real one, in dev-login.** On the local stack the clean
+URL still ended on Home: `/app/contacts` → `307 /consent?next=%2Fapp`. The seed doesn't
+stamp `terms_accepted_at`, so the `/app` layout's consent gate fires, and that gate can
+only send users back to bare `/app` (the layout can't see the requested path; documented
+trade-off in `src/app/app/layout.tsx`). The real entry routes (`/auth/confirm`,
+`/auth/callback`) avoid this by resolving the final hop with `resolveEntryDestination`,
+which sends an unconsented user to `/consent?next=<deep link>`. dev-login redirected
+straight to `next` and skipped that step.
+
+**Fix** (`src/app/auth/dev-login/route.ts`, dev-only):
+- The final redirect now goes through `resolveEntryDestination`, the same as the real
+  entry routes. On the local stack: `/consent?next=%2Fapp%2Fcontacts`.
+- A `next` that the guard rejects now logs a `[dev-login] ignored next=…` warning in the
+  dev-server log instead of silently landing on `/app`. A drive-letter value adds the
+  `MSYS_NO_PATHCONV=1` hint.
+- `safeNextPath` is unchanged. Open-redirect behaviour is pinned by the new
+  `route.test.ts` (6 tests; 3 fail on the old route).
+
+**Prod login `next` handling: fine.** `/login?next=` → OTP → `/auth/callback` (or the
+e-mail link → `/auth/confirm`) already keeps the deep link through consent.
+
+**Open residual (not fixed here):** an *already signed-in* user who opens a deep link
+while a layout gate is due still lands on Home. That happens after a `TERMS_VERSION` bump,
+or for admin/finance when the MFA nudge is due (`recommendMfaIfDue('/app')`), because the
+layout hard-codes `next=/app`. Fixing it means passing the request path to the layout
+(e.g. a middleware-set header). That's a middleware change (high-risk surface) and it
+reverses a documented trade-off, so it's a separate task.
+
+---
+
 ## 2026-09-18 — Status-token hijack on the silent-dedup path (z8uq9m0h2v)
 
 Branch `fix/z8uq9m0h2v-status-token-hijack`. Milestone: **Now** — anon-reachable PII
