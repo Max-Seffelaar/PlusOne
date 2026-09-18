@@ -7,6 +7,7 @@
 
 import type { GuestSource } from '@/lib/po/types';
 import { t, fmt } from '@/lib/i18n';
+import { absentStage, type EventPhase } from './event-phase';
 
 export const TZ = 'Europe/Amsterdam';
 
@@ -124,6 +125,33 @@ export function guestSourceLabel(g: GuestSourceInput): string {
  * "via {influencer or label}". Null only when the link can't be named at all
  * (no link on the row, or one this viewer can't read), never a guess.
  */
+/** Copy for the recap's not-checked-in tile + list, by phase (z8uq9m0hw4). */
+export interface RecapAbsentCopy {
+  tile: string;
+  /** `{n}` template, fill with fmt. */
+  heading: string;
+  tag: string;
+  /** `{n}` template, fill with fmt. */
+  showAll: string;
+  empty: string;
+}
+
+/**
+ * The recap names guests on the list who aren't inside by the same phase rule
+ * as the stats panel (`absentStage`, Max's rule): null before the event (show
+ * nothing), "On the way" while it runs, "No-shows" only after it has ended. The
+ * recap is only linked for past events, but a direct URL to a live event's
+ * recap must never say "no-show" mid-event.
+ */
+export function recapAbsentCopy(phase: EventPhase): RecapAbsentCopy | null {
+  const stage = absentStage(phase);
+  if (stage === 'hidden') return null;
+  const e = t.events;
+  return stage === 'onTheWay'
+    ? { tile: e.onTheWay, heading: e.onTheWayLabel, tag: e.onTheWayTag, showAll: e.showAllOnTheWay, empty: e.everyoneInside }
+    : { tile: e.noShows, heading: e.noShowsLabel, tag: e.noShowTag, showAll: e.showAllNoShows, empty: e.everyoneShowed };
+}
+
 export function requestLinkLabel(r: { viaStandard: boolean; viaLabel: string | null }): string | null {
   if (r.viaStandard) return t.requests.standardLink;
   return r.viaLabel ? fmt(t.requests.viaChip, { label: r.viaLabel }) : null;

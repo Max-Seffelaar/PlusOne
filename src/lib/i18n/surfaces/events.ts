@@ -228,6 +228,13 @@ export const events = {
   addedBy: 'added by {by}',
   noShowTag: 'no-show',
   showAllNoShows: 'Show all {n} no-shows',
+  // The same guests while the event still runs (z8uq9m0hw4): a recap opened
+  // mid-event never calls them no-shows. Before the event they aren't shown.
+  onTheWay: 'On the way',
+  onTheWayLabel: 'On the way · {n}',
+  onTheWayTag: 'on the way',
+  showAllOnTheWay: 'Show all {n} on the way',
+  everyoneInside: "Everyone's in.",
   byTier: 'By tier',
   noTierData: 'No tier data.',
   refused: 'Bounced',
