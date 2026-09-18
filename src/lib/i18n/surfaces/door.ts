@@ -100,6 +100,18 @@ export const door = {
   personSingular: 'person',
   personPlural: 'people',
 
+  // ── Guest actions sheet ("…" in the door overlay — ADE UX round, item M2) ──
+  // Editing +N is a server write with quota and list-lock rules the database
+  // enforces, and the door outbox has no guest-update op (kinds: check_in,
+  // refusal, add_guest — #25). So this action is online-only and says so
+  // instead of queueing something the door cannot replay.
+  actionsAria: 'More actions',
+  actionsTitle: 'Guest actions',
+  actionEditPlusOnes: 'Edit plus-ones',
+  actionEditPlusOnesSub: 'Change how many people this guest brings.',
+  actionNeedsConnection: 'Needs a connection',
+  actionOfflineHint: 'Check-in keeps working offline. Editing plus-ones does not, so it waits for the connection.',
+
   // Refuse sheet
   refuseTitle: 'Refuse guest',
   refuseSub: 'A reason is required. It goes in the log.',

@@ -43,7 +43,60 @@ export type PoGuestRow = Pick<
   | 'note_acknowledged_at'
   | 'created_at'
   | 'contact_id'
->;
+  | 'source'
+> &
+  GuestSourceEmbedFlat;
+
+// ── Guest provenance embeds (ADE round, item J) ──────────────────────────────
+// `guests.source` alone can't say "Added by Sanne" or "Sign-up link · Joeri", so
+// both guest reads embed the actor profile and the request link. Both embeds are
+// RLS-scoped: `request_links` is admin/finance/organizer only, so staff simply
+// get null and the label degrades to the plain "Sign-up link" / "a colleague"
+// wording — never a widened policy for a caption.
+const GUEST_SOURCE_SELECT =
+  'source, added_by_profile:user_profiles!guests_added_by_fkey(full_name), request_links(label, is_default, influencers(name))';
+
+/** The flattened provenance every guest row carries once the embeds are folded in. */
+export interface GuestSourceEmbedFlat {
+  /** Display name of who added the guest; null when RLS hides the profile. */
+  addedByName: string | null;
+  /** Label of a NON-default request link (its own label, else the influencer's
+   *  name); null for the event's default link or an unreadable link row. */
+  linkLabel: string | null;
+}
+
+type ProfileNameEmbed = { full_name: string };
+type InfluencerEmbed = { name: string };
+type RequestLinkEmbed = {
+  label: string | null;
+  is_default: boolean;
+  influencers: InfluencerEmbed | InfluencerEmbed[] | null;
+};
+/** The raw embed shape — to-one OR to-many depending on the generated client. */
+export interface GuestSourceEmbedRaw {
+  added_by_profile: ProfileNameEmbed | ProfileNameEmbed[] | null;
+  request_links: RequestLinkEmbed | RequestLinkEmbed[] | null;
+}
+
+/** Fold the two provenance embeds into flat `addedByName` / `linkLabel` fields.
+ *  Pure + exported so the mapping is unit-tested rather than inferred from a query. */
+export function flattenGuestSource<T extends GuestSourceEmbedRaw>(
+  row: T,
+): Omit<T, keyof GuestSourceEmbedRaw> & GuestSourceEmbedFlat {
+  const { added_by_profile, request_links, ...rest } = row;
+  const profile = [added_by_profile].flat().filter(Boolean)[0] as ProfileNameEmbed | undefined;
+  const link = [request_links].flat().filter(Boolean)[0] as RequestLinkEmbed | undefined;
+  const influencer = link
+    ? ([link.influencers].flat().filter(Boolean)[0] as InfluencerEmbed | undefined)
+    : undefined;
+  return {
+    ...rest,
+    addedByName: profile?.full_name ?? null,
+    // The default link IS "the sign-up link" — only a named or influencer link
+    // earns the extra "· {label}" on the row.
+    linkLabel: link && !link.is_default ? link.label ?? influencer?.name ?? null : null,
+  };
+}
 
 export type PoTierRow = Pick<
   Tables['guest_tiers']['Row'],
@@ -109,16 +162,19 @@ export async function fetchEvents(client: Client, venueId: string, sinceIso?: st
  * windowed + server-searched {@link fetchVenueGuestsWindow} for that (86ey9e8hz).
  */
 export async function fetchGuests(client: Client, eventId: string): Promise<PoVenueGuestRow[]> {
-  return fetchAllRanged<PoVenueGuestRow>((from, to) =>
+  const raw = await fetchAllRanged<PoVenueGuestRaw>((from, to) =>
     client
       .from('guests')
-      .select('id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, event_id')
+      .select(
+        `id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, event_id, ${GUEST_SOURCE_SELECT}`,
+      )
       .eq('event_id', eventId)
       .in('status', [...ON_LIST, 'refused'])
       .order('created_at', { ascending: true })
       .order('id')
       .range(from, to),
   );
+  return raw.map(flattenGuestSource);
 }
 
 /** Rows the venue-wide "all guests" list pulls at once (86ey9e8hz). The tab is a
@@ -131,7 +187,9 @@ export const VENUE_GUESTS_WINDOW = 200;
 /** The `guest_tiers(name, color)` embed comes back to-one OR to-many depending on
  *  the generated client — normalize with `[x].flat()` before reading. */
 type VenueGuestTierEmbed = { name: string; color: string | null };
-type PoVenueGuestRaw = PoVenueGuestRow & {
+/** A guest row straight off PostgREST: provenance still sits in its embeds. */
+type PoVenueGuestRaw = Omit<PoVenueGuestRow, keyof GuestSourceEmbedFlat> & GuestSourceEmbedRaw;
+type PoVenueGuestTierRaw = PoVenueGuestRaw & {
   guest_tiers: VenueGuestTierEmbed | VenueGuestTierEmbed[] | null;
 };
 
@@ -174,7 +232,7 @@ export async function fetchVenueGuestsWindow(
   let query = client
     .from('guests')
     .select(
-      'id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, event_id, guest_tiers(name, color)',
+      `id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, event_id, guest_tiers(name, color), ${GUEST_SOURCE_SELECT}`,
       { count: 'exact' },
     )
     .eq('venue_id', args.venueId)
@@ -192,10 +250,10 @@ export async function fetchVenueGuestsWindow(
   const { data, error, count } = await query;
   if (error) throw error;
 
-  const rows: PoVenueGuestWithTier[] = ((data ?? []) as PoVenueGuestRaw[]).map(
+  const rows: PoVenueGuestWithTier[] = ((data ?? []) as PoVenueGuestTierRaw[]).map(
     ({ guest_tiers, ...g }) => {
       const tier = [guest_tiers].flat().filter(Boolean)[0] as VenueGuestTierEmbed | undefined;
-      return { ...g, tierName: tier?.name ?? null, tierColor: tier?.color ?? null };
+      return { ...flattenGuestSource(g), tierName: tier?.name ?? null, tierColor: tier?.color ?? null };
     },
   );
   return { rows, total: count ?? rows.length };
@@ -1232,6 +1290,11 @@ export interface ContactAppearance {
   note: string | null;
   notePriority: Database['public']['Enums']['note_priority'];
   addedBy: string;
+  /** Where this appearance came from (app | landing | door | permanent) + the
+   *  non-default request link behind a landing sign-up (item J). The actor NAME
+   *  comes from the profile's shared `actorNames` map, keyed by `addedBy`. */
+  source: Database['public']['Enums']['guest_source'];
+  linkLabel: string | null;
   /** guests.created_at — when they were put on this event's list. */
   addedAt: string;
   checkIns: ContactCheckIn[];
@@ -1286,6 +1349,8 @@ type ProfileAppearanceRaw = {
   added_by: string;
   note: string | null;
   note_priority: Database['public']['Enums']['note_priority'];
+  source: Database['public']['Enums']['guest_source'];
+  request_links: RequestLinkEmbed | RequestLinkEmbed[] | null;
   events: ProfileEmbedEvent | ProfileEmbedEvent[] | null;
   guest_tiers: ProfileEmbedTier | ProfileEmbedTier[] | null;
   check_ins: ProfileEmbedCheckIn | ProfileEmbedCheckIn[] | null;
@@ -1293,7 +1358,7 @@ type ProfileAppearanceRaw = {
 };
 
 const PROFILE_APPEARANCE_SELECT =
-  'id, event_id, plus_ones, status, created_at, added_by, note, note_priority, events(name, starts_at), guest_tiers(name, color), check_ins(checked_at, checked_by, plus_ones_arrived, voided_at, voided_by), refusals(refused_at, refused_by, reason)';
+  'id, event_id, plus_ones, status, created_at, added_by, note, note_priority, source, request_links(label, is_default, influencers(name)), events(name, starts_at), guest_tiers(name, color), check_ins(checked_at, checked_by, plus_ones_arrived, voided_at, voided_by), refusals(refused_at, refused_by, reason)';
 
 /** Normalize one embedded guest row (the embeds come back to-one OR to-many). */
 function mapAppearance(g: ProfileAppearanceRaw): ContactAppearance {
@@ -1323,6 +1388,10 @@ function mapAppearance(g: ProfileAppearanceRaw): ContactAppearance {
     note: g.note,
     notePriority: g.note_priority,
     addedBy: g.added_by,
+    source: g.source,
+    // Reuse the ONE provenance flattener; the actor name is resolved separately
+    // here (the profile already fetches every actor id in one round-trip).
+    linkLabel: flattenGuestSource({ added_by_profile: null, request_links: g.request_links }).linkLabel,
     addedAt: g.created_at,
     checkIns,
     refusals,

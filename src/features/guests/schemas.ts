@@ -30,6 +30,12 @@ export const notePriority = z.enum(['none', 'low', 'high']);
 // personal quota (#22/#31, migration 20260623140200). Defense in depth.
 export const guestSource = z.enum(['app', 'door']);
 
+// A name-only guest may be linked to an existing venue contact the user
+// confirmed in the UI (K, ADE UX round). The id is UNTRUSTED here: the action
+// re-verifies it through search_contacts_for_reuse scoped to the event's own
+// venue before it ever reaches an insert. Zod only proves it is a uuid.
+const contactId = uuid.optional();
+
 /** One guest to create (quick-add resolved line, or door add-on-the-spot). */
 export const addGuestSchema = z.object({
   // Client-generated UUIDv7 for the offline outbox (#25); optional online.
@@ -41,6 +47,7 @@ export const addGuestSchema = z.object({
   email: optionalText(320),
   phone: optionalText(40),
   source: guestSource.default('app'),
+  contactId,
 });
 export type AddGuestInput = z.input<typeof addGuestSchema>;
 
@@ -67,6 +74,7 @@ export const bulkAddSchema = z.object({
         plusOnes: plusOnes.default(0),
         email: optionalText(320),
         phone: optionalText(40),
+        contactId,
       })
     )
     .min(1, 'No guests to add')

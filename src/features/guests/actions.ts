@@ -22,6 +22,7 @@ import {
   type ChangeTierInput,
   type ChangeTierBulkInput,
 } from './schemas';
+import { normalizeContactName, resolveContactMatches } from './contact-match';
 
 export type ActionResult = { ok: true } | MutationError;
 
@@ -34,17 +35,66 @@ function guestsPath(eventId: string) {
   return `/events/${eventId}/guests`;
 }
 
+// ── contact_id verification (K, ADE UX round) ────────────────────────────────
+// A client may ask to link a name-only guest to an existing contact. That id is
+// untrusted input: a forged one could point at another venue's contact, which
+// would leak an address-book row into this venue's guest list. So before any
+// insert we re-derive the truth server-side, through the USER-scoped client:
+//   1. the event's venue (RLS: an event the caller can't see yields no row);
+//   2. search_contacts_for_reuse(<that venue>, <the guest's own name>) — the
+//      same member-gated, SECURITY DEFINER projection the UI offered from. It
+//      only ever returns non-anonymized contacts of that venue.
+// The id must come back from THAT lookup, under the very name being inserted.
+// Anything else (unknown id, other venue, renamed since, RPC failure) fails
+// closed with one generic message — we never confirm or deny that an id exists.
+// The database-side guard (`guests_contact_same_venue`) is the real boundary;
+// this keeps the app from ever attempting the write in the first place.
+
+/** Generic on purpose: no existence oracle for contact ids (security checklist). */
+const CONTACT_LINK_FAILED = "Couldn't link the contact.";
+
+type ServerClient = Awaited<ReturnType<typeof createClient>>;
+
+async function verifyContactLinks(
+  supabase: ServerClient,
+  eventId: string,
+  links: ReadonlyArray<{ fullName: string; contactId: string }>,
+): Promise<boolean> {
+  if (links.length === 0) return true;
+
+  const { data: event, error } = await supabase
+    .from('events')
+    .select('venue_id')
+    .eq('id', eventId)
+    .maybeSingle();
+  if (error || !event?.venue_id) return false;
+
+  const matches = await resolveContactMatches(
+    supabase,
+    event.venue_id,
+    links.map((l) => l.fullName),
+  );
+  return links.every((l) => {
+    const hits = matches.get(normalizeContactName(l.fullName));
+    return !!hits?.some((c) => c.id === l.contactId);
+  });
+}
+
 /** Add one guest (quick-add resolved line, or door add-on-the-spot). */
 export async function addGuest(input: AddGuestInput): Promise<ActionResult> {
   const parsed = addGuestSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { id, eventId, tierId, fullName, plusOnes, email, phone, source } = parsed.data;
+  const { id, eventId, tierId, fullName, plusOnes, email, phone, source, contactId } = parsed.data;
 
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return unauthorized();
+
+  if (contactId && !(await verifyContactLinks(supabase, eventId, [{ fullName, contactId }]))) {
+    return invalidInput(CONTACT_LINK_FAILED);
+  }
 
   // added_by MUST be the actor — RLS pins it, we never accept it from the client (#27).
   // venue_id is populated by the set_event_scope BEFORE INSERT trigger
@@ -59,6 +109,7 @@ export async function addGuest(input: AddGuestInput): Promise<ActionResult> {
     phone,
     source,
     added_by: user.id,
+    ...(contactId ? { contact_id: contactId } : {}),
   } as Database['public']['Tables']['guests']['Insert']);
   if (error) return mapMutationError(error);
 
@@ -92,6 +143,16 @@ export async function addGuestsBulk(input: BulkAddInput): Promise<ActionResult> 
   } = await supabase.auth.getUser();
   if (!user) return unauthorized();
 
+  // One batched verification for the whole paste — distinct names only, so a
+  // 200-line list is a handful of lookups, not 200. Any unverifiable link fails
+  // the batch rather than silently dropping the link the user confirmed.
+  const links = guests
+    .filter((g): g is typeof g & { contactId: string } => !!g.contactId)
+    .map((g) => ({ fullName: g.fullName, contactId: g.contactId }));
+  if (!(await verifyContactLinks(supabase, eventId, links))) {
+    return invalidInput(CONTACT_LINK_FAILED);
+  }
+
   const rows = guests.map((g) => ({
     ...(g.id ? { id: g.id } : {}),
     event_id: eventId,
@@ -102,6 +163,7 @@ export async function addGuestsBulk(input: BulkAddInput): Promise<ActionResult> 
     phone: g.phone ?? null,
     source,
     added_by: user.id,
+    ...(g.contactId ? { contact_id: g.contactId } : {}),
   }));
 
   // venue_id is populated by the set_event_scope BEFORE INSERT trigger

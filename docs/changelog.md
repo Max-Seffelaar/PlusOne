@@ -8,6 +8,78 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-18 — ADE UX round: Joeri feedback 17/9, items A–O + K5 (z8uq9m0g0j)
+
+Two draft PRs, both open, task stays `in progress` until merged + tested. Milestone: Now
+(ADE campaign). Built per `docs/plan-ade-ux-round-2026-09-17.md` as one orchestrating
+session spawning 6 parallel worktree sub-agents (streams S1–S5 for the UI, S6 for the
+one migration), merged in the plan's order (S2 → S1 → S5 → S4 → S3), reconciled, and
+visually verified against the fixture harness (`pnpm dev:fake` + `pnpm shot`, plus a few
+throwaway interactive Playwright scripts for click-through behaviour the harness alone
+can't capture).
+
+**PR 1** [#298](https://github.com/Max-Seffelaar/PlusOne/pull/298) — items A–O, no
+migration. `pnpm lint` clean, `pnpm type-check` clean, `pnpm vitest run` **144 files /
+1492 tests green** (baseline before this round: 123 files / 1253 tests). pgTAP, the
+concurrency suite, e2e and `pnpm build` were not run (no docker/supabase CLI in this
+container); the PR body says so explicitly and flags one known e2e selector
+(`tests/e2e/app-shell-no-remount.spec.ts:193`, literal `'Door'` → `'Check-in'` for item
+L) left for a local-stack pass.
+
+**PR 2** [#299](https://github.com/Max-Seffelaar/PlusOne/pull/299) — item K5, the round's
+only migration and its only high-risk surface, on its own branch
+(`claude/ade-ux-round-z8uq9m0g0j-db`) with the review-gate security-research prompt in
+the body per CLAUDE.md. Not yet reviewed (`/code-review` + `/security-review` still
+needed) or run against pgTAP.
+
+**Cross-stream reconciliation the orchestrating session had to do after all 5 UI streams
+merged** (none of it improvised feature work — all mechanical fixes to make streams that
+were built blind to each other's exact shape agree):
+- S5 built the door "Edit plus-ones" call site against an assumed `PlusOnesSheet`
+  signature (`plusOnes`, no `onSaved`) before S4 landed; S4's actual sheet takes
+  `current` + `onSaved`. Fixed the call site and its test's mock to match.
+- Item A's "New event" button pushed `home.tsx` from 840 to 851 LOC, over the plan's
+  explicit "never grow these" line for files already past 800 (`home.tsx`,
+  `EventDayCockpit.tsx`, `guests/index.tsx`, `events/edit.tsx`). Extracted the header
+  action row into `home-header-actions.tsx`; `home.tsx` is now 836.
+- S6's migration was built in a worktree off a stale `main` and picked the timestamp
+  `20260918100000`, which collided with `20260918100000_submit_guest_request_standing.sql`
+  (PR #296, merged in the meantime). Rebased S6's branch onto current `main` and renamed
+  the migration to `20260918110000` — verified unique via `git ls-tree -r origin/main --
+  supabase/migrations` and the repo's own `check-migration-collisions.mjs` /
+  `check-migration-duplicates.mjs` guards (both exit 0). Also merged current `main` into
+  PR 1's branch for the same reason (`docs/changelog.md` had moved too) — clean, no
+  conflicts.
+- One purely-environmental flake, not caused by any merged code: `core.hooksPath` had
+  drifted to an absolute path (`/home/user/PlusOne/scripts/hooks` instead of the tracked
+  relative `scripts/hooks`) partway through the session, tripping
+  `tests/unit/pre-push-hook-is-executable.test.ts`. Re-running
+  `git config core.hooksPath scripts/hooks` (which is exactly what
+  `scripts/setup-git-hooks.mjs`'s postinstall hook does) fixed it immediately — nothing
+  in the repo needed changing, and re-running it confirmed the script itself was never
+  the cause (it always writes the relative form). Left as an open question for whoever
+  investigates further: something in this session's parallel worktree activity
+  apparently wrote the absolute form to the shared `.git/config` at some point.
+
+**K5 design notes worth carrying forward** (from S6's report, full detail in the
+migration's own header comment and PR #299's body): the venue check resolves via
+`event_venue(new.event_id)`, never the client-supplied `new.venue_id` — BEFORE row
+triggers fire alphabetically and `guests_contact_same_venue` sorts before
+`guests_set_scope`, so trusting `new.venue_id` would have been a bypass hiding in plain
+sight. The guard is `SECURITY DEFINER` (staff can't `SELECT contacts` under RLS at all,
+so an INVOKER guard would reject the very feature it protects). It validates a *change*
+to `contact_id`, not merely its presence, specifically so a guest linked to a contact the
+AVG sweep later anonymizes stays writable — a door check-in must never fail because
+someone exercised their right to be forgotten.
+
+**Not done, deliberately left to Max / a local-stack session:** merging either PR,
+running pgTAP/e2e/the concurrency suite, the `/code-review` + `/security-review` PR 2
+needs, the flagged e2e selector fix, and the full per-screen test handoff (posted on PR 1
+and to the ClickUp task) — the fixture backend has no RLS, so every permission-difference
+question in that handoff needs answering on the local stack, not `pnpm dev:fake`.
+
+---
+
 ## 2026-09-18 — The door branch moves out of `app.tsx` (86eykm76k)
 
 Branch `refactor/86eykm76k-extract-door-branch`. Milestone: ≥5 (maintainability on a
@@ -114,6 +186,9 @@ assertion left identical.
 untouched). `pnpm type-check` clean. `pnpm vitest run`: 129 files, **1372 passed, 0 failed**
 (1373 before: −4 deleted identity-bailout tests, +3 isolation tests). `pnpm e2e:smoke`: **6
 passed, 0 failed**.
+
+---
+
 ## 2026-09-18 — Security: `auto_approved` stops answering "is this person on the list?" (z8uq9m0gvy)
 
 Branch `fix/z8uq9m0gvy-auto-approved-oracle`. Milestone: ≥5 venues. One migration

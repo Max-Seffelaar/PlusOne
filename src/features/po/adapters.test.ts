@@ -233,6 +233,9 @@ describe('toPoGuest', () => {
     note_acknowledged_at: null,
     created_at: '2024-11-28T12:00:00Z',
     contact_id: 'c1',
+    source: 'app',
+    addedByName: 'Max Seffelaar',
+    linkLabel: null,
   };
 
   it('maps a guest row + extras to the po Guest shape (incl. the real tier name + color)', () => {
@@ -546,6 +549,8 @@ describe('toPoContactProfile', () => {
       note: 'Bottle on table',
       notePriority: 'high',
       addedBy: 'u-max',
+      source: 'app',
+      linkLabel: null,
       addedAt: '2024-12-01T10:00:00Z',
       checkIns: [
         { checkedAt: '2024-12-14T22:30:00Z', checkedBy: 'u-door', arrived: 1, voidedAt: null, voidedBy: null },
@@ -564,6 +569,8 @@ describe('toPoContactProfile', () => {
       note: null,
       notePriority: 'none',
       addedBy: 'u-max',
+      source: 'landing',
+      linkLabel: 'Joeri',
       addedAt: '2024-11-01T10:00:00Z',
       checkIns: [],
       refusals: [{ refusedAt: '2024-11-09T22:45:00Z', refusedBy: 'u-door', reason: 'List full' }],

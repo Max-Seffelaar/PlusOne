@@ -5,6 +5,9 @@
  * this module is what keeps every OTHER surface from drifting the same way.
  */
 
+import type { GuestSource } from '@/lib/po/types';
+import { t, fmt } from '@/lib/i18n';
+
 export const TZ = 'Europe/Amsterdam';
 
 /** Low-level pinned formatter — the escape hatch for a one-off options shape.
@@ -73,4 +76,44 @@ export function formatDay(iso: string | null): string {
 /** "yyyy-mm-dd" (Amsterdam) for <input type=date> and calendar-day comparisons. */
 export function toDateInput(iso: string): string {
   return new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ });
+}
+
+// ── Guest provenance (ADE round, item J) ─────────────────────────────────────
+// "Where did this name come from?" — the one display helper for `guests.source`,
+// shared by the guest rows (list + table) and the person profile's Events card.
+
+/** Just the projection `guestSourceLabel` reads — any Guest/appearance fits. */
+export interface GuestSourceInput {
+  source: GuestSource;
+  /** Display name of who added them; null when the actor row isn't readable. */
+  addedByName?: string | null;
+  /** Non-default request link label (or its influencer); null for the default
+   *  link and whenever `request_links` isn't readable for this role (RLS). */
+  linkLabel?: string | null;
+}
+
+/** First name only — a row is tight and "Added by Max" beats "Added by Max Seffelaar". */
+function firstName(full: string): string {
+  return full.trim().split(/\s+/)[0] ?? '';
+}
+
+/**
+ * One line naming where a guest came from. `landing` names the sign-up link (and
+ * the specific link/influencer when it isn't the event's default one); `app` and
+ * `door` name the person, falling back to "a colleague" when RLS hides the actor
+ * profile — never a policy change to read a name (CLAUDE.md: RLS is the boundary).
+ */
+export function guestSourceLabel(g: GuestSourceInput): string {
+  const s = t.guests.source;
+  const who = g.addedByName ? firstName(g.addedByName) : '';
+  switch (g.source) {
+    case 'permanent':
+      return s.regular;
+    case 'landing':
+      return g.linkLabel ? fmt(s.signUpLinkNamed, { label: g.linkLabel }) : s.signUpLink;
+    case 'door':
+      return who ? fmt(s.atDoorBy, { name: who }) : s.atDoorByColleague;
+    default:
+      return who ? fmt(s.addedBy, { name: who }) : s.addedByColleague;
+  }
 }
