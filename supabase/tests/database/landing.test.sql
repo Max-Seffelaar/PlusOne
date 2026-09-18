@@ -55,7 +55,7 @@ begin
 end;
 $fn$;
 
-select plan(67);
+select plan(74);
 
 -- ---------------------------------------------------------------------------
 -- A. submit_guest_request — the hardened anon path (#12/#28) + marketing (8b)
@@ -540,6 +540,55 @@ select ok(
     join pg_namespace n on n.oid = c.relnamespace
    where n.nspname = 'public' and c.relname = 'guest_request_status_mirrors'),
   'F15 RLS is enabled on the mirror table (defence in depth under the empty grant set)');
+
+-- Denial proved at the BEHAVIOUR level, not just from the catalog: F13/F14 read
+-- has_table_privilege, which is the grant layer. These two run the query.
+select pg_temp.login_anon();
+select throws_ok(
+  $$ select full_name from public.guest_request_status_mirrors $$,
+  '42501', null,
+  'F16 an anon caller selecting the mirror table directly is refused (42501)');
+reset role;
+
+select pg_temp.login('11111111-1111-4111-8111-111111111111'); -- venue admin
+select throws_ok(
+  $$ select full_name from public.guest_request_status_mirrors $$,
+  '42501', null,
+  'F17 ...and so is a venue ADMIN — staff read the request, the mirror is RPC-only');
+reset role;
+
+-- A SECOND probe of the same e-mail with a DIFFERENT chosen token. The mirror is
+-- keyed by request_id, so this overwrites rather than accumulating: the growth
+-- bound is one row per pending request, however many times it is probed.
+select pg_temp.login_anon();
+select is(
+  public.submit_guest_request('plusone-launch-night', 'Second Prober',
+    'hijack-victim@x.test', '+31612399997', 1, 'x', 'ip-hj-4', false,
+    null, 'tok-hj-attacker-2') ->> 'status',
+  'ok', 'F18 a second probe of the same e-mail also reports a plain ok');
+select is(
+  public.get_request_status('tok-hj-attacker-2', 'ip-hj-r2') ->> 'full_name',
+  'Second Prober',
+  'F19 ...and its token answers with the SECOND prober''s own name — still never the victim''s');
+select is(
+  public.get_request_status('tok-hj-attacker', 'ip-hj-r2') ->> 'found',
+  'false',
+  'F20 ...while the first prober''s token is the one that dies (last writer wins on the single mirror slot)');
+reset role;
+
+select is(
+  (select count(*)::int from public.guest_request_status_mirrors m
+     join public.guest_requests gr on gr.id = m.request_id
+    where gr.email = 'hijack-victim@x.test'),
+  1,
+  'F21 exactly ONE mirror row survives for the victim''s request — probing cannot grow the table');
+
+select is(
+  (select gr.status_token_hash from public.guest_requests gr
+    where gr.event_id = 'ee000000-0000-7000-8000-000000000001'
+      and gr.email = 'hijack-victim@x.test' and gr.status = 'pending'),
+  'tok-hj-victim',
+  'F22 and after two probes the victim''s row STILL holds the victim''s own token');
 
 select * from finish();
 

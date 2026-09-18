@@ -72,7 +72,10 @@ approval. Written into the migration header, §4A and here, in the same words.
 to their pre-fix definitions and re-ran: `landing.test.sql` failed 7/67 (F5 `have:
 tok-hj-attacker want: tok-hj-victim`; F9 `have: Hijack Victim want: Hijack Attacker`;
 F11b's jsonb equality printing the victim's name where the attacker's belongs) and
-`status_token.test.sql` failed 5/17 (B3–B6, D4). Restored, both green. The K10 drift guard
+`status_token.test.sql` failed 5/17 (B3–B6, D4). Restored, both green. A second round after
+the review questions added F16–F22 (behaviour-level 42501 for `anon` **and** for a venue
+admin, the second-probe overwrite, and the one-row-per-request growth bound) and re-ran the
+revert: **10/74** red, F11b among them. The K10 drift guard
 now also covers `get_request_status`, and that entry was likewise proven by perturbing the
 canonical file and watching it fail.
 
@@ -83,7 +86,7 @@ stored hash. `tables.test.sql` needed the new table in its exact-table-set list 
 it unprompted, which is the guard working). `supabase/canonical/` gained
 `get_request_status.sql` and the guard's function list grew to five.
 
-**Suites.** pgTAP `pnpm db:test` on a fresh `supabase db reset`: **58 files / 1173
+**Suites.** pgTAP `pnpm db:test` on a fresh `supabase db reset`: **58 files / 1180
 assertions, `Result: PASS`**, plan/run gate clean. `pnpm vitest run`: **129 files / 1374
 tests passed**. `pnpm type-check` clean; `pnpm lint` clean bar two pre-existing
 `jsx-a11y` warnings in `datetime-field.tsx`. Noted honestly: `tests/unit/pgtap-plan-run-gate.test.ts`
