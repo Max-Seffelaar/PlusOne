@@ -117,3 +117,14 @@ export function guestSourceLabel(g: GuestSourceInput): string {
       return who ? fmt(s.addedBy, { name: who }) : s.addedByColleague;
   }
 }
+
+/**
+ * Which request link a guest-list request came through, for the Requests inbox
+ * (z8uq9m0hw4): the event's default link reads "Standard link", a custom one
+ * "via {influencer or label}". Null only when the link can't be named at all
+ * (no link on the row, or one this viewer can't read), never a guess.
+ */
+export function requestLinkLabel(r: { viaStandard: boolean; viaLabel: string | null }): string | null {
+  if (r.viaStandard) return t.requests.standardLink;
+  return r.viaLabel ? fmt(t.requests.viaChip, { label: r.viaLabel }) : null;
+}

@@ -30,6 +30,7 @@ import {
 import { usePoApproveRequest, usePoDecideQuota, usePoDenyRequest } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { isOpenGuestRequest } from '@/features/po/adapters';
+import { requestLinkLabel } from '@/features/po/format';
 import { canDecideRequests, canSeeOwnRequests, canSeeRequestInbox } from '@/features/auth/roles';
 import type { PoGuestRequest, PoQuotaRequest } from '@/features/po/adapters';
 import type { PoLinkOption } from '@/features/po/queries';
@@ -54,13 +55,19 @@ function EventTag({ name }: { name: string }): JSX.Element {
   );
 }
 
-/** "via {influencer/label}" chip on a card — which request link the guest used (F1). */
-function ViaChip({ label, className }: { label: string; className?: string }): JSX.Element {
+/** Which request link the guest used (F1), on EVERY card since z8uq9m0hw4: the
+ *  default link reads "Standard link", a custom one "via {influencer/label}".
+ *  Renders nothing (wrapper included) only when the link can't be named. */
+function ViaChip({ req, className }: { req: Pick<PoGuestRequest, 'viaStandard' | 'viaLabel'>; className?: string }): JSX.Element | null {
+  const label = requestLinkLabel(req);
+  if (!label) return null;
   return (
-    <MiniChip className={className}>
-      <Icon name="link" size={11} />
-      {fmt(t.requests.viaChip, { label })}
-    </MiniChip>
+    <div className={className}>
+      <MiniChip>
+        <Icon name="link" size={11} />
+        {label}
+      </MiniChip>
+    </div>
   );
 }
 
@@ -394,7 +401,7 @@ export function Aanvragen({
                   style={{ borderColor: r.flag ? 'rgba(181,166,255,0.4)' : undefined }}
                 >
                   {showAllEvents && <EventTag name={nameById.get(r.eventId) ?? 'Event'} />}
-                  <div className={cn('flex items-center gap-[11px]', r.motivation || r.flag || r.viaLabel ? 'mb-[11px]' : 'mb-[13px]')}>
+                  <div className={cn('flex items-center gap-[11px]', r.motivation || r.flag || requestLinkLabel(r) ? 'mb-[11px]' : 'mb-[13px]')}>
                     <Avatar name={r.name} size={40} />
                     <div className="min-w-0 flex-1">
                       <div className="font-display text-[15.5px] font-bold text-text">
@@ -402,9 +409,7 @@ export function Aanvragen({
                         {r.plus > 0 && <span className="text-faint"> +{r.plus}</span>}
                       </div>
                       <div className="truncate text-[12px] text-faint">
-                        {r.phoneLast4
-                          ? fmt(t.requests.cardPhoneVia, { last4: r.phoneLast4, at: r.at })
-                          : fmt(t.requests.cardVia, { at: r.at })}
+                        {r.phoneLast4 ? fmt(t.requests.cardPhone, { last4: r.phoneLast4, at: r.at }) : r.at}
                       </div>
                       {/* 86eyke279: the address is the channel the required
                           field exists for — it belongs on the card you decide
@@ -412,11 +417,7 @@ export function Aanvragen({
                       {r.email && <div className="truncate text-[12px] text-dim">{r.email}</div>}
                     </div>
                   </div>
-                  {r.viaLabel && (
-                    <div className="mb-[11px]">
-                      <ViaChip label={r.viaLabel} />
-                    </div>
-                  )}
+                  <ViaChip req={r} className="mb-[11px]" />
                   {r.flag && (
                     <div className="mb-[11px] inline-flex items-center gap-1.5 rounded-[7px] bg-acc-dim px-[9px] py-1 font-body text-[11.5px] font-bold text-acc">
                       <Icon name="warn" size={12} stroke="#B5A6FF" />
@@ -467,11 +468,7 @@ export function Aanvragen({
                             {r.email && <div className="truncate text-[12px] text-dim">{r.email}</div>}
                           </div>
                         </div>
-                        {r.viaLabel && (
-                          <div className="mb-[9px]">
-                            <ViaChip label={r.viaLabel} />
-                          </div>
-                        )}
+                        <ViaChip req={r} className="mb-[9px]" />
                         <div className="mb-[12px] flex items-start gap-[7px] rounded-[9px] bg-elev2 px-[11px] py-[8px] text-[12.5px] leading-[1.4] text-faint">
                           <Icon name="close" size={13} stroke="rgba(255,255,255,0.40)" className="mt-px shrink-0" />
                           <span>{r.denyReason ? fmt(t.requests.declinedReason, { reason: r.denyReason }) : t.requests.declined}</span>
@@ -523,11 +520,7 @@ export function Aanvragen({
                             {t.requests.autoApprovedTag}
                           </span>
                         </div>
-                        {r.viaLabel && (
-                          <div className="mt-[9px]">
-                            <ViaChip label={r.viaLabel} />
-                          </div>
-                        )}
+                        <ViaChip req={r} className="mt-[9px]" />
                       </div>
                     ))}
                   </div>

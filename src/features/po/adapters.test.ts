@@ -949,6 +949,7 @@ describe('toPoGuestRequest', () => {
     request_link_id: null,
     decided_via: 'manual',
     viaLabel: null,
+    viaStandard: false,
   };
 
   it('maps a pending row, masks the phone to its last 4, and formats the time', () => {
@@ -966,8 +967,17 @@ describe('toPoGuestRequest', () => {
       decidedVia: 'manual',
       requestLinkId: null,
       viaLabel: null,
+      viaStandard: false,
       denyReason: null,
       flag: undefined,
+    });
+  });
+
+  it('carries the default-link flag so the inbox can say "Standard link" (z8uq9m0hw4)', () => {
+    expect(toPoGuestRequest({ ...base, request_link_id: 'rl0', viaStandard: true }, now)).toMatchObject({
+      requestLinkId: 'rl0',
+      viaLabel: null,
+      viaStandard: true,
     });
   });
 

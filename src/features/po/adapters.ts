@@ -729,6 +729,8 @@ export interface PoGuestRequest {
   requestLinkId: string | null;
   /** Resolved link identity (influencer name ?? label); null for the default link. */
   viaLabel: string | null;
+  /** Came through the event's default link — shown as "Standard link" (z8uq9m0hw4). */
+  viaStandard: boolean;
   /** The refusal reason when status is 'denied'; null otherwise. */
   denyReason: string | null;
   /** Deterministic nudge for a large party (+3 or more); absent otherwise. */
@@ -766,6 +768,7 @@ export function toPoGuestRequest(row: PoGuestRequestRow, now?: Date): PoGuestReq
     decidedVia: row.decided_via,
     requestLinkId: row.request_link_id,
     viaLabel: row.viaLabel,
+    viaStandard: row.viaStandard,
     denyReason: status === 'denied' ? row.decision_reason : null,
     flag: row.plus_ones >= 3 ? `Large group (+${row.plus_ones})` : undefined,
   };
