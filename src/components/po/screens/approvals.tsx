@@ -19,8 +19,8 @@ import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import {
+  usePoCanCreateLink,
   usePoCanManageTemplates,
-  usePoEventForEdit,
   usePoEvents,
   usePoGuestRequests,
   usePoQuotaRequests,
@@ -143,7 +143,7 @@ export function Aanvragen({
 
   // "New request link" (z8uq9m0hw4) opens Promotion's CreateLinkFlow on the
   // scoped event, or on "All events" the same default Promotion's hub picks.
-  // Gate = Promotion's per-event links screen (event-links.tsx): admin, or an
+  // Gate = usePoCanCreateLink, shared with the Promotion hub: admin, or an
   // organizer of that event — exactly the request_links_insert RLS. Finance
   // reads this inbox but can't create links, so it never sees the button. Only
   // an admin gets the flow's event picker; an organizer stays on the one event
@@ -151,7 +151,7 @@ export function Aanvragen({
   const linkEvent = sel
     ? events.find((e) => e.id === sel) ?? null
     : soonestUpcoming(events) ?? events[0] ?? null;
-  const { canManage: canCreateLink, isAdmin } = usePoEventForEdit(linkEvent?.id ?? '');
+  const { canCreate: canCreateLink, isAdmin } = usePoCanCreateLink(linkEvent?.id ?? '');
 
   const q = search.trim().toLowerCase();
   const matches = (name: string): boolean => !q || name.toLowerCase().includes(q);
