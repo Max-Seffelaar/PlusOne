@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { getSessionUser } from '@/lib/auth/context';
 
 export const metadata: Metadata = {
-  title: 'Page not found — PLUSONE',
+  title: 'Page not found: PLUSONE',
 };
 
 // Global 404 boundary (S3.4). Next renders this for unmatched routes AND whenever
