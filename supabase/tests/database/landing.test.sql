@@ -55,7 +55,7 @@ begin
 end;
 $fn$;
 
-select plan(42);
+select plan(51);
 
 -- ---------------------------------------------------------------------------
 -- A. submit_guest_request — the hardened anon path (#12/#28) + marketing (8b)
@@ -310,6 +310,96 @@ select is(
   (select status::text || coalesce(':' || decision_reason, ':null')
    from public.guest_requests where id = 'bb000000-0000-7000-8000-000000000003'),
   'approved:null', 'D3 the request flips to approved and the denial reason is cleared');
+
+-- ---------------------------------------------------------------------------
+-- E. submit_guest_request — `auto_approved` is not an enumeration oracle
+--    (z8uq9m0gvy, follow-up from the PR #276 review)
+-- ---------------------------------------------------------------------------
+--
+-- submit_guest_request is SECURITY DEFINER and granted to `anon`, so every call
+-- below is one an attacker can make straight off the public key plus a link
+-- slug. `p_ip_hash` is an ARGUMENT, so a direct PostgREST caller picks its own
+-- throttle bucket: there is no effective rate limit on probing.
+--
+-- Before the fix, on an auto-approve link with an unlocked list the answer was
+-- `false` EXACTLY when the submitted e-mail already held an approved request on
+-- that event — a reliable yes/no to "is this named person on the list for this
+-- event?", which the CLAUDE.md checklist forbids outright ("public endpoints
+-- ... never reveal whether a guest/e-mail exists") and which is AVG-relevant.
+--
+-- Jayden's seed link (2c..01, slug launch-night-jayden) is the auto-approve one:
+-- tier Regular, max_headcount 25, and event ee..01 has no capacity cap. E1's
+-- `true` is therefore a genuine approval with real headroom — not a vacuous
+-- pass from a link that is simply full, which is the way this whole section
+-- could otherwise go green for the wrong reason.
+--
+-- This section runs LAST on purpose: it auto-approves guests, which would
+-- otherwise perturb C2's audit-row count and section B's tier-max arithmetic.
+
+select pg_temp.login_anon();
+select is(
+  public.submit_guest_request('launch-night-jayden', 'Oracle Victim',
+    'oracle-victim@x.test', '+31612200001', 0, null, 'ip-orc-1', false) ->> 'auto_approved',
+  'true', 'E1 a fresh submission on an auto-approve link IS auto-approved (the baseline the probes are read against)');
+
+-- The oracle itself: the same e-mail, re-submitted by someone who is not its
+-- owner. This used to answer `false`.
+select is(
+  public.submit_guest_request('launch-night-jayden', 'Probing Attacker',
+    'oracle-victim@x.test', '+31612200002', 0, null, 'ip-orc-2', false) ->> 'auto_approved',
+  'true', 'E2 re-submitting an ALREADY-APPROVED e-mail answers the same as a fresh one (was false — the oracle)');
+select is(
+  public.submit_guest_request('launch-night-jayden', 'Probing Attacker',
+    'oracle-stranger@x.test', '+31612200003', 0, null, 'ip-orc-3', false) ->> 'auto_approved',
+  'true', 'E3 probing an e-mail the event has never seen answers identically — E2 and E3 are indistinguishable');
+
+-- A SECOND probe of the same address takes the silent-dedup path instead (E2
+-- left a pending row, so this insert trips the partial unique index and
+-- v_request_id comes back NULL). Fixing only E2 would move the oracle one probe
+-- later rather than close it: probe any e-mail twice and the second call would
+-- answer `false` for a known address and `true` for an unknown one.
+select is(
+  public.submit_guest_request('launch-night-jayden', 'Probing Attacker',
+    'oracle-victim@x.test', '+31612200004', 0, null, 'ip-orc-4', false) ->> 'auto_approved',
+  'true', 'E4 a SECOND probe (silent-dedup path) answers the same — the oracle does not just move one probe later');
+select is(
+  public.submit_guest_request('launch-night-jayden', 'Probing Attacker',
+    'oracle-stranger@x.test', '+31612200005', 0, null, 'ip-orc-5', false) ->> 'auto_approved',
+  'true', 'E5 ...and so does the second probe of the unknown address — all four probes agree');
+
+-- The reported bit changed; the BEHAVIOUR deliberately did not. A re-submit
+-- still lands as a NEW pending row for staff to judge manually, and the person
+-- is still never auto-approved a second time.
+reset role;
+select is(
+  (select count(*)::int from public.guest_requests
+   where event_id = 'ee000000-0000-7000-8000-000000000001'
+     and dedupe_key = 'oracle-victim@x.test' and status = 'pending'),
+  1, 'E6 the repeat submission still leaves a NEW pending row for staff (unchanged, deliberate)');
+select is(
+  (select count(*)::int from public.guests
+   where event_id = 'ee000000-0000-7000-8000-000000000001'
+     and email = 'oracle-victim@x.test' and status <> 'removed'),
+  1, 'E7 ...and still creates no second guest row — `true` reports standing, it does not re-approve');
+
+-- The denied half (DoD #3): a LOCKED list takes no automatic additions (#23),
+-- and it has to say so to every e-mail alike. If the standing answer leaked
+-- past the lock gate, an approved address would answer `true` here while a
+-- stranger answered `false` — trading one oracle for another.
+update public.events
+  set list_locked = true,
+      locked_by = '11111111-1111-4111-8111-111111111111',
+      locked_at = now()
+  where id = 'ee000000-0000-7000-8000-000000000001';
+select pg_temp.login_anon();
+select is(
+  public.submit_guest_request('launch-night-jayden', 'Oracle Victim',
+    'oracle-victim@x.test', '+31612200006', 0, null, 'ip-orc-6', false) ->> 'auto_approved',
+  'false', 'E8 on a LOCKED list an already-approved e-mail is NOT auto-approved (#23)');
+select is(
+  public.submit_guest_request('launch-night-jayden', 'Probing Attacker',
+    'oracle-unseen@x.test', '+31612200007', 0, null, 'ip-orc-7', false) ->> 'auto_approved',
+  'false', 'E9 ...and a never-seen e-mail answers the same — lock state stays a property of the event, not of the e-mail');
 
 reset role;
 
