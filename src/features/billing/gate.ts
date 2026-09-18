@@ -12,8 +12,8 @@ import type { MutationError } from '@/lib/db-errors';
 import { billingBlockReason } from './plans';
 
 const BLOCK_MESSAGES: Record<'canceled' | 'trial_expired', string> = {
-  canceled: 'The subscription is canceled — reactivate billing to make changes.',
-  trial_expired: 'Your trial has ended — set up your payment to make changes.',
+  canceled: 'The subscription is canceled. Reactivate billing to make changes.',
+  trial_expired: 'Your trial has ended. Set up your payment to make changes.',
 };
 
 /**
