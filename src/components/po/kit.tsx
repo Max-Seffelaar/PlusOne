@@ -535,6 +535,43 @@ export function Empty({ text }: { text: string }): JSX.Element {
   return <div className="py-[30px] text-center text-[14px] text-faint">{text}</div>;
 }
 
+// ── GuideCard ────────────────────────────────────────────────────────────────
+/**
+ * The lavender-bordered "here's your next step" card: icon, bold title, one
+ * line of body, optional action buttons underneath. Was inlined as the event
+ * setup nudge (EventView); now shared with the new-event tiers step
+ * (z8uq9m0hw3). Louder than a `Note`, which explains; this one leads.
+ */
+export function GuideCard({
+  icon = 'spark',
+  title,
+  body,
+  actions,
+  className,
+}: {
+  icon?: IconName;
+  title: string;
+  body: string;
+  /** Buttons under the text (kit `Btn sm`), wrapped on narrow screens. */
+  actions?: ReactNode;
+  className?: string;
+}): JSX.Element {
+  return (
+    <div className={cn('mb-3 rounded-[18px] border bg-elev p-4', className)} style={{ borderColor: 'rgba(181,166,255,0.4)' }}>
+      <div className="flex gap-[11px]">
+        <span className="mt-px shrink-0 text-acc">
+          <Icon name={icon} size={19} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="font-display text-[15.5px] font-bold text-text">{title}</div>
+          <p className="mt-1 text-[12.5px] leading-[1.45] text-faint">{body}</p>
+        </div>
+      </div>
+      {actions && <div className="mt-3 flex flex-wrap gap-[10px]">{actions}</div>}
+    </div>
+  );
+}
+
 // ── InfoTip ──────────────────────────────────────────────────────────────────
 /**
  * A 44x44 "i" button that explains the control beside it (ADE UX round, item D).

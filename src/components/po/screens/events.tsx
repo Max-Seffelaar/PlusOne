@@ -22,7 +22,7 @@ import { canWorkDoor } from '@/features/auth/roles';
 import { formatClock } from '@/features/stats/format';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Avatar, Btn, Empty, IconBtn, Label, Note, Scroll, Top, cardPress, press } from '../kit';
+import { Avatar, Btn, Empty, GuideCard, IconBtn, Label, Note, Scroll, Top, cardPress, press } from '../kit';
 import { col, ScreenState } from './events/shared';
 import { EventActivitySection } from './events/past';
 
@@ -221,25 +221,20 @@ export function EventView({ id }: { id?: string }): JSX.Element {
       <Top onBack={nav.back} title={ev.name} sub={`${ev.venue} · ${ev.date} ${ev.mon}`} right={<IconBtn name="cog" ariaLabel={t.events.editTitle} onClick={() => nav.push('eventedit', { id: ev.id })} />} />
       <Scroll bottom={28}>
         {needsSetup && (
-          <div className="mb-3 rounded-[18px] border bg-elev p-4" style={{ borderColor: 'rgba(181,166,255,0.4)' }}>
-            <div className="flex gap-[11px]">
-              <span className="mt-px shrink-0 text-acc">
-                <Icon name="spark" size={19} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="font-display text-[15.5px] font-bold text-text">{t.events.setup.title}</div>
-                <p className="mt-1 text-[12.5px] leading-[1.45] text-faint">{t.events.setup.noTiers}</p>
-              </div>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-[10px]">
-              <Btn kind="primary" sm icon="ticket" onClick={() => nav.push('tiers', { id: ev.id })}>
-                {t.events.setup.addTiers}
-              </Btn>
-              <Btn kind="ghost" sm icon="cog" onClick={() => nav.push('eventedit', { id: ev.id })}>
-                {t.events.setup.settings}
-              </Btn>
-            </div>
-          </div>
+          <GuideCard
+            title={t.events.setup.title}
+            body={t.events.setup.noTiers}
+            actions={
+              <>
+                <Btn kind="primary" sm icon="ticket" onClick={() => nav.push('tiers', { id: ev.id })}>
+                  {t.events.setup.addTiers}
+                </Btn>
+                <Btn kind="ghost" sm icon="cog" onClick={() => nav.push('eventedit', { id: ev.id })}>
+                  {t.events.setup.settings}
+                </Btn>
+              </>
+            }
+          />
         )}
         <div className={cn(hasSecondary && 'lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start')}>
           <div className={cn(!hasSecondary && 'lg:mx-auto lg:max-w-[680px]')}>

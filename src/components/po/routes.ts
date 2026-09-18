@@ -45,7 +45,7 @@ function withEventQuery(base: string, eventId: string | undefined): string {
 
 /** Build the URL (path + optional query) for a pushed/replaced screen. */
 export function screenPath(name: ScreenName, props: ScreenProps = {}): string {
-  const { id, eventId, isNew, tab } = props;
+  const { id, eventId, isNew, tab, setup } = props;
   switch (name) {
     case 'event':
       return `/app/events/${id}`;
@@ -54,7 +54,10 @@ export function screenPath(name: ScreenName, props: ScreenProps = {}): string {
     case 'lijst':
       return `/app/events/${id}/guests`;
     case 'tiers':
-      return `/app/events/${id}/tiers`;
+      // `?setup=1` = the guided step after creating an event (z8uq9m0hw3). A
+      // query flag, not a path segment: it is the same screen, and a refresh
+      // keeps the guide.
+      return setup ? `/app/events/${id}/tiers?setup=1` : `/app/events/${id}/tiers`;
     case 'crew':
       return `/app/events/${id}/crew`;
     case 'links':
@@ -169,7 +172,11 @@ export function parseAppUrl(pathname: string, search: URLSearchParams): ParsedTa
       case 'guests':
         return { kind: 'screen', name: 'lijst', props: { id: second } };
       case 'tiers':
-        return { kind: 'screen', name: 'tiers', props: { id: second } };
+        return {
+          kind: 'screen',
+          name: 'tiers',
+          props: search.get('setup') === '1' ? { id: second, setup: true } : { id: second },
+        };
       case 'crew':
         return { kind: 'screen', name: 'crew', props: { id: second } };
       case 'links':

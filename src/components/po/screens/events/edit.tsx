@@ -201,12 +201,16 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           setErr(t.events.errNoVenue);
           return;
         }
-        // Continue the flow on the new event's settings (share the link, add
-        // tiers) instead of bouncing back to the list (T2, feedback 1/7).
         const newId = templateId
           ? await createFromTemplate.mutateAsync({ templateId, name: name.trim(), startsAt, endsAt })
           : await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn });
-        nav.replace('eventedit', { id: newId });
+        // Save the event first, then the tiers (Max, z8uq9m0hw3 item 7): a
+        // tier-less event goes straight to its guided tiers step. A template
+        // that seeded tiers skips it and continues on the new event's settings
+        // as before (T2, feedback 1/7). `replace`, never push: Back from either
+        // lands where the create flow started, not on the stale form.
+        if ((pickedTemplate?.tierCount ?? 0) > 0) nav.replace('eventedit', { id: newId });
+        else nav.replace('tiers', { id: newId, setup: true });
         return;
       } else {
         await updateEvent.mutateAsync({ eventId: editId, name: name.trim(), startsAt, endsAt });

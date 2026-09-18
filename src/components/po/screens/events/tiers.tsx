@@ -4,6 +4,10 @@
  * Event tier management — split from events.tsx (FE-5). The alias parts of this
  * screen (the banner, the per-tier alias chips, the create-form field) render only
  * when `TIER_ALIASES_UI` is on; it is off since the ADE UX round (17/9/2026).
+ *
+ * `setup` (z8uq9m0hw3, item 7) is the guided step right after creating an event:
+ * a GuideCard on top and a bottom bar that moves on to the event. It does NOT
+ * auto-open the create form, so the guide is read before a sheet covers it.
  */
 import { type JSX, useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -14,13 +18,13 @@ import { TIER_ALIASES_UI } from '@/features/guests/tiers';
 import { TIER_COLORS, nextAvailableColor, allColorsUsed } from '@/lib/po/tier-colors';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Btn, Empty, Field, IconBtn, Label, MiniChip, Note, Scroll, Top } from '../../kit';
-import { Sheet } from '../../shell';
+import { Btn, Empty, Field, GuideCard, IconBtn, Label, MiniChip, Note, Scroll, Top } from '../../kit';
+import { BottomBar, Sheet } from '../../shell';
 import { col } from './shared';
 
 // ── TIERS & aliases (pushed) ─────────────────────────────────────────────────────
 
-export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
+export function Tiers({ eventId, setup }: { eventId?: string; setup?: boolean }): JSX.Element {
   const nav = useNav();
   const id = eventId ?? '';
   const { event } = usePoEvent(id);
@@ -75,12 +79,12 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
   // only, so deliberately closing the form doesn't bounce it back open.
   const autoOpened = useRef(false);
   useEffect(() => {
-    if (autoOpened.current || isLoading || isError) return;
+    if (setup || autoOpened.current || isLoading || isError) return;
     if ((tierList ?? []).length === 0) {
       autoOpened.current = true;
       setAdding(true);
     }
-  }, [isLoading, isError, tierList]);
+  }, [setup, isLoading, isError, tierList]);
 
   const submit = async (stayOpen: boolean): Promise<void> => {
     if (!nm.trim() || createTier.isPending) return;
@@ -145,6 +149,7 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
         right={<IconBtn name={adding ? 'close' : 'plus'} onClick={() => (adding ? closeAdd() : openAdd())} />}
       />
       <Scroll bottom={24}>
+        {setup && <GuideCard icon="ticket" title={t.events.setupStep.title} body={t.events.setupStep.body} />}
         {err && !adding && <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{err}</div>}
         {TIER_ALIASES_UI && <Note icon="spark">{t.events.aliasesNote}</Note>}
         {isLoading ? (
@@ -240,6 +245,21 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
           </div>
         )}
       </Scroll>
+      {/* The way on to the event. `replace`: this step came from a replaced
+          create form, so Back from the event still lands where the flow began. */}
+      {setup && (
+        <BottomBar>
+          {(tierList ?? []).length > 0 ? (
+            <Btn kind="primary" full icon="check" onClick={() => nav.replace('event', { id })}>
+              {t.events.setupStep.done}
+            </Btn>
+          ) : (
+            <Btn kind="ghost" full onClick={() => nav.replace('event', { id })}>
+              {t.events.setupStep.skip}
+            </Btn>
+          )}
+        </BottomBar>
+      )}
         {/* New-tier form is a real MODAL (feedback Max 12/7): fill in and save in
             one focused sheet — never scroll past the existing tiers, and the
             actions sit right under the fields even with the keyboard open. */}

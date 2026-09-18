@@ -171,6 +171,14 @@ export const events = {
 
   // ── Guest tiers (formerly "Tiers & aliases") ────────────────────────────────
   tiersTitle: 'Guest tiers',
+  // The guided step right after creating an event (z8uq9m0hw3, item 7): save the
+  // event first, then its tiers. `skip` shows while there are no tiers yet.
+  setupStep: {
+    title: 'Next: add your guest tiers',
+    body: 'Guests need a tier before they can go on the list. Start with one like "Guest" or "VIP".',
+    done: 'Go to event',
+    skip: 'Skip for now',
+  },
   errCreateTier: "Couldn't create the tier.",
   errSaveAlias: "Couldn't save the alias.",
   newTier: 'New tier',
