@@ -118,6 +118,36 @@ E2/E4/E5 fail `have: false, want: true` while E1/E3/E6–E9 stay green.
 merge; the schema deploy happens centrally once the app deploy is unblocked.
 
 ---
+## 2026-09-17 — ADE UX round planned: 15 items from Joeri's feedback, verified in code, plus a docker-free screenshot harness
+
+Branch `claude/wonderful-hopper-ji35cw` (plan-only PR, no app code). Source: Fathom call
+Max <> Joeri 17/9 + Max's decisions in the planning session of the same day. Deliverables:
+
+- `docs/plan-ade-ux-round-2026-09-17.md` — items A–O, each with Decision / Today
+  (verified in code, file + line) / Spec / Tests, six work streams with file ownership,
+  two PRs (K5's `guests.contact_id` venue guard is the only migration → its own PR and
+  the review gates).
+- `docs/prompts/ade-ux-round-orchestrator.md` — the paste-in prompt for the ONE building
+  session (subagents in worktrees, merge order, harness, PRs, bookkeeping, test
+  handoff). ClickUp umbrella task `z8uq9m0g0j`.
+- `scripts/dev/fake-supabase.mjs` + `scripts/dev/screenshot.mjs` (`pnpm dev:fake`,
+  `pnpm shot`) — a fixture-backed GoTrue/PostgREST subset so the REAL app boots in a web
+  container (no docker, no supabase CLI) for looking at screens. Not a test double: no
+  RLS, realtime 404s, writes stay in memory; nothing in CI depends on it. Ports
+  55421/7100 sit beside the local stack (553xx) and `pnpm dev` (7000/70xx).
+
+Findings worth keeping (all carried in the plan): the desktop guest-list avatar is
+lavender for VIP-*type* tiers regardless of the tier's colour (`accent={role === 'VIP'}`,
+four sites); the event form never derives an end date, and the day picker has no
+month/year dropdown and does not follow typed text while open; name-only guests never
+link to a contact by design (autolink is email/phone only) and there is NO database
+guard that `guests.contact_id` belongs to the guest's venue (only `add_contact_to_event`
+checks); the "+N" chip on the guest profile is a static `MiniChip`; the door overlay's
+"…" button has no handler; `t.guests.add.contactPromptHint` has no render site.
+
+Validated here: `pnpm dev:fake` boots against the fixtures, dev-login through the fake
+sets real cookies, `pnpm shot` captured 30+ desktop + mobile screens used in the
+session. Not run: pgTAP / e2e (no stack in the container) — this PR touches no app code.
 
 ## 2026-08-19 — Perf: the /app shell stops remounting on every navigation (86ey9uc87)
 
