@@ -12,9 +12,9 @@
 // points at prod), or pass the prod creds inline:
 //
 //   node scripts/invite-link.mjs someone@venue.com
-//   node scripts/invite-link.mjs someone@venue.com https://app.plusone.com
+//   node scripts/invite-link.mjs someone@venue.com https://app.plus-one.io
 //   SUPABASE_SERVICE_ROLE_KEY=… NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co \
-//     node scripts/invite-link.mjs someone@venue.com https://app.plusone.com
+//     node scripts/invite-link.mjs someone@venue.com https://app.plus-one.io
 
 import { readFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';

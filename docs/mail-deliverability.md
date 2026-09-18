@@ -73,6 +73,9 @@ never a delivery failure.
    `*.vercel.app` URL. Fine for pilots, but PlusOne's login deliverability is coupled to
    another brand's domain reputation. Permanent fix = dedicated PlusOne sending + app
    domain (branded-mail F3, 86ey6b3hv). Don't let "for now" become permanent silently.
+   The domain is chosen (2026-09-18): the app moves to `app.plus-one.io`, the marketing
+   site owns `plus-one.io`. The PlusOne sending domain (which subdomain of `plus-one.io`
+   Resend sends from) is still part of F3.
 2. **Resend plan / volume limits.** Every login is an OTP send. Confirm the Operators
    Resend plan's daily/monthly caps before onboarding venues at scale (≥5–25). Volume is
    trivial today (11 mails), so no issue yet.

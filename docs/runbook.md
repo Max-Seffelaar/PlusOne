@@ -35,15 +35,17 @@ the runtime half was off, because `sentry.*.config.ts` initialises with
 Two checks, neither needs dashboard access:
 
 ```bash
+APP=https://app.plus-one.io   # until that domain is attached: https://plus-one-phi.vercel.app
+
 # 1. Is the DSN in the shipped bundle? NEXT_PUBLIC_* is inlined at build time,
 #    so absence here proves it was unset for that build.
-curl -s https://plus-one-phi.vercel.app/ \
+curl -s "$APP/" \
   | grep -o '/_next/static/chunks/[a-zA-Z0-9._/-]*\.js' | sort -u \
-  | while read -r c; do curl -s "https://plus-one-phi.vercel.app$c"; done \
+  | while read -r c; do curl -s "$APP$c"; done \
   | grep -c 'ingest.*sentry\.io'          # 0 = Sentry is NOT reporting
 
 # 2. The same-origin tunnel only exists once the SDK initialises with a DSN.
-curl -s -o /dev/null -w '%{http_code}\n' https://plus-one-phi.vercel.app/monitoring
+curl -s -o /dev/null -w '%{http_code}\n' "$APP/monitoring"
                                           # 404 = SDK never initialised
 ```
 
@@ -72,7 +74,8 @@ is already down and you've rehearsed it against a restored copy.
 
 | Thing | Value |
 |---|---|
-| Prod domain | `plus-one-phi.vercel.app` (app at `/app`) |
+| Prod domain | `app.plus-one.io` (app at `/app`); the Vercel URL `plus-one-phi.vercel.app` keeps working as a fallback |
+| Marketing site | `plus-one.io` (canonical; `www` redirects to the apex). Separate repo `Plus-One.io`, Vercel project `plus-one-io` |
 | Vercel project | `plus-one` (org `the-operators`, region `fra1`) |
 | Supabase project | `tolxwgqhppdcvnogdpel` (`eu-west-1`, Pro, daily backups 7d) |
 | Auth mail | Supabase Auth (check Auth → SMTP; watch default-SMTP rate limits) |
