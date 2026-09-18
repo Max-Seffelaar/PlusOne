@@ -2,8 +2,8 @@
 
 import { type JSX, useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
-import { usePoEvents, usePoContacts, usePoPersonProfile, usePoTiers } from '@/features/po/hooks';
-import { usePoToggleContactPermanent, usePoChangeGuestTier } from '@/features/po/mutations';
+import { usePoEvents, usePoContacts, usePoPersonProfile, usePoOrganizerEventIds } from '@/features/po/hooks';
+import { usePoToggleContactPermanent } from '@/features/po/mutations';
 import type { PoContact, PoProfileEvent, PoProfileTimelineItem, ContactTimelineKind } from '@/features/po/adapters';
 import { guestSourceLabel } from '@/features/po/format';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
@@ -12,7 +12,7 @@ import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../../context';
 import { Icon, type IconName } from '../../icon';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Scroll, Top } from '../../kit';
-import { Sheet, Toast } from '../../shell';
+import { Toast } from '../../shell';
 import { TierPill, press, col } from './_shared';
 import { useGuestSelection, BulkAddToEventSheet, type BulkAddCandidate } from './bulk-add';
 import {
@@ -21,8 +21,8 @@ import {
   ForgetConfirmSheet,
   PermanentConfirmSheet,
   AddToEventSheet,
-  PlusOnesSheet,
 } from './profile-sheets';
+import { EventRowActions } from './profile-event-actions';
 
 // ── GUEST detail / check-in log row ─────────────────────────────────────────
 function LogRow({ icon, label, who, when, accent, last }: { icon: IconName; label: string; who: string; when?: string; accent?: boolean; last?: boolean }): JSX.Element {
@@ -205,6 +205,8 @@ export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
 // Header + contact info, a 4-stat strip, the events they're on (tier + +N + present
 // heads, the event you came from pinned on top with its door note), and a derived
 // activity timeline (added / checked in / reversed / refused, newest first).
+// Each event card has a "…" (./profile-event-actions.tsx): open the event, edit
+// +N, change tier, remove from that list, gated per row like the guests RLS.
 // Derived-only: no audit log, so it works for anyone who can open the person (RLS
 // slices what they see); field-edit history lives in the Audit screen.
 const TIMELINE_ICON: Record<ContactTimelineKind, IconName> = {
@@ -280,22 +282,23 @@ export function ContactProfile({
   // reactively from an RLS-hidden field, so it also covers a not-yet-linked
   // guest (which today still showed a "Save as contact" CTA to a doorhost).
   const doorOnly = isDoorOnlyRole(roles);
+  // Opened from a guest list / the Guests tab (a guest id) reads "Guest"; from
+  // Contacts (a contact id) it reads "Contact". Same screen either way.
+  const cp = t.guests.contactProfile;
+  const title = guestId ? cp.titleGuest : cp.title;
   const { data: profile, isLoading, isError } = usePoPersonProfile({ contactId, guestId, originEventId });
   const { data: liveEvents = [] } = usePoEvents();
   const upcoming = liveEvents.filter((e) => e.when === 'upcoming');
   const toggleVast = usePoToggleContactPermanent();
-  const { data: tierOptions = [] } = usePoTiers(originEventId ?? '');
-  const changeTier = usePoChangeGuestTier(originEventId ?? '');
+  // Warm here, not when a sheet opens: an organizer's row actions depend on it.
+  const organizerEventIds = usePoOrganizerEventIds();
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
   const [promoting, setPromoting] = useState(false);
   const [confirmStar, setConfirmStar] = useState(false);
   const [forgetting, setForgetting] = useState(false);
-  const [tierPicking, setTierPicking] = useState(false);
-  const [tierGuestId, setTierGuestId] = useState<string | null>(null);
-  const [tierErr, setTierErr] = useState<string | null>(null);
-  // The event row whose +N is being edited (item M1); null = sheet closed.
-  const [plusFor, setPlusFor] = useState<PoProfileEvent | null>(null);
+  // The event row whose "…" action sheet is open; null = closed.
+  const [actionsFor, setActionsFor] = useState<PoProfileEvent | null>(null);
   // A successful contact save (edit or promote) previously closed the sheet with
   // no confirmation — the user couldn't tell it actually happened.
   const [toast, setToast] = useState<string | null>(null);
@@ -308,17 +311,17 @@ export function ContactProfile({
   if (isLoading) {
     return (
       <div className={col}>
-        <Top onBack={nav.back} title={t.guests.contactProfile.title} />
-        <Loading text={t.guests.contactProfile.loading} />
+        <Top onBack={nav.back} title={title} />
+        <Loading text={guestId ? cp.loadingGuest : cp.loading} />
       </div>
     );
   }
   if (isError || !profile) {
     return (
       <div className={col}>
-        <Top onBack={nav.back} title={t.guests.contactProfile.title} />
+        <Top onBack={nav.back} title={title} />
         <Scroll pad={16} bottom={24}>
-          <Empty text={t.guests.contactProfile.notFound} />
+          <Empty text={guestId ? cp.notFoundGuest : cp.notFound} />
         </Scroll>
       </div>
     );
@@ -352,7 +355,7 @@ export function ContactProfile({
     <div className={cn(col, 'relative')}>
       <Top
         onBack={nav.back}
-        title={t.guests.contactProfile.title}
+        title={title}
         right={
           // Only a saved contact can be made "Regular" (the flag lives on the
           // contact) — and never for a door-only viewer (G4).
@@ -462,51 +465,38 @@ export function ContactProfile({
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-display text-[14.5px] font-bold text-text">{e.name}</span>
-                      {e.isOrigin && <MiniChip className="border-acc text-acc">{t.guests.contactProfile.thisEvent}</MiniChip>}
+                      {e.isOrigin && <MiniChip className="border-acc text-acc">{cp.thisEvent}</MiniChip>}
                     </div>
                     <div className="mt-0.5 text-[12px] text-faint">{e.dateLabel}</div>
-                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                      <span className="inline-flex items-center gap-[6px] rounded-[7px] border border-line bg-elev2 px-2 py-[3px] font-body text-[11px] font-bold text-text">
-                        <span className="h-[8px] w-[8px] rounded-full" style={{ background: e.tierColor }} />
-                        {e.tier ?? t.guests.contactProfile.tierNone}
-                      </span>
-                      {e.isOrigin && tierOptions.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => { setTierErr(null); setTierGuestId(e.guestId); setTierPicking(true); }}
-                          className="rounded-[7px] border border-line2 bg-transparent px-2 py-[3px] font-body text-[11px] font-bold text-faint transition-colors hover:border-acc hover:text-acc"
-                        >
-                          {t.guests.contactProfile.changeTier}
-                        </button>
-                      )}
-                      {/* Item M1: +N is editable from here. The database still
-                          owns quota + list-lock — a refusal comes back as the
-                          sheet's error, we don't pre-judge it client-side. A
-                          door-only viewer keeps the read-only chip. */}
-                      {doorOnly ? (
-                        e.plusOnes > 0 && (
-                          <MiniChip className="border-line2 text-faint">
-                            {fmt(t.guests.contactProfile.plusChip, { n: e.plusOnes })}
-                          </MiniChip>
-                        )
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setPlusFor(e)}
-                          className="rounded-[7px] border border-line2 bg-transparent px-2 py-[3px] font-body text-[11px] font-bold text-faint transition-colors hover:border-acc hover:text-acc"
-                        >
-                          {e.plusOnes > 0 ? fmt(t.guests.plusOnes.edit, { n: e.plusOnes }) : t.guests.plusOnes.add}
-                        </button>
-                      )}
-                    </div>
                   </div>
-                  <div className="flex shrink-0 flex-col items-end gap-1">
+                  <div className="shrink-0 pt-[2px]">
                     <EventStatusPill e={e} />
-                    {/* Item J: where this name came from, right where the status is. */}
-                    <span className="max-w-[160px] truncate text-right text-[11px] text-faint">
-                      {guestSourceLabel({ source: e.source, addedByName: e.addedByName, linkLabel: e.linkLabel })}
-                    </span>
                   </div>
+                  {/* Every change to this appearance (open, +N, tier, remove)
+                      lives behind the one "…", from any entry point. What it
+                      offers mirrors the guests RLS (profileRowActions); a
+                      door-only viewer gets none (G4). */}
+                  {!doorOnly && (
+                    <IconBtn
+                      name="dots"
+                      ariaLabel={fmt(cp.rowActionsAria, { event: e.name })}
+                      onClick={() => setActionsFor(e)}
+                      className="-mr-[5px] -mt-[5px] h-[44px] w-[44px] shrink-0"
+                    />
+                  )}
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className="inline-flex items-center gap-[6px] rounded-[7px] border border-line bg-elev2 px-2 py-[3px] font-body text-[11px] font-bold text-text">
+                    <span className="h-[8px] w-[8px] rounded-full" style={{ background: e.tierColor }} />
+                    {e.tier ?? cp.tierNone}
+                  </span>
+                  {e.plusOnes > 0 && (
+                    <MiniChip className="border-line2 text-faint">{fmt(cp.plusChip, { n: e.plusOnes })}</MiniChip>
+                  )}
+                  {/* Item J: where this name came from. */}
+                  <span className="ml-auto max-w-[180px] truncate text-right text-[11px] text-faint">
+                    {guestSourceLabel({ source: e.source, addedByName: e.addedByName, linkLabel: e.linkLabel })}
+                  </span>
                 </div>
                 {e.note && (
                   <div className={cn('mt-[11px] flex items-start gap-[8px] rounded-[10px] p-[10px]', e.noteFlag === 'high' ? 'bg-acc-dim' : 'bg-elev2')}>
@@ -581,49 +571,19 @@ export function ContactProfile({
           }}
         />
       )}
-      {tierPicking && tierGuestId && (
-        <Sheet onClose={() => setTierPicking(false)} center={false}>
-          <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{t.guests.contactProfile.changeTier}</div>
-          <div className="mb-4 text-[13px] text-faint">{t.guests.contactProfile.changeTierSub}</div>
-          <div className="flex flex-col gap-2">
-            {tierOptions.map((tier) => (
-              <button
-                key={tier.id}
-                type="button"
-                disabled={changeTier.isPending}
-                onClick={() => {
-                  setTierErr(null);
-                  changeTier.mutate(
-                    { guestId: tierGuestId, tierId: tier.id },
-                    {
-                      onSuccess: () => setTierPicking(false),
-                      onError: (e) => setTierErr(e instanceof Error ? e.message : t.guests.multiSelect.tierFailed),
-                    },
-                  );
-                }}
-                className={cn('flex items-center gap-[10px] rounded-[12px] border border-line bg-bg px-[13px] py-[12px] text-text', press, changeTier.isPending && 'opacity-50')}
-              >
-                <span className="h-[10px] w-[10px] rounded-full shrink-0" style={{ background: tier.color }} />
-                <span className="flex-1 text-left font-display text-[14.5px] font-bold">{tier.name}</span>
-              </button>
-            ))}
-          </div>
-          {tierErr && <p className="mt-2 text-[12.5px] text-red-300" role="alert">{tierErr}</p>}
-          <Btn kind="ghost" full className="mt-3" onClick={() => setTierPicking(false)}>
-            {t.guests.contacts.cancel}
-          </Btn>
-        </Sheet>
-      )}
-      {plusFor && (
-        <PlusOnesSheet
-          guestId={plusFor.guestId}
-          eventId={plusFor.eventId}
-          name={p.name}
-          current={plusFor.plusOnes}
-          onClose={() => setPlusFor(null)}
-          onSaved={() => {
-            setPlusFor(null);
-            setToast(t.guests.contacts.saveSuccess);
+      {actionsFor && (
+        <EventRowActions
+          event={actionsFor}
+          guestName={p.name}
+          isOrganizer={organizerEventIds.includes(actionsFor.eventId)}
+          onClose={() => setActionsFor(null)}
+          onDone={({ toast: message, removed }) => {
+            setActionsFor(null);
+            // A name-only (or role-restricted) profile IS that one guest row:
+            // once it is off the list there is nothing left to show, so go back
+            // to where it was opened. A contact keeps its other events.
+            if (removed && !p.isContact) nav.back();
+            else setToast(message);
           }}
         />
       )}
