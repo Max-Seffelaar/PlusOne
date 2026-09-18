@@ -59,7 +59,7 @@ The full functional spec lives in `gastenlijst-app-spec.md` (repo root). Decisio
 - **Never duplicate the door's offline outbox** — the Deur tab reuses `DoorProvider.tsx` (`src/features/door`).
 - **Device storage is session-scoped unless it is provably PII-free (86ey9e9mn).** `public/service-worker.js` writes to two caches: `plusone-shell-*` (static assets, `/` the auth-free landing = the PWA `start_url`, and `/door/<eventId>`, which SSRs no guest data) is persistent; `plusone-session-*` (`/app*` — its RSC payload carries user id, venue, roles, name, memberships — plus the `/door` picker) is wiped by `clearDeviceCaches()` from `signOutDevice` (`src/features/auth/sign-out-device.ts`, the ONE sign-out — the MFA wall uses it too), exactly like `idbClearAll()`. Any other navigation is network-only; adding a path to the persistent bucket means asserting its HTML is PII-free on a shared tablet. **What the persistent bucket actually buys across sign-out:** static assets + door pages already cached under that exact URL — *not* a bootable door for an event the next doorhost hasn't opened (its fallback is the `/door` picker, which is session-scoped, and one event's HTML must never be served for another). That's fine: a signed-out device has no session and no IDB snapshot, so it can't work the door offline anyway. Fresh door HTML comes from that doorhost's own online login via the SW's `seed-shell` message — in-app moves are `<Link>`/RSC fetches, so the SW never sees them as navigations and **the shell only fills if something seeds it**. Sign-out wipes only after the session is confirmed gone (on the `sign-out-incomplete` throw the user stays signed in, so their data stays too). A revoked session self-cleans on the device's next *online* visit (the 307→/login arrives as an opaqueredirect); a device that never comes online again keeps its session cache — accepted residual. `public/sw.js` is a self-destructing stub for the retired next-pwa worker — never regenerate a Workbox SW there (it cached cross-origin Supabase REST bodies). Guards: `tests/unit/service-worker-cache-scope.test.ts` + `tests/unit/no-stale-pwa-artifacts.test.ts`.
 - Tokens/behaviour reference: `design-system.md` (repo root). Near-black `#0B0B0D`, one lavender accent `#B5A6FF`, Bricolage Grotesque display + Hanken Grotesk body. Entrance animations animate `translateY` only, opacity always 1, behind `prefers-reduced-motion`. Where prototype and spec conflict, the spec wins.
-- Remaining polish: tablet (641–1023px) layouts.
+- Tablet (641–1023px) layouts are no longer polish: iPad ships in the native v1 (Fase 17 T1), so every screen must work there before store submission.
 
 ## Capacitor-readiness checklist — EVERY new `po` screen (decision #37)
 
@@ -72,8 +72,10 @@ The `po` surface gets wrapped via the **remote-URL model** (native webview loads
 - [ ] Auth/redirects use the cookie-session + URL-navigation flow (no OAuth popups, no browser-redirect-only logic).
 - [ ] Safe-area/notch tolerant; Android hardware back button handled; `/app` standalone.
 - [ ] No billing/plan-upgrade/checkout surfaced inside the mobile app (Apple IAP).
+- [ ] No `target="_blank"` / bare `window.open` in the `po` surface — external links go through the kit's `openExternal()` (native shell: `@capacitor/browser`; Capacitor otherwise loads `_blank` inside the webview with no way back). Clipboard via the kit's `copyText()`, never a bare `navigator.clipboard`. (Both helpers land in Fase 17 N1.)
+- [ ] iPad is in v1 (decided 2026-09-17) — a screen must work at 641–1023px, not just phone and desktop.
 
-Open native item (Phase 3, door only): cold-start-offline may need the door route bundled locally — validate with a spike before native launch (Capacitor plan: `capacitor-plan-claude-code.md`).
+Open native item (door only): cold-start-offline may need the door route bundled locally — validate with a spike before native launch. Fase 17 is **started** (plan reviewed against the code and approved 2026-09-17; decisions, phases and parallel waves in `capacitor-plan-claude-code.md`).
 
 ## Scale & front-end discipline (2026-07 review — enforce on every PR)
 

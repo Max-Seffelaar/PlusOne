@@ -8,6 +8,48 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-17 — Fase 17 (native apps): plan reviewed against the code, start approved
+
+Branch `claude/dashboard-app-store-p4fxls`. Max asked how long the App Store / Play
+Store wrap would take and whether the July plan (`capacitor-plan-claude-code.md`,
+PR #110) was good enough to start on. Docs-only session: no code changes.
+
+**Verified against `main`** (every claim in the July readiness audit, §8 of the plan):
+auth is webview-safe (`/auth/confirm` + `/auth/callback`, cookie session, no popups),
+the push seam and the session-revoke RPCs exist, the SW is registered only on `/door`,
+the CSP is strict. Stale or missing in the July plan:
+
+- **External links.** `target="_blank"` in `screens/onboarding.tsx` (terms/privacy) —
+  Capacitor loads `_blank` inside the webview with no way back on iOS. → N1 gets an
+  `openExternal()` kit helper on `@capacitor/browser`; CLAUDE.md checklist forbids
+  `_blank` in the `po` surface.
+- **Clipboard.** The plan pointed at `events.tsx`; that file has no clipboard any more,
+  six other files do, without a shared helper. → N1: `copyText()` in the kit.
+- **S4 scope error.** July claimed `/e/[slug]` as an app link too; that would pull a
+  promoter's own guest landing into the app shell. → only `/auth/*` (decision 11).
+- **Legal pages.** `src/lib/legal.ts` links to `plusone.app/privacy` + `/terms`, which
+  do not exist (drafts in `docs/legal/`). Both stores require a live privacy URL. →
+  existing task 86ey1vbrj becomes L1, a hard S5 dependency.
+- **Grant matrix.** `push_tokens`/`notification_outbox` start closed since
+  `20260917100000`; §3 now states the grants (`delete` on `push_tokens` is legitimate
+  and goes on the allowlist; the outbox gets nothing for `authenticated`).
+- **WKWebView service workers** need App-Bound Domains — a documented N3 choice, not a
+  blocker. **Play tester rule** corrected to 20 testers / 14 days (org account bypasses
+  it). **Account deletion** (Apple 5.1.1(v)): invite-only → exempt, explained in the
+  review notes. **Sentry** already covers the webview; native-shell crashes are not v1.
+- **ClickUp N3** still referenced the deleted `history-nav.ts`; updated.
+
+**Decisions (Max, 2026-09-17):** v1 includes push (confirmed) · **iPhone + iPad** →
+tablet layouts become a hard pre-submission requirement (new task T1, `z8uq9m0fzj`) ·
+**Android first**, iOS when the Apple account lands (S1 split into S1a `86ey6bfpy` +
+new S1b) · legal pages not live yet → L1. Spec #37 carries the refinement.
+
+**Estimate:** 13–15 sessions (was 10–12), parallelisable in 5 waves (plan §4); the
+wall clock is D-U-N-S → Apple org verification, not the code. Nothing on the M-track
+(Max's accounts) has been started yet — that is the one thing to begin today.
+
+---
+
 ## 2026-09-17 — The grant matrix that was only ever a comment: anon/authenticated privileges in `public`
 
 Branch `fix/anon-default-grant-matrix`. Found while diagnosing why `main` itself went
