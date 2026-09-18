@@ -64,7 +64,7 @@ function useIsDesktop(): boolean {
 }
 
 /** Close-on-outside-click + Escape for a popover anchored inside `ref`. */
-function useDismiss(ref: React.RefObject<HTMLElement>, open: boolean, close: () => void): void {
+function useDismiss(ref: React.RefObject<HTMLElement | null>, open: boolean, close: () => void): void {
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent): void => {

@@ -6,14 +6,17 @@
  * namespace") and @types/react 19 removes the `declare global` block outright, so a
  * bare annotation fails there with `TS2503: Cannot find namespace 'JSX'`. 269 such
  * annotations across 107 files were migrated to an explicit `JSX` import from 'react',
- * which compiles under both 18 and 19 — that is what keeps the parked Next 16/React
- * types migration (86eyd39mx) from opening with 269 type errors.
+ * which compiles under both 18 and 19 — that sweep is why the 18 → 19 types bump
+ * (z8uq9m0h2h) cost three errors in two files instead of 272.
  *
- * tsc cannot catch a regression while @types/react is still pinned to 18: the global
- * is deprecated, not gone, so a newly added bare `JSX.Element` type-checks happily
- * today and only explodes during the major bump — exactly the trap this sweep cleared.
- * Hence a source-level guard: a file that mentions `JSX.` must also import the
- * namespace from 'react'.
+ * @types/react is on 19 since z8uq9m0h2h, so tsc now DOES reject a bare `JSX.Element`
+ * (TS2503) — this guard is no longer the only thing standing between us and the trap.
+ * It stays because it still earns its place: it names the offending files and the exact
+ * fix instead of leaving a TS2503 per annotation, it runs in the unit suite (so a
+ * regression surfaces without a full `tsc` pass), and it keeps holding if the types are
+ * ever pinned back to 18, where the global is merely `@deprecated` and tsc goes quiet
+ * again. Rule unchanged: a file that mentions `JSX.` must also import the namespace
+ * from 'react'.
  *
  * Alternatives that also satisfy the guard, since both keep working under 19:
  * `React.JSX.Element` with React in scope, or dropping the annotation and letting
@@ -94,8 +97,8 @@ describe('JSX namespace is imported, never taken from the deprecated global', ()
     expect(
       offenders,
       `These files use the deprecated GLOBAL JSX namespace: ${offenders.join(', ')}. ` +
-        `@types/react 19 removes it (TS2503: Cannot find namespace 'JSX'), so this ` +
-        `type-checks today and breaks during the React-types migration (86eyd39mx). ` +
+        `@types/react 19 removes it, so tsc rejects it outright ` +
+        `(TS2503: Cannot find namespace 'JSX'). ` +
         `Add JSX to the file's react import — \`import type { JSX } from 'react';\` or ` +
         "`import { type JSX, … } from 'react';` — or drop the annotation and let " +
         'TypeScript infer the return type.',
