@@ -43,6 +43,9 @@ export function VenueSwitch(): JSX.Element {
           <div className="flex flex-col gap-[10px]">
             {myVenues.map((v) => {
               const cur = v.venueId === activeVenueId;
+              // "Manage" opens venue settings, which only admin/finance may see
+              // (z8uq9m0hw2): anyone else would land on a "no rights" page.
+              const canManage = cur && venueCapabilities(v.roles).viewSettings;
               return (
                 <div key={v.venueId} className={cn('rounded-[18px] border p-[15px]', cur ? 'border-transparent bg-acc-dim' : 'border-line bg-elev')}>
                   <div className="flex items-center gap-[13px]">
@@ -61,17 +64,19 @@ export function VenueSwitch(): JSX.Element {
                       </div>
                     </div>
                   </div>
-                  <div className="mt-[13px] flex items-center justify-end gap-[7px]">
-                    {cur ? (
-                      <Btn sm kind="ghost" icon="cog" onClick={() => nav.push('venuesettings', { id: v.venueId })}>
-                        {t.settings.venueSwitch.manage}
-                      </Btn>
-                    ) : (
-                      <Btn sm kind="primary" icon="swap" onClick={() => switchToVenue(v.venueId)}>
-                        {t.settings.venueSwitch.switch}
-                      </Btn>
-                    )}
-                  </div>
+                  {(canManage || !cur) && (
+                    <div className="mt-[13px] flex items-center justify-end gap-[7px]">
+                      {cur ? (
+                        <Btn sm kind="ghost" icon="cog" onClick={() => nav.push('venuesettings', { id: v.venueId })}>
+                          {t.settings.venueSwitch.manage}
+                        </Btn>
+                      ) : (
+                        <Btn sm kind="primary" icon="swap" onClick={() => switchToVenue(v.venueId)}>
+                          {t.settings.venueSwitch.switch}
+                        </Btn>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
