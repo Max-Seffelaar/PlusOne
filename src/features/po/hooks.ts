@@ -112,6 +112,14 @@ import {
   type PoSubscription,
 } from './adapters';
 import { normalizeEmail, normalizePhoneToDigits } from '@/features/contacts/import/parse';
+import {
+  contactNameMatches,
+  distinctContactNames,
+  normalizeContactName,
+  resolveContactMatches,
+  searchContactsForReuse,
+  type ContactCandidate,
+} from '@/features/guests/contact-match';
 import { usePoIdentity } from './PoLiveProvider';
 import { canWorkDoor } from '@/features/auth/roles';
 import { fetchEventStats } from '@/features/stats/data';
@@ -948,6 +956,46 @@ export function usePoContacts(search = '') {
       const rows = await fetchContacts(createClient(), venueId, search);
       return rows.map(toPoContact);
     },
+  });
+}
+
+// ── Contact-by-name match (K, ADE UX round) ──
+// A name-only guest may already exist in the address book. Staff cannot SELECT
+// `contacts`, so both hooks read through `search_contacts_for_reuse` (member-
+// gated, PII-free) and keep only EXACT name matches. Failure degrades to "no
+// match": the offer is a convenience, never a gate on adding the guest.
+
+/** Exact-name contact matches for ONE typed name (quick-add). Debounce upstream. */
+export function usePoContactNameMatch(name: string) {
+  const { venueId } = usePoIdentity();
+  const key = normalizeContactName(name);
+  return useQuery<ContactCandidate[]>({
+    queryKey: [...poKeys.all, 'contact-name-match', venueId ?? '', key],
+    // < 2 characters would ilike half the address book for nothing.
+    enabled: !!venueId && key.length >= 2,
+    staleTime: 60_000,
+    queryFn: async () => {
+      if (!venueId) return [];
+      try {
+        return contactNameMatches(key, await searchContactsForReuse(createClient(), venueId, key));
+      } catch {
+        return [];
+      }
+    },
+  });
+}
+
+/** Exact-name matches for MANY names at once (bulk paste preview), keyed by the
+ *  normalized name. Distinct names only, capped and concurrency-limited. */
+export function usePoContactNameMatches(names: string[]) {
+  const { venueId } = usePoIdentity();
+  const keys = distinctContactNames(names);
+  return useQuery<Map<string, ContactCandidate[]>>({
+    queryKey: [...poKeys.all, 'contact-name-matches', venueId ?? '', keys],
+    enabled: !!venueId && keys.length > 0,
+    staleTime: 60_000,
+    queryFn: async () =>
+      venueId ? resolveContactMatches(createClient(), venueId, keys) : new Map<string, ContactCandidate[]>(),
   });
 }
 
