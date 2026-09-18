@@ -605,11 +605,13 @@ export type Database = {
       guest_requests: {
         Row: {
           anonymized_at: string | null
+          approved_plus_ones: number | null
           birthdate: string | null
           created_at: string
           decided_at: string | null
           decided_by: string | null
           decided_via: Database["public"]["Enums"]["decision_source"]
+          decision_message: string | null
           decision_reason: string | null
           dedupe_key: string | null
           email: string | null
@@ -627,11 +629,13 @@ export type Database = {
         }
         Insert: {
           anonymized_at?: string | null
+          approved_plus_ones?: number | null
           birthdate?: string | null
           created_at?: string
           decided_at?: string | null
           decided_by?: string | null
           decided_via?: Database["public"]["Enums"]["decision_source"]
+          decision_message?: string | null
           decision_reason?: string | null
           dedupe_key?: string | null
           email?: string | null
@@ -649,11 +653,13 @@ export type Database = {
         }
         Update: {
           anonymized_at?: string | null
+          approved_plus_ones?: number | null
           birthdate?: string | null
           created_at?: string
           decided_at?: string | null
           decided_by?: string | null
           decided_via?: Database["public"]["Enums"]["decision_source"]
+          decision_message?: string | null
           decision_reason?: string | null
           dedupe_key?: string | null
           email?: string | null
@@ -1675,7 +1681,12 @@ export type Database = {
         Returns: boolean
       }
       approve_guest_request: {
-        Args: { p_request_id: string; p_tier_id: string }
+        Args: {
+          p_message?: string
+          p_plus_ones?: number
+          p_request_id: string
+          p_tier_id: string
+        }
         Returns: string
       }
       approve_quota_request: {

@@ -120,9 +120,9 @@ select ok(
   has_function_privilege('anon',
     'public.submit_guest_request(text,text,text,text,integer,text,text,boolean,date,text)', 'EXECUTE')
   and has_function_privilege('authenticated',
-    'public.approve_guest_request(uuid,uuid)', 'EXECUTE')
+    'public.approve_guest_request(uuid,uuid,integer,text)', 'EXECUTE')
   and not has_function_privilege('anon',
-    'public.approve_guest_request(uuid,uuid)', 'EXECUTE'),
+    'public.approve_guest_request(uuid,uuid,integer,text)', 'EXECUTE'),
   'anon may submit_guest_request; approve_guest_request is authenticated-only'
 );
 

@@ -1,5 +1,5 @@
 -- Canonical body (K10 drift guard, see supabase/canonical/README.md).
--- Newest source: supabase/migrations/20260918160000_status_token_mirror_hardening.sql:451.
+-- Newest source: supabase/migrations/20260918174500_partial_approval_decision_message.sql:375.
 
 create or replace function public.run_privacy_retention()
 returns table (
@@ -20,6 +20,7 @@ declare
   v_requests integer := 0;
   v_refusals integer := 0;
   v_audit    integer := 0;
+  v_n        integer := 0;
 begin
   -- 1. Anonymize eligible guests (event-anchored). Stats stay invariant.
   with old_events as (
@@ -69,6 +70,7 @@ begin
         phone = null,
         motivation = null,
         decision_reason = null,
+        decision_message = null,
         status_token_hash = null,
         anonymized_at = now()
     from ranked rk
@@ -113,6 +115,22 @@ begin
   -- 4. Scrub the guests/refusals audit diffs + append per-guest 'anonymize'.
   v_audit := public.redact_anonymized_audit_pii(v_guest_ids);
 
+  -- 4b. z8uq9m0hw6 — scrub the free-text decision fields (the venue message
+  --     and the deny reason) out of the just-anonymized requests' own
+  --     approve/deny diffs. redact_audit_diff only rewrites keys a diff
+  --     already has, so a diff without them is left as it is.
+  update public.audit_log a
+  set diff = public.redact_audit_diff(a.diff, jsonb_build_object(
+    'decision_message', 'null'::jsonb,
+    'decision_reason',  'null'::jsonb))
+  where a.entity_type = 'guest_requests'
+    and a.entity_id = any(v_request_ids)
+    and a.diff is not null
+    and (coalesce(a.diff -> 'before', '{}'::jsonb) ?| array['decision_message', 'decision_reason']
+         or coalesce(a.diff -> 'after', '{}'::jsonb) ?| array['decision_message', 'decision_reason']);
+  get diagnostics v_n = row_count;
+  v_audit := v_audit + v_n;
+
   -- 5. Record the request anonymizations (guest_requests aren't otherwise audited).
   insert into public.audit_log
     (actor_id, venue_id, event_id, entity_type, entity_id, action, diff, device_id)
@@ -122,7 +140,7 @@ begin
       'before', null,
       'after', jsonb_build_object(
         'anonymized_at', to_jsonb(gr.anonymized_at),
-        'redacted_fields', '["full_name","email","phone","motivation","decision_reason","status_token_hash"]'::jsonb)),
+        'redacted_fields', '["full_name","email","phone","motivation","decision_reason","decision_message","status_token_hash"]'::jsonb)),
     null
   from public.guest_requests gr
   join public.events e on e.id = gr.event_id
