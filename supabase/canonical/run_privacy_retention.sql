@@ -1,5 +1,5 @@
 -- Canonical body (K10 drift guard, see supabase/canonical/README.md).
--- Newest source: supabase/migrations/20260918140000_status_token_mirror.sql:559.
+-- Newest source: supabase/migrations/20260918160000_status_token_mirror_hardening.sql:451.
 
 create or replace function public.run_privacy_retention()
 returns table (
@@ -79,14 +79,28 @@ begin
   select coalesce(array_agg(id), '{}') into v_request_ids from upd;
   v_requests := coalesce(array_length(v_request_ids, 1), 0);
 
-  -- 2b. z8uq9m0h2v — drop the status-token mirrors of the requests that step 2
-  --     just anonymized. A mirror holds a name and plus-ones supplied by the
-  --     caller of a deduped submission; step 2 nulls the request's own
-  --     `status_token_hash`, and this is the matching revocation for the
-  --     mirrored one, so no landing-page identity outlives the venue's
-  --     retention window on either side of the pair.
+  -- 2b. z8uq9m0h2v — drop the status-token mirrors of every ANONYMIZED request,
+  --     not just the ones step 2 touched on this run. A mirror holds a name and
+  --     plus-ones supplied by the caller of a deduped submission; step 2 nulls
+  --     the request's own `status_token_hash`, and this is the matching
+  --     revocation for the mirrored one.
+  --
+  --     Scoping this to `any(v_request_ids)` — what 20260918140000 shipped —
+  --     left a hole the fresh-session security review of PR #300 reproduced:
+  --     step 2 clears neither `status` nor `dedupe_key`, so an anonymized
+  --     request stays `pending` with its fingerprint and keeps catching later
+  --     submissions on the dedup branch. Those wrote a mirror carrying the new
+  --     caller's real name against a request already anonymized — which this
+  --     step, looking only at ids from its own run, never saw again. Retention
+  --     run #2 reported `0 0 0 0` and the name survived indefinitely.
+  --
+  --     Driving the delete off `anonymized_at` instead of the run's id list
+  --     makes the sweep self-healing: it cleans orphans written before this
+  --     migration as well as any a future path manages to create.
   delete from public.guest_request_status_mirrors m
-  where m.request_id = any(v_request_ids);
+  using public.guest_requests gr
+  where gr.id = m.request_id
+    and gr.anonymized_at is not null;
 
   -- 3. Redact refusal reasons of the just-anonymized guests.
   update public.refusals

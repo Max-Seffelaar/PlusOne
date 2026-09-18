@@ -238,6 +238,48 @@ of e-mail enumeration:
   the event") *and* breaks the legitimate re-submitter, whose second URL would then never
   show their approval.
 
+  **Second review round (fresh session, `REQUEST CHANGES`) — two defects, both fixed in
+  `20260918160000`, not carried as residuals.** The reviewer rebuilt the stack from scratch,
+  reproduced 59/1202 and 144/1493 exactly, got 14 assertions red on reverting the function
+  body, and could not break the mirror on any of the six attack questions. What it found:
+
+  - **F-1, a regression introduced by `20260918140000`.** `p_status_token_hash` is
+    anon-controlled unbounded `text` landing in a unique btree index on both paths; past the
+    ~2704-byte index-row ceiling postgres raises `54000`, and once the mirror existed the two
+    paths named **different indexes** in the message (`guest_request_status_mirrors_token_idx`
+    vs `guest_requests_status_token_idx`). PostgREST forwards `message`/`detail` verbatim in
+    its 500 body, so that was a one-call e-mail-existence oracle — the exact class the mirror
+    design was chosen to avoid. Pre-`20260918140000` both paths hit the same index, so it was
+    a regression, not an inheritance. **Fixed** by capping the argument at 128 chars with the
+    other argument-only guards above the throttle — the same rule `86eyke279` already applies
+    to `v_email` in this function, for this same ceiling. Both paths now answer
+    `{"status":"invalid"}`, verified over anon PostgREST. Note the reproduction needs
+    **incompressible** input: `repeat('A', 5000)` never reaches the ceiling because pglz
+    compresses it inside the index tuple, so a length test built on a repeated character
+    passes vacuously; `landing.test.sql` G0–G4 use random hex and G3 asserts the two answers
+    are identical.
+  - **F-2, an AVG retention gap.** Step 2b deleted only the mirrors of requests *that run*
+    had anonymized. But retention clears neither `status` nor `dedupe_key`, so an anonymized
+    request stays `pending` with its fingerprint, keeps catching later submissions on the
+    dedup branch, and those wrote a mirror carrying **the new caller's real name** onto a row
+    no later sweep would revisit. Reproduced: retention run #2 reported `0 0 0 0` and the name
+    survived indefinitely. Preconditions are ordinary — an event past `retention_months` whose
+    landing link was never switched off, and `request_link_open()` has **no date check at
+    all**. Not a disclosure (`get_request_status` refuses an anonymized request) but a
+    permanent PII residue. **Fixed on both halves:** the sweep now drives off `anonymized_at`
+    rather than the run's id list (self-healing, cleans orphans already written), and the
+    dedup branch refuses to mirror onto an anonymized request. Pinned by G10 and G13, which
+    go red independently when either half is reverted.
+
+  **Still open — F-4, pre-existing, not introduced by either migration.** Past the retention
+  window, on an event whose link is still open, the dedup path *is* oracle (a): a taken
+  (anonymized) address answers `{"found": false}` where a fresh one answers `{"found": true}`.
+  The reviewer confirmed the identical split before the fix, and F-2's write-side half does
+  not change it — that token answered `{"found": false}` before and after, verified live. The
+  structural close is to make `request_link_open()` treat a link as shut once its event is
+  past the venue's retention window, which would take F-2's precondition and F-4 together;
+  that is a behaviour change to the public landing surface and belongs in its own task.
+
   **Not changed by the fix, in either capacity regime.** On an *auto-approve* link the
   `status` a token resolves to has always separated "this e-mail already has an undecided
   pending request" (`pending`) from a stranger (`approved` below capacity), because the

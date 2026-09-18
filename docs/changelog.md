@@ -94,6 +94,69 @@ is flaky under full-suite parallelism in this container — it failed 1–2 of i
 assertions on some runs *including on the unmodified tree* (`git stash`-verified) and
 passes in isolation every time; not caused by this change.
 
+**Second round — the fresh-session security review came back `REQUEST CHANGES`.** Migration
+`20260918160000_status_token_mirror_hardening.sql`. The reviewer rebuilt the stack without
+Docker (stock PG 16.13 + a hand-written platform shim, all 104 migrations clean, pgTAP through
+this repo's own plan/run gate), reproduced 59/1202 and 144/1493 exactly, got **14** assertions
+red on reverting the function body, tampered with the grant matrix and the canonical file to
+confirm those guards fire, and could not break the mirror on any of its six attack questions —
+including a timing run that showed the fix *narrowed* the dedup/fresh gap (+0.054 ms, against
++0.134 ms pre-fix). The design stands. Two defects did not:
+
+- **F-1, a regression this PR introduced.** `p_status_token_hash` is anon-controlled unbounded
+  `text` going into a unique btree index on both paths. Past the ~2704-byte index-row ceiling
+  postgres raises `54000` — and once the mirror existed the two paths named **different
+  indexes** in the message, which PostgREST forwards verbatim in its 500 body. A one-call
+  e-mail-existence oracle, in exactly the class the mirror was designed to avoid. Reproduced
+  locally before fixing (`…mirrors_token_idx` vs `…status_token_idx`). Fixed by capping the
+  argument at 128 chars with the other argument-only guards above the throttle — the rule
+  `86eyke279` already applies to `v_email` in this function for this same ceiling. Both paths
+  now answer `{"status":"invalid"}` over real anon PostgREST.
+- **F-2, an AVG retention gap.** Step 2b deleted only the mirrors of requests *that run* had
+  anonymized, but retention leaves a request `pending` with its `dedupe_key`, so it keeps
+  catching later submissions and those mirrored a fresh caller's real name onto a row no sweep
+  would revisit. Reproduced: retention run #2 returned `0 0 0 0` and `"Late Caller Name"`
+  survived. Fixed on both halves — the sweep drives off `anonymized_at` instead of the run's id
+  list (self-healing), and the dedup branch refuses to mirror onto an anonymized request.
+
+**A test that would have hidden itself.** The F-1 probe only works with *incompressible* input:
+`repeat('A', 5000)` never reaches the btree ceiling because pglz compresses it inside the index
+tuple. A length assertion built on a repeated character would have passed whether or not the
+guard existed. G0 asserts the probe builder's output length before G1–G3 use it. Same care on
+the F-2 side: G11 plants its orphan with `on conflict do update` so G13 pins the **sweep** half
+even on a build where the **write** half is missing — without that, the reverted build already
+occupies the row, the plain insert trips the primary key, and the abort hides whether the sweep
+works at all. That is the shape of guard this repo keeps getting bitten by, so it was worth the
+two extra lines.
+
+**Red-on-revert, per finding.** Reverting both halves of F-2 while keeping F-1's cap: **G10**
+(`have: 1 / want: 0` — the late caller's name parked in the table) and **G13** (`have: 1 /
+want: 0` — the orphan surviving the sweep) go red independently, 2/91. Reverting F-1's cap:
+`landing.test.sql` aborts at G1 with `ERROR: index row size 2712 exceeds btree version 4
+maximum 2704 for index "guest_request_status_mirrors_token_idx"` — the raise *is* the finding.
+
+**F-3, and why the header mattered.** `20260918140000`'s header claimed, twice and unqualified,
+that deduped and fresh are byte-identical "on every read before a staff decision". True on
+manual-review links, false on an auto-approve link below capacity, where the split is inherited
+from `20260918100000`. `docs/security-audit.md` already had it right, so the two documents
+disagreed — and the next reader of that comment is a future session deciding whether some change
+is safe. The claim is scoped in place (that migration is unmerged and has never been applied
+anywhere), and G14–G16 now pin all three regimes so the residual is tested rather than merely
+described. Second time in two PRs a migration header has over-claimed; reading one's own header
+adversarially is now part of the routine.
+
+**F-4, left open on purpose and written down.** Past the retention window, on an event whose
+link is still open, the dedup path *is* oracle (a). Pre-existing — the reviewer confirmed the
+identical split pre-fix — and F-2's write-side half does not change it (that token answered
+`{"found": false}` before and after, verified live). The structural close is
+`request_link_open()` shutting a link once its event is past the venue's retention window,
+which would take F-2's precondition and F-4 together; a behaviour change to the public landing
+surface, so its own task.
+
+**Suites after the second round**, on a fresh `supabase db reset`: pgTAP **59 files / 1219
+assertions PASS** (1202 → 1219 is section G), concurrency `PASS`, vitest **144 files / 1493**,
+type-check clean, lint 0 errors.
+
 **Not done here.** The two auto-approve enumeration residuals in §4A are untouched — this
 change does not widen or narrow them, and the at-capacity regime was re-checked against the
 live stack in both directions to confirm it.

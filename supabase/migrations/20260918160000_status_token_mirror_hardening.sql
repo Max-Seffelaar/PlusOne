@@ -1,197 +1,110 @@
--- z8uq9m0h2v — stop the silent-dedup path from handing a caller-chosen status
--- token to somebody else's pending request.
+-- z8uq9m0h2v — the two blockers from the fresh-session security review of
+-- PR #300, fixed in the PR rather than recorded as residuals.
 --
--- THE BUG (HIGH, anon-reachable, live on prod, pre-existing — found by the
--- fresh-session review of PR #296 but not caused by it; recorded as an open
--- residual in docs/security-audit.md 4A).
---
--- `submit_guest_request` is SECURITY DEFINER and granted to `anon`, so it is
--- reachable with nothing but the public anon key and a link slug. On the
--- silent-dedup path — a submission that matches an existing PENDING request on
--- the same event — it rotated that row's `status_token_hash` to the value the
--- CALLER passed in `p_status_token_hash`. The caller chooses that value.
---
--- Reproduced end-to-end against the local stack over plain PostgREST, anon key
--- only:
---
---   1 victim submits (manual-review link, token V)
---       -> {"status":"ok","auto_approved":false}
---   2 get_request_status(V)
---       -> {"found":true,"status":"pending","full_name":"Victim Vandermeer",
---           "plus_ones":2,"event_name":"PLUSONE Launch Night", ...}
---   3 attacker submits the VICTIM'S E-MAIL with attacker-chosen token A
---       -> {"status":"ok","auto_approved":false}       (silent dedup)
---   4 get_request_status(A)
---       -> {"found":true,"status":"pending","full_name":"Victim Vandermeer",
---           "plus_ones":2,"event_name":"PLUSONE Launch Night", ...}
---   5 get_request_status(V)
---       -> {"found":false}
---
--- One unauthenticated call: an existence oracle, disclosure of a named
--- individual's attendance + plus-ones (AVG-relevant), and a denial of service
--- on the victim's own status URL. `p_ip_hash` is an ARGUMENT, so a direct
--- PostgREST caller picks its own throttle bucket and has no effective limit on
--- probing addresses.
+-- The review rebuilt the stack from scratch (stock PG 16.13 + a platform shim,
+-- all 104 migrations clean, pgTAP through this repo's own plan/run gate),
+-- reproduced 59 files / 1202 assertions and 144 / 1493 exactly, got 14
+-- assertions to go red on reverting the function body, and could not break the
+-- mirror on any of the six attack questions it was handed. The design in
+-- 20260918140000 stands. What it found was an input that function never bounds,
+-- and a retention edge its own cleanup step could not reach.
 --
 -- ---------------------------------------------------------------------------
--- WHY NOT THE TWO OBVIOUS FIXES
+-- F-1 (BLOCKING, introduced by 20260918140000) — the error-message channel
 -- ---------------------------------------------------------------------------
--- (a) "Ignore p_status_token_hash on the dedup branch." Closes the disclosure
---     and the DoS — and opens a clean one-call enumeration oracle in their
---     place, which is exactly the trade 20260918100000 made in the
---     neighbouring block and had to be written up as a swap. After (a):
+-- `p_status_token_hash` is anon-controlled, unbounded `text`, and lands in a
+-- unique btree index on BOTH paths. Past the ~2704-byte index-row ceiling
+-- postgres raises 54000 — and since the mirror exists, the two paths name
+-- DIFFERENT indexes in the message:
 --
---       fresh e-mail  -> my chosen token resolves      {"found":true,...}
---       taken e-mail  -> my chosen token resolves not  {"found":false}
+--   len=2700 DEDUP -> 54000 index row size 2816 … "guest_request_status_mirrors_token_idx"
+--   len=2700 FRESH -> 54000 index row size 2816 … "guest_requests_status_token_idx"
 --
---     One call each way, no staff involvement, no timing analysis. That is a
---     strictly better oracle than the one 4A already documents for
---     auto-approve links, and it would be NEW on manual-review links, where
---     `auto_approved` is constant `false` and no e-mail oracle exists today.
---     It is not blunted by an oracle elsewhere either: `anon` holds no INSERT
---     on `guest_requests` since 20260707170000 (verified in the catalog while
---     writing this), so the partial dedupe index is not reachable as a
---     409-vs-201 probe by an anonymous caller.
+-- Pre-20260918140000 both paths hit the same index and the error was identical,
+-- so this is a regression, not an inheritance. SQLSTATE is 54000 on both sides;
+-- the differentiator is the message text, which PostgREST forwards verbatim in
+-- its 500 body. One unauthenticated call, one bit: "does this e-mail already
+-- have a pending request on this event?" — the exact oracle class the mirror
+-- design was chosen to avoid.
 --
--- (b) "Accept it only when status_token_hash is null." Same oracle as (a) in
---     the normal case (the app always sends a hash, so the stored one is never
---     null), AND it still hands the caller a live URL onto somebody else's row
---     in the case it does allow — a request row whose token is null is still
---     a real person's name, plus-ones and event. It narrows the hole; it does
---     not close it.
+-- Reproduced on the local stack before fixing, with the index names above.
+-- Note the reproduction only works with INCOMPRESSIBLE input: repeat('A', 5000)
+-- never reaches the ceiling because pglz compresses it inside the index tuple.
+-- A length-based test that used a repeated character would pass vacuously.
 --
--- ---------------------------------------------------------------------------
--- THE FIX: the caller's token addresses the caller's OWN submission, always
--- ---------------------------------------------------------------------------
--- The rotation becomes an ADDITIVE, identity-scoped binding. On dedup the
--- existing row is not touched at all; instead the caller's token hash is
--- recorded in a new side table together with the name and plus-ones THAT
--- CALLER submitted, pointing at the deduped-against request:
---
---   public.guest_request_status_mirrors (request_id pk, token_hash uq,
---                                        full_name, plus_ones, created_at)
---
--- `get_request_status` resolves a token against `guest_requests` first (the
--- submitter's own row, unchanged) and falls back to the mirror. A mirror
--- answers with the MIRROR'S name and plus-ones and the request's live status.
--- So:
---
---   * the victim's own status URL keeps working          (DoS closed)
---   * the attacker reads back the name and plus-ones THEY submitted, never the
---     victim's                                            (disclosure closed)
---   * ON A MANUAL-REVIEW LINK a fresh submission and a deduped one return a
---     byte-identical payload at submit time and on every read before a staff
---     decision — same keys, same status `pending`, same event, the caller's own
---     identity in both                                      (no oracle swap)
---
---     That scope is load-bearing and was over-claimed in the first draft of
---     this header (corrected per F-3 of the PR #300 security review, before
---     this migration was applied anywhere). On an AUTO-APPROVE link below
---     capacity the two are plainly distinguishable — deduped answers
---     `auto_approved:false` / `pending`, fresh answers `true` / `approved` —
---     because the dedup branch never auto-approves. That split is inherited
---     from 20260918100000, not introduced here (the review confirmed it
---     pre-fix), and docs/security-audit.md §4A lists it as the "undecided
---     pending request" residual. At capacity nothing separates them at all:
---     every request row stays `pending` either way. landing.test.sql pins all
---     three regimes so a future change cannot flip them silently.
---
--- Why the mirror stores the caller's name instead of reading it off the row:
--- that IS the whole fix. Anything computed from the existing row leaks the
--- existing row. The premise of the silent dedup is "same e-mail = same
--- person"; an e-mail address is not proof of identity, so the deduped caller
--- is granted what that premise can justify (the request's STATUS, which is
--- what they came for) and refused what it cannot (somebody else's identity).
---
--- Bounded by construction: `request_id` is the primary key, so one mirror per
--- pending request, last writer wins. An anonymous prober cannot grow the table
--- past one row per pending request, and it holds nothing it was not handed by
--- the same caller in the same call.
---
--- Not reachable except through these two SECURITY DEFINER functions: RLS on,
--- zero policies, zero grants to `anon` and `authenticated` (grant matrix
--- below), so neither role can read a mirror even though `authenticated` can
--- read the request it points at.
+-- FIX: cap the argument, with the other argument-only guards above the
+-- throttle, exactly as 86eyke279 already caps `v_email` for this same
+-- index-row-size reason in this same function. Neither path can now reach the
+-- ceiling, so neither can raise, so there is nothing left to compare.
 --
 -- ---------------------------------------------------------------------------
--- KNOWN RESIDUAL (not claimed away — mirrored in docs/security-audit.md 4A)
+-- F-2 (BLOCKING, introduced by 20260918140000) — mirrors no sweep would reach
 -- ---------------------------------------------------------------------------
--- A mirror reports the DEDUPED-AGAINST request's live status. Before a staff
--- decision that is `pending` for fresh and mirrored tokens alike, so the probe
--- itself learns nothing. AFTER a decision the two can come apart: a mirror
--- shows the verdict staff gave the VICTIM's request, while a fresh submission
--- shows the verdict they gave the attacker's own. An attacker who submits
--- obvious junk, waits for the event, and polls can read an `approved` as
--- evidence that the address belongs to someone who was let in.
+-- `run_privacy_retention` step 2b deleted only `m.request_id = any(v_request_ids)`
+-- — the requests THAT run had just anonymized. But step 2 clears neither
+-- `status` nor `dedupe_key`, so an anonymized request stays `pending` with its
+-- fingerprint intact and keeps tripping `guest_requests_dedupe_idx`. A later
+-- submission on the same e-mail therefore lands on the dedup branch and writes
+-- a fresh mirror — carrying THAT caller's real name and plus-ones — against a
+-- request that will never be anonymized again, so step 2b never sees it.
 --
--- That residual is deliberate, and the alternative was weighed: freezing a
--- mirror at `pending` forever removes it and installs the mirror image of it
--- ("still pending long after the event" ⇒ mirror ⇒ the address is taken),
--- while also breaking the legitimate re-submitter, whose second URL would
--- never show their approval. What is left is delayed, requires a staff
--- decision the attacker cannot trigger, is probabilistic, and yields no name,
--- no plus-ones and no denial of service — where the bug it replaces was
--- instant, certain, and gave all three.
+-- Reproduced on the local stack before fixing:
 --
--- One more, stated rather than hidden: `get_request_status` still checks
--- `guest_requests.status_token_hash` before the mirror, so a token that is
--- both a mirror and some row's real token resolves to the row. Reaching that
--- requires supplying a hash equal to the sha256 of another requester's
--- 256-bit token, i.e. already holding the secret. The mirror write refuses
--- such a hash anyway (the `not exists` guard below), so it cannot be set up
--- from the anon side.
+--   retention run #1                  | requests_anonymized = 1
+--   request after anonymize           | pending | anon=t | dedupe_key=f2v@x.test
+--   late probe on the same e-mail     | {"status":"ok","auto_approved":false}
+--   mirror rows                       | tok-f2-late | "Late Caller Name" | 3
+--   retention run #2                  | 0 0 0 0
+--   mirror rows after run #2          | 1 | Late Caller Name
 --
--- EXPAND–CONTRACT: additive only. New table, two function bodies replaced
--- behind their existing signatures, no column dropped or renamed. The
--- currently deployed app calls `submit_guest_request` and
--- `get_request_status` with unchanged argument lists and reads unchanged
--- result keys, so it keeps working across the deploy in both directions.
-
+-- Preconditions are ordinary, not exotic: an event past the venue's
+-- `retention_months` (12) whose landing link was never switched off —
+-- `request_link_open()` has no date check at all, so such a link stays open by
+-- default. Not a disclosure (`get_request_status` refuses an anonymized
+-- request, confirmed live: {"found": false}) — a pure AVG retention gap in a
+-- PII store that is one migration old.
+--
+-- FIX, both halves, because neither alone is enough:
+--   * the sweep now drives off `anonymized_at` instead of the run's id list, so
+--     it is self-healing and cleans orphans already written;
+--   * the dedup branch refuses to mirror onto an anonymized request at all, so
+--     it stops producing them.
+--
+-- WHAT THE SECOND HALF DOES NOT CHANGE (checked, not assumed): a mirror on an
+-- anonymized request was already unreadable — `get_request_status` filters
+-- `gr.anonymized_at is null` — so that token answered {"found": false} before
+-- this migration and answers {"found": false} after it. Verified live on both
+-- bodies. The caller-visible behaviour is identical; only the garbage stops.
+--
 -- ---------------------------------------------------------------------------
--- 1. The mirror table
+-- F-3 (NIT) — 20260918140000's header over-claimed, and is corrected in place
 -- ---------------------------------------------------------------------------
-
-create table if not exists public.guest_request_status_mirrors (
-  request_id uuid        primary key references public.guest_requests(id) on delete restrict,
-  token_hash text        not null,
-  full_name  text        not null,
-  plus_ones  integer     not null default 0,
-  created_at timestamptz not null default now(),
-  constraint guest_request_status_mirrors_plus_ones_check check (plus_ones >= 0)
-);
-
-comment on table public.guest_request_status_mirrors is
-  'z8uq9m0h2v — status token of a SILENTLY DEDUPED landing submission, bound to '
-  'the name/plus-ones that caller supplied. Never the deduped-against row''s own '
-  'identity: that is the vulnerability this table exists to close. Written and '
-  'read only by submit_guest_request / get_request_status (SECURITY DEFINER).';
-
-create unique index if not exists guest_request_status_mirrors_token_idx
-  on public.guest_request_status_mirrors (token_hash);
-
-alter table public.guest_request_status_mirrors enable row level security;
-
--- No policies on purpose: every legitimate reader and writer is a SECURITY
--- DEFINER function owned by postgres, which bypasses RLS. An empty policy set
--- with RLS on means any direct API access reads zero rows even if a grant is
--- ever added by accident.
-
--- Grant matrix (CLAUDE.md: revoke first, then grant; never `on all tables`).
--- Since 20260917100000 a new object starts closed, so this revoke is
--- belt-and-braces and the absence of a matching grant is the actual rule:
---   anon          — nothing (it reaches this table only via the two RPCs)
---   authenticated — nothing (staff read the REQUEST, never the mirror)
---   service_role  — defaults, as everywhere else
-revoke all on table public.guest_request_status_mirrors from anon, authenticated;
-
+-- That header said, twice and unqualified, that deduped and fresh submissions
+-- are byte-identical "on every read before a staff decision". True on
+-- manual-review links; FALSE on an auto-approve link below capacity, where a
+-- deduped probe answers `auto_approved:false` / `pending` and a fresh one
+-- answers `true` / `approved`. The split is inherited from 20260918100000 —
+-- the review confirmed it pre-fix — and `docs/security-audit.md` §4A already
+-- described it correctly, so the two documents disagreed. The migration is not
+-- applied anywhere (this PR is unmerged), so the claim is scoped in place
+-- there; the assertions that pin it are added in landing.test.sql here.
+--
 -- ---------------------------------------------------------------------------
--- 2. submit_guest_request — dedup writes a mirror instead of rotating
+-- F-4 (INFORMATIONAL, pre-existing) — left open, deliberately, and written down
 -- ---------------------------------------------------------------------------
--- Unchanged from 20260918100000 except the `exception when unique_violation`
--- block (and the two `declare`s it needs). Everything the caller can observe
--- from the RETURN value is identical, including the z8uq9m0gvy standing
--- semantics of `auto_approved` and the `v_request_id := null` that keeps the
--- dedup path out of the auto-approve insert.
+-- Past the retention window, on an event whose link is still open, the dedup
+-- path IS oracle (a): a taken (anonymized) address answers {"found": false}
+-- where a fresh one answers {"found": true}. The review confirmed the identical
+-- split pre-fix, so it is not introduced by either migration, and this one does
+-- not widen it. The structural answer is to make `request_link_open()` close a
+-- link once its event is past the venue's retention window — which would close
+-- F-2's precondition and F-4 together, and is a behaviour change to the public
+-- landing surface that deserves its own task rather than a rider on a security
+-- fix. Recorded in docs/security-audit.md §4A.
+--
+-- EXPAND–CONTRACT: two function bodies replaced behind unchanged signatures.
+-- No schema change, no column or table touched. The deployed app calls both
+-- RPCs with unchanged arguments and reads unchanged result keys.
 
 create or replace function public.submit_guest_request(
   p_slug              text,
@@ -263,8 +176,32 @@ begin
     return jsonb_build_object('status', 'invalid');
   end if;
 
-  -- Both guards sit BEFORE the throttle, exactly where the pre-existing name
-  -- check sits, and that placement is load-bearing for #28: they are decided
+  -- z8uq9m0h2v F-1 — the status-token hash is anon-controlled, UNBOUNDED text
+  -- and lands in a unique BTREE index on both paths. Past that index's
+  -- ~2704-byte row ceiling postgres raises 54000, and since 20260918140000 the
+  -- two paths write to DIFFERENT indexes, so the error MESSAGE names which
+  -- branch ran ("guest_request_status_mirrors_token_idx" vs
+  -- "guest_requests_status_token_idx"). SQLSTATE is 54000 either way, but
+  -- PostgREST forwards postgres' message/detail verbatim in its 500 body — so
+  -- that difference is a one-call "does this e-mail already have a pending
+  -- request?" oracle, in exactly the class 20260918140000 set out not to
+  -- create. Found by the fresh-session security review of PR #300.
+  --
+  -- Capping the argument closes it at the source: neither path can reach the
+  -- ceiling, so neither can raise. This is the same rule 86eyke279 already
+  -- applies to v_email a few lines up, for the same index-row-size reason. The
+  -- app sends a 64-char sha256 hex; 128 leaves headroom for a format change.
+  --
+  -- The cap is on char_length, deliberately: a byte-size test would be fooled
+  -- the way a naive REPRODUCTION is — repeat('A', 5000) never reaches the
+  -- ceiling because pglz compresses it inside the index tuple, so only
+  -- incompressible input (random base64) triggers the raise.
+  if p_status_token_hash is not null and char_length(p_status_token_hash) > 128 then
+    return jsonb_build_object('status', 'invalid');
+  end if;
+
+  -- The guards above all sit BEFORE the throttle, exactly where the pre-existing
+  -- name check sits, and that placement is load-bearing for #28: they are decided
   -- purely from the caller's own arguments, before any slug, link or row of
   -- ours is read. An 'invalid' answer therefore echoes back only what the
   -- caller already sent and discloses nothing about which events, links or
@@ -336,7 +273,17 @@ begin
       from public.guest_requests gr
       where gr.event_id = v_link.event_id
         and gr.dedupe_key = v_key
-        and gr.status = 'pending';
+        and gr.status = 'pending'
+        -- z8uq9m0h2v F-2: retention anonymizes a request but leaves it
+        -- `pending` with its dedupe_key intact, so it keeps occupying the
+        -- partial unique index and later submissions keep landing here. A
+        -- mirror on such a row is unreadable by construction
+        -- (get_request_status refuses an anonymized request), so writing one
+        -- only parks a fresh caller's real name in a table no retention run
+        -- would ever reach again. Skipping the write changes nothing the
+        -- caller can observe: with or without it that token answers
+        -- {"found": false}. Verified on the live stack both ways.
+        and gr.anonymized_at is null;
     end if;
 
     if v_dup_id is not null
@@ -501,73 +448,6 @@ begin
 end;
 $$;
 
--- ---------------------------------------------------------------------------
--- 3. get_request_status — resolve the token, then the mirror
--- ---------------------------------------------------------------------------
--- Same signature, same grants, same keys in the payload. The only change is
--- the second lookup and where `full_name`/`plus_ones` come from on it.
-
-create or replace function public.get_request_status(p_token_hash text, p_ip_hash text)
-returns jsonb
-language plpgsql
-security definer
-set search_path = ''
-as $$
-declare
-  v_row record;
-begin
-  if p_token_hash is null
-     or not public.consume_public_throttle('st:' || p_ip_hash, 15, 30) then
-    return jsonb_build_object('found', false);
-  end if;
-
-  -- 1. The submitter's own row (the fresh-submission path, unchanged).
-  select gr.full_name, gr.status, gr.plus_ones, e.name as event_name, e.starts_at
-  into v_row
-  from public.guest_requests gr
-  join public.events e on e.id = gr.event_id
-  where gr.status_token_hash = p_token_hash
-    and gr.anonymized_at is null;
-
-  -- 2. z8uq9m0h2v — a mirror: the token of a submission that was silently
-  --    deduped against the row it points at. It answers with the name and
-  --    plus-ones THAT caller submitted, never the row's own: the caller proved
-  --    they know an e-mail address, which is not proof they are the person
-  --    behind it. The request's live `status` is what the dedup premise does
-  --    justify handing over, and is the only field taken from the row.
-  if not found then
-    select m.full_name, gr.status, m.plus_ones, e.name as event_name, e.starts_at
-    into v_row
-    from public.guest_request_status_mirrors m
-    join public.guest_requests gr on gr.id = m.request_id
-    join public.events e on e.id = gr.event_id
-    where m.token_hash = p_token_hash
-      and gr.anonymized_at is null;
-  end if;
-
-  if not found then
-    return jsonb_build_object('found', false);
-  end if;
-
-  return jsonb_build_object(
-    'found', true,
-    'status', v_row.status,
-    'full_name', v_row.full_name,
-    'plus_ones', v_row.plus_ones,
-    'event_name', v_row.event_name,
-    'starts_at', v_row.starts_at
-  );
-end;
-$$;
-
--- ---------------------------------------------------------------------------
--- 4. run_privacy_retention — a mirror is PII and expires with its request
--- ---------------------------------------------------------------------------
--- Unchanged from 20260706101000 except step 2b. `get_request_status` already
--- refuses an anonymized request, so the mirror is unreachable the moment the
--- request is anonymized; deleting it is about not KEEPING a name past the
--- venue's retention window (#29), not about access.
-
 create or replace function public.run_privacy_retention()
 returns table (
   guests_anonymized   integer,
@@ -646,14 +526,28 @@ begin
   select coalesce(array_agg(id), '{}') into v_request_ids from upd;
   v_requests := coalesce(array_length(v_request_ids, 1), 0);
 
-  -- 2b. z8uq9m0h2v — drop the status-token mirrors of the requests that step 2
-  --     just anonymized. A mirror holds a name and plus-ones supplied by the
-  --     caller of a deduped submission; step 2 nulls the request's own
-  --     `status_token_hash`, and this is the matching revocation for the
-  --     mirrored one, so no landing-page identity outlives the venue's
-  --     retention window on either side of the pair.
+  -- 2b. z8uq9m0h2v — drop the status-token mirrors of every ANONYMIZED request,
+  --     not just the ones step 2 touched on this run. A mirror holds a name and
+  --     plus-ones supplied by the caller of a deduped submission; step 2 nulls
+  --     the request's own `status_token_hash`, and this is the matching
+  --     revocation for the mirrored one.
+  --
+  --     Scoping this to `any(v_request_ids)` — what 20260918140000 shipped —
+  --     left a hole the fresh-session security review of PR #300 reproduced:
+  --     step 2 clears neither `status` nor `dedupe_key`, so an anonymized
+  --     request stays `pending` with its fingerprint and keeps catching later
+  --     submissions on the dedup branch. Those wrote a mirror carrying the new
+  --     caller's real name against a request already anonymized — which this
+  --     step, looking only at ids from its own run, never saw again. Retention
+  --     run #2 reported `0 0 0 0` and the name survived indefinitely.
+  --
+  --     Driving the delete off `anonymized_at` instead of the run's id list
+  --     makes the sweep self-healing: it cleans orphans written before this
+  --     migration as well as any a future path manages to create.
   delete from public.guest_request_status_mirrors m
-  where m.request_id = any(v_request_ids);
+  using public.guest_requests gr
+  where gr.id = m.request_id
+    and gr.anonymized_at is not null;
 
   -- 3. Redact refusal reasons of the just-anonymized guests.
   update public.refusals

@@ -1,5 +1,5 @@
 -- Canonical body (K10 drift guard, see supabase/canonical/README.md).
--- Newest source: supabase/migrations/20260918140000_status_token_mirror.sql:184.
+-- Newest source: supabase/migrations/20260918160000_status_token_mirror_hardening.sql:109.
 
 create or replace function public.submit_guest_request(
   p_slug              text,
@@ -71,8 +71,32 @@ begin
     return jsonb_build_object('status', 'invalid');
   end if;
 
-  -- Both guards sit BEFORE the throttle, exactly where the pre-existing name
-  -- check sits, and that placement is load-bearing for #28: they are decided
+  -- z8uq9m0h2v F-1 — the status-token hash is anon-controlled, UNBOUNDED text
+  -- and lands in a unique BTREE index on both paths. Past that index's
+  -- ~2704-byte row ceiling postgres raises 54000, and since 20260918140000 the
+  -- two paths write to DIFFERENT indexes, so the error MESSAGE names which
+  -- branch ran ("guest_request_status_mirrors_token_idx" vs
+  -- "guest_requests_status_token_idx"). SQLSTATE is 54000 either way, but
+  -- PostgREST forwards postgres' message/detail verbatim in its 500 body — so
+  -- that difference is a one-call "does this e-mail already have a pending
+  -- request?" oracle, in exactly the class 20260918140000 set out not to
+  -- create. Found by the fresh-session security review of PR #300.
+  --
+  -- Capping the argument closes it at the source: neither path can reach the
+  -- ceiling, so neither can raise. This is the same rule 86eyke279 already
+  -- applies to v_email a few lines up, for the same index-row-size reason. The
+  -- app sends a 64-char sha256 hex; 128 leaves headroom for a format change.
+  --
+  -- The cap is on char_length, deliberately: a byte-size test would be fooled
+  -- the way a naive REPRODUCTION is — repeat('A', 5000) never reaches the
+  -- ceiling because pglz compresses it inside the index tuple, so only
+  -- incompressible input (random base64) triggers the raise.
+  if p_status_token_hash is not null and char_length(p_status_token_hash) > 128 then
+    return jsonb_build_object('status', 'invalid');
+  end if;
+
+  -- The guards above all sit BEFORE the throttle, exactly where the pre-existing
+  -- name check sits, and that placement is load-bearing for #28: they are decided
   -- purely from the caller's own arguments, before any slug, link or row of
   -- ours is read. An 'invalid' answer therefore echoes back only what the
   -- caller already sent and discloses nothing about which events, links or
@@ -144,7 +168,17 @@ begin
       from public.guest_requests gr
       where gr.event_id = v_link.event_id
         and gr.dedupe_key = v_key
-        and gr.status = 'pending';
+        and gr.status = 'pending'
+        -- z8uq9m0h2v F-2: retention anonymizes a request but leaves it
+        -- `pending` with its dedupe_key intact, so it keeps occupying the
+        -- partial unique index and later submissions keep landing here. A
+        -- mirror on such a row is unreadable by construction
+        -- (get_request_status refuses an anonymized request), so writing one
+        -- only parks a fresh caller's real name in a table no retention run
+        -- would ever reach again. Skipping the write changes nothing the
+        -- caller can observe: with or without it that token answers
+        -- {"found": false}. Verified on the live stack both ways.
+        and gr.anonymized_at is null;
     end if;
 
     if v_dup_id is not null

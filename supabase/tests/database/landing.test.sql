@@ -55,7 +55,7 @@ begin
 end;
 $fn$;
 
-select plan(74);
+select plan(91);
 
 -- ---------------------------------------------------------------------------
 -- A. submit_guest_request — the hardened anon path (#12/#28) + marketing (8b)
@@ -589,6 +589,158 @@ select is(
       and gr.email = 'hijack-victim@x.test' and gr.status = 'pending'),
   'tok-hj-victim',
   'F22 and after two probes the victim''s row STILL holds the victim''s own token');
+
+-- ---------------------------------------------------------------------------
+-- G. The two blockers from the PR #300 security review (z8uq9m0h2v)
+-- ---------------------------------------------------------------------------
+-- G1–G3  F-1: an oversized p_status_token_hash used to raise 54000 naming a
+--        DIFFERENT index per path, which PostgREST forwards verbatim — a
+--        one-call "is this e-mail taken?" oracle. The hash is now capped with
+--        the other argument-only guards, so neither path can reach the ceiling.
+-- G4–G7  F-2: retention leaves an anonymized request `pending` with its
+--        dedupe_key, so later submissions kept landing on the dedup branch and
+--        mirroring a fresh caller's real name onto a row no sweep would revisit.
+-- G8–G11 F-3: the three regimes the migration header now scopes its
+--        indistinguishability claim to, pinned so a future change cannot flip
+--        them silently.
+
+-- The probe payload MUST be incompressible: repeat('A', 5000) never reaches the
+-- btree ceiling because pglz squashes it inside the index tuple, so a test
+-- built on a repeated character passes whether or not the guard exists.
+create function pg_temp.big_hash(p_len int)
+returns text language sql as $fn$
+  select substr(string_agg(md5(random()::text || clock_timestamp()::text), ''), 1, p_len)
+  from generate_series(1, (p_len / 32) + 2);
+$fn$;
+
+select is(char_length(pg_temp.big_hash(2700)), 2700, 'G0 the probe builder returns an incompressible hash of the asked-for length');
+
+select pg_temp.login_anon();
+
+-- hijack-victim@x.test already holds a pending request from section F, so this
+-- is the DEDUP path; hijack-g-fresh@x.test has never been seen — the FRESH one.
+select is(
+  public.submit_guest_request('plusone-launch-night', 'G Prober',
+    'hijack-victim@x.test', '+31612388001', 0, null, 'ip-g-1', false,
+    null, pg_temp.big_hash(2700)) ->> 'status',
+  'invalid',
+  'G1 an over-long status-token hash is refused on the DEDUP path, not raised');
+
+select is(
+  public.submit_guest_request('plusone-launch-night', 'G Prober',
+    'hijack-g-fresh@x.test', '+31612388002', 0, null, 'ip-g-2', false,
+    null, pg_temp.big_hash(2700)) ->> 'status',
+  'invalid',
+  'G2 ...and on the FRESH path');
+
+select is(
+  public.submit_guest_request('plusone-launch-night', 'G Prober',
+    'hijack-victim@x.test', '+31612388003', 0, null, 'ip-g-3', false,
+    null, pg_temp.big_hash(2700)),
+  public.submit_guest_request('plusone-launch-night', 'G Prober',
+    'hijack-g-fresh@x.test', '+31612388004', 0, null, 'ip-g-4', false,
+    null, pg_temp.big_hash(2700)),
+  'G3 ...and the two answers are IDENTICAL — no index name, no branch, nothing to compare');
+
+reset role;
+
+select is(
+  (select count(*)::int from public.guest_requests
+    where email = 'hijack-g-fresh@x.test'),
+  0, 'G4 an over-long hash writes nothing at all (refused above the throttle, before any row)');
+
+-- F-2: an event past the venue's retention window whose landing link was never
+-- switched off — request_link_open() has no date check, so this is the default.
+insert into public.events (id, venue_id, name, starts_at, ends_at, landing_active)
+values ('ee000000-0000-7000-8000-00000000f201', 'aa000000-0000-7000-8000-000000000001',
+        'G Old Event', now() - interval '14 months', now() - interval '14 months' + interval '6 hours', true);
+insert into public.request_links (id, event_id, venue_id, label, slug, auto_approve, active)
+values ('11100000-0000-7000-8000-00000000f201', 'ee000000-0000-7000-8000-00000000f201',
+        'aa000000-0000-7000-8000-000000000001', 'G link', 'g-old-link', false, true);
+
+select pg_temp.login_anon();
+select is(
+  public.submit_guest_request('g-old-link', 'G Old Victim', 'g-old@x.test',
+    '+31612388005', 0, null, 'ip-g-5', false, null, 'tok-g-old-victim') ->> 'status',
+  'ok', 'G5 someone files a request on that old event');
+reset role;
+
+select lives_ok($$ select * from public.run_privacy_retention() $$,
+  'G6 the first retention run anonymizes it');
+
+select is(
+  (select gr.status::text || '|' || (gr.anonymized_at is not null)::text || '|' || coalesce(gr.dedupe_key, '(null)')
+     from public.guest_requests gr where gr.event_id = 'ee000000-0000-7000-8000-00000000f201'),
+  'pending|true|g-old@x.test',
+  'G7 ...and leaves it PENDING with its dedupe_key — which is why later submissions still dedup against it');
+
+-- The late probe: before the fix this wrote a mirror carrying this caller's real
+-- name against a request no later sweep would ever look at again.
+select pg_temp.login_anon();
+select is(
+  public.submit_guest_request('g-old-link', 'G Late Caller', 'g-old@x.test',
+    '+31612388006', 3, null, 'ip-g-6', false, null, 'tok-g-late') ->> 'status',
+  'ok', 'G8 a late submission on the same e-mail still reports a plain ok');
+select is(
+  public.get_request_status('tok-g-late', 'ip-g-r') ->> 'found',
+  'false',
+  'G9 ...its token does not resolve — unchanged by the fix, an anonymized request is refused either way');
+reset role;
+
+select is(
+  (select count(*)::int from public.guest_request_status_mirrors m
+     join public.guest_requests gr on gr.id = m.request_id
+    where gr.event_id = 'ee000000-0000-7000-8000-00000000f201'),
+  0,
+  'G10 and NO mirror was written onto the anonymized request — the late caller''s name is not parked in the table');
+
+-- The self-healing half: an orphan written by an older build is swept even
+-- though no request is anonymized on this run.
+-- `on conflict` on purpose: G13 must pin the SWEEP half on its own, whether or
+-- not the write half (G10) is in place. Without it, a build that still mirrors
+-- onto anonymized requests already occupies this request_id, the plain insert
+-- trips the primary key, and the abort hides whether the sweep works at all.
+insert into public.guest_request_status_mirrors (request_id, token_hash, full_name, plus_ones)
+select gr.id, 'tok-g-orphan', 'G Orphan Name', 2
+  from public.guest_requests gr where gr.event_id = 'ee000000-0000-7000-8000-00000000f201'
+on conflict (request_id) do update
+  set token_hash = excluded.token_hash, full_name = excluded.full_name, plus_ones = excluded.plus_ones;
+select is(
+  (select count(*)::int from public.guest_request_status_mirrors where token_hash = 'tok-g-orphan'),
+  1, 'G11 an orphan mirror planted on an already-anonymized request exists');
+
+select lives_ok($$ select * from public.run_privacy_retention() $$,
+  'G12 a later retention run — which anonymizes nothing new — still runs');
+
+select is(
+  (select count(*)::int from public.guest_request_status_mirrors where token_hash = 'tok-g-orphan'),
+  0,
+  'G13 ...and sweeps the orphan anyway: the delete drives off anonymized_at, not that run''s id list');
+
+-- F-3: pin the three regimes the header now scopes its claim to. The auto-approve
+-- split is documented and inherited (20260918100000), not introduced here — but
+-- nothing pinned it, so a future change could flip it in either direction.
+update public.events
+  set list_locked = false, locked_by = null, locked_at = null, capacity = null
+  where id = 'ee000000-0000-7000-8000-000000000001';
+
+select pg_temp.login_anon();
+select is(
+  public.submit_guest_request('launch-night-jayden', 'G Auto Probe',
+    'hijack-victim@x.test', '+31612388007', 0, null, 'ip-g-7', false, null, 'tok-g-auto-dedup') ->> 'auto_approved',
+  'false',
+  'G14 auto-approve link BELOW capacity: a deduped probe answers false (documented residual, inherited)');
+select is(
+  public.submit_guest_request('launch-night-jayden', 'G Auto Probe',
+    'g-auto-fresh@x.test', '+31612388008', 0, null, 'ip-g-8', false, null, 'tok-g-auto-fresh') ->> 'auto_approved',
+  'true',
+  'G15 ...where a fresh one answers true — this is the split the header must NOT claim away');
+select is(
+  (public.get_request_status('tok-g-auto-dedup', 'ip-g-r2') ->> 'status') || '/' ||
+  (public.get_request_status('tok-g-auto-fresh', 'ip-g-r2') ->> 'status'),
+  'pending/approved',
+  'G16 ...and it reaches the status payload too, which is exactly why the claim is scoped to manual-review links');
+reset role;
 
 select * from finish();
 
