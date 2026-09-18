@@ -107,6 +107,13 @@ export const landing = {
   statusApprovedGroup: 'Party of {n} — all under your name.',
   statusDeniedTitle: 'Not this time.',
   statusDeniedBody: "Your request for {event} wasn't approved. The door has the final say tonight.",
+  // z8uq9m0hw6: the night's window, a reduced approval, and the venue's own
+  // words. No dashes in the range: "23:00 to 05:00".
+  statusTimeRange: '{start} to {end}',
+  statusTimeFrom: 'From {start}',
+  statusApprovedReduced: 'Approved for {approved} of {requested} people',
+  statusMessageLabel: 'Message from the venue',
+  statusAddressAria: 'Venue address',
   statusNotFoundTitle: 'Nothing here.',
   statusNotFoundBody: "This status link isn't valid (anymore). Request a spot through the event link.",
 
