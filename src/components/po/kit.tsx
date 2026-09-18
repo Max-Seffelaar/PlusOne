@@ -115,6 +115,57 @@ export function StatusDot({ status, label = true }: { status: 'in' | 'wait'; lab
 }
 
 // ── PayChip ─────────────────────────────────────────────────────────────────
+// ── SyncDot ─────────────────────────────────────────────────────────────────
+/**
+ * Connection traffic light (spec §4 point 4). Shared by the mobile door's
+ * SyncBar and the desktop Check-in cockpit header (z8uq9m0hw4), so both read
+ * the same state in the same colours. The status comes from
+ * `deriveSyncStatus` (features/door/sync/status.ts). Deliberately outside the
+ * single-accent palette: live = mint, stale = gold (both already tier colours),
+ * warn = red. The ping ring only runs while live, and only under motion-safe.
+ */
+export const SYNC_STATUS_COLOR = { live: '#4FD1A1', stale: '#E8C98A', warn: '#E5704F' } as const;
+export type SyncDotStatus = keyof typeof SYNC_STATUS_COLOR;
+
+export function SyncDot({ status }: { status: SyncDotStatus }): JSX.Element {
+  const color = SYNC_STATUS_COLOR[status];
+  return (
+    <span aria-hidden className="relative flex h-[10px] w-[10px] shrink-0 items-center justify-center">
+      {status === 'live' && (
+        <span
+          className="absolute inline-flex h-full w-full rounded-full opacity-60 motion-safe:animate-ping"
+          style={{ background: color }}
+        />
+      )}
+      <span className="relative inline-flex h-[9px] w-[9px] rounded-full" style={{ background: color }} />
+    </span>
+  );
+}
+
+// ── CountBadge ──────────────────────────────────────────────────────────────
+/**
+ * Lavender count bubble for "needs your attention" numbers (open requests).
+ * Same look as the nav/tab-bar badge. `pulse` adds a slow ping ring behind it
+ * (z8uq9m0hw4, Home's Open requests tile) that only runs under motion-safe, so
+ * prefers-reduced-motion gets the static bubble. Renders nothing at 0.
+ */
+export function CountBadge({ n, pulse, className }: { n: number; pulse?: boolean; className?: string }): JSX.Element | null {
+  if (n <= 0) return null;
+  return (
+    <span className={cn('relative inline-flex shrink-0', className)}>
+      {pulse && (
+        <span
+          aria-hidden
+          className="absolute inset-0 rounded-full bg-acc opacity-50 motion-safe:animate-ping motion-safe:[animation-duration:2s]"
+        />
+      )}
+      <span className="relative flex h-[20px] min-w-[20px] items-center justify-center rounded-full border-2 border-bg bg-acc px-[5px] font-display text-[11px] font-extrabold leading-none text-on-acc">
+        {n}
+      </span>
+    </span>
+  );
+}
+
 export function PayChip({ pay }: { pay: string }): JSX.Element | null {
   if (pay !== 'pay') return null;
   return (

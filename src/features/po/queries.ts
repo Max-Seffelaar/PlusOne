@@ -524,17 +524,27 @@ export type PoGuestRequestRow = Pick<
   /** Resolved link identity (influencer name ?? label); null for the default
    *  link, a legacy pre-links request, or an unreadable link (RLS). */
   viaLabel: string | null;
+  /** True when the request came through the event's default ("Standard")
+   *  link (z8uq9m0hw4) — so the inbox can name it instead of showing nothing.
+   *  False for a custom link, no link, or a link this viewer can't read. */
+  viaStandard: boolean;
 };
+
+interface LinkIdentity {
+  label: string | null;
+  isDefault: boolean;
+}
 
 /** Resolve request_link_id → "via" label (influencer name ?? label) in two
  *  RLS-safe round-trips (no FK-embed guessing — mirrors fetchQuotaRequests).
- *  The default link resolves to null: it has no influencer and no label. */
-async function fetchLinkLabels(client: Client, linkIds: string[]): Promise<Map<string, string | null>> {
-  const labels = new Map<string, string | null>();
+ *  The default link resolves to a null label: it has no influencer and no
+ *  label, and is flagged `isDefault` instead. */
+async function fetchLinkLabels(client: Client, linkIds: string[]): Promise<Map<string, LinkIdentity>> {
+  const labels = new Map<string, LinkIdentity>();
   if (linkIds.length === 0) return labels;
   const { data: links, error } = await client
     .from('request_links')
-    .select('id, label, influencer_id')
+    .select('id, label, influencer_id, is_default')
     .in('id', linkIds);
   if (error) throw error;
   const rows = links ?? [];
@@ -546,7 +556,10 @@ async function fetchLinkLabels(client: Client, linkIds: string[]): Promise<Map<s
   const influencers = infRes.data ?? [];
   const nameById = new Map(influencers.map((i) => [i.id, i.name]));
   for (const l of rows) {
-    labels.set(l.id, (l.influencer_id ? nameById.get(l.influencer_id) : null) ?? l.label ?? null);
+    labels.set(l.id, {
+      label: l.is_default ? null : (l.influencer_id ? nameById.get(l.influencer_id) : null) ?? l.label ?? null,
+      isDefault: l.is_default,
+    });
   }
   return labels;
 }
@@ -578,10 +591,10 @@ export async function fetchGuestRequests(
   const rows = data ?? [];
   const linkIds = [...new Set(rows.map((r) => r.request_link_id).filter((x): x is string => !!x))];
   const labels = await fetchLinkLabels(client, linkIds);
-  return rows.map((r) => ({
-    ...r,
-    viaLabel: r.request_link_id ? labels.get(r.request_link_id) ?? null : null,
-  }));
+  return rows.map((r) => {
+    const link = r.request_link_id ? labels.get(r.request_link_id) : undefined;
+    return { ...r, viaLabel: link?.label ?? null, viaStandard: link?.isDefault ?? false };
+  });
 }
 
 export interface PoQuotaRequestRow {

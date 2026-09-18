@@ -539,6 +539,19 @@ export function usePoEventForEdit(eventId: string) {
   return { ...query, isAdmin, canManage: isAdmin || !!query.data?.isOrganizer };
 }
 
+/**
+ * Whether the caller may create a request link on this event (z8uq9m0hw4):
+ * admin, or organizer of that event — exactly the request_links_insert RLS.
+ * The ONE gate for every "New link" entry (Requests header, Promotion hub
+ * header + empty state), so finance (reads Promotion, can't create) never gets
+ * a button that dead-ends on RLS. `isAdmin` decides whether the create flow may
+ * offer a venue-wide event picker; everyone else stays on the one event.
+ */
+export function usePoCanCreateLink(eventId: string): { canCreate: boolean; isAdmin: boolean } {
+  const { canManage, isAdmin } = usePoEventForEdit(eventId);
+  return { canCreate: !!eventId && canManage, isAdmin };
+}
+
 /** External crew (event_organizers, #6/#24) assigned to an event. RLS limits reads
  *  to members of the event's venue (or the organizer themself). */
 export function usePoCrew(eventId: string) {

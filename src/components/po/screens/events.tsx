@@ -433,7 +433,7 @@ export function EventView({ id }: { id?: string }): JSX.Element {
             </div>
           )}
         </div>
-        {id && <EventActivitySection eventId={id} isLive />}
+        {id && <EventActivitySection eventId={id} isLive phase={ev.phase} />}
       </Scroll>
     </div>
   );
