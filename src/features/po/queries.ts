@@ -1752,6 +1752,7 @@ export type PoVenueSettingsRow = Pick<
   | 'postal_code'
   | 'city'
   | 'country'
+  | 'website'
 >;
 
 /** Venue settings (RLS venues_select: any member reads; only admin may update). */
@@ -1762,7 +1763,7 @@ export async function fetchVenueSettings(
   const { data, error } = await client
     .from('venues')
     .select(
-      'id, name, slug, retention_months, default_personal_quota, allow_uncheck, company_name, kvk_number, vat_number, finance_email, address_line, postal_code, city, country'
+      'id, name, slug, retention_months, default_personal_quota, allow_uncheck, company_name, kvk_number, vat_number, finance_email, address_line, postal_code, city, country, website'
     )
     .eq('id', venueId)
     .maybeSingle();

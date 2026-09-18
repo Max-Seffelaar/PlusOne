@@ -85,6 +85,51 @@ export function VenueSwitch(): JSX.Element {
   );
 }
 
+/** Only an http(s) URL ever becomes a live link. The Zod rule and the DB CHECK
+ *  already guarantee it; this keeps any other stored string inert. */
+const isLinkable = (url: string): boolean => /^https?:\/\//i.test(url);
+
+/** The venue's own website (z8uq9m0hw2). Admin: an input, plus a link to the
+ *  SAVED address once there is one. Read-only (finance): the saved address is
+ *  itself the tappable link. Opens in a new tab / the system browser. */
+function WebsiteField({ value, saved, onChange }: { value: string; saved: string; onChange?: (v: string) => void }): JSX.Element {
+  const link = saved !== '' && isLinkable(saved) ? saved : null;
+  if (!onChange) {
+    return link ? (
+      <a
+        href={link}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={cn('mb-[18px] flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]', press)}
+      >
+        <span className="text-faint">
+          <Icon name="link" size={19} />
+        </span>
+        <span className="min-w-0 flex-1 truncate font-body text-[16px] text-acc">{link}</span>
+        <Icon name="arrowR" size={17} className="text-faint" />
+      </a>
+    ) : (
+      <Field icon="link" value="" placeholder={t.settings.venue.websiteEmpty} className="mb-[18px]" />
+    );
+  }
+  return (
+    <div className="mb-[18px]">
+      <Field icon="link" type="url" value={value} onChange={onChange} placeholder={t.settings.venue.websitePlaceholder} />
+      {link && (
+        <a
+          href={link}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-1 inline-flex min-h-[44px] items-center gap-[6px] font-display text-[13.5px] font-bold text-acc"
+        >
+          {t.settings.venue.websiteOpen}
+          <Icon name="arrowR" size={15} />
+        </a>
+      )}
+    </div>
+  );
+}
+
 // ── VENUE SETTINGS (pushed) — S8 Venue-instellingen, live ────────────────────
 // Name + AVG retention + venue-default quota + the company/legal/finance/address
 // profile (mirrors the desktop VenueSettingsForm). Admin edits; finance reads
@@ -110,6 +155,7 @@ export function VenueSettings(): JSX.Element {
     postalCode: '',
     city: '',
     country: 'NL',
+    website: '',
   });
   const [loaded, setLoaded] = useState(false);
 
@@ -128,13 +174,14 @@ export function VenueSettings(): JSX.Element {
         postalCode: s.postalCode,
         city: s.city,
         country: s.country,
+        website: s.website,
       });
       setLoaded(true);
     }
   }, [s, loaded]);
 
   const canEdit = caps.editSettings;
-  type StrField = 'name' | 'companyName' | 'kvkNumber' | 'vatNumber' | 'financeEmail' | 'addressLine' | 'postalCode' | 'city' | 'country';
+  type StrField = 'name' | 'companyName' | 'kvkNumber' | 'vatNumber' | 'financeEmail' | 'addressLine' | 'postalCode' | 'city' | 'country' | 'website';
   const editStr = (k: StrField, sanitize?: (v: string) => string) =>
     canEdit ? (v: string) => setForm((f) => ({ ...f, [k]: sanitize ? sanitize(v) : v })) : undefined;
 
@@ -181,7 +228,8 @@ export function VenueSettings(): JSX.Element {
     form.addressLine !== s.addressLine ||
     form.postalCode !== s.postalCode ||
     form.city !== s.city ||
-    form.country !== s.country;
+    form.country !== s.country ||
+    form.website !== s.website;
   const canSave = canEdit && dirty && form.name.trim() !== '' && !save.isPending;
 
   return (
@@ -192,8 +240,8 @@ export function VenueSettings(): JSX.Element {
 
         <Label className="mb-2">{t.settings.venue.nameLabel}</Label>
         <Field icon="building" value={form.name} onChange={editStr('name')} className="mb-[14px]" />
-        <Label className="mb-2">{t.settings.venue.landingLabel}</Label>
-        <Field icon="link" value={`plus.one/${s.slug}`} className="mb-[18px]" />
+        <Label className="mb-2">{t.settings.venue.websiteLabel}</Label>
+        <WebsiteField value={form.website} saved={s.website} onChange={editStr('website')} />
 
         <Label className="mb-[10px]">{t.settings.venue.defaultsLabel}</Label>
         <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-4 py-1">
