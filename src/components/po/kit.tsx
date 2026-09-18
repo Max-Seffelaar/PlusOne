@@ -464,11 +464,14 @@ export function IconBtn({
   name,
   onClick,
   ariaLabel,
+  className,
 }: {
   name: IconName;
   onClick?: () => void;
   /** Accessible name (also shown as a hover tooltip) for icon-only buttons with no visible label. */
   ariaLabel?: string;
+  /** Size/tone overrides, e.g. `h-[44px] w-[44px]` for an in-list trigger. */
+  className?: string;
 }): JSX.Element {
   return (
     <button
@@ -476,7 +479,7 @@ export function IconBtn({
       onClick={onClick}
       aria-label={ariaLabel}
       title={ariaLabel}
-      className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text', press)}
+      className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text', press, className)}
     >
       <Icon name={name} size={19} />
     </button>
@@ -672,4 +675,54 @@ export function MiniChip({ children, className, onClick }: { children: ReactNode
     );
   }
   return <span className={cls}>{children}</span>;
+}
+
+// ── ActionItem ───────────────────────────────────────────────────────────────
+/**
+ * One choice in a "…" action sheet: icon badge + verb-first label + an optional
+ * one-line sub (the current value it changes). Stack them inside a `Sheet`
+ * (shell.tsx). `danger` is the destructive choice, which goes last and asks for
+ * a confirm of its own. At least 52px tall, so the tap target clears 44px.
+ */
+export function ActionItem({
+  icon,
+  label,
+  sub,
+  danger,
+  disabled,
+  onClick,
+}: {
+  icon: IconName;
+  label: ReactNode;
+  sub?: ReactNode;
+  danger?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'flex min-h-[52px] w-full items-center gap-[12px] rounded-[13px] border px-[13px] py-[10px] text-left',
+        press,
+        'disabled:pointer-events-none disabled:opacity-50',
+        danger ? 'border-red-500/25 bg-red-500/[0.05] text-red-300' : 'border-line bg-bg text-text',
+      )}
+    >
+      <span
+        className={cn(
+          'flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-[10px]',
+          danger ? 'bg-red-500/15 text-red-300' : 'bg-elev2 text-dim',
+        )}
+      >
+        <Icon name={icon} size={16} sw={2} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-display text-[14.5px] font-bold">{label}</span>
+        {sub && <span className="mt-px block truncate font-body text-[12px] text-faint">{sub}</span>}
+      </span>
+    </button>
+  );
 }
