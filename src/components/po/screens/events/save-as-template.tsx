@@ -10,15 +10,15 @@
  * can catch it: "Save event" does NOT save the template (T4, 1/7). onDraftChange
  * is optional on the recap.
  *
- * No section label above the button (z8uq9m0hw3, item 8): the old "Reuse this
- * setup" heading was a second, vaguer name for the same action. The button
- * says "Save as template", and that is the only name this action has.
+ * The section label reads "Template" (z8uq9m0hw3, item 8; Max, PR #305): the
+ * old "Reuse this setup" heading read as a second, vaguer name for the action.
+ * The label names the section, the button says what it does.
  */
 import { type JSX, useEffect, useState } from 'react';
 import { t, fmt } from '@/lib/i18n';
 import { usePoCreateTemplateFromEvent } from '@/features/po/mutations';
 import { Icon } from '../../icon';
-import { Btn, Field } from '../../kit';
+import { Btn, Field, Label } from '../../kit';
 
 export function SaveAsTemplate({
   eventId,
@@ -56,6 +56,7 @@ export function SaveAsTemplate({
 
   return (
     <div className="mt-[18px]">
+      <Label className="mb-[10px]">{t.events.saveTemplateLabel}</Label>
       {open ? (
         <div className="rounded-[16px] border border-acc bg-elev p-4">
           <p className="mb-2.5 text-[12.5px] leading-[1.5] text-faint">{t.events.saveTemplateHint}</p>
