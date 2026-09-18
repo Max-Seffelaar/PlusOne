@@ -46,9 +46,9 @@ export const links = {
   noFixedTierSub: 'You pick the tier per approval',
   tierUsedOfMax: '{used}/{max} used',
   tierNoMax: 'No max',
-  noTiersYet: 'This event has no tiers yet. Auto-approve needs one — add a tier first.',
+  noTiersYet: 'This event has no tiers yet. Auto-approve needs one: add a tier first.',
   autoApproveTitle: 'Auto-approve',
-  autoApproveSub: 'Requests through this link go straight on the list — mind the capacity',
+  autoApproveSub: 'Requests through this link go straight on the list. Mind the capacity',
   maxHeadsLabel: 'Max heads (optional)',
   maxHeadsPlaceholder: '∞ no cap',
   expiresLabel: 'Expires (optional)',
@@ -72,7 +72,7 @@ export const links = {
 
   // ── QR sheet ────────────────────────────────────────────────────────────────
   qrTitle: 'QR code',
-  qrHint: 'Point a phone at it — lands straight on the request page.',
+  qrHint: 'Point a phone at it. Lands straight on the request page.',
   qrGenerating: 'Generating…',
   qrError: "Couldn't generate the QR code.",
   qrCopy: 'Copy link',
@@ -109,12 +109,12 @@ export const links = {
   // ── Stats link block (F2 — the influencer's private /i/[token] page) ────────
   statsLinkLabel: 'Stats link',
   statsLinkExplainer:
-    'Their private stats page — every view, request and check-in from their links.',
+    'Their private stats page: every view, request and check-in from their links.',
   statsLinkCreate: 'Create stats link',
   statsLinkRenew: 'Renew link',
   statsLinkActive: 'Stats link is live. Renewing replaces it; the old URL stops working.',
   statsLinkNone: 'No stats link yet.',
-  statsLinkWarning: "Copy it now — it won't be shown again.",
+  statsLinkWarning: "Copy it now. It won't be shown again.",
   statsLinkCopy: 'Copy',
   statsLinkCopied: 'Copied!',
   statsLinkWorking: 'One moment…',
