@@ -8,6 +8,7 @@ import {
   createTemplateFromEventSchema,
   createTierSchema,
   setEventDefaultMemberQuotaSchema,
+  updateTierSchema,
 } from './schemas';
 
 // Event templates (86exyp8gn) — the new Zod schemas gate every template input.
@@ -199,5 +200,23 @@ describe('createEventSchema', () => {
     const r = createEventSchema.safeParse({ ...base, landingActive: false });
     expect(r.success).toBe(true);
     if (r.success) expect(r.data.landingActive).toBe(false);
+  });
+});
+
+// Editing a tier (z8uq9m0hw3, item 5) omits aliases; the schema must keep them
+// undefined (not default them to []), or the update would wipe the stored list.
+describe('updateTierSchema', () => {
+  const TIER = '00000000-0000-7000-8000-0000000000f1';
+
+  it('leaves aliases undefined when the edit omits them', () => {
+    const r = updateTierSchema.safeParse({ tierId: TIER, name: 'Guest', maxGuests: null, doorPriceCents: null, vatPercent: null });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.aliases).toBeUndefined();
+  });
+
+  it('allows clearing the max, price and VAT with null', () => {
+    const r = updateTierSchema.safeParse({ tierId: TIER, maxGuests: null, doorPriceCents: null, vatPercent: null });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data).toMatchObject({ maxGuests: null, doorPriceCents: null, vatPercent: null });
   });
 });

@@ -5,6 +5,7 @@ import {
   setListLock,
   setAutoLock,
   setEventAllowUncheck,
+  updateTier,
 } from './actions';
 import { createClient } from '@/lib/supabase/server';
 import { getAuthContext } from '@/lib/auth/context';
@@ -100,4 +101,73 @@ describe('event toggle actions — C15 zero-row guard', () => {
       if (!result.ok) expect(result.code).toBe('42501');
     });
   }
+});
+
+// updateTier (z8uq9m0hw3, item 5): the tier sheet now edits every field, so the
+// same C15 zero-row guard applies — `.update().eq().select().maybeSingle()`
+// that RLS filters to nothing returns data null and NO error.
+describe('updateTier', () => {
+  const TIER_ID = '44444444-4444-4444-4444-444444444444';
+
+  interface TierChain {
+    update: Mock;
+    eq: Mock;
+    select: Mock;
+    maybeSingle: Mock;
+  }
+
+  function makeTierClient(result: { data: { event_id: string } | null; error: unknown }) {
+    const chain: TierChain = {
+      update: vi.fn(() => chain),
+      eq: vi.fn(() => chain),
+      select: vi.fn(() => chain),
+      maybeSingle: vi.fn(() => Promise.resolve(result)),
+    };
+    return { client: { from: vi.fn(() => chain) }, chain };
+  }
+
+  it('zero rows (RLS-filtered), no error -> ok:false, not_found', async () => {
+    mockAuthed();
+    const { client } = makeTierClient({ data: null, error: null });
+    (createClient as Mock).mockResolvedValue(client);
+    const result = await updateTier({ tierId: TIER_ID, name: 'Guest' });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('not_found');
+  });
+
+  it('a touched row -> ok:true', async () => {
+    mockAuthed();
+    const { client } = makeTierClient({ data: { event_id: EVENT_ID }, error: null });
+    (createClient as Mock).mockResolvedValue(client);
+    expect(await updateTier({ tierId: TIER_ID, name: 'Guest' })).toEqual({ ok: true });
+  });
+
+  it('writes only what was sent: an edit without aliases never touches the stored aliases', async () => {
+    mockAuthed();
+    const { client, chain } = makeTierClient({ data: { event_id: EVENT_ID }, error: null });
+    (createClient as Mock).mockResolvedValue(client);
+    await updateTier({
+      tierId: TIER_ID,
+      name: 'Guest',
+      color: '#B5A6FF',
+      maxGuests: null,
+      doorPriceCents: null,
+      vatPercent: null,
+    });
+    expect(chain.update).toHaveBeenCalledWith({
+      name: 'Guest',
+      color: '#B5A6FF',
+      max_guests: null,
+      door_price_cents: null,
+      vat_percent: null,
+    });
+  });
+
+  it('a duplicate name (23505) -> the readable message', async () => {
+    mockAuthed();
+    const { client } = makeTierClient({ data: null, error: { code: '23505', message: 'duplicate key' } });
+    (createClient as Mock).mockResolvedValue(client);
+    const result = await updateTier({ tierId: TIER_ID, name: 'VIP' });
+    expect(result).toEqual({ ok: false, code: '23505', message: 'A tier with this name already exists.' });
+  });
 });
