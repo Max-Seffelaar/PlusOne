@@ -147,7 +147,8 @@ export const events = {
     discard: 'Discard & leave',
   },
   // Save-as-template (86exyp8gn) — snapshot this event's setup into a template.
-  saveTemplateLabel: 'Reuse this setup',
+  // The "Reuse this setup" section label is gone (z8uq9m0hw3, item 8): the CTA
+  // below is the one name for this action.
   saveTemplateCta: 'Save as template',
   saveTemplateHint: "Saves this event's tiers, capacity, and settings as a reusable template you can pick next time.",
   saveTemplatePlaceholder: 'Template name, e.g. "Lofi — open air"',
