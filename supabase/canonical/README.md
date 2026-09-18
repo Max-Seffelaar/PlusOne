@@ -1,6 +1,6 @@
 # Canonical function bodies (K10 drift guard)
 
-Four SECURITY DEFINER functions have been redefined via `create or replace
+Five SECURITY DEFINER functions have been redefined via `create or replace
 function` across many migrations, each time with a comment asking the author
 to "keep it in LOCKSTEP" with the sibling copy. That convention has already
 regressed prod GDPR behaviour twice (a contacts-anonymization sweep silently
@@ -12,16 +12,17 @@ byte-for-byte** `create or replace function ...` statement that is currently
 canonical — i.e. the one the newest migration actually defines. A guard test,
 `tests/unit/canonical-functions.test.ts`, scans every migration in
 `supabase/migrations/` (in filename/timestamp order), finds the LAST
-`create or replace function public.<name>` for each of the four functions
+`create or replace function public.<name>` for each of the five functions
 below, and fails the suite (`pnpm vitest run`, part of the existing `pnpm
 test` step) if that body doesn't match the file here.
 
 Covered functions:
 
 - `audit_trigger.sql` — newest source: `20260706100000_influencers_request_links.sql`
-- `run_privacy_retention.sql` — newest source: `20260706101000_request_link_attribution.sql`
-- `submit_guest_request.sql` — newest source: `20260819110000_landing_contact_required.sql`
+- `run_privacy_retention.sql` — newest source: `20260918140000_status_token_mirror.sql`
+- `submit_guest_request.sql` — newest source: `20260918140000_status_token_mirror.sql`
 - `approve_guest_request.sql` — newest source: `20260707170000_p0_security_hotfixes.sql`
+- `get_request_status.sql` — newest source: `20260918140000_status_token_mirror.sql`
 
 ## When you touch one of these functions
 

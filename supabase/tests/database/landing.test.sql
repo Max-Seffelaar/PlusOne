@@ -55,7 +55,7 @@ begin
 end;
 $fn$;
 
-select plan(51);
+select plan(67);
 
 -- ---------------------------------------------------------------------------
 -- A. submit_guest_request — the hardened anon path (#12/#28) + marketing (8b)
@@ -402,6 +402,144 @@ select is(
   'false', 'E9 ...and a never-seen e-mail answers the same — lock state stays a property of the event, not of the e-mail');
 
 reset role;
+
+-- ---------------------------------------------------------------------------
+-- F. submit_guest_request — the silent dedup does not hand out somebody
+--    else's status token (z8uq9m0h2v)
+-- ---------------------------------------------------------------------------
+-- Before 20260918140000 the dedup branch rotated the EXISTING row's
+-- `status_token_hash` to the value the CALLER passed in. An anonymous caller
+-- who guessed an e-mail address could therefore point a token they chose at a
+-- stranger's pending request, read that stranger's name and plus-ones back out
+-- of `get_request_status`, and kill the stranger's own status URL in the same
+-- call — one unauthenticated request, one existence oracle, one PII
+-- disclosure, one denial of service.
+--
+-- Both directions are asserted here, and on DATABASE STATE rather than on an
+-- `ok` (the whole bug lived in a row the response never mentions): the
+-- victim's row keeps its own token and its own identity (F5/F6), and the
+-- attacker's chosen token reads back the attacker's OWN submission (F9/F10).
+--
+-- F11 is the constraint the fix had to respect while doing that: the deduped
+-- caller's payload stays byte-identical to a fresh submission's, so closing
+-- the hijack does not install an enumeration oracle in its place.
+
+-- E8 left the list locked; the dedup path is not lock-gated, but an unlocked
+-- event keeps this section independent of what ran before it.
+update public.events
+  set list_locked = false, locked_by = null, locked_at = null
+  where id = 'ee000000-0000-7000-8000-000000000001';
+
+select pg_temp.login_anon();
+
+select is(
+  public.submit_guest_request('plusone-launch-night', 'Hijack Victim',
+    'hijack-victim@x.test', '+31612300001', 3, 'graag', 'ip-hj-1', false,
+    null, 'tok-hj-victim') ->> 'status',
+  'ok', 'F1 the victim files a request through a manual-review link');
+reset role;
+
+select is(
+  (select gr.status_token_hash from public.guest_requests gr
+    where gr.event_id = 'ee000000-0000-7000-8000-000000000001'
+      and gr.email = 'hijack-victim@x.test' and gr.status = 'pending'),
+  'tok-hj-victim', 'F2 the row carries the victim''s own token hash');
+
+-- The attack: the victim's e-mail, an attacker-chosen token hash.
+select pg_temp.login_anon();
+select is(
+  public.submit_guest_request('plusone-launch-night', 'Hijack Attacker',
+    'hijack-victim@x.test', '+31612399999', 0, 'x', 'ip-hj-2', false,
+    null, 'tok-hj-attacker') ->> 'status',
+  'ok', 'F3 the attacker''s deduped submission still reports a plain ok (#28)');
+reset role;
+
+select is(
+  (select count(*)::int from public.guest_requests gr
+    where gr.event_id = 'ee000000-0000-7000-8000-000000000001'
+      and gr.email = 'hijack-victim@x.test'),
+  1, 'F4 ...and still produced no second row — the silent dedup is intact');
+
+select is(
+  (select gr.status_token_hash from public.guest_requests gr
+    where gr.event_id = 'ee000000-0000-7000-8000-000000000001'
+      and gr.email = 'hijack-victim@x.test' and gr.status = 'pending'),
+  'tok-hj-victim',
+  'F5 the victim''s row STILL holds the victim''s token — the attacker''s hash was not written onto it');
+
+select is(
+  (select gr.full_name || '|' || gr.plus_ones::text from public.guest_requests gr
+    where gr.event_id = 'ee000000-0000-7000-8000-000000000001'
+      and gr.email = 'hijack-victim@x.test' and gr.status = 'pending'),
+  'Hijack Victim|3',
+  'F6 ...and the victim''s identity on it is untouched (no overwrite-instead-of-rotate)');
+
+select pg_temp.login_anon();
+select is(
+  public.get_request_status('tok-hj-victim', 'ip-hj-r') ->> 'found',
+  'true', 'F7 the victim''s own status URL still resolves (the DoS is closed)');
+
+select is(
+  public.get_request_status('tok-hj-victim', 'ip-hj-r') ->> 'full_name',
+  'Hijack Victim', 'F8 ...and still shows the victim their own request');
+
+select is(
+  public.get_request_status('tok-hj-attacker', 'ip-hj-r') ->> 'full_name',
+  'Hijack Attacker',
+  'F9 the attacker''s chosen token reads back the ATTACKER''s name, never the victim''s');
+
+select is(
+  public.get_request_status('tok-hj-attacker', 'ip-hj-r') ->> 'plus_ones',
+  '0',
+  'F10 ...and the attacker''s own plus-ones, not the victim''s 3 (no headcount disclosure either)');
+
+-- The constraint the fix had to respect: a deduped caller must not be able to
+-- tell they were deduped. Same name, same plus-ones, same link — only the
+-- e-mail differs, and that one has never been seen before, so this submission
+-- takes the fresh-insert path.
+select is(
+  public.submit_guest_request('plusone-launch-night', 'Hijack Attacker',
+    'hijack-control@x.test', '+31612399998', 0, 'x', 'ip-hj-3', false,
+    null, 'tok-hj-control') ->> 'status',
+  'ok', 'F11a the same payload against an unseen e-mail takes the fresh path');
+
+select is(
+  public.get_request_status('tok-hj-attacker', 'ip-hj-r'),
+  public.get_request_status('tok-hj-control', 'ip-hj-r'),
+  'F11b deduped and fresh return an IDENTICAL status payload — the hijack fix opens no enumeration oracle in its place');
+
+reset role;
+
+-- The mirror itself: one row, holding what the attacker submitted, hanging off
+-- the victim's request. Bounded by the primary key — a prober cannot grow this
+-- table past one row per pending request.
+select is(
+  (select m.full_name || '|' || m.plus_ones::text
+     from public.guest_request_status_mirrors m
+     join public.guest_requests gr on gr.id = m.request_id
+    where gr.email = 'hijack-victim@x.test'),
+  'Hijack Attacker|0',
+  'F12 the mirror stores the ATTACKER''s own submission against the victim''s request id');
+
+select ok(
+  not has_table_privilege('anon', 'public.guest_request_status_mirrors', 'SELECT')
+  and not has_table_privilege('anon', 'public.guest_request_status_mirrors', 'INSERT')
+  and not has_table_privilege('anon', 'public.guest_request_status_mirrors', 'UPDATE')
+  and not has_table_privilege('anon', 'public.guest_request_status_mirrors', 'DELETE'),
+  'F13 anon holds no privilege on the mirror table — it is reachable only through the two SECURITY DEFINER RPCs');
+
+select ok(
+  not has_table_privilege('authenticated', 'public.guest_request_status_mirrors', 'SELECT')
+  and not has_table_privilege('authenticated', 'public.guest_request_status_mirrors', 'INSERT')
+  and not has_table_privilege('authenticated', 'public.guest_request_status_mirrors', 'UPDATE')
+  and not has_table_privilege('authenticated', 'public.guest_request_status_mirrors', 'DELETE'),
+  'F14 ...and neither does authenticated — staff read the request, never the mirror');
+
+select ok(
+  (select c.relrowsecurity from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+   where n.nspname = 'public' and c.relname = 'guest_request_status_mirrors'),
+  'F15 RLS is enabled on the mirror table (defence in depth under the empty grant set)');
 
 select * from finish();
 

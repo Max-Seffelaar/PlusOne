@@ -33,7 +33,13 @@ select tables_are(
     'influencers', 'request_links', 'request_link_pageviews_daily',
     -- Fase 13 (Stripe Billing, #32): webhook idempotency ledger,
     -- service_role-only.
-    'stripe_webhook_events'
+    'stripe_webhook_events',
+    -- z8uq9m0h2v: status token of a silently deduped landing submission, bound
+    -- to the name/plus-ones THAT caller supplied so the dedup can hand out a
+    -- working /r/[token] URL without pointing it at the existing requester's
+    -- row. RLS on, no policies, no grants — only submit_guest_request /
+    -- get_request_status (SECURITY DEFINER) touch it.
+    'guest_request_status_mirrors'
   ],
   'public schema contains exactly the MVP tables (Fase 1 + invites + landing + adresboek + templates + request links + billing)' 
 );

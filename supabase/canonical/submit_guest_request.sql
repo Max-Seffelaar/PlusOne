@@ -1,5 +1,5 @@
 -- Canonical body (K10 drift guard, see supabase/canonical/README.md).
--- Newest source: supabase/migrations/20260918100000_submit_guest_request_standing.sql:68.
+-- Newest source: supabase/migrations/20260918140000_status_token_mirror.sql:184.
 
 create or replace function public.submit_guest_request(
   p_slug              text,
@@ -38,6 +38,7 @@ declare
   v_key        text;
   v_contact_id uuid;
   v_request_id uuid;
+  v_dup_id     uuid;
   v_auto       boolean := false;
   v_locked     boolean;
   v_already    boolean;
@@ -105,10 +106,9 @@ begin
   v_key := coalesce(v_email, v_phone_dig);
 
   -- Insert. A duplicate PENDING request (same event + fingerprint, any link)
-  -- trips the partial unique index; we then ROTATE the existing row's status
-  -- token to the fresh one, so the caller always walks away with a working
-  -- status URL and cannot tell "new" from "duplicate" (#28). The earlier URL of
-  -- the same person stops working — acceptable, it is the same requester.
+  -- trips the partial unique index; the caller still walks away with a working
+  -- status URL and cannot tell "new" from "duplicate" (#28) — see the dedup
+  -- branch for how that is done without touching the existing row.
   begin
     insert into public.guest_requests
       (event_id, full_name, email, phone, plus_ones, motivation,
@@ -118,13 +118,64 @@ begin
        v_marketing, v_key, p_birthdate, v_link.id, p_status_token_hash)
     returning id into v_request_id;
   exception when unique_violation then
-    if p_status_token_hash is not null then
-      update public.guest_requests
-      set status_token_hash = p_status_token_hash
-      where event_id = v_link.event_id
-        and dedupe_key = v_key
-        and status = 'pending';
+    -- z8uq9m0h2v. This used to be:
+    --
+    --     update public.guest_requests
+    --     set status_token_hash = p_status_token_hash
+    --     where event_id = ... and dedupe_key = ... and status = 'pending';
+    --
+    -- i.e. it pointed a CALLER-CHOSEN token at a row belonging to whoever owns
+    -- that e-mail address, and orphaned that person's own status URL in the
+    -- same statement. See the header for the full reproduction.
+    --
+    -- Now: the existing row is never written to. The caller's token is bound
+    -- to the name and plus-ones THEY just submitted, so their status URL
+    -- resolves — with their own identity on it, exactly as a fresh submission
+    -- would answer — while the existing requester keeps theirs.
+    --
+    -- Resolve the duplicate EXPLICITLY rather than re-using the old blind
+    -- UPDATE's predicate: this exception also fires for a collision on
+    -- guest_requests_status_token_idx, where there is no pending duplicate at
+    -- all and the old statement quietly matched zero rows. Being explicit
+    -- keeps that case from writing a mirror onto an unrelated request.
+    v_dup_id := null;
+    if v_key is not null then
+      select gr.id into v_dup_id
+      from public.guest_requests gr
+      where gr.event_id = v_link.event_id
+        and gr.dedupe_key = v_key
+        and gr.status = 'pending';
     end if;
+
+    if v_dup_id is not null
+       and p_status_token_hash is not null
+       -- Never let a mirror shadow, or be shadowed by, a real status token.
+       -- Only reachable by a caller who already holds another requester's
+       -- token; refusing it here means it cannot be set up from the anon side
+       -- at all.
+       and not exists (
+         select 1 from public.guest_requests gr2
+         where gr2.status_token_hash = p_status_token_hash
+       )
+    then
+      begin
+        insert into public.guest_request_status_mirrors
+          (request_id, token_hash, full_name, plus_ones)
+        values
+          (v_dup_id, p_status_token_hash, v_name, v_plus)
+        on conflict (request_id) do update
+          set token_hash = excluded.token_hash,
+              full_name  = excluded.full_name,
+              plus_ones  = excluded.plus_ones,
+              created_at = now();
+      exception when unique_violation then
+        -- token_hash already taken by another mirror. Nothing to report: the
+        -- caller's URL simply will not resolve, which needs a 256-bit
+        -- collision or a token the caller already had.
+        null;
+      end;
+    end if;
+
     v_request_id := null; -- silent dedup: nothing more to do (no double auto-approve)
   end;
 
