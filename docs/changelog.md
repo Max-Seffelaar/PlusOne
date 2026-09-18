@@ -8,6 +8,112 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-18 — The door branch moves out of `app.tsx` (86eykm76k)
+
+Branch `refactor/86eykm76k-extract-door-branch`. Milestone: ≥5 (maintainability on a
+high-risk surface). No migration, no schema change, no new dependency. Follow-up on PR #261
+findings 12 + 13, unblocked by #287 (R7) landing first.
+
+**What was wrong.** PR #261's door render-scope fix worked, and its correctness rested on an
+invariant spread across ~600 lines of `app.tsx`: a `useMemo`'d `<PoDoorTab>` element held
+stable by six `useCallback`s and a ten-entry dependency array, so that `DoorProvider` /
+`DoorQueryProvider` — which forward `children` untouched — could bail React out of
+re-rendering the virtualized check-in list. Adding a ninth prop to `<PoDoorTab>` without
+adding it to that dep array froze the new prop silently: no type error, no lint rule, no
+failing test. The shell root read `usePoEvents`, `usePoDoorCandidates` and
+`usePoGuestRequests`, so any of those refetching rebuilt the root's whole element tree and
+the door had to be defended from it by hand, twelve times over.
+
+**What replaced it.** The door is its own component (`src/components/po/door-branch.tsx`), and
+the three venue-wide queries moved into its *siblings* rather than its ancestors:
+
+| read | now lives in | mounted when |
+|---|---|---|
+| `usePoEvents` | `app-screens.tsx` | only when NOT on a door URL |
+| `usePoGuestRequests`, `usePoCanManageTemplates` | `app-chrome.tsx` | always (it is the nav badge) |
+| `usePoDoorCandidates` | `door-branch.tsx` | the door itself, plus a null-rendering `DesktopDoorAutoOpen` for the T6 one-shot |
+
+An unrelated shell update now cannot schedule a door render at all — there is no re-render to
+bail out of. All twelve hand-memos are gone with it, along with the `isMobile`/`isDoorTab`
+guards that wrapped the pin effect (the component carrying it is simply not mounted off the
+door tab).
+
+**The one memo that stayed, and why it is a different thing.** `DoorTree` is `React.memo`'d.
+`usePoDoorCandidates` declares `isFetching` in its `notifyOnChangeProps` and the door's
+resolver reads it, so every background candidate refetch re-renders the resolver twice.
+`React.memo` absorbs that *without a dependency list*: it compares whatever props `DoorTree`
+declares, so a ninth prop threaded down to `PoDoorTab` is compared automatically and the type
+checker refuses to let you forget to thread it. That is precisely the property the old dep
+array did not have.
+
+**A real bug the extraction surfaced.** `useDoorOverride` dropped its override in a
+`useEffect` keyed on `[pathname, searchParamsStr]`. That was fine while the pin effect lived
+in the same component (effects run in declaration order), but child effects run BEFORE parent
+effects — so once the door became a child, its single-candidate pin (#278) wrote an override
+and the parent effect wiped it in the very same commit. The pin was lost and the door fell
+back to re-deriving it from `candidates.length === 1` every render: exactly the bug #278
+fixed. The reset now happens during render (React's documented "adjusting state when a prop
+changes" pattern), before any child renders or effects, so the two cannot race. The three
+existing #278 pin tests caught this and pass **unmodified** — they were not touched in this PR.
+
+**`door-tab-element-identity-bailout.test.ts` is deleted, not weakened.** It asserted, by
+reading `app.tsx` as text, that the door element was built with `useMemo`, handed to
+`<DoorProvider>` as a bare identifier, and forwarded through every provider layer untouched.
+All three were true; all three have stopped existing. A source-shape assertion about a memo
+that is gone can only be deleted. What it was ultimately protecting is the outcome, and that
+is now asserted behaviourally in `src/components/po/door-render-isolation.test.tsx` with real
+render counters against the real `PlusOneApp`. Each mocked query is a subscribable store read
+through `useSyncExternalStore` and the tests push data into those stores rather than calling
+`rerender(<App/>)` — that distinction is the whole test, and an earlier draft passed even with
+a venue-wide query moved back into the shell root precisely because it re-rendered from the
+root. Two counters: `candidateReads` (did the door subtree get entered at all — the structural
+claim) and `doorTabRenders` (did the check-in list re-render — the outcome claim).
+
+Red-on-revert, run rather than assumed — each revert applied to the real source, each failing
+on the assertion that names it:
+
+| revert | failing assertion |
+|---|---|
+| `usePoGuestRequests` back into the shell root | `an unrelated shell update re-rendered the door branch: expected 3 to be 2` |
+| `DoorTree` loses `React.memo` | `a candidate refetch re-rendered PoDoorTab: expected 4 to be 2` |
+| `DoorTree` over-memoized (`() => true`) | `the door never re-rendered on its own state change: expected 1 to be greater than 1` |
+
+The third is the control: without it, a door frozen solid would satisfy the first two.
+
+**Finding 13 (the LOC ceiling), and it is enforced now.** `app.tsx` 1148 → **328** lines. The
+`max-lines` eslint override was extended to the four shell files — but as `error` at a plain
+`max: 800` (no `skipComments`/`skipBlankLines`), not as the screens override's `warn` at 850
+on code lines only. `next lint` exits 0 on warnings, so a warning would have been as
+aspirational as the prose was. Verified live by temporarily lowering the limit to 50 and
+watching all four files error.
+
+    app.tsx        1148 → 328      door-branch.tsx   383 (new)
+    app-chrome.tsx  307 (new)      app-screens.tsx   200 (new)
+    nav-map.ts      122 (new)
+
+**Secondary target, from #261's efficiency angle.** `navItems` (~10 objects + 10 closures)
+was rebuilt on every render and handed to an unmemoized `ResponsiveShell`. It is memoized in
+`app-chrome.tsx` now, along with `mobileTabs` and `mobileBadges`, and only rebuilds when
+something in it actually changed.
+
+**Door callbacks carry no dependency array at all.** `doorNav` is one permanently stable
+object whose handlers read what they need out of a latest-value ref at call time instead of
+capturing it. Handlers only run after a commit, and the ref is never read during render.
+Nothing in it can go stale because nothing in it is captured — a handler added later gets the
+same guarantee for free.
+
+**Guards, unchanged and green.** `tests/e2e/app-shell-no-remount.spec.ts` (both specs — the
+#287 measurement of the exact behaviour this PR restructures),
+`tests/e2e/app-home-events-visible.spec.ts` (both — the `ssr:false` 86eya4yuf guard),
+`tests/unit/app-shell-no-ssr-suspense.test.ts`, and `core-flow.spec.ts` (door check-in
+asserted in the database). None was modified. `app.code-split.test.ts` was repointed from
+`app.tsx` to `app-screens.tsx` — the file that owns the screen switch now — with every
+assertion left identical.
+
+**Suites.** `pnpm lint` clean (2 pre-existing a11y warnings in `datetime-field.tsx`,
+untouched). `pnpm type-check` clean. `pnpm vitest run`: 129 files, **1372 passed, 0 failed**
+(1373 before: −4 deleted identity-bailout tests, +3 isolation tests). `pnpm e2e:smoke`: **6
+passed, 0 failed**.
 ## 2026-09-18 — Security: `auto_approved` stops answering "is this person on the list?" (z8uq9m0gvy)
 
 Branch `fix/z8uq9m0gvy-auto-approved-oracle`. Milestone: ≥5 venues. One migration

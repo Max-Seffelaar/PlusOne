@@ -5,13 +5,17 @@ import { describe, expect, it } from 'vitest';
 /**
  * Guards the #2a code-split: the heavy/rare po screens must be loaded via
  * `next/dynamic` (their own lazy chunk), never statically imported by the app
- * shell — otherwise a door-only user pulls the Statistieken / Audit / Admin-sessies
+ * shell's screen switch — otherwise a door-only user pulls the Statistieken / Audit / Admin-sessies
  * / Aanvragen code on first paint and the /app First Load JS regresses. A source
  * assertion is deterministic (no jsdom / no mocking Next's dynamic loader); the
  * `next build` route table is the primary size evidence, this keeps it from
  * silently regressing.
  */
-const SOURCE = readFileSync(fileURLToPath(new URL('./app.tsx', import.meta.url)), 'utf8');
+// The lazy screens moved with the screen switch itself into `app-screens.tsx`
+// (86eykm76k) — `app.tsx` is now only the shell root. Same assertions, same
+// intent: the file that OWNS the screen switch must reach these screens through
+// `next/dynamic` and never statically import them.
+const SOURCE = readFileSync(fileURLToPath(new URL('./app-screens.tsx', import.meta.url)), 'utf8');
 
 // name → the screen module it must be dynamically imported from.
 const LAZY_SCREENS: Record<string, string> = {
@@ -24,7 +28,7 @@ const LAZY_SCREENS: Record<string, string> = {
   QuickAdd: './screens/guests/quick-add',
 };
 
-describe('po/app.tsx code-split (#2a)', () => {
+describe('po/app-screens.tsx code-split (#2a)', () => {
   it('imports next/dynamic', () => {
     expect(SOURCE).toMatch(/import\s+dynamic\s+from\s+['"]next\/dynamic['"]/);
   });
