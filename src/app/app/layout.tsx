@@ -3,6 +3,7 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { PoLiveProvider, type PoIdentity } from '@/features/po/PoLiveProvider';
 import { AppShellDataProvider } from '@/components/po/app-shell-data';
+import { PlusOneAppClient } from '@/components/po/app-client';
 import { getOnboardingState } from '@/lib/auth/onboarding';
 import { recommendMfaIfDue } from '@/lib/auth/guards';
 import { acceptedCurrentTerms } from '@/lib/auth/consent';
@@ -122,6 +123,28 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
           liveUserSub: userSub,
         }}
       >
+        {/*
+          The shell is rendered by the LAYOUT, not by `[[...segments]]/page.tsx`
+          (86ey9uc87). A layout instance survives client-side navigation to
+          sibling pages; the `{children}` page slot below does not — Next
+          rebuilds the page subtree for every segment path, which remounted
+          `PlusOneApp` in full on every `router.push` (empirically confirmed:
+          a mount probe fired on every single navigation). That re-ran every
+          shell effect per navigation — billing-return, identity, viewport,
+          nav construction, the entrance animation — and reset all shell state.
+
+          `PlusOneApp` derives its active screen from `usePathname()`/
+          `useSearchParams()`, which are client hooks that re-render in place,
+          so it needs no page-slot re-render to follow the URL. Nothing about
+          the SSR-suspense rule changes here: `PlusOneAppClient` is a CLIENT
+          module whose `next/dynamic(..., { ssr: false })` call therefore still
+          removes the server suspension by construction — this server layout is
+          exactly the same kind of parent `page.tsx` was. Guarded by
+          `tests/unit/app-shell-no-ssr-suspense.test.ts`.
+        */}
+        <PlusOneAppClient />
+        {/* Always null today (`page.tsx` renders nothing) — kept so the route
+            slot stays honest and a future nested /app page still has a home. */}
         {children}
       </AppShellDataProvider>
     </PoLiveProvider>

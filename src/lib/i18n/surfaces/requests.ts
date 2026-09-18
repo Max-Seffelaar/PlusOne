@@ -48,6 +48,14 @@ export const requests = {
   emptyLanding: 'No requests right now. The line\'s clear.',
   cardPhoneVia: 'phone •••• {last4} · via landing page · {at}',
   cardVia: 'via landing page · {at}',
+  // 86eyke279: the public form now REQUIRES both contact fields so the venue can
+  // reach an approved guest — so the approve surface has to show them. The card
+  // keeps its compact scan line (masked phone) and adds the address underneath;
+  // the approve sheet spells both out in full, because that is the moment you
+  // commit to reaching this person.
+  contactHeading: 'Contact',
+  contactNoEmail: 'No email — filed before it was required',
+  contactNoPhone: 'No phone — filed before it was required',
   decline: 'Decline',
   approveAdd: 'Approve…',
 

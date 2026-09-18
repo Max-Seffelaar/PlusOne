@@ -84,7 +84,7 @@ update public.events set landing_active = true
   where id = 'ee000000-0000-7000-8000-000000000001';
 select is(public.submit_guest_request(
   (select landing_slug from public.events where id = 'ee000000-0000-7000-8000-000000000001'),
-  'Cap Submitter', null, null, 0, null, null, false) ->> 'status', 'ok',
+  'Cap Submitter', 'cap1@x.test', '+31611330001', 0, null, null, false) ->> 'status', 'ok',
   '9 a request to an active, non-cancelled event is accepted');
 
 -- ── 10-13 (86ey9c5fp): `pending` is NOT a free status, and a check-in that
@@ -149,7 +149,7 @@ reset role;
 -- ── 17: a cancelled event stops taking public requests (no enumeration) ──
 select is(public.submit_guest_request(
   (select landing_slug from public.events where id = 'ee000000-0000-7000-8000-000000000001'),
-  'Cap Submitter Two', null, null, 0, null, null, false) ->> 'status', 'closed',
+  'Cap Submitter Two', 'cap2@x.test', '+31611330002', 0, null, null, false) ->> 'status', 'closed',
   '17 a cancelled event stops taking public requests');
 
 select * from finish();
