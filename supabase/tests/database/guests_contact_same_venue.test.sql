@@ -57,7 +57,9 @@ insert into public.contacts (id, venue_id, full_name, source, anonymized_at) val
   ('c0000000-0000-7000-8000-0000000000f3', 'aa000000-0000-7000-8000-000000000001',
    'Contact #99', 'manual', now()),
   ('c0000000-0000-7000-8000-0000000000f4', 'aa000000-0000-7000-8000-000000000001',
-   'K5 Staff Link', 'manual', null);
+   'K5 Staff Link', 'manual', null),
+  ('c0000000-0000-7000-8000-0000000000f5', 'aa000000-0000-7000-8000-000000000001',
+   'K5 Event Move Target', 'manual', null);
 
 -- A second venue1 event + a venue2 event, for section I's event_id-move cases
 -- (the composite FK `(tier_id, event_id) references guest_tiers(id, event_id)`
@@ -302,10 +304,14 @@ select is(
 
 select pg_temp.login('11111111-1111-4111-8111-111111111111');  -- admin
 
+-- A dedicated contact (c0..f5), not one of the earlier fixtures: every venue1
+-- contact fixture above is already linked to ee..01 by an earlier section, and
+-- (event_id, contact_id) is partial-unique (20260713150000) — reusing one here
+-- would fail on the INSERT itself, before this section's own assertions run.
 insert into public.guests (id, event_id, tier_id, full_name, contact_id, added_by, source, status)
 values ('cc000000-0000-7000-8000-0000000000fc',
         'ee000000-0000-7000-8000-000000000001', 'dd000000-0000-7000-8000-000000000001',
-        'K5 Event Move Target', 'c0000000-0000-7000-8000-000000000001',
+        'K5 Event Move Target', 'c0000000-0000-7000-8000-0000000000f5',
         '11111111-1111-4111-8111-111111111111', 'app', 'approved');
 
 -- The attack this closes: move the guest (and its tier, to satisfy the
