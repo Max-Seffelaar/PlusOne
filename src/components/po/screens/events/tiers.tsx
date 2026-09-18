@@ -1,11 +1,16 @@
 'use client';
 
-/** Event tier + alias management — split from events.tsx (FE-5). */
+/**
+ * Event tier management — split from events.tsx (FE-5). The alias parts of this
+ * screen (the banner, the per-tier alias chips, the create-form field) render only
+ * when `TIER_ALIASES_UI` is on; it is off since the ADE UX round (17/9/2026).
+ */
 import { type JSX, useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { usePoEvent, usePoTiers } from '@/features/po/hooks';
 import { usePoCreateTier, usePoUpdateTier } from '@/features/po/mutations';
+import { TIER_ALIASES_UI } from '@/features/guests/tiers';
 import { TIER_COLORS, nextAvailableColor, allColorsUsed } from '@/lib/po/tier-colors';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
@@ -100,7 +105,9 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
         maxGuests: Number.isFinite(maxNum) && maxNum > 0 ? maxNum : null,
         doorPriceCents,
         vatPercent,
-        aliases: aliasText.split(',').map((a) => a.trim()).filter(Boolean),
+        // Alias UI hidden (TIER_ALIASES_UI): create with an empty list, never a
+        // half-filled one from a field nobody can see.
+        aliases: TIER_ALIASES_UI ? aliasText.split(',').map((a) => a.trim()).filter(Boolean) : [],
       });
       if (stayOpen) {
         const nextJustAdded = [...justAddedColors, usedColor];
@@ -139,7 +146,7 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
       />
       <Scroll bottom={24}>
         {err && !adding && <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{err}</div>}
-        <Note icon="spark">{t.events.aliasesNote}</Note>
+        {TIER_ALIASES_UI && <Note icon="spark">{t.events.aliasesNote}</Note>}
         {isLoading ? (
           <Empty text={t.events.loadingTiers} />
         ) : isError ? (
@@ -159,7 +166,9 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
           <div className="flex flex-col gap-[11px]">
             {(tierList ?? []).map((tier) => (
               <div key={tier.id} className="rounded-[18px] border border-line bg-elev p-[15px]">
-                <div className="mb-3 flex items-center gap-[11px]">
+                {/* `last:mb-0` keeps the card tight when the alias block below is
+                    hidden (TIER_ALIASES_UI) and this row ends up last. */}
+                <div className="mb-3 flex items-center gap-[11px] last:mb-0">
                   <span className="h-[14px] w-[14px] shrink-0 rounded-full" style={{ background: tier.color }} />
                   <div className="min-w-0 flex-1">
                     <div className="font-display text-[15.5px] font-bold text-text">{tier.name}</div>
@@ -178,50 +187,54 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
                   {tier.isDefault && <MiniChip>{t.events.tierDefault}</MiniChip>}
                 </div>
                 {tier.max && (
-                  <div className="mb-3 h-[6px] overflow-hidden rounded-[4px] bg-elev2">
+                  <div className="mb-3 h-[6px] overflow-hidden rounded-[4px] bg-elev2 last:mb-0">
                     <div className="h-full rounded-[4px]" style={{ width: Math.min(100, (tier.used / tier.max) * 100) + '%', background: tier.color }} />
                   </div>
                 )}
-                <Label className="mb-2">{t.events.aliases}</Label>
-                <div className="flex flex-wrap gap-1.5">
-                  {tier.aliases.map((a) => (
-                    <span key={a} className="inline-flex items-center gap-[5px] rounded-[8px] border border-line bg-elev2 px-[9px] py-[5px] font-mono text-[12px] text-dim">
-                      {a}
-                    </span>
-                  ))}
-                  {aliasFor === tier.id ? (
-                    <input
-                      autoFocus
-                      value={newAlias}
-                      onChange={(e) => setNewAlias(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') void commitAlias(tier.id, tier.aliases);
-                        if (e.key === 'Escape') {
-                          setAliasFor(null);
-                          setNewAlias('');
-                        }
-                      }}
-                      onBlur={() => {
-                        setAliasFor(null);
-                        setNewAlias('');
-                      }}
-                      placeholder={t.events.aliasInputPlaceholder}
-                      className="w-[120px] rounded-[8px] border border-acc bg-elev2 px-[9px] py-[5px] font-mono text-[12px] text-text outline-none placeholder:text-faint"
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAliasFor(tier.id);
-                        setNewAlias('');
-                      }}
-                      className="inline-flex items-center gap-1 rounded-[8px] border border-dashed border-line bg-transparent px-[9px] py-[5px] font-body text-[12px] text-faint transition-[filter] hover:brightness-[1.2]"
-                    >
-                      <Icon name="plus" size={12} sw={2.4} />
-                      {t.events.aliasAdd}
-                    </button>
-                  )}
-                </div>
+                {TIER_ALIASES_UI && (
+                  <>
+                    <Label className="mb-2">{t.events.aliases}</Label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {tier.aliases.map((a) => (
+                        <span key={a} className="inline-flex items-center gap-[5px] rounded-[8px] border border-line bg-elev2 px-[9px] py-[5px] font-mono text-[12px] text-dim">
+                          {a}
+                        </span>
+                      ))}
+                      {aliasFor === tier.id ? (
+                        <input
+                          autoFocus
+                          value={newAlias}
+                          onChange={(e) => setNewAlias(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') void commitAlias(tier.id, tier.aliases);
+                            if (e.key === 'Escape') {
+                              setAliasFor(null);
+                              setNewAlias('');
+                            }
+                          }}
+                          onBlur={() => {
+                            setAliasFor(null);
+                            setNewAlias('');
+                          }}
+                          placeholder={t.events.aliasInputPlaceholder}
+                          className="w-[120px] rounded-[8px] border border-acc bg-elev2 px-[9px] py-[5px] font-mono text-[12px] text-text outline-none placeholder:text-faint"
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAliasFor(tier.id);
+                            setNewAlias('');
+                          }}
+                          className="inline-flex items-center gap-1 rounded-[8px] border border-dashed border-line bg-transparent px-[9px] py-[5px] font-body text-[12px] text-faint transition-[filter] hover:brightness-[1.2]"
+                        >
+                          <Icon name="plus" size={12} sw={2.4} />
+                          {t.events.aliasAdd}
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             ))}
           </div>
@@ -282,20 +295,24 @@ export function Tiers({ eventId }: { eventId?: string }): JSX.Element {
                 <Field placeholder={t.events.vatPlaceholder} value={vat} onChange={setVat} inputMode="numeric" className="mb-[14px]" />
               </>
             )}
-            <Label className="mb-2">{t.events.aliasesFeedLabel}</Label>
-            <Field icon="spark" placeholder={t.events.aliasesPlaceholder} value={aliasText} onChange={setAliasText} />
-            {aliasText.trim() && (
-              <div className="mt-[10px] flex flex-wrap gap-1.5">
-                {aliasText
-                  .split(',')
-                  .map((a) => a.trim())
-                  .filter(Boolean)
-                  .map((a) => (
-                    <span key={a} className="rounded-[8px] border border-line bg-elev2 px-[9px] py-[5px] font-mono text-[12px] text-dim">
-                      {a}
-                    </span>
-                  ))}
-              </div>
+            {TIER_ALIASES_UI && (
+              <>
+                <Label className="mb-2">{t.events.aliasesFeedLabel}</Label>
+                <Field icon="spark" placeholder={t.events.aliasesPlaceholder} value={aliasText} onChange={setAliasText} />
+                {aliasText.trim() && (
+                  <div className="mt-[10px] flex flex-wrap gap-1.5">
+                    {aliasText
+                      .split(',')
+                      .map((a) => a.trim())
+                      .filter(Boolean)
+                      .map((a) => (
+                        <span key={a} className="rounded-[8px] border border-line bg-elev2 px-[9px] py-[5px] font-mono text-[12px] text-dim">
+                          {a}
+                        </span>
+                      ))}
+                  </div>
+                )}
+              </>
             )}
             {err && <p className="mt-3 text-[13px] font-semibold text-[#E89AC0]" role="alert">{err}</p>}
             <div className="mt-4 flex flex-col gap-2">

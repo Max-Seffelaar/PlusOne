@@ -180,7 +180,7 @@
 | Edit-titel / velden | `New event` / `Edit event` · `Name` · `Date` · `Doors` · `Landing page` · `Auto-lock` · `Lock list` · `Allow check-out` |
 | Lock-hint | `Locked lists can't be changed by staff.` |
 | Opslaan | `Create event` / `Save event` |
-| Tiers | titel `Tiers` · `Add tier` · velden `Tier name` / `Aliases` · leeg `No tiers yet. Add one like "VIP" or "Guest".` |
+| Tiers | titel `Tiers` · `Add tier` · veld `Name, e.g. "Guest"` · leeg `No tiers yet. Add one like "VIP" or "Guest".` (aliasveld verborgen sinds 17/9/2026 — `TIER_ALIASES_UI`) |
 | Recap (gesloten event) | kop `Recap` · `Turnout {pct}%` · `Checked in {n}` · `No-shows {n}` · `Refused {n}` · `Peak {time}` · `By tier` |
 
 ## §6 — Requests (dial: laag)
