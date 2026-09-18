@@ -142,6 +142,30 @@ export function SyncDot({ status }: { status: SyncDotStatus }): JSX.Element {
   );
 }
 
+// ── CountBadge ──────────────────────────────────────────────────────────────
+/**
+ * Lavender count bubble for "needs your attention" numbers (open requests).
+ * Same look as the nav/tab-bar badge. `pulse` adds a slow ping ring behind it
+ * (z8uq9m0hw4, Home's Open requests tile) that only runs under motion-safe, so
+ * prefers-reduced-motion gets the static bubble. Renders nothing at 0.
+ */
+export function CountBadge({ n, pulse, className }: { n: number; pulse?: boolean; className?: string }): JSX.Element | null {
+  if (n <= 0) return null;
+  return (
+    <span className={cn('relative inline-flex shrink-0', className)}>
+      {pulse && (
+        <span
+          aria-hidden
+          className="absolute inset-0 rounded-full bg-acc opacity-50 motion-safe:animate-ping motion-safe:[animation-duration:2s]"
+        />
+      )}
+      <span className="relative flex h-[20px] min-w-[20px] items-center justify-center rounded-full border-2 border-bg bg-acc px-[5px] font-display text-[11px] font-extrabold leading-none text-on-acc">
+        {n}
+      </span>
+    </span>
+  );
+}
+
 export function PayChip({ pay }: { pay: string }): JSX.Element | null {
   if (pay !== 'pay') return null;
   return (
