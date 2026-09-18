@@ -104,7 +104,7 @@ export const landing = {
   statusPendingBody: '{event} is reviewing your request. Check back here anytime.',
   statusApprovedTitle: "You're on the list.",
   statusApprovedBody: 'Say your name at the door of {event} on {date}. No ticket needed, your name is the ticket.',
-  statusApprovedGroup: 'Party of {n} — all under your name.',
+  statusApprovedGroup: 'Party of {n}, all under your name.',
   statusDeniedTitle: 'Not this time.',
   statusDeniedBody: "Your request for {event} wasn't approved. The door has the final say tonight.",
   statusNotFoundTitle: 'Nothing here.',

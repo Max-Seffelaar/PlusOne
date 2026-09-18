@@ -197,7 +197,7 @@ export const guests = {
     undo: 'Not the same',
     redo: 'Same person',
     ambiguous: '{n} contacts with this name',
-    ambiguousHint: 'Not linked — we cannot tell which one it is.',
+    ambiguousHint: 'Not linked. We cannot tell which one it is.',
   },
   // ── Bulk paste (#33) ──────────────────────────────────────────────────────
   bulk: {
@@ -222,18 +222,18 @@ export const guests = {
     dupeAgainTitle: 'Add again anyway',
     dupeAgainSub: 'As a separate, new row (different person)',
     quotaLine: '{total} {slots} · {remaining} left in your quota',
-    quotaBlocked: ' — the whole batch is blocked',
+    quotaBlocked: '. The whole batch is blocked',
     addFailed: "Couldn't add.",
     // Per-row inline fix (parity with the contacts import): a broken e-mail/phone
     // or an over-long name is flagged + fixable in the preview, never silently
     // mangled into the name or dropped.
     rowInvalid: 'NEEDS FIX',
     needsFixTitle: 'A few rows need a quick fix',
-    needsFixOne: '{n} row has a wrong e-mail/phone or is too long. Fix it below or remove it — nothing is added until it’s sorted.',
-    needsFixMany: '{n} rows have a wrong e-mail/phone or are too long. Fix them below or remove them — nothing is added until they’re sorted.',
+    needsFixOne: '{n} row has a wrong e-mail/phone or is too long. Fix it below or remove it. Nothing is added until it’s sorted.',
+    needsFixMany: '{n} rows have a wrong e-mail/phone or are too long. Fix them below or remove them. Nothing is added until they’re sorted.',
     needsFixCount: '{n} to fix',
     errName: 'Add a name',
-    errNameLong: 'Name is too long ({n}/500) — shorten it',
+    errNameLong: 'Name is too long ({n}/500): shorten it',
     errEmail: 'Check the e-mail address',
     errPhone: 'Check the phone number',
     fieldName: 'Name',
@@ -309,9 +309,9 @@ export const guests = {
     forget: 'Forget this person',
     forgetTitle: 'Forget {name}?',
     forgetBody:
-      'Permanently anonymizes {name} to “Contact #X” and wipes their name, email, phone and birthday — from this contact and every guest entry of theirs at this venue. The audit log stays, but without their personal data.',
+      'Permanently anonymizes {name} to “Contact #X” and wipes their name, email, phone and birthday from this contact and every guest entry of theirs at this venue. The audit log stays, but without their personal data.',
     forgetIrreversible: 'This cannot be undone.',
-    forgetPermanentWarn: 'They are marked as a regular (kept on purpose) — forgetting them removes that too.',
+    forgetPermanentWarn: 'They are marked as a regular (kept on purpose). Forgetting them removes that too.',
     forgetConfirm: 'Yes, forget permanently',
     forgetBusy: 'Forgetting…',
     forgetFailed: "Couldn't complete the request.",
@@ -401,7 +401,7 @@ export const guests = {
     guestOnlyNote: 'Not a saved contact yet. Save to keep their history and find them next time.',
     // Restricted: already a contact, but this role can't read the address book
     // (M3, K-8) — a plain note instead of a dead-end error or a promote CTA.
-    restrictedNote: "This person is a saved contact. Full contact details aren't visible to your role — an admin, finance, or the event organizer can see more.",
+    restrictedNote: "This person is a saved contact. Full contact details aren't visible to your role. An admin, finance, or the event organizer can see more.",
     promoteTitle: 'Save as contact',
     promoteSub: 'Save this person to your contacts. Email or phone helps find them on the next list.',
     promoteHint: "With an email or phone number we recognise them next time. Without one, they're saved by name only.",
@@ -420,7 +420,7 @@ export const guests = {
     selectionBar: '{n} selected',
     selectAll: 'Select all',
     changeTier: 'Change tier',
-    changeTierAllScope: 'Pick one event above to change tiers — tiers are per event.',
+    changeTierAllScope: 'Pick one event above to change tiers. Tiers are per event.',
     markRegular: 'Regular',
     markRegularBusy: 'Marking…',
     regularDone: '{n} marked as regular',

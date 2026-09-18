@@ -650,7 +650,7 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                     style={{ background: feedIsAccent(feed[0]) ? '#B5A6FF' : 'rgba(255,255,255,0.26)' }}
                   />
                   <span className="text-[13px] text-dim">
-                    <span className="font-display font-bold text-text">{feed[0].t}</span> — {liveFeedLabel(feed[0])}
+                    <span className="font-display font-bold text-text">{feed[0].t}</span>. {liveFeedLabel(feed[0])}
                   </span>
                 </>
               ) : (
