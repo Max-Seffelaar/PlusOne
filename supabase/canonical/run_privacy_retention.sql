@@ -1,5 +1,5 @@
 -- Canonical body (K10 drift guard, see supabase/canonical/README.md).
--- Newest source: supabase/migrations/20260918174500_partial_approval_decision_message.sql:462.
+-- Newest source: supabase/migrations/20260918174500_partial_approval_decision_message.sql:470.
 
 create or replace function public.run_privacy_retention()
 returns table (
