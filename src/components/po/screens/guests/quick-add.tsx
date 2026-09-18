@@ -438,7 +438,9 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
               {contactAmbiguous > 0 && <ContactLinkAmbiguous className="mt-[10px]" count={contactAmbiguous} />}
               {parsed && !needsAsk && !needsTierPick && !clientDupe && effName && !parsed.email && !parsed.phone && (
                 <div className="mt-[10px] border-t border-white/[0.08] pt-[10px]">
-                  {/* Item G: why these two optional fields are worth filling in. */}
+                  {/* Item G (reworded z8uq9m0hw4): what filling these in does, and
+                      what a name-only guest does NOT get. The fields label
+                      themselves "(optional)" via their placeholders. */}
                   <Note icon="contact">{t.guests.add.contactSaveNote}</Note>
                   <div className="flex flex-col gap-[8px]">
                     <input

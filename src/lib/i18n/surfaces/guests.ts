@@ -177,13 +177,16 @@ export const guests = {
     slotMany: 'slots',
     // Optional contact-info prompt (shown when no email/phone parsed from text)
     contactPrompt: 'Add email · phone',
-    contactEmailPlaceholder: 'Email address',
-    contactPhonePlaceholder: 'Phone number',
+    // Joeri walkthrough (z8uq9m0hw4): both fields read as required. The label
+    // itself now says optional, so it survives as long as the field is empty.
+    contactEmailPlaceholder: 'Email (optional)',
+    contactPhonePlaceholder: 'Phone number (optional)',
     contactPhoneError: 'Enter a valid phone number.',
-    // Banner above the email + phone fields (item G). One key, one meaning: the
-    // old contactPromptHint said the same thing and had no render site.
+    // Banner above the email + phone fields (item G, reworded z8uq9m0hw4). Mirrors
+    // the guests_autolink_contact trigger exactly: an email OR phone saves (or
+    // links) a venue contact, a name-only guest never becomes one.
     contactSaveNote:
-      'Optional: add an email or phone number and they are saved to your contacts, so next time they are one tap away and your list stays clean.',
+      "Add an email or phone and they're saved to your contacts, so next time they're one tap away. Name only? They go on this list but aren't saved as a contact.",
   },
   // ── Link a name-only guest to an existing contact (item K) ────────────────
   // Shared by quick-add and the paste-a-list preview: same offer, same wording.
