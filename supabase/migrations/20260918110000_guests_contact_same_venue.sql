@@ -92,6 +92,29 @@
 --    audit trigger (#4) records it, exactly like every other guard on this
 --    table.
 --
+-- 3b. THE UPDATE GUARD ALSO RE-VALIDATES ON AN event_id MOVE, NOT ONLY A
+--     contact_id CHANGE (fresh-session /security-review finding, HIGH,
+--     fixed before merge). guests.event_id is not pinned immutable anywhere
+--     (unlike events.venue_id via pin_event_venue, or request_links.event_id
+--     via guard_request_link_update, 20260706100000) — nothing stops
+--     `update guests set event_id = <an event in venue B>` while leaving
+--     contact_id untouched. That statement never fires a value-blind
+--     contact_id-only guard, yet guests_set_scope (below, alphabetically
+--     later) unconditionally rewrites venue_id to venue B afterwards —
+--     landing exactly the cross-tenant row this migration exists to
+--     prevent, just reached through the operand the guard didn't watch.
+--     guests_update RLS does not stop it either: `added_by = auth.uid()`
+--     alone satisfies the ownership branch on both USING (old row, venue A)
+--     and WITH CHECK (new row, venue B), and can_write_guests(new.event_id)
+--     only requires a write-capable role at venue B — nothing ties the two
+--     venues together. So the UPDATE trigger's `when` clause below also
+--     fires on an event_id change, not only a contact_id change; the
+--     function itself needs no change; the `event_id is null` case is
+--     already covered by the FK/`event_venue` check inside it. Whether
+--     guests.event_id should be pinned immutable the way request_links.event_id
+--     already is (closing this same gap for guests generally, not just for
+--     linked contacts) is a separate decision, out of scope here.
+--
 -- 4. ONE MESSAGE FOR ALL THREE FAILURES — no existence oracle.
 --    "doesn't exist", "belongs to another venue" and "anonymized" are
 --    indistinguishable to the caller, so this path cannot be used to probe
@@ -173,9 +196,18 @@ create trigger guests_contact_same_venue
   when (new.contact_id is not null)
   execute function public.guests_contact_same_venue();
 
+-- Re-validates on a contact_id change AND on an event_id move (design note
+-- 3b): repointing the guest's event without touching contact_id must not
+-- silently carry a stale-venue link along with it.
 drop trigger if exists guests_contact_same_venue_update on public.guests;
 create trigger guests_contact_same_venue_update
   before update on public.guests
   for each row
-  when (new.contact_id is not null and new.contact_id is distinct from old.contact_id)
+  when (
+    new.contact_id is not null
+    and (
+      new.contact_id is distinct from old.contact_id
+      or new.event_id is distinct from old.event_id
+    )
+  )
   execute function public.guests_contact_same_venue();

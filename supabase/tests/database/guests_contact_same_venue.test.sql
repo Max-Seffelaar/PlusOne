@@ -19,7 +19,11 @@
 --   H. a STAFF insert carrying an explicit contact_id succeeds even though staff
 --      cannot SELECT contacts under RLS (the guard is SECURITY DEFINER — an
 --      INVOKER guard would have rejected the feature it protects), while the
---      same staff member is still refused a contact from another venue.
+--      same staff member is still refused a contact from another venue;
+--   I. the event_id-move path (fresh-session /security-review finding, fixed
+--      before merge): re-pointing a guest at ANOTHER venue's event while
+--      leaving contact_id untouched is refused, and the same move within the
+--      guest's OWN venue is unaffected.
 --
 -- Seed: venue1 = aa..01 Club Vesper, venue2 = aa..02 De Marktzaal, event ee..01
 -- in venue1 (open, unlocked), tier dd..01 'Regular', contacts c0..01 Sanne +
@@ -55,7 +59,22 @@ insert into public.contacts (id, venue_id, full_name, source, anonymized_at) val
   ('c0000000-0000-7000-8000-0000000000f4', 'aa000000-0000-7000-8000-000000000001',
    'K5 Staff Link', 'manual', null);
 
-select plan(19);
+-- A second venue1 event + a venue2 event, for section I's event_id-move cases
+-- (the composite FK `(tier_id, event_id) references guest_tiers(id, event_id)`
+-- means moving a guest's event also means moving its tier in the same UPDATE).
+insert into public.events (id, venue_id, name, starts_at, ends_at, status, landing_slug, landing_active) values
+  ('ee000000-0000-7000-8000-000000000005', 'aa000000-0000-7000-8000-000000000001',
+   'K5 Second Venue1 Event', now() + interval '10 days', now() + interval '10 days' + interval '2 hours',
+   'open', 'k5-second-venue1-event', false),
+  ('ee000000-0000-7000-8000-000000000006', 'aa000000-0000-7000-8000-000000000002',
+   'K5 Venue2 Event', now() + interval '10 days', now() + interval '10 days' + interval '2 hours',
+   'open', 'k5-venue2-event', false);
+
+insert into public.guest_tiers (id, event_id, name, color) values
+  ('dd000000-0000-7000-8000-000000000005', 'ee000000-0000-7000-8000-000000000005', 'Regular', '#8A8A93'),
+  ('dd000000-0000-7000-8000-000000000006', 'ee000000-0000-7000-8000-000000000006', 'Regular', '#8A8A93');
+
+select plan(22);
 
 -- ---------------------------------------------------------------------------
 -- A. Permanent sync — the RPC places the venue's permanent contacts unchanged.
@@ -274,6 +293,50 @@ select is(
   (select contact_id from public.guests where id = 'cc000000-0000-7000-8000-0000000000fa'),
   'c0000000-0000-7000-8000-0000000000f4'::uuid,
   'H2 a staff add carrying a same-venue contact_id succeeds (guard is DEFINER)');
+
+-- ---------------------------------------------------------------------------
+-- I. The event_id-move path (fresh-session /security-review finding, fixed
+--    before merge): a guest's contact_id stays valid for its venue only as
+--    long as the guest itself doesn't move venues out from under it.
+-- ---------------------------------------------------------------------------
+
+select pg_temp.login('11111111-1111-4111-8111-111111111111');  -- admin
+
+insert into public.guests (id, event_id, tier_id, full_name, contact_id, added_by, source, status)
+values ('cc000000-0000-7000-8000-0000000000fc',
+        'ee000000-0000-7000-8000-000000000001', 'dd000000-0000-7000-8000-000000000001',
+        'K5 Event Move Target', 'c0000000-0000-7000-8000-000000000001',
+        '11111111-1111-4111-8111-111111111111', 'app', 'approved');
+
+-- The attack this closes: move the guest (and its tier, to satisfy the
+-- composite FK) to an event in ANOTHER venue while contact_id — still a
+-- venue1 contact — is left untouched. Before the fix, a contact_id-only
+-- `when` clause never re-ran the guard for this statement.
+select throws_ok(
+  $$ update public.guests
+       set event_id = 'ee000000-0000-7000-8000-000000000006',
+           tier_id = 'dd000000-0000-7000-8000-000000000006'
+      where id = 'cc000000-0000-7000-8000-0000000000fc' $$,
+  '23514', null,
+  'I1 moving a guest to ANOTHER venue''s event is refused while its contact stays venue1''s');
+
+select is(
+  (select event_id from public.guests where id = 'cc000000-0000-7000-8000-0000000000fc'),
+  'ee000000-0000-7000-8000-000000000001'::uuid,
+  'I2 the refused move left the guest on its original event');
+
+-- Moving the SAME guest to a different event WITHIN its own venue (contact_id
+-- unchanged) must still work — the fix must not overreach into blocking a
+-- legitimate same-venue reassignment.
+update public.guests
+   set event_id = 'ee000000-0000-7000-8000-000000000005',
+       tier_id = 'dd000000-0000-7000-8000-000000000005'
+ where id = 'cc000000-0000-7000-8000-0000000000fc';
+
+select is(
+  (select event_id from public.guests where id = 'cc000000-0000-7000-8000-0000000000fc'),
+  'ee000000-0000-7000-8000-000000000005'::uuid,
+  'I3 a same-venue event move is unaffected by the widened guard');
 
 select * from finish();
 
