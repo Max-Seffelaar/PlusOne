@@ -152,11 +152,16 @@ The role matrix (spec §2) is enforced in `20260613120000_rls_policies.sql` and 
   again, in the opposite direction** — see the residuals below; do not read this
   bullet as an unconditional close.
 - **Silent dedup** — duplicate pending request swallowed; caller can't tell new from dup.
+  Since `20260918140000` the status token a deduped caller gets back addresses **their own
+  submission** (a `guest_request_status_mirrors` row), never the request it deduped against —
+  see the residual list for the hijack that closed and the one that remains.
 - **No raw PII** — the IP is SHA-256-hashed in the app before it reaches the DB.
 - Raw RLS underneath: anon may only insert a **pending** request to an **active** event,
   and has no SELECT on `guest_requests` (can't read who applied).
 
-**Known residuals** (auto-approve links only). Read this honestly: `20260918100000`
+**Known residuals** (the first two are auto-approve links only; the status-token entry
+that follows them is not, and is now a FIXED entry kept for its own residual). Read this
+honestly: `20260918100000`
 closed the oracle in the below-capacity regime and **opened one in the at-capacity
 regime**, where none existed before. It is a swap of which regime leaks, not a pure
 reduction. It is still worth having — below capacity is the regime an event spends most
@@ -187,15 +192,102 @@ of e-mail enumeration:
     capacity — after which any `true` is a definitive "this person holds an approved
     spot". A `true` is only ambiguous to an attacker who declines to spend two probes.
 
-- **The silent-dedup path accepts a caller-chosen `p_status_token_hash`** (HIGH,
-  pre-existing, unchanged by `20260918100000`). When a submission dedups against an
-  existing **pending** request, the RPC rotates that row's status token to the hash the
-  *caller* supplied. An anon caller who guesses a victim's e-mail can therefore overwrite
-  the token on the victim's pending row and then read that row back through
-  `get_request_status` — returning the victim's real name, plus-ones and event — while
-  simultaneously invalidating the victim's own status URL. One anon call yields an
-  existence oracle, a PII disclosure and a denial of service. Tracked as its own task;
-  listed here so this section is not read as a closed set.
+- ~~**The silent-dedup path accepts a caller-chosen `p_status_token_hash`**~~ (HIGH,
+  pre-existing) — **FIXED by `20260918140000` (z8uq9m0h2v)**. Until then, a submission
+  that deduped against an existing **pending** request rotated that row's status token to
+  the hash the *caller* supplied, so an anon caller who guessed a victim's e-mail could
+  point a token they chose at the victim's row, read the victim's real name and plus-ones
+  out of `get_request_status`, and invalidate the victim's own status URL — an existence
+  oracle, a PII disclosure and a denial of service from one unauthenticated call.
+  Reproduced end-to-end over PostgREST with the anon key before the fix, and again after
+  it to confirm the close.
+
+  **What holds now.** The dedup branch never writes to the existing row. The caller's
+  token hash is stored in `guest_request_status_mirrors` (`request_id` PK, `token_hash`
+  unique, plus the `full_name`/`plus_ones` *that caller* submitted), and
+  `get_request_status` resolves `guest_requests.status_token_hash` first and the mirror
+  second — answering a mirror with the **mirror's own** identity and the request's live
+  status. So the victim keeps their URL and their row, the prober reads back only what
+  they themselves sent, and a deduped submission returns a **byte-identical** payload to
+  a fresh one at submit time and on every read before a staff decision (asserted as a
+  jsonb equality in `landing.test.sql` F11b). The table has RLS on, **no policies and no
+  grants** to `anon`/`authenticated` — the two SECURITY DEFINER RPCs are its only
+  readers and writers — and it is bounded to one row per pending request, so a prober
+  cannot grow it. `run_privacy_retention` deletes mirrors alongside the request
+  anonymization they belong to (#29).
+
+  **Why not the two obvious fixes.** "Ignore the caller's hash on dedup" and "accept it
+  only when `status_token_hash is null`" both close the disclosure and hand back a clean
+  one-call enumeration oracle — my token resolves ⇒ fresh address, my token does not ⇒
+  taken address — which is a *newer* and *better* oracle than the ones above, and on
+  manual-review links (where `auto_approved` is constant `false`) it would be the only
+  one. It is not blunted by anything else on the anon surface either: `anon` holds no
+  INSERT on `guest_requests` since `20260707170000`, so the partial dedupe index is not
+  reachable as a 409-vs-201 probe without a session (verified in the catalog).
+
+  **Residual, stated rather than claimed away.** A mirror reports the deduped-against
+  request's **live status**. Before a staff decision that is `pending` either way, so the
+  probe itself learns nothing. *After* a decision the two can come apart: a mirror shows
+  the verdict staff gave the victim's request, a fresh submission the verdict they gave
+  the prober's own. An attacker who submits obvious junk and polls after the event can
+  read an `approved` as evidence that the address belongs to someone who was let in.
+  Delayed, dependent on a staff action the attacker cannot trigger, probabilistic, and it
+  yields no name, no plus-ones and no denial of service — where the bug it replaces was
+  instant, certain and gave all three. Freezing a mirror at `pending` was weighed and
+  rejected: it installs the mirror image of the same signal ("still pending long after
+  the event") *and* breaks the legitimate re-submitter, whose second URL would then never
+  show their approval.
+
+  **Second review round (fresh session, `REQUEST CHANGES`) — two defects, both fixed in
+  `20260918160000`, not carried as residuals.** The reviewer rebuilt the stack from scratch,
+  reproduced 59/1202 and 144/1493 exactly, got 14 assertions red on reverting the function
+  body, and could not break the mirror on any of the six attack questions. What it found:
+
+  - **F-1, a regression introduced by `20260918140000`.** `p_status_token_hash` is
+    anon-controlled unbounded `text` landing in a unique btree index on both paths; past the
+    ~2704-byte index-row ceiling postgres raises `54000`, and once the mirror existed the two
+    paths named **different indexes** in the message (`guest_request_status_mirrors_token_idx`
+    vs `guest_requests_status_token_idx`). PostgREST forwards `message`/`detail` verbatim in
+    its 500 body, so that was a one-call e-mail-existence oracle — the exact class the mirror
+    design was chosen to avoid. Pre-`20260918140000` both paths hit the same index, so it was
+    a regression, not an inheritance. **Fixed** by capping the argument at 128 chars with the
+    other argument-only guards above the throttle — the same rule `86eyke279` already applies
+    to `v_email` in this function, for this same ceiling. Both paths now answer
+    `{"status":"invalid"}`, verified over anon PostgREST. Note the reproduction needs
+    **incompressible** input: `repeat('A', 5000)` never reaches the ceiling because pglz
+    compresses it inside the index tuple, so a length test built on a repeated character
+    passes vacuously; `landing.test.sql` G0–G4 use random hex and G3 asserts the two answers
+    are identical.
+  - **F-2, an AVG retention gap.** Step 2b deleted only the mirrors of requests *that run*
+    had anonymized. But retention clears neither `status` nor `dedupe_key`, so an anonymized
+    request stays `pending` with its fingerprint, keeps catching later submissions on the
+    dedup branch, and those wrote a mirror carrying **the new caller's real name** onto a row
+    no later sweep would revisit. Reproduced: retention run #2 reported `0 0 0 0` and the name
+    survived indefinitely. Preconditions are ordinary — an event past `retention_months` whose
+    landing link was never switched off, and `request_link_open()` has **no date check at
+    all**. Not a disclosure (`get_request_status` refuses an anonymized request) but a
+    permanent PII residue. **Fixed on both halves:** the sweep now drives off `anonymized_at`
+    rather than the run's id list (self-healing, cleans orphans already written), and the
+    dedup branch refuses to mirror onto an anonymized request. Pinned by G10 and G13, which
+    go red independently when either half is reverted.
+
+  **Still open — F-4, pre-existing, not introduced by either migration.** Past the retention
+  window, on an event whose link is still open, the dedup path *is* oracle (a): a taken
+  (anonymized) address answers `{"found": false}` where a fresh one answers `{"found": true}`.
+  The reviewer confirmed the identical split before the fix, and F-2's write-side half does
+  not change it — that token answered `{"found": false}` before and after, verified live. The
+  structural close is to make `request_link_open()` treat a link as shut once its event is
+  past the venue's retention window, which would take F-2's precondition and F-4 together;
+  that is a behaviour change to the public landing surface and belongs in its own task.
+
+  **Not changed by the fix, in either capacity regime.** On an *auto-approve* link the
+  `status` a token resolves to has always separated "this e-mail already has an undecided
+  pending request" (`pending`) from a stranger (`approved` below capacity), because the
+  dedup path never auto-approves. That is the first residual listed above, visible in the
+  very same response through `auto_approved`, and the pre-fix code leaked it identically
+  (it pointed the rotated token at the same pending row). At capacity nothing separates
+  them on this channel at all: every request row stays `pending`, fresh and mirrored
+  alike. Verified against the live stack in both regimes.
 
 Lock state is **not** a residual: every branch hangs off one `not v_locked` gate, so a
 locked list answers `false` to every e-mail alike (proven by E8/E9).

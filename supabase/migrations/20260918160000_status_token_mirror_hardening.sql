@@ -1,5 +1,110 @@
--- Canonical body (K10 drift guard, see supabase/canonical/README.md).
--- Newest source: supabase/migrations/20260918160000_status_token_mirror_hardening.sql:109.
+-- z8uq9m0h2v — the two blockers from the fresh-session security review of
+-- PR #300, fixed in the PR rather than recorded as residuals.
+--
+-- The review rebuilt the stack from scratch (stock PG 16.13 + a platform shim,
+-- all 104 migrations clean, pgTAP through this repo's own plan/run gate),
+-- reproduced 59 files / 1202 assertions and 144 / 1493 exactly, got 14
+-- assertions to go red on reverting the function body, and could not break the
+-- mirror on any of the six attack questions it was handed. The design in
+-- 20260918140000 stands. What it found was an input that function never bounds,
+-- and a retention edge its own cleanup step could not reach.
+--
+-- ---------------------------------------------------------------------------
+-- F-1 (BLOCKING, introduced by 20260918140000) — the error-message channel
+-- ---------------------------------------------------------------------------
+-- `p_status_token_hash` is anon-controlled, unbounded `text`, and lands in a
+-- unique btree index on BOTH paths. Past the ~2704-byte index-row ceiling
+-- postgres raises 54000 — and since the mirror exists, the two paths name
+-- DIFFERENT indexes in the message:
+--
+--   len=2700 DEDUP -> 54000 index row size 2816 … "guest_request_status_mirrors_token_idx"
+--   len=2700 FRESH -> 54000 index row size 2816 … "guest_requests_status_token_idx"
+--
+-- Pre-20260918140000 both paths hit the same index and the error was identical,
+-- so this is a regression, not an inheritance. SQLSTATE is 54000 on both sides;
+-- the differentiator is the message text, which PostgREST forwards verbatim in
+-- its 500 body. One unauthenticated call, one bit: "does this e-mail already
+-- have a pending request on this event?" — the exact oracle class the mirror
+-- design was chosen to avoid.
+--
+-- Reproduced on the local stack before fixing, with the index names above.
+-- Note the reproduction only works with INCOMPRESSIBLE input: repeat('A', 5000)
+-- never reaches the ceiling because pglz compresses it inside the index tuple.
+-- A length-based test that used a repeated character would pass vacuously.
+--
+-- FIX: cap the argument, with the other argument-only guards above the
+-- throttle, exactly as 86eyke279 already caps `v_email` for this same
+-- index-row-size reason in this same function. Neither path can now reach the
+-- ceiling, so neither can raise, so there is nothing left to compare.
+--
+-- ---------------------------------------------------------------------------
+-- F-2 (BLOCKING, introduced by 20260918140000) — mirrors no sweep would reach
+-- ---------------------------------------------------------------------------
+-- `run_privacy_retention` step 2b deleted only `m.request_id = any(v_request_ids)`
+-- — the requests THAT run had just anonymized. But step 2 clears neither
+-- `status` nor `dedupe_key`, so an anonymized request stays `pending` with its
+-- fingerprint intact and keeps tripping `guest_requests_dedupe_idx`. A later
+-- submission on the same e-mail therefore lands on the dedup branch and writes
+-- a fresh mirror — carrying THAT caller's real name and plus-ones — against a
+-- request that will never be anonymized again, so step 2b never sees it.
+--
+-- Reproduced on the local stack before fixing:
+--
+--   retention run #1                  | requests_anonymized = 1
+--   request after anonymize           | pending | anon=t | dedupe_key=f2v@x.test
+--   late probe on the same e-mail     | {"status":"ok","auto_approved":false}
+--   mirror rows                       | tok-f2-late | "Late Caller Name" | 3
+--   retention run #2                  | 0 0 0 0
+--   mirror rows after run #2          | 1 | Late Caller Name
+--
+-- Preconditions are ordinary, not exotic: an event past the venue's
+-- `retention_months` (12) whose landing link was never switched off —
+-- `request_link_open()` has no date check at all, so such a link stays open by
+-- default. Not a disclosure (`get_request_status` refuses an anonymized
+-- request, confirmed live: {"found": false}) — a pure AVG retention gap in a
+-- PII store that is one migration old.
+--
+-- FIX, both halves, because neither alone is enough:
+--   * the sweep now drives off `anonymized_at` instead of the run's id list, so
+--     it is self-healing and cleans orphans already written;
+--   * the dedup branch refuses to mirror onto an anonymized request at all, so
+--     it stops producing them.
+--
+-- WHAT THE SECOND HALF DOES NOT CHANGE (checked, not assumed): a mirror on an
+-- anonymized request was already unreadable — `get_request_status` filters
+-- `gr.anonymized_at is null` — so that token answered {"found": false} before
+-- this migration and answers {"found": false} after it. Verified live on both
+-- bodies. The caller-visible behaviour is identical; only the garbage stops.
+--
+-- ---------------------------------------------------------------------------
+-- F-3 (NIT) — 20260918140000's header over-claimed, and is corrected in place
+-- ---------------------------------------------------------------------------
+-- That header said, twice and unqualified, that deduped and fresh submissions
+-- are byte-identical "on every read before a staff decision". True on
+-- manual-review links; FALSE on an auto-approve link below capacity, where a
+-- deduped probe answers `auto_approved:false` / `pending` and a fresh one
+-- answers `true` / `approved`. The split is inherited from 20260918100000 —
+-- the review confirmed it pre-fix — and `docs/security-audit.md` §4A already
+-- described it correctly, so the two documents disagreed. The migration is not
+-- applied anywhere (this PR is unmerged), so the claim is scoped in place
+-- there; the assertions that pin it are added in landing.test.sql here.
+--
+-- ---------------------------------------------------------------------------
+-- F-4 (INFORMATIONAL, pre-existing) — left open, deliberately, and written down
+-- ---------------------------------------------------------------------------
+-- Past the retention window, on an event whose link is still open, the dedup
+-- path IS oracle (a): a taken (anonymized) address answers {"found": false}
+-- where a fresh one answers {"found": true}. The review confirmed the identical
+-- split pre-fix, so it is not introduced by either migration, and this one does
+-- not widen it. The structural answer is to make `request_link_open()` close a
+-- link once its event is past the venue's retention window — which would close
+-- F-2's precondition and F-4 together, and is a behaviour change to the public
+-- landing surface that deserves its own task rather than a rider on a security
+-- fix. Recorded in docs/security-audit.md §4A.
+--
+-- EXPAND–CONTRACT: two function bodies replaced behind unchanged signatures.
+-- No schema change, no column or table touched. The deployed app calls both
+-- RPCs with unchanged arguments and reads unchanged result keys.
 
 create or replace function public.submit_guest_request(
   p_slug              text,
@@ -340,5 +445,177 @@ begin
   end if;
 
   return jsonb_build_object('status', 'ok', 'auto_approved', v_auto);
+end;
+$$;
+
+create or replace function public.run_privacy_retention()
+returns table (
+  guests_anonymized   integer,
+  requests_anonymized integer,
+  refusals_redacted   integer,
+  audit_rows_redacted integer
+)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_guest_ids   uuid[];
+  v_request_ids uuid[];
+  v_contact_ids uuid[];
+  v_guests   integer := 0;
+  v_requests integer := 0;
+  v_refusals integer := 0;
+  v_audit    integer := 0;
+begin
+  -- 1. Anonymize eligible guests (event-anchored). Stats stay invariant.
+  with old_events as (
+    select e.id as event_id
+    from public.events e
+    join public.venues v on v.id = e.venue_id
+    where coalesce(e.ends_at, e.starts_at) < now() - make_interval(months => v.retention_months)
+  ),
+  ranked as (
+    select g.id, g.anonymized_at,
+           row_number() over (partition by g.event_id order by g.created_at, g.id) as volgnr
+    from public.guests g
+    join old_events oe on oe.event_id = g.event_id
+  ),
+  upd as (
+    update public.guests g
+    set full_name = 'Gast #' || rk.volgnr,
+        email = null,
+        phone = null,
+        note = null,
+        anonymized_at = now()
+    from ranked rk
+    where g.id = rk.id
+      and rk.anonymized_at is null
+    returning g.id
+  )
+  select coalesce(array_agg(id), '{}') into v_guest_ids from upd;
+  v_guests := coalesce(array_length(v_guest_ids, 1), 0);
+
+  -- 2. Anonymize eligible landing requests + REVOKE their status tokens (F1).
+  with old_events as (
+    select e.id as event_id
+    from public.events e
+    join public.venues v on v.id = e.venue_id
+    where coalesce(e.ends_at, e.starts_at) < now() - make_interval(months => v.retention_months)
+  ),
+  ranked as (
+    select gr.id, gr.anonymized_at,
+           row_number() over (partition by gr.event_id order by gr.created_at, gr.id) as volgnr
+    from public.guest_requests gr
+    join old_events oe on oe.event_id = gr.event_id
+  ),
+  upd as (
+    update public.guest_requests gr
+    set full_name = 'Aanvraag #' || rk.volgnr,
+        email = null,
+        phone = null,
+        motivation = null,
+        decision_reason = null,
+        status_token_hash = null,
+        anonymized_at = now()
+    from ranked rk
+    where gr.id = rk.id
+      and rk.anonymized_at is null
+    returning gr.id
+  )
+  select coalesce(array_agg(id), '{}') into v_request_ids from upd;
+  v_requests := coalesce(array_length(v_request_ids, 1), 0);
+
+  -- 2b. z8uq9m0h2v — drop the status-token mirrors of every ANONYMIZED request,
+  --     not just the ones step 2 touched on this run. A mirror holds a name and
+  --     plus-ones supplied by the caller of a deduped submission; step 2 nulls
+  --     the request's own `status_token_hash`, and this is the matching
+  --     revocation for the mirrored one.
+  --
+  --     Scoping this to `any(v_request_ids)` — what 20260918140000 shipped —
+  --     left a hole the fresh-session security review of PR #300 reproduced:
+  --     step 2 clears neither `status` nor `dedupe_key`, so an anonymized
+  --     request stays `pending` with its fingerprint and keeps catching later
+  --     submissions on the dedup branch. Those wrote a mirror carrying the new
+  --     caller's real name against a request already anonymized — which this
+  --     step, looking only at ids from its own run, never saw again. Retention
+  --     run #2 reported `0 0 0 0` and the name survived indefinitely.
+  --
+  --     Driving the delete off `anonymized_at` instead of the run's id list
+  --     makes the sweep self-healing: it cleans orphans written before this
+  --     migration as well as any a future path manages to create.
+  delete from public.guest_request_status_mirrors m
+  using public.guest_requests gr
+  where gr.id = m.request_id
+    and gr.anonymized_at is not null;
+
+  -- 3. Redact refusal reasons of the just-anonymized guests.
+  update public.refusals
+  set reason = '[verwijderd na bewaartermijn]',
+      anonymized_at = now()
+  where guest_id = any(v_guest_ids)
+    and anonymized_at is null;
+  get diagnostics v_refusals = row_count;
+
+  -- 4. Scrub the guests/refusals audit diffs + append per-guest 'anonymize'.
+  v_audit := public.redact_anonymized_audit_pii(v_guest_ids);
+
+  -- 5. Record the request anonymizations (guest_requests aren't otherwise audited).
+  insert into public.audit_log
+    (actor_id, venue_id, event_id, entity_type, entity_id, action, diff, device_id)
+  select
+    null, e.venue_id, gr.event_id, 'guest_requests', gr.id, 'anonymize',
+    jsonb_build_object(
+      'before', null,
+      'after', jsonb_build_object(
+        'anonymized_at', to_jsonb(gr.anonymized_at),
+        'redacted_fields', '["full_name","email","phone","motivation","decision_reason","status_token_hash"]'::jsonb)),
+    null
+  from public.guest_requests gr
+  join public.events e on e.id = gr.event_id
+  where gr.id = any(v_request_ids);
+
+  -- 6. Anonymize eligible address-book contacts (VENUE-anchored). A contact is
+  --    eligible when it is inactive past the venue window AND no longer linked to
+  --    any guest on a still-retained event. volgnr ranks over the FULL venue
+  --    contact set so 'Contact #n' is stable and collision-free across runs.
+  with ranked as (
+    select c.id, c.venue_id, c.anonymized_at, c.updated_at,
+           row_number() over (partition by c.venue_id order by c.created_at, c.id) as volgnr
+    from public.contacts c
+  ),
+  eligible as (
+    select r.id, r.volgnr
+    from ranked r
+    join public.venues v on v.id = r.venue_id
+    where r.anonymized_at is null
+      and r.updated_at < now() - make_interval(months => v.retention_months)
+      and not exists (
+        select 1
+        from public.guests g
+        join public.events e on e.id = g.event_id
+        where g.contact_id = r.id
+          and coalesce(e.ends_at, e.starts_at) >= now() - make_interval(months => v.retention_months)
+      )
+  ),
+  upd as (
+    update public.contacts c
+    set full_name = 'Contact #' || el.volgnr,
+        email = null,
+        phone = null,
+        birthdate = null,
+        note = null,
+        anonymized_at = now()
+    from eligible el
+    where c.id = el.id
+    returning c.id
+  )
+  select coalesce(array_agg(id), '{}') into v_contact_ids from upd;
+
+  -- 7. Scrub the contacts audit diffs + append per-contact 'anonymize'. Counted
+  --    into the audit total so the summary reflects all redacted rows.
+  v_audit := v_audit + public.redact_anonymized_contact_audit_pii(v_contact_ids);
+
+  return query select v_guests, v_requests, v_refusals, v_audit;
 end;
 $$;

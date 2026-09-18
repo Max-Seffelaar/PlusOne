@@ -570,6 +570,38 @@ export type Database = {
           },
         ]
       }
+      guest_request_status_mirrors: {
+        Row: {
+          created_at: string
+          full_name: string
+          plus_ones: number
+          request_id: string
+          token_hash: string
+        }
+        Insert: {
+          created_at?: string
+          full_name: string
+          plus_ones?: number
+          request_id: string
+          token_hash: string
+        }
+        Update: {
+          created_at?: string
+          full_name?: string
+          plus_ones?: number
+          request_id?: string
+          token_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "guest_request_status_mirrors_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: true
+            referencedRelation: "guest_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       guest_requests: {
         Row: {
           anonymized_at: string | null

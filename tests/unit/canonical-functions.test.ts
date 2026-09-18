@@ -1,8 +1,9 @@
 /**
  * K10 drift guard (full-app review 2026-07-07, ClickUp 86ey6xej7).
  *
- * `audit_trigger`, `run_privacy_retention`, `submit_guest_request` and
- * `approve_guest_request` are each redefined via `create or replace function`
+ * `audit_trigger`, `run_privacy_retention`, `submit_guest_request`,
+ * `approve_guest_request` and `get_request_status` are each redefined via
+ * `create or replace function`
  * across many migrations, historically kept in sync only by a "keep this in
  * LOCKSTEP" comment — which has already regressed prod GDPR behaviour twice.
  *
@@ -25,6 +26,11 @@ const FUNCTIONS = [
   'run_privacy_retention',
   'submit_guest_request',
   'approve_guest_request',
+  // z8uq9m0h2v — added when the status-token-hijack fix put a second
+  // anon-reachable SECURITY DEFINER function on the same code path as
+  // submit_guest_request. The two now have to agree about what a status token
+  // addresses; drift between them is a disclosure bug, not a cosmetic one.
+  'get_request_status',
 ] as const;
 
 /** Line-ending + trailing-whitespace normalization only — a real body change
