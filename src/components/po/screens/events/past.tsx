@@ -5,6 +5,7 @@ import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { usePoEvent, usePoEventForEdit, usePoEventRecap } from '@/features/po/hooks';
+import type { EventPhase } from '@/features/po/event-phase';
 import { venueCapabilities } from '@/features/venues/access';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { useNav } from '../../context';
@@ -186,7 +187,7 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
         {id && canManage && <SaveAsTemplate eventId={id} />}
         </div>
         </div>
-        {id && <EventActivitySection eventId={id} />}
+        {id && <EventActivitySection eventId={id} phase={ev.phase} />}
       </Scroll>
     </div>
   );
@@ -202,9 +203,12 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
 export function EventActivitySection({
   eventId,
   isLive,
+  phase,
 }: {
   eventId: string;
   isLive?: boolean;
+  /** The event's time-derived phase: names the panel's not-checked-in tile. */
+  phase: EventPhase;
 }): JSX.Element | null {
   const nav = useNav();
   const { roles } = usePoIdentity();
@@ -215,7 +219,7 @@ export function EventActivitySection({
   return (
     <div className="mt-6 border-t border-line pt-5">
       <Label className="mb-4">{t.events.activityHeading}</Label>
-      <EventStatsPanel eventId={eventId} isLive={isLive} />
+      <EventStatsPanel eventId={eventId} isLive={isLive} phase={phase} />
       <button
         type="button"
         onClick={() => nav.push('audit', { id: eventId })}

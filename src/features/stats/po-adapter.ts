@@ -1,3 +1,5 @@
+import { fmt, t } from '@/lib/i18n';
+import { absentStage, type EventPhase } from '@/features/po/event-phase';
 import { formatClock, formatPct } from './format';
 import type { EventSummary, QuarterBucket, TierStat, UserAddition, VenueSummary } from './data';
 
@@ -87,6 +89,25 @@ export function eventKpis(summary: EventSummary | null): EventKpis {
     noShows: summary.no_shows,
     noShowPct,
   };
+}
+
+export interface AbsentKpi {
+  value: number;
+  label: string;
+}
+
+/**
+ * The "not checked in" KPI tile for one event, named by phase (z8uq9m0hw4):
+ * null before the event (no figure at all), "On the way · {pct}%" while it
+ * runs, "No-shows · {pct}%" once it has ended. `event_stats_summary` counts
+ * these guests with no time check, so the phase (event-phase.ts) is what makes
+ * the label honest; the number itself is unchanged.
+ */
+export function absentKpi(ek: EventKpis, phase: EventPhase): AbsentKpi | null {
+  const stage = absentStage(phase);
+  if (stage === 'hidden') return null;
+  const label = stage === 'onTheWay' ? t.analytics.onTheWayLabel : t.analytics.noShowLabel;
+  return { value: ek.noShows, label: fmt(label, { pct: ek.noShowPct }) };
 }
 
 export interface VenueKpis {
