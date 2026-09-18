@@ -19,7 +19,10 @@ export const cockpit = {
     'Once an event goes live (or the doors open) the cockpit shows up here with live check-in.',
 
   // ── Page header ──────────────────────────────────────────────────────────
-  pageTitle: 'Event day',
+  // Renamed from "Event day" (ADE UX round, item L, 17/9) so the desktop cockpit
+  // carries the same name as the tab it is the desktop variant of. The subtitle
+  // below keeps the event name, so the screen still says which night this is.
+  pageTitle: 'Check-in',
   pageSub: '{name} · live at the door',
   pageSubUpcoming: '{name} · doors not open yet',
   switchEvent: 'Switch event',
@@ -119,6 +122,9 @@ export const cockpit = {
 
   // ── Button / control titles ──────────────────────────────────────────────
   checkInTitle: 'Check in',
+  // A party that is partly inside keeps the ✓ button, but says what it will do
+  // (ADE UX round, item O): "2 of 3 inside · add more".
+  checkInTopUpTitle: '{arrived} of {total} inside · add more',
   checkOutTitle: 'Check out / not inside',
   checkOutDisabledTitle: 'Check-out is off for this event',
   refuseRowTitle: 'Refuse this guest',
@@ -127,13 +133,22 @@ export const cockpit = {
   // ── Refused row (Refused segment) ─────────────────────────────────────────
   rowRefused: 'Refused',
 
+  // ── Inside badge (InsideBadge — ADE UX round, item O) ────────────────────
+  // A fully-inside party has nothing left to press, so its ✓ button becomes a
+  // static badge. `insideBadge` is the accessible name when no arrival time is
+  // known; `insideBadgeSince` when there is one.
+  insideBadge: 'Inside',
+  insideBadgeSince: 'Inside since {time}',
+
   // ── Tasks card (right column) ─────────────────────────────────────────────
   tasksCardEmpty: 'No tasks for this event.',
 
   // ── Toasts (notify) ──────────────────────────────────────────────────────
   // {name} +{n} checked in · {inside} inside   (the +{n} part is built inline)
   toastCheckedIn: '{name}{plus} checked in · {inside} inside',
-  toastFullyInside: '{name} is already fully inside',
+  // `toastFullyInside` is gone (ADE UX round, item O): a fully-inside party no
+  // longer has a ✓ button to press, so the toast that explained the no-op had
+  // no way left to fire. The static InsideBadge says the same thing, calmly.
   toastTopup: '{name} updated · now {inside} inside',
   toastCheckedOut: '{name} checked out',
   toastPartialCheckout: '{name} · {leaving} checked out, {remaining} stay inside',

@@ -33,6 +33,12 @@
 
 ## §2 — Deur · knipoog NUL (telegrafisch, scanbaar)
 
+> **Glossarium-update (ADE UX-ronde, item L, 17/9):** de **tab, de sidebar-entry en de
+> desktop-paginatitel** heten `Check-in`, niet meer `Door` / `Event day`. "Door" blijft
+> uitsluitend de fysieke deur en de rol: `Doors 23:00`, de deurprijs en `Door host` zijn
+> ongewijzigd, net als de log-actor-fallback `Door` (§2c). Keys blijven `nav.door` en
+> `cockpit.pageTitle` — die benoemen de tab, niet het label.
+
 ### 2a · Check-in (`CheckInList`)
 | Element | Oud (NL) | Nieuw (EN) |
 |---|---|---|
