@@ -28,8 +28,9 @@ import { isoToLocalInput, localInputToIso } from '@/features/events/datetime';
 import { useNav } from '../../context';
 import { DateField, TimeField } from '../../datetime-field';
 import { Icon } from '../../icon';
-import { Btn, Field, Label, Note, Scroll, ToggleRow, Top, press } from '../../kit';
+import { Btn, Field, InfoTip, Label, Note, Scroll, ToggleRow, Top, press } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
+import { ScheduleFields } from './schedule-fields';
 import { col, ScreenState } from './shared';
 
 const iconSm = 'flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border border-line text-faint';
@@ -202,6 +203,10 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const [timeStr, setTimeStr] = useState('');
   const [endDateStr, setEndDateStr] = useState('');
   const [endTimeStr, setEndTimeStr] = useState('');
+  // While false, the end fields follow the start (doors + 6 h — item C1). The
+  // first manual end edit claims them; an event loaded WITH an end starts
+  // claimed, so a stored end is never silently rewritten.
+  const [endTouched, setEndTouched] = useState(false);
   const [landingOn, setLandingOn] = useState(false);
   const [autoOn, setAutoOn] = useState(false);
   const [autoDate, setAutoDate] = useState('');
@@ -233,6 +238,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     const [ed, et] = splitLocal(ev.endsAt);
     setEndDateStr(ed);
     setEndTimeStr(et);
+    setEndTouched(!!ev.endsAt);
     setLandingOn(ev.landingActive);
     setLocked(ev.listLocked);
     setUncheckOverride(ev.allowUncheckOverride);
@@ -472,38 +478,26 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
             );
           })()}
 
-        <Label className="mb-2">{t.events.fieldName}</Label>
-        <Field placeholder={t.events.namePlaceholder} value={name} onChange={writable ? setName : undefined} className="mb-[14px]" />
-
+        {/* Venue above Name (ADE UX round, item B): the venue is the context you
+            read first; the name is what you then type. Name keeps autofocus. */}
         <Label className="mb-2">{t.events.fieldVenue}</Label>
         <Field icon="building" value={venueLabel} placeholder={t.events.venuePlaceholder} className="mb-[14px]" />
 
-        {/* min-w-0 lets both columns shrink inside narrow viewports (flex default
-            min-width:auto made the date column push the time field off-screen);
-            the date gets the wider share, the time needs little. */}
-        <div className="mb-[14px] flex gap-[10px]">
-          <div className="min-w-0 flex-[1.35]">
-            <Label className="mb-2">{t.events.fieldDate}</Label>
-            <DateField value={dateStr} onChange={writable ? setDateStr : undefined} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <Label className="mb-2">{t.events.fieldDoors}</Label>
-            <TimeField value={timeStr} onChange={writable ? setTimeStr : undefined} />
-          </div>
-        </div>
+        <Label className="mb-2">{t.events.fieldName}</Label>
+        <Field placeholder={t.events.namePlaceholder} value={name} onChange={writable ? setName : undefined} className="mb-[14px]" />
 
-        {/* End time (optional). Drives the Upcoming/Live/Past phase — a night with
-            an end stays "Live" until it actually ends, then rolls to "Past". */}
-        <div className="mb-[14px] flex gap-[10px]">
-          <div className="min-w-0 flex-[1.35]">
-            <Label className="mb-2">{t.events.fieldEndDate}</Label>
-            <DateField value={endDateStr} onChange={writable ? setEndDateStr : undefined} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <Label className="mb-2">{t.events.fieldEnd}</Label>
-            <TimeField value={endTimeStr} onChange={writable ? setEndTimeStr : undefined} />
-          </div>
-        </div>
+        <ScheduleFields
+          writable={writable}
+          value={{ date: dateStr, time: timeStr, endDate: endDateStr, endTime: endTimeStr }}
+          endTouched={endTouched}
+          onEndTouchedChange={setEndTouched}
+          onChange={(next) => {
+            setDateStr(next.date);
+            setTimeStr(next.time);
+            setEndDateStr(next.endDate);
+            setEndTimeStr(next.endTime);
+          }}
+        />
 
         {!isNew && (
           <button
@@ -582,7 +576,19 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           </>
         )}
 
-        <Label className="mb-[10px]">{t.events.landingPage}</Label>
+        {/* The label carries an "i" explainer (item D): the sign-up link is the
+            one control on this screen whose consequences live on another page.
+            -my-[11px] keeps the 44px button from stretching the label row. */}
+        <div className="mb-[10px] flex items-center gap-1">
+          <Label>{t.events.landingPage}</Label>
+          <InfoTip
+            className="-my-[11px]"
+            label={t.events.landingInfo.aria}
+            title={t.events.landingInfo.title}
+            body={t.events.landingInfo.body}
+            closeLabel={t.events.landingInfo.close}
+          />
+        </div>
         <div className="mb-[18px] rounded-[16px] border border-line bg-elev px-[14px] py-1">
           <ToggleRow
             title={t.events.landingActiveTitle}
@@ -621,7 +627,9 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
                 <div className="flex gap-[10px] pb-[14px]">
                   <div className="min-w-0 flex-[1.35]">
                     <Label className="mb-2">{t.events.closesOn}</Label>
-                    <DateField value={autoDate} onChange={writable ? setAutoDate : undefined} />
+                    {/* Anchored to the event date (item C2): an empty close date
+                        opens on the night's month, not on today. */}
+                    <DateField value={autoDate} anchor={dateStr} onChange={writable ? setAutoDate : undefined} />
                   </div>
                   <div className="min-w-0 flex-1">
                     <Label className="mb-2">{t.events.closesAt}</Label>
