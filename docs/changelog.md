@@ -8,6 +8,116 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-18 — Security: `auto_approved` stops answering "is this person on the list?" (z8uq9m0gvy)
+
+Branch `fix/z8uq9m0gvy-auto-approved-oracle`. Milestone: ≥5 venues. One migration
+(`20260918100000_submit_guest_request_standing.sql`), no app code, no schema change, no new
+dependency. Found in the fresh-session review of PR #276, where it was pre-existing and
+out of scope.
+
+**The bug.** `public.submit_guest_request` is SECURITY DEFINER and granted to `anon`, so it is
+reachable straight off the public key plus a link slug. On a link with `auto_approve = true`
+and an unlocked list it returned `auto_approved = false` *exactly* when the submitted e-mail
+already held an approved request on that event. Measured on the local stack before the fix:
+
+```
+1 victim signs up (fresh)        -> status=ok  auto_approved=true
+2 attacker retries that e-mail   -> status=ok  auto_approved=false
+3 attacker tries unknown address -> status=ok  auto_approved=true
+```
+
+That is a reliable yes/no answer to "is this named person on the list for this event?" —
+the thing CLAUDE.md's security checklist forbids outright ("public endpoints … never reveal
+whether a guest/e-mail exists"), and AVG-relevant besides: it confirms a named individual's
+attendance at a party. `p_ip_hash` is a function *argument*, so a direct PostgREST caller
+picks its own throttle bucket and has no effective rate limit on probing.
+
+The sharp part is that the function already committed to indistinguishability for its
+neighbours — the fullness branch is commented *"full: stays pending, indistinguishable for
+the requester"* and the block header says *"#28: link config/fullness is not enumerable"*.
+The already-approved branch was the single place that commitment was not kept.
+
+**The fix.** `auto_approved` now reports the requester's **standing** ("you hold an approved
+spot for this event") instead of "this call did the inserting". Those two coincide for a
+first-time submitter and came apart for a repeat one, which is the whole leak. `true` is
+honest — the person really is on the list, and the landing page's *"say your name at the
+door"* is the correct thing to tell them.
+
+**Why the obvious one-liner would not have been a fix.** Flipping only the already-approved
+branch moves the oracle one probe later instead of closing it. The silent-dedup path
+(`v_request_id := null`, a pending row already existed) *also* answered `false`, so probing
+any address twice still separated the cases:
+
+```
+pre-approved address : true, false        <- leak survives at probe 2
+unknown address      : true, true, false
+```
+
+Both arms are covered, so all four probes agree. `landing.test.sql` E4/E5 exist specifically
+to fail if someone later "simplifies" this back to one branch.
+
+**What did not change.** No approval behaviour moves: no guest row is created that was not
+created before, no request is decided that was not decided before, and the deliberate
+"a re-submit lands as a NEW pending row so staff can judge the repeat manually" behaviour is
+untouched (E6/E7 pin both). The judgement call is that the requester is told about *their
+spot* while a fresh pending row sits in the staff queue — the requester's operative fact is
+that they get in at the door, and that is true.
+
+Everything now hangs off one `not v_locked` gate, so a locked list still answers `false` to
+every e-mail alike (E8/E9) — the fix does not trade the e-mail oracle for a lock-state one.
+
+**Known residuals — corrected after review; this is a swap, not a close.** The first draft of
+this PR described the at-capacity case as an inherited residual and justified it with a
+mechanism that does not exist. The fresh-session review disproved both, and the migration
+header, `docs/security-audit.md` §4A and this entry were rewritten to match:
+
+- **Below capacity** the oracle is closed: a fresh address, an already-approved one and a
+  repeat probe of either all answer `true`.
+- **At capacity the oracle is open, and this migration opened it.** Before the change the
+  `v_already` arm did not exist, so an already-approved address fell through to `false` and
+  matched the stranger whose insert the capacity triggers had just rejected. Now the
+  already-approved address answers `true` and the stranger `false`. Net: the leaking regime
+  moved, it did not disappear. Keeping the change is still right — below capacity is where
+  an event spends most of its life, and the leak there was unconditional — but the endpoint
+  must not be described as free of e-mail enumeration.
+- **The stated justification was factually wrong.** The claim that
+  `guests_event_contact_uidx` rejects the duplicate at index time is false:
+  `guests_autolink_contact` is BEFORE INSERT and leaves `contact_id` NULL on this path, and
+  the index is partial (`where contact_id is not null`), so the probe insert reaches the
+  capacity triggers and raises `45006`. The review proved this live. The rationale is
+  removed, not restated.
+- **One-sidedness is not mitigation.** Two throwaway addresses establish the regime for
+  free — two `true`s means below capacity, two `false`s means at capacity — after which any
+  `true` is definitive.
+- **Closing it does not require duplicating the capacity rules.** Attempting the same insert
+  in a subtransaction that is always rolled back reuses the triggers as the single source of
+  truth. That is a real change to a SECURITY DEFINER function on the anon surface, so it is
+  its own reviewed task rather than an addition to this one.
+
+The undecided-pending residual is unchanged: an address with an *undecided* pending request
+still answers `false`, and closing it means auto-deciding a request that arrived through
+another, possibly manual-review, link — a workflow change, left for an explicit decision.
+§4A also now records the **caller-chosen `p_status_token_hash` on the silent-dedup path**
+(HIGH, pre-existing, untouched here) so that section is not read as a closed set. The same
+pass corrected §4A's stale rate-limit numbers — the doc still said 10 requests / 10 min; the
+code has been 5 / 15 min since `20260625100000`.
+
+**An existing assertion changed, deliberately.** `auto_approve.test.sql` E1 required
+`auto_approved = 'false'` for the already-approved re-submission — it was pinning the leak.
+It now requires `'true'`; E2, the guard that section is really about (on the list exactly
+once, repeat waits for staff), is unchanged and still passes.
+
+**Suites**, run on a fresh `supabase db reset`: pgTAP **58 files / 1152 assertions PASS**
+(`pnpm db:test`, plan/run gate green); Vitest **1373/1373** across 129 files; `pnpm
+type-check` clean; `pnpm lint` exit 0 (2 pre-existing `jsx-a11y` warnings in
+`datetime-field.tsx`, untouched). Red-on-revert was shown: with the pre-fix body reinstalled,
+E2/E4/E5 fail `have: false, want: true` while E1/E3/E6–E9 stay green.
+
+**Not pushed to prod.** Production has not deployed since 2026-08-19 (Vercel env guard,
+`NEXT_PUBLIC_SENTRY_DSN` unset in the Production scope). Per the task, the migration stops at
+merge; the schema deploy happens centrally once the app deploy is unblocked.
+
+---
 ## 2026-09-17 — ADE UX round planned: 15 items from Joeri's feedback, verified in code, plus a docker-free screenshot harness
 
 Branch `claude/wonderful-hopper-ji35cw` (plan-only PR, no app code). Source: Fathom call

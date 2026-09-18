@@ -1,5 +1,95 @@
--- Canonical body (K10 drift guard, see supabase/canonical/README.md).
--- Newest source: supabase/migrations/20260918100000_submit_guest_request_standing.sql:68.
+-- z8uq9m0gvy — close the `auto_approved` enumeration oracle in
+-- submit_guest_request.
+--
+-- Found in the fresh-session review of PR #276 (pre-existing there, recorded as
+-- a follow-up). `submit_guest_request` is SECURITY DEFINER and granted to
+-- `anon`, so it is reachable straight off the public key + a link slug. On a
+-- link with `auto_approve = true` and an unlocked list it returned
+-- `auto_approved = false` EXACTLY when the submitted e-mail already had an
+-- approved request on that event:
+--
+--   1 victim signs up (fresh)        -> status=ok  auto_approved=true
+--   2 attacker retries that e-mail   -> status=ok  auto_approved=false
+--   3 attacker tries unknown address -> status=ok  auto_approved=true
+--
+-- That is a yes/no answer to "is this named person on the list for this
+-- event?", which CLAUDE.md's security checklist forbids outright ("public
+-- endpoints ... never reveal whether a guest/e-mail exists") and which is
+-- AVG-relevant: it confirms a named individual's attendance at a party.
+-- `p_ip_hash` is a function ARGUMENT, so a direct PostgREST caller chooses its
+-- own throttle bucket and has no effective rate limit on probing.
+--
+-- The function already committed to indistinguishability for the neighbouring
+-- cases — the fullness branch is commented "full: stays pending,
+-- indistinguishable for the requester" and the block header says "#28: link
+-- config/fullness is not enumerable". The already-approved branch was the one
+-- place that commitment was not kept, so this is the function being made
+-- consistent with its own contract, not a new rule.
+--
+-- THE FIX: `auto_approved` now reports the requester's STANDING ("you hold an
+-- approved spot for this event") rather than "this call inserted a row". Those
+-- coincide for a first-time submitter and came apart for a repeat one.
+--
+-- Two details that make the below-capacity close complete (they do not make
+-- the change a pure reduction -- see KNOWN RESIDUALS):
+--   * the new arm is reached from BOTH repeat shapes — a fresh pending row and
+--     the silent-dedup path (v_request_id null). Covering only the first moves
+--     the oracle one probe later: probe an e-mail twice and the second call
+--     dedups and answers `false` again.
+--   * everything now hangs off the single `not v_locked` gate, so a locked list
+--     still answers `false` to every e-mail alike (#23/#28) — the fix does not
+--     make lock state identity-dependent.
+--
+-- NOT changed: no approval behaviour moves. No guest row is created that was
+-- not created before, no request is decided that was not decided before, and
+-- the deliberate "a re-submit lands as a NEW pending row so staff can judge the
+-- repeat manually" behaviour is untouched. The change is to the reported bit
+-- only.
+--
+-- KNOWN RESIDUALS (documented, not silently claimed away — see
+-- docs/security-audit.md 4A):
+--   * an e-mail with an UNDECIDED pending request on the event still answers
+--     `false` where a stranger gets `true`, because its submission genuinely
+--     stays pending. Closing that means auto-deciding a request that arrived
+--     through another (possibly manual-review) link — a workflow change, not a
+--     reporting one, so it is left for an explicit decision.
+--   * on a link that is AT CAPACITY, an already-approved e-mail answers `true`
+--     where a stranger gets `false`. THIS SEPARATION IS INTRODUCED BY THIS
+--     MIGRATION: before it, the `v_already` arm did not exist, so an
+--     already-approved e-mail fell through to `false` and matched the stranger
+--     whose insert the capacity triggers had just rejected. Below capacity this
+--     change closes an oracle; at capacity it opens one. Net, it is a swap of
+--     which regime leaks, not a pure reduction -- see the honest accounting
+--     below.
+--
+--     It does NOT hold that `guests_event_contact_uidx` rejects the duplicate at
+--     index time and thereby forces this shape. `guests_autolink_contact` is
+--     BEFORE INSERT and leaves `contact_id` NULL on this path, and the index is
+--     partial (`where contact_id is not null`), so a probe insert for an
+--     already-approved e-mail is NOT caught by the index -- it reaches the
+--     capacity triggers and raises 45006 like any other. That rationale was
+--     wrong and is removed rather than restated.
+--
+--     WHY IT IS STILL OPEN, honestly: the answer is identity-dependent because
+--     the `v_already` arm skips the capacity verdict the stranger gets. It
+--     could be closed by attempting the same insert in a subtransaction that is
+--     always rolled back -- reusing the capacity triggers instead of
+--     duplicating their rules -- which is a real change to a SECURITY DEFINER
+--     function on the anon surface and belongs in its own reviewed task, not
+--     bolted onto this one.
+--
+--     DO NOT read the one-sidedness as mitigation. An attacker establishes
+--     which regime an event is in for free, with two throwaway addresses: two
+--     `true`s means below capacity (and the endpoint tells them nothing more),
+--     two `false`s means at capacity (and from then on any `true` is a
+--     definitive "this person holds an approved spot").
+--
+-- Body = 20260819110000_landing_contact_required.sql with the auto-approve
+-- block restructured and `v_already` added. Everything else — validation, the
+-- throttle-first ordering, link resolution, silent dedup + status-token
+-- rotation, contact capture — is byte-for-byte unchanged.
+-- supabase/canonical/submit_guest_request.sql is updated in the same PR
+-- (K10 drift guard, tests/unit/canonical-functions.test.ts).
 
 create or replace function public.submit_guest_request(
   p_slug              text,
@@ -257,3 +347,12 @@ begin
   return jsonb_build_object('status', 'ok', 'auto_approved', v_auto);
 end;
 $$;
+
+-- `create or replace` preserves privileges, but the grant is restated so this
+-- migration is self-contained and readable next to 20260819110000.
+revoke execute on function
+  public.submit_guest_request(text, text, text, text, integer, text, text, boolean, date, text)
+from public, anon, authenticated, service_role;
+grant execute on function
+  public.submit_guest_request(text, text, text, text, integer, text, text, boolean, date, text)
+to anon, authenticated, service_role;
