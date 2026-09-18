@@ -95,31 +95,57 @@ sees the 6-digit code (not only a link). The Supabase default template already
 includes both a link and "enter the code: {{ .Token }}" — if you customise it,
 keep the token. Template editor: **Authentication → Email Templates → Magic Link**.
 
+The prod template is the committed **`supabase/templates/magic_link.html`**: paste
+that file into the Magic Link editor verbatim, subject **`Your PlusOne login code`**
+(the same subject `config.toml` sets locally). It carries the `{{ .Token }}` code
+and the one-tap `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink&next=/app`
+link. Its copy says the code "works for 10 minutes", which is the OTP expiry above.
+
 ### Invite email → must use the SSR `token_hash` route (REQUIRED)
 
 `inviteUserAction` sends a new invitee the **"Invite user"** template via
 `inviteUserByEmail`. For the **server-side** session to come up, the link must hit
 our own `/auth/confirm` route with a `token_hash` — a raw PKCE `code` link can't be
 exchanged from an e-mail click (there is no verifier cookie), so the default
-`{{ .ConfirmationURL }}` template will *silently fail to log the invitee in*. Edit
-**Authentication → Email Templates → "Invite user"** to:
+`{{ .ConfirmationURL }}` template will *silently fail to log the invitee in*. Set
+**Authentication → Email Templates → "Invite user"** to the committed
+**`supabase/templates/invite.html`**, pasted verbatim, subject
+**`You've been invited to PlusOne`**. Every link in it (button, Outlook fallback,
+paste-this-link fallback) has this format:
 
 ```html
-<h2>You've been invited to PlusOne</h2>
-<p>Accept your invite and set up access:</p>
-<p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite&next=/app">Accept the invite</a></p>
+<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=invite&amp;next=/app">
 ```
+
+`&amp;` is just the HTML-escaped `&` inside an attribute: the mail client resolves
+it to `…&type=invite&next=/app`, the same URL as before.
 
 - **Site URL** (§6) must be the production app URL — it is the `{{ .SiteURL }}` base.
 - `{{ .TokenHash }}` + `type=invite` are verified statelessly by `/auth/confirm`
   (`verifyOtp`), which then runs `accept_pending_invites()` and lands them at `/app`.
 - The **"Magic Link"** template (above) already drives the *existing-user* invite
   notification (a user from another venue, #24) — same token_hash / 6-digit code.
-- **Local mirror (since T1 PR b):** both templates are committed under
+- **Local mirror (since T1 PR b):** the templates are committed under
   `supabase/templates/` and wired in `config.toml`
-  (`[auth.email.template.invite]` / `[auth.email.template.magic_link]`), so the
-  Mailpit e-mails carry the same clickable `/auth/confirm` links as prod should.
-  Restart the local stack after changing them.
+  (`[auth.email.template.invite]` / `[auth.email.template.magic_link]` /
+  `[auth.email.template.confirmation]`), so the Mailpit e-mails carry the same
+  clickable `/auth/confirm` links as prod should. Restart the local stack after
+  changing them.
+
+### Confirm signup email (dormant while signups are off)
+
+Public signups are **off** (`[auth].enable_signup = false`, invite-only, §1), so
+Supabase never sends this e-mail today. It only fires if signups are ever switched
+on. It is ready anyway, so that day doesn't ship the default template: set
+**Authentication → Email Templates → "Confirm signup"** to the committed
+**`supabase/templates/confirmation.html`**, pasted verbatim, subject
+**`Confirm your PlusOne account`**. Like the invite, its links skip
+`{{ .ConfirmationURL }}` for the same server-side-session reason and go through our
+route with `type=signup` (which `/auth/confirm` accepts):
+
+```html
+<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=signup&amp;next=/app">
+```
 
 ## 4. MFA / TOTP (Authentication → Multi-Factor)
 

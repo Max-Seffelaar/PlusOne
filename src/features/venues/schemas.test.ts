@@ -18,6 +18,7 @@ const baseVenue = {
   postalCode: '',
   city: '',
   country: '',
+  website: '',
   defaultPersonalQuota: 0,
   allowUncheck: 'true',
 };
@@ -59,6 +60,38 @@ describe('venueSettingsSchema', () => {
     const r = venueSettingsSchema.safeParse({ ...baseVenue, financeEmail: 'Finance@Venue.NL' });
     expect(r.success).toBe(true);
     if (r.success) expect(r.data.financeEmail).toBe('finance@venue.nl');
+  });
+
+  it('keeps a stored country as-is (legacy free text still saves)', () => {
+    const r = venueSettingsSchema.safeParse({ ...baseVenue, country: 'Nederland' });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.country).toBe('Nederland');
+  });
+
+  it('treats a blank website as null and trims a valid one', () => {
+    const blank = venueSettingsSchema.safeParse({ ...baseVenue, website: '   ' });
+    expect(blank.success).toBe(true);
+    if (blank.success) expect(blank.data.website).toBeNull();
+    const ok = venueSettingsSchema.safeParse({ ...baseVenue, website: ' https://clubvesper.nl/agenda ' });
+    expect(ok.success).toBe(true);
+    if (ok.success) expect(ok.data.website).toBe('https://clubvesper.nl/agenda');
+    expect(venueSettingsSchema.safeParse({ ...baseVenue, website: 'http://clubvesper.nl' }).success).toBe(true);
+  });
+
+  it('accepts only an absolute http(s) website of at most 200 chars', () => {
+    for (const bad of [
+      'clubvesper.nl',
+      'www.clubvesper.nl',
+      'javascript:alert(1)',
+      'ftp://clubvesper.nl',
+      'https://',
+      'https://localhost',
+      `https://${'a'.repeat(190)}.nl`,
+    ]) {
+      const r = venueSettingsSchema.safeParse({ ...baseVenue, website: bad });
+      expect(r.success, bad).toBe(false);
+      if (!r.success) expect(r.error.issues[0]?.message).toBeTruthy();
+    }
   });
 
   it('rejects a negative default quota and coerces strings', () => {

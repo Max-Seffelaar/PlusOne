@@ -14,6 +14,7 @@ import {
   type AmbiguityChoice,
 } from '@/features/guests/quick-add-parser';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
+import { defaultAddGuestEvent } from '@/features/po/event-phase';
 import { normalizeContactName } from '@/features/guests/contact-match';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import {
@@ -30,11 +31,12 @@ import { canManageGuests } from '@/features/auth/roles';
 import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, Label, MiniChip, Note, Top, Scroll } from '../../kit';
+import { Avatar, Btn, Label, MiniChip, Note, Top, Scroll } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
 import { CountrySelect, PhoneInput, isPhoneValid, type CountryCode } from '../../phone-lazy';
 import { AddTierInline, DupeOption, NoTiersBlock, press, col } from './_shared';
 import { ContactLinkAmbiguous, ContactLinkOffer } from './contact-link';
+import { NoUpcomingEvents } from '../no-upcoming-events';
 
 // ── QUICK-ADD (#33) ──────────────────────────────────────────────────────────
 interface JustAdded {
@@ -91,7 +93,10 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   // Derive curEv from the user's optional override + the prop, not from a
   // state value that shadows the prop (avoids stale-init on re-navigation).
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
-  const curEv = liveEvents.find((e) => e.id === (selectedId ?? eventId)) ?? upcoming[0] ?? liveEvents[0];
+  // Default = the soonest upcoming/live event, NEVER a past one: the old
+  // `?? liveEvents[0]` fallback silently preselected a past event when nothing
+  // was upcoming (z8uq9m0hw3, item 1). No upcoming event → the empty state below.
+  const curEv = defaultAddGuestEvent(liveEvents, selectedId ?? eventId);
   const evId = curEv?.id ?? '';
 
   const { data: tiers = [] } = usePoTiers(evId);
@@ -379,7 +384,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
           </button>
         ) : (
           <div className="mb-2">
-            <Empty text={t.guests.add.noUpcoming} />
+            <NoUpcomingEvents text={t.guests.add.noUpcoming} />
           </div>
         )}
 
@@ -641,15 +646,18 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
           </>
         )}
       </Scroll>
-      <BottomBar>
-        <Btn kind="primary" full icon="plus" onClick={() => void commit()} className={canSubmit ? '' : 'opacity-[0.45]'}>
-          {add.isPending || update.isPending || dupeChecking
-            ? t.guests.add.submitBusy
-            : !parsed
-              ? t.guests.add.submitTypeName
-              : fmt(t.guests.add.submitAdd, { name: effName || t.guests.add.submitFallbackName, plus: effPlus ? ' +' + effPlus : '' })}
-        </Btn>
-      </BottomBar>
+      {/* No event to add to → no "Type a name" bar under the empty state. */}
+      {curEv && (
+        <BottomBar>
+          <Btn kind="primary" full icon="plus" onClick={() => void commit()} className={canSubmit ? '' : 'opacity-[0.45]'}>
+            {add.isPending || update.isPending || dupeChecking
+              ? t.guests.add.submitBusy
+              : !parsed
+                ? t.guests.add.submitTypeName
+                : fmt(t.guests.add.submitAdd, { name: effName || t.guests.add.submitFallbackName, plus: effPlus ? ' +' + effPlus : '' })}
+          </Btn>
+        </BottomBar>
+      )}
 
       {/* Blocking duplicate overlay (86ey8w7ek): submit found this name on the
           list (authoritative server check) → force a conscious decision. Each

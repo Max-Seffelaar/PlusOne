@@ -148,6 +148,7 @@ export async function updateVenueSettingsAction(
     postalCode: formData.get('postalCode'),
     city: formData.get('city'),
     country: formData.get('country'),
+    website: formData.get('website'),
     defaultPersonalQuota: formData.get('defaultPersonalQuota'),
     allowUncheck: formData.get('allowUncheck'),
   });
@@ -176,6 +177,7 @@ export async function updateVenueSettingsAction(
         postal_code: fields.postalCode,
         city: fields.city,
         country: fields.country,
+        website: fields.website,
         default_personal_quota: fields.defaultPersonalQuota,
         allow_uncheck: fields.allowUncheck,
       },

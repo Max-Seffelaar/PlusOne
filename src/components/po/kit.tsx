@@ -7,7 +7,7 @@
  * handoff. Interaction: hover `brightness(1.07)`, active `scale(0.975)`.
  */
 import { useEffect, useId, useRef, useState } from 'react';
-import type { CSSProperties, JSX, ReactNode } from 'react';
+import type { CSSProperties, JSX, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import type { Tier } from '@/lib/po/types';
@@ -315,6 +315,8 @@ export function Field({
   inputMode,
   maxLength,
   className,
+  ariaLabel,
+  onKeyDown,
 }: {
   icon?: IconName;
   placeholder?: string;
@@ -325,6 +327,9 @@ export function Field({
   inputMode?: 'text' | 'numeric' | 'email' | 'tel';
   maxLength?: number;
   className?: string;
+  /** Accessible name for an input with no visible label (e.g. an inline search). */
+  ariaLabel?: string;
+  onKeyDown?: (e: ReactKeyboardEvent<HTMLInputElement>) => void;
 }): JSX.Element {
   return (
     <div className={cn('flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]', className)}>
@@ -342,6 +347,8 @@ export function Field({
           type={type}
           inputMode={inputMode}
           maxLength={maxLength}
+          aria-label={ariaLabel}
+          onKeyDown={onKeyDown}
           className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none placeholder:text-faint"
         />
       ) : (
@@ -464,11 +471,14 @@ export function IconBtn({
   name,
   onClick,
   ariaLabel,
+  className,
 }: {
   name: IconName;
   onClick?: () => void;
   /** Accessible name (also shown as a hover tooltip) for icon-only buttons with no visible label. */
   ariaLabel?: string;
+  /** Size/tone overrides, e.g. `h-[44px] w-[44px]` for an in-list trigger. */
+  className?: string;
 }): JSX.Element {
   return (
     <button
@@ -476,7 +486,7 @@ export function IconBtn({
       onClick={onClick}
       aria-label={ariaLabel}
       title={ariaLabel}
-      className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text', press)}
+      className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text', press, className)}
     >
       <Icon name={name} size={19} />
     </button>
@@ -533,6 +543,43 @@ export function Note({ children, icon = 'shield' }: { children: ReactNode; icon?
 
 export function Empty({ text }: { text: string }): JSX.Element {
   return <div className="py-[30px] text-center text-[14px] text-faint">{text}</div>;
+}
+
+// ── GuideCard ────────────────────────────────────────────────────────────────
+/**
+ * The lavender-bordered "here's your next step" card: icon, bold title, one
+ * line of body, optional action buttons underneath. Was inlined as the event
+ * setup nudge (EventView); now shared with the new-event tiers step
+ * (z8uq9m0hw3). Louder than a `Note`, which explains; this one leads.
+ */
+export function GuideCard({
+  icon = 'spark',
+  title,
+  body,
+  actions,
+  className,
+}: {
+  icon?: IconName;
+  title: string;
+  body: string;
+  /** Buttons under the text (kit `Btn sm`), wrapped on narrow screens. */
+  actions?: ReactNode;
+  className?: string;
+}): JSX.Element {
+  return (
+    <div className={cn('mb-3 rounded-[18px] border bg-elev p-4', className)} style={{ borderColor: 'rgba(181,166,255,0.4)' }}>
+      <div className="flex gap-[11px]">
+        <span className="mt-px shrink-0 text-acc">
+          <Icon name={icon} size={19} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="font-display text-[15.5px] font-bold text-text">{title}</div>
+          <p className="mt-1 text-[12.5px] leading-[1.45] text-faint">{body}</p>
+        </div>
+      </div>
+      {actions && <div className="mt-3 flex flex-wrap gap-[10px]">{actions}</div>}
+    </div>
+  );
 }
 
 // ── InfoTip ──────────────────────────────────────────────────────────────────
@@ -672,4 +719,54 @@ export function MiniChip({ children, className, onClick }: { children: ReactNode
     );
   }
   return <span className={cls}>{children}</span>;
+}
+
+// ── ActionItem ───────────────────────────────────────────────────────────────
+/**
+ * One choice in a "…" action sheet: icon badge + verb-first label + an optional
+ * one-line sub (the current value it changes). Stack them inside a `Sheet`
+ * (shell.tsx). `danger` is the destructive choice, which goes last and asks for
+ * a confirm of its own. At least 52px tall, so the tap target clears 44px.
+ */
+export function ActionItem({
+  icon,
+  label,
+  sub,
+  danger,
+  disabled,
+  onClick,
+}: {
+  icon: IconName;
+  label: ReactNode;
+  sub?: ReactNode;
+  danger?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'flex min-h-[52px] w-full items-center gap-[12px] rounded-[13px] border px-[13px] py-[10px] text-left',
+        press,
+        'disabled:pointer-events-none disabled:opacity-50',
+        danger ? 'border-red-500/25 bg-red-500/[0.05] text-red-300' : 'border-line bg-bg text-text',
+      )}
+    >
+      <span
+        className={cn(
+          'flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-[10px]',
+          danger ? 'bg-red-500/15 text-red-300' : 'bg-elev2 text-dim',
+        )}
+      >
+        <Icon name={icon} size={16} sw={2} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-display text-[14.5px] font-bold">{label}</span>
+        {sub && <span className="mt-px block truncate font-body text-[12px] text-faint">{sub}</span>}
+      </span>
+    </button>
+  );
 }
