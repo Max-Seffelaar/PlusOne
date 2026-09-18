@@ -63,8 +63,8 @@ vi.mock('../DoorProvider', () => ({
 // The +N editor itself belongs to the guests profile (stream S4). Replaced with
 // a marker so this file asserts the door's wiring and its offline gate only.
 vi.mock('@/components/po/screens/guests/profile-sheets', () => ({
-  PlusOnesSheet: ({ guestId, eventId, plusOnes }: { guestId: string; eventId: string; plusOnes: number }) => (
-    <div data-testid="plus-ones-sheet" data-guest={guestId} data-event={eventId} data-plus={plusOnes} />
+  PlusOnesSheet: ({ guestId, eventId, current }: { guestId: string; eventId: string; current: number }) => (
+    <div data-testid="plus-ones-sheet" data-guest={guestId} data-event={eventId} data-plus={current} />
   ),
 }));
 

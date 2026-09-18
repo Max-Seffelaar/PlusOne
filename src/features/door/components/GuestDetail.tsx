@@ -295,8 +295,9 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
           guestId={g.id}
           eventId={eventId}
           name={g.name}
-          plusOnes={g.plus}
+          current={g.plus}
           onClose={() => setMenu(null)}
+          onSaved={() => setMenu(null)}
         />
       )}
 
