@@ -15,8 +15,8 @@ import { t, fmt } from '@/lib/i18n';
 import { Icon, type IconName } from '@/components/po/icon';
 import { Avatar, Btn, IconBtn, Label, PayChip, Scroll, Stepper, Top, press } from '@/components/po/kit';
 import { BottomBar, Sheet } from '@/components/po/shell';
-import { useDoor } from '../DoorProvider';
-import { tierRole } from '../model';
+import { PlusOnesSheet } from '@/components/po/screens/guests/profile-sheets';
+import { useDoor, useDoorSyncStatus } from '../DoorProvider';
 import { TierChip } from './TierChip';
 
 function LogRow({
@@ -48,8 +48,61 @@ function LogRow({
   );
 }
 
+/**
+ * The "…" menu in the door overlay (ADE UX round, item M2).
+ *
+ * Its own component so `useDoorSyncStatus()` — which ticks every 15s — is only
+ * subscribed while the sheet is actually open. The door deliberately split that
+ * context off the broad one (86ey9e8gf) precisely so a 15s tick does not
+ * re-render the guest detail; mounting the hook here keeps that true.
+ *
+ * ONLINE-ONLY, on purpose: changing plus-ones is a plain guest update that the
+ * database has to validate against the quota engine and the list lock (#22/#23),
+ * and the door outbox has no guest-update op (kinds: check_in, refusal,
+ * add_guest — #25). Queueing it would mean showing a doorhost a number the
+ * server may later refuse. So offline the action is disabled and says why;
+ * check-in itself keeps working offline, unchanged.
+ */
+function GuestActionsSheet({
+  onClose,
+  onEditPlusOnes,
+}: {
+  onClose: () => void;
+  onEditPlusOnes: () => void;
+}): JSX.Element {
+  const { online } = useDoorSyncStatus();
+  return (
+    <Sheet onClose={onClose} center={false}>
+      <div className="mb-4 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{t.door.actionsTitle}</div>
+      <button
+        type="button"
+        disabled={!online}
+        onClick={online ? onEditPlusOnes : undefined}
+        className={cn(
+          'flex w-full items-center gap-[12px] rounded-[14px] border border-line bg-elev p-[14px] text-left',
+          online ? press : 'cursor-not-allowed opacity-[0.55]',
+        )}
+      >
+        <span className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-[12px] bg-elev2 text-text">
+          <Icon name={online ? 'users' : 'lock'} size={19} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block font-display text-[15px] font-bold text-text">{t.door.actionEditPlusOnes}</span>
+          <span className="mt-px block text-[12.5px] text-faint">
+            {online ? t.door.actionEditPlusOnesSub : t.door.actionNeedsConnection}
+          </span>
+        </span>
+      </button>
+      {!online && <div className="mt-3 text-[12.5px] leading-[1.45] text-faint">{t.door.actionOfflineHint}</div>}
+      <Btn full kind="ghost" className="mt-4" onClick={onClose}>
+        {t.door.cancel}
+      </Btn>
+    </Sheet>
+  );
+}
+
 export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () => void }): JSX.Element | null {
-  const { guestById, checkIn, topUp, voidCheckIn, reviveCheckIn, refuse, ackNote, allowUncheck } = useDoor();
+  const { eventId, guestById, checkIn, topUp, voidCheckIn, reviveCheckIn, refuse, ackNote, allowUncheck } = useDoor();
   const g = guestById(guestId);
   // Start the door check-in at just the named guest (1 person), NOT the whole
   // party: arrivals are staggered (#25), so the host bumps the stepper for any
@@ -61,6 +114,8 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
   const [alertOpen, setAlertOpen] = useState(g?.notePriority === 'high' && !g?.acknowledged);
   const [refuseOpen, setRefuseOpen] = useState(false);
   const [reason, setReason] = useState('');
+  // 'actions' = the "…" sheet, 'plusOnes' = the shared +N editor on top of it.
+  const [menu, setMenu] = useState<'actions' | 'plusOnes' | null>(null);
 
   if (!g) return null;
   const total = 1 + plus;
@@ -78,15 +133,17 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
         right={
           <>
             <IconBtn name="share" />
-            <IconBtn name="dots" />
+            <IconBtn name="dots" ariaLabel={t.door.actionsAria} onClick={() => setMenu('actions')} />
           </>
         }
       />
       <Scroll bottom={20}>
         <div className="flex flex-col items-center px-0 pb-[18px] pt-1.5 text-center">
-          {/* tierName is the real tier name now — vip-ness for the accent ring
-              comes from the tierRole taxonomy ("VIP + fles op tafel" counts). */}
-          <Avatar name={g.name} size={84} accent={tierRole(g.tierName).label === 'VIP'} />
+          {/* Avatar fill = the guest's TIER colour (ADE UX round, item I), not a
+              lavender "is this tier VIP-ish?" guess: a mint VIP tier now reads
+              mint here exactly as it does on the row. `dim` mutes it once they
+              are inside, the same muting the check-in list uses. */}
+          <Avatar name={g.name} size={84} color={g.tierColor} dim={g.inside} />
           <h2 className="mb-0 mt-4 whitespace-nowrap font-display text-[28px] font-extrabold tracking-[-0.02em] text-text">{g.name}</h2>
           <div className="mt-3 flex flex-wrap items-center justify-center gap-[7px]">
             <TierChip name={g.tierName} color={g.tierColor} icon={g.tierIcon} />
@@ -225,6 +282,23 @@ export function GuestDetail({ guestId, onBack }: { guestId: string; onBack: () =
           </>
         )}
       </BottomBar>
+
+      {menu === 'actions' && (
+        <GuestActionsSheet onClose={() => setMenu(null)} onEditPlusOnes={() => setMenu('plusOnes')} />
+      )}
+
+      {/* The SAME sheet the guest profile uses (ADE UX round, item M1/M2) — one
+          +N editor, one set of quota/lock error messages, one slot-cost line.
+          It writes through the shared server action, never the door outbox. */}
+      {menu === 'plusOnes' && (
+        <PlusOnesSheet
+          guestId={g.id}
+          eventId={eventId}
+          name={g.name}
+          plusOnes={g.plus}
+          onClose={() => setMenu(null)}
+        />
+      )}
 
       {refuseOpen && (
         <Sheet onClose={() => setRefuseOpen(false)} center={false}>

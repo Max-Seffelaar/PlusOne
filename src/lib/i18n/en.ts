@@ -19,7 +19,11 @@ export const en = {
     events: 'Events',
     guests: 'Guests',
     contacts: 'Contacts',
-    door: 'Door',
+    /** The Deur tab / sidebar entry. Renamed to "Check-in" (ADE UX round, item L,
+     *  17/9): "Door" read as a place, not as the thing you do there. The KEY stays
+     *  `door` because it names the tab, not the label. The physical-door copy
+     *  ("Doors 23:00", door price, the doorhost role) is unchanged. */
+    door: 'Check-in',
     checkin: 'Check-in',
     tasks: 'Tasks',
     analytics: 'Analytics',
