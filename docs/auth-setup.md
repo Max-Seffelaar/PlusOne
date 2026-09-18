@@ -95,20 +95,30 @@ sees the 6-digit code (not only a link). The Supabase default template already
 includes both a link and "enter the code: {{ .Token }}" — if you customise it,
 keep the token. Template editor: **Authentication → Email Templates → Magic Link**.
 
+The prod template is the committed **`supabase/templates/magic_link.html`**: paste
+that file into the Magic Link editor verbatim, subject **`Your PlusOne login code`**
+(the same subject `config.toml` sets locally). It carries the `{{ .Token }}` code
+and the one-tap `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink&next=/app`
+link. Its copy says the code "works for 10 minutes", which is the OTP expiry above.
+
 ### Invite email → must use the SSR `token_hash` route (REQUIRED)
 
 `inviteUserAction` sends a new invitee the **"Invite user"** template via
 `inviteUserByEmail`. For the **server-side** session to come up, the link must hit
 our own `/auth/confirm` route with a `token_hash` — a raw PKCE `code` link can't be
 exchanged from an e-mail click (there is no verifier cookie), so the default
-`{{ .ConfirmationURL }}` template will *silently fail to log the invitee in*. Edit
-**Authentication → Email Templates → "Invite user"** to:
+`{{ .ConfirmationURL }}` template will *silently fail to log the invitee in*. Set
+**Authentication → Email Templates → "Invite user"** to the committed
+**`supabase/templates/invite.html`**, pasted verbatim, subject
+**`You've been invited to PlusOne`**. Every link in it (button, Outlook fallback,
+paste-this-link fallback) has this format:
 
 ```html
-<h2>You've been invited to PlusOne</h2>
-<p>Accept your invite and set up access:</p>
-<p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite&next=/app">Accept the invite</a></p>
+<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=invite&amp;next=/app">
 ```
+
+`&amp;` is just the HTML-escaped `&` inside an attribute: the mail client resolves
+it to `…&type=invite&next=/app`, the same URL as before.
 
 - **Site URL** (§6) must be the production app URL — it is the `{{ .SiteURL }}` base.
 - `{{ .TokenHash }}` + `type=invite` are verified statelessly by `/auth/confirm`
