@@ -153,6 +153,15 @@ update public.events set list_locked = false
 -- E. Duplicate-approved guard: a decided fingerprint is never silently
 --    approved twice (max is 99 and the list unlocked — the guard is the ONLY
 --    thing standing between this resubmission and a second guest)
+--
+--    z8uq9m0gvy changed what this resubmission REPORTS, not what it does. E1
+--    used to require `auto_approved = false` here, which is exactly the signal
+--    that made the anon endpoint an oracle: on an auto-approve link that
+--    `false` appeared if and only if the submitted e-mail was already approved
+--    on the event, so anyone could ask "is this named person on the list?" and
+--    read the answer off the response. The bit now reports the requester's
+--    standing and says `true`; the guard this section is really about is E2,
+--    and E2 is unchanged.
 -- ---------------------------------------------------------------------------
 
 select pg_temp.login_anon();
@@ -161,11 +170,11 @@ create temp table rd as
     0, null, 'ip-aa-7', false, null, 'tok-aa-7') as r;
 reset role;
 
-select is((select r ->> 'auto_approved' from rd), 'false',
-  'E1 a fingerprint that was already approved on this event is not auto-approved again');
+select is((select r ->> 'auto_approved' from rd), 'true',
+  'E1 an already-approved fingerprint reports the same standing a fresh submission gets (no e-mail oracle, z8uq9m0gvy)');
 select is(
   (select count(*)::int from public.guests where email = 'auto1@x.test'),
-  1, 'E2 …so the person is on the list exactly once; the repeat waits for staff');
+  1, 'E2 …while the guard still holds: on the list exactly once, and the repeat waits for staff');
 
 -- ---------------------------------------------------------------------------
 -- F. The cap also binds later edits + attribution is immutable

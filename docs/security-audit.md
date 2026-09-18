@@ -98,7 +98,7 @@ These bypass RLS by design, so each **re-checks authorisation itself** and pins
 
 | RPC | Re-check inside | Notes |
 |---|---|---|
-| `submit_guest_request` (anon) | event must be `landing_active` & not closed | per-IP rate limit + silent dedup + no enumeration (§4A) |
+| `submit_guest_request` (anon) | event must be `landing_active` & not closed | per-IP rate limit + silent dedup + no slug enumeration; `auto_approved` is no longer an e-mail oracle, two narrower residuals remain (§4A) |
 | `approve_guest_request` | `admin` (venue) **or** organizer (event) | atomic guest+request; tier-max still enforced; `added_by` = approver (exempt) |
 | `approve_quota_request` | `admin` **and** `is_aal2()` | atomic override + request; AAL2 re-checked |
 | `sync_permanent_guests_into_event` | `admin`/organizer **and** `can_write_guests` | idempotent; respects list-lock + exclusions |
@@ -136,12 +136,39 @@ The role matrix (spec §2) is enforced in `20260613120000_rls_policies.sql` and 
 ### 4A. The one anon surface — landing requests (#12/#28)
 
 `submit_guest_request` (SECURITY DEFINER, granted to `anon`):
-- **Rate limit** — fixed window **10 requests / 10 min per IP-hash** (`landing_request_throttle`).
-- **No enumeration** — unknown slug and deactivated event return the **same** `'closed'`.
+- **Rate limit** — fixed window **5 requests / 15 min per IP-hash**
+  (`landing_request_throttle`; tightened from 10/10 in `20260625100000`). The bucket key
+  is the `p_ip_hash` **argument**, so it bounds a browser and accidental hammering — a
+  direct PostgREST caller picks its own bucket and is not meaningfully throttled.
+- **No slug/link enumeration** — unknown, paused, expired and deactivated links all
+  return the **same** `'closed'`; which links exist, and how they are configured, never
+  reaches the caller.
+- **No e-mail enumeration on the auto-approve path** — `auto_approved` reports the
+  requester's *standing* ("you hold an approved spot"), so a fresh address, an
+  already-approved one, and a repeat probe of either all answer alike. Before
+  `20260918100000` (z8uq9m0gvy) `false` meant precisely "this e-mail is already
+  approved on this event" — a clean yes/no oracle for whether a named person is
+  attending. Proven by `landing.test.sql` E1–E9.
 - **Silent dedup** — duplicate pending request swallowed; caller can't tell new from dup.
 - **No raw PII** — the IP is SHA-256-hashed in the app before it reaches the DB.
 - Raw RLS underneath: anon may only insert a **pending** request to an **active** event,
   and has no SELECT on `guest_requests` (can't read who applied).
+
+**Known residuals** (auto-approve links only; both are strictly narrower than the oracle
+closed above, and both are one-sided — a `true` stays ambiguous):
+- An e-mail whose request on the event is still **undecided** answers `false` where a
+  stranger gets `true`, because that submission genuinely stays pending. Reachable when
+  the person applied through a manual-review link. Closing it means auto-deciding a
+  request that arrived through a *different* link, which is a workflow change rather
+  than a reporting one — left for an explicit decision.
+- On a link **at capacity**, an already-approved e-mail answers `true` where a stranger
+  gets `false`. Capacity is enforced by AFTER-INSERT triggers while
+  `guests_event_contact_uidx` rejects the duplicate row at index time, so the two cases
+  cannot be made to answer alike without duplicating the three capacity rules inside the
+  RPC.
+
+Lock state is **not** a residual: every branch hangs off one `not v_locked` gate, so a
+locked list answers `false` to every e-mail alike (proven by E8/E9).
 
 ---
 
@@ -274,7 +301,7 @@ NEW files (no existing test edited except the two #31/#11 re-points in §9):
 | `attacker_list_lock.test.sql` | locked list: staff can't add/edit/**self-unlock**/forge-`added_by`; lock stays; doorhost+admin keep writing (#23) |
 | `attacker_audit_aal2.test.sql` | audit log un-forgeable/un-editable/un-deletable even for admin+AAL2; AAL1 admin refused quota grant, role grant, organizer assign; AAL2 anchor works |
 | `attacker_delete_outbox.test.sql` | hard-delete of guests/check_ins/refusals refused (`42501`) even for admin; soft-delete keeps the row; outbox replay can't double-check-in (`23505`); no-op replay writes no audit |
-| `attacker_landing_spam.test.sql` | per-IP rate limit (11th `rate_limited`); unknown == deactivated == `'closed'` (no enumeration); anon can't self-approve or read requests |
+| `attacker_landing_spam.test.sql` | per-IP rate limit (6th `rate_limited`); unknown == deactivated == `'closed'` (no slug enumeration); anon can't self-approve or read requests |
 
 **Result:** `supabase test db` → **Files=28, Tests=583, `Result: PASS`** (with the fix
 applied). Each file is self-contained (own `pg_temp` login helpers) and rolls back.
