@@ -48,6 +48,13 @@ new S1b) · legal pages not live yet → L1. Spec #37 carries the refinement.
 wall clock is D-U-N-S → Apple org verification, not the code. Nothing on the M-track
 (Max's accounts) has been started yet — that is the one thing to begin today.
 
+**Follow-up (2026-09-18):** `capacitor-orchestration-claude-code.md` — one orchestrator
+session per wave (not per programme), workers as separate one-task sessions under the
+`clickup-task` skill, pre-assigned migration timestamps, shared-file sequencing, a
+fresh reviewer session for N2/S3. Model routing per CLAUDE.md: orchestrator + reviewers
+on Fable, workers on Opus, S2 on Sonnet. Contains the copy-paste orchestrator prompt,
+the five wave blocks, the worker-brief template and the reviewer brief.
+
 ---
 
 ## 2026-09-17 — The grant matrix that was only ever a comment: anon/authenticated privileges in `public`

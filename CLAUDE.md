@@ -75,7 +75,7 @@ The `po` surface gets wrapped via the **remote-URL model** (native webview loads
 - [ ] No `target="_blank"` / bare `window.open` in the `po` surface — external links go through the kit's `openExternal()` (native shell: `@capacitor/browser`; Capacitor otherwise loads `_blank` inside the webview with no way back). Clipboard via the kit's `copyText()`, never a bare `navigator.clipboard`. (Both helpers land in Fase 17 N1.)
 - [ ] iPad is in v1 (decided 2026-09-17) — a screen must work at 641–1023px, not just phone and desktop.
 
-Open native item (door only): cold-start-offline may need the door route bundled locally — validate with a spike before native launch. Fase 17 is **started** (plan reviewed against the code and approved 2026-09-17; decisions, phases and parallel waves in `capacitor-plan-claude-code.md`).
+Open native item (door only): cold-start-offline may need the door route bundled locally — validate with a spike before native launch. Fase 17 is **started** (plan reviewed against the code and approved 2026-09-17; decisions, phases and parallel waves in `capacitor-plan-claude-code.md`; how to run each wave — orchestrator prompt, worker briefs, reviewer brief, model routing — in `capacitor-orchestration-claude-code.md`).
 
 ## Scale & front-end discipline (2026-07 review — enforce on every PR)
 
