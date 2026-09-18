@@ -10,6 +10,7 @@ import type { CSSProperties, JSX, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import type { Tier } from '@/lib/po/types';
+import { tierInk, tintTier } from '@/lib/po/tier-colors';
 import { Icon, type IconName } from './icon';
 
 // FE-4: the canonical press/cardPress feels — 26 files hand-rolled a local copy
@@ -30,14 +31,50 @@ export function initials(name: string): string {
 }
 
 // ── Avatar ──────────────────────────────────────────────────────────────────
-export function Avatar({ name, size = 44, accent }: { name: string; size?: number; accent?: boolean }): JSX.Element {
+/**
+ * Initials bubble. Three fills, in priority order:
+ *
+ * - `color` — the guest's TIER colour (ADE round, item I). Ink comes from
+ *   `tierInk` so a dark custom tier stays legible, and the border goes
+ *   transparent so the shape reads as one solid chip of the tier.
+ *   With `dim` it drops to the door's low-alpha tint + white ink, the same
+ *   recipe the cockpit uses for a guest who is already inside.
+ * - `accent` — the lavender brand fill, for NON-guest uses (venue, own profile,
+ *   "already imported"). Never use it to mean "VIP": a tier's real colour is
+ *   `color`, and the two disagreed for every non-lavender VIP-ish tier.
+ * - neither — the neutral elevated fill.
+ */
+export function Avatar({
+  name,
+  size = 44,
+  accent,
+  color,
+  dim,
+}: {
+  name: string;
+  size?: number;
+  accent?: boolean;
+  /** Tier colour (#RRGGBB) to fill with — wins over `accent`. */
+  color?: string;
+  /** Low-alpha tint of `color` + white ink (guest already inside). */
+  dim?: boolean;
+}): JSX.Element {
+  const style: CSSProperties = { width: size, height: size, borderRadius: size * 0.32, fontSize: size * 0.34 };
+  if (color) {
+    style.background = dim ? tintTier(color, 0.14) : color;
+    style.color = dim ? '#FFFFFF' : tierInk(color);
+  }
   return (
     <div
       className={cn(
-        'flex shrink-0 items-center justify-center font-display font-bold tracking-[-0.02em]',
-        accent ? 'bg-acc text-on-acc border border-transparent' : 'bg-elev2 text-text border border-line',
+        'flex shrink-0 items-center justify-center border font-display font-bold tracking-[-0.02em]',
+        color
+          ? 'border-transparent'
+          : accent
+            ? 'bg-acc text-on-acc border-transparent'
+            : 'bg-elev2 text-text border-line',
       )}
-      style={{ width: size, height: size, borderRadius: size * 0.32, fontSize: size * 0.34 }}
+      style={style}
     >
       {initials(name)}
     </div>

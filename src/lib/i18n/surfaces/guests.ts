@@ -37,6 +37,10 @@ export const guests = {
     title: 'Guests',
     sub: '{shown} of {total} shown',
     allScope: 'All events',
+    // Event scope chips: upcoming events sit in the row, past ones hide behind
+    // this toggle so a venue with a long history doesn't scroll for a minute.
+    pastScope: 'Past',
+    pastShowAll: 'Show all',
     regularsFilter: 'Regulars',
     emptyRegulars: 'No regulars on this list yet. Star a contact to make them a regular.',
     addPickEvent: 'Pick an event above to add guests.',
@@ -46,7 +50,8 @@ export const guests = {
     filterIn: 'Inside',
     filterVip: 'VIP',
     addGuest: 'Add guest',
-    pasteList: 'Paste list',
+    pasteList: 'Paste a list',
+    pickEventForPaste: 'Which list are you pasting into?',
     contacts: 'Contacts',
     loading: 'Loading guests…',
     loadError: "Couldn't load the guest list.",
@@ -58,6 +63,38 @@ export const guests = {
     colAdded: 'Added',
     colStatus: 'Status',
     refused: 'Refused',
+  },
+  // ── Guest provenance (where a name came from) ─────────────────────────────
+  // Rendered by `guestSourceLabel` (src/features/po/format.ts) on the guest rows
+  // and on the person profile. "a colleague" is the honest fallback when RLS
+  // hides the actor's profile from this role — we never widen a policy for a label.
+  source: {
+    regular: 'Regular',
+    signUpLink: 'Sign-up link',
+    signUpLinkNamed: 'Sign-up link · {label}',
+    addedBy: 'Added by {name}',
+    addedByColleague: 'Added by a colleague',
+    atDoorBy: 'At the door by {name}',
+    atDoorByColleague: 'At the door by a colleague',
+  },
+  // ── Plus-ones sheet (edit +N from the person profile) ─────────────────────
+  plusOnes: {
+    title: 'Plus-ones',
+    sub: 'How many people come along with {name}?',
+    slotsLine: '{total} {slots} in total',
+    slotOne: 'slot',
+    slotMany: 'slots',
+    quotaLeft: '{n} left in your quota',
+    quotaOver: '{n} over your quota for this event',
+    quotaExempt: 'No limit for your role',
+    max: 'Up to {n} plus-ones per guest. Paste a list for bigger groups.',
+    save: 'Save · +{n}',
+    saving: 'Saving…',
+    failed: "Couldn't change the plus-ones.",
+    cancel: 'Cancel',
+    // Entry points on the profile's event card
+    edit: 'Edit +{n}',
+    add: 'Add plus-ones',
   },
   // ── Guest detail (read-only; check-in lives at the door) ──────────────────
   detail: {

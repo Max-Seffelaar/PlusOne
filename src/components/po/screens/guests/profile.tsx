@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { usePoEvents, usePoContacts, usePoPersonProfile, usePoTiers } from '@/features/po/hooks';
 import { usePoToggleContactPermanent, usePoChangeGuestTier } from '@/features/po/mutations';
 import type { PoContact, PoProfileEvent, PoProfileTimelineItem, ContactTimelineKind } from '@/features/po/adapters';
+import { guestSourceLabel } from '@/features/po/format';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { isDoorOnlyRole } from '@/features/auth/roles';
 import { t, fmt } from '@/lib/i18n';
@@ -20,6 +21,7 @@ import {
   ForgetConfirmSheet,
   PermanentConfirmSheet,
   AddToEventSheet,
+  PlusOnesSheet,
 } from './profile-sheets';
 
 // ── GUEST detail / check-in log row ─────────────────────────────────────────
@@ -292,6 +294,8 @@ export function ContactProfile({
   const [tierPicking, setTierPicking] = useState(false);
   const [tierGuestId, setTierGuestId] = useState<string | null>(null);
   const [tierErr, setTierErr] = useState<string | null>(null);
+  // The event row whose +N is being edited (item M1); null = sheet closed.
+  const [plusFor, setPlusFor] = useState<PoProfileEvent | null>(null);
   // A successful contact save (edit or promote) previously closed the sheet with
   // no confirmation — the user couldn't tell it actually happened.
   const [toast, setToast] = useState<string | null>(null);
@@ -475,10 +479,34 @@ export function ContactProfile({
                           {t.guests.contactProfile.changeTier}
                         </button>
                       )}
-                      {e.plusOnes > 0 && <MiniChip className="border-line2 text-faint">{fmt(t.guests.contactProfile.plusChip, { n: e.plusOnes })}</MiniChip>}
+                      {/* Item M1: +N is editable from here. The database still
+                          owns quota + list-lock — a refusal comes back as the
+                          sheet's error, we don't pre-judge it client-side. A
+                          door-only viewer keeps the read-only chip. */}
+                      {doorOnly ? (
+                        e.plusOnes > 0 && (
+                          <MiniChip className="border-line2 text-faint">
+                            {fmt(t.guests.contactProfile.plusChip, { n: e.plusOnes })}
+                          </MiniChip>
+                        )
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setPlusFor(e)}
+                          className="rounded-[7px] border border-line2 bg-transparent px-2 py-[3px] font-body text-[11px] font-bold text-faint transition-colors hover:border-acc hover:text-acc"
+                        >
+                          {e.plusOnes > 0 ? fmt(t.guests.plusOnes.edit, { n: e.plusOnes }) : t.guests.plusOnes.add}
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <EventStatusPill e={e} />
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <EventStatusPill e={e} />
+                    {/* Item J: where this name came from, right where the status is. */}
+                    <span className="max-w-[160px] truncate text-right text-[11px] text-faint">
+                      {guestSourceLabel({ source: e.source, addedByName: e.addedByName, linkLabel: e.linkLabel })}
+                    </span>
+                  </div>
                 </div>
                 {e.note && (
                   <div className={cn('mt-[11px] flex items-start gap-[8px] rounded-[10px] p-[10px]', e.noteFlag === 'high' ? 'bg-acc-dim' : 'bg-elev2')}>
@@ -585,6 +613,19 @@ export function ContactProfile({
             {t.guests.contacts.cancel}
           </Btn>
         </Sheet>
+      )}
+      {plusFor && (
+        <PlusOnesSheet
+          guestId={plusFor.guestId}
+          eventId={plusFor.eventId}
+          name={p.name}
+          current={plusFor.plusOnes}
+          onClose={() => setPlusFor(null)}
+          onSaved={() => {
+            setPlusFor(null);
+            setToast(t.guests.contacts.saveSuccess);
+          }}
+        />
       )}
       {toast && <Toast>{toast}</Toast>}
     </div>
