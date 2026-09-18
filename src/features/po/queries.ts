@@ -571,6 +571,10 @@ export async function fetchGuestRequests(
       'id, full_name, email, phone, plus_ones, motivation, created_at, event_id, status, decision_reason, request_link_id, decided_via'
     )
     .eq('venue_id', venueId)
+    // z8uq9m0hw6: an anonymized request (#29, past the retention window) is no
+    // longer decidable (approve_guest_request answers P0002), so it has no
+    // place in the inbox either.
+    .is('anonymized_at', null)
     .or('status.in.(pending,denied),and(status.eq.approved,decided_via.eq.auto)')
     .order('created_at', { ascending: true });
   if (error) throw error;
