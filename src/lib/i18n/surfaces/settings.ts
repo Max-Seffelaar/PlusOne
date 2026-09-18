@@ -210,7 +210,7 @@ export const settings = {
     postalFieldLabel: 'Postal code',
     cityFieldLabel: 'City',
     countryFieldLabel: 'Country',
-    companyNamePlaceholder: 'e.g. LOFI',
+    companyNamePlaceholder: 'Company name',
     kvkPlaceholder: '12345678',
     vatPlaceholder: 'NL000000000B00',
     billingEmailPlaceholder: 'billing@venue.com',
