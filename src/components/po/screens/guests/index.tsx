@@ -38,7 +38,7 @@ import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Scroll, Top } from
 import { BottomBar, Sheet } from '../../shell';
 import { DupeOption, NoTiersBlock, press, col } from './_shared';
 import { useGuestSelection, GuestBulkBar, BulkAddToEventSheet, type BulkAddCandidate } from './bulk-add';
-import { ScopeChip, BulkTierSheet, GuestCardList, GuestTable } from './list-shared';
+import { GuestScopeChips, BulkTierSheet, GuestCardList, GuestTable } from './list-shared';
 
 // QuickAdd is intentionally NOT re-exported here (#2b): the app shell code-splits
 // it via `next/dynamic` straight from './quick-add'. Re-exporting it would pull
@@ -142,18 +142,26 @@ export function GuestsTab({ pinnedEventId }: { pinnedEventId?: string } = {}): J
   // Add-guest on the "All events" scope (M10, K-16): no event is picked here, so
   // route through the same event-picker sheet Home's "New guest" uses, then land
   // on the ordinary quickadd flow.
-  const [pickOpen, setPickOpen] = useState(false);
+  // The same picker serves "Add guest" and "Paste a list" (item N) — only the
+  // screen it lands on differs, so the target rides along in state.
+  const [pickTarget, setPickTarget] = useState<'quickadd' | 'bulk' | null>(null);
   const [pickQuery, setPickQuery] = useState('');
+  const pickOpen = pickTarget !== null;
   const pickMatches = useMemo(() => {
     const q = pickQuery.trim().toLowerCase();
     return q ? upcoming.filter((e) => e.name.toLowerCase().includes(q)) : upcoming;
   }, [upcoming, pickQuery]);
+  const openPicker = (target: 'quickadd' | 'bulk'): void => {
+    setPickQuery('');
+    setPickTarget(target);
+  };
   const addGuestClick = (): void => {
     if (scopeEvent) nav.push('quickadd', { id: scopeEvent.id });
-    else {
-      setPickQuery('');
-      setPickOpen(true);
-    }
+    else openPicker('quickadd');
+  };
+  const pasteListClick = (): void => {
+    if (scopeEvent) nav.push('bulk', { id: scopeEvent.id });
+    else openPicker('bulk');
   };
 
   // ── Multi-select + bulk actions ──
@@ -224,31 +232,13 @@ export function GuestsTab({ pinnedEventId }: { pinnedEventId?: string } = {}): J
       {/* Pinned mode (pushed from an event): single fixed scope, no chip row —
           mirrors the old standalone `Lijst`'s UI exactly. */}
       {!pinnedEventId && (
-        <div className="flex-none overflow-x-auto px-4 pb-3">
-          <div className="flex w-max items-center gap-1.5">
-            <ScopeChip on={allMode} onClick={() => setScope(null)}>
-              {t.guests.list.allScope}
-            </ScopeChip>
-            {events.map((e) => (
-              <ScopeChip key={e.id} on={scope === e.id} onClick={() => setScope(e.id)}>
-                {e.name}
-              </ScopeChip>
-            ))}
-            <span className="mx-1 h-4 w-px shrink-0 bg-line" />
-            <button
-              type="button"
-              onClick={() => setRegularsOnly((v) => !v)}
-              aria-pressed={regularsOnly}
-              className={cn(
-                'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-[7px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.07]',
-                regularsOnly ? 'border-transparent bg-acc-dim text-acc' : 'border-line bg-transparent text-dim',
-              )}
-            >
-              <Icon name="star" size={12} fill={regularsOnly ? '#B5A6FF' : 'none'} stroke={regularsOnly ? '#B5A6FF' : 'currentColor'} />
-              {t.guests.list.regularsFilter}
-            </button>
-          </div>
-        </div>
+        <GuestScopeChips
+          events={events}
+          scope={scope}
+          onScope={setScope}
+          regularsOnly={regularsOnly}
+          onToggleRegulars={() => setRegularsOnly((v) => !v)}
+        />
       )}
       <div className="flex-none px-4 lg:flex lg:items-center lg:gap-3 lg:pb-3">
         {hasSelection ? (
@@ -266,19 +256,19 @@ export function GuestsTab({ pinnedEventId }: { pinnedEventId?: string } = {}): J
             <div className="pb-[10px] lg:max-w-[300px] lg:flex-1 lg:pb-0">
               <Field icon="search" placeholder={t.guests.list.searchPlaceholder} value={q} onChange={setQ} />
             </div>
-            <div className="flex gap-2 pb-3 lg:ml-auto lg:pb-0">
+            <div className="flex flex-wrap gap-2 pb-3 lg:ml-auto lg:flex-nowrap lg:pb-0">
               <Btn sm kind="primary" icon="plus" onClick={addGuestClick}>
                 {t.guests.list.addGuest}
               </Btn>
+              {/* Item N: a labelled button, always there — on "All events" it
+                  routes through the same event picker "Add guest" uses. */}
+              <Btn sm kind="ghost" icon="paste" onClick={pasteListClick}>
+                {t.guests.list.pasteList}
+              </Btn>
               {scopeEvent && (
-                <>
-                  <Btn sm kind="quiet" icon="paste" onClick={() => nav.push('bulk', { id: scopeEvent.id })}>
-                    {t.guests.list.pasteList}
-                  </Btn>
-                  <Btn sm kind="quiet" icon="contact" onClick={() => nav.push('contacten', { id: scopeEvent.id })}>
-                    {t.guests.list.contacts}
-                  </Btn>
-                </>
+                <Btn sm kind="quiet" icon="contact" onClick={() => nav.push('contacten', { id: scopeEvent.id })}>
+                  {t.guests.list.contacts}
+                </Btn>
               )}
             </div>
           </>
@@ -342,9 +332,9 @@ export function GuestsTab({ pinnedEventId }: { pinnedEventId?: string } = {}): J
         />
       )}
       {pickOpen && (
-        <Sheet onClose={() => setPickOpen(false)}>
+        <Sheet onClose={() => setPickTarget(null)}>
           <h2 className="mb-4 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">
-            {t.home.pickEventForGuest}
+            {pickTarget === 'bulk' ? t.guests.list.pickEventForPaste : t.home.pickEventForGuest}
           </h2>
           {upcoming.length === 0 ? (
             <p className="py-6 text-center text-[14px] text-faint">{t.home.noUpcomingToday}</p>
@@ -368,8 +358,9 @@ export function GuestsTab({ pinnedEventId }: { pinnedEventId?: string } = {}): J
                       key={e.id}
                       type="button"
                       onClick={() => {
-                        setPickOpen(false);
-                        nav.push('quickadd', { id: e.id });
+                        const target = pickTarget ?? 'quickadd';
+                        setPickTarget(null);
+                        nav.push(target, { id: e.id });
                       }}
                       className={cn(
                         'flex w-full items-center gap-[12px] rounded-[12px] border border-line bg-elev px-[13px] py-[11px] text-left',
@@ -651,7 +642,9 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
                       <div key={i} className={cn('rounded-[14px] border bg-elev', err ? 'border-red-300/45' : ask ? 'border-acc' : 'border-line')}>
                         <div className="flex items-center gap-[11px] p-[12px]">
                           <button type="button" onClick={() => toggleRow(i)} className={cn('flex min-w-0 flex-1 items-center gap-[11px] text-left', press)}>
-                            <Avatar name={view.name || r.raw} size={34} accent={tier?.role === 'VIP'} />
+                            {/* Item I: the row's real tier colour, not "lavender
+                                if the tier looks VIP-ish". */}
+                            <Avatar name={view.name || r.raw} size={34} color={tier?.color} />
                             <div className="min-w-0 flex-1">
                               <div className="truncate font-display text-[14.5px] font-bold text-text">
                                 {view.name || r.raw}
