@@ -646,15 +646,18 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
           </>
         )}
       </Scroll>
-      <BottomBar>
-        <Btn kind="primary" full icon="plus" onClick={() => void commit()} className={canSubmit ? '' : 'opacity-[0.45]'}>
-          {add.isPending || update.isPending || dupeChecking
-            ? t.guests.add.submitBusy
-            : !parsed
-              ? t.guests.add.submitTypeName
-              : fmt(t.guests.add.submitAdd, { name: effName || t.guests.add.submitFallbackName, plus: effPlus ? ' +' + effPlus : '' })}
-        </Btn>
-      </BottomBar>
+      {/* No event to add to → no "Type a name" bar under the empty state. */}
+      {curEv && (
+        <BottomBar>
+          <Btn kind="primary" full icon="plus" onClick={() => void commit()} className={canSubmit ? '' : 'opacity-[0.45]'}>
+            {add.isPending || update.isPending || dupeChecking
+              ? t.guests.add.submitBusy
+              : !parsed
+                ? t.guests.add.submitTypeName
+                : fmt(t.guests.add.submitAdd, { name: effName || t.guests.add.submitFallbackName, plus: effPlus ? ' +' + effPlus : '' })}
+          </Btn>
+        </BottomBar>
+      )}
 
       {/* Blocking duplicate overlay (86ey8w7ek): submit found this name on the
           list (authoritative server check) → force a conscious decision. Each
