@@ -67,15 +67,11 @@ export const onboarding = {
     addRow: 'Add another team member',
     send: 'Send invites',
     working: 'Working…',
-    continueToDashboard: 'Continue to dashboard',
     // Joeri walkthrough: a bare "Skip" under a disabled primary was easy to miss.
     skip: 'Skip for now',
     skipHintPre: 'You can add your team later from ',
     skipHintBold: 'Team',
     skipHintPost: '.',
     sendError: "Couldn't send the invite.",
-    mfaNotePre: "Set up two-factor first to invite team members. It's required for granting roles (AAL2). You'll finish onboarding now and invite your team afterwards from",
-    mfaNoteBold: ' Team',
-    mfaNotePost: '.',
   },
 } as const;

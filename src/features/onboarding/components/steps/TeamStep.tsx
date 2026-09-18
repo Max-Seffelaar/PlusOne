@@ -1,14 +1,14 @@
 'use client';
 
-/** Onboarding step 3 — invite the team (optional, #40). Inviting requires AAL2,
- *  which a brand-new owner has not set up yet, so invites are best-effort and the
- *  step is prominently skippable; MFA can be enrolled afterwards from the app.
+/** Onboarding step 3: invite the team (optional, #40), so the step is
+ *  prominently skippable. Inviting is role-only; MFA is optional for every role
+ *  (#20, 2026-07-01), so nothing here waits on two-factor.
  *  Finishing (send or skip) marks onboarding complete and moves to the app. */
 import { type JSX, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
-import { Field, Label, Note, Btn, press } from '@/components/po/kit';
+import { Field, Label, Btn, press } from '@/components/po/kit';
 import { inviteUserAction } from '@/features/auth/invite-actions';
 import { completeOnboardingAction } from '@/features/billing/actions';
 import { WizardShell, WizardPanel } from '../WizardShell';
@@ -28,7 +28,6 @@ export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
   const [rows, setRows] = useState<Row[]>([{ id: 0, email: '', role: 'staff' }]);
   const [nextId, setNextId] = useState(1);
   const [error, setError] = useState<string | null>(null);
-  const [mfaBlocked, setMfaBlocked] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const validRows = rows.filter((r) => /.+@.+\..+/.test(r.email.trim()));
@@ -60,7 +59,6 @@ export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
     if (pending || validRows.length === 0) return;
     setError(null);
     startTransition(async () => {
-      let blocked = false;
       for (const r of validRows) {
         const fd = new FormData();
         fd.set('venueId', venueId);
@@ -68,17 +66,9 @@ export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
         fd.append('roles', r.role);
         const res = await inviteUserAction({ ok: false }, fd);
         if (!res.ok) {
-          if (res.error && /MFA|authenticator/i.test(res.error)) {
-            blocked = true;
-          } else {
-            setError(res.error ?? c.sendError);
-            return;
-          }
+          setError(res.error ?? c.sendError);
+          return;
         }
-      }
-      if (blocked) {
-        setMfaBlocked(true);
-        return;
       }
       await finish();
     });
@@ -99,22 +89,16 @@ export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
       footer={
         <div className="flex flex-col gap-[10px]">
           {error && <div className="text-[13.5px] text-[#ff9b9b]">{error}</div>}
-          {mfaBlocked ? (
-            <Btn kind="primary" full icon="arrowR" onClick={() => startTransition(finish)} disabled={pending}>
-              {pending ? c.working : c.continueToDashboard}
-            </Btn>
-          ) : (
-            <Btn
-              kind="primary"
-              full
-              icon="arrowR"
-              onClick={send}
-              disabled={pending || validRows.length === 0}
-              className={validRows.length === 0 ? 'opacity-[0.45]' : ''}
-            >
-              {pending ? c.working : c.send}
-            </Btn>
-          )}
+          <Btn
+            kind="primary"
+            full
+            icon="arrowR"
+            onClick={send}
+            disabled={pending || validRows.length === 0}
+            className={validRows.length === 0 ? 'opacity-[0.45]' : ''}
+          >
+            {pending ? c.working : c.send}
+          </Btn>
           {/* A real secondary button, not a faint "quiet" one: with no email filled
               in, the primary above is disabled and this is the only way on. */}
           <Btn kind="dark" full onClick={skip} disabled={pending}>
@@ -128,14 +112,6 @@ export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
         </div>
       }
     >
-      {mfaBlocked && (
-        <Note icon="shield">
-          {c.mfaNotePre}
-          <b>{c.mfaNoteBold}</b>
-          {c.mfaNotePost}
-        </Note>
-      )}
-
       <div className="flex flex-col gap-[12px]">
         {rows.map((r) => (
           <div key={r.id} className="rounded-[16px] border border-line bg-elev p-[14px]">
