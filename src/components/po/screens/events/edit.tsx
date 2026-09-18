@@ -75,7 +75,10 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   // first manual end edit claims them; an event loaded WITH an end starts
   // claimed, so a stored end is never silently rewritten.
   const [endTouched, setEndTouched] = useState(false);
-  const [landingOn, setLandingOn] = useState(false);
+  // A NEW event starts with its sign-up link on (z8uq9m0hw3, item 6): most
+  // nights want requests, and an off link was the step people forgot. Edit mode
+  // overwrites this with the stored value on hydrate.
+  const [landingOn, setLandingOn] = useState(true);
   const [autoOn, setAutoOn] = useState(false);
   const [autoDate, setAutoDate] = useState('');
   const [autoTime, setAutoTime] = useState('');
@@ -124,6 +127,10 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   }
 
   const writable = isNew ? isAdmin : canManage;
+  // Create-from-template: the template's own settings apply (the RPC copies
+  // them), so the form shows the template's values read-only.
+  const fromTemplate = isNew && !!templateId;
+  const pickedTemplate = fromTemplate ? templates.data?.find((tpl) => tpl.id === templateId) : undefined;
   const venueLabel = isNew ? venueName ?? '' : ev?.venueName ?? '';
   const saving = createEvent.isPending || createFromTemplate.isPending || updateEvent.isPending;
 
@@ -422,8 +429,10 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           <ToggleRow
             title={t.events.landingActiveTitle}
             sub={t.events.landingActiveSub}
-            on={isNew && templateId ? false : landingOn}
-            set={(v) => writable && !(isNew && templateId) && setLandingOn(v)}
+            // From a template: show what the new event will actually get (the
+            // template's setting), still read-only (z8uq9m0hw3, item 6).
+            on={fromTemplate ? pickedTemplate?.landing_active ?? false : landingOn}
+            set={(v) => writable && !fromTemplate && setLandingOn(v)}
             last={!landingOn || isNew}
           />
           {!isNew && landingOn && ev?.landingSlug && (

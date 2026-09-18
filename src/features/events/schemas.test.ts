@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  createEventSchema,
   createTemplateSchema,
   updateTemplateSchema,
   createTemplateTierSchema,
@@ -15,8 +16,15 @@ const TEMPLATE = '00000000-0000-7000-8000-0000000000a1';
 const EVENT_ID = '00000000-0000-7000-8000-0000000000e2';
 
 describe('createTemplateSchema', () => {
-  it('accepts a minimal template (name only) and defaults landingActive to false', () => {
+  // Sign-up link ON by default for new templates, like new events (z8uq9m0hw3).
+  it('accepts a minimal template (name only) and defaults landingActive to true', () => {
     const r = createTemplateSchema.safeParse({ venueId: VENUE, name: 'Lofi Open Air' });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.landingActive).toBe(true);
+  });
+
+  it('keeps an explicit landingActive: false', () => {
+    const r = createTemplateSchema.safeParse({ venueId: VENUE, name: 'Lofi Open Air', landingActive: false });
     expect(r.success).toBe(true);
     if (r.success) expect(r.data.landingActive).toBe(false);
   });
@@ -173,5 +181,23 @@ describe('setEventDefaultMemberQuotaSchema', () => {
 
   it('rejects a non-uuid event id', () => {
     expect(setEventDefaultMemberQuotaSchema.safeParse({ eventId: 'nope', quota: 5 }).success).toBe(false);
+  });
+});
+
+// Sign-up link ON by default for new events (z8uq9m0hw3, item 6). The column
+// default is still false, so this schema default is what createEvent writes.
+describe('createEventSchema', () => {
+  const base = { venueId: VENUE, name: 'FRENZY', startsAt: '2026-10-16T21:00:00.000Z' };
+
+  it('defaults landingActive to true when the client omits it', () => {
+    const r = createEventSchema.safeParse(base);
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.landingActive).toBe(true);
+  });
+
+  it('keeps an explicit landingActive: false', () => {
+    const r = createEventSchema.safeParse({ ...base, landingActive: false });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.landingActive).toBe(false);
   });
 });
