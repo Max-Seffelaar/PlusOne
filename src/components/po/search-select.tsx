@@ -53,6 +53,7 @@ export function SearchSelect({
   const listId = useId();
   const wrapRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const shown = options.find((o) => o.value === value)?.label ?? value;
@@ -72,6 +73,10 @@ export function SearchSelect({
     document.addEventListener('pointerdown', onDown);
     document.addEventListener('keydown', onKey);
     searchRef.current?.focus();
+    // Open on the current option (mid-list for 'NL'), not on the first row.
+    const list = listRef.current;
+    const current = list?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (list && current) list.scrollTop = current.offsetTop - (list.clientHeight - current.offsetHeight) / 2;
     // The field can sit at the bottom of a scroll column: bring the list into view.
     panelRef.current?.scrollIntoView?.({ block: 'nearest' });
     return () => {
@@ -147,7 +152,8 @@ export function SearchSelect({
               className="min-w-0 flex-1 border-none bg-transparent text-[16px] text-text outline-none placeholder:text-faint"
             />
           </div>
-          <ul id={listId} role="listbox" aria-label={label} className="po-scroll max-h-[264px] overflow-y-auto py-[6px]">
+          {/* `relative` makes the list the options' offsetParent (scroll-to-current). */}
+          <ul ref={listRef} id={listId} role="listbox" aria-label={label} className="po-scroll relative max-h-[264px] overflow-y-auto py-[6px]">
             {filtered.map((o) => {
               const on = o.value === value;
               return (
