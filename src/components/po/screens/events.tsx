@@ -18,7 +18,7 @@ import {
   usePoRequestLinks,
 } from '@/features/po/hooks';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
-import { canWorkDoor } from '@/features/auth/roles';
+import { canManageGuests, canWorkDoor } from '@/features/auth/roles';
 import { formatClock } from '@/features/stats/format';
 import { useNav } from '../context';
 import { Icon } from '../icon';
@@ -48,7 +48,8 @@ export function Events(): JSX.Element {
   const { data, isLoading, isError } = usePoEvents();
   // Creating events is admin-only (T7 regression check on PR #100): hide the
   // CTA for other roles instead of sending them into a read-only editor.
-  const isAdmin = usePoIdentity().roles.includes('admin');
+  const { roles } = usePoIdentity();
+  const isAdmin = roles.includes('admin');
   // Soft-block (#32 refinement): hide the growth CTA; the note explains why.
   const billingLock = useBillingBlocked();
   // Card-level edit affordance (M7 — replaces the deleted "Events & tiers" More
@@ -56,6 +57,11 @@ export function Events(): JSX.Element {
   // at this venue); EventEdit itself still enforces true per-event write rights.
   const canManageTemplates = usePoCanManageTemplates();
   const canEditEvents = isAdmin || canManageTemplates;
+  // "Add guest" follows Home's rule (M9, K-7: role-hide, not show-and-block):
+  // a venue role that writes guests, or an organizer of an event here
+  // (z8uq9m0hw3, item 1). A pure user_manager/finance would only reach a
+  // quick-add that says "no rights".
+  const canAddGuest = canManageGuests(roles) || canManageTemplates;
   const evs = (data ?? []).filter((e) => e.when === when);
   const months = [...new Set(evs.map((e) => e.month))];
   return (
@@ -76,16 +82,20 @@ export function Events(): JSX.Element {
           </button>
         ))}
       </div>
-      <div className="flex flex-none gap-2 px-5 pb-[14px]">
-        <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd')}>
-          {t.events.addGuest}
-        </Btn>
-        {isAdmin && !billingLock.blocked && (
-          <Btn sm kind="ghost" icon="cal" onClick={() => nav.push('eventedit', { isNew: true })}>
-            {t.events.newEvent}
-          </Btn>
-        )}
-      </div>
+      {(canAddGuest || (isAdmin && !billingLock.blocked)) && (
+        <div className="flex flex-none gap-2 px-5 pb-[14px]">
+          {canAddGuest && (
+            <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd')}>
+              {t.events.addGuest}
+            </Btn>
+          )}
+          {isAdmin && !billingLock.blocked && (
+            <Btn sm kind="ghost" icon="cal" onClick={() => nav.push('eventedit', { isNew: true })}>
+              {t.events.newEvent}
+            </Btn>
+          )}
+        </div>
+      )}
       {isAdmin && billingLock.blocked && (
         <div className="flex-none px-5">
           <Note icon="warn">
