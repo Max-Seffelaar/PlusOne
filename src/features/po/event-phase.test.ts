@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { absentStage, defaultStatsEvent, eventPhase, eventWhenFromPhase, LIVE_GRACE_MS } from './event-phase';
+import { absentStage, defaultAddGuestEvent, defaultStatsEvent, eventPhase, eventWhenFromPhase, LIVE_GRACE_MS } from './event-phase';
 
 const START = '2026-06-20T21:00:00Z';
 const start = Date.parse(START);
@@ -103,5 +103,34 @@ describe('defaultStatsEvent (Analytics opens on the most recent started event)',
   it('skips unparseable starts and is null for an empty list', () => {
     expect(defaultStatsEvent([ev('bad', 'nope'), ev('ok', '2026-09-01T20:00:00Z')], now)?.id).toBe('ok');
     expect(defaultStatsEvent([], now)).toBeNull();
+  });
+});
+
+// Quick-add's starting event (z8uq9m0hw3, item 1). Input is newest-first, the
+// order usePoEvents returns.
+describe('defaultAddGuestEvent', () => {
+  const nextWeek = { id: 'next-week', when: 'upcoming' as const };
+  const tonight = { id: 'tonight', when: 'upcoming' as const }; // live or later today
+  const lastWeek = { id: 'last-week', when: 'past' as const };
+  const lastMonth = { id: 'last-month', when: 'past' as const };
+
+  it('never falls back to a past event: nothing upcoming → undefined', () => {
+    expect(defaultAddGuestEvent([lastWeek, lastMonth])).toBeUndefined();
+    expect(defaultAddGuestEvent([])).toBeUndefined();
+  });
+
+  it('picks the soonest upcoming event, not the furthest one', () => {
+    expect(defaultAddGuestEvent([nextWeek, tonight, lastWeek])?.id).toBe('tonight');
+    expect(defaultAddGuestEvent([nextWeek, lastWeek])?.id).toBe('next-week');
+  });
+
+  it('honours an explicitly requested event, past or not', () => {
+    expect(defaultAddGuestEvent([nextWeek, tonight, lastWeek], 'next-week')?.id).toBe('next-week');
+    expect(defaultAddGuestEvent([nextWeek, tonight, lastWeek], 'last-week')?.id).toBe('last-week');
+  });
+
+  it('ignores an unknown requested id and uses the default', () => {
+    expect(defaultAddGuestEvent([nextWeek, tonight, lastWeek], 'gone')?.id).toBe('tonight');
+    expect(defaultAddGuestEvent([lastWeek], 'gone')).toBeUndefined();
   });
 });

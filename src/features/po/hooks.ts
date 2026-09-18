@@ -1074,6 +1074,28 @@ export function usePoPersonProfile(args: {
   });
 }
 
+const NO_IDS: readonly string[] = [];
+
+/**
+ * The event ids at the active venue the caller organizes (event_organizers,
+ * #6/#24). One venue-scoped read (the same fetch the Home board uses), so a
+ * screen can gate per-event guest actions for external crew without an N+1.
+ * An admin never needs it (`can_write_guests` passes admin first), so it
+ * short-circuits to an empty list without a request. RLS is still the boundary.
+ * Cached as a plain array (JSON-safe), not the fetcher's Set.
+ */
+export function usePoOrganizerEventIds(): readonly string[] {
+  const { venueId, userId, roles } = usePoIdentity();
+  const isAdmin = roles.includes('admin');
+  const { data } = useQuery<string[]>({
+    queryKey: poKeys.organizerEventIds(venueId ?? ''),
+    enabled: !!venueId && !!userId && !isAdmin,
+    queryFn: async () =>
+      venueId && userId ? [...(await fetchOrganizerEventIds(createClient(), venueId, userId))] : [],
+  });
+  return data ?? NO_IDS;
+}
+
 // ── Settings cluster reads (STAP 3.7/3.8) ──
 // All scope to the live PoLiveProvider identity (active venue / caller), not the
 // mock venue. RLS gates each read, so a member without rights gets [] / null and

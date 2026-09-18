@@ -161,6 +161,9 @@
 | Titel / log | `Guest` · `Log` |
 | Acties | `Edit` · `Refuse` · `Remove guest` |
 | Verwijder-bevestig | `Remove this guest? They'll drop off the list. You can't undo this.` |
+| Persoonsprofiel | titel `Guest` (vanuit een gastenlijst / Guests-tab) · `Contact` (vanuit Contacts) |
+| Event-rij "…" | `Open event` · `Edit +{n}` / `Add plus-ones` · `Change tier` · `Remove from list` · op slot: `This list is locked. An admin or the organizer can still change it.` |
+| Verwijder-bevestig (profiel) | titel `Remove from {event}?` · `{name} drops off the list. That frees up {n} {slots}.` · binnen: `{name} drops off the list. They're already inside, so this still counts as {n} {slots}.` · `You can't undo this.` · knop `Remove guest` |
 
 **Contacts** (Adresboek + Regulars samengevoegd)
 | Context | EN |
@@ -169,7 +172,7 @@
 | Zoek / toevoegen | placeholder `Search contacts…` · `Add to event` |
 | Regular | knop `Make regular` · badge `Regular` · sub `Auto-added to every list` |
 | Import-actie | `Import contacts` |
-| Leeg | `No contacts yet. Save a guest to reuse them next time.` |
+| Leeg | `No contacts yet. Guests with an email or phone number are saved here automatically. Added someone by name only? Add their email or phone to save them.` (naam-only gasten worden nooit automatisch contact: `guests_autolink_contact`, 20260622130100) |
 
 ## §5 — Events (dial: laag-midden)
 

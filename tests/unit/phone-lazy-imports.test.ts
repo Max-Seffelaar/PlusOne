@@ -31,6 +31,26 @@ const ALLOWLIST = new Set(
 const VALUE_IMPORT =
   /import\s+(?!type\s)[\s\S]*?from\s+['"]react-phone-number-input(?:\/[^'"]*)?['"]/;
 
+// The ONE narrow exception (z8uq9m0hw2): the shared country list reads the
+// package's English NAME table, which is ~6 kB of country names and nothing
+// else (no flag SVGs, no libphonenumber metadata, i.e. none of what this guard
+// keeps out of First Load). That module may import exactly this subpath; any
+// other static or dynamic import of the package there still fails below.
+const NAME_TABLE_MODULE = path.normalize('src/lib/countries.ts');
+const NAME_TABLE = 'react-phone-number-input/locale/en.json';
+
+/** Every package specifier a file pulls in: a value import, a re-export, or a
+ *  dynamic import(). */
+function packageSpecifiers(src: string): string[] {
+  return [
+    ...src.matchAll(
+      /(?:import|export)\s+(?!type\s)[^;]*?from\s+['"](react-phone-number-input(?:\/[^'"]*)?)['"]|import\(\s*['"](react-phone-number-input(?:\/[^'"]*)?)['"]\s*\)/g,
+    ),
+  ]
+    .map((m) => m[1] ?? m[2])
+    .filter((spec): spec is string => Boolean(spec));
+}
+
 /** Strip comments so prose in a doc block can't masquerade as a real import. */
 function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|\s)\/\/[^\n]*/g, '$1');
@@ -62,6 +82,7 @@ describe('phone-number-input stays lazy (no static react-phone-number-input impo
     const offenders = FILES.filter((f) => {
       const rel = path.normalize(path.relative(ROOT, f));
       if (ALLOWLIST.has(rel)) return false;
+      if (rel === NAME_TABLE_MODULE) return false; // pinned by its own test below
       return VALUE_IMPORT.test(stripComments(readFileSync(f, 'utf8')));
     }).map((f) => path.relative(ROOT, f));
 
@@ -72,6 +93,21 @@ describe('phone-number-input stays lazy (no static react-phone-number-input impo
         `Import CountrySelect / PhoneInput / isPhoneValid / phoneCountryOf / ` +
         `useStoredPhoneCountry from '@/components/po/phone-lazy' instead. ` +
         `Allowed: ${[...ALLOWLIST].join(', ')}.`,
+    ).toEqual([]);
+  });
+
+  it('lets the shared country list import the name table and nothing else from the package', () => {
+    const src = stripComments(readFileSync(path.join(ROOT, NAME_TABLE_MODULE), 'utf8'));
+    const specs = packageSpecifiers(src);
+    // It must actually be the name table (so this exception can't go stale
+    // silently) and ONLY the name table: flags or metadata here would put them
+    // in the /app First Load via the venue settings screen.
+    expect(specs, `${NAME_TABLE_MODULE} should import '${NAME_TABLE}'`).toContain(NAME_TABLE);
+    expect(
+      specs.filter((s) => s !== NAME_TABLE),
+      `${NAME_TABLE_MODULE} may import only '${NAME_TABLE}' from react-phone-number-input. ` +
+        `Anything else from the package (flags, /max, /input) must stay behind ` +
+        `'@/components/po/phone-lazy' (task 86ey9e8z5).`,
     ).toEqual([]);
   });
 });

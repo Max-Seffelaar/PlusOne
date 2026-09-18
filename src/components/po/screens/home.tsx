@@ -41,6 +41,7 @@ import { PendingInvitesBanner } from '../pending-invites-banner';
 import { HomeHeaderActions } from './home-header-actions';
 import { PulseTile } from './home-pulse';
 import { ComboChart } from './home-chart';
+import { NoUpcomingEvents } from './no-upcoming-events';
 import { EventRow, StatusChip, toBoardEvents, type BoardEvent } from '../event-row';
 
 const TZ = 'Europe/Amsterdam';
@@ -611,14 +612,7 @@ export function Home(): JSX.Element {
             {t.home.pickEventForGuest}
           </h2>
           {pickable.length === 0 ? (
-            <div className="flex flex-col items-center gap-4 py-6 text-center">
-              <p className="text-[14px] text-faint">{t.home.noUpcomingToday}</p>
-              {isAdmin && !billingLock.blocked && (
-                <Btn sm kind="primary" icon="cal" onClick={() => { setGuestPickOpen(false); nav.push('eventedit', { isNew: true }); }}>
-                  {t.home.newEvent}
-                </Btn>
-              )}
-            </div>
+            <NoUpcomingEvents text={t.home.noUpcomingToday} onNewEvent={() => setGuestPickOpen(false)} />
           ) : (
             <>
               <div className="mb-3 flex w-full items-center gap-[11px] rounded-[14px] border border-line bg-bg px-[15px] py-[11px]">

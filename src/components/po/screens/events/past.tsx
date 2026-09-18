@@ -15,7 +15,7 @@ import { Avatar, Btn, Empty, IconBtn, Label, Scroll, Top, press } from '../../ki
 import { TierPill } from '../guests/_shared';
 import { col, ScreenState } from './shared';
 import { EventStatsPanel } from './stats-panel';
-import { SaveAsTemplate } from './edit';
+import { SaveAsTemplate } from './save-as-template';
 
 // ── PAST EVENT recap (pushed) ────────────────────────────────────────────────────
 const RECAP_CAP = 8;
