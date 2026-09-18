@@ -6,6 +6,7 @@
  * pixel values use arbitrary Tailwind values so the visual output matches the
  * handoff. Interaction: hover `brightness(1.07)`, active `scale(0.975)`.
  */
+import { useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties, JSX, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
@@ -495,6 +496,104 @@ export function Note({ children, icon = 'shield' }: { children: ReactNode; icon?
 
 export function Empty({ text }: { text: string }): JSX.Element {
   return <div className="py-[30px] text-center text-[14px] text-faint">{text}</div>;
+}
+
+// ── InfoTip ──────────────────────────────────────────────────────────────────
+/**
+ * A 44x44 "i" button that explains the control beside it (ADE UX round, item D).
+ * One DOM node for both densities: an anchored popover from `lg:` up, a bottom
+ * sheet with a dimmed backdrop below it — no media-query JS, so it behaves the
+ * same in a Capacitor webview (#37). Closes on Escape, on an outside tap and on
+ * its own close button; the panel is wired to the button via `aria-describedby`.
+ * All copy comes from the caller's i18n surface — the kit ships no strings.
+ */
+export function InfoTip({
+  label,
+  title,
+  body,
+  closeLabel,
+  className,
+}: {
+  /** Accessible name for the "i" button, e.g. "What the sign-up link does". */
+  label: string;
+  title: string;
+  body: string;
+  closeLabel: string;
+  className?: string;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
+  const wrapRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent): void => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <span ref={wrapRef} className={cn('relative inline-flex', className)}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label={label}
+        aria-expanded={open}
+        aria-describedby={open ? panelId : undefined}
+        className={cn(
+          'flex h-[44px] w-[44px] cursor-pointer items-center justify-center rounded-full text-faint',
+          press,
+          open && 'text-acc',
+        )}
+      >
+        <span
+          className={cn(
+            'flex h-[19px] w-[19px] items-center justify-center rounded-full border border-current font-display text-[12px] font-bold leading-none',
+          )}
+          aria-hidden="true"
+        >
+          i
+        </span>
+      </button>
+      {open && (
+        <>
+          {/* Touch only: the sheet gets a backdrop; the desktop popover doesn't. */}
+          <span className="fixed inset-0 z-40 bg-[rgba(6,6,8,0.6)] backdrop-blur-[2px] lg:hidden" />
+          <span
+            id={panelId}
+            role="dialog"
+            aria-label={title}
+            className={cn(
+              'fixed inset-x-0 bottom-0 z-50 block rounded-t-[22px] border border-line bg-elev p-[18px] pb-[calc(18px+env(safe-area-inset-bottom))] text-left shadow-[0_-16px_40px_rgba(0,0,0,0.55)]',
+              'lg:absolute lg:inset-x-auto lg:bottom-auto lg:left-0 lg:top-[calc(100%+6px)] lg:w-[300px] lg:rounded-[16px] lg:p-4 lg:shadow-[0_16px_40px_rgba(0,0,0,0.55)]',
+            )}
+          >
+            <span className="block font-display text-[15.5px] font-extrabold tracking-[-0.01em] text-text">{title}</span>
+            <span className="mt-1.5 block text-[13px] leading-[1.5] text-faint">{body}</span>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className={cn(
+                'mt-3 flex h-[44px] w-full cursor-pointer items-center justify-center rounded-[12px] border border-line font-display text-[13px] font-bold text-dim lg:h-[36px]',
+                press,
+              )}
+            >
+              {closeLabel}
+            </button>
+          </span>
+        </>
+      )}
+    </span>
+  );
 }
 
 // ── Spinner / Loading ─────────────────────────────────────────────────────────

@@ -100,6 +100,14 @@ export const events = {
   copyLinkAria: 'Copy sign-up link',
   copyLinkLabel: 'Copy link',
   copyLinkDone: 'Copied!',
+  // "i" explainer beside the Sign-up link label (ADE UX round, item D). Three
+  // sentences: what the link is, what happens to a request, where to find it.
+  landingInfo: {
+    aria: 'What the sign-up link does',
+    title: 'What the sign-up link does',
+    body: 'Every event gets a public page at /e/your-event. Guests fill in their name and plus-ones, you approve them under Requests, and approved guests land on the list. Copy or share the link from Request links once the event is saved.',
+    close: 'Got it',
+  },
   // Per-influencer request links row (F1) — mirrors the Tiers/Crew rows.
   linksRowTitle: 'Request links',
   linksRowSubOne: '{n} active link · per-influencer tracking',
