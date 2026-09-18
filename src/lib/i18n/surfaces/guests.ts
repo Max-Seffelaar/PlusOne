@@ -143,7 +143,21 @@ export const guests = {
     contactEmailPlaceholder: 'Email address',
     contactPhonePlaceholder: 'Phone number',
     contactPhoneError: 'Enter a valid phone number.',
-    contactPromptHint: 'Optional. Saves them to your contacts so you can reuse them next time.',
+    // Banner above the email + phone fields (item G). One key, one meaning: the
+    // old contactPromptHint said the same thing and had no render site.
+    contactSaveNote:
+      'Optional: add an email or phone number and they are saved to your contacts, so next time they are one tap away and your list stays clean.',
+  },
+  // ── Link a name-only guest to an existing contact (item K) ────────────────
+  // Shared by quick-add and the paste-a-list preview: same offer, same wording.
+  // The link is pre-selected; undoing it is always one tap.
+  contactLink: {
+    match: 'Same as contact {name}',
+    off: 'Not linked to a contact',
+    undo: 'Not the same',
+    redo: 'Same person',
+    ambiguous: '{n} contacts with this name',
+    ambiguousHint: 'Not linked — we cannot tell which one it is.',
   },
   // ── Bulk paste (#33) ──────────────────────────────────────────────────────
   bulk: {

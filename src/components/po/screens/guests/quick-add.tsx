@@ -14,17 +14,27 @@ import {
   type AmbiguityChoice,
 } from '@/features/guests/quick-add-parser';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
-import { usePoEvents, usePoEventForEdit, usePoGuests, usePoTiers, usePoQuota } from '@/features/po/hooks';
+import { normalizeContactName } from '@/features/guests/contact-match';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
+import {
+  usePoContactNameMatch,
+  usePoEvents,
+  usePoEventForEdit,
+  usePoGuests,
+  usePoTiers,
+  usePoQuota,
+} from '@/features/po/hooks';
 import { usePoAddGuest, usePoUpdateGuest, usePoRequestExtraSlots } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { canManageGuests } from '@/features/auth/roles';
 import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, IconBtn, Label, MiniChip, Top, Scroll } from '../../kit';
+import { Avatar, Btn, Empty, Label, MiniChip, Note, Top, Scroll } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
 import { CountrySelect, PhoneInput, isPhoneValid, type CountryCode } from '../../phone-lazy';
 import { AddTierInline, DupeOption, NoTiersBlock, press, col } from './_shared';
+import { ContactLinkAmbiguous, ContactLinkOffer } from './contact-link';
 
 // ── QUICK-ADD (#33) ──────────────────────────────────────────────────────────
 interface JustAdded {
@@ -49,6 +59,8 @@ interface QuickAddForm {
   contactPhone: string | undefined;
   contactCountry: CountryCode;
   contactPhoneErr: string | null;
+  /** The user tapped "Not the same" on the offered contact match (K2). */
+  contactLinkOff: boolean;
 }
 
 const FORM_RESET: QuickAddForm = {
@@ -58,6 +70,7 @@ const FORM_RESET: QuickAddForm = {
   contactPhone: undefined,
   contactCountry: 'NL',
   contactPhoneErr: null,
+  contactLinkOff: false,
 };
 
 function PreviewChip({ icon, dot, label }: { icon?: Parameters<typeof Icon>[0]['name']; dot?: string; label: string }): JSX.Element {
@@ -113,7 +126,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const committingRef = useRef(false);
 
   // Destructure for ergonomic use in the render body below.
-  const { choice, reqOpen, contactEmail, contactPhone, contactCountry, contactPhoneErr } = form;
+  const { choice, reqOpen, contactEmail, contactPhone, contactCountry, contactPhoneErr, contactLinkOff } = form;
 
   // Per-field setters that keep the rest of the form intact.
   const setChoice = (v: AmbiguityChoice | null) => setForm((f) => ({ ...f, choice: v }));
@@ -122,6 +135,7 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const setContactPhone = (v: string | undefined) => setForm((f) => ({ ...f, contactPhone: v }));
   const setContactCountry = (v: CountryCode) => setForm((f) => ({ ...f, contactCountry: v }));
   const setContactPhoneErr = (v: string | null) => setForm((f) => ({ ...f, contactPhoneErr: v }));
+  const toggleContactLink = () => setForm((f) => ({ ...f, contactLinkOff: !f.contactLinkOff }));
 
   const qaTiers: QuickAddTier[] = tiers.map((t) => ({ id: t.id, name: t.name, aliases: t.aliases }));
   const defaultTierId = resolveDefaultTierId(qaTiers);
@@ -164,6 +178,30 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
   const needsAsk = !!isAmbiguous && !choice;
   // Bare name on a multi-tier event: don't silently assign the default — ask which tier.
   const needsTierPick = parsed?.status === 'ok' && parsed.matchedVia === 'default' && tiers.length > 1 && !choice && !clientDupe;
+
+  // ── Name-only -> an existing contact (K2) ───────────────────────────────────
+  // The autolink trigger links on e-mail/phone only, so a name-only guest never
+  // links by itself. When the venue has exactly ONE contact with this exact name
+  // we offer the link, pre-selected. As soon as any e-mail/phone is in play the
+  // trigger owns the link again and the offer disappears.
+  const nameOnly =
+    !!parsed &&
+    !needsAsk &&
+    !needsTierPick &&
+    !clientDupe &&
+    !!effName &&
+    !parsed.email &&
+    !parsed.phone &&
+    contactEmail.trim() === '' &&
+    !contactPhone;
+  const dName = useDebouncedValue(nameOnly ? effName : '', 250);
+  const { data: contactHits = [] } = usePoContactNameMatch(dName);
+  // The debounced term lags the input by up to 250 ms; only trust hits that still
+  // describe the name we would actually insert.
+  const hitsCurrent = nameOnly && normalizeContactName(dName) === normalizeContactName(effName);
+  const contactMatch = hitsCurrent && contactHits.length === 1 ? contactHits[0] : null;
+  const contactAmbiguous = hitsCurrent && contactHits.length > 1 ? contactHits.length : 0;
+  const linkedContactId = contactMatch && !contactLinkOff ? contactMatch.id : undefined;
   // Quota gates the INSERT path only, and insert-vs-update is only known for
   // sure AFTER the server lookup — so quota never disables the button (an
   // over-quota add/replace on an existing guest must stay reachable even
@@ -241,6 +279,9 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
         email: emailVal,
         phone: phoneVal,
         source: 'app',
+        // Only on a clean insert: "add again anyway" means a DIFFERENT person who
+        // happens to share the name, so it must never inherit the contact link.
+        ...(existing === null && linkedContactId ? { contactId: linkedContactId } : {}),
       },
       {
         onSuccess: () => {
@@ -317,11 +358,11 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title={t.guests.add.title} sub={sub} right={<IconBtn name="paste" onClick={() => nav.push('bulk', curEv ? { id: curEv.id } : {})} />} />
+      <Top onBack={nav.back} title={t.guests.add.title} sub={sub} />
       <Scroll bottom={120}>
         <Label className="mb-2">{t.guests.add.eventLabel}</Label>
         {curEv ? (
-          <button type="button" onClick={() => setEvPick(true)} className={cn('mb-4 flex w-full items-center gap-[13px] rounded-[14px] border border-line bg-elev px-[14px] py-[13px] text-left', press)}>
+          <button type="button" onClick={() => setEvPick(true)} className={cn('mb-2 flex w-full items-center gap-[13px] rounded-[14px] border border-line bg-elev px-[14px] py-[13px] text-left', press)}>
             <span className="w-[40px] shrink-0 text-center">
               <span className="block font-display text-[18px] font-extrabold leading-none text-text">{curEv.date}</span>
               <span className="mt-0.5 block text-[9.5px] font-bold tracking-[0.05em] text-faint">{curEv.mon}</span>
@@ -337,9 +378,17 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
             </span>
           </button>
         ) : (
-          <div className="mb-4">
+          <div className="mb-2">
             <Empty text={t.guests.add.noUpcoming} />
           </div>
+        )}
+
+        {/* Item N: a labelled button instead of the paste icon nobody recognised.
+            The label is the bulk screen's own title, so the two never drift. */}
+        {curEv && canAdd && (
+          <Btn kind="ghost" icon="paste" className="mb-4" onClick={() => nav.push('bulk', { id: curEv.id })}>
+            {t.guests.bulk.title}
+          </Btn>
         )}
 
         {curEv && !canAdd && (
@@ -376,38 +425,53 @@ export function QuickAdd({ eventId }: { eventId?: string }): JSX.Element {
                   )}
                 </div>
               )}
+              {/* K2: one contact carries this exact name -> offer the link,
+                  pre-selected. Two or more -> say so and link none. */}
+              {contactMatch && (
+                <ContactLinkOffer
+                  className="mt-[10px]"
+                  contactName={contactMatch.fullName}
+                  linked={!contactLinkOff}
+                  onToggle={toggleContactLink}
+                />
+              )}
+              {contactAmbiguous > 0 && <ContactLinkAmbiguous className="mt-[10px]" count={contactAmbiguous} />}
               {parsed && !needsAsk && !needsTierPick && !clientDupe && effName && !parsed.email && !parsed.phone && (
-                <div className="mt-[10px] flex flex-col gap-[8px] border-t border-white/[0.08] pt-[10px]">
-                  <input
-                    type="email"
-                    inputMode="email"
-                    autoComplete="off"
-                    value={contactEmail}
-                    onChange={(e) => setContactEmail(e.target.value)}
-                    placeholder={t.guests.add.contactEmailPlaceholder}
-                    className="w-full rounded-[10px] border border-line bg-bg px-[11px] py-[8px] text-[13px] text-text outline-none placeholder:text-faint focus:border-acc"
-                  />
-                  <div className={cn('flex items-center gap-[8px] rounded-[10px] border bg-bg px-[9px] py-[6px] transition-colors focus-within:border-acc', contactPhoneErr ? 'border-red-400' : 'border-line')}>
-                    <CountrySelect
-                      value={contactCountry}
-                      onChange={(c) => {
-                        setContactCountry(c);
-                        setContactPhone(undefined);
-                        setContactPhoneErr(null);
-                      }}
+                <div className="mt-[10px] border-t border-white/[0.08] pt-[10px]">
+                  {/* Item G: why these two optional fields are worth filling in. */}
+                  <Note icon="contact">{t.guests.add.contactSaveNote}</Note>
+                  <div className="flex flex-col gap-[8px]">
+                    <input
+                      type="email"
+                      inputMode="email"
+                      autoComplete="off"
+                      value={contactEmail}
+                      onChange={(e) => setContactEmail(e.target.value)}
+                      placeholder={t.guests.add.contactEmailPlaceholder}
+                      className="w-full rounded-[10px] border border-line bg-bg px-[11px] py-[8px] text-[13px] text-text outline-none placeholder:text-faint focus:border-acc"
                     />
-                    <span className="h-4 w-px shrink-0 bg-line" />
-                    <PhoneInput
-                      country={contactCountry}
-                      value={contactPhone}
-                      onChange={(v) => { setContactPhone(v); setContactPhoneErr(null); }}
-                      placeholder={t.guests.add.contactPhonePlaceholder}
-                      className="min-w-0 flex-1 border-none bg-transparent text-[13px] text-text outline-none placeholder:text-faint"
-                    />
+                    <div className={cn('flex items-center gap-[8px] rounded-[10px] border bg-bg px-[9px] py-[6px] transition-colors focus-within:border-acc', contactPhoneErr ? 'border-red-400' : 'border-line')}>
+                      <CountrySelect
+                        value={contactCountry}
+                        onChange={(c) => {
+                          setContactCountry(c);
+                          setContactPhone(undefined);
+                          setContactPhoneErr(null);
+                        }}
+                      />
+                      <span className="h-4 w-px shrink-0 bg-line" />
+                      <PhoneInput
+                        country={contactCountry}
+                        value={contactPhone}
+                        onChange={(v) => { setContactPhone(v); setContactPhoneErr(null); }}
+                        placeholder={t.guests.add.contactPhonePlaceholder}
+                        className="min-w-0 flex-1 border-none bg-transparent text-[13px] text-text outline-none placeholder:text-faint"
+                      />
+                    </div>
+                    {contactPhoneErr && (
+                      <p className="mt-[5px] text-[11.5px] text-red-400" role="alert">{contactPhoneErr}</p>
+                    )}
                   </div>
-                  {contactPhoneErr && (
-                    <p className="mt-[5px] text-[11.5px] text-red-400" role="alert">{contactPhoneErr}</p>
-                  )}
                 </div>
               )}
             </div>

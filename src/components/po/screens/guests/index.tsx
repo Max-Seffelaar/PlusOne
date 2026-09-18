@@ -14,14 +14,13 @@ import {
 } from '@/features/guests/bulk-dedupe';
 import {
   parseBulk,
-  resolveAmbiguity,
   totalSlots,
   type QuickAddTier,
   type AmbiguityChoice,
-  type ParseResult,
 } from '@/features/guests/quick-add-parser';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
-import { usePoEvents, usePoGuests, useVenueGuests, usePoTiers, usePoQuota, usePoPermanentContacts, usePoCanManageTemplates } from '@/features/po/hooks';
+import { normalizeContactName } from '@/features/guests/contact-match';
+import { usePoContactNameMatches, usePoEvents, usePoGuests, useVenueGuests, usePoTiers, usePoQuota, usePoPermanentContacts, usePoCanManageTemplates } from '@/features/po/hooks';
 import {
   usePoAddGuestsBulk,
   usePoUpdateGuest,
@@ -37,6 +36,8 @@ import { Icon } from '../../icon';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Scroll, Top } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
 import { DupeOption, NoTiersBlock, press, col } from './_shared';
+import { ContactLinkAmbiguous, ContactLinkOffer } from './contact-link';
+import { buildBulkRow, resolveRow, type RowFix } from './bulk-row';
 import { useGuestSelection, GuestBulkBar, BulkAddToEventSheet, type BulkAddCandidate } from './bulk-add';
 import { ScopeChip, BulkTierSheet, GuestCardList, GuestTable } from './list-shared';
 
@@ -397,97 +398,7 @@ export function GuestsTab({ pinnedEventId }: { pinnedEventId?: string } = {}): J
 }
 
 // ── BULK PASTE (#33) ─────────────────────────────────────────────────────────
-interface ResolvedRow {
-  name: string;
-  plusOnes: number;
-  tierId: string;
-  needsChoice: boolean;
-}
-
-/** Fold a parsed line + the user's chip choice into a final addable row. */
-function resolveRow(r: ParseResult, choice: AmbiguityChoice | undefined, defaultTierId: string): ResolvedRow {
-  if (r.status === 'ambiguous') {
-    if (!choice) return { name: r.name, plusOnes: r.plusOnes, tierId: defaultTierId, needsChoice: true };
-    const res = resolveAmbiguity(r, choice, defaultTierId);
-    return { name: res.name, plusOnes: res.plusOnes, tierId: res.tierId, needsChoice: false };
-  }
-  return { name: r.name, plusOnes: r.plusOnes, tierId: r.tierId ?? defaultTierId, needsChoice: false };
-}
-
-// ── Per-row inline fix (parity with the contacts import, T12) ─────────────────
-// A pasted e-mail/phone that is broken (Jesse's "name#mail.com", Mila's
-// "06-ABC-4567", an obfuscated "x at y dot z", a too-short "020") is silently
-// left in the name by the #33 parser. We recover it from the raw line so it lands
-// in the editor FLAGGED — the user fixes it inline, or removes the row. Nothing is
-// silently dropped or mangled.
-const BULK_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const BULK_NAME_MAX = 500;
-
-interface RowFix {
-  name?: string;
-  email?: string;
-  phone?: string;
-}
-
-/** digits only. */
-function bulkDigits(v: string): number {
-  return v.replace(/\D/g, '').length;
-}
-/** A plausible guest phone: 8–15 digits, phone-ish chars only. */
-function isValidBulkPhone(v: string): boolean {
-  return /^[+()\-\s./0-9]+$/.test(v) && bulkDigits(v) >= 8 && bulkDigits(v) <= 15;
-}
-/** A CSV cell that is an e-mail ATTEMPT (so it can be flagged, not hidden). */
-function isEmailAttempt(cell: string): boolean {
-  if (/@/.test(cell)) return true;
-  if (!/\s/.test(cell) && /#/.test(cell) && /\.[a-z]{2,}$/i.test(cell)) return true; // name#mail.com
-  if (/\bat\b/i.test(cell) && /\bdot\b/i.test(cell)) return true; // x at y dot z
-  return false;
-}
-/** A CSV cell clearly meant as a phone but not a valid one (letters, too short…). */
-function isPhoneAttempt(cell: string): boolean {
-  return /\d/.test(cell) && bulkDigits(cell) >= 3 && /^[+()\-\s./0-9A-Za-z]+$/.test(cell) && !isValidBulkPhone(cell);
-}
-/** Remove a captured/attempted fragment from the parser's name string. */
-function stripFragment(name: string, frag: string): string {
-  return name.replace(frag, '').replace(/\s{2,}/g, ' ').trim();
-}
-
-export interface BulkRowView {
-  name: string;
-  email: string;
-  phone: string;
-  /** null = valid; else why it can't be added yet. */
-  error: string | null;
-}
-
-/** Recover broken contact info from the raw line, apply the user's inline edit,
- *  then validate exactly like addGuestSchema (name ≤500, e-mail/phone shape). */
-export function buildBulkRow(r: ParseResult, resolvedName: string, ed: RowFix | undefined): BulkRowView {
-  let name = resolvedName;
-  let email = r.email ?? '';
-  let phone = r.phone ?? '';
-  for (const c of r.raw.split(/[,;\t]/).map((x) => x.trim()).filter(Boolean)) {
-    if (c === r.email || c === r.phone) continue;
-    if (!email && isEmailAttempt(c)) {
-      email = c; // keep the raw broken value so it stays flagged for the user to fix
-      name = stripFragment(name, c);
-    } else if (!phone && isPhoneAttempt(c)) {
-      phone = c;
-      name = stripFragment(name, c);
-    }
-  }
-  name = (ed?.name ?? name).trim();
-  email = (ed?.email ?? email).trim();
-  phone = (ed?.phone ?? phone).trim();
-
-  let error: string | null = null;
-  if (name === '') error = t.guests.bulk.errName;
-  else if (name.length > BULK_NAME_MAX) error = fmt(t.guests.bulk.errNameLong, { n: name.length });
-  else if (email !== '' && !BULK_EMAIL_RE.test(email)) error = t.guests.bulk.errEmail;
-  else if (phone !== '' && !isValidBulkPhone(phone)) error = t.guests.bulk.errPhone;
-  return { name, email, phone, error };
-}
+// Row folding + the per-row inline-fix validation live in ./bulk-row.
 
 export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
   const nav = useNav();
@@ -513,6 +424,10 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
   const [dupeMode, setDupeMode] = useState<DupeMode>('add');
   const [busy, setBusy] = useState(false);
   const [orchErr, setOrchErr] = useState<string | null>(null);
+  // Rows where the user tapped "Not the same" on the offered contact match (K3),
+  // keyed by the NORMALIZED name — the offer is per name, not per line, so
+  // undoing it on one line undoes it for every line with that name.
+  const [contactLinkOff, setContactLinkOff] = useState<Record<string, boolean>>({});
 
   // A fresh paste clears every stale per-row choice / inline edit / removal.
   const resetRows = (): void => {
@@ -520,6 +435,7 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
     setEdits({});
     setRemoved({});
     setOpen({});
+    setContactLinkOff({});
   };
 
   const rows = defaultTierId ? parseBulk(text, qaTiers, defaultTierId) : [];
@@ -549,6 +465,35 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
     .filter((i) => !views[i].error && !resolvedRows[i].needsChoice && views[i].name !== '')
     .map((i) => ({ name: views[i].name, plusOnes: resolvedRows[i].plusOnes, tierId: resolvedRows[i].tierId, email: views[i].email || undefined, phone: views[i].phone || undefined }));
   const dupNames = suspectedDuplicates(plannable, byName);
+
+  // ── Name-only rows -> an existing contact (K3) ──────────────────────────────
+  // Same offer as quick-add, one lookup per DISTINCT name (batched, capped,
+  // max 6 in flight). Rows that already carry an e-mail or phone are left to the
+  // autolink trigger, and a name that hits 2+ contacts stays unlinked.
+  // Debounced: the textarea is typeable, not paste-only, and each keystroke
+  // re-parses every row — without this the batch would re-run per character.
+  const nameOnlyKey = plannable.filter((r) => !r.email && !r.phone).map((r) => r.name).join('\n');
+  const dNames = useDebouncedValue(nameOnlyKey, 250);
+  const { data: contactMatches } = usePoContactNameMatches(dNames ? dNames.split('\n') : []);
+  /** The contact this row links to, or null (no match / ambiguous / undone). */
+  const contactFor = (name: string, email: string, phone: string) => {
+    if (email || phone) return null;
+    const hits = contactMatches?.get(normalizeContactName(name)) ?? [];
+    return hits.length === 1 ? hits[0] : null;
+  };
+  const ambiguousFor = (name: string, email: string, phone: string): number => {
+    if (email || phone) return 0;
+    const hits = contactMatches?.get(normalizeContactName(name)) ?? [];
+    return hits.length > 1 ? hits.length : 0;
+  };
+  const linkedContactFor = (name: string, email: string, phone: string): string | undefined => {
+    const hit = contactFor(name, email, phone);
+    return hit && !contactLinkOff[normalizeContactName(name)] ? hit.id : undefined;
+  };
+  const toggleContactLink = (name: string): void => {
+    const key = normalizeContactName(name);
+    setContactLinkOff((s) => ({ ...s, [key]: !s[key] }));
+  };
 
   const exempt = quota?.exempt ?? false;
   const remaining = exempt ? null : quota?.remaining ?? null;
@@ -583,7 +528,22 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
         await addBulk.mutateAsync({
           eventId: evId,
           source: 'app',
-          guests: plan.inserts.map((r) => ({ id: uuidv7(), fullName: r.name, plusOnes: r.plusOnes, tierId: r.tierId, email: r.email, phone: r.phone })),
+          guests: plan.inserts.map((r) => {
+            // 'again' inserts a same-name row as a DIFFERENT person, so it must
+            // not inherit the contact link the preview offered for that name.
+            const contactId = dupeMode === 'again' && authByName.has(r.name.trim().toLowerCase())
+              ? undefined
+              : linkedContactFor(r.name, r.email ?? '', r.phone ?? '');
+            return {
+              id: uuidv7(),
+              fullName: r.name,
+              plusOnes: r.plusOnes,
+              tierId: r.tierId,
+              email: r.email,
+              phone: r.phone,
+              ...(contactId ? { contactId } : {}),
+            };
+          }),
         });
       }
       for (const u of plan.updates) {
@@ -647,6 +607,9 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
                     const showEditor = !!err || !!open[i];
                     const tier = tiers.find((tt) => tt.id === res.tierId);
                     const onList = !ask && !err && byName.has(view.name.trim().toLowerCase());
+                    const showContact = !ask && !err && view.name !== '';
+                    const contactHit = showContact ? contactFor(view.name, view.email, view.phone) : null;
+                    const contactMany = showContact ? ambiguousFor(view.name, view.email, view.phone) : 0;
                     return (
                       <div key={i} className={cn('rounded-[14px] border bg-elev', err ? 'border-red-300/45' : ask ? 'border-acc' : 'border-line')}>
                         <div className="flex items-center gap-[11px] p-[12px]">
@@ -679,6 +642,21 @@ export function BulkPaste({ eventId }: { eventId?: string }): JSX.Element {
                             <Icon name="close" size={15} />
                           </button>
                         </div>
+                        {/* K3: this pasted name already exists in the address book. */}
+                        {contactHit && (
+                          <div className="border-t border-line px-[12px] py-[6px]">
+                            <ContactLinkOffer
+                              contactName={contactHit.fullName}
+                              linked={!contactLinkOff[normalizeContactName(view.name)]}
+                              onToggle={() => toggleContactLink(view.name)}
+                            />
+                          </div>
+                        )}
+                        {contactMany > 0 && (
+                          <div className="border-t border-line px-[12px] py-[8px]">
+                            <ContactLinkAmbiguous count={contactMany} />
+                          </div>
+                        )}
                         {showEditor && (
                           <div className="flex flex-col gap-2 border-t border-line px-[12px] pb-[12px] pt-[11px]">
                             <Field icon="user" placeholder={t.guests.bulk.fieldName} value={view.name} onChange={(v) => editRow(i, 'name', v)} />
