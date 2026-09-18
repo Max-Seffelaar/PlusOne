@@ -97,6 +97,9 @@ passes in isolation every time; not caused by this change.
 **Not done here.** The two auto-approve enumeration residuals in §4A are untouched — this
 change does not widen or narrow them, and the at-capacity regime was re-checked against the
 live stack in both directions to confirm it.
+
+---
+
 ## 2026-09-18 — `main` back to green: the core-flow e2e race the ADE round exposed (z8uq9m0g0j)
 
 Branch `fix/z8uq9m0g0j-core-flow-e2e`. Milestone: **Now** — `main` was red, which blocks
