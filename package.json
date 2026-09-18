@@ -6,6 +6,8 @@
     "postinstall": "node scripts/setup-git-hooks.mjs",
     "dev": "node scripts/dev-env.mjs --serve",
     "dev:env": "node scripts/dev-env.mjs",
+    "dev:fake": "node scripts/dev/fake-supabase.mjs --serve",
+    "shot": "node scripts/dev/screenshot.mjs",
     "clean:next": "node -e \"require('node:fs').rmSync('.next', { recursive: true, force: true }); console.log('.next removed')\"",
     "build": "node scripts/hooks/check-required-env.mjs && next build",
     "start": "next start",
