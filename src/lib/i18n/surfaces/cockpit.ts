@@ -27,6 +27,19 @@ export const cockpit = {
   pageSubUpcoming: '{name} · doors not open yet',
   switchEvent: 'Switch event',
 
+  // ── Connection pill (z8uq9m0hw4) ─────────────────────────────────────────
+  // Same traffic light as the mobile door's sync bar, shown in every phase.
+  // Short labels for the pill; the hint is its tooltip.
+  connLive: 'Live',
+  connStale: 'Delayed',
+  connOffline: 'Offline',
+  connWarn: 'No sync 10+ min',
+  connLiveHint: 'Connected. Check-ins show up here as they happen.',
+  connStaleHint: 'Not connected in realtime. Numbers refresh every minute, so they may lag.',
+  connOfflineHint: "This device is offline. Numbers won't update until you're back online.",
+  connWarnHint: 'No sync for over 10 min. Check your connection.',
+  connAria: 'Connection: {state}',
+
   // ── LIVE strip ───────────────────────────────────────────────────────────
   liveBadge: 'LIVE AT THE DOOR',
   upcomingBadge: 'UPCOMING',

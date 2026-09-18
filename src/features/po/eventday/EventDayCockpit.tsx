@@ -43,6 +43,7 @@ import { useCockpitSync } from './useCockpitSync';
 import { CockpitTasksCard } from './CockpitTasksCard';
 import { CockpitRefuseModal } from './CockpitRefuseModal';
 import { CockpitGuestRow } from './CockpitGuestRow';
+import { CockpitConnectionPill } from './CockpitConnectionPill';
 import {
   usePoAckNote,
   usePoApproveRequest,
@@ -462,6 +463,13 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            {/* Connection state in every phase (z8uq9m0hw4) — the SyncBar's dot,
+                fed by this screen's realtime channel + query freshness. */}
+            <CockpitConnectionPill
+              online={cockpitSync.online}
+              realtimeConnected={realtimeConnected}
+              lastSyncAt={cockpitSync.lastSyncAt}
+            />
             {onChangeEvent && (
               <Btn desktop kind="ghost" icon="cal" onClick={onChangeEvent}>
                 {t.cockpit.switchEvent}
@@ -482,11 +490,12 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
         >
           <div className="flex flex-wrap items-center gap-4">
             {/* Phase-aware (T6 test 8): the LIVE badge only when the event is actually
-                running; before doors it reads UPCOMING. The dot pulses only while the
-                realtime subscription is really connected. */}
+                running; before doors it reads UPCOMING. It shows the PHASE only:
+                connection state moved to the header's CockpitConnectionPill
+                (z8uq9m0hw4), so two dots never pulse for the same thing. */}
             {event.phase === 'live' ? (
               <span className="inline-flex items-center gap-[7px] rounded-full bg-acc-dim px-3 py-1.5 font-body text-[12px] font-extrabold tracking-[0.04em] text-acc">
-                <span className={cn('h-[7px] w-[7px] rounded-full bg-acc', realtimeConnected && 'animate-pulse')} />
+                <span className="h-[7px] w-[7px] rounded-full bg-acc" />
                 {t.cockpit.liveBadge}
               </span>
             ) : (
