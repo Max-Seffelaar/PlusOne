@@ -137,8 +137,11 @@ test('the /app shell mounts once and survives screen + query-string navigation',
   // ── Query-string navigation: the event's own "Check-in" button is
   //    `nav.openDoor(id)` → `router.push('/app/door?event=<id>')`, a navigation
   //    whose target differs from a bare door tab ONLY by the query string. No
-  //    dependency on the candidate count (see the header note). ──
-  await page.getByRole('button', { name: 'Check-in', exact: true }).click();
+  //    dependency on the candidate count (see the header note). `.first()`:
+  //    since item L renamed the door tab from "Door" to "Check-in", the mobile
+  //    bottom tab now ALSO reads "Check-in" — the event detail's own CTA
+  //    button (the one we want) renders before the tab bar in the DOM. ──
+  await page.getByRole('button', { name: 'Check-in', exact: true }).first().click();
   await expect(page).toHaveURL(new RegExp(`/app/door\\?event=${EVENT_A}`), { timeout: 30_000 });
   const searchBox = page.getByPlaceholder('Search a name…');
   await expect(searchBox).toBeVisible({ timeout: 60_000 });
