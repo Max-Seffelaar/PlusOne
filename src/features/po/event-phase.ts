@@ -38,3 +38,24 @@ export function eventPhase(startsAt: string, endsAt: string | null, nowMs: numbe
 export function eventWhenFromPhase(phase: EventPhase): EventWhen {
   return phase === 'past' ? 'past' : 'upcoming';
 }
+
+/**
+ * The event an "Add guest" flow starts on when the user hasn't picked one
+ * (z8uq9m0hw3, item 1): the requested event if it exists, otherwise the SOONEST
+ * upcoming-or-live event. Never a past one: with nothing upcoming this returns
+ * undefined and the screen shows its "no upcoming events" state.
+ *
+ * `events` must be newest-first (usePoEvents' order, starts_at desc), so the
+ * soonest upcoming event is the LAST upcoming one. The old pick took the first
+ * upcoming (the furthest away) and then fell back to the first event overall,
+ * which on a venue with nothing upcoming was the most recent PAST event.
+ */
+export function defaultAddGuestEvent<E extends { id: string; when: EventWhen }>(
+  events: readonly E[],
+  requestedId?: string,
+): E | undefined {
+  const requested = requestedId ? events.find((e) => e.id === requestedId) : undefined;
+  if (requested) return requested;
+  const upcoming = events.filter((e) => e.when === 'upcoming');
+  return upcoming[upcoming.length - 1];
+}

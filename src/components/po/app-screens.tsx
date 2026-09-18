@@ -128,7 +128,7 @@ function screenFor(name: ScreenName, p: ScreenProps, nav: Nav, ev: (id?: string)
     case 'eventedit':
       return <EventEdit id={p.id} isNew={p.isNew} />;
     case 'tiers':
-      return <Tiers eventId={p.id} />;
+      return <Tiers eventId={p.id} setup={p.setup} />;
     case 'crew':
       return <Crew eventId={p.id} />;
     case 'gebruikers':
