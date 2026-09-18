@@ -8,6 +8,90 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-18 — `@types/react` 18 → 19 (z8uq9m0h2h)
+
+Branch `chore/z8uq9m0h2h-types-react-19`. Milestone: Now — it unblocks a group of safe
+dependency bumps. No migration, no schema change, no runtime dependency change.
+
+**Not a React major and not Next 16.** `react`/`react-dom` have been on 19 since long
+before this; only `@types/react`/`@types/react-dom` were still on 18.3.31. Next 16 stays
+parked as `86eyd39mx`.
+
+**Measured, not estimated.** With `@types/react@19.3.0` + `@types/react-dom@19.3.0`
+installed, `tsc --noEmit` over the whole tree produced exactly three errors in two files —
+the same three the task predicted, re-measured on `9fba195` after `5206701` and `9fba195`
+had landed (the latter split `app.tsx` into `app-chrome` / `app-screens` / `door-branch`):
+
+```
+src/components/po/datetime-field.tsx(179,14): TS2345  RefObject<HTMLDivElement | null>
+src/components/po/datetime-field.tsx(308,14): TS2345  idem
+src/features/door/sync/useWakeLock.ts(62,22):  TS2554  Expected 1 arguments, but got 0
+```
+
+Both fixes are typing-only:
+
+- `datetime-field.tsx:67` — React 19 types `useRef<T>(null)` as `RefObject<T | null>`, so
+  `useDismiss(ref: React.RefObject<HTMLElement>, …)` → `RefObject<HTMLElement | null>`.
+  One signature, both call sites; it is the only place in the codebase where a `RefObject`
+  crosses a function boundary.
+- `useWakeLock.ts:62` — `useRef<() => Promise<void>>()` → `useRef<(() => Promise<void>) |
+  undefined>(undefined)`. This ref is the deliberate cycle-breaker between `acquire` and
+  `onSentinelReleased`; door code, so invariant #25 applies. Runtime behaviour is
+  identical (`useRef()` already passed `undefined`). Verified by probe: replacing
+  `void acquireRef.current?.()` with a no-op turns
+  `useWakeLock.test.ts > re-acquires when the browser revokes the lock while STILL visible`
+  red, so that path is genuinely under test, and it is green with the fix in place.
+
+**The `JSX` guard kept, its doc comment corrected.** The earlier 269-annotation sweep
+(86eyd39gn) is why this cost three errors instead of 272. Its comment claimed "tsc cannot
+catch a regression while `@types/react` is still pinned to 18" — now stale. Under 19 tsc
+does catch it: a probe file with a bare `JSX.Element` fails with
+`TS2503: Cannot find namespace 'JSX'`, and the same probe turns
+`tests/unit/jsx-namespace-imported.test.ts` red (offenders list non-empty). Both were
+observed, then the probe removed and the suite re-run green. The guard stays — it names
+the file and the fix, runs in the unit suite, and still holds if the types are ever pinned
+back to 18.
+
+**Suites.** `pnpm type-check` clean. `pnpm lint` 0 errors, 2 warnings — both pre-existing
+`jsx-a11y/role-has-required-aria-props` on `datetime-field.tsx:218/353`, identical on an
+unmodified tree. `pnpm vitest run` 1372/1372 passed, 129/129 files, four consecutive clean
+runs. One earlier run of the full suite failed
+`pgtap-plan-run-gate.test.ts > does not truncate its diagnostic when the reader is slow`;
+it passes in isolation and in four subsequent full runs, and it asserts on a subprocess's
+stderr under a slow reader, so it is a load-timing flake in that test, unrelated to this
+change — recorded here rather than swept up, because it will resurface.
+`pnpm e2e:smoke` **could not run in this session**: no Supabase CLI, no reachable Docker
+daemon and no `.env.local`, so the Playwright web server dies on
+`Missing required env var: NEXT_PUBLIC_SUPABASE_URL`. CI's `lint-and-test` covers it.
+
+**The Dependabot ignore rule that was not doing its job.** `.github/dependabot.yml` ignores
+`@types/react` majors, and PR #291 pulled one in anyway. What the config now records, with
+the evidence behind each point:
+
+- Dependabot's own PR body for #291 lists 12 updates, all production dependencies.
+  `@types/react`/`@types/react-dom` are **not** among them — there was no "@types/react
+  update" for an ignore condition to filter.
+- The edit is not forced by resolution. With those 12 bumps applied and the types left at
+  18, `pnpm install --lockfile-only` resolves cleanly to `@types/react@18.3.31` against
+  `react@19.3.0`, no peer complaint.
+- PR #292 (development-dependencies — the group `@types/react` actually belongs to, being a
+  devDependency) left it at `^18.3.3` while bumping `@types/node` 20→26, `eslint` 8→10,
+  `vitest` 1→5 and `tailwindcss` 3→4 around it.
+
+So the rule works where Dependabot evaluates it; the bump rode in as a companion of the
+`react`/`react-dom` update, on a path where ignore conditions are never consulted. GitHub
+does not document that path and exposes no knob for it, so there is nothing to tighten —
+**accepted deliberately**, and written into `.github/dependabot.yml` at the rule itself so
+it stops reading as airtight. Aligning the types is the structural fix: the companion bump
+only had a major to do while runtime (19) and types (18) had drifted; with both on 19 and
+`react` majors ignored, it cannot produce a types major again without a react major first.
+The control that actually stopped #291 was blocking CI plus branch protection.
+
+**Not done here:** #291/#292 were left untouched — they share `package.json` and
+`pnpm-lock.yaml` with this branch and want a rebase after it lands.
+
+---
+
 ## 2026-09-18 — The door branch moves out of `app.tsx` (86eykm76k)
 
 Branch `refactor/86eykm76k-extract-door-branch`. Milestone: ≥5 (maintainability on a
