@@ -14,7 +14,6 @@ import {
   usePoSetCancelled,
   usePoCreateEvent,
   usePoCreateEventFromTemplate,
-  usePoCreateTemplateFromEvent,
   usePoSetAllowUncheck,
   usePoSetAutoLock,
   usePoSetEventDefaultMemberQuota,
@@ -30,7 +29,9 @@ import { DateField, TimeField } from '../../datetime-field';
 import { Icon } from '../../icon';
 import { Btn, Field, InfoTip, Label, Note, Scroll, ToggleRow, Top, press } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
+import { SaveAsTemplate } from './save-as-template';
 import { ScheduleFields } from './schedule-fields';
+import { TemplatePicker } from './template-picker';
 import { col, ScreenState } from './shared';
 
 const iconSm = 'flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border border-line text-faint';
@@ -40,136 +41,6 @@ const iconSm = 'flex h-[34px] w-[34px] shrink-0 items-center justify-center roun
 function splitLocal(iso: string | null): [string, string] {
   const [d = '', t = ''] = isoToLocalInput(iso).split('T');
   return [d, t];
-}
-
-/** A blank/template selector chip for the create-from-template picker (86exyp8gn). */
-function TemplateChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }): JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'rounded-full border px-[13px] py-[7px] font-display text-[12.5px] font-bold transition-colors',
-        active ? 'border-acc bg-acc-dim text-acc' : 'border-line text-dim hover:brightness-110',
-      )}
-    >
-      {label}
-    </button>
-  );
-}
-
-/** Save an existing event's setup (tiers + capacity + settings) as a reusable template.
- *  Reports a typed-but-unsaved name via onDraftChange so the parent's leave-guard can
- *  catch it — "Save event" does NOT save the template (T4, 1/7). Also used standalone
- *  from the past-event recap (M11, 8/7) — onDraftChange is optional there. */
-export function SaveAsTemplate({
-  eventId,
-  onDraftChange,
-}: {
-  eventId: string;
-  onDraftChange?: (dirty: boolean) => void;
-}): JSX.Element {
-  const createTpl = usePoCreateTemplateFromEvent();
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState('');
-  const [savedName, setSavedName] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-
-  const draft = open && !!name.trim();
-  useEffect(() => {
-    onDraftChange?.(draft);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft]);
-
-  const submit = async (): Promise<void> => {
-    if (!name.trim() || createTpl.isPending) return;
-    setErr(null);
-    setSavedName(null);
-    try {
-      const tplName = name.trim();
-      await createTpl.mutateAsync({ eventId, name: tplName });
-      setSavedName(tplName);
-      setName('');
-      setOpen(false);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : t.events.saveTemplateError);
-    }
-  };
-
-  return (
-    <div className="mt-[18px]">
-      <Label className="mb-[10px]">{t.events.saveTemplateLabel}</Label>
-      {open ? (
-        <div className="rounded-[16px] border border-acc bg-elev p-4">
-          <p className="mb-2.5 text-[12.5px] leading-[1.5] text-faint">{t.events.saveTemplateHint}</p>
-          <Field
-            placeholder={t.events.saveTemplatePlaceholder}
-            value={name}
-            onChange={setName}
-            autoFocus
-            className="mb-3"
-          />
-          <div className="flex gap-2">
-            <Btn
-              kind="primary"
-              sm
-              icon="check"
-              onClick={() => void submit()}
-              disabled={!name.trim() || createTpl.isPending}
-              className={!name.trim() || createTpl.isPending ? 'opacity-50' : ''}
-            >
-              {createTpl.isPending ? t.events.saving : t.events.saveTemplateConfirm}
-            </Btn>
-            <Btn
-              kind="ghost"
-              sm
-              onClick={() => {
-                setOpen(false);
-                setName('');
-                setErr(null);
-              }}
-            >
-              {t.events.saveTemplateCancel}
-            </Btn>
-          </div>
-          {err && <p className="mt-2 text-[12.5px] text-[#E89AC0]">{err}</p>}
-        </div>
-      ) : (
-        <>
-          <Btn
-            kind="dark"
-            full
-            icon="grid"
-            onClick={() => {
-              setOpen(true);
-              setSavedName(null);
-            }}
-          >
-            {t.events.saveTemplateCta}
-          </Btn>
-          {/* Unmissable saved-state: a card with the template's name + where to
-              find it, not a one-line footnote (T4, 1/7 — "felt saved, couldn't
-              find it back"). */}
-          {savedName && (
-            <div
-              className="mt-2 flex items-start gap-[10px] rounded-[14px] border bg-acc-dim p-[13px]"
-              style={{ borderColor: 'rgba(181,166,255,0.4)' }}
-            >
-              <span className="mt-px text-acc">
-                <Icon name="check" size={18} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="font-body text-[14px] font-bold text-text">
-                  {fmt(t.events.saveTemplateDoneTitle, { name: savedName })}
-                </div>
-                <div className="mt-0.5 text-[12.5px] leading-[1.45] text-faint">{t.events.saveTemplateDoneBody}</div>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
 }
 
 export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.Element {
@@ -196,9 +67,6 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const [name, setName] = useState('');
   // Create-from-template (86exyp8gn): null = blank event (the existing path).
   const [templateId, setTemplateId] = useState<string | null>(null);
-  // Collapse the template chips past 4 — a venue with 10+ templates would drown
-  // the form otherwise (retest T4, Q4).
-  const [tplListExpanded, setTplListExpanded] = useState(false);
   const [dateStr, setDateStr] = useState('');
   const [timeStr, setTimeStr] = useState('');
   const [endDateStr, setEndDateStr] = useState('');
@@ -435,48 +303,9 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           </Note>
         )}
 
-        {isNew &&
-          isAdmin &&
-          (templates.data?.length ?? 0) > 0 &&
-          ((): JSX.Element => {
-            const all = templates.data ?? [];
-            // Collapsed = first 4 (name-sorted), plus the selection if it lives
-            // further down so the active chip never disappears.
-            const shown = tplListExpanded ? all : all.slice(0, 4);
-            const selected = templateId ? all.find((tpl) => tpl.id === templateId) : undefined;
-            if (selected && !shown.some((tpl) => tpl.id === selected.id)) shown.push(selected);
-            const hidden = all.length - shown.length;
-            return (
-              <>
-                <Label className="mb-2">{t.events.fieldTemplate}</Label>
-                <div className="mb-[14px] flex flex-wrap gap-2">
-                  <TemplateChip label={t.events.templateBlank} active={!templateId} onClick={() => setTemplateId(null)} />
-                  {shown.map((tpl) => (
-                    <TemplateChip
-                      key={tpl.id}
-                      label={tpl.name}
-                      active={templateId === tpl.id}
-                      onClick={() => setTemplateId(tpl.id)}
-                    />
-                  ))}
-                  {hidden > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setTplListExpanded(true)}
-                      className="rounded-full border border-dashed border-line px-[13px] py-[7px] font-display text-[12.5px] font-bold text-faint transition-colors hover:brightness-110"
-                    >
-                      {fmt(t.events.templateShowAll, { n: all.length })}
-                    </button>
-                  )}
-                </div>
-                {templateId && (
-                  <div className="mb-[14px]">
-                    <Note icon="spark">{t.events.templateNote}</Note>
-                  </div>
-                )}
-              </>
-            );
-          })()}
+        {isNew && isAdmin && (templates.data?.length ?? 0) > 0 && (
+          <TemplatePicker templates={templates.data ?? []} templateId={templateId} onChange={setTemplateId} />
+        )}
 
         {/* Venue above Name (ADE UX round, item B): the venue is the context you
             read first; the name is what you then type. Name keeps autofocus. */}
