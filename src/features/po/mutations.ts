@@ -1593,6 +1593,7 @@ export interface PoVenueSettingsInput {
   postalCode: string;
   city: string;
   country: string;
+  website: string;
 }
 
 /** Update the active venue's settings + company profile (admin-only in the action). */
@@ -1616,6 +1617,7 @@ export function usePoUpdateVenueSettings() {
       fd.set('postalCode', input.postalCode);
       fd.set('city', input.city);
       fd.set('country', input.country);
+      fd.set('website', input.website);
       return throwOnActionError(await updateVenueSettingsAction(NO_PREV, fd));
     },
     onSuccess: () => {

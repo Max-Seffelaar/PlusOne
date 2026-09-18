@@ -5,31 +5,32 @@
  *  with an external `country` state, so the flag is ALWAYS the chosen country
  *  (no globe-while-typing) and the list matches the PLUSONE dark design.
  *  Country names are English (the app is English); search matches name, ISO
- *  code or dial code.
+ *  code or dial code. The list itself is the shared one in `@/lib/countries`
+ *  (also behind the venue settings Country field), narrowed here to the regions
+ *  that have a calling code.
  *
- *  Metadata: `/max`, matching `phone-lazy.tsx` (86eyke279). `getCountries` /
- *  `getCountryCallingCode` return the same values on every build, so this is not
+ *  Metadata: `/max`, matching `phone-lazy.tsx` (86eyke279). `isSupportedCountry`
+ *  / `getCountryCallingCode` return the same values on every build, so this is not
  *  a behaviour change here — it keeps the picker, the input and the validator on
  *  ONE metadata blob instead of bundling `min` alongside `max`. */
 import { type JSX, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
-import { getCountries, getCountryCallingCode, type Country } from 'react-phone-number-input/max';
+import { getCountryCallingCode, isSupportedCountry, type Country } from 'react-phone-number-input/max';
 import flagComponents from 'react-phone-number-input/flags';
-import enLabels from 'react-phone-number-input/locale/en.json';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
+import { REGIONS, countryName } from '@/lib/countries';
 import { Icon } from './icon';
 import './landing-phone.css';
 
 export type CountryCode = Country;
 
 const flags = flagComponents as Record<string, ComponentType<{ title?: string }>>;
-const names = enLabels as Record<string, string>;
 
 function Flag({ code }: { code: string }): JSX.Element {
   const F = flags[code];
   return (
     <span className="po-flag">
-      {F ? <F title={names[code] ?? code} /> : <Icon name="flag" size={12} className="text-faint" />}
+      {F ? <F title={countryName(code) ?? code} /> : <Icon name="flag" size={12} className="text-faint" />}
     </span>
   );
 }
@@ -39,6 +40,16 @@ interface Entry {
   name: string;
   dial: string;
 }
+
+/** The shared list narrowed to regions with a calling code: exactly the set
+ *  `getCountries()` returns, in the shared name order. */
+export function phoneCountries(): Entry[] {
+  return REGIONS.flatMap((c) => {
+    const code = c.code;
+    return isSupportedCountry(code) ? [{ code, name: c.name, dial: getCountryCallingCode(code) }] : [];
+  });
+}
+const PHONE_COUNTRIES: readonly Entry[] = phoneCountries();
 
 export function CountrySelect({
   value,
@@ -52,13 +63,7 @@ export function CountrySelect({
   const rootRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const all: Entry[] = useMemo(
-    () =>
-      getCountries()
-        .map((c) => ({ code: c, name: names[c] ?? c, dial: getCountryCallingCode(c) }))
-        .sort((a, b) => a.name.localeCompare(b.name, 'en')),
-    [],
-  );
+  const all = PHONE_COUNTRIES;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

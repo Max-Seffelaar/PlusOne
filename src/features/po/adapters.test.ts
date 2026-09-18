@@ -874,6 +874,7 @@ describe('toPoVenueSettings', () => {
     postal_code: null,
     city: null,
     country: 'NL',
+    website: null,
   };
   it('coalesces nullable company/address fields to empty strings', () => {
     expect(toPoVenueSettings(row)).toEqual({
@@ -891,7 +892,19 @@ describe('toPoVenueSettings', () => {
       postalCode: '',
       city: '',
       country: 'NL',
+      website: '',
     });
+  });
+
+  it('passes a stored country through untouched, even when it is not a code', () => {
+    // z8uq9m0hw2: the Country dropdown shows legacy free text as-is; the
+    // adapter must never "fix" it on load.
+    expect(toPoVenueSettings({ ...row, country: 'Nederland' }).country).toBe('Nederland');
+    expect(toPoVenueSettings({ ...row, country: 'nl' }).country).toBe('nl');
+  });
+
+  it('maps the venue website', () => {
+    expect(toPoVenueSettings({ ...row, website: 'https://lofi.nl' }).website).toBe('https://lofi.nl');
   });
 });
 

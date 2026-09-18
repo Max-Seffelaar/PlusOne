@@ -36,6 +36,7 @@ export function ResponsiveShell({
   navItems,
   venueName,
   venueSub,
+  venueOpensSettings = false,
   onOpenVenue,
   onOpenProfile,
   userName,
@@ -53,6 +54,9 @@ export function ResponsiveShell({
   navItems: ShellNavItem[];
   venueName: string;
   venueSub?: string;
+  /** The venue card opens venue settings (one venue) rather than the switcher:
+   *  a chevron-right instead of the dropdown chevron (z8uq9m0hw2). */
+  venueOpensSettings?: boolean;
   onOpenVenue: () => void;
   /** Open the signed-in user's profile settings (desktop footer click, T10). */
   onOpenProfile: () => void;
@@ -98,7 +102,7 @@ export function ResponsiveShell({
             <span className="block truncate font-display text-[14px] font-bold text-text">{venueName}</span>
             {venueSub ? <span className="block truncate text-[11px] text-faint">{venueSub}</span> : null}
           </span>
-          <Icon name="chevD" size={16} className="text-ghost" />
+          <Icon name={venueOpensSettings ? 'chev' : 'chevD'} size={16} className="text-ghost" />
         </button>
 
         <nav className="po-scroll flex min-h-0 flex-1 flex-col gap-[3px] overflow-y-auto">

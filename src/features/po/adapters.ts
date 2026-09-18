@@ -1019,6 +1019,8 @@ export interface PoVenueSettings {
   postalCode: string;
   city: string;
   country: string;
+  /** The venue's own website (http(s) URL), '' when not set. */
+  website: string;
 }
 
 export function toPoVenueSettings(row: PoVenueSettingsRow): PoVenueSettings {
@@ -1037,6 +1039,7 @@ export function toPoVenueSettings(row: PoVenueSettingsRow): PoVenueSettings {
     postalCode: row.postal_code ?? '',
     city: row.city ?? '',
     country: row.country ?? 'NL',
+    website: row.website ?? '',
   };
 }
 
