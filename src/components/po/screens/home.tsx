@@ -38,6 +38,7 @@ import { Icon, type IconName } from '../icon';
 import { Btn, Empty, Note, Scroll, press } from '../kit';
 import { Sheet, Toast } from '../shell';
 import { PendingInvitesBanner } from '../pending-invites-banner';
+import { HomeHeaderActions } from './home-header-actions';
 import { EventRow, StatusChip, toBoardEvents, type BoardEvent } from '../event-row';
 
 const TZ = 'Europe/Amsterdam';
@@ -596,31 +597,15 @@ export function Home(): JSX.Element {
                 )}
               </div>
             </div>
-            {(isAdmin || showNewGuest) && (
-              // Both primary "start something" actions sit on one row under the
-              // greeting (ADE UX round, item A). On phones the row wraps; every
-              // button keeps the kit's ≥44px tap height.
-              <div className="flex flex-wrap gap-2.5">
-                {isAdmin && (
-                  <Btn kind="ghost" sm icon="cal" className="min-h-[44px]" onClick={() => nav.push('eventedit', { isNew: true })}>
-                    {t.home.newEvent}
-                  </Btn>
-                )}
-                {showNewGuest && (
-                  <Btn
-                    sm
-                    icon="plus"
-                    className="min-h-[44px]"
-                    onClick={() => {
-                      setGuestQuery('');
-                      setGuestPickOpen(true);
-                    }}
-                  >
-                    {t.home.newGuest}
-                  </Btn>
-                )}
-              </div>
-            )}
+            <HomeHeaderActions
+              isAdmin={isAdmin}
+              showNewGuest={showNewGuest}
+              onNewEvent={() => nav.push('eventedit', { isNew: true })}
+              onNewGuest={() => {
+                setGuestQuery('');
+                setGuestPickOpen(true);
+              }}
+            />
           </div>
 
           {isAdmin && billingLock.blocked && (
