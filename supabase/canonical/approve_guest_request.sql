@@ -1,5 +1,5 @@
 -- Canonical body (K10 drift guard, see supabase/canonical/README.md).
--- Newest source: supabase/migrations/20260918174500_partial_approval_decision_message.sql:203.
+-- Newest source: supabase/migrations/20260918174500_partial_approval_decision_message.sql:204.
 
 create or replace function public.approve_guest_request(
   p_request_id uuid,
@@ -15,6 +15,7 @@ as $$
 declare
   ws         constant text := E' \t\n\r\f\x0B';
   v_req      public.guest_requests;
+  v_event    uuid;
   v_venue    uuid;
   v_guest_id uuid;
   v_plus     integer;
@@ -36,8 +37,14 @@ begin
   end if;
 
   -- Authorized: now lock the row and re-check what may have changed meanwhile.
+  -- That includes the event: the role check above was made against the event
+  -- the unlocked read saw, so a row that moved to another event since then is
+  -- a different request as far as this approval goes.
+  v_event := v_req.event_id;
   select * into v_req from public.guest_requests where id = p_request_id for update;
-  if v_req.id is null or v_req.anonymized_at is not null then
+  if v_req.id is null
+     or v_req.anonymized_at is not null
+     or v_req.event_id is distinct from v_event then
     raise exception using errcode = 'P0002', message = 'Aanvraag niet gevonden.';
   end if;
   if v_req.status = 'approved' then

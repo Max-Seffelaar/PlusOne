@@ -11,7 +11,8 @@
 --     slot per party, reduced or not);
 --   * caps the message (280), stores whitespace-only (incl. \f / \x0B) as no
 --     message, and settles every CHECK rule before the guest insert;
---   * checks the role before it locks the row or reveals the status;
+--   * checks the role before it locks the row or reveals the status, and
+--     re-checks the row (incl. its event) once locked;
 --   * refuses an anonymized request (P0002);
 -- that clients cannot write the counts or the message around the RPC; that
 -- get_request_status hands the new fields to a valid token only, per state,
@@ -61,7 +62,7 @@ returns text language sql as $fn$
   select string_agg(k, ',' order by k) from jsonb_object_keys(p) k;
 $fn$;
 
-select plan(74);
+select plan(76);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner, RLS bypassed — like the seed)
@@ -90,7 +91,9 @@ insert into public.guest_requests (id, event_id, full_name, email, phone, plus_o
   ('9a000000-0000-7000-8000-000000000031', 'ee000000-0000-7000-8000-000000000001',
    'Feed Fien', 'fien@pa.test', '+31611700041', 0, 'tok-pa-fien'),
   ('9a000000-0000-7000-8000-000000000032', 'ee000000-0000-7000-8000-000000000001',
-   'Trim Tom', 'trim@pa.test', '+31611700042', 0, 'tok-pa-trim');
+   'Trim Tom', 'trim@pa.test', '+31611700042', 0, 'tok-pa-trim'),
+  ('9a000000-0000-7000-8000-000000000041', 'ee000000-0000-7000-8000-000000000001',
+   'Moving Mo', 'mo@pa.test', '+31611700051', 1, 'tok-pa-mo');
 
 -- Accounting fixtures: an event with a max-3 tier and a 3-head link, and an
 -- event with a total capacity of 3. Each request asks for 1 + 4 = 5 people.
@@ -598,6 +601,48 @@ select ok(
   and not has_function_privilege('anon', 'public.redact_anonymized_request_audit_pii()', 'EXECUTE')
   and not has_function_privilege('service_role', 'public.redact_anonymized_request_audit_pii()', 'EXECUTE'),
   'G15 the new audit scrub is owner-only, like its two siblings');
+
+-- ---------------------------------------------------------------------------
+-- H. The row moves to another event between the role check and the lock
+-- ---------------------------------------------------------------------------
+-- The role is checked against the event of the UNLOCKED read; after FOR UPDATE
+-- the function re-checks that the event is still the same. A real race needs
+-- two sessions, so the move is injected deterministically instead: event_venue
+-- is called between the two reads, and for this block only it is wrapped to
+-- move one named request (a custom GUC) to the other fixture event on the way.
+-- Last in the file on purpose; everything rolls back.
+create or replace function public.event_venue(p_event_id uuid)
+returns uuid
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $fn$
+begin
+  if coalesce(current_setting('pa.move_request', true), '') <> '' then
+    update public.guest_requests
+       set event_id = '9e000000-0000-7000-8000-000000000001'
+     where id = current_setting('pa.move_request', true)::uuid
+       and event_id <> '9e000000-0000-7000-8000-000000000001';
+  end if;
+  return (select e.venue_id from public.events e where e.id = p_event_id);
+end;
+$fn$;
+
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select set_config('pa.move_request', '9a000000-0000-7000-8000-000000000041', true);
+select throws_ok(
+  $$ select public.approve_guest_request('9a000000-0000-7000-8000-000000000041',
+       'dd000000-0000-7000-8000-000000000001', 0, 'moved?') $$,
+  'P0002', null, 'H1 a request that moved to another event after the role check is not approved (P0002, like the other races)');
+select set_config('pa.move_request', '', true);
+reset role;
+select is(
+  (select status::text || '|' || event_id::text || '|'
+          || (select count(*) from public.guests where email = 'mo@pa.test')::text
+     from public.guest_requests where id = '9a000000-0000-7000-8000-000000000041'),
+  'pending|ee000000-0000-7000-8000-000000000001|0',
+  'H2 ...and nothing was written: still pending on its own event, no guest');
 
 select * from finish();
 

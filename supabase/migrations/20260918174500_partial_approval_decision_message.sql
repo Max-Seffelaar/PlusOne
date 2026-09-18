@@ -186,8 +186,9 @@ comment on function public.guard_guest_request_decision_fields() is
 --     and a decision written after anonymization would put a fresh message on
 --     a row the retention job already treats as done;
 --   * the role check runs on an UNLOCKED read; only then is the row re-read
---     FOR UPDATE and re-checked, so an outsider cannot take (or wait on) a row
---     lock on somebody else's request. The lock serializes two approvals of
+--     FOR UPDATE and re-checked (still there, not anonymized, still on the
+--     event the role was checked against, not yet approved), so an outsider
+--     cannot take (or wait on) a row lock on somebody else's request. The lock serializes two approvals of
 --     the same request: the second sees `approved` (45003) instead of both
 --     inserting a guest (a double-submit from the sheet is the realistic way);
 --   * p_plus_ones (NULL = as requested) validated 0..requested AFTER the role
@@ -214,6 +215,7 @@ as $$
 declare
   ws         constant text := E' \t\n\r\f\x0B';
   v_req      public.guest_requests;
+  v_event    uuid;
   v_venue    uuid;
   v_guest_id uuid;
   v_plus     integer;
@@ -235,8 +237,14 @@ begin
   end if;
 
   -- Authorized: now lock the row and re-check what may have changed meanwhile.
+  -- That includes the event: the role check above was made against the event
+  -- the unlocked read saw, so a row that moved to another event since then is
+  -- a different request as far as this approval goes.
+  v_event := v_req.event_id;
   select * into v_req from public.guest_requests where id = p_request_id for update;
-  if v_req.id is null or v_req.anonymized_at is not null then
+  if v_req.id is null
+     or v_req.anonymized_at is not null
+     or v_req.event_id is distinct from v_event then
     raise exception using errcode = 'P0002', message = 'Aanvraag niet gevonden.';
   end if;
   if v_req.status = 'approved' then
