@@ -18,7 +18,12 @@ export type RequestStatusData = {
   fullName: string;
   /** Plus-ones as REQUESTED. The headcount asked for is 1 + plusOnes. */
   plusOnes: number;
-  /** Plus-ones as APPROVED, set only when the venue approved fewer than asked. */
+  /**
+   * Plus-ones the venue CONFIRMED for this token's request: approved requests
+   * only. Null on an approved page means nothing was confirmed for this caller
+   * (a duplicate submission's token, z8uq9m0h2v), so the page must not claim a
+   * party size at all. Lower than `plusOnes` = a reduced approval.
+   */
   approvedPlusOnes: number | null;
   eventName: string;
   /** "Sun 27 Sept" (Amsterdam). */
@@ -70,8 +75,16 @@ export function toRequestStatusView(data: unknown, now: Date = new Date()): Requ
 
   const approved = p.status === 'approved';
   const plusOnes = p.plus_ones ?? 0;
-  const approvedPlusOnes =
-    approved && p.approved_plus_ones != null && p.approved_plus_ones < plusOnes ? p.approved_plus_ones : null;
+  // Key ABSENT = a function from before z8uq9m0hw6, which never reduced
+  // anything: the whole party was approved. Key present but null = nothing was
+  // confirmed for this caller (a mirror token). Never above what was asked.
+  let approvedPlusOnes: number | null = null;
+  if (approved) {
+    if (p.approved_plus_ones === undefined) approvedPlusOnes = plusOnes;
+    else if (p.approved_plus_ones !== null) approvedPlusOnes = Math.min(p.approved_plus_ones, plusOnes);
+  }
+  // Plain text, rendered as a React text node here. Any other consumer (the
+  // 86ey6bn05 transactional mail) must HTML-escape it: it is venue-typed text.
   const message = approved ? (p.decision_message ?? '').trim() : '';
 
   return {

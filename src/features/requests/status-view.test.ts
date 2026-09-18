@@ -53,9 +53,12 @@ describe('toRequestStatusView — approved', () => {
     expect(v?.date).toBe(formatWeekdayDate(START));
   });
 
-  it('an approved count that is not lower than requested is no reduction', () => {
-    expect(toRequestStatusView({ ...approved, approved_plus_ones: 4 })?.approvedPlusOnes).toBeNull();
-    expect(toRequestStatusView({ ...approved, approved_plus_ones: 9 })?.approvedPlusOnes).toBeNull();
+  it('carries the confirmed count as is, never above what was asked', () => {
+    expect(toRequestStatusView({ ...approved, approved_plus_ones: 4 })?.approvedPlusOnes).toBe(4);
+    expect(toRequestStatusView({ ...approved, approved_plus_ones: 9 })?.approvedPlusOnes).toBe(4);
+  });
+
+  it('a present-but-null count means nothing was confirmed for this token (a duplicate submission)', () => {
     expect(toRequestStatusView({ ...approved, approved_plus_ones: null })?.approvedPlusOnes).toBeNull();
   });
 
@@ -91,7 +94,9 @@ describe('toRequestStatusView — a payload from before the migration still rend
       event_name: 'FRENZY',
       starts_at: START,
     });
-    expect(v).toMatchObject({ time: 'From 23:00', address: null, approvedPlusOnes: null, message: null, plusOnes: 2 });
+    // No `approved_plus_ones` key at all: that function never reduced, so the
+    // whole party was approved (the page keeps saying "Party of 3").
+    expect(v).toMatchObject({ time: 'From 23:00', address: null, approvedPlusOnes: 2, message: null, plusOnes: 2 });
   });
 });
 

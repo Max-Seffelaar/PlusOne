@@ -45,15 +45,23 @@ describe('RequestStatus', () => {
   });
 
   it('approved as requested keeps the party line and shows no message block', () => {
-    render(<RequestStatus data={{ ...base, approvedPlusOnes: null, message: null }} />);
+    render(<RequestStatus data={{ ...base, approvedPlusOnes: 4, message: null }} />);
     expect(screen.getByText(/Party of 5/)).toBeInTheDocument();
     expect(screen.queryByText('Message from the venue')).not.toBeInTheDocument();
   });
 
-  it('pending: the window, no address', () => {
+  it('approved with nothing confirmed for this token (a duplicate submission): no party-size claim', () => {
+    render(<RequestStatus data={{ ...base, approvedPlusOnes: null, address: null, message: null }} />);
+    expect(screen.getByText("You're on the list.")).toBeInTheDocument();
+    expect(screen.queryByText(/Party of/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Approved for/)).not.toBeInTheDocument();
+  });
+
+  it('pending: the window, no address, the party as asked', () => {
     render(<RequestStatus data={{ ...base, status: 'pending', approvedPlusOnes: null, address: null, message: null }} />);
     expect(screen.getByText("You're in the queue.")).toBeInTheDocument();
     expect(screen.getByText('23:00 to 05:00')).toBeInTheDocument();
+    expect(screen.getByText(/Party of 5/)).toBeInTheDocument();
     expect(screen.queryByText(/Warmoesstraat/)).not.toBeInTheDocument();
   });
 

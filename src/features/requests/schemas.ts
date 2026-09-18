@@ -81,7 +81,10 @@ export type SubmitGuestRequestInput = z.input<typeof submitGuestRequestSchema>;
 
 /** Cap on the venue's message to the requester (z8uq9m0hw6). The DB holds the
  *  same cap twice: the `guest_requests_decision_message_check` CHECK and the
- *  approve_guest_request RPC. */
+ *  approve_guest_request RPC. The message (`guest_requests.decision_message`)
+ *  is untrusted plain text typed by venue staff: the status page renders it as
+ *  a React text node, and the transactional mail that will send it (ClickUp
+ *  86ey6bn05) MUST HTML-escape it, never interpolate it into markup raw. */
 export const DECISION_MESSAGE_MAX = 280;
 
 /**

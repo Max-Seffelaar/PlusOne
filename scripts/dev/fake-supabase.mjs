@@ -487,7 +487,8 @@ db.guest_requests.push({
 
 // Status-page fixtures (/r/[token]). The page looks the token up by sha256, so
 // these are keyed the same way. Same gating as get_request_status: the venue
-// address + message only on `approved`, the approved count only when reduced.
+// address, confirmed count + message only on `approved`, and never for a
+// mirror (a duplicate submission's token).
 const statusFixtures = {
   'demo-pending': { event: E2, status: 'pending', full_name: 'Mila Jansen', plus_ones: 4 },
   'demo-approved': { event: E1, status: 'approved', full_name: 'Liam Smit', plus_ones: 2 },
@@ -500,6 +501,8 @@ const statusFixtures = {
     decision_message: 'Happy birthday! We could fit three of you. Doors close at 01:00, so come on time.',
   },
   'demo-denied': { event: E1, status: 'denied', full_name: 'Sem de Boer', plus_ones: 1 },
+  // A duplicate submission's token whose original request was approved.
+  'demo-mirror': { event: E2, status: 'approved', full_name: 'Sid de Vries', plus_ones: 4, mirror: true },
 };
 const statusByHash = new Map(
   Object.entries(statusFixtures).map(([tok, f]) => [
@@ -816,7 +819,7 @@ const rpcs = {
     if (!f || !e) return { found: false };
     const v = db.venues.find((x) => x.id === e.venue_id);
     const approved = f.status === 'approved';
-    const reduced = approved && f.approved_plus_ones != null && f.approved_plus_ones < f.plus_ones;
+    const own = approved && !f.mirror;
     return {
       found: true,
       status: f.status,
@@ -825,11 +828,11 @@ const rpcs = {
       event_name: e.name,
       starts_at: e.starts_at,
       ends_at: e.ends_at,
-      approved_plus_ones: reduced ? f.approved_plus_ones : null,
-      decision_message: approved ? (f.decision_message ?? null) : null,
-      venue_address_line: approved ? (v?.address_line ?? null) : null,
-      venue_postal_code: approved ? (v?.postal_code ?? null) : null,
-      venue_city: approved ? (v?.city ?? null) : null,
+      approved_plus_ones: own ? (f.approved_plus_ones ?? f.plus_ones) : null,
+      decision_message: own ? (f.decision_message ?? null) : null,
+      venue_address_line: own ? (v?.address_line ?? null) : null,
+      venue_postal_code: own ? (v?.postal_code ?? null) : null,
+      venue_city: own ? (v?.city ?? null) : null,
     };
   },
   // In-memory approval: the request leaves the inbox, the guest lands with the

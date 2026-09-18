@@ -27,6 +27,19 @@ function MetaChip({ icon, children, label }: { icon: IconName; children: ReactNo
   );
 }
 
+/** The "· Party of 5" line next to the name. While pending/denied it echoes the
+ *  requester's own ask. On approval it states only what the venue confirmed:
+ *  "Approved for 3 of 5 people" when reduced, and nothing at all when nothing
+ *  was confirmed for this caller (a duplicate submission's token). */
+function partyLineFor(data: RequestStatusData): string | null {
+  const heads = 1 + data.plusOnes;
+  if (data.status !== 'approved') return heads > 1 ? fmt(t.landing.statusApprovedGroup, { n: heads }) : null;
+  if (data.approvedPlusOnes == null) return null;
+  const approvedHeads = 1 + data.approvedPlusOnes;
+  if (approvedHeads < heads) return fmt(t.landing.statusApprovedReduced, { approved: approvedHeads, requested: heads });
+  return heads > 1 ? fmt(t.landing.statusApprovedGroup, { n: heads }) : null;
+}
+
 export function RequestStatus({ data }: { data: RequestStatusData | null }): JSX.Element {
   if (!data) {
     return (
@@ -43,8 +56,7 @@ export function RequestStatus({ data }: { data: RequestStatusData | null }): JSX
     );
   }
 
-  const heads = 1 + data.plusOnes;
-  const approvedHeads = data.approvedPlusOnes != null ? 1 + data.approvedPlusOnes : null;
+  const partyLine = partyLineFor(data);
   const view = {
     pending: {
       icon: 'clock' as IconName,
@@ -94,11 +106,7 @@ export function RequestStatus({ data }: { data: RequestStatusData | null }): JSX
         <h2 className="m-0 mb-[10px] font-display text-[26px] font-extrabold tracking-[-0.02em]">{view.title}</h2>
         <p className="mx-auto max-w-[330px] text-[15px] leading-[1.55] text-dim">
           <b className="text-text">{data.fullName}</b>
-          {approvedHeads != null ? (
-            <span> · {fmt(t.landing.statusApprovedReduced, { approved: approvedHeads, requested: heads })}</span>
-          ) : (
-            heads > 1 && <span> · {fmt(t.landing.statusApprovedGroup, { n: heads })}</span>
-          )}
+          {partyLine && <span> · {partyLine}</span>}
         </p>
         <p className="mx-auto mt-[8px] max-w-[330px] text-[15px] leading-[1.55] text-dim">{view.body}</p>
         {data.message && (
