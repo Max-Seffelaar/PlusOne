@@ -56,6 +56,18 @@ test('core flow: create event → add guest → door check-in, asserted in the d
 
   // ── 2. Create an event via the Events tab. ──────────────────────────────────
   await page.getByRole('button', { name: 'Events', exact: true }).click();
+  // Wait for the Events screen to actually be up before reaching for its CTA.
+  // Home grew its OWN "New event" button in the ADE UX round (item A,
+  // home-header-actions.tsx). The tab switch takes ~300ms, and for that window
+  // Home is still mounted with an actionable button of the same accessible
+  // name — so an unsynchronised click lands on HOME's button, pushes the form
+  // from Home instead of Events, and the "Back" at step 3 then returns to Home,
+  // where there is no "Add guest". Before item A this raced too; it just could
+  // not be observed, because Home had no such button and Playwright was forced
+  // to wait for the Events screen to render one. Every screen has a real,
+  // bookmarkable URL (G1), so the URL is the honest signal that the switch
+  // completed — not a sleep, and not a guess about render timing.
+  await page.waitForURL('**/app/events', { timeout: 30_000 });
   await page.getByRole('button', { name: 'New event' }).click({ timeout: 30_000 });
 
   await page.getByPlaceholder('e.g. FRENZY').fill(EVENT_NAME);
