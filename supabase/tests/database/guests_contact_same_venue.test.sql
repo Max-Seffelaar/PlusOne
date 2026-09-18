@@ -1,6 +1,6 @@
 -- pgTAP — K5 (ADE UX round, z8uq9m0g0j): guests.contact_id must belong to the
 -- guest's own venue and must not be anonymized
--- (20260918100000_guests_contact_same_venue.sql).
+-- (20260918110000_guests_contact_same_venue.sql).
 --
 -- Proves, in this order:
 --   A. the permanent-sync path still places its contacts with the guard active;
