@@ -445,6 +445,11 @@ for (let i = 0; i < 7; i++) {
   checkin(E3, p[i], i % 2, 6 * 24 * 60 - i * 10);
   db.guests.find((x) => x.id === p[i]).status = 'checked_in';
 }
+// Contact Lotte Jansen (C1) on three events, for the person profile's per-event
+// actions: tonight (admin-added, inside), next week (staff-added, open list) and
+// the past, locked night (staff-added). Appended last so no earlier guest id moves.
+guest(E2, names[0], 'guest', 1, 'approved', 'app', U2, { contactId: C1, email: 'lotte@example.com' });
+Object.assign(db.guests.find((x) => x.id === p[0]), { contact_id: C1, added_by: U2 });
 // requests
 db.guest_requests.push({
   id: uid(),
@@ -949,10 +954,15 @@ const server = createServer(async (req, res) => {
       for (const r of rows) Object.assign(r, body);
       log(`→ update ${rows.length}`);
       const out = rows.map((r) => project(table, r, nodes));
+      // `count: 'exact'` updates (the guest actions) read the count from here.
+      const patchExtra = prefer.includes('count=')
+        ? { 'Content-Range': `0-${Math.max(rows.length - 1, 0)}/${rows.length}` }
+        : {};
       return send(
         res,
         200,
-        prefer.includes('representation') ? (single ? out[0] : out) : undefined
+        prefer.includes('representation') ? (single ? out[0] : out) : undefined,
+        patchExtra
       );
     }
     if (req.method === 'DELETE') {

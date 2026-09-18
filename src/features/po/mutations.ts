@@ -392,11 +392,14 @@ export function usePoPromoteGuestToContact(eventId: string) {
   ));
 }
 
+// A removal also drops the contact's "N× on a list" count in the address book.
+// Inactive queries are only marked stale here, so this costs nothing until the
+// Contacts screen is opened again.
 export function usePoRemoveGuest(eventId: string) {
   const qc = useQueryClient();
   return useMutation(guestMutation(qc, eventId,
     async (guestId: string) => throwOnError(await removeGuest(guestId)),
-    [...TIERS_KEY(eventId), CONTACT_PROFILE_KEY],
+    [...TIERS_KEY(eventId), CONTACT_PROFILE_KEY, CONTACTS_KEY],
   ));
 }
 

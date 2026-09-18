@@ -542,10 +542,16 @@ describe('toPoContactProfile', () => {
       eventId: 'e1',
       eventName: 'FRENZY',
       eventStartsAt: '2024-12-14T22:00:00Z', // Sat 14 Dec, 23:00 Amsterdam
+      eventEndsAt: '2024-12-15T04:00:00Z',
+      eventListLocked: false,
+      eventAutoLockAt: '2024-12-14T21:00:00Z',
+      eventCancelled: false,
       plusOnes: 2,
       status: 'checked_in',
+      tierId: 't-vip',
       tierName: 'VIP',
       tierColor: '#FFD700',
+      anonymized: false,
       note: 'Bottle on table',
       notePriority: 'high',
       addedBy: 'u-max',
@@ -562,10 +568,16 @@ describe('toPoContactProfile', () => {
       eventId: 'e2',
       eventName: 'LOFI',
       eventStartsAt: '2024-11-09T22:00:00Z',
+      eventEndsAt: null,
+      eventListLocked: true,
+      eventAutoLockAt: null,
+      eventCancelled: true,
       plusOnes: 0,
       status: 'refused',
+      tierId: null,
       tierName: null,
       tierColor: null,
+      anonymized: true,
       note: null,
       notePriority: 'none',
       addedBy: 'u-max',
@@ -638,6 +650,24 @@ describe('toPoContactProfile', () => {
     expect(v.events.map((e) => e.eventId)).toEqual(['e2', 'e1']); // origin first, despite being older
     expect(v.events[0].isOrigin).toBe(true);
     expect(v.events[1].isOrigin).toBe(false);
+  });
+
+  it('carries the facts the row actions are gated on, plus the event phase', () => {
+    // 1 Jan 2025: both events are over, so "Open event" must land on the recap.
+    const v = toPoContactProfile(header, appearances, actorNames, { nowMs: Date.parse('2025-01-01T00:00:00Z') });
+    expect(v.events[0]).toMatchObject({
+      phase: 'past',
+      tierId: 't-vip',
+      addedById: 'u-max',
+      listLocked: false,
+      autoLockAt: '2024-12-14T21:00:00Z',
+      cancelled: false,
+      anonymized: false,
+    });
+    expect(v.events[1]).toMatchObject({ tierId: null, listLocked: true, cancelled: true, anonymized: true });
+    // Mid-night on FRENZY: live, not past.
+    const live = toPoContactProfile(header, appearances, actorNames, { nowMs: Date.parse('2024-12-14T23:30:00Z') });
+    expect(live.events[0].phase).toBe('live');
   });
 
   it('renders a name-only guest as a single-event profile, role from the tier', () => {
