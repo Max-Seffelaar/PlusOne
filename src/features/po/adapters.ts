@@ -1,4 +1,4 @@
-import type { Guest, PoEvent, Tier, Role, GuestStatus, GuestSource, Priority, RecapGuest } from '@/lib/po/types';
+import type { Guest, PoEvent, Tier, Role, GuestStatus, GuestSource, Priority, RecapGuest, EventPhase } from '@/lib/po/types';
 import { eventPhase, eventWhenFromPhase } from './event-phase';
 import type { Database } from '@/lib/database.types';
 import type {
@@ -466,6 +466,19 @@ export interface PoProfileEvent {
   isOrigin: boolean;
   /** ISO event start — sorting + keys. */
   startsAt: string;
+  /** Time-derived phase: decides whether "Open event" lands on the recap. */
+  phase: EventPhase;
+  /** Current guest_tiers.id (the tier picker marks it). */
+  tierId: string | null;
+  /** guests.added_by (null = auto-approved request link). A staff member may
+   *  only change their own guests (guests_update RLS). */
+  addedById: string | null;
+  /** The event facts the row actions are gated on (`can_write_guests`). */
+  listLocked: boolean;
+  autoLockAt: string | null;
+  cancelled: boolean;
+  /** AVG-scrubbed row (#29): read-only for every client. */
+  anonymized: boolean;
   /** Provenance for this appearance (item J) — feed straight to `guestSourceLabel`. */
   source: GuestSource;
   addedByName: string | null;
@@ -546,10 +559,13 @@ export function toPoContactProfile(
     promoteGuestId?: string | null;
     originEventId?: string | null;
     restricted?: boolean;
+    /** Injected clock for the per-event phase (deterministic tests). */
+    nowMs?: number;
   } = {}
 ): PoContactProfile {
   const isContact = opts.isContact ?? true;
   const originEventId = opts.originEventId ?? null;
+  const nowMs = opts.nowMs ?? Date.now();
   const events: PoProfileEvent[] = appearances
     .map((a) => {
       // The active (non-voided) check-in is "currently inside"; its arrived count
@@ -575,6 +591,13 @@ export function toPoContactProfile(
         noteFlag: notePriorityToFlag(a.notePriority),
         isOrigin: originEventId != null && a.eventId === originEventId,
         startsAt: a.eventStartsAt,
+        phase: eventPhase(a.eventStartsAt, a.eventEndsAt, nowMs),
+        tierId: a.tierId,
+        addedById: a.addedBy ?? null,
+        listLocked: a.eventListLocked,
+        autoLockAt: a.eventAutoLockAt,
+        cancelled: a.eventCancelled,
+        anonymized: a.anonymized,
         source: a.source,
         // The profile already resolved every actor id to a name in one read —
         // reuse that map instead of a second per-appearance profile embed.
