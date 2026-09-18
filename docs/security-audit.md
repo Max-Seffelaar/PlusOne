@@ -98,7 +98,7 @@ These bypass RLS by design, so each **re-checks authorisation itself** and pins
 
 | RPC | Re-check inside | Notes |
 |---|---|---|
-| `submit_guest_request` (anon) | event must be `landing_active` & not closed | per-IP rate limit + silent dedup + no slug enumeration; `auto_approved` is no longer an e-mail oracle, two narrower residuals remain (§4A) |
+| `submit_guest_request` (anon) | event must be `landing_active` & not closed | per-IP rate limit + silent dedup + no slug enumeration; `auto_approved` no longer leaks e-mail existence below capacity but still does at capacity, and the silent-dedup path accepts a caller-chosen status token — three open residuals (§4A) |
 | `approve_guest_request` | `admin` (venue) **or** organizer (event) | atomic guest+request; tier-max still enforced; `added_by` = approver (exempt) |
 | `approve_quota_request` | `admin` **and** `is_aal2()` | atomic override + request; AAL2 re-checked |
 | `sync_permanent_guests_into_event` | `admin`/organizer **and** `can_write_guests` | idempotent; respects list-lock + exclusions |
@@ -143,29 +143,59 @@ The role matrix (spec §2) is enforced in `20260613120000_rls_policies.sql` and 
 - **No slug/link enumeration** — unknown, paused, expired and deactivated links all
   return the **same** `'closed'`; which links exist, and how they are configured, never
   reaches the caller.
-- **No e-mail enumeration on the auto-approve path** — `auto_approved` reports the
-  requester's *standing* ("you hold an approved spot"), so a fresh address, an
+- **No e-mail enumeration on the auto-approve path, _below capacity_** — `auto_approved`
+  reports the requester's *standing* ("you hold an approved spot"), so a fresh address, an
   already-approved one, and a repeat probe of either all answer alike. Before
   `20260918100000` (z8uq9m0gvy) `false` meant precisely "this e-mail is already
   approved on this event" — a clean yes/no oracle for whether a named person is
-  attending. Proven by `landing.test.sql` E1–E9.
+  attending. Proven by `landing.test.sql` E1–E9. **At capacity the oracle is open
+  again, in the opposite direction** — see the residuals below; do not read this
+  bullet as an unconditional close.
 - **Silent dedup** — duplicate pending request swallowed; caller can't tell new from dup.
 - **No raw PII** — the IP is SHA-256-hashed in the app before it reaches the DB.
 - Raw RLS underneath: anon may only insert a **pending** request to an **active** event,
   and has no SELECT on `guest_requests` (can't read who applied).
 
-**Known residuals** (auto-approve links only; both are strictly narrower than the oracle
-closed above, and both are one-sided — a `true` stays ambiguous):
+**Known residuals** (auto-approve links only). Read this honestly: `20260918100000`
+closed the oracle in the below-capacity regime and **opened one in the at-capacity
+regime**, where none existed before. It is a swap of which regime leaks, not a pure
+reduction. It is still worth having — below capacity is the regime an event spends most
+of its life in, and the leak there was unconditional — but the endpoint is **not** free
+of e-mail enumeration:
 - An e-mail whose request on the event is still **undecided** answers `false` where a
   stranger gets `true`, because that submission genuinely stays pending. Reachable when
   the person applied through a manual-review link. Closing it means auto-deciding a
   request that arrived through a *different* link, which is a workflow change rather
   than a reporting one — left for an explicit decision.
 - On a link **at capacity**, an already-approved e-mail answers `true` where a stranger
-  gets `false`. Capacity is enforced by AFTER-INSERT triggers while
-  `guests_event_contact_uidx` rejects the duplicate row at index time, so the two cases
-  cannot be made to answer alike without duplicating the three capacity rules inside the
-  RPC.
+  gets `false`. **Introduced by `20260918100000`**, not inherited: before it the
+  `v_already` arm did not exist, so an already-approved e-mail fell through to `false`
+  and matched the stranger whose insert the capacity triggers had just rejected.
+  - The rationale previously recorded here — that `guests_event_contact_uidx` rejects the
+    duplicate row at index time — is **false** and has been removed.
+    `guests_autolink_contact` is BEFORE INSERT and leaves `contact_id` NULL on this path,
+    and the index is partial (`where contact_id is not null`), so a probe insert for an
+    already-approved e-mail reaches the capacity triggers and raises `45006` like any
+    other. Verified live in the PR #296 review.
+  - The real reason it is open is that the `v_already` arm skips the capacity verdict the
+    stranger gets. Closing it does **not** require duplicating the three capacity rules:
+    attempting the same insert in a subtransaction that is always rolled back reuses the
+    triggers as the single source of truth. That is a real change to a SECURITY DEFINER
+    function on the anon surface and is tracked as its own task.
+  - **Not mitigated by one-sidedness.** An attacker establishes the regime for free with
+    two throwaway addresses — two `true`s means below capacity, two `false`s means at
+    capacity — after which any `true` is a definitive "this person holds an approved
+    spot". A `true` is only ambiguous to an attacker who declines to spend two probes.
+
+- **The silent-dedup path accepts a caller-chosen `p_status_token_hash`** (HIGH,
+  pre-existing, unchanged by `20260918100000`). When a submission dedups against an
+  existing **pending** request, the RPC rotates that row's status token to the hash the
+  *caller* supplied. An anon caller who guesses a victim's e-mail can therefore overwrite
+  the token on the victim's pending row and then read that row back through
+  `get_request_status` — returning the victim's real name, plus-ones and event — while
+  simultaneously invalidating the victim's own status URL. One anon call yields an
+  existence oracle, a PII disclosure and a denial of service. Tracked as its own task;
+  listed here so this section is not read as a closed set.
 
 Lock state is **not** a residual: every branch hangs off one `not v_locked` gate, so a
 locked list answers `false` to every e-mail alike (proven by E8/E9).

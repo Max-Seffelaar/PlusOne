@@ -30,7 +30,8 @@
 -- approved spot for this event") rather than "this call inserted a row". Those
 -- coincide for a first-time submitter and came apart for a repeat one.
 --
--- Two details that make it a fix rather than a reshuffle:
+-- Two details that make the below-capacity close complete (they do not make
+-- the change a pure reduction -- see KNOWN RESIDUALS):
 --   * the new arm is reached from BOTH repeat shapes — a fresh pending row and
 --     the silent-dedup path (v_request_id null). Covering only the first moves
 --     the oracle one probe later: probe an e-mail twice and the second call
@@ -53,10 +54,35 @@
 --     through another (possibly manual-review) link — a workflow change, not a
 --     reporting one, so it is left for an explicit decision.
 --   * on a link that is AT CAPACITY, an already-approved e-mail answers `true`
---     where a stranger gets `false`. Capacity is enforced by AFTER-INSERT
---     triggers while `guests_event_contact_uidx` rejects the duplicate at index
---     time, so the full/approved combination cannot be made to answer alike
---     without duplicating the three capacity rules inside this function.
+--     where a stranger gets `false`. THIS SEPARATION IS INTRODUCED BY THIS
+--     MIGRATION: before it, the `v_already` arm did not exist, so an
+--     already-approved e-mail fell through to `false` and matched the stranger
+--     whose insert the capacity triggers had just rejected. Below capacity this
+--     change closes an oracle; at capacity it opens one. Net, it is a swap of
+--     which regime leaks, not a pure reduction -- see the honest accounting
+--     below.
+--
+--     It does NOT hold that `guests_event_contact_uidx` rejects the duplicate at
+--     index time and thereby forces this shape. `guests_autolink_contact` is
+--     BEFORE INSERT and leaves `contact_id` NULL on this path, and the index is
+--     partial (`where contact_id is not null`), so a probe insert for an
+--     already-approved e-mail is NOT caught by the index -- it reaches the
+--     capacity triggers and raises 45006 like any other. That rationale was
+--     wrong and is removed rather than restated.
+--
+--     WHY IT IS STILL OPEN, honestly: the answer is identity-dependent because
+--     the `v_already` arm skips the capacity verdict the stranger gets. It
+--     could be closed by attempting the same insert in a subtransaction that is
+--     always rolled back -- reusing the capacity triggers instead of
+--     duplicating their rules -- which is a real change to a SECURITY DEFINER
+--     function on the anon surface and belongs in its own reviewed task, not
+--     bolted onto this one.
+--
+--     DO NOT read the one-sidedness as mitigation. An attacker establishes
+--     which regime an event is in for free, with two throwaway addresses: two
+--     `true`s means below capacity (and the endpoint tells them nothing more),
+--     two `false`s means at capacity (and from then on any `true` is a
+--     definitive "this person holds an approved spot").
 --
 -- Body = 20260819110000_landing_contact_required.sql with the auto-approve
 -- block restructured and `v_already` added. Everything else — validation, the
@@ -294,9 +320,15 @@ begin
         -- as often as it likes.
         --
         -- `true` is honest — they ARE on the list, and the landing page's "say
-        -- your name at the door" is the correct thing to tell them — and it is
-        -- the same answer a stranger gets under the same link + lock state, so
-        -- there is nothing left to compare.
+        -- your name at the door" is the correct thing to tell them — and BELOW
+        -- CAPACITY it is the same answer a stranger gets under the same link +
+        -- lock state, so there is nothing left to compare.
+        --
+        -- AT CAPACITY it is NOT the same answer: the stranger's insert above is
+        -- rejected by the capacity triggers and leaves `v_auto` false, while
+        -- this arm skips the insert and reports `true`. That regime is a live
+        -- oracle introduced here; it is recorded as such in the header and in
+        -- docs/security-audit.md §4A rather than glossed as pre-existing.
         --
         -- Note this arm is reached from BOTH shapes of repeat submission: with
         -- a fresh pending row (v_request_id set), and via the silent-dedup path

@@ -66,15 +66,39 @@ that they get in at the door, and that is true.
 Everything now hangs off one `not v_locked` gate, so a locked list still answers `false` to
 every e-mail alike (E8/E9) — the fix does not trade the e-mail oracle for a lock-state one.
 
-**Known residuals, written down rather than claimed away.** `docs/security-audit.md` §4A said
-"no enumeration" flatly; that was too broad even before this bug, and it is narrowed now to
-what actually holds. Two one-sided cases remain on auto-approve links: an address with an
-*undecided* pending request still answers `false` (closing it means auto-deciding a request
-that arrived through another, possibly manual-review, link — a workflow change, so it is
-left for an explicit decision), and on a link *at capacity* an already-approved address
-answers `true` where a stranger gets `false` (capacity is enforced by AFTER-INSERT triggers
-while `guests_event_contact_uidx` rejects the duplicate at index time, so the two cannot be
-made to answer alike without duplicating the three capacity rules inside the RPC). The same
+**Known residuals — corrected after review; this is a swap, not a close.** The first draft of
+this PR described the at-capacity case as an inherited residual and justified it with a
+mechanism that does not exist. The fresh-session review disproved both, and the migration
+header, `docs/security-audit.md` §4A and this entry were rewritten to match:
+
+- **Below capacity** the oracle is closed: a fresh address, an already-approved one and a
+  repeat probe of either all answer `true`.
+- **At capacity the oracle is open, and this migration opened it.** Before the change the
+  `v_already` arm did not exist, so an already-approved address fell through to `false` and
+  matched the stranger whose insert the capacity triggers had just rejected. Now the
+  already-approved address answers `true` and the stranger `false`. Net: the leaking regime
+  moved, it did not disappear. Keeping the change is still right — below capacity is where
+  an event spends most of its life, and the leak there was unconditional — but the endpoint
+  must not be described as free of e-mail enumeration.
+- **The stated justification was factually wrong.** The claim that
+  `guests_event_contact_uidx` rejects the duplicate at index time is false:
+  `guests_autolink_contact` is BEFORE INSERT and leaves `contact_id` NULL on this path, and
+  the index is partial (`where contact_id is not null`), so the probe insert reaches the
+  capacity triggers and raises `45006`. The review proved this live. The rationale is
+  removed, not restated.
+- **One-sidedness is not mitigation.** Two throwaway addresses establish the regime for
+  free — two `true`s means below capacity, two `false`s means at capacity — after which any
+  `true` is definitive.
+- **Closing it does not require duplicating the capacity rules.** Attempting the same insert
+  in a subtransaction that is always rolled back reuses the triggers as the single source of
+  truth. That is a real change to a SECURITY DEFINER function on the anon surface, so it is
+  its own reviewed task rather than an addition to this one.
+
+The undecided-pending residual is unchanged: an address with an *undecided* pending request
+still answers `false`, and closing it means auto-deciding a request that arrived through
+another, possibly manual-review, link — a workflow change, left for an explicit decision.
+§4A also now records the **caller-chosen `p_status_token_hash` on the silent-dedup path**
+(HIGH, pre-existing, untouched here) so that section is not read as a closed set. The same
 pass corrected §4A's stale rate-limit numbers — the doc still said 10 requests / 10 min; the
 code has been 5 / 15 min since `20260625100000`.
 

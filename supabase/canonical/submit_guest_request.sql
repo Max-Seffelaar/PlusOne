@@ -230,9 +230,15 @@ begin
         -- as often as it likes.
         --
         -- `true` is honest — they ARE on the list, and the landing page's "say
-        -- your name at the door" is the correct thing to tell them — and it is
-        -- the same answer a stranger gets under the same link + lock state, so
-        -- there is nothing left to compare.
+        -- your name at the door" is the correct thing to tell them — and BELOW
+        -- CAPACITY it is the same answer a stranger gets under the same link +
+        -- lock state, so there is nothing left to compare.
+        --
+        -- AT CAPACITY it is NOT the same answer: the stranger's insert above is
+        -- rejected by the capacity triggers and leaves `v_auto` false, while
+        -- this arm skips the insert and reports `true`. That regime is a live
+        -- oracle introduced here; it is recorded as such in the header and in
+        -- docs/security-audit.md §4A rather than glossed as pre-existing.
         --
         -- Note this arm is reached from BOTH shapes of repeat submission: with
         -- a fresh pending row (v_request_id set), and via the silent-dedup path
