@@ -110,8 +110,8 @@ export const events = {
   },
   // Per-influencer request links row (F1) — mirrors the Tiers/Crew rows.
   linksRowTitle: 'Request links',
-  linksRowSubOne: '{n} active link · per-influencer tracking',
-  linksRowSubMany: '{n} active links · per-influencer tracking',
+  linksRowSubOne: '{n} active link · per-promoter tracking',
+  linksRowSubMany: '{n} active links · per-promoter tracking',
   // Funnel summary over the event's active links (86ey8w79x).
   linksRowFunnel: '{views} clicks · {req} requests · {ok} approved',
   autoCloseTitle: 'Close sign-ups automatically',
