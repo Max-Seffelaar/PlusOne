@@ -118,6 +118,16 @@ describe('EventRowActions: which actions show', () => {
     expect(screen.queryByText(cp.lockedNote)).toBeNull();
   });
 
+  it('a door-only viewer gets just "Open event"', () => {
+    H.roles = ['doorhost'];
+    open();
+    expect(item(cp.openEvent)).toBeTruthy();
+    expect(item(fmt(t.guests.plusOnes.edit, { n: 2 }).replace('+', '\\+'))).toBeNull();
+    expect(item(cp.changeTier)).toBeNull();
+    expect(item(cp.removeFromList)).toBeNull();
+    expect(screen.queryByText(cp.lockedNote)).toBeNull();
+  });
+
   it('staff on a locked list sees why their own guest is read-only (#23)', () => {
     H.roles = ['staff'];
     open(event({ addedById: 'u-me', listLocked: true }));

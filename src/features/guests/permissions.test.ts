@@ -114,11 +114,15 @@ describe('profileRowActions (what the "…" sheet offers)', () => {
   const run = (v: GuestWriteViewer, event: GuestWriteEvent, row: GuestWriteRow, tierCount: number | null = 3) =>
     profileRowActions({ viewer: v, event, row, tierCount, nowMs: NOW });
 
-  it('a door-only viewer gets no actions at all (G4)', () => {
-    const none = { openEvent: false, editPlusOnes: false, changeTier: false, remove: false, blockedBy: null };
-    expect(run(viewer(['doorhost']), OPEN, THEIRS)).toEqual(none);
-    // The seed door persona holds {doorhost, staff}: still door-only.
-    expect(run(viewer(['doorhost', 'staff']), OPEN, MINE)).toEqual(none);
+  it('a door-only viewer may only open the event (G4, Max on PR #304)', () => {
+    const openOnly = { openEvent: true, editPlusOnes: false, changeTier: false, remove: false, blockedBy: null };
+    // Even though guests_update would let a doorhost write this row.
+    expect(canUpdateGuest(viewer(['doorhost']), OPEN, THEIRS, NOW)).toBe(true);
+    expect(run(viewer(['doorhost']), OPEN, THEIRS)).toEqual(openOnly);
+    // The seed door persona holds {doorhost, staff}: still door-only, own row or not.
+    expect(run(viewer(['doorhost', 'staff']), OPEN, MINE)).toEqual(openOnly);
+    // No lock note either: the lock isn't what keeps them out.
+    expect(run(viewer(['doorhost', 'staff']), LOCKED, MINE)).toEqual(openOnly);
   });
 
   it('a doorhost who is also admin keeps every action', () => {

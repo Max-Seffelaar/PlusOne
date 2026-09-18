@@ -83,8 +83,8 @@ export interface ProfileRowActions {
   blockedBy: 'locked' | null;
 }
 
-const NO_ACTIONS: ProfileRowActions = {
-  openEvent: false,
+const OPEN_ONLY: ProfileRowActions = {
+  openEvent: true,
   editPlusOnes: false,
   changeTier: false,
   remove: false,
@@ -94,9 +94,10 @@ const NO_ACTIONS: ProfileRowActions = {
 /**
  * Action visibility for one event row on the person profile.
  *
- * - A door-only viewer gets nothing (G4, K-8: the profile is read-only at the
- *   door; the door has its own check-in / refuse flow).
- * - Everyone else may open the event.
+ * - Everyone who sees the row may open the event: viewing it is harmless.
+ * - A door-only viewer gets ONLY that (G4, K-8: the profile is read-only at
+ *   the door; the door has its own check-in / refuse flow). Decided by Max on
+ *   PR #304, even though `guests_update` would let a doorhost write here.
  * - The three writes follow `canUpdateGuest` exactly. There is no extra UI rule
  *   on top: a checked-in guest can still be edited or removed (the database
  *   allows it, and #22 keeps their slots charged while they are inside).
@@ -113,7 +114,7 @@ export function profileRowActions(input: {
   nowMs: number;
 }): ProfileRowActions {
   const { viewer, event, row, tierCount, nowMs } = input;
-  if (isDoorOnlyRole(viewer.roles)) return NO_ACTIONS;
+  if (isDoorOnlyRole(viewer.roles)) return OPEN_ONLY;
 
   const canEdit = canUpdateGuest(viewer, event, row, nowMs);
   // Only worth explaining when the lock is the ONLY thing in the way: the same

@@ -475,15 +475,13 @@ export function ContactProfile({
                   {/* Every change to this appearance (open, +N, tier, remove)
                       lives behind the one "…", from any entry point. What it
                       offers mirrors the guests RLS (profileRowActions); a
-                      door-only viewer gets none (G4). */}
-                  {!doorOnly && (
-                    <IconBtn
-                      name="dots"
-                      ariaLabel={fmt(cp.rowActionsAria, { event: e.name })}
-                      onClick={() => setActionsFor(e)}
-                      className="-mr-[5px] -mt-[5px] h-[44px] w-[44px] shrink-0"
-                    />
-                  )}
+                      door-only viewer gets only "Open event" (G4). */}
+                  <IconBtn
+                    name="dots"
+                    ariaLabel={fmt(cp.rowActionsAria, { event: e.name })}
+                    onClick={() => setActionsFor(e)}
+                    className="-mr-[5px] -mt-[5px] h-[44px] w-[44px] shrink-0"
+                  />
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <span className="inline-flex items-center gap-[6px] rounded-[7px] border border-line bg-elev2 px-2 py-[3px] font-body text-[11px] font-bold text-text">
