@@ -15,7 +15,7 @@
  * approvals fall OUTSIDE the approver's personal quota (#31) but still count
  * toward tier-max. No payment / "notify the guest" copy — no ticketing/mail (#10).
  */
-import { type JSX, useEffect, useState } from 'react';
+import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import {
@@ -31,12 +31,13 @@ import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { isOpenGuestRequest } from '@/features/po/adapters';
 import { canDecideRequests, canSeeOwnRequests, canSeeRequestInbox } from '@/features/auth/roles';
 import type { PoGuestRequest, PoQuotaRequest } from '@/features/po/adapters';
+import { buildApproveInput, type ApprovalDecision } from '@/features/requests/approval';
 import type { PoLinkOption } from '@/features/po/queries';
-import type { Tier } from '@/lib/po/types';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Avatar, Btn, Empty, Label, MiniChip, Note, TierPicker, Top, press } from '../kit';
+import { Avatar, Btn, Empty, Label, MiniChip, Note, TextArea, Top, press } from '../kit';
 import { Sheet } from '../shell';
+import { AssignSheet } from './approvals/assign-sheet';
 
 const col = 'flex h-full flex-col';
 
@@ -210,11 +211,12 @@ export function Aanvragen({
     nav.push('tiers', { id: eid });
   };
 
-  const confirmApproveLanding = async (tierId: string): Promise<void> => {
+  const confirmApproveLanding = async (decision: ApprovalDecision): Promise<void> => {
     if (!assign) return;
     setErr(null);
     try {
-      await approve.mutateAsync({ requestId: assign.id, tierId, eventId: assign.eventId });
+      // z8uq9m0hw6: fewer people and/or a note only ride along when set.
+      await approve.mutateAsync(buildApproveInput(assign, decision));
       setAssign(null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : t.requests.approveFailed);
@@ -587,7 +589,7 @@ export function Aanvragen({
             setAssign(null);
             setErr(null);
           }}
-          onConfirm={(tierId) => void confirmApproveLanding(tierId)}
+          onConfirm={(decision) => void confirmApproveLanding(decision)}
           onCreateTier={() => createTierFor(assign.eventId)}
         />
       )}
@@ -699,114 +701,6 @@ function LinkPickerSheet({
   );
 }
 
-function AssignSheet({
-  req,
-  eventName,
-  tiers,
-  tiersLoading,
-  pending,
-  error,
-  onClose,
-  onConfirm,
-  onCreateTier,
-}: {
-  req: PoGuestRequest;
-  eventName: string;
-  tiers: Tier[];
-  tiersLoading: boolean;
-  pending: boolean;
-  error: string | null;
-  onClose: () => void;
-  onConfirm: (tierId: string) => void;
-  onCreateTier: () => void;
-}): JSX.Element {
-  const [tierId, setTierId] = useState('');
-  // Default to the first tier once they load (the event's tiers fetch on open).
-  useEffect(() => {
-    if (tierId === '' && tiers.length > 0) setTierId(tiers[0].id);
-  }, [tiers, tierId]);
-
-  const tier = tiers.find((row) => row.id === tierId);
-  const heads = 1 + req.plus;
-  const noTiers = !tiersLoading && tiers.length === 0;
-  return (
-    <Sheet onClose={onClose} center={false}>
-      <div className="mb-4 flex items-center gap-[12px]">
-        <Avatar name={req.name} size={44} />
-        <div className="min-w-0 flex-1">
-          <div className="font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">
-            {req.name}
-            {req.plus > 0 && <span className="text-faint"> +{req.plus}</span>}
-          </div>
-          <div className="truncate text-[12.5px] text-faint">
-            {eventName
-              ? fmt(t.requests.assignHeads, { event: eventName, n: heads })
-              : fmt(t.requests.assignHeadsNoEvent, { n: heads })}
-          </div>
-        </div>
-      </div>
-      {/* Approving is the moment the venue commits to reaching this person
-          (86eyke279 made both fields required for exactly that). Full values,
-          not the card's `•••• 5610` hint — you cannot mail or call a hint. Same
-          RLS-scoped roles already see the complete address in Contacts. Rows
-          filed before the rule stay NULLable and say so instead of reading as
-          an empty box. */}
-      <Label className="mb-[8px]">{t.requests.contactHeading}</Label>
-      <div className="mb-[16px] flex flex-col gap-[7px] rounded-[13px] bg-elev2 px-[13px] py-[11px]">
-        <div className="flex items-center gap-[9px]">
-          <Icon name="mail" size={14} stroke="rgba(255,255,255,0.40)" className="shrink-0" />
-          <span className={cn('min-w-0 flex-1 break-all text-[13px]', req.email ? 'text-text' : 'text-faint')}>
-            {req.email ?? t.requests.contactNoEmail}
-          </span>
-        </div>
-        <div className="flex items-center gap-[9px]">
-          <Icon name="phone" size={14} stroke="rgba(255,255,255,0.40)" className="shrink-0" />
-          <span className={cn('min-w-0 flex-1 break-all text-[13px] tabular-nums', req.phone ? 'text-text' : 'text-faint')}>
-            {req.phone ?? t.requests.contactNoPhone}
-          </span>
-        </div>
-      </div>
-      <Label className="mb-[10px]">{t.requests.assignTierQuestion}</Label>
-      {tiersLoading ? (
-        <div className="mb-[14px] py-[18px] text-center text-[13px] text-faint">{t.requests.assignLoadingTiers}</div>
-      ) : noTiers ? (
-        <div className="mb-[14px]">
-          <Note icon="ticket">{t.requests.assignNoTiers}</Note>
-          <Btn kind="primary" full icon="plus" onClick={onCreateTier}>
-            {t.requests.assignCreateTier}
-          </Btn>
-        </div>
-      ) : (
-        <TierPicker
-          className="mb-[14px]"
-          tiers={tiers}
-          value={tierId}
-          onChange={setTierId}
-          hint={(row) => (row.max != null ? fmt(t.requests.tierUsedOfMax, { used: row.used, max: row.max }) : t.requests.tierNoMax)}
-        />
-      )}
-      {!noTiers && !tiersLoading && (
-        <div className="mb-4 flex items-center gap-[10px] rounded-[13px] bg-acc-dim px-[14px] py-[13px]">
-          <Icon name="check2" size={18} stroke="#B5A6FF" sw={2.4} />
-          <span className="text-[13.5px] leading-[1.4] text-text">
-            {fmt(t.requests.assignSummary, { n: heads })}
-            {tier && <>{t.requests.assignSummaryTierConnector}<b>{tier.short}</b></>}.
-          </span>
-        </div>
-      )}
-      {error && <ErrLine msg={error} />}
-      {!noTiers && (
-        <Btn kind="primary" full icon="check" disabled={pending || tiersLoading || !tierId} onClick={() => onConfirm(tierId)} className={pending || tiersLoading || !tierId ? 'opacity-50' : ''}>
-          {pending ? t.requests.assignBusy : t.requests.assignConfirm}
-        </Btn>
-      )}
-      <button type="button" onClick={onClose} className={cn('mt-3 cursor-pointer self-center border-none bg-transparent font-body text-[13.5px] font-semibold text-faint', press)}>
-        {t.requests.cancel}
-      </button>
-    </Sheet>
-  );
-}
-
 function DenySheet({
   target,
   pending,
@@ -836,13 +730,13 @@ function DenySheet({
       <Label className="mb-[10px]">
         {t.requests.reasonLabel} <span className="font-normal normal-case text-faint">{t.requests.reasonRequired}</span>
       </Label>
-      <textarea
+      <TextArea
         autoFocus
         value={reason}
-        onChange={(e) => setReason(e.target.value)}
+        onChange={setReason}
         maxLength={500}
         placeholder={t.requests.reasonPlaceholder}
-        className="mb-4 min-h-[88px] w-full resize-none rounded-field border border-line bg-elev px-[15px] py-[13px] font-body text-[15px] leading-[1.4] text-text outline-none placeholder:text-faint focus:border-acc"
+        className="mb-4 min-h-[88px]"
       />
       {error && <ErrLine msg={error} />}
       <Btn kind="primary" full icon="close" disabled={pending || !trimmed} onClick={() => onConfirm(trimmed)} className={pending || !trimmed ? 'opacity-50' : ''}>
