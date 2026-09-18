@@ -97,6 +97,79 @@ passes in isolation every time; not caused by this change.
 **Not done here.** The two auto-approve enumeration residuals in §4A are untouched — this
 change does not widen or narrow them, and the at-capacity regime was re-checked against the
 live stack in both directions to confirm it.
+## 2026-09-18 — `main` back to green: the core-flow e2e race the ADE round exposed (z8uq9m0g0j)
+
+Branch `fix/z8uq9m0g0j-core-flow-e2e`. Milestone: **Now** — `main` was red, which blocks
+every open PR behind it. No migration, no app code: one test file.
+
+**What was red.** `lint-and-test` → `e2e:smoke` → `tests/e2e/core-flow.spec.ts:91`, a 240 s
+timeout on `getByRole('button', { name: 'Add guest' })` after the `Back` click. `main` ran
+green at `9fba195` (#297), went red at `ee01118` (#298) and stayed red at `529503e` (#299).
+Every other CI step — pgTAP, concurrency, lint, type-check, unit — was green throughout, and
+`app-shell-no-remount.spec.ts` (the one selector #298 flagged) passed. Unowned: the session
+that merged #298/#299 had already unsubscribed, and its own entry records that e2e never ran
+for that round (no docker in that container).
+
+**Stale spec, not an app regression — established, not assumed.** Reproduced locally, then
+probed the app directly:
+
+- Playwright's page snapshot at the moment of failure shows the app on **Home** ("Good
+  morning, Max.", buttons `New event` / `New guest`), not the Events list. There is no
+  `Add guest` on Home, so the wait could never succeed.
+- A throwaway probe spec proved the nav itself is healthy: clicking the sidebar `Events`
+  moves `/app` → `/app/events` and renders its `Add guest` CTA in **333 ms**.
+- The same probe proved what changed: Home now carries **exactly one** `New event` button —
+  item A of the round (`home-header-actions.tsx`). Before it, Home had none.
+
+So the click at step 2 could resolve against **Home's** `New event` during the ~300 ms the
+tab switch takes. The form is then pushed from Home, and the `Back` at step 3 correctly
+returns to Home — where `Add guest` does not exist. The race predates the round; item A only
+made it observable, because until then Home had no button of that name and Playwright was
+forced to wait for the Events screen to render one. That accidental synchronisation was the
+only thing holding the spec up.
+
+Nothing a user can do is broken: from Home, `New event` → form → `Back` → Home is the correct
+journey, and Home's guest action is `New guest`. So the fix belongs in the spec — and it is a
+real synchronisation, not a selector patched until it goes green:
+
+```ts
+await page.getByRole('button', { name: 'Events', exact: true }).click();
+await page.waitForURL('**/app/events', { timeout: 30_000 });   // ← added
+await page.getByRole('button', { name: 'New event' }).click({ timeout: 30_000 });
+```
+
+Every screen has a real, bookmarkable URL (G1), so the URL is the honest signal that the tab
+switch completed — not a sleep, not a guess about render timing.
+
+**The flagged selector was already fixed.** #298's entry left
+`app-shell-no-remount.spec.ts:193` (`'Door'` → `'Check-in'`, item L) for a local-stack pass.
+It is already `tab(page, 'Check-in')` on `main`, with the rename explained at line 141, and
+the spec passes. The flag was stale; nothing to do. No literal `'Door'` selector survives in
+`tests/e2e/`.
+
+**Suites**, on a fresh `supabase db reset` each time:
+
+| suite | result |
+|---|---|
+| `pnpm e2e:smoke` (the 4 CI specs) | **6 passed**, 54.4 s — the set CI reported as `1 failed / 5 passed` |
+| `core-flow.spec.ts` alone, pre-fix | fails identically to CI (`Add guest`, 240 s) |
+| `core-flow.spec.ts` alone, post-fix | **1 passed**, 41.7 s |
+| `pnpm db:test` | **59 files / 1174 assertions, `Result: PASS`** |
+| `pnpm db:test:concurrency` | `PASS — 0 assertion(s) failed` |
+| `pnpm vitest run` | **144 files / 1491 tests passed** |
+| `pnpm type-check` · `pnpm lint` | clean · 0 errors |
+
+**Container note, not a finding.** This container has no `chrome-headless-shell` for the
+pinned Playwright build (1223 vs the pre-installed 1194) and the environment forbids
+`playwright install`, so the runs above used a scratch config pointing `executablePath` at
+`/opt/pw-browsers/chromium`. It was deleted before committing — CI uses the repo's own
+`playwright.config.ts` untouched. Separately: running pgTAP straight after e2e goes red,
+because `core-flow.spec.ts` leaves events behind and the pgTAP files assume the seed. Reset
+between them; the numbers above all come from clean resets.
+
+**Not done here.** Scope was held to the two items. One thing noticed and deliberately left:
+`supabase/.temp/cli-latest` is listed in `.gitignore` but tracked, so it shows as dirty for
+anyone who runs the Supabase CLI — `git rm --cached` in its own housekeeping commit.
 
 ---
 
