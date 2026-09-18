@@ -3,7 +3,8 @@ import type { Metadata } from 'next';
 import { createHash } from 'node:crypto';
 import { createClient } from '@/lib/supabase/server';
 import { landingClientIpHash } from '@/features/requests/ip-hash';
-import { RequestStatus, type RequestStatusData } from '@/components/po/landing';
+import { toRequestStatusView } from '@/features/requests/status-view';
+import { RequestStatus } from '@/components/po/request-status';
 
 export const metadata: Metadata = {
   title: 'Your request · PlusOne',
@@ -15,18 +16,15 @@ export const metadata: Metadata = {
 // viewport for this public route (WCAG 1.4.4).
 export { publicRouteViewport as viewport } from '@/lib/public-route-viewport';
 
-const dateFmt = new Intl.DateTimeFormat('en-GB', {
-  weekday: 'short',
-  day: 'numeric',
-  month: 'short',
-  timeZone: 'Europe/Amsterdam',
-});
-
 /**
  * Guest status page (/r/[token], #28). The URL carries a bearer token; only its
  * sha256 is looked up (get_request_status: SECURITY DEFINER, throttled, minimal
- * payload — no contact data, no decision reason). Invalid, revoked and
- * anonymized tokens render the identical neutral not-found.
+ * payload: no contact data, no decision reason). Invalid, revoked, anonymized
+ * and throttled tokens all render the identical neutral not-found: the adapter
+ * turns anything that is not a found payload into `null`. What a found token
+ * sees per state (z8uq9m0hw6: the window, and on approval the venue address,
+ * the approved count and the venue's message) is decided by the RPC and
+ * re-gated in `toRequestStatusView`.
  */
 export default async function RequestStatusPage({
   params,
@@ -42,25 +40,5 @@ export default async function RequestStatusPage({
     p_ip_hash: await landingClientIpHash(),
   });
 
-  const payload = (data ?? {}) as {
-    found?: boolean;
-    status?: 'pending' | 'approved' | 'denied';
-    full_name?: string;
-    plus_ones?: number;
-    event_name?: string;
-    starts_at?: string;
-  };
-
-  const view: RequestStatusData | null =
-    payload.found && payload.status && payload.event_name
-      ? {
-          status: payload.status,
-          fullName: payload.full_name ?? '',
-          plusOnes: payload.plus_ones ?? 0,
-          eventName: payload.event_name,
-          date: dateFmt.format(new Date(payload.starts_at ?? Date.now())),
-        }
-      : null;
-
-  return <RequestStatus data={view} />;
+  return <RequestStatus data={toRequestStatusView(data)} />;
 }
