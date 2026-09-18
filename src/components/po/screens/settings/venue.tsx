@@ -349,6 +349,13 @@ export function VenueSettings(): JSX.Element {
 
         <FormError error={save.isError ? save.error : null} />
         {save.isSuccess && !dirty && <p className="mt-3 text-[12.5px] text-acc-soft">{t.settings.venue.saved}</p>}
+
+        {/* With one venue the venue card lands here instead of the switcher
+            (z8uq9m0hw2), so "Add a new venue" has to live here too. */}
+        <Label className="mb-[10px] mt-[22px]">{t.settings.venueSwitch.title}</Label>
+        <Btn kind="dark" full icon="plus" onClick={() => nav.push('venuecreate')}>
+          {t.settings.venueSwitch.addVenue}
+        </Btn>
       </Scroll>
       {canEdit && (
         <BottomBar>

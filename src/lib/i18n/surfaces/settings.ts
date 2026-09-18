@@ -19,6 +19,8 @@ export const settings = {
   more: {
     title: 'More',
     switchSub: '{name} · switch venue',
+    /** Same card with a single venue: it opens venue settings instead (z8uq9m0hw2). */
+    settingsSub: '{name} · venue settings',
     /** Shown instead of a name while the profile loads or on a load error — never a placeholder person. */
     nameFallback: 'your account',
     sectionVenue: 'This venue',

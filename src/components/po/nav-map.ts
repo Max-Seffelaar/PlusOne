@@ -120,3 +120,13 @@ export function parentPathFor(target: ParsedTarget): string {
       return tabPath(mobileTabForScreen(name, props) as Exclude<TabKey, 'deur'>);
   }
 }
+
+/** Where the venue card leads: the desktop sidebar header and the mobile More
+ *  hub's top card (z8uq9m0hw2). With exactly one venue there is nothing to
+ *  switch to, so it opens that venue's settings, but only for a role that may
+ *  see them (admin, finance). Everyone else keeps the switcher: it still shows
+ *  their venue and roles and holds "Add a new venue", where venue settings would
+ *  only say "no rights". Zero or 2+ venues: the switcher, unchanged. */
+export function venueEntryScreen(venueCount: number, canViewSettings: boolean): 'venuesettings' | 'venueswitch' {
+  return venueCount === 1 && canViewSettings ? 'venuesettings' : 'venueswitch';
+}
