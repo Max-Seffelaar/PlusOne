@@ -4,9 +4,10 @@
  * link toggle starts at.
  *
  * Item 7 (Max: "first save the event, then create the tiers"): a blank event is
- * REPLACED by its guided tiers step; a template that seeded tiers continues on
- * the new event's settings as before. `replace`, never `push`, so Back from the
- * next screen lands where the create flow started.
+ * REPLACED by its guided tiers step; a template that seeded tiers skips it and
+ * lands on the event detail, where the guided step also ends (Max, PR #305).
+ * `replace`, never `push`, so Back from the next screen lands where the create
+ * flow started.
  * Item 6: the sign-up link is on for a new event, and a picked template shows
  * its own setting on the (read-only) toggle.
  */
@@ -51,6 +52,7 @@ vi.mock('@/components/po/context', () => ({ useNav: () => nav }));
 
 // Imported AFTER the mocks so the screen picks them up.
 import { EventEdit } from './edit';
+import { SaveAsTemplate } from './save-as-template';
 
 beforeAll(() => {
   // Desktop fields (typeable date/time comboboxes), as in schedule-fields.test.
@@ -102,7 +104,7 @@ describe('EventEdit create flow (item 7)', () => {
     expect(createEvent.mock.calls[0][0]).toMatchObject({ name: 'Smoke Night', landingActive: true });
   });
 
-  it('skips the tiers step when the picked template seeded tiers', async () => {
+  it('skips the tiers step and lands on the event detail when the template seeded tiers', async () => {
     templates = [{ id: 'tpl-1', name: 'Lofi', tierCount: 2, landing_active: false }];
     render(<EventEdit isNew />);
     fireEvent.click(screen.getByRole('button', { name: 'Lofi' }));
@@ -110,7 +112,8 @@ describe('EventEdit create flow (item 7)', () => {
 
     await waitFor(() => expect(nav.replace).toHaveBeenCalledTimes(1));
     expect(createFromTemplate).toHaveBeenCalledTimes(1);
-    expect(nav.replace).toHaveBeenCalledWith('eventedit', { id: NEW_ID });
+    expect(nav.replace).toHaveBeenCalledWith('event', { id: NEW_ID });
+    expect(nav.push).not.toHaveBeenCalled();
   });
 
   it('still shows the tiers step for a template without tiers', async () => {
@@ -145,5 +148,16 @@ describe('EventEdit sign-up link toggle on a new event (item 6)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Open air' }));
     expect(toggle()).toHaveAttribute('aria-checked', 'true');
+  });
+});
+
+// Item 8 (Max, PR #305): the section is labelled "Template", the button keeps
+// "Save as template"; "Reuse this setup" is gone.
+describe('SaveAsTemplate copy (item 8)', () => {
+  it('labels the section "Template" above the "Save as template" button', () => {
+    render(<SaveAsTemplate eventId={NEW_ID} />);
+    expect(screen.getByText('Template')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save as template' })).toBeInTheDocument();
+    expect(screen.queryByText('Reuse this setup')).not.toBeInTheDocument();
   });
 });

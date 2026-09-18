@@ -82,7 +82,7 @@ test('core flow: create event → add guest → door check-in, asserted in the d
 
   // Success replaces the form with the new event's guided tiers step: save the
   // event first, then its tiers (z8uq9m0hw3, item 7). A blank event has none, so
-  // the step shows (a template with tiers would continue on its settings).
+  // the step shows (a template with tiers would land on the event detail).
   await expect(page.getByText('Next: add your guest tiers')).toBeVisible({ timeout: 20_000 });
 
   // DB truth: the event row exists at the right venue (not just a UI transition).
