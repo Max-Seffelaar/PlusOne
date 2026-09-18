@@ -17,8 +17,7 @@ import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { useTransientValue } from '@/lib/use-transient-value';
 import { Icon, type IconName } from '@/components/po/icon';
 import { Avatar, Label, Btn, Card, pressDesktop } from '@/components/po/kit';
-import { tierInk, tintTier } from '@/lib/po/tier-colors';
-import { formatDateTime } from '@/features/po/format';
+import { tierInk } from '@/lib/po/tier-colors';
 import { canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '@/components/po/context';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
@@ -43,6 +42,7 @@ import type { QueryFreshness } from './cockpitFreshness';
 import { useCockpitSync } from './useCockpitSync';
 import { CockpitTasksCard } from './CockpitTasksCard';
 import { CockpitRefuseModal } from './CockpitRefuseModal';
+import { CockpitGuestRow } from './CockpitGuestRow';
 import {
   usePoAckNote,
   usePoApproveRequest,
@@ -319,6 +319,9 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
   }, [canCheckIn, checkInMutate, notify, pushFeed, flash]);
   // ✓ click: a +0 guest checks in at once; a +N guest opens the quantified modal to
   // pick how many of the party arrive now, or to top up an already-in party (S1.2).
+  // A FULLY inside party no longer renders a ✓ at all (item O — it shows a static
+  // InsideBadge instead), so there is no "already fully inside" branch here: the
+  // guard below is a cheap assertion of that, not a user-facing path.
   const onCheckInClick = useCallback((g: Guest): void => {
     if (!canCheckIn) return;
     const ps = partyState(g, arrivals);
@@ -330,12 +333,9 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
       setModal({ kind: 'checkin', guest: g, value: ps.totalHeads }); // default: whole party
       return;
     }
-    if (ps.remaining <= 0) {
-      notify(fmt(t.cockpit.toastFullyInside, { name: g.name }), 'in');
-      return;
-    }
+    if (ps.remaining <= 0) return;
     setModal({ kind: 'topup', guest: g, value: ps.remaining }); // default: the rest
-  }, [canCheckIn, arrivals, doCheckIn, notify]);
+  }, [canCheckIn, arrivals, doCheckIn]);
   // ✗ click: open the quantified check-out modal (symmetric). Disabled when the
   // event does not allow uitchecken (#3 / S1.1) — the button is locked, RLS too.
   const onVoidClick = useCallback((g: Guest): void => {
@@ -906,26 +906,7 @@ const CockpitGuestList = memo(function CockpitGuestList({
           {virtualizer.getVirtualItems().map((vi) => {
             const g = rows[vi.index];
             if (!g) return null;
-            const isRefused = g.status === 'refused';
-            const isIn = g.status === 'in';
             const td = tierDisplay.get(g.tierId ?? '');
-            const tierColor = td?.color ?? '#8E8E93';
-            const tierName = td?.name ?? g.tierName ?? g.role;
-            const arr = arrivals.get(g.id);
-            const arrivedCount = arr ? arr.arrived : g.plus;
-            const partial = isIn && arrivedCount < g.plus;
-            const fully = isIn && !partial;
-            // Date + time (not just "18:07"): the event can cross midnight (#26),
-            // so a bare time would make a post-midnight arrival read as earlier
-            // than a 23:50 one.
-            const atIso = arr?.at ?? g.at;
-            const atLabel = atIso ? formatDateTime(atIso) : undefined;
-            // Whole-row tier fill (feedback Max 13/7 — matches the door's
-            // CheckInList): a checked-in guest mutes to a low-alpha tint +
-            // white ink so "inside" still reads as dimmed, everyone else gets
-            // the solid tier colour. Refused rows opt out of the fill
-            // entirely (mirrors the door/Guests-tab convention).
-            const ink = isRefused ? undefined : fully ? '#FFFFFF' : tierInk(tierColor);
             return (
               <div
                 key={vi.key}
@@ -934,67 +915,19 @@ const CockpitGuestList = memo(function CockpitGuestList({
                 style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}
                 className="px-[10px] py-[3px]"
               >
-                <div
-                  className={cn(
-                    'grid grid-cols-[1fr_96px] items-center gap-3 rounded-[14px] px-[14px] py-[10px] transition-shadow duration-500',
-                    isRefused && 'border border-line2',
-                    flashId === g.id && 'ring-2 ring-acc'
-                  )}
-                  style={
-                    isRefused
-                      ? undefined
-                      : {
-                          background: fully ? tintTier(tierColor, 0.14) : tierColor,
-                          ...(partial ? { boxShadow: 'inset 0 0 0 2px #B5A6FF' } : {}),
-                        }
-                  }
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <Avatar name={g.name} size={36} accent={isIn} />
-                    <div className="min-w-0 flex-1" style={ink ? { color: ink } : undefined}>
-                      <div className="flex items-baseline gap-1.5">
-                        {g.flag === 'high' && (
-                          <Icon name="flag" size={13} stroke={ink ?? '#B5A6FF'} fill={ink ?? '#B5A6FF'} className="shrink-0" />
-                        )}
-                        <span className="truncate font-display text-[15px] font-bold">
-                          {g.name}
-                          {g.plus > 0 && <span className="font-semibold opacity-80"> +{g.plus}</span>}
-                        </span>
-                      </div>
-                      <div className={cn('truncate text-[11px] font-bold uppercase tracking-[0.03em]', isRefused ? 'text-faint normal-case' : 'opacity-80')}>
-                        {isRefused
-                          ? t.cockpit.rowRefused
-                          : partial
-                            ? fmt(t.cockpit.rowInsidePartial, { arrived: arrivedCount + 1, total: g.plus + 1 })
-                            : fully && atLabel
-                              ? `${tierName} · ${atLabel}`
-                              : tierName}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex justify-end gap-[7px]">
-                    {!canCheckIn ? (
-                      <span className="text-[11px] opacity-60" style={ink ? { color: ink } : undefined}>
-                        —
-                      </span>
-                    ) : isRefused ? (
-                      <Btn desktop kind="ghost" sm onClick={() => onUndoRefuse(g)}>
-                        {t.door.undo}
-                      </Btn>
-                    ) : (
-                      <>
-                        <ChkBtn kind="in" active={isIn} onClick={() => onCheckInClick(g)} />
-                        <ChkBtn
-                          kind="out"
-                          active={!isIn}
-                          disabled={isIn && !allowUncheck}
-                          refuse={!isIn}
-                          onClick={() => (isIn ? onVoid(g) : onRefuseClick(g))}
-                        />
-                      </>
-                    )}
-                  </div>
-                </div>
+                <CockpitGuestRow
+                  g={g}
+                  tierColor={td?.color ?? '#8E8E93'}
+                  tierName={td?.name ?? g.tierName ?? g.role}
+                  arrival={arrivals.get(g.id)}
+                  flash={flashId === g.id}
+                  canCheckIn={canCheckIn}
+                  allowUncheck={allowUncheck}
+                  onCheckInClick={onCheckInClick}
+                  onVoid={onVoid}
+                  onRefuseClick={onRefuseClick}
+                  onUndoRefuse={onUndoRefuse}
+                />
               </div>
             );
           })}
@@ -1063,57 +996,6 @@ function TierChip({
       style={color ? { background: color, color: tierInk(color) } : undefined}
     >
       {children}
-    </button>
-  );
-}
-
-function ChkBtn({
-  kind,
-  active,
-  disabled,
-  /** kind='out' on a guest who isn't inside: the slot becomes "Refuse" instead
-   *  of a no-op void (G2 door-parity) — same slot, no row-width growth. */
-  refuse,
-  onClick,
-}: {
-  kind: 'in' | 'out';
-  active: boolean;
-  disabled?: boolean;
-  refuse?: boolean;
-  onClick: () => void;
-}): JSX.Element {
-  const isIn = kind === 'in';
-  const title = isIn
-    ? t.cockpit.checkInTitle
-    : refuse
-      ? t.cockpit.refuseRowTitle
-      : disabled
-        ? t.cockpit.checkOutDisabledTitle
-        : t.cockpit.checkOutTitle;
-  return (
-    <button
-      type="button"
-      onClick={disabled ? undefined : onClick}
-      disabled={disabled}
-      aria-pressed={active}
-      title={title}
-      className={cn(
-        'flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] border',
-        !disabled && press,
-        // Rows are now filled with the guest's tier colour (feedback Max
-        // 13/7), so a transparent/outlined button all but disappears against
-        // it — every non-disabled state needs an OPAQUE fill to stay legible
-        // regardless of what colour is behind it. Check-in is always the
-        // solid accent (the button to reach for); void/refuse is always a
-        // solid neutral chip, clearly secondary.
-        disabled
-          ? 'cursor-not-allowed border-line bg-transparent text-ghost opacity-50'
-          : isIn
-            ? 'border-transparent bg-acc text-on-acc'
-            : 'border-transparent bg-elev2 text-text'
-      )}
-    >
-      <Icon name={disabled ? 'lock' : isIn ? 'check' : 'close'} size={isIn ? 19 : 16} sw={2.4} />
     </button>
   );
 }

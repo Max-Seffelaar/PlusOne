@@ -1,4 +1,4 @@
-import type { Guest, PoEvent, Tier, Role, GuestStatus, Priority, RecapGuest } from '@/lib/po/types';
+import type { Guest, PoEvent, Tier, Role, GuestStatus, GuestSource, Priority, RecapGuest } from '@/lib/po/types';
 import { eventPhase, eventWhenFromPhase } from './event-phase';
 import type { Database } from '@/lib/database.types';
 import type {
@@ -245,6 +245,11 @@ export function toPoGuest(row: PoGuestRow, extras: GuestExtras): Guest {
     addedAt: fmt(row.created_at, { day: 'numeric', month: 'short' }).replace('.', ''),
     status: guestStatusToPo(row.status),
     contactId: row.contact_id,
+    // Provenance (item J) rides on the ROW, not `extras`: both guest fetchers
+    // flatten the same two embeds, so no caller has to resolve it a second time.
+    source: row.source,
+    addedByName: row.addedByName,
+    linkLabel: row.linkLabel,
     eventId: extras.eventId,
     eventName: extras.eventName,
     // at/inBy come from check_ins (DoorProvider), not the guests row.
@@ -461,6 +466,10 @@ export interface PoProfileEvent {
   isOrigin: boolean;
   /** ISO event start — sorting + keys. */
   startsAt: string;
+  /** Provenance for this appearance (item J) — feed straight to `guestSourceLabel`. */
+  source: GuestSource;
+  addedByName: string | null;
+  linkLabel: string | null;
 }
 
 export type ContactTimelineKind = 'added' | 'checkin' | 'void' | 'refusal';
@@ -566,6 +575,11 @@ export function toPoContactProfile(
         noteFlag: notePriorityToFlag(a.notePriority),
         isOrigin: originEventId != null && a.eventId === originEventId,
         startsAt: a.eventStartsAt,
+        source: a.source,
+        // The profile already resolved every actor id to a name in one read —
+        // reuse that map instead of a second per-appearance profile embed.
+        addedByName: actorNames[a.addedBy] ?? null,
+        linkLabel: a.linkLabel,
       };
     })
     // Pin the event you came from to the top, then newest-first.

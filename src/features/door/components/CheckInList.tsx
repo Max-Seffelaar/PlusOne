@@ -324,7 +324,9 @@ function guestRow(
           : { background: g.tierColor, ...(partly ? { boxShadow: `inset 0 0 0 2px ${ACCENT}` } : {}) }
       }
     >
-      <Avatar name={g.name} size={32} />
+      {/* Tier colour on the avatar too (ADE UX round, item I) — dimmed once the
+          whole party is inside, matching the row's own muting above. */}
+      <Avatar name={g.name} size={32} color={g.tierColor} dim={fully} />
       {/* Everything on ONE line (feedback Max): name, tier, and "by {staff}".
           Name keeps priority; the attribution shrinks/truncates first. */}
       <div className="flex min-w-0 flex-1 items-baseline gap-1.5" style={{ color: ink }}>
@@ -372,7 +374,10 @@ function guestRow(
 function refusedRow(g: DoorGuest, undoRefusal: (id: string) => void): JSX.Element {
   return (
     <div className="flex items-center gap-[11px] rounded-[14px] border border-line2 bg-transparent p-[10px]">
-      <Avatar name={g.name} size={32} />
+      {/* A refused row deliberately keeps no tier FILL, but the avatar still
+          carries the tier colour (ADE UX round, item I), dimmed like the rest
+          of the row so "refused" stays the louder signal. */}
+      <Avatar name={g.name} size={32} color={g.tierColor} dim />
       <div className="min-w-0 flex-1">
         <div className="truncate font-display text-[15.5px] font-bold text-dim">
           {g.name}

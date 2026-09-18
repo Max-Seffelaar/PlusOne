@@ -24,6 +24,7 @@ import {
 } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { parseAutoLockOffsetMinutes } from '@/features/events/auto-lock-hours';
+import { TIER_ALIASES_UI } from '@/features/guests/tiers';
 import { TIER_COLORS } from '@/lib/po/tier-colors';
 import { useNav } from '../context';
 import { Icon } from '../icon';
@@ -359,10 +360,13 @@ function TemplateTierEditor({ templateId, canManage }: { templateId: string; can
         maxGuests: Number.isFinite(maxNum) && maxNum > 0 ? maxNum : null,
         doorPriceCents,
         vatPercent,
-        aliases: aliasText
-          .split(',')
-          .map((a) => a.trim())
-          .filter(Boolean),
+        // Alias UI hidden (TIER_ALIASES_UI): never send half-filled aliases.
+        aliases: TIER_ALIASES_UI
+          ? aliasText
+              .split(',')
+              .map((a) => a.trim())
+              .filter(Boolean)
+          : [],
       });
       setNm('');
       setColor(TIER_COLORS[0]);
@@ -421,8 +425,12 @@ function TemplateTierEditor({ templateId, canManage }: { templateId: string; can
               <Field placeholder={t.events.vatPlaceholder} value={vat} onChange={setVat} inputMode="numeric" className="mb-[14px]" />
             </>
           )}
-          <Label className="mb-2">{t.templates.aliasesLabel}</Label>
-          <Field icon="spark" placeholder={t.templates.aliasesPlaceholder} value={aliasText} onChange={setAliasText} className="mb-[14px]" />
+          {TIER_ALIASES_UI && (
+            <>
+              <Label className="mb-2">{t.templates.aliasesLabel}</Label>
+              <Field icon="spark" placeholder={t.templates.aliasesPlaceholder} value={aliasText} onChange={setAliasText} className="mb-[14px]" />
+            </>
+          )}
           <Btn
             kind="primary"
             full
@@ -455,7 +463,7 @@ function TemplateTierEditor({ templateId, canManage }: { templateId: string; can
                   {tier.door_price_cents && tier.door_price_cents > 0 && tier.vat_percent != null
                     ? ' · ' + fmt(t.events.tierVatChip, { pct: tier.vat_percent })
                     : ''}
-                  {tier.aliases.length > 0 ? ' · ' + tier.aliases.join(', ') : ''}
+                  {TIER_ALIASES_UI && tier.aliases.length > 0 ? ' · ' + tier.aliases.join(', ') : ''}
                 </div>
               </div>
               {canManage && (

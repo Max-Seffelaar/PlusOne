@@ -7,6 +7,8 @@
  * from `src/lib/database.types.ts` and these become a thin view layer.
  */
 
+import type { Database } from '@/lib/database.types';
+
 export type Role = 'VIP' | 'All Access' | 'Artist' | 'Press' | 'Crew' | 'Guest';
 
 /** `paid` = settled up front, `free` = comp, `pay` = must settle at the door. */
@@ -17,6 +19,10 @@ export type GuestStatus = 'in' | 'wait' | 'refused';
 export type Priority = 'high' | 'low';
 
 export type EventWhen = 'upcoming' | 'past';
+
+/** Where a guest row came from (mirrors the `guest_source` DB enum). Rendered
+ *  only through `guestSourceLabel` in src/features/po/format.ts. */
+export type GuestSource = Database['public']['Enums']['guest_source'];
 
 /** Time-derived lifecycle phase (src/features/po/event-phase.ts). Replaces the
  *  retired manual status machine for everything the UI shows. */
@@ -66,6 +72,13 @@ export interface Guest {
   inBy?: string;
   /** Linked address-book contact (live data); absent in the mock. */
   contactId?: string | null;
+  /** Where the name came from (guests.source). Rendered through
+   *  `guestSourceLabel` (src/features/po/format.ts) — never read raw in a screen. */
+  source?: GuestSource;
+  /** Display name of who added them; null when RLS hides the actor's profile. */
+  addedByName?: string | null;
+  /** Non-default request link (label or influencer) behind a landing sign-up. */
+  linkLabel?: string | null;
   /** Owning event id — set on venue-wide ("all guests") reads so a row can deep-link
    *  to its own event; absent on single-event reads (the screen already has the id). */
   eventId?: string;
