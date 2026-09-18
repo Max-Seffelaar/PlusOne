@@ -13,8 +13,12 @@
 --      of 86ey6bn05 can send the same text later. The DENY reason stays
 --      internal, exactly as before (#43(f), Max 6-7-2026).
 --   3. get_request_status returns the event's end time, and — for an APPROVED
---      request only — the venue address, the approved count when it was
---      reduced, and the venue message.
+--      request on the submitter's own token only — the venue address, the
+--      approved count and the venue message.
+--   4. Retention (#29) wipes the message and the deny reason from EVERY
+--      anonymized request and from its audit diffs, backfilling rows the
+--      pre-migration job left behind; an anonymized request can no longer be
+--      approved at all.
 --
 -- ---------------------------------------------------------------------------
 -- ACCOUNTING — every cap reads the GUEST row, which now carries the approved
@@ -56,7 +60,10 @@
 --                 impossible on a non-approved row anyway).
 --   denied        same as pending. The deny reason stays internal.
 --   approved      + the venue address (the person now has to get there),
---                 + `approved_plus_ones` only when it is LOWER than requested,
+--                 + `approved_plus_ones`: the count the venue confirmed for
+--                   THIS request (the recorded approved count, or the
+--                   requested one for an approval that predates the column /
+--                   an auto-approval — both put exactly that on the guest),
 --                 + `decision_message` when the approver wrote one.
 -- Every found payload carries the SAME key set (absent values are JSON null),
 -- so a key's presence never says anything.
@@ -67,17 +74,25 @@
 -- to be a public place, so it goes only to the people the venue said yes to.
 --
 -- Mirror tokens (z8uq9m0h2v — a silently deduped submission): a mirror answers
--- with the caller's OWN name and plus-ones and the request's live status.
--- `approved_plus_ones` and `decision_message` belong to the deduped-against
--- request and its original submitter, so a mirror NEVER gets them — that would
--- hand a stranger who only knows an e-mail address the venue's words to
--- somebody else. Event times and the venue address are properties of the
--- EVENT, which the mirror holder already identified by submitting to its
--- link; they follow the same status gate on both paths. Consequence for the
--- oracle analysis of 20260918140000: before a staff decision fresh and
--- mirrored payloads stay byte-identical (every new key is null on both); after
--- an approval, a present message or reduced count can only prove a token is
--- NOT a mirror, never that it is one — the documented residual is unchanged.
+-- with the caller's OWN name and plus-ones and the request's live status, and
+-- NOTHING the venue decided or disclosed on approval. `approved_plus_ones` and
+-- `decision_message` were decided for the deduped-against request's own
+-- submitter; the venue address goes only to people the venue said yes to, and
+-- the mirror holder is not provably that person (review L1: the safe default,
+-- Max can loosen it). The null `approved_plus_ones` is also what tells the page
+-- not to claim a party size nobody confirmed for this caller (review L2).
+--
+-- Consequence for the oracle analysis of 20260918140000, stated rather than
+-- hidden: BEFORE a staff decision fresh and mirrored payloads stay
+-- byte-identical apart from each caller's own name and count (every new key is
+-- null on both). AFTER an approval they come apart — a fresh token carries a
+-- confirmed count (and the address, if the venue has one), a mirror carries
+-- neither. The residual docs/security-audit.md §4A describes ("an `approved`
+-- on a junk submission is evidence the address belongs to somebody who was
+-- let in") therefore goes from probable to certain once staff approve the
+-- deduped-against request. Still delayed, still needs a staff decision the
+-- prober cannot trigger, still yields no name, count, message or address of
+-- the other person. Accepted; recorded in §4A and in decision #48(c).
 
 -- ---------------------------------------------------------------------------
 -- 1. Columns + invariants
@@ -90,7 +105,7 @@ alter table public.guest_requests
 comment on column public.guest_requests.approved_plus_ones is
   'Plus-ones actually approved (z8uq9m0hw6). Set by approve_guest_request on a manual approval; NULL otherwise. Never above plus_ones (the requested count), which stays as submitted.';
 comment on column public.guest_requests.decision_message is
-  'Optional plain-text message from the venue to the requester, shown on /r/[token] (z8uq9m0hw6). Approved requests only; nulled by the retention job. Generic name on purpose: the transactional mail (86ey6bn05) sends the same text.';
+  'Optional plain-text message from the venue to the requester, shown on /r/[token] (z8uq9m0hw6). Approved requests only; nulled by the retention job. Generic name on purpose: the transactional mail (86ey6bn05) sends the same text. It is untrusted plain text: every HTML consumer (that mail included) must HTML-escape it, never interpolate it raw.';
 
 -- Both only ever exist on an approved row. A request never leaves `approved`
 -- (guest_requests_decide only matches `pending`; nothing un-approves), so these
@@ -167,13 +182,21 @@ comment on function public.guard_guest_request_decision_fields() is
 -- 3. approve_guest_request — optional approved count + message
 -- ---------------------------------------------------------------------------
 -- Body = 20260707170000 (G1 link lock, attribution, 45006 rollback) plus:
+--   * an ANONYMIZED request is not found (P0002): its person is gone (#29),
+--     and a decision written after anonymization would put a fresh message on
+--     a row the retention job already treats as done;
+--   * the role check runs on an UNLOCKED read; only then is the row re-read
+--     FOR UPDATE and re-checked, so an outsider cannot take (or wait on) a row
+--     lock on somebody else's request. The lock serializes two approvals of
+--     the same request: the second sees `approved` (45003) instead of both
+--     inserting a guest (a double-submit from the sheet is the realistic way);
 --   * p_plus_ones (NULL = as requested) validated 0..requested AFTER the role
 --     check, so an outsider learns nothing about a request from the error;
---   * p_message trimmed, blank = none, capped at 280 like the CHECK;
---   * the request row is read FOR UPDATE: two approvals of the same request
---     now serialize and the second sees `approved` (45003) instead of both
---     inserting a guest. A double-submit from the sheet was the realistic way
---     to hit that, and a partial approval makes a second click more likely.
+--   * p_message trimmed with submit_guest_request's whitespace set; anything
+--     the CHECK's own [:space:] test would call blank is no message; capped at
+--     280. Every rule the CHECKs hold is settled here BEFORE the guest insert,
+--     so a constraint never fires mid-approval (its 23514 DETAIL would echo
+--     the row, contact details included, back through PostgREST).
 
 drop function if exists public.approve_guest_request(uuid, uuid);
 
@@ -189,18 +212,17 @@ security definer
 set search_path = ''
 as $$
 declare
+  ws         constant text := E' \t\n\r\f\x0B';
   v_req      public.guest_requests;
   v_venue    uuid;
   v_guest_id uuid;
   v_plus     integer;
   v_message  text;
 begin
-  select * into v_req from public.guest_requests where id = p_request_id for update;
-  if v_req.id is null then
+  -- Unlocked read: just enough to know whose request this is.
+  select * into v_req from public.guest_requests where id = p_request_id;
+  if v_req.id is null or v_req.anonymized_at is not null then
     raise exception using errcode = 'P0002', message = 'Aanvraag niet gevonden.';
-  end if;
-  if v_req.status = 'approved' then
-    raise exception using errcode = '45003', message = 'Deze aanvraag staat al op de lijst.';
   end if;
 
   v_venue := public.event_venue(v_req.event_id);
@@ -212,6 +234,15 @@ begin
       message = 'Alleen een admin of organisator van dit event mag aanvragen goedkeuren.';
   end if;
 
+  -- Authorized: now lock the row and re-check what may have changed meanwhile.
+  select * into v_req from public.guest_requests where id = p_request_id for update;
+  if v_req.id is null or v_req.anonymized_at is not null then
+    raise exception using errcode = 'P0002', message = 'Aanvraag niet gevonden.';
+  end if;
+  if v_req.status = 'approved' then
+    raise exception using errcode = '45003', message = 'Deze aanvraag staat al op de lijst.';
+  end if;
+
   -- z8uq9m0hw6: approve for FEWER plus-ones, never more. NULL = as requested,
   -- which is what the 2-arg call of the deployed app resolves to.
   v_plus := coalesce(p_plus_ones, v_req.plus_ones);
@@ -220,9 +251,13 @@ begin
       message = 'Approve between 0 plus-ones and the number requested.';
   end if;
 
-  -- Plain text, trimmed; whitespace-only is "no message". The CHECK on the
-  -- column holds the same cap — this raises it before the guest insert.
-  v_message := nullif(btrim(p_message, E' \t\r\n'), '');
+  -- Plain text. Trimmed with submit_guest_request's whitespace set, and
+  -- anything the CHECK's own test would call blank ([:space:] only) is no
+  -- message at all. Both CHECK rules are settled here, before any insert.
+  v_message := nullif(btrim(p_message, ws), '');
+  if v_message !~ '[^[:space:]]' then
+    v_message := null;
+  end if;
   if char_length(v_message) > 280 then
     raise exception using errcode = '23514',
       message = 'Keep the message to 280 characters.';
@@ -298,9 +333,13 @@ begin
     return jsonb_build_object('found', false);
   end if;
 
-  -- 1. The submitter's own row (the fresh-submission path).
+  -- 1. The submitter's own row (the fresh-submission path). The confirmed
+  --    count is the recorded approved one, or — for an approval that predates
+  --    the column, or an auto-approval — the requested one, which is exactly
+  --    what those paths put on the guest.
   select gr.full_name, gr.status, gr.plus_ones,
-         gr.approved_plus_ones, gr.decision_message,
+         coalesce(gr.approved_plus_ones, gr.plus_ones) as approved_plus_ones,
+         gr.decision_message,
          e.name as event_name, e.starts_at, e.ends_at,
          v.address_line, v.postal_code, v.city
   into v_row
@@ -316,18 +355,19 @@ begin
   --    they know an e-mail address, which is not proof they are the person
   --    behind it. The request's live `status` is what the dedup premise does
   --    justify handing over, and is the only field taken from the row.
-  --    z8uq9m0hw6: for the same reason a mirror never gets the approved count
-  --    or the venue message — both were decided for the row's own submitter.
+  --    z8uq9m0hw6: for the same reason a mirror gets nothing the venue decided
+  --    or disclosed on approval — no confirmed count, no message (both decided
+  --    for the row's own submitter), no venue address (it goes only to people
+  --    the venue said yes to; see the header for the oracle trade-off).
   if not found then
     select m.full_name, gr.status, m.plus_ones,
            null::integer as approved_plus_ones, null::text as decision_message,
            e.name as event_name, e.starts_at, e.ends_at,
-           v.address_line, v.postal_code, v.city
+           null::text as address_line, null::text as postal_code, null::text as city
     into v_row
     from public.guest_request_status_mirrors m
     join public.guest_requests gr on gr.id = m.request_id
     join public.events e on e.id = gr.event_id
-    join public.venues v on v.id = e.venue_id
     where m.token_hash = p_token_hash
       and gr.anonymized_at is null;
   end if;
@@ -347,8 +387,7 @@ begin
     'starts_at', v_row.starts_at,
     'ends_at', v_row.ends_at,
     'approved_plus_ones',
-      case when v_approved and v_row.approved_plus_ones < v_row.plus_ones
-           then v_row.approved_plus_ones end,
+      case when v_approved then v_row.approved_plus_ones end,
     'decision_message',
       case when v_approved then v_row.decision_message end,
     'venue_address_line',
@@ -366,11 +405,59 @@ $$;
 -- ---------------------------------------------------------------------------
 -- Body = 20260918160000 plus:
 --   * step 2 nulls `decision_message` with the rest of the request's PII;
---   * new step 4b scrubs the free-text decision fields out of the anonymized
---     requests' own audit diffs. The approve/deny diff is where a message (and
---     a deny reason) also lands, and step 5's anonymize entry already CLAIMED
---     `decision_reason` as redacted while the diff kept it. Scoped to the ids
---     this run anonymized, so a second run touches nothing (idempotent).
+--   * new step 2c nulls `decision_message` AND `decision_reason` on EVERY
+--     anonymized request, not just this run's. Like 2b, it is driven off
+--     `anonymized_at`, because the run's id list misses two real cases: rows
+--     anonymized by an earlier run, and a decision written onto a request
+--     AFTER it was anonymized (it stays `pending`, so the deny path still
+--     matches it; approve_guest_request now refuses it);
+--   * new step 4b calls redact_anonymized_request_audit_pii() (below), which
+--     scrubs those two free-text fields out of the anonymized requests' own
+--     approve/deny audit diffs. Step 5's anonymize entry has CLAIMED
+--     `decision_reason` as redacted since 20260706101000 while the diff kept
+--     it; this makes the claim true, backfilling everything the pre-migration
+--     job left behind on its first run.
+-- Both new steps only touch rows whose fields are still non-null, so a second
+-- run changes nothing (idempotent) and reports 0 for them.
+
+-- A sibling of redact_anonymized_audit_pii / redact_anonymized_contact_audit_pii:
+-- the named, owner-only routines are the only writers on audit_log besides the
+-- trigger (#29, the fase-3 hardening). Driven off anonymized_at, restricted to
+-- diffs that still carry a value, so it backfills and is idempotent. At ≥25
+-- venues, if the daily join shows up in pg_stat_statements, a partial index on
+-- audit_log(entity_id) where entity_type = 'guest_requests' is the fix.
+create or replace function public.redact_anonymized_request_audit_pii()
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_n integer := 0;
+begin
+  update public.audit_log a
+  set diff = public.redact_audit_diff(a.diff, jsonb_build_object(
+    'decision_message', 'null'::jsonb,
+    'decision_reason',  'null'::jsonb))
+  from public.guest_requests gr
+  where a.entity_type = 'guest_requests'
+    and a.entity_id = gr.id
+    and gr.anonymized_at is not null
+    and a.diff is not null
+    and (   (a.diff -> 'before' ->> 'decision_message') is not null
+         or (a.diff -> 'after'  ->> 'decision_message') is not null
+         or (a.diff -> 'before' ->> 'decision_reason')  is not null
+         or (a.diff -> 'after'  ->> 'decision_reason')  is not null);
+  get diagnostics v_n = row_count;
+  return v_n;
+end;
+$$;
+
+revoke execute on function public.redact_anonymized_request_audit_pii()
+from public, anon, authenticated, service_role;
+
+comment on function public.redact_anonymized_request_audit_pii() is
+  'Owner-only AVG scrub (#29, z8uq9m0hw6): nulls decision_message/decision_reason in the audit diffs of every anonymized guest request. Idempotent; called by run_privacy_retention.';
 
 create or replace function public.run_privacy_retention()
 returns table (
@@ -391,7 +478,6 @@ declare
   v_requests integer := 0;
   v_refusals integer := 0;
   v_audit    integer := 0;
-  v_n        integer := 0;
 begin
   -- 1. Anonymize eligible guests (event-anchored). Stats stay invariant.
   with old_events as (
@@ -475,6 +561,15 @@ begin
   where gr.id = m.request_id
     and gr.anonymized_at is not null;
 
+  -- 2c. z8uq9m0hw6 — the free-text decision fields go on EVERY anonymized
+  --     request, not only this run's: earlier runs, and a deny written after
+  --     anonymization, are otherwise never reached again (same lesson as 2b).
+  update public.guest_requests gr
+  set decision_message = null,
+      decision_reason = null
+  where gr.anonymized_at is not null
+    and (gr.decision_message is not null or gr.decision_reason is not null);
+
   -- 3. Redact refusal reasons of the just-anonymized guests.
   update public.refusals
   set reason = '[verwijderd na bewaartermijn]',
@@ -487,20 +582,9 @@ begin
   v_audit := public.redact_anonymized_audit_pii(v_guest_ids);
 
   -- 4b. z8uq9m0hw6 — scrub the free-text decision fields (the venue message
-  --     and the deny reason) out of the just-anonymized requests' own
-  --     approve/deny diffs. redact_audit_diff only rewrites keys a diff
-  --     already has, so a diff without them is left as it is.
-  update public.audit_log a
-  set diff = public.redact_audit_diff(a.diff, jsonb_build_object(
-    'decision_message', 'null'::jsonb,
-    'decision_reason',  'null'::jsonb))
-  where a.entity_type = 'guest_requests'
-    and a.entity_id = any(v_request_ids)
-    and a.diff is not null
-    and (coalesce(a.diff -> 'before', '{}'::jsonb) ?| array['decision_message', 'decision_reason']
-         or coalesce(a.diff -> 'after', '{}'::jsonb) ?| array['decision_message', 'decision_reason']);
-  get diagnostics v_n = row_count;
-  v_audit := v_audit + v_n;
+  --     and the deny reason) out of EVERY anonymized request's own
+  --     approve/deny diffs, through the named owner-only helper.
+  v_audit := v_audit + public.redact_anonymized_request_audit_pii();
 
   -- 5. Record the request anonymizations (guest_requests aren't otherwise audited).
   insert into public.audit_log

@@ -1,5 +1,5 @@
 -- Canonical body (K10 drift guard, see supabase/canonical/README.md).
--- Newest source: supabase/migrations/20260918174500_partial_approval_decision_message.sql:375.
+-- Newest source: supabase/migrations/20260918174500_partial_approval_decision_message.sql:462.
 
 create or replace function public.run_privacy_retention()
 returns table (
@@ -20,7 +20,6 @@ declare
   v_requests integer := 0;
   v_refusals integer := 0;
   v_audit    integer := 0;
-  v_n        integer := 0;
 begin
   -- 1. Anonymize eligible guests (event-anchored). Stats stay invariant.
   with old_events as (
@@ -104,6 +103,15 @@ begin
   where gr.id = m.request_id
     and gr.anonymized_at is not null;
 
+  -- 2c. z8uq9m0hw6 — the free-text decision fields go on EVERY anonymized
+  --     request, not only this run's: earlier runs, and a deny written after
+  --     anonymization, are otherwise never reached again (same lesson as 2b).
+  update public.guest_requests gr
+  set decision_message = null,
+      decision_reason = null
+  where gr.anonymized_at is not null
+    and (gr.decision_message is not null or gr.decision_reason is not null);
+
   -- 3. Redact refusal reasons of the just-anonymized guests.
   update public.refusals
   set reason = '[verwijderd na bewaartermijn]',
@@ -116,20 +124,9 @@ begin
   v_audit := public.redact_anonymized_audit_pii(v_guest_ids);
 
   -- 4b. z8uq9m0hw6 — scrub the free-text decision fields (the venue message
-  --     and the deny reason) out of the just-anonymized requests' own
-  --     approve/deny diffs. redact_audit_diff only rewrites keys a diff
-  --     already has, so a diff without them is left as it is.
-  update public.audit_log a
-  set diff = public.redact_audit_diff(a.diff, jsonb_build_object(
-    'decision_message', 'null'::jsonb,
-    'decision_reason',  'null'::jsonb))
-  where a.entity_type = 'guest_requests'
-    and a.entity_id = any(v_request_ids)
-    and a.diff is not null
-    and (coalesce(a.diff -> 'before', '{}'::jsonb) ?| array['decision_message', 'decision_reason']
-         or coalesce(a.diff -> 'after', '{}'::jsonb) ?| array['decision_message', 'decision_reason']);
-  get diagnostics v_n = row_count;
-  v_audit := v_audit + v_n;
+  --     and the deny reason) out of EVERY anonymized request's own
+  --     approve/deny diffs, through the named owner-only helper.
+  v_audit := v_audit + public.redact_anonymized_request_audit_pii();
 
   -- 5. Record the request anonymizations (guest_requests aren't otherwise audited).
   insert into public.audit_log

@@ -9,10 +9,15 @@
 --   * charges event capacity (45005) and link-max (45006) with the APPROVED
 --     head count, not the requested one (tier-max stays an ENTRY count: one
 --     slot per party, reduced or not);
---   * caps the message (280) and stores whitespace-only as no message;
--- that clients cannot write the counts or the message around the RPC; and
--- that get_request_status hands the new fields to a valid token only, per
--- state, and never to a mirror. Retention clears the message (#29).
+--   * caps the message (280), stores whitespace-only (incl. \f / \x0B) as no
+--     message, and settles every CHECK rule before the guest insert;
+--   * checks the role before it locks the row or reveals the status;
+--   * refuses an anonymized request (P0002);
+-- that clients cannot write the counts or the message around the RPC; that
+-- get_request_status hands the new fields to a valid token only, per state,
+-- and never the count, message or address to a mirror; and that retention
+-- (#29) wipes the message and the deny reason from every anonymized request
+-- and its audit diffs, backfilling earlier runs, idempotently.
 --
 -- Seed: venue aa..01 Club Vesper (Wibautstraat 150, 1091 GR Amsterdam) with
 -- admin 11.., user_manager 22.., finance 33.., staff 55.., doorhost 66..;
@@ -56,7 +61,7 @@ returns text language sql as $fn$
   select string_agg(k, ',' order by k) from jsonb_object_keys(p) k;
 $fn$;
 
-select plan(59);
+select plan(74);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner, RLS bypassed — like the seed)
@@ -81,7 +86,11 @@ insert into public.guest_requests (id, event_id, full_name, email, phone, plus_o
   ('9a000000-0000-7000-8000-000000000005', 'ee000000-0000-7000-8000-000000000001',
    'Denied Dirk', 'dirk@pa.test', '+31611700005', 1, 'tok-pa-dirk'),
   ('9a000000-0000-7000-8000-000000000006', 'ee000000-0000-7000-8000-000000000001',
-   'Blank Bo', 'bo@pa.test', '+31611700006', 1, 'tok-pa-bo');
+   'Blank Bo', 'bo@pa.test', '+31611700006', 1, 'tok-pa-bo'),
+  ('9a000000-0000-7000-8000-000000000031', 'ee000000-0000-7000-8000-000000000001',
+   'Feed Fien', 'fien@pa.test', '+31611700041', 0, 'tok-pa-fien'),
+  ('9a000000-0000-7000-8000-000000000032', 'ee000000-0000-7000-8000-000000000001',
+   'Trim Tom', 'trim@pa.test', '+31611700042', 0, 'tok-pa-trim');
 
 -- Accounting fixtures: an event with a max-3 tier and a 3-head link, and an
 -- event with a total capacity of 3. Each request asks for 1 + 4 = 5 people.
@@ -180,6 +189,28 @@ select is(
   (select coalesce(decision_message, '<null>') from public.guest_requests
     where id = '9a000000-0000-7000-8000-000000000006'),
   '<null>', 'B7 ...and stored as no message at all');
+-- Review L3: the RPC must settle every CHECK rule BEFORE the guest insert. A
+-- form feed / vertical tab used to survive the trim, pass the RPC and then
+-- fail the CHECK mid-approval (a 23514 whose DETAIL echoes the row).
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select lives_ok(
+  $$ select public.approve_guest_request('9a000000-0000-7000-8000-000000000031',
+       'dd000000-0000-7000-8000-000000000001', null, E'\f\x0B \f') $$,
+  'B7a a message of only form feeds / vertical tabs approves cleanly (no CHECK violation)...');
+reset role;
+select is(
+  (select coalesce(decision_message, '<null>') || '|' || status::text from public.guest_requests
+    where id = '9a000000-0000-7000-8000-000000000031'),
+  '<null>|approved', 'B7b ...and is stored as no message');
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select lives_ok(
+  $$ select public.approve_guest_request('9a000000-0000-7000-8000-000000000032',
+       'dd000000-0000-7000-8000-000000000001', null, E'\f  See you at 23:00. \x0B') $$,
+  'B7c a real message wrapped in form feeds approves...');
+reset role;
+select is(
+  (select decision_message from public.guest_requests where id = '9a000000-0000-7000-8000-000000000032'),
+  'See you at 23:00.', 'B7d ...trimmed with the same whitespace set as submit_guest_request');
 select is(
   (select plus_ones from public.guests where email = 'vera@pa.test'),
   0, 'B8 the +0 approval put a party of one on the list');
@@ -246,6 +277,13 @@ select throws_ok(
   $$ select public.approve_guest_request('9a000000-0000-7000-8000-000000000002',
        'dd000000-0000-7000-8000-000000000001', 1, null) $$,
   '45003', null, 'C11 an approved request cannot be approved again (e.g. to move the count)');
+-- Review L4: the role check runs before the row lock and the status check, so
+-- an outsider neither locks somebody else's request nor learns it is decided.
+select pg_temp.login('55555555-5555-4555-8555-555555555555');   -- staff
+select throws_ok(
+  $$ select public.approve_guest_request('9a000000-0000-7000-8000-000000000002',
+       'dd000000-0000-7000-8000-000000000001', 1, null) $$,
+  '42501', null, 'C12 an outsider on an ALREADY-approved request gets the role error, not 45003');
 reset role;
 
 -- ---------------------------------------------------------------------------
@@ -356,10 +394,10 @@ select ok(
      from public.get_request_status('tok-pa-pia', 'ip-pa-f2') r),
   'F2 reduced approval: requested +4, approved +2, the message, the venue address and the end time');
 select ok(
-  (select r ->> 'approved_plus_ones' is null and r ->> 'decision_message' is null
+  (select r ->> 'approved_plus_ones' = '2' and r ->> 'plus_ones' = '2' and r ->> 'decision_message' is null
           and r ->> 'venue_address_line' = 'Wibautstraat 150'
      from public.get_request_status('tok-pa-lars', 'ip-pa-f3') r),
-  'F3 approval as requested: no approved count (nothing was reduced), no message, the address');
+  'F3 approval as requested: the confirmed count equals the request, no message, the address');
 select ok(
   (select r ->> 'status' = 'pending'
           and r ->> 'approved_plus_ones' is null and r ->> 'decision_message' is null
@@ -415,8 +453,11 @@ select ok(
           and r ->> 'full_name' = 'Stranger Sid'
           and r ->> 'decision_message' is null
           and r ->> 'approved_plus_ones' is null
+          and r ->> 'venue_address_line' is null
+          and r ->> 'venue_postal_code' is null
+          and r ->> 'venue_city' is null
      from public.get_request_status('tok-pa-sid', 'ip-pa-m4') r),
-  'F13 the mirror token NEVER gets the message or the approved count decided for somebody else');
+  'F13 the mirror token NEVER gets the message, the confirmed count or the venue address (review L1)');
 select is(
   pg_temp.keys(public.get_request_status('tok-pa-sid', 'ip-pa-m5')),
   pg_temp.keys(public.get_request_status('tok-pa-maud', 'ip-pa-m5')),
@@ -448,29 +489,115 @@ insert into public.guest_requests (id, event_id, full_name, email, phone, plus_o
   ('9a000000-0000-7000-8000-000000000009', '9e000000-0000-7000-8000-000000000009',
    'Old Olga', 'olga@pa.test', '+31611700009', 2, 'tok-pa-olga');
 
+-- Dana and Lou: live requests on the old event, anonymized by THIS run.
+insert into public.guest_requests (id, event_id, full_name, email, phone, plus_ones) values
+  ('9a000000-0000-7000-8000-000000000021', '9e000000-0000-7000-8000-000000000009',
+   'Deny Dana', 'dana@pa.test', '+31611700031', 1),
+  ('9a000000-0000-7000-8000-000000000022', '9e000000-0000-7000-8000-000000000009',
+   'Late Lou', 'lou@pa.test', '+31611700032', 1);
+
+-- Pete and Mia: anonymized by an EARLIER run (the pre-migration job), still
+-- carrying free text it never reached — Pete a deny reason (a deny written
+-- after anonymization, or the old job's audit diff), Mia a message written
+-- after anonymization (the gap approve_guest_request now closes). The audit
+-- rows are the shape audit_guest_requests writes.
+insert into public.guest_requests
+  (id, event_id, full_name, plus_ones, status, decided_by, decided_at,
+   decision_reason, approved_plus_ones, decision_message, anonymized_at) values
+  ('9a000000-0000-7000-8000-000000000023', '9e000000-0000-7000-8000-000000000009',
+   'Aanvraag #7', 1, 'denied', '11111111-1111-4111-8111-111111111111', now(),
+   'Pete old reason', null, null, now() - interval '30 days'),
+  ('9a000000-0000-7000-8000-000000000024', '9e000000-0000-7000-8000-000000000009',
+   'Aanvraag #8', 1, 'approved', '11111111-1111-4111-8111-111111111111', now(),
+   null, 0, 'Mia late note', now() - interval '30 days');
+insert into public.audit_log (actor_id, venue_id, event_id, entity_type, entity_id, action, diff) values
+  ('11111111-1111-4111-8111-111111111111', 'aa000000-0000-7000-8000-000000000001',
+   '9e000000-0000-7000-8000-000000000009', 'guest_requests', '9a000000-0000-7000-8000-000000000023', 'deny',
+   '{"before": {"status": "pending", "decision_reason": null}, "after": {"status": "denied", "decision_reason": "Pete old reason"}}'),
+  ('11111111-1111-4111-8111-111111111111', 'aa000000-0000-7000-8000-000000000001',
+   '9e000000-0000-7000-8000-000000000009', 'guest_requests', '9a000000-0000-7000-8000-000000000024', 'approve',
+   '{"before": {"status": "pending", "decision_message": null}, "after": {"status": "approved", "decision_message": "Mia late note"}}');
+
 select pg_temp.login('11111111-1111-4111-8111-111111111111');
 select lives_ok(
   $$ select public.approve_guest_request('9a000000-0000-7000-8000-000000000009',
        '9d000000-0000-7000-8000-000000000009', 1, 'Olga, bring your ID.') $$,
   'G1 an old request is approved with a message');
+-- The live deny path (denyGuestRequest under RLS): the reason lands in the diff.
+select is(
+  pg_temp.rowcount($$ update public.guest_requests
+                        set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111',
+                            decided_at = now(), decision_reason = 'Dana was rude at the door'
+                      where id = '9a000000-0000-7000-8000-000000000021' and status = 'pending' $$),
+  1, 'G2 an old request is denied with a reason');
+select throws_ok(
+  $$ select public.approve_guest_request('9a000000-0000-7000-8000-000000000024',
+       '9d000000-0000-7000-8000-000000000009', 0, 'another late note') $$,
+  'P0002', null, 'G3 an ANONYMIZED request cannot be decided at all (not found), so no message lands after anonymization');
 reset role;
 
-select lives_ok($$ select * from public.run_privacy_retention() $$, 'G2 the retention job runs');
+create temp table pa_run1 as select * from public.run_privacy_retention();
+select ok((select requests_anonymized from pa_run1) >= 3, 'G4 the retention job runs and anonymizes the old requests');
 select is(
   (select coalesce(decision_message, '<null>') || '|' || approved_plus_ones::text
      from public.guest_requests where id = '9a000000-0000-7000-8000-000000000009'),
-  '<null>|1', 'G3 retention nulls the message (the approved count is not PII and stays)');
+  '<null>|1', 'G5 retention nulls the message (the approved count is not PII and stays)');
 select is(
   (select count(*)::int from public.audit_log
     where entity_type = 'guest_requests' and entity_id = '9a000000-0000-7000-8000-000000000009'
       and diff::text like '%bring your ID%'),
-  0, 'G4 ...and scrubs it from the request''s approve diff in the audit log');
+  0, 'G6 ...and scrubs it from the request''s approve diff in the audit log');
 select ok(
   (select diff -> 'after' -> 'redacted_fields' ? 'decision_message'
      from public.audit_log
     where entity_type = 'guest_requests' and entity_id = '9a000000-0000-7000-8000-000000000009'
       and action = 'anonymize'),
-  'G5 the anonymize entry lists decision_message among the redacted fields');
+  'G7 the anonymize entry lists decision_message among the redacted fields');
+select ok(
+  (select decision_reason is null from public.guest_requests where id = '9a000000-0000-7000-8000-000000000021')
+  and not exists (select 1 from public.audit_log
+                   where entity_id = '9a000000-0000-7000-8000-000000000021'
+                     and diff::text like '%rude at the door%'),
+  'G8 the deny reason is gone from the anonymized row AND from its deny diff (the anonymize entry''s claim is now true)');
+select ok(
+  (select decision_reason is null from public.guest_requests where id = '9a000000-0000-7000-8000-000000000023')
+  and not exists (select 1 from public.audit_log
+                   where entity_id = '9a000000-0000-7000-8000-000000000023'
+                     and diff::text like '%Pete old reason%'),
+  'G9 backfill: a request anonymized by an EARLIER run loses the deny reason it kept, on the row and in the diff');
+select ok(
+  (select decision_message is null from public.guest_requests where id = '9a000000-0000-7000-8000-000000000024')
+  and not exists (select 1 from public.audit_log
+                   where entity_id = '9a000000-0000-7000-8000-000000000024'
+                     and diff::text like '%Mia late note%'),
+  'G10 backfill: a message on an earlier-anonymized request is gone from the row and the diff');
+select ok(
+  (select (diff -> 'after') ? 'decision_reason' and (diff -> 'after' ->> 'decision_reason') is null
+          and diff -> 'after' ->> 'status' = 'denied'
+     from public.audit_log
+    where entity_id = '9a000000-0000-7000-8000-000000000023' and action = 'deny'),
+  'G11 the diff keeps its structure: the key stays, only the value is redacted');
+
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select throws_ok(
+  $$ select public.approve_guest_request('9a000000-0000-7000-8000-000000000022',
+       '9d000000-0000-7000-8000-000000000009', 0, 'too late') $$,
+  'P0002', null, 'G12 a request anonymized by this run cannot be approved afterwards');
+reset role;
+
+create temp table pa_run2 as select * from public.run_privacy_retention();
+select is(
+  (select requests_anonymized::text || '|' || audit_rows_redacted::text from pa_run2),
+  '0|0', 'G13 a second run changes nothing: no request, no audit row (idempotent)');
+select is(
+  (select count(*)::int from public.guest_requests
+    where anonymized_at is not null and (decision_message is not null or decision_reason is not null)),
+  0, 'G14 no anonymized request anywhere still carries free decision text');
+select ok(
+  not has_function_privilege('authenticated', 'public.redact_anonymized_request_audit_pii()', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.redact_anonymized_request_audit_pii()', 'EXECUTE')
+  and not has_function_privilege('service_role', 'public.redact_anonymized_request_audit_pii()', 'EXECUTE'),
+  'G15 the new audit scrub is owner-only, like its two siblings');
 
 select * from finish();
 
