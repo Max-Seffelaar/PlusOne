@@ -100,6 +100,14 @@ export const events = {
   copyLinkAria: 'Copy sign-up link',
   copyLinkLabel: 'Copy link',
   copyLinkDone: 'Copied!',
+  // "i" explainer beside the Sign-up link label (ADE UX round, item D). Three
+  // sentences: what the link is, what happens to a request, where to find it.
+  landingInfo: {
+    aria: 'What the sign-up link does',
+    title: 'What the sign-up link does',
+    body: 'Every event gets a public page at /e/your-event. Guests fill in their name and plus-ones, you approve them under Requests, and approved guests land on the list. Copy or share the link from Request links once the event is saved.',
+    close: 'Got it',
+  },
   // Per-influencer request links row (F1) — mirrors the Tiers/Crew rows.
   linksRowTitle: 'Request links',
   linksRowSubOne: '{n} active link · per-influencer tracking',
@@ -165,7 +173,9 @@ export const events = {
   errCreateTier: "Couldn't create the tier.",
   errSaveAlias: "Couldn't save the alias.",
   newTier: 'New tier',
-  tierNamePlaceholder: 'Name, e.g. "Backstage"',
+  // The example is a tier name a first-time venue actually recognizes (ADE UX
+  // round 17/9/2026, item F) — "Backstage" read as a feature, not an example.
+  tierNamePlaceholder: 'Name, e.g. "Guest"',
   color: 'Color',
   colorAria: 'Color {color}',
   colorAllUsedWarning: 'All colors are in use — picking one will reuse it.',
@@ -181,6 +191,9 @@ export const events = {
   vatLabel: 'VAT % · display only',
   vatPlaceholder: '9',
   tierVatChip: '{pct}% VAT',
+  // Alias copy is kept but unused while the alias UI is hidden (ADE UX round
+  // 17/9/2026, item E — see TIER_ALIASES_UI in src/features/guests/tiers.ts).
+  // It renders again the moment that flag flips back on.
   aliasesFeedLabel: 'Aliases · feed the quick-add',
   aliasesPlaceholder: 'backstage, bs, prod…',
   aliasesNote:

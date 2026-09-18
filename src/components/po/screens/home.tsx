@@ -38,6 +38,7 @@ import { Icon, type IconName } from '../icon';
 import { Btn, Empty, Note, Scroll, press } from '../kit';
 import { Sheet, Toast } from '../shell';
 import { PendingInvitesBanner } from '../pending-invites-banner';
+import { HomeHeaderActions } from './home-header-actions';
 import { EventRow, StatusChip, toBoardEvents, type BoardEvent } from '../event-row';
 
 const TZ = 'Europe/Amsterdam';
@@ -596,20 +597,15 @@ export function Home(): JSX.Element {
                 )}
               </div>
             </div>
-            {showNewGuest && (
-              <div className="flex gap-2.5">
-                <Btn
-                  sm
-                  icon="plus"
-                  onClick={() => {
-                    setGuestQuery('');
-                    setGuestPickOpen(true);
-                  }}
-                >
-                  {t.home.newGuest}
-                </Btn>
-              </div>
-            )}
+            <HomeHeaderActions
+              isAdmin={isAdmin}
+              showNewGuest={showNewGuest}
+              onNewEvent={() => nav.push('eventedit', { isNew: true })}
+              onNewGuest={() => {
+                setGuestQuery('');
+                setGuestPickOpen(true);
+              }}
+            />
           </div>
 
           {isAdmin && billingLock.blocked && (

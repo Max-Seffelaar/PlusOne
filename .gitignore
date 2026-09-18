@@ -63,3 +63,6 @@ supabase/.temp
 
 # scripts/dev/screenshot.mjs output
 .screenshots/
+
+# Agent-tool worktree checkouts (isolation: "worktree")
+.claude/worktrees/

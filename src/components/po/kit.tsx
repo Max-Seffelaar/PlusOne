@@ -6,10 +6,12 @@
  * pixel values use arbitrary Tailwind values so the visual output matches the
  * handoff. Interaction: hover `brightness(1.07)`, active `scale(0.975)`.
  */
+import { useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties, JSX, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import type { Tier } from '@/lib/po/types';
+import { tierInk, tintTier } from '@/lib/po/tier-colors';
 import { Icon, type IconName } from './icon';
 
 // FE-4: the canonical press/cardPress feels — 26 files hand-rolled a local copy
@@ -30,14 +32,50 @@ export function initials(name: string): string {
 }
 
 // ── Avatar ──────────────────────────────────────────────────────────────────
-export function Avatar({ name, size = 44, accent }: { name: string; size?: number; accent?: boolean }): JSX.Element {
+/**
+ * Initials bubble. Three fills, in priority order:
+ *
+ * - `color` — the guest's TIER colour (ADE round, item I). Ink comes from
+ *   `tierInk` so a dark custom tier stays legible, and the border goes
+ *   transparent so the shape reads as one solid chip of the tier.
+ *   With `dim` it drops to the door's low-alpha tint + white ink, the same
+ *   recipe the cockpit uses for a guest who is already inside.
+ * - `accent` — the lavender brand fill, for NON-guest uses (venue, own profile,
+ *   "already imported"). Never use it to mean "VIP": a tier's real colour is
+ *   `color`, and the two disagreed for every non-lavender VIP-ish tier.
+ * - neither — the neutral elevated fill.
+ */
+export function Avatar({
+  name,
+  size = 44,
+  accent,
+  color,
+  dim,
+}: {
+  name: string;
+  size?: number;
+  accent?: boolean;
+  /** Tier colour (#RRGGBB) to fill with — wins over `accent`. */
+  color?: string;
+  /** Low-alpha tint of `color` + white ink (guest already inside). */
+  dim?: boolean;
+}): JSX.Element {
+  const style: CSSProperties = { width: size, height: size, borderRadius: size * 0.32, fontSize: size * 0.34 };
+  if (color) {
+    style.background = dim ? tintTier(color, 0.14) : color;
+    style.color = dim ? '#FFFFFF' : tierInk(color);
+  }
   return (
     <div
       className={cn(
-        'flex shrink-0 items-center justify-center font-display font-bold tracking-[-0.02em]',
-        accent ? 'bg-acc text-on-acc border border-transparent' : 'bg-elev2 text-text border border-line',
+        'flex shrink-0 items-center justify-center border font-display font-bold tracking-[-0.02em]',
+        color
+          ? 'border-transparent'
+          : accent
+            ? 'bg-acc text-on-acc border-transparent'
+            : 'bg-elev2 text-text border-line',
       )}
-      style={{ width: size, height: size, borderRadius: size * 0.32, fontSize: size * 0.34 }}
+      style={style}
     >
       {initials(name)}
     </div>
@@ -495,6 +533,106 @@ export function Note({ children, icon = 'shield' }: { children: ReactNode; icon?
 
 export function Empty({ text }: { text: string }): JSX.Element {
   return <div className="py-[30px] text-center text-[14px] text-faint">{text}</div>;
+}
+
+// ── InfoTip ──────────────────────────────────────────────────────────────────
+/**
+ * A 44x44 "i" button that explains the control beside it (ADE UX round, item D).
+ * One DOM node for both densities: an anchored popover from `lg:` up, a bottom
+ * sheet with a dimmed backdrop below it — no media-query JS, so it behaves the
+ * same in a Capacitor webview (#37). Closes on Escape, on an outside tap and on
+ * its own close button; the panel is wired to the button via `aria-describedby`.
+ * All copy comes from the caller's i18n surface — the kit ships no strings.
+ */
+export function InfoTip({
+  label,
+  title,
+  body,
+  closeLabel,
+  className,
+}: {
+  /** Accessible name for the "i" button, e.g. "What the sign-up link does". */
+  label: string;
+  title: string;
+  body: string;
+  closeLabel: string;
+  className?: string;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
+  const wrapRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent): void => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <span ref={wrapRef} className={cn('relative inline-flex', className)}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label={label}
+        aria-expanded={open}
+        aria-describedby={open ? panelId : undefined}
+        className={cn(
+          'flex h-[44px] w-[44px] cursor-pointer items-center justify-center rounded-full text-faint',
+          press,
+          open && 'text-acc',
+        )}
+      >
+        <span
+          className={cn(
+            'flex h-[19px] w-[19px] items-center justify-center rounded-full border border-current font-display text-[12px] font-bold leading-none',
+          )}
+          aria-hidden="true"
+        >
+          i
+        </span>
+      </button>
+      {open && (
+        <>
+          {/* Touch only: the sheet gets a backdrop; the desktop popover doesn't. */}
+          <span className="fixed inset-0 z-40 bg-[rgba(6,6,8,0.6)] backdrop-blur-[2px] lg:hidden" />
+          <span
+            id={panelId}
+            role="dialog"
+            aria-label={title}
+            className={cn(
+              // The extra bottom padding keeps the sheet's content clear of the
+              // mobile tab bar (which sits in normal flow under this overlay).
+              'fixed inset-x-0 bottom-0 z-50 block rounded-t-[22px] border border-line bg-elev p-[18px] pb-[calc(80px+env(safe-area-inset-bottom))] text-left shadow-[0_-16px_40px_rgba(0,0,0,0.55)]',
+              'lg:absolute lg:inset-x-auto lg:bottom-auto lg:left-0 lg:top-[calc(100%+6px)] lg:w-[300px] lg:rounded-[16px] lg:p-4 lg:shadow-[0_16px_40px_rgba(0,0,0,0.55)]',
+            )}
+          >
+            <span className="block font-display text-[15.5px] font-extrabold tracking-[-0.01em] text-text">{title}</span>
+            <span className="mt-1.5 block text-[13px] leading-[1.5] text-faint">{body}</span>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className={cn(
+                'mt-3 flex h-[44px] w-full cursor-pointer items-center justify-center rounded-[12px] border border-line font-display text-[13px] font-bold text-dim lg:h-[36px]',
+                press,
+              )}
+            >
+              {closeLabel}
+            </button>
+          </span>
+        </>
+      )}
+    </span>
+  );
 }
 
 // ── Spinner / Loading ─────────────────────────────────────────────────────────
