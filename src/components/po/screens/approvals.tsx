@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import {
   usePoCanManageTemplates,
+  usePoEventForEdit,
   usePoEvents,
   usePoGuestRequests,
   usePoQuotaRequests,
@@ -36,6 +37,8 @@ import { useNav } from '../context';
 import { Icon } from '../icon';
 import { Avatar, Btn, Empty, Label, MiniChip, Note, Top, press } from '../kit';
 import { AssignSheet, DenySheet, ErrLine, EventPickerSheet, LinkPickerSheet, type DenyTarget } from './approvals-sheets';
+import { CreateLinkFlow } from './promotion/create-link-flow';
+import { soonestUpcoming } from './promotion/shared';
 
 const col = 'flex h-full flex-col';
 
@@ -120,6 +123,7 @@ export function Aanvragen({
   const [deny, setDeny] = useState<DenyTarget | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const venueLinks = usePoVenueLinks();
+  const [creatingLink, setCreatingLink] = useState(false);
 
   const tiersQuery = usePoTiers(assign?.eventId ?? '');
   const approve = usePoApproveRequest();
@@ -129,6 +133,18 @@ export function Aanvragen({
   const allG = gReqs.data ?? [];
   const allQ = qReqs.data ?? [];
   const nameById = new Map(events.map((e) => [e.id, e.name]));
+
+  // "New request link" (z8uq9m0hw4) opens Promotion's CreateLinkFlow on the
+  // scoped event, or on "All events" the same default Promotion's hub picks.
+  // Gate = Promotion's per-event links screen (event-links.tsx): admin, or an
+  // organizer of that event — exactly the request_links_insert RLS. Finance
+  // reads this inbox but can't create links, so it never sees the button. Only
+  // an admin gets the flow's event picker; an organizer stays on the one event
+  // he runs (same rule as CreateLinkFlow's `events` prop doc).
+  const linkEvent = sel
+    ? events.find((e) => e.id === sel) ?? null
+    : soonestUpcoming(events) ?? events[0] ?? null;
+  const { canManage: canCreateLink, isAdmin } = usePoEventForEdit(linkEvent?.id ?? '');
 
   const q = search.trim().toLowerCase();
   const matches = (name: string): boolean => !q || name.toLowerCase().includes(q);
@@ -269,7 +285,18 @@ export function Aanvragen({
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title={ownOnly ? t.requests.ownTitle : t.requests.title} sub={scopeLabel} />
+      <Top
+        onBack={nav.back}
+        title={ownOnly ? t.requests.ownTitle : t.requests.title}
+        sub={scopeLabel}
+        right={
+          linkEvent && canCreateLink ? (
+            <Btn sm kind="ghost" icon="link" className="min-h-[44px]" onClick={() => setCreatingLink(true)}>
+              {t.requests.newLink}
+            </Btn>
+          ) : undefined
+        }
+      />
 
       {/* Event dropdown + request-link filter (F1) */}
       <div className="flex flex-none gap-2 px-5 pb-[10px]">
@@ -583,6 +610,14 @@ export function Aanvragen({
           }}
           onConfirm={(tierId) => void confirmApproveLanding(tierId)}
           onCreateTier={() => createTierFor(assign.eventId)}
+        />
+      )}
+      {creatingLink && linkEvent && (
+        <CreateLinkFlow
+          eventId={linkEvent.id}
+          eventName={linkEvent.name}
+          events={isAdmin ? events : undefined}
+          onClose={() => setCreatingLink(false)}
         />
       )}
       {deny && (

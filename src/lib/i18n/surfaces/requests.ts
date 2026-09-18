@@ -17,6 +17,8 @@ export const requests = {
   noVenue: 'No active venue selected.',
   noAccess: "You don't have access to requests.",
   ownTitle: 'Your requests',
+  // Header action (z8uq9m0hw4): opens Promotion's create-link flow from here.
+  newLink: 'New request link',
 
   // ── Search ──────────────────────────────────────────────────────────────────
   searchPlaceholder: 'Search by name…',
