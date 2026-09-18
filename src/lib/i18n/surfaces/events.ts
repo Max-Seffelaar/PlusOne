@@ -220,6 +220,15 @@ export const events = {
   saveTier: 'Save',
   saveTierAndNew: 'Save & add another',
   cancelTier: 'Cancel',
+  // Under a non-empty tier list (z8uq9m0hw3, item 4), replaces the header "+".
+  addAnotherTier: 'Add another tier',
+  // Editing a tier after creation (z8uq9m0hw3, item 5): same sheet, prefilled.
+  editTier: 'Edit tier',
+  editTierAria: 'Edit {name}',
+  saveTierChanges: 'Save changes',
+  errUpdateTier: "Couldn't save the tier.",
+  // Lowering the max below what the tier holds: allowed, nobody is removed.
+  maxBelowUsed: "{used} people are already on this tier. They stay on the list, but no one new fits until there's room under {max}.",
 
   // ── Past-event recap ────────────────────────────────────────────────────────
   recapTitle: 'Recap',
