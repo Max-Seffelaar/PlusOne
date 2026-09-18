@@ -78,7 +78,7 @@ export const events = {
   fieldTemplate: 'Start from',
   templateBlank: 'Blank event',
   templateShowAll: 'Show all ({n})',
-  templateNote: 'Just give your event a name, date, and doors time — the tiers, capacity, and settings come from the template.',
+  templateNote: 'Just give your event a name, date, and doors time. The tiers, capacity, and settings come from the template.',
   // "Tiers & aliases — feed the quick-add" was jargon to new users (T2, 1/7):
   // plain words for what you actually set up there.
   tiersRowTitle: 'Guest tiers',
@@ -87,7 +87,7 @@ export const events = {
   // Per-event default member quota (T10) — seeds the add-crew prefill.
   quotaLabel: 'Guest list',
   quotaTitle: 'Default quota per member',
-  quotaSub: 'Prefilled when you add crew — override per person',
+  quotaSub: 'Prefilled when you add crew. Override per person',
   quotaLess: 'Fewer',
   quotaMore: 'More',
 
@@ -110,8 +110,8 @@ export const events = {
   },
   // Per-influencer request links row (F1) — mirrors the Tiers/Crew rows.
   linksRowTitle: 'Request links',
-  linksRowSubOne: '{n} active link · per-influencer tracking',
-  linksRowSubMany: '{n} active links · per-influencer tracking',
+  linksRowSubOne: '{n} active link · per-promoter tracking',
+  linksRowSubMany: '{n} active links · per-promoter tracking',
   // Funnel summary over the event's active links (86ey8w79x).
   linksRowFunnel: '{views} clicks · {req} requests · {ok} approved',
   autoCloseTitle: 'Close sign-ups automatically',
@@ -142,7 +142,7 @@ export const events = {
   unsaved: {
     title: 'Unsaved changes',
     body: "You have changes here that aren't saved yet. Leave and discard them?",
-    bodyTemplate: "Your template isn't saved yet — it needs its own Save template tap. Leave and discard it?",
+    bodyTemplate: "Your template isn't saved yet. It needs its own Save template tap. Leave and discard it?",
     stay: 'Keep editing',
     discard: 'Discard & leave',
   },
@@ -150,7 +150,7 @@ export const events = {
   saveTemplateLabel: 'Reuse this setup',
   saveTemplateCta: 'Save as template',
   saveTemplateHint: "Saves this event's tiers, capacity, and settings as a reusable template you can pick next time.",
-  saveTemplatePlaceholder: 'Template name, e.g. "Lofi — open air"',
+  saveTemplatePlaceholder: 'Template name, e.g. "Lofi, open air"',
   saveTemplateConfirm: 'Save template',
   saveTemplateCancel: 'Cancel',
   saveTemplateDoneTitle: '"{name}" is saved.',
@@ -178,7 +178,7 @@ export const events = {
   tierNamePlaceholder: 'Name, e.g. "Guest"',
   color: 'Color',
   colorAria: 'Color {color}',
-  colorAllUsedWarning: 'All colors are in use — picking one will reuse it.',
+  colorAllUsedWarning: 'All colors are in use. Picking one will reuse it.',
   maxOptional: 'Max (optional)',
   maxPlaceholder: '∞ no maximum',
   // Paid tiers (#34 — display only, no payment processing). Free/Paid toggle (T3).
@@ -254,7 +254,7 @@ export const events = {
     // Crew screen.
     title: 'External crew',
     explainer:
-      'Your Team works every event automatically. External crew is added to this one event, like a DJ, artist, or guest organizer — they can add guests (up to a quota you set) and work the door, with no access to the rest of your venue.',
+      'Your Team works every event automatically. External crew is added to this one event, like a DJ, artist, or guest organizer. They can add guests (up to a quota you set) and work the door, with no access to the rest of your venue.',
     listLabel: 'On this crew',
     loading: 'Loading crew…',
     loadError: "Couldn't load the crew.",
@@ -283,7 +283,7 @@ export const events = {
     invitePlaceholder: 'dj@email.com',
     inviteCta: 'Send invite',
     inviting: 'Inviting…',
-    inviteDone: 'Added to the crew. No invite email is sent — tell them to sign in at /login with this email.',
+    inviteDone: 'Added to the crew. No invite email is sent. Tell them to sign in at /login with this email.',
     inviteError: "Couldn't send the invite.",
     assignLabel: 'Add a returning crew member',
     assignHint: 'Someone who’s been external crew here before. They keep their login; just set their guest quota.',

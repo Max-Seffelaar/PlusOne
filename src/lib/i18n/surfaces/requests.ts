@@ -36,9 +36,9 @@ export const requests = {
   // ── Read-only / own-status framing (M1, K-4/K-5) — finance sees the venue
   // inbox with no decide buttons; staff sees only their own submissions.
   pendingReviewBadge: 'Pending review',
-  readOnlyNote: "You can see every request here, but only an admin can decide. Reason: fraud resistance — every approval needs a single accountable decider.",
+  readOnlyNote: "You can see every request here, but only an admin can decide. Reason: fraud resistance. Every approval needs a single accountable decider.",
   ownQuotaNote:
-    "Extra slots you've asked for at this venue. An admin decides — once they do, the request drops off this list.",
+    "Extra slots you've asked for at this venue. An admin decides. Once they do, the request drops off this list.",
   ownEmptyQuota: 'No pending requests. Ask for extra slots from the add-guest screen when you run out.',
 
   // ── Landing-page (guest-list) queue ─────────────────────────────────────────
@@ -54,8 +54,8 @@ export const requests = {
   // the approve sheet spells both out in full, because that is the moment you
   // commit to reaching this person.
   contactHeading: 'Contact',
-  contactNoEmail: 'No email — filed before it was required',
-  contactNoPhone: 'No phone — filed before it was required',
+  contactNoEmail: 'No email: filed before it was required',
+  contactNoPhone: 'No phone: filed before it was required',
   decline: 'Decline',
   approveAdd: 'Approve…',
 
@@ -63,7 +63,7 @@ export const requests = {
   deniedHeading: 'Declined · {n}',
   deniedPhone: 'phone •••• {last4} · {at}',
   declined: 'Declined',
-  declinedReason: 'Declined — "{reason}"',
+  declinedReason: 'Declined: "{reason}"',
   approveAnyway: 'Approve anyway',
 
   // ── Quota queue ─────────────────────────────────────────────────────────────
