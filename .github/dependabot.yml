@@ -24,6 +24,33 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "react-dom"
         update-types: ["version-update:semver-major"]
+      # MEASURED LIMIT of the two rules below — do not read them as airtight
+      # (z8uq9m0h2h, 2026-09-18). PR #291 (production-dependencies) bumped
+      # @types/react 18.3.3 -> 19.3.0 in devDependencies with these rules in
+      # place. What was verified:
+      #   * Dependabot's own PR body lists 12 updates, ALL production deps.
+      #     Neither @types/react nor @types/react-dom is among them — so no
+      #     "@types/react update" existed for an ignore condition to filter.
+      #   * The manifest edit is not forced by resolution: with those 12 bumps
+      #     applied and the types left at 18, `pnpm install --lockfile-only`
+      #     resolves cleanly to @types/react 18.3.31 against react 19.3.0, with
+      #     no peer complaint.
+      #   * PR #292 (development-dependencies), the group @types/react actually
+      #     belongs to, left it at ^18.3.3 while bumping @types/node 20->26,
+      #     eslint 8->10, vitest 1->5 and tailwindcss 3->4 around it.
+      # So the rules DO work where Dependabot evaluates them; the bump rode in
+      # as a companion of the react/react-dom update, on a path where ignore
+      # conditions are never consulted. GitHub does not document that path and
+      # exposes no knob for it, so there is nothing here to tighten.
+      #
+      # ACCEPTED, because aligning the types is itself the structural fix: the
+      # companion bump only had a major to do while the runtime (19) and the
+      # types (18) had drifted apart. Both are on 19 now, and a react MAJOR is
+      # ignored below, so this path cannot produce a types major again without
+      # a react major landing first — which is its own migration task.
+      # The control that actually stopped the bad PR was blocking CI: #291's
+      # build failed and branch protection kept it out. That is the backstop
+      # here, not these two lines.
       - dependency-name: "@types/react"
         update-types: ["version-update:semver-major"]
       - dependency-name: "@types/react-dom"

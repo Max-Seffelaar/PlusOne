@@ -59,7 +59,7 @@ export function useWakeLock(): WakeLockState {
   // `onSentinelReleased` needs to call `acquire`, and `acquire` needs to pass
   // `onSentinelReleased` to `sentinel.addEventListener` — broken via a ref so
   // neither has to depend on the other's identity.
-  const acquireRef = useRef<() => Promise<void>>();
+  const acquireRef = useRef<(() => Promise<void>) | undefined>(undefined);
 
   const onSentinelReleased = useCallback(() => {
     sentinelRef.current = null;
