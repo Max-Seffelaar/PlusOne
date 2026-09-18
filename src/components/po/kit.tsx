@@ -573,7 +573,9 @@ export function InfoTip({
             role="dialog"
             aria-label={title}
             className={cn(
-              'fixed inset-x-0 bottom-0 z-50 block rounded-t-[22px] border border-line bg-elev p-[18px] pb-[calc(18px+env(safe-area-inset-bottom))] text-left shadow-[0_-16px_40px_rgba(0,0,0,0.55)]',
+              // The extra bottom padding keeps the sheet's content clear of the
+              // mobile tab bar (which sits in normal flow under this overlay).
+              'fixed inset-x-0 bottom-0 z-50 block rounded-t-[22px] border border-line bg-elev p-[18px] pb-[calc(80px+env(safe-area-inset-bottom))] text-left shadow-[0_-16px_40px_rgba(0,0,0,0.55)]',
               'lg:absolute lg:inset-x-auto lg:bottom-auto lg:left-0 lg:top-[calc(100%+6px)] lg:w-[300px] lg:rounded-[16px] lg:p-4 lg:shadow-[0_16px_40px_rgba(0,0,0,0.55)]',
             )}
           >
