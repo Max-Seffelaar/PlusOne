@@ -8,6 +8,47 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-18 — Client writes on guest_requests can only deny (L5)
+
+Branch `claude/guest-requests-decide-status-guard`. Milestone: **Now**, a live RLS gap on
+prod. Migration `20260918213000_guest_requests_decide_deny_only.sql`. High-risk surface
+(RLS policy + grants), so the PR body carries an adversarial security-research prompt and
+the PR needs a fresh-session `/code-review` + `/security-review` before merge.
+
+**The bug.** Found by the fresh-session review of PR #308 (finding L5), pre-existing.
+`guest_requests_decide` pinned the old row (`status = 'pending'`), the actor and the
+admin/organizer role, but not the new status, and `authenticated` held a table-wide
+UPDATE. An admin PATCH of `status = 'approved'` succeeded with no guest row: tier-max,
+capacity and link-max never ran, and `/r/[token]` showed the requester "approved" for a
+list they were not on. Reproduced locally in a rolled-back transaction (`UPDATE 1`,
+0 guests). The same grant let a deny rewrite any other column in the same PATCH.
+
+**The fix.** Two layers. The policy's `WITH CHECK` requires `status = 'denied'` (the only
+client transition is `pending → denied`); UPDATE is granted per column on exactly what
+`denyGuestRequest` writes (`status`, `decided_by`, `decided_at`, `decision_reason`). A
+column grant also keeps columns added later closed by default. SECURITY DEFINER paths
+(approve, re-approve, auto-approve, retention) run as the owner and are unaffected.
+
+**Relation to PR #308.** Its `guard_guest_request_decision_fields` trigger (plus_ones,
+approved_plus_ones, decision_message) is not duplicated. With both merged, the column
+grant refuses those writes first and the trigger stays as a second layer. Checked by
+stacking #308's migration and this one in one transaction: `partial_approval.test.sql`
+76/76 and `guest_requests_decide.test.sql` 37/37.
+
+**Tests.** New `guest_requests_decide.test.sql` (37). `rls.test.sql` N3 asserted the
+direct approve as *allowed* and now asserts it is refused (N3) and that the deny works
+(N3b), plan 74 to 75. The full suite ran with the migration applied inside one rolled-back
+transaction per file on the shared local stack. The only failures (`analytics`,
+`auth.invites`, `onboarding`, `rls` P1) fail identically without the migration; they come
+from data drift in the shared DB (for example 16 events where the seed has 1). CI runs on
+a fresh reset.
+
+**Gotcha.** A policy cannot compare OLD with NEW, so a status rule in `WITH CHECK` does
+not stop a deny from also rewriting other columns. That part needs a column grant or a
+trigger.
+
+---
+
 ## 2026-09-18 — Status-token hijack on the silent-dedup path (z8uq9m0h2v)
 
 Branch `fix/z8uq9m0h2v-status-token-hijack`. Milestone: **Now** — anon-reachable PII
