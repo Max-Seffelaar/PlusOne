@@ -218,7 +218,7 @@ export const settings = {
     streetPlaceholder: 'Herengracht 1',
     postalPlaceholder: '1000 AA',
     cityPlaceholder: 'Amsterdam',
-    countryPlaceholder: 'NL',
+    countryPlaceholder: 'Pick a country',
     saved: 'Settings saved.',
     saving: 'Saving…',
     save: 'Save settings',

@@ -8,13 +8,19 @@ import { venueCapabilities } from '@/features/venues/access';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { usePoVenueSettings } from '@/features/po/hooks';
 import { usePoUpdateVenueSettings } from '@/features/po/mutations';
+import { COUNTRIES } from '@/lib/countries';
 import { useNav, usePo } from '../../context';
 import { Icon } from '../../icon';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, Scroll, ToggleRow, Top, press } from '../../kit';
+import { SearchSelect, type SearchSelectOption } from '../../search-select';
 import { BottomBar } from '../../shell';
 import { col, FormError } from './_shared';
 
 const iconSm = 'flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border border-line text-faint';
+
+/** venues.country holds the ISO 3166-1 alpha-2 code ('NL'); the list shows the
+ *  English name with the code beside it. */
+const COUNTRY_OPTIONS: readonly SearchSelectOption[] = COUNTRIES.map((c) => ({ value: c.code, label: c.name, hint: c.code }));
 
 // ── VENUE SWITCHER (pushed) ──────────────────────────────────────────────────
 export function VenueSwitch(): JSX.Element {
@@ -279,7 +285,19 @@ export function VenueSettings(): JSX.Element {
           </div>
         </div>
         <Label className="mb-2">{t.settings.venue.countryFieldLabel}</Label>
-        <Field value={form.country} onChange={editStr('country')} placeholder={t.settings.venue.countryPlaceholder} className="mb-1.5" />
+        {/* A stored value that isn't a code (legacy free text) shows as-is and is
+            only replaced when the admin picks a country. */}
+        <SearchSelect
+          value={form.country}
+          options={COUNTRY_OPTIONS}
+          onChange={editStr('country')}
+          label={t.settings.venue.countryFieldLabel}
+          placeholder={t.settings.venue.countryPlaceholder}
+          searchPlaceholder={t.shared.country.searchPlaceholder}
+          searchLabel={t.shared.country.searchAria}
+          emptyText={t.shared.country.empty}
+          className="mb-1.5"
+        />
 
         <FormError error={save.isError ? save.error : null} />
         {save.isSuccess && !dirty && <p className="mt-3 text-[12.5px] text-acc-soft">{t.settings.venue.saved}</p>}
