@@ -194,7 +194,7 @@ export async function denyGuestRequest(input: DenyGuestRequestInput): Promise<Ac
 
   // RLS (guest_requests_decide) pins status='pending' -> 'denied', the actor,
   // and the admin/organizer role; a stale/decided request simply matches no row.
-  // authenticated may UPDATE only these four columns (20260918213000), so adding
+  // authenticated may UPDATE only these four columns (20260919150000), so adding
   // a field here needs a column grant in a migration first.
   const { error } = await supabase
     .from('guest_requests')

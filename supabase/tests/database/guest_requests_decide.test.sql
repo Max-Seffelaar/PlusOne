@@ -1,5 +1,5 @@
 -- pgTAP — a client write on guest_requests can only DENY a pending request
--- (L5, migration 20260918213000; run: supabase test db).
+-- (L5, migration 20260919150000; run: supabase test db).
 --
 -- Before that migration an admin/organizer could PATCH status = 'approved'
 -- straight through PostgREST: UPDATE 1, no guest created, and /r/[token] told

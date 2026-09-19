@@ -14,8 +14,8 @@
 -- and it succeeded with no guest row created: approve_guest_request (the only
 -- path that inserts the guest, checks tier-max 45002 / capacity 45005 /
 -- link-max 45006 and attributes the approver) never ran. /r/[token] then shows
--- the requester "approved" (and, once PR #308 lands, the venue address) for a
--- request that has nobody on the list, and the door turns them away.
+-- the requester "approved" (and, since 20260919090000, the venue address) for
+-- a request that has nobody on the list, and the door turns them away.
 -- Reproduced on the local stack before writing this, in a rolled-back
 -- transaction.
 --
@@ -56,16 +56,17 @@
 -- writable during a deny; (2) alone would still let the status column be set to
 -- 'approved'. Together: pending -> denied on four columns, nothing else.
 --
--- RELATION TO PR #308 (guard_guest_request_decision_fields, not merged yet)
+-- RELATION TO 20260919090000 (guard_guest_request_decision_fields)
 --
--- #308 adds a BEFORE UPDATE trigger refusing client changes to plus_ones,
--- approved_plus_ones and decision_message. This migration does not duplicate
--- it: no trigger here, and none of those columns is named. Once both are in,
--- the column grant refuses those writes first (plus_ones is not granted; the
--- two new columns are never granted), so the trigger becomes a second layer
--- that also covers a future re-grant. #308's tests E1/E2 assert errcode 42501
--- with no message, which both layers raise, and its deny-path tests E3/G2
--- write exactly the four granted columns.
+-- That migration added a BEFORE UPDATE trigger refusing client changes to
+-- plus_ones, approved_plus_ones and decision_message. Its comment says
+-- `authenticated` holds a table-wide UPDATE; from here on it does not. This
+-- migration does not duplicate the trigger: no trigger here, and none of those
+-- columns is named, so none of them is granted. The column grant now refuses
+-- those writes first, and the trigger stays as a second layer that also covers
+-- a future re-grant. partial_approval.test.sql E1/E2 assert errcode 42501 with
+-- no message, which both layers raise; its deny-path tests E3/G2 write exactly
+-- the four granted columns.
 --
 -- NOT CHANGED: SELECT and INSERT for authenticated. INSERT stays pinned to
 -- status = 'pending' by guest_requests_insert_public, so it cannot plant an
@@ -97,7 +98,7 @@ alter policy guest_requests_decide on public.guest_requests
   );
 
 comment on policy guest_requests_decide on public.guest_requests is
-  'Client decision on a landing request = DENY only: pending -> denied by an admin of the venue or an organizer of the event, as themselves. Approval goes through approve_guest_request (SECURITY DEFINER), never a direct write. Column UPDATE grants limit the write to status/decided_by/decided_at/decision_reason (20260918213000).';
+  'Client decision on a landing request = DENY only: pending -> denied by an admin of the venue or an organizer of the event, as themselves. Approval goes through approve_guest_request (SECURITY DEFINER), never a direct write. Column UPDATE grants limit the write to status/decided_by/decided_at/decision_reason (20260919150000).';
 
 -- ---------------------------------------------------------------------------
 -- 2. ...and it touches the deny columns only

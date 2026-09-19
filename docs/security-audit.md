@@ -421,7 +421,7 @@ list they were not on. The table-wide UPDATE grant also let the deny path rewrit
 other column (`event_id`, `full_name`/`email`/`phone`, `status_token_hash`,
 `decided_via`, `request_link_id`, `anonymized_at`). Reproduced on the local stack.
 
-**Fix** (`20260918213000_guest_requests_decide_deny_only.sql`): the policy's `WITH CHECK`
+**Fix** (`20260919150000_guest_requests_decide_deny_only.sql`): the policy's `WITH CHECK`
 now requires `status = 'denied'`, so the only client transition is `pending → denied`,
 and `authenticated` holds UPDATE on exactly `status`, `decided_by`, `decided_at`,
 `decision_reason` (what `denyGuestRequest` writes). Approval, including re-approval of a

@@ -8,10 +8,12 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
-## 2026-09-18 — Client writes on guest_requests can only deny (L5)
+## 2026-09-19 — Client writes on guest_requests can only deny (L5, z8uq9m0jce)
 
 Branch `claude/guest-requests-decide-status-guard`. Milestone: **Now**, a live RLS gap on
-prod. Migration `20260918213000_guest_requests_decide_deny_only.sql`. High-risk surface
+prod. Migration `20260919150000_guest_requests_decide_deny_only.sql` (first written as
+`20260918213000`, renamed to sort after #308's `20260919090000`, which prod already has:
+the CLI refuses a local migration older than the newest remote one). High-risk surface
 (RLS policy + grants), so the PR body carries an adversarial security-research prompt and
 the PR needs a fresh-session `/code-review` + `/security-review` before merge.
 
@@ -29,11 +31,12 @@ client transition is `pending → denied`); UPDATE is granted per column on exac
 column grant also keeps columns added later closed by default. SECURITY DEFINER paths
 (approve, re-approve, auto-approve, retention) run as the owner and are unaffected.
 
-**Relation to PR #308.** Its `guard_guest_request_decision_fields` trigger (plus_ones,
-approved_plus_ones, decision_message) is not duplicated. With both merged, the column
-grant refuses those writes first and the trigger stays as a second layer. Checked by
-stacking #308's migration and this one in one transaction: `partial_approval.test.sql`
-76/76 and `guest_requests_decide.test.sql` 37/37.
+**Relation to #308 (`20260919090000`).** Its `guard_guest_request_decision_fields`
+trigger (plus_ones, approved_plus_ones, decision_message) is not duplicated. The column
+grant now refuses those writes first and the trigger stays as a second layer; its
+migration comment about a table-wide UPDATE grant is stale from here on. Checked by
+applying both migrations in order in one transaction: `partial_approval.test.sql` and
+`guest_requests_decide.test.sql` both pass.
 
 **Tests.** New `guest_requests_decide.test.sql` (37). `rls.test.sql` N3 asserted the
 direct approve as *allowed* and now asserts it is refused (N3) and that the deny works
