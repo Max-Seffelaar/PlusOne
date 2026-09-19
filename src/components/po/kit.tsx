@@ -475,6 +475,33 @@ export function Row({
   );
 }
 
+// ── Tap targets ──────────────────────────────────────────────────────────────
+/**
+ * Tap-target floor (CLAUDE.md: >= 44px) for the prototype's 40px icon chips.
+ * The chip keeps its visible 40px so header geometry doesn't move; an invisible
+ * `::before` ring reaches 2px past every edge, making the pointer hit area
+ * 44x44. The inset is 3px because an absolute box is placed against the
+ * *padding* box: 1px of it goes to the chip's own 1px border. The ring is part
+ * of the button, so a tap on it is a tap on the button. Chips sit `gap-2` (8px)
+ * apart, so neighbouring rings never overlap. Pinned by `kit.tap-target.test.tsx`,
+ * which also fails CI on any new sub-44 button.
+ */
+export const hitArea44 = "relative before:absolute before:-inset-[3px] before:content-['']";
+
+/** The header back chip (`Top`'s `onBack`, and Home's back when it was pushed). */
+export function BackBtn({ onClick }: { onClick?: () => void }): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text', press, hitArea44)}
+      aria-label={t.shared.kit.back}
+    >
+      <Icon name="back" size={20} />
+    </button>
+  );
+}
+
 // ── Top (screen header) ──────────────────────────────────────────────────────
 export function Top({
   title,
@@ -489,11 +516,7 @@ export function Top({
   right?: ReactNode;
   sub?: ReactNode;
 }): JSX.Element {
-  const backBtn = (
-    <button type="button" onClick={onBack} className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text', press)} aria-label={t.shared.kit.back}>
-      <Icon name="back" size={20} />
-    </button>
-  );
+  const backBtn = <BackBtn onClick={onBack} />;
   if (big) {
     return (
       <div className="flex-none px-5 pb-[14px] pt-2">
@@ -537,7 +560,7 @@ export function IconBtn({
       onClick={onClick}
       aria-label={ariaLabel}
       title={ariaLabel}
-      className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text', press, className)}
+      className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text', press, hitArea44, className)}
     >
       <Icon name={name} size={19} />
     </button>

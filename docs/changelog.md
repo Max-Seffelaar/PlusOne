@@ -54,6 +54,37 @@ reverses a documented trade-off, so it's a separate task.
 
 ---
 
+## 2026-09-18 — 44px tap targets on header icon buttons
+
+Branch `claude/iconbtn-tap-target-44`. Milestone: **Now** (CLAUDE.md's tap-target floor
+is a hard rule; the door is the most tap-critical surface). No migration.
+
+**The gap.** The kit's `IconBtn` and `Top`'s back button were 40x40, as were the
+hand-rolled header chips built the same way (contact-profile star, audit filter,
+pushed-Home back, link-card QR). The door's `SyncBar` wake-lock and sync-now chips
+were 30x30. Measured in a real browser against the fixture harness with
+`elementFromPoint`: every one of them hit at exactly its visible size.
+
+**Fix, zero visual churn.** `design-system.md` asks for a pixel match with the
+prototype, so the visible chips keep their size. `hitArea44` (kit) adds an invisible
+`::before` ring that is part of the button, taking the hit area to 44x44. Before/after
+screenshots of 11 headers at 390px and 1440px are pixel-identical (the only differing
+pixels are the cockpit's live clock). `SyncBar`'s chips are only 10px apart, so their
+ring is lopsided (5px inside, 9px outside) and the two rings meet without overlapping.
+
+**Gotcha worth keeping.** An absolutely positioned `::before` is placed against the
+*padding* box, so `before:-inset-[2px]` on a 1px-bordered chip only gains 1px per side
+(42, not 44). The first browser probe caught it; the inset is 3px.
+
+**Guard.** `src/components/po/kit.tap-target.test.tsx` renders the kit chips and derives
+their hit box from their classes (visible size + ring - border), and a source ratchet
+fails CI on any new fixed-size `<button>` under 44px. The 22 sub-44 row/card controls
+that predate it (colour swatches, steppers, 38px row actions, cockpit check slots,
+Toggle) are listed per file with exact counts, so the list can only shrink. Those are
+the follow-up.
+
+---
+
 ## 2026-09-18 — Domain placeholders point at plus-one.io
 
 Branch `chore/plus-one-io-domain`. Milestone: **Now** — the consent gate links and every
