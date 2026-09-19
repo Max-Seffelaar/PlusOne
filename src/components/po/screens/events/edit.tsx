@@ -34,7 +34,9 @@ import { ScheduleFields } from './schedule-fields';
 import { TemplatePicker } from './template-picker';
 import { col, ScreenState } from './shared';
 
-const iconSm = 'flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border border-line text-faint';
+// 34px quota stepper; the ring reaches 5px past its 1px border (44x44). Minus and
+// plus sit 38px apart (the count between them), so the rings never meet.
+const iconSm = "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border border-line text-faint relative before:absolute before:-inset-[6px] before:content-['']";
 
 // ── EVENT edit / create (pushed) ─────────────────────────────────────────────────
 /** ISO instant → [date, time] local strings for the date/time inputs. */
