@@ -56,3 +56,38 @@ export function deriveEnd(dateStr: string, timeStr: string, hours = 6): DerivedE
     endTimeStr: `${pad(Math.floor(rest / 60))}:${pad(rest % 60)}`,
   };
 }
+
+/** 'HH:mm' → minutes after midnight, or null when unreadable. */
+function clockMinutes(timeStr: string): number | null {
+  const tm = /^(\d{1,2}):(\d{2})$/.exec((timeStr ?? '').trim());
+  if (!tm) return null;
+  const hour = Number(tm[1]);
+  const minute = Number(tm[2]);
+  if (hour > 23 || minute > 59) return null;
+  return hour * 60 + minute;
+}
+
+/**
+ * Events cross midnight (#26). When the user sets an end time at or before the
+ * doors time while the end date is still the start date, the only sensible
+ * reading is "the next morning": a night that opens at 23:00 and "ends at 04:00"
+ * ends at 04:00 tomorrow. This returns the end date the form should hold after
+ * that edit, instead of letting the save fail with "The end must be after the
+ * start" (Joeri walkthrough, z8uq9m0hw3).
+ *
+ * Only that one case moves: a different end date, an end after the doors, or a
+ * missing/unreadable field returns `endDateStr` unchanged. An end exactly at the
+ * doors time rolls too (a 24-hour night), since an end equal to the start can
+ * never be saved.
+ *
+ * @returns the end date the form should hold, 'YYYY-MM-DD'.
+ */
+export function rollEndDate(startDateStr: string, startTimeStr: string, endDateStr: string, endTimeStr: string): string {
+  if (!endDateStr || endDateStr !== startDateStr) return endDateStr;
+  const start = clockMinutes(startTimeStr);
+  const end = clockMinutes(endTimeStr);
+  if (start === null || end === null || end > start) return endDateStr;
+  // Midnight + 24 h on the wall clock is the next calendar day; deriveEnd's
+  // midday anchor keeps that DST-proof and validates the date for us.
+  return deriveEnd(startDateStr, '00:00', 24).endDateStr || endDateStr;
+}

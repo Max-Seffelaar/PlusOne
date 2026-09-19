@@ -14,7 +14,7 @@ weten dan de klant.
 
 1. **Account**: gratis BetterStack-account (betterstack.com/uptime), geen
    creditcard nodig op het free-tier.
-2. **Monitor aanmaken**: type HTTP(S), URL = `https://<prod-domein>/api/health`,
+2. **Monitor aanmaken**: type HTTP(S), URL = `https://app.plus-one.io/api/health`,
    interval **1 minuut**, verwacht statuscode **200**, timeout ~10s.
 3. **Escalatie/on-call**: alert-policy zo instellen dat een failure **direct**
    naar Max' telefoon gaat (push via de BetterStack-app is het snelst; SMS/call

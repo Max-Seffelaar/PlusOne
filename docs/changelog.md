@@ -54,6 +54,30 @@ reverses a documented trade-off, so it's a separate task.
 
 ---
 
+## 2026-09-18 — Domain placeholders point at plus-one.io
+
+Branch `chore/plus-one-io-domain`. Milestone: **Now** — the consent gate links and every
+setup doc must name the real domain before venue #5 signs. Decision (Max): the marketing
+site owns `plus-one.io` (apex canonical, `www` redirects to it; repo `Plus-One.io`), the
+app moves to `app.plus-one.io`. Recorded as resolved open point 3 in the spec and in
+CLAUDE.md §Env.
+
+**Changed.** `src/lib/legal.ts` Terms/Privacy fallbacks `plusone.app/terms|privacy` →
+`https://plus-one.io/legal#terms|#privacy` (the site's legal page picks its tab from the
+hash); the go-live TODO (86ey1vbrj) now covers only the final legal text. `.env.example`
+`NEXT_PUBLIC_APP_URL`, the Supabase Site URL example (`docs/auth-setup.md`), the Stripe
+webhook endpoint, the uptime monitor URL, the Turnstile hostname, the runbook's Sentry
+checks + key facts, the `invite-link.mjs` usage lines and the S15/S16 design mocks all
+name `app.plus-one.io` / `plus-one.io` now. No runtime origin is hard-coded: in-app links
+already use `window.location.origin` and billing reads `NEXT_PUBLIC_APP_URL`.
+
+**Not in this change (live config, done by hand when the domain goes live).** Attach
+`app.plus-one.io` to the Vercel project `plus-one`; attach `plus-one.io` + `www` to
+`plus-one-io` and flip the redirect to www → apex (today the apex 308s to `www`, which
+404s); Supabase Auth Site URL + redirect allow-list; Stripe webhook endpoint; Turnstile
+hostname; BetterStack monitor; `NEXT_PUBLIC_APP_URL` in Vercel. The Resend sending
+domain stays `theoperators.nl` until F3 (86ey6b3hv).
+
 ## 2026-09-18 — Status-token hijack on the silent-dedup path (z8uq9m0h2v)
 
 Branch `fix/z8uq9m0h2v-status-token-hijack`. Milestone: **Now** — anon-reachable PII

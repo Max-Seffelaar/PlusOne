@@ -5,6 +5,8 @@ import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { usePoEvent, usePoEventForEdit, usePoEventRecap } from '@/features/po/hooks';
+import type { EventPhase } from '@/features/po/event-phase';
+import { recapAbsentCopy } from '@/features/po/format';
 import { venueCapabilities } from '@/features/venues/access';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { useNav } from '../../context';
@@ -13,7 +15,7 @@ import { Avatar, Btn, Empty, IconBtn, Label, Scroll, Top, press } from '../../ki
 import { TierPill } from '../guests/_shared';
 import { col, ScreenState } from './shared';
 import { EventStatsPanel } from './stats-panel';
-import { SaveAsTemplate } from './edit';
+import { SaveAsTemplate } from './save-as-template';
 
 // ── PAST EVENT recap (pushed) ────────────────────────────────────────────────────
 const RECAP_CAP = 8;
@@ -37,6 +39,9 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
   const maxT = Math.max(1, ...r.perTier.map((x) => x.aangemeld));
   const inList = showAllIn ? r.checkedIn : r.checkedIn.slice(0, RECAP_CAP);
   const noList = showAllNo ? r.noShows : r.noShows.slice(0, RECAP_CAP);
+  // Phase-named (z8uq9m0hw4): null before the event, "On the way" during,
+  // "No-shows" only once it has ended — even on a direct URL to a live recap.
+  const absent = recapAbsentCopy(ev.phase);
 
   return (
     <div className={col}>
@@ -63,14 +68,16 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
         </div>
 
         <div className="mb-4 grid grid-cols-2 gap-[10px]">
-          <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
+          <div className={cn('rounded-[18px] border border-line bg-elev px-4 py-[14px]', !absent && 'col-span-2')}>
             <div className="font-display text-[30px] font-extrabold leading-none text-acc">{r.arrived}</div>
             <div className="mt-1 text-[12.5px] text-dim">{t.events.checkedIn}</div>
           </div>
-          <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
-            <div className="font-display text-[30px] font-extrabold leading-none text-text">{r.noShow}</div>
-            <div className="mt-1 text-[12.5px] text-faint">{t.events.noShows}</div>
-          </div>
+          {absent && (
+            <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
+              <div className="font-display text-[30px] font-extrabold leading-none text-text">{r.noShow}</div>
+              <div className="mt-1 text-[12.5px] text-faint">{absent.tile}</div>
+            </div>
+          )}
         </div>
 
         <Label className="mb-[10px]">{fmt(t.events.checkedInLabel, { n: r.checkedIn.length })}</Label>
@@ -112,36 +119,40 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
 
         </div>
         <div className="mt-4 lg:mt-0">
-        <Label className="mb-[10px]">{fmt(t.events.noShowsLabel, { n: r.noShows.length })}</Label>
-        {r.noShows.length === 0 ? (
-          <div className="mb-[18px]">
-            <Empty text={t.events.everyoneShowed} />
-          </div>
-        ) : (
-          <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-[14px] py-0.5">
-            {noList.map((g, i) => (
-              <div key={`${g.name}-${i}`} className={cn('flex items-center gap-[12px] py-[11px] opacity-[0.72]', i < noList.length - 1 && 'border-b border-line2')}>
-                <Avatar name={g.name} size={36} />
-                <div className="min-w-0 flex-1">
-                  <div className="font-display text-[14.5px] font-bold text-dim">
-                    {g.name}
-                    {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
+        {absent && (
+          <>
+          <Label className="mb-[10px]">{fmt(absent.heading, { n: r.noShows.length })}</Label>
+          {r.noShows.length === 0 ? (
+            <div className="mb-[18px]">
+              <Empty text={absent.empty} />
+            </div>
+          ) : (
+            <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-[14px] py-0.5">
+              {noList.map((g, i) => (
+                <div key={`${g.name}-${i}`} className={cn('flex items-center gap-[12px] py-[11px] opacity-[0.72]', i < noList.length - 1 && 'border-b border-line2')}>
+                  <Avatar name={g.name} size={36} />
+                  <div className="min-w-0 flex-1">
+                    <div className="font-display text-[14.5px] font-bold text-dim">
+                      {g.name}
+                      {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
+                    </div>
+                    {g.by && <div className="mt-[3px] text-[12px] text-faint">{fmt(t.events.addedBy, { by: g.by })}</div>}
                   </div>
-                  {g.by && <div className="mt-[3px] text-[12px] text-faint">{fmt(t.events.addedBy, { by: g.by })}</div>}
+                  <span className="text-[12px] font-bold text-faint">{absent.tag}</span>
                 </div>
-                <span className="text-[12px] font-bold text-faint">{t.events.noShowTag}</span>
-              </div>
-            ))}
-            {!showAllNo && r.noShows.length > RECAP_CAP && (
-              <button
-                type="button"
-                onClick={() => setShowAllNo(true)}
-                className="w-full border-t border-line2 py-3 font-body text-[13.5px] font-bold text-dim transition-[filter] hover:brightness-[1.2]"
-              >
-                {fmt(t.events.showAllNoShows, { n: r.noShows.length })}
-              </button>
-            )}
-          </div>
+              ))}
+              {!showAllNo && r.noShows.length > RECAP_CAP && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllNo(true)}
+                  className="w-full border-t border-line2 py-3 font-body text-[13.5px] font-bold text-dim transition-[filter] hover:brightness-[1.2]"
+                >
+                  {fmt(absent.showAll, { n: r.noShows.length })}
+                </button>
+              )}
+            </div>
+          )}
+          </>
         )}
 
         <Label className="mb-[10px]">{t.events.byTier}</Label>
@@ -186,7 +197,7 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
         {id && canManage && <SaveAsTemplate eventId={id} />}
         </div>
         </div>
-        {id && <EventActivitySection eventId={id} />}
+        {id && <EventActivitySection eventId={id} phase={ev.phase} />}
       </Scroll>
     </div>
   );
@@ -202,9 +213,12 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
 export function EventActivitySection({
   eventId,
   isLive,
+  phase,
 }: {
   eventId: string;
   isLive?: boolean;
+  /** The event's time-derived phase: names the panel's not-checked-in tile. */
+  phase: EventPhase;
 }): JSX.Element | null {
   const nav = useNav();
   const { roles } = usePoIdentity();
@@ -215,7 +229,7 @@ export function EventActivitySection({
   return (
     <div className="mt-6 border-t border-line pt-5">
       <Label className="mb-4">{t.events.activityHeading}</Label>
-      <EventStatsPanel eventId={eventId} isLive={isLive} />
+      <EventStatsPanel eventId={eventId} isLive={isLive} phase={phase} />
       <button
         type="button"
         onClick={() => nav.push('audit', { id: eventId })}

@@ -10,17 +10,17 @@ import type { JSX } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { Icon } from '@/components/po/icon';
+import { SYNC_STATUS_COLOR, SyncDot } from '@/components/po/kit';
 import { useDoor, useDoorSyncStatus } from '../DoorProvider';
 import { useWakeLock } from '../sync/useWakeLock';
 
-const STATUS_COLOR = { live: '#4FD1A1', stale: '#E8C98A', warn: '#E5704F' } as const;
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.94]';
 
 export function SyncBar(): JSX.Element {
   const { pendingCount } = useDoor();
   const sync = useDoorSyncStatus();
   const wakeLock = useWakeLock();
-  const color = STATUS_COLOR[sync.status];
+  const color = SYNC_STATUS_COLOR[sync.status];
 
   const label =
     sync.status === 'live'
@@ -38,15 +38,8 @@ export function SyncBar(): JSX.Element {
     // locks the geometry across every sync state (label uses `truncate`, so it
     // never wraps to a second line either).
     <div className="flex h-[48px] flex-none items-center gap-[10px] border-b border-line2 bg-elev px-4">
-      <span className="relative flex h-[10px] w-[10px] items-center justify-center">
-        {sync.status === 'live' && (
-          <span
-            className="absolute inline-flex h-full w-full rounded-full opacity-60 motion-safe:animate-ping"
-            style={{ background: color }}
-          />
-        )}
-        <span className="relative inline-flex h-[9px] w-[9px] rounded-full" style={{ background: color }} />
-      </span>
+      {/* The kit's SyncDot, shared with the desktop cockpit header (z8uq9m0hw4). */}
+      <SyncDot status={sync.status} />
 
       <span className="flex min-w-0 flex-1 items-center gap-[7px]">
         {sync.status === 'warn' && <Icon name="warn" size={14} stroke={color} sw={2.2} />}
@@ -65,7 +58,7 @@ export function SyncBar(): JSX.Element {
         // off (user turned it off, gray) / pending (on, but not currently
         // holding — refused or a re-acquire in flight, gold — reuses the
         // "stale" traffic-light colour above) / on (solid accent, holding it).
-        // The pending colour is a runtime STATUS_COLOR reference, so it goes
+        // The pending colour is a runtime SYNC_STATUS_COLOR reference, so it goes
         // through inline `style` rather than a Tailwind arbitrary-value class
         // (a template-literal class name isn't statically analyzable by the
         // Tailwind JIT scanner and would silently compile to no CSS at all).
@@ -84,7 +77,7 @@ export function SyncBar(): JSX.Element {
                 : 'bg-elev2',
             press,
           )}
-          style={wakeLock.enabled && !wakeLock.active ? { borderColor: `${STATUS_COLOR.stale}66`, color: STATUS_COLOR.stale } : undefined}
+          style={wakeLock.enabled && !wakeLock.active ? { borderColor: `${SYNC_STATUS_COLOR.stale}66`, color: SYNC_STATUS_COLOR.stale } : undefined}
         >
           <Icon name="bolt" size={15} sw={2.1} fill={wakeLock.enabled && wakeLock.active ? 'currentColor' : 'none'} />
         </button>

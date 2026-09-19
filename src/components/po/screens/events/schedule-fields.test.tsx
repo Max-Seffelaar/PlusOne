@@ -59,6 +59,14 @@ function typeDate(el: HTMLElement, text: string): void {
   fireEvent.keyDown(el, { key: 'Enter' });
 }
 
+/** The two time inputs, in DOM order: doors, end. */
+const timeInputs = (): HTMLElement[] => screen.getAllByRole('combobox', { name: t.shared.datetime.hourAria });
+
+function typeTime(el: HTMLElement, text: string): void {
+  fireEvent.change(el, { target: { value: text } });
+  fireEvent.keyDown(el, { key: 'Enter' });
+}
+
 describe('ScheduleFields end auto-fill', () => {
   it('derives both end fields from a new start date while the end is untouched', () => {
     render(<Harness initial={{ date: '', time: '23:00', endDate: '', endTime: '' }} />);
@@ -85,6 +93,30 @@ describe('ScheduleFields end auto-fill', () => {
 
     typeDate(dateInputs()[0], '21-10-2026');
     expect(state()).toBe('2026-10-21|23:00|2026-10-22|05:00|false');
+  });
+
+  it('rolls the end date to the next day when the end time lands at or before the doors (z8uq9m0hw3)', () => {
+    // An afternoon event that ends the same day, then the end moves past midnight.
+    render(<Harness touched initial={{ date: '2026-10-16', time: '16:00', endDate: '2026-10-16', endTime: '22:00' }} />);
+    typeTime(timeInputs()[1], '02:00');
+    expect(state()).toBe('2026-10-16|16:00|2026-10-17|02:00|true');
+  });
+
+  it('rolls an end exactly at the doors time too', () => {
+    render(<Harness touched initial={{ date: '2026-10-16', time: '23:00', endDate: '2026-10-16', endTime: '' }} />);
+    typeTime(timeInputs()[1], '23:00');
+    expect(state()).toBe('2026-10-16|23:00|2026-10-17|23:00|true');
+  });
+
+  it('keeps a same-day end after the doors, and never touches an end date that already differs', () => {
+    render(<Harness touched initial={{ date: '2026-10-16', time: '16:00', endDate: '2026-10-16', endTime: '20:00' }} />);
+    typeTime(timeInputs()[1], '22:00');
+    expect(state()).toBe('2026-10-16|16:00|2026-10-16|22:00|true');
+    cleanup();
+
+    render(<Harness initial={{ date: '2026-10-16', time: '23:00', endDate: '2026-10-17', endTime: '05:00' }} />);
+    typeTime(timeInputs()[1], '04:00');
+    expect(state()).toBe('2026-10-16|23:00|2026-10-17|04:00|true');
   });
 
   it('never rewrites a stored end when the form starts as touched (edit mode)', () => {

@@ -32,6 +32,9 @@ export const analytics = {
   peakWithCount: 'Peak · {n} in 15 min',
   peakLabel: 'Peak arrivals',
   noShowLabel: 'No-shows · {pct}%',
+  // Same figure while the event runs (z8uq9m0hw4): not checked in yet is not a
+  // no-show until the event has ended. Before doors the tile is hidden.
+  onTheWayLabel: 'On the way · {pct}%',
   arrivalsLabel: 'Arrivals by 15 min',
   noCheckins: 'No check-ins yet.',
   tierLabel: 'Inside vs. on the list, by tier',

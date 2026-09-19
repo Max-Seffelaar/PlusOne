@@ -80,8 +80,10 @@ test('core flow: create event → add guest → door check-in, asserted in the d
   await timeField.press('Enter');
   await page.getByRole('button', { name: 'Create event' }).click();
 
-  // Success replaces the form with the saved event's settings screen.
-  await expect(page.getByText('Edit event')).toBeVisible({ timeout: 20_000 });
+  // Success replaces the form with the new event's guided tiers step: save the
+  // event first, then its tiers (z8uq9m0hw3, item 7). A blank event has none, so
+  // the step shows (a template with tiers would land on the event detail).
+  await expect(page.getByText('Next: add your guest tiers')).toBeVisible({ timeout: 20_000 });
 
   // DB truth: the event row exists at the right venue (not just a UI transition).
   const eventId = await expect
@@ -99,7 +101,10 @@ test('core flow: create event → add guest → door check-in, asserted in the d
     });
 
   // ── 3. Add a guest via quick-add (first tier created inline). ───────────────
-  await page.getByRole('button', { name: 'Back' }).click(); // form → Events list
+  // The create form was REPLACED by the tiers step, so Back climbs to where the
+  // flow started (the Events list), never to Home or the stale form.
+  await page.getByRole('button', { name: 'Back' }).click(); // tiers step → Events list
+  await page.waitForURL('**/app/events', { timeout: 30_000 });
   await page.getByRole('button', { name: 'Add guest' }).click();
 
   // Pin the quick-add to OUR event via the picker (don't rely on sort order).

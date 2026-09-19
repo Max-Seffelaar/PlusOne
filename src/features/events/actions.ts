@@ -348,7 +348,11 @@ export async function updateTier(input: UpdateTierInput): Promise<ActionResult> 
     }
     return mapMutationError(error);
   }
-  if (data?.event_id) revalidateEvent(data.event_id);
+  // C15 guard (as on the event toggles): an update RLS filters to zero rows
+  // returns no error and no row. Now that the tier sheet edits every field
+  // (z8uq9m0hw3), a silent no-op must surface as a failure, not "saved".
+  if (!data) return notFound();
+  revalidateEvent(data.event_id);
   return { ok: true };
 }
 

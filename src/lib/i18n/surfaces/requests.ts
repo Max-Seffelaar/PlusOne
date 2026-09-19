@@ -17,6 +17,8 @@ export const requests = {
   noVenue: 'No active venue selected.',
   noAccess: "You don't have access to requests.",
   ownTitle: 'Your requests',
+  // Header action (z8uq9m0hw4): opens Promotion's create-link flow from here.
+  newLink: 'New request link',
 
   // ── Search ──────────────────────────────────────────────────────────────────
   searchPlaceholder: 'Search by name…',
@@ -46,8 +48,9 @@ export const requests = {
     'Guest-list requests fall outside your own quota. Approving one costs you no spot, but it still counts toward the tier max.',
   emptyLandingSearch: 'No open requests for "{q}".',
   emptyLanding: 'No requests right now. The line\'s clear.',
-  cardPhoneVia: 'phone •••• {last4} · via landing page · {at}',
-  cardVia: 'via landing page · {at}',
+  // The generic "via landing page" is gone (z8uq9m0hw4): every card now names
+  // its actual link in a chip ("Standard link" / "via {label}", requestLinkLabel).
+  cardPhone: 'phone •••• {last4} · {at}',
   // 86eyke279: the public form now REQUIRES both contact fields so the venue can
   // reach an approved guest — so the approve surface has to show them. The card
   // keeps its compact scan line (masked phone) and adds the address underneath;
@@ -78,6 +81,8 @@ export const requests = {
   approveExtra: 'Approve +{n}',
 
   // ── Request-link filter + via-chip (F1, 86ey21vjt) ──────────────────────────
+  // The chip shows on every request (z8uq9m0hw4): the default link as
+  // `standardLink` below, any other as viaChip.
   viaChip: 'via {label}',
   linkFilterAll: 'All links',
   linkFilterAria: 'Filter by request link',

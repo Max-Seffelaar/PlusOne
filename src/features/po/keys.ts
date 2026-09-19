@@ -47,6 +47,9 @@ export const poKeys = {
   contactKeys: (venueId: string) => [...poKeys.all, 'contact-keys', venueId] as const,
   /** A single contact's full profile (header + cross-event appearances + timeline). */
   contactProfile: (contactId: string) => [...poKeys.all, 'contact-profile', contactId] as const,
+  /** The event ids at a venue the caller organizes (event_organizers) — gates
+   *  per-event guest actions for external crew without an N+1 read. */
+  organizerEventIds: (venueId: string) => [...poKeys.all, 'organizer-event-ids', venueId] as const,
   // Settings cluster — team/quota + invites scope to a venue, sessions/profile to
   // the caller, venue-settings + subscription to a venue.
   team: (venueId: string) => [...poKeys.all, 'team', venueId] as const,

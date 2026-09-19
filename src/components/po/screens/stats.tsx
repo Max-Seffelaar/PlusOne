@@ -13,6 +13,7 @@ import { t } from '@/lib/i18n';
 import { createClient } from '@/lib/supabase/client';
 import { fetchVenueEvents, type PickerEvent } from '@/features/stats/data';
 import { formatDay } from '@/features/stats/format';
+import { defaultStatsEvent, eventPhase } from '@/features/po/event-phase';
 import { poKeys } from '@/features/po/keys';
 import { useNav, usePo } from '../context';
 import { Icon } from '../icon';
@@ -51,7 +52,11 @@ export function Stats(): JSX.Element {
       .then((evs) => {
         if (!alive) return;
         setEvents(evs);
-        setEventId((cur) => (evs.some((e) => e.id === cur) ? cur : (evs[0]?.id ?? null)));
+        // Open on the most recent event that has started (z8uq9m0hw4), not
+        // evs[0] — the list is newest-first, so that was the furthest-future one.
+        setEventId((cur) =>
+          evs.some((e) => e.id === cur) ? cur : (defaultStatsEvent(evs, Date.now())?.id ?? null)
+        );
       })
       .catch(() => {
         if (alive) setError(true);
@@ -172,7 +177,12 @@ export function Stats(): JSX.Element {
 
             {/* Same shared component the event-home shows (K-10-les) — never a
                 second per-event-stats implementation. */}
-            {selectedEvent && <EventStatsPanel eventId={selectedEvent.id} />}
+            {selectedEvent && (
+              <EventStatsPanel
+                eventId={selectedEvent.id}
+                phase={eventPhase(selectedEvent.startsAt, selectedEvent.endsAt, Date.now())}
+              />
+            )}
           </>
         )}
 
