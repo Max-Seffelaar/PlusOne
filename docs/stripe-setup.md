@@ -27,7 +27,7 @@ Volgorde is bewust: SEPA-activatie heeft dagen doorlooptijd — start die eerst.
    venster ~2 weken, final action **"Cancel subscription"**. Dit ÍS de
    14-dagen-grace uit het plan: mislukte incasso → `past_due` (banner in de
    app) → na de retries → `customer.subscription.deleted` → `canceled`.
-7. **Webhook-endpoint**: `https://<prod-domein>/api/webhooks/stripe` met exact
+7. **Webhook-endpoint**: `https://app.plus-one.io/api/webhooks/stripe` met exact
    deze events: `checkout.session.completed`, `invoice.paid`,
    `invoice.payment_failed`, `customer.subscription.updated`,
    `customer.subscription.deleted`. Signing secret → `STRIPE_WEBHOOK_SECRET`

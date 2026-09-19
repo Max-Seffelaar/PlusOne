@@ -183,7 +183,7 @@ stricter via the dashboard.
 
 ## 6. URLs (Authentication → URL Configuration)
 
-- **Site URL**: the production app URL (e.g. `https://app.plusone.nl`).
+- **Site URL**: the production app URL `https://app.plus-one.io`.
 - **Redirect URLs** (allow-list): include `…/auth/callback` and `…/auth/confirm`
   for every environment (the confirm route handles the e-mail-change link).
 - Local mirror: `[auth] site_url`, `additional_redirect_urls`.
