@@ -8,6 +8,44 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-19 — /app gates keep the deep link (consent re-prompt, MFA nudge)
+
+Branch `claude/app-gate-deep-link`. No ClickUp task (Max, 2026-09-19). Milestone: **Now**
+— venue staff share and bookmark `/app/events/<id>`-style links. Decision (Max): reverse
+the documented trade-off in `src/app/app/layout.tsx` ("the gate fires once, on first
+login, so `next=/app` is fine"). It didn't hold up. The consent gate re-fires for every
+signed-in user after a `TERMS_VERSION` bump, and the MFA recommendation re-fires for
+admin/finance without TOTP 24h after acceptance and again each time a 7-day snooze runs
+out. Each time, a deep link landed on Home. Fresh logins were already fine
+(`resolveEntryDestination` in the auth callback/confirm routes).
+
+**Changed.** `src/middleware.ts` stamps `x-po-request-path` (pathname + search, `_rsc`
+stripped) onto the forwarded request before `updateSession`. It always uses `set`, on
+every route, so a client value never survives a request the middleware sees. The layout
+reads it via `headers()`, not `searchParams`, so `[[...segments]]/page.tsx` stays free of
+server work and the door invariant (#25) is untouched. It passes the value through the
+new `appGateNextPath` (`safeNextPath` + the `/app` surface only + a 2048-char cap) and uses
+the result as `next=` for the consent gate, `recommendMfaIfDue`, and the layout's own
+`/login` fallback. Anything that fails falls back to bare `/app`, the old behaviour.
+
+**Why the layout re-sanitizes.** The middleware matcher skips static-extension paths
+(`/app/x.txt` still hits the catch-all), so there the client's header reaches the layout
+unfiltered. Worst case is a same-origin `/app…` target the user could have typed.
+
+**Tests.** Vitest: `next-path.test.ts` (helpers), `middleware.test.ts` (forwarding via
+`x-middleware-request-*`, `_rsc` strip, client value overwritten), new
+`src/app/app/layout.test.ts` (each gate's `next=`, plus forged/missing header). With the
+fix reverted, 7 of those tests fail. Real runtime on the local stack (dev server + browser,
+staff consent cleared then restored): `/app/contacts?q=anna` → `/consent?next=%2Fapp%2Fcontacts%3Fq%3Danna`;
+a forged header on `/app/contacts` is overwritten; an RSC request doesn't leak `_rsc`;
+on `/app/probe.txt` an off-site, `//`, traversal or non-`/app` header falls back to
+`/app`; after consent, `/consent?next=…` lands on `/app/contacts?q=anna`. New e2e
+`tests/e2e/app-gate-deep-link.spec.ts` was **not executed** in this session (Playwright
+couldn't launch Chromium in the sandbox). It isn't in `e2e:smoke`.
+
+**Review gate.** Middleware is a high-risk surface. The PR body carries an adversarial
+security-research prompt, and the PR needs a fresh-session `/code-review` before merge.
+
 ## 2026-09-18 — Domain placeholders point at plus-one.io
 
 Branch `chore/plus-one-io-domain`. Milestone: **Now** — the consent gate links and every
