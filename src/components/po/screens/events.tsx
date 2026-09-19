@@ -18,11 +18,11 @@ import {
   usePoRequestLinks,
 } from '@/features/po/hooks';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
-import { canWorkDoor } from '@/features/auth/roles';
+import { canManageGuests, canWorkDoor } from '@/features/auth/roles';
 import { formatClock } from '@/features/stats/format';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Avatar, Btn, Empty, IconBtn, Label, Note, Scroll, Top, cardPress, press } from '../kit';
+import { Avatar, Btn, Empty, Field, GuideCard, IconBtn, Label, Note, Scroll, Top, cardPress, press } from '../kit';
 import { col, ScreenState } from './events/shared';
 import { EventActivitySection } from './events/past';
 
@@ -48,7 +48,8 @@ export function Events(): JSX.Element {
   const { data, isLoading, isError } = usePoEvents();
   // Creating events is admin-only (T7 regression check on PR #100): hide the
   // CTA for other roles instead of sending them into a read-only editor.
-  const isAdmin = usePoIdentity().roles.includes('admin');
+  const { roles } = usePoIdentity();
+  const isAdmin = roles.includes('admin');
   // Soft-block (#32 refinement): hide the growth CTA; the note explains why.
   const billingLock = useBillingBlocked();
   // Card-level edit affordance (M7 — replaces the deleted "Events & tiers" More
@@ -56,11 +57,52 @@ export function Events(): JSX.Element {
   // at this venue); EventEdit itself still enforces true per-event write rights.
   const canManageTemplates = usePoCanManageTemplates();
   const canEditEvents = isAdmin || canManageTemplates;
-  const evs = (data ?? []).filter((e) => e.when === when);
+  // "Add guest" follows Home's rule (M9, K-7: role-hide, not show-and-block):
+  // a venue role that writes guests, or an organizer of an event here
+  // (z8uq9m0hw3, item 1). A pure user_manager/finance would only reach a
+  // quick-add that says "no rights".
+  const canAddGuest = canManageGuests(roles) || canManageTemplates;
+  // Inline name search (z8uq9m0hw3, item 2). Client-side over the loaded list:
+  // usePoEvents isn't windowed (the venue's events, not their guests), so this
+  // filters what's already on screen and adds no query.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const closeSearch = (): void => {
+    setSearchOpen(false);
+    setQuery('');
+  };
+  const evs = (data ?? []).filter((e) => e.when === when && (!q || e.name.toLowerCase().includes(q)));
   const months = [...new Set(evs.map((e) => e.month))];
   return (
     <div className={col}>
-      <Top big title={t.events.title} onBack={nav.canGoBack ? nav.back : undefined} right={<IconBtn name="search" />} />
+      <Top
+        big
+        title={t.events.title}
+        onBack={nav.canGoBack ? nav.back : undefined}
+        right={
+          <IconBtn
+            name={searchOpen ? 'close' : 'search'}
+            ariaLabel={searchOpen ? t.events.searchCloseAria : t.events.searchOpenAria}
+            onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
+          />
+        }
+      />
+      {searchOpen && (
+        <div className="flex-none px-5 pb-[14px]">
+          <Field
+            icon="search"
+            autoFocus
+            value={query}
+            onChange={setQuery}
+            placeholder={t.events.searchPlaceholder}
+            ariaLabel={t.events.searchOpenAria}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') closeSearch();
+            }}
+          />
+        </div>
+      )}
       <div className="flex flex-none items-center gap-2 px-5 pb-[14px]">
         {([['upcoming', t.events.tabUpcoming], ['past', t.events.tabPast]] as const).map(([k, l]) => (
           <button
@@ -76,16 +118,20 @@ export function Events(): JSX.Element {
           </button>
         ))}
       </div>
-      <div className="flex flex-none gap-2 px-5 pb-[14px]">
-        <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd')}>
-          {t.events.addGuest}
-        </Btn>
-        {isAdmin && !billingLock.blocked && (
-          <Btn sm kind="ghost" icon="cal" onClick={() => nav.push('eventedit', { isNew: true })}>
-            {t.events.newEvent}
-          </Btn>
-        )}
-      </div>
+      {(canAddGuest || (isAdmin && !billingLock.blocked)) && (
+        <div className="flex flex-none gap-2 px-5 pb-[14px]">
+          {canAddGuest && (
+            <Btn sm kind="primary" icon="plus" onClick={() => nav.push('quickadd')}>
+              {t.events.addGuest}
+            </Btn>
+          )}
+          {isAdmin && !billingLock.blocked && (
+            <Btn sm kind="ghost" icon="cal" onClick={() => nav.push('eventedit', { isNew: true })}>
+              {t.events.newEvent}
+            </Btn>
+          )}
+        </div>
+      )}
       {isAdmin && billingLock.blocked && (
         <div className="flex-none px-5">
           <Note icon="warn">
@@ -108,7 +154,9 @@ export function Events(): JSX.Element {
         ) : isError ? (
           <Empty text={t.events.loadEventsError} />
         ) : evs.length === 0 ? (
-          <Empty text={when === 'upcoming' ? t.events.emptyUpcoming : t.events.emptyPast} />
+          <Empty
+            text={q ? fmt(t.events.searchEmpty, { q: query.trim() }) : when === 'upcoming' ? t.events.emptyUpcoming : t.events.emptyPast}
+          />
         ) : (
           months.map((m) => (
             <div key={m} className="mb-2">
@@ -221,25 +269,20 @@ export function EventView({ id }: { id?: string }): JSX.Element {
       <Top onBack={nav.back} title={ev.name} sub={`${ev.venue} · ${ev.date} ${ev.mon}`} right={<IconBtn name="cog" ariaLabel={t.events.editTitle} onClick={() => nav.push('eventedit', { id: ev.id })} />} />
       <Scroll bottom={28}>
         {needsSetup && (
-          <div className="mb-3 rounded-[18px] border bg-elev p-4" style={{ borderColor: 'rgba(181,166,255,0.4)' }}>
-            <div className="flex gap-[11px]">
-              <span className="mt-px shrink-0 text-acc">
-                <Icon name="spark" size={19} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="font-display text-[15.5px] font-bold text-text">{t.events.setup.title}</div>
-                <p className="mt-1 text-[12.5px] leading-[1.45] text-faint">{t.events.setup.noTiers}</p>
-              </div>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-[10px]">
-              <Btn kind="primary" sm icon="ticket" onClick={() => nav.push('tiers', { id: ev.id })}>
-                {t.events.setup.addTiers}
-              </Btn>
-              <Btn kind="ghost" sm icon="cog" onClick={() => nav.push('eventedit', { id: ev.id })}>
-                {t.events.setup.settings}
-              </Btn>
-            </div>
-          </div>
+          <GuideCard
+            title={t.events.setup.title}
+            body={t.events.setup.noTiers}
+            actions={
+              <>
+                <Btn kind="primary" sm icon="ticket" onClick={() => nav.push('tiers', { id: ev.id })}>
+                  {t.events.setup.addTiers}
+                </Btn>
+                <Btn kind="ghost" sm icon="cog" onClick={() => nav.push('eventedit', { id: ev.id })}>
+                  {t.events.setup.settings}
+                </Btn>
+              </>
+            }
+          />
         )}
         <div className={cn(hasSecondary && 'lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start')}>
           <div className={cn(!hasSecondary && 'lg:mx-auto lg:max-w-[680px]')}>
@@ -390,7 +433,7 @@ export function EventView({ id }: { id?: string }): JSX.Element {
             </div>
           )}
         </div>
-        {id && <EventActivitySection eventId={id} isLive />}
+        {id && <EventActivitySection eventId={id} isLive phase={ev.phase} />}
       </Scroll>
     </div>
   );

@@ -1532,6 +1532,7 @@ export type Database = {
           terms_version: string | null
           updated_at: string
           vat_number: string | null
+          website: string | null
         }
         Insert: {
           address_line?: string | null
@@ -1554,6 +1555,7 @@ export type Database = {
           terms_version?: string | null
           updated_at?: string
           vat_number?: string | null
+          website?: string | null
         }
         Update: {
           address_line?: string | null
@@ -1576,6 +1578,7 @@ export type Database = {
           terms_version?: string | null
           updated_at?: string
           vat_number?: string | null
+          website?: string | null
         }
         Relationships: []
       }

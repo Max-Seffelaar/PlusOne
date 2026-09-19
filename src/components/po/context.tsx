@@ -53,6 +53,10 @@ export interface ScreenProps {
    *  Promotion hub's tab ('overview' | 'events' | 'roster'). Like 'landing',
    *  'overview' is its screen's URL-less default — callers omit it. */
   tab?: 'landing' | 'quota' | 'overview' | 'events' | 'roster';
+  /** Tiers only: the guided step right after creating an event (z8uq9m0hw3,
+   *  `?setup=1`). Shows the "add your tiers next" card and a way on to the
+   *  event. Omitted (never `false`) on a plain visit, like `isNew`. */
+  setup?: boolean;
 }
 
 export interface Nav {

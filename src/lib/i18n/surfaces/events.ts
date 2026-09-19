@@ -19,6 +19,12 @@ export const events = {
   cardDoors: 'Doors {time} · {venue}',
   cardTurnoutSuffix: '% attendance',
   cardGuests: 'guests',
+  // Inline search on the Events tab (z8uq9m0hw3, item 2): filters the Upcoming /
+  // Past list by event name.
+  searchOpenAria: 'Search events',
+  searchCloseAria: 'Close search',
+  searchPlaceholder: 'Search by event name…',
+  searchEmpty: 'No events match "{q}".',
 
   // ── Event detail ────────────────────────────────────────────────────────────
   detailTitle: 'Event',
@@ -147,7 +153,8 @@ export const events = {
     discard: 'Discard & leave',
   },
   // Save-as-template (86exyp8gn) — snapshot this event's setup into a template.
-  saveTemplateLabel: 'Reuse this setup',
+  // Section label was "Reuse this setup" (z8uq9m0hw3, item 8; Max, PR #305).
+  saveTemplateLabel: 'Template',
   saveTemplateCta: 'Save as template',
   saveTemplateHint: "Saves this event's tiers, capacity, and settings as a reusable template you can pick next time.",
   saveTemplatePlaceholder: 'Template name, e.g. "Lofi, open air"',
@@ -170,6 +177,14 @@ export const events = {
 
   // ── Guest tiers (formerly "Tiers & aliases") ────────────────────────────────
   tiersTitle: 'Guest tiers',
+  // The guided step right after creating an event (z8uq9m0hw3, item 7): save the
+  // event first, then its tiers. `skip` shows while there are no tiers yet.
+  setupStep: {
+    title: 'Next: add your guest tiers',
+    body: 'Guests need a tier before they can go on the list. Start with one like "Guest" or "VIP".',
+    done: 'Go to event',
+    skip: 'Skip for now',
+  },
   errCreateTier: "Couldn't create the tier.",
   errSaveAlias: "Couldn't save the alias.",
   newTier: 'New tier',
@@ -211,6 +226,15 @@ export const events = {
   saveTier: 'Save',
   saveTierAndNew: 'Save & add another',
   cancelTier: 'Cancel',
+  // Under a non-empty tier list (z8uq9m0hw3, item 4), replaces the header "+".
+  addAnotherTier: 'Add another tier',
+  // Editing a tier after creation (z8uq9m0hw3, item 5): same sheet, prefilled.
+  editTier: 'Edit tier',
+  editTierAria: 'Edit {name}',
+  saveTierChanges: 'Save changes',
+  errUpdateTier: "Couldn't save the tier.",
+  // Lowering the max below what the tier holds: allowed, nobody is removed.
+  maxBelowUsed: "{used} people are already on this tier. They stay on the list, but no one new fits until there's room under {max}.",
 
   // ── Past-event recap ────────────────────────────────────────────────────────
   recapTitle: 'Recap',
@@ -228,6 +252,13 @@ export const events = {
   addedBy: 'added by {by}',
   noShowTag: 'no-show',
   showAllNoShows: 'Show all {n} no-shows',
+  // The same guests while the event still runs (z8uq9m0hw4): a recap opened
+  // mid-event never calls them no-shows. Before the event they aren't shown.
+  onTheWay: 'On the way',
+  onTheWayLabel: 'On the way · {n}',
+  onTheWayTag: 'on the way',
+  showAllOnTheWay: 'Show all {n} on the way',
+  everyoneInside: "Everyone's in.",
   byTier: 'By tier',
   noTierData: 'No tier data.',
   refused: 'Bounced',

@@ -31,6 +31,9 @@ let tiersData: unknown[] = [];
 
 vi.mock('@/features/po/hooks', () => ({
   usePoEvent: () => ({ event: { id: 'evt-1', name: 'FRENZY' } }),
+  // The tiers screen gates its add/edit affordances on the RLS rule (admin or
+  // organizer of the event, z8uq9m0hw3); these tests act as someone who may.
+  usePoEventForEdit: () => ({ canManage: true, isLoading: false }),
   usePoTiers: () => ({ data: tiersData, isLoading: false, isError: false }),
   usePoTemplate: () => ({ data: { id: 'tpl-1', name: 'Lofi', capacity: null, landing_active: false, allow_uncheck: null, auto_lock_offset_minutes: null }, isLoading: false }),
   usePoTemplateTiers: () => ({ data: [{ id: 'ttier-1', name: 'VIP', color: '#B5A6FF', max_guests: null, door_price_cents: null, vat_percent: null, aliases: ['bottle'] }], isLoading: false }),
