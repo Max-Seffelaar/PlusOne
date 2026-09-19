@@ -1,5 +1,5 @@
 -- Canonical body (K10 drift guard, see supabase/canonical/README.md).
--- Newest source: supabase/migrations/20260918174500_partial_approval_decision_message.sql:329.
+-- Newest source: supabase/migrations/20260919090000_partial_approval_decision_message.sql:329.
 
 create or replace function public.get_request_status(p_token_hash text, p_ip_hash text)
 returns jsonb

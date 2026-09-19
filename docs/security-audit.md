@@ -238,7 +238,7 @@ of e-mail enumeration:
   the event") *and* breaks the legitimate re-submitter, whose second URL would then never
   show their approval.
 
-  **Sharpened by `20260918174500` (z8uq9m0hw6, decision #48), accepted.** Since partial
+  **Sharpened by `20260919090000` (z8uq9m0hw6, decision #48), accepted.** Since partial
   approval, an approved request's own token also carries the confirmed plus-ones count
   and the venue address, and a mirror carries neither: the count and the venue message
   were decided for the original submitter, and the address goes only to people the
