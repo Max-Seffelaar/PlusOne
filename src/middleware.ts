@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { updateSession } from '@/lib/supabase/middleware';
-import { safeNextPath } from '@/features/auth/next-path';
+import { REQUEST_PATH_HEADER, requestPathForHeader, safeNextPath } from '@/features/auth/next-path';
 
 // Middleware protects EVERY route by default; public exceptions are listed
 // explicitly here (bouwplan Fase 4 §6). Anything not public requires a verified
@@ -35,6 +35,15 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   // no enrollment gate here anymore. The app shows a skippable recommendation
   // instead (requireAppAccess → /mfa/enroll with snooze), so the middleware only
   // does session refresh + auth routing.
+  //
+  // Tell the /app layout which exact URL it is serving, so its consent/MFA
+  // gates can send the user back to a deep link instead of bare /app (the
+  // layout can't see the segments or searchParams). Set BEFORE updateSession:
+  // its NextResponse.next({ request }) forwards request.headers as they are at
+  // that moment. Always `set`, on every route, so a client-supplied value never
+  // survives a request this middleware sees. The layout still sanitizes it
+  // (appGateNextPath) because matcher-skipped paths bypass this line.
+  request.headers.set(REQUEST_PATH_HEADER, requestPathForHeader(request.nextUrl));
   const { response, user } = await updateSession(request);
 
   // A signed-in user has no business on the login screen → the one app surface.
