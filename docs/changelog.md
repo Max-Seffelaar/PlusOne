@@ -8,9 +8,9 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
-## 2026-09-18 — dev-login deep links landing on Home (z8uqXXXXXX)
+## 2026-09-18 — dev-login deep links landing on Home (z8uq9m0jcf)
 
-Branch `fix/z8uqXXXXXX-dev-login-deep-link`. Milestone: **Now** (dev/test loop
+Branch `fix/z8uq9m0jcf-dev-login-deep-link`. Milestone: **Now** (dev/test loop
 correctness; the route 404s in prod). Found while building PR #304: in the fixture
 harness, `…/auth/dev-login?email=manager@plusone.test&next=/app/contacts` landed on
 Home, while opening `/app/contacts` after login worked.
