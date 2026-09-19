@@ -7,8 +7,8 @@
 // both — and a submission missing either must die in the schema, before the
 // RPC is ever reached.
 import { describe, expect, it, vi, type Mock } from 'vitest';
-import { submitGuestRequest } from './actions';
-import type { SubmitGuestRequestInput } from './schemas';
+import { approveGuestRequest, submitGuestRequest } from './actions';
+import type { ApproveGuestRequestInput, SubmitGuestRequestInput } from './schemas';
 import { createClient } from '@/lib/supabase/server';
 import { headers } from 'next/headers';
 import { verifyTurnstileToken } from './turnstile';
@@ -135,6 +135,87 @@ describe('submitGuestRequest — contact details are required', () => {
 
     expect(res.ok).toBe(false);
     expect(res.ok === false && res.code).toBe('invalid');
+    expect(rpc).not.toHaveBeenCalled();
+  });
+});
+
+// z8uq9m0hw6 — partial approval + venue message. The action is not the
+// boundary (the SECURITY DEFINER RPC re-checks the role, the per-request
+// bound and the cap); what it owns is the CALL SHAPE: a plain approval must
+// stay the 2-arg call the pre-migration function also resolves, so a deploy
+// that lands before the schema push keeps approving.
+describe('approveGuestRequest — partial approval + message', () => {
+  const REQ_ID = '00000000-0000-7000-8000-00000000000a';
+  const TIER_ID = '00000000-0000-7000-8000-00000000000b';
+
+  function mockApprover(result: { error: { code: string; message: string } | null } = { error: null }) {
+    const rpc = vi.fn().mockResolvedValue({ data: 'guest-id', ...result });
+    const getUser = vi.fn().mockResolvedValue({ data: { user: { id: 'approver' } } });
+    (createClient as Mock).mockResolvedValue({ rpc, auth: { getUser } });
+    return rpc;
+  }
+
+  it('a plain approval sends exactly the two original args', async () => {
+    const rpc = mockApprover();
+    const res = await approveGuestRequest({ requestId: REQ_ID, tierId: TIER_ID });
+    expect(res.ok).toBe(true);
+    expect(rpc).toHaveBeenCalledWith('approve_guest_request', { p_request_id: REQ_ID, p_tier_id: TIER_ID });
+  });
+
+  it('forwards the approved count and the trimmed message', async () => {
+    const rpc = mockApprover();
+    await approveGuestRequest({ requestId: REQ_ID, tierId: TIER_ID, plusOnes: 2, message: '  See you at 23:00.  ' });
+    expect(rpc).toHaveBeenCalledWith('approve_guest_request', {
+      p_request_id: REQ_ID,
+      p_tier_id: TIER_ID,
+      p_plus_ones: 2,
+      p_message: 'See you at 23:00.',
+    });
+  });
+
+  it('forwards an approval for zero plus-ones (0 is a count, not "unset")', async () => {
+    const rpc = mockApprover();
+    await approveGuestRequest({ requestId: REQ_ID, tierId: TIER_ID, plusOnes: 0 });
+    expect(rpc).toHaveBeenCalledWith('approve_guest_request', { p_request_id: REQ_ID, p_tier_id: TIER_ID, p_plus_ones: 0 });
+  });
+
+  it('drops a whitespace-only message instead of sending it', async () => {
+    const rpc = mockApprover();
+    await approveGuestRequest({ requestId: REQ_ID, tierId: TIER_ID, message: ' \n\t ' });
+    expect(rpc).toHaveBeenCalledWith('approve_guest_request', { p_request_id: REQ_ID, p_tier_id: TIER_ID });
+  });
+
+  it.each([
+    ['a negative count', { plusOnes: -1 }],
+    ['a fractional count', { plusOnes: 1.5 }],
+    ['a count above the submit cap', { plusOnes: 21 }],
+    ['a 281-character message', { message: 'x'.repeat(281) }],
+  ])('rejects %s before the RPC', async (_label, patch) => {
+    const rpc = mockApprover();
+    const res = await approveGuestRequest({ requestId: REQ_ID, tierId: TIER_ID, ...patch } as ApproveGuestRequestInput);
+    expect(res.ok === false && res.code).toBe('invalid');
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('accepts a message of exactly 280 characters', async () => {
+    const rpc = mockApprover();
+    const res = await approveGuestRequest({ requestId: REQ_ID, tierId: TIER_ID, message: 'y'.repeat(280) });
+    expect(res.ok).toBe(true);
+    expect(rpc).toHaveBeenCalledOnce();
+  });
+
+  it('maps the RPC refusal of a count above the request (23514) to generic copy', async () => {
+    mockApprover({ error: { code: '23514', message: 'Approve between 0 plus-ones and the number requested.' } });
+    const res = await approveGuestRequest({ requestId: REQ_ID, tierId: TIER_ID, plusOnes: 5 });
+    expect(res).toEqual({ ok: false, code: '23514', message: 'Some details are missing or invalid.' });
+  });
+
+  it('refuses without a session and never reaches the RPC', async () => {
+    const rpc = vi.fn();
+    const getUser = vi.fn().mockResolvedValue({ data: { user: null } });
+    (createClient as Mock).mockResolvedValue({ rpc, auth: { getUser } });
+    const res = await approveGuestRequest({ requestId: REQ_ID, tierId: TIER_ID, plusOnes: 1 });
+    expect(res.ok === false && res.code).toBe('unauthorized');
     expect(rpc).not.toHaveBeenCalled();
   });
 });
