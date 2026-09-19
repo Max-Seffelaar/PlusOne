@@ -96,7 +96,8 @@ op een half afgeronde env-setup.
 
 1. Gratis Cloudflare-account (of bestaand account) → **Turnstile** in het
    dashboard.
-2. **Add site**: domain = het prod-domein. Widget mode: **Managed**
+2. **Add site**: domain = `app.plus-one.io` (het app-domein: de publieke
+   aanvraagpagina `/e/[slug]` draait daar). Widget mode: **Managed**
    (aanbevolen — meestal onzichtbaar voor echte gasten, alleen een
    uitdaging bij verdachte requests).
    **Zet hier NIET `localhost` bij** als domein op dezelfde site: sinds de
