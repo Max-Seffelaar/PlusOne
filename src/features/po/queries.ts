@@ -524,17 +524,27 @@ export type PoGuestRequestRow = Pick<
   /** Resolved link identity (influencer name ?? label); null for the default
    *  link, a legacy pre-links request, or an unreadable link (RLS). */
   viaLabel: string | null;
+  /** True when the request came through the event's default ("Standard")
+   *  link (z8uq9m0hw4) — so the inbox can name it instead of showing nothing.
+   *  False for a custom link, no link, or a link this viewer can't read. */
+  viaStandard: boolean;
 };
+
+interface LinkIdentity {
+  label: string | null;
+  isDefault: boolean;
+}
 
 /** Resolve request_link_id → "via" label (influencer name ?? label) in two
  *  RLS-safe round-trips (no FK-embed guessing — mirrors fetchQuotaRequests).
- *  The default link resolves to null: it has no influencer and no label. */
-async function fetchLinkLabels(client: Client, linkIds: string[]): Promise<Map<string, string | null>> {
-  const labels = new Map<string, string | null>();
+ *  The default link resolves to a null label: it has no influencer and no
+ *  label, and is flagged `isDefault` instead. */
+async function fetchLinkLabels(client: Client, linkIds: string[]): Promise<Map<string, LinkIdentity>> {
+  const labels = new Map<string, LinkIdentity>();
   if (linkIds.length === 0) return labels;
   const { data: links, error } = await client
     .from('request_links')
-    .select('id, label, influencer_id')
+    .select('id, label, influencer_id, is_default')
     .in('id', linkIds);
   if (error) throw error;
   const rows = links ?? [];
@@ -546,7 +556,10 @@ async function fetchLinkLabels(client: Client, linkIds: string[]): Promise<Map<s
   const influencers = infRes.data ?? [];
   const nameById = new Map(influencers.map((i) => [i.id, i.name]));
   for (const l of rows) {
-    labels.set(l.id, (l.influencer_id ? nameById.get(l.influencer_id) : null) ?? l.label ?? null);
+    labels.set(l.id, {
+      label: l.is_default ? null : (l.influencer_id ? nameById.get(l.influencer_id) : null) ?? l.label ?? null,
+      isDefault: l.is_default,
+    });
   }
   return labels;
 }
@@ -582,10 +595,10 @@ export async function fetchGuestRequests(
   const rows = data ?? [];
   const linkIds = [...new Set(rows.map((r) => r.request_link_id).filter((x): x is string => !!x))];
   const labels = await fetchLinkLabels(client, linkIds);
-  return rows.map((r) => ({
-    ...r,
-    viaLabel: r.request_link_id ? labels.get(r.request_link_id) ?? null : null,
-  }));
+  return rows.map((r) => {
+    const link = r.request_link_id ? labels.get(r.request_link_id) : undefined;
+    return { ...r, viaLabel: link?.label ?? null, viaStandard: link?.isDefault ?? false };
+  });
 }
 
 export interface PoQuotaRequestRow {
@@ -1286,10 +1299,20 @@ export interface ContactAppearance {
   eventId: string;
   eventName: string;
   eventStartsAt: string;
+  eventEndsAt: string | null;
+  /** The event facts `can_write_guests` reads, so the profile can offer only the
+   *  row actions the database will accept (list lock #23, auto-lock, cancel). */
+  eventListLocked: boolean;
+  eventAutoLockAt: string | null;
+  eventCancelled: boolean;
   plusOnes: number;
   status: GuestRowStatus;
+  /** guest_tiers.id, so the profile's tier picker can mark the current tier. */
+  tierId: string | null;
   tierName: string | null;
   tierColor: string | null;
+  /** guests.anonymized_at is set (AVG erasure, #29): no client write may touch it. */
+  anonymized: boolean;
   /** Per-event door note + priority (shown on the pinned event's task card). */
   note: string | null;
   notePriority: Database['public']['Enums']['note_priority'];
@@ -1334,7 +1357,14 @@ export interface PersonProfileData extends ContactProfileData {
 
 // The embeds come back typed as to-one OR to-many by the generated client (same as
 // fetchRecapGuests), so they stay loose here and the mapper normalizes them.
-type ProfileEmbedEvent = { name: string; starts_at: string };
+type ProfileEmbedEvent = {
+  name: string;
+  starts_at: string;
+  ends_at: string | null;
+  list_locked: boolean;
+  auto_lock_at: string | null;
+  cancelled_at: string | null;
+};
 type ProfileEmbedTier = { name: string; color: string | null };
 type ProfileEmbedCheckIn = {
   checked_at: string;
@@ -1349,6 +1379,8 @@ type ProfileAppearanceRaw = {
   event_id: string;
   plus_ones: number;
   status: GuestRowStatus;
+  tier_id: string | null;
+  anonymized_at: string | null;
   created_at: string;
   added_by: string;
   note: string | null;
@@ -1362,7 +1394,7 @@ type ProfileAppearanceRaw = {
 };
 
 const PROFILE_APPEARANCE_SELECT =
-  'id, event_id, plus_ones, status, created_at, added_by, note, note_priority, source, request_links(label, is_default, influencers(name)), events(name, starts_at), guest_tiers(name, color), check_ins(checked_at, checked_by, plus_ones_arrived, voided_at, voided_by), refusals(refused_at, refused_by, reason)';
+  'id, event_id, plus_ones, status, tier_id, anonymized_at, created_at, added_by, note, note_priority, source, request_links(label, is_default, influencers(name)), events(name, starts_at, ends_at, list_locked, auto_lock_at, cancelled_at), guest_tiers(name, color), check_ins(checked_at, checked_by, plus_ones_arrived, voided_at, voided_by), refusals(refused_at, refused_by, reason)';
 
 /** Normalize one embedded guest row (the embeds come back to-one OR to-many). */
 function mapAppearance(g: ProfileAppearanceRaw): ContactAppearance {
@@ -1385,10 +1417,16 @@ function mapAppearance(g: ProfileAppearanceRaw): ContactAppearance {
     eventId: g.event_id,
     eventName: ev?.name ?? '',
     eventStartsAt: ev?.starts_at ?? g.created_at,
+    eventEndsAt: ev?.ends_at ?? null,
+    eventListLocked: ev?.list_locked ?? false,
+    eventAutoLockAt: ev?.auto_lock_at ?? null,
+    eventCancelled: ev?.cancelled_at != null,
     plusOnes: g.plus_ones,
     status: g.status,
+    tierId: g.tier_id ?? null,
     tierName: tier?.name ?? null,
     tierColor: tier?.color ?? null,
+    anonymized: g.anonymized_at != null,
     note: g.note,
     notePriority: g.note_priority,
     addedBy: g.added_by,
@@ -1432,9 +1470,15 @@ async function fetchContactAppearances(client: Client, contactId: string): Promi
   return ((data ?? []) as ProfileAppearanceRaw[]).map(mapAppearance);
 }
 
-/** A single guest row as one appearance — the name-only / guest-keyed path. */
+/** A single guest row as one appearance — the name-only / guest-keyed path.
+ *  A removed row is not an appearance (the contact path above has the same
+ *  rule): it used to render as "On the way" on a list it had dropped off. */
 async function fetchGuestAppearance(client: Client, guestId: string): Promise<ContactAppearance[]> {
-  const { data, error } = await client.from('guests').select(PROFILE_APPEARANCE_SELECT).eq('id', guestId);
+  const { data, error } = await client
+    .from('guests')
+    .select(PROFILE_APPEARANCE_SELECT)
+    .eq('id', guestId)
+    .neq('status', 'removed');
   if (error) throw error;
   return ((data ?? []) as ProfileAppearanceRaw[]).map(mapAppearance);
 }
@@ -1756,6 +1800,7 @@ export type PoVenueSettingsRow = Pick<
   | 'postal_code'
   | 'city'
   | 'country'
+  | 'website'
 >;
 
 /** Venue settings (RLS venues_select: any member reads; only admin may update). */
@@ -1766,7 +1811,7 @@ export async function fetchVenueSettings(
   const { data, error } = await client
     .from('venues')
     .select(
-      'id, name, slug, retention_months, default_personal_quota, allow_uncheck, company_name, kvk_number, vat_number, finance_email, address_line, postal_code, city, country'
+      'id, name, slug, retention_months, default_personal_quota, allow_uncheck, company_name, kvk_number, vat_number, finance_email, address_line, postal_code, city, country, website'
     )
     .eq('id', venueId)
     .maybeSingle();

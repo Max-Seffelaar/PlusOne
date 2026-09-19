@@ -19,6 +19,7 @@ import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import {
+  usePoCanCreateLink,
   usePoCanManageTemplates,
   usePoEvents,
   usePoGuestRequests,
@@ -29,24 +30,21 @@ import {
 import { usePoApproveRequest, usePoDecideQuota, usePoDenyRequest } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { isOpenGuestRequest } from '@/features/po/adapters';
+import { requestLinkLabel } from '@/features/po/format';
 import { canDecideRequests, canSeeOwnRequests, canSeeRequestInbox } from '@/features/auth/roles';
 import type { PoGuestRequest, PoQuotaRequest } from '@/features/po/adapters';
 import { buildApproveInput, type ApprovalDecision } from '@/features/requests/approval';
 import type { PoLinkOption } from '@/features/po/queries';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Avatar, Btn, Empty, Label, MiniChip, Note, TextArea, Top, press } from '../kit';
-import { Sheet } from '../shell';
-import { AssignSheet } from './approvals/assign-sheet';
+import { Avatar, Btn, Empty, Label, MiniChip, Note, Top, press } from '../kit';
+import { AssignSheet, DenySheet, ErrLine, EventPickerSheet, LinkPickerSheet, type DenyTarget } from './approvals-sheets';
+import { CreateLinkFlow } from './promotion/create-link-flow';
+import { soonestUpcoming } from './promotion/shared';
 
 const col = 'flex h-full flex-col';
 
 type Tab = 'landing' | 'quota';
-type DenyTarget = { kind: 'landing' | 'quota'; id: string; name: string; eventId: string };
-
-function ErrLine({ msg }: { msg: string }): JSX.Element {
-  return <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{msg}</div>;
-}
 
 /** Small event tag shown on each card in "Alle events" mode. */
 function EventTag({ name }: { name: string }): JSX.Element {
@@ -58,13 +56,19 @@ function EventTag({ name }: { name: string }): JSX.Element {
   );
 }
 
-/** "via {influencer/label}" chip on a card — which request link the guest used (F1). */
-function ViaChip({ label, className }: { label: string; className?: string }): JSX.Element {
+/** Which request link the guest used (F1), on EVERY card since z8uq9m0hw4: the
+ *  default link reads "Standard link", a custom one "via {influencer/label}".
+ *  Renders nothing (wrapper included) only when the link can't be named. */
+function ViaChip({ req, className }: { req: Pick<PoGuestRequest, 'viaStandard' | 'viaLabel'>; className?: string }): JSX.Element | null {
+  const label = requestLinkLabel(req);
+  if (!label) return null;
   return (
-    <MiniChip className={className}>
-      <Icon name="link" size={11} />
-      {fmt(t.requests.viaChip, { label })}
-    </MiniChip>
+    <div className={className}>
+      <MiniChip>
+        <Icon name="link" size={11} />
+        {label}
+      </MiniChip>
+    </div>
   );
 }
 
@@ -127,6 +131,7 @@ export function Aanvragen({
   const [deny, setDeny] = useState<DenyTarget | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const venueLinks = usePoVenueLinks();
+  const [creatingLink, setCreatingLink] = useState(false);
 
   const tiersQuery = usePoTiers(assign?.eventId ?? '');
   const approve = usePoApproveRequest();
@@ -136,6 +141,18 @@ export function Aanvragen({
   const allG = gReqs.data ?? [];
   const allQ = qReqs.data ?? [];
   const nameById = new Map(events.map((e) => [e.id, e.name]));
+
+  // "New request link" (z8uq9m0hw4) opens Promotion's CreateLinkFlow on the
+  // scoped event, or on "All events" the same default Promotion's hub picks.
+  // Gate = usePoCanCreateLink, shared with the Promotion hub: admin, or an
+  // organizer of that event — exactly the request_links_insert RLS. Finance
+  // reads this inbox but can't create links, so it never sees the button. Only
+  // an admin gets the flow's event picker; an organizer stays on the one event
+  // he runs (same rule as CreateLinkFlow's `events` prop doc).
+  const linkEvent = sel
+    ? events.find((e) => e.id === sel) ?? null
+    : soonestUpcoming(events) ?? events[0] ?? null;
+  const { canCreate: canCreateLink, isAdmin } = usePoCanCreateLink(linkEvent?.id ?? '');
 
   const q = search.trim().toLowerCase();
   const matches = (name: string): boolean => !q || name.toLowerCase().includes(q);
@@ -277,7 +294,18 @@ export function Aanvragen({
 
   return (
     <div className={col}>
-      <Top onBack={nav.back} title={ownOnly ? t.requests.ownTitle : t.requests.title} sub={scopeLabel} />
+      <Top
+        onBack={nav.back}
+        title={ownOnly ? t.requests.ownTitle : t.requests.title}
+        sub={scopeLabel}
+        right={
+          linkEvent && canCreateLink ? (
+            <Btn sm kind="ghost" icon="link" className="min-h-[44px]" onClick={() => setCreatingLink(true)}>
+              {t.requests.newLink}
+            </Btn>
+          ) : undefined
+        }
+      />
 
       {/* Event dropdown + request-link filter (F1) */}
       <div className="flex flex-none gap-2 px-5 pb-[10px]">
@@ -375,7 +403,7 @@ export function Aanvragen({
                   style={{ borderColor: r.flag ? 'rgba(181,166,255,0.4)' : undefined }}
                 >
                   {showAllEvents && <EventTag name={nameById.get(r.eventId) ?? 'Event'} />}
-                  <div className={cn('flex items-center gap-[11px]', r.motivation || r.flag || r.viaLabel ? 'mb-[11px]' : 'mb-[13px]')}>
+                  <div className={cn('flex items-center gap-[11px]', r.motivation || r.flag || requestLinkLabel(r) ? 'mb-[11px]' : 'mb-[13px]')}>
                     <Avatar name={r.name} size={40} />
                     <div className="min-w-0 flex-1">
                       <div className="font-display text-[15.5px] font-bold text-text">
@@ -383,9 +411,7 @@ export function Aanvragen({
                         {r.plus > 0 && <span className="text-faint"> +{r.plus}</span>}
                       </div>
                       <div className="truncate text-[12px] text-faint">
-                        {r.phoneLast4
-                          ? fmt(t.requests.cardPhoneVia, { last4: r.phoneLast4, at: r.at })
-                          : fmt(t.requests.cardVia, { at: r.at })}
+                        {r.phoneLast4 ? fmt(t.requests.cardPhone, { last4: r.phoneLast4, at: r.at }) : r.at}
                       </div>
                       {/* 86eyke279: the address is the channel the required
                           field exists for — it belongs on the card you decide
@@ -393,11 +419,7 @@ export function Aanvragen({
                       {r.email && <div className="truncate text-[12px] text-dim">{r.email}</div>}
                     </div>
                   </div>
-                  {r.viaLabel && (
-                    <div className="mb-[11px]">
-                      <ViaChip label={r.viaLabel} />
-                    </div>
-                  )}
+                  <ViaChip req={r} className="mb-[11px]" />
                   {r.flag && (
                     <div className="mb-[11px] inline-flex items-center gap-1.5 rounded-[7px] bg-acc-dim px-[9px] py-1 font-body text-[11.5px] font-bold text-acc">
                       <Icon name="warn" size={12} stroke="#B5A6FF" />
@@ -448,11 +470,7 @@ export function Aanvragen({
                             {r.email && <div className="truncate text-[12px] text-dim">{r.email}</div>}
                           </div>
                         </div>
-                        {r.viaLabel && (
-                          <div className="mb-[9px]">
-                            <ViaChip label={r.viaLabel} />
-                          </div>
-                        )}
+                        <ViaChip req={r} className="mb-[9px]" />
                         <div className="mb-[12px] flex items-start gap-[7px] rounded-[9px] bg-elev2 px-[11px] py-[8px] text-[12.5px] leading-[1.4] text-faint">
                           <Icon name="close" size={13} stroke="rgba(255,255,255,0.40)" className="mt-px shrink-0" />
                           <span>{r.denyReason ? fmt(t.requests.declinedReason, { reason: r.denyReason }) : t.requests.declined}</span>
@@ -504,11 +522,7 @@ export function Aanvragen({
                             {t.requests.autoApprovedTag}
                           </span>
                         </div>
-                        {r.viaLabel && (
-                          <div className="mt-[9px]">
-                            <ViaChip label={r.viaLabel} />
-                          </div>
-                        )}
+                        <ViaChip req={r} className="mt-[9px]" />
                       </div>
                     ))}
                   </div>
@@ -593,6 +607,14 @@ export function Aanvragen({
           onCreateTier={() => createTierFor(assign.eventId)}
         />
       )}
+      {creatingLink && linkEvent && (
+        <CreateLinkFlow
+          eventId={linkEvent.id}
+          eventName={linkEvent.name}
+          events={isAdmin ? events : undefined}
+          onClose={() => setCreatingLink(false)}
+        />
+      )}
       {deny && (
         <DenySheet
           target={deny}
@@ -606,145 +628,5 @@ export function Aanvragen({
         />
       )}
     </div>
-  );
-}
-
-function EventPickerSheet({
-  events,
-  counts,
-  total,
-  sel,
-  onPick,
-  onClose,
-}: {
-  events: { id: string; name: string }[];
-  counts: Map<string, number>;
-  total: number;
-  sel: string;
-  onPick: (id: string) => void;
-  onClose: () => void;
-}): JSX.Element {
-  const row = (id: string, label: string, count: number, active: boolean): JSX.Element => (
-    <button
-      key={id || 'all'}
-      type="button"
-      onClick={() => onPick(id)}
-      className={cn('flex items-center gap-[11px] rounded-[12px] border px-[13px] py-[12px] text-left', active ? 'border-transparent bg-acc-dim' : 'border-line bg-elev', press)}
-    >
-      <span className="min-w-0 flex-1 truncate font-display text-[14.5px] font-bold text-text">{label}</span>
-      {count > 0 && (
-        <span className="inline-flex h-[20px] min-w-[20px] items-center justify-center rounded-full bg-acc-dim px-[6px] text-[11px] font-extrabold text-acc">{count}</span>
-      )}
-      <span className={cn('flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full border-2', active ? 'border-acc bg-acc' : 'border-ghost bg-transparent')}>
-        {active && <Icon name="check" size={12} stroke="#16132B" sw={3} />}
-      </span>
-    </button>
-  );
-  return (
-    <Sheet onClose={onClose} center={false}>
-      <div className="mb-[14px] font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{t.requests.pickEventTitle}</div>
-      <div className="flex flex-col gap-[7px]">
-        {row('', t.requests.scopeAll, total, sel === '')}
-        {events.map((e) => row(e.id, e.name, counts.get(e.id) ?? 0, sel === e.id))}
-      </div>
-      <button type="button" onClick={onClose} className={cn('mt-4 cursor-pointer self-center border-none bg-transparent font-body text-[13.5px] font-semibold text-faint', press)}>
-        {t.requests.close}
-      </button>
-    </Sheet>
-  );
-}
-
-/** Filter-by-link sheet (F1) — cloned from EventPickerSheet: "All links" + each
- *  link of the current scope (influencer/label; the default link reads
- *  "Standard link"), each with its pending count. */
-function LinkPickerSheet({
-  links,
-  counts,
-  sel,
-  onPick,
-  onClose,
-}: {
-  links: PoLinkOption[];
-  counts: Map<string, number>;
-  sel: string;
-  onPick: (id: string) => void;
-  onClose: () => void;
-}): JSX.Element {
-  const total = links.reduce((sum, l) => sum + (counts.get(l.id) ?? 0), 0);
-  const row = (id: string, label: string, count: number, active: boolean): JSX.Element => (
-    <button
-      key={id || 'all'}
-      type="button"
-      onClick={() => onPick(id)}
-      className={cn('flex items-center gap-[11px] rounded-[12px] border px-[13px] py-[12px] text-left', active ? 'border-transparent bg-acc-dim' : 'border-line bg-elev', press)}
-    >
-      <span className="min-w-0 flex-1 truncate font-display text-[14.5px] font-bold text-text">{label}</span>
-      {count > 0 && (
-        <span className="inline-flex h-[20px] min-w-[20px] items-center justify-center rounded-full bg-acc-dim px-[6px] text-[11px] font-extrabold text-acc">{count}</span>
-      )}
-      <span className={cn('flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full border-2', active ? 'border-acc bg-acc' : 'border-ghost bg-transparent')}>
-        {active && <Icon name="check" size={12} stroke="#16132B" sw={3} />}
-      </span>
-    </button>
-  );
-  return (
-    <Sheet onClose={onClose} center={false}>
-      <div className="mb-[14px] font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{t.requests.pickLinkTitle}</div>
-      <div className="po-scroll flex max-h-[55vh] flex-col gap-[7px] overflow-y-auto">
-        {row('', t.requests.linkFilterAll, total, sel === '')}
-        {links.map((l) => row(l.id, l.label ?? t.requests.standardLink, counts.get(l.id) ?? 0, sel === l.id))}
-      </div>
-      <button type="button" onClick={onClose} className={cn('mt-4 cursor-pointer self-center border-none bg-transparent font-body text-[13.5px] font-semibold text-faint', press)}>
-        {t.requests.close}
-      </button>
-    </Sheet>
-  );
-}
-
-function DenySheet({
-  target,
-  pending,
-  error,
-  onClose,
-  onConfirm,
-}: {
-  target: DenyTarget;
-  pending: boolean;
-  error: string | null;
-  onClose: () => void;
-  onConfirm: (reason: string) => void;
-}): JSX.Element {
-  const [reason, setReason] = useState('');
-  const trimmed = reason.trim();
-  const isLanding = target.kind === 'landing';
-  return (
-    <Sheet onClose={onClose} center={false}>
-      <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">
-        {isLanding ? t.requests.declineHeading : t.requests.denyHeading}
-      </div>
-      <div className="mb-4 text-[13px] text-faint">
-        {isLanding
-          ? fmt(t.requests.declineFromLanding, { name: target.name })
-          : fmt(t.requests.denyFromQuota, { name: target.name })}
-      </div>
-      <Label className="mb-[10px]">
-        {t.requests.reasonLabel} <span className="font-normal normal-case text-faint">{t.requests.reasonRequired}</span>
-      </Label>
-      <TextArea
-        autoFocus
-        value={reason}
-        onChange={setReason}
-        maxLength={500}
-        placeholder={t.requests.reasonPlaceholder}
-        className="mb-4 min-h-[88px]"
-      />
-      {error && <ErrLine msg={error} />}
-      <Btn kind="primary" full icon="close" disabled={pending || !trimmed} onClick={() => onConfirm(trimmed)} className={pending || !trimmed ? 'opacity-50' : ''}>
-        {pending ? t.requests.declineBusy : isLanding ? t.requests.declineConfirm : t.requests.denyConfirm}
-      </Btn>
-      <button type="button" onClick={onClose} className={cn('mt-3 cursor-pointer self-center border-none bg-transparent font-body text-[13.5px] font-semibold text-faint', press)}>
-        {t.requests.cancel}
-      </button>
-    </Sheet>
   );
 }

@@ -120,7 +120,9 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
 
   const [name, setName] = useState('');
   const [capacity, setCapacity] = useState('');
-  const [landingOn, setLandingOn] = useState(false);
+  // New templates start with the sign-up link on, like a new event
+  // (z8uq9m0hw3, item 6); an existing template hydrates its stored value below.
+  const [landingOn, setLandingOn] = useState(true);
   const [allowUncheck, setAllowUncheck] = useState<boolean | null>(null);
   const [autoOn, setAutoOn] = useState(false);
   const [autoHours, setAutoHours] = useState('');

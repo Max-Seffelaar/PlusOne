@@ -9,9 +9,21 @@ import type { JSX } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import { usePoEventActivity } from '@/features/po/hooks';
+import type { EventPhase } from '@/features/po/event-phase';
+import { absentKpi } from '@/features/stats/po-adapter';
 import { Avatar, Empty, Label, press } from '../../kit';
 
-export function EventStatsPanel({ eventId, isLive }: { eventId: string; isLive?: boolean }): JSX.Element {
+export function EventStatsPanel({
+  eventId,
+  isLive,
+  phase,
+}: {
+  eventId: string;
+  isLive?: boolean;
+  /** Names the not-checked-in tile (z8uq9m0hw4): hidden before the event,
+   *  "On the way" during it, "No-shows" only once it has ended. */
+  phase: EventPhase;
+}): JSX.Element {
   const { data, isLoading, isError, refetch } = usePoEventActivity(eventId, {
     refetchInterval: isLive ? 15_000 : undefined,
   });
@@ -38,6 +50,7 @@ export function EventStatsPanel({ eventId, isLive }: { eventId: string; isLive?:
   }
 
   const { ek, perKwartier, perTier, perUser } = data;
+  const absent = absentKpi(ek, phase);
   // Only surface the free/paid split when the event actually uses a paid tier —
   // for an all-free venue "0 paid" on every row is noise. Paid = display-only (#T3).
   const anyPaid = perUser.some((u) => u.addedPaid > 0);
@@ -51,16 +64,18 @@ export function EventStatsPanel({ eventId, isLive }: { eventId: string; isLive?:
     <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-4">
       <div>
         <div className="mb-4 grid grid-cols-2 gap-[10px]">
-          <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
+          <div className={cn('rounded-[18px] border border-line bg-elev px-4 py-[14px]', !absent && 'col-span-2')}>
             <div className="font-display text-[24px] font-extrabold text-text">{ek.peak ?? '—'}</div>
             <div className="mt-[3px] text-[12px] text-faint">
               {ek.peakCount > 0 ? fmt(t.analytics.peakWithCount, { n: ek.peakCount }) : t.analytics.peakLabel}
             </div>
           </div>
-          <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
-            <div className="font-display text-[24px] font-extrabold text-text">{ek.noShows}</div>
-            <div className="mt-[3px] text-[12px] text-faint">{fmt(t.analytics.noShowLabel, { pct: ek.noShowPct })}</div>
-          </div>
+          {absent && (
+            <div className="rounded-[18px] border border-line bg-elev px-4 py-[14px]">
+              <div className="font-display text-[24px] font-extrabold text-text">{absent.value}</div>
+              <div className="mt-[3px] text-[12px] text-faint">{absent.label}</div>
+            </div>
+          )}
         </div>
 
         <Label className="mb-[10px]">{t.analytics.arrivalsLabel}</Label>

@@ -539,6 +539,19 @@ export function usePoEventForEdit(eventId: string) {
   return { ...query, isAdmin, canManage: isAdmin || !!query.data?.isOrganizer };
 }
 
+/**
+ * Whether the caller may create a request link on this event (z8uq9m0hw4):
+ * admin, or organizer of that event — exactly the request_links_insert RLS.
+ * The ONE gate for every "New link" entry (Requests header, Promotion hub
+ * header + empty state), so finance (reads Promotion, can't create) never gets
+ * a button that dead-ends on RLS. `isAdmin` decides whether the create flow may
+ * offer a venue-wide event picker; everyone else stays on the one event.
+ */
+export function usePoCanCreateLink(eventId: string): { canCreate: boolean; isAdmin: boolean } {
+  const { canManage, isAdmin } = usePoEventForEdit(eventId);
+  return { canCreate: !!eventId && canManage, isAdmin };
+}
+
 /** External crew (event_organizers, #6/#24) assigned to an event. RLS limits reads
  *  to members of the event's venue (or the organizer themself). */
 export function usePoCrew(eventId: string) {
@@ -1059,6 +1072,28 @@ export function usePoPersonProfile(args: {
       });
     },
   });
+}
+
+const NO_IDS: readonly string[] = [];
+
+/**
+ * The event ids at the active venue the caller organizes (event_organizers,
+ * #6/#24). One venue-scoped read (the same fetch the Home board uses), so a
+ * screen can gate per-event guest actions for external crew without an N+1.
+ * An admin never needs it (`can_write_guests` passes admin first), so it
+ * short-circuits to an empty list without a request. RLS is still the boundary.
+ * Cached as a plain array (JSON-safe), not the fetcher's Set.
+ */
+export function usePoOrganizerEventIds(): readonly string[] {
+  const { venueId, userId, roles } = usePoIdentity();
+  const isAdmin = roles.includes('admin');
+  const { data } = useQuery<string[]>({
+    queryKey: poKeys.organizerEventIds(venueId ?? ''),
+    enabled: !!venueId && !!userId && !isAdmin,
+    queryFn: async () =>
+      venueId && userId ? [...(await fetchOrganizerEventIds(createClient(), venueId, userId))] : [],
+  });
+  return data ?? NO_IDS;
 }
 
 // ── Settings cluster reads (STAP 3.7/3.8) ──

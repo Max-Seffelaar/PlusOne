@@ -1,15 +1,13 @@
 'use client';
 
 /**
- * Approve a landing request (Requests, S5): pick the tier, and since
- * z8uq9m0hw6 optionally approve FEWER people than asked (stepper, never above
- * the request) and leave a plain-text note that shows on the requester's
- * status page (/r/[token]). The deny reason stays internal; this note is the
- * one thing the venue says to the requester.
- *
- * Split out of approvals.tsx to keep that screen under the ~800-line budget.
- * The sheet only collects the decision; approvals.tsx turns it into the action
- * input via `buildApproveInput` (src/features/requests/approval.ts).
+ * Bottom sheets of the Requests inbox (approvals.tsx) — the event / link scope
+ * pickers, the approve sheet and the decline/deny sheet. Split out of
+ * approvals.tsx (z8uq9m0hw4) to keep the screen file under the ~800 LOC rule.
+ * The approve sheet also takes a partial approval (people stepper, never above
+ * the request) and an optional note for the requester's status page
+ * (z8uq9m0hw6); approvals.tsx turns its decision into the action input via
+ * `buildApproveInput` (src/features/requests/approval.ts).
  */
 import { type JSX, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -17,13 +15,108 @@ import { fmt, t } from '@/lib/i18n';
 import type { PoGuestRequest } from '@/features/po/adapters';
 import { clampApprovedPlusOnes, type ApprovalDecision } from '@/features/requests/approval';
 import { DECISION_MESSAGE_MAX } from '@/features/requests/schemas';
+import type { PoLinkOption } from '@/features/po/queries';
 import type { Tier } from '@/lib/po/types';
-import { Icon } from '../../icon';
-import { Avatar, Btn, Label, Note, Stepper, TextArea, TierPicker, press } from '../../kit';
-import { Sheet } from '../../shell';
+import { Icon } from '../icon';
+import { Avatar, Btn, Label, Note, Stepper, TextArea, TierPicker, press } from '../kit';
+import { Sheet } from '../shell';
 
-function ErrLine({ msg }: { msg: string }): JSX.Element {
+export type DenyTarget = { kind: 'landing' | 'quota'; id: string; name: string; eventId: string };
+
+export function ErrLine({ msg }: { msg: string }): JSX.Element {
   return <div className="mb-3 text-[13px] font-semibold text-[#E89AC0]">{msg}</div>;
+}
+
+export function EventPickerSheet({
+  events,
+  counts,
+  total,
+  sel,
+  onPick,
+  onClose,
+}: {
+  events: { id: string; name: string }[];
+  counts: Map<string, number>;
+  total: number;
+  sel: string;
+  onPick: (id: string) => void;
+  onClose: () => void;
+}): JSX.Element {
+  const row = (id: string, label: string, count: number, active: boolean): JSX.Element => (
+    <button
+      key={id || 'all'}
+      type="button"
+      onClick={() => onPick(id)}
+      className={cn('flex items-center gap-[11px] rounded-[12px] border px-[13px] py-[12px] text-left', active ? 'border-transparent bg-acc-dim' : 'border-line bg-elev', press)}
+    >
+      <span className="min-w-0 flex-1 truncate font-display text-[14.5px] font-bold text-text">{label}</span>
+      {count > 0 && (
+        <span className="inline-flex h-[20px] min-w-[20px] items-center justify-center rounded-full bg-acc-dim px-[6px] text-[11px] font-extrabold text-acc">{count}</span>
+      )}
+      <span className={cn('flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full border-2', active ? 'border-acc bg-acc' : 'border-ghost bg-transparent')}>
+        {active && <Icon name="check" size={12} stroke="#16132B" sw={3} />}
+      </span>
+    </button>
+  );
+  return (
+    <Sheet onClose={onClose} center={false}>
+      <div className="mb-[14px] font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{t.requests.pickEventTitle}</div>
+      <div className="flex flex-col gap-[7px]">
+        {row('', t.requests.scopeAll, total, sel === '')}
+        {events.map((e) => row(e.id, e.name, counts.get(e.id) ?? 0, sel === e.id))}
+      </div>
+      <button type="button" onClick={onClose} className={cn('mt-4 cursor-pointer self-center border-none bg-transparent font-body text-[13.5px] font-semibold text-faint', press)}>
+        {t.requests.close}
+      </button>
+    </Sheet>
+  );
+}
+
+/** Filter-by-link sheet (F1) — cloned from EventPickerSheet: "All links" + each
+ *  link of the current scope (influencer/label; the default link reads
+ *  "Standard link"), each with its pending count. */
+export function LinkPickerSheet({
+  links,
+  counts,
+  sel,
+  onPick,
+  onClose,
+}: {
+  links: PoLinkOption[];
+  counts: Map<string, number>;
+  sel: string;
+  onPick: (id: string) => void;
+  onClose: () => void;
+}): JSX.Element {
+  const total = links.reduce((sum, l) => sum + (counts.get(l.id) ?? 0), 0);
+  const row = (id: string, label: string, count: number, active: boolean): JSX.Element => (
+    <button
+      key={id || 'all'}
+      type="button"
+      onClick={() => onPick(id)}
+      className={cn('flex items-center gap-[11px] rounded-[12px] border px-[13px] py-[12px] text-left', active ? 'border-transparent bg-acc-dim' : 'border-line bg-elev', press)}
+    >
+      <span className="min-w-0 flex-1 truncate font-display text-[14.5px] font-bold text-text">{label}</span>
+      {count > 0 && (
+        <span className="inline-flex h-[20px] min-w-[20px] items-center justify-center rounded-full bg-acc-dim px-[6px] text-[11px] font-extrabold text-acc">{count}</span>
+      )}
+      <span className={cn('flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-full border-2', active ? 'border-acc bg-acc' : 'border-ghost bg-transparent')}>
+        {active && <Icon name="check" size={12} stroke="#16132B" sw={3} />}
+      </span>
+    </button>
+  );
+  return (
+    <Sheet onClose={onClose} center={false}>
+      <div className="mb-[14px] font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{t.requests.pickLinkTitle}</div>
+      <div className="po-scroll flex max-h-[55vh] flex-col gap-[7px] overflow-y-auto">
+        {row('', t.requests.linkFilterAll, total, sel === '')}
+        {links.map((l) => row(l.id, l.label ?? t.requests.standardLink, counts.get(l.id) ?? 0, sel === l.id))}
+      </div>
+      <button type="button" onClick={onClose} className={cn('mt-4 cursor-pointer self-center border-none bg-transparent font-body text-[13.5px] font-semibold text-faint', press)}>
+        {t.requests.close}
+      </button>
+    </Sheet>
+  );
 }
 
 export function AssignSheet({
@@ -166,6 +259,54 @@ export function AssignSheet({
           {pending ? t.requests.assignBusy : t.requests.assignConfirm}
         </Btn>
       )}
+      <button type="button" onClick={onClose} className={cn('mt-3 cursor-pointer self-center border-none bg-transparent font-body text-[13.5px] font-semibold text-faint', press)}>
+        {t.requests.cancel}
+      </button>
+    </Sheet>
+  );
+}
+
+export function DenySheet({
+  target,
+  pending,
+  error,
+  onClose,
+  onConfirm,
+}: {
+  target: DenyTarget;
+  pending: boolean;
+  error: string | null;
+  onClose: () => void;
+  onConfirm: (reason: string) => void;
+}): JSX.Element {
+  const [reason, setReason] = useState('');
+  const trimmed = reason.trim();
+  const isLanding = target.kind === 'landing';
+  return (
+    <Sheet onClose={onClose} center={false}>
+      <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">
+        {isLanding ? t.requests.declineHeading : t.requests.denyHeading}
+      </div>
+      <div className="mb-4 text-[13px] text-faint">
+        {isLanding
+          ? fmt(t.requests.declineFromLanding, { name: target.name })
+          : fmt(t.requests.denyFromQuota, { name: target.name })}
+      </div>
+      <Label className="mb-[10px]">
+        {t.requests.reasonLabel} <span className="font-normal normal-case text-faint">{t.requests.reasonRequired}</span>
+      </Label>
+      <TextArea
+        autoFocus
+        value={reason}
+        onChange={setReason}
+        maxLength={500}
+        placeholder={t.requests.reasonPlaceholder}
+        className="mb-4 min-h-[88px]"
+      />
+      {error && <ErrLine msg={error} />}
+      <Btn kind="primary" full icon="close" disabled={pending || !trimmed} onClick={() => onConfirm(trimmed)} className={pending || !trimmed ? 'opacity-50' : ''}>
+        {pending ? t.requests.declineBusy : isLanding ? t.requests.declineConfirm : t.requests.denyConfirm}
+      </Btn>
       <button type="button" onClick={onClose} className={cn('mt-3 cursor-pointer self-center border-none bg-transparent font-body text-[13.5px] font-semibold text-faint', press)}>
         {t.requests.cancel}
       </button>

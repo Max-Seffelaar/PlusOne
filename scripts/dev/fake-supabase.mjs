@@ -21,7 +21,11 @@ const uid = () => randomUUID();
 const U1 = 'a0000000-0000-4000-8000-000000000001'; // manager (admin)
 const U2 = 'a0000000-0000-4000-8000-000000000002'; // staff
 const U3 = 'a0000000-0000-4000-8000-000000000003'; // door
+const U4 = 'a0000000-0000-4000-8000-000000000004'; // owner, mid-onboarding
 const V1 = 'b0000000-0000-4000-8000-000000000001';
+// A venue still in the self-service wizard (settings.onboarding.completed=false
+// + a picked plan), so owner@plusone.test lands on /onboarding's Team step.
+const V2 = 'b0000000-0000-4000-8000-000000000002';
 const E1 = 'c0000000-0000-4000-8000-000000000001';
 const E2 = 'c0000000-0000-4000-8000-000000000002';
 const E3 = 'c0000000-0000-4000-8000-000000000003';
@@ -49,6 +53,14 @@ const users = {
     last_name: 'Bakker',
     roles: ['doorhost'],
   },
+  'owner@plusone.test': {
+    id: U4,
+    full_name: 'Noor Visser',
+    first_name: 'Noor',
+    last_name: 'Visser',
+    roles: ['admin'],
+    venueId: V2,
+  },
 };
 
 const db = {
@@ -62,6 +74,7 @@ const db = {
       default_personal_quota: 5,
       retention_months: 12,
       country: 'NL',
+      website: 'https://clubnova.example',
       company_name: 'Club Nova B.V.',
       kvk_number: null,
       vat_number: null,
@@ -75,8 +88,43 @@ const db = {
       terms_version: '2026-06-24',
       terms_accepted_by: U1,
     },
+    {
+      id: V2,
+      name: 'Studio Zuid',
+      slug: 'studio-zuid',
+      settings: { onboarding: { completed: false } },
+      allow_uncheck: true,
+      default_personal_quota: 0,
+      retention_months: 12,
+      country: 'NL',
+      website: null,
+      company_name: null,
+      kvk_number: null,
+      vat_number: null,
+      finance_email: null,
+      address_line: null,
+      postal_code: null,
+      city: 'Rotterdam',
+      created_at: iso(now - D),
+      updated_at: iso(now),
+      terms_accepted_at: iso(now - D),
+      terms_version: '2026-06-24',
+      terms_accepted_by: U4,
+    },
   ],
   subscriptions: [
+    {
+      id: uid(),
+      venue_id: V2,
+      status: 'trialing',
+      plan_id: 'premium',
+      current_period_end: null,
+      stripe_customer_id: null,
+      stripe_subscription_id: null,
+      created_at: iso(now - D),
+      updated_at: iso(now),
+      last_stripe_event_at: null,
+    },
     {
       id: uid(),
       venue_id: V1,
@@ -105,7 +153,7 @@ const db = {
   })),
   venue_memberships: Object.values(users).map((u) => ({
     id: uid(),
-    venue_id: V1,
+    venue_id: u.venueId ?? V1,
     user_id: u.id,
     roles: u.roles,
     job_title: null,
@@ -445,6 +493,11 @@ for (let i = 0; i < 7; i++) {
   checkin(E3, p[i], i % 2, 6 * 24 * 60 - i * 10);
   db.guests.find((x) => x.id === p[i]).status = 'checked_in';
 }
+// Contact Lotte Jansen (C1) on three events, for the person profile's per-event
+// actions: tonight (admin-added, inside), next week (staff-added, open list) and
+// the past, locked night (staff-added). Appended last so no earlier guest id moves.
+guest(E2, names[0], 'guest', 1, 'approved', 'app', U2, { contactId: C1, email: 'lotte@example.com' });
+Object.assign(db.guests.find((x) => x.id === p[0]), { contact_id: C1, added_by: U2 });
 // requests
 db.guest_requests.push({
   id: uid(),
@@ -1053,10 +1106,15 @@ const server = createServer(async (req, res) => {
       for (const r of rows) Object.assign(r, body);
       log(`→ update ${rows.length}`);
       const out = rows.map((r) => project(table, r, nodes));
+      // `count: 'exact'` updates (the guest actions) read the count from here.
+      const patchExtra = prefer.includes('count=')
+        ? { 'Content-Range': `0-${Math.max(rows.length - 1, 0)}/${rows.length}` }
+        : {};
       return send(
         res,
         200,
-        prefer.includes('representation') ? (single ? out[0] : out) : undefined
+        prefer.includes('representation') ? (single ? out[0] : out) : undefined,
+        patchExtra
       );
     }
     if (req.method === 'DELETE') {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { eventKpis, toPerKwartier, toPerTier, toPerUser, venueKpis } from './po-adapter';
+import { absentKpi, eventKpis, toPerKwartier, toPerTier, toPerUser, venueKpis } from './po-adapter';
 import type { EventSummary, QuarterBucket, TierStat, UserAddition, VenueSummary } from './data';
 
 // Row factories — only the fields the adapter reads (all present so the shapes
@@ -117,6 +117,28 @@ describe('eventKpis', () => {
 
   it('falls back to safe zeros for a null summary', () => {
     expect(eventKpis(null)).toEqual({ peak: null, peakCount: 0, noShows: 0, noShowPct: 0 });
+  });
+});
+
+describe('absentKpi (z8uq9m0hw4: phase names the not-checked-in figure)', () => {
+  const ek = eventKpis(summary()); // 28 of 100 not checked in → 28%
+
+  it('shows no figure at all before the event', () => {
+    expect(absentKpi(ek, 'upcoming')).toBeNull();
+  });
+
+  it('calls them "On the way" while the event runs', () => {
+    expect(absentKpi(ek, 'live')).toEqual({ value: 28, label: 'On the way · 28%' });
+  });
+
+  it('only calls them "No-shows" after the event has ended', () => {
+    expect(absentKpi(ek, 'past')).toEqual({ value: 28, label: 'No-shows · 28%' });
+  });
+
+  it('never shows the word no-show before the end', () => {
+    for (const phase of ['upcoming', 'live'] as const) {
+      expect(absentKpi(ek, phase)?.label ?? '').not.toMatch(/no-show/i);
+    }
   });
 });
 

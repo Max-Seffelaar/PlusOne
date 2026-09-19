@@ -76,7 +76,7 @@ describe('fetchVenueEvents (C25)', () => {
           eq: vi.fn(() => ({
             order: vi.fn(() =>
               Promise.resolve({
-                data: [{ id: 'e1', name: 'Event', starts_at: '2026-01-01', status: 'draft' }],
+                data: [{ id: 'e1', name: 'Event', starts_at: '2026-01-01', ends_at: null, status: 'draft' }],
                 error: null,
               })
             ),
@@ -87,7 +87,7 @@ describe('fetchVenueEvents (C25)', () => {
 
     const result = await fetchVenueEvents(client, 'venue-1');
     expect(result).toEqual([
-      { id: 'e1', name: 'Event', startsAt: '2026-01-01', status: 'draft' },
+      { id: 'e1', name: 'Event', startsAt: '2026-01-01', endsAt: null, status: 'draft' },
     ]);
   });
 

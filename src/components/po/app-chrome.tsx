@@ -27,7 +27,7 @@ import { venueCapabilities } from '@/features/venues/access';
 import { switchActiveVenueAction } from '@/features/venues/actions';
 import { PoProvider, type Nav, type PoApp } from './context';
 import type { ParsedTarget } from './routes';
-import { navKeyForScreen, mobileTabForScreen, WIDE_DESKTOP } from './nav-map';
+import { navKeyForScreen, mobileTabForScreen, venueEntryScreen, WIDE_DESKTOP } from './nav-map';
 import { Toast, type TabKey } from './shell';
 import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
 import { useAppShellData } from './app-shell-data';
@@ -215,6 +215,9 @@ export function AppShellChrome({
   // (read-only inbox) and staff (own-status view) on top of the same signal.
   const showRequestsNavItem = canManageTemplates || canSeeAnyRequests(roles);
   const canViewTeam = caps.viewTeam;
+  // One venue + may see its settings: the venue card opens them, not a
+  // one-item switcher (z8uq9m0hw2).
+  const venueEntry = venueEntryScreen(myVenues.length, caps.viewSettings);
 
   const navItems: ShellNavItem[] = useMemo(
     () => [
@@ -283,7 +286,8 @@ export function AppShellChrome({
         mobileBadges={mobileBadges}
         navItems={navItems}
         venueName={liveVenueName ?? t.settings.venueSwitch.thisVenueFallback}
-        onOpenVenue={() => nav.push('venueswitch')}
+        venueOpensSettings={venueEntry === 'venuesettings'}
+        onOpenVenue={() => nav.push(venueEntry)}
         onOpenProfile={() => nav.push('profile')}
         userName={liveUserName ?? t.common.account}
         userSub={liveUserSub ?? ''}

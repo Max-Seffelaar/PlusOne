@@ -16,6 +16,7 @@ describe('routes: screenPath ↔ parseAppUrl round-trip', () => {
     ['eventedit', { id: 'e1' }],
     ['lijst', { id: 'e1' }],
     ['tiers', { id: 'e1' }],
+    ['tiers', { id: 'e1', setup: true }],
     ['crew', { id: 'e1' }],
     ['allowance', {}],
     ['links', { id: 'e1' }],

@@ -11,12 +11,16 @@
  * and clearing the end date arms it again. In edit mode an event that already
  * has an end starts as touched, so a stored end is never silently rewritten.
  *
+ * Rollover (z8uq9m0hw3): setting an end TIME at or before the doors time while
+ * the end date equals the start date moves the end date to the next day
+ * (`rollEndDate`), because events cross midnight (#26).
+ *
  * Capacitor-safe (#37): no browser-only API here — the fields themselves guard
  * `matchMedia` (datetime-field.tsx).
  */
 import type { JSX } from 'react';
 import { t } from '@/lib/i18n';
-import { deriveEnd } from '@/features/events/derive-end';
+import { deriveEnd, rollEndDate } from '@/features/events/derive-end';
 import { DateField, TimeField } from '../../datetime-field';
 import { Label } from '../../kit';
 
@@ -63,9 +67,11 @@ export function ScheduleFields({
     onChange({ ...value, endDate: v });
   };
 
+  // An end at or before the doors on the start date means the next morning
+  // (#26): roll the end date forward instead of failing the save later.
   const setEndTime = (v: string): void => {
     onEndTouchedChange(true);
-    onChange({ ...value, endTime: v });
+    onChange({ ...value, endTime: v, endDate: rollEndDate(value.date, value.time, value.endDate, v) });
   };
 
   return (

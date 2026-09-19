@@ -177,13 +177,16 @@ export const guests = {
     slotMany: 'slots',
     // Optional contact-info prompt (shown when no email/phone parsed from text)
     contactPrompt: 'Add email · phone',
-    contactEmailPlaceholder: 'Email address',
-    contactPhonePlaceholder: 'Phone number',
+    // Joeri walkthrough (z8uq9m0hw4): both fields read as required. The label
+    // itself now says optional, so it survives as long as the field is empty.
+    contactEmailPlaceholder: 'Email (optional)',
+    contactPhonePlaceholder: 'Phone number (optional)',
     contactPhoneError: 'Enter a valid phone number.',
-    // Banner above the email + phone fields (item G). One key, one meaning: the
-    // old contactPromptHint said the same thing and had no render site.
+    // Banner above the email + phone fields (item G, reworded z8uq9m0hw4). Mirrors
+    // the guests_autolink_contact trigger exactly: an email OR phone saves (or
+    // links) a venue contact, a name-only guest never becomes one.
     contactSaveNote:
-      'Optional: add an email or phone number and they are saved to your contacts, so next time they are one tap away and your list stays clean.',
+      "Add an email or phone and they're saved to your contacts, so next time they're one tap away. Name only? They go on this list but aren't saved as a contact.",
   },
   // ── Link a name-only guest to an existing contact (item K) ────────────────
   // Shared by quick-add and the paste-a-list preview: same offer, same wording.
@@ -264,7 +267,11 @@ export const guests = {
     noRights: 'You don’t have rights to view contacts. Only an admin, finance, or organizer sees the saved contacts.',
     loadError: "Couldn't load contacts.",
     emptyFiltered: 'No contacts found.',
-    empty: 'No contacts yet. Save a guest to reuse them next time.',
+    // Only guests with an email or phone number become contacts on their own
+    // (guests_autolink_contact, 20260622130100): a name-only guest has no
+    // dedup key, so it is never saved automatically.
+    empty:
+      'No contacts yet. Guests with an email or phone number are saved here automatically. Added someone by name only? Add their email or phone to save them.',
     onListCount: '{n}× on a list',
     editAria: 'Edit {name}',
     openAria: 'Open {name}',
@@ -411,6 +418,25 @@ export const guests = {
     // Tier change from the person profile
     changeTier: 'Change tier',
     changeTierSub: 'Pick a tier for this guest.',
+    // Opened from a guest list or the Guests tab (the title above is for Contacts)
+    titleGuest: 'Guest',
+    loadingGuest: 'Loading guest…',
+    notFoundGuest: "This guest isn't available, or you don't have access to it.",
+    // Per-event row actions (the "…" sheet on each event card)
+    rowActionsAria: 'Actions for {event}',
+    openEvent: 'Open event',
+    removeFromList: 'Remove from list',
+    tiersLoading: 'Loading tiers…',
+    lockedNote: 'This list is locked. An admin or the organizer can still change it.',
+    // Remove confirm: soft delete, the slot frees unless they are inside (#22)
+    removeTitle: 'Remove from {event}?',
+    removeBody: '{name} drops off the list. That frees up {n} {slots}.',
+    removeBodyInside: "{name} drops off the list. They're already inside, so this still counts as {n} {slots}.",
+    removeIrreversible: "You can't undo this.",
+    removeConfirm: 'Remove guest',
+    removeBusy: 'Removing…',
+    removeFailed: "Couldn't remove the guest.",
+    removed: 'Removed from {event}.',
   },
   // ── Guest list: multi-select + bulk tier change ───────────────────────────
   multiSelect: {
