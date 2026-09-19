@@ -31,7 +31,7 @@ import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { localInputToIso, isoToLocalInput } from '@/features/events/datetime';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Scroll, TierPicker, Toggle, ToggleRow, Top, press, cardPress } from '../../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Scroll, TierPicker, Toggle, ToggleRow, Top, hitArea44, press, cardPress } from '../../kit';
 import { Sheet } from '../../shell';
 import { CreateLinkFlow } from './create-link-flow';
 import { EventPicker, soonestUpcoming } from './shared';
@@ -147,7 +147,7 @@ function LinkCard({
           type="button"
           onClick={onQr}
           aria-label={t.links.qrAria}
-          className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev2 text-text', press)}
+          className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev2 text-text', press, hitArea44)}
         >
           <Icon name="qr" size={18} />
         </button>

@@ -15,6 +15,15 @@ import { useDoor, useDoorSyncStatus } from '../DoorProvider';
 import { useWakeLock } from '../sync/useWakeLock';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.94]';
+// Tap-target floor (CLAUDE.md: >= 44px) without moving the bar's pixels: the 30px
+// chips keep their size and an invisible `::before` ring makes each hit area
+// 44x44 (7px above/below inside the 48px bar). The chips are 10px apart, so the
+// ring is lopsided: 5px on the inner side (the two rings meet exactly, never
+// overlap) and 9px on the outer side (into the label gap / the bar's padding).
+// Each inset is 1px more than that because an absolute box is placed against
+// the padding box, inside the chip's 1px border.
+const hitWake = "relative before:absolute before:-inset-y-[8px] before:-left-[10px] before:-right-[6px] before:content-['']";
+const hitSync = "relative before:absolute before:-inset-y-[8px] before:-left-[6px] before:-right-[10px] before:content-['']";
 
 export function SyncBar(): JSX.Element {
   const { pendingCount } = useDoor();
@@ -76,6 +85,7 @@ export function SyncBar(): JSX.Element {
                 ? 'border-acc/40 bg-acc-dim text-acc'
                 : 'bg-elev2',
             press,
+            hitWake,
           )}
           style={wakeLock.enabled && !wakeLock.active ? { borderColor: `${SYNC_STATUS_COLOR.stale}66`, color: SYNC_STATUS_COLOR.stale } : undefined}
         >
@@ -87,7 +97,7 @@ export function SyncBar(): JSX.Element {
         type="button"
         onClick={sync.forceSync}
         aria-label={t.door.syncNowAria}
-        className={cn('flex h-[30px] w-[30px] items-center justify-center rounded-[10px] border border-line bg-elev2 text-dim', press)}
+        className={cn('flex h-[30px] w-[30px] items-center justify-center rounded-[10px] border border-line bg-elev2 text-dim', press, hitSync)}
       >
         <Icon name="refresh" size={16} className={cn(sync.syncing && 'motion-safe:animate-spin')} />
       </button>
