@@ -33,6 +33,7 @@ import { isOpenGuestRequest } from '@/features/po/adapters';
 import { requestLinkLabel } from '@/features/po/format';
 import { canDecideRequests, canSeeOwnRequests, canSeeRequestInbox } from '@/features/auth/roles';
 import type { PoGuestRequest, PoQuotaRequest } from '@/features/po/adapters';
+import { buildApproveInput, type ApprovalDecision } from '@/features/requests/approval';
 import type { PoLinkOption } from '@/features/po/queries';
 import { useNav } from '../context';
 import { Icon } from '../icon';
@@ -227,11 +228,12 @@ export function Aanvragen({
     nav.push('tiers', { id: eid });
   };
 
-  const confirmApproveLanding = async (tierId: string): Promise<void> => {
+  const confirmApproveLanding = async (decision: ApprovalDecision): Promise<void> => {
     if (!assign) return;
     setErr(null);
     try {
-      await approve.mutateAsync({ requestId: assign.id, tierId, eventId: assign.eventId });
+      // z8uq9m0hw6: fewer people and/or a note only ride along when set.
+      await approve.mutateAsync(buildApproveInput(assign, decision));
       setAssign(null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : t.requests.approveFailed);
@@ -601,7 +603,7 @@ export function Aanvragen({
             setAssign(null);
             setErr(null);
           }}
-          onConfirm={(tierId) => void confirmApproveLanding(tierId)}
+          onConfirm={(decision) => void confirmApproveLanding(decision)}
           onCreateTier={() => createTierFor(assign.eventId)}
         />
       )}

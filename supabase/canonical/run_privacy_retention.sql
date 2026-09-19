@@ -1,5 +1,5 @@
 -- Canonical body (K10 drift guard, see supabase/canonical/README.md).
--- Newest source: supabase/migrations/20260918160000_status_token_mirror_hardening.sql:451.
+-- Newest source: supabase/migrations/20260919090000_partial_approval_decision_message.sql:470.
 
 create or replace function public.run_privacy_retention()
 returns table (
@@ -69,6 +69,7 @@ begin
         phone = null,
         motivation = null,
         decision_reason = null,
+        decision_message = null,
         status_token_hash = null,
         anonymized_at = now()
     from ranked rk
@@ -102,6 +103,15 @@ begin
   where gr.id = m.request_id
     and gr.anonymized_at is not null;
 
+  -- 2c. z8uq9m0hw6 — the free-text decision fields go on EVERY anonymized
+  --     request, not only this run's: earlier runs, and a deny written after
+  --     anonymization, are otherwise never reached again (same lesson as 2b).
+  update public.guest_requests gr
+  set decision_message = null,
+      decision_reason = null
+  where gr.anonymized_at is not null
+    and (gr.decision_message is not null or gr.decision_reason is not null);
+
   -- 3. Redact refusal reasons of the just-anonymized guests.
   update public.refusals
   set reason = '[verwijderd na bewaartermijn]',
@@ -113,6 +123,11 @@ begin
   -- 4. Scrub the guests/refusals audit diffs + append per-guest 'anonymize'.
   v_audit := public.redact_anonymized_audit_pii(v_guest_ids);
 
+  -- 4b. z8uq9m0hw6 — scrub the free-text decision fields (the venue message
+  --     and the deny reason) out of EVERY anonymized request's own
+  --     approve/deny diffs, through the named owner-only helper.
+  v_audit := v_audit + public.redact_anonymized_request_audit_pii();
+
   -- 5. Record the request anonymizations (guest_requests aren't otherwise audited).
   insert into public.audit_log
     (actor_id, venue_id, event_id, entity_type, entity_id, action, diff, device_id)
@@ -122,7 +137,7 @@ begin
       'before', null,
       'after', jsonb_build_object(
         'anonymized_at', to_jsonb(gr.anonymized_at),
-        'redacted_fields', '["full_name","email","phone","motivation","decision_reason","status_token_hash"]'::jsonb)),
+        'redacted_fields', '["full_name","email","phone","motivation","decision_reason","decision_message","status_token_hash"]'::jsonb)),
     null
   from public.guest_requests gr
   join public.events e on e.id = gr.event_id

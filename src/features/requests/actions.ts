@@ -146,12 +146,18 @@ export async function submitGuestRequest(input: SubmitGuestRequestInput): Promis
 /**
  * Approve a request → create the guest (source=landing, #31) and mark the
  * request approved, atomically via the RPC (re-checks admin/organizer, applies
- * tier-max). A full tier surfaces as 45002.
+ * tier-max / capacity / link-max). A full tier surfaces as 45002.
+ *
+ * z8uq9m0hw6: optionally for fewer plus-ones and with a message for the
+ * requester's status page. Both are sent ONLY when set, so a plain approval
+ * stays the 2-arg call the pre-migration function also resolves (the app may
+ * deploy before the schema push). The RPC is the boundary for "never above the
+ * request" and the message cap; this schema only rejects obvious garbage.
  */
 export async function approveGuestRequest(input: ApproveGuestRequestInput): Promise<ActionResult> {
   const parsed = approveGuestRequestSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { requestId, tierId, eventId } = parsed.data;
+  const { requestId, tierId, eventId, plusOnes, message } = parsed.data;
 
   const supabase = await createClient();
   const {
@@ -162,6 +168,8 @@ export async function approveGuestRequest(input: ApproveGuestRequestInput): Prom
   const { error } = await supabase.rpc('approve_guest_request', {
     p_request_id: requestId,
     p_tier_id: tierId,
+    ...(plusOnes !== undefined ? { p_plus_ones: plusOnes } : {}),
+    ...(message !== undefined ? { p_message: message } : {}),
   });
   if (error) return mapMutationError(error);
 
