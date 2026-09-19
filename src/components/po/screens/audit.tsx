@@ -23,7 +23,7 @@ import {
 } from '@/features/po/audit-presenter';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, Note, Scroll, Top, press } from '../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, Note, Scroll, Top, hitArea44, press } from '../kit';
 import { Sheet } from '../shell';
 
 const col = 'flex h-full flex-col';
@@ -96,6 +96,7 @@ export function AuditLog({ eventId }: { eventId?: string }): JSX.Element {
               className={cn(
                 'relative flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border bg-elev text-text',
                 press,
+                hitArea44,
                 filtersActive ? 'border-acc' : 'border-line'
               )}
             >

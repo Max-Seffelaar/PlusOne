@@ -11,7 +11,7 @@ import { isDoorOnlyRole } from '@/features/auth/roles';
 import { t, fmt } from '@/lib/i18n';
 import { useNav } from '../../context';
 import { Icon, type IconName } from '../../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Scroll, Top } from '../../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Scroll, Top, hitArea44 } from '../../kit';
 import { Toast } from '../../shell';
 import { TierPill, press, col } from './_shared';
 import { useGuestSelection, BulkAddToEventSheet, type BulkAddCandidate } from './bulk-add';
@@ -366,7 +366,7 @@ export function ContactProfile({
               disabled={toggleVast.isPending}
               aria-pressed={p.vast}
               title={p.vast ? t.guests.contactProfile.unmakeRegular : t.guests.contactProfile.makeRegular}
-              className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border', press, p.vast ? 'border-transparent bg-acc-dim text-acc' : 'border-line bg-elev text-ghost')}
+              className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border', press, hitArea44, p.vast ? 'border-transparent bg-acc-dim text-acc' : 'border-line bg-elev text-ghost')}
             >
               <Icon name="star" size={18} fill={p.vast ? '#B5A6FF' : 'none'} stroke={p.vast ? '#B5A6FF' : 'rgba(255,255,255,0.4)'} />
             </button>
