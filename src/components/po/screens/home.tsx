@@ -46,6 +46,9 @@ import { EventRow, StatusChip, toBoardEvents, type BoardEvent } from '../event-r
 
 const TZ = 'Europe/Amsterdam';
 const PAGE_SIZE = 7;
+// Pager chips are 38px and 7px apart: each ring reaches 3px past the 1px border
+// (44x44), so neighbouring rings stay 1px clear of each other.
+const pagerHit = "relative before:absolute before:-inset-[4px] before:content-['']";
 // Home's past section is a recency pulse, not history (M11): anything older than
 // a week only lives under Events → Past. Older events are still fully editable —
 // this only trims what surfaces on the board. Shared with usePoHomeEvents's own
@@ -152,7 +155,7 @@ function Pagination({
           type="button"
           disabled={page === 0}
           onClick={() => setPage(page - 1)}
-          className={cn('flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line bg-elev', press, page === 0 ? 'text-ghost' : 'text-dim')}
+          className={cn('flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line bg-elev', press, pagerHit, page === 0 ? 'text-ghost' : 'text-dim')}
         >
           <Icon name="back" size={17} />
         </button>
@@ -164,6 +167,7 @@ function Pagination({
             className={cn(
               'h-[38px] min-w-[38px] rounded-[11px] border font-display text-[14px] font-bold',
               press,
+              pagerHit,
               i === page ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev text-dim'
             )}
           >
@@ -174,7 +178,7 @@ function Pagination({
           type="button"
           disabled={page === pages - 1}
           onClick={() => setPage(page + 1)}
-          className={cn('flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line bg-elev', press, page === pages - 1 ? 'text-ghost' : 'text-dim')}
+          className={cn('flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line bg-elev', press, pagerHit, page === pages - 1 ? 'text-ghost' : 'text-dim')}
         >
           <Icon name="chev" size={17} />
         </button>
