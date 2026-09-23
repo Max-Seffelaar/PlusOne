@@ -53,8 +53,11 @@ depth; its docblock still says hardening `safeNextPath` "is its own change" and 
 updated to point here when #316 merges. Whichever merges second will need a trivial rebase —
 the two changes touch adjacent but non-overlapping regions of `next-path.ts`.
 
-Suites: Vitest 1191 green (115 files), `tsc --noEmit` clean, `next lint` clean (two pre-existing
-a11y warnings in `datetime-field.tsx`, untouched).
+Suites: CI `lint-and-test` green. Locally 1750/1758 Vitest tests pass across 166 files; the 8
+failures sit in `tests/unit/pgtap-plan-run-gate.test.ts` and
+`tests/unit/pre-push-hook-is-executable.test.ts`, both environmental (they need the Supabase CLI
+and a non-worktree `core.hooksPath`) and failing identically on `main`. `tsc --noEmit` clean,
+`next lint` clean (two pre-existing a11y warnings in `datetime-field.tsx`, untouched).
 
 ---
 
