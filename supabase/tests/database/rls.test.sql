@@ -40,7 +40,7 @@ begin
 end;
 $fn$;
 
-select plan(74);
+select plan(75);
 
 -- ---------------------------------------------------------------------------
 -- A. guests SELECT — venue-wide vs own-only vs nothing (§2)
@@ -508,14 +508,25 @@ select pg_temp.login('55555555-5555-4555-8555-555555555555');
 select is((select count(*)::int from public.guest_requests), 0,
   'N2 staff sees no landing requests');
 
+-- A client decision is a DENIAL only (20260919150000): approving goes through
+-- approve_guest_request, which creates the guest. A direct approve would mark the
+-- request approved with nobody on the list.
 select pg_temp.login('44444444-4444-4444-8444-444444444444');
+select throws_ok(
+  $$update public.guest_requests
+       set status = 'approved',
+           decided_by = '44444444-4444-4444-8444-444444444444',
+           decided_at = now()
+     where full_name = 'Robin Castelijns'$$,
+  '42501', null, 'N3 organizer cannot approve a request by a direct write (#12: approval = RPC)');
 select is(
   pg_temp.rowcount($$update public.guest_requests
-              set status = 'approved',
+              set status = 'denied',
                   decided_by = '44444444-4444-4444-8444-444444444444',
-                  decided_at = now()
+                  decided_at = now(),
+                  decision_reason = 'Lijst zit vol'
               where full_name = 'Robin Castelijns'$$),
-  1, 'N3 organizer approves a pending request (#12)');
+  1, 'N3b organizer denies a pending request directly (#12)');
 
 reset role;
 

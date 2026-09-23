@@ -117,7 +117,7 @@ that needs them. ✅
 ## 4. RLS policies & the role matrix (the boundary)
 
 The role matrix (spec §2) is enforced in `20260613120000_rls_policies.sql` and proven by
-`rls.test.sql` (74 assertions) + the attacker suite. Highlights audited:
+`rls.test.sql` (75 assertions) + the attacker suite. Highlights audited:
 
 - **guests** — read: admin/finance/doorhost venue-wide, organizer own-event, staff own
   rows only; write: `can_write_guests()` (#23 closed→admin, locked→admin/organizer/
@@ -409,6 +409,58 @@ unaffected. The Zod `guestSource` enum is narrowed to `('app','door')` as defens
 `45001`, legit RPC landing + door add still work). Two existing assertions that used the
 forge as a shortcut to test #31/#11 were re-pointed to the function level
 (`quota.test.sql` 3.1/3.2, `permanent.test.sql` B2) — see §9.
+
+### F-2 — [MEDIUM, FIXED] Direct approve of a landing request without a guest (L5)
+**Where:** `guest_requests` UPDATE (RLS policy `guest_requests_decide` + the table grant).
+**Found by:** the fresh-session review of PR #308 (18-9-2026), pre-existing.
+**Attack:** an admin/organizer PATCHes `/rest/v1/guest_requests` with
+`status='approved'`. The policy pinned the old row (`pending`), the actor and the role,
+but not the new status, so it succeeded (UPDATE 1) with no guest created: none of the
+caps (`45002`/`45005`/`45006`) ran, and `/r/[token]` told the requester they were on a
+list they were not on. The table-wide UPDATE grant also let the deny path rewrite any
+other column (`event_id`, `full_name`/`email`/`phone`, `status_token_hash`,
+`decided_via`, `request_link_id`, `anonymized_at`). Reproduced on the local stack.
+
+**Fix** (`20260919150000_guest_requests_decide_deny_only.sql`): the policy's `WITH CHECK`
+now requires `status = 'denied'` and its `USING` adds `anonymized_at is null` (a deny may
+no longer write a fresh reason onto a retention-scrubbed row, matching
+`approve_guest_request`'s P0002), so the only client transition is `pending → denied`,
+and `authenticated` holds UPDATE on exactly `status`, `decided_by`, `decided_at`,
+`decision_reason` (what `denyGuestRequest` writes). Approval, including re-approval of a
+denied request, is `approve_guest_request` only. The SECURITY DEFINER paths (approve,
+auto-approve in `submit_guest_request`, retention) run as the owner and are unaffected.
+
+**Proof:** `guest_requests_decide.test.sql` (grant set is catalog-checked; admin/organizer
+direct approve, upsert-approve and extra-column denies are `42501`; staff, doorhost,
+user_manager and anon change nothing; the RPC, auto-approve and retention still work).
+`rls.test.sql` N3 asserted the direct approve as allowed and was re-pointed.
+
+### F-3 — [MEDIUM, OPEN] `authenticated` holds table-wide INSERT on `guest_requests`
+**Where:** the `guest_requests` INSERT grant + `guest_requests_insert_public`.
+**Found by:** the fresh-session security review of PR #310 (19-9-2026), pre-existing.
+**Reproduced as staff** (a role with no decide rights and no SELECT on the table), for any
+landing-active event of their own venue, since the policy pins only `status='pending'`:
+- **Silent suppression.** Insert a row with `anonymized_at = now()` and the victim's
+  e-mail as `dedupe_key`. It is hidden from the inbox (which filters
+  `anonymized_at is null`) but still holds the dedup slot, so the real submission through
+  `submit_guest_request` answers `{"status":"ok"}`, is dropped, and that person's status
+  page answers `{"found": false}`. The venue never sees the request.
+- **E-mail oracle.** `insert … on conflict do nothing` returns 0 rows when a pending
+  request for that e-mail exists on the event and 1 when not (a plain insert raises
+  `23505`), leaking "did this person apply" to a role that cannot read the table.
+- **Validation/throttle bypass.** `email='x'`, `phone=null`, `plus_ones=99`, 500 rows in
+  one statement — none of the RPC's throttle, honeypot or format checks apply.
+Not possible: cross-venue insert (`42501`), forging `venue_id` (trigger overwrites),
+attributing to a request link (`request_links` RLS).
+
+**Why it is still open:** no client code inserts (`src/` has no
+`.from('guest_requests').insert`; only seed, pgTAP and service-role scripts do), so the
+fix is `revoke insert on public.guest_requests from authenticated` plus dropping or
+narrowing `guest_requests_insert_public`. `20260707170000` (C2) revoked the same grant for
+`anon` and left `authenticated` without stating why. Kept out of PR #310 on the reviewer's
+advice so the L5 fix reaches prod unchanged; it needs its own migration + ClickUp task,
+`venue_id_rls_integrity.test.sql` S1d rewritten to assert `42501`, and pgTAP for the
+suppression and oracle cases.
 
 ### Observations (low / accepted)
 - **O-1** `removeGuest` uses a UUID regex, not Zod. Low (RLS is the gate).

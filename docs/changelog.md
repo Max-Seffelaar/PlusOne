@@ -8,6 +8,84 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-19 — Client writes on guest_requests can only deny (L5, z8uq9m0jce)
+
+Branch `claude/guest-requests-decide-status-guard`. Milestone: **Now**, a live RLS gap on
+prod. Migration `20260919150000_guest_requests_decide_deny_only.sql` (first written as
+`20260918213000`, renamed to sort after #308's `20260919090000`, which prod already has:
+the CLI refuses a local migration older than the newest remote one). High-risk surface
+(RLS policy + grants), so the PR body carries an adversarial security-research prompt and
+the PR needs a fresh-session `/code-review` + `/security-review` before merge.
+
+**The bug.** Found by the fresh-session review of PR #308 (finding L5), pre-existing.
+`guest_requests_decide` pinned the old row (`status = 'pending'`), the actor and the
+admin/organizer role, but not the new status, and `authenticated` held a table-wide
+UPDATE. An admin PATCH of `status = 'approved'` succeeded with no guest row: tier-max,
+capacity and link-max never ran, and `/r/[token]` showed the requester "approved" for a
+list they were not on. Reproduced locally in a rolled-back transaction (`UPDATE 1`,
+0 guests). The same grant let a deny rewrite any other column in the same PATCH.
+
+**The fix.** Two layers. The policy's `WITH CHECK` requires `status = 'denied'` (the only
+client transition is `pending → denied`); UPDATE is granted per column on exactly what
+`denyGuestRequest` writes (`status`, `decided_by`, `decided_at`, `decision_reason`). A
+column grant also keeps columns added later closed by default. SECURITY DEFINER paths
+(approve, re-approve, auto-approve, retention) run as the owner and are unaffected.
+USING also gained `anonymized_at is null` (review finding, below), so the deny path is
+symmetric with `approve_guest_request`, which refuses anonymized requests with P0002.
+
+**Side effect worth knowing.** Every remaining client write flips `status`, so
+`audit_guest_requests` (trigger `WHEN old.status IS DISTINCT FROM new.status`) now fires
+on 100% of them. Before this migration a PII rewrite through the deny path was unaudited.
+
+**Relation to #308 (`20260919090000`).** Its `guard_guest_request_decision_fields`
+trigger (plus_ones, approved_plus_ones, decision_message) is not duplicated. The column
+grant now refuses those writes first and the trigger stays as a second layer; its
+migration comment about a table-wide UPDATE grant is stale from here on. Checked by
+applying both migrations in order in one transaction: `partial_approval.test.sql` and
+`guest_requests_decide.test.sql` both pass.
+
+**Tests.** New `guest_requests_decide.test.sql` (37). `rls.test.sql` N3 asserted the
+direct approve as *allowed* and now asserts it is refused (N3) and that the deny works
+(N3b), plan 74 to 75. The full suite ran with the migration applied inside one rolled-back
+transaction per file on the shared local stack. The only failures (`analytics`,
+`auth.invites`, `onboarding`, `rls` P1) fail identically without the migration; they come
+from data drift in the shared DB (for example 16 events where the seed has 1). CI runs on
+a fresh reset.
+
+**Review gate.** Fresh-session `/code-review` + `/security-review`, both on Fable, both in
+their own session and worktree. Security: **approve**, nothing in the migration itself a
+finding; it re-verified L5 as fixed (UPDATE, upsert and fresh INSERT all 42501) and
+refuted the race with the approve RPC (EvalPlanQual re-checks USING), the
+`event_venue()`/`venue_id` divergence, PostgREST `return=representation` / `columns=` /
+filter-less PATCH, trigger-ordering and `current_user` bypass on #308's guard, and an
+existence oracle through UPDATE errors. Code review: **approve after one blocking line** —
+a client deny still matched anonymized rows, writing a fresh free-text reason (and an
+audit diff carrying it) onto a row retention had scrubbed. Fixed here with
+`anonymized_at is null` in USING + tests H1/H2, which are red without it (`have:
+denied|Piet Jansen was vervelend`). Test-quality fixes from the same review: B2 now
+upserts a row B1 never touched (it used to pass for the wrong reason in a red run),
+plus a finance deny (D5b) and the organizer arm of the RPC (E4a/E4b). Plan 37 → 42.
+
+**Follow-ups (not in this PR).** (1) `authenticated` still holds table-wide **INSERT** on
+`guest_requests` although no client code inserts — submission is the anon SECURITY
+DEFINER RPC. The security review reproduced, as *staff*: planting a row with
+`anonymized_at = now()` plus the victim's e-mail as `dedupe_key`, which is invisible in
+the inbox but still holds the dedup slot, so the real person's submission is silently
+swallowed and their status page says `found: false`; an e-mail oracle via
+`on conflict do nothing` / `23505`; and validation/throttle bypass (`email='x'`,
+`plus_ones=99`, 500 rows in one statement). Medium, pre-existing, deliberately a separate
+PR + migration so this one reaches prod unchanged. (2) `denyGuestRequest` returns
+`{ok:true}` on 0 affected rows, so the inbox reports a deny that changed nothing — fix
+with `.select('id')` and the same not-found error shape the RPC's 45003 gets.
+(3) `decided_at` stays client-chosen on a deny; nothing downstream reads it (confirmed),
+so pinning it is optional.
+
+**Gotcha.** A policy cannot compare OLD with NEW, so a status rule in `WITH CHECK` does
+not stop a deny from also rewriting other columns. That part needs a column grant or a
+trigger.
+
+---
+
 ## 2026-09-19 — 44px tap targets on the 22 known-debt row/card controls
 
 Branch `claude/tap-target-debt-44`, stacked on `claude/iconbtn-tap-target-44` (#313).
