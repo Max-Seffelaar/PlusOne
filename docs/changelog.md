@@ -8,6 +8,72 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-23 — P-02 platform (system) admin: `is_platform_admin` + RLS helpers (z8uq9m0tnt)
+
+PlusOne's own operators can now read and write in every venue, with the boundary in RLS
+and every action stamped with their own `auth.uid()`. Migration
+`20260923120000_platform_admin.sql`.
+
+**Why the capability is not a `venue_role` value.** That array flows through `invites`,
+`canGrantRoles` and ~59 policies; a superuser value inside it makes every venue admin a
+potential superuser-granter. It is a separate boolean on `user_profiles` instead, with
+its own helper and its own RPC.
+
+**What shipped.**
+- `user_profiles.is_platform_admin boolean not null default false`.
+- `public.is_platform_admin()` — stable, SECURITY DEFINER, `search_path = ''`.
+- `or public.is_platform_admin()` inside `is_venue_member`, `has_venue_role`,
+  `is_event_organizer`, `is_venue_organizer` and `can_view_profile`. 59 of the 68 public
+  policies route through those, and none carries its own membership join, so there is no
+  policy-by-policy work.
+- `public.set_platform_admin(uuid, boolean)` — SECURITY DEFINER, requires
+  `is_platform_admin()` itself, refuses self-revoke (lockout), writes its own `audit_log`
+  row with `venue_id = null` (so only platform admins can read it back).
+- `public.guard_platform_admin_flag()` on `user_profiles` BEFORE INSERT/UPDATE.
+
+**Two things the task description did not name, both found by running the suite.**
+- **The column guard is not optional.** `user_profiles_update_self` and
+  `user_profiles_insert_self` already let a user write their own row, and RLS is
+  row-level, not column-level — without the trigger, any authenticated user promotes
+  themselves to platform admin in one PostgREST call. The trigger lets the column change
+  only while the transaction-local GUC `plusone.platform_admin_write` is `'on'`, which
+  only `set_platform_admin()` (and the documented bootstrap statement) sets. PostgREST
+  gives an API caller no way to set a GUC alongside a write.
+- **`user_is_quota_exempt` had to be widened too.** It takes the *adder's* id as a
+  parameter instead of reading `auth.uid()`, so the helper widening does not reach it:
+  `guests_insert` pins `added_by` to the caller, a platform admin holds no `quotas` row
+  at a foreign venue, and `user_event_quota` falls through to 0 — every cross-venue guest
+  add would die on `enforce_guest_quota` with 45001. The write half of the boundary is
+  theatre without it.
+
+**Gotcha worth remembering: copy the CURRENT body, not the one in the migration the task
+points you at.** The first pass rebased `user_is_quota_exempt` on its original
+20260613180000 body and silently restored the organizer exemption that 20260625120000
+had removed (86ey21vre). `quota.test.sql` caught it — 3 failures. Any
+`create or replace` of a helper must start from `grep -rn "create or replace function
+public.<name>"` across *all* migrations, never from the one file you happen to be reading.
+
+**Audit.** `audit_trigger()` already stamps `actor_id = auth.uid()`, so nothing changed
+there; `platform_admin.test.sql` proves the stamp lands on guests, guest_tiers, quotas,
+event_quotas, check_ins and venue_memberships for a platform-admin writer.
+
+**Tests.** New `supabase/tests/database/platform_admin.test.sql`, 40 assertions, both
+sides per role: platform admin reads+writes in a venue he is no member of; admin /
+user_manager / finance / staff / doorhost / organizer unchanged and still locked out; a
+venue admin cannot set the flag by direct UPDATE, by self-INSERT, or through the RPC;
+anon reaches none of it. Full run after a clean `supabase db reset`: **63 files / 1386
+assertions PASS**. `pnpm lint` clean (2 pre-existing a11y warnings in `datetime-field`),
+`tsc --noEmit` clean, Vitest 1726 passed / 9 failed — all 9 pre-existing Windows-only
+environment failures (`pgtap-plan-run-gate.test.ts` writes an extensionless `supabase`
+stub that libuv cannot spawn on Windows; one flaky `datetime-field` timing test that
+passes on re-run).
+
+**Follow-ups, deliberately not in this PR.** No seed platform admin and no dev-login for
+one (P-01 territory); no UI. Bootstrapping the first platform admin is a one-line SQL
+runbook step, documented in the migration header.
+
+---
+
 ## 2026-09-23 — ADE UX round test pass: 28/28 green, task closed (z8uq9m0g0j)
 
 No code change — a verification session that closes the test handoff the 18/9 entry left
