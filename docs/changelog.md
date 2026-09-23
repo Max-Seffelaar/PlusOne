@@ -8,6 +8,52 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-23 — ADE UX round test pass: 28/28 green, task closed (z8uq9m0g0j)
+
+No code change — a verification session that closes the test handoff the 18/9 entry left
+open. Both PRs ([#298](https://github.com/Max-Seffelaar/PlusOne/pull/298),
+[#299](https://github.com/Max-Seffelaar/PlusOne/pull/299)) merged on 18/9; Max answered
+all 28 handoff questions ✅ today, so `z8uq9m0g0j` moves to `complete`.
+
+**What was actually tested.** The local stack on `main` @ `900f0f2` — eight PRs past
+#298, not the PR branch — after `pnpm db:fresh`, dev server on 7000. That makes the pass
+a statement about current `main` rather than about the merge commit alone.
+
+**Two questions the seed cannot really exercise**, worth knowing before treating 28/28 as
+total coverage:
+- **Q19** (paste-a-list, ambiguous contact match): the seed has no two contacts sharing a
+  normalized name, so only the matched and unmatched paths were exercised. The
+  ambiguous-match branch is unit-tested only.
+- **Q23** ("Added by a colleague"): probing RLS directly (`set local role authenticated`
+  with each seed user's `sub`) shows staff sees 8 guests, all their own, and *every*
+  co-member profile is readable by both staff and doorhost. The `addedByName === null`
+  fallback therefore cannot render on seed data at all; `guest-source.test.ts` is its only
+  coverage. What Q23 confirmed is the positive case ("Added by Tom").
+
+**Setup gotchas that cost time and will recur:**
+- **The Supabase CLI is not on PATH on this machine.** `pnpm db:fresh` fails with
+  `'supabase' is not recognized`. The working copy lives in the npx cache
+  (`~/AppData/Local/npm-cache/_npx/b96a6bd565c470ce/node_modules/.bin`, v2.115.0) — prepend
+  it to PATH, or `npx supabase db reset && pnpm dev:mfa`. A cache directory can be pruned;
+  the durable fix would be `pnpm add -D supabase`.
+- **A resumed session must diff applied migrations against the repo before trusting a test
+  pass.** The stack had been up 4 days; `main` had moved and `20260918203700_venue_website`
+  + `20260919090000_partial_approval_decision_message` were never applied locally. Check
+  `select version from supabase_migrations.schema_migrations order by version desc` against
+  `supabase/migrations/` — a stale local schema fails in ways that read as UI bugs.
+- **The handoff's "manager" persona is wrong against the local seed.** `manager@plusone.test`
+  is Noor, a *pure* `user_manager`: not admin, cannot write guests, and reads zero guests
+  under RLS. Every S1–S4 question aimed at "manager" needs `admin@plusone.test` (one-click
+  after `pnpm dev:mfa`). The PR's handoff was written against the fixture backend
+  (`pnpm dev:fake`), which has no RLS and no role matrix — that is exactly the class of gap
+  the fixture harness cannot catch, so a handoff written there should have its personas
+  re-checked against `supabase/seed.sql`.
+- **Q20 needed fixture data the seed does not carry.** The seed has one always-upcoming
+  event and no past ones, while `PAST_CHIPS_CAP = 12` in
+  `src/components/po/screens/guests/list-shared.tsx` means "Show all" only appears past 13
+  past events. Fourteen weekly `Past test night N` events plus one extra upcoming event
+  were inserted locally for the pass and dropped again by the later `pnpm db:fresh`.
+
 ## 2026-09-18 — 44px tap targets on header icon buttons
 
 Branch `claude/iconbtn-tap-target-44`. Milestone: **Now** (CLAUDE.md's tap-target floor
