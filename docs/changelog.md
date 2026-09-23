@@ -8,6 +8,48 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-23 — safeNextPath let tab/CR/LF through (z8uq9m0tp5)
+
+Branch `fix/z8uq9m0tp5-next-path-control-chars`. Milestone: **Now** — a live open redirect
+on prod. No migration. Found by the fresh-session `/code-review` of PR #314 (z8uq9m0jcf);
+pre-existing, not caused by that PR.
+
+**The bug.** `safeNextPath` rejected `//`, `://`, `\`, `..`, `/login` and `/auth/*`, but not
+ASCII control characters. The WHATWG URL parser strips those *before* resolving, so a
+candidate slipped through every literal check and then changed origin:
+
+```
+raw   = '/<TAB>/evil.com'          // passes all five clauses
+new URL(raw, 'https://app.plus-one.io/consent').origin === 'https://evil.com'
+```
+
+Measured: `%09`, `%0A`, `%0D` and `%0D%0A` all resolve to `http://evil.com`.
+
+**Reach.** The same guard feeds `/auth/callback` (`route.ts:12`), `/auth/confirm`
+(`route.ts:34`), `/login` (`page.tsx:18`) and `/consent` (`page.tsx:27`, plus
+`ConsentScreen`'s `window.location.replace`). The cheapest exploit needs no token: a
+signed-in user clicks `…/consent?next=%2F%09%2Fevil.com` and leaves the origin — a phishing
+hand-off carrying our domain as the referrer. `src/middleware.ts` was never exposed: it
+copies only `pathname`/`search` onto a clone of `request.nextUrl`, so the origin cannot
+move. CR/LF in a Node redirect header throws `ERR_INVALID_CHAR` (a 500, not header
+injection); TAB is a legal header byte and redirects cleanly.
+
+**Fix** (`src/features/auth/next-path.ts`): reject the ASCII control range (U+0000 to U+001F, plus U+007F) up front, and add
+a backstop that resolves the candidate against a reserved `.invalid` origin and refuses
+anything whose origin moves or that will not parse. The backstop is what stops this guard
+from depending on the completeness of its own literal checks — the next parser quirk fails
+closed instead of open.
+
+**Tests:** `next-path.test.ts` grows the six control-character cases, an off-origin
+resolution assertion, and a positive case for encoded characters and a query string, each
+asserted through `new URL()` the way the callers use the value. Seven of them fail on the
+old guard. Full unit suite green (1735 passed; the 8 failures in `pgtap-plan-run-gate` and
+`pre-push-hook-is-executable` are this Windows box — no Supabase CLI, absolute
+`core.hooksPath` — not this change).
+
+**Note for PR #316:** it adds `appGateNextPath` on top of `safeNextPath`, so it inherits
+this fix rather than needing its own.
+
 ## 2026-09-23 — ADE UX round test pass: 28/28 green, task closed (z8uq9m0g0j)
 
 No code change — a verification session that closes the test handoff the 18/9 entry left
