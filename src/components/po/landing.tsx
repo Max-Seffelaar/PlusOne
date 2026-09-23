@@ -7,7 +7,7 @@
  *  honeypot-protected submit action; a filled honeypot still shows success.
  *  Phone is collected WITH a country code (E.164); e-mail + phone get inline
  *  validation; a marketing opt-in box records AVG consent. */
-import { type JSX, useEffect, useRef, useState, useTransition, type ReactNode } from 'react';
+import { type JSX, useEffect, useRef, useState, useTransition } from 'react';
 import Script from 'next/script';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
@@ -17,9 +17,9 @@ import { isValidEmail } from '@/features/requests/validation';
 import { CountrySelect, PhoneInput, isPhoneValid, type CountryCode } from './phone-lazy';
 import { Icon, type IconName } from './icon';
 import { fieldErrorBorder, fieldErrorText } from './kit';
+import { LandingFooter as Footer, LandingWrap as Wrap } from './landing-frame';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.985]';
-const LANDING_BG = 'radial-gradient(120% 70% at 50% -8%, #211d3a 0%, #100f18 42%, #0B0B0D 100%)';
 
 // Cloudflare Turnstile (86ey2czr6). Keyless dev/CI: without the public site
 // key the widget never renders — matches the server's verifyTurnstileToken,
@@ -188,23 +188,6 @@ function LField({
   );
 }
 
-function Footer(): JSX.Element {
-  return (
-    <div className="mt-[22px] flex items-center justify-center gap-[7px] text-center text-[12px] text-ghost">
-      <div className="flex h-[18px] w-[18px] items-center justify-center rounded-[6px] bg-elev2 font-display text-[9px] font-extrabold tracking-[-0.03em] text-faint">+1</div>
-      {t.landing.footer}
-    </div>
-  );
-}
-
-function Wrap({ children }: { children: ReactNode }): JSX.Element {
-  return (
-    <div className="flex min-h-[100dvh] items-center justify-center px-[18px] pb-10 pt-7 text-text" style={{ background: LANDING_BG }}>
-      <div className="po-screen-anim w-full max-w-[460px]">{children}</div>
-    </div>
-  );
-}
-
 /** "Save your status link" block on the confirmation: the bearer /r/[token]
  *  URL the requester can bookmark. Clipboard is guarded (Capacitor webview /
  *  older browsers fall back to a selectable input). */
@@ -245,93 +228,6 @@ function StatusLinkBlock({ token }: { token: string }): JSX.Element {
         </button>
       </div>
     </div>
-  );
-}
-
-export type RequestStatusData = {
-  status: 'pending' | 'approved' | 'denied';
-  fullName: string;
-  plusOnes: number;
-  eventName: string;
-  date: string;
-};
-
-/** The /r/[token] status page (#28: an invalid/revoked token renders the same
- *  neutral not-found — passed as data=null). Read-only; no PII beyond what the
- *  requester submitted themselves. Explicitly NOT a ticket. */
-export function RequestStatus({ data }: { data: RequestStatusData | null }): JSX.Element {
-  if (!data) {
-    return (
-      <Wrap>
-        <div className="rounded-[24px] border border-line bg-elev px-[26px] py-[34px] text-center">
-          <div className="mx-auto mb-5 flex h-[62px] w-[62px] items-center justify-center rounded-[20px] bg-elev2">
-            <Icon name="warn" size={30} className="text-faint" />
-          </div>
-          <h1 className="m-0 mb-[10px] font-display text-[26px] font-extrabold tracking-[-0.02em]">{t.landing.statusNotFoundTitle}</h1>
-          <p className="mx-auto max-w-[330px] text-[15px] leading-[1.55] text-dim">{t.landing.statusNotFoundBody}</p>
-        </div>
-        <Footer />
-      </Wrap>
-    );
-  }
-
-  const heads = 1 + data.plusOnes;
-  const view = {
-    pending: {
-      icon: 'clock' as IconName,
-      iconBg: 'bg-elev2',
-      iconStroke: undefined,
-      title: t.landing.statusPendingTitle,
-      body: fmt(t.landing.statusPendingBody, { event: data.eventName }),
-    },
-    approved: {
-      icon: 'check2' as IconName,
-      iconBg: 'bg-acc',
-      iconStroke: '#16132B',
-      title: t.landing.statusApprovedTitle,
-      body: fmt(t.landing.statusApprovedBody, { event: data.eventName, date: data.date }),
-    },
-    denied: {
-      icon: 'warn' as IconName,
-      iconBg: 'bg-elev2',
-      iconStroke: undefined,
-      title: t.landing.statusDeniedTitle,
-      body: fmt(t.landing.statusDeniedBody, { event: data.eventName }),
-    },
-  }[data.status];
-
-  return (
-    <Wrap>
-      <div className="mb-[22px] text-center">
-        <div className="inline-flex items-center gap-2 rounded-full bg-acc-dim px-[13px] py-1.5">
-          <div className="flex h-[22px] w-[22px] items-center justify-center rounded-[7px] bg-acc font-display text-[12px] font-extrabold tracking-[-0.03em] text-on-acc">+1</div>
-          <span className="font-body text-[12.5px] font-bold text-acc-soft">{fmt(t.landing.eyebrow, { event: data.eventName })}</span>
-        </div>
-        <h1 className="m-0 mt-4 font-display text-[40px] font-extrabold leading-[0.98] tracking-[-0.03em]">{data.eventName}</h1>
-        <div className="mt-[12px] inline-flex items-center gap-[7px] rounded-[11px] border border-line bg-elev px-[13px] py-2 text-[13px] font-semibold text-dim">
-          <Icon name="cal" size={15} className="text-faint" />
-          {data.date}
-        </div>
-      </div>
-      <div className="rounded-[24px] border border-line bg-elev px-[26px] py-[34px] text-center">
-        <div className={cn('mx-auto mb-5 flex h-[62px] w-[62px] items-center justify-center rounded-[20px]', view.iconBg)}>
-          <Icon name={view.icon} size={30} stroke={view.iconStroke} className={view.iconStroke ? undefined : 'text-faint'} sw={view.iconStroke ? 2.4 : undefined} />
-        </div>
-        <h2 className="m-0 mb-[10px] font-display text-[26px] font-extrabold tracking-[-0.02em]">{view.title}</h2>
-        <p className="mx-auto max-w-[330px] text-[15px] leading-[1.55] text-dim">
-          <b className="text-text">{data.fullName}</b>
-          {heads > 1 && <span> · {fmt(t.landing.statusApprovedGroup, { n: heads })}</span>}
-        </p>
-        <p className="mx-auto mt-[8px] max-w-[330px] text-[15px] leading-[1.55] text-dim">{view.body}</p>
-        {data.status === 'approved' && (
-          <div className="mt-[22px] flex items-center gap-[11px] rounded-[14px] bg-acc-dim px-4 py-[14px] text-left">
-            <Icon name="shield" size={18} stroke="#B5A6FF" />
-            <span className="text-[13px] leading-[1.4] text-text">{t.landing.successInfo}</span>
-          </div>
-        )}
-      </div>
-      <Footer />
-    </Wrap>
   );
 }
 

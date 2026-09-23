@@ -9,9 +9,9 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties, JSX, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
-import { t } from '@/lib/i18n';
+import { t, fmt } from '@/lib/i18n';
 import type { Tier } from '@/lib/po/types';
-import { tierInk, tintTier } from '@/lib/po/tier-colors';
+import { TIER_COLORS, tierInk, tintTier } from '@/lib/po/tier-colors';
 import { Icon, type IconName } from './icon';
 
 // FE-4: the canonical press/cardPress feels — 26 files hand-rolled a local copy
@@ -409,6 +409,44 @@ export function Field({
   );
 }
 
+// ── TextArea (multi-line Field) ──────────────────────────────────────────────
+// Same skin as Field. 16px text on purpose: iOS zooms into any smaller field.
+export function TextArea({
+  value,
+  onChange,
+  placeholder,
+  maxLength,
+  rows = 3,
+  autoFocus,
+  ariaLabel,
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  maxLength?: number;
+  rows?: number;
+  autoFocus?: boolean;
+  ariaLabel?: string;
+  className?: string;
+}): JSX.Element {
+  return (
+    <textarea
+      autoFocus={autoFocus}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      maxLength={maxLength}
+      rows={rows}
+      aria-label={ariaLabel}
+      className={cn(
+        'w-full resize-none rounded-field border border-line bg-elev px-[15px] py-[13px] font-body text-[16px] leading-[1.4] text-text outline-none placeholder:text-faint focus:border-acc',
+        className,
+      )}
+    />
+  );
+}
+
 // ── Stepper ─────────────────────────────────────────────────────────────────
 export function Stepper({ value, onChange, max }: { value: number; onChange: (v: number) => void; max?: number }): JSX.Element {
   const btn = cn('flex h-[52px] w-[52px] items-center justify-center rounded-[16px] border border-line bg-elev2 text-text', press);
@@ -485,6 +523,11 @@ export function Row({
  * of the button, so a tap on it is a tap on the button. Chips sit `gap-2` (8px)
  * apart, so neighbouring rings never overlap. Pinned by `kit.tap-target.test.tsx`,
  * which also fails CI on any new sub-44 button.
+ *
+ * Smaller row/card controls use the same ring with their own inset, written out
+ * next to the control: (44 - visible) / 2 + border width per side, lopsided
+ * where a neighbour is closer on one side (door `SyncBar`, cockpit `MiniBtn`).
+ * Tailwind only sees literal class strings, so the insets can't be computed.
  */
 export const hitArea44 = "relative before:absolute before:-inset-[3px] before:content-['']";
 
@@ -577,6 +620,11 @@ export function Scroll({ children, pad = 20, bottom = 24, className }: { childre
 }
 
 // ── Toggle / ToggleRow ───────────────────────────────────────────────────────
+// The 46x28 switch is wide enough; the ring adds 8px above and below (44 tall),
+// which stays inside ToggleRow's 13px vertical padding. `inset-x-0` is needed:
+// with left/right left at auto the empty ::before is 0px wide and hits nothing.
+const toggleHit = "relative before:absolute before:inset-x-0 before:-inset-y-[8px] before:content-['']";
+
 export function Toggle({ on, onClick }: { on: boolean; onClick?: () => void }): JSX.Element {
   return (
     <button
@@ -584,7 +632,7 @@ export function Toggle({ on, onClick }: { on: boolean; onClick?: () => void }): 
       onClick={onClick}
       role="switch"
       aria-checked={on}
-      className={cn('flex h-[28px] w-[46px] cursor-pointer rounded-full p-[3px] transition-colors', press, on ? 'justify-end bg-acc' : 'justify-start bg-elev2')}
+      className={cn('flex h-[28px] w-[46px] cursor-pointer rounded-full p-[3px] transition-colors', press, toggleHit, on ? 'justify-end bg-acc' : 'justify-start bg-elev2')}
     >
       <span className={cn('block h-[22px] w-[22px] rounded-full', on ? 'bg-on-acc' : 'bg-faint')} />
     </button>
@@ -599,6 +647,49 @@ export function ToggleRow({ title, sub, on, set, last }: { title: string; sub?: 
         {sub && <div className="mt-0.5 text-[12px] leading-[1.4] text-faint">{sub}</div>}
       </div>
       <Toggle on={on} onClick={() => set(!on)} />
+    </div>
+  );
+}
+
+// ── ColorSwatches (tier colour picker) ───────────────────────────────────────
+// Was copied into the tier sheet, the add-guest tier form and the template tier
+// editor. 34px dots 10px apart, wrapping: each ring reaches 5px past the dot
+// (inset 7 = 5 + the 2px border), so every dot hits at 44x44 and neighbouring
+// rings meet without overlapping, across wrapped rows too.
+const swatchHit = "relative before:absolute before:-inset-[7px] before:content-['']";
+
+export function ColorSwatches({
+  value,
+  onPick,
+  isDisabled,
+  className,
+}: {
+  value: string;
+  onPick: (color: string) => void;
+  isDisabled?: (color: string) => boolean;
+  className?: string;
+}): JSX.Element {
+  return (
+    <div className={cn('flex flex-wrap gap-[10px]', className)}>
+      {TIER_COLORS.map((c) => {
+        const disabled = isDisabled?.(c) ?? false;
+        return (
+          <button
+            key={c}
+            type="button"
+            disabled={disabled}
+            aria-disabled={disabled}
+            onClick={() => !disabled && onPick(c)}
+            className={cn(
+              'h-[34px] w-[34px] shrink-0 rounded-full border-2 transition-[filter]',
+              swatchHit,
+              disabled ? 'cursor-not-allowed opacity-30' : 'cursor-pointer hover:brightness-[1.1]',
+            )}
+            style={{ background: c, borderColor: value === c ? '#FFFFFF' : 'transparent' }}
+            aria-label={fmt(t.events.colorAria, { color: c })}
+          />
+        );
+      })}
     </div>
   );
 }

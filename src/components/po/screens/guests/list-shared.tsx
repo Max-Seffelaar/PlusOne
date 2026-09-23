@@ -207,6 +207,12 @@ export function BulkTierSheet({
 // Mobile card ≈ avatar 34 + py-8 + one line (denser, feedback Joeri); desktop row ≈ avatar 36 + py-11.
 const GUEST_CARD_EST = 52;
 const GUEST_ROW_EST = 58;
+// Select column = one 44px tap target (CLAUDE.md floor). The header box (18px)
+// and the row dot (20px) sit centred in it, and each ring (technique: kit
+// `hitArea44`) fills the column: (44 - size) / 2 + the 2px border per side.
+// The header row is 44 tall (py 13 around the 18px box) so its ring fits too.
+const selectAllHit = "relative before:absolute before:-inset-[15px] before:content-['']";
+const selectRowHit = "relative before:absolute before:-inset-[14px] before:content-['']";
 
 /** The row's provenance caption ("Added by Sanne", "Sign-up link · Joeri") —
  *  empty for a row that predates the field (mock/optimistic) so nothing renders. */
@@ -387,15 +393,15 @@ export function GuestTable({
     overscan: 12,
     getItemKey: (i) => rows[i]?.id ?? i,
   });
-  const cols = 'grid-cols-[40px_1fr_120px_120px_170px]';
+  const cols = 'grid-cols-[44px_1fr_120px_120px_170px]';
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
   return (
     <div ref={scrollRef} className="po-scroll hidden min-h-0 flex-1 overflow-y-auto lg:block" style={{ padding: '0 16px 24px' }}>
       <div className="overflow-hidden rounded-[16px] border border-line bg-elev">
         <table className="w-full border-collapse text-left">
           <thead className="sticky top-0 z-[1]">
-            <tr className={cn('grid bg-elev2', cols, '[&>th]:px-3 [&>th]:py-[11px] [&>th]:font-body [&>th]:text-[11px] [&>th]:font-bold [&>th]:uppercase [&>th]:tracking-[0.04em] [&>th]:text-faint')}>
-              <th className="!pl-3">
+            <tr className={cn('grid bg-elev2', cols, '[&>th]:px-3 [&>th]:py-[13px] [&>th]:font-body [&>th]:text-[11px] [&>th]:font-bold [&>th]:uppercase [&>th]:tracking-[0.04em] [&>th]:text-faint')}>
+              <th className="!pl-[13px]">
                 <button
                   type="button"
                   // Toggle on pointerdown, not click: in the virtualized table a
@@ -409,6 +415,7 @@ export function GuestTable({
                   aria-pressed={allSelected}
                   className={cn(
                     'flex h-[18px] w-[18px] items-center justify-center rounded-[5px] border-2 transition-colors',
+                    selectAllHit,
                     allSelected ? 'border-acc bg-acc' : 'border-ghost bg-transparent hover:border-dim',
                   )}
                 >
@@ -447,7 +454,7 @@ export function GuestTable({
                     className="!pl-3"
                     // Toggle on pointerdown (see the header checkbox): the trusted
                     // click gets cancelled by the virtualized re-render, pointerdown
-                    // does not. Covers clicks on the whole 40px column, not just the
+                    // does not. Covers clicks on the whole 44px column, not just the
                     // 20px dot. onClick handles keyboard focus only. (T11)
                     onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); onToggle(g.id); }}
                     onClick={(e) => { e.stopPropagation(); }}
@@ -458,6 +465,7 @@ export function GuestTable({
                       aria-label={isSelected ? 'Deselect' : 'Select'}
                       className={cn(
                         'flex h-[20px] w-[20px] items-center justify-center rounded-full border-2 transition-colors',
+                        selectRowHit,
                         isSelected ? 'border-acc bg-acc' : 'border-ghost bg-transparent hover:border-dim',
                       )}
                     >
