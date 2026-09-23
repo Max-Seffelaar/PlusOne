@@ -46,7 +46,7 @@ begin
 end;
 $fn$;
 
-select plan(40);
+select plan(54);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner — RLS bypassed, like the seed)
@@ -188,7 +188,7 @@ $$, 'C5 platform admin sets an event quota in venue 2');
 select lives_ok($$
   insert into public.venue_memberships (venue_id, user_id, roles)
   values ('aa000000-0000-7000-8000-000000000002',
-          '88888888-8888-4888-8888-888888888888', '{staff}'::public.venue_role[])
+          '88888888-8888-4888-8888-888888888888', '{doorhost}'::public.venue_role[])
 $$, 'C6 platform admin adds a membership in venue 2');
 
 select lives_ok($$
@@ -254,6 +254,15 @@ reset role;
 
 -- The widening must not leak the other way: a venue admin shares no venue with
 -- the platform admin, so can_view_profile still hides that profile from him.
+--
+-- Accepted limitation, stated so nobody reads more into this assertion than it
+-- proves: it holds because THIS fixture's platform admin is a member of no
+-- venue. In production Max is a platform admin AND an ordinary member of his
+-- own venues, so his co-members can read his profile row — and with it the
+-- `is_platform_admin` column, which makes `?is_platform_admin=eq.true` an
+-- enumeration oracle among people who already share a venue with him. That
+-- disclosure is accepted for now; the design does NOT require operators to hold
+-- no memberships.
 select pg_temp.login('11111111-1111-4111-8111-111111111111');
 select is((select count(*)::int from public.user_profiles
            where id = '99999999-9999-4999-8999-999999999999'), 0,
@@ -303,9 +312,23 @@ select lives_ok($$
 $$, 'E7 …but the ordinary self-INSERT still works');
 reset role;
 
+-- PostgREST's `Prefer: resolution=merge-duplicates` turns a POST into an
+-- INSERT … ON CONFLICT DO UPDATE, which reaches the trigger as tg_op = 'UPDATE'
+-- on a row the caller owns. The upsert shape is a separate write path from both
+-- E1 and E6, so it gets its own assertion.
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select throws_ok($$
+  insert into public.user_profiles (id, full_name, email, is_platform_admin)
+  values ('11111111-1111-4111-8111-111111111111', 'Max de Vries',
+          'admin@plusone.test', true)
+  on conflict (id) do update set is_platform_admin = true
+$$, '42501', null,
+  'E8 the PostgREST merge-duplicates upsert cannot set the flag either');
+reset role;
+
 select is((select bool_or(is_platform_admin) from public.user_profiles
            where id <> '99999999-9999-4999-8999-999999999999'), false,
-  'E8 after every attempt above, the platform admin is still the only one');
+  'E9 after every attempt above, the platform admin is still the only one');
 
 -- ---------------------------------------------------------------------------
 -- F. The RPC, used by a platform admin
@@ -325,18 +348,158 @@ select lives_ok($$
   select public.set_platform_admin('88888888-8888-4888-8888-888888888888', false)
 $$, 'F3 …and can revoke it again');
 
+-- The guard's whole strength is that `plusone.platform_admin_write` is open for
+-- exactly one UPDATE. set_config(..., is_local => true) is TRANSACTION-local,
+-- not statement-local, so if set_platform_admin() failed to clear it the window
+-- would stay open for every later statement in the same transaction — and a
+-- pgTAP file IS one transaction, which is what makes this provable here. Both
+-- roles are checked: the OWNER — who bypasses the column grants of section I,
+-- so only the trigger can stop him, which is what isolates the GUC behaviour —
+-- and an ordinary user, where the column grant is the thing that answers.
+reset role;
+
+select throws_ok($$
+  update public.user_profiles set is_platform_admin = true
+   where id = '88888888-8888-4888-8888-888888888888'
+$$, '42501', null,
+  'F4 the GUC window is shut again right after a successful RPC call');
+
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select throws_ok($$
+  update public.user_profiles set is_platform_admin = true
+   where id = '11111111-1111-4111-8111-111111111111'
+$$, '42501', null,
+  'F5 …and no other session in that transaction inherits the open window');
 reset role;
 
 select is((select is_platform_admin from public.user_profiles
            where id = '88888888-8888-4888-8888-888888888888'), false,
-  'F4 the grant/revoke round trip left the flag off');
+  'F6 the grant/revoke round trip left the flag off');
 
 select is((select count(*)::int from public.audit_log
            where entity_type = 'user_profiles'
              and entity_id = '88888888-8888-4888-8888-888888888888'
              and actor_id = '99999999-9999-4999-8999-999999999999'
              and action in ('platform_admin_grant', 'platform_admin_revoke')), 2,
-  'F5 both the grant and the revoke are audited under the platform admin');
+  'F7 both the grant and the revoke are audited under the platform admin');
+
+-- ---------------------------------------------------------------------------
+-- H. The two holes named in the PR's own security prompt (Q6 / Q7)
+-- ---------------------------------------------------------------------------
+
+-- Q6 — attribution. `guests_insert`'s source='door' branch accepts an
+-- `added_by` other than the caller when that user is door-capable for the
+-- event, and `can_record_check_in_for` now passes for a platform admin at every
+-- venue. So a platform admin CAN name venue-2's own doorhost as the adder. That
+-- is the same capability venue 2's admin already had, and it does not launder
+-- the action: audit_log still stamps the platform admin's auth.uid() as actor.
+select pg_temp.login('99999999-9999-4999-8999-999999999999');
+select lives_ok($$
+  insert into public.guests (id, event_id, tier_id, full_name, added_by, source, status)
+  values ('cc000000-0000-7000-8000-0000000000a4',
+          'ee000000-0000-7000-8000-0000000000a2',
+          'dd000000-0000-7000-8000-0000000000a2',
+          'Door Handoff Guest',
+          '88888888-8888-4888-8888-888888888888', 'door', 'approved')
+$$, 'H1 platform admin may name a door-capable venue-2 user as added_by');
+reset role;
+
+select is((select actor_id from public.audit_log
+           where entity_type = 'guests'
+             and entity_id = 'cc000000-0000-7000-8000-0000000000a4'
+             and action = 'create'),
+          '99999999-9999-4999-8999-999999999999'::uuid,
+  'H2 …and the audit row still names the platform admin, not the stand-in');
+
+-- Q7 — the quota exemption must not become a laundering target. The worry was
+-- that `guests_update` does not bound `added_by` (the hole 20260812140000
+-- documents), so a quota-bound doorhost could re-point it at a platform admin
+-- and inherit the exemption. Measured, it cannot, and for a reason that sits a
+-- layer earlier than this PR: 20260819100000 binds `added_by` on update. Both
+-- halves of the door path are asserted, because the exemption branch is only
+-- safe for as long as BOTH hold.
+select pg_temp.login('66666666-6666-4666-8666-666666666666'); -- Lisa, doorhost
+select throws_ok($$
+  update public.guests
+     set added_by = '99999999-9999-4999-8999-999999999999', plus_ones = 20
+   where event_id = 'ee000000-0000-7000-8000-000000000001'
+     and added_by = '66666666-6666-4666-8666-666666666666'
+     and status = 'approved'
+$$, '42501', null,
+  'H3 a doorhost cannot re-point added_by at the platform admin at all');
+
+-- …and the door-INSERT hand-off branch cannot name him either: the platform
+-- admin is no member of venue 1, so can_record_check_in_for() rejects him as
+-- an actor there. Belt and braces, user_is_quota_exempt's new branch also
+-- demands p_user_id = auth.uid(), so a borrowed id would buy nothing anyway.
+select throws_ok($$
+  insert into public.guests (event_id, tier_id, full_name, added_by, source, status)
+  values ('ee000000-0000-7000-8000-000000000001',
+          'dd000000-0000-7000-8000-000000000001', 'Laundered Add',
+          '99999999-9999-4999-8999-999999999999', 'door', 'approved')
+$$, '42501', null,
+  'H4 …nor name him as the adder through the door hand-off branch');
+reset role;
+
+-- ---------------------------------------------------------------------------
+-- I. The privilege, not just the guard (security review S1/S5)
+-- ---------------------------------------------------------------------------
+-- The GUC guard alone is not a boundary: `authenticated` may call set_config
+-- itself, and may do it inside the WHERE of the very UPDATE it is guarding —
+-- the clause is evaluated before the BEFORE trigger fires. Only the shape of
+-- the statements PostgREST emits stood between that and a flipped flag, and an
+-- app-layer property is not a privilege (CLAUDE.md #1). The column grant is.
+
+select ok(
+  not has_column_privilege('authenticated', 'public.user_profiles',
+                           'is_platform_admin', 'UPDATE'),
+  'I1 authenticated holds no UPDATE privilege on the is_platform_admin column');
+
+select ok(
+  not has_column_privilege('authenticated', 'public.user_profiles',
+                           'is_platform_admin', 'INSERT'),
+  'I2 …nor INSERT on it');
+
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+
+-- The exact attack from the security review (A3b): open the window in the same
+-- statement that writes the column. No statement shape can reach a column the
+-- role does not hold.
+select throws_ok($$
+  update public.user_profiles
+     set is_platform_admin = true
+   where id = '11111111-1111-4111-8111-111111111111'
+     and set_config('plusone.platform_admin_write', 'on', true) = 'on'
+$$, '42501', null,
+  'I3 opening the GUC inside the statement''s own WHERE still gets nowhere');
+
+-- …and the columns the app does write are untouched by that surgery.
+select is(
+  pg_temp.rowcount($$update public.user_profiles set first_name = 'Max'
+                      where id = '11111111-1111-4111-8111-111111111111'$$),
+  1, 'I4 the ordinary profile columns are still writable by their owner');
+
+-- user_is_quota_exempt is internal math (20260625120000 revoked it from every
+-- app role); the new platform-admin branch must not have re-opened it.
+select throws_ok($$
+  select public.user_is_quota_exempt('ee000000-0000-7000-8000-000000000001',
+                                     '11111111-1111-4111-8111-111111111111')
+$$, '42501', null,
+  'I5 authenticated still cannot execute user_is_quota_exempt');
+
+-- The set_platform_admin audit rows carry venue_id = null, so they are invisible
+-- to venue-scoped audit readers — admin and finance both go through
+-- has_venue_role(venue_id, …), which cannot match a null venue.
+select is((select count(*)::int from public.audit_log
+           where venue_id is null), 0,
+  'I6 a venue admin reads no venue-less audit rows');
+reset role;
+
+select pg_temp.login('33333333-3333-4333-8333-333333333333'); -- finance
+select is((select count(*)::int from public.audit_log
+           where venue_id is null), 0,
+  'I7 …and neither does finance');
+reset role;
 
 -- ---------------------------------------------------------------------------
 -- G. anon reaches none of it

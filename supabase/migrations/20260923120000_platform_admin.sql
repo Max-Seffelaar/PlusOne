@@ -13,10 +13,13 @@
 --   * `public.is_platform_admin()` — stable, SECURITY DEFINER, search_path = ''
 --   * `public.set_platform_admin(uuid, boolean)` — SECURITY DEFINER RPC that
 --     requires `is_platform_admin()` itself and writes its own audit row
---   * a BEFORE INSERT/UPDATE guard on `user_profiles` so the column can only
---     ever change through that RPC — `user_profiles_insert_self` /
---     `user_profiles_update_self` let a user write their OWN row, which without
---     this guard is a one-request self-promotion to platform admin.
+--   * column-level INSERT/UPDATE grants on `user_profiles` that exclude the new
+--     column — `user_profiles_insert_self` / `user_profiles_update_self` let a
+--     user write their OWN row, so without this the column is a one-request
+--     self-promotion to platform admin. This is the boundary (section 7).
+--   * a BEFORE INSERT/UPDATE guard on `user_profiles` as defence in depth, so
+--     the column only moves from inside set_platform_admin() even for a role
+--     that does hold the privilege.
 --
 -- The four membership helpers plus `can_view_profile` get
 -- `or public.is_platform_admin()`. Measured in prod: 68 policies in `public`,
@@ -120,6 +123,11 @@ comment on function public.guard_platform_admin_flag() is
   'BEFORE INSERT/UPDATE guard on user_profiles.is_platform_admin: rejects any '
   'write to the column that does not come from public.set_platform_admin().';
 
+-- A trigger function is never called by name from the API; match the sibling
+-- helpers and hold the execute grant closed anyway.
+revoke execute on function public.guard_platform_admin_flag() from public, anon;
+
+drop trigger if exists guard_platform_admin_flag on public.user_profiles;
 create trigger guard_platform_admin_flag
   before insert or update on public.user_profiles
   for each row execute function public.guard_platform_admin_flag();
@@ -191,8 +199,13 @@ comment on function public.set_platform_admin(uuid, boolean) is
   'platform admin; writes an audit_log entry (venue_id null, so only platform '
   'admins can read it back). Self-revoke is refused to avoid a lockout.';
 
-revoke execute on function public.set_platform_admin(uuid, boolean) from public, anon;
-grant execute on function public.set_platform_admin(uuid, boolean) to authenticated, service_role;
+-- `authenticated` only, deliberately. A service_role call carries no `sub`, so
+-- `is_platform_admin()` is false and the RPC would always answer 'not allowed';
+-- granting it would be a dead privilege on a function that changes who owns the
+-- whole platform. Operator-side changes go through the bootstrap SQL above.
+revoke execute on function public.set_platform_admin(uuid, boolean)
+  from public, anon, service_role;
+grant execute on function public.set_platform_admin(uuid, boolean) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 5. Widen the membership helpers
@@ -201,6 +214,12 @@ grant execute on function public.set_platform_admin(uuid, boolean) to authentica
 -- `or public.is_platform_admin()` added. Signatures, volatility, security and
 -- search_path are unchanged, so the existing grants and every policy that calls
 -- them stay exactly as they are.
+--
+-- The new disjunct goes LAST on purpose. A SECURITY DEFINER function is never
+-- inlined, so putting it first would cost every ordinary user an extra
+-- user_profiles primary-key lookup per row in ~59 policies. Trailing, it is
+-- short-circuited away for everyone whose membership check already answered
+-- true, and evaluated once per row only on the paths that would otherwise deny.
 
 create or replace function public.is_venue_member(p_venue_id uuid)
 returns boolean
@@ -209,10 +228,10 @@ stable
 security definer
 set search_path = ''
 as $$
-  select public.is_platform_admin() or exists (
+  select exists (
     select 1 from public.venue_memberships m
     where m.venue_id = p_venue_id and m.user_id = auth.uid()
-  );
+  ) or public.is_platform_admin();
 $$;
 
 create or replace function public.has_venue_role(p_venue_id uuid, p_roles public.venue_role[])
@@ -222,12 +241,12 @@ stable
 security definer
 set search_path = ''
 as $$
-  select public.is_platform_admin() or exists (
+  select exists (
     select 1 from public.venue_memberships m
     where m.venue_id = p_venue_id
       and m.user_id = auth.uid()
       and m.roles && p_roles
-  );
+  ) or public.is_platform_admin();
 $$;
 
 create or replace function public.is_event_organizer(p_event_id uuid)
@@ -237,10 +256,10 @@ stable
 security definer
 set search_path = ''
 as $$
-  select public.is_platform_admin() or exists (
+  select exists (
     select 1 from public.event_organizers eo
     where eo.event_id = p_event_id and eo.user_id = auth.uid()
-  );
+  ) or public.is_platform_admin();
 $$;
 
 create or replace function public.is_venue_organizer(p_venue_id uuid)
@@ -250,13 +269,13 @@ stable
 security definer
 set search_path = ''
 as $$
-  select public.is_platform_admin() or exists (
+  select exists (
     select 1
     from public.event_organizers eo
     join public.events e on e.id = eo.event_id
     where e.venue_id = p_venue_id
       and eo.user_id = (select auth.uid())
-  );
+  ) or public.is_platform_admin();
 $$;
 
 -- `user_is_quota_exempt` takes the ADDER's id as a parameter instead of reading
@@ -269,6 +288,17 @@ $$;
 -- exemption in 86ey21vre and must keep it that way) with one branch added.
 -- Still keyed on p_user_id, so it exempts the platform admin as an adder and
 -- nobody else.
+--
+-- The new branch additionally demands `p_user_id = auth.uid()`, which the two
+-- older branches do not. Reason: `guests_update`'s WITH CHECK (20260812140000)
+-- evaluates its role branch on auth.uid() rather than on `added_by`, so an
+-- admin/doorhost/organizer can re-point `added_by` at anyone — a known,
+-- pre-existing hole. Without the extra condition this migration would hand that
+-- hole a brand-new exempt target: a quota-bound doorhost could park guests under
+-- a platform admin's id and evade their own quota. Requiring the platform admin
+-- to be the acting session makes the new branch useless for that, while a
+-- platform admin's own adds (guests_insert pins added_by = auth.uid()) still
+-- pass. The pre-existing hole itself is out of scope here.
 
 create or replace function public.user_is_quota_exempt(p_event_id uuid, p_user_id uuid)
 returns boolean
@@ -285,9 +315,12 @@ as $$
         and m.user_id = p_user_id
         and m.roles && '{admin}'::public.venue_role[]
     )
-    or exists (
-      select 1 from public.user_profiles p
-      where p.id = p_user_id and p.is_platform_admin
+    or (
+      p_user_id = (select auth.uid())
+      and exists (
+        select 1 from public.user_profiles p
+        where p.id = p_user_id and p.is_platform_admin
+      )
     );
 $$;
 
@@ -303,8 +336,7 @@ stable
 security definer
 set search_path = ''
 as $$
-  select public.is_platform_admin()
-    or p_profile_id = auth.uid()
+  select p_profile_id = auth.uid()
     or exists (
       select 1
       from public.venue_memberships a
@@ -324,5 +356,61 @@ as $$
       from public.event_organizers a
       join public.event_organizers b on b.event_id = a.event_id
       where a.user_id = auth.uid() and b.user_id = p_profile_id
-    );
+    )
+    or public.is_platform_admin();
 $$;
+
+-- ---------------------------------------------------------------------------
+-- 7. Column-level grants on user_profiles — the actual privilege boundary
+-- ---------------------------------------------------------------------------
+-- The GUC guard above is defence in depth, NOT the boundary. `authenticated`
+-- can set a custom GUC itself, and can do it inside the very statement that
+-- performs the write:
+--
+--   update public.user_profiles set is_platform_admin = true
+--    where id = auth.uid()
+--      and set_config('plusone.platform_admin_write', 'on', true) = 'on';
+--
+-- The WHERE clause is evaluated before the BEFORE trigger fires, so the guard
+-- sees an open window and the flag flips. The only thing stopping that today is
+-- the shape of the statements PostgREST is willing to emit — which is an
+-- app-layer property, and CLAUDE.md #1 forbids leaning on one as a boundary.
+--
+-- So the privilege itself goes away: `authenticated` loses table-level
+-- INSERT/UPDATE on user_profiles and gets back an explicit column list that
+-- does not contain is_platform_admin. A column the role cannot write is not
+-- reachable by any statement shape, GUC trick or not.
+--
+-- The column list is every pre-existing column and nothing else: this migration
+-- takes away exactly one privilege and leaves the rest of the write surface
+-- byte-for-byte as it was. Narrowing it further (dropping `email`, the
+-- timestamps) is a separate, arguable change — and not a free one: `rls.test`
+-- L2 relies on a cross-user email UPDATE being RLS-filtered to 0 rows rather
+-- than erroring, which is real behaviour the app can depend on too. The nine
+-- SECURITY DEFINER writers (invite acceptance, onboarding, …) run as the owner
+-- and are unaffected, as is the service_role path in inviteExternalCrew.
+--
+-- Consequence worth knowing: a column added to user_profiles after this
+-- migration starts with NO grant for authenticated, exactly like a new table
+-- since 20260917100000. That fails loudly in dev, which is the right default —
+-- but it does mean a future client-written column needs its grant spelled out.
+--
+-- SELECT is deliberately left at table level. Dropping is_platform_admin from
+-- the read grant would break every `select *` PostgREST issues against
+-- user_profiles, app-wide, for one enumeration oracle that is only open to
+-- people who already share a venue with the operator. Accepted and documented;
+-- moving the read behind an RPC is noted for P-04.
+
+revoke insert, update on public.user_profiles from authenticated;
+
+grant insert (
+  id, full_name, email, created_at, updated_at,
+  first_name, last_name, phone,
+  terms_accepted_at, terms_version, mfa_snooze_until
+) on public.user_profiles to authenticated;
+
+grant update (
+  id, full_name, email, created_at, updated_at,
+  first_name, last_name, phone,
+  terms_accepted_at, terms_version, mfa_snooze_until
+) on public.user_profiles to authenticated;

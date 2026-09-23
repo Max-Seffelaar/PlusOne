@@ -34,17 +34,40 @@ its own helper and its own RPC.
 **Two things the task description did not name, both found by running the suite.**
 - **The column guard is not optional.** `user_profiles_update_self` and
   `user_profiles_insert_self` already let a user write their own row, and RLS is
-  row-level, not column-level — without the trigger, any authenticated user promotes
-  themselves to platform admin in one PostgREST call. The trigger lets the column change
-  only while the transaction-local GUC `plusone.platform_admin_write` is `'on'`, which
-  only `set_platform_admin()` (and the documented bootstrap statement) sets. PostgREST
-  gives an API caller no way to set a GUC alongside a write.
+  row-level, not column-level — without a guard, any authenticated user promotes
+  themselves to platform admin in one PostgREST call.
 - **`user_is_quota_exempt` had to be widened too.** It takes the *adder's* id as a
   parameter instead of reading `auth.uid()`, so the helper widening does not reach it:
   `guests_insert` pins `added_by` to the caller, a platform admin holds no `quotas` row
   at a foreign venue, and `user_event_quota` falls through to 0 — every cross-venue guest
   add would die on `enforce_guest_quota` with 45001. The write half of the boundary is
   theatre without it.
+
+**The GUC guard turned out not to be a boundary — the column grant is.** A fresh
+`/security-review` ran the attacks against the local stack and proved that `authenticated`
+can set the custom GUC itself, in the same statement it is guarding:
+`update … set is_platform_admin = true where id = auth.uid() and
+set_config('plusone.platform_admin_write','on',true) = 'on'` — the WHERE is evaluated
+before the BEFORE trigger fires, and the flag flips. The only thing that stopped it was
+the shape of the statements PostgREST is willing to emit, which is an app-layer property,
+and CLAUDE.md #1 forbids leaning on one. Fix: `revoke insert, update on
+public.user_profiles from authenticated` plus an explicit column list that omits
+`is_platform_admin`. The list is every pre-existing column and nothing else — narrowing it
+further breaks `rls.test` L2, which depends on a cross-user `email` UPDATE being
+RLS-filtered to 0 rows rather than erroring. The GUC trigger stays as defence in depth
+(it is what still stops the *owner* from writing the column outside the RPC, which the
+tests assert separately). SELECT is deliberately untouched: dropping the column from the
+read grant would break every `select *` PostgREST issues against `user_profiles` app-wide,
+for one enumeration oracle that is only open to people who already share a venue with the
+operator. Accepted; moving the read behind an RPC is noted for P-04.
+
+**A suspected hole that measured closed.** Both reviews flagged that `user_is_quota_exempt`
+is keyed on the adder, so a quota-bound doorhost might re-point `added_by` at a platform
+admin and inherit the exemption. It cannot: `20260819100000` already binds `added_by` on
+update (42501, not a filtered 0 rows), and the door-INSERT hand-off branch rejects a
+platform admin as actor at a venue he is no member of. The branch got
+`and p_user_id = (select auth.uid())` anyway — strictly tighter, free — and both halves are
+now asserted, because the exemption is only safe while both hold.
 
 **Gotcha worth remembering: copy the CURRENT body, not the one in the migration the task
 points you at.** The first pass rebased `user_is_quota_exempt` on its original
@@ -57,16 +80,22 @@ public.<name>"` across *all* migrations, never from the one file you happen to b
 there; `platform_admin.test.sql` proves the stamp lands on guests, guest_tiers, quotas,
 event_quotas, check_ins and venue_memberships for a platform-admin writer.
 
-**Tests.** New `supabase/tests/database/platform_admin.test.sql`, 40 assertions, both
+**Tests.** New `supabase/tests/database/platform_admin.test.sql`, 54 assertions, both
 sides per role: platform admin reads+writes in a venue he is no member of; admin /
 user_manager / finance / staff / doorhost / organizer unchanged and still locked out; a
 venue admin cannot set the flag by direct UPDATE, by self-INSERT, or through the RPC;
-anon reaches none of it. Full run after a clean `supabase db reset`: **63 files / 1386
+anon reaches none of it; plus the column-privilege assertions, the GUC-window-closes proof
+(run as the owner, since `authenticated` no longer holds the column at all), the
+merge-duplicates upsert path, and `venue_id is null` audit rows staying invisible to venue
+admin and finance. Full run after a clean `supabase db reset`: **63 files / 1400
 assertions PASS**. `pnpm lint` clean (2 pre-existing a11y warnings in `datetime-field`),
-`tsc --noEmit` clean, Vitest 1726 passed / 9 failed — all 9 pre-existing Windows-only
+`tsc --noEmit` clean, Vitest 1757 passed / 7 failed — all 7 pre-existing Windows-only
 environment failures (`pgtap-plan-run-gate.test.ts` writes an extensionless `supabase`
-stub that libuv cannot spawn on Windows; one flaky `datetime-field` timing test that
-passes on re-run).
+stub that libuv cannot spawn on Windows).
+
+**CLAUDE.md #1 gained its exception clause** (platform admins, enforced in the RLS helpers,
+every cross-tenant write audited on name — decision #41). The full spec decision #41 and
+its own invariant section stay with P-06.
 
 **Follow-ups, deliberately not in this PR.** No seed platform admin and no dev-login for
 one (P-01 territory); no UI. Bootstrapping the first platform admin is a one-line SQL
