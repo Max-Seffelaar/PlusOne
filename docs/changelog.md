@@ -53,6 +53,19 @@ the whole raw value, so `/login?next=/app` no longer slips past the exact `raw =
 match; and running it on the decoded path also closes `/%61uth/callback`, where percent-encoding
 the route name hid it from `startsWith('/auth/')`.
 
+**A tolerant decode, after a peer review from the #316 session.** The first fixed-point cut used
+`decodeURIComponent` per round and rejected on a throw. That quietly broke a legitimate deep
+link: `/app/events/50%25korting` decodes to `/app/events/50%korting`, where `%ko` is not an escape
+at all, so round two threw and the user was downgraded to bare /app — the exact feature #316
+shipped. The #316 session proposed accepting on a throw past round 0; that has a hole, verified
+here: `/app/%25252e%25252e/a%2525zz` reads `/app/%2e%2e/a%zz` by round 2, and `new URL()`
+normalizes THAT to `/a%zz`, out of /app. So instead each round decodes tolerantly — every maximal
+run of `%XX` is decoded together (multi-byte UTF-8 like `caf%C3%A9` survives) and an unresolvable
+run is left as literal text, exactly as the WHATWG URL parser leaves it — while a malformed escape
+in the value as HANDED to the guard (`/app/%2`) is still rejected up front. Both properties hold:
+the legitimate `%` survives, and traversal hiding behind a bad escape does not. `appGateNextPath`
+got the same treatment, since its own loop would otherwise have rejected the deep link anyway.
+
 **Relation to PR #316 (merged first, `182e63f`).** #316 added `appGateNextPath`, a narrowing of
 the guard for the `/app` consent/MFA gates, and its own fresh-session security review pushed that
 function to unwrap to a fixed point — explicitly rejecting the single-decode reasoning this change

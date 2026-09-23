@@ -42,9 +42,41 @@ describe('safeNextPath (open-redirect guard)', () => {
     expect(safeNextPath('/%2e%2e/login')).toBe('/app');
   });
 
-  it('falls back on a malformed percent-escape', () => {
+  it('falls back on a malformed percent-escape in the value it was handed', () => {
     expect(safeNextPath('/app/%2')).toBe('/app');
     expect(safeNextPath('/app/%zz')).toBe('/app');
+  });
+
+  // An escape that only goes malformed AFTER a round of decoding is a real
+  // deep link, not an attack: `%25` is well-formed, and the `%ko` it leaves
+  // behind is text the URL parser would not touch either. Rejecting it would
+  // silently downgrade the user to bare /app (peer review, #316 session).
+  it('keeps a path whose literal % survives decoding', () => {
+    expect(safeNextPath('/app/events/50%25korting')).toBe('/app/events/50%25korting');
+    expect(appGateNextPath('/app/events/50%25korting')).toBe('/app/events/50%25korting');
+    expect(safeNextPath('/app/events/caf%C3%A9')).toBe('/app/events/caf%C3%A9');
+  });
+
+  // The same tolerance must not let a deeper `..` hide behind a bad escape:
+  // at round 2 this reads `/app/%2e%2e/a%zz`, which `new URL()` normalizes to
+  // `/a%zz` — out of /app entirely.
+  it('still rejects traversal that surfaces behind a malformed escape', () => {
+    expect(safeNextPath('/app/%25252e%25252e/a%2525zz')).toBe('/app');
+    expect(appGateNextPath('/app/%25252e%25252e/a%2525zz')).toBe('/app');
+  });
+
+  // isUnsafePath runs on the path with query stripped, which is what keeps the
+  // strict `://` and `//` rules from hitting a deep link that merely carries an
+  // encoded URL as a query VALUE. Moving that split would regress this silently.
+  it('does not judge the query as if it were the path', () => {
+    expect(safeNextPath('/app/contacts?back=https%3A%2F%2Fevil.example')).toBe(
+      '/app/contacts?back=https%3A%2F%2Fevil.example'
+    );
+    expect(safeNextPath('/app/contacts?path=%2F%2Fevil.example')).toBe(
+      '/app/contacts?path=%2F%2Fevil.example'
+    );
+    // …while an unencoded scheme anywhere in the raw value is still refused.
+    expect(safeNextPath('/app/contacts?back=https://evil.example')).toBe('/app');
   });
 
   // Harmless today — every hop decodes exactly once, so `%252e%252e` never

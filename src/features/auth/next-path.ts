@@ -14,6 +14,30 @@ const DEFAULT_NEXT = '/app';
 const MAX_DECODE_ROUNDS = 5;
 
 /**
+ * Percent-decode one level the way a URL parser does: each maximal run of
+ * `%XX` escapes is decoded together (so multi-byte UTF-8 like `caf%C3%A9`
+ * survives), and a run that will not decode is left as literal text instead of
+ * throwing away the whole value.
+ *
+ * Tolerance matters from the second round on. `/app/events/50%25korting` is a
+ * perfectly good deep link: round one turns it into `/app/events/50%korting`,
+ * where `%ko` is not an escape at all. A throwing decode would reject it and
+ * silently downgrade the user to bare /app — the exact feature #316 shipped.
+ * It costs no safety: a run the decoder cannot resolve is one the WHATWG URL
+ * parser leaves alone too, so it can never become a separator or a dot segment
+ * downstream (peer review from the #316 session, 2026-09-23).
+ */
+function decodePathOnce(path: string): string {
+  return path.replace(/(?:%[0-9A-Fa-f]{2})+/g, (run) => {
+    try {
+      return decodeURIComponent(run);
+    } catch {
+      return run; // valid escape syntax, invalid UTF-8 — leave it as written
+    }
+  });
+}
+
+/**
  * Every structural rule a `next=` path must satisfy, applied at one encoding
  * depth: no protocol-relative prefix, no smuggled scheme, no backslash, no
  * `..` segment, and not a route the redirect must never land on.
@@ -63,15 +87,20 @@ export function safeNextPath(raw: string | null | undefined, fallback = DEFAULT_
   // pathname before it matches routes, so an encoded slash can still change
   // which route runs. A `next=` target with a genuine encoded `..` or `/` in a
   // segment is not a thing this app produces.
-  let decoded = raw.split(/[?#]/)[0];
+  const pathOnly = raw.split(/[?#]/)[0];
+  // A malformed escape in the value we were HANDED (`/app/%2`) is never a path
+  // we served, so it is rejected outright. Escapes that only go malformed after
+  // a round of decoding are a different case — see decodePathOnce.
+  try {
+    decodeURIComponent(pathOnly);
+  } catch {
+    return fallback;
+  }
+
+  let decoded = pathOnly;
   for (let round = 0; round < MAX_DECODE_ROUNDS; round += 1) {
     if (isUnsafePath(decoded)) return fallback;
-    let next: string;
-    try {
-      next = decodeURIComponent(decoded);
-    } catch {
-      return fallback; // malformed escape — never a path we served
-    }
+    const next = decodePathOnce(decoded);
     if (next === decoded) return raw; // fixed point, clean at every depth
     decoded = next;
   }
@@ -137,18 +166,14 @@ export function appGateNextPath(raw: string | null | undefined): string {
   const safe = safeNextPath(raw, APP_ROOT);
   const pathOnly = safe.split(/[?#]/)[0];
   if (pathOnly !== APP_ROOT && !pathOnly.startsWith(`${APP_ROOT}/`)) return APP_ROOT;
-  // Same fixed-point unwrap the shared guard does, kept local per the docblock.
+  // Same fixed-point unwrap the shared guard does, kept local per the docblock,
+  // and tolerant for the same reason: `/app/events/50%25korting` must survive.
   let decoded = pathOnly;
-  for (let round = 0; round < 5; round += 1) {
+  for (let round = 0; round < MAX_DECODE_ROUNDS; round += 1) {
     if (decoded.split('/').includes('..')) return APP_ROOT;
-    let next: string;
-    try {
-      next = decodeURIComponent(decoded);
-    } catch {
-      return APP_ROOT; // malformed escape — not a path we served
-    }
+    const next = decodePathOnce(decoded);
     if (next === decoded) return safe; // fixed point, no traversal at any depth
     decoded = next;
   }
-  return APP_ROOT; // still unwrapping after 5 rounds — not a path we served
+  return APP_ROOT; // still unwrapping after MAX_DECODE_ROUNDS — not a path we served
 }
