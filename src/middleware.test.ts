@@ -165,6 +165,22 @@ describe('middleware — x-po-request-path stamp for the /app layout gates', () 
     const seen = updateSessionMock.mock.calls[0][0] as NextRequest;
     expect(seen.headers.get('x-po-request-path')).toBe('/app/profile');
   });
+
+  // Only /app reads the header, and a bearer token in the URL of /r, /i or a
+  // webhook route has no business being copied into it (code review 23/9).
+  it('is not stamped on routes outside /app, and a client value is dropped there', async () => {
+    mockForwardingSession();
+    const { middleware } = await loadMiddleware();
+    for (const path of ['/r/tok-123', '/i/tok-456', '/api/webhooks/stripe', '/appx', '/door/e1']) {
+      const req = new NextRequest(`http://localhost:3000${path}`, {
+        headers: { 'x-po-request-path': '/app/profile' },
+      });
+
+      const res = await middleware(req);
+
+      expect(forwarded(res), path).toBeNull();
+    }
+  });
 });
 
 describe('middleware — unauthenticated access (unchanged behaviour)', () => {

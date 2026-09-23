@@ -49,8 +49,9 @@ export function requestPathForHeader(url: URL): string {
 }
 
 const APP_ROOT = '/app';
-// A request URL longer than this is not a deep link worth preserving; bounding
-// it keeps an encoded `next=` from pushing the redirect target past URL limits.
+// Longest raw value accepted. A deep link past this isn't worth preserving, and
+// `encodeURIComponent` roughly triples the worst case, so the bound on the raw
+// value is what keeps the encoded `next=` inside sane URL limits.
 const MAX_APP_NEXT_LENGTH = 2048;
 
 /**
@@ -60,11 +61,25 @@ const MAX_APP_NEXT_LENGTH = 2048;
  * genuine value always is one, and a forged header can't aim the post-gate
  * redirect at another in-app route. Anything else falls back to bare /app
  * (the pre-fix behaviour).
+ *
+ * The prefix test runs on the DECODED path: `safeNextPath` only rejects literal
+ * `..` segments, so `/app/%2e%2e/auth/callback` would otherwise pass both checks
+ * and then normalize to `/auth/callback` in the browser's URL parser — inside
+ * the same origin, but onto a route the guard's deny-list exists to block
+ * (fresh-session code review, 2026-09-23). Hardening `safeNextPath` itself, for
+ * every `?next=` consumer, is its own change.
  */
 export function appGateNextPath(raw: string | null | undefined): string {
   if (!raw || raw.length > MAX_APP_NEXT_LENGTH) return APP_ROOT;
   const safe = safeNextPath(raw, APP_ROOT);
   const pathOnly = safe.split(/[?#]/)[0];
   if (pathOnly !== APP_ROOT && !pathOnly.startsWith(`${APP_ROOT}/`)) return APP_ROOT;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(pathOnly);
+  } catch {
+    return APP_ROOT; // malformed escape — not a path we served
+  }
+  if (decoded.split('/').includes('..')) return APP_ROOT;
   return safe;
 }

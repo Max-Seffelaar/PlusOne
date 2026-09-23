@@ -44,7 +44,27 @@ on `/app/probe.txt` an off-site, `//`, traversal or non-`/app` header falls back
 couldn't launch Chromium in the sandbox). It isn't in `e2e:smoke`.
 
 **Review gate.** Middleware is a high-risk surface. The PR body carries an adversarial
-security-research prompt, and the PR needs a fresh-session `/code-review` before merge.
+security-research prompt. A fresh session ran `/code-review high` on 2026-09-23 and
+cleared the design on security grounds (no cross-origin escape; `x-middleware-request-*`
+spoofing doesn't work because the stamp is written before `updateSession` builds the
+response; `next@15.5.19` is past the CVE-2025-29927 middleware-skip fix; the service
+worker's `isStorable()` refuses redirects, so no gate 307 is ever cached; no gate can
+point at itself; `[[...segments]]/page.tsx` byte-identical to main). Follow-ups applied
+in the same branch: the stamp is now scoped to `/app` paths and deleted elsewhere, so a
+bearer token in a `/r`, `/i` or webhook URL is never copied into a header nobody reads;
+`appGateNextPath` re-checks the DECODED path, because `safeNextPath` only rejects literal
+`..` and `/app/%2e%2e/auth/callback` would otherwise normalize out of `/app` in the
+browser; the e2e spec restores the shared `staff@plusone.test` consent in a `finally`;
+the length-cap comment now says what it actually bounds.
+
+**Left open.** `safeNextPath` accepting percent-encoded dot segments is PRE-EXISTING and
+reachable today with a plain link on every `?next=` consumer (`/consent`, `/login`,
+`/mfa/enroll`, `/auth/callback`). Same-origin only — every consumer re-runs the guard and
+resolves against `request.url`, so it cannot leave the origin — but it belongs in its own
+PR. Unrelated pre-existing behaviour worth knowing: `isSessionGone()` in
+`public/service-worker.js` treats any opaqueredirect on an `/app*` navigation as "session
+gone" and wipes `plusone-session-v1`, so a TERMS_VERSION bump clears the session cache on
+every device that hits the gate.
 
 ## 2026-09-19 — Client writes on guest_requests can only deny (L5, z8uq9m0jce)
 

@@ -87,6 +87,15 @@ describe('appGateNextPath (next= for the /app consent/MFA gates)', () => {
     expect(appGateNextPath('/app/../login')).toBe('/app');
   });
 
+  // safeNextPath only rejects LITERAL `..` segments, so these pass it and the
+  // /app prefix test, then normalize out of /app in the browser's URL parser.
+  it('rejects percent-encoded traversal out of the /app surface', () => {
+    expect(appGateNextPath('/app/%2e%2e/auth/callback')).toBe('/app');
+    expect(appGateNextPath('/app/%2E%2E/login')).toBe('/app');
+    expect(appGateNextPath('/app/%2e%2e%2fauth/callback')).toBe('/app');
+    expect(appGateNextPath('/app/%2')).toBe('/app'); // malformed escape
+  });
+
   it('only accepts the /app surface itself', () => {
     expect(appGateNextPath('/admin/team')).toBe('/app');
     expect(appGateNextPath('/mfa/enroll?next=/app')).toBe('/app');
