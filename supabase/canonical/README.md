@@ -19,10 +19,10 @@ test` step) if that body doesn't match the file here.
 Covered functions:
 
 - `audit_trigger.sql` — newest source: `20260706100000_influencers_request_links.sql`
-- `run_privacy_retention.sql` — newest source: `20260918160000_status_token_mirror_hardening.sql`
+- `run_privacy_retention.sql` — newest source: `20260919090000_partial_approval_decision_message.sql`
 - `submit_guest_request.sql` — newest source: `20260918160000_status_token_mirror_hardening.sql`
-- `approve_guest_request.sql` — newest source: `20260707170000_p0_security_hotfixes.sql`
-- `get_request_status.sql` — newest source: `20260918140000_status_token_mirror.sql`
+- `approve_guest_request.sql` — newest source: `20260919090000_partial_approval_decision_message.sql`
+- `get_request_status.sql` — newest source: `20260919090000_partial_approval_decision_message.sql`
 
 ## When you touch one of these functions
 

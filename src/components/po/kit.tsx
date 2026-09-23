@@ -409,6 +409,44 @@ export function Field({
   );
 }
 
+// ── TextArea (multi-line Field) ──────────────────────────────────────────────
+// Same skin as Field. 16px text on purpose: iOS zooms into any smaller field.
+export function TextArea({
+  value,
+  onChange,
+  placeholder,
+  maxLength,
+  rows = 3,
+  autoFocus,
+  ariaLabel,
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  maxLength?: number;
+  rows?: number;
+  autoFocus?: boolean;
+  ariaLabel?: string;
+  className?: string;
+}): JSX.Element {
+  return (
+    <textarea
+      autoFocus={autoFocus}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      maxLength={maxLength}
+      rows={rows}
+      aria-label={ariaLabel}
+      className={cn(
+        'w-full resize-none rounded-field border border-line bg-elev px-[15px] py-[13px] font-body text-[16px] leading-[1.4] text-text outline-none placeholder:text-faint focus:border-acc',
+        className,
+      )}
+    />
+  );
+}
+
 // ── Stepper ─────────────────────────────────────────────────────────────────
 export function Stepper({ value, onChange, max }: { value: number; onChange: (v: number) => void; max?: number }): JSX.Element {
   const btn = cn('flex h-[52px] w-[52px] items-center justify-center rounded-[16px] border border-line bg-elev2 text-text', press);

@@ -1,7 +1,7 @@
 // Minimal fake Supabase (GoTrue + PostgREST) so the real Next app boots for
 // screenshots without docker. Fixture-driven; unknown tables/RPCs return [].
 import { createServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 
 const PORT = Number(process.env.FAKE_SUPABASE_PORT ?? 55421);
@@ -545,6 +545,53 @@ db.guest_requests.push({
   created_at: iso(now - 3 * H),
   updated_at: iso(now),
 });
+// A big party on next week's event: the partial-approval stepper (approve +2 of +4).
+db.guest_requests.push({
+  id: uid(),
+  event_id: E2,
+  venue_id: V1,
+  request_link_id: null,
+  full_name: 'Mila Jansen',
+  email: 'mila@example.com',
+  phone: '+31612345678',
+  plus_ones: 4,
+  motivation: 'Birthday, coming with my sisters',
+  status: 'pending',
+  decided_at: null,
+  decided_by: null,
+  decided_via: 'manual',
+  decision_reason: null,
+  approved_plus_ones: null,
+  decision_message: null,
+  created_at: iso(now - 5 * H),
+  updated_at: iso(now),
+});
+
+// Status-page fixtures (/r/[token]). The page looks the token up by sha256, so
+// these are keyed the same way. Same gating as get_request_status: the venue
+// address, confirmed count + message only on `approved`, and never for a
+// mirror (a duplicate submission's token).
+const statusFixtures = {
+  'demo-pending': { event: E2, status: 'pending', full_name: 'Mila Jansen', plus_ones: 4 },
+  'demo-approved': { event: E1, status: 'approved', full_name: 'Liam Smit', plus_ones: 2 },
+  'demo-reduced': {
+    event: E2,
+    status: 'approved',
+    full_name: 'Mila Jansen',
+    plus_ones: 4,
+    approved_plus_ones: 2,
+    decision_message: 'Happy birthday! We could fit three of you. Doors close at 01:00, so come on time.',
+  },
+  'demo-denied': { event: E1, status: 'denied', full_name: 'Sem de Boer', plus_ones: 1 },
+  // A duplicate submission's token whose original request was approved.
+  'demo-mirror': { event: E2, status: 'approved', full_name: 'Sid de Vries', plus_ones: 4, mirror: true },
+};
+const statusByHash = new Map(
+  Object.entries(statusFixtures).map(([tok, f]) => [
+    createHash('sha256').update(tok).digest('hex'),
+    f,
+  ])
+);
 
 // ── helpers ────────────────────────────────────────────────────────────────
 const FK = {
@@ -871,6 +918,63 @@ const rpcs = {
       checked_in_heads: 7,
     })),
   }),
+  get_request_status: ({ p_token_hash }) => {
+    const f = statusByHash.get(p_token_hash);
+    const e = f && db.events.find((x) => x.id === f.event);
+    if (!f || !e) return { found: false };
+    const v = db.venues.find((x) => x.id === e.venue_id);
+    const approved = f.status === 'approved';
+    const own = approved && !f.mirror;
+    return {
+      found: true,
+      status: f.status,
+      full_name: f.full_name,
+      plus_ones: f.plus_ones,
+      event_name: e.name,
+      starts_at: e.starts_at,
+      ends_at: e.ends_at,
+      approved_plus_ones: own ? (f.approved_plus_ones ?? f.plus_ones) : null,
+      decision_message: own ? (f.decision_message ?? null) : null,
+      venue_address_line: own ? (v?.address_line ?? null) : null,
+      venue_postal_code: own ? (v?.postal_code ?? null) : null,
+      venue_city: own ? (v?.city ?? null) : null,
+    };
+  },
+  // In-memory approval: the request leaves the inbox, the guest lands with the
+  // APPROVED plus-ones (no tier-max/capacity checks here, the harness has no RLS).
+  approve_guest_request: ({ p_request_id, p_tier_id, p_plus_ones, p_message }, email) => {
+    const r = db.guest_requests.find((x) => x.id === p_request_id);
+    if (!r) return null;
+    const plus = p_plus_ones ?? r.plus_ones;
+    Object.assign(r, {
+      status: 'approved',
+      decided_at: iso(Date.now()),
+      decided_by: users[email]?.id ?? null,
+      decided_via: 'manual',
+      decision_reason: null,
+      approved_plus_ones: plus,
+      decision_message: p_message ?? null,
+    });
+    const id = uid();
+    db.guests.push({
+      ...db.guests.find((x) => x.event_id === r.event_id),
+      id,
+      event_id: r.event_id,
+      tier_id: p_tier_id,
+      full_name: r.full_name,
+      email: r.email,
+      phone: r.phone,
+      plus_ones: plus,
+      status: 'approved',
+      source: 'landing',
+      added_by: users[email]?.id ?? null,
+      request_link_id: r.request_link_id,
+      created_at: iso(Date.now()),
+      updated_at: iso(Date.now()),
+    });
+    // send() writes strings raw, so hand it the JSON encoding of the uuid.
+    return JSON.stringify(id);
+  },
 };
 
 // ── auth ───────────────────────────────────────────────────────────────────

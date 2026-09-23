@@ -2,18 +2,23 @@
 
 /**
  * Bottom sheets of the Requests inbox (approvals.tsx) — the event / link scope
- * pickers, the approve-with-tier sheet and the decline/deny sheet. Split out of
- * approvals.tsx (z8uq9m0hw4) to keep the screen file under the ~800 LOC rule;
- * behaviour and markup are unchanged.
+ * pickers, the approve sheet and the decline/deny sheet. Split out of
+ * approvals.tsx (z8uq9m0hw4) to keep the screen file under the ~800 LOC rule.
+ * The approve sheet also takes a partial approval (people stepper, never above
+ * the request) and an optional note for the requester's status page
+ * (z8uq9m0hw6); approvals.tsx turns its decision into the action input via
+ * `buildApproveInput` (src/features/requests/approval.ts).
  */
 import { type JSX, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import type { PoGuestRequest } from '@/features/po/adapters';
+import { clampApprovedPlusOnes, type ApprovalDecision } from '@/features/requests/approval';
+import { DECISION_MESSAGE_MAX } from '@/features/requests/schemas';
 import type { PoLinkOption } from '@/features/po/queries';
 import type { Tier } from '@/lib/po/types';
 import { Icon } from '../icon';
-import { Avatar, Btn, Label, Note, TierPicker, press } from '../kit';
+import { Avatar, Btn, Label, Note, Stepper, TextArea, TierPicker, press } from '../kit';
 import { Sheet } from '../shell';
 
 export type DenyTarget = { kind: 'landing' | 'quota'; id: string; name: string; eventId: string };
@@ -132,18 +137,24 @@ export function AssignSheet({
   pending: boolean;
   error: string | null;
   onClose: () => void;
-  onConfirm: (tierId: string) => void;
+  onConfirm: (decision: ApprovalDecision) => void;
   onCreateTier: () => void;
 }): JSX.Element {
   const [tierId, setTierId] = useState('');
+  // Starts at what they asked for; the stepper only goes down from there.
+  const [plus, setPlus] = useState(req.plus);
+  const [message, setMessage] = useState('');
   // Default to the first tier once they load (the event's tiers fetch on open).
   useEffect(() => {
     if (tierId === '' && tiers.length > 0) setTierId(tiers[0].id);
   }, [tiers, tierId]);
 
   const tier = tiers.find((row) => row.id === tierId);
-  const heads = 1 + req.plus;
+  const requestedHeads = 1 + req.plus;
+  const heads = 1 + plus;
+  const reduced = plus < req.plus;
   const noTiers = !tiersLoading && tiers.length === 0;
+  const blocked = pending || tiersLoading || !tierId;
   return (
     <Sheet onClose={onClose} center={false}>
       <div className="mb-4 flex items-center gap-[12px]">
@@ -155,8 +166,8 @@ export function AssignSheet({
           </div>
           <div className="truncate text-[12.5px] text-faint">
             {eventName
-              ? fmt(t.requests.assignHeads, { event: eventName, n: heads })
-              : fmt(t.requests.assignHeadsNoEvent, { n: heads })}
+              ? fmt(t.requests.assignHeads, { event: eventName, n: requestedHeads })
+              : fmt(t.requests.assignHeadsNoEvent, { n: requestedHeads })}
           </div>
         </div>
       </div>
@@ -181,6 +192,16 @@ export function AssignSheet({
           </span>
         </div>
       </div>
+      {/* Partial approval: a solo request has nothing to reduce, so no stepper. */}
+      {req.plus > 0 && (
+        <div className="mb-[16px]">
+          <Label className="mb-[10px]">{t.requests.assignPeopleQuestion}</Label>
+          <Stepper value={heads} max={requestedHeads} onChange={(v) => setPlus(clampApprovedPlusOnes(v - 1, req.plus))} />
+          <div className="mt-[8px] px-0.5 text-[12.5px] leading-[1.4] text-faint">
+            {fmt(t.requests.assignPeopleHint, { n: requestedHeads })}
+          </div>
+        </div>
+      )}
       <Label className="mb-[10px]">{t.requests.assignTierQuestion}</Label>
       {tiersLoading ? (
         <div className="mb-[14px] py-[18px] text-center text-[13px] text-faint">{t.requests.assignLoadingTiers}</div>
@@ -200,18 +221,41 @@ export function AssignSheet({
           hint={(row) => (row.max != null ? fmt(t.requests.tierUsedOfMax, { used: row.used, max: row.max }) : t.requests.tierNoMax)}
         />
       )}
+      {!noTiers && (
+        <div className="mb-[14px]">
+          <Label className="mb-[10px]">
+            {t.requests.assignMessageLabel}{' '}
+            <span className="font-normal normal-case text-faint">{t.requests.assignMessageOptional}</span>
+          </Label>
+          <TextArea
+            value={message}
+            onChange={setMessage}
+            maxLength={DECISION_MESSAGE_MAX}
+            rows={2}
+            placeholder={t.requests.assignMessagePlaceholder}
+            ariaLabel={t.requests.assignMessageLabel}
+            className="min-h-[72px]"
+          />
+          <div className="mt-[6px] flex items-center justify-between gap-3 px-0.5 text-[12px] text-faint">
+            <span>{t.requests.assignMessageHint}</span>
+            <span className="tabular-nums">{fmt(t.requests.assignMessageCount, { n: message.length, max: DECISION_MESSAGE_MAX })}</span>
+          </div>
+        </div>
+      )}
       {!noTiers && !tiersLoading && (
         <div className="mb-4 flex items-center gap-[10px] rounded-[13px] bg-acc-dim px-[14px] py-[13px]">
           <Icon name="check2" size={18} stroke="#B5A6FF" sw={2.4} />
           <span className="text-[13.5px] leading-[1.4] text-text">
-            {fmt(t.requests.assignSummary, { n: heads })}
+            {reduced
+              ? fmt(t.requests.assignSummaryReduced, { n: heads, requested: requestedHeads })
+              : fmt(t.requests.assignSummary, { n: heads })}
             {tier && <>{t.requests.assignSummaryTierConnector}<b>{tier.short}</b></>}.
           </span>
         </div>
       )}
       {error && <ErrLine msg={error} />}
       {!noTiers && (
-        <Btn kind="primary" full icon="check" disabled={pending || tiersLoading || !tierId} onClick={() => onConfirm(tierId)} className={pending || tiersLoading || !tierId ? 'opacity-50' : ''}>
+        <Btn kind="primary" full icon="check" disabled={blocked} onClick={() => onConfirm({ tierId, plusOnes: plus, message })} className={blocked ? 'opacity-50' : ''}>
           {pending ? t.requests.assignBusy : t.requests.assignConfirm}
         </Btn>
       )}
@@ -251,13 +295,13 @@ export function DenySheet({
       <Label className="mb-[10px]">
         {t.requests.reasonLabel} <span className="font-normal normal-case text-faint">{t.requests.reasonRequired}</span>
       </Label>
-      <textarea
+      <TextArea
         autoFocus
         value={reason}
-        onChange={(e) => setReason(e.target.value)}
+        onChange={setReason}
         maxLength={500}
         placeholder={t.requests.reasonPlaceholder}
-        className="mb-4 min-h-[88px] w-full resize-none rounded-field border border-line bg-elev px-[15px] py-[13px] font-body text-[15px] leading-[1.4] text-text outline-none placeholder:text-faint focus:border-acc"
+        className="mb-4 min-h-[88px]"
       />
       {error && <ErrLine msg={error} />}
       <Btn kind="primary" full icon="close" disabled={pending || !trimmed} onClick={() => onConfirm(trimmed)} className={pending || !trimmed ? 'opacity-50' : ''}>

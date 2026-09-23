@@ -56,6 +56,67 @@ shows. It is off by default, so existing baselines don't move.
 
 ---
 
+## 2026-09-18/19 — Joeri walkthrough round (J1–J6)
+
+Source: a screen-recorded walkthrough by Joeri (pilot partner running the ADE campaign),
+transcribed and triaged with Max on 18/9. Items already fixed by the 17/9 round (#298:
+end-date follow, alias hidden, +N from profile, guest source, Door → Check-in) were
+dropped; the rest was bundled into six ClickUp tasks, each built by a separate agent in
+its own worktree, with before/after screenshots for Max where he asked for them.
+Milestone: **Now** (ADE campaign).
+
+| Bundle | ClickUp | PR | What shipped |
+|---|---|---|---|
+| J1 copy sweep | `z8uq9m0hw1` | #303 | 64 user-facing em/en-dash sentences rewritten, "Influencer" → "Promoter" in copy only (code/DB/routes unchanged), guard `tests/unit/no-em-dash-in-copy.test.ts`. |
+| J2 onboarding & settings | `z8uq9m0hw2` | #309 (db), #307 | Team step "Skip for now" / "Add another team member", outdated MFA note removed, Company name placeholder, searchable country dropdown (one shared list with the phone picker), single-venue shortcut to venue settings, "Manage" hidden for roles without access, dead `plus.one/<slug>` "Landing page" row replaced by an optional `venues.website` (http(s) CHECK), English invite / login-code / confirm-signup e-mail templates. |
+| J3 events & tiers | `z8uq9m0hw3` | #305 | No past-event preselect in quick-add, working Events search, end time before doors rolls to the next day, "Add another tier" below the list, tiers editable after creation, sign-up link on by default, new event without tiers lands on the tiers step, "Template" label. `updateTier` now fails instead of reporting success on a 0-row update. |
+| J4 requests, check-in, analytics | `z8uq9m0hw4` | #306 | Quick-add contact fields marked optional with the contact rule explained, connection pill in the desktop cockpit (`SyncDot` kit primitive), "New request link" from Requests, link label on every request, pending-requests badge on Home, "On the way" during / "No-shows" only after an event (stats panel + recap, UI-only), Analytics opens on the latest started event, Promotion "+ New link" gated like Requests. |
+| J5 guest profile | `z8uq9m0hw5` | #304 | Per-event "…" actions on the profile (open event, +N, tier, remove) from any entry point, permissions mirrored from RLS in `src/features/guests/permissions.ts`, door-only gets "Open event" only, Guest/Contact title, Contacts empty state explains the name-only rule. |
+| J6 partial approval & status page | `z8uq9m0hw6` | #308 | Approve fewer people than requested + optional venue message (`decision_message`, 280 chars, approved only), status page shows date, start–end time, venue address, "Approved for 3 of 5" and the message; footer links to plus-one.io. Spec #48 + #43(f) amendment. |
+
+**J6 review gate.** High-risk (SECURITY DEFINER approve RPC, anonymous status RPC,
+guard trigger, retention). An independent fresh-session `/code-review` +
+`/security-review` returned "merge after fixes": M1 retention only scrubbed
+`decision_message`/`decision_reason` for requests anonymized in the current run (old
+rows kept the deny reason in the audit diff; an anonymized request could still be
+approved with a message). Fixed with `redact_anonymized_request_audit_pii()` keyed on
+`anonymized_at` (backfills, idempotent) and P0002 for anonymized requests; plus L1
+mirror tokens no longer get the address, L2 no party size for approved mirrors, L3 one
+whitespace set validated before any insert (a CHECK failure used to echo the row), L4
+role check before the row lock, event_id re-checked after the lock. Re-review:
+merge-ready. Accepted residual: a mirror token becomes recognisable after the original
+is approved (`docs/security-audit.md` §4A).
+
+**Prod push.** `20260918203700_venue_website` was first applied through the Supabase
+MCP connector, which stamps its own ledger version (`20260918173900`); Max then linked
+the CLI in the main checkout and realigned the ledger with `supabase migration repair`
+(reverted `20260918173900` and the older MCP artefact `20260918153321`, applied
+`20260918203700`). The J6 migration was renamed from `20260918174500` to
+`20260919090000` before merge because the CLI refuses a local migration older than the
+newest remote one, then pushed with `supabase db push`; dry-run afterwards: "Remote
+database is up to date". Lesson: prefer the CLI; if the connector is used, repair the
+ledger in the same session.
+
+**Process notes.** Split a PR whose code reads a new column into a migration-only PR
+merged and pushed first (J2: #309 before #307); Vercel deploys on merge, the push comes
+after. The shared git config had `core.hooksPath` switched to an absolute path into the
+main checkout (stale hooks in worktrees); reset to `scripts/hooks`.
+
+**Tests.** Every PR: type-check clean, lint clean (2 pre-existing `datetime-field.tsx`
+warnings), vitest green except the 7 Windows-only `pgtap-plan-run-gate` failures
+(`spawn supabase ENOENT`, not reproducible in CI); CI `lint-and-test` (incl. pgTAP on a
+fresh stack) green on every PR and on main. Playwright not run locally (needs a DB reset
+on the shared stack).
+
+**Follow-ups.** `z8uq9m0jce` guest_requests_decide lets an admin set `approved` without
+the RPC (pre-existing, found by the J6 review, high-risk) · `z8uq9m0jcf` dev-login
+`next=/app/contacts` lands on Home · `z8uq9m0jcg` 44px icon buttons (shipped, entry
+below) · `86ey6bn05` transactional mails via Resend (queue / approved / adjusted /
+denied; uses `decision_message`, must HTML-escape) · `z8uq9m0hw7` J7 ADE campaign link
+(design) · open with Max: preset reasons for deny/adjust visible to the guest.
+
+---
+
 ## 2026-09-18 — 44px tap targets on header icon buttons
 
 Branch `claude/iconbtn-tap-target-44`. Milestone: **Now** (CLAUDE.md's tap-target floor
