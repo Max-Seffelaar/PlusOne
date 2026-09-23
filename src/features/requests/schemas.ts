@@ -79,11 +79,31 @@ export const submitGuestRequestSchema = z.object({
 });
 export type SubmitGuestRequestInput = z.input<typeof submitGuestRequestSchema>;
 
-/** Admin/organizer approves a landing request and assigns a tier (#12/#31). */
+/** Cap on the venue's message to the requester (z8uq9m0hw6). The DB holds the
+ *  same cap twice: the `guest_requests_decision_message_check` CHECK and the
+ *  approve_guest_request RPC. The message (`guest_requests.decision_message`)
+ *  is untrusted plain text typed by venue staff: the status page renders it as
+ *  a React text node, and the transactional mail that will send it (ClickUp
+ *  86ey6bn05) MUST HTML-escape it, never interpolate it into markup raw. */
+export const DECISION_MESSAGE_MAX = 280;
+
+/**
+ * Admin/organizer approves a landing request and assigns a tier (#12/#31).
+ *
+ * z8uq9m0hw6 — two optional extras, both omitted by a plain approval so the
+ * RPC call keeps the 2-arg shape the pre-migration function also accepts:
+ *   * `plusOnes`: approve for FEWER plus-ones than requested. Only the bounds
+ *     every request shares are checked here (0..20, the submit cap); "never
+ *     above THIS request" needs the row and is enforced by the RPC (23514).
+ *   * `message`: plain text for the requester's status page. Trimmed; blank
+ *     means none.
+ */
 export const approveGuestRequestSchema = z.object({
   requestId: uuid,
   tierId: uuid,
   eventId: uuid.optional(),
+  plusOnes: z.number().int().min(0).max(20).optional(),
+  message: optionalText(DECISION_MESSAGE_MAX),
 });
 export type ApproveGuestRequestInput = z.input<typeof approveGuestRequestSchema>;
 
@@ -111,3 +131,27 @@ export const submitGuestRequestResultSchema = z.object({
   status: z.enum(['ok', 'rate_limited', 'closed', 'invalid']),
   auto_approved: z.unknown().optional(),
 });
+
+/**
+ * Result shape of the `get_request_status` RPC (jsonb) for a FOUND token.
+ * Anything else (`{found:false}`, a drifted shape) fails this parse and the
+ * page renders the neutral not-found (#28). Only the keys every deployed
+ * version of the function has returned are required; the z8uq9m0hw6 additions
+ * are `nullish()` so a page deployed ahead of that migration still renders the
+ * old payload instead of calling a real request "not found".
+ */
+export const requestStatusPayloadSchema = z.object({
+  found: z.literal(true),
+  status: z.enum(['pending', 'approved', 'denied']),
+  full_name: z.string().nullish(),
+  plus_ones: z.number().int().min(0).nullish(),
+  event_name: z.string().min(1),
+  starts_at: z.string().nullish(),
+  ends_at: z.string().nullish(),
+  approved_plus_ones: z.number().int().min(0).nullish(),
+  decision_message: z.string().nullish(),
+  venue_address_line: z.string().nullish(),
+  venue_postal_code: z.string().nullish(),
+  venue_city: z.string().nullish(),
+});
+export type RequestStatusPayload = z.infer<typeof requestStatusPayloadSchema>;

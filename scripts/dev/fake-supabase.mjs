@@ -1,7 +1,7 @@
 // Minimal fake Supabase (GoTrue + PostgREST) so the real Next app boots for
 // screenshots without docker. Fixture-driven; unknown tables/RPCs return [].
 import { createServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 
 const PORT = Number(process.env.FAKE_SUPABASE_PORT ?? 55421);
@@ -247,10 +247,39 @@ const db = {
   quota_requests: [],
   refusals: [],
   influencers: [],
-  event_templates: [],
+  // One template, so /app/templates/<id> renders its tier editor.
+  event_templates: [
+    {
+      id: 'e0000000-0000-4000-8000-000000000001',
+      venue_id: V1,
+      name: 'Friday Club Night',
+      allow_uncheck: null,
+      auto_lock_offset_minutes: null,
+      capacity: 400,
+      landing_active: true,
+      created_at: iso(now - 30 * D),
+      updated_at: iso(now),
+    },
+  ],
   event_template_tiers: [],
   audit_feed: [],
 };
+
+// FAKE_EXTRA_EVENTS=N appends N empty upcoming events (one a week after
+// Saturday Sessions), so screens that paginate (Home pages at 7) can be shot
+// with more than one page. Off by default so existing baselines don't move.
+for (let i = 0; i < Number(process.env.FAKE_EXTRA_EVENTS ?? 0); i++) {
+  const start = tonight + (16 + 7 * i) * D;
+  db.events.push({
+    ...db.events[1],
+    id: `c0000000-0000-4000-8000-${String(100 + i).padStart(12, '0')}`,
+    name: `Club Night ${i + 1}`,
+    starts_at: iso(start),
+    ends_at: iso(start + 6 * H),
+    landing_active: false,
+    landing_slug: null,
+  });
+}
 
 function tier(eventId, key, name, color, max, aliases, price) {
   const id = uid();
@@ -516,6 +545,53 @@ db.guest_requests.push({
   created_at: iso(now - 3 * H),
   updated_at: iso(now),
 });
+// A big party on next week's event: the partial-approval stepper (approve +2 of +4).
+db.guest_requests.push({
+  id: uid(),
+  event_id: E2,
+  venue_id: V1,
+  request_link_id: null,
+  full_name: 'Mila Jansen',
+  email: 'mila@example.com',
+  phone: '+31612345678',
+  plus_ones: 4,
+  motivation: 'Birthday, coming with my sisters',
+  status: 'pending',
+  decided_at: null,
+  decided_by: null,
+  decided_via: 'manual',
+  decision_reason: null,
+  approved_plus_ones: null,
+  decision_message: null,
+  created_at: iso(now - 5 * H),
+  updated_at: iso(now),
+});
+
+// Status-page fixtures (/r/[token]). The page looks the token up by sha256, so
+// these are keyed the same way. Same gating as get_request_status: the venue
+// address, confirmed count + message only on `approved`, and never for a
+// mirror (a duplicate submission's token).
+const statusFixtures = {
+  'demo-pending': { event: E2, status: 'pending', full_name: 'Mila Jansen', plus_ones: 4 },
+  'demo-approved': { event: E1, status: 'approved', full_name: 'Liam Smit', plus_ones: 2 },
+  'demo-reduced': {
+    event: E2,
+    status: 'approved',
+    full_name: 'Mila Jansen',
+    plus_ones: 4,
+    approved_plus_ones: 2,
+    decision_message: 'Happy birthday! We could fit three of you. Doors close at 01:00, so come on time.',
+  },
+  'demo-denied': { event: E1, status: 'denied', full_name: 'Sem de Boer', plus_ones: 1 },
+  // A duplicate submission's token whose original request was approved.
+  'demo-mirror': { event: E2, status: 'approved', full_name: 'Sid de Vries', plus_ones: 4, mirror: true },
+};
+const statusByHash = new Map(
+  Object.entries(statusFixtures).map(([tok, f]) => [
+    createHash('sha256').update(tok).digest('hex'),
+    f,
+  ])
+);
 
 // ── helpers ────────────────────────────────────────────────────────────────
 const FK = {
@@ -732,7 +808,11 @@ const rpcs = {
           present: ci.reduce((s, c) => s + 1 + c.plus_ones_arrived, 0),
         };
       }),
-  event_quota_status: () => [{ quota: 5, consumed: 2, remaining: 3, exempt: false }],
+  // Admins are quota-exempt, as in the real RPC; the exempt flag also gates the
+  // inline "Add tier" form in the add-guest flows.
+  event_quota_status: (_args, email) => [
+    { quota: 5, consumed: 2, remaining: 3, exempt: !!users[email]?.roles?.includes('admin') },
+  ],
   event_tier_occupancy: ({ p_event_id }) =>
     db.guest_tiers
       .filter((t) => t.event_id === p_event_id)
@@ -819,6 +899,82 @@ const rpcs = {
       )
       .map((x) => ({ id: x.id, full_name: x.full_name, plus_ones: x.plus_ones })),
   find_event_guests_by_names: () => [],
+  // Public influencer stats page (/i/<any token>): the jsonb payload the real
+  // SECURITY DEFINER RPC returns, so the page renders past its not-found state.
+  get_influencer_stats: () => ({
+    found: true,
+    name: 'Lotte Jansen',
+    handle: '@lottej',
+    venue_name: 'Club Nova',
+    totals: { views: 412, requests: 37, approved_heads: 58, checked_in_heads: 21 },
+    events: db.events.map((e) => ({
+      event_name: e.name,
+      starts_at: e.starts_at,
+      ends_at: e.ends_at,
+      slug: e.landing_slug ?? null,
+      views: 138,
+      requests: 12,
+      approved_heads: 19,
+      checked_in_heads: 7,
+    })),
+  }),
+  get_request_status: ({ p_token_hash }) => {
+    const f = statusByHash.get(p_token_hash);
+    const e = f && db.events.find((x) => x.id === f.event);
+    if (!f || !e) return { found: false };
+    const v = db.venues.find((x) => x.id === e.venue_id);
+    const approved = f.status === 'approved';
+    const own = approved && !f.mirror;
+    return {
+      found: true,
+      status: f.status,
+      full_name: f.full_name,
+      plus_ones: f.plus_ones,
+      event_name: e.name,
+      starts_at: e.starts_at,
+      ends_at: e.ends_at,
+      approved_plus_ones: own ? (f.approved_plus_ones ?? f.plus_ones) : null,
+      decision_message: own ? (f.decision_message ?? null) : null,
+      venue_address_line: own ? (v?.address_line ?? null) : null,
+      venue_postal_code: own ? (v?.postal_code ?? null) : null,
+      venue_city: own ? (v?.city ?? null) : null,
+    };
+  },
+  // In-memory approval: the request leaves the inbox, the guest lands with the
+  // APPROVED plus-ones (no tier-max/capacity checks here, the harness has no RLS).
+  approve_guest_request: ({ p_request_id, p_tier_id, p_plus_ones, p_message }, email) => {
+    const r = db.guest_requests.find((x) => x.id === p_request_id);
+    if (!r) return null;
+    const plus = p_plus_ones ?? r.plus_ones;
+    Object.assign(r, {
+      status: 'approved',
+      decided_at: iso(Date.now()),
+      decided_by: users[email]?.id ?? null,
+      decided_via: 'manual',
+      decision_reason: null,
+      approved_plus_ones: plus,
+      decision_message: p_message ?? null,
+    });
+    const id = uid();
+    db.guests.push({
+      ...db.guests.find((x) => x.event_id === r.event_id),
+      id,
+      event_id: r.event_id,
+      tier_id: p_tier_id,
+      full_name: r.full_name,
+      email: r.email,
+      phone: r.phone,
+      plus_ones: plus,
+      status: 'approved',
+      source: 'landing',
+      added_by: users[email]?.id ?? null,
+      request_link_id: r.request_link_id,
+      created_at: iso(Date.now()),
+      updated_at: iso(Date.now()),
+    });
+    // send() writes strings raw, so hand it the JSON encoding of the uuid.
+    return JSON.stringify(id);
+  },
 };
 
 // ── auth ───────────────────────────────────────────────────────────────────

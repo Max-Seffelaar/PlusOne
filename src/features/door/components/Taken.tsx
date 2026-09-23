@@ -13,6 +13,12 @@ import { Icon } from '@/components/po/icon';
 import { Avatar, Label, Scroll, Top, Seg, press } from '@/components/po/kit';
 import { useDoor } from '../DoorProvider';
 
+// Task check: 26px, so the ring (technique: kit `hitArea44`) adds 18px per axis.
+// Lopsided sideways to stay 4px clear of both neighbours: 10px into the card's
+// 14px padding, 8px into the 12px gap before the open-guest button. 9px above
+// and below. Each inset is 2px more for the check's 2px border.
+const checkHit = "relative before:absolute before:-inset-y-[11px] before:-left-[12px] before:-right-[10px] before:content-['']";
+
 type Filter = 'open' | 'done' | 'all';
 
 export function Taken({ onOpenGuest }: { onOpenGuest: (id: string) => void }): JSX.Element {
@@ -76,6 +82,7 @@ export function Taken({ onOpenGuest }: { onOpenGuest: (id: string) => void }): J
                 className={cn(
                   'mt-px flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[8px] border-2',
                   press,
+                  checkHit,
                   done ? 'border-acc bg-acc' : 'border-ghost bg-transparent',
                 )}
                 aria-label={done ? t.door.taskReopen : t.door.taskMarkDone}

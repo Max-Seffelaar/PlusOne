@@ -17,8 +17,8 @@ import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { TIER_ALIASES_UI } from '@/features/guests/tiers';
 import { draftAliases, draftMax, maxBelowUsed, type TierDraft } from '@/features/events/tier-form';
-import { TIER_COLORS, allColorsUsed } from '@/lib/po/tier-colors';
-import { Btn, Field, Label, Note } from '../../kit';
+import { allColorsUsed } from '@/lib/po/tier-colors';
+import { Btn, ColorSwatches, Field, Label, Note } from '../../kit';
 import { Sheet } from '../../shell';
 
 export function TierFormSheet({
@@ -74,26 +74,12 @@ export function TierFormSheet({
         ))}
       </div>
       <Label className="mb-2">{t.events.color}</Label>
-      <div className="mb-[14px] flex flex-wrap gap-[9px]">
-        {TIER_COLORS.map((c) => {
-          const disabled = takenColors.includes(c) && !allUsed && c !== draft.color;
-          return (
-            <button
-              key={c}
-              type="button"
-              disabled={disabled}
-              aria-disabled={disabled}
-              onClick={() => !disabled && set({ color: c })}
-              className={cn(
-                'h-[34px] w-[34px] rounded-full transition-[filter]',
-                disabled ? 'cursor-not-allowed opacity-30' : 'cursor-pointer hover:brightness-[1.1]',
-              )}
-              style={{ background: c, border: '2px solid ' + (draft.color === c ? '#FFFFFF' : 'transparent') }}
-              aria-label={fmt(t.events.colorAria, { color: c })}
-            />
-          );
-        })}
-      </div>
+      <ColorSwatches
+        value={draft.color}
+        onPick={(color) => set({ color })}
+        isDisabled={(c) => takenColors.includes(c) && !allUsed && c !== draft.color}
+        className="mb-[14px]"
+      />
       {allUsed && <div className="mb-[14px] text-[12px] text-faint">{t.events.colorAllUsedWarning}</div>}
       <Label className="mb-2">{t.events.maxOptional}</Label>
       <Field placeholder={t.events.maxPlaceholder} value={draft.max} onChange={(v) => set({ max: v })} inputMode="numeric" className="mb-[14px]" />

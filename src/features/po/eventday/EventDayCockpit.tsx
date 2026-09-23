@@ -698,8 +698,8 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                                 </div>
                               </div>
                               <div className="flex shrink-0 gap-[6px]">
-                                <MiniBtn icon="check" accent title={t.cockpit.approveQuotaTitle} onClick={() => approveQuota(r)} />
-                                <MiniBtn icon="close" title={t.cockpit.denyTitle} onClick={() => denyQuota(r)} />
+                                <MiniBtn icon="check" accent pos="first" title={t.cockpit.approveQuotaTitle} onClick={() => approveQuota(r)} />
+                                <MiniBtn icon="close" pos="last" title={t.cockpit.denyTitle} onClick={() => denyQuota(r)} />
                               </div>
                             </div>
                           ))}
@@ -726,11 +726,12 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                                 <MiniBtn
                                   icon="check"
                                   accent
+                                  pos="first"
                                   title={defaultTierId ? t.cockpit.approveTitle : t.cockpit.approveNoTier}
                                   disabled={!defaultTierId}
                                   onClick={() => approveLanding(r)}
                                 />
-                                <MiniBtn icon="close" title={t.cockpit.denyTitle} onClick={() => denyLanding(r)} />
+                                <MiniBtn icon="close" pos="last" title={t.cockpit.denyTitle} onClick={() => denyLanding(r)} />
                               </div>
                             </div>
                           ))}
@@ -1009,17 +1010,28 @@ function TierChip({
   );
 }
 
+// Approve/deny chips come in pairs 6px apart, so the 44px hit ring (technique:
+// kit `hitArea44`) is lopsided: 3px toward the partner (the rings meet, never
+// overlap) and 11px outward, into the 11px gap before the request text or the
+// card's 22px padding. 7px above and below stays clear of the next request row
+// (13px away). Each inset is 1px more for the chip's 1px border.
+const miniHitFirst = "relative before:absolute before:-inset-y-[8px] before:-left-[12px] before:-right-[4px] before:content-['']";
+const miniHitLast = "relative before:absolute before:-inset-y-[8px] before:-left-[4px] before:-right-[12px] before:content-['']";
+
 function MiniBtn({
   icon,
   accent,
   title,
   disabled,
+  pos,
   onClick,
 }: {
   icon: IconName;
   accent?: boolean;
   title: string;
   disabled?: boolean;
+  /** Which chip of the pair this is; decides which way the hit ring leans. */
+  pos: 'first' | 'last';
   onClick: () => void;
 }): JSX.Element {
   return (
@@ -1031,6 +1043,7 @@ function MiniBtn({
       className={cn(
         'flex h-[30px] w-[30px] items-center justify-center rounded-[9px] border disabled:opacity-40',
         press,
+        pos === 'first' ? miniHitFirst : miniHitLast,
         accent ? 'border-transparent bg-acc' : 'border-line bg-transparent'
       )}
     >

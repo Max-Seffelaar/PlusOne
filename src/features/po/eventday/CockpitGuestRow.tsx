@@ -22,7 +22,7 @@ import { type JSX } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { Icon } from '@/components/po/icon';
-import { Avatar, Btn, pressDesktop } from '@/components/po/kit';
+import { Avatar, Btn, hitArea44, pressDesktop } from '@/components/po/kit';
 import { tierInk, tintTier } from '@/lib/po/tier-colors';
 import { formatDateTime } from '@/features/po/format';
 import type { Guest } from '@/lib/po/types';
@@ -93,6 +93,8 @@ export function ChkBtn({
       title={title}
       className={cn(
         SLOT,
+        // 40px slot + the kit's 2px ring = 44x44; the two slots sit 7px apart.
+        hitArea44,
         !disabled && press,
         // Rows are now filled with the guest's tier colour (feedback Max
         // 13/7), so a transparent/outlined button all but disappears against

@@ -16,7 +16,9 @@ import { SearchSelect, type SearchSelectOption } from '../../search-select';
 import { BottomBar } from '../../shell';
 import { col, FormError } from './_shared';
 
-const iconSm = 'flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border border-line text-faint';
+// 34px quota stepper; the ring reaches 5px past its 1px border (44x44). Minus and
+// plus sit 38px apart (the count between them), so the rings never meet.
+const iconSm = "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border border-line text-faint relative before:absolute before:-inset-[6px] before:content-['']";
 
 /** venues.country holds the ISO 3166-1 alpha-2 code ('NL'); the list shows the
  *  English name with the code beside it. */
