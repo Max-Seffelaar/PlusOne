@@ -104,6 +104,85 @@ describe('middleware — authed /login and / redirects', () => {
   });
 });
 
+describe('middleware — x-po-request-path stamp for the /app layout gates', () => {
+  beforeEach(() => updateSessionMock.mockReset());
+
+  // Same forwarding as the real updateSession: NextResponse.next({ request })
+  // snapshots request.headers into x-middleware-request-* override headers,
+  // which is what the /app layout's headers() will see.
+  function mockForwardingSession() {
+    updateSessionMock.mockImplementation(async (request: NextRequest) => ({
+      response: NextResponse.next({ request }),
+      user: { id: 'user-1' },
+      gate: { isAal2: true, hasFactor: false, requiresMfa: false },
+    }));
+  }
+
+  function forwarded(res: NextResponse): string | null {
+    return res.headers.get('x-middleware-request-x-po-request-path');
+  }
+
+  it('forwards the deep-link path + query to the rendered route', async () => {
+    mockForwardingSession();
+    const { middleware } = await loadMiddleware();
+    const req = new NextRequest('http://localhost:3000/app/events/abc?door=1');
+
+    const res = await middleware(req);
+
+    expect(forwarded(res)).toBe('/app/events/abc?door=1');
+    expect(res.headers.get('x-middleware-override-headers')).toContain('x-po-request-path');
+  });
+
+  it("strips Next's _rsc param from the forwarded value", async () => {
+    mockForwardingSession();
+    const { middleware } = await loadMiddleware();
+    const req = new NextRequest('http://localhost:3000/app/contacts?_rsc=abc123');
+
+    const res = await middleware(req);
+
+    expect(forwarded(res)).toBe('/app/contacts');
+  });
+
+  it('overwrites a client-supplied header instead of trusting it', async () => {
+    mockForwardingSession();
+    const { middleware } = await loadMiddleware();
+    const req = new NextRequest('http://localhost:3000/app/contacts', {
+      headers: { 'x-po-request-path': '/admin/team' },
+    });
+
+    const res = await middleware(req);
+
+    expect(forwarded(res)).toBe('/app/contacts');
+  });
+
+  it('is stamped before updateSession runs, so its NextResponse.next carries it', async () => {
+    mockForwardingSession();
+    const { middleware } = await loadMiddleware();
+    const req = new NextRequest('http://localhost:3000/app/profile');
+
+    await middleware(req);
+
+    const seen = updateSessionMock.mock.calls[0][0] as NextRequest;
+    expect(seen.headers.get('x-po-request-path')).toBe('/app/profile');
+  });
+
+  // Only /app reads the header, and a bearer token in the URL of /r, /i or a
+  // webhook route has no business being copied into it (code review 23/9).
+  it('is not stamped on routes outside /app, and a client value is dropped there', async () => {
+    mockForwardingSession();
+    const { middleware } = await loadMiddleware();
+    for (const path of ['/r/tok-123', '/i/tok-456', '/api/webhooks/stripe', '/appx', '/door/e1']) {
+      const req = new NextRequest(`http://localhost:3000${path}`, {
+        headers: { 'x-po-request-path': '/app/profile' },
+      });
+
+      const res = await middleware(req);
+
+      expect(forwarded(res), path).toBeNull();
+    }
+  });
+});
+
 describe('middleware — unauthenticated access (unchanged behaviour)', () => {
   beforeEach(() => updateSessionMock.mockReset());
 

@@ -90,10 +90,137 @@ shared DB. `npx tsc --noEmit` clean, `next lint` clean (2 pre-existing a11y warn
 `datetime-field.tsx`). Vitest 1725/1735; the 10 failures are in
 `pre-push-hook-is-executable`, `pgtap-plan-run-gate` and `datetime-field.datefield` —
 Windows/worktree environment (absolute `core.hooksPath` from the worktree-local config;
-`✖ Could not run \`supabase test db\``), and the diff is SQL-only, so no TS test can be
+"Could not run `supabase test db`"), and the diff is SQL-only, so no TS test can be
 affected by it. CI runs on a fresh reset.
 
+## 2026-09-23 — ADE UX round test pass: 28/28 green, task closed (z8uq9m0g0j)
+
+No code change — a verification session that closes the test handoff the 18/9 entry left
+open. Both PRs ([#298](https://github.com/Max-Seffelaar/PlusOne/pull/298),
+[#299](https://github.com/Max-Seffelaar/PlusOne/pull/299)) merged on 18/9; Max answered
+all 28 handoff questions ✅ today, so `z8uq9m0g0j` moves to `complete`.
+
+**What was actually tested.** The local stack on `main` @ `900f0f2` — eight PRs past
+#298, not the PR branch — after `pnpm db:fresh`, dev server on 7000. That makes the pass
+a statement about current `main` rather than about the merge commit alone.
+
+**Two questions the seed cannot really exercise**, worth knowing before treating 28/28 as
+total coverage:
+- **Q19** (paste-a-list, ambiguous contact match): the seed has no two contacts sharing a
+  normalized name, so only the matched and unmatched paths were exercised. The
+  ambiguous-match branch is unit-tested only.
+- **Q23** ("Added by a colleague"): probing RLS directly (`set local role authenticated`
+  with each seed user's `sub`) shows staff sees 8 guests, all their own, and *every*
+  co-member profile is readable by both staff and doorhost. The `addedByName === null`
+  fallback therefore cannot render on seed data at all; `guest-source.test.ts` is its only
+  coverage. What Q23 confirmed is the positive case ("Added by Tom").
+
+**Setup gotchas that cost time and will recur:**
+- **The Supabase CLI is not on PATH on this machine.** `pnpm db:fresh` fails with
+  `'supabase' is not recognized`. The working copy lives in the npx cache
+  (`~/AppData/Local/npm-cache/_npx/b96a6bd565c470ce/node_modules/.bin`, v2.115.0) — prepend
+  it to PATH, or `npx supabase db reset && pnpm dev:mfa`. A cache directory can be pruned;
+  the durable fix would be `pnpm add -D supabase`.
+- **A resumed session must diff applied migrations against the repo before trusting a test
+  pass.** The stack had been up 4 days; `main` had moved and `20260918203700_venue_website`
+  + `20260919090000_partial_approval_decision_message` were never applied locally. Check
+  `select version from supabase_migrations.schema_migrations order by version desc` against
+  `supabase/migrations/` — a stale local schema fails in ways that read as UI bugs.
+- **The handoff's "manager" persona is wrong against the local seed.** `manager@plusone.test`
+  is Noor, a *pure* `user_manager`: not admin, cannot write guests, and reads zero guests
+  under RLS. Every S1–S4 question aimed at "manager" needs `admin@plusone.test` (one-click
+  after `pnpm dev:mfa`). The PR's handoff was written against the fixture backend
+  (`pnpm dev:fake`), which has no RLS and no role matrix — that is exactly the class of gap
+  the fixture harness cannot catch, so a handoff written there should have its personas
+  re-checked against `supabase/seed.sql`.
+- **Q20 needed fixture data the seed does not carry.** The seed has one always-upcoming
+  event and no past ones, while `PAST_CHIPS_CAP = 12` in
+  `src/components/po/screens/guests/list-shared.tsx` means "Show all" only appears past 13
+  past events. Fourteen weekly `Past test night N` events plus one extra upcoming event
+  were inserted locally for the pass and dropped again by the later `pnpm db:fresh`.
+
 ---
+
+## 2026-09-19 — /app gates keep the deep link (consent re-prompt, MFA nudge)
+
+Branch `claude/app-gate-deep-link`. No ClickUp task (Max, 2026-09-19). Milestone: **Now**
+— venue staff share and bookmark `/app/events/<id>`-style links. Decision (Max): reverse
+the documented trade-off in `src/app/app/layout.tsx` ("the gate fires once, on first
+login, so `next=/app` is fine"). It didn't hold up. The consent gate re-fires for every
+signed-in user after a `TERMS_VERSION` bump, and the MFA recommendation re-fires for
+admin/finance without TOTP 24h after acceptance and again each time a 7-day snooze runs
+out. Each time, a deep link landed on Home. Fresh logins were already fine
+(`resolveEntryDestination` in the auth callback/confirm routes).
+
+**Changed.** `src/middleware.ts` stamps `x-po-request-path` (pathname + search, `_rsc`
+stripped) onto the forwarded request before `updateSession`. It always uses `set`, on
+every route, so a client value never survives a request the middleware sees. The layout
+reads it via `headers()`, not `searchParams`, so `[[...segments]]/page.tsx` stays free of
+server work and the door invariant (#25) is untouched. It passes the value through the
+new `appGateNextPath` (`safeNextPath` + the `/app` surface only + a 2048-char cap) and uses
+the result as `next=` for the consent gate, `recommendMfaIfDue`, and the layout's own
+`/login` fallback. Anything that fails falls back to bare `/app`, the old behaviour.
+
+**Why the layout re-sanitizes.** The middleware matcher skips static-extension paths
+(`/app/x.txt` still hits the catch-all), so there the client's header reaches the layout
+unfiltered. Worst case is a same-origin `/app…` target the user could have typed.
+
+**Tests.** Vitest: `next-path.test.ts` (helpers), `middleware.test.ts` (forwarding via
+`x-middleware-request-*`, `_rsc` strip, client value overwritten), new
+`src/app/app/layout.test.ts` (each gate's `next=`, plus forged/missing header). With the
+fix reverted, 7 of those tests fail. Real runtime on the local stack (dev server + browser,
+staff consent cleared then restored): `/app/contacts?q=anna` → `/consent?next=%2Fapp%2Fcontacts%3Fq%3Danna`;
+a forged header on `/app/contacts` is overwritten; an RSC request doesn't leak `_rsc`;
+on `/app/probe.txt` an off-site, `//`, traversal or non-`/app` header falls back to
+`/app`; after consent, `/consent?next=…` lands on `/app/contacts?q=anna`. New e2e
+`tests/e2e/app-gate-deep-link.spec.ts` was **not executed** in this session (Playwright
+couldn't launch Chromium in the sandbox). It isn't in `e2e:smoke`.
+
+**Review gate.** Middleware is a high-risk surface. The PR body carries an adversarial
+security-research prompt. A fresh session ran `/code-review high` on 2026-09-23 and
+cleared the design on security grounds (no cross-origin escape; `x-middleware-request-*`
+spoofing doesn't work because the stamp is written before `updateSession` builds the
+response; `next@15.5.19` is past the CVE-2025-29927 middleware-skip fix; the service
+worker's `isStorable()` refuses redirects, so no gate 307 is ever cached; no gate can
+point at itself; `[[...segments]]/page.tsx` byte-identical to main). Follow-ups applied
+in the same branch: the stamp is now scoped to `/app` paths and deleted elsewhere, so a
+bearer token in a `/r`, `/i` or webhook URL is never copied into a header nobody reads;
+`appGateNextPath` re-checks the DECODED path, because `safeNextPath` only rejects literal
+`..` and `/app/%2e%2e/auth/callback` would otherwise normalize out of `/app` in the
+browser; the e2e spec restores the shared `staff@plusone.test` consent in a `finally`;
+the length-cap comment now says what it actually bounds.
+
+A second fresh session ran `/security-review` on 2026-09-23 against the post-fix branch:
+**no high or medium findings, approved for merge.** It ran 28 payloads through the real
+sanitizer chain (sanitize → `encodeURIComponent` → `/consent` searchParams decode →
+`safeNextPath` → WHATWG URL resolution) — encoded/uppercase/double-encoded traversal,
+`..;/`, encoded slashes and backslashes, fragment smuggling, raw TAB, `%09`, `%00`,
+fullwidth and fraction solidus, CRLF, malformed escapes, over-cap — with zero off-site and
+zero out-of-`/app` results. It also confirmed `x-middleware-subrequest` is gone from the
+installed `next@15.5.19`, that `x-middleware-override-headers` is in Next's
+`INTERNAL_HEADERS` (never honoured from an external request), that every non-`/app` path
+shape (`/app%2fx`, `//app/x`, `/APP/x`) lands in the fail-safe `delete` branch, that no
+`/app` query param mutates state on load, and that a forged header can only ever affect
+the forger (no cross-site way to set it). Its two hardening notes are applied here:
+`appGateNextPath` decodes to a FIXED POINT (single-decode was safe only because every hop
+decodes exactly once — a future double-decoding consumer would have reopened it), and
+`requestPathForHeader` edits the query as text so the `_rsc` branch keeps the rest
+byte-for-byte like the no-`_rsc` branch.
+
+**Left open.** `safeNextPath` accepting percent-encoded dot segments is PRE-EXISTING and
+reachable today with a plain link on every `?next=` consumer (`/consent`, `/login`,
+`/mfa/enroll`, `/auth/callback`). Same-origin only — every consumer re-runs the guard and
+resolves against `request.url`, so it cannot leave the origin — but it belongs in its own
+PR. Second: the Sentry scrubber's `RELATIVE_URL_QUERY_RE`
+(`src/lib/observability/scrub.ts`) requires 2+ path segments, so a free-text
+`/consent?next=…` or `/login?next=…` is not scrubbed while `/mfa/enroll?next=…` is.
+Unreachable today — there is no client-side Sentry SDK in the repo, and `scrubEvent`
+deletes `event.request` server-side — and `main` already writes `pathname + search` into
+`/login?next=`, so it is the same pattern, not a new one. Its own small PR.
+Unrelated pre-existing behaviour worth knowing: `isSessionGone()` in
+`public/service-worker.js` treats any opaqueredirect on an `/app*` navigation as "session
+gone" and wipes `plusone-session-v1`, so a TERMS_VERSION bump clears the session cache on
+every device that hits the gate.
 
 ## 2026-09-19 — Client writes on guest_requests can only deny (L5, z8uq9m0jce)
 

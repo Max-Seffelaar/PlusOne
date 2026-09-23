@@ -12,6 +12,7 @@ import { getSessionUser } from '@/lib/auth/context';
 import { resolveActiveVenueId } from '@/lib/auth/active-venue';
 import { createClient } from '@/lib/supabase/server';
 import { ROLE_LABELS, VENUE_ROLES } from '@/features/auth/roles';
+import { REQUEST_PATH_HEADER, appGateNextPath } from '@/features/auth/next-path';
 import { isMobileUA } from '@/lib/ua';
 
 /**
@@ -32,21 +33,30 @@ import { isMobileUA } from '@/lib/ua';
  * query-string change. `page.tsx` (the only child) now does zero server data
  * work of its own, so query-only navigations stay fully client-side.
  *
- * Trade-off: this layout also never receives the dynamic `segments` param (it
- * sits ABOVE `[[...segments]]` in the route tree — Next only passes a dynamic
- * segment's params to that segment and below), so the one-time consent/MFA
- * `next=` redirect can't reconstruct the exact deep link the user requested;
- * it falls back to bare `/app`. Acceptable: that gate fires once, on first
- * login, and most first logins land on bare `/app` anyway.
+ * Deep links through the gates: this layout also never receives the dynamic
+ * `segments` param (it sits ABOVE `[[...segments]]` in the route tree — Next
+ * only passes a dynamic segment's params to that segment and below). The
+ * consent/MFA gates below still need the exact URL for their `next=`: they fire
+ * not only on first login but for every signed-in user after a TERMS_VERSION
+ * bump, and for admin/finance each time the MFA nudge's snooze runs out — often
+ * on a shared or bookmarked `/app/events/<id>`. The middleware therefore stamps
+ * the request path into the `x-po-request-path` header, read here via
+ * `headers()` (NOT `searchParams`, which keeps the zero-server-work page intact)
+ * and sanitized by `appGateNextPath` — it is client-controllable on
+ * matcher-skipped paths. Anything that doesn't pass falls back to bare `/app`.
  */
 export default async function AppLayout({ children }: { children: ReactNode }): Promise<JSX.Element> {
+  const requestHeaders = await headers();
+  // The deep link to come back to after any gate below (see the note above).
+  const gateNext = appGateNextPath(requestHeaders.get(REQUEST_PATH_HEADER));
+
   // Defense in depth (G1 review): the catch-all route now matches paths that
   // used to 404 before every screen had a real URL (e.g. /app/anything.txt),
   // and the middleware matcher's static-extension exclusion skips the auth
   // check for those — so this layout, which runs for every /app/* request,
   // re-verifies the session itself instead of relying solely on middleware.
   const user = await getSessionUser();
-  if (!user) redirect(`/login?next=${encodeURIComponent('/app')}`);
+  if (!user) redirect(`/login?next=${encodeURIComponent(gateNext)}`);
 
   // Venue-less users go through onboarding first (#40); the wizard is responsive,
   // so it serves mobile web too.
@@ -85,16 +95,17 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
     .select('full_name, terms_accepted_at, terms_version')
     .eq('id', user.id)
     .maybeSingle();
-  // First-login consent gate (#20/#40): accept Terms + Privacy before the app.
-  // See the trade-off note above: next= can't carry the exact deep link here.
-  // Runs BEFORE the MFA recommendation (UX/IA 9/7, 2026-07-09) — a fresh
-  // invitee sees the terms first, a security nudge is not the first thing they
-  // meet. This is the live guard for `/app`; `requireAppAccess` in
+  // Consent gate (#20/#40): accept the current Terms + Privacy before the app —
+  // on first login and again after every TERMS_VERSION bump. `gateNext` brings
+  // the user back to the deep link they opened (see the note above). Runs
+  // BEFORE the MFA recommendation (UX/IA 9/7, 2026-07-09) — a fresh invitee
+  // sees the terms first, a security nudge is not the first thing they meet.
+  // This is the live guard for `/app`; `requireAppAccess` in
   // src/lib/auth/guards.ts documents the same order but isn't called from here.
-  if (!acceptedCurrentTerms(profileRow)) redirect(`/consent?next=${encodeURIComponent('/app')}`);
+  if (!acceptedCurrentTerms(profileRow)) redirect(`/consent?next=${encodeURIComponent(gateNext)}`);
   // MFA recommendation (optional since #20 refinement 2026-07-02): skippable
   // nudge for admin/finance without a factor, snooze-aware — never a hard gate.
-  await recommendMfaIfDue('/app');
+  await recommendMfaIfDue(gateNext);
   const userName = profileRow?.full_name || user.email || 'Account';
   const roleLabel =
     active && active.roles.length > 0
@@ -108,7 +119,7 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
 
   // First-paint viewport hint (corrected client-side by matchMedia) + the live
   // active-venue name for the S0 nav-shell header/sidebar.
-  const serverHint = isMobileUA((await headers()).get('user-agent'));
+  const serverHint = isMobileUA(requestHeaders.get('user-agent'));
 
   return (
     <PoLiveProvider identity={identity}>
