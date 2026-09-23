@@ -77,3 +77,78 @@ export function safeNextPath(raw: string | null | undefined, fallback = DEFAULT_
   }
   return fallback; // still unwrapping after MAX_DECODE_ROUNDS — not ours either
 }
+
+// Request header the middleware stamps with the path + query of the request
+// being served (deep links through the /app gates). The /app layout sits
+// ABOVE `[[...segments]]`, so it receives neither the segments nor searchParams
+// — this header is how its consent/MFA gates learn the exact deep link to put
+// in `next=`. The middleware always OVERWRITES it, but the matcher skips
+// static-extension paths (e.g. /app/x.png), where a client-supplied value
+// reaches the layout untouched: treat the value as untrusted input, always.
+export const REQUEST_PATH_HEADER = 'x-po-request-path';
+
+// Next's internal RSC cache-busting param. Next 15.5's middleware adapter
+// already strips it from `request.nextUrl`; dropped here again so a framework
+// change can never leak it into a user-facing `next=`.
+const RSC_QUERY = '_rsc';
+
+/**
+ * Middleware side: the value to stamp into {@link REQUEST_PATH_HEADER}.
+ *
+ * The query is edited as TEXT, not through `URLSearchParams`: re-serializing
+ * rewrites the whole query (`%20`→`+`, a bare `?flag`→`?flag=`), so the deep
+ * link that reaches `next=` would not be byte-for-byte the one the user opened
+ * — and only on requests that happen to carry `_rsc` (both reviews, 23/9).
+ */
+export function requestPathForHeader(url: URL): string {
+  if (!url.searchParams.has(RSC_QUERY)) return url.pathname + url.search;
+  const kept = url.search
+    .slice(1)
+    .split('&')
+    .filter((pair) => pair !== RSC_QUERY && !pair.startsWith(`${RSC_QUERY}=`));
+  return kept.length > 0 ? `${url.pathname}?${kept.join('&')}` : url.pathname;
+}
+
+const APP_ROOT = '/app';
+// Longest raw value accepted. A deep link past this isn't worth preserving, and
+// `encodeURIComponent` roughly triples the worst case, so the bound on the raw
+// value is what keeps the encoded `next=` inside sane URL limits.
+const MAX_APP_NEXT_LENGTH = 2048;
+
+/**
+ * Layout side: turn the (untrusted) {@link REQUEST_PATH_HEADER} value into the
+ * `next=` target for an /app gate. On top of the open-redirect guard it only
+ * accepts the /app surface itself — the layout only ever runs for /app/*, so a
+ * genuine value always is one, and a forged header can't aim the post-gate
+ * redirect at another in-app route. Anything else falls back to bare /app
+ * (the pre-fix behaviour).
+ *
+ * The unwrap loop below is deliberate defense in depth, not a live gap.
+ * `safeNextPath` now runs the same fixed-point decode for every `?next=`
+ * consumer, so nothing reaches this loop today. It stays because the prefix
+ * test above runs on the ENCODED path, which is only safe while the shared
+ * guard keeps treating `%2e%2e` as traversal and `%2f` as a separator — the
+ * strictest part of that guard, and the part most likely to be relaxed for some
+ * future deep link. Keeping the check local means relaxing it there cannot
+ * silently open the /app gates (code review + security review, 2026-09-23).
+ */
+export function appGateNextPath(raw: string | null | undefined): string {
+  if (!raw || raw.length > MAX_APP_NEXT_LENGTH) return APP_ROOT;
+  const safe = safeNextPath(raw, APP_ROOT);
+  const pathOnly = safe.split(/[?#]/)[0];
+  if (pathOnly !== APP_ROOT && !pathOnly.startsWith(`${APP_ROOT}/`)) return APP_ROOT;
+  // Same fixed-point unwrap the shared guard does, kept local per the docblock.
+  let decoded = pathOnly;
+  for (let round = 0; round < 5; round += 1) {
+    if (decoded.split('/').includes('..')) return APP_ROOT;
+    let next: string;
+    try {
+      next = decodeURIComponent(decoded);
+    } catch {
+      return APP_ROOT; // malformed escape — not a path we served
+    }
+    if (next === decoded) return safe; // fixed point, no traversal at any depth
+    decoded = next;
+  }
+  return APP_ROOT; // still unwrapping after 5 rounds — not a path we served
+}
