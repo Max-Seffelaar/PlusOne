@@ -81,3 +81,68 @@ describe('OtpLoginForm — account-enumeration guard', () => {
     expect(await screen.findByText(/didn.t get a code\?/i)).toBeInTheDocument();
   });
 });
+
+// P-01 (z8uq9m0tnq): a never-confirmed invitee's 6-digit code lives in the
+// confirmation/invite slot, so verifying it only as `type: 'email'` returned
+// 403 for every first login. The form now walks the slots in order.
+describe('OtpLoginForm — first-login verify fallback', () => {
+  async function enterCode(email: string): Promise<void> {
+    signInWithOtp.mockResolvedValue({ error: null });
+    await submitEmail(email);
+    fireEvent.change(await screen.findByLabelText(/your code/i), { target: { value: '123456' } });
+    await waitFor(() => expect(verifyOtp).toHaveBeenCalled());
+  }
+
+  it('verifies as `email` only, when that works', async () => {
+    verifyOtp.mockResolvedValue({ data: { user: { id: 'u1' } }, error: null });
+    await enterCode('confirmed@venue.com');
+
+    expect(verifyOtp).toHaveBeenCalledTimes(1);
+    expect(verifyOtp).toHaveBeenCalledWith(expect.objectContaining({ type: 'email' }));
+  });
+
+  it('falls back to `signup` for a never-confirmed invitee', async () => {
+    verifyOtp.mockImplementation(async ({ type }: { type: string }) =>
+      type === 'signup'
+        ? { data: { user: { id: 'u2' } }, error: null }
+        : { data: { user: null }, error: { status: 403, message: 'Token has expired or is invalid' } }
+    );
+    await enterCode('invited@venue.com');
+
+    await waitFor(() => expect(verifyOtp).toHaveBeenCalledTimes(2));
+    expect(verifyOtp.mock.calls.map((c) => c[0].type)).toEqual(['email', 'signup']);
+  });
+
+  it('reaches `invite` and shows one generic error when no slot accepts the code', async () => {
+    verifyOtp.mockResolvedValue({
+      data: { user: null },
+      error: { status: 403, message: 'Token has expired or is invalid' },
+    });
+    await enterCode('nobody@venue.com');
+
+    await waitFor(() => expect(verifyOtp).toHaveBeenCalledTimes(3));
+    expect(verifyOtp.mock.calls.map((c) => c[0].type)).toEqual(['email', 'signup', 'invite']);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/didn.t work or has expired/i);
+  });
+});
+
+describe('OtpLoginForm — bounced-back auth errors (?error=…)', () => {
+  it('explains a failed e-mail link and leaves the "send code" step in front of the user', () => {
+    render(<OtpLoginForm nextPath="/app" errorKind="link" />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/that link didn.t work/i);
+    expect(screen.getByRole('button', { name: /send code/i })).toBeInTheDocument();
+  });
+
+  it('explains a failed dev login too — every ?error= value has copy', () => {
+    render(<OtpLoginForm nextPath="/app" errorKind="devlogin" />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/dev login failed/i);
+  });
+
+  it('renders no alert at all without an error', () => {
+    render(<OtpLoginForm nextPath="/app" />);
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});

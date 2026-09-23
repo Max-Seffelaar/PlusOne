@@ -103,6 +103,85 @@ runbook step, documented in the migration header.
 
 ---
 
+## 2026-09-23 — First login for new invitees: code in every mail + verify fallback (z8uq9m0tnq)
+
+**P-01.** No beta invitee could get in on their own. The prod auth log of 23/9 for one
+invitee reads: invite sent 09:35:06 → the invite link 403 "One-time token not found"
+09:39:31 → "send me a code" 09:39:39 → the typed code 403 three times → a *second* mail
+09:40:46 → in at 09:41:32 via that mail's link. Three independent causes, all fixed here.
+
+**1 — The mail had no code.** An invitee who already has an unconfirmed account gets the
+**Confirm signup** template (GoTrue treats a re-invite as a re-confirmation), and neither
+`confirmation.html` nor `invite.html` carried `{{ .Token }}` — while `/login` asks for a
+6-digit code. Both templates now render the code above the button, exactly like
+`magic_link.html`. **These are dashboard snapshots: Max must re-paste all three templates
+into Authentication → Email Templates.** `docs/auth-setup.md` no longer calls the Confirm
+signup template "dormant" — it is a live, user-facing mail.
+
+**2 — Verification was locked to one token slot.** `OtpLoginForm` always verified
+`type: 'email'` and `/auth/confirm` always trusted the type in the link. A never-confirmed
+invitee's token lives in the confirmation slot. Both now fall back through
+`src/features/auth/verify-fallback.ts`: `email → signup → invite` for a typed code (client
+side, the user's own IP), and for a link **one type per slot** — the declared type, then one
+type from the other slot. GoTrue has only two slots that matter and the types inside one are
+interchangeable (`invite` ≡ `signup`; `magiclink` ≡ `email` ≡ `recovery`), so a same-slot
+retry would cost a round trip for nothing. Capping the link path at two attempts matters: it
+runs server-side from one shared Vercel egress IP while GoTrue rate-limits `/verify` per IP,
+so a nazorg batch must not cost four verifies per click (PR #324 reviews). `email_change`
+and `recovery` never fall back and are never targets. Slot-level isolation does not exist
+either way — a recovery token already verifies as `magiclink` — which is acceptable only
+because password recovery is off (#20); the code says to revisit it if that changes. A
+verify that succeeds but returns no user is terminal, not a slot miss: the token is spent.
+A terminal error (a 429) is also what the user hears about, instead of being buried under an
+earlier slot's 403 with the cooldown never starting.
+
+**3 — "One-time token not found", explained and measured.** Reproduced on the local stack
+(GoTrue v2.195.0) with `auth.one_time_tokens` read before and after each step: GoTrue keeps
+**exactly one row per `(user_id, token_type)`**, and invite / re-invite / confirm-signup all
+write the same `confirmation_token` slot. Minting a second link replaced the row's hash
+(`0d08e0ed… → 0c26f874…`), and the first link then failed with precisely that error; a used
+link fails identically on replay. So any second mail — or anything that opens the link
+before the human does — kills the first one. Which of the two triggered it for that invitee
+cannot be settled from the available prod log; the mechanism is proven, the specific trigger
+is not. Note the prod log's own ordering: the failing click came *before* the "send code"
+call, so it was not that call that superseded it.
+
+**4 — A dead link is no longer a dead end.** `/auth/confirm` still bounces to
+`/login?error=link`, but `/login` now renders what happened ("that link didn't work — it may
+already have been used, or a newer email replaced it") with the Send-code step right there,
+instead of a generic error with no way forward.
+
+**5 — `scripts/invite-link.mjs`** now looks the account up first and **refuses an address
+without an account**. That check is a safety boundary, not a nicety: `generateLink({type:
+'invite'})` *creates* the auth user when it does not exist (the service role bypasses
+"signups disabled"), so a typo in a prod nazorg run would otherwise mint a real account
+outside the invite-only invariant (#20) — one that could walk through /onboarding and create
+a venue. Found by the PR's security review; guarded by
+`tests/unit/invite-link-no-provisioning.test.ts`. For an account that does exist it mints the
+type matching its state: `invite` when never confirmed, `magiclink` when confirmed (the other
+as fallback, and the *first* meaningful error reported when both miss). Also not cosmetic:
+GoTrue happily mints a magic link for a never-confirmed account and then refuses to complete
+it, so the earlier magiclink-first order printed a link that dies on click — measured, and
+both printed links now verify end to end. `signup` is not a tier
+(`generateLink({type:'signup'})` requires a password).
+
+**6 — Every `?error=` value on `/login` now has copy**, including `devlogin`, and `verify()`
+early-returns while a verification is in flight (the auto-submit and the form submit could
+otherwise race).
+
+Tests: `src/features/auth/verify-fallback.test.ts` (13) covers the order, the two-attempt
+link budget, that a valid type is never retried, that the first error is the one surfaced,
+and the rate-limit abort; `src/app/auth/confirm/route.test.ts` gained 7 against a mocked SSR
+client (declared-type-first, sibling fallback, never a third slot, no fallback out of
+magiclink/email_change, terminal no-user, rate-limit stop, e-mail-change destination);
+`OtpLoginForm.test.tsx` gained 6. No migration.
+
+**Nazorg for Max:** `gar***@gmail` (18/9), `pet***@hotmail` and `roe***@gmail` are still
+stuck — hand them a fresh link with `node scripts/invite-link.mjs <email>
+https://app.plus-one.io` and make sure no other mail is sent to that address afterwards.
+
+---
+
 ## 2026-09-23 — `safeNextPath` rejects percent-encoded traversal in `?next=`
 
 Branch `claude/next-path-encoded-traversal`. Milestone: Now-adjacent hardening (small).
