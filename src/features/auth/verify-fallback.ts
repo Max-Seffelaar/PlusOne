@@ -24,31 +24,46 @@ import type { EmailOtpType } from '@supabase/supabase-js';
 export const OTP_CODE_VERIFY_TYPES = ['email', 'signup', 'invite'] as const satisfies readonly EmailOtpType[];
 
 /**
- * Link verification order. Used to complete the list after the type the mail
- * itself declared — that declared type is always tried first.
+ * Link verification tries **one type per token slot**, and there are only two
+ * slots that matter (measured on GoTrue v2.195.0, PR #324 security review):
  *
- * `email_change` and `recovery` are deliberately absent: they belong to their
- * own flows, a token from them must not be completed as a first login, and
- * falling back *to* them could land a user in the wrong flow's redirect.
+ * - `confirmation_token` — `invite` ≡ `signup`;
+ * - `recovery_token` — `magiclink` ≡ `email` ≡ `recovery`.
+ *
+ * Types inside one slot are interchangeable, so retrying `signup` after
+ * `invite` costs a round trip and can never find anything new. The only
+ * fallback that can help is the *other* slot, and one per slot caps a click at
+ * two verifies. That cap matters: this retry runs server-side, so every attempt
+ * leaves one shared Vercel egress IP while GoTrue rate-limits `/verify` per IP
+ * — a nazorg batch must not cost four verifies per click.
+ *
+ * **Slot-level isolation does not exist.** Because `magiclink` and `recovery`
+ * are the same slot, a recovery token already verifies as `type=magiclink`
+ * today, with or without this fallback — so falling back to `magiclink` grants
+ * nothing an attacker could not ask for directly. Password auth (and therefore
+ * password recovery) is disabled project-wide (decision #20), so no recovery
+ * token is ever minted. **Revisit this the day password recovery is enabled.**
+ *
+ * `email_change` has its own slot and its own flow: it never falls back, and is
+ * never a fallback target. Neither is `recovery` itself.
  */
-export const LINK_VERIFY_FALLBACK_TYPES = [
-  'signup',
-  'invite',
-  'magiclink',
-  'email',
-] as const satisfies readonly EmailOtpType[];
-
-/** Types we will ever retry *from*: anything else fails on its own terms. */
-const FALLBACK_ELIGIBLE = new Set<string>(LINK_VERIFY_FALLBACK_TYPES);
+const LINK_SLOT_FALLBACK = {
+  // First-login mail → also try the recovery slot.
+  invite: 'magiclink',
+  signup: 'magiclink',
+  // Magic-link mail → also try the confirmation slot (a never-confirmed
+  // account's token lives there).
+  magiclink: 'invite',
+  email: 'invite',
+} as const satisfies Partial<Record<string, EmailOtpType>>;
 
 /**
  * The ordered list of types to try for a link that declared `declaredType`:
- * the declared type first, then the remaining first-login slots. A token from
- * a flow of its own (`email_change`, `recovery`) is tried once and no further.
+ * the declared type first, then at most one type from the other slot.
  */
 export function linkVerifyTypes(declaredType: EmailOtpType): EmailOtpType[] {
-  if (!FALLBACK_ELIGIBLE.has(declaredType)) return [declaredType];
-  return [declaredType, ...LINK_VERIFY_FALLBACK_TYPES.filter((t) => t !== declaredType)];
+  const other = (LINK_SLOT_FALLBACK as Record<string, EmailOtpType | undefined>)[declaredType];
+  return other ? [declaredType, other] : [declaredType];
 }
 
 interface ErrorLike {
@@ -96,9 +111,12 @@ export interface VerifyFallbackOutcome<T> {
   /** The successful attempt's payload. */
   data?: T;
   /**
-   * The error to surface when every attempt failed. This is the FIRST
-   * attempt's error — the one for the type the user's mail actually claimed —
-   * because the later mismatch errors are noise to them.
+   * The error to surface when every attempt failed. Normally the FIRST
+   * attempt's error — the one for the type the user's mail actually claimed,
+   * since the later mismatch errors are noise. But a *terminal* error (a rate
+   * limit, anything not a slot miss) wins: burying a 429 under an earlier 403
+   * shows "that code didn't work" and never starts the cooldown (PR #324
+   * security review, S2).
    */
   error?: unknown;
   /** Types actually attempted, in order (asserted by the unit tests). */
@@ -122,7 +140,8 @@ export async function verifyWithFallback<T>(
     const { data, error } = await attempt(type);
     if (!error) return { type, data, tried };
     if (firstError === null) firstError = error;
-    if (!isVerifyTypeMismatchError(error)) break;
+    // A terminal error stops the walk AND is what the user hears about.
+    if (!isVerifyTypeMismatchError(error)) return { error, tried };
   }
 
   return { error: firstError, tried };

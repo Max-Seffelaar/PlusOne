@@ -126,11 +126,23 @@ describe('OtpLoginForm — first-login verify fallback', () => {
   });
 });
 
-describe('OtpLoginForm — dead e-mail link (?error=link)', () => {
-  it('explains the failed link and leaves the "send code" step in front of the user', () => {
-    render(<OtpLoginForm nextPath="/app" linkFailed />);
+describe('OtpLoginForm — bounced-back auth errors (?error=…)', () => {
+  it('explains a failed e-mail link and leaves the "send code" step in front of the user', () => {
+    render(<OtpLoginForm nextPath="/app" errorKind="link" />);
 
     expect(screen.getByRole('alert')).toHaveTextContent(/that link didn.t work/i);
     expect(screen.getByRole('button', { name: /send code/i })).toBeInTheDocument();
+  });
+
+  it('explains a failed dev login too — every ?error= value has copy', () => {
+    render(<OtpLoginForm nextPath="/app" errorKind="devlogin" />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/dev login failed/i);
+  });
+
+  it('renders no alert at all without an error', () => {
+    render(<OtpLoginForm nextPath="/app" />);
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });

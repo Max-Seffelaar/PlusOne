@@ -25,11 +25,20 @@ signup template "dormant" — it is a live, user-facing mail.
 
 **2 — Verification was locked to one token slot.** `OtpLoginForm` always verified
 `type: 'email'` and `/auth/confirm` always trusted the type in the link. A never-confirmed
-invitee's token lives in the confirmation/invite slot. Both now walk the first-login slots
-in order via `src/features/auth/verify-fallback.ts` (`email → signup → invite` for a typed
-code; declared-type-first for a link), stop at the first slot GoTrue accepts, never retry a
-slot, and abort immediately on a rate limit instead of burning the remaining attempts.
-`email_change`/`recovery` deliberately never fall back — they are their own flows.
+invitee's token lives in the confirmation slot. Both now fall back through
+`src/features/auth/verify-fallback.ts`: `email → signup → invite` for a typed code (client
+side, the user's own IP), and for a link **one type per slot** — the declared type, then one
+type from the other slot. GoTrue has only two slots that matter and the types inside one are
+interchangeable (`invite` ≡ `signup`; `magiclink` ≡ `email` ≡ `recovery`), so a same-slot
+retry would cost a round trip for nothing. Capping the link path at two attempts matters: it
+runs server-side from one shared Vercel egress IP while GoTrue rate-limits `/verify` per IP,
+so a nazorg batch must not cost four verifies per click (PR #324 reviews). `email_change`
+and `recovery` never fall back and are never targets. Slot-level isolation does not exist
+either way — a recovery token already verifies as `magiclink` — which is acceptable only
+because password recovery is off (#20); the code says to revisit it if that changes. A
+verify that succeeds but returns no user is terminal, not a slot miss: the token is spent.
+A terminal error (a 429) is also what the user hears about, instead of being buried under an
+earlier slot's 403 with the cooldown never starting.
 
 **3 — "One-time token not found", explained and measured.** Reproduced on the local stack
 (GoTrue v2.195.0) with `auth.one_time_tokens` read before and after each step: GoTrue keeps
@@ -47,15 +56,30 @@ call, so it was not that call that superseded it.
 already have been used, or a newer email replaced it") with the Send-code step right there,
 instead of a generic error with no way forward.
 
-**5 — `scripts/invite-link.mjs`** falls back `magiclink → invite → signup` when GoTrue
-refuses a magic link for a never-confirmed account, prints which type it minted and builds
-the `/auth/confirm` link with that type. It warns in-file that minting supersedes every
-earlier link for that address.
+**5 — `scripts/invite-link.mjs`** now looks the account up first and **refuses an address
+without an account**. That check is a safety boundary, not a nicety: `generateLink({type:
+'invite'})` *creates* the auth user when it does not exist (the service role bypasses
+"signups disabled"), so a typo in a prod nazorg run would otherwise mint a real account
+outside the invite-only invariant (#20) — one that could walk through /onboarding and create
+a venue. Found by the PR's security review; guarded by
+`tests/unit/invite-link-no-provisioning.test.ts`. For an account that does exist it mints the
+type matching its state: `invite` when never confirmed, `magiclink` when confirmed (the other
+as fallback, and the *first* meaningful error reported when both miss). Also not cosmetic:
+GoTrue happily mints a magic link for a never-confirmed account and then refuses to complete
+it, so the earlier magiclink-first order printed a link that dies on click — measured, and
+both printed links now verify end to end. `signup` is not a tier
+(`generateLink({type:'signup'})` requires a password).
 
-Tests: `src/features/auth/verify-fallback.test.ts` (12) covers the order, that a valid type
-is never retried, that the first error is the one surfaced, and the rate-limit abort;
-`OtpLoginForm.test.tsx` gained 4 (single-call happy path, `email → signup` fallback, all
-three slots exhausted, the `?error=link` screen). No migration.
+**6 — Every `?error=` value on `/login` now has copy**, including `devlogin`, and `verify()`
+early-returns while a verification is in flight (the auto-submit and the form submit could
+otherwise race).
+
+Tests: `src/features/auth/verify-fallback.test.ts` (13) covers the order, the two-attempt
+link budget, that a valid type is never retried, that the first error is the one surfaced,
+and the rate-limit abort; `src/app/auth/confirm/route.test.ts` gained 7 against a mocked SSR
+client (declared-type-first, sibling fallback, never a third slot, no fallback out of
+magiclink/email_change, terminal no-user, rate-limit stop, e-mail-change destination);
+`OtpLoginForm.test.tsx` gained 6. No migration.
 
 **Nazorg for Max:** `gar***@gmail` (18/9), `pet***@hotmail` and `roe***@gmail` are still
 stuck — hand them a fresh link with `node scripts/invite-link.mjs <email>

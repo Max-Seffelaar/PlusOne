@@ -8,23 +8,33 @@ import { OTP_CODE_VERIFY_TYPES, verifyWithFallback } from '@/features/auth/verif
 
 type Step = 'email' | 'code';
 
-/** Shown when /auth/confirm bounced a link back here (`?error=link`). */
-const LINK_ERROR_MESSAGE =
-  "That link didn't work — it may already have been used, or a newer email replaced it. Enter your email below and we'll send you a fresh code.";
+/**
+ * Messages for the `?error=` values the auth routes bounce back here with.
+ * Every one of them ends on this screen, so every one of them needs copy — a
+ * value with none renders a blank, dead-end page (P-01).
+ */
+export const LOGIN_ERROR_MESSAGES = {
+  /** /auth/confirm could not verify an e-mail link. */
+  link: "That link didn't work — it may already have been used, or a newer email replaced it. Enter your email below and we'll send you a fresh code.",
+  /** The local-only dev-login shortcut failed; never reachable in production. */
+  devlogin: 'Dev login failed. Use your email and a code instead.',
+} as const;
+
+export type LoginErrorKind = keyof typeof LOGIN_ERROR_MESSAGES;
 
 export function OtpLoginForm({
   nextPath,
-  linkFailed = false,
+  errorKind,
 }: {
   nextPath: string;
-  /** The user arrived from a dead email link; explain it and offer a code. */
-  linkFailed?: boolean;
+  /** Why an auth route sent the user back here, if it did. */
+  errorKind?: LoginErrorKind;
 }): JSX.Element {
   const supabase = createClient();
   const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
-  const [error, setError] = useState<string | null>(linkFailed ? LINK_ERROR_MESSAGE : null);
+  const [error, setError] = useState<string | null>(errorKind ? LOGIN_ERROR_MESSAGES[errorKind] : null);
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [cooldown, setCooldown] = useState(0);
@@ -73,6 +83,10 @@ export function OtpLoginForm({
   }
 
   async function verify(tokenValue: string = code): Promise<void> {
+    // The code input auto-submits at six digits AND the form can be submitted
+    // by hand, so two verifies could otherwise run at once — now up to three
+    // GoTrue round trips each (PR #324 review). One at a time.
+    if (busy) return;
     const parsed = verifyOtpSchema.safeParse({ email, token: tokenValue });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? 'Invalid code');

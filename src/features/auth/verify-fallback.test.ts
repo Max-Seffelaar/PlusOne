@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  LINK_VERIFY_FALLBACK_TYPES,
   OTP_CODE_VERIFY_TYPES,
   isVerifyTypeMismatchError,
   linkVerifyTypes,
@@ -16,20 +15,31 @@ describe('verify type lists', () => {
     expect([...OTP_CODE_VERIFY_TYPES]).toEqual(['email', 'signup', 'invite']);
   });
 
-  it('puts the type the link declared first and completes it with the other first-login slots', () => {
-    expect(linkVerifyTypes('invite')).toEqual(['invite', 'signup', 'magiclink', 'email']);
-    expect(linkVerifyTypes('signup')).toEqual(['signup', 'invite', 'magiclink', 'email']);
-    expect(linkVerifyTypes('magiclink')).toEqual(['magiclink', 'signup', 'invite', 'email']);
-    // No duplicates, ever — a type must not be retried just because it leads.
-    for (const declared of LINK_VERIFY_FALLBACK_TYPES) {
-      const types = linkVerifyTypes(declared);
-      expect(new Set(types).size).toBe(types.length);
+  it('falls back from a link to ONE type in the other token slot, never a same-slot twin', () => {
+    // invite ≡ signup live in confirmation_token, magiclink ≡ email ≡ recovery
+    // in recovery_token: retrying a same-slot twin can never find anything new.
+    expect(linkVerifyTypes('invite')).toEqual(['invite', 'magiclink']);
+    expect(linkVerifyTypes('signup')).toEqual(['signup', 'magiclink']);
+    expect(linkVerifyTypes('magiclink')).toEqual(['magiclink', 'invite']);
+    expect(linkVerifyTypes('email')).toEqual(['email', 'invite']);
+  });
+
+  it('never falls back from, or to, a flow of its own', () => {
+    expect(linkVerifyTypes('email_change')).toEqual(['email_change']);
+    expect(linkVerifyTypes('recovery')).toEqual(['recovery']);
+    for (const declared of ['invite', 'signup', 'magiclink', 'email'] as const) {
+      expect(linkVerifyTypes(declared)).not.toContain('email_change');
+      expect(linkVerifyTypes(declared)).not.toContain('recovery');
     }
   });
 
-  it('never falls back out of a flow of its own (email_change / recovery)', () => {
-    expect(linkVerifyTypes('email_change')).toEqual(['email_change']);
-    expect(linkVerifyTypes('recovery')).toEqual(['recovery']);
+  it('costs at most two verifies per link click (server-side amplification budget)', () => {
+    for (const declared of ['signup', 'invite', 'magiclink', 'email', 'recovery', 'email_change'] as const) {
+      const types = linkVerifyTypes(declared);
+      expect(types.length).toBeLessThanOrEqual(2);
+      expect(new Set(types).size).toBe(types.length);
+      expect(types[0]).toBe(declared);
+    }
   });
 });
 
@@ -104,6 +114,17 @@ describe('verifyWithFallback', () => {
     expect(out.error).toBe(rateLimited);
     expect(out.tried).toEqual(['email']);
     expect(attempt).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces a LATE rate limit instead of burying it under the first slot miss', async () => {
+    // Otherwise the user reads "that code didn't work" and the resend cooldown
+    // never starts, so they hammer a rate-limited endpoint (S2).
+    const attempt = vi.fn(async (type: string) => ({ error: type === 'email' ? mismatch : rateLimited }));
+
+    const out = await verifyWithFallback([...OTP_CODE_VERIFY_TYPES], attempt);
+
+    expect(out.error).toBe(rateLimited);
+    expect(out.tried).toEqual(['email', 'signup']);
   });
 
   it('attempts each type at most once even if the list repeats one', async () => {

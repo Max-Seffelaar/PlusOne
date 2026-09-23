@@ -44,15 +44,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // already-existing-but-unconfirmed account in the *confirmation* slot and
   // sends the "Confirm signup" mail for it, so a link that says `type=invite`
   // can only be verified as `signup` (and vice versa). Try the declared type
-  // first, then the remaining first-login slots, before giving up (P-01).
+  // first, then at most its confirmation-slot sibling (P-01).
   const { data, error } = await verifyWithFallback(linkVerifyTypes(type), async (candidate) => {
     const result = await supabase.auth.verifyOtp({ type: candidate, token_hash: tokenHash });
-    // A verify that returns no user is as unusable as an error — treat it as a
-    // miss for this slot so the remaining slots still get their turn.
-    return {
-      data: result.data.user ? result.data : undefined,
-      error: result.error ?? (result.data.user ? null : { status: 403, message: 'No user for token' }),
-    };
+    // A verify that succeeded but produced no user is TERMINAL, never a slot
+    // miss: GoTrue consumed the token and the SSR client may already have
+    // written session cookies, so retrying another slot would burn a second
+    // token for a state we cannot recover anyway (PR #324 review). The error
+    // shape below carries no retryable status on purpose — verifyWithFallback
+    // stops on it.
+    if (!result.error && !result.data.user) {
+      return { error: { message: 'Verification returned no user' } };
+    }
+    return { data: result.data, error: result.error };
   });
 
   if (error || !data?.user) {

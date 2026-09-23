@@ -177,11 +177,32 @@ Measured against the local stack (GoTrue v2.195.0) on 2026-09-23, with
 - Practical rules: only ever hand out the **newest** link for an address, and
   never resend while someone is mid-click. `scripts/invite-link.mjs` mints a new
   token by design — the link it prints supersedes every earlier one.
+- **There are only two slots that matter**, and the verify types inside one are
+  interchangeable: `invite` ≡ `signup` (`confirmation_token`) and `magiclink` ≡
+  `email` ≡ `recovery` (`recovery_token`). Slot-level isolation therefore does
+  not exist — a recovery token verifies as `type=magiclink` with or without any
+  app-side fallback. That is safe only because password auth, and so password
+  recovery, is disabled project-wide (#20): **revisit the fallback the day
+  password recovery is enabled.**
 - Link verification is tolerant of the declared `type` on this GoTrue version
-  (an invite token verified fine as `signup`, and its 6-digit code verified fine
-  as `email`), but that is not guaranteed across versions, so
-  `/auth/confirm` and the login form both walk the first-login slots in order
-  (`src/features/auth/verify-fallback.ts`) instead of trusting one type.
+  (an invite token verified fine as `signup`, its 6-digit code fine as `email`),
+  but that is not guaranteed across versions, so `/auth/confirm` and the login
+  form both fall back (`src/features/auth/verify-fallback.ts`). The link path
+  tries **one type per slot** — the declared type, then one type from the other
+  slot — so a click costs at most two verifies: it runs server-side from one
+  shared Vercel egress IP and GoTrue rate-limits `/verify` per IP. `email_change`
+  and `recovery` never fall back and are never fallback targets.
+- `scripts/invite-link.mjs` **refuses an address without an account** and exits;
+  do not remove that check. `admin.generateLink({type:'invite'})` *creates* the
+  auth user when it does not exist (the service role bypasses "signups
+  disabled"), so a typo in a production run would otherwise mint a real account
+  outside the invite-only invariant. With the check in place, running it against
+  prod is safe: the worst a typo does is exit 1.
+- It also picks the link type from the account's state: `invite` for a
+  never-confirmed account, `magiclink` for a confirmed one. Do not "just use
+  magiclink" — GoTrue happily **mints** a magic link for a never-confirmed
+  account and then refuses to complete it, so the operator hands out a link that
+  dies on click (measured, 2026-09-23).
 - A dead link is no longer a dead end: `/auth/confirm` bounces to
   `/login?error=link`, which explains what happened and puts the "Send code"
   step in front of the user.
