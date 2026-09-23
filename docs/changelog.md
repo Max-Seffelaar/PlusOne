@@ -137,7 +137,6 @@ Unrelated pre-existing behaviour worth knowing: `isSessionGone()` in
 gone" and wipes `plusone-session-v1`, so a TERMS_VERSION bump clears the session cache on
 every device that hits the gate.
 
-
 ## 2026-09-19 — Client writes on guest_requests can only deny (L5, z8uq9m0jce)
 
 Branch `claude/guest-requests-decide-status-guard`. Milestone: **Now**, a live RLS gap on
