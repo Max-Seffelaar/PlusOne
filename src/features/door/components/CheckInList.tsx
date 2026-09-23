@@ -44,6 +44,10 @@ const HEADER_EST = 34;
 const GUEST_EST = 62;
 
 const ACCENT = '#B5A6FF';
+// Add-on-the-spot chip in the search field: 30px, ring 7px out on every side
+// (44x44; technique: kit `hitArea44`). That stays inside the field's 13/15px
+// padding and 4px clear of the input, which ends 11px to the chip's left.
+const addHit = "relative before:absolute before:-inset-[7px] before:content-['']";
 
 /** Optional per-tier filter chips (feedback Joeri): tap a tier to narrow the list
  *  to it; multiple chips OR together; none selected = all. Hidden when an event
@@ -201,7 +205,7 @@ export function CheckInList({ onOpenGuest, onAdd }: { onOpenGuest: (id: string) 
             type="button"
             onClick={onAdd}
             aria-label={t.door.addOnSpotAria}
-            className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-[9px] bg-text text-bg transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.94]"
+            className={cn('flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-[9px] bg-text text-bg transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.94]', addHit)}
           >
             <Icon name="plus" size={18} sw={2.4} />
           </button>

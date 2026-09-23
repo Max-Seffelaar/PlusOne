@@ -14,9 +14,8 @@
  * Two layers:
  * 1. The kit's header chips (IconBtn, BackBtn, Top's back button) render >= 44.
  * 2. A source ratchet over every `<button>` in `src/`: a new fixed-size button
- *    below 44px fails CI. KNOWN_DEBT lists the sub-44 buttons that predate the
- *    guard; the count per file must match exactly, so fixing one forces the
- *    entry down and the list can only shrink.
+ *    below 44px fails CI. KNOWN_DEBT listed the sub-44 buttons that predated the
+ *    guard; all of them have been fixed, so it is empty and must stay that way.
  */
 import '@testing-library/jest-dom';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -24,7 +23,7 @@ import { join, relative, sep } from 'node:path';
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import { t } from '@/lib/i18n';
-import { BackBtn, IconBtn, Top, hitArea44 } from './kit';
+import { BackBtn, ColorSwatches, IconBtn, Toggle, Top, hitArea44 } from './kit';
 
 const MIN = 44;
 
@@ -45,10 +44,11 @@ function borderWidth(cls: string): number {
   return m[1] ? Number(m[1]) : m[2] ? Number(m[2]) : 1;
 }
 
-/** How far `before:-{prop}-[Npx]` pushes the ring out, 0 when absent. */
+/** How far `before:-{prop}-[Npx]` pushes the ring out (`before:{prop}-0` is 0), null when unset. */
 function inset(cls: string, prop: string): number | null {
-  const m = new RegExp(String.raw`(?<![\w-])before:-${prop}-\[(\d+(?:\.\d+)?)px\](?![\w\[-])`).exec(cls);
-  return m ? Number(m[1]) : null;
+  const m = new RegExp(String.raw`(?<![\w-])before:(?:-${prop}-\[(\d+(?:\.\d+)?)px\]|-?${prop}-0)(?![\w\[-])`).exec(cls);
+  if (!m) return null;
+  return m[1] ? Number(m[1]) : 0;
 }
 
 /** Pointer hit box of a button, or null when its class sets no fixed size. */
@@ -61,13 +61,14 @@ function hitBox(cls: string): { w: number; h: number } | null {
   const all = inset(cls, 'inset');
   const x = inset(cls, 'inset-x') ?? all;
   const y = inset(cls, 'inset-y') ?? all;
+  const sides = [inset(cls, 'left') ?? x, inset(cls, 'right') ?? x, inset(cls, 'top') ?? y, inset(cls, 'bottom') ?? y];
+  // A side left at `auto` shrinks the empty ::before to 0px on that axis: no ring.
+  if (sides.some((v) => v == null)) return { w, h };
+  const [l, r, t, bt] = sides as number[];
   const b = borderWidth(cls);
   // The ring starts at the padding box; only what clears the border box adds hit area.
-  const past = (v: number | null): number => Math.max(0, (v ?? 0) - b);
-  return {
-    w: w + past(inset(cls, 'left') ?? x) + past(inset(cls, 'right') ?? x),
-    h: h + past(inset(cls, 'top') ?? y) + past(inset(cls, 'bottom') ?? y),
-  };
+  const past = (v: number): number => Math.max(0, v - b);
+  return { w: w + past(l) + past(r), h: h + past(t) + past(bt) };
 }
 
 afterEach(cleanup);
@@ -84,6 +85,12 @@ describe('hitBox (the measuring stick itself)', () => {
     expect(
       hitBox("h-[30px] w-[30px] border relative before:absolute before:-inset-y-[8px] before:-left-[10px] before:-right-[6px]"),
     ).toEqual({ w: 44, h: 44 });
+    // One axis only (the kit Toggle): the other side pair must be pinned to 0,
+    // or the empty ::before is 0px wide and adds nothing.
+    expect(hitBox('h-[28px] w-[46px] relative before:absolute before:inset-x-0 before:-inset-y-[8px]')).toEqual({ w: 46, h: 44 });
+    expect(hitBox('h-[28px] w-[46px] relative before:absolute before:-inset-y-[8px]')).toEqual({ w: 46, h: 28 });
+    // A 2px border eats 2px of each inset (the colour swatches).
+    expect(hitBox('h-[34px] w-[34px] border-2 relative before:absolute before:-inset-[7px]')).toEqual({ w: 44, h: 44 });
   });
 });
 
@@ -113,6 +120,18 @@ describe('kit header chips are at least 44x44', () => {
     expectFloor(screen.getByRole('button', { name: t.shared.kit.back }));
   });
 
+  it('Toggle', () => {
+    render(<Toggle on={false} />);
+    expectFloor(screen.getByRole('switch'));
+  });
+
+  it('ColorSwatches, enabled and disabled', () => {
+    render(<ColorSwatches value="#B5A6FF" onPick={() => {}} isDisabled={(c) => c === '#9DE0C0'} />);
+    const dots = screen.getAllByRole('button');
+    expect(dots.length).toBeGreaterThan(1);
+    dots.forEach(expectFloor);
+  });
+
   it('keeps the visible chip at the design size (the ring is invisible)', () => {
     render(<IconBtn name="search" ariaLabel="Zoeken" />);
     const cls = screen.getByRole('button', { name: 'Zoeken' }).className;
@@ -123,27 +142,11 @@ describe('kit header chips are at least 44x44', () => {
 
 // ── source ratchet ───────────────────────────────────────────────────────────
 /**
- * Sub-44 buttons that predate this guard (file -> count). Row/card/list controls,
- * not screen headers; each is its own follow-up. Only ever lower these.
+ * Sub-44 buttons that predate this guard (file -> count). The 22 row/card
+ * controls it started with all have 44px hit areas now, so this stays empty: a
+ * new sub-44 button gets a ring (kit `hitArea44`), not an entry here.
  */
-const KNOWN_DEBT: Record<string, number> = {
-  'src/components/po/influencer-stats.tsx': 2, // 26px clear-search, 32px close
-  'src/components/po/kit.tsx': 1, // Toggle switch, 46x28
-  'src/components/po/screens/events.tsx': 1, // 38px event-row cog
-  'src/components/po/screens/events/edit.tsx': 1, // 34px quota stepper
-  'src/components/po/screens/events/tier-form.tsx': 1, // 34px colour swatch
-  'src/components/po/screens/guests/_shared.tsx': 1, // 30px colour swatch
-  'src/components/po/screens/guests/list-shared.tsx': 2, // 18/20px inline controls
-  'src/components/po/screens/guests/profile.tsx': 3, // 22px inline, 38px contact-row star + add
-  'src/components/po/screens/home.tsx': 2, // 38px carousel pager
-  'src/components/po/screens/settings/venue.tsx': 2, // 34px quota stepper
-  'src/components/po/screens/templates.tsx': 1, // 34px colour swatch
-  'src/features/door/components/CheckInList.tsx': 1, // 30px clear-search
-  'src/features/door/components/Taken.tsx': 1, // 26px task check
-  'src/features/po/eventday/CockpitGuestRow.tsx': 1, // 40px check-in slot (desktop cockpit)
-  'src/features/po/eventday/CockpitTasksCard.tsx': 1, // 22px task check
-  'src/features/po/eventday/EventDayCockpit.tsx': 1, // 30px
-};
+const KNOWN_DEBT: Record<string, number> = {};
 
 const ROOT = process.cwd();
 
@@ -164,29 +167,34 @@ function stringConsts(src: string): Map<string, string> {
   return map;
 }
 
-function sub44Buttons(): Map<string, string[]> {
+function scanButtons(): { sized: number; found: Map<string, string[]> } {
   const found = new Map<string, string[]>();
+  let sized = 0;
   for (const file of tsxFiles(join(ROOT, 'src'))) {
     const src = readFileSync(file, 'utf8');
     const consts = stringConsts(src);
-    // The opening tag runs up to its first child (`<`); attributes hold no JSX.
-    for (const m of src.matchAll(/<button\b[^<]*/g)) {
+    // The opening tag runs up to its first child: a `<` that opens a tag (a
+    // letter, `/` or `>` follows). A comparison inside an attribute, such as
+    // `quotaDefault <= 0 && 'opacity-40'`, must not end it early.
+    for (const m of src.matchAll(/<button\b(?:[^<]|<(?![A-Za-z/>]))*/g)) {
       const resolved = m[0].replace(/\b\w+\b/g, (w) => (consts.has(w) ? ` ${consts.get(w)} ` : w));
       const box = hitBox(resolved);
-      if (!box || Math.min(box.w, box.h) >= MIN) continue;
+      if (!box) continue;
+      sized++;
+      if (Math.min(box.w, box.h) >= MIN) continue;
       const rel = relative(ROOT, file).split(sep).join('/');
       const line = src.slice(0, m.index).split('\n').length;
       found.set(rel, [...(found.get(rel) ?? []), `${rel}:${line} (${box.w}x${box.h})`]);
     }
   }
-  return found;
+  return { sized, found };
 }
 
 describe('no new sub-44 buttons (ratchet)', () => {
-  const found = sub44Buttons();
+  const { sized, found } = scanButtons();
 
-  it('finds buttons at all (the scan is not silently empty)', () => {
-    expect(found.size).toBeGreaterThan(0);
+  it('finds fixed-size buttons at all (the scan is not silently empty)', () => {
+    expect(sized).toBeGreaterThan(20);
   });
 
   it('every sub-44 button is known debt, and the debt list is exact', () => {

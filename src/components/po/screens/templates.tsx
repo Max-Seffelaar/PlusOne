@@ -28,7 +28,7 @@ import { TIER_ALIASES_UI } from '@/features/guests/tiers';
 import { TIER_COLORS } from '@/lib/po/tier-colors';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Btn, Empty, Field, IconBtn, Label, Note, Scroll, ToggleRow, Top, cardPress } from '../kit';
+import { Btn, ColorSwatches, Empty, Field, IconBtn, Label, Note, Scroll, ToggleRow, Top, cardPress } from '../kit';
 import { BottomBar } from '../shell';
 
 const col = 'flex h-full flex-col';
@@ -405,18 +405,7 @@ function TemplateTierEditor({ templateId, canManage }: { templateId: string; can
           <Label className="mb-[10px]">{t.templates.newTier}</Label>
           <Field placeholder={t.templates.tierNamePlaceholder} value={nm} onChange={setNm} autoFocus className="mb-3" />
           <Label className="mb-2">{t.templates.color}</Label>
-          <div className="mb-[14px] flex gap-[9px]">
-            {TIER_COLORS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setColor(c)}
-                className="h-[34px] w-[34px] cursor-pointer rounded-full transition-[filter] hover:brightness-[1.1]"
-                style={{ background: c, border: '2px solid ' + (color === c ? '#FFFFFF' : 'transparent') }}
-                aria-label={fmt(t.events.colorAria, { color: c })}
-              />
-            ))}
-          </div>
+          <ColorSwatches value={color} onPick={setColor} className="mb-[14px]" />
           <Label className="mb-2">{t.templates.maxLabel}</Label>
           <Field placeholder={t.templates.maxPlaceholder} value={max} onChange={setMax} inputMode="numeric" className="mb-[14px]" />
           <Label className="mb-2">{t.templates.priceLabel}</Label>

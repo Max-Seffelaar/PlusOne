@@ -15,6 +15,13 @@ import { useTransientValue } from '@/lib/use-transient-value';
 import { Icon } from './icon';
 
 const press = 'transition-[filter,transform,background,border-color,color] hover:brightness-[1.08] active:scale-[0.98]';
+// 44px hit rings (CLAUDE.md tap-target floor; technique: kit `hitArea44`). The
+// clear-search chip sits 10px right of the input and 12px inside the field's
+// right edge, so its ring is lopsided: 5px toward the input, 13px out to the
+// field's outer edge, 9px above and below (inside the 46px field). The QR
+// sheet's close chip has room on every side: 6px past its 1px border.
+const clearHit = "relative before:absolute before:-inset-y-[9px] before:-left-[5px] before:-right-[13px] before:content-['']";
+const closeHit = "relative before:absolute before:-inset-[7px] before:content-['']";
 const num = (n: number): string => n.toLocaleString('en-US');
 const PAGE = 4;
 
@@ -143,7 +150,7 @@ function Search({ q, setQ }: { q: string; setQ: (v: string) => void }): JSX.Elem
           type="button"
           aria-label={t.influencerStats.searchClearAria}
           onClick={() => setQ('')}
-          className={cn('flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[8px] bg-elev2 text-faint', press)}
+          className={cn('flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[8px] bg-elev2 text-faint', press, clearHit)}
         >
           <Icon name="close" size={13} />
         </button>
@@ -225,7 +232,7 @@ function QrModal({ ev, onClose }: { ev: InfluencerStatsEvent; onClose: () => voi
             type="button"
             aria-label={t.influencerStats.qrClose}
             onClick={onClose}
-            className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] border border-line bg-transparent text-faint', press)}
+            className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] border border-line bg-transparent text-faint', press, closeHit)}
           >
             <Icon name="close" size={16} />
           </button>

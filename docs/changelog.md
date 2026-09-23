@@ -8,6 +8,54 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-19 — 44px tap targets on the 22 known-debt row/card controls
+
+Branch `claude/tap-target-debt-44`, stacked on `claude/iconbtn-tap-target-44` (#313).
+Milestone: **Now** (the tap-target floor is a hard CLAUDE.md rule; door and cockpit
+controls are the most tap-critical ones). No migration.
+
+**What changed.** Every control in the tap-target ratchet's `KNOWN_DEBT` now hits at
+44x44 or more, and the list is empty. The fix per control was the least churn that fit:
+
+- **Invisible ring, zero pixel change** (17 controls): influencer-stats clear-search and
+  QR close, kit `Toggle`, event-row cog, both quota steppers, contact-row select / star /
+  add, Home pager (the page-number chips too, which the scan can't see), door add-on-spot
+  and task check, cockpit check-in slots, cockpit task check, cockpit approve/deny. The
+  ring is lopsided where one neighbour is closer: clear-search (5px toward the input),
+  door task check (4px clear of both neighbours), cockpit approve/deny (3px toward the
+  partner, 11px outward, as in `SyncBar`).
+- **Colour swatches** (3 copies): now one kit primitive, `ColorSwatches`: 34px dots,
+  10px gap, wrapping, 5px ring each, so rings meet without overlapping. That moved the
+  add-guest form's 30px dots to 34px and the gap from 9px to 10px everywhere. It also
+  fixes a real bug: the template tier editor didn't wrap, so at 390px its 11 dots were
+  squashed into 20px-wide pills.
+- **Desktop guest table:** the select column went from 40px to 44px and the header row
+  from 40px to 44px tall, so the select-all box and the row dots each get a full 44px cell.
+
+**Measured, not assumed.** A Playwright probe against the fixture harness measured each
+control's real hit extent with `elementFromPoint` at 390x844 (touch) and 1440x900:
+121 control instances, all at least 44x44 afterwards, none stealing from a neighbour.
+Before/after clips of the ring-only fixes are pixel-identical. The probe also caught
+a bug that the class-derived test had missed: a `::before` with only `top`/`bottom`
+set has `left`/`right: auto`, so an empty one is 0px wide and hits nothing. The
+`Toggle` ring needs `before:inset-x-0`, and the test now gives no credit to a ring
+that leaves a side unset.
+
+**Guard tightened.** The ratchet's tag scan stopped at the first `<`, so
+`quotaDefault <= 0 && …` in a className cut the event-edit minus stepper out of the scan
+(the list said 1 stepper for that file; there were 2). The scan now only stops at a `<`
+that opens a tag. `Toggle` and `ColorSwatches` get their own render checks. Mutation-checked
+by dropping `inset-x-0`, shrinking the swatch inset to 6px and removing a contact-row ring:
+each one fails the suite.
+
+**Fixture harness (`scripts/dev/fake-supabase.mjs`).** It gained a `get_influencer_stats`
+RPC, so `/i/<any token>` renders, and one event template. `event_quota_status` now
+reports admins as exempt, like the real RPC does. That exempt flag also gates the inline
+"Add tier" form. `FAKE_EXTRA_EVENTS=N` adds N empty upcoming events so Home's pager
+shows. It is off by default, so existing baselines don't move.
+
+---
+
 ## 2026-09-18/19 — Joeri walkthrough round (J1–J6)
 
 Source: a screen-recorded walkthrough by Joeri (pilot partner running the ADE campaign),
