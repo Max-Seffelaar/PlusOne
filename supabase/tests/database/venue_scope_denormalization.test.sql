@@ -87,10 +87,18 @@ select is(
       and requested_extra = 1),
   'aa000000-0000-7000-8000-000000000001'::uuid, '2c quota_requests.venue_id auto-filled from the event');
 
+-- As the owner, not as staff: since 20260923120000 (F-3) no client role holds
+-- INSERT on guest_requests — a landing request is created by
+-- submit_guest_request (SECURITY DEFINER) and by nothing else, and that
+-- function never sends venue_id. The BEFORE trigger under test is the same one
+-- either way; the privilege level used here is the seed's. That the client
+-- insert is now refused is asserted in guest_requests_insert_revoke.test.sql
+-- (B1–B5) and venue_id_rls_integrity.test.sql (S1d).
+reset role;
 insert into public.guest_requests (event_id, full_name, phone, plus_ones, motivation, status)
   values ('ee000000-0000-7000-8000-000000000001', 'Scope Test Verzoek', '+31600000000', 0, 'test', 'pending');
--- guest_requests_select has no "own submission" clause (unlike quota_requests) —
--- the submitter (staff) can INSERT but can't read it back; switch to admin to assert.
+-- guest_requests_select has no "own submission" clause (unlike quota_requests),
+-- so read it back as admin.
 select pg_temp.login('11111111-1111-4111-8111-111111111111');
 select is(
   (select venue_id from public.guest_requests where full_name = 'Scope Test Verzoek'),

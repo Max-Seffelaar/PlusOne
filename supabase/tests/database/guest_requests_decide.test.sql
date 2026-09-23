@@ -86,10 +86,16 @@ select is(
   'decided_at,decided_by,decision_reason,status',
   'A2 authenticated may UPDATE exactly the four columns the deny path writes');
 
+-- SELECT is what this migration's revoke had to leave alone; INSERT was still
+-- there when this file was written and is gone since 20260923120000 (F-3) — a
+-- landing request is created by submit_guest_request only, so the grant that
+-- made the suppression squat and the e-mail oracle possible no longer exists.
+-- Asserted negatively here so this file cannot go stale on it; the full F-3
+-- proof lives in guest_requests_insert_revoke.test.sql.
 select ok(
   has_table_privilege('authenticated', 'public.guest_requests', 'SELECT')
-  and has_table_privilege('authenticated', 'public.guest_requests', 'INSERT'),
-  'A3 SELECT and INSERT for authenticated are unchanged (the revoke did not overshoot)');
+  and not has_table_privilege('authenticated', 'public.guest_requests', 'INSERT'),
+  'A3 SELECT for authenticated is unchanged (the revoke did not overshoot); INSERT is gone (F-3)');
 
 -- ---------------------------------------------------------------------------
 -- B. Admin — only pending -> denied, as themselves, on four columns

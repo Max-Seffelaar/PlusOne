@@ -435,7 +435,7 @@ direct approve, upsert-approve and extra-column denies are `42501`; staff, doorh
 user_manager and anon change nothing; the RPC, auto-approve and retention still work).
 `rls.test.sql` N3 asserted the direct approve as allowed and was re-pointed.
 
-### F-3 — [MEDIUM, OPEN] `authenticated` holds table-wide INSERT on `guest_requests`
+### F-3 — [MEDIUM, FIXED] `authenticated` held table-wide INSERT on `guest_requests`
 **Where:** the `guest_requests` INSERT grant + `guest_requests_insert_public`.
 **Found by:** the fresh-session security review of PR #310 (19-9-2026), pre-existing.
 **Reproduced as staff** (a role with no decide rights and no SELECT on the table), for any
@@ -453,14 +453,42 @@ landing-active event of their own venue, since the policy pins only `status='pen
 Not possible: cross-venue insert (`42501`), forging `venue_id` (trigger overwrites),
 attributing to a request link (`request_links` RLS).
 
-**Why it is still open:** no client code inserts (`src/` has no
-`.from('guest_requests').insert`; only seed, pgTAP and service-role scripts do), so the
-fix is `revoke insert on public.guest_requests from authenticated` plus dropping or
-narrowing `guest_requests_insert_public`. `20260707170000` (C2) revoked the same grant for
-`anon` and left `authenticated` without stating why. Kept out of PR #310 on the reviewer's
-advice so the L5 fix reaches prod unchanged; it needs its own migration + ClickUp task,
-`venue_id_rls_integrity.test.sql` S1d rewritten to assert `42501`, and pgTAP for the
-suppression and oracle cases.
+**Why it stayed open at the time:** kept out of PR #310 on the reviewer's advice so the
+L5 fix could reach prod unchanged. It needed its own migration + ClickUp task.
+
+**Fix** (`20260923120000_guest_requests_revoke_client_insert.sql`): `revoke insert on
+table public.guest_requests from authenticated`, and `guest_requests_insert_public`
+**dropped** rather than narrowed. With the grant gone, the policy's two roles
+(`anon` since C2, `authenticated` now) both lack INSERT, so any predicate left in it is
+decoration — and dropping it is not weaker than a permissive `with check (false)`: RLS
+with **zero** applicable INSERT policies already denies every client insert, so the
+absence *is* the guard, fail-closed if the grant ever returns via a blanket
+`grant all …` or a stock Supabase default ACL (the mechanism behind `20260917100000`). A
+*restrictive* false policy would differ but would also block any future legitimate insert
+policy. The intent moved to `comment on table public.guest_requests`. Verified no other
+dependant: it was the table's only `FOR INSERT` policy (`pg_policy.polcmd = 'a'`) and no
+view, function or trigger referenced it.
+
+Creation is now `submit_guest_request` (SECURITY DEFINER, owner) and nothing else; the
+table is not FORCE ROW LEVEL SECURITY, so that RPC, the seed/pgTAP fixtures (superuser)
+and `service_role` (BYPASSRLS, `scripts/perf/scale-audit.mjs`) are untouched. `src/` never
+inserted — its three call sites are two SELECTs and the deny UPDATE.
+
+Grant matrix after the fix — `anon`: nothing · `authenticated`: table SELECT + UPDATE on
+`status, decided_by, decided_at, decision_reason` only (`20260919150000`) · `service_role`
+and the owner: unchanged.
+
+**Proof:** `guest_requests_insert_revoke.test.sql` (29 assertions — grant/policy layer,
+including "no `FOR INSERT` policy exists"; the squat, the oracle in both its `on conflict
+do nothing` and `23505` forms, and the 500-row batch refused `42501` for staff, admin,
+organizer, doorhost and anon; the suppressed applicant's request now stored with their
+status page answering `{"found": true}`; and the legit paths — anon submit incl. silent
+dedup, auto-approve, `approve_guest_request`, the client deny, retention, the seed's
+privilege level and `service_role`). `grant_matrix.test.sql` gained the catalog-driven
+"no app role holds INSERT on `guest_requests`" pair (table + column level).
+`venue_id_rls_integrity.test.sql` S1d now asserts `42501` and re-points the `venue_id`
+trigger half to the owner path; `guest_requests_decide.test.sql` A3 and
+`venue_scope_denormalization.test.sql` 2d were re-pointed for the same reason.
 
 ### Observations (low / accepted)
 - **O-1** `removeGuest` uses a UUID regex, not Zod. Low (RLS is the gate).
