@@ -74,6 +74,83 @@ runbook step, documented in the migration header.
 
 ---
 
+## 2026-09-23 — `safeNextPath` rejects percent-encoded traversal in `?next=`
+
+Branch `claude/next-path-encoded-traversal`. Milestone: Now-adjacent hardening (small).
+Found by a fresh-session `/code-review` of PR #316, which judged it pre-existing and out of
+scope for that PR.
+
+**The hole.** `safeNextPath` rejected traversal with `pathOnly.split('/').includes('..')`,
+which only matches a LITERAL `..` segment. `/app/%2e%2e/auth/callback` has none, so it passed
+the guard — and the WHATWG URL parser treats `%2e%2e` as a double-dot path segment, so it then
+normalized to `/auth/callback`, exactly the route the guard's own deny-list
+(`raw === '/login' || raw.startsWith('/auth/')`) exists to block. It was reachable with a plain
+link, no header forging: `/consent`, `/mfa/enroll`, `/mfa/verify`, the authed `/login?next=`
+branch in `src/middleware.ts`, and the `/auth/callback` + `/auth/confirm` routes all feed a
+client-supplied `?next=` into it, and `/consent` ends in `window.location.replace(next)`.
+
+**Not an open redirect.** Every consumer re-runs `safeNextPath` and resolves the result against
+`request.url`, and the `//`, `://` and `\` checks still held, so the value stayed same-origin
+throughout. The damage was bounded to landing on a deny-listed in-app route.
+
+**The fix.** `safeNextPath` now percent-decodes the path once and runs every structural check
+against both the raw and the decoded form: protocol-relative prefix, scheme, backslash,
+`..` segment, and the login/auth deny-list. Three judgment calls worth recording:
+
+- **Unwrap to a fixed point, not once.** A single decode models what the URL parser does today
+  (it matches `..`, `.%2e`, `%2e.` and `%2e%2e` as double-dot segments but leaves `%252e%252e` as
+  literal text, which never normalizes), so `/app/%252e%252e/…` is harmless *for today's
+  consumers*. It is rejected anyway: the guard must not depend on every hop decoding exactly once,
+  because a future consumer that decodes twice would reopen the hole. This reverses the first cut
+  of this change, which decoded once and asserted the double-encoded form passed through — the
+  fresh-session **security review of #316** reached the opposite conclusion for `appGateNextPath`,
+  and the argument applies to every `?next=` consumer, not just the /app gates (Max, 23/9: align
+  before merging). Bounded at `MAX_DECODE_ROUNDS = 5` so a hostile value cannot drive the loop.
+- **Encoded slashes are treated as separators.** Decoding turns `%2f` into a real `/`, so
+  `/app/%2e%2e%2fauth/callback` and `/app/..%2Flogin` are now rejected. This is stricter than the
+  URL parser alone, which does not split on `%2f` — deliberately, because Next's router decodes
+  the pathname before it matches a route, so an encoded slash can still change which route runs.
+  The previous test asserted `/app/..%2Flogin` was "harmless"; that expectation is what changed.
+- **A malformed escape falls back.** `decodeURIComponent` throwing on `/app/%2` means the value
+  is not a path we ever served, so it is treated as hostile rather than passed through.
+
+**Tightened in passing, same bypass class.** The deny-list now compares the path only rather than
+the whole raw value, so `/login?next=/app` no longer slips past the exact `raw === '/login'`
+match; and running it on the decoded path also closes `/%61uth/callback`, where percent-encoding
+the route name hid it from `startsWith('/auth/')`.
+
+**A tolerant decode, after a peer review from the #316 session.** The first fixed-point cut used
+`decodeURIComponent` per round and rejected on a throw. That quietly broke a legitimate deep
+link: `/app/events/50%25korting` decodes to `/app/events/50%korting`, where `%ko` is not an escape
+at all, so round two threw and the user was downgraded to bare /app — the exact feature #316
+shipped. The #316 session proposed accepting on a throw past round 0; that has a hole, verified
+here: `/app/%25252e%25252e/a%2525zz` reads `/app/%2e%2e/a%zz` by round 2, and `new URL()`
+normalizes THAT to `/a%zz`, out of /app. So instead each round decodes tolerantly — every maximal
+run of `%XX` is decoded together (multi-byte UTF-8 like `caf%C3%A9` survives) and an unresolvable
+run is left as literal text, exactly as the WHATWG URL parser leaves it — while a malformed escape
+in the value as HANDED to the guard (`/app/%2`) is still rejected up front. Both properties hold:
+the legitimate `%` survives, and traversal hiding behind a bad escape does not. `appGateNextPath`
+got the same treatment, since its own loop would otherwise have rejected the deep link anyway.
+
+**Relation to PR #316 (merged first, `182e63f`).** #316 added `appGateNextPath`, a narrowing of
+the guard for the `/app` consent/MFA gates, and its own fresh-session security review pushed that
+function to unwrap to a fixed point — explicitly rejecting the single-decode reasoning this change
+started from. Rather than land two guards that disagree, the fixed-point rule moved to the shared
+layer here, where every `?next=` consumer gets it. `appGateNextPath`'s local loop is now provably
+redundant and is **kept as defense in depth**: its own `/app` prefix test still runs on the
+ENCODED path, which is only safe while the shared guard keeps treating `%2e%2e` as traversal and
+`%2f` as a separator. That is the strictest part of the guard and the likeliest to be relaxed for
+some future deep link; keeping the check local means relaxing it cannot silently open the gates.
+Both docblocks now say this, and the stale "`safeNextPath` only rejects literal `..` segments"
+note is gone from #316's function and its test.
+
+Suites: CI `lint-and-test` green. Locally 1753/1761 Vitest tests pass; the 8 failures sit in `tests/unit/pgtap-plan-run-gate.test.ts` and
+`tests/unit/pre-push-hook-is-executable.test.ts`, both environmental (they need the Supabase CLI
+and a non-worktree `core.hooksPath`) and failing identically on `main`. `tsc --noEmit` clean,
+`next lint` clean (two pre-existing a11y warnings in `datetime-field.tsx`, untouched).
+
+---
+
 ## 2026-09-23 — ADE UX round test pass: 28/28 green, task closed (z8uq9m0g0j)
 
 No code change — a verification session that closes the test handoff the 18/9 entry left
@@ -121,6 +198,87 @@ total coverage:
   were inserted locally for the pass and dropped again by the later `pnpm db:fresh`.
 
 ---
+
+## 2026-09-19 — /app gates keep the deep link (consent re-prompt, MFA nudge)
+
+Branch `claude/app-gate-deep-link`. No ClickUp task (Max, 2026-09-19). Milestone: **Now**
+— venue staff share and bookmark `/app/events/<id>`-style links. Decision (Max): reverse
+the documented trade-off in `src/app/app/layout.tsx` ("the gate fires once, on first
+login, so `next=/app` is fine"). It didn't hold up. The consent gate re-fires for every
+signed-in user after a `TERMS_VERSION` bump, and the MFA recommendation re-fires for
+admin/finance without TOTP 24h after acceptance and again each time a 7-day snooze runs
+out. Each time, a deep link landed on Home. Fresh logins were already fine
+(`resolveEntryDestination` in the auth callback/confirm routes).
+
+**Changed.** `src/middleware.ts` stamps `x-po-request-path` (pathname + search, `_rsc`
+stripped) onto the forwarded request before `updateSession`. It always uses `set`, on
+every route, so a client value never survives a request the middleware sees. The layout
+reads it via `headers()`, not `searchParams`, so `[[...segments]]/page.tsx` stays free of
+server work and the door invariant (#25) is untouched. It passes the value through the
+new `appGateNextPath` (`safeNextPath` + the `/app` surface only + a 2048-char cap) and uses
+the result as `next=` for the consent gate, `recommendMfaIfDue`, and the layout's own
+`/login` fallback. Anything that fails falls back to bare `/app`, the old behaviour.
+
+**Why the layout re-sanitizes.** The middleware matcher skips static-extension paths
+(`/app/x.txt` still hits the catch-all), so there the client's header reaches the layout
+unfiltered. Worst case is a same-origin `/app…` target the user could have typed.
+
+**Tests.** Vitest: `next-path.test.ts` (helpers), `middleware.test.ts` (forwarding via
+`x-middleware-request-*`, `_rsc` strip, client value overwritten), new
+`src/app/app/layout.test.ts` (each gate's `next=`, plus forged/missing header). With the
+fix reverted, 7 of those tests fail. Real runtime on the local stack (dev server + browser,
+staff consent cleared then restored): `/app/contacts?q=anna` → `/consent?next=%2Fapp%2Fcontacts%3Fq%3Danna`;
+a forged header on `/app/contacts` is overwritten; an RSC request doesn't leak `_rsc`;
+on `/app/probe.txt` an off-site, `//`, traversal or non-`/app` header falls back to
+`/app`; after consent, `/consent?next=…` lands on `/app/contacts?q=anna`. New e2e
+`tests/e2e/app-gate-deep-link.spec.ts` was **not executed** in this session (Playwright
+couldn't launch Chromium in the sandbox). It isn't in `e2e:smoke`.
+
+**Review gate.** Middleware is a high-risk surface. The PR body carries an adversarial
+security-research prompt. A fresh session ran `/code-review high` on 2026-09-23 and
+cleared the design on security grounds (no cross-origin escape; `x-middleware-request-*`
+spoofing doesn't work because the stamp is written before `updateSession` builds the
+response; `next@15.5.19` is past the CVE-2025-29927 middleware-skip fix; the service
+worker's `isStorable()` refuses redirects, so no gate 307 is ever cached; no gate can
+point at itself; `[[...segments]]/page.tsx` byte-identical to main). Follow-ups applied
+in the same branch: the stamp is now scoped to `/app` paths and deleted elsewhere, so a
+bearer token in a `/r`, `/i` or webhook URL is never copied into a header nobody reads;
+`appGateNextPath` re-checks the DECODED path, because `safeNextPath` only rejects literal
+`..` and `/app/%2e%2e/auth/callback` would otherwise normalize out of `/app` in the
+browser; the e2e spec restores the shared `staff@plusone.test` consent in a `finally`;
+the length-cap comment now says what it actually bounds.
+
+A second fresh session ran `/security-review` on 2026-09-23 against the post-fix branch:
+**no high or medium findings, approved for merge.** It ran 28 payloads through the real
+sanitizer chain (sanitize → `encodeURIComponent` → `/consent` searchParams decode →
+`safeNextPath` → WHATWG URL resolution) — encoded/uppercase/double-encoded traversal,
+`..;/`, encoded slashes and backslashes, fragment smuggling, raw TAB, `%09`, `%00`,
+fullwidth and fraction solidus, CRLF, malformed escapes, over-cap — with zero off-site and
+zero out-of-`/app` results. It also confirmed `x-middleware-subrequest` is gone from the
+installed `next@15.5.19`, that `x-middleware-override-headers` is in Next's
+`INTERNAL_HEADERS` (never honoured from an external request), that every non-`/app` path
+shape (`/app%2fx`, `//app/x`, `/APP/x`) lands in the fail-safe `delete` branch, that no
+`/app` query param mutates state on load, and that a forged header can only ever affect
+the forger (no cross-site way to set it). Its two hardening notes are applied here:
+`appGateNextPath` decodes to a FIXED POINT (single-decode was safe only because every hop
+decodes exactly once — a future double-decoding consumer would have reopened it), and
+`requestPathForHeader` edits the query as text so the `_rsc` branch keeps the rest
+byte-for-byte like the no-`_rsc` branch.
+
+**Left open.** `safeNextPath` accepting percent-encoded dot segments is PRE-EXISTING and
+reachable today with a plain link on every `?next=` consumer (`/consent`, `/login`,
+`/mfa/enroll`, `/auth/callback`). Same-origin only — every consumer re-runs the guard and
+resolves against `request.url`, so it cannot leave the origin — but it belongs in its own
+PR. Second: the Sentry scrubber's `RELATIVE_URL_QUERY_RE`
+(`src/lib/observability/scrub.ts`) requires 2+ path segments, so a free-text
+`/consent?next=…` or `/login?next=…` is not scrubbed while `/mfa/enroll?next=…` is.
+Unreachable today — there is no client-side Sentry SDK in the repo, and `scrubEvent`
+deletes `event.request` server-side — and `main` already writes `pathname + search` into
+`/login?next=`, so it is the same pattern, not a new one. Its own small PR.
+Unrelated pre-existing behaviour worth knowing: `isSessionGone()` in
+`public/service-worker.js` treats any opaqueredirect on an `/app*` navigation as "session
+gone" and wipes `plusone-session-v1`, so a TERMS_VERSION bump clears the session cache on
+every device that hits the gate.
 
 ## 2026-09-19 — Client writes on guest_requests can only deny (L5, z8uq9m0jce)
 
