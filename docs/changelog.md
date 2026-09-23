@@ -57,11 +57,34 @@ bearer token in a `/r`, `/i` or webhook URL is never copied into a header nobody
 browser; the e2e spec restores the shared `staff@plusone.test` consent in a `finally`;
 the length-cap comment now says what it actually bounds.
 
+A second fresh session ran `/security-review` on 2026-09-23 against the post-fix branch:
+**no high or medium findings, approved for merge.** It ran 28 payloads through the real
+sanitizer chain (sanitize → `encodeURIComponent` → `/consent` searchParams decode →
+`safeNextPath` → WHATWG URL resolution) — encoded/uppercase/double-encoded traversal,
+`..;/`, encoded slashes and backslashes, fragment smuggling, raw TAB, `%09`, `%00`,
+fullwidth and fraction solidus, CRLF, malformed escapes, over-cap — with zero off-site and
+zero out-of-`/app` results. It also confirmed `x-middleware-subrequest` is gone from the
+installed `next@15.5.19`, that `x-middleware-override-headers` is in Next's
+`INTERNAL_HEADERS` (never honoured from an external request), that every non-`/app` path
+shape (`/app%2fx`, `//app/x`, `/APP/x`) lands in the fail-safe `delete` branch, that no
+`/app` query param mutates state on load, and that a forged header can only ever affect
+the forger (no cross-site way to set it). Its two hardening notes are applied here:
+`appGateNextPath` decodes to a FIXED POINT (single-decode was safe only because every hop
+decodes exactly once — a future double-decoding consumer would have reopened it), and
+`requestPathForHeader` edits the query as text so the `_rsc` branch keeps the rest
+byte-for-byte like the no-`_rsc` branch.
+
 **Left open.** `safeNextPath` accepting percent-encoded dot segments is PRE-EXISTING and
 reachable today with a plain link on every `?next=` consumer (`/consent`, `/login`,
 `/mfa/enroll`, `/auth/callback`). Same-origin only — every consumer re-runs the guard and
 resolves against `request.url`, so it cannot leave the origin — but it belongs in its own
-PR. Unrelated pre-existing behaviour worth knowing: `isSessionGone()` in
+PR. Second: the Sentry scrubber's `RELATIVE_URL_QUERY_RE`
+(`src/lib/observability/scrub.ts`) requires 2+ path segments, so a free-text
+`/consent?next=…` or `/login?next=…` is not scrubbed while `/mfa/enroll?next=…` is.
+Unreachable today — there is no client-side Sentry SDK in the repo, and `scrubEvent`
+deletes `event.request` server-side — and `main` already writes `pathname + search` into
+`/login?next=`, so it is the same pattern, not a new one. Its own small PR.
+Unrelated pre-existing behaviour worth knowing: `isSessionGone()` in
 `public/service-worker.js` treats any opaqueredirect on an `/app*` navigation as "session
 gone" and wipes `plusone-session-v1`, so a TERMS_VERSION bump clears the session cache on
 every device that hits the gate.

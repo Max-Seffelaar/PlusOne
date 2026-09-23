@@ -63,6 +63,17 @@ describe('requestPathForHeader (middleware stamp for the /app gates)', () => {
       '/app/contacts?q=a%20b&flag'
     );
   });
+
+  // Same fidelity on the _rsc branch: the query is edited as text, so nothing
+  // is re-serialized (`%20`→`+`, `?flag`→`?flag=`) on RSC requests either.
+  it('leaves the rest of the query byte-for-byte when it strips _rsc', () => {
+    expect(
+      requestPathForHeader(new URL('http://localhost:3000/app/contacts?q=a%20b&flag&_rsc=1x2y'))
+    ).toBe('/app/contacts?q=a%20b&flag');
+    expect(requestPathForHeader(new URL('http://localhost:3000/app?_rsc=1x2y&q=a%20b'))).toBe(
+      '/app?q=a%20b'
+    );
+  });
 });
 
 describe('appGateNextPath (next= for the /app consent/MFA gates)', () => {
@@ -94,6 +105,14 @@ describe('appGateNextPath (next= for the /app consent/MFA gates)', () => {
     expect(appGateNextPath('/app/%2E%2E/login')).toBe('/app');
     expect(appGateNextPath('/app/%2e%2e%2fauth/callback')).toBe('/app');
     expect(appGateNextPath('/app/%2')).toBe('/app'); // malformed escape
+  });
+
+  // Harmless today (every hop decodes exactly once, so a double-encoded value
+  // never becomes a `..` segment), rejected anyway so the guard doesn't depend
+  // on that balance holding for a future consumer.
+  it('rejects traversal at any encoding depth', () => {
+    expect(appGateNextPath('/app/%252e%252e/auth/callback')).toBe('/app');
+    expect(appGateNextPath('/app/%25252e%25252e/login')).toBe('/app');
   });
 
   it('only accepts the /app surface itself', () => {

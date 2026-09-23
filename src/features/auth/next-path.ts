@@ -40,12 +40,21 @@ export const REQUEST_PATH_HEADER = 'x-po-request-path';
 // change can never leak it into a user-facing `next=`.
 const RSC_QUERY = '_rsc';
 
-/** Middleware side: the value to stamp into {@link REQUEST_PATH_HEADER}. */
+/**
+ * Middleware side: the value to stamp into {@link REQUEST_PATH_HEADER}.
+ *
+ * The query is edited as TEXT, not through `URLSearchParams`: re-serializing
+ * rewrites the whole query (`%20`→`+`, a bare `?flag`→`?flag=`), so the deep
+ * link that reaches `next=` would not be byte-for-byte the one the user opened
+ * — and only on requests that happen to carry `_rsc` (both reviews, 23/9).
+ */
 export function requestPathForHeader(url: URL): string {
   if (!url.searchParams.has(RSC_QUERY)) return url.pathname + url.search;
-  const copy = new URL(url.href);
-  copy.searchParams.delete(RSC_QUERY);
-  return copy.pathname + copy.search;
+  const kept = url.search
+    .slice(1)
+    .split('&')
+    .filter((pair) => pair !== RSC_QUERY && !pair.startsWith(`${RSC_QUERY}=`));
+  return kept.length > 0 ? `${url.pathname}?${kept.join('&')}` : url.pathname;
 }
 
 const APP_ROOT = '/app';
@@ -74,12 +83,21 @@ export function appGateNextPath(raw: string | null | undefined): string {
   const safe = safeNextPath(raw, APP_ROOT);
   const pathOnly = safe.split(/[?#]/)[0];
   if (pathOnly !== APP_ROOT && !pathOnly.startsWith(`${APP_ROOT}/`)) return APP_ROOT;
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(pathOnly);
-  } catch {
-    return APP_ROOT; // malformed escape — not a path we served
+  // Decode to a FIXED POINT, not once: a single decode is enough for today's
+  // consumers (every hop decodes exactly once, so `%252e%252e` never becomes a
+  // double-dot segment), but the guard should not depend on that balance — a
+  // future consumer decoding twice would reopen the hole (security review, 23/9).
+  let decoded = pathOnly;
+  for (let round = 0; round < 5; round += 1) {
+    if (decoded.split('/').includes('..')) return APP_ROOT;
+    let next: string;
+    try {
+      next = decodeURIComponent(decoded);
+    } catch {
+      return APP_ROOT; // malformed escape — not a path we served
+    }
+    if (next === decoded) return safe; // fixed point, no traversal at any depth
+    decoded = next;
   }
-  if (decoded.split('/').includes('..')) return APP_ROOT;
-  return safe;
+  return APP_ROOT; // still unwrapping after 5 rounds — not a path we served
 }
