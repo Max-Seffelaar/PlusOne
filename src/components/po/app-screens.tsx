@@ -78,6 +78,13 @@ const PromotionHub = dynamic(() => import('./screens/promotion').then((m) => m.P
   loading: ScreenLoading,
   ssr: false,
 });
+// Platform (P-04): PlusOne's own operator surface. Split for the same reason as
+// Stats/Audit — every venue user pays for whatever sits in the common chunk,
+// and this screen is reachable for a handful of people in the whole product.
+const Platform = dynamic(() => import('./screens/platform').then((m) => m.Platform), {
+  loading: ScreenLoading,
+  ssr: false,
+});
 // QuickAdd (#2b): the guest quick-add flow carries the parser + dedupe engine and
 // (via the lazy phone field) the country picker — heavy and only ever reached by
 // tapping "add guest", never on the door-only / common path. Split into its own
@@ -161,6 +168,8 @@ function screenFor(name: ScreenName, p: ScreenProps, nav: Nav, ev: (id?: string)
       return <EventLinks eventId={p.id} />;
     case 'promotion':
       return <PromotionHub tab={p.tab} eventId={p.id} />;
+    case 'platform':
+      return <Platform />;
     default:
       return null;
   }

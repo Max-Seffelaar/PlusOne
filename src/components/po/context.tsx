@@ -42,7 +42,10 @@ export type ScreenName =
   | 'templates'
   | 'templateedit'
   | 'links'
-  | 'promotion';
+  | 'promotion'
+  /** PlusOne's own operator surface (P-04) — only reachable for a platform
+   *  admin; RLS, not this union, is what keeps its data closed. */
+  | 'platform';
 
 export interface ScreenProps {
   id?: string;

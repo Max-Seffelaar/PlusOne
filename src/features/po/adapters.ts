@@ -20,6 +20,8 @@ import type {
   PoQuotaStatus,
   ContactProfileHeader,
   ContactAppearance,
+  PlatformInviteRow,
+  PlatformFunnelRow,
 } from './queries';
 import type { EventSummary, TierStat } from '@/features/stats/data';
 import { formatInTz as fmt, formatClock, toDateInput } from './format';
@@ -1094,4 +1096,75 @@ export function toPoSubscription(
     stripeLinked: !!row.stripe_subscription_id,
     trialEndsAt: row.status === 'trialing' ? trialEndsAt(row.created_at).toISOString() : null,
   };
+}
+
+// ── Platform (system) admin surface — open-beta invites (P-04) ───────────────
+
+/** The five stages `platform_invite_overview()` can report, in funnel order.
+ *  `revoked` is terminal and deliberately outside the progression. */
+export const PLATFORM_INVITE_STAGES = ['invited', 'signed_in', 'company_created', 'first_event'] as const;
+export type PlatformInviteStage = (typeof PLATFORM_INVITE_STAGES)[number] | 'revoked';
+
+function toPlatformStage(raw: string): PlatformInviteStage {
+  if (raw === 'revoked') return 'revoked';
+  return (PLATFORM_INVITE_STAGES as readonly string[]).includes(raw)
+    ? (raw as PlatformInviteStage)
+    : 'invited';
+}
+
+/** The ONE canonical shape the Platform screen renders. */
+export interface PlatformInvite {
+  id: string;
+  email: string;
+  /** Operator note. Plain text — never rendered as HTML (PR #325, F9). */
+  note: string | null;
+  stage: PlatformInviteStage;
+  /** How far along the funnel this invite is (0-based), or null when revoked. */
+  stageIndex: number | null;
+  revoked: boolean;
+  invitedAt: string;
+  lastSentAt: string;
+  revokedAt: string | null;
+  invitedByName: string | null;
+  signedIn: boolean;
+  venueCount: number;
+  eventCount: number;
+}
+
+/** DB row -> domain. Every column PR #325 flagged as runtime-nullable is
+ *  normalised here, so no screen has to know about the generator's optimism. */
+export function toPlatformInvite(row: PlatformInviteRow): PlatformInvite {
+  const stage = toPlatformStage(row.stage);
+  const idx = PLATFORM_INVITE_STAGES.indexOf(stage as (typeof PLATFORM_INVITE_STAGES)[number]);
+  return {
+    id: row.id,
+    email: row.email,
+    note: row.note ?? null,
+    stage,
+    stageIndex: stage === 'revoked' ? null : idx,
+    revoked: stage === 'revoked' || row.revoked_at != null,
+    invitedAt: row.created_at,
+    lastSentAt: row.last_sent_at ?? row.created_at,
+    revokedAt: row.revoked_at ?? null,
+    invitedByName: row.invited_by_name ?? null,
+    signedIn: row.confirmed_at != null,
+    venueCount: row.venue_count ?? 0,
+    eventCount: row.event_count ?? 0,
+  };
+}
+
+/** SQL funnel rows -> a complete, ordered count per stage (missing stage = 0). */
+export function toPlatformFunnel(rows: PlatformFunnelRow[]): Record<PlatformInviteStage, number> {
+  const out: Record<PlatformInviteStage, number> = {
+    invited: 0,
+    signed_in: 0,
+    company_created: 0,
+    first_event: 0,
+    revoked: 0,
+  };
+  for (const r of rows) {
+    const stage = toPlatformStage(r.stage);
+    out[stage] += r.invite_count ?? 0;
+  }
+  return out;
 }

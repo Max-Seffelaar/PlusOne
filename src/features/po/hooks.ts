@@ -60,6 +60,9 @@ import {
   fetchEventLinkFunnel,
   fetchInfluencerLeaderboard,
   fetchVenueLabelFunnel,
+  fetchIsPlatformAdmin,
+  fetchPlatformInvites,
+  fetchPlatformFunnel,
   type PoRequestLink,
   type PoLinkOption,
   type PoInfluencer,
@@ -97,6 +100,10 @@ import {
   toPoProfile,
   toPoVenueSettings,
   toPoSubscription,
+  toPlatformInvite,
+  toPlatformFunnel,
+  type PlatformInvite,
+  type PlatformInviteStage,
   type PoContact,
   type PoContactProfile,
   type PoGuestRequest,
@@ -1326,5 +1333,48 @@ export function usePoGuestHistory(guestId: string | null) {
     queryKey: poKeys.guestHistory(guestId ?? ''),
     enabled: !!guestId,
     queryFn: () => fetchPoGuestHistory(createClient(), guestId ?? ''),
+  });
+}
+
+// ── Platform (system) admin surface (P-04, z8uq9m0tnw) ──────────────────────
+
+/**
+ * Whether the signed-in user is a PlusOne platform admin.
+ *
+ * Gates the Platform nav entry only — RLS is the real boundary, so a non-admin
+ * who types `/app/platform` reaches the screen but reads nothing. Deliberately
+ * NOT venue-scoped and NOT read in the shell root: it lives in `app-chrome`
+ * beside the other chrome reads, so a refetch can never reach the door subtree
+ * (86eykm76k). One cheap select on the caller's own profile row.
+ */
+export function usePoIsPlatformAdmin(): boolean {
+  const { userId } = usePoIdentity();
+  const { data } = useQuery<boolean>({
+    queryKey: poKeys.isPlatformAdmin(userId),
+    enabled: !!userId,
+    // Effectively immutable for a session: only another platform admin can flip
+    // it, and the screen it gates re-checks against RLS anyway.
+    staleTime: 5 * 60_000,
+    queryFn: () => (userId ? fetchIsPlatformAdmin(createClient(), userId) : Promise.resolve(false)),
+  });
+  return data === true;
+}
+
+/** The open-beta invite list (server-windowed). `enabled` keeps it idle for a
+ *  non-platform-admin who lands on the URL, so we never fire a doomed RPC. */
+export function usePoPlatformInvites(options?: { enabled?: boolean }) {
+  return useQuery<PlatformInvite[]>({
+    queryKey: poKeys.platformInvites(),
+    enabled: options?.enabled ?? true,
+    queryFn: async () => (await fetchPlatformInvites(createClient())).map(toPlatformInvite),
+  });
+}
+
+/** Funnel counts over EVERY invite — a SQL GROUP BY, not a count of the page. */
+export function usePoPlatformFunnel(options?: { enabled?: boolean }) {
+  return useQuery<Record<PlatformInviteStage, number>>({
+    queryKey: poKeys.platformFunnel(),
+    enabled: options?.enabled ?? true,
+    queryFn: async () => toPlatformFunnel(await fetchPlatformFunnel(createClient())),
   });
 }

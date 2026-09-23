@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useMemo, useState, type JSX, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTransientValue } from '@/lib/use-transient-value';
-import { usePoCanManageTemplates, usePoGuestRequests } from '@/features/po/hooks';
+import { usePoCanManageTemplates, usePoGuestRequests, usePoIsPlatformAdmin } from '@/features/po/hooks';
 import { isOpenGuestRequest } from '@/features/po/adapters';
 import { poKeys } from '@/features/po/keys';
 import { canSeeAnyRequests, type VenueRole } from '@/features/auth/roles';
@@ -196,6 +196,12 @@ export function AppShellChrome({
   const openRequestCount = (usePoGuestRequests().data ?? []).filter(isOpenGuestRequest).length;
   // Contacts desktop-nav gate (T10).
   const canManageTemplates = usePoCanManageTemplates();
+  // PlusOne's own operator surface (P-04). Read HERE, beside the other chrome
+  // reads, never in the shell root — a refetch must not be able to reach the
+  // door subtree (86eykm76k). Visibility only: RLS is the boundary, so a
+  // non-platform-admin typing /app/platform gets a "not available" screen with
+  // no data behind it.
+  const isPlatformAdmin = usePoIsPlatformAdmin();
 
   const currentKey =
     target.kind === 'tab' ? target.tab : target.kind === 'door' ? 'deur' : navKeyForScreen(target.name, target.props);
@@ -242,9 +248,12 @@ export function AppShellChrome({
       ...(canViewTeam
         ? ([{ key: 'gebruikers', section: 'more', label: t.nav.team, icon: 'users', active: currentKey === 'gebruikers', onClick: () => nav.push('gebruikers') }] as ShellNavItem[])
         : []),
+      ...(isPlatformAdmin
+        ? ([{ key: 'platform', section: 'more', label: t.platform.navLabel, icon: 'building', active: currentKey === 'platform', onClick: () => nav.push('platform') }] as ShellNavItem[])
+        : []),
       { key: 'meer', section: 'more', label: t.nav.more, icon: 'dots', active: currentKey === 'meer', onClick: () => nav.setTab('meer') },
     ],
-    [currentKey, nav, canViewContacts, showDoor, showRequestsNavItem, openRequestCount, canViewStats, canViewTeam],
+    [currentKey, nav, canViewContacts, showDoor, showRequestsNavItem, openRequestCount, canViewStats, canViewTeam, isPlatformAdmin],
   );
 
   // Mobile bottom tabs — non-door roles drop Deur/Taken (default would show all).
