@@ -8,6 +8,83 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-23 — `safeNextPath` rejects percent-encoded traversal in `?next=`
+
+Branch `claude/next-path-encoded-traversal`. Milestone: Now-adjacent hardening (small).
+Found by a fresh-session `/code-review` of PR #316, which judged it pre-existing and out of
+scope for that PR.
+
+**The hole.** `safeNextPath` rejected traversal with `pathOnly.split('/').includes('..')`,
+which only matches a LITERAL `..` segment. `/app/%2e%2e/auth/callback` has none, so it passed
+the guard — and the WHATWG URL parser treats `%2e%2e` as a double-dot path segment, so it then
+normalized to `/auth/callback`, exactly the route the guard's own deny-list
+(`raw === '/login' || raw.startsWith('/auth/')`) exists to block. It was reachable with a plain
+link, no header forging: `/consent`, `/mfa/enroll`, `/mfa/verify`, the authed `/login?next=`
+branch in `src/middleware.ts`, and the `/auth/callback` + `/auth/confirm` routes all feed a
+client-supplied `?next=` into it, and `/consent` ends in `window.location.replace(next)`.
+
+**Not an open redirect.** Every consumer re-runs `safeNextPath` and resolves the result against
+`request.url`, and the `//`, `://` and `\` checks still held, so the value stayed same-origin
+throughout. The damage was bounded to landing on a deny-listed in-app route.
+
+**The fix.** `safeNextPath` now percent-decodes the path once and runs every structural check
+against both the raw and the decoded form: protocol-relative prefix, scheme, backslash,
+`..` segment, and the login/auth deny-list. Three judgment calls worth recording:
+
+- **Unwrap to a fixed point, not once.** A single decode models what the URL parser does today
+  (it matches `..`, `.%2e`, `%2e.` and `%2e%2e` as double-dot segments but leaves `%252e%252e` as
+  literal text, which never normalizes), so `/app/%252e%252e/…` is harmless *for today's
+  consumers*. It is rejected anyway: the guard must not depend on every hop decoding exactly once,
+  because a future consumer that decodes twice would reopen the hole. This reverses the first cut
+  of this change, which decoded once and asserted the double-encoded form passed through — the
+  fresh-session **security review of #316** reached the opposite conclusion for `appGateNextPath`,
+  and the argument applies to every `?next=` consumer, not just the /app gates (Max, 23/9: align
+  before merging). Bounded at `MAX_DECODE_ROUNDS = 5` so a hostile value cannot drive the loop.
+- **Encoded slashes are treated as separators.** Decoding turns `%2f` into a real `/`, so
+  `/app/%2e%2e%2fauth/callback` and `/app/..%2Flogin` are now rejected. This is stricter than the
+  URL parser alone, which does not split on `%2f` — deliberately, because Next's router decodes
+  the pathname before it matches a route, so an encoded slash can still change which route runs.
+  The previous test asserted `/app/..%2Flogin` was "harmless"; that expectation is what changed.
+- **A malformed escape falls back.** `decodeURIComponent` throwing on `/app/%2` means the value
+  is not a path we ever served, so it is treated as hostile rather than passed through.
+
+**Tightened in passing, same bypass class.** The deny-list now compares the path only rather than
+the whole raw value, so `/login?next=/app` no longer slips past the exact `raw === '/login'`
+match; and running it on the decoded path also closes `/%61uth/callback`, where percent-encoding
+the route name hid it from `startsWith('/auth/')`.
+
+**A tolerant decode, after a peer review from the #316 session.** The first fixed-point cut used
+`decodeURIComponent` per round and rejected on a throw. That quietly broke a legitimate deep
+link: `/app/events/50%25korting` decodes to `/app/events/50%korting`, where `%ko` is not an escape
+at all, so round two threw and the user was downgraded to bare /app — the exact feature #316
+shipped. The #316 session proposed accepting on a throw past round 0; that has a hole, verified
+here: `/app/%25252e%25252e/a%2525zz` reads `/app/%2e%2e/a%zz` by round 2, and `new URL()`
+normalizes THAT to `/a%zz`, out of /app. So instead each round decodes tolerantly — every maximal
+run of `%XX` is decoded together (multi-byte UTF-8 like `caf%C3%A9` survives) and an unresolvable
+run is left as literal text, exactly as the WHATWG URL parser leaves it — while a malformed escape
+in the value as HANDED to the guard (`/app/%2`) is still rejected up front. Both properties hold:
+the legitimate `%` survives, and traversal hiding behind a bad escape does not. `appGateNextPath`
+got the same treatment, since its own loop would otherwise have rejected the deep link anyway.
+
+**Relation to PR #316 (merged first, `182e63f`).** #316 added `appGateNextPath`, a narrowing of
+the guard for the `/app` consent/MFA gates, and its own fresh-session security review pushed that
+function to unwrap to a fixed point — explicitly rejecting the single-decode reasoning this change
+started from. Rather than land two guards that disagree, the fixed-point rule moved to the shared
+layer here, where every `?next=` consumer gets it. `appGateNextPath`'s local loop is now provably
+redundant and is **kept as defense in depth**: its own `/app` prefix test still runs on the
+ENCODED path, which is only safe while the shared guard keeps treating `%2e%2e` as traversal and
+`%2f` as a separator. That is the strictest part of the guard and the likeliest to be relaxed for
+some future deep link; keeping the check local means relaxing it cannot silently open the gates.
+Both docblocks now say this, and the stale "`safeNextPath` only rejects literal `..` segments"
+note is gone from #316's function and its test.
+
+Suites: CI `lint-and-test` green. Locally 1753/1761 Vitest tests pass; the 8 failures sit in `tests/unit/pgtap-plan-run-gate.test.ts` and
+`tests/unit/pre-push-hook-is-executable.test.ts`, both environmental (they need the Supabase CLI
+and a non-worktree `core.hooksPath`) and failing identically on `main`. `tsc --noEmit` clean,
+`next lint` clean (two pre-existing a11y warnings in `datetime-field.tsx`, untouched).
+
+---
+
 ## 2026-09-23 — ADE UX round test pass: 28/28 green, task closed (z8uq9m0g0j)
 
 No code change — a verification session that closes the test handoff the 18/9 entry left
