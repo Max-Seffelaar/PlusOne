@@ -12,6 +12,16 @@ const STAFF = 'staff@plusone.test';
 // simulate. Staff, not admin: the MFA recommendation (admin/finance) must not
 // get in the way, and this spec must not touch anyone's MFA factors.
 
+// The seed stamps consent for NOBODY (`supabase/seed.sql` sets no
+// terms_accepted_at), so on a fresh `pnpm db:fresh` — and in CI, which always
+// starts from a fresh stack — dev-login lands on /consent and the SETUP step
+// times out before the case under test is reached. Both tests below need a
+// consented staff user to sign in as, so state that precondition instead of
+// inheriting whatever ran before.
+test.beforeEach(async () => {
+  await acceptConsent(STAFF);
+});
+
 // `staff@plusone.test` is shared with other specs in the one local DB, so the
 // restore sits in a `finally` INSIDE each test (plus an afterEach belt): an
 // abort between clearConsent and the hook would otherwise leave every later
