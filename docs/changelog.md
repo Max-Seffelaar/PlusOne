@@ -8,6 +8,64 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-23 — P-03 `platform_invites`: invite customers into the open beta (z8uq9m0tnv)
+
+A platform admin (P-02) invites a new customer with nothing but an e-mail address. We
+create **no** venue and **no** `public.invites` row — the invitee walks the existing
+onboarding wizard, makes their own company, accepts the terms themselves and lands on
+`trialing`. `platform_invites` is the outreach record plus the funnel source, never an
+access grant. Migration `20260923150000_platform_invites.sql`.
+
+**What shipped.**
+- `public.platform_invites` (`id` uuid v7, `email`, `note`, `invited_by`, `created_at`,
+  `last_sent_at`, `revoked_at`, `revoked_by`). One OPEN invite per address (partial
+  unique index on `lower(email)`); a revoked address can be re-invited.
+- RLS: `select` / `insert` / `update` all `to authenticated` with `is_platform_admin()`
+  as the only term. Insert pins `invited_by = auth.uid()` and forces the row open;
+  update allows resend + revoke only. **No DELETE policy and no DELETE grant** —
+  revoking is a soft `revoked_at` stamp, so the audit trail survives.
+- Grant matrix stated explicitly (`revoke all … from anon, authenticated` first, then
+  `grant select, insert, update … to authenticated`; `service_role` untouched).
+- `guard_platform_invite_update()` freezes `id`/`email`/`invited_by`/`created_at` and
+  makes a revoke one-way — RLS is row-level, so without it a platform admin could
+  re-point an existing row at another address.
+- `audit_trigger()` attached unchanged. The table has no `venue_id`, so the generic
+  branch writes `venue_id = null`, which is exactly the P-02 shape: a null-venue audit
+  row is readable only by platform admins.
+- `consume_platform_invite_throttle()` — SECURITY DEFINER wrapper over the internal
+  `consume_public_throttle()`; 20 outbound beta mails per platform admin per hour,
+  shared by invite and resend. Raises 42501 for anyone else.
+- `platform_invite_overview()` / `platform_invite_funnel()` — the funnel
+  (`invited` → `signed_in` → `company_created` → `first_event`, plus `revoked`),
+  aggregated in SQL. SECURITY DEFINER is forced by `auth.users.confirmed_at`, which
+  `authenticated` cannot read; both re-check `is_platform_admin()` in their own body,
+  EXECUTE is revoked from public/anon/service_role, and a non-platform-admin gets zero
+  rows rather than an error (no existence oracle).
+- `src/features/platform/invite-actions.ts`: `inviteBetaCustomerAction`,
+  `resendBetaInviteAction`, `revokeBetaInviteAction`. Every statement runs through the
+  USER-scoped client so RLS is the boundary; the app-layer `is_platform_admin()` probe
+  is only there for a clear message. Row FIRST, mail after (86ey9ea00 #54).
+  `src/features/platform/schemas.ts` holds the Zod input.
+
+**Service role — where and why.** Exactly one place: `sendInviteEmail()` from
+`src/features/auth/invite-mail.ts`. `auth.admin.inviteUserByEmail` is a service-role-only
+API (it provisions an auth identity) and the magic-link fallback for an already-confirmed
+address uses a bare anon client. Nothing in `public` is ever written with the service
+client here.
+
+**Open decision for Max (asked in the PR, deliberately not chosen here):** revoking marks
+the row only — the person can still log in and self-onboard. The alternative is also
+deleting the auth account while it was never confirmed. The minimal variant shipped.
+
+**Verification.** `supabase db reset` clean; `pnpm db:test` 64 files / 1437 assertions
+PASS (new `supabase/tests/database/platform_invites.test.sql`, 37 assertions;
+`tables.test.sql` allowlist extended). `npx vitest run` 1800 passed — the 7
+`pgtap-plan-run-gate.test.ts` failures are the known Windows-only environment noise and
+2 `datetime-field.datefield.test.tsx` timeouts pass in isolation. `pnpm lint` clean,
+`npx tsc --noEmit` clean. `src/lib/database.types.ts` carries only the real additions.
+
+---
+
 ## 2026-09-23 — P-02 platform (system) admin: `is_platform_admin` + RLS helpers (z8uq9m0tnt)
 
 PlusOne's own operators can now read and write in every venue, with the boundary in RLS
