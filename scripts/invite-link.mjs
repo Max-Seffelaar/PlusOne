@@ -56,28 +56,51 @@ const appOrigin = (appOriginArg ?? appUrl ?? '').replace(/\/$/, '');
 const isProd = !/(localhost|127\.0\.0\.1)/.test(url);
 const admin = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
-const { data, error } = await admin.auth.admin.generateLink({ type: 'magiclink', email });
-if (error) {
-  console.error('generateLink failed:', error.message);
+// GoTrue refuses `magiclink` for an account that was invited but never
+// confirmed ("Signups not allowed for otp" / user not confirmed) — exactly the
+// people this script exists to unblock. Fall back to the confirmation-slot link
+// types in that case (P-01, z8uq9m0tnq). `invite` and `signup` both mint a
+// token in the confirmation slot; whichever GoTrue accepts for this account's
+// state is the one that will verify. Note that minting a new link INVALIDATES
+// any earlier unused link for the same slot, so only hand out the newest one.
+const LINK_TYPES = ['magiclink', 'invite', 'signup'];
+let data = null;
+let linkType = null;
+let lastError = null;
+for (const type of LINK_TYPES) {
+  const attempt = await admin.auth.admin.generateLink({ type, email });
+  if (!attempt.error && attempt.data?.properties?.hashed_token) {
+    data = attempt.data;
+    linkType = type;
+    break;
+  }
+  lastError = attempt.error ?? new Error('generateLink returned no token');
+  console.error(`generateLink(${type}) failed: ${lastError.message} — trying the next type…`);
+}
+if (!data) {
+  console.error('generateLink failed for every type:', lastError?.message);
   process.exit(1);
 }
 
 const tokenHash = data?.properties?.hashed_token;
 const otp = data?.properties?.email_otp;
-
 console.log(`\nTarget : ${url} ${isProd ? '(PROD)' : '(local)'}`);
 console.log(`User   : ${email}`);
+// The link must carry the type its token was minted for; /auth/confirm falls
+// back across the first-login slots anyway, but the right type verifies in one
+// round trip.
+console.log(`Link   : type=${linkType}`);
 if (otp) {
   console.log(`\n6-digit code (enter at the login screen after typing the e-mail):\n  ${otp}`);
 }
 // The app verifies token_hash statelessly via /auth/confirm (no PKCE cookie
 // needed for an e-mailed link), then accepts pending invites and lands at /app.
 if (tokenHash && appOrigin) {
-  const link = `${appOrigin}/auth/confirm?token_hash=${tokenHash}&type=magiclink&next=/app`;
+  const link = `${appOrigin}/auth/confirm?token_hash=${tokenHash}&type=${linkType}&next=/app`;
   console.log(`\nOne-click login link (send this to the invitee):\n  ${link}`);
 } else if (tokenHash) {
   console.log(
-    `\ntoken_hash: ${tokenHash}\n  (pass the app origin as the 2nd arg, or set NEXT_PUBLIC_APP_URL,\n   to print a ready /auth/confirm?token_hash=…&type=magiclink&next=/app link.)`
+    `\ntoken_hash: ${tokenHash}\n  (pass the app origin as the 2nd arg, or set NEXT_PUBLIC_APP_URL,\n   to print a ready /auth/confirm?token_hash=…&type=${linkType}&next=/app link.)`
   );
 }
 console.log('');

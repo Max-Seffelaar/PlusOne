@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { safeNextPath } from '@/features/auth/next-path';
 import { resolveEntryDestination } from '@/features/auth/entry-redirect';
 import { emailOtpTypeSchema } from '@/features/auth/schemas';
+import { linkVerifyTypes, verifyWithFallback } from '@/features/auth/verify-fallback';
 
 // Handles link-based verification (token_hash), used for the confirmed e-mail
 // change flow (decision #24) and any magic-link fallback. On success the
@@ -39,9 +40,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const supabase = await createClient({
     headers: { 'User-Agent': request.headers.get('user-agent') ?? 'PlusOne' },
   });
-  const { data, error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
+  // A mail's declared type is a hint, not a fact: GoTrue files an invite for an
+  // already-existing-but-unconfirmed account in the *confirmation* slot and
+  // sends the "Confirm signup" mail for it, so a link that says `type=invite`
+  // can only be verified as `signup` (and vice versa). Try the declared type
+  // first, then the remaining first-login slots, before giving up (P-01).
+  const { data, error } = await verifyWithFallback(linkVerifyTypes(type), async (candidate) => {
+    const result = await supabase.auth.verifyOtp({ type: candidate, token_hash: tokenHash });
+    // A verify that returns no user is as unusable as an error — treat it as a
+    // miss for this slot so the remaining slots still get their turn.
+    return {
+      data: result.data.user ? result.data : undefined,
+      error: result.error ?? (result.data.user ? null : { status: 403, message: 'No user for token' }),
+    };
+  });
 
-  if (error || !data.user) {
+  if (error || !data?.user) {
+    // Details stay server-side; the user gets a readable screen with a way out.
     return NextResponse.redirect(new URL('/login?error=link', request.url));
   }
 

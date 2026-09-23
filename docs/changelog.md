@@ -8,6 +8,61 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-23 — First login for new invitees: code in every mail + verify fallback (z8uq9m0tnq)
+
+**P-01.** No beta invitee could get in on their own. The prod auth log of 23/9 for one
+invitee reads: invite sent 09:35:06 → the invite link 403 "One-time token not found"
+09:39:31 → "send me a code" 09:39:39 → the typed code 403 three times → a *second* mail
+09:40:46 → in at 09:41:32 via that mail's link. Three independent causes, all fixed here.
+
+**1 — The mail had no code.** An invitee who already has an unconfirmed account gets the
+**Confirm signup** template (GoTrue treats a re-invite as a re-confirmation), and neither
+`confirmation.html` nor `invite.html` carried `{{ .Token }}` — while `/login` asks for a
+6-digit code. Both templates now render the code above the button, exactly like
+`magic_link.html`. **These are dashboard snapshots: Max must re-paste all three templates
+into Authentication → Email Templates.** `docs/auth-setup.md` no longer calls the Confirm
+signup template "dormant" — it is a live, user-facing mail.
+
+**2 — Verification was locked to one token slot.** `OtpLoginForm` always verified
+`type: 'email'` and `/auth/confirm` always trusted the type in the link. A never-confirmed
+invitee's token lives in the confirmation/invite slot. Both now walk the first-login slots
+in order via `src/features/auth/verify-fallback.ts` (`email → signup → invite` for a typed
+code; declared-type-first for a link), stop at the first slot GoTrue accepts, never retry a
+slot, and abort immediately on a rate limit instead of burning the remaining attempts.
+`email_change`/`recovery` deliberately never fall back — they are their own flows.
+
+**3 — "One-time token not found", explained and measured.** Reproduced on the local stack
+(GoTrue v2.195.0) with `auth.one_time_tokens` read before and after each step: GoTrue keeps
+**exactly one row per `(user_id, token_type)`**, and invite / re-invite / confirm-signup all
+write the same `confirmation_token` slot. Minting a second link replaced the row's hash
+(`0d08e0ed… → 0c26f874…`), and the first link then failed with precisely that error; a used
+link fails identically on replay. So any second mail — or anything that opens the link
+before the human does — kills the first one. Which of the two triggered it for that invitee
+cannot be settled from the available prod log; the mechanism is proven, the specific trigger
+is not. Note the prod log's own ordering: the failing click came *before* the "send code"
+call, so it was not that call that superseded it.
+
+**4 — A dead link is no longer a dead end.** `/auth/confirm` still bounces to
+`/login?error=link`, but `/login` now renders what happened ("that link didn't work — it may
+already have been used, or a newer email replaced it") with the Send-code step right there,
+instead of a generic error with no way forward.
+
+**5 — `scripts/invite-link.mjs`** falls back `magiclink → invite → signup` when GoTrue
+refuses a magic link for a never-confirmed account, prints which type it minted and builds
+the `/auth/confirm` link with that type. It warns in-file that minting supersedes every
+earlier link for that address.
+
+Tests: `src/features/auth/verify-fallback.test.ts` (12) covers the order, that a valid type
+is never retried, that the first error is the one surfaced, and the rate-limit abort;
+`OtpLoginForm.test.tsx` gained 4 (single-call happy path, `email → signup` fallback, all
+three slots exhausted, the `?error=link` screen). No migration.
+
+**Nazorg for Max:** `gar***@gmail` (18/9), `pet***@hotmail` and `roe***@gmail` are still
+stuck — hand them a fresh link with `node scripts/invite-link.mjs <email>
+https://app.plus-one.io` and make sure no other mail is sent to that address afterwards.
+
+---
+
 ## 2026-09-23 — ADE UX round test pass: 28/28 green, task closed (z8uq9m0g0j)
 
 No code change — a verification session that closes the test handoff the 18/9 entry left
