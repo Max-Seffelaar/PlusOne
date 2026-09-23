@@ -153,27 +153,36 @@ describe('inviteBetaCustomerAction', () => {
     expect(sendInviteEmail).not.toHaveBeenCalled();
   });
 
-  it('succeeds when the account already exists (magic-link fallback only notifies)', async () => {
+  it('succeeds for an already-existing account (magic-link fallback delivered)', async () => {
     const { client } = makeClient();
     (createClient as Mock).mockResolvedValue(client);
-    // sendInviteEmail resolves the already-registered path internally; a pure
-    // NOTIFY failure must not fail the invite — the row is what matters.
-    (sendInviteEmail as Mock).mockResolvedValue({ ok: false, reason: 'notify' });
+    // sendInviteEmail resolves the already-registered path internally and only
+    // reports ok when the magic-link mail actually went out.
+    (sendInviteEmail as Mock).mockResolvedValue({ ok: true });
 
     const res = await inviteBetaCustomerAction({ ok: false }, inviteForm());
 
     expect(res.ok).toBe(true);
+    // seedName: false — the payload would overwrite an existing unconfirmed
+    // account's raw_user_meta_data (security review F5).
+    expect(sendInviteEmail).toHaveBeenCalledWith('klant@venue.test', { seedName: false });
   });
 
-  it('fails when the address cannot be provisioned at all', async () => {
-    const { client } = makeClient();
-    (createClient as Mock).mockResolvedValue(client);
-    (sendInviteEmail as Mock).mockResolvedValue({ ok: false, reason: 'provision' });
+  it.each(['notify', 'provision'] as const)(
+    'reports an undelivered %s mail as a failure and points at Resend',
+    async (reason) => {
+      const { client } = makeClient();
+      (createClient as Mock).mockResolvedValue(client);
+      (sendInviteEmail as Mock).mockResolvedValue({ ok: false, reason });
 
-    const res = await inviteBetaCustomerAction({ ok: false }, inviteForm());
+      const res = await inviteBetaCustomerAction({ ok: false }, inviteForm());
 
-    expect(res.ok).toBe(false);
-  });
+      // The row grants no access, so an invite whose mail never arrived did
+      // nothing — and a plain retry would only hit the unique index.
+      expect(res.ok).toBe(false);
+      expect(res.error).toMatch(/resend/i);
+    }
+  );
 
   it('refuses a non-platform-admin before touching the table or the mailer', async () => {
     const { client, table } = makeClient({ isPlatformAdmin: false });
@@ -186,16 +195,37 @@ describe('inviteBetaCustomerAction', () => {
     expect(sendInviteEmail).not.toHaveBeenCalled();
   });
 
-  it('stops at the rate limit before inserting or mailing', async () => {
-    const { client, table } = makeClient({ withinBudget: false });
+  it('consumes the mail budget after the insert and never mails when it is spent', async () => {
+    const { client, table, callLog } = makeClient({ withinBudget: false });
     (createClient as Mock).mockResolvedValue(client);
 
     const res = await inviteBetaCustomerAction({ ok: false }, inviteForm());
 
     expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/too many/i);
-    expect(table.insert).not.toHaveBeenCalled();
+    expect(res.error).toMatch(/resend/i);
+    expect(table.insert).toHaveBeenCalled();
     expect(sendInviteEmail).not.toHaveBeenCalled();
+    expect(callLog.indexOf('insert')).toBeLessThan(
+      callLog.indexOf('rpc:consume_platform_invite_throttle')
+    );
+  });
+
+  it('does not burn budget on a duplicate address', async () => {
+    const { client, callLog } = makeClient({ insertError: { code: '23505', message: 'dup' } });
+    (createClient as Mock).mockResolvedValue(client);
+
+    await inviteBetaCustomerAction({ ok: false }, inviteForm());
+
+    expect(callLog).not.toContain('rpc:consume_platform_invite_throttle');
+  });
+
+  it('does not burn budget on input Zod rejects', async () => {
+    const { client, callLog } = makeClient();
+    (createClient as Mock).mockResolvedValue(client);
+
+    await inviteBetaCustomerAction({ ok: false }, inviteForm('not-an-email'));
+
+    expect(callLog).not.toContain('rpc:consume_platform_invite_throttle');
   });
 
   it('rejects an invalid address through Zod', async () => {
@@ -220,7 +250,7 @@ describe('resendBetaInviteAction', () => {
 
     expect(res.ok).toBe(true);
     expect(table.update).toHaveBeenCalled();
-    expect(sendInviteEmail).toHaveBeenCalledWith('klant@venue.test');
+    expect(sendInviteEmail).toHaveBeenCalledWith('klant@venue.test', { seedName: false });
   });
 
   it('refuses a revoked row and sends nothing', async () => {
@@ -244,6 +274,42 @@ describe('resendBetaInviteAction', () => {
 
     expect(res.ok).toBe(false);
     expect(res.error).toBe("You don't have access to this.");
+  });
+
+  it('answers a non-platform-admin NOT_ALLOWED, never a rate-limit message', async () => {
+    const { client, callLog } = makeClient({ isPlatformAdmin: false });
+    (createClient as Mock).mockResolvedValue(client);
+
+    const res = await resendBetaInviteAction({ ok: false }, idForm());
+
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe("You don't have access to this.");
+    // The admin probe runs first, so the throttle RPC is never even reached.
+    expect(callLog).not.toContain('rpc:consume_platform_invite_throttle');
+  });
+
+  it('does not burn budget on an id it cannot see', async () => {
+    const { client, callLog } = makeClient({ selectRow: null });
+    (createClient as Mock).mockResolvedValue(client);
+
+    await resendBetaInviteAction({ ok: false }, idForm());
+
+    expect(callLog).not.toContain('rpc:consume_platform_invite_throttle');
+  });
+
+  it('does not claim it re-sent anything when the budget is spent', async () => {
+    const { client, table } = makeClient({
+      withinBudget: false,
+      selectRow: { id: INVITE_ID, email: 'klant@venue.test', revoked_at: null },
+    });
+    (createClient as Mock).mockResolvedValue(client);
+
+    const res = await resendBetaInviteAction({ ok: false }, idForm());
+
+    expect(res.ok).toBe(false);
+    // last_sent_at must NOT move — it is what the audit log reads as "resent".
+    expect(table.update).not.toHaveBeenCalled();
+    expect(sendInviteEmail).not.toHaveBeenCalled();
   });
 
   it('surfaces a notify failure — the mail is the whole point of a resend', async () => {
@@ -282,12 +348,14 @@ describe('revokeBetaInviteAction', () => {
     expect(res.error).toBe("You don't have access to this.");
   });
 
-  it('never deletes the row — revoking is an UPDATE only', async () => {
-    const { client, table } = makeClient();
+  it('refuses a non-platform-admin before touching the row', async () => {
+    const { client, table } = makeClient({ isPlatformAdmin: false });
     (createClient as Mock).mockResolvedValue(client);
 
-    await revokeBetaInviteAction({ ok: false }, idForm());
+    const res = await revokeBetaInviteAction({ ok: false }, idForm());
 
-    expect(table).not.toHaveProperty('delete');
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe("You don't have access to this.");
+    expect(table.update).not.toHaveBeenCalled();
   });
 });

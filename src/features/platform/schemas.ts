@@ -3,7 +3,7 @@
 // formData passthrough.
 
 import { z } from 'zod';
-import { emailSchema } from '@/features/auth/schemas';
+import { emailSchema, uuidSchema } from '@/features/auth/schemas';
 
 // Free-form operator note ("met Joeri gesproken op ADE"). Never shown to the
 // invitee; an empty field is stored as null rather than ''.
@@ -21,7 +21,7 @@ export const betaInviteSchema = z.object({
 });
 
 export const platformInviteIdSchema = z.object({
-  inviteId: z.string().uuid(),
+  inviteId: uuidSchema,
 });
 
 export type BetaInviteInput = z.infer<typeof betaInviteSchema>;

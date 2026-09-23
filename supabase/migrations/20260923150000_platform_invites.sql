@@ -27,12 +27,15 @@
 --     readable only by platform admins (same shape as
 --     `platform_admin_grant` from P-02).
 --
--- Status source (scope item 4): `platform_invite_overview()` /
--- `platform_invite_funnel()`. The funnel needs `auth.users.confirmed_at`, which
--- `authenticated` cannot read, so both are SECURITY DEFINER — and both re-check
--- `public.is_platform_admin()` in their own body rather than trusting any
--- caller-side gate, with EXECUTE revoked from public/anon/service_role. They
--- aggregate in SQL; nothing is counted client-side.
+-- Status source (scope item 4): `platform_invite_overview(p_limit, p_offset)` —
+-- windowed, hard-capped — and `platform_invite_funnel()`, a GROUP BY over every
+-- invite. Both sit on the internal `platform_invite_stage_rows()` so the stage
+-- definition exists once. The stage needs `auth.users.confirmed_at`, which
+-- `authenticated` cannot read, so all three are SECURITY DEFINER — and each
+-- re-checks `public.is_platform_admin()` rather than trusting any caller-side
+-- gate, with EXECUTE revoked from public/anon/service_role (and from
+-- `authenticated` too for the internal one). They aggregate in SQL; nothing is
+-- counted client-side.
 --
 -- Rate limiting: `consume_platform_invite_throttle()` wraps the existing
 -- `consume_public_throttle()` (20260706102000, internal-only) with an
@@ -98,10 +101,17 @@ begin
       using errcode = '42501';
   end if;
 
-  -- A revoke is one-way: un-revoking would silently re-open the unique index
-  -- slot and rewrite history. Re-invite by inserting a new row instead.
+  -- A revoke is one-way, its attribution is final, and the row becomes a
+  -- point-in-time record. `revoked_by` and `note` both have to be named
+  -- explicitly: the update policy's WITH CHECK only demands
+  -- `revoked_by = auth.uid()`, so without this a SECOND platform admin could
+  -- re-stamp an already-revoked row as their own work (or rewrite the note that
+  -- explains why it was revoked) while leaving revoked_at untouched. Re-invite
+  -- by inserting a new row instead.
   if old.revoked_at is not null
-     and new.revoked_at is distinct from old.revoked_at then
+     and (new.revoked_at is distinct from old.revoked_at
+          or new.revoked_by is distinct from old.revoked_by
+          or new.note is distinct from old.note) then
     raise exception 'a revoked platform invite cannot be changed'
       using errcode = '42501';
   end if;
@@ -222,7 +232,85 @@ grant execute on function public.consume_platform_invite_throttle() to authentic
 -- signed in. No password hashes, no tokens, no metadata, and no way to probe an
 -- address that is not already in platform_invites.
 
-create or replace function public.platform_invite_overview()
+-- Shared stage computation, used by BOTH public functions so the definition
+-- cannot drift between the list and the roll-up. Internal only: EXECUTE is
+-- revoked from every app role, and it re-checks is_platform_admin() anyway.
+--
+-- The auth.users match is a LATERAL "pick one" rather than a plain LEFT JOIN.
+-- GoTrue's e-mail uniqueness is PARTIAL (unique on (email) where is_sso_user =
+-- false), so two rows can legitimately share an address — a plain join would
+-- duplicate the invite in the list AND double-count it in the funnel. Deleted
+-- accounts are excluded so a soft-deleted user never reports `signed_in`.
+-- `lower(au.email)` cannot use auth's own index; auth is not our schema to add
+-- one to, and this scans a table the size of our customer base, not our guest
+-- lists.
+
+create or replace function public.platform_invite_stage_rows()
+returns table (
+  invite_id uuid,
+  user_id uuid,
+  confirmed_at timestamptz,
+  last_sign_in_at timestamptz,
+  venue_count integer,
+  event_count integer,
+  stage text
+)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select
+    pi.id,
+    u.id,
+    u.confirmed_at,
+    u.last_sign_in_at,
+    coalesce(c.venue_count, 0),
+    coalesce(c.event_count, 0),
+    case
+      when pi.revoked_at is not null then 'revoked'
+      when coalesce(c.event_count, 0) > 0 then 'first_event'
+      when coalesce(c.venue_count, 0) > 0 then 'company_created'
+      when u.confirmed_at is not null then 'signed_in'
+      else 'invited'
+    end
+  from public.platform_invites pi
+  left join lateral (
+    select au.id, au.confirmed_at, au.last_sign_in_at
+    from auth.users au
+    where lower(au.email) = lower(pi.email)
+      and au.deleted_at is null
+    order by au.created_at
+    limit 1
+  ) u on true
+  left join lateral (
+    select
+      (select count(*) from public.venue_memberships vm
+        where vm.user_id = u.id)::integer as venue_count,
+      (select count(*)
+         from public.events e
+         join public.venue_memberships vm on vm.venue_id = e.venue_id
+        where vm.user_id = u.id)::integer as event_count
+  ) c on true
+  where public.is_platform_admin();
+$$;
+
+comment on function public.platform_invite_stage_rows() is
+  'Internal: one (invite, funnel stage) row per platform invite. Shared by '
+  'platform_invite_overview() and platform_invite_funnel() so the stage '
+  'definition lives in exactly one place.';
+
+revoke execute on function public.platform_invite_stage_rows()
+  from public, anon, authenticated, service_role;
+
+-- The list. WINDOWED: a beta list grows without bound and nothing downstream
+-- should ever ship the whole table. p_limit is capped server-side, so a client
+-- asking for a million rows gets PLATFORM_INVITE_PAGE_MAX.
+
+create or replace function public.platform_invite_overview(
+  p_limit integer default 100,
+  p_offset integer default 0
+)
 returns table (
   id uuid,
   email text,
@@ -245,54 +333,37 @@ stable
 security definer
 set search_path = ''
 as $$
-  -- The gate is the WHERE below: a non-platform-admin gets zero rows rather
-  -- than an error, so the function leaks nothing — not even "there are invites".
-  with matched as (
-    select
-      pi.id, pi.email, pi.note, pi.invited_by, pi.created_at, pi.last_sent_at,
-      pi.revoked_at, pi.revoked_by,
-      u.id as user_id, u.confirmed_at, u.last_sign_in_at
-    from public.platform_invites pi
-    left join auth.users u on lower(u.email) = lower(pi.email)
-    where public.is_platform_admin()
-  ),
-  counted as (
-    select
-      m.*,
-      (select count(*) from public.venue_memberships vm
-        where vm.user_id = m.user_id)::integer as venue_count,
-      (select count(*)
-         from public.events e
-         join public.venue_memberships vm on vm.venue_id = e.venue_id
-        where vm.user_id = m.user_id)::integer as event_count
-    from matched m
-  )
+  -- The gate is inside platform_invite_stage_rows(): a non-platform-admin gets
+  -- zero rows rather than an error, so the function leaks nothing — not even
+  -- "there are invites".
   select
-    c.id, c.email, c.note, c.invited_by,
-    p.full_name as invited_by_name,
-    c.created_at, c.last_sent_at, c.revoked_at, c.revoked_by,
-    c.user_id, c.confirmed_at, c.last_sign_in_at,
-    coalesce(c.venue_count, 0), coalesce(c.event_count, 0),
-    case
-      when c.revoked_at is not null then 'revoked'
-      when coalesce(c.event_count, 0) > 0 then 'first_event'
-      when coalesce(c.venue_count, 0) > 0 then 'company_created'
-      when c.confirmed_at is not null then 'signed_in'
-      else 'invited'
-    end as stage
-  from counted c
-  left join public.user_profiles p on p.id = c.invited_by
-  order by c.created_at desc;
+    pi.id, pi.email, pi.note, pi.invited_by,
+    p.full_name,
+    pi.created_at, pi.last_sent_at, pi.revoked_at, pi.revoked_by,
+    s.user_id, s.confirmed_at, s.last_sign_in_at,
+    s.venue_count, s.event_count, s.stage
+  from public.platform_invite_stage_rows() s
+  join public.platform_invites pi on pi.id = s.invite_id
+  left join public.user_profiles p on p.id = pi.invited_by
+  order by pi.created_at desc
+  limit least(greatest(coalesce(p_limit, 100), 1), 500)
+  offset greatest(coalesce(p_offset, 0), 0);
 $$;
 
-comment on function public.platform_invite_overview() is
-  'Per-invite open-beta funnel state for platform admins. SECURITY DEFINER '
-  'because it reads auth.users.confirmed_at; returns zero rows for anyone who '
-  'is not a platform admin.';
+comment on function public.platform_invite_overview(integer, integer) is
+  'Windowed per-invite open-beta funnel state for platform admins (default 100 '
+  'rows, hard cap 500, newest first). SECURITY DEFINER because it reads '
+  'auth.users.confirmed_at; returns zero rows for anyone who is not a platform '
+  'admin. Every column sourced from the auth.users LATERAL or from a nullable '
+  'invite column is nullable at runtime, whatever the generated types say.';
 
-revoke execute on function public.platform_invite_overview()
+revoke execute on function public.platform_invite_overview(integer, integer)
   from public, anon, service_role;
-grant execute on function public.platform_invite_overview() to authenticated;
+grant execute on function public.platform_invite_overview(integer, integer) to authenticated;
+
+-- The roll-up. Its own GROUP BY over the lean stage query — NOT a re-run of the
+-- windowed list function, which would both re-join user_profiles for nothing
+-- and silently count only the current page.
 
 create or replace function public.platform_invite_funnel()
 returns table (stage text, invite_count integer)
@@ -301,15 +372,15 @@ stable
 security definer
 set search_path = ''
 as $$
-  select o.stage, count(*)::integer
-  from public.platform_invite_overview() o
-  group by o.stage
-  order by o.stage;
+  select s.stage, count(*)::integer
+  from public.platform_invite_stage_rows() s
+  group by s.stage
+  order by s.stage;
 $$;
 
 comment on function public.platform_invite_funnel() is
-  'GROUP BY roll-up of platform_invite_overview(): one row per funnel stage. '
-  'Aggregated in the database, never counted client-side.';
+  'GROUP BY roll-up over every platform invite: one row per funnel stage. '
+  'Aggregated in the database, never counted client-side, never windowed.';
 
 revoke execute on function public.platform_invite_funnel()
   from public, anon, service_role;

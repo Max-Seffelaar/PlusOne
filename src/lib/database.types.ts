@@ -2045,7 +2045,7 @@ export type Database = {
         }[]
       }
       platform_invite_overview: {
-        Args: never
+        Args: { p_limit?: number; p_offset?: number }
         Returns: {
           confirmed_at: string
           created_at: string
@@ -2059,6 +2059,18 @@ export type Database = {
           note: string
           revoked_at: string
           revoked_by: string
+          stage: string
+          user_id: string
+          venue_count: number
+        }[]
+      }
+      platform_invite_stage_rows: {
+        Args: never
+        Returns: {
+          confirmed_at: string
+          event_count: number
+          invite_id: string
+          last_sign_in_at: string
           stage: string
           user_id: string
           venue_count: number
