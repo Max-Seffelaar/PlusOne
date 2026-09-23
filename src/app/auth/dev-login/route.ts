@@ -24,7 +24,18 @@ import { devTotpCode } from '@/features/auth/dev-totp';
 const DEV_MFA_SECRET = 'PLUSONELOCALADMINDEVSECRET234567';
 function devLoginEnabled(): boolean {
   const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
-  const onLocalSupabase = /(?:localhost|127\.0\.0\.1)/.test(supaUrl);
+  // Hostname equality, never a substring match on the whole URL: `localhost`
+  // anywhere in the string also matches a real host like
+  // `https://localhost.attacker.dev` or `https://x.127.0.0.1.nip.io`. Prod is
+  // still covered by the NODE_ENV conjunct, but any non-prod deploy running
+  // `next dev` would otherwise hand this service-role login route a live host.
+  let onLocalSupabase = false;
+  try {
+    const { hostname } = new URL(supaUrl);
+    onLocalSupabase = hostname === 'localhost' || hostname === '127.0.0.1';
+  } catch {
+    onLocalSupabase = false; // unset or unparseable: not local, so not enabled
+  }
   return process.env.NODE_ENV !== 'production' && onLocalSupabase;
 }
 
@@ -33,13 +44,16 @@ function devLoginEnabled(): boolean {
 // The drive-letter hint covers the case that actually happened: Git Bash (MSYS)
 // rewrites a POSIX-looking CLI argument such as `/app/contacts` into
 // `C:/Program Files/Git/app/contacts` before a script ever sees it.
-function warnIfNextRejected(raw: string | null, resolved: string): void {
-  if (!raw || raw === resolved) return;
+// `dest` is the destination actually redirected to, not the sanitized path: the
+// entry-gate hop below can turn /app into /consent?next=/app, and a log line
+// that disagrees with the URL bar is the confusion this warning exists to end.
+function warnIfNextRejected(raw: string | null, sanitized: string, dest: string): void {
+  if (!raw || raw === sanitized) return;
   const msysHint = /^[A-Za-z]:[\\/]/.test(raw)
     ? ' This looks like a Windows path: Git Bash rewrites /paths passed as CLI arguments, so set MSYS_NO_PATHCONV=1 (or build the URL inside the script).'
     : '';
   console.warn(
-    `[dev-login] ignored next=${JSON.stringify(raw)}: not a safe in-app path, landing on ${resolved}.${msysHint}`,
+    `[dev-login] ignored next=${JSON.stringify(raw)}: not a safe in-app path, landing on ${dest}.${msysHint}`,
   );
 }
 
@@ -52,7 +66,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const email = url.searchParams.get('email');
   const rawNext = url.searchParams.get('next');
   const next = safeNextPath(rawNext, '/app');
-  warnIfNextRejected(rawNext, next);
   if (!email) {
     return NextResponse.redirect(new URL('/login?error=devlogin', request.url));
   }
@@ -117,5 +130,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // requested path), so dev-login deep links landed on Home for any seed user
   // who hadn't accepted the terms yet.
   const dest = await resolveEntryDestination(verified.user.id, next);
+  warnIfNextRejected(rawNext, next, dest);
   return NextResponse.redirect(new URL(dest, request.url));
 }

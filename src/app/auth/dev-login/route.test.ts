@@ -18,10 +18,12 @@ const USER_ID = '22222222-2222-4222-8222-222222222222';
 const BASE = 'http://localhost:7000/auth/dev-login?email=manager%40plusone.test';
 
 let warn: Mock;
-const originalUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
 beforeEach(() => {
-  process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://127.0.0.1:55321';
+  // stubEnv, not a plain assignment: `process.env.X = undefined` stores the
+  // STRING "undefined", and these files share a vitest worker, so a restore
+  // like that leaks a truthy non-URL into whatever runs next.
+  vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'http://127.0.0.1:55321');
   warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined) as unknown as Mock;
   (createServiceClient as Mock).mockReturnValue({
     auth: {
@@ -42,7 +44,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  process.env.NEXT_PUBLIC_SUPABASE_URL = originalUrl;
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
   vi.resetAllMocks();
 });
@@ -90,7 +92,21 @@ describe('GET /auth/dev-login: next handling', () => {
     expect(warn.mock.calls[0][0]).toContain('MSYS_NO_PATHCONV=1');
   });
 
-  it('stays open-redirect safe: an off-site next lands on /app on this origin', async () => {
+  it('names the destination it actually redirected to, not the sanitized path', async () => {
+    (hasAcceptedCurrentTerms as Mock).mockResolvedValue(false);
+
+    const dest = await devLogin('C:/Program Files/Git/app/contacts');
+
+    expect(dest.pathname).toBe('/consent');
+    // The old message said "landing on /app" while the browser sat on
+    // /consent?next=%2Fapp — a log line contradicting the URL bar.
+    expect(warn.mock.calls[0][0]).toContain('landing on /consent?next=%2Fapp');
+  });
+
+  // What safeNextPath's literal clauses reject today. It does NOT prove the
+  // guard is airtight — control characters (%09/%0A/%0D) still slip through it,
+  // which is a production-wide issue tracked in its own security PR, not here.
+  it('falls back to /app on this origin for the off-site forms the guard rejects', async () => {
     for (const evil of ['//evil.com/app', 'https://evil.com/app', '/\\evil.com']) {
       warn.mockClear();
       const dest = await devLogin(evil);
@@ -102,8 +118,16 @@ describe('GET /auth/dev-login: next handling', () => {
     }
   });
 
-  it('404s against a hosted Supabase URL', async () => {
-    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://tolxwgqhppdcvnogdpel.supabase.co';
+  // The gate gets a real host in every shape that a substring match on
+  // `localhost`/`127.0.0.1` would have waved through.
+  it.each([
+    'https://tolxwgqhppdcvnogdpel.supabase.co',
+    'https://localhost.attacker.dev',
+    'https://db.localhost.example.com',
+    'https://x.127.0.0.1.nip.io',
+    '',
+  ])('404s against a non-local Supabase URL (%s)', async (supabaseUrl) => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', supabaseUrl);
     const { GET } = await import('./route');
 
     const res = await GET(new NextRequest(`${BASE}&next=%2Fapp%2Fcontacts`));

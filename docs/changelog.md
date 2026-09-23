@@ -8,7 +8,7 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
-## 2026-09-18 — dev-login deep links landing on Home (z8uq9m0jcf)
+## 2026-09-23 — dev-login deep links landing on Home (z8uq9m0jcf)
 
 Branch `fix/z8uq9m0jcf-dev-login-deep-link`. Milestone: **Now** (dev/test loop
 correctness; the route 404s in prod). Found while building PR #304: in the fixture
@@ -39,8 +39,15 @@ straight to `next` and skipped that step.
 - A `next` that the guard rejects now logs a `[dev-login] ignored next=…` warning in the
   dev-server log instead of silently landing on `/app`. A drive-letter value adds the
   `MSYS_NO_PATHCONV=1` hint.
-- `safeNextPath` is unchanged. Open-redirect behaviour is pinned by the new
-  `route.test.ts` (6 tests; 3 fail on the old route).
+- The dev gate now compares the Supabase URL's **hostname** (`localhost` / `127.0.0.1`)
+  instead of substring-matching the whole URL, which also accepted a real host such as
+  `https://localhost.attacker.dev`. Prod was never exposed (the `NODE_ENV` conjunct), but
+  any non-prod deploy running `next dev` would have been.
+- `safeNextPath` is unchanged here. The new `route.test.ts` (11 tests; 3 fail on the old
+  route) covers the forms its literal clauses reject — it does **not** prove the guard is
+  airtight: `%09`/`%0A`/`%0D` still pass it and `new URL()` then strips them, which is an
+  open redirect on `/consent`, `/login`, `/auth/callback` and `/auth/confirm` too. Found
+  by the fresh-session review of this PR; fixed in its own security PR.
 
 **Prod login `next` handling: fine.** `/login?next=` → OTP → `/auth/callback` (or the
 e-mail link → `/auth/confirm`) already keeps the deep link through consent.
