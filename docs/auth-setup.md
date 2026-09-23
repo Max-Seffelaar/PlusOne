@@ -90,10 +90,18 @@ Local mirror: `[auth.email] otp_length = 6`, `otp_expiry = 600`.
 
 ### Email template must show the code
 
-The OTP/Magic-Link email template **must include `{{ .Token }}`** so the user
-sees the 6-digit code (not only a link). The Supabase default template already
-includes both a link and "enter the code: {{ .Token }}" — if you customise it,
-keep the token. Template editor: **Authentication → Email Templates → Magic Link**.
+**Every** template that can be the first mail a user acts on must include
+`{{ .Token }}` so the user sees the 6-digit code (not only a link) — the login
+screen promises a code, and a template without one is a dead end (P-01,
+`z8uq9m0tnq`: a beta invitee got the *Confirm signup* mail, which carried no
+code at all, while `/login` asked for one). That means **all three** of
+`magic_link.html`, `invite.html` and `confirmation.html`, which now each render
+the code above the button. Template editor: **Authentication → Email
+Templates**.
+
+> ⚠️ **Re-paste all three templates after this change** (Magic Link, Invite
+> user, Confirm signup) — the dashboard copies are snapshots, not links to the
+> repo.
 
 The prod template is the committed **`supabase/templates/magic_link.html`**: paste
 that file into the Magic Link editor verbatim, subject **`Your PlusOne login code`**
@@ -132,11 +140,15 @@ it to `…&type=invite&next=/app`, the same URL as before.
   clickable `/auth/confirm` links as prod should. Restart the local stack after
   changing them.
 
-### Confirm signup email (dormant while signups are off)
+### Confirm signup email (NOT dormant — invitees receive it)
 
 Public signups are **off** (`[auth].enable_signup = false`, invite-only, §1), so
-Supabase never sends this e-mail today. It only fires if signups are ever switched
-on. It is ready anyway, so that day doesn't ship the default template: set
+nobody can trigger this mail from outside. It is still sent to real users:
+inviting an address that **already has an unconfirmed account** (any re-invite or
+resend — `sendInviteEmail` calls `inviteUserByEmail` first) makes GoTrue treat it
+as a re-confirmation and send the **Confirm signup** template instead of the
+Invite one. That is how a beta invitee ended up with a code-less mail in P-01.
+Treat this template as a live, user-facing mail: set
 **Authentication → Email Templates → "Confirm signup"** to the committed
 **`supabase/templates/confirmation.html`**, pasted verbatim, subject
 **`Confirm your PlusOne account`**. Like the invite, its links skip
@@ -146,6 +158,54 @@ route with `type=signup` (which `/auth/confirm` accepts):
 ```html
 <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=signup&amp;next=/app">
 ```
+
+### One-time tokens are single-use AND single-slot (P-01 finding)
+
+Measured against the local stack (GoTrue v2.195.0) on 2026-09-23, with
+`auth.one_time_tokens` read before and after each step:
+
+- GoTrue keeps **exactly one row per `(user_id, token_type)`**. An invite, a
+  re-invite and a "Confirm signup" mail all write the **same**
+  `confirmation_token` slot, so **sending a second mail silently invalidates the
+  first mail's link**. The older link then fails with GoTrue's "One-time token
+  not found" / `otp_expired` — the exact 403 a prod invitee hit on 2026-09-23
+  (`/verify 403` at 09:39:31).
+- A token is **consumed on first successful use**; a second click on the same
+  link returns the same error. Anything that opens the link before the human
+  does (mail scanners, link previewers, a tapped-twice button) therefore burns
+  it.
+- Practical rules: only ever hand out the **newest** link for an address, and
+  never resend while someone is mid-click. `scripts/invite-link.mjs` mints a new
+  token by design — the link it prints supersedes every earlier one.
+- **There are only two slots that matter**, and the verify types inside one are
+  interchangeable: `invite` ≡ `signup` (`confirmation_token`) and `magiclink` ≡
+  `email` ≡ `recovery` (`recovery_token`). Slot-level isolation therefore does
+  not exist — a recovery token verifies as `type=magiclink` with or without any
+  app-side fallback. That is safe only because password auth, and so password
+  recovery, is disabled project-wide (#20): **revisit the fallback the day
+  password recovery is enabled.**
+- Link verification is tolerant of the declared `type` on this GoTrue version
+  (an invite token verified fine as `signup`, its 6-digit code fine as `email`),
+  but that is not guaranteed across versions, so `/auth/confirm` and the login
+  form both fall back (`src/features/auth/verify-fallback.ts`). The link path
+  tries **one type per slot** — the declared type, then one type from the other
+  slot — so a click costs at most two verifies: it runs server-side from one
+  shared Vercel egress IP and GoTrue rate-limits `/verify` per IP. `email_change`
+  and `recovery` never fall back and are never fallback targets.
+- `scripts/invite-link.mjs` **refuses an address without an account** and exits;
+  do not remove that check. `admin.generateLink({type:'invite'})` *creates* the
+  auth user when it does not exist (the service role bypasses "signups
+  disabled"), so a typo in a production run would otherwise mint a real account
+  outside the invite-only invariant. With the check in place, running it against
+  prod is safe: the worst a typo does is exit 1.
+- It also picks the link type from the account's state: `invite` for a
+  never-confirmed account, `magiclink` for a confirmed one. Do not "just use
+  magiclink" — GoTrue happily **mints** a magic link for a never-confirmed
+  account and then refuses to complete it, so the operator hands out a link that
+  dies on click (measured, 2026-09-23).
+- A dead link is no longer a dead end: `/auth/confirm` bounces to
+  `/login?error=link`, which explains what happened and puts the "Send code"
+  step in front of the user.
 
 ## 4. MFA / TOTP (Authentication → Multi-Factor)
 
