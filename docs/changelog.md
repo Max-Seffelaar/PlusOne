@@ -65,6 +65,100 @@ See the z8uq9m0tp5 entry.
 
 ---
 
+## 2026-09-23 — P-02 platform (system) admin: `is_platform_admin` + RLS helpers (z8uq9m0tnt)
+
+PlusOne's own operators can now read and write in every venue, with the boundary in RLS
+and every action stamped with their own `auth.uid()`. Migration
+`20260923120000_platform_admin.sql`.
+
+**Why the capability is not a `venue_role` value.** That array flows through `invites`,
+`canGrantRoles` and ~59 policies; a superuser value inside it makes every venue admin a
+potential superuser-granter. It is a separate boolean on `user_profiles` instead, with
+its own helper and its own RPC.
+
+**What shipped.**
+- `user_profiles.is_platform_admin boolean not null default false`.
+- `public.is_platform_admin()` — stable, SECURITY DEFINER, `search_path = ''`.
+- `or public.is_platform_admin()` inside `is_venue_member`, `has_venue_role`,
+  `is_event_organizer`, `is_venue_organizer` and `can_view_profile`. 59 of the 68 public
+  policies route through those, and none carries its own membership join, so there is no
+  policy-by-policy work.
+- `public.set_platform_admin(uuid, boolean)` — SECURITY DEFINER, requires
+  `is_platform_admin()` itself, refuses self-revoke (lockout), writes its own `audit_log`
+  row with `venue_id = null` (so only platform admins can read it back).
+- `public.guard_platform_admin_flag()` on `user_profiles` BEFORE INSERT/UPDATE.
+
+**Two things the task description did not name, both found by running the suite.**
+- **The column guard is not optional.** `user_profiles_update_self` and
+  `user_profiles_insert_self` already let a user write their own row, and RLS is
+  row-level, not column-level — without a guard, any authenticated user promotes
+  themselves to platform admin in one PostgREST call.
+- **`user_is_quota_exempt` had to be widened too.** It takes the *adder's* id as a
+  parameter instead of reading `auth.uid()`, so the helper widening does not reach it:
+  `guests_insert` pins `added_by` to the caller, a platform admin holds no `quotas` row
+  at a foreign venue, and `user_event_quota` falls through to 0 — every cross-venue guest
+  add would die on `enforce_guest_quota` with 45001. The write half of the boundary is
+  theatre without it.
+
+**The GUC guard turned out not to be a boundary — the column grant is.** A fresh
+`/security-review` ran the attacks against the local stack and proved that `authenticated`
+can set the custom GUC itself, in the same statement it is guarding:
+`update … set is_platform_admin = true where id = auth.uid() and
+set_config('plusone.platform_admin_write','on',true) = 'on'` — the WHERE is evaluated
+before the BEFORE trigger fires, and the flag flips. The only thing that stopped it was
+the shape of the statements PostgREST is willing to emit, which is an app-layer property,
+and CLAUDE.md #1 forbids leaning on one. Fix: `revoke insert, update on
+public.user_profiles from authenticated` plus an explicit column list that omits
+`is_platform_admin`. The list is every pre-existing column and nothing else — narrowing it
+further breaks `rls.test` L2, which depends on a cross-user `email` UPDATE being
+RLS-filtered to 0 rows rather than erroring. The GUC trigger stays as defence in depth
+(it is what still stops the *owner* from writing the column outside the RPC, which the
+tests assert separately). SELECT is deliberately untouched: dropping the column from the
+read grant would break every `select *` PostgREST issues against `user_profiles` app-wide,
+for one enumeration oracle that is only open to people who already share a venue with the
+operator. Accepted; moving the read behind an RPC is noted for P-04.
+
+**A suspected hole that measured closed.** Both reviews flagged that `user_is_quota_exempt`
+is keyed on the adder, so a quota-bound doorhost might re-point `added_by` at a platform
+admin and inherit the exemption. It cannot: `20260819100000` already binds `added_by` on
+update (42501, not a filtered 0 rows), and the door-INSERT hand-off branch rejects a
+platform admin as actor at a venue he is no member of. The branch got
+`and p_user_id = (select auth.uid())` anyway — strictly tighter, free — and both halves are
+now asserted, because the exemption is only safe while both hold.
+
+**Gotcha worth remembering: copy the CURRENT body, not the one in the migration the task
+points you at.** The first pass rebased `user_is_quota_exempt` on its original
+20260613180000 body and silently restored the organizer exemption that 20260625120000
+had removed (86ey21vre). `quota.test.sql` caught it — 3 failures. Any
+`create or replace` of a helper must start from `grep -rn "create or replace function
+public.<name>"` across *all* migrations, never from the one file you happen to be reading.
+
+**Audit.** `audit_trigger()` already stamps `actor_id = auth.uid()`, so nothing changed
+there; `platform_admin.test.sql` proves the stamp lands on guests, guest_tiers, quotas,
+event_quotas, check_ins and venue_memberships for a platform-admin writer.
+
+**Tests.** New `supabase/tests/database/platform_admin.test.sql`, 54 assertions, both
+sides per role: platform admin reads+writes in a venue he is no member of; admin /
+user_manager / finance / staff / doorhost / organizer unchanged and still locked out; a
+venue admin cannot set the flag by direct UPDATE, by self-INSERT, or through the RPC;
+anon reaches none of it; plus the column-privilege assertions, the GUC-window-closes proof
+(run as the owner, since `authenticated` no longer holds the column at all), the
+merge-duplicates upsert path, and `venue_id is null` audit rows staying invisible to venue
+admin and finance. Full run after a clean `supabase db reset`: **63 files / 1400
+assertions PASS**. `pnpm lint` clean (2 pre-existing a11y warnings in `datetime-field`),
+`tsc --noEmit` clean, Vitest 1757 passed / 7 failed — all 7 pre-existing Windows-only
+environment failures (`pgtap-plan-run-gate.test.ts` writes an extensionless `supabase`
+stub that libuv cannot spawn on Windows).
+
+**CLAUDE.md #1 gained its exception clause** (platform admins, enforced in the RLS helpers,
+every cross-tenant write audited on name — decision #41). The full spec decision #41 and
+its own invariant section stay with P-06.
+
+**Follow-ups, deliberately not in this PR.** No seed platform admin and no dev-login for
+one (P-01 territory); no UI. Bootstrapping the first platform admin is a one-line SQL
+runbook step, documented in the migration header.
+---
+
 ## 2026-09-23 — First login for new invitees: code in every mail + verify fallback (z8uq9m0tnq)
 
 **P-01.** No beta invitee could get in on their own. The prod auth log of 23/9 for one
