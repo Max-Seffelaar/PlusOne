@@ -31,9 +31,15 @@ throughout. The damage was bounded to landing on a deny-listed in-app route.
 against both the raw and the decoded form: protocol-relative prefix, scheme, backslash,
 `..` segment, and the login/auth deny-list. Three judgment calls worth recording:
 
-- **Decode exactly once.** The URL parser matches `..`, `.%2e`, `%2e.` and `%2e%2e` as double-dot
-  segments but leaves `%252e%252e` as literal text, which never normalizes. Decoding twice would
-  reject paths that are genuinely safe, so `/app/%252e%252e/contacts` still passes through.
+- **Unwrap to a fixed point, not once.** A single decode models what the URL parser does today
+  (it matches `..`, `.%2e`, `%2e.` and `%2e%2e` as double-dot segments but leaves `%252e%252e` as
+  literal text, which never normalizes), so `/app/%252e%252e/…` is harmless *for today's
+  consumers*. It is rejected anyway: the guard must not depend on every hop decoding exactly once,
+  because a future consumer that decodes twice would reopen the hole. This reverses the first cut
+  of this change, which decoded once and asserted the double-encoded form passed through — the
+  fresh-session **security review of #316** reached the opposite conclusion for `appGateNextPath`,
+  and the argument applies to every `?next=` consumer, not just the /app gates (Max, 23/9: align
+  before merging). Bounded at `MAX_DECODE_ROUNDS = 5` so a hostile value cannot drive the loop.
 - **Encoded slashes are treated as separators.** Decoding turns `%2f` into a real `/`, so
   `/app/%2e%2e%2fauth/callback` and `/app/..%2Flogin` are now rejected. This is stricter than the
   URL parser alone, which does not split on `%2f` — deliberately, because Next's router decodes
@@ -53,8 +59,7 @@ depth; its docblock still says hardening `safeNextPath` "is its own change" and 
 updated to point here when #316 merges. Whichever merges second will need a trivial rebase —
 the two changes touch adjacent but non-overlapping regions of `next-path.ts`.
 
-Suites: CI `lint-and-test` green. Locally 1750/1758 Vitest tests pass across 166 files; the 8
-failures sit in `tests/unit/pgtap-plan-run-gate.test.ts` and
+Suites: CI `lint-and-test` green. Locally 1731/1739 Vitest tests pass; the 8 failures sit in `tests/unit/pgtap-plan-run-gate.test.ts` and
 `tests/unit/pre-push-hook-is-executable.test.ts`, both environmental (they need the Supabase CLI
 and a non-worktree `core.hooksPath`) and failing identically on `main`. `tsc --noEmit` clean,
 `next lint` clean (two pre-existing a11y warnings in `datetime-field.tsx`, untouched).

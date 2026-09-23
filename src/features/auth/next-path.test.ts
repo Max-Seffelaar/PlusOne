@@ -47,10 +47,21 @@ describe('safeNextPath (open-redirect guard)', () => {
     expect(safeNextPath('/app/%zz')).toBe('/app');
   });
 
-  it('does not decode twice (a double-encoded segment never normalizes)', () => {
-    // `%252e%252e` decodes once to the literal text `%2e%2e`, which is not a
-    // dot segment to any parser — rejecting it would break real paths.
-    expect(safeNextPath('/app/%252e%252e/contacts')).toBe('/app/%252e%252e/contacts');
+  // Harmless today — every hop decodes exactly once, so `%252e%252e` never
+  // becomes a `..` segment — and rejected anyway, so the guard does not depend
+  // on that balance holding for a future consumer that decodes twice.
+  it('rejects traversal at any encoding depth', () => {
+    expect(safeNextPath('/app/%252e%252e/auth/callback')).toBe('/app');
+    expect(safeNextPath('/app/%25252e%25252e/login')).toBe('/app');
+    expect(safeNextPath('/%252561uth/callback')).toBe('/app');
+  });
+
+  it('gives up on a value still unwrapping past the decode bound', () => {
+    // Six levels of encoding on a path that is clean at every depth: nothing
+    // this app produces, so the bound rejects rather than keeps unwrapping.
+    let deep = '/app/contacts';
+    for (let i = 0; i < 6; i += 1) deep = `/${encodeURIComponent(deep.slice(1))}`;
+    expect(safeNextPath(deep)).toBe('/app');
   });
 
   it('never bounces back to login or auth routes', () => {
