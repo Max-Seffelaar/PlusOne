@@ -1436,6 +1436,7 @@ export type Database = {
           first_name: string | null
           full_name: string
           id: string
+          is_platform_admin: boolean
           last_name: string | null
           mfa_snooze_until: string | null
           phone: string | null
@@ -1449,6 +1450,7 @@ export type Database = {
           first_name?: string | null
           full_name: string
           id: string
+          is_platform_admin?: boolean
           last_name?: string | null
           mfa_snooze_until?: string | null
           phone?: string | null
@@ -1462,6 +1464,7 @@ export type Database = {
           first_name?: string | null
           full_name?: string
           id?: string
+          is_platform_admin?: boolean
           last_name?: string | null
           mfa_snooze_until?: string | null
           phone?: string | null
@@ -1946,6 +1949,7 @@ export type Database = {
       }
       is_aal2: { Args: never; Returns: boolean }
       is_event_organizer: { Args: { p_event_id: string }; Returns: boolean }
+      is_platform_admin: { Args: never; Returns: boolean }
       is_valid_event_status_transition: {
         Args: {
           p_from: Database["public"]["Enums"]["event_status"]
@@ -2039,6 +2043,10 @@ export type Database = {
           id: string
           preferred_role: Database["public"]["Enums"]["contact_role"]
         }[]
+      }
+      set_platform_admin: {
+        Args: { p_user_id: string; p_value: boolean }
+        Returns: undefined
       }
       set_venue_plan: {
         Args: { p_plan_id: string; p_venue_id: string }
