@@ -31,6 +31,10 @@ export { Tiers } from './events/tiers';
 export { Crew } from './events/crew';
 export { PastEvent } from './events/past';
 
+// Event-row edit cog: 38px, so the ring reaches 3px past its 1px border (44x44).
+// The row button is 8px to its left, the card's 14px padding everywhere else.
+const cogHit = "relative before:absolute before:-inset-[4px] before:content-['']";
+
 /** Small headline stat card (onweg / binnen) used by EventView. */
 function Stat({ v, l, acc, big }: { v: number; l: string; acc?: boolean; big?: boolean }): JSX.Element {
   return (
@@ -206,7 +210,7 @@ export function Events(): JSX.Element {
                           title={t.home.aEdit}
                           aria-label={t.home.aEdit}
                           onClick={() => nav.push('eventedit', { id: e.id })}
-                          className={cn('flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[11px] border border-line text-faint', press)}
+                          className={cn('flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[11px] border border-line text-faint', press, cogHit)}
                         >
                           <Icon name="cog" size={17} />
                         </button>

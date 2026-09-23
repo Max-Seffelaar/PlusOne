@@ -5,10 +5,10 @@ import { cn } from '@/lib/utils';
 import { usePoCreateTier } from '@/features/po/mutations';
 import { usePoTiers } from '@/features/po/hooks';
 import { TIER_ALIASES_UI } from '@/features/guests/tiers';
-import { t, fmt } from '@/lib/i18n';
-import { TIER_COLORS, DEFAULT_TIER_COLOR, allColorsUsed, nextAvailableColor, tierInk } from '@/lib/po/tier-colors';
+import { t } from '@/lib/i18n';
+import { DEFAULT_TIER_COLOR, allColorsUsed, nextAvailableColor, tierInk } from '@/lib/po/tier-colors';
 import { Icon } from '../../icon';
-import { Btn, Field, Label, press, cardPress } from '../../kit';
+import { Btn, ColorSwatches, Field, Label, press, cardPress } from '../../kit';
 
 // FE-4: press/cardPress now live in kit.tsx — re-exported here so the many
 // guests/* screens importing them from './_shared' don't need to change.
@@ -138,26 +138,7 @@ function TierCreateFields({ eventId, onDone, onCancel }: { eventId: string; onDo
       </div>
       <div>
         <Label className="mb-2">{t.guests.tierCreate.colorLabel}</Label>
-        <div className="flex flex-wrap gap-[9px]">
-          {TIER_COLORS.map((c) => {
-            const disabled = usedColors.includes(c) && !allUsed;
-            return (
-              <button
-                key={c}
-                type="button"
-                disabled={disabled}
-                aria-disabled={disabled}
-                onClick={() => !disabled && setColor(c)}
-                className={cn(
-                  'h-[30px] w-[30px] rounded-full transition-[filter]',
-                  disabled ? 'cursor-not-allowed opacity-30' : 'cursor-pointer hover:brightness-[1.1]',
-                )}
-                style={{ background: c, border: '2px solid ' + (color === c ? '#FFFFFF' : 'transparent') }}
-                aria-label={fmt(t.events.colorAria, { color: c })}
-              />
-            );
-          })}
-        </div>
+        <ColorSwatches value={color} onPick={setColor} isDisabled={(c) => usedColors.includes(c) && !allUsed} />
         {allUsed && <p className="mt-2 text-[12px] text-faint">{t.events.colorAllUsedWarning}</p>}
       </div>
       {kind === 'paid' && (

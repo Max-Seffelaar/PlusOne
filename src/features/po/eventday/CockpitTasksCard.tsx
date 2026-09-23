@@ -15,6 +15,10 @@ import { Avatar, Card, pressDesktop } from '@/components/po/kit';
 import type { Guest } from '@/lib/po/types';
 
 const press = pressDesktop;
+// Task check: 22px; the ring reaches 11px past its 2px border (44x44; technique:
+// kit `hitArea44`): into the row's 11px padding and the 10px gap before the
+// (non-interactive) note text.
+const checkHit = "relative before:absolute before:-inset-[13px] before:content-['']";
 
 export function CockpitTasksCard({
   guests,
@@ -80,6 +84,7 @@ export function CockpitTasksCard({
                   className={cn(
                     'mt-px flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[7px] border-2',
                     press,
+                    checkHit,
                     done ? 'border-acc bg-acc' : 'border-ghost bg-transparent'
                   )}
                   aria-label={done ? t.door.taskReopen : t.door.taskMarkDone}

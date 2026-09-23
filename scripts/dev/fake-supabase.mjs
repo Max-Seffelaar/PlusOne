@@ -247,10 +247,39 @@ const db = {
   quota_requests: [],
   refusals: [],
   influencers: [],
-  event_templates: [],
+  // One template, so /app/templates/<id> renders its tier editor.
+  event_templates: [
+    {
+      id: 'e0000000-0000-4000-8000-000000000001',
+      venue_id: V1,
+      name: 'Friday Club Night',
+      allow_uncheck: null,
+      auto_lock_offset_minutes: null,
+      capacity: 400,
+      landing_active: true,
+      created_at: iso(now - 30 * D),
+      updated_at: iso(now),
+    },
+  ],
   event_template_tiers: [],
   audit_feed: [],
 };
+
+// FAKE_EXTRA_EVENTS=N appends N empty upcoming events (one a week after
+// Saturday Sessions), so screens that paginate (Home pages at 7) can be shot
+// with more than one page. Off by default so existing baselines don't move.
+for (let i = 0; i < Number(process.env.FAKE_EXTRA_EVENTS ?? 0); i++) {
+  const start = tonight + (16 + 7 * i) * D;
+  db.events.push({
+    ...db.events[1],
+    id: `c0000000-0000-4000-8000-${String(100 + i).padStart(12, '0')}`,
+    name: `Club Night ${i + 1}`,
+    starts_at: iso(start),
+    ends_at: iso(start + 6 * H),
+    landing_active: false,
+    landing_slug: null,
+  });
+}
 
 function tier(eventId, key, name, color, max, aliases, price) {
   const id = uid();
@@ -779,7 +808,11 @@ const rpcs = {
           present: ci.reduce((s, c) => s + 1 + c.plus_ones_arrived, 0),
         };
       }),
-  event_quota_status: () => [{ quota: 5, consumed: 2, remaining: 3, exempt: false }],
+  // Admins are quota-exempt, as in the real RPC; the exempt flag also gates the
+  // inline "Add tier" form in the add-guest flows.
+  event_quota_status: (_args, email) => [
+    { quota: 5, consumed: 2, remaining: 3, exempt: !!users[email]?.roles?.includes('admin') },
+  ],
   event_tier_occupancy: ({ p_event_id }) =>
     db.guest_tiers
       .filter((t) => t.event_id === p_event_id)
@@ -866,6 +899,25 @@ const rpcs = {
       )
       .map((x) => ({ id: x.id, full_name: x.full_name, plus_ones: x.plus_ones })),
   find_event_guests_by_names: () => [],
+  // Public influencer stats page (/i/<any token>): the jsonb payload the real
+  // SECURITY DEFINER RPC returns, so the page renders past its not-found state.
+  get_influencer_stats: () => ({
+    found: true,
+    name: 'Lotte Jansen',
+    handle: '@lottej',
+    venue_name: 'Club Nova',
+    totals: { views: 412, requests: 37, approved_heads: 58, checked_in_heads: 21 },
+    events: db.events.map((e) => ({
+      event_name: e.name,
+      starts_at: e.starts_at,
+      ends_at: e.ends_at,
+      slug: e.landing_slug ?? null,
+      views: 138,
+      requests: 12,
+      approved_heads: 19,
+      checked_in_heads: 7,
+    })),
+  }),
   get_request_status: ({ p_token_hash }) => {
     const f = statusByHash.get(p_token_hash);
     const e = f && db.events.find((x) => x.id === f.event);

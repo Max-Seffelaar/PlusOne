@@ -24,6 +24,14 @@ import {
 } from './profile-sheets';
 import { EventRowActions } from './profile-event-actions';
 
+// Contact-row hit rings (44x44; technique: kit `hitArea44`). The 22px select dot
+// reaches 11px past its 2px border, into the card's 12px padding and the 10px
+// gap before the (non-interactive) avatar. The 38px star and add chips reach
+// 3px out, leaving 4px between the two rings in their 10px gap.
+const selectHit = "relative before:absolute before:-inset-[13px] before:content-['']";
+const starHit = "relative before:absolute before:-inset-[4px] before:content-['']";
+const addHit = "relative before:absolute before:-inset-[3px] before:content-['']";
+
 // ── GUEST detail / check-in log row ─────────────────────────────────────────
 function LogRow({ icon, label, who, when, accent, last }: { icon: IconName; label: string; who: string; when?: string; accent?: boolean; last?: boolean }): JSX.Element {
   return (
@@ -133,7 +141,7 @@ export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
                     onClick={() => toggleSel(c.id)}
                     aria-pressed={isSel}
                     aria-label={fmt(t.guests.contacts.openAria, { name: c.name })}
-                    className={cn('flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border-2 transition-colors', isSel ? 'border-acc bg-acc' : 'border-ghost bg-transparent')}
+                    className={cn('flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border-2 transition-colors', selectHit, isSel ? 'border-acc bg-acc' : 'border-ghost bg-transparent')}
                   >
                     {isSel && <Icon name="check2" size={12} stroke="#0B0B0D" sw={2.8} />}
                   </button>
@@ -152,7 +160,7 @@ export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
                     disabled={starring}
                     aria-pressed={c.vast}
                     title={c.vast ? t.guests.contacts.unmakeRegular : t.guests.contacts.makeRegular}
-                    className={cn('flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[11px] border', press, c.vast ? 'border-transparent bg-acc-dim text-acc' : 'border-line text-ghost')}
+                    className={cn('flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[11px] border', press, starHit, c.vast ? 'border-transparent bg-acc-dim text-acc' : 'border-line text-ghost')}
                   >
                     <Icon name="star" size={17} fill={c.vast ? '#B5A6FF' : 'none'} stroke={c.vast ? '#B5A6FF' : 'rgba(255,255,255,0.26)'} />
                   </button>
@@ -160,7 +168,7 @@ export function Contacten({ eventId }: { eventId?: string }): JSX.Element {
                     type="button"
                     onClick={() => setAddingFor(c)}
                     aria-label={fmt(t.guests.contacts.addToEventAria, { name: c.name })}
-                    className={cn('flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[11px] border-none', press, isAdded ? 'bg-acc-dim text-acc' : 'bg-text text-bg')}
+                    className={cn('flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[11px] border-none', press, addHit, isAdded ? 'bg-acc-dim text-acc' : 'bg-text text-bg')}
                   >
                     <Icon name={isAdded ? 'check2' : 'plus'} size={18} sw={2.4} />
                   </button>
