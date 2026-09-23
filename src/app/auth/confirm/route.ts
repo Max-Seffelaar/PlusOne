@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { safeNextPath } from '@/features/auth/next-path';
 import { resolveEntryDestination } from '@/features/auth/entry-redirect';
 import { emailOtpTypeSchema } from '@/features/auth/schemas';
+import { linkVerifyTypes, verifyWithFallback } from '@/features/auth/verify-fallback';
 
 // Handles link-based verification (token_hash), used for the confirmed e-mail
 // change flow (decision #24) and any magic-link fallback. On success the
@@ -39,9 +40,27 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const supabase = await createClient({
     headers: { 'User-Agent': request.headers.get('user-agent') ?? 'PlusOne' },
   });
-  const { data, error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
+  // A mail's declared type is a hint, not a fact: GoTrue files an invite for an
+  // already-existing-but-unconfirmed account in the *confirmation* slot and
+  // sends the "Confirm signup" mail for it, so a link that says `type=invite`
+  // can only be verified as `signup` (and vice versa). Try the declared type
+  // first, then at most its confirmation-slot sibling (P-01).
+  const { data, error } = await verifyWithFallback(linkVerifyTypes(type), async (candidate) => {
+    const result = await supabase.auth.verifyOtp({ type: candidate, token_hash: tokenHash });
+    // A verify that succeeded but produced no user is TERMINAL, never a slot
+    // miss: GoTrue consumed the token and the SSR client may already have
+    // written session cookies, so retrying another slot would burn a second
+    // token for a state we cannot recover anyway (PR #324 review). The error
+    // shape below carries no retryable status on purpose — verifyWithFallback
+    // stops on it.
+    if (!result.error && !result.data.user) {
+      return { error: { message: 'Verification returned no user' } };
+    }
+    return { data: result.data, error: result.error };
+  });
 
-  if (error || !data.user) {
+  if (error || !data?.user) {
+    // Details stay server-side; the user gets a readable screen with a way out.
     return NextResponse.redirect(new URL('/login?error=link', request.url));
   }
 
