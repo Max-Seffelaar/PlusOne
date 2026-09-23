@@ -8,6 +8,56 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-23 — `safeNextPath` rejects percent-encoded traversal in `?next=`
+
+Branch `claude/next-path-encoded-traversal`. Milestone: Now-adjacent hardening (small).
+Found by a fresh-session `/code-review` of PR #316, which judged it pre-existing and out of
+scope for that PR.
+
+**The hole.** `safeNextPath` rejected traversal with `pathOnly.split('/').includes('..')`,
+which only matches a LITERAL `..` segment. `/app/%2e%2e/auth/callback` has none, so it passed
+the guard — and the WHATWG URL parser treats `%2e%2e` as a double-dot path segment, so it then
+normalized to `/auth/callback`, exactly the route the guard's own deny-list
+(`raw === '/login' || raw.startsWith('/auth/')`) exists to block. It was reachable with a plain
+link, no header forging: `/consent`, `/mfa/enroll`, `/mfa/verify`, the authed `/login?next=`
+branch in `src/middleware.ts`, and the `/auth/callback` + `/auth/confirm` routes all feed a
+client-supplied `?next=` into it, and `/consent` ends in `window.location.replace(next)`.
+
+**Not an open redirect.** Every consumer re-runs `safeNextPath` and resolves the result against
+`request.url`, and the `//`, `://` and `\` checks still held, so the value stayed same-origin
+throughout. The damage was bounded to landing on a deny-listed in-app route.
+
+**The fix.** `safeNextPath` now percent-decodes the path once and runs every structural check
+against both the raw and the decoded form: protocol-relative prefix, scheme, backslash,
+`..` segment, and the login/auth deny-list. Three judgment calls worth recording:
+
+- **Decode exactly once.** The URL parser matches `..`, `.%2e`, `%2e.` and `%2e%2e` as double-dot
+  segments but leaves `%252e%252e` as literal text, which never normalizes. Decoding twice would
+  reject paths that are genuinely safe, so `/app/%252e%252e/contacts` still passes through.
+- **Encoded slashes are treated as separators.** Decoding turns `%2f` into a real `/`, so
+  `/app/%2e%2e%2fauth/callback` and `/app/..%2Flogin` are now rejected. This is stricter than the
+  URL parser alone, which does not split on `%2f` — deliberately, because Next's router decodes
+  the pathname before it matches a route, so an encoded slash can still change which route runs.
+  The previous test asserted `/app/..%2Flogin` was "harmless"; that expectation is what changed.
+- **A malformed escape falls back.** `decodeURIComponent` throwing on `/app/%2` means the value
+  is not a path we ever served, so it is treated as hostile rather than passed through.
+
+**Tightened in passing, same bypass class.** The deny-list now compares the path only rather than
+the whole raw value, so `/login?next=/app` no longer slips past the exact `raw === '/login'`
+match; and running it on the decoded path also closes `/%61uth/callback`, where percent-encoding
+the route name hid it from `startsWith('/auth/')`.
+
+**Relation to PR #316.** `appGateNextPath` (still open in #316) added the same decode locally for
+the `/app` gates. Once both land it is redundant with the shared guard but harmless defense in
+depth; its docblock still says hardening `safeNextPath` "is its own change" and should be
+updated to point here when #316 merges. Whichever merges second will need a trivial rebase —
+the two changes touch adjacent but non-overlapping regions of `next-path.ts`.
+
+Suites: Vitest 1191 green (115 files), `tsc --noEmit` clean, `next lint` clean (two pre-existing
+a11y warnings in `datetime-field.tsx`, untouched).
+
+---
+
 ## 2026-09-19 — Client writes on guest_requests can only deny (L5, z8uq9m0jce)
 
 Branch `claude/guest-requests-decide-status-guard`. Milestone: **Now**, a live RLS gap on
