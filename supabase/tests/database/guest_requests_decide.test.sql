@@ -65,7 +65,7 @@ returns text language sql as $fn$
   from public.guest_requests r where r.id = p_id;
 $fn$;
 
-select plan(37);
+select plan(42);
 
 -- ---------------------------------------------------------------------------
 -- A. The grant layer
@@ -102,10 +102,13 @@ select throws_ok(
             decided_at = now()
       where id = 'bb000000-0000-7000-8000-000000000001' $$,
   '42501', null, 'B1 admin cannot approve a request by a direct write (the L5 repro)');
+-- On Sofia, not Robin: B1 leaves Robin pending only BECAUSE the migration is
+-- in. Pointing B2 at a row B1 never touched keeps it a test of the WITH CHECK
+-- on its own (review finding 4).
 select throws_ok(
   $$ insert into public.guest_requests (id, event_id, full_name)
-     values ('bb000000-0000-7000-8000-000000000001',
-             'ee000000-0000-7000-8000-000000000001', 'Robin Castelijns')
+     values ('bb000000-0000-7000-8000-000000000002',
+             'ee000000-0000-7000-8000-000000000001', 'Sofia Marin')
      on conflict (id) do update
        set status = 'approved', decided_by = '11111111-1111-4111-8111-111111111111',
            decided_at = now() $$,
@@ -255,6 +258,13 @@ select is(
                             decided_at = now()
                       where id = 'bb000000-0000-7000-8000-000000000002' $$),
   0, 'D5 a user_manager cannot approve');
+select pg_temp.login('33333333-3333-4333-8333-333333333333');   -- finance (reads requests)
+select is(
+  pg_temp.rowcount($$ update public.guest_requests
+                        set status = 'denied', decided_by = '33333333-3333-4333-8333-333333333333',
+                            decided_at = now(), decision_reason = 'x'
+                      where id = 'bb000000-0000-7000-8000-000000000002' $$),
+  0, 'D5b finance reads requests but cannot deny one');
 select pg_temp.login_anon();
 select throws_ok(
   $$ update public.guest_requests set status = 'approved', decided_at = now()
@@ -288,6 +298,20 @@ reset role;
 select is(pg_temp.req_state('bb000000-0000-7000-8000-000000000001'),
   'approved|11111111-1111-4111-8111-111111111111|1',
   'E4 ...approved, with its guest');
+
+-- The organizer arm of the RPC's own role check, on a fresh request.
+insert into public.guest_requests (id, event_id, full_name, email, phone) values
+  ('bb000000-0000-7000-8000-0000000000d4', 'ee000000-0000-7000-8000-000000000001',
+   'Orga Goedkeuring', 'orga2@decide.test', '+31611550005');
+select pg_temp.login('44444444-4444-4444-8444-444444444444');
+select lives_ok(
+  $$ select public.approve_guest_request('bb000000-0000-7000-8000-0000000000d4',
+       'dd000000-0000-7000-8000-000000000001') $$,
+  'E4a the event organizer approves through the RPC');
+reset role;
+select is(pg_temp.req_state('bb000000-0000-7000-8000-0000000000d4'),
+  'approved|44444444-4444-4444-8444-444444444444|1',
+  'E4b ...approved by the organizer, with its guest');
 
 select pg_temp.login('55555555-5555-4555-8555-555555555555');   -- staff
 select throws_ok(
@@ -360,6 +384,28 @@ select is(
     where id in ('bb000000-0000-7000-8000-0000000000d2', 'bb000000-0000-7000-8000-0000000000d3')),
   'denied:Aanvraag #1:-:-:true,pending:Aanvraag #2:-:-:true',
   'G3 both old requests are anonymized (name, contact, deny reason); statuses untouched');
+
+-- ---------------------------------------------------------------------------
+-- H. An anonymized request is frozen for the client too (#29)
+-- ---------------------------------------------------------------------------
+-- 'Oud Open' (bb..d3) came out of the retention run still `pending`, now with
+-- anonymized_at set. approve_guest_request refuses it (P0002, 20260919090000);
+-- without `anonymized_at is null` in the policy's USING the deny path would
+-- still write a fresh free-text reason, and an audit diff carrying it, onto a
+-- row retention has already scrubbed.
+
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select is(
+  pg_temp.rowcount($$ update public.guest_requests
+                        set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111',
+                            decided_at = now(), decision_reason = 'Piet Jansen was vervelend'
+                      where id = 'bb000000-0000-7000-8000-0000000000d3' and status = 'pending' $$),
+  0, 'H1 an anonymized pending request cannot be denied by the client (matches no row)');
+reset role;
+select is(
+  (select status::text || '|' || coalesce(decision_reason, '-')
+     from public.guest_requests where id = 'bb000000-0000-7000-8000-0000000000d3'),
+  'pending|-', 'H2 ...it stays pending with no reason written after anonymization');
 
 select * from finish();
 rollback;

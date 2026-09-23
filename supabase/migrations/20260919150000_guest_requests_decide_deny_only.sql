@@ -44,7 +44,14 @@
 --   1. The policy's WITH CHECK now requires `status = 'denied'`. With USING
 --      still `status = 'pending'`, the only transition a client can make is
 --      pending -> denied. approved/denied rows match no row at all (UPDATE 0),
---      so nothing is un-approved, un-denied or re-decided by hand.
+--      so nothing is un-approved, un-denied or re-decided by hand. USING also
+--      gains `anonymized_at is null`, so an anonymized request is frozen for
+--      the client exactly as approve_guest_request already freezes it (P0002,
+--      20260919090000): without it a deny writes a fresh free-text
+--      decision_reason — and an audit diff carrying it — onto a row the
+--      retention job (#29) has already scrubbed, and it sits there until the
+--      next run. The approvals inbox hides anonymized requests, so no
+--      legitimate deny is lost.
 --   2. UPDATE is granted per column: status, decided_by, decided_at,
 --      decision_reason, i.e. exactly what the deny path writes. A PATCH that
 --      names any other column is refused (42501) before RLS runs. A column
@@ -79,10 +86,13 @@
 -- ---------------------------------------------------------------------------
 -- 1. A client decision is a denial, nothing else
 -- ---------------------------------------------------------------------------
--- USING is restated unchanged so the whole policy reads in one place.
+-- USING is restated in full so the whole policy reads in one place; the only
+-- change to it is `anonymized_at is null` (WITH CHECK needs no counterpart:
+-- anonymized_at has no column UPDATE grant, so a client cannot set it).
 alter policy guest_requests_decide on public.guest_requests
   using (
     status = 'pending'
+    and anonymized_at is null
     and (
       public.has_venue_role(public.event_venue(event_id), '{admin}'::public.venue_role[])
       or public.is_event_organizer(event_id)
@@ -98,7 +108,7 @@ alter policy guest_requests_decide on public.guest_requests
   );
 
 comment on policy guest_requests_decide on public.guest_requests is
-  'Client decision on a landing request = DENY only: pending -> denied by an admin of the venue or an organizer of the event, as themselves. Approval goes through approve_guest_request (SECURITY DEFINER), never a direct write. Column UPDATE grants limit the write to status/decided_by/decided_at/decision_reason (20260919150000).';
+  'Client decision on a landing request = DENY only: pending -> denied by an admin of the venue or an organizer of the event, as themselves. Anonymized rows match nothing (#29), like approve_guest_request. Approval goes through approve_guest_request (SECURITY DEFINER), never a direct write. Column UPDATE grants limit the write to status/decided_by/decided_at/decision_reason (20260919150000).';
 
 -- ---------------------------------------------------------------------------
 -- 2. ...and it touches the deny columns only

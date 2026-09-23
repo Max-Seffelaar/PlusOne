@@ -422,7 +422,9 @@ other column (`event_id`, `full_name`/`email`/`phone`, `status_token_hash`,
 `decided_via`, `request_link_id`, `anonymized_at`). Reproduced on the local stack.
 
 **Fix** (`20260919150000_guest_requests_decide_deny_only.sql`): the policy's `WITH CHECK`
-now requires `status = 'denied'`, so the only client transition is `pending → denied`,
+now requires `status = 'denied'` and its `USING` adds `anonymized_at is null` (a deny may
+no longer write a fresh reason onto a retention-scrubbed row, matching
+`approve_guest_request`'s P0002), so the only client transition is `pending → denied`,
 and `authenticated` holds UPDATE on exactly `status`, `decided_by`, `decided_at`,
 `decision_reason` (what `denyGuestRequest` writes). Approval, including re-approval of a
 denied request, is `approve_guest_request` only. The SECURITY DEFINER paths (approve,
@@ -432,6 +434,33 @@ auto-approve in `submit_guest_request`, retention) run as the owner and are unaf
 direct approve, upsert-approve and extra-column denies are `42501`; staff, doorhost,
 user_manager and anon change nothing; the RPC, auto-approve and retention still work).
 `rls.test.sql` N3 asserted the direct approve as allowed and was re-pointed.
+
+### F-3 — [MEDIUM, OPEN] `authenticated` holds table-wide INSERT on `guest_requests`
+**Where:** the `guest_requests` INSERT grant + `guest_requests_insert_public`.
+**Found by:** the fresh-session security review of PR #310 (19-9-2026), pre-existing.
+**Reproduced as staff** (a role with no decide rights and no SELECT on the table), for any
+landing-active event of their own venue, since the policy pins only `status='pending'`:
+- **Silent suppression.** Insert a row with `anonymized_at = now()` and the victim's
+  e-mail as `dedupe_key`. It is hidden from the inbox (which filters
+  `anonymized_at is null`) but still holds the dedup slot, so the real submission through
+  `submit_guest_request` answers `{"status":"ok"}`, is dropped, and that person's status
+  page answers `{"found": false}`. The venue never sees the request.
+- **E-mail oracle.** `insert … on conflict do nothing` returns 0 rows when a pending
+  request for that e-mail exists on the event and 1 when not (a plain insert raises
+  `23505`), leaking "did this person apply" to a role that cannot read the table.
+- **Validation/throttle bypass.** `email='x'`, `phone=null`, `plus_ones=99`, 500 rows in
+  one statement — none of the RPC's throttle, honeypot or format checks apply.
+Not possible: cross-venue insert (`42501`), forging `venue_id` (trigger overwrites),
+attributing to a request link (`request_links` RLS).
+
+**Why it is still open:** no client code inserts (`src/` has no
+`.from('guest_requests').insert`; only seed, pgTAP and service-role scripts do), so the
+fix is `revoke insert on public.guest_requests from authenticated` plus dropping or
+narrowing `guest_requests_insert_public`. `20260707170000` (C2) revoked the same grant for
+`anon` and left `authenticated` without stating why. Kept out of PR #310 on the reviewer's
+advice so the L5 fix reaches prod unchanged; it needs its own migration + ClickUp task,
+`venue_id_rls_integrity.test.sql` S1d rewritten to assert `42501`, and pgTAP for the
+suppression and oracle cases.
 
 ### Observations (low / accepted)
 - **O-1** `removeGuest` uses a UUID regex, not Zod. Low (RLS is the gate).
