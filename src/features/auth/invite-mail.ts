@@ -30,6 +30,16 @@ function createAnonClient() {
   );
 }
 
+export interface SendInviteEmailOptions {
+  /**
+   * Seed `raw_user_meta_data.full_name` with the address' local part on the
+   * provisioning call. Defaults to true (venue/crew invites, unchanged).
+   * Pass false when the address is not necessarily a fresh account of ours —
+   * the payload would overwrite an existing unconfirmed user's metadata.
+   */
+  seedName?: boolean;
+}
+
 export type InviteMailResult =
   /** Mail sent (invite mail or magic-link fallback). */
   | { ok: true }
@@ -49,11 +59,20 @@ export type InviteMailResult =
  * accounts outright ("Signups not allowed for this instance"), so the order is
  * invite-first — that's what makes resend work for never-accepted accounts.
  */
-export async function sendInviteEmail(email: string): Promise<InviteMailResult> {
+export async function sendInviteEmail(
+  email: string,
+  options: SendInviteEmailOptions = {}
+): Promise<InviteMailResult> {
   const service = createServiceClient();
-  const { error: inviteMailError } = await service.auth.admin.inviteUserByEmail(email, {
-    data: { full_name: email.split('@')[0] },
-  });
+  // `data` OVERWRITES raw_user_meta_data on an existing but unconfirmed account,
+  // so it is opt-in (security review 2026-09-23, F5). Venue/crew invites keep
+  // seeding a placeholder name because `accept_pending_invites()` reads
+  // `raw_user_meta_data ->> 'full_name'`; platform invites, which can target an
+  // arbitrary address, pass `seedName: false` and write nothing.
+  const { error: inviteMailError } = await service.auth.admin.inviteUserByEmail(
+    email,
+    options.seedName === false ? undefined : { data: { full_name: email.split('@')[0] } }
+  );
   if (inviteMailError && alreadyRegistered(inviteMailError)) {
     const mailer = createAnonClient();
     const { error: otpError } = await mailer.auth.signInWithOtp({

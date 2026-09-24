@@ -8,12 +8,18 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
-## 2026-09-23 — Only submit_guest_request may create a landing request (F-3)
+## 2026-09-24 — Only submit_guest_request may create a landing request (F-3)
 
 Branch `claude/guest-requests-insert-revoke`. Milestone: **Now**, a live RLS/grant gap on
-prod. Migration `20260924100000_guest_requests_revoke_client_insert.sql`. High-risk
-surface (RLS + grants), so the PR body carries an adversarial security-research prompt and
-the PR needs a fresh-session `/code-review` + `/security-review` before merge.
+prod. Migration `20260924100000_guest_requests_revoke_client_insert.sql` — first written
+as `20260923120000`, renamed when P-02 landed `20260923120000_platform_admin.sql` on the
+same timestamp while this PR sat open. A duplicate breaks `db push`/`db reset`, so the
+new name also sorts past P-03's `20260923150000`. Second time in a week the rule bites
+(the L5 entry below has its own rename), and both times the collision appeared *after*
+the branch was cut — the timestamp check belongs immediately before merge, not only when
+the file is written. High-risk surface (RLS + grants), so the PR body carries an
+adversarial security-research prompt and the PR needs a fresh-session `/code-review` +
+`/security-review` before merge.
 
 **The bug.** `docs/security-audit.md` F-3, found by the fresh-session security review of
 PR #310 (19-9), pre-existing, deliberately kept out of that PR so the L5 fix could reach
@@ -92,6 +98,289 @@ shared DB. `npx tsc --noEmit` clean, `next lint` clean (2 pre-existing a11y warn
 Windows/worktree environment (absolute `core.hooksPath` from the worktree-local config;
 "Could not run `supabase test db`"), and the diff is SQL-only, so no TS test can be
 affected by it. CI runs on a fresh reset.
+
+## 2026-09-23 — P-03 `platform_invites`: invite customers into the open beta (z8uq9m0tnv)
+
+A platform admin (P-02) invites a new customer with nothing but an e-mail address. We
+create **no** venue and **no** `public.invites` row — the invitee walks the existing
+onboarding wizard, makes their own company, accepts the terms themselves and lands on
+`trialing`. `platform_invites` is the outreach record plus the funnel source, never an
+access grant. Migration `20260923150000_platform_invites.sql`.
+
+**What shipped.**
+- `public.platform_invites` (`id` uuid v7, `email`, `note`, `invited_by`, `created_at`,
+  `last_sent_at`, `revoked_at`, `revoked_by`). One OPEN invite per address (partial
+  unique index on `lower(email)`); a revoked address can be re-invited.
+- RLS: `select` / `insert` / `update` all `to authenticated` with `is_platform_admin()`
+  as the only term. Insert pins `invited_by = auth.uid()` and forces the row open;
+  update allows resend + revoke only. **No DELETE policy and no DELETE grant** —
+  revoking is a soft `revoked_at` stamp, so the audit trail survives.
+- Grant matrix stated explicitly (`revoke all … from anon, authenticated` first, then
+  `grant select, insert, update … to authenticated`; `service_role` untouched).
+- `guard_platform_invite_update()` freezes `id`/`email`/`invited_by`/`created_at` and
+  makes a revoke one-way — RLS is row-level, so without it a platform admin could
+  re-point an existing row at another address.
+- `audit_trigger()` attached unchanged. The table has no `venue_id`, so the generic
+  branch writes `venue_id = null`, which is exactly the P-02 shape: a null-venue audit
+  row is readable only by platform admins.
+- `consume_platform_invite_throttle()` — SECURITY DEFINER wrapper over the internal
+  `consume_public_throttle()`; 20 outbound beta mails per platform admin per hour,
+  shared by invite and resend. Raises 42501 for anyone else. It is consumed
+  immediately before the mail — after validation, after the insert — so a rejected
+  address or a duplicate never eats an hour of somebody's quota.
+- `platform_invite_stage_rows()` (internal, no app role holds EXECUTE) computes the
+  funnel stage once; `platform_invite_overview(p_limit, p_offset)` (windowed, default
+  100, hard cap 500) and `platform_invite_funnel()` (GROUP BY over ALL invites) both
+  sit on it. Stages: `invited` → `signed_in` → `company_created` → `first_event`, plus
+  `revoked`. SECURITY DEFINER is forced by `auth.users.confirmed_at`, which
+  `authenticated` cannot read; each re-checks `is_platform_admin()` in its own body,
+  EXECUTE is revoked from public/anon/service_role, and a non-platform-admin gets zero
+  rows rather than an error (no existence oracle). The `auth.users` match is a LATERAL
+  "pick one" filtered on `deleted_at is null`: GoTrue's e-mail uniqueness is partial
+  (`where is_sso_user = false`), so a plain join both duplicated invites in the list
+  and double-counted them in the funnel.
+- `src/features/platform/invite-actions.ts`: `inviteBetaCustomerAction`,
+  `resendBetaInviteAction`, `revokeBetaInviteAction`. Every statement runs through the
+  USER-scoped client so RLS is the boundary; the app-layer `is_platform_admin()` probe
+  is only there for a clear message. Row FIRST, mail after (86ey9ea00 #54).
+  `src/features/platform/schemas.ts` holds the Zod input.
+
+**Service role — where and why.** Exactly one place: `sendInviteEmail()` from
+`src/features/auth/invite-mail.ts`. `auth.admin.inviteUserByEmail` is a service-role-only
+API (it provisions an auth identity) and the magic-link fallback for an already-confirmed
+address uses a bare anon client. Nothing in `public` is ever written with the service
+client here.
+
+**Review round (fresh-session `/code-review` + `/security-review`, both on PR #325).**
+The security review found the DB boundary holding against all 27 attacks it ran (anon,
+venue admin, PostgREST upsert, embedded resource, count oracle, throttle race, the P-02
+GUC trick). What changed afterwards, in the same PR:
+- **The mail is the deliverable, so any undelivered mail is now a failure.** Unlike a
+  crew invite, the row grants nothing — reporting "Invite sent." after a failed
+  magic-link fallback was a lie. And because the row holds the unique-index slot, a
+  plain retry could only ever answer "already an open invite", so every undelivered
+  path now names Resend as the recovery instead of "try again".
+- All three actions probe `is_platform_admin()` first and answer one uniform
+  `NOT_ALLOWED`; previously resend leaked a rate-limit message where the others said
+  "no access", because the throttle RPC's 42501 collapsed into "limited".
+- The revoke guard also freezes `revoked_by` and `note`: the update policy only demands
+  `revoked_by = auth.uid()`, so a SECOND platform admin could re-stamp a colleague's
+  revoke (or rewrite the note explaining it) while leaving `revoked_at` untouched.
+- `sendInviteEmail()` gained `seedName` (default true, crew behaviour unchanged).
+  `inviteUserByEmail`'s `data` payload OVERWRITES an existing unconfirmed account's
+  `raw_user_meta_data`, so a re-invite replaced a real crew invitee's name with their
+  address' local part. Pre-existing, but P-03 made it reachable for arbitrary
+  addresses; platform invites pass `seedName: false` and write no metadata.
+- pgTAP gaps closed: the resend-audit assertion used `now()` inside the transaction, so
+  the value never changed, `audit_changed()` returned null and no audit row was written
+  — the assertion passed on a rowcount regardless. It now bumps by a distinct interval
+  and asserts the audit row. Added: insert with a pre-stamped revoke, a second platform
+  admin re-stamping `revoked_by`, the 21st mail hitting the throttle, `service_role`
+  being unable to execute the three functions, the funnel as a non-admin, and the
+  LATERAL dedup / `deleted_at` / windowing behaviour. 51 assertions.
+
+**Open decision for Max (asked in the PR, deliberately not chosen here):** revoking marks
+the row only — the person can still log in and self-onboard. The alternative is also
+deleting the auth account while it was never confirmed. The minimal variant shipped.
+This matters more than it reads: a revoked invitee keeps a valid link, and
+`create_venue_with_owner` checks no invite, so they can still create a company. Options
+if that is not wanted: `auth.admin.deleteUser` guarded on `confirmed_at is null`, gating
+onboarding on an open invite row, or simply renaming the button "stop following up".
+
+**Follow-ups noted, not built.** AVG: `platform_invites` holds prospect PII (address +
+note) and so do its `audit_log` diffs, with no retention or erasure path —
+`run_privacy_retention()` does not touch either. For P-04: never render `note` through
+`dangerouslySetInnerHTML`, and note that the overview is deliberately an
+account-existence probe for the platform admin. The fixed-window throttle (and `+`
+address aliasing around it) is accepted as-is.
+
+**Verification (after the review round).** `supabase db reset` clean; `pnpm db:test`
+64 files / 1451 assertions PASS (new `supabase/tests/database/platform_invites.test.sql`,
+51 assertions; `tables.test.sql` allowlist extended). `npx vitest run` 1806 passed — the
+7 `pgtap-plan-run-gate.test.ts` failures are the known Windows-only environment noise and
+the 2 `datetime-field.datefield.test.tsx` timeouts pass in isolation. `pnpm lint` clean,
+`npx tsc --noEmit` clean. `src/lib/database.types.ts` carries only the real additions.
+
+**For P-04 — `platform_invite_overview()` nullability.** The generator types every
+RETURNS TABLE column as non-null. In reality `user_id`, `confirmed_at`,
+`last_sign_in_at` (the LEFT JOIN LATERAL), `note`, `revoked_at`, `revoked_by` and
+`invited_by_name` are all nullable at runtime. Treat them as optional in the UI.
+
+---
+
+## 2026-09-23 — P-02 platform (system) admin: `is_platform_admin` + RLS helpers (z8uq9m0tnt)
+
+PlusOne's own operators can now read and write in every venue, with the boundary in RLS
+and every action stamped with their own `auth.uid()`. Migration
+`20260923120000_platform_admin.sql`.
+
+**Why the capability is not a `venue_role` value.** That array flows through `invites`,
+`canGrantRoles` and ~59 policies; a superuser value inside it makes every venue admin a
+potential superuser-granter. It is a separate boolean on `user_profiles` instead, with
+its own helper and its own RPC.
+
+**What shipped.**
+- `user_profiles.is_platform_admin boolean not null default false`.
+- `public.is_platform_admin()` — stable, SECURITY DEFINER, `search_path = ''`.
+- `or public.is_platform_admin()` inside `is_venue_member`, `has_venue_role`,
+  `is_event_organizer`, `is_venue_organizer` and `can_view_profile`. 59 of the 68 public
+  policies route through those, and none carries its own membership join, so there is no
+  policy-by-policy work.
+- `public.set_platform_admin(uuid, boolean)` — SECURITY DEFINER, requires
+  `is_platform_admin()` itself, refuses self-revoke (lockout), writes its own `audit_log`
+  row with `venue_id = null` (so only platform admins can read it back).
+- `public.guard_platform_admin_flag()` on `user_profiles` BEFORE INSERT/UPDATE.
+
+**Two things the task description did not name, both found by running the suite.**
+- **The column guard is not optional.** `user_profiles_update_self` and
+  `user_profiles_insert_self` already let a user write their own row, and RLS is
+  row-level, not column-level — without a guard, any authenticated user promotes
+  themselves to platform admin in one PostgREST call.
+- **`user_is_quota_exempt` had to be widened too.** It takes the *adder's* id as a
+  parameter instead of reading `auth.uid()`, so the helper widening does not reach it:
+  `guests_insert` pins `added_by` to the caller, a platform admin holds no `quotas` row
+  at a foreign venue, and `user_event_quota` falls through to 0 — every cross-venue guest
+  add would die on `enforce_guest_quota` with 45001. The write half of the boundary is
+  theatre without it.
+
+**The GUC guard turned out not to be a boundary — the column grant is.** A fresh
+`/security-review` ran the attacks against the local stack and proved that `authenticated`
+can set the custom GUC itself, in the same statement it is guarding:
+`update … set is_platform_admin = true where id = auth.uid() and
+set_config('plusone.platform_admin_write','on',true) = 'on'` — the WHERE is evaluated
+before the BEFORE trigger fires, and the flag flips. The only thing that stopped it was
+the shape of the statements PostgREST is willing to emit, which is an app-layer property,
+and CLAUDE.md #1 forbids leaning on one. Fix: `revoke insert, update on
+public.user_profiles from authenticated` plus an explicit column list that omits
+`is_platform_admin`. The list is every pre-existing column and nothing else — narrowing it
+further breaks `rls.test` L2, which depends on a cross-user `email` UPDATE being
+RLS-filtered to 0 rows rather than erroring. The GUC trigger stays as defence in depth
+(it is what still stops the *owner* from writing the column outside the RPC, which the
+tests assert separately). SELECT is deliberately untouched: dropping the column from the
+read grant would break every `select *` PostgREST issues against `user_profiles` app-wide,
+for one enumeration oracle that is only open to people who already share a venue with the
+operator. Accepted; moving the read behind an RPC is noted for P-04.
+
+**A suspected hole that measured closed.** Both reviews flagged that `user_is_quota_exempt`
+is keyed on the adder, so a quota-bound doorhost might re-point `added_by` at a platform
+admin and inherit the exemption. It cannot: `20260819100000` already binds `added_by` on
+update (42501, not a filtered 0 rows), and the door-INSERT hand-off branch rejects a
+platform admin as actor at a venue he is no member of. The branch got
+`and p_user_id = (select auth.uid())` anyway — strictly tighter, free — and both halves are
+now asserted, because the exemption is only safe while both hold.
+
+**Gotcha worth remembering: copy the CURRENT body, not the one in the migration the task
+points you at.** The first pass rebased `user_is_quota_exempt` on its original
+20260613180000 body and silently restored the organizer exemption that 20260625120000
+had removed (86ey21vre). `quota.test.sql` caught it — 3 failures. Any
+`create or replace` of a helper must start from `grep -rn "create or replace function
+public.<name>"` across *all* migrations, never from the one file you happen to be reading.
+
+**Audit.** `audit_trigger()` already stamps `actor_id = auth.uid()`, so nothing changed
+there; `platform_admin.test.sql` proves the stamp lands on guests, guest_tiers, quotas,
+event_quotas, check_ins and venue_memberships for a platform-admin writer.
+
+**Tests.** New `supabase/tests/database/platform_admin.test.sql`, 54 assertions, both
+sides per role: platform admin reads+writes in a venue he is no member of; admin /
+user_manager / finance / staff / doorhost / organizer unchanged and still locked out; a
+venue admin cannot set the flag by direct UPDATE, by self-INSERT, or through the RPC;
+anon reaches none of it; plus the column-privilege assertions, the GUC-window-closes proof
+(run as the owner, since `authenticated` no longer holds the column at all), the
+merge-duplicates upsert path, and `venue_id is null` audit rows staying invisible to venue
+admin and finance. Full run after a clean `supabase db reset`: **63 files / 1400
+assertions PASS**. `pnpm lint` clean (2 pre-existing a11y warnings in `datetime-field`),
+`tsc --noEmit` clean, Vitest 1757 passed / 7 failed — all 7 pre-existing Windows-only
+environment failures (`pgtap-plan-run-gate.test.ts` writes an extensionless `supabase`
+stub that libuv cannot spawn on Windows).
+
+**CLAUDE.md #1 gained its exception clause** (platform admins, enforced in the RLS helpers,
+every cross-tenant write audited on name — decision #41). The full spec decision #41 and
+its own invariant section stay with P-06.
+
+**Follow-ups, deliberately not in this PR.** No seed platform admin and no dev-login for
+one (P-01 territory); no UI. Bootstrapping the first platform admin is a one-line SQL
+runbook step, documented in the migration header.
+
+---
+
+## 2026-09-23 — First login for new invitees: code in every mail + verify fallback (z8uq9m0tnq)
+
+**P-01.** No beta invitee could get in on their own. The prod auth log of 23/9 for one
+invitee reads: invite sent 09:35:06 → the invite link 403 "One-time token not found"
+09:39:31 → "send me a code" 09:39:39 → the typed code 403 three times → a *second* mail
+09:40:46 → in at 09:41:32 via that mail's link. Three independent causes, all fixed here.
+
+**1 — The mail had no code.** An invitee who already has an unconfirmed account gets the
+**Confirm signup** template (GoTrue treats a re-invite as a re-confirmation), and neither
+`confirmation.html` nor `invite.html` carried `{{ .Token }}` — while `/login` asks for a
+6-digit code. Both templates now render the code above the button, exactly like
+`magic_link.html`. **These are dashboard snapshots: Max must re-paste all three templates
+into Authentication → Email Templates.** `docs/auth-setup.md` no longer calls the Confirm
+signup template "dormant" — it is a live, user-facing mail.
+
+**2 — Verification was locked to one token slot.** `OtpLoginForm` always verified
+`type: 'email'` and `/auth/confirm` always trusted the type in the link. A never-confirmed
+invitee's token lives in the confirmation slot. Both now fall back through
+`src/features/auth/verify-fallback.ts`: `email → signup → invite` for a typed code (client
+side, the user's own IP), and for a link **one type per slot** — the declared type, then one
+type from the other slot. GoTrue has only two slots that matter and the types inside one are
+interchangeable (`invite` ≡ `signup`; `magiclink` ≡ `email` ≡ `recovery`), so a same-slot
+retry would cost a round trip for nothing. Capping the link path at two attempts matters: it
+runs server-side from one shared Vercel egress IP while GoTrue rate-limits `/verify` per IP,
+so a nazorg batch must not cost four verifies per click (PR #324 reviews). `email_change`
+and `recovery` never fall back and are never targets. Slot-level isolation does not exist
+either way — a recovery token already verifies as `magiclink` — which is acceptable only
+because password recovery is off (#20); the code says to revisit it if that changes. A
+verify that succeeds but returns no user is terminal, not a slot miss: the token is spent.
+A terminal error (a 429) is also what the user hears about, instead of being buried under an
+earlier slot's 403 with the cooldown never starting.
+
+**3 — "One-time token not found", explained and measured.** Reproduced on the local stack
+(GoTrue v2.195.0) with `auth.one_time_tokens` read before and after each step: GoTrue keeps
+**exactly one row per `(user_id, token_type)`**, and invite / re-invite / confirm-signup all
+write the same `confirmation_token` slot. Minting a second link replaced the row's hash
+(`0d08e0ed… → 0c26f874…`), and the first link then failed with precisely that error; a used
+link fails identically on replay. So any second mail — or anything that opens the link
+before the human does — kills the first one. Which of the two triggered it for that invitee
+cannot be settled from the available prod log; the mechanism is proven, the specific trigger
+is not. Note the prod log's own ordering: the failing click came *before* the "send code"
+call, so it was not that call that superseded it.
+
+**4 — A dead link is no longer a dead end.** `/auth/confirm` still bounces to
+`/login?error=link`, but `/login` now renders what happened ("that link didn't work — it may
+already have been used, or a newer email replaced it") with the Send-code step right there,
+instead of a generic error with no way forward.
+
+**5 — `scripts/invite-link.mjs`** now looks the account up first and **refuses an address
+without an account**. That check is a safety boundary, not a nicety: `generateLink({type:
+'invite'})` *creates* the auth user when it does not exist (the service role bypasses
+"signups disabled"), so a typo in a prod nazorg run would otherwise mint a real account
+outside the invite-only invariant (#20) — one that could walk through /onboarding and create
+a venue. Found by the PR's security review; guarded by
+`tests/unit/invite-link-no-provisioning.test.ts`. For an account that does exist it mints the
+type matching its state: `invite` when never confirmed, `magiclink` when confirmed (the other
+as fallback, and the *first* meaningful error reported when both miss). Also not cosmetic:
+GoTrue happily mints a magic link for a never-confirmed account and then refuses to complete
+it, so the earlier magiclink-first order printed a link that dies on click — measured, and
+both printed links now verify end to end. `signup` is not a tier
+(`generateLink({type:'signup'})` requires a password).
+
+**6 — Every `?error=` value on `/login` now has copy**, including `devlogin`, and `verify()`
+early-returns while a verification is in flight (the auto-submit and the form submit could
+otherwise race).
+
+Tests: `src/features/auth/verify-fallback.test.ts` (13) covers the order, the two-attempt
+link budget, that a valid type is never retried, that the first error is the one surfaced,
+and the rate-limit abort; `src/app/auth/confirm/route.test.ts` gained 7 against a mocked SSR
+client (declared-type-first, sibling fallback, never a third slot, no fallback out of
+magiclink/email_change, terminal no-user, rate-limit stop, e-mail-change destination);
+`OtpLoginForm.test.tsx` gained 6. No migration.
+
+**Nazorg for Max:** `gar***@gmail` (18/9), `pet***@hotmail` and `roe***@gmail` are still
+stuck — hand them a fresh link with `node scripts/invite-link.mjs <email>
+https://app.plus-one.io` and make sure no other mail is sent to that address afterwards.
+
+---
 
 ## 2026-09-23 — `safeNextPath` rejects percent-encoded traversal in `?next=`
 
