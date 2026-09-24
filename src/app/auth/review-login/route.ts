@@ -52,8 +52,10 @@ import {
 //      wrote a cookie, so it does not depend on a sign-out succeeding.
 //   7. Still on that client, the demo user's OTHER sessions are revoked: one
 //      live demo session at a time. Only then are the cookies set.
-//      Sessions also die with the window: the /app layout sends a demo session
-//      to /auth/review-login/end once configuredReviewCode() is null.
+//      Sessions also die with the window: once configuredReviewCode() is null
+//      the middleware (updateSession) signs a demo session out globally on its
+//      next request to any covered route, and the /app layout sends it to
+//      /auth/review-login/end as a second layer.
 //   8. Every method other than GET/HEAD/POST answers the same 404.
 //
 // Service role: GoTrue has no way to start a session for a user without a

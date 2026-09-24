@@ -4,6 +4,7 @@ import type { User } from '@supabase/supabase-js';
 import type { Database } from '../database.types';
 import { AUTH_COOKIE_MAX_AGE } from './cookie-options';
 import { requiredServerEnv } from '../env';
+import { demoSessionMustEnd } from '@/features/auth/review-window';
 
 export interface MfaGate {
   isAal2: boolean;
@@ -28,7 +29,7 @@ const OPEN_GATE: MfaGate = { isAal2: true, hasFactor: false, requiresMfa: false 
 export async function updateSession(
   request: NextRequest,
   { checkMfa = false }: { checkMfa?: boolean } = {}
-): Promise<{ response: NextResponse; user: User | null; gate: MfaGate }> {
+): Promise<{ response: NextResponse; user: User | null; gate: MfaGate; demoSessionEnded?: true }> {
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient<Database>(
@@ -56,6 +57,15 @@ export async function updateSession(
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Store-review demo account (86ey6bfug) outside its review window: end the
+  // session on EVERY route the middleware covers (/door/*, server actions, …),
+  // not only on /app, whose layout has the same gate. Same pure predicate
+  // (demo id OR e-mail, window closed), on the user resolved just above: no
+  // extra query, and for any other user it is one string compare.
+  if (user && demoSessionMustEnd(user)) {
+    return { ...(await endDemoSession(supabase, request, () => response)), user: null, gate: OPEN_GATE, demoSessionEnded: true };
+  }
+
   let gate: MfaGate = OPEN_GATE;
   if (user && checkMfa) {
     try {
@@ -78,4 +88,37 @@ export async function updateSession(
   }
 
   return { response, user, gate };
+}
+
+const NO_STORE = 'no-store, private, max-age=0';
+
+/**
+ * Global sign-out of the demo account, then /login. signOut() clears the auth
+ * cookies through setAll above, so they are copied from the (reassigned)
+ * pass-through response onto the redirect. If the sign-out fails, a 503
+ * instead of a redirect: with the cookies still set, /login would bounce a
+ * signed-in user back to /app and loop.
+ */
+async function endDemoSession(
+  supabase: { auth: { signOut: (o: { scope: 'global' }) => Promise<{ error: unknown }> } },
+  request: NextRequest,
+  current: () => NextResponse
+): Promise<{ response: NextResponse }> {
+  let failed: boolean;
+  try {
+    failed = Boolean((await supabase.auth.signOut({ scope: 'global' })).error);
+  } catch {
+    failed = true;
+  }
+  const out = failed
+    ? new NextResponse('Service unavailable', { status: 503 })
+    : NextResponse.redirect(new URL('/login', request.url), 303);
+  current().cookies.getAll().forEach((cookie) => out.cookies.set(cookie));
+  out.headers.set('Cache-Control', NO_STORE);
+  // Same shape as the review-login log lines (no e-mail, no IP; the client
+  // hash needs node:crypto, which the edge runtime does not have).
+  console.warn(
+    JSON.stringify({ event: 'review_login', outcome: 'session_ended', reason: failed ? 'middleware_signout_failed' : 'middleware_window_closed' })
+  );
+  return { response: out };
 }

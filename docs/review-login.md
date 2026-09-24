@@ -49,11 +49,18 @@ met fake data en één demo-user, plus de prod-safe route
   de demo-user uitgelogd (`scope: 'others'`). Een uitgelekte oude sessie sterft bij de
   volgende review-login.
 - **Sessies sterven met het venster.** Is het venster dicht (verlopen, of de code
-  weg), dan stuurt de `/app`-layout een demo-sessie (herkend op id óf adres) naar
-  `/auth/review-login/end`. Die
-  logt alle demo-sessies uit (`scope: 'global'`) en gaat naar `/login`. Voor andere
-  users is dit alleen een e-mailvergelijking, zonder query. Er is geen cron en geen
-  migratie. De IndexedDB/SW-cache van dat toestel wordt hierbij niet gewist (dat doet
+  weg), dan logt de **middleware** (`updateSession`) een demo-sessie (herkend op id óf
+  adres) bij het eerstvolgende verzoek uit, op elke route die de middleware dekt: ook
+  `/door/*` en server actions, niet alleen `/app`. Dat is een globale sign-out
+  (`scope: 'global'`) en een 303 naar `/login`; lukt de sign-out niet, dan een 503 in
+  plaats van een redirect-lus. De `/app`-layout heeft dezelfde check (via
+  `/auth/review-login/end`) als tweede laag. Voor andere users is het één
+  id/e-mailvergelijking op de user die de middleware al had, zonder extra query. Er is
+  geen cron en geen migratie.
+- **Restrisico:** een pure-API-client die de app nooit bezoekt (alleen PostgREST/Realtime
+  met de JWT, en de refresh-token direct bij GoTrue), houdt zijn sessie tot de volgende
+  review-login (`scope: 'others'`) of tot je `node scripts/seed-demo-venue.mjs --prod --end-review`
+  draait. De IndexedDB/SW-cache van dat toestel wordt hierbij niet gewist (dat doet
   alleen `signOutDevice` in de browser); het gaat om fake demo-data.
 - **Rate limit, per client.** Maximaal 5 pogingen per client per 15 min, geteld vóór de
   codevergelijking. Er is **geen** globale limiet in de app: die zou een aanvaller met
@@ -123,6 +130,8 @@ node scripts/seed-demo-venue.mjs --prod
 
   Onderzoek zo'n stop eerst; een extra lid betekent meestal dat een code-houder
   iemand heeft uitgenodigd.
+- `--end-review` doet alléén de globale sign-out van alle demo-sessies en seedt niets
+  (zie "Per submissie").
 - Het print hoeveel live sessies de demo-user heeft (daarvoor is
   `NEXT_PUBLIC_SUPABASE_ANON_KEY` in de env nodig).
 - Een slug-conflict met een echte venue of een echt event geeft een duidelijke
@@ -157,10 +166,20 @@ where venue_id = 'de300000-0000-7000-8000-000000000001';
 3. Draai het seedscript opnieuw (events naar voren, MFA-reset).
 4. Zet in de review-notes de URL `https://app.plus-one.io/auth/review-login` en de code.
 
-Dat is alles. Na de vervaldatum is de route een 404 en eindigt elke demo-sessie bij
-het volgende `/app`-verzoek; opruimen is niet nodig. Een oude code werkt niet meer
-zodra je een nieuwe zet. Wil je eerder stoppen, verwijder dan een van de twee
-env-vars en redeploy; ook dan eindigen de demo-sessies.
+Na de vervaldatum is de route een 404 en eindigt elke demo-sessie bij het volgende
+verzoek aan de app (middleware). Een oude code werkt niet meer zodra je een nieuwe zet.
+Wil je eerder stoppen, verwijder dan een van de twee env-vars en redeploy; ook dan
+eindigen de demo-sessies.
+
+**Als een submissie afgesloten is** (goedgekeurd of afgewezen), trek alle demo-sessies
+in, ook die van een client die alleen de API gebruikt:
+
+```bash
+node scripts/seed-demo-venue.mjs --prod --end-review
+```
+
+Dat doet alleen een globale sign-out van de demo-user (via een probe-sessie met de
+anon-key, dus `NEXT_PUBLIC_SUPABASE_ANON_KEY` moet in de env staan) en seedt niets.
 
 Controleer in het **prod-Supabase-dashboard** (project `tolxwgqhppdcvnogdpel` →
 Authentication → Sign In / Providers → Email) dat **Secure email change AAN** staat.

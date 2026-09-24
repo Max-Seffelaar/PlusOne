@@ -89,6 +89,19 @@ describe('demo constants mirrored in scripts/seed-demo-venue.mjs', () => {
     expect(script).toContain(`const DEMO_VENUE_NAME = '${DEMO_VENUE_NAME}';`);
   });
 
+  it('--end-review revokes every demo session (scope global) and seeds nothing', () => {
+    const block = script.slice(script.indexOf('if (END_REVIEW) {'), script.indexOf('process.exit(0);\n}', script.indexOf('if (END_REVIEW) {')));
+    expect(block).toContain("signOut({ scope: 'global' })");
+    expect(block).not.toMatch(/insertMissing|upsert|update\(|delete\(/);
+    // Runs before the user can be created or anything seeded.
+    expect(script.indexOf('if (END_REVIEW) {')).toBeLessThan(script.indexOf("'createUser'"));
+  });
+
+  it('keeps the demo events off the public landing page', () => {
+    expect(script).not.toMatch(/landing_active:\s*true/);
+    expect(script).toMatch(/update\(\{ \.\.\.window, landing_active: false \}\)/);
+  });
+
   it('never makes the demo user a platform admin and never runs in CI', () => {
     expect(script).not.toMatch(/is_platform_admin\s*:\s*true/);
     expect(script).not.toContain('set_platform_admin(');

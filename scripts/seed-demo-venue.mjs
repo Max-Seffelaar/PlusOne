@@ -5,6 +5,7 @@
 //   node scripts/seed-demo-venue.mjs            # local stack (.env.local)
 //   node scripts/seed-demo-venue.mjs --prod     # required for any non-local URL
 //   … --reset-members                            # remove stray demo-venue members
+//   … --end-review                               # ONLY revoke every demo session, seed nothing
 //
 // Creds come from .env.local or process.env, like scripts/invite-link.mjs:
 // NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY. For prod, run it from
@@ -52,6 +53,7 @@ const DEMO_VENUE_NAME = 'PLUSONE Demo';
 // = DEMO_ROLES: review-login refuses any other role set on the demo membership.
 const DEMO_ROLES = ['admin', 'doorhost'];
 const RESET_MEMBERS = process.argv.includes('--reset-members');
+const END_REVIEW = process.argv.includes('--end-review');
 
 // Fixed ids (UUIDv7-shaped, `de30` prefix = demo) so every run targets the same rows.
 const VENUE_ID = 'de300000-0000-7000-8000-000000000001';
@@ -119,6 +121,19 @@ async function must(label, promise) {
   return data;
 }
 
+// Sign in as the demo user on a throwaway in-memory client (anon key). Used for
+// the live-session report and for --end-review: auth.sessions is not reachable
+// through PostgREST, and the session RPCs run as a user, not as the service role.
+async function demoProbe() {
+  if (!anonKey) return null;
+  const link = await must('probe link', db.auth.admin.generateLink({ type: 'magiclink', email: DEMO_REVIEW_EMAIL }));
+  const probe = createClient(url, anonKey, { auth: { autoRefreshToken: false, persistSession: false } });
+  const verified = await must('probe verify', probe.auth.verifyOtp({ type: 'magiclink', token_hash: link.properties.hashed_token }));
+  if (verified.user?.id !== DEMO_USER_ID) fail(`probe signed in as ${verified.user?.id}, not the demo user; stopping.`);
+  const sessionId = JSON.parse(Buffer.from(verified.session.access_token.split('.')[1], 'base64url').toString()).session_id;
+  return { probe, sessionId };
+}
+
 // Insert rows whose id does not exist yet; existing rows are left untouched.
 async function insertMissing(table, rows) {
   await must(`${table} insert`, db.from(table).upsert(rows, { onConflict: 'id', ignoreDuplicates: true }));
@@ -138,6 +153,24 @@ async function findUser(email) {
 }
 
 let user = await findUser(DEMO_REVIEW_EMAIL);
+
+// --end-review: when a submission closes, revoke EVERY demo session (scope
+// 'global', the probe's own included) and stop. The app already ends a demo
+// session on its next request once the window is closed (middleware + /app
+// layout); this also covers a client that only talks to the API directly.
+if (END_REVIEW) {
+  if (!user) {
+    console.log('[seed-demo-venue] --end-review: no demo user, nothing to revoke.');
+    process.exit(0);
+  }
+  if (user.id !== DEMO_USER_ID) fail(`--end-review: ${DEMO_REVIEW_EMAIL} has id ${user.id}, not ${DEMO_USER_ID}; investigate by hand.`);
+  if (!anonKey) fail('--end-review needs NEXT_PUBLIC_SUPABASE_ANON_KEY (the revoke runs as the demo user).');
+  const { probe } = await demoProbe();
+  const { error } = await probe.auth.signOut({ scope: 'global' });
+  if (error) fail(`--end-review: global sign-out failed: ${error.message}`);
+  console.log('[seed-demo-venue] --end-review: every demo session revoked (scope: global). Nothing else was changed.');
+  process.exit(0);
+}
 if (!user) {
   // The id may exist with a rebound e-mail (profile-actions refuses that now,
   // but an older change would show up here): never create a second account.
@@ -368,14 +401,13 @@ if (sub.status !== 'comped') {
 // auth.sessions is not reachable through PostgREST, and the session list RPC
 // (admin_list_user_sessions) runs as a venue admin, not as the service role. So
 // sign in as the demo user on a throwaway in-memory client, ask, and revoke that
-// probe session again. Every review login already revokes the others.
-if (!anonKey) {
+// probe session again. Every review login already revokes the others;
+// --end-review revokes all of them.
+const demo = await demoProbe();
+if (!demo) {
   console.log('[seed-demo-venue] live sessions: skipped (NEXT_PUBLIC_SUPABASE_ANON_KEY not set)');
 } else {
-  const link = await must('probe link', db.auth.admin.generateLink({ type: 'magiclink', email: DEMO_REVIEW_EMAIL }));
-  const probe = createClient(url, anonKey, { auth: { autoRefreshToken: false, persistSession: false } });
-  const verified = await must('probe verify', probe.auth.verifyOtp({ type: 'magiclink', token_hash: link.properties.hashed_token }));
-  const probeSessionId = JSON.parse(Buffer.from(verified.session.access_token.split('.')[1], 'base64url').toString()).session_id;
+  const { probe, sessionId: probeSessionId } = demo;
   const sessions = await must('session list', probe.rpc('admin_list_user_sessions', { p_target: userId }));
   await probe.auth.signOut({ scope: 'local' });
   const live = sessions.filter((row) => row.session_id !== probeSessionId).length;

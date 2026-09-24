@@ -1,9 +1,10 @@
 import 'server-only';
 
 // Store-review window (Fase 17 S3, 86ey6bfug). Pure, dependency-free predicates
-// shared by /auth/review-login (is the route on?) and the /app layout (must a
-// demo session end?). Kept apart from review-login.ts so the layout's hot path
-// imports nothing but a string compare and a date parse.
+// shared by /auth/review-login (is the route on?), the middleware and the /app
+// layout (must a demo session end?). Kept apart from review-login.ts so those
+// hot paths import nothing but a string compare and a date parse (and the
+// edge middleware no node:crypto).
 
 /**
  * The ONE account the review login can ever sign in. A code constant, not an
@@ -99,10 +100,12 @@ export function isExactDemoAccount(user: MaybeUser): boolean {
 
 /**
  * A demo-account session may only live while the review login is enabled. When
- * the window closes (or the code is removed), the /app layout ends it: no demo
- * session outlives the submission, with no cron and no migration. Keyed on
- * the user id as well as the e-mail. A plain string compare for everyone else,
- * so no extra query on the layout hot path.
+ * the window closes (or the code is removed), the middleware (updateSession)
+ * ends it on the next request, and the /app layout does the same as a second
+ * layer: no cron and no migration. Keyed on the user id as well as the e-mail.
+ * A plain string compare for everyone else, so no extra query on either hot
+ * path. Residual: a pure-API client that never requests the app keeps its
+ * session until the next review login or `seed-demo-venue.mjs --end-review`.
  */
 export function demoSessionMustEnd(user: MaybeUser, env: Env = process.env, now: number = Date.now()): boolean {
   return isDemoReviewUser(user) && configuredReviewCode(env, now) === null;
