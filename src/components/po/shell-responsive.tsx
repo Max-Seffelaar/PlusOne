@@ -3,8 +3,15 @@
 /**
  * Responsive app-shell (S0 nav-shell, design `resp-app.jsx`). One shell, two
  * chromes: a desktop sidebar at ≥1024px, the mobile bottom-tab bar below it —
- * identical content in between. Built with the real `po` kit + design tokens;
- * the screens rendered inside stay as-is for now (wired live per S1+).
+ * identical content in between. Built with the real `po` kit + design tokens.
+ *
+ * Tablet (641–1023px, T1 — design-system.md "Breakpoints & tablet"): there is
+ * deliberately NO third chrome. iPad portrait stays in the bottom-tab chrome
+ * (a 252px sidebar would leave a phone-width 516–582px column, and the same
+ * switch picks the door's offline outbox variant). What changes above the
+ * phone width is the CONTENT column: `mainMaxClass` caps it in both chromes,
+ * so a form screen reads at the same 640px column on an iPad as on a laptop,
+ * and a wide screen gets the full width. On a phone the cap is a no-op.
  */
 import { Fragment, type JSX, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
@@ -12,6 +19,14 @@ import { t } from '@/lib/i18n';
 import { Icon, type IconName } from './icon';
 import { TabBar, type TabKey } from './shell';
 import { useViewport } from './use-viewport';
+
+/** Landscape notch/rounded-corner insets. `env()` resolves to 0 unless the
+ *  viewport opts into `viewport-fit=cover` (the native shell may), so this is
+ *  inert in a plain browser and correct in a webview that draws edge to edge. */
+const SIDE_SAFE_AREA = {
+  paddingLeft: 'env(safe-area-inset-left)',
+  paddingRight: 'env(safe-area-inset-right)',
+} as const;
 
 export interface ShellNavItem {
   key: string;
@@ -62,26 +77,33 @@ export function ResponsiveShell({
   onOpenProfile: () => void;
   userName: string;
   userSub: string;
-  /** Desktop content-column width (Tailwind max-w-* class). Wide dashboard
-   *  screens (home) opt into more than the default reading column. */
+  /** Content-column width (Tailwind max-w-* class), applied in BOTH chromes:
+   *  wide dashboard screens (home) opt into more than the default reading
+   *  column. Below 641px it never bites (the viewport is narrower); on a
+   *  tablet in the bottom-tab chrome it centers the same column desktop uses. */
   mainMaxClass?: string;
   children: ReactNode;
 }): JSX.Element {
   const isMobile = useViewport(serverHint);
 
-  // Mobile: full-bleed content + the existing bottom tab bar (unchanged look).
+  // Mobile + tablet: bottom tab bar. Full-bleed on a phone; from 641px the
+  // content column is centered at the screen's own width class (T1). The
+  // side safe-area padding only bites in a notched landscape phone once the
+  // viewport opts into `viewport-fit=cover` (0 otherwise).
   if (isMobile) {
     return (
-      <div className="flex h-[100dvh] flex-col overflow-hidden bg-bg">
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
+      <div className="flex h-[100dvh] flex-col overflow-hidden bg-bg" style={SIDE_SAFE_AREA}>
+        <div className={cn('relative mx-auto flex min-h-0 w-full flex-1 flex-col overflow-hidden', mainMaxClass)}>
+          {children}
+        </div>
         {isTabRoot && <TabBar tab={mobileTab} setTab={setMobileTab} badges={mobileBadges} show={mobileTabs} />}
       </div>
     );
   }
 
-  // Desktop: 252px sidebar + content column.
+  // Desktop (and iPad landscape): 252px sidebar + content column.
   return (
-    <div className="flex h-[100dvh] overflow-hidden bg-bg">
+    <div className="flex h-[100dvh] overflow-hidden bg-bg" style={SIDE_SAFE_AREA}>
       <aside className="flex w-[252px] flex-none flex-col border-r border-line2 bg-bg px-4 pb-4 pt-[22px]">
         <div className="flex items-center gap-[11px] px-2 pb-[22px]">
           <div className="flex h-9 w-9 items-center justify-center rounded-[11px] bg-acc font-display text-[17px] font-extrabold tracking-[-0.03em] text-on-acc">
