@@ -165,7 +165,7 @@ export function Events(): JSX.Element {
           months.map((m) => (
             <div key={m} className="mb-2">
               <Label className="mx-0.5 mb-[10px] mt-3">{m}</Label>
-              <div className="flex flex-col gap-[10px] lg:grid lg:grid-cols-2 xl:grid-cols-3">
+              <div className="flex flex-col gap-[10px] md:grid md:grid-cols-2 xl:grid-cols-3">
                 {evs
                   .filter((e) => e.month === m)
                   .map((e) => (
@@ -288,8 +288,8 @@ export function EventView({ id }: { id?: string }): JSX.Element {
             }
           />
         )}
-        <div className={cn(hasSecondary && 'lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start')}>
-          <div className={cn(!hasSecondary && 'lg:mx-auto lg:max-w-[680px]')}>
+        <div className={cn(hasSecondary && 'md:grid md:grid-cols-2 md:gap-5 md:items-start')}>
+          <div className={cn(!hasSecondary && 'md:mx-auto md:max-w-[680px]')}>
             {/* "On the way" made no sense on the event overview (feedback Max
                 10/7) — the list size is what you plan against. */}
             <div className="mb-3 grid grid-cols-2 gap-[10px]">
@@ -306,7 +306,7 @@ export function EventView({ id }: { id?: string }): JSX.Element {
               </div>
               <div className="mt-[9px] text-[12.5px] text-faint">{fmt(t.events.peopleOnList, { n: ev.guests })}</div>
             </div>
-            <div className="mb-4 flex gap-[10px] lg:mb-0">
+            <div className="mb-4 flex gap-[10px] md:mb-0">
               {showDoor && (
                 <Btn kind="primary" full icon="user" onClick={() => nav.openDoor(ev.id)}>
                   {t.events.checkIn}
@@ -321,7 +321,7 @@ export function EventView({ id }: { id?: string }): JSX.Element {
               <button
                 type="button"
                 onClick={() => nav.push('crew', { id: ev.id })}
-                className={cn('mt-3 flex w-full items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[13px] text-left lg:mt-4', cardPress)}
+                className={cn('mt-3 flex w-full items-center gap-[12px] rounded-[16px] border border-line bg-elev p-[13px] text-left md:mt-4', cardPress)}
               >
                 <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[11px] border border-line bg-elev2 text-acc">
                   <Icon name="users" size={18} />
@@ -379,7 +379,7 @@ export function EventView({ id }: { id?: string }): JSX.Element {
             )}
           </div>
           {hasSecondary && (
-            <div className="mt-4 lg:mt-0">
+            <div className="mt-4 md:mt-0">
               {openRequests > 0 && (
                 <>
                   <Label className="mb-[10px]">{t.events.needsAttention}</Label>
