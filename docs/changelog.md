@@ -47,10 +47,17 @@ query was reverted to width-only.
 **Not done / waiting.** The `kit.tsx` InfoTip (the `lg:h-[36px]` close button,
 and its popover-vs-sheet switch on `lg:`) plus `promotion/roster.tsx` and
 `promotion/event-links.tsx` (`lg:grid-cols-2` → `md:`) are frozen until N1
-(86ey6bfam) merges. **Open decision for Max:** an iPad in landscape at the door
-still gets the online-only cockpit. The proposed fix keys the door variant on
-`(pointer: coarse)` or `<1024px`, and needs `app.tsx` + `DoorRoute.tsx`, which
-are outside this worker's fence.
+(86ey6bfam) merges. **Door on iPad landscape, decided by Max the same day
+(plan decision 14, task N6 after N3):** `(pointer: coarse)` or `<1024px` gets the
+outbox door, and the cockpit is only for a fine pointer at `≥1024px`. Until N6
+lands, an iPad in landscape at the door still gets the online-only cockpit.
+
+**Review round (orchestrator).** The shell root now pads the top and side safe
+area once, for both chromes (N1 turns on `viewport-fit=cover`). The desktop
+sidebar footer clears the home indicator itself. The bottom inset stays with
+`TabBar`/`BottomBar`/`Sheet`, so it is never counted twice. The standalone
+`/door/<id>` route (`DoorRoute.tsx`, outside the fence) has its own root and
+does not get the top inset yet.
 
 **Tests run here.** `pnpm type-check` clean. `pnpm lint`: only the two
 pre-existing combobox a11y warnings in `datetime-field.tsx`. `pnpm vitest run`:

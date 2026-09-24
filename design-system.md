@@ -74,9 +74,11 @@ En één kolomregel: de per-scherm contentbreedte (`WIDE_DESKTOP` in `nav-map.ts
 
 **Waarom dichtheid op de pointer:** iPad landscape heeft desktopbreedte en een vinger. `lg:h-[30px]` gaf daar 30px-knoppen en typbare datumvelden. Kleiner dan 44px mag alleen achter `(pointer: fine)` (muis/trackpad), en dat matcht een iPad nooit. De datum/tijd-velden kiezen hun desktopmodus (typen, half-uur-dropdown) op `(min-width: 1024px) and (pointer: fine)`; op touch opent de kalender gecentreerd en blijft het native tijdwiel. Bewaakt door `tests/unit/touch-density.test.ts`.
 
+**Safe area:** de shell-root pad eenmalig voor boven en zijkanten (`env(safe-area-inset-*)`, actief sinds N1 `viewport-fit=cover` zet). Onder hoort bij wat op de onderrand staat: `TabBar`, `BottomBar`, `Sheet` en de sidebar-footer. Nooit per scherm.
+
 **Wat Max per formaat ziet:** 768/820/834 portrait = bottom-tabs, formulieren in een gecentreerde kolom van 640px, lijsten en dashboards over de volle breedte met tweekoloms-grids; de Deur-lijst over de volle breedte, gast-detail en ter-plekke-toevoegen in de 640-kolom. 1024/1180/1366 landscape = sidebar, desktopdichtheid qua layout, maar 44px-tikdoelen en touch-invoer.
 
-**Open (niet in deze beslissing):** een iPad in landscape aan de deur krijgt nu de online-only cockpit, niet de outbox-deur. Voor een tablet op een standaard bij de ingang is dat een risico voor #25. Voorstel: de deurvariant kiezen op `(pointer: coarse)` óf `<1024px` in plaats van alleen de breedte. Dat raakt `app.tsx` en `DoorRoute.tsx` en vraagt een besluit van Max.
+**Besloten 2026-09-24 (Max, plan-beslissing 14, uitvoering N6 na N3):** de deurvariant volgt touch óf breedte. `(pointer: coarse)` of `<1024px` krijgt de outbox-deur, de cockpit alleen een fijne pointer op `≥1024px`. De chrome-breakpoint blijft 1024. Tot N6 er is, krijgt een iPad in landscape aan de deur nog de online-only cockpit.
 
 ## Scherm-inventaris: gedekt vs. ontbrekend
 
