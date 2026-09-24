@@ -85,11 +85,11 @@ met fake data en één demo-user, plus de prod-safe route
 en geen MFA.
 
 **Rest-risico van `admin`, bewust geaccepteerd.** Wie de code heeft, kan binnen de
-demo-venue alles wat een venue-admin kan. Dat omvat ook crew uitnodigen (dan gaat er
-echte invite-mail naar een willekeurig adres). Het venster houdt dit kort: hooguit 60
-dagen, en daarna sterft elke demo-sessie.
+demo-venue alles wat een venue-admin kan, behalve uitnodigen (zie hieronder). Het
+venster houdt dit kort: hooguit 60 dagen, en daarna sterft elke demo-sessie.
 
-**Een eigen venue aanmaken kan níet, en dat regelt de database.** De route zou het
+**Het demo-account kan geen venue maken en de demo-venue kan niemand uitnodigen —
+beide in de database.** De route zou het
 alleen kunnen *detecteren*, niet blokkeren: een code-houder kan een venue maken, daar
 een echt adres als admin uitnodigen en dan zijn eigen membership verwijderen, waarna
 het aantal memberships weer klopt. Daarom weigert `create_venue_with_owner` het vaste
@@ -97,6 +97,16 @@ demo-id met 42501 (migratie `20260925130000_review_demo_guard.sql`, pgTAP
 `review_demo_guard.test.sql`), wie de RPC ook aanroept. `createVenueAction` weigert
 het ook, alleen voor een nette foutmelding. Als tripwire stopt het seedscript als er
 `audit_log`-rijen zijn met het demo-id als actor in een andere venue dan de demo-venue.
+
+Die guard keyt alleen op het demo-id. Een adres dat de demo-admin uitnodigt is een
+gewoon account en zou wél een venue kunnen maken (de tenant ontstaat dan één hop
+later). Daarom weigert een `before insert`-trigger op `invites` elke invite in de
+demo-venue met 42501, voor iedereen, service role incluis (migratie
+`20260925130100_review_demo_no_invites.sql`, pgTAP `review_demo_no_invites.test.sql`).
+Zonder invite kan `accept_pending_invites` niemand aan de demo-venue toevoegen, en een
+directe membership-insert voegt alleen *bestaande* accounts toe (er ontstaat geen nieuw
+account). Er is geen legitiem pad dat in de demo-venue uitnodigt: de seed maakt de ene
+membership direct aan.
 
 ## Eenmalig: seed de demo-venue
 
@@ -124,7 +134,10 @@ node scripts/seed-demo-venue.mjs --prod
   - de demo-user platform-admin is;
   - de demo-user lid is van een andere venue;
   - de demo-venue andere leden heeft. Met `--reset-members` worden die leden
-    verwijderd in plaats van dat het script stopt.
+    verwijderd in plaats van dat het script stopt. In beide gevallen toont het ook
+    de venues waarvan `settings.onboarding.created_by` zo'n lid is (alleen tonen,
+    nooit verwijderen), zodat je ziet of er een tenant is ontstaan. `--reset-members`
+    verwijdert alleen de membership, niet het account of zijn venue: dat beslis je zelf.
   - er `audit_log`-rijen zijn met het demo-id als actor en een andere `venue_id` dan
     de demo-venue (tripwire: de code-houder heeft ergens anders iets gedaan).
 
@@ -186,8 +199,8 @@ Authentication → Sign In / Providers → Email) dat **Secure email change AAN*
 Zonder die instelling kan een code-houder het demo-adres via de GoTrue-API naar een
 eigen mailbox omzetten; de check in `updateEmailAction` dekt alleen de app.
 
-Controleer ook dat `LANDING_IP_SALT` in prod gezet is. De route en de end-route gebruiken
-die salt voor de client-hash en falen (500) zonder.
+Controleer ook dat `LANDING_IP_SALT` in prod gezet is. De login-route gebruikt die salt
+voor de client-hash en faalt (500) zonder; de end-route logt dan `no-client` en werkt door.
 
 ## Vercel Firewall-regel (globale rate limit): HANDMATIG
 
