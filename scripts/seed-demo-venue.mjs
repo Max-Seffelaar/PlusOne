@@ -4,6 +4,7 @@
 //
 //   node scripts/seed-demo-venue.mjs            # local stack (.env.local)
 //   node scripts/seed-demo-venue.mjs --prod     # required for any non-local URL
+//   … --reset-members                            # remove stray demo-venue members
 //
 // Creds come from .env.local or process.env, like scripts/invite-link.mjs:
 // NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY. For prod, run it from
@@ -30,15 +31,25 @@
 // Billing: the venue starts `trialing` like every new venue. Set it to `comped`
 // with the documented SQL (docs/stripe-setup.md §5); the script prints it.
 //
+// Venue isolation (the route refuses otherwise): the demo user must be the
+// ONLY member of the demo venue and there must be no open invite into it or to
+// the demo address. Open invites are deleted (a pending invite to the demo
+// address would be accepted at the reviewer's consent step). Other members make
+// the script STOP with the list; pass --reset-members to remove them instead.
+// At the end it prints how many live sessions the demo user has.
+//
 // Constants mirrored in src/features/auth/review-window.ts (guarded by
-// review-login.test.ts): keep DEMO_REVIEW_EMAIL, VENUE_ID (= DEMO_VENUE_ID) and
-// DEMO_VENUE_NAME identical. The route checks the membership by VENUE_ID.
+// review-login.test.ts): keep DEMO_REVIEW_EMAIL, DEMO_USER_ID, VENUE_ID
+// (= DEMO_VENUE_ID) and DEMO_VENUE_NAME identical. The demo user is created
+// with exactly DEMO_USER_ID; the route and the /app layout key on it.
 
 import { readFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
 
 const DEMO_REVIEW_EMAIL = 'app-review@demo.plus-one.io';
+const DEMO_USER_ID = 'de300000-0000-7000-8000-00000000a001';
 const DEMO_VENUE_NAME = 'PLUSONE Demo';
+const RESET_MEMBERS = process.argv.includes('--reset-members');
 
 // Fixed ids (UUIDv7-shaped, `de30` prefix = demo) so every run targets the same rows.
 const VENUE_ID = 'de300000-0000-7000-8000-000000000001';
@@ -69,7 +80,11 @@ function env() {
     /* no .env.local — rely on process.env */
   }
   const get = (k) => process.env[k] ?? fromFile[k] ?? '';
-  return { url: get('NEXT_PUBLIC_SUPABASE_URL'), serviceKey: get('SUPABASE_SERVICE_ROLE_KEY') };
+  return {
+    url: get('NEXT_PUBLIC_SUPABASE_URL'),
+    serviceKey: get('SUPABASE_SERVICE_ROLE_KEY'),
+    anonKey: get('NEXT_PUBLIC_SUPABASE_ANON_KEY'),
+  };
 }
 
 function fail(message) {
@@ -77,7 +92,7 @@ function fail(message) {
   process.exit(1);
 }
 
-const { url, serviceKey } = env();
+const { url, serviceKey, anonKey } = env();
 if (!url || !serviceKey) fail('Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY (.env.local or env).');
 const host = new URL(url).hostname;
 const isLocal = host === 'localhost' || host === '127.0.0.1';
@@ -91,7 +106,14 @@ const db = createClient(url, serviceKey, { auth: { autoRefreshToken: false, pers
 
 async function must(label, promise) {
   const { data, error } = await promise;
-  if (error) fail(`${label}: ${error.message}`);
+  if (error) {
+    // 23505 = unique violation on a key other than the id (a real venue/event
+    // already owns the slug): name it instead of a raw constraint message.
+    if (error.code === '23505') {
+      fail(`${label}: a slug or other unique value is already taken by a row that is not the demo row (${error.message}). Pick another slug in this script.`);
+    }
+    fail(`${label}: ${error.message}`);
+  }
   return data;
 }
 
@@ -101,24 +123,42 @@ async function insertMissing(table, rows) {
 }
 
 // ── 1. demo user ───────────────────────────────────────────────────────────
+// One admin request with ?filter= (same as scripts/invite-link.mjs), then an
+// exact, case-insensitive match on the result.
 async function findUser(email) {
-  for (let page = 1; page < 100; page += 1) {
-    const data = await must('listUsers', db.auth.admin.listUsers({ page, perPage: 1000 }));
-    const hit = data.users.find((u) => (u.email ?? '').toLowerCase() === email);
-    if (hit) return hit;
-    if (data.users.length < 1000) return null;
-  }
-  return null;
+  const res = await fetch(`${url.replace(/\/$/, '')}/auth/v1/admin/users?page=1&per_page=50&filter=${encodeURIComponent(email)}`, {
+    headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+  });
+  if (!res.ok) fail(`user lookup: HTTP ${res.status}`);
+  const body = await res.json();
+  const users = Array.isArray(body?.users) ? body.users : [];
+  return users.find((u) => (u.email ?? '').toLowerCase() === email) ?? null;
 }
 
 let user = await findUser(DEMO_REVIEW_EMAIL);
 if (!user) {
+  // The id may exist with a rebound e-mail (profile-actions refuses that now,
+  // but an older change would show up here): never create a second account.
+  const byId = await db.auth.admin.getUserById(DEMO_USER_ID);
+  if (byId.data?.user) {
+    fail(`User ${DEMO_USER_ID} exists but no longer has the demo e-mail. Investigate and restore it by hand; review-login refuses it until then.`);
+  }
   const created = await must(
     'createUser',
-    db.auth.admin.createUser({ email: DEMO_REVIEW_EMAIL, email_confirm: true, user_metadata: { full_name: 'App Reviewer' } }),
+    db.auth.admin.createUser({
+      id: DEMO_USER_ID,
+      email: DEMO_REVIEW_EMAIL,
+      email_confirm: true,
+      user_metadata: { full_name: 'App Reviewer' },
+    }),
   );
   user = created.user;
   console.log('[seed-demo-venue] created demo user');
+} else if (user.id !== DEMO_USER_ID) {
+  fail(
+    `${DEMO_REVIEW_EMAIL} exists with id ${user.id}, not the fixed ${DEMO_USER_ID}. ` +
+      'Delete that account by hand (it has no business data) and re-run; review-login and the /app layout key on the fixed id.',
+  );
 } else if (!user.email_confirmed_at) {
   await must('confirm demo user', db.auth.admin.updateUserById(user.id, { email_confirm: true }));
 }
@@ -139,6 +179,10 @@ await must(
 );
 const profile = await must('user_profiles read', db.from('user_profiles').select('is_platform_admin').eq('id', userId).single());
 if (profile.is_platform_admin) fail('The demo user is a platform admin. Revoke that first (set_platform_admin); it must never be one.');
+// No MFA nudge on the shared admin account, ever: a reviewer who follows it
+// would enrol a factor that locks every later reviewer out (guards.ts treats
+// 'infinity' as snoozed for good). Restored on every run.
+await must('mfa snooze', db.from('user_profiles').update({ mfa_snooze_until: 'infinity' }).eq('id', userId));
 
 // ── 2. venue + subscription + membership ───────────────────────────────────
 await insertMissing('venues', [
@@ -191,6 +235,33 @@ await must(
     .from('venue_memberships')
     .upsert({ venue_id: VENUE_ID, user_id: userId, roles: ['admin', 'doorhost'], job_title: 'App review' }, { onConflict: 'venue_id,user_id' }),
 );
+
+// Venue isolation. Other members: stop with the list, or remove them with
+// --reset-members. Open invites into the demo venue or to the demo address:
+// always deleted (nothing legitimate ever invites into the demo tenant).
+const venueMembers = await must('venue members read', db.from('venue_memberships').select('user_id, roles').eq('venue_id', VENUE_ID));
+const strays = venueMembers.filter((m) => m.user_id !== userId);
+if (strays.length > 0) {
+  const list = strays.map((m) => `${m.user_id} (${(m.roles ?? []).join(',')})`).join(', ');
+  if (!RESET_MEMBERS) {
+    fail(
+      `The demo venue has other members: ${list}. A code holder (admin) may have invited them. ` +
+        'Investigate, then re-run with --reset-members to remove them. review-login refuses to sign in until the demo user is the only member.',
+    );
+  }
+  for (const m of strays) {
+    await must('stray member delete', db.from('venue_memberships').delete().eq('venue_id', VENUE_ID).eq('user_id', m.user_id));
+  }
+  console.warn(`[seed-demo-venue] removed ${strays.length} stray demo-venue member(s): ${list}`);
+}
+
+const openVenueInvites = await must('venue invites read', db.from('invites').select('id').eq('venue_id', VENUE_ID).is('accepted_at', null));
+const openAddressedInvites = await must('addressed invites read', db.from('invites').select('id, venue_id').ilike('email', DEMO_REVIEW_EMAIL).is('accepted_at', null));
+const inviteIds = [...new Set([...openVenueInvites, ...openAddressedInvites].map((i) => i.id))];
+if (inviteIds.length > 0) {
+  await must('open invites delete', db.from('invites').delete().in('id', inviteIds));
+  console.warn(`[seed-demo-venue] deleted ${inviteIds.length} open invite(s) into the demo venue or to the demo address`);
+}
 
 // ── 3. events, tiers, guests, requests ─────────────────────────────────────
 function eventWindow(daysAhead) {
@@ -260,4 +331,22 @@ if (sub.status !== 'comped') {
     '[seed-demo-venue] NEXT: set the demo venue to comped (docs/stripe-setup.md §5), as table owner:\n' +
       `  update public.subscriptions set status = 'comped', updated_at = now() where venue_id = '${VENUE_ID}';`,
   );
+}
+
+// ── 5. live demo sessions (report only) ────────────────────────────────────
+// auth.sessions is not reachable through PostgREST, and the session list RPC
+// (admin_list_user_sessions) runs as a venue admin, not as the service role. So
+// sign in as the demo user on a throwaway in-memory client, ask, and revoke that
+// probe session again. Every review login already revokes the others.
+if (!anonKey) {
+  console.log('[seed-demo-venue] live sessions: skipped (NEXT_PUBLIC_SUPABASE_ANON_KEY not set)');
+} else {
+  const link = await must('probe link', db.auth.admin.generateLink({ type: 'magiclink', email: DEMO_REVIEW_EMAIL }));
+  const probe = createClient(url, anonKey, { auth: { autoRefreshToken: false, persistSession: false } });
+  const verified = await must('probe verify', probe.auth.verifyOtp({ type: 'magiclink', token_hash: link.properties.hashed_token }));
+  const probeSessionId = JSON.parse(Buffer.from(verified.session.access_token.split('.')[1], 'base64url').toString()).session_id;
+  const sessions = await must('session list', probe.rpc('admin_list_user_sessions', { p_target: userId }));
+  await probe.auth.signOut({ scope: 'local' });
+  const live = sessions.filter((row) => row.session_id !== probeSessionId).length;
+  console.log(`[seed-demo-venue] live demo sessions (excluding this script's probe): ${live}`);
 }
