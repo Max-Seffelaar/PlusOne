@@ -1,7 +1,10 @@
 import 'server-only';
 import { createHash, timingSafeEqual } from 'node:crypto';
+import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/database.types';
+import { requiredServerEnv } from '@/lib/env';
 import { t } from '@/lib/i18n';
-import { landingIpSalt } from '@/features/requests/ip-hash';
+import { clientIpFromHeaders, landingIpSalt } from '@/features/requests/ip-hash';
 
 // Store-review login (Fase 17 S3, 86ey6bfug; capacitor-plan §2 decision 6).
 // Pure helpers for src/app/auth/review-login/route.ts, split out because a
@@ -32,10 +35,29 @@ export function reviewCodeMatches(submitted: unknown, expected: string): boolean
  * or logs. Reads the request headers directly so the route stays testable.
  */
 export function reviewClientKey(headers: Headers): string {
-  const forwarded = headers.get('x-forwarded-for');
-  const ip = (forwarded ? forwarded.split(',')[0] : headers.get('x-real-ip') ?? '').trim();
+  const ip = clientIpFromHeaders(headers);
   return createHash('sha256').update(`${landingIpSalt()}:review:${ip || 'no-ip'}`).digest('hex');
 }
+
+/**
+ * A cookie-less anon client for the review login's verify + checks. The session
+ * lives only in this object's memory, so nothing reaches the browser unless the
+ * route copies it onto the cookie client AFTER every check passed: a refused
+ * session never depends on a sign-out to pull cookies back. The User-Agent is
+ * forwarded so the session GoTrue records carries a usable device label.
+ */
+export function createReviewAuthClient(userAgent: string) {
+  return createClient<Database>(
+    requiredServerEnv('NEXT_PUBLIC_SUPABASE_URL'),
+    requiredServerEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY'),
+    {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      global: { headers: { 'User-Agent': userAgent } },
+    },
+  );
+}
+
+export type ReviewAuthClient = ReturnType<typeof createReviewAuthClient>;
 
 /**
  * Fixed-window attempt limiter, PER CLIENT only. There is deliberately no
@@ -72,6 +94,11 @@ export class AttemptLimiter {
     for (const [key, bucket] of this.buckets) {
       if (now - bucket.start >= this.windowMs) this.buckets.delete(key);
     }
+    // Memory bound, and a known trade-off: when the map is still full of LIVE
+    // buckets (a spray of >maxKeys distinct clients inside one window) it is
+    // cleared, which also hands every client, the sprayer included, a fresh
+    // budget. That is the only way a budget resets early. The limiter is a
+    // speed bump; the 130-bit code is the brute-force bound.
     if (this.buckets.size >= this.maxKeys) this.buckets.clear();
   }
 }

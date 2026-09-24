@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getSessionUser } from '@/lib/auth/context';
 import { profileSchema, emailChangeSchema } from './schemas';
 import { describeAuthError } from './errors';
+import { isDemoReviewUser } from './review-window';
 
 export interface ActionState {
   ok: boolean;
@@ -63,6 +64,11 @@ export async function updateEmailAction(
 ): Promise<ActionState> {
   const user = await getSessionUser();
   if (!user) return { ok: false, error: "You're not logged in." };
+  // The shared store-review demo account (86ey6bfug) keeps its address for
+  // good: rebinding it to a reachable mailbox would hand whoever did it a
+  // normal OTP login that outlives every review window. Config-independent,
+  // so it holds even if "Secure email change" is ever switched off.
+  if (isDemoReviewUser(user)) return { ok: false, error: "This account's email can't be changed." };
 
   const parsed = emailChangeSchema.safeParse({ email: formData.get('email') });
   if (!parsed.success) {

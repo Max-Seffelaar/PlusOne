@@ -10,7 +10,7 @@ vi.mock('@/lib/supabase/server', () => ({
 }));
 
 const ORIGIN = 'http://localhost:3000';
-const DEMO = { id: 'd', email: 'app-review@demo.plus-one.io' };
+const DEMO = { id: 'de300000-0000-7000-8000-00000000a001', email: 'app-review@demo.plus-one.io' };
 const inDays = (d: number) => new Date(Date.now() + d * 86_400_000).toISOString();
 
 async function hit() {
@@ -44,6 +44,13 @@ describe('GET /auth/review-login/end', () => {
     expect(signOut).toHaveBeenCalledWith({ scope: 'global' });
     expect(new URL(res.headers.get('location')!).pathname).toBe('/login');
     expect(res.headers.get('cache-control')).toContain('no-store');
+  });
+
+  it('demo id with a rebound e-mail is still caught (keyed on the id too)', async () => {
+    getUser.mockResolvedValue({ data: { user: { ...DEMO, email: 'rebound@attacker.example' } } });
+    const res = await hit();
+    expect(signOut).toHaveBeenCalledWith({ scope: 'global' });
+    expect(new URL(res.headers.get('location')!).pathname).toBe('/login');
   });
 
   it('demo account + OPEN window → untouched, back to /app (no cross-site logout of a reviewer)', async () => {

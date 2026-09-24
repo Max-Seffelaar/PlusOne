@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AttemptLimiter, renderReviewForm, reviewClientKey, reviewCodeMatches } from './review-login';
-import { DEMO_REVIEW_EMAIL, DEMO_VENUE_ID, DEMO_VENUE_NAME } from './review-window';
+import { DEMO_REVIEW_EMAIL, DEMO_USER_ID, DEMO_VENUE_ID, DEMO_VENUE_NAME } from './review-window';
 
 const CODE = 'k7p2-x9qm-4hzt-8wva-3bcd-efgh-jk';
 
@@ -79,8 +79,10 @@ describe('renderReviewForm', () => {
 describe('demo constants mirrored in scripts/seed-demo-venue.mjs', () => {
   const script = readFileSync(path.resolve(process.cwd(), 'scripts/seed-demo-venue.mjs'), 'utf8');
 
-  it('uses the same demo e-mail, venue id and venue name as the route', () => {
+  it('uses the same demo e-mail, user id, venue id and venue name as the route', () => {
     expect(script).toContain(`const DEMO_REVIEW_EMAIL = '${DEMO_REVIEW_EMAIL}';`);
+    expect(script).toContain(`const DEMO_USER_ID = '${DEMO_USER_ID}';`);
+    expect(script).toMatch(/createUser\(\{\s*id: DEMO_USER_ID,/);
     expect(script).toContain(`const VENUE_ID = '${DEMO_VENUE_ID}';`);
     expect(script).toContain(`const DEMO_VENUE_NAME = '${DEMO_VENUE_NAME}';`);
   });
@@ -89,6 +91,12 @@ describe('demo constants mirrored in scripts/seed-demo-venue.mjs', () => {
     expect(script).not.toMatch(/is_platform_admin\s*:\s*true/);
     expect(script).not.toContain('set_platform_admin(');
     expect(script).toContain('process.env.CI');
+  });
+
+  it('snoozes the MFA nudge for good and checks venue isolation', () => {
+    expect(script).toContain("mfa_snooze_until: 'infinity'");
+    expect(script).toContain('--reset-members');
+    expect(script).toContain("from('invites')");
   });
 
   it('refuses a non-local target without --prod', () => {

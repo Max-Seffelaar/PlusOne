@@ -237,7 +237,7 @@ describe('/app layout — platform-admin cookie fallback (z8uq9m0tnx)', () => {
 
 // Store-review demo account (86ey6bfug): its sessions die with the review window.
 describe('/app layout ends a demo-account session once the review window closes', () => {
-  const DEMO = { id: 'demo-1', email: 'app-review@demo.plus-one.io' };
+  const DEMO = { id: 'de300000-0000-7000-8000-00000000a001', email: 'app-review@demo.plus-one.io' };
   const inDays = (d: number) => new Date(Date.now() + d * 86_400_000).toISOString();
 
   beforeEach(() => {
@@ -258,6 +258,12 @@ describe('/app layout ends a demo-account session once the review window closes'
   it('closed window (expiry past) → sent to the sign-out route before anything else runs', async () => {
     vi.stubEnv('REVIEW_LOGIN_EXPIRES_AT', inDays(-1));
     getSessionUserMock.mockResolvedValue(DEMO);
+    await expect(renderLayout()).rejects.toThrow('REDIRECT:/auth/review-login/end');
+  });
+
+  it('the demo id with a rebound e-mail is caught too (keyed on the id)', async () => {
+    vi.stubEnv('REVIEW_LOGIN_EXPIRES_AT', inDays(-1));
+    getSessionUserMock.mockResolvedValue({ ...DEMO, email: 'rebound@attacker.example' });
     await expect(renderLayout()).rejects.toThrow('REDIRECT:/auth/review-login/end');
   });
 

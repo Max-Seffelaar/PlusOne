@@ -65,10 +65,10 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
   if (!user) redirect(`/login?next=${encodeURIComponent(gateNext)}`);
 
   // Store-review demo account (86ey6bfug): its sessions live only while the
-  // review window is open. A pure e-mail compare + env read, no query, so every
+  // review window is open. A pure id/e-mail compare + env read, no query, so every
   // other user pays nothing here. The route handler does the sign-out, because
   // a Server Component cannot clear cookies.
-  if (demoSessionMustEnd(user.email)) redirect(REVIEW_SESSION_END_PATH);
+  if (demoSessionMustEnd(user)) redirect(REVIEW_SESSION_END_PATH);
 
   // Venue-less users go through onboarding first (#40); the wizard is responsive,
   // so it serves mobile web too.

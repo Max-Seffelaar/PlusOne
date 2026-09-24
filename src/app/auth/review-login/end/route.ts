@@ -33,7 +33,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return redirectTo(request, '/login');
-  if (!demoSessionMustEnd(user.email)) return redirectTo(request, '/app');
+  if (!demoSessionMustEnd(user)) return redirectTo(request, '/app');
 
   const client = reviewClientKey(request.headers);
   const { error } = await supabase.auth.signOut({ scope: 'global' });

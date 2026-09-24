@@ -7,10 +7,12 @@ import {
   DEMO_REVIEW_EMAIL,
   DEMO_VENUE_ID,
   configuredReviewCode,
-  isDemoReviewUser,
+  isExactDemoAccount,
 } from '@/features/auth/review-window';
 import {
   AttemptLimiter,
+  createReviewAuthClient,
+  type ReviewAuthClient,
   logReviewLogin,
   renderReviewForm,
   reviewClientKey,
@@ -39,19 +41,23 @@ import {
 //   5. The account is DEMO_REVIEW_EMAIL, a code constant. Nothing in the request
 //      selects a user, and the destination is fixed (/app via the entry gate), so
 //      there is no `next=` to redirect through.
-//   6. After sign-in, fail closed unless the session really is the demo user
-//      with exactly one membership (venue_id = DEMO_VENUE_ID), no platform-admin
-//      flag and no verified TOTP factor; otherwise sign that session out again.
-//   7. On success, sign out the demo user's OTHER sessions: one live demo
-//      session at a time, so a leaked earlier session dies at the next login.
+//   6. The token is verified on a COOKIE-LESS client, and every check runs
+//      there: the session must be the demo account (id AND e-mail), with no
+//      verified TOTP factor, no platform-admin flag, exactly one membership
+//      (venue_id = DEMO_VENUE_ID), and the demo venue must be isolated (no other
+//      member, no open invite into it or to the demo address). A refusal never
+//      wrote a cookie, so it does not depend on a sign-out succeeding.
+//   7. Still on that client, the demo user's OTHER sessions are revoked: one
+//      live demo session at a time. Only then are the cookies set.
 //      Sessions also die with the window: the /app layout sends a demo session
 //      to /auth/review-login/end once configuredReviewCode() is null.
+//   8. Every method other than GET/HEAD/POST answers the same 404.
 //
 // Service role: GoTrue has no way to start a session for a user without a
 // credential except an admin-minted magic link, so this route (like dev-login)
 // uses the service client for exactly ONE call, auth.admin.generateLink for the
-// constant demo address. Every read after that goes through the user-scoped
-// client, under RLS, as the demo user.
+// constant demo address. Every read after that runs as the demo user, under
+// RLS, on the anon-key client.
 
 export const dynamic = 'force-dynamic';
 
@@ -142,33 +148,47 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return backToForm(request, 'failed');
   }
 
-  const supabase = await createClient({
-    headers: { 'User-Agent': request.headers.get('user-agent') ?? 'PlusOne review-login' },
-  });
-  const { data: verified, error: verifyError } = await supabase.auth.verifyOtp({
+  // Verify on a COOKIE-LESS client: the session exists only in memory until
+  // every check below has passed. Only then is it copied onto the cookie client.
+  const probe = createReviewAuthClient(request.headers.get('user-agent') ?? 'PlusOne review-login');
+  const { data: verified, error: verifyError } = await probe.auth.verifyOtp({
     type: 'magiclink',
     token_hash: tokenHash,
   });
   const user = verified?.user;
-  if (verifyError || !user) {
+  const session = verified?.session;
+  if (verifyError || !user || !session) {
     logReviewLogin('mint_failed', client, 'verify');
     return backToForm(request, 'failed');
   }
 
-  const refusal = await demoAccountRefusal(supabase, user.id, user.email);
+  const refusal = await demoAccountRefusal(probe, user);
   if (refusal) {
-    // Fail closed: drop the session this request just created.
-    await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
+    // No cookie was ever written. Revoking the in-memory session is hygiene only.
+    await probe.auth.signOut({ scope: 'local' }).catch(() => undefined);
     logReviewLogin('refused', client, refusal);
     return backToForm(request, 'failed');
   }
 
-  // One live demo session at a time: revoke every other session of the demo
-  // user. If that fails, the older sessions would survive, so fail closed.
-  const { error: othersError } = await supabase.auth.signOut({ scope: 'others' });
+  // One live demo session at a time: revoke every OTHER session of the demo
+  // user before this one is handed out. If that fails, the older sessions would
+  // survive, so fail closed (still nothing written to cookies).
+  const { error: othersError } = await probe.auth.signOut({ scope: 'others' });
   if (othersError) {
-    await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
+    await probe.auth.signOut({ scope: 'local' }).catch(() => undefined);
     logReviewLogin('refused', client, 'revoke_others');
+    return backToForm(request, 'failed');
+  }
+
+  // All checks passed: now, and only now, set the session cookies.
+  const supabase = await createClient();
+  const { error: setError } = await supabase.auth.setSession({
+    access_token: session.access_token,
+    refresh_token: session.refresh_token,
+  });
+  if (setError) {
+    await probe.auth.signOut({ scope: 'local' }).catch(() => undefined);
+    logReviewLogin('mint_failed', client, 'set_session');
     return backToForm(request, 'failed');
   }
 
@@ -178,37 +198,67 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   return withNoStore(NextResponse.redirect(new URL(dest, request.url), 303));
 }
 
-type UserClient = Awaited<ReturnType<typeof createClient>>;
+// Every other method answers exactly like a disabled route (HEAD maps to GET):
+// the route never advertises itself through OPTIONS/405.
+export const OPTIONS = notFoundHandler;
+export const PUT = notFoundHandler;
+export const PATCH = notFoundHandler;
+export const DELETE = notFoundHandler;
+
+async function notFoundHandler(): Promise<NextResponse> {
+  return notFound();
+}
 
 /**
  * Why this session must NOT be kept, or null when it is the demo account in
- * the expected shape. Runs as the demo user (RLS), no service role.
+ * the expected shape. Runs as the demo user on the cookie-less client (RLS),
+ * no service role.
  */
 async function demoAccountRefusal(
-  supabase: UserClient,
-  userId: string,
-  email: string | undefined,
+  probe: ReviewAuthClient,
+  user: { id: string; email?: string | null },
 ): Promise<string | null> {
-  if (!isDemoReviewUser(email)) return 'email';
+  if (!isExactDemoAccount(user)) return 'account';
 
   // A verified TOTP factor would strand the reviewer on the AAL2 wall, and
   // would mean someone enrolled their own authenticator on the shared account.
-  const { data: factors, error: factorError } = await supabase.auth.mfa.listFactors();
+  const { data: factors, error: factorError } = await probe.auth.mfa.listFactors();
   if (factorError) return 'factors_unreadable';
   if ((factors?.totp ?? []).some((f) => f.status === 'verified')) return 'mfa_enrolled';
 
-  const { data: isAdmin, error: adminError } = await supabase.rpc('is_platform_admin');
+  const { data: isAdmin, error: adminError } = await probe.rpc('is_platform_admin');
   if (adminError) return 'platform_flag_unreadable';
   if (isAdmin !== false) return 'platform_admin';
 
-  // By id, never by name: a venue admin can rename a venue, not re-key it.
-  const { data: memberships, error: memberError } = await supabase
+  // User isolation, by id (a venue admin can rename a venue, not re-key it).
+  const { data: own, error: ownError } = await probe
     .from('venue_memberships')
     .select('venue_id')
-    .eq('user_id', userId);
-  if (memberError || !memberships) return 'memberships_unreadable';
-  if (memberships.length !== 1) return 'membership_count';
-  if (memberships[0]?.venue_id !== DEMO_VENUE_ID) return 'membership_venue';
+    .eq('user_id', user.id);
+  if (ownError || !own) return 'memberships_unreadable';
+  if (own.length !== 1) return 'membership_count';
+  if (own[0]?.venue_id !== DEMO_VENUE_ID) return 'membership_venue';
+
+  // Venue isolation: nobody else in the demo venue (a code holder, as admin,
+  // could invite a real address that outlives every window), and no open
+  // invite into the demo venue or addressed to the demo e-mail (consent would
+  // accept that one AFTER this check). The demo user can read all of this:
+  // members of its own venue, its venue's invites as admin, and invites to
+  // its own address (invites_select).
+  const { data: members, error: membersError } = await probe
+    .from('venue_memberships')
+    .select('user_id')
+    .eq('venue_id', DEMO_VENUE_ID);
+  if (membersError || !members) return 'venue_members_unreadable';
+  if (members.length !== 1 || members[0]?.user_id !== user.id) return 'venue_not_isolated';
+
+  const nowIso = new Date().toISOString();
+  const [venueInvites, addressedInvites] = await Promise.all([
+    probe.from('invites').select('id').eq('venue_id', DEMO_VENUE_ID).is('accepted_at', null).gt('expires_at', nowIso),
+    probe.from('invites').select('id').ilike('email', DEMO_REVIEW_EMAIL).is('accepted_at', null).gt('expires_at', nowIso),
+  ]);
+  if (venueInvites.error || addressedInvites.error) return 'invites_unreadable';
+  if ((venueInvites.data?.length ?? 0) > 0 || (addressedInvites.data?.length ?? 0) > 0) return 'venue_not_isolated';
 
   return null;
 }

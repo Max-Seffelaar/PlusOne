@@ -1,36 +1,80 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-// The route with Supabase mocked out: the service client (generateLink) and the
-// user-scoped SSR client (verifyOtp + the fail-closed account checks).
+// The route with Supabase mocked out:
+//  - the service client (generateLink, the one service-role call);
+//  - the cookie-LESS probe client (verifyOtp + every fail-closed check + the
+//    revocation of other sessions), built by createReviewAuthClient;
+//  - the cookie client, which only ever receives setSession after the checks.
 const generateLink = vi.fn();
 const verifyOtp = vi.fn();
 const listFactors = vi.fn();
-const signOut = vi.fn();
+const probeSignOut = vi.fn();
 const rpc = vi.fn();
-const membershipsEq = vi.fn();
-const from = vi.fn(() => ({ select: () => ({ eq: membershipsEq }) }));
+const setSession = vi.fn();
+
+const DEMO_VENUE_ID = 'de300000-0000-7000-8000-000000000001';
+const DEMO = { id: 'de300000-0000-7000-8000-00000000a001', email: 'app-review@demo.plus-one.io' };
+const SESSION = { access_token: 'at', refresh_token: 'rt' };
+
+// Table state the probe's queries resolve against (RLS as the demo user).
+let ownMemberships: unknown[];
+let venueMembers: unknown[];
+let venueInvites: unknown[];
+let addressedInvites: unknown[];
+let failTable: string | null;
+
+function query(table: string) {
+  const filters: Record<string, unknown> = {};
+  const q = {
+    select: () => q,
+    eq: (col: string, val: unknown) => ((filters[col] = val), q),
+    ilike: (col: string, val: unknown) => ((filters[`ilike:${col}`] = val), q),
+    is: () => q,
+    gt: () => q,
+    then: (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) =>
+      Promise.resolve(resolveQuery(table, filters)).then(res, rej),
+  };
+  return q;
+}
+
+function resolveQuery(table: string, filters: Record<string, unknown>) {
+  if (failTable === table) return { data: null, error: { message: 'boom' } };
+  if (table === 'venue_memberships') {
+    return { data: 'user_id' in filters ? ownMemberships : venueMembers, error: null };
+  }
+  if (table === 'invites') {
+    return { data: 'venue_id' in filters ? venueInvites : addressedInvites, error: null };
+  }
+  throw new Error(`unexpected table ${table}`);
+}
 
 vi.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({ auth: { admin: { generateLink } } }),
 }));
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: async () => ({ auth: { verifyOtp, mfa: { listFactors }, signOut }, rpc, from }),
+  createClient: async () => ({ auth: { setSession } }),
+}));
+vi.mock('@/features/auth/review-login', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/auth/review-login')>()),
+  createReviewAuthClient: () => ({
+    auth: { verifyOtp, mfa: { listFactors }, signOut: probeSignOut },
+    rpc,
+    from: (table: string) => query(table),
+  }),
 }));
 vi.mock('@/features/auth/entry-redirect', () => ({
   resolveEntryDestination: async (_userId: string, next: string) => next,
 }));
 
 const CODE = 'k7p2-x9qm-4hzt-8wva-3bcd-efgh-jk';
-const DEMO_VENUE_ID = 'de300000-0000-7000-8000-000000000001';
-const inDays = (d: number) => new Date(Date.now() + d * 86_400_000).toISOString();
 const ORIGIN = 'http://localhost:3000';
-const DEMO = { id: '00000000-0000-7000-8000-00000000de30', email: 'app-review@demo.plus-one.io' };
+const inDays = (d: number) => new Date(Date.now() + d * 86_400_000).toISOString();
 
 let ipCounter = 0;
 function freshIp(): string {
   ipCounter += 1;
-  return `198.51.100.${ipCounter}`;
+  return `198.51.100.${ipCounter % 250}`;
 }
 
 async function route() {
@@ -59,11 +103,16 @@ beforeEach(() => {
   vi.spyOn(console, 'info').mockImplementation(() => undefined);
   vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   generateLink.mockResolvedValue({ data: { properties: { hashed_token: 'th' } }, error: null });
-  verifyOtp.mockResolvedValue({ data: { user: DEMO }, error: null });
+  verifyOtp.mockResolvedValue({ data: { user: DEMO, session: SESSION }, error: null });
   listFactors.mockResolvedValue({ data: { totp: [] }, error: null });
-  signOut.mockResolvedValue({ error: null });
+  probeSignOut.mockResolvedValue({ error: null });
   rpc.mockResolvedValue({ data: false, error: null });
-  membershipsEq.mockResolvedValue({ data: [{ venue_id: DEMO_VENUE_ID }], error: null });
+  setSession.mockResolvedValue({ data: {}, error: null });
+  ownMemberships = [{ venue_id: DEMO_VENUE_ID }];
+  venueMembers = [{ user_id: DEMO.id }];
+  venueInvites = [];
+  addressedInvites = [];
+  failTable = null;
 });
 
 afterEach(() => {
@@ -93,6 +142,16 @@ describe('disabled (window closed) → 404, no hint', () => {
     }
     expect(generateLink).not.toHaveBeenCalled();
   });
+
+  it('every other method answers the same empty 404, enabled or not', async () => {
+    const mod = await route();
+    for (const handler of [mod.OPTIONS, mod.PUT, mod.PATCH, mod.DELETE]) {
+      const res = await handler();
+      expect(res.status).toBe(404);
+      expect(await res.text()).toBe('');
+      expect(res.headers.get('allow')).toBeNull();
+    }
+  });
 });
 
 describe('GET (enabled)', () => {
@@ -109,7 +168,7 @@ describe('GET (enabled)', () => {
 });
 
 describe('POST', () => {
-  it('correct code → demo session → 303 to /app, one service-role call for the constant address', async () => {
+  it('correct code → checks on the cookie-less client, other sessions revoked, THEN cookies set → 303 /app', async () => {
     const res = await post(form(CODE));
     expect(res.status).toBe(303);
     expect(location(res).pathname).toBe('/app');
@@ -117,18 +176,11 @@ describe('POST', () => {
     expect(generateLink).toHaveBeenCalledTimes(1);
     expect(generateLink).toHaveBeenCalledWith({ type: 'magiclink', email: DEMO.email });
     expect(verifyOtp).toHaveBeenCalledWith({ type: 'magiclink', token_hash: 'th' });
-    // One live demo session at a time: every OTHER session is revoked, this one kept.
-    expect(signOut).toHaveBeenCalledTimes(1);
-    expect(signOut).toHaveBeenCalledWith({ scope: 'others' });
-  });
-
-  it('if revoking the other sessions fails, this session is dropped too (fail closed)', async () => {
-    signOut.mockImplementation(async ({ scope }: { scope: string }) =>
-      scope === 'others' ? { error: { message: 'boom' } } : { error: null },
-    );
-    const res = await post(form(CODE));
-    expect(location(res).searchParams.get('error')).toBe('failed');
-    expect(signOut).toHaveBeenCalledWith({ scope: 'local' });
+    expect(probeSignOut).toHaveBeenCalledTimes(1);
+    expect(probeSignOut).toHaveBeenCalledWith({ scope: 'others' });
+    expect(setSession).toHaveBeenCalledWith(SESSION);
+    // Order: the revocation happened before the session reached the cookies.
+    expect(probeSignOut.mock.invocationCallOrder[0]).toBeLessThan(setSession.mock.invocationCallOrder[0]!);
   });
 
   it('extra form fields cannot pick another user or destination', async () => {
@@ -138,12 +190,12 @@ describe('POST', () => {
     expect(generateLink).toHaveBeenCalledWith({ type: 'magiclink', email: DEMO.email });
   });
 
-  it.each([['wrong', 'k7p2-x9qm-4hzt-8wvb'], ['empty', '']])('%s code → back to the form, no mint', async (_l, code) => {
+  it.each([['wrong', 'k7p2-x9qm-4hzt-8wva-3bcd-efgh-jm'], ['empty', '']])('%s code → back to the form, no mint', async (_l, code) => {
     const res = await post(form(code));
     expect(res.status).toBe(303);
     expect(location(res).pathname).toBe('/auth/review-login');
     expect(location(res).searchParams.get('error')).toBe('code');
-    expect(location(res).search).not.toContain(code || 'nothing');
+    expect(location(res).search).not.toContain('k7p2');
     expect(generateLink).not.toHaveBeenCalled();
   });
 
@@ -191,29 +243,56 @@ describe('POST', () => {
     const res = await post(form(CODE));
     expect(location(res).searchParams.get('error')).toBe('failed');
     expect(verifyOtp).not.toHaveBeenCalled();
+    expect(setSession).not.toHaveBeenCalled();
   });
 
-  describe('fail closed: the session is signed out again unless it is the demo account as seeded', () => {
+  it('revoking the other sessions fails → refused, and no cookie was ever set', async () => {
+    probeSignOut.mockImplementation(async ({ scope }: { scope: string }) =>
+      scope === 'others' ? { error: { message: 'boom' } } : { error: null },
+    );
+    const res = await post(form(CODE));
+    expect(location(res).searchParams.get('error')).toBe('failed');
+    expect(setSession).not.toHaveBeenCalled();
+    expect(res.headers.get('set-cookie')).toBeNull();
+  });
+
+  describe('fail closed: refused before any cookie is written', () => {
     it.each([
-      ['another e-mail', () => verifyOtp.mockResolvedValue({ data: { user: { ...DEMO, email: 'max@venue.com' } }, error: null })],
+      ['a rebound e-mail on the demo id', () => verifyOtp.mockResolvedValue({ data: { user: { ...DEMO, email: 'max@venue.com' }, session: SESSION }, error: null })],
+      ['the demo e-mail on another id', () => verifyOtp.mockResolvedValue({ data: { user: { ...DEMO, id: 'other-id' }, session: SESSION }, error: null })],
       ['a verified TOTP factor', () => listFactors.mockResolvedValue({ data: { totp: [{ id: 'f', status: 'verified' }] }, error: null })],
       ['platform admin', () => rpc.mockResolvedValue({ data: true, error: null })],
       ['platform flag unreadable', () => rpc.mockResolvedValue({ data: null, error: { message: 'x' } })],
-      ['no membership', () => membershipsEq.mockResolvedValue({ data: [], error: null })],
-      [
-        'a second venue',
-        () => membershipsEq.mockResolvedValue({ data: [{ venue_id: DEMO_VENUE_ID }, { venue_id: 'w' }], error: null }),
-      ],
-      [
-        'a venue NAMED "PLUSONE Demo" but with another id',
-        () => membershipsEq.mockResolvedValue({ data: [{ venue_id: 'aa000000-0000-7000-8000-000000000009' }], error: null }),
-      ],
+      ['no membership', () => (ownMemberships = [])],
+      ['a second venue', () => (ownMemberships = [{ venue_id: DEMO_VENUE_ID }, { venue_id: 'w' }])],
+      ['a venue NAMED "PLUSONE Demo" but with another id', () => (ownMemberships = [{ venue_id: 'aa000000-0000-7000-8000-000000000009' }])],
+      ['another member in the demo venue', () => (venueMembers = [{ user_id: DEMO.id }, { user_id: 'someone-invited' }])],
+      ['an open invite into the demo venue', () => (venueInvites = [{ id: 'i1' }])],
+      ['an open invite addressed to the demo e-mail', () => (addressedInvites = [{ id: 'i2' }])],
+      ['memberships unreadable', () => (failTable = 'venue_memberships')],
+      ['invites unreadable', () => (failTable = 'invites')],
     ])('%s', async (_label, arrange) => {
       arrange();
       const res = await post(form(CODE));
       expect(location(res).pathname).toBe('/auth/review-login');
       expect(location(res).searchParams.get('error')).toBe('failed');
-      expect(signOut).toHaveBeenCalledWith({ scope: 'local' });
+      expect(setSession).not.toHaveBeenCalled();
+      expect(res.headers.get('set-cookie')).toBeNull();
     });
+
+    it('still refused cleanly when the sign-out itself rejects (no dependency on it)', async () => {
+      rpc.mockResolvedValue({ data: true, error: null });
+      probeSignOut.mockRejectedValue(new Error('lock'));
+      const res = await post(form(CODE));
+      expect(location(res).searchParams.get('error')).toBe('failed');
+      expect(setSession).not.toHaveBeenCalled();
+      expect(res.headers.get('set-cookie')).toBeNull();
+    });
+  });
+
+  it('setSession failure → generic error', async () => {
+    setSession.mockResolvedValue({ data: {}, error: { message: 'boom' } });
+    const res = await post(form(CODE));
+    expect(location(res).searchParams.get('error')).toBe('failed');
   });
 });

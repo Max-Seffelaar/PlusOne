@@ -15,6 +15,13 @@ import 'server-only';
  */
 export const DEMO_REVIEW_EMAIL = 'app-review@demo.plus-one.io';
 
+/**
+ * The demo account's fixed auth user id: the seed creates it with exactly this
+ * id. Checks key on the id AND the e-mail, so a rebound address (see
+ * updateEmailAction, which refuses the demo account) can never slip past.
+ */
+export const DEMO_USER_ID = 'de300000-0000-7000-8000-00000000a001';
+
 /** The only venue the demo user may be a member of, by id (the name is display only). */
 export const DEMO_VENUE_ID = 'de300000-0000-7000-8000-000000000001';
 export const DEMO_VENUE_NAME = 'PLUSONE Demo';
@@ -64,20 +71,31 @@ export function configuredReviewCode(env: Env = process.env, now: number = Date.
   return strength >= MIN_CODE_CHARS ? code : null;
 }
 
-export function isDemoReviewUser(email: string | null | undefined): boolean {
-  return (email ?? '').toLowerCase() === DEMO_REVIEW_EMAIL;
+type MaybeUser = { id?: string | null; email?: string | null } | null | undefined;
+
+/**
+ * True when EITHER the id or the e-mail is the demo account's: every gate that
+ * must catch the demo account (layout, end route, e-mail change) uses this, so
+ * changing one of the two never escapes it.
+ */
+export function isDemoReviewUser(user: MaybeUser): boolean {
+  if (!user) return false;
+  return user.id === DEMO_USER_ID || (user.email ?? '').toLowerCase() === DEMO_REVIEW_EMAIL;
+}
+
+/** True only when BOTH match: what the review login requires before keeping a session. */
+export function isExactDemoAccount(user: MaybeUser): boolean {
+  if (!user) return false;
+  return user.id === DEMO_USER_ID && (user.email ?? '').toLowerCase() === DEMO_REVIEW_EMAIL;
 }
 
 /**
  * A demo-account session may only live while the review login is enabled. When
  * the window closes (or the code is removed), the /app layout ends it: no demo
- * session outlives the submission, with no cron and no migration. A plain
- * string compare for everyone else, so no extra query on the layout hot path.
+ * session outlives the submission, with no cron and no migration. Keyed on
+ * the user id as well as the e-mail. A plain string compare for everyone else,
+ * so no extra query on the layout hot path.
  */
-export function demoSessionMustEnd(
-  email: string | null | undefined,
-  env: Env = process.env,
-  now: number = Date.now(),
-): boolean {
-  return isDemoReviewUser(email) && configuredReviewCode(env, now) === null;
+export function demoSessionMustEnd(user: MaybeUser, env: Env = process.env, now: number = Date.now()): boolean {
+  return isDemoReviewUser(user) && configuredReviewCode(env, now) === null;
 }

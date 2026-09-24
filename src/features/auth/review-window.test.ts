@@ -5,6 +5,7 @@ import {
   configuredReviewCode,
   demoSessionMustEnd,
   isDemoReviewUser,
+  isExactDemoAccount,
   reviewWindowOpen,
 } from './review-window';
 
@@ -61,21 +62,45 @@ describe('configuredReviewCode — any weak or missing piece reads as "route doe
   });
 });
 
+describe('demo-account identity: id OR e-mail catches it, the login needs both', () => {
+  const ID = 'de300000-0000-7000-8000-00000000a001';
+  const EMAIL = 'app-review@demo.plus-one.io';
+
+  it('isDemoReviewUser: the id alone, or the e-mail alone (any case), is enough', () => {
+    expect(isDemoReviewUser({ id: ID, email: EMAIL })).toBe(true);
+    expect(isDemoReviewUser({ id: ID, email: 'rebound@attacker.example' })).toBe(true);
+    expect(isDemoReviewUser({ id: 'other', email: 'App-Review@Demo.Plus-One.io' })).toBe(true);
+  });
+
+  it('isDemoReviewUser: never anyone else', () => {
+    for (const user of [{ id: 'u', email: 'max@venue.com' }, { id: 'u', email: `${EMAIL}.evil.com` }, null, undefined, {}]) {
+      expect(isDemoReviewUser(user)).toBe(false);
+    }
+  });
+
+  it('isExactDemoAccount: requires both the id and the e-mail', () => {
+    expect(isExactDemoAccount({ id: ID, email: EMAIL })).toBe(true);
+    expect(isExactDemoAccount({ id: ID, email: 'rebound@attacker.example' })).toBe(false);
+    expect(isExactDemoAccount({ id: 'other', email: EMAIL })).toBe(false);
+  });
+});
+
 describe('demoSessionMustEnd — only the demo account, only when the window is closed', () => {
-  it('demo account + closed window → end', () => {
-    expect(demoSessionMustEnd('app-review@demo.plus-one.io', {}, NOW)).toBe(true);
-    expect(demoSessionMustEnd('App-Review@Demo.Plus-One.io', { REVIEW_LOGIN_CODE: CODE }, NOW)).toBe(true);
+  const DEMO = { id: 'de300000-0000-7000-8000-00000000a001', email: 'app-review@demo.plus-one.io' };
+
+  it('demo account + closed window → end (also when its e-mail was rebound)', () => {
+    expect(demoSessionMustEnd(DEMO, {}, NOW)).toBe(true);
+    expect(demoSessionMustEnd({ ...DEMO, email: 'rebound@attacker.example' }, { REVIEW_LOGIN_CODE: CODE }, NOW)).toBe(true);
   });
 
   it('demo account + open window → keep', () => {
-    expect(demoSessionMustEnd('app-review@demo.plus-one.io', open, NOW)).toBe(false);
+    expect(demoSessionMustEnd(DEMO, open, NOW)).toBe(false);
   });
 
   it('never touches anyone else, window open or closed', () => {
-    for (const email of ['max@venue.com', '', null, undefined]) {
-      expect(demoSessionMustEnd(email, {}, NOW)).toBe(false);
-      expect(demoSessionMustEnd(email, open, NOW)).toBe(false);
+    for (const user of [{ id: 'u', email: 'max@venue.com' }, null, undefined]) {
+      expect(demoSessionMustEnd(user, {}, NOW)).toBe(false);
+      expect(demoSessionMustEnd(user, open, NOW)).toBe(false);
     }
-    expect(isDemoReviewUser('app-review@demo.plus-one.io.evil.com')).toBe(false);
   });
 });
