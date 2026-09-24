@@ -65,6 +65,114 @@ See the z8uq9m0tp5 entry.
 
 ---
 
+## 2026-09-23 — P-03 `platform_invites`: invite customers into the open beta (z8uq9m0tnv)
+
+A platform admin (P-02) invites a new customer with nothing but an e-mail address. We
+create **no** venue and **no** `public.invites` row — the invitee walks the existing
+onboarding wizard, makes their own company, accepts the terms themselves and lands on
+`trialing`. `platform_invites` is the outreach record plus the funnel source, never an
+access grant. Migration `20260923150000_platform_invites.sql`.
+
+**What shipped.**
+- `public.platform_invites` (`id` uuid v7, `email`, `note`, `invited_by`, `created_at`,
+  `last_sent_at`, `revoked_at`, `revoked_by`). One OPEN invite per address (partial
+  unique index on `lower(email)`); a revoked address can be re-invited.
+- RLS: `select` / `insert` / `update` all `to authenticated` with `is_platform_admin()`
+  as the only term. Insert pins `invited_by = auth.uid()` and forces the row open;
+  update allows resend + revoke only. **No DELETE policy and no DELETE grant** —
+  revoking is a soft `revoked_at` stamp, so the audit trail survives.
+- Grant matrix stated explicitly (`revoke all … from anon, authenticated` first, then
+  `grant select, insert, update … to authenticated`; `service_role` untouched).
+- `guard_platform_invite_update()` freezes `id`/`email`/`invited_by`/`created_at` and
+  makes a revoke one-way — RLS is row-level, so without it a platform admin could
+  re-point an existing row at another address.
+- `audit_trigger()` attached unchanged. The table has no `venue_id`, so the generic
+  branch writes `venue_id = null`, which is exactly the P-02 shape: a null-venue audit
+  row is readable only by platform admins.
+- `consume_platform_invite_throttle()` — SECURITY DEFINER wrapper over the internal
+  `consume_public_throttle()`; 20 outbound beta mails per platform admin per hour,
+  shared by invite and resend. Raises 42501 for anyone else. It is consumed
+  immediately before the mail — after validation, after the insert — so a rejected
+  address or a duplicate never eats an hour of somebody's quota.
+- `platform_invite_stage_rows()` (internal, no app role holds EXECUTE) computes the
+  funnel stage once; `platform_invite_overview(p_limit, p_offset)` (windowed, default
+  100, hard cap 500) and `platform_invite_funnel()` (GROUP BY over ALL invites) both
+  sit on it. Stages: `invited` → `signed_in` → `company_created` → `first_event`, plus
+  `revoked`. SECURITY DEFINER is forced by `auth.users.confirmed_at`, which
+  `authenticated` cannot read; each re-checks `is_platform_admin()` in its own body,
+  EXECUTE is revoked from public/anon/service_role, and a non-platform-admin gets zero
+  rows rather than an error (no existence oracle). The `auth.users` match is a LATERAL
+  "pick one" filtered on `deleted_at is null`: GoTrue's e-mail uniqueness is partial
+  (`where is_sso_user = false`), so a plain join both duplicated invites in the list
+  and double-counted them in the funnel.
+- `src/features/platform/invite-actions.ts`: `inviteBetaCustomerAction`,
+  `resendBetaInviteAction`, `revokeBetaInviteAction`. Every statement runs through the
+  USER-scoped client so RLS is the boundary; the app-layer `is_platform_admin()` probe
+  is only there for a clear message. Row FIRST, mail after (86ey9ea00 #54).
+  `src/features/platform/schemas.ts` holds the Zod input.
+
+**Service role — where and why.** Exactly one place: `sendInviteEmail()` from
+`src/features/auth/invite-mail.ts`. `auth.admin.inviteUserByEmail` is a service-role-only
+API (it provisions an auth identity) and the magic-link fallback for an already-confirmed
+address uses a bare anon client. Nothing in `public` is ever written with the service
+client here.
+
+**Review round (fresh-session `/code-review` + `/security-review`, both on PR #325).**
+The security review found the DB boundary holding against all 27 attacks it ran (anon,
+venue admin, PostgREST upsert, embedded resource, count oracle, throttle race, the P-02
+GUC trick). What changed afterwards, in the same PR:
+- **The mail is the deliverable, so any undelivered mail is now a failure.** Unlike a
+  crew invite, the row grants nothing — reporting "Invite sent." after a failed
+  magic-link fallback was a lie. And because the row holds the unique-index slot, a
+  plain retry could only ever answer "already an open invite", so every undelivered
+  path now names Resend as the recovery instead of "try again".
+- All three actions probe `is_platform_admin()` first and answer one uniform
+  `NOT_ALLOWED`; previously resend leaked a rate-limit message where the others said
+  "no access", because the throttle RPC's 42501 collapsed into "limited".
+- The revoke guard also freezes `revoked_by` and `note`: the update policy only demands
+  `revoked_by = auth.uid()`, so a SECOND platform admin could re-stamp a colleague's
+  revoke (or rewrite the note explaining it) while leaving `revoked_at` untouched.
+- `sendInviteEmail()` gained `seedName` (default true, crew behaviour unchanged).
+  `inviteUserByEmail`'s `data` payload OVERWRITES an existing unconfirmed account's
+  `raw_user_meta_data`, so a re-invite replaced a real crew invitee's name with their
+  address' local part. Pre-existing, but P-03 made it reachable for arbitrary
+  addresses; platform invites pass `seedName: false` and write no metadata.
+- pgTAP gaps closed: the resend-audit assertion used `now()` inside the transaction, so
+  the value never changed, `audit_changed()` returned null and no audit row was written
+  — the assertion passed on a rowcount regardless. It now bumps by a distinct interval
+  and asserts the audit row. Added: insert with a pre-stamped revoke, a second platform
+  admin re-stamping `revoked_by`, the 21st mail hitting the throttle, `service_role`
+  being unable to execute the three functions, the funnel as a non-admin, and the
+  LATERAL dedup / `deleted_at` / windowing behaviour. 51 assertions.
+
+**Open decision for Max (asked in the PR, deliberately not chosen here):** revoking marks
+the row only — the person can still log in and self-onboard. The alternative is also
+deleting the auth account while it was never confirmed. The minimal variant shipped.
+This matters more than it reads: a revoked invitee keeps a valid link, and
+`create_venue_with_owner` checks no invite, so they can still create a company. Options
+if that is not wanted: `auth.admin.deleteUser` guarded on `confirmed_at is null`, gating
+onboarding on an open invite row, or simply renaming the button "stop following up".
+
+**Follow-ups noted, not built.** AVG: `platform_invites` holds prospect PII (address +
+note) and so do its `audit_log` diffs, with no retention or erasure path —
+`run_privacy_retention()` does not touch either. For P-04: never render `note` through
+`dangerouslySetInnerHTML`, and note that the overview is deliberately an
+account-existence probe for the platform admin. The fixed-window throttle (and `+`
+address aliasing around it) is accepted as-is.
+
+**Verification (after the review round).** `supabase db reset` clean; `pnpm db:test`
+64 files / 1451 assertions PASS (new `supabase/tests/database/platform_invites.test.sql`,
+51 assertions; `tables.test.sql` allowlist extended). `npx vitest run` 1806 passed — the
+7 `pgtap-plan-run-gate.test.ts` failures are the known Windows-only environment noise and
+the 2 `datetime-field.datefield.test.tsx` timeouts pass in isolation. `pnpm lint` clean,
+`npx tsc --noEmit` clean. `src/lib/database.types.ts` carries only the real additions.
+
+**For P-04 — `platform_invite_overview()` nullability.** The generator types every
+RETURNS TABLE column as non-null. In reality `user_id`, `confirmed_at`,
+`last_sign_in_at` (the LEFT JOIN LATERAL), `note`, `revoked_at`, `revoked_by` and
+`invited_by_name` are all nullable at runtime. Treat them as optional in the UI.
+---
+
 ## 2026-09-23 — P-02 platform (system) admin: `is_platform_admin` + RLS helpers (z8uq9m0tnt)
 
 PlusOne's own operators can now read and write in every venue, with the boundary in RLS

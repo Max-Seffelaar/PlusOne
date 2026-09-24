@@ -39,7 +39,10 @@ select tables_are(
     -- working /r/[token] URL without pointing it at the existing requester's
     -- row. RLS on, no policies, no grants — only submit_guest_request /
     -- get_request_status (SECURITY DEFINER) touch it.
-    'guest_request_status_mirrors'
+    'guest_request_status_mirrors',
+    -- P-03 (z8uq9m0tnv): open-beta outreach log. Platform admins only; grants
+    -- no access — the invitee self-onboards through the existing wizard.
+    'platform_invites'
   ],
   'public schema contains exactly the MVP tables (Fase 1 + invites + landing + adresboek + templates + request links + billing)' 
 );
