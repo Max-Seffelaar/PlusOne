@@ -21,6 +21,7 @@ Identity (all four docs):
 - [ ] Legal entity name + form (V.O.F. / B.V.)
 - [ ] KvK number, registered address
 - [ ] Contact mailboxes: `privacy@plus-one.io` and `support@plus-one.io` (create them in Google Workspace, or name the addresses that exist)
+- [ ] Brand casing: v0.2 standardizes on **PLUSONE** in this file and in `privacy-policy.md`/`subprocessors.md` (matches `design-system.md` "Naam: **PLUSONE**" and the v0.1 drafts/DPA); the legal entity name itself stays the placeholder `[PlusOne V.O.F. / B.V.]` in mixed case. Say the word if you'd rather keep the mixed-case "PlusOne" wordmark in prose — it's one search-and-replace to flip back.
 
 Privacy policy v0.2 (`[…]` in the text):
 - [ ] §10 account inactivity deletion period (draft: 24 months) — does an inactive-account cleanup exist? It does not on `main`; either build it or drop the sentence
@@ -35,7 +36,7 @@ Privacy policy v0.2 (`[…]` in the text):
 Subprocessor list v0.2:
 - [ ] Confirm every vendor's contracting entity and certifications against its current DPA page (Supabase, Vercel, Sentry, Cloudflare, Resend, Stripe, Google, Attio, PostHog, Slack) — the repo names no entities; v0.2 carries general-knowledge values
 - [ ] Sentry: confirm "Prevent Storing of IP Addresses" is on in the project settings (the code scrubs `event.request`/`event.user`, but Sentry derives `user.geo` from the connecting IP after `beforeSend`)
-- [ ] Resend sending domain: still `theoperators.nl` (borrowed, `docs/mail-deliverability.md`); the PlusOne subdomain is F3 (`86ey6b3hv`). Publish with whichever is live
+- [ ] Resend sending domain: still `theoperators.nl` (borrowed, `docs/mail-deliverability.md`); the PLUSONE subdomain is F3 (`86ey6b3hv`). Publish with whichever is live
 - [ ] Google Workspace: confirm it is the live mailbox provider (task `86ey7q7c2` said "we gaan Google Workspace gebruiken"; the repo only evidences a Drive mirror) and whether EU data regions are configured
 - [ ] Slack digest: confirm the digest carries no personal data before it goes live (`docs/attio-crm-plan.md` phase 03)
 
@@ -49,7 +50,6 @@ Subprocessor list v0.2:
 6. **Marketing opt-in on the request form** is stored but never shown to the venue and cannot be exported. Is it honest to call it a "choice between you and the venue" while the venue cannot act on it? Either surface it in the inbox/export, or drop the checkbox until it is usable.
 7. **Guest-facing notice on `/e/[slug]`.** The public form shows a one-line privacy note and links to no policy, and never names the venue as controller (only "the organizer of this event"). Art. 13 information is the venue's duty, but the page is ours. Recommendation: add a "How your details are used" link (to `#privacy` §4 and the venue's own notice) and name the venue. Code change outside this task.
 8. **Minimum age** for account holders: 16 (Dutch AVG consent age) or 18 (door work at clubs)?
-9. **Brand casing.** This PR writes "PlusOne"; the terms PR (#334) and the v0.1 DPA write "PLUSONE". Pick one for all four documents (and the legal entity line) — the marketing site and app UI use "PlusOne".
 
 ## Code follow-ups the policy text assumes (not built on `main`)
 
@@ -89,7 +89,7 @@ These documents state facts about the system. If any of the following change, up
 3. **Add the planned guest-data items with the 30-day-notice hook:** Firebase Cloud Messaging / APNs (push content may reference a guest request) and the Resend guest confirmation mail (`86ey6bn05`). Attio, GA, PostHog and Slack are controller-side only and need no notice.
 4. Point the `[URL]` for the list at `https://plus-one.io/legal#subprocessors`.
 5. §8.1 (transfers) should add "login e-mail delivery via Amazon SES in Ireland" and the Vercel edge-network caveat used in policy §9.
-6. §11.2 (export within 30 days): there is **no self-service export on `main`** (CSV exists only as an import). Either the DPA promises an export "on request, delivered by PlusOne", or an export feature is built before the first DPA is signed.
+6. §11.2 (export within 30 days): there is **no self-service export on `main`** (CSV exists only as an import). Either the DPA promises an export "on request, delivered by PLUSONE", or an export feature is built before the first DPA is signed.
 
 ## Stale statements noticed in other docs (out of scope here, for whoever owns them)
 
