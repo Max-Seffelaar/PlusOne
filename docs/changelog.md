@@ -8,6 +8,44 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-24 — Fase 17 N1: webview-prep kit helpers (86ey6bfam)
+
+Golf 1 of Fase 17. No migration, no dependency change.
+
+- **`copyText(text): Promise<boolean>`** in `src/components/po/kit.tsx`: Clipboard
+  API → legacy `execCommand('copy')` on a detached textarea → `false`. Never
+  throws, guards `navigator`/`document`. Plus `useCopyText(ttl)` (built on
+  `useTransientValue`) and `copyStateLabel()`: the copy button shows "Copied!"
+  or the new `t.shared.kit.copyFailed` ("Couldn't copy"). Before this, all six
+  sites failed silently. Rewired: `landing.tsx`, `influencer-stats.tsx`,
+  `screens/events/edit.tsx`, `screens/promotion/{roster,create-link-flow,event-links}.tsx`
+  (event-links has two: row + QR sheet). One behaviour change: the create-link
+  "done" sheet's "Copied" label used to stay on. It now reverts after 1.8s,
+  the same as every other copy button.
+- **`openExternal(url)`** + **`ExternalLink`** primitive: `window.open(url,
+  '_blank', 'noopener,noreferrer')` in the browser. In the native shell it calls
+  the in-app browser through the `window.Capacitor.Plugins.Browser` global the
+  runtime injects (no import of the not-yet-installed `@capacitor/browser`).
+  `TODO(N3 86ey6bfdm)` swaps it for the typed import. `screens/onboarding.tsx`
+  terms/privacy links now use `ExternalLink` (href kept, no `target`).
+- `viewportFit: 'cover'` in the root `viewport` export, so `env(safe-area-inset-*)`
+  stops reading 0 on iOS.
+- `next.config.js`: comment-only CSP wrap notes. Prod `script-src` already
+  carries `'unsafe-inline'`, so the Android bridge injection is not expected to
+  be blocked today. If N3 proves otherwise, the fix is a hash/nonce.
+- Tests: `src/components/po/kit.webview.test.tsx` (12 cases).
+
+**Known leftovers, outside this task's scope fence:** `src/features/auth/components/MfaEnrollCard.tsx`
+(bare clipboard); `target="_blank"` in `screens/settings/venue.tsx` (website
+field ×2, reachable in the native app), `landing-frame.tsx` (public footer),
+`features/auth/components/ConsentScreen.tsx` and
+`features/onboarding/components/steps/VenueStep.tsx` (terms/privacy). The shell
+has no `safe-area-inset-top` padding anywhere, only bottom (`shell.tsx`).
+Because Next merges `viewport` per key, `cover` also reaches `/e`, `/r`, `/i`.
+Those pages don't pad for safe areas; the impact is landscape iPhone only.
+
+---
+
 ## 2026-09-24 — P-06 seed part: Max and Joeri as platform admins (z8uq9m0tny)
 
 The other half of P-06 (docs part landed in PR #328). Migration
