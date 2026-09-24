@@ -53,6 +53,13 @@ function trialDaysLeft(trialEndsAt: string): number {
   return Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
 }
 
+/** True when a checkout rejection is the invoicing soft-gate (server message
+ *  matches `invoicingRequiredError` verbatim — no error code crosses the
+ *  mutation boundary today, see usePoBillingCheckout). */
+function isInvoicingRequiredError(error: unknown): boolean {
+  return error instanceof Error && error.message === t.settings.billing.invoicingRequiredError;
+}
+
 function BillingBody({ sub }: { sub: PoSubscription }): JSX.Element {
   const st = SUB_STATUS[sub.status] ?? { label: sub.status.toUpperCase(), chip: 'bg-elev2 text-faint' };
   const { roles } = usePoIdentity();
@@ -60,6 +67,7 @@ function BillingBody({ sub }: { sub: PoSubscription }): JSX.Element {
   const native = isNativeShell();
   const checkout = usePoBillingCheckout();
   const portal = usePoBillingPortal();
+  const nav = useNav();
 
   // Checkout applies while no Stripe subscription exists (fresh trial, lapsed
   // trial, canceled). comped is pilot territory — no self-service billing.
@@ -128,7 +136,16 @@ function BillingBody({ sub }: { sub: PoSubscription }): JSX.Element {
               {portal.isPending ? t.settings.billing.redirecting : t.settings.billing.managePortal}
             </Btn>
           )}
-          <FormError error={checkout.error ?? portal.error} />
+          {isInvoicingRequiredError(checkout.error) ? (
+            <>
+              <FormError error={checkout.error} />
+              <Btn kind="ghost" full icon="building" onClick={() => nav.push('venuesettings')}>
+                {t.settings.billing.invoicingRequiredCta}
+              </Btn>
+            </>
+          ) : (
+            <FormError error={checkout.error ?? portal.error} />
+          )}
         </div>
       )}
       {native && (

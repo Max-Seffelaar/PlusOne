@@ -7,7 +7,7 @@ describe('createVenueSchema (#40a self-service venue creation)', () => {
     expect(r.success).toBe(true);
     if (r.success) {
       expect(r.data.name).toBe('LOFI');
-      expect(r.data.retentionMonths).toBe(12); // default
+      expect(r.data.retentionMonths).toBe(24); // default: longest option (feedback Rik)
       expect(r.data.address).toBe(''); // default
     }
   });

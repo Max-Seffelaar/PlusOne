@@ -427,7 +427,7 @@ export function Field({
   onChange?: (v: string) => void;
   autoFocus?: boolean;
   type?: string;
-  inputMode?: 'text' | 'numeric' | 'email' | 'tel';
+  inputMode?: 'text' | 'numeric' | 'decimal' | 'email' | 'tel';
   maxLength?: number;
   className?: string;
   /** Accessible name for an input with no visible label (e.g. an inline search). */

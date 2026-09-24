@@ -17,13 +17,15 @@ const TYPE_LABEL: Record<VenueType, string> = {
   concertzaal: 'Concert hall',
 };
 
-const RETENTION_OPTIONS = [6, 12, 24] as const;
+// Longest offered option (settings/venue.tsx offers 6/12/24), stamped without
+// asking — retention is not a decision to force on a fresh owner during
+// onboarding (feedback Rik 2026-09-24). Adjustable any time in Venue settings.
+const DEFAULT_RETENTION_MONTHS = 24;
 
 export function VenueStep({ onCreated }: { onCreated: (venueId: string) => void }): JSX.Element {
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
   const [venueType, setVenueType] = useState<VenueType>('club');
-  const [retention, setRetention] = useState(12);
   const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -38,7 +40,7 @@ export function VenueStep({ onCreated }: { onCreated: (venueId: string) => void 
         name,
         address,
         venueType,
-        retentionMonths: retention,
+        retentionMonths: DEFAULT_RETENTION_MONTHS,
         termsAccepted: agreed,
       });
       if (res.ok) {
@@ -119,30 +121,9 @@ export function VenueStep({ onCreated }: { onCreated: (venueId: string) => void 
         ))}
       </div>
 
-      <Label className="mb-[10px]">Data retention</Label>
-      <div className="rounded-[16px] border border-line bg-elev p-4">
-        <div className="mb-[14px] text-[13px] leading-[1.5] text-dim">
-          After this period, guest data is anonymized automatically to “Guest #X” (#29). Default 12
-          months.
-        </div>
-        <div className="flex gap-[8px]">
-          {RETENTION_OPTIONS.map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => setRetention(m)}
-              className={cn(
-                'flex-1 rounded-[11px] border py-[11px] font-display text-[14px] font-bold',
-                press,
-                retention === m
-                  ? 'border-transparent bg-acc text-on-acc'
-                  : 'border-line bg-elev2 text-dim'
-              )}
-            >
-              {m} mo
-            </button>
-          ))}
-        </div>
+      <div className="mb-[18px] rounded-[16px] border border-line bg-elev p-4 text-[13px] leading-[1.5] text-dim">
+        Guest data is kept for {DEFAULT_RETENTION_MONTHS} months, then anonymized automatically to
+        “Guest #X” (#29). You can shorten this later in Venue settings.
       </div>
 
       <label className="mt-[18px] flex cursor-pointer items-start gap-[11px] rounded-[16px] border border-line bg-elev p-4">
