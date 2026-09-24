@@ -26,7 +26,7 @@ begin
 end;
 $fn$;
 
-select plan(8);
+select plan(9);
 
 -- ---------------------------------------------------------------------------
 -- S1a. Regression: the everyday path (no venue_id sent at all) still fills
@@ -79,25 +79,36 @@ select is(
 reset role;
 
 -- ---------------------------------------------------------------------------
--- S1d. Same exploit via guest_requests_insert_public: the anon table grant
--- was already revoked (C2, 20260707170000), but the policy still runs "to
--- anon, authenticated" with no role/ownership tie in its WITH CHECK, and
--- `authenticated` keeps its table-level INSERT grant — so ANY logged-in user
--- (not just staff on their own event) can still hit this path directly.
+-- S1d. guest_requests: there is no longer a client insert to forge on.
+-- This case used to plant the row as staff through guest_requests_insert_public
+-- and assert the trigger corrected venue_id. 20260924100000 (F-3) revoked
+-- INSERT on guest_requests from `authenticated` and dropped that policy — a
+-- landing request is created by submit_guest_request (SECURITY DEFINER) and by
+-- nothing else — so the client arm is now a 42501, and the trigger arm is
+-- asserted on the privilege level that still reaches the table (owner/
+-- service_role, i.e. the seed and the perf scripts). Both halves matter: the
+-- first is the F-3 fix, the second keeps the shared BEFORE trigger covered for
+-- guest_requests, which is what this file is about.
 -- ---------------------------------------------------------------------------
 
 select pg_temp.login('55555555-5555-4555-8555-555555555555');
+select throws_ok(
+  $$ insert into public.guest_requests (event_id, full_name, venue_id)
+     values ('ee000000-0000-7000-8000-000000000001', 'Forged Venue Request',
+             'aa000000-0000-7000-8000-000000000002') $$,
+  '42501', null,
+  'S1d staff can no longer insert a guest_request at all (F-3, 20260924100000)');
+reset role;
+
 insert into public.guest_requests (event_id, full_name, venue_id)
 values ('ee000000-0000-7000-8000-000000000001', 'Forged Venue Request',
         'aa000000-0000-7000-8000-000000000002');
-reset role;
 select is(
   (select venue_id from public.guest_requests
     where event_id = 'ee000000-0000-7000-8000-000000000001'
       and full_name = 'Forged Venue Request'),
   'aa000000-0000-7000-8000-000000000001'::uuid,
-  'S1d venue-1 staff forged venue_id via guest_requests_insert_public is ignored');
-reset role;
+  'S1d2 ...and a forged venue_id on the owner path is still overwritten from the event');
 
 -- ---------------------------------------------------------------------------
 -- S1e. Same shared trigger, quota_requests: staff forges venue_id on their
