@@ -17,6 +17,7 @@
  * `ResponsiveShell` is stubbed down to the nav labels: this test is about which
  * entries exist, not how the shell paints them.
  */
+import type { ComponentType, ReactElement } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -77,11 +78,13 @@ vi.mock('@/features/po/eventday/EventDaySkeleton', () => ({ EventDaySkeleton: ()
 // runtime; here it becomes a plain load-on-mount wrapper, so `await waitFor`
 // is enough to get the Platform screen on screen.
 vi.mock('next/dynamic', async () => {
+  // `react` here is a VALUE binding, so its members are not a type namespace —
+  // the types come from the top-level `import type` above (TS2833 otherwise).
   const react = await import('react');
   return {
-    default: (loader: () => Promise<react.ComponentType>) => {
-      function Lazy(props: Record<string, unknown>): react.ReactElement | null {
-        const [C, setC] = react.useState<{ c: react.ComponentType | null }>({ c: null });
+    default: (loader: () => Promise<ComponentType>) => {
+      function Lazy(props: Record<string, unknown>): ReactElement | null {
+        const [C, setC] = react.useState<{ c: ComponentType | null }>({ c: null });
         react.useEffect(() => {
           void loader().then((m) => setC({ c: m }));
         }, []);
