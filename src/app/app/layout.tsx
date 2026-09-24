@@ -19,6 +19,7 @@ import { createClient } from '@/lib/supabase/server';
 import { ROLE_LABELS, VENUE_ROLES } from '@/features/auth/roles';
 import { REQUEST_PATH_HEADER, appGateNextPath } from '@/features/auth/next-path';
 import { isMobileUA } from '@/lib/ua';
+import { REVIEW_SESSION_END_PATH, demoSessionMustEnd } from '@/features/auth/review-window';
 
 /**
  * Session/identity/venue resolution for the whole `/app` surface, run ONCE per
@@ -62,6 +63,12 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
   // re-verifies the session itself instead of relying solely on middleware.
   const user = await getSessionUser();
   if (!user) redirect(`/login?next=${encodeURIComponent(gateNext)}`);
+
+  // Store-review demo account (86ey6bfug): its sessions live only while the
+  // review window is open. A pure e-mail compare + env read, no query, so every
+  // other user pays nothing here. The route handler does the sign-out, because
+  // a Server Component cannot clear cookies.
+  if (demoSessionMustEnd(user.email)) redirect(REVIEW_SESSION_END_PATH);
 
   // Venue-less users go through onboarding first (#40); the wizard is responsive,
   // so it serves mobile web too.

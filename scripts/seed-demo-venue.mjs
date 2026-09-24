@@ -30,8 +30,9 @@
 // Billing: the venue starts `trialing` like every new venue. Set it to `comped`
 // with the documented SQL (docs/stripe-setup.md §5); the script prints it.
 //
-// Constants mirrored in src/features/auth/review-login.ts (guarded by
-// review-login.test.ts): keep DEMO_REVIEW_EMAIL and DEMO_VENUE_NAME identical.
+// Constants mirrored in src/features/auth/review-window.ts (guarded by
+// review-login.test.ts): keep DEMO_REVIEW_EMAIL, VENUE_ID (= DEMO_VENUE_ID) and
+// DEMO_VENUE_NAME identical. The route checks the membership by VENUE_ID.
 
 import { readFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
@@ -155,7 +156,7 @@ await insertMissing('venues', [
 ]);
 const venue = await must('venue read', db.from('venues').select('name').eq('id', VENUE_ID).single());
 if (venue.name !== DEMO_VENUE_NAME) {
-  console.warn(`[seed-demo-venue] demo venue was renamed; restoring "${DEMO_VENUE_NAME}" (review-login refuses otherwise)`);
+  console.warn(`[seed-demo-venue] demo venue was renamed; restoring "${DEMO_VENUE_NAME}"`);
   await must('venue rename', db.from('venues').update({ name: DEMO_VENUE_NAME }).eq('id', VENUE_ID));
 }
 

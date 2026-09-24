@@ -7,38 +7,8 @@ import { landingIpSalt } from '@/features/requests/ip-hash';
 // Pure helpers for src/app/auth/review-login/route.ts, split out because a
 // Route Handler file may only export the names Next.js recognises.
 
-/**
- * The ONE account the review login can ever sign in. A code constant, not an
- * env var and never a request parameter: an env var could be mis-set to a real
- * user's address, which would turn a leaked review code into a login as that
- * user. `demo.plus-one.io` is a subdomain we own with no MX record, so nobody
- * can receive mail there, and no real invitee can ever hold this address.
- * scripts/seed-demo-venue.mjs mirrors it (guarded by review-login.test.ts).
- */
-export const DEMO_REVIEW_EMAIL = 'app-review@demo.plus-one.io';
-
-/** The only venue the demo user may be a member of (seeded by the same script). */
-export const DEMO_VENUE_NAME = 'PLUSONE Demo';
-
-/**
- * Codes shorter than this count as "not configured": the route 404s exactly
- * as if REVIEW_LOGIN_CODE were unset. The rate limit below is per serverless
- * instance, so the code's own entropy is the real brute-force defence; 16
- * random lowercase alphanumerics is ~82 bits.
- */
-export const MIN_CODE_LENGTH = 16;
-
 /** Upper bound on a submitted code; anything longer is refused unhashed. */
 const MAX_INPUT_LENGTH = 256;
-
-/**
- * The configured review code, or null when the route must behave as if it
- * does not exist: unset, empty, whitespace-only, or too short to be safe.
- */
-export function configuredReviewCode(env: Record<string, string | undefined> = process.env): string | null {
-  const code = (env.REVIEW_LOGIN_CODE ?? '').trim();
-  return code.length >= MIN_CODE_LENGTH ? code : null;
-}
 
 function sha256(value: string): Buffer {
   return createHash('sha256').update(value, 'utf8').digest();
@@ -68,47 +38,40 @@ export function reviewClientKey(headers: Headers): string {
 }
 
 /**
- * Fixed-window attempt limiter. PER SERVERLESS INSTANCE: Vercel may run
- * several instances and recycles them, so this is a speed bump, not a global
- * limit. The global limit is the Vercel Firewall rule in docs/review-login.md;
- * the brute-force bound is MIN_CODE_LENGTH. A durable DB-backed limit would
- * need a migration (consume_public_throttle is revoked from service_role),
- * deliberately left out of this task.
+ * Fixed-window attempt limiter, PER CLIENT only. There is deliberately no
+ * instance-wide cap: a global bucket would let anyone lock the reviewer out by
+ * spraying junk attempts from many IPs. Junk attempts now burn only the
+ * sender's own budget; the brute-force bound is the code's entropy
+ * (MIN_CODE_CHARS, 130 bits) plus the Vercel Firewall rule in
+ * docs/review-login.md. The map is in-memory and therefore per serverless
+ * instance, and bounded: a spray of distinct clients evicts expired buckets
+ * first and resets the map only when every bucket is still live.
  */
 export class AttemptLimiter {
   private readonly buckets = new Map<string, { start: number; count: number }>();
 
   constructor(
     private readonly perKey: number,
-    private readonly global: number,
     private readonly windowMs: number,
     private readonly maxKeys = 5000,
   ) {}
 
-  /** Consumes one attempt; false once the key or the instance is over budget. */
+  /** Consumes one attempt; false once this client is over budget. */
   consume(key: string, now: number = Date.now()): boolean {
-    const g = this.bump('*', now);
-    const k = this.bump(key, now);
-    return g <= this.global && k <= this.perKey;
-  }
-
-  private bump(key: string, now: number): number {
     const bucket = this.buckets.get(key);
     if (!bucket || now - bucket.start >= this.windowMs) {
       if (this.buckets.size >= this.maxKeys) this.prune(now);
       this.buckets.set(key, { start: now, count: 1 });
-      return 1;
+      return true;
     }
     bucket.count += 1;
-    return bucket.count;
+    return bucket.count <= this.perKey;
   }
 
   private prune(now: number): void {
     for (const [key, bucket] of this.buckets) {
       if (now - bucket.start >= this.windowMs) this.buckets.delete(key);
     }
-    // Still full of live buckets (a spray from many IPs): start over rather than
-    // grow without bound. The global '*' bucket is recreated on the next bump.
     if (this.buckets.size >= this.maxKeys) this.buckets.clear();
   }
 }
@@ -119,7 +82,8 @@ export type ReviewLoginOutcome =
   | 'rate_limited'
   | 'bad_origin'
   | 'mint_failed'
-  | 'refused';
+  | 'refused'
+  | 'session_ended';
 
 /**
  * The audit trail for this route: one structured server-log line per POST

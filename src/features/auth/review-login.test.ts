@@ -1,38 +1,10 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import {
-  AttemptLimiter,
-  DEMO_REVIEW_EMAIL,
-  DEMO_VENUE_NAME,
-  MIN_CODE_LENGTH,
-  configuredReviewCode,
-  renderReviewForm,
-  reviewClientKey,
-  reviewCodeMatches,
-} from './review-login';
+import { AttemptLimiter, renderReviewForm, reviewClientKey, reviewCodeMatches } from './review-login';
+import { DEMO_REVIEW_EMAIL, DEMO_VENUE_ID, DEMO_VENUE_NAME } from './review-window';
 
-const CODE = 'k7p2-x9qm-4hzt-8wva';
-
-describe('configuredReviewCode — unset and weak codes read as "route does not exist"', () => {
-  it.each([
-    ['unset', undefined],
-    ['empty', ''],
-    ['whitespace', '   \t\n '],
-    ['too short', 'a'.repeat(MIN_CODE_LENGTH - 1)],
-  ])('%s → null', (_label, value) => {
-    expect(configuredReviewCode({ REVIEW_LOGIN_CODE: value })).toBeNull();
-  });
-
-  it('a long enough code is returned trimmed', () => {
-    expect(configuredReviewCode({ REVIEW_LOGIN_CODE: `  ${CODE}\n` })).toBe(CODE);
-  });
-
-  it('short padding cannot lift a short code over the minimum', () => {
-    const short = 'x'.repeat(MIN_CODE_LENGTH - 2);
-    expect(configuredReviewCode({ REVIEW_LOGIN_CODE: `   ${short}   ` })).toBeNull();
-  });
-});
+const CODE = 'k7p2-x9qm-4hzt-8wva-3bcd-efgh-jk';
 
 describe('reviewCodeMatches', () => {
   it('accepts the exact code, tolerating surrounding whitespace from a paste', () => {
@@ -41,7 +13,7 @@ describe('reviewCodeMatches', () => {
   });
 
   it.each([
-    ['wrong code', 'k7p2-x9qm-4hzt-8wvb'],
+    ['wrong code', 'k7p2-x9qm-4hzt-8wva-3bcd-efgh-jm'],
     ['prefix', CODE.slice(0, -1)],
     ['case changed', CODE.toUpperCase()],
     ['empty', ''],
@@ -57,24 +29,23 @@ describe('reviewCodeMatches', () => {
   });
 });
 
-describe('AttemptLimiter (per instance)', () => {
+describe('AttemptLimiter (per client, no global cap)', () => {
   it('allows perKey attempts per window, then refuses until the window rolls', () => {
-    const limiter = new AttemptLimiter(3, 100, 1000);
+    const limiter = new AttemptLimiter(3, 1000);
     expect([1, 2, 3].map(() => limiter.consume('a', 0))).toEqual([true, true, true]);
     expect(limiter.consume('a', 10)).toBe(false);
     expect(limiter.consume('b', 10)).toBe(true); // another client is unaffected
     expect(limiter.consume('a', 1000)).toBe(true); // new window
   });
 
-  it('enforces the instance-wide cap across clients', () => {
-    const limiter = new AttemptLimiter(10, 2, 1000);
-    expect(limiter.consume('a', 0)).toBe(true);
-    expect(limiter.consume('b', 0)).toBe(true);
-    expect(limiter.consume('c', 0)).toBe(false);
+  it('a spray from many clients can never exhaust a fresh client (no lockout)', () => {
+    const limiter = new AttemptLimiter(5, 1000);
+    for (let i = 0; i < 10_000; i += 1) limiter.consume(`attacker-${i % 500}`, 0);
+    expect(limiter.consume('reviewer', 0)).toBe(true);
   });
 
   it('stays bounded under a spray of distinct clients', () => {
-    const limiter = new AttemptLimiter(1, 1_000_000, 1000, 50);
+    const limiter = new AttemptLimiter(1, 1000, 50);
     for (let i = 0; i < 500; i += 1) limiter.consume(`ip-${i}`, 0);
     const size = (limiter as unknown as { buckets: Map<string, unknown> }).buckets.size;
     expect(size).toBeLessThanOrEqual(50);
@@ -108,8 +79,9 @@ describe('renderReviewForm', () => {
 describe('demo constants mirrored in scripts/seed-demo-venue.mjs', () => {
   const script = readFileSync(path.resolve(process.cwd(), 'scripts/seed-demo-venue.mjs'), 'utf8');
 
-  it('uses the same demo e-mail and venue name as the route', () => {
+  it('uses the same demo e-mail, venue id and venue name as the route', () => {
     expect(script).toContain(`const DEMO_REVIEW_EMAIL = '${DEMO_REVIEW_EMAIL}';`);
+    expect(script).toContain(`const VENUE_ID = '${DEMO_VENUE_ID}';`);
     expect(script).toContain(`const DEMO_VENUE_NAME = '${DEMO_VENUE_NAME}';`);
   });
 

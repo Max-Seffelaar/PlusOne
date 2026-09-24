@@ -4,10 +4,13 @@ import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { resolveEntryDestination } from '@/features/auth/entry-redirect';
 import {
-  AttemptLimiter,
   DEMO_REVIEW_EMAIL,
-  DEMO_VENUE_NAME,
+  DEMO_VENUE_ID,
   configuredReviewCode,
+  isDemoReviewUser,
+} from '@/features/auth/review-window';
+import {
+  AttemptLimiter,
   logReviewLogin,
   renderReviewForm,
   reviewClientKey,
@@ -25,18 +28,24 @@ import {
 //   POST /auth/review-login  → code in the form body → session → /app
 //
 // Gates, in order (runbook: docs/review-login.md):
-//   1. REVIEW_LOGIN_CODE unset/blank/shorter than MIN_CODE_LENGTH → 404 on GET
-//      and POST alike, no hint. Unset it between submissions.
+//   1. The review window is closed → 404 on GET and POST alike, no hint. Closed
+//      = REVIEW_LOGIN_EXPIRES_AT missing/unparseable/past/more than 60 days out,
+//      or REVIEW_LOGIN_CODE unset/blank/under 26 letters+digits
+//      (review-window.ts). The window closes by itself; nothing to unset.
 //   2. POST only: a cross-site Origin → 404 (no login CSRF into the demo account).
-//   3. Attempt limiter (per instance, see AttemptLimiter) BEFORE the compare, so
-//      every guess burns budget.
+//   3. Per-client attempt limiter BEFORE the compare, so every guess burns the
+//      sender's own budget. No global cap: nobody can lock the reviewer out.
 //   4. Constant-time code compare. The code is never read from a query string.
 //   5. The account is DEMO_REVIEW_EMAIL, a code constant. Nothing in the request
 //      selects a user, and the destination is fixed (/app via the entry gate), so
 //      there is no `next=` to redirect through.
 //   6. After sign-in, fail closed unless the session really is the demo user
-//      with exactly one membership (the demo venue), no platform-admin flag and
-//      no verified TOTP factor; otherwise sign that session out again.
+//      with exactly one membership (venue_id = DEMO_VENUE_ID), no platform-admin
+//      flag and no verified TOTP factor; otherwise sign that session out again.
+//   7. On success, sign out the demo user's OTHER sessions: one live demo
+//      session at a time, so a leaked earlier session dies at the next login.
+//      Sessions also die with the window: the /app layout sends a demo session
+//      to /auth/review-login/end once configuredReviewCode() is null.
 //
 // Service role: GoTrue has no way to start a session for a user without a
 // credential except an admin-minted magic link, so this route (like dev-login)
@@ -46,10 +55,10 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-// 5 attempts per client per 15 min, 30 per instance. See AttemptLimiter for why
-// this is per-instance only and what the global limit is.
+// 5 attempts per client per 15 min (in-memory, so per serverless instance; see
+// AttemptLimiter for why there is no global cap).
 const WINDOW_MS = 15 * 60 * 1000;
-const limiter = new AttemptLimiter(5, 30, WINDOW_MS);
+const limiter = new AttemptLimiter(5, WINDOW_MS);
 
 const formSchema = z.object({ code: z.string().max(256) });
 
@@ -154,6 +163,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return backToForm(request, 'failed');
   }
 
+  // One live demo session at a time: revoke every other session of the demo
+  // user. If that fails, the older sessions would survive, so fail closed.
+  const { error: othersError } = await supabase.auth.signOut({ scope: 'others' });
+  if (othersError) {
+    await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
+    logReviewLogin('refused', client, 'revoke_others');
+    return backToForm(request, 'failed');
+  }
+
   logReviewLogin('success', client);
   // Same final hop as every entry route: the consent gate first, then /app.
   const dest = await resolveEntryDestination(user.id, '/app');
@@ -171,7 +189,7 @@ async function demoAccountRefusal(
   userId: string,
   email: string | undefined,
 ): Promise<string | null> {
-  if ((email ?? '').toLowerCase() !== DEMO_REVIEW_EMAIL) return 'email';
+  if (!isDemoReviewUser(email)) return 'email';
 
   // A verified TOTP factor would strand the reviewer on the AAL2 wall, and
   // would mean someone enrolled their own authenticator on the shared account.
@@ -183,13 +201,14 @@ async function demoAccountRefusal(
   if (adminError) return 'platform_flag_unreadable';
   if (isAdmin !== false) return 'platform_admin';
 
+  // By id, never by name: a venue admin can rename a venue, not re-key it.
   const { data: memberships, error: memberError } = await supabase
     .from('venue_memberships')
-    .select('venue_id, venues(name)')
+    .select('venue_id')
     .eq('user_id', userId);
   if (memberError || !memberships) return 'memberships_unreadable';
   if (memberships.length !== 1) return 'membership_count';
-  if (memberships[0]?.venues?.name !== DEMO_VENUE_NAME) return 'membership_venue';
+  if (memberships[0]?.venue_id !== DEMO_VENUE_ID) return 'membership_venue';
 
   return null;
 }

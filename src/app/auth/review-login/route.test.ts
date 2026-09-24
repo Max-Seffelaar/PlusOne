@@ -21,7 +21,9 @@ vi.mock('@/features/auth/entry-redirect', () => ({
   resolveEntryDestination: async (_userId: string, next: string) => next,
 }));
 
-const CODE = 'k7p2-x9qm-4hzt-8wva';
+const CODE = 'k7p2-x9qm-4hzt-8wva-3bcd-efgh-jk';
+const DEMO_VENUE_ID = 'de300000-0000-7000-8000-000000000001';
+const inDays = (d: number) => new Date(Date.now() + d * 86_400_000).toISOString();
 const ORIGIN = 'http://localhost:3000';
 const DEMO = { id: '00000000-0000-7000-8000-00000000de30', email: 'app-review@demo.plus-one.io' };
 
@@ -53,6 +55,7 @@ beforeEach(() => {
   vi.resetModules(); // a fresh per-instance limiter for every test
   vi.clearAllMocks();
   vi.stubEnv('REVIEW_LOGIN_CODE', CODE);
+  vi.stubEnv('REVIEW_LOGIN_EXPIRES_AT', inDays(7));
   vi.spyOn(console, 'info').mockImplementation(() => undefined);
   vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   generateLink.mockResolvedValue({ data: { properties: { hashed_token: 'th' } }, error: null });
@@ -60,7 +63,7 @@ beforeEach(() => {
   listFactors.mockResolvedValue({ data: { totp: [] }, error: null });
   signOut.mockResolvedValue({ error: null });
   rpc.mockResolvedValue({ data: false, error: null });
-  membershipsEq.mockResolvedValue({ data: [{ venue_id: 'v', venues: { name: 'PLUSONE Demo' } }], error: null });
+  membershipsEq.mockResolvedValue({ data: [{ venue_id: DEMO_VENUE_ID }], error: null });
 });
 
 afterEach(() => {
@@ -68,23 +71,28 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('disabled (REVIEW_LOGIN_CODE unset / blank / too short) → 404, no hint', () => {
-  it.each([['unset', undefined], ['empty', ''], ['whitespace', '   '], ['too short', 'short-code']])(
-    '%s: GET and POST both 404 with an empty, uncacheable body',
-    async (_label, value) => {
-      if (value === undefined) vi.stubEnv('REVIEW_LOGIN_CODE', undefined as unknown as string);
-      else vi.stubEnv('REVIEW_LOGIN_CODE', value);
-      const { GET } = await route();
-      const get = await GET(new NextRequest(`${ORIGIN}/auth/review-login`));
-      const res = await post(form(CODE));
-      for (const r of [get, res]) {
-        expect(r.status).toBe(404);
-        expect(await r.text()).toBe('');
-        expect(r.headers.get('cache-control')).toContain('no-store');
-      }
-      expect(generateLink).not.toHaveBeenCalled();
-    },
-  );
+describe('disabled (window closed) → 404, no hint', () => {
+  it.each([
+    ['code unset', { REVIEW_LOGIN_CODE: undefined }],
+    ['code empty', { REVIEW_LOGIN_CODE: '' }],
+    ['code whitespace', { REVIEW_LOGIN_CODE: '   ' }],
+    ['code too short', { REVIEW_LOGIN_CODE: 'k7p2-x9qm-4hzt-8wva' }],
+    ['expiry unset', { REVIEW_LOGIN_EXPIRES_AT: undefined }],
+    ['expiry unparseable', { REVIEW_LOGIN_EXPIRES_AT: 'next friday' }],
+    ['expiry in the past', { REVIEW_LOGIN_EXPIRES_AT: inDays(-1) }],
+    ['expiry more than 60 days out', { REVIEW_LOGIN_EXPIRES_AT: inDays(61) }],
+  ])('%s: GET and POST both 404 with an empty, uncacheable body', async (_label, env) => {
+    for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value as string);
+    const { GET } = await route();
+    const get = await GET(new NextRequest(`${ORIGIN}/auth/review-login`));
+    const res = await post(form(CODE));
+    for (const r of [get, res]) {
+      expect(r.status).toBe(404);
+      expect(await r.text()).toBe('');
+      expect(r.headers.get('cache-control')).toContain('no-store');
+    }
+    expect(generateLink).not.toHaveBeenCalled();
+  });
 });
 
 describe('GET (enabled)', () => {
@@ -109,7 +117,18 @@ describe('POST', () => {
     expect(generateLink).toHaveBeenCalledTimes(1);
     expect(generateLink).toHaveBeenCalledWith({ type: 'magiclink', email: DEMO.email });
     expect(verifyOtp).toHaveBeenCalledWith({ type: 'magiclink', token_hash: 'th' });
-    expect(signOut).not.toHaveBeenCalled();
+    // One live demo session at a time: every OTHER session is revoked, this one kept.
+    expect(signOut).toHaveBeenCalledTimes(1);
+    expect(signOut).toHaveBeenCalledWith({ scope: 'others' });
+  });
+
+  it('if revoking the other sessions fails, this session is dropped too (fail closed)', async () => {
+    signOut.mockImplementation(async ({ scope }: { scope: string }) =>
+      scope === 'others' ? { error: { message: 'boom' } } : { error: null },
+    );
+    const res = await post(form(CODE));
+    expect(location(res).searchParams.get('error')).toBe('failed');
+    expect(signOut).toHaveBeenCalledWith({ scope: 'local' });
   });
 
   it('extra form fields cannot pick another user or destination', async () => {
@@ -140,6 +159,13 @@ describe('POST', () => {
     const res = await post(form(CODE), { origin: 'https://evil.example' });
     expect(res.status).toBe(404);
     expect(generateLink).not.toHaveBeenCalled();
+  });
+
+  it('no lockout: 100 junk attempts spread over many IPs never block the reviewer on a fresh IP', async () => {
+    for (let i = 0; i < 100; i += 1) await post(form('wrong-code-wrong-code'), { ip: `192.0.2.${i % 50}` });
+    const res = await post(form(CODE), { ip: '203.0.113.200' });
+    expect(res.status).toBe(303);
+    expect(location(res).pathname).toBe('/app');
   });
 
   it('rate limit: the 6th attempt from one client in the window is refused before the compare', async () => {
@@ -176,16 +202,12 @@ describe('POST', () => {
       ['no membership', () => membershipsEq.mockResolvedValue({ data: [], error: null })],
       [
         'a second venue',
-        () =>
-          membershipsEq.mockResolvedValue({
-            data: [
-              { venue_id: 'v', venues: { name: 'PLUSONE Demo' } },
-              { venue_id: 'w', venues: { name: 'Real Club' } },
-            ],
-            error: null,
-          }),
+        () => membershipsEq.mockResolvedValue({ data: [{ venue_id: DEMO_VENUE_ID }, { venue_id: 'w' }], error: null }),
       ],
-      ['the wrong venue', () => membershipsEq.mockResolvedValue({ data: [{ venue_id: 'w', venues: { name: 'Real Club' } }], error: null })],
+      [
+        'a venue NAMED "PLUSONE Demo" but with another id',
+        () => membershipsEq.mockResolvedValue({ data: [{ venue_id: 'aa000000-0000-7000-8000-000000000009' }], error: null }),
+      ],
     ])('%s', async (_label, arrange) => {
       arrange();
       const res = await post(form(CODE));
