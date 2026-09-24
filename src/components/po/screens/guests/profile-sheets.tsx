@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { INSUFFICIENT_PRIVILEGE_MESSAGE } from '@/lib/db-errors';
 import type { ContactRole } from '@/features/contacts/schemas';
 import { resolveDefaultTierId } from '@/features/guests/tiers';
+import { totalSlots } from '@/features/guests/quick-add-parser';
 import { usePoEvents, usePoTiers, usePoQuota, usePoGuests } from '@/features/po/hooks';
 import {
   usePoToggleContactPermanent,
@@ -309,6 +310,93 @@ export function PermanentConfirmSheet({ contact, onClose }: { contact: PoContact
         <b>{contact.name}</b> {fmt(t.guests.contacts.makeRegularNote, { new: t.guests.contacts.makeRegularNoteNew })}
       </Note>
     </ConfirmSheet>
+  );
+}
+
+/** Ceiling for the profile's +N stepper (item M1). Bigger parties are a paste,
+ *  not 30 taps — and the DB quota engine is still the real limit either way. */
+export const MAX_PROFILE_PLUS_ONES = 10;
+
+/**
+ * Edit a guest's plus-ones straight from the person profile (item M1).
+ *
+ * Purely a thin wrapper over the existing `updateGuest` server action: quota
+ * (#5/#22) and the list lock (#23) stay enforced by the database, so this sheet
+ * only PREVIEWS the cost and surfaces whatever the server returns. It never
+ * blocks the save itself on the quota hint — the hint can be stale, the DB can't.
+ * Online-only by design (a profile edit is not a door write, #25).
+ */
+export function PlusOnesSheet({
+  guestId,
+  eventId,
+  name,
+  current,
+  onClose,
+  onSaved,
+}: {
+  guestId: string;
+  eventId: string;
+  name: string;
+  current: number;
+  onClose: () => void;
+  onSaved: () => void;
+}): JSX.Element {
+  const update = usePoUpdateGuest(eventId);
+  const { data: quota } = usePoQuota(eventId);
+  const [plus, setPlus] = useState(Math.min(MAX_PROFILE_PLUS_ONES, Math.max(0, current)));
+  const [err, setErr] = useState<string | null>(null);
+  const po = t.guests.plusOnes;
+
+  // #5: a guest with +N eats 1 + N slots. `totalSlots` is the one place that math
+  // lives, so the sheet shows exactly what the quota engine will charge.
+  const slots = totalSlots([{ plusOnes: plus }]);
+  // Only the DELTA against what they already hold moves the caller's quota.
+  const delta = slots - totalSlots([{ plusOnes: current }]);
+  const remaining = quota?.exempt ? null : quota?.remaining ?? null;
+  const over = remaining !== null && delta > remaining ? delta - remaining : 0;
+
+  const save = async (): Promise<void> => {
+    setErr(null);
+    try {
+      await update.mutateAsync({ guestId, plusOnes: plus });
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : po.failed);
+    }
+  };
+
+  return (
+    <Sheet onClose={onClose} center={false}>
+      <div className="mb-1 font-display text-[19px] font-extrabold tracking-[-0.01em] text-text">{po.title}</div>
+      <div className="mb-4 text-[13px] text-faint">{fmt(po.sub, { name })}</div>
+      <Stepper
+        value={plus}
+        max={MAX_PROFILE_PLUS_ONES}
+        onChange={(v) => setPlus(Math.min(MAX_PROFILE_PLUS_ONES, Math.max(0, v)))}
+      />
+      <div className="mt-3 px-1 text-[12.5px] text-faint">
+        {fmt(po.slotsLine, { total: slots, slots: slots === 1 ? po.slotOne : po.slotMany })}
+        {quota?.exempt
+          ? ` · ${po.quotaExempt}`
+          : remaining !== null
+            ? ` · ${over > 0 ? fmt(po.quotaOver, { n: over }) : fmt(po.quotaLeft, { n: remaining - delta })}`
+            : ''}
+      </div>
+      {plus >= MAX_PROFILE_PLUS_ONES && (
+        <div className="mt-2 px-1 text-[12px] text-faint">{fmt(po.max, { n: MAX_PROFILE_PLUS_ONES })}</div>
+      )}
+      {err && (
+        <p className="mt-3 text-[12.5px] text-red-300" role="alert">
+          {err}
+        </p>
+      )}
+      <Btn kind="primary" full icon="check" className="mt-4" disabled={update.isPending} onClick={() => void save()}>
+        {update.isPending ? po.saving : fmt(po.save, { n: plus })}
+      </Btn>
+      <Btn kind="ghost" full className="mt-2" onClick={onClose} disabled={update.isPending}>
+        {po.cancel}
+      </Btn>
+    </Sheet>
   );
 }
 

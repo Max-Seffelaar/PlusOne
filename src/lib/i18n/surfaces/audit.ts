@@ -19,7 +19,7 @@ export const audit = {
   // ── Immutability note ───────────────────────────────────────────────────────
   // MFA dropped from this copy: audit-log access is role-only (admin/finance),
   // not AAL2-gated — see migration 20260624160000_mfa_scope_sensitive_actions.
-  immutableNote: 'Immutable logbook — written by database triggers, never by app code. Access needs an admin or finance role.',
+  immutableNote: 'Immutable logbook: written by database triggers, never by app code. Access needs an admin or finance role.',
 
   // ── List states ─────────────────────────────────────────────────────────────
   loading: 'Loading…',

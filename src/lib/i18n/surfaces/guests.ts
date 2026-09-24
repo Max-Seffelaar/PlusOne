@@ -37,6 +37,10 @@ export const guests = {
     title: 'Guests',
     sub: '{shown} of {total} shown',
     allScope: 'All events',
+    // Event scope chips: upcoming events sit in the row, past ones hide behind
+    // this toggle so a venue with a long history doesn't scroll for a minute.
+    pastScope: 'Past',
+    pastShowAll: 'Show all',
     regularsFilter: 'Regulars',
     emptyRegulars: 'No regulars on this list yet. Star a contact to make them a regular.',
     addPickEvent: 'Pick an event above to add guests.',
@@ -46,7 +50,8 @@ export const guests = {
     filterIn: 'Inside',
     filterVip: 'VIP',
     addGuest: 'Add guest',
-    pasteList: 'Paste list',
+    pasteList: 'Paste a list',
+    pickEventForPaste: 'Which list are you pasting into?',
     contacts: 'Contacts',
     loading: 'Loading guests…',
     loadError: "Couldn't load the guest list.",
@@ -58,6 +63,38 @@ export const guests = {
     colAdded: 'Added',
     colStatus: 'Status',
     refused: 'Refused',
+  },
+  // ── Guest provenance (where a name came from) ─────────────────────────────
+  // Rendered by `guestSourceLabel` (src/features/po/format.ts) on the guest rows
+  // and on the person profile. "a colleague" is the honest fallback when RLS
+  // hides the actor's profile from this role — we never widen a policy for a label.
+  source: {
+    regular: 'Regular',
+    signUpLink: 'Sign-up link',
+    signUpLinkNamed: 'Sign-up link · {label}',
+    addedBy: 'Added by {name}',
+    addedByColleague: 'Added by a colleague',
+    atDoorBy: 'At the door by {name}',
+    atDoorByColleague: 'At the door by a colleague',
+  },
+  // ── Plus-ones sheet (edit +N from the person profile) ─────────────────────
+  plusOnes: {
+    title: 'Plus-ones',
+    sub: 'How many people come along with {name}?',
+    slotsLine: '{total} {slots} in total',
+    slotOne: 'slot',
+    slotMany: 'slots',
+    quotaLeft: '{n} left in your quota',
+    quotaOver: '{n} over your quota for this event',
+    quotaExempt: 'No limit for your role',
+    max: 'Up to {n} plus-ones per guest. Paste a list for bigger groups.',
+    save: 'Save · +{n}',
+    saving: 'Saving…',
+    failed: "Couldn't change the plus-ones.",
+    cancel: 'Cancel',
+    // Entry points on the profile's event card
+    edit: 'Edit +{n}',
+    add: 'Add plus-ones',
   },
   // ── Guest detail (read-only; check-in lives at the door) ──────────────────
   detail: {
@@ -140,10 +177,27 @@ export const guests = {
     slotMany: 'slots',
     // Optional contact-info prompt (shown when no email/phone parsed from text)
     contactPrompt: 'Add email · phone',
-    contactEmailPlaceholder: 'Email address',
-    contactPhonePlaceholder: 'Phone number',
+    // Joeri walkthrough (z8uq9m0hw4): both fields read as required. The label
+    // itself now says optional, so it survives as long as the field is empty.
+    contactEmailPlaceholder: 'Email (optional)',
+    contactPhonePlaceholder: 'Phone number (optional)',
     contactPhoneError: 'Enter a valid phone number.',
-    contactPromptHint: 'Optional. Saves them to your contacts so you can reuse them next time.',
+    // Banner above the email + phone fields (item G, reworded z8uq9m0hw4). Mirrors
+    // the guests_autolink_contact trigger exactly: an email OR phone saves (or
+    // links) a venue contact, a name-only guest never becomes one.
+    contactSaveNote:
+      "Add an email or phone and they're saved to your contacts, so next time they're one tap away. Name only? They go on this list but aren't saved as a contact.",
+  },
+  // ── Link a name-only guest to an existing contact (item K) ────────────────
+  // Shared by quick-add and the paste-a-list preview: same offer, same wording.
+  // The link is pre-selected; undoing it is always one tap.
+  contactLink: {
+    match: 'Same as contact {name}',
+    off: 'Not linked to a contact',
+    undo: 'Not the same',
+    redo: 'Same person',
+    ambiguous: '{n} contacts with this name',
+    ambiguousHint: 'Not linked. We cannot tell which one it is.',
   },
   // ── Bulk paste (#33) ──────────────────────────────────────────────────────
   bulk: {
@@ -168,18 +222,18 @@ export const guests = {
     dupeAgainTitle: 'Add again anyway',
     dupeAgainSub: 'As a separate, new row (different person)',
     quotaLine: '{total} {slots} · {remaining} left in your quota',
-    quotaBlocked: ' — the whole batch is blocked',
+    quotaBlocked: '. The whole batch is blocked',
     addFailed: "Couldn't add.",
     // Per-row inline fix (parity with the contacts import): a broken e-mail/phone
     // or an over-long name is flagged + fixable in the preview, never silently
     // mangled into the name or dropped.
     rowInvalid: 'NEEDS FIX',
     needsFixTitle: 'A few rows need a quick fix',
-    needsFixOne: '{n} row has a wrong e-mail/phone or is too long. Fix it below or remove it — nothing is added until it’s sorted.',
-    needsFixMany: '{n} rows have a wrong e-mail/phone or are too long. Fix them below or remove them — nothing is added until they’re sorted.',
+    needsFixOne: '{n} row has a wrong e-mail/phone or is too long. Fix it below or remove it. Nothing is added until it’s sorted.',
+    needsFixMany: '{n} rows have a wrong e-mail/phone or are too long. Fix them below or remove them. Nothing is added until they’re sorted.',
     needsFixCount: '{n} to fix',
     errName: 'Add a name',
-    errNameLong: 'Name is too long ({n}/500) — shorten it',
+    errNameLong: 'Name is too long ({n}/500): shorten it',
     errEmail: 'Check the e-mail address',
     errPhone: 'Check the phone number',
     fieldName: 'Name',
@@ -213,7 +267,11 @@ export const guests = {
     noRights: 'You don’t have rights to view contacts. Only an admin, finance, or organizer sees the saved contacts.',
     loadError: "Couldn't load contacts.",
     emptyFiltered: 'No contacts found.',
-    empty: 'No contacts yet. Save a guest to reuse them next time.',
+    // Only guests with an email or phone number become contacts on their own
+    // (guests_autolink_contact, 20260622130100): a name-only guest has no
+    // dedup key, so it is never saved automatically.
+    empty:
+      'No contacts yet. Guests with an email or phone number are saved here automatically. Added someone by name only? Add their email or phone to save them.',
     onListCount: '{n}× on a list',
     editAria: 'Edit {name}',
     openAria: 'Open {name}',
@@ -255,9 +313,9 @@ export const guests = {
     forget: 'Forget this person',
     forgetTitle: 'Forget {name}?',
     forgetBody:
-      'Permanently anonymizes {name} to “Contact #X” and wipes their name, email, phone and birthday — from this contact and every guest entry of theirs at this venue. The audit log stays, but without their personal data.',
+      'Permanently anonymizes {name} to “Contact #X” and wipes their name, email, phone and birthday from this contact and every guest entry of theirs at this venue. The audit log stays, but without their personal data.',
     forgetIrreversible: 'This cannot be undone.',
-    forgetPermanentWarn: 'They are marked as a regular (kept on purpose) — forgetting them removes that too.',
+    forgetPermanentWarn: 'They are marked as a regular (kept on purpose). Forgetting them removes that too.',
     forgetConfirm: 'Yes, forget permanently',
     forgetBusy: 'Forgetting…',
     forgetFailed: "Couldn't complete the request.",
@@ -347,7 +405,7 @@ export const guests = {
     guestOnlyNote: 'Not a saved contact yet. Save to keep their history and find them next time.',
     // Restricted: already a contact, but this role can't read the address book
     // (M3, K-8) — a plain note instead of a dead-end error or a promote CTA.
-    restrictedNote: "This person is a saved contact. Full contact details aren't visible to your role — an admin, finance, or the event organizer can see more.",
+    restrictedNote: "This person is a saved contact. Full contact details aren't visible to your role. An admin, finance, or the event organizer can see more.",
     promoteTitle: 'Save as contact',
     promoteSub: 'Save this person to your contacts. Email or phone helps find them on the next list.',
     promoteHint: "With an email or phone number we recognise them next time. Without one, they're saved by name only.",
@@ -360,13 +418,32 @@ export const guests = {
     // Tier change from the person profile
     changeTier: 'Change tier',
     changeTierSub: 'Pick a tier for this guest.',
+    // Opened from a guest list or the Guests tab (the title above is for Contacts)
+    titleGuest: 'Guest',
+    loadingGuest: 'Loading guest…',
+    notFoundGuest: "This guest isn't available, or you don't have access to it.",
+    // Per-event row actions (the "…" sheet on each event card)
+    rowActionsAria: 'Actions for {event}',
+    openEvent: 'Open event',
+    removeFromList: 'Remove from list',
+    tiersLoading: 'Loading tiers…',
+    lockedNote: 'This list is locked. An admin or the organizer can still change it.',
+    // Remove confirm: soft delete, the slot frees unless they are inside (#22)
+    removeTitle: 'Remove from {event}?',
+    removeBody: '{name} drops off the list. That frees up {n} {slots}.',
+    removeBodyInside: "{name} drops off the list. They're already inside, so this still counts as {n} {slots}.",
+    removeIrreversible: "You can't undo this.",
+    removeConfirm: 'Remove guest',
+    removeBusy: 'Removing…',
+    removeFailed: "Couldn't remove the guest.",
+    removed: 'Removed from {event}.',
   },
   // ── Guest list: multi-select + bulk tier change ───────────────────────────
   multiSelect: {
     selectionBar: '{n} selected',
     selectAll: 'Select all',
     changeTier: 'Change tier',
-    changeTierAllScope: 'Pick one event above to change tiers — tiers are per event.',
+    changeTierAllScope: 'Pick one event above to change tiers. Tiers are per event.',
     markRegular: 'Regular',
     markRegularBusy: 'Marking…',
     regularDone: '{n} marked as regular',

@@ -33,7 +33,16 @@ select tables_are(
     'influencers', 'request_links', 'request_link_pageviews_daily',
     -- Fase 13 (Stripe Billing, #32): webhook idempotency ledger,
     -- service_role-only.
-    'stripe_webhook_events'
+    'stripe_webhook_events',
+    -- z8uq9m0h2v: status token of a silently deduped landing submission, bound
+    -- to the name/plus-ones THAT caller supplied so the dedup can hand out a
+    -- working /r/[token] URL without pointing it at the existing requester's
+    -- row. RLS on, no policies, no grants — only submit_guest_request /
+    -- get_request_status (SECURITY DEFINER) touch it.
+    'guest_request_status_mirrors',
+    -- P-03 (z8uq9m0tnv): open-beta outreach log. Platform admins only; grants
+    -- no access — the invitee self-onboards through the existing wizard.
+    'platform_invites'
   ],
   'public schema contains exactly the MVP tables (Fase 1 + invites + landing + adresboek + templates + request links + billing)' 
 );
@@ -114,9 +123,9 @@ select ok(
   has_function_privilege('anon',
     'public.submit_guest_request(text,text,text,text,integer,text,text,boolean,date,text)', 'EXECUTE')
   and has_function_privilege('authenticated',
-    'public.approve_guest_request(uuid,uuid)', 'EXECUTE')
+    'public.approve_guest_request(uuid,uuid,integer,text)', 'EXECUTE')
   and not has_function_privilege('anon',
-    'public.approve_guest_request(uuid,uuid)', 'EXECUTE'),
+    'public.approve_guest_request(uuid,uuid,integer,text)', 'EXECUTE'),
   'anon may submit_guest_request; approve_guest_request is authenticated-only'
 );
 

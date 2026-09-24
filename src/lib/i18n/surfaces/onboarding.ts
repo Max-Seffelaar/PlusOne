@@ -48,4 +48,30 @@ export const onboarding = {
     consentPrivacy: 'Privacy Policy',
     consentPost: '.',
   },
+
+  // Onboarding wizard, step 3: invite the team (TeamStep). The other wizard
+  // steps still carry their copy inline.
+  teamStep: {
+    panelTitle: 'Better with your team',
+    panelSub: 'Give hosts and managers access with the right roles and quota.',
+    panelBullet1: 'Roles decide who can do what',
+    panelBullet2: 'You can invite people later too',
+    panelBullet3: 'Team members get their own magic link by email',
+    heading: 'Invite your team',
+    sub: 'Add hosts and managers. Or skip and do it later from Team.',
+    roleLabel: 'Role',
+    roleManager: 'Manager',
+    roleHost: 'Host',
+    remove: 'Remove',
+    emailPlaceholder: 'name@venue.com',
+    addRow: 'Add another team member',
+    send: 'Send invites',
+    working: 'Working…',
+    // Joeri walkthrough: a bare "Skip" under a disabled primary was easy to miss.
+    skip: 'Skip for now',
+    skipHintPre: 'You can add your team later from ',
+    skipHintBold: 'Team',
+    skipHintPost: '.',
+    sendError: "Couldn't send the invite.",
+  },
 } as const;

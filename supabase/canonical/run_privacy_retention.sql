@@ -1,5 +1,5 @@
 -- Canonical body (K10 drift guard, see supabase/canonical/README.md).
--- Newest source: supabase/migrations/20260706101000_request_link_attribution.sql:217.
+-- Newest source: supabase/migrations/20260919090000_partial_approval_decision_message.sql:470.
 
 create or replace function public.run_privacy_retention()
 returns table (
@@ -69,6 +69,7 @@ begin
         phone = null,
         motivation = null,
         decision_reason = null,
+        decision_message = null,
         status_token_hash = null,
         anonymized_at = now()
     from ranked rk
@@ -78,6 +79,38 @@ begin
   )
   select coalesce(array_agg(id), '{}') into v_request_ids from upd;
   v_requests := coalesce(array_length(v_request_ids, 1), 0);
+
+  -- 2b. z8uq9m0h2v — drop the status-token mirrors of every ANONYMIZED request,
+  --     not just the ones step 2 touched on this run. A mirror holds a name and
+  --     plus-ones supplied by the caller of a deduped submission; step 2 nulls
+  --     the request's own `status_token_hash`, and this is the matching
+  --     revocation for the mirrored one.
+  --
+  --     Scoping this to `any(v_request_ids)` — what 20260918140000 shipped —
+  --     left a hole the fresh-session security review of PR #300 reproduced:
+  --     step 2 clears neither `status` nor `dedupe_key`, so an anonymized
+  --     request stays `pending` with its fingerprint and keeps catching later
+  --     submissions on the dedup branch. Those wrote a mirror carrying the new
+  --     caller's real name against a request already anonymized — which this
+  --     step, looking only at ids from its own run, never saw again. Retention
+  --     run #2 reported `0 0 0 0` and the name survived indefinitely.
+  --
+  --     Driving the delete off `anonymized_at` instead of the run's id list
+  --     makes the sweep self-healing: it cleans orphans written before this
+  --     migration as well as any a future path manages to create.
+  delete from public.guest_request_status_mirrors m
+  using public.guest_requests gr
+  where gr.id = m.request_id
+    and gr.anonymized_at is not null;
+
+  -- 2c. z8uq9m0hw6 — the free-text decision fields go on EVERY anonymized
+  --     request, not only this run's: earlier runs, and a deny written after
+  --     anonymization, are otherwise never reached again (same lesson as 2b).
+  update public.guest_requests gr
+  set decision_message = null,
+      decision_reason = null
+  where gr.anonymized_at is not null
+    and (gr.decision_message is not null or gr.decision_reason is not null);
 
   -- 3. Redact refusal reasons of the just-anonymized guests.
   update public.refusals
@@ -90,6 +123,11 @@ begin
   -- 4. Scrub the guests/refusals audit diffs + append per-guest 'anonymize'.
   v_audit := public.redact_anonymized_audit_pii(v_guest_ids);
 
+  -- 4b. z8uq9m0hw6 — scrub the free-text decision fields (the venue message
+  --     and the deny reason) out of EVERY anonymized request's own
+  --     approve/deny diffs, through the named owner-only helper.
+  v_audit := v_audit + public.redact_anonymized_request_audit_pii();
+
   -- 5. Record the request anonymizations (guest_requests aren't otherwise audited).
   insert into public.audit_log
     (actor_id, venue_id, event_id, entity_type, entity_id, action, diff, device_id)
@@ -99,7 +137,7 @@ begin
       'before', null,
       'after', jsonb_build_object(
         'anonymized_at', to_jsonb(gr.anonymized_at),
-        'redacted_fields', '["full_name","email","phone","motivation","decision_reason","status_token_hash"]'::jsonb)),
+        'redacted_fields', '["full_name","email","phone","motivation","decision_reason","decision_message","status_token_hash"]'::jsonb)),
     null
   from public.guest_requests gr
   join public.events e on e.id = gr.event_id

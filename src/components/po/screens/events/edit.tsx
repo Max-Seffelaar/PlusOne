@@ -14,7 +14,6 @@ import {
   usePoSetCancelled,
   usePoCreateEvent,
   usePoCreateEventFromTemplate,
-  usePoCreateTemplateFromEvent,
   usePoSetAllowUncheck,
   usePoSetAutoLock,
   usePoSetEventDefaultMemberQuota,
@@ -28,147 +27,22 @@ import { isoToLocalInput, localInputToIso } from '@/features/events/datetime';
 import { useNav } from '../../context';
 import { DateField, TimeField } from '../../datetime-field';
 import { Icon } from '../../icon';
-import { Btn, Field, Label, Note, Scroll, ToggleRow, Top, press } from '../../kit';
+import { Btn, Field, InfoTip, Label, Note, Scroll, ToggleRow, Top, press } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
+import { SaveAsTemplate } from './save-as-template';
+import { ScheduleFields } from './schedule-fields';
+import { TemplatePicker } from './template-picker';
 import { col, ScreenState } from './shared';
 
-const iconSm = 'flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border border-line text-faint';
+// 34px quota stepper; the ring reaches 5px past its 1px border (44x44). Minus and
+// plus sit 38px apart (the count between them), so the rings never meet.
+const iconSm = "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border border-line text-faint relative before:absolute before:-inset-[6px] before:content-['']";
 
 // ── EVENT edit / create (pushed) ─────────────────────────────────────────────────
 /** ISO instant → [date, time] local strings for the date/time inputs. */
 function splitLocal(iso: string | null): [string, string] {
   const [d = '', t = ''] = isoToLocalInput(iso).split('T');
   return [d, t];
-}
-
-/** A blank/template selector chip for the create-from-template picker (86exyp8gn). */
-function TemplateChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }): JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'rounded-full border px-[13px] py-[7px] font-display text-[12.5px] font-bold transition-colors',
-        active ? 'border-acc bg-acc-dim text-acc' : 'border-line text-dim hover:brightness-110',
-      )}
-    >
-      {label}
-    </button>
-  );
-}
-
-/** Save an existing event's setup (tiers + capacity + settings) as a reusable template.
- *  Reports a typed-but-unsaved name via onDraftChange so the parent's leave-guard can
- *  catch it — "Save event" does NOT save the template (T4, 1/7). Also used standalone
- *  from the past-event recap (M11, 8/7) — onDraftChange is optional there. */
-export function SaveAsTemplate({
-  eventId,
-  onDraftChange,
-}: {
-  eventId: string;
-  onDraftChange?: (dirty: boolean) => void;
-}): JSX.Element {
-  const createTpl = usePoCreateTemplateFromEvent();
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState('');
-  const [savedName, setSavedName] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-
-  const draft = open && !!name.trim();
-  useEffect(() => {
-    onDraftChange?.(draft);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft]);
-
-  const submit = async (): Promise<void> => {
-    if (!name.trim() || createTpl.isPending) return;
-    setErr(null);
-    setSavedName(null);
-    try {
-      const tplName = name.trim();
-      await createTpl.mutateAsync({ eventId, name: tplName });
-      setSavedName(tplName);
-      setName('');
-      setOpen(false);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : t.events.saveTemplateError);
-    }
-  };
-
-  return (
-    <div className="mt-[18px]">
-      <Label className="mb-[10px]">{t.events.saveTemplateLabel}</Label>
-      {open ? (
-        <div className="rounded-[16px] border border-acc bg-elev p-4">
-          <p className="mb-2.5 text-[12.5px] leading-[1.5] text-faint">{t.events.saveTemplateHint}</p>
-          <Field
-            placeholder={t.events.saveTemplatePlaceholder}
-            value={name}
-            onChange={setName}
-            autoFocus
-            className="mb-3"
-          />
-          <div className="flex gap-2">
-            <Btn
-              kind="primary"
-              sm
-              icon="check"
-              onClick={() => void submit()}
-              disabled={!name.trim() || createTpl.isPending}
-              className={!name.trim() || createTpl.isPending ? 'opacity-50' : ''}
-            >
-              {createTpl.isPending ? t.events.saving : t.events.saveTemplateConfirm}
-            </Btn>
-            <Btn
-              kind="ghost"
-              sm
-              onClick={() => {
-                setOpen(false);
-                setName('');
-                setErr(null);
-              }}
-            >
-              {t.events.saveTemplateCancel}
-            </Btn>
-          </div>
-          {err && <p className="mt-2 text-[12.5px] text-[#E89AC0]">{err}</p>}
-        </div>
-      ) : (
-        <>
-          <Btn
-            kind="dark"
-            full
-            icon="grid"
-            onClick={() => {
-              setOpen(true);
-              setSavedName(null);
-            }}
-          >
-            {t.events.saveTemplateCta}
-          </Btn>
-          {/* Unmissable saved-state: a card with the template's name + where to
-              find it, not a one-line footnote (T4, 1/7 — "felt saved, couldn't
-              find it back"). */}
-          {savedName && (
-            <div
-              className="mt-2 flex items-start gap-[10px] rounded-[14px] border bg-acc-dim p-[13px]"
-              style={{ borderColor: 'rgba(181,166,255,0.4)' }}
-            >
-              <span className="mt-px text-acc">
-                <Icon name="check" size={18} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="font-body text-[14px] font-bold text-text">
-                  {fmt(t.events.saveTemplateDoneTitle, { name: savedName })}
-                </div>
-                <div className="mt-0.5 text-[12.5px] leading-[1.45] text-faint">{t.events.saveTemplateDoneBody}</div>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
 }
 
 export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.Element {
@@ -195,14 +69,18 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   const [name, setName] = useState('');
   // Create-from-template (86exyp8gn): null = blank event (the existing path).
   const [templateId, setTemplateId] = useState<string | null>(null);
-  // Collapse the template chips past 4 — a venue with 10+ templates would drown
-  // the form otherwise (retest T4, Q4).
-  const [tplListExpanded, setTplListExpanded] = useState(false);
   const [dateStr, setDateStr] = useState('');
   const [timeStr, setTimeStr] = useState('');
   const [endDateStr, setEndDateStr] = useState('');
   const [endTimeStr, setEndTimeStr] = useState('');
-  const [landingOn, setLandingOn] = useState(false);
+  // While false, the end fields follow the start (doors + 6 h — item C1). The
+  // first manual end edit claims them; an event loaded WITH an end starts
+  // claimed, so a stored end is never silently rewritten.
+  const [endTouched, setEndTouched] = useState(false);
+  // A NEW event starts with its sign-up link on (z8uq9m0hw3, item 6): most
+  // nights want requests, and an off link was the step people forgot. Edit mode
+  // overwrites this with the stored value on hydrate.
+  const [landingOn, setLandingOn] = useState(true);
   const [autoOn, setAutoOn] = useState(false);
   const [autoDate, setAutoDate] = useState('');
   const [autoTime, setAutoTime] = useState('');
@@ -233,6 +111,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
     const [ed, et] = splitLocal(ev.endsAt);
     setEndDateStr(ed);
     setEndTimeStr(et);
+    setEndTouched(!!ev.endsAt);
     setLandingOn(ev.landingActive);
     setLocked(ev.listLocked);
     setUncheckOverride(ev.allowUncheckOverride);
@@ -250,6 +129,10 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   }
 
   const writable = isNew ? isAdmin : canManage;
+  // Create-from-template: the template's own settings apply (the RPC copies
+  // them), so the form shows the template's values read-only.
+  const fromTemplate = isNew && !!templateId;
+  const pickedTemplate = fromTemplate ? templates.data?.find((tpl) => tpl.id === templateId) : undefined;
   const venueLabel = isNew ? venueName ?? '' : ev?.venueName ?? '';
   const saving = createEvent.isPending || createFromTemplate.isPending || updateEvent.isPending;
 
@@ -320,12 +203,17 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           setErr(t.events.errNoVenue);
           return;
         }
-        // Continue the flow on the new event's settings (share the link, add
-        // tiers) instead of bouncing back to the list (T2, feedback 1/7).
         const newId = templateId
           ? await createFromTemplate.mutateAsync({ templateId, name: name.trim(), startsAt, endsAt })
           : await createEvent.mutateAsync({ venueId, name: name.trim(), startsAt, endsAt, landingActive: landingOn });
-        nav.replace('eventedit', { id: newId });
+        // Save the event first, then the tiers (Max, z8uq9m0hw3 item 7): a
+        // tier-less event goes straight to its guided tiers step, which ends on
+        // the event detail. A template that seeded tiers skips the step and
+        // lands on that same event detail (Max, PR #305 review), so both paths
+        // finish in one place. `replace`, never push: Back from either lands
+        // where the create flow started, not on the stale form.
+        if ((pickedTemplate?.tierCount ?? 0) > 0) nav.replace('event', { id: newId });
+        else nav.replace('tiers', { id: newId, setup: true });
         return;
       } else {
         await updateEvent.mutateAsync({ eventId: editId, name: name.trim(), startsAt, endsAt });
@@ -429,81 +317,30 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           </Note>
         )}
 
-        {isNew &&
-          isAdmin &&
-          (templates.data?.length ?? 0) > 0 &&
-          ((): JSX.Element => {
-            const all = templates.data ?? [];
-            // Collapsed = first 4 (name-sorted), plus the selection if it lives
-            // further down so the active chip never disappears.
-            const shown = tplListExpanded ? all : all.slice(0, 4);
-            const selected = templateId ? all.find((tpl) => tpl.id === templateId) : undefined;
-            if (selected && !shown.some((tpl) => tpl.id === selected.id)) shown.push(selected);
-            const hidden = all.length - shown.length;
-            return (
-              <>
-                <Label className="mb-2">{t.events.fieldTemplate}</Label>
-                <div className="mb-[14px] flex flex-wrap gap-2">
-                  <TemplateChip label={t.events.templateBlank} active={!templateId} onClick={() => setTemplateId(null)} />
-                  {shown.map((tpl) => (
-                    <TemplateChip
-                      key={tpl.id}
-                      label={tpl.name}
-                      active={templateId === tpl.id}
-                      onClick={() => setTemplateId(tpl.id)}
-                    />
-                  ))}
-                  {hidden > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setTplListExpanded(true)}
-                      className="rounded-full border border-dashed border-line px-[13px] py-[7px] font-display text-[12.5px] font-bold text-faint transition-colors hover:brightness-110"
-                    >
-                      {fmt(t.events.templateShowAll, { n: all.length })}
-                    </button>
-                  )}
-                </div>
-                {templateId && (
-                  <div className="mb-[14px]">
-                    <Note icon="spark">{t.events.templateNote}</Note>
-                  </div>
-                )}
-              </>
-            );
-          })()}
+        {isNew && isAdmin && (templates.data?.length ?? 0) > 0 && (
+          <TemplatePicker templates={templates.data ?? []} templateId={templateId} onChange={setTemplateId} />
+        )}
+
+        {/* Venue above Name (ADE UX round, item B): the venue is the context you
+            read first; the name is what you then type. Name keeps autofocus. */}
+        <Label className="mb-2">{t.events.fieldVenue}</Label>
+        <Field icon="building" value={venueLabel} placeholder={t.events.venuePlaceholder} className="mb-[14px]" />
 
         <Label className="mb-2">{t.events.fieldName}</Label>
         <Field placeholder={t.events.namePlaceholder} value={name} onChange={writable ? setName : undefined} className="mb-[14px]" />
 
-        <Label className="mb-2">{t.events.fieldVenue}</Label>
-        <Field icon="building" value={venueLabel} placeholder={t.events.venuePlaceholder} className="mb-[14px]" />
-
-        {/* min-w-0 lets both columns shrink inside narrow viewports (flex default
-            min-width:auto made the date column push the time field off-screen);
-            the date gets the wider share, the time needs little. */}
-        <div className="mb-[14px] flex gap-[10px]">
-          <div className="min-w-0 flex-[1.35]">
-            <Label className="mb-2">{t.events.fieldDate}</Label>
-            <DateField value={dateStr} onChange={writable ? setDateStr : undefined} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <Label className="mb-2">{t.events.fieldDoors}</Label>
-            <TimeField value={timeStr} onChange={writable ? setTimeStr : undefined} />
-          </div>
-        </div>
-
-        {/* End time (optional). Drives the Upcoming/Live/Past phase — a night with
-            an end stays "Live" until it actually ends, then rolls to "Past". */}
-        <div className="mb-[14px] flex gap-[10px]">
-          <div className="min-w-0 flex-[1.35]">
-            <Label className="mb-2">{t.events.fieldEndDate}</Label>
-            <DateField value={endDateStr} onChange={writable ? setEndDateStr : undefined} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <Label className="mb-2">{t.events.fieldEnd}</Label>
-            <TimeField value={endTimeStr} onChange={writable ? setEndTimeStr : undefined} />
-          </div>
-        </div>
+        <ScheduleFields
+          writable={writable}
+          value={{ date: dateStr, time: timeStr, endDate: endDateStr, endTime: endTimeStr }}
+          endTouched={endTouched}
+          onEndTouchedChange={setEndTouched}
+          onChange={(next) => {
+            setDateStr(next.date);
+            setTimeStr(next.time);
+            setEndDateStr(next.endDate);
+            setEndTimeStr(next.endTime);
+          }}
+        />
 
         {!isNew && (
           <button
@@ -582,13 +419,27 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
           </>
         )}
 
-        <Label className="mb-[10px]">{t.events.landingPage}</Label>
+        {/* The label carries an "i" explainer (item D): the sign-up link is the
+            one control on this screen whose consequences live on another page.
+            -my-[11px] keeps the 44px button from stretching the label row. */}
+        <div className="mb-[10px] flex items-center gap-1">
+          <Label>{t.events.landingPage}</Label>
+          <InfoTip
+            className="-my-[11px]"
+            label={t.events.landingInfo.aria}
+            title={t.events.landingInfo.title}
+            body={t.events.landingInfo.body}
+            closeLabel={t.events.landingInfo.close}
+          />
+        </div>
         <div className="mb-[18px] rounded-[16px] border border-line bg-elev px-[14px] py-1">
           <ToggleRow
             title={t.events.landingActiveTitle}
             sub={t.events.landingActiveSub}
-            on={isNew && templateId ? false : landingOn}
-            set={(v) => writable && !(isNew && templateId) && setLandingOn(v)}
+            // From a template: show what the new event will actually get (the
+            // template's setting), still read-only (z8uq9m0hw3, item 6).
+            on={fromTemplate ? pickedTemplate?.landing_active ?? false : landingOn}
+            set={(v) => writable && !fromTemplate && setLandingOn(v)}
             last={!landingOn || isNew}
           />
           {!isNew && landingOn && ev?.landingSlug && (
@@ -621,7 +472,9 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
                 <div className="flex gap-[10px] pb-[14px]">
                   <div className="min-w-0 flex-[1.35]">
                     <Label className="mb-2">{t.events.closesOn}</Label>
-                    <DateField value={autoDate} onChange={writable ? setAutoDate : undefined} />
+                    {/* Anchored to the event date (item C2): an empty close date
+                        opens on the night's month, not on today. */}
+                    <DateField value={autoDate} anchor={dateStr} onChange={writable ? setAutoDate : undefined} />
                   </div>
                   <div className="min-w-0 flex-1">
                     <Label className="mb-2">{t.events.closesAt}</Label>

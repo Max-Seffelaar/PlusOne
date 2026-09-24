@@ -1,13 +1,14 @@
 'use client';
 
-/** Onboarding step 3 — invite the team (optional, #40). Inviting requires AAL2,
- *  which a brand-new owner has not set up yet, so invites are best-effort and the
- *  step is prominently skippable; MFA can be enrolled afterwards from the app.
+/** Onboarding step 3: invite the team (optional, #40), so the step is
+ *  prominently skippable. Inviting is role-only; MFA is optional for every role
+ *  (#20, 2026-07-01), so nothing here waits on two-factor.
  *  Finishing (send or skip) marks onboarding complete and moves to the app. */
 import { type JSX, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { Field, Label, Note, Btn, press } from '@/components/po/kit';
+import { t } from '@/lib/i18n';
+import { Field, Label, Btn, press } from '@/components/po/kit';
 import { inviteUserAction } from '@/features/auth/invite-actions';
 import { completeOnboardingAction } from '@/features/billing/actions';
 import { WizardShell, WizardPanel } from '../WizardShell';
@@ -19,14 +20,14 @@ interface Row {
   role: Role;
 }
 
-const ROLE_LABEL: Record<Role, string> = { user_manager: 'Manager', staff: 'Host' };
+const c = t.onboarding.teamStep;
+const ROLE_LABEL: Record<Role, string> = { user_manager: c.roleManager, staff: c.roleHost };
 
 export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
   const router = useRouter();
   const [rows, setRows] = useState<Row[]>([{ id: 0, email: '', role: 'staff' }]);
   const [nextId, setNextId] = useState(1);
   const [error, setError] = useState<string | null>(null);
-  const [mfaBlocked, setMfaBlocked] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const validRows = rows.filter((r) => /.+@.+\..+/.test(r.email.trim()));
@@ -58,7 +59,6 @@ export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
     if (pending || validRows.length === 0) return;
     setError(null);
     startTransition(async () => {
-      let blocked = false;
       for (const r of validRows) {
         const fd = new FormData();
         fd.set('venueId', venueId);
@@ -66,17 +66,9 @@ export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
         fd.append('roles', r.role);
         const res = await inviteUserAction({ ok: false }, fd);
         if (!res.ok) {
-          if (res.error && /MFA|authenticator/i.test(res.error)) {
-            blocked = true;
-          } else {
-            setError(res.error ?? "Couldn't send the invite.");
-            return;
-          }
+          setError(res.error ?? c.sendError);
+          return;
         }
-      }
-      if (blocked) {
-        setMfaBlocked(true);
-        return;
       }
       await finish();
     });
@@ -87,62 +79,51 @@ export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
       current={3}
       panel={
         <WizardPanel
-          title="Better with your team"
-          sub="Give hosts and managers access with the right roles and quota."
-          bullets={[
-            'Roles decide who can do what',
-            'You can invite people later too',
-            'Team members get their own magic link by email',
-          ]}
+          title={c.panelTitle}
+          sub={c.panelSub}
+          bullets={[c.panelBullet1, c.panelBullet2, c.panelBullet3]}
         />
       }
-      heading="Invite your team"
-      sub="Add hosts and managers. Or skip and do it later from Team."
+      heading={c.heading}
+      sub={c.sub}
       footer={
         <div className="flex flex-col gap-[10px]">
           {error && <div className="text-[13.5px] text-[#ff9b9b]">{error}</div>}
-          {mfaBlocked ? (
-            <Btn kind="primary" full icon="arrowR" onClick={() => startTransition(finish)} disabled={pending}>
-              {pending ? 'Working…' : 'Continue to dashboard'}
-            </Btn>
-          ) : (
-            <Btn
-              kind="primary"
-              full
-              icon="arrowR"
-              onClick={send}
-              disabled={pending || validRows.length === 0}
-              className={validRows.length === 0 ? 'opacity-[0.45]' : ''}
-            >
-              {pending ? 'Working…' : 'Send invites'}
-            </Btn>
-          )}
-          <Btn kind="quiet" full onClick={skip} disabled={pending}>
-            Skip
+          <Btn
+            kind="primary"
+            full
+            icon="arrowR"
+            onClick={send}
+            disabled={pending || validRows.length === 0}
+            className={validRows.length === 0 ? 'opacity-[0.45]' : ''}
+          >
+            {pending ? c.working : c.send}
           </Btn>
+          {/* A real secondary button, not a faint "quiet" one: with no email filled
+              in, the primary above is disabled and this is the only way on. */}
+          <Btn kind="dark" full onClick={skip} disabled={pending}>
+            {c.skip}
+          </Btn>
+          <p className="m-0 text-center text-[12.5px] leading-[1.45] text-faint">
+            {c.skipHintPre}
+            <b className="font-semibold text-dim">{c.skipHintBold}</b>
+            {c.skipHintPost}
+          </p>
         </div>
       }
     >
-      {mfaBlocked && (
-        <Note icon="shield">
-          Set up two-factor first to invite team members. It&apos;s required for granting roles (AAL2).
-          You&apos;ll finish onboarding now and invite your team afterwards from
-          <b> Team</b>.
-        </Note>
-      )}
-
       <div className="flex flex-col gap-[12px]">
         {rows.map((r) => (
           <div key={r.id} className="rounded-[16px] border border-line bg-elev p-[14px]">
             <div className="mb-[10px] flex items-center justify-between">
-              <Label>Role</Label>
+              <Label>{c.roleLabel}</Label>
               {rows.length > 1 && (
                 <button
                   type="button"
                   onClick={() => removeRow(r.id)}
                   className={cn('text-[12.5px] font-semibold text-faint', press)}
                 >
-                  Remove
+                  {c.remove}
                 </button>
               )}
             </div>
@@ -166,7 +147,7 @@ export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
             </div>
             <Field
               icon="mail"
-              placeholder="name@venue.com"
+              placeholder={c.emailPlaceholder}
               value={r.email}
               onChange={(v) => update(r.id, { email: v })}
               inputMode="email"
@@ -183,7 +164,7 @@ export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
           press
         )}
       >
-        Add someone else
+        {c.addRow}
       </button>
     </WizardShell>
   );

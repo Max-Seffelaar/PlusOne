@@ -64,6 +64,8 @@ vi.mock('@/features/po/hooks', () => ({
   usePoIsDoorOrganizer: () => false,
   usePoEvents: () => ({ data: [] }),
   usePoGuestRequests: () => ({ data: [] }),
+  // P-04: the chrome reads this for the Platform nav entry.
+  usePoIsPlatformAdmin: () => false,
   usePoDoorCandidates: () => useSyncExternalStore(H.store.subscribe, H.store.getSnapshot),
 }));
 vi.mock('@/features/door/DoorProvider', () => ({ DoorProvider: ({ children }: { children: React.ReactNode }) => <>{children}</> }));

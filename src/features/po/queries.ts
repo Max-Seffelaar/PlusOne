@@ -43,7 +43,60 @@ export type PoGuestRow = Pick<
   | 'note_acknowledged_at'
   | 'created_at'
   | 'contact_id'
->;
+  | 'source'
+> &
+  GuestSourceEmbedFlat;
+
+// ── Guest provenance embeds (ADE round, item J) ──────────────────────────────
+// `guests.source` alone can't say "Added by Sanne" or "Sign-up link · Joeri", so
+// both guest reads embed the actor profile and the request link. Both embeds are
+// RLS-scoped: `request_links` is admin/finance/organizer only, so staff simply
+// get null and the label degrades to the plain "Sign-up link" / "a colleague"
+// wording — never a widened policy for a caption.
+const GUEST_SOURCE_SELECT =
+  'source, added_by_profile:user_profiles!guests_added_by_fkey(full_name), request_links(label, is_default, influencers(name))';
+
+/** The flattened provenance every guest row carries once the embeds are folded in. */
+export interface GuestSourceEmbedFlat {
+  /** Display name of who added the guest; null when RLS hides the profile. */
+  addedByName: string | null;
+  /** Label of a NON-default request link (its own label, else the influencer's
+   *  name); null for the event's default link or an unreadable link row. */
+  linkLabel: string | null;
+}
+
+type ProfileNameEmbed = { full_name: string };
+type InfluencerEmbed = { name: string };
+type RequestLinkEmbed = {
+  label: string | null;
+  is_default: boolean;
+  influencers: InfluencerEmbed | InfluencerEmbed[] | null;
+};
+/** The raw embed shape — to-one OR to-many depending on the generated client. */
+export interface GuestSourceEmbedRaw {
+  added_by_profile: ProfileNameEmbed | ProfileNameEmbed[] | null;
+  request_links: RequestLinkEmbed | RequestLinkEmbed[] | null;
+}
+
+/** Fold the two provenance embeds into flat `addedByName` / `linkLabel` fields.
+ *  Pure + exported so the mapping is unit-tested rather than inferred from a query. */
+export function flattenGuestSource<T extends GuestSourceEmbedRaw>(
+  row: T,
+): Omit<T, keyof GuestSourceEmbedRaw> & GuestSourceEmbedFlat {
+  const { added_by_profile, request_links, ...rest } = row;
+  const profile = [added_by_profile].flat().filter(Boolean)[0] as ProfileNameEmbed | undefined;
+  const link = [request_links].flat().filter(Boolean)[0] as RequestLinkEmbed | undefined;
+  const influencer = link
+    ? ([link.influencers].flat().filter(Boolean)[0] as InfluencerEmbed | undefined)
+    : undefined;
+  return {
+    ...rest,
+    addedByName: profile?.full_name ?? null,
+    // The default link IS "the sign-up link" — only a named or influencer link
+    // earns the extra "· {label}" on the row.
+    linkLabel: link && !link.is_default ? link.label ?? influencer?.name ?? null : null,
+  };
+}
 
 export type PoTierRow = Pick<
   Tables['guest_tiers']['Row'],
@@ -109,16 +162,19 @@ export async function fetchEvents(client: Client, venueId: string, sinceIso?: st
  * windowed + server-searched {@link fetchVenueGuestsWindow} for that (86ey9e8hz).
  */
 export async function fetchGuests(client: Client, eventId: string): Promise<PoVenueGuestRow[]> {
-  return fetchAllRanged<PoVenueGuestRow>((from, to) =>
+  const raw = await fetchAllRanged<PoVenueGuestRaw>((from, to) =>
     client
       .from('guests')
-      .select('id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, event_id')
+      .select(
+        `id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, event_id, ${GUEST_SOURCE_SELECT}`,
+      )
       .eq('event_id', eventId)
       .in('status', [...ON_LIST, 'refused'])
       .order('created_at', { ascending: true })
       .order('id')
       .range(from, to),
   );
+  return raw.map(flattenGuestSource);
 }
 
 /** Rows the venue-wide "all guests" list pulls at once (86ey9e8hz). The tab is a
@@ -131,7 +187,9 @@ export const VENUE_GUESTS_WINDOW = 200;
 /** The `guest_tiers(name, color)` embed comes back to-one OR to-many depending on
  *  the generated client — normalize with `[x].flat()` before reading. */
 type VenueGuestTierEmbed = { name: string; color: string | null };
-type PoVenueGuestRaw = PoVenueGuestRow & {
+/** A guest row straight off PostgREST: provenance still sits in its embeds. */
+type PoVenueGuestRaw = Omit<PoVenueGuestRow, keyof GuestSourceEmbedFlat> & GuestSourceEmbedRaw;
+type PoVenueGuestTierRaw = PoVenueGuestRaw & {
   guest_tiers: VenueGuestTierEmbed | VenueGuestTierEmbed[] | null;
 };
 
@@ -174,7 +232,7 @@ export async function fetchVenueGuestsWindow(
   let query = client
     .from('guests')
     .select(
-      'id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, event_id, guest_tiers(name, color)',
+      `id, full_name, plus_ones, status, tier_id, note, note_priority, note_acknowledged_at, created_at, contact_id, event_id, guest_tiers(name, color), ${GUEST_SOURCE_SELECT}`,
       { count: 'exact' },
     )
     .eq('venue_id', args.venueId)
@@ -192,10 +250,10 @@ export async function fetchVenueGuestsWindow(
   const { data, error, count } = await query;
   if (error) throw error;
 
-  const rows: PoVenueGuestWithTier[] = ((data ?? []) as PoVenueGuestRaw[]).map(
+  const rows: PoVenueGuestWithTier[] = ((data ?? []) as PoVenueGuestTierRaw[]).map(
     ({ guest_tiers, ...g }) => {
       const tier = [guest_tiers].flat().filter(Boolean)[0] as VenueGuestTierEmbed | undefined;
-      return { ...g, tierName: tier?.name ?? null, tierColor: tier?.color ?? null };
+      return { ...flattenGuestSource(g), tierName: tier?.name ?? null, tierColor: tier?.color ?? null };
     },
   );
   return { rows, total: count ?? rows.length };
@@ -452,6 +510,7 @@ export type PoGuestRequestRow = Pick<
   Tables['guest_requests']['Row'],
   | 'id'
   | 'full_name'
+  | 'email'
   | 'phone'
   | 'plus_ones'
   | 'motivation'
@@ -465,17 +524,27 @@ export type PoGuestRequestRow = Pick<
   /** Resolved link identity (influencer name ?? label); null for the default
    *  link, a legacy pre-links request, or an unreadable link (RLS). */
   viaLabel: string | null;
+  /** True when the request came through the event's default ("Standard")
+   *  link (z8uq9m0hw4) — so the inbox can name it instead of showing nothing.
+   *  False for a custom link, no link, or a link this viewer can't read. */
+  viaStandard: boolean;
 };
+
+interface LinkIdentity {
+  label: string | null;
+  isDefault: boolean;
+}
 
 /** Resolve request_link_id → "via" label (influencer name ?? label) in two
  *  RLS-safe round-trips (no FK-embed guessing — mirrors fetchQuotaRequests).
- *  The default link resolves to null: it has no influencer and no label. */
-async function fetchLinkLabels(client: Client, linkIds: string[]): Promise<Map<string, string | null>> {
-  const labels = new Map<string, string | null>();
+ *  The default link resolves to a null label: it has no influencer and no
+ *  label, and is flagged `isDefault` instead. */
+async function fetchLinkLabels(client: Client, linkIds: string[]): Promise<Map<string, LinkIdentity>> {
+  const labels = new Map<string, LinkIdentity>();
   if (linkIds.length === 0) return labels;
   const { data: links, error } = await client
     .from('request_links')
-    .select('id, label, influencer_id')
+    .select('id, label, influencer_id, is_default')
     .in('id', linkIds);
   if (error) throw error;
   const rows = links ?? [];
@@ -487,7 +556,10 @@ async function fetchLinkLabels(client: Client, linkIds: string[]): Promise<Map<s
   const influencers = infRes.data ?? [];
   const nameById = new Map(influencers.map((i) => [i.id, i.name]));
   for (const l of rows) {
-    labels.set(l.id, (l.influencer_id ? nameById.get(l.influencer_id) : null) ?? l.label ?? null);
+    labels.set(l.id, {
+      label: l.is_default ? null : (l.influencer_id ? nameById.get(l.influencer_id) : null) ?? l.label ?? null,
+      isDefault: l.is_default,
+    });
   }
   return labels;
 }
@@ -509,9 +581,13 @@ export async function fetchGuestRequests(
   const { data, error } = await client
     .from('guest_requests')
     .select(
-      'id, full_name, phone, plus_ones, motivation, created_at, event_id, status, decision_reason, request_link_id, decided_via'
+      'id, full_name, email, phone, plus_ones, motivation, created_at, event_id, status, decision_reason, request_link_id, decided_via'
     )
     .eq('venue_id', venueId)
+    // z8uq9m0hw6: an anonymized request (#29, past the retention window) is no
+    // longer decidable (approve_guest_request answers P0002), so it has no
+    // place in the inbox either.
+    .is('anonymized_at', null)
     .or('status.in.(pending,denied),and(status.eq.approved,decided_via.eq.auto)')
     .order('created_at', { ascending: true });
   if (error) throw error;
@@ -519,10 +595,10 @@ export async function fetchGuestRequests(
   const rows = data ?? [];
   const linkIds = [...new Set(rows.map((r) => r.request_link_id).filter((x): x is string => !!x))];
   const labels = await fetchLinkLabels(client, linkIds);
-  return rows.map((r) => ({
-    ...r,
-    viaLabel: r.request_link_id ? labels.get(r.request_link_id) ?? null : null,
-  }));
+  return rows.map((r) => {
+    const link = r.request_link_id ? labels.get(r.request_link_id) : undefined;
+    return { ...r, viaLabel: link?.label ?? null, viaStandard: link?.isDefault ?? false };
+  });
 }
 
 export interface PoQuotaRequestRow {
@@ -1223,14 +1299,29 @@ export interface ContactAppearance {
   eventId: string;
   eventName: string;
   eventStartsAt: string;
+  eventEndsAt: string | null;
+  /** The event facts `can_write_guests` reads, so the profile can offer only the
+   *  row actions the database will accept (list lock #23, auto-lock, cancel). */
+  eventListLocked: boolean;
+  eventAutoLockAt: string | null;
+  eventCancelled: boolean;
   plusOnes: number;
   status: GuestRowStatus;
+  /** guest_tiers.id, so the profile's tier picker can mark the current tier. */
+  tierId: string | null;
   tierName: string | null;
   tierColor: string | null;
+  /** guests.anonymized_at is set (AVG erasure, #29): no client write may touch it. */
+  anonymized: boolean;
   /** Per-event door note + priority (shown on the pinned event's task card). */
   note: string | null;
   notePriority: Database['public']['Enums']['note_priority'];
   addedBy: string;
+  /** Where this appearance came from (app | landing | door | permanent) + the
+   *  non-default request link behind a landing sign-up (item J). The actor NAME
+   *  comes from the profile's shared `actorNames` map, keyed by `addedBy`. */
+  source: Database['public']['Enums']['guest_source'];
+  linkLabel: string | null;
   /** guests.created_at — when they were put on this event's list. */
   addedAt: string;
   checkIns: ContactCheckIn[];
@@ -1266,7 +1357,14 @@ export interface PersonProfileData extends ContactProfileData {
 
 // The embeds come back typed as to-one OR to-many by the generated client (same as
 // fetchRecapGuests), so they stay loose here and the mapper normalizes them.
-type ProfileEmbedEvent = { name: string; starts_at: string };
+type ProfileEmbedEvent = {
+  name: string;
+  starts_at: string;
+  ends_at: string | null;
+  list_locked: boolean;
+  auto_lock_at: string | null;
+  cancelled_at: string | null;
+};
 type ProfileEmbedTier = { name: string; color: string | null };
 type ProfileEmbedCheckIn = {
   checked_at: string;
@@ -1281,10 +1379,14 @@ type ProfileAppearanceRaw = {
   event_id: string;
   plus_ones: number;
   status: GuestRowStatus;
+  tier_id: string | null;
+  anonymized_at: string | null;
   created_at: string;
   added_by: string;
   note: string | null;
   note_priority: Database['public']['Enums']['note_priority'];
+  source: Database['public']['Enums']['guest_source'];
+  request_links: RequestLinkEmbed | RequestLinkEmbed[] | null;
   events: ProfileEmbedEvent | ProfileEmbedEvent[] | null;
   guest_tiers: ProfileEmbedTier | ProfileEmbedTier[] | null;
   check_ins: ProfileEmbedCheckIn | ProfileEmbedCheckIn[] | null;
@@ -1292,7 +1394,7 @@ type ProfileAppearanceRaw = {
 };
 
 const PROFILE_APPEARANCE_SELECT =
-  'id, event_id, plus_ones, status, created_at, added_by, note, note_priority, events(name, starts_at), guest_tiers(name, color), check_ins(checked_at, checked_by, plus_ones_arrived, voided_at, voided_by), refusals(refused_at, refused_by, reason)';
+  'id, event_id, plus_ones, status, tier_id, anonymized_at, created_at, added_by, note, note_priority, source, request_links(label, is_default, influencers(name)), events(name, starts_at, ends_at, list_locked, auto_lock_at, cancelled_at), guest_tiers(name, color), check_ins(checked_at, checked_by, plus_ones_arrived, voided_at, voided_by), refusals(refused_at, refused_by, reason)';
 
 /** Normalize one embedded guest row (the embeds come back to-one OR to-many). */
 function mapAppearance(g: ProfileAppearanceRaw): ContactAppearance {
@@ -1315,13 +1417,23 @@ function mapAppearance(g: ProfileAppearanceRaw): ContactAppearance {
     eventId: g.event_id,
     eventName: ev?.name ?? '',
     eventStartsAt: ev?.starts_at ?? g.created_at,
+    eventEndsAt: ev?.ends_at ?? null,
+    eventListLocked: ev?.list_locked ?? false,
+    eventAutoLockAt: ev?.auto_lock_at ?? null,
+    eventCancelled: ev?.cancelled_at != null,
     plusOnes: g.plus_ones,
     status: g.status,
+    tierId: g.tier_id ?? null,
     tierName: tier?.name ?? null,
     tierColor: tier?.color ?? null,
+    anonymized: g.anonymized_at != null,
     note: g.note,
     notePriority: g.note_priority,
     addedBy: g.added_by,
+    source: g.source,
+    // Reuse the ONE provenance flattener; the actor name is resolved separately
+    // here (the profile already fetches every actor id in one round-trip).
+    linkLabel: flattenGuestSource({ added_by_profile: null, request_links: g.request_links }).linkLabel,
     addedAt: g.created_at,
     checkIns,
     refusals,
@@ -1358,9 +1470,15 @@ async function fetchContactAppearances(client: Client, contactId: string): Promi
   return ((data ?? []) as ProfileAppearanceRaw[]).map(mapAppearance);
 }
 
-/** A single guest row as one appearance — the name-only / guest-keyed path. */
+/** A single guest row as one appearance — the name-only / guest-keyed path.
+ *  A removed row is not an appearance (the contact path above has the same
+ *  rule): it used to render as "On the way" on a list it had dropped off. */
 async function fetchGuestAppearance(client: Client, guestId: string): Promise<ContactAppearance[]> {
-  const { data, error } = await client.from('guests').select(PROFILE_APPEARANCE_SELECT).eq('id', guestId);
+  const { data, error } = await client
+    .from('guests')
+    .select(PROFILE_APPEARANCE_SELECT)
+    .eq('id', guestId)
+    .neq('status', 'removed');
   if (error) throw error;
   return ((data ?? []) as ProfileAppearanceRaw[]).map(mapAppearance);
 }
@@ -1682,6 +1800,7 @@ export type PoVenueSettingsRow = Pick<
   | 'postal_code'
   | 'city'
   | 'country'
+  | 'website'
 >;
 
 /** Venue settings (RLS venues_select: any member reads; only admin may update). */
@@ -1692,7 +1811,7 @@ export async function fetchVenueSettings(
   const { data, error } = await client
     .from('venues')
     .select(
-      'id, name, slug, retention_months, default_personal_quota, allow_uncheck, company_name, kvk_number, vat_number, finance_email, address_line, postal_code, city, country'
+      'id, name, slug, retention_months, default_personal_quota, allow_uncheck, company_name, kvk_number, vat_number, finance_email, address_line, postal_code, city, country, website'
     )
     .eq('id', venueId)
     .maybeSingle();
@@ -1728,10 +1847,13 @@ export async function fetchSubscription(
 // Client-agnostic mirror of the SERVER-only src/features/audit/queries.ts so the
 // mobile po surface can read the same audit_feed over the BROWSER client (same
 // pattern as fetchPoGuests lifting the desktop guests select). RLS
-// (audit_log_select_aal2: admin/finance + AAL2, inherited by the view) is the
-// boundary — an AAL1 or unauthorised caller simply gets [], and the screen then
-// shows its MFA / permission state. The Dutch sentence composition is SHARED
-// (describeAuditEntry, translate.ts), so desktop and mobile read identically.
+// (audit_log_select_admin: admin/finance, role-only — the AAL2 requirement
+// this policy carried was dropped in 20260624160000_mfa_scope_sensitive_actions,
+// matching CLAUDE.md's "no AAL2 requirement in RLS anywhere"; the name here is
+// stale, not the behaviour) is the boundary — an unauthorised caller simply
+// gets [], and the screen then shows its permission state. The Dutch sentence
+// composition is SHARED (describeAuditEntry, translate.ts), so desktop and
+// mobile read identically.
 
 export interface PoAuditFilters {
   venueId: string;
@@ -2158,4 +2280,189 @@ export async function fetchVenueLabelFunnel(
     approvedHeads: r.approved_heads,
     checkedInHeads: r.checked_in_heads,
   }));
+}
+
+// ── Platform (system) admin surface — open-beta invites (P-04, z8uq9m0tnw) ───
+// Reads for the Platform tab. All three go through the user-scoped BROWSER
+// client, so RLS / the functions' own `is_platform_admin()` check is the
+// boundary: a non-platform-admin gets an empty list or a 42501, never data.
+
+/**
+ * One row of `platform_invite_overview()`.
+ *
+ * The generator types every `RETURNS TABLE` column as non-null; in reality the
+ * columns below are nullable at runtime (PR #325, "For P-04"), so the row type
+ * is narrowed here rather than trusting `Database['public']['Functions']`.
+ */
+export interface PlatformInviteRow {
+  id: string;
+  email: string;
+  note: string | null;
+  created_at: string;
+  last_sent_at: string;
+  revoked_at: string | null;
+  invited_by_name: string | null;
+  user_id: string | null;
+  confirmed_at: string | null;
+  last_sign_in_at: string | null;
+  venue_count: number;
+  event_count: number;
+  stage: string;
+}
+
+/** Server-windowed (the RPC caps `p_limit` itself — default 100, max 500). */
+export async function fetchPlatformInvites(
+  client: Client,
+  limit = 100,
+  offset = 0
+): Promise<PlatformInviteRow[]> {
+  const { data, error } = await client.rpc('platform_invite_overview', {
+    p_limit: limit,
+    p_offset: offset,
+  });
+  if (error) throw error;
+  return (data ?? []) as unknown as PlatformInviteRow[];
+}
+
+export interface PlatformFunnelRow {
+  stage: string;
+  invite_count: number;
+}
+
+/** Aggregated in SQL over EVERY invite — never a client-side count of the page. */
+export async function fetchPlatformFunnel(client: Client): Promise<PlatformFunnelRow[]> {
+  const { data, error } = await client.rpc('platform_invite_funnel');
+  if (error) throw error;
+  return (data ?? []) as PlatformFunnelRow[];
+}
+
+/** Whether the signed-in user is a PlusOne platform admin. Reads the caller's
+ *  OWN `user_profiles` row (readable under RLS) rather than the SECURITY
+ *  DEFINER RPC, so it stays one cheap, cacheable select. It gates UI only —
+ *  RLS decides what the Platform screen can actually read. */
+export async function fetchIsPlatformAdmin(client: Client, userId: string): Promise<boolean> {
+  const { data, error } = await client
+    .from('user_profiles')
+    .select('is_platform_admin')
+    .eq('id', userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.is_platform_admin === true;
+}
+
+// ── Platform (system) admin surface — venue overview + audit viewer (P-05,
+// z8uq9m0tnx). Same shape as the invites reads above: SECURITY DEFINER RPCs
+// that check `is_platform_admin()` themselves, called over the BROWSER client,
+// windowed server-side (never an unbounded `.in()`, never a client-side count).
+
+export interface PlatformVenueRow {
+  venue_id: string;
+  name: string;
+  slug: string;
+  member_count: number;
+  event_count: number;
+  subscription_status: string | null;
+  last_activity_at: string | null;
+}
+
+export interface PlatformVenueParams {
+  limit?: number;
+  offset?: number;
+  search?: string;
+}
+
+/** Server-windowed venue overview (the RPC caps `p_limit` — default 50, max 200). */
+export async function fetchPlatformVenueOverview(
+  client: Client,
+  params: PlatformVenueParams = {}
+): Promise<PlatformVenueRow[]> {
+  const { data, error } = await client.rpc('platform_venue_overview', {
+    p_limit: params.limit ?? 50,
+    p_offset: params.offset ?? 0,
+    p_search: params.search?.trim() || undefined,
+  });
+  if (error) throw error;
+  return (data ?? []) as unknown as PlatformVenueRow[];
+}
+
+/** Total venue count matching the same search filter — for "X of Y", never by
+ *  pulling every row client-side. */
+export async function fetchPlatformVenueOverviewCount(
+  client: Client,
+  search?: string
+): Promise<number> {
+  const { data, error } = await client.rpc('platform_venue_overview_count', {
+    p_search: search?.trim() || undefined,
+  });
+  if (error) throw error;
+  return data ?? 0;
+}
+
+export interface PlatformVenueOption {
+  venue_id: string;
+  name: string;
+}
+
+/** Every venue's id + name (capped 500 server-side) for the audit filter's
+ *  venue picker. */
+export async function fetchPlatformVenueOptions(client: Client): Promise<PlatformVenueOption[]> {
+  const { data, error } = await client.rpc('platform_venue_options');
+  if (error) throw error;
+  return (data ?? []) as unknown as PlatformVenueOption[];
+}
+
+export interface PlatformAuditRow {
+  id: string;
+  created_at: string;
+  actor_id: string | null;
+  actor_name: string | null;
+  venue_id: string | null;
+  venue_name: string | null;
+  event_id: string | null;
+  entity_type: string;
+  entity_id: string | null;
+  action: string;
+  diff: unknown;
+  device_id: string | null;
+  is_support_action: boolean;
+}
+
+export interface PlatformAuditParams {
+  venueId?: string;
+  since?: string;
+  until?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/** Server-windowed, filterable audit feed across EVERY venue (the RPC caps
+ *  `p_limit` — default 100, max 200). `is_support_action` is computed in SQL
+ *  (actor holds no CURRENT membership at the audited venue), never client-side. */
+export async function fetchPlatformAuditOverview(
+  client: Client,
+  params: PlatformAuditParams = {}
+): Promise<PlatformAuditRow[]> {
+  const { data, error } = await client.rpc('platform_audit_overview', {
+    p_venue_id: params.venueId ?? undefined,
+    p_since: params.since ?? undefined,
+    p_until: params.until ?? undefined,
+    p_limit: params.limit ?? 100,
+    p_offset: params.offset ?? 0,
+  });
+  if (error) throw error;
+  return (data ?? []) as unknown as PlatformAuditRow[];
+}
+
+/** Total audit row count matching the same filters — for "X of Y". */
+export async function fetchPlatformAuditOverviewCount(
+  client: Client,
+  params: Omit<PlatformAuditParams, 'limit' | 'offset'> = {}
+): Promise<number> {
+  const { data, error } = await client.rpc('platform_audit_overview_count', {
+    p_venue_id: params.venueId ?? undefined,
+    p_since: params.since ?? undefined,
+    p_until: params.until ?? undefined,
+  });
+  if (error) throw error;
+  return data ?? 0;
 }

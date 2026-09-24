@@ -15,7 +15,15 @@ import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
 import type { PoEvent } from '@/lib/po/types';
 import type { PoFunnel, PoLinkFunnelRow } from '@/features/po/queries';
-import { usePoEvents, usePoLinkFunnel, usePoPromoLabelFunnel, usePoPromoLeaderboard, usePoVenueLinks, type PromoRange } from '@/features/po/hooks';
+import {
+  usePoCanCreateLink,
+  usePoEvents,
+  usePoLinkFunnel,
+  usePoPromoLabelFunnel,
+  usePoPromoLeaderboard,
+  usePoVenueLinks,
+  type PromoRange,
+} from '@/features/po/hooks';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
 import { Avatar, Empty, pressDesktop } from '../../kit';
@@ -379,6 +387,8 @@ export function PromotionOverview(): JSX.Element {
   const pickerEvents = eventsWithLinks.length > 0 ? eventsWithLinks : events.filter((e) => e.when === 'upcoming');
   const fallback = soonestUpcoming(eventsWithLinks) ?? eventsWithLinks[0] ?? soonestUpcoming(events) ?? events[0] ?? null;
   const selected = events.find((e) => e.id === pickedEventId) ?? fallback;
+  // Same create gate as the hub header (z8uq9m0hw4): finance reads, can't create.
+  const { canCreate, isAdmin } = usePoCanCreateLink(selected?.id ?? '');
 
   const funnelQ = usePoLinkFunnel(selected?.id ?? '');
   const boardQ = usePoPromoLeaderboard(range);
@@ -401,7 +411,7 @@ export function PromotionOverview(): JSX.Element {
     content = <Empty text={t.promo.noEvents} />;
   } else if (noLinksAtAll) {
     // No request links anywhere yet — the whole overview collapses to the CTA.
-    content = <EmptyState onCreate={selected ? () => setCreating(true) : undefined} />;
+    content = <EmptyState onCreate={selected && canCreate ? () => setCreating(true) : undefined} />;
   } else if (anyError) {
     content = <Empty text={t.promo.loadError} />;
   } else {
@@ -472,8 +482,13 @@ export function PromotionOverview(): JSX.Element {
   return (
     <div className="flex flex-col gap-[30px]">
       {content}
-      {creating && selected && (
-        <CreateLinkFlow eventId={selected.id} eventName={selected.name} events={events} onClose={() => setCreating(false)} />
+      {creating && selected && canCreate && (
+        <CreateLinkFlow
+          eventId={selected.id}
+          eventName={selected.name}
+          events={isAdmin ? events : undefined}
+          onClose={() => setCreating(false)}
+        />
       )}
     </div>
   );

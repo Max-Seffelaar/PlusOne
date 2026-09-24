@@ -98,7 +98,7 @@ These bypass RLS by design, so each **re-checks authorisation itself** and pins
 
 | RPC | Re-check inside | Notes |
 |---|---|---|
-| `submit_guest_request` (anon) | event must be `landing_active` & not closed | per-IP rate limit + silent dedup + no enumeration (§4A) |
+| `submit_guest_request` (anon) | event must be `landing_active` & not closed | per-IP rate limit + silent dedup + no slug enumeration; `auto_approved` no longer leaks e-mail existence below capacity but still does at capacity, and the silent-dedup path accepts a caller-chosen status token — three open residuals (§4A) |
 | `approve_guest_request` | `admin` (venue) **or** organizer (event) | atomic guest+request; tier-max still enforced; `added_by` = approver (exempt) |
 | `approve_quota_request` | `admin` **and** `is_aal2()` | atomic override + request; AAL2 re-checked |
 | `sync_permanent_guests_into_event` | `admin`/organizer **and** `can_write_guests` | idempotent; respects list-lock + exclusions |
@@ -117,7 +117,7 @@ that needs them. ✅
 ## 4. RLS policies & the role matrix (the boundary)
 
 The role matrix (spec §2) is enforced in `20260613120000_rls_policies.sql` and proven by
-`rls.test.sql` (74 assertions) + the attacker suite. Highlights audited:
+`rls.test.sql` (75 assertions) + the attacker suite. Highlights audited:
 
 - **guests** — read: admin/finance/doorhost venue-wide, organizer own-event, staff own
   rows only; write: `can_write_guests()` (#23 closed→admin, locked→admin/organizer/
@@ -136,12 +136,172 @@ The role matrix (spec §2) is enforced in `20260613120000_rls_policies.sql` and 
 ### 4A. The one anon surface — landing requests (#12/#28)
 
 `submit_guest_request` (SECURITY DEFINER, granted to `anon`):
-- **Rate limit** — fixed window **10 requests / 10 min per IP-hash** (`landing_request_throttle`).
-- **No enumeration** — unknown slug and deactivated event return the **same** `'closed'`.
+- **Rate limit** — fixed window **5 requests / 15 min per IP-hash**
+  (`landing_request_throttle`; tightened from 10/10 in `20260625100000`). The bucket key
+  is the `p_ip_hash` **argument**, so it bounds a browser and accidental hammering — a
+  direct PostgREST caller picks its own bucket and is not meaningfully throttled.
+- **No slug/link enumeration** — unknown, paused, expired and deactivated links all
+  return the **same** `'closed'`; which links exist, and how they are configured, never
+  reaches the caller.
+- **No e-mail enumeration on the auto-approve path, _below capacity_** — `auto_approved`
+  reports the requester's *standing* ("you hold an approved spot"), so a fresh address, an
+  already-approved one, and a repeat probe of either all answer alike. Before
+  `20260918100000` (z8uq9m0gvy) `false` meant precisely "this e-mail is already
+  approved on this event" — a clean yes/no oracle for whether a named person is
+  attending. Proven by `landing.test.sql` E1–E9. **At capacity the oracle is open
+  again, in the opposite direction** — see the residuals below; do not read this
+  bullet as an unconditional close.
 - **Silent dedup** — duplicate pending request swallowed; caller can't tell new from dup.
+  Since `20260918140000` the status token a deduped caller gets back addresses **their own
+  submission** (a `guest_request_status_mirrors` row), never the request it deduped against —
+  see the residual list for the hijack that closed and the one that remains.
 - **No raw PII** — the IP is SHA-256-hashed in the app before it reaches the DB.
 - Raw RLS underneath: anon may only insert a **pending** request to an **active** event,
   and has no SELECT on `guest_requests` (can't read who applied).
+
+**Known residuals** (the first two are auto-approve links only; the status-token entry
+that follows them is not, and is now a FIXED entry kept for its own residual). Read this
+honestly: `20260918100000`
+closed the oracle in the below-capacity regime and **opened one in the at-capacity
+regime**, where none existed before. It is a swap of which regime leaks, not a pure
+reduction. It is still worth having — below capacity is the regime an event spends most
+of its life in, and the leak there was unconditional — but the endpoint is **not** free
+of e-mail enumeration:
+- An e-mail whose request on the event is still **undecided** answers `false` where a
+  stranger gets `true`, because that submission genuinely stays pending. Reachable when
+  the person applied through a manual-review link. Closing it means auto-deciding a
+  request that arrived through a *different* link, which is a workflow change rather
+  than a reporting one — left for an explicit decision.
+- On a link **at capacity**, an already-approved e-mail answers `true` where a stranger
+  gets `false`. **Introduced by `20260918100000`**, not inherited: before it the
+  `v_already` arm did not exist, so an already-approved e-mail fell through to `false`
+  and matched the stranger whose insert the capacity triggers had just rejected.
+  - The rationale previously recorded here — that `guests_event_contact_uidx` rejects the
+    duplicate row at index time — is **false** and has been removed.
+    `guests_autolink_contact` is BEFORE INSERT and leaves `contact_id` NULL on this path,
+    and the index is partial (`where contact_id is not null`), so a probe insert for an
+    already-approved e-mail reaches the capacity triggers and raises `45006` like any
+    other. Verified live in the PR #296 review.
+  - The real reason it is open is that the `v_already` arm skips the capacity verdict the
+    stranger gets. Closing it does **not** require duplicating the three capacity rules:
+    attempting the same insert in a subtransaction that is always rolled back reuses the
+    triggers as the single source of truth. That is a real change to a SECURITY DEFINER
+    function on the anon surface and is tracked as its own task.
+  - **Not mitigated by one-sidedness.** An attacker establishes the regime for free with
+    two throwaway addresses — two `true`s means below capacity, two `false`s means at
+    capacity — after which any `true` is a definitive "this person holds an approved
+    spot". A `true` is only ambiguous to an attacker who declines to spend two probes.
+
+- ~~**The silent-dedup path accepts a caller-chosen `p_status_token_hash`**~~ (HIGH,
+  pre-existing) — **FIXED by `20260918140000` (z8uq9m0h2v)**. Until then, a submission
+  that deduped against an existing **pending** request rotated that row's status token to
+  the hash the *caller* supplied, so an anon caller who guessed a victim's e-mail could
+  point a token they chose at the victim's row, read the victim's real name and plus-ones
+  out of `get_request_status`, and invalidate the victim's own status URL — an existence
+  oracle, a PII disclosure and a denial of service from one unauthenticated call.
+  Reproduced end-to-end over PostgREST with the anon key before the fix, and again after
+  it to confirm the close.
+
+  **What holds now.** The dedup branch never writes to the existing row. The caller's
+  token hash is stored in `guest_request_status_mirrors` (`request_id` PK, `token_hash`
+  unique, plus the `full_name`/`plus_ones` *that caller* submitted), and
+  `get_request_status` resolves `guest_requests.status_token_hash` first and the mirror
+  second — answering a mirror with the **mirror's own** identity and the request's live
+  status. So the victim keeps their URL and their row, the prober reads back only what
+  they themselves sent, and a deduped submission returns a **byte-identical** payload to
+  a fresh one at submit time and on every read before a staff decision (asserted as a
+  jsonb equality in `landing.test.sql` F11b). The table has RLS on, **no policies and no
+  grants** to `anon`/`authenticated` — the two SECURITY DEFINER RPCs are its only
+  readers and writers — and it is bounded to one row per pending request, so a prober
+  cannot grow it. `run_privacy_retention` deletes mirrors alongside the request
+  anonymization they belong to (#29).
+
+  **Why not the two obvious fixes.** "Ignore the caller's hash on dedup" and "accept it
+  only when `status_token_hash is null`" both close the disclosure and hand back a clean
+  one-call enumeration oracle — my token resolves ⇒ fresh address, my token does not ⇒
+  taken address — which is a *newer* and *better* oracle than the ones above, and on
+  manual-review links (where `auto_approved` is constant `false`) it would be the only
+  one. It is not blunted by anything else on the anon surface either: `anon` holds no
+  INSERT on `guest_requests` since `20260707170000`, so the partial dedupe index is not
+  reachable as a 409-vs-201 probe without a session (verified in the catalog).
+
+  **Residual, stated rather than claimed away.** A mirror reports the deduped-against
+  request's **live status**. Before a staff decision that is `pending` either way, so the
+  probe itself learns nothing. *After* a decision the two can come apart: a mirror shows
+  the verdict staff gave the victim's request, a fresh submission the verdict they gave
+  the prober's own. An attacker who submits obvious junk and polls after the event can
+  read an `approved` as evidence that the address belongs to someone who was let in.
+  Delayed, dependent on a staff action the attacker cannot trigger, probabilistic, and it
+  yields no name, no plus-ones and no denial of service — where the bug it replaces was
+  instant, certain and gave all three. Freezing a mirror at `pending` was weighed and
+  rejected: it installs the mirror image of the same signal ("still pending long after
+  the event") *and* breaks the legitimate re-submitter, whose second URL would then never
+  show their approval.
+
+  **Sharpened by `20260919090000` (z8uq9m0hw6, decision #48), accepted.** Since partial
+  approval, an approved request's own token also carries the confirmed plus-ones count
+  and the venue address, and a mirror carries neither: the count and the venue message
+  were decided for the original submitter, and the address goes only to people the
+  venue said yes to (review L1, the safe default; Max can loosen it). So *after an
+  approval* a mirror is recognisable as one, and the evidence above goes from probable
+  to certain. Still delayed, still gated on a staff decision the prober cannot trigger,
+  still no name, count, message or address of the other person. Before a decision
+  nothing changed: fresh and mirrored payloads stay identical apart from each caller's
+  own name and count (pinned by `partial_approval.test.sql` F10/F13/F14).
+
+  **Second review round (fresh session, `REQUEST CHANGES`) — two defects, both fixed in
+  `20260918160000`, not carried as residuals.** The reviewer rebuilt the stack from scratch,
+  reproduced 59/1202 and 144/1493 exactly, got 14 assertions red on reverting the function
+  body, and could not break the mirror on any of the six attack questions. What it found:
+
+  - **F-1, a regression introduced by `20260918140000`.** `p_status_token_hash` is
+    anon-controlled unbounded `text` landing in a unique btree index on both paths; past the
+    ~2704-byte index-row ceiling postgres raises `54000`, and once the mirror existed the two
+    paths named **different indexes** in the message (`guest_request_status_mirrors_token_idx`
+    vs `guest_requests_status_token_idx`). PostgREST forwards `message`/`detail` verbatim in
+    its 500 body, so that was a one-call e-mail-existence oracle — the exact class the mirror
+    design was chosen to avoid. Pre-`20260918140000` both paths hit the same index, so it was
+    a regression, not an inheritance. **Fixed** by capping the argument at 128 chars with the
+    other argument-only guards above the throttle — the same rule `86eyke279` already applies
+    to `v_email` in this function, for this same ceiling. Both paths now answer
+    `{"status":"invalid"}`, verified over anon PostgREST. Note the reproduction needs
+    **incompressible** input: `repeat('A', 5000)` never reaches the ceiling because pglz
+    compresses it inside the index tuple, so a length test built on a repeated character
+    passes vacuously; `landing.test.sql` G0–G4 use random hex and G3 asserts the two answers
+    are identical.
+  - **F-2, an AVG retention gap.** Step 2b deleted only the mirrors of requests *that run*
+    had anonymized. But retention clears neither `status` nor `dedupe_key`, so an anonymized
+    request stays `pending` with its fingerprint, keeps catching later submissions on the
+    dedup branch, and those wrote a mirror carrying **the new caller's real name** onto a row
+    no later sweep would revisit. Reproduced: retention run #2 reported `0 0 0 0` and the name
+    survived indefinitely. Preconditions are ordinary — an event past `retention_months` whose
+    landing link was never switched off, and `request_link_open()` has **no date check at
+    all**. Not a disclosure (`get_request_status` refuses an anonymized request) but a
+    permanent PII residue. **Fixed on both halves:** the sweep now drives off `anonymized_at`
+    rather than the run's id list (self-healing, cleans orphans already written), and the
+    dedup branch refuses to mirror onto an anonymized request. Pinned by G10 and G13, which
+    go red independently when either half is reverted.
+
+  **Still open — F-4, pre-existing, not introduced by either migration.** Past the retention
+  window, on an event whose link is still open, the dedup path *is* oracle (a): a taken
+  (anonymized) address answers `{"found": false}` where a fresh one answers `{"found": true}`.
+  The reviewer confirmed the identical split before the fix, and F-2's write-side half does
+  not change it — that token answered `{"found": false}` before and after, verified live. The
+  structural close is to make `request_link_open()` treat a link as shut once its event is
+  past the venue's retention window, which would take F-2's precondition and F-4 together;
+  that is a behaviour change to the public landing surface and belongs in its own task.
+
+  **Not changed by the fix, in either capacity regime.** On an *auto-approve* link the
+  `status` a token resolves to has always separated "this e-mail already has an undecided
+  pending request" (`pending`) from a stranger (`approved` below capacity), because the
+  dedup path never auto-approves. That is the first residual listed above, visible in the
+  very same response through `auto_approved`, and the pre-fix code leaked it identically
+  (it pointed the rotated token at the same pending row). At capacity nothing separates
+  them on this channel at all: every request row stays `pending`, fresh and mirrored
+  alike. Verified against the live stack in both regimes.
+
+Lock state is **not** a residual: every branch hangs off one `not v_locked` gate, so a
+locked list answers `false` to every e-mail alike (proven by E8/E9).
 
 ---
 
@@ -250,6 +410,86 @@ unaffected. The Zod `guestSource` enum is narrowed to `('app','door')` as defens
 forge as a shortcut to test #31/#11 were re-pointed to the function level
 (`quota.test.sql` 3.1/3.2, `permanent.test.sql` B2) — see §9.
 
+### F-2 — [MEDIUM, FIXED] Direct approve of a landing request without a guest (L5)
+**Where:** `guest_requests` UPDATE (RLS policy `guest_requests_decide` + the table grant).
+**Found by:** the fresh-session review of PR #308 (18-9-2026), pre-existing.
+**Attack:** an admin/organizer PATCHes `/rest/v1/guest_requests` with
+`status='approved'`. The policy pinned the old row (`pending`), the actor and the role,
+but not the new status, so it succeeded (UPDATE 1) with no guest created: none of the
+caps (`45002`/`45005`/`45006`) ran, and `/r/[token]` told the requester they were on a
+list they were not on. The table-wide UPDATE grant also let the deny path rewrite any
+other column (`event_id`, `full_name`/`email`/`phone`, `status_token_hash`,
+`decided_via`, `request_link_id`, `anonymized_at`). Reproduced on the local stack.
+
+**Fix** (`20260919150000_guest_requests_decide_deny_only.sql`): the policy's `WITH CHECK`
+now requires `status = 'denied'` and its `USING` adds `anonymized_at is null` (a deny may
+no longer write a fresh reason onto a retention-scrubbed row, matching
+`approve_guest_request`'s P0002), so the only client transition is `pending → denied`,
+and `authenticated` holds UPDATE on exactly `status`, `decided_by`, `decided_at`,
+`decision_reason` (what `denyGuestRequest` writes). Approval, including re-approval of a
+denied request, is `approve_guest_request` only. The SECURITY DEFINER paths (approve,
+auto-approve in `submit_guest_request`, retention) run as the owner and are unaffected.
+
+**Proof:** `guest_requests_decide.test.sql` (grant set is catalog-checked; admin/organizer
+direct approve, upsert-approve and extra-column denies are `42501`; staff, doorhost,
+user_manager and anon change nothing; the RPC, auto-approve and retention still work).
+`rls.test.sql` N3 asserted the direct approve as allowed and was re-pointed.
+
+### F-3 — [MEDIUM, FIXED] `authenticated` held table-wide INSERT on `guest_requests`
+**Where:** the `guest_requests` INSERT grant + `guest_requests_insert_public`.
+**Found by:** the fresh-session security review of PR #310 (19-9-2026), pre-existing.
+**Reproduced as staff** (a role with no decide rights and no SELECT on the table), for any
+landing-active event of their own venue, since the policy pins only `status='pending'`:
+- **Silent suppression.** Insert a row with `anonymized_at = now()` and the victim's
+  e-mail as `dedupe_key`. It is hidden from the inbox (which filters
+  `anonymized_at is null`) but still holds the dedup slot, so the real submission through
+  `submit_guest_request` answers `{"status":"ok"}`, is dropped, and that person's status
+  page answers `{"found": false}`. The venue never sees the request.
+- **E-mail oracle.** `insert … on conflict do nothing` returns 0 rows when a pending
+  request for that e-mail exists on the event and 1 when not (a plain insert raises
+  `23505`), leaking "did this person apply" to a role that cannot read the table.
+- **Validation/throttle bypass.** `email='x'`, `phone=null`, `plus_ones=99`, 500 rows in
+  one statement — none of the RPC's throttle, honeypot or format checks apply.
+Not possible: cross-venue insert (`42501`), forging `venue_id` (trigger overwrites),
+attributing to a request link (`request_links` RLS).
+
+**Why it stayed open at the time:** kept out of PR #310 on the reviewer's advice so the
+L5 fix could reach prod unchanged. It needed its own migration + ClickUp task.
+
+**Fix** (`20260924100000_guest_requests_revoke_client_insert.sql`): `revoke insert on
+table public.guest_requests from authenticated`, and `guest_requests_insert_public`
+**dropped** rather than narrowed. With the grant gone, the policy's two roles
+(`anon` since C2, `authenticated` now) both lack INSERT, so any predicate left in it is
+decoration — and dropping it is not weaker than a permissive `with check (false)`: RLS
+with **zero** applicable INSERT policies already denies every client insert, so the
+absence *is* the guard, fail-closed if the grant ever returns via a blanket
+`grant all …` or a stock Supabase default ACL (the mechanism behind `20260917100000`). A
+*restrictive* false policy would differ but would also block any future legitimate insert
+policy. The intent moved to `comment on table public.guest_requests`. Verified no other
+dependant: it was the table's only `FOR INSERT` policy (`pg_policy.polcmd = 'a'`) and no
+view, function or trigger referenced it.
+
+Creation is now `submit_guest_request` (SECURITY DEFINER, owner) and nothing else; the
+table is not FORCE ROW LEVEL SECURITY, so that RPC, the seed/pgTAP fixtures (superuser)
+and `service_role` (BYPASSRLS, `scripts/perf/scale-audit.mjs`) are untouched. `src/` never
+inserted — its three call sites are two SELECTs and the deny UPDATE.
+
+Grant matrix after the fix — `anon`: nothing · `authenticated`: table SELECT + UPDATE on
+`status, decided_by, decided_at, decision_reason` only (`20260919150000`) · `service_role`
+and the owner: unchanged.
+
+**Proof:** `guest_requests_insert_revoke.test.sql` (29 assertions — grant/policy layer,
+including "no `FOR INSERT` policy exists"; the squat, the oracle in both its `on conflict
+do nothing` and `23505` forms, and the 500-row batch refused `42501` for staff, admin,
+organizer, doorhost and anon; the suppressed applicant's request now stored with their
+status page answering `{"found": true}`; and the legit paths — anon submit incl. silent
+dedup, auto-approve, `approve_guest_request`, the client deny, retention, the seed's
+privilege level and `service_role`). `grant_matrix.test.sql` gained the catalog-driven
+"no app role holds INSERT on `guest_requests`" pair (table + column level).
+`venue_id_rls_integrity.test.sql` S1d now asserts `42501` and re-points the `venue_id`
+trigger half to the owner path; `guest_requests_decide.test.sql` A3 and
+`venue_scope_denormalization.test.sql` 2d were re-pointed for the same reason.
+
 ### Observations (low / accepted)
 - **O-1** `removeGuest` uses a UUID regex, not Zod. Low (RLS is the gate).
 - **O-2** `revokeInviteAction`/`revokeOwnSessionAction` lean on RLS/RPC for the session
@@ -274,7 +514,7 @@ NEW files (no existing test edited except the two #31/#11 re-points in §9):
 | `attacker_list_lock.test.sql` | locked list: staff can't add/edit/**self-unlock**/forge-`added_by`; lock stays; doorhost+admin keep writing (#23) |
 | `attacker_audit_aal2.test.sql` | audit log un-forgeable/un-editable/un-deletable even for admin+AAL2; AAL1 admin refused quota grant, role grant, organizer assign; AAL2 anchor works |
 | `attacker_delete_outbox.test.sql` | hard-delete of guests/check_ins/refusals refused (`42501`) even for admin; soft-delete keeps the row; outbox replay can't double-check-in (`23505`); no-op replay writes no audit |
-| `attacker_landing_spam.test.sql` | per-IP rate limit (11th `rate_limited`); unknown == deactivated == `'closed'` (no enumeration); anon can't self-approve or read requests |
+| `attacker_landing_spam.test.sql` | per-IP rate limit (6th `rate_limited`); unknown == deactivated == `'closed'` (no slug enumeration); anon can't self-approve or read requests |
 
 **Result:** `supabase test db` → **Files=28, Tests=583, `Result: PASS`** (with the fix
 applied). Each file is self-contained (own `pg_temp` login helpers) and rolls back.

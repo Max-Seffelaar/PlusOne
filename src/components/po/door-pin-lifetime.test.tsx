@@ -89,6 +89,8 @@ vi.mock('@/features/po/hooks', () => ({
   }),
   usePoEvents: () => ({ data: [] }),
   usePoGuestRequests: () => ({ data: [] }),
+  // P-04: the chrome reads this for the Platform nav entry.
+  usePoIsPlatformAdmin: () => false,
   usePoCanManageTemplates: () => false,
   usePoIsDoorOrganizer: () => false,
 }));
@@ -309,7 +311,7 @@ describe('the door pin outlives neither its release nor a back gesture (86eykm7q
     }
   });
 
-  it('does not release a requested id before its one stale-list retry has settled', async () => {
+  it('does not release a requested id before its one stale-list retry has settled, and retries again when the id goes absent a second time', async () => {
     // An explicit "Check-in" pick for an event a colleague created seconds ago:
     // the local candidate list is merely stale, and the retry is about to bring
     // the event back. Releasing on the issuing render would strand the host on
@@ -339,6 +341,24 @@ describe('the door pin outlives neither its release nor a back gesture (86eykm7q
     expect(window.location.search).toContain(`event=${EVENT_A}`);
     expect(view.queryByTestId('door-provider')).not.toBeNull();
     expect(H.openChannels).toEqual([`door:${EVENT_A}`]);
+
+    // ── Third phase (86ey9uc87): the id goes absent AGAIN. ──────────────────
+    // The retry marker used to be reset for free by the shell's
+    // per-navigation remount. Since the shell mounts once per page load it
+    // has to be released explicitly when the id turns out to be present, or
+    // it keeps the first episode's id for the whole tab session — and this
+    // second absence is then treated as "retry already spent" and rejected
+    // against a list that was never refetched. One retry per rejection
+    // EPISODE, not one per tab session.
+    await act(async () => {
+      H.candidates = [{ id: EVENT_B, name: 'Zaterdag' }];
+      view.rerender(tree());
+    });
+
+    expect(H.refetchCalls, 'the second absence issued no refetch — the spent retry was never released').toBe(2);
+    // …and, exactly as in phase one, the pin is not dropped on the issuing
+    // render: without the release this id would already have been rejected.
+    expect(window.location.search).toContain(`event=${EVENT_A}`);
     view.unmount();
   });
 });

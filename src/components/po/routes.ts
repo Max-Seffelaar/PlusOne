@@ -43,9 +43,16 @@ function withEventQuery(base: string, eventId: string | undefined): string {
   return `${base}?${new URLSearchParams({ event: eventId }).toString()}`;
 }
 
+/** Same shape as `withEventQuery`, for the platform audit viewer's venue
+ *  pre-scope (P-05). */
+function withVenueQuery(base: string, venueId: string | undefined): string {
+  if (!venueId) return base;
+  return `${base}?${new URLSearchParams({ venue: venueId }).toString()}`;
+}
+
 /** Build the URL (path + optional query) for a pushed/replaced screen. */
 export function screenPath(name: ScreenName, props: ScreenProps = {}): string {
-  const { id, eventId, isNew, tab } = props;
+  const { id, eventId, isNew, tab, setup } = props;
   switch (name) {
     case 'event':
       return `/app/events/${id}`;
@@ -54,7 +61,10 @@ export function screenPath(name: ScreenName, props: ScreenProps = {}): string {
     case 'lijst':
       return `/app/events/${id}/guests`;
     case 'tiers':
-      return `/app/events/${id}/tiers`;
+      // `?setup=1` = the guided step after creating an event (z8uq9m0hw3). A
+      // query flag, not a path segment: it is the same screen, and a refresh
+      // keeps the guide.
+      return setup ? `/app/events/${id}/tiers?setup=1` : `/app/events/${id}/tiers`;
     case 'crew':
       return `/app/events/${id}/crew`;
     case 'links':
@@ -108,6 +118,15 @@ export function screenPath(name: ScreenName, props: ScreenProps = {}): string {
       return '/app/templates';
     case 'templateedit':
       return isNew ? '/app/templates/new' : `/app/templates/${id}`;
+    case 'platform':
+      return '/app/platform';
+    case 'platformvenues':
+      return '/app/platform/venues';
+    case 'platformaudit':
+      // `id` pre-scopes the venue filter (e.g. arriving from a venue overview
+      // row's "View audit"); the filter sheet still lets the user widen back
+      // to "All venues".
+      return withVenueQuery('/app/platform/audit', id);
     // Promotion hub (G3): 'overview' is the URL-less default tab — an explicit
     // {tab:'overview'} builds the same URL as {} (mirrors aanvragen's 'landing').
     case 'promotion':
@@ -169,7 +188,11 @@ export function parseAppUrl(pathname: string, search: URLSearchParams): ParsedTa
       case 'guests':
         return { kind: 'screen', name: 'lijst', props: { id: second } };
       case 'tiers':
-        return { kind: 'screen', name: 'tiers', props: { id: second } };
+        return {
+          kind: 'screen',
+          name: 'tiers',
+          props: search.get('setup') === '1' ? { id: second, setup: true } : { id: second },
+        };
       case 'crew':
         return { kind: 'screen', name: 'crew', props: { id: second } };
       case 'links':
@@ -237,6 +260,16 @@ export function parseAppUrl(pathname: string, search: URLSearchParams): ParsedTa
   if (first === 'analytics') return { kind: 'screen', name: 'stats', props: {} };
   if (first === 'audit') return { kind: 'screen', name: 'audit', props: { id: search.get('event') ?? undefined } };
   if (first === 'sessions') return { kind: 'screen', name: 'adminsessions', props: {} };
+  // A real bookmarkable URL for every role — the screen itself renders a plain
+  // "not available" state for anyone who isn't a platform admin, and RLS means
+  // a guessed URL yields no data either way (P-04/P-05).
+  if (first === 'platform') {
+    if (second === 'venues') return { kind: 'screen', name: 'platformvenues', props: {} };
+    if (second === 'audit') {
+      return { kind: 'screen', name: 'platformaudit', props: { id: search.get('venue') ?? undefined } };
+    }
+    return { kind: 'screen', name: 'platform', props: {} };
+  }
 
   if (first === 'templates') {
     if (!second) return { kind: 'screen', name: 'templates', props: {} };

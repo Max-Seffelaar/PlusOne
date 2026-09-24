@@ -334,7 +334,7 @@ export function DoorProvider({
   );
 
   useEffect(() => {
-    if (outboxPersistDegraded) showToast('Local storage unavailable — check-ins may not survive a reload');
+    if (outboxPersistDegraded) showToast('Local storage unavailable: check-ins may not survive a reload');
   }, [outboxPersistDegraded, showToast]);
 
   // Ask before leaving with un-sent door writes (86ey9et0h, test feedback Max
@@ -528,7 +528,7 @@ export function DoorProvider({
         // again. A voided row is the revive path's business, not a fresh INSERT.
         showToast(
           existing?.voided_at
-            ? `${g?.name ?? 'Guest'} · check-in was reversed — use re-check-in`
+            ? `${g?.name ?? 'Guest'} · check-in was reversed: use re-check-in`
             : `${g?.name ?? 'Guest'} · already inside`,
         );
         return;
@@ -709,7 +709,7 @@ export function DoorProvider({
       // return as "nothing was added", not silently confirm it.
       const parsed = addOnSpotSchema.safeParse({ fullName, plusOnes, tierId });
       if (!parsed.success) {
-        showToast("Couldn't add that guest — check the name and +N");
+        showToast("Couldn't add that guest. Check the name and +N");
         return false;
       }
       const id = uuidv7();

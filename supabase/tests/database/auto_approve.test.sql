@@ -51,7 +51,7 @@ insert into public.request_links (id, event_id, influencer_id, label, slug, tier
 
 select pg_temp.login_anon();
 create temp table r1 as
-  select public.submit_guest_request('auto-x', 'AA Een', 'auto1@x.test', null,
+  select public.submit_guest_request('auto-x', 'AA Een', 'auto1@x.test', '+31611220001',
     1, null, 'ip-aa-1', false, null, 'tok-aa-1') as r;
 reset role;
 
@@ -81,10 +81,10 @@ select is(
 
 select pg_temp.login_anon();
 create temp table r2 as
-  select public.submit_guest_request('auto-x', 'AA Twee', 'auto2@x.test', null,
+  select public.submit_guest_request('auto-x', 'AA Twee', 'auto2@x.test', '+31611220002',
     0, null, 'ip-aa-2', false, null, 'tok-aa-2') as r;
 create temp table r3 as
-  select public.submit_guest_request('auto-x', 'AA Drie', 'auto3@x.test', null,
+  select public.submit_guest_request('auto-x', 'AA Drie', 'auto3@x.test', '+31611220003',
     0, null, 'ip-aa-3', false, null, 'tok-aa-3') as r;
 reset role;
 
@@ -113,11 +113,11 @@ select is(
 
 select pg_temp.login_anon();
 select is(
-  public.submit_guest_request('paused-x', 'AA Pauze', null, null, 0, null,
+  public.submit_guest_request('paused-x', 'AA Pauze', 'pauze@x.test', '+31611220004', 0, null,
     'ip-aa-4', false) ->> 'status',
   'closed', 'C1 a paused link is closed');
 select is(
-  public.submit_guest_request('expired-x', 'AA Laat', null, null, 0, null,
+  public.submit_guest_request('expired-x', 'AA Laat', 'laat@x.test', '+31611220005', 0, null,
     'ip-aa-5', false) ->> 'status',
   'closed', 'C2 an expired link is closed — same shape, no enumeration');
 reset role;
@@ -136,7 +136,7 @@ update public.events
 
 select pg_temp.login_anon();
 create temp table rl as
-  select public.submit_guest_request('auto-x', 'AA Locked', 'lock@x.test', null,
+  select public.submit_guest_request('auto-x', 'AA Locked', 'lock@x.test', '+31611220006',
     0, null, 'ip-aa-6', false, null, 'tok-aa-6') as r;
 reset role;
 
@@ -153,19 +153,28 @@ update public.events set list_locked = false
 -- E. Duplicate-approved guard: a decided fingerprint is never silently
 --    approved twice (max is 99 and the list unlocked — the guard is the ONLY
 --    thing standing between this resubmission and a second guest)
+--
+--    z8uq9m0gvy changed what this resubmission REPORTS, not what it does. E1
+--    used to require `auto_approved = false` here, which is exactly the signal
+--    that made the anon endpoint an oracle: on an auto-approve link that
+--    `false` appeared if and only if the submitted e-mail was already approved
+--    on the event, so anyone could ask "is this named person on the list?" and
+--    read the answer off the response. The bit now reports the requester's
+--    standing and says `true`; the guard this section is really about is E2,
+--    and E2 is unchanged.
 -- ---------------------------------------------------------------------------
 
 select pg_temp.login_anon();
 create temp table rd as
-  select public.submit_guest_request('auto-x', 'AA Een Dubbel', 'auto1@x.test', null,
+  select public.submit_guest_request('auto-x', 'AA Een Dubbel', 'auto1@x.test', '+31611220007',
     0, null, 'ip-aa-7', false, null, 'tok-aa-7') as r;
 reset role;
 
-select is((select r ->> 'auto_approved' from rd), 'false',
-  'E1 a fingerprint that was already approved on this event is not auto-approved again');
+select is((select r ->> 'auto_approved' from rd), 'true',
+  'E1 an already-approved fingerprint reports the same standing a fresh submission gets (no e-mail oracle, z8uq9m0gvy)');
 select is(
   (select count(*)::int from public.guests where email = 'auto1@x.test'),
-  1, 'E2 …so the person is on the list exactly once; the repeat waits for staff');
+  1, 'E2 …while the guard still holds: on the list exactly once, and the repeat waits for staff');
 
 -- ---------------------------------------------------------------------------
 -- F. The cap also binds later edits + attribution is immutable

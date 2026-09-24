@@ -9,9 +9,10 @@ import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { venueCapabilities } from '@/features/venues/access';
-import { usePoProfile, usePoSubscription, usePoCanManageTemplates, usePoGuestRequests } from '@/features/po/hooks';
+import { usePoProfile, usePoSubscription, usePoCanManageTemplates, usePoGuestRequests, usePoIsPlatformAdmin } from '@/features/po/hooks';
 import { isOpenGuestRequest } from '@/features/po/adapters';
 import { useNav, usePo } from '../context';
+import { venueEntryScreen } from '../nav-map';
 import { Icon } from '../icon';
 import { Avatar, Label, Row, Scroll, Top, cardPress } from '../kit';
 import { armRegularsFilter } from './guests';
@@ -27,7 +28,7 @@ export { Import } from './settings/import';
 // ── MEER (settings tab) ──────────────────────────────────────────────────────
 export function Meer(): JSX.Element {
   const nav = useNav();
-  const { statsVenues, isMobile } = usePo();
+  const { statsVenues, isMobile, myVenues } = usePo();
   const { venueName, roles } = usePoIdentity();
   const [signingOut, setSigningOut] = useState(false);
   const [signOutErr, setSignOutErr] = useState(false);
@@ -61,12 +62,18 @@ export function Meer(): JSX.Element {
   const insightsAny = showStatsRow || showPromoRow || caps.viewAudit || showRequestsRow;
   const thisVenueAny =
     canManageTemplates || caps.viewSettings || caps.viewQuota || showRegulars || showContactsRow || showImport;
-  const teamAny = showTeamRow || isAdmin;
+  const isPlatformAdmin = usePoIsPlatformAdmin();
+  const showPlatformRow = isMobile && isPlatformAdmin;
+  const teamAny = showTeamRow || isAdmin || showPlatformRow;
   const profile = usePoProfile();
   const subQ = usePoSubscription();
   // Live active-venue name + plan for the header card; the switcher is wired to
   // the caller's real memberships (usePo().myVenues).
   const displayVenue = venueName ?? t.settings.venueSwitch.thisVenueFallback;
+  // One venue + may see its settings: the card opens them, not a one-item
+  // switcher (z8uq9m0hw2). Same rule as the desktop sidebar card.
+  const venueEntry = venueEntryScreen(myVenues.length, caps.viewSettings);
+  const entryOpensSettings = venueEntry === 'venuesettings';
   const planLabel = subQ.data?.plan ?? null;
   const billingSub = subQ.data
     ? subQ.data.priceLabel.startsWith('€')
@@ -77,22 +84,26 @@ export function Meer(): JSX.Element {
     <div className={col}>
       <Top big title={t.settings.more.title} onBack={nav.canGoBack ? nav.back : undefined} />
       <Scroll bottom={100}>
-        {/* Venue-switch entry (M12): the desktop sidebar already has a fixed
-         *  header-picker, so this card is only needed on mobile, which has no
-         *  persistent header — it's mobile's sole ingang into venueswitch. */}
+        {/* Venue card (M12): the desktop sidebar already has a fixed header
+         *  card, so this one is only needed on mobile, which has no persistent
+         *  header. It leads where the sidebar card does (venueEntryScreen). */}
         {isMobile && (
-          <button type="button" onClick={() => nav.push('venueswitch')} className={cn('mb-5 flex w-full items-center gap-[14px] rounded-[18px] border border-line bg-elev p-4 text-left', cardPress)}>
+          <button type="button" onClick={() => nav.push(venueEntry)} className={cn('mb-5 flex w-full items-center gap-[14px] rounded-[18px] border border-line bg-elev p-4 text-left', cardPress)}>
             <Avatar name={displayVenue} size={48} accent />
             <div className="min-w-0 flex-1">
               <div className="font-display text-[18px] font-bold text-text">{displayVenue}</div>
-              <div className="text-[12.5px] text-faint">{fmt(t.settings.more.switchSub, { name: profile.data?.name ?? t.settings.more.nameFallback })}</div>
+              <div className="text-[12.5px] text-faint">
+                {fmt(entryOpensSettings ? t.settings.more.settingsSub : t.settings.more.switchSub, {
+                  name: profile.data?.name ?? t.settings.more.nameFallback,
+                })}
+              </div>
             </div>
             <span className="inline-flex items-center gap-[7px]">
               {planLabel && (
                 <span className="rounded-full bg-acc px-[11px] py-[5px] font-display text-[11px] font-bold text-on-acc">{planLabel}</span>
               )}
               <span className="text-ghost">
-                <Icon name="swap" size={18} />
+                <Icon name={entryOpensSettings ? 'cog' : 'swap'} size={18} />
               </span>
             </span>
           </button>
@@ -159,6 +170,11 @@ export function Meer(): JSX.Element {
         )}
         {isAdmin && (
           <Row icon="lock" title={t.settings.more.sessionsTitle} sub={t.settings.more.sessionsSub} onClick={() => nav.push('adminsessions')} />
+        )}
+        {/* PlusOne operator surface (P-04). Mobile-only here for the same M5
+            reason as Analytics/Team: desktop already has it in the sidebar. */}
+        {showPlatformRow && (
+          <Row icon="building" title={t.platform.navLabel} sub={t.platform.moreSub} onClick={() => nav.push('platform')} accent />
         )}
 
         <div className="mt-[22px]">

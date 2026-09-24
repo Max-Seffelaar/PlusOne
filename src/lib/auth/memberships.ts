@@ -142,3 +142,42 @@ export async function getMyPendingInvites(): Promise<PendingInvite[]> {
     createdAt: row.created_at,
   }));
 }
+
+// ── PlusOne platform (system) admin support-access (P-02/P-05) ──────────────
+
+// Whether the signed-in user is a PlusOne platform admin. Reads the caller's
+// OWN user_profiles row (RLS: always readable), so this is one cheap select —
+// never a service-role bypass. Mirrors `fetchIsPlatformAdmin` in
+// `src/features/po/queries.ts`, which reads the same column over the browser
+// client for the UI gate; this is the server-side counterpart used by the
+// venue-switch action + layout below.
+export async function isPlatformAdminServer(): Promise<boolean> {
+  const user = await getSessionUser();
+  if (!user) return false;
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('user_profiles')
+    .select('is_platform_admin')
+    .eq('id', user.id)
+    .maybeSingle();
+  return data?.is_platform_admin === true;
+}
+
+/**
+ * A venue a platform admin may switch into even though they hold no
+ * `venue_memberships` row there — support/debug access (decision #49). Returns
+ * `roles: []`, the SAME shape `getOrganizerVenues()` already returns for
+ * external-crew access: every role-gated capability elsewhere stays off,
+ * which is a known, pre-existing limitation of that shape (not new here) —
+ * RLS itself already lets a platform admin read/write past it regardless.
+ *
+ * Returns null for anyone who is not a platform admin, or for a venue id that
+ * doesn't exist — the caller treats null exactly like "not reachable".
+ */
+export async function getPlatformAdminVenue(venueId: string): Promise<Membership | null> {
+  if (!(await isPlatformAdminServer())) return null;
+  const supabase = await createClient();
+  const { data } = await supabase.from('venues').select('id, name').eq('id', venueId).maybeSingle();
+  if (!data) return null;
+  return { venueId: data.id, venueName: data.name, roles: [] };
+}

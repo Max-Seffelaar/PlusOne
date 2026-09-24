@@ -4,6 +4,7 @@
 
 import { z } from 'zod';
 import { VENUE_ROLES } from '@/features/auth/roles';
+import { t } from '@/lib/i18n';
 
 const uuid = z.string().uuid('Invalid id');
 const venueRole = z.enum(VENUE_ROLES as unknown as [string, ...string[]]);
@@ -16,6 +17,18 @@ const optionalText = (max: number) =>
     .trim()
     .max(max, 'Too long')
     .transform((v) => (v === '' ? null : v));
+
+/** An absolute http(s) URL with a dotted host ('https://clubnova.nl'). Mirrors
+ *  the DB CHECK venues_website_http_check, which only pins the scheme + length. */
+export function isHttpUrl(value: string): boolean {
+  if (!/^https?:\/\//i.test(value)) return false;
+  try {
+    const url = new URL(value);
+    return (url.protocol === 'http:' || url.protocol === 'https:') && url.hostname.includes('.');
+  } catch {
+    return false;
+  }
+}
 
 // Venue settings (decision #16/#24): name + AVG retention + company/legal/finance/
 // address data (mirrors the onboarding VenueCreate fields) + the venue-wide
@@ -49,6 +62,9 @@ export const venueSettingsSchema = z.object({
     .trim()
     .max(56, 'Too long')
     .transform((v) => (v === '' ? 'NL' : v)),
+  // The venue's own website (z8uq9m0hw2): optional, trimmed, http(s) only,
+  // '' clears it. The 200-char cap matches the DB CHECK.
+  website: optionalText(200).refine((v) => v === null || isHttpUrl(v), t.settings.venue.websiteInvalid),
   defaultPersonalQuota: z.coerce
     .number()
     .int('Enter a whole number')
@@ -82,12 +98,15 @@ export const createVenueSchema = z.object({
     .optional()
     .transform((v) => v ?? ''),
   venueType: z.enum(VENUE_TYPES as unknown as [string, ...string[]]),
+  // Default to the longest offered option (feedback Rik 2026-09-24): retention
+  // is not something a fresh owner should have to decide during onboarding —
+  // start safe/long, let them shorten it later in Venue settings if they want.
   retentionMonths: z.coerce
     .number()
     .int('Enter a whole number of months')
     .min(1, 'At least 1 month')
     .max(60, 'At most 60 months')
-    .default(12),
+    .default(24),
   kvkNumber: optionalText(20)
     .optional()
     .refine((v) => v == null || /^\d{8}$/.test(v), 'KVK number is 8 digits'),

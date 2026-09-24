@@ -19,6 +19,12 @@ export const events = {
   cardDoors: 'Doors {time} · {venue}',
   cardTurnoutSuffix: '% attendance',
   cardGuests: 'guests',
+  // Inline search on the Events tab (z8uq9m0hw3, item 2): filters the Upcoming /
+  // Past list by event name.
+  searchOpenAria: 'Search events',
+  searchCloseAria: 'Close search',
+  searchPlaceholder: 'Search by event name…',
+  searchEmpty: 'No events match "{q}".',
 
   // ── Event detail ────────────────────────────────────────────────────────────
   detailTitle: 'Event',
@@ -78,7 +84,7 @@ export const events = {
   fieldTemplate: 'Start from',
   templateBlank: 'Blank event',
   templateShowAll: 'Show all ({n})',
-  templateNote: 'Just give your event a name, date, and doors time — the tiers, capacity, and settings come from the template.',
+  templateNote: 'Just give your event a name, date, and doors time. The tiers, capacity, and settings come from the template.',
   // "Tiers & aliases — feed the quick-add" was jargon to new users (T2, 1/7):
   // plain words for what you actually set up there.
   tiersRowTitle: 'Guest tiers',
@@ -87,7 +93,7 @@ export const events = {
   // Per-event default member quota (T10) — seeds the add-crew prefill.
   quotaLabel: 'Guest list',
   quotaTitle: 'Default quota per member',
-  quotaSub: 'Prefilled when you add crew — override per person',
+  quotaSub: 'Prefilled when you add crew. Override per person',
   quotaLess: 'Fewer',
   quotaMore: 'More',
 
@@ -100,10 +106,18 @@ export const events = {
   copyLinkAria: 'Copy sign-up link',
   copyLinkLabel: 'Copy link',
   copyLinkDone: 'Copied!',
+  // "i" explainer beside the Sign-up link label (ADE UX round, item D). Three
+  // sentences: what the link is, what happens to a request, where to find it.
+  landingInfo: {
+    aria: 'What the sign-up link does',
+    title: 'What the sign-up link does',
+    body: 'Every event gets a public page at /e/your-event. Guests fill in their name and plus-ones, you approve them under Requests, and approved guests land on the list. Copy or share the link from Request links once the event is saved.',
+    close: 'Got it',
+  },
   // Per-influencer request links row (F1) — mirrors the Tiers/Crew rows.
   linksRowTitle: 'Request links',
-  linksRowSubOne: '{n} active link · per-influencer tracking',
-  linksRowSubMany: '{n} active links · per-influencer tracking',
+  linksRowSubOne: '{n} active link · per-promoter tracking',
+  linksRowSubMany: '{n} active links · per-promoter tracking',
   // Funnel summary over the event's active links (86ey8w79x).
   linksRowFunnel: '{views} clicks · {req} requests · {ok} approved',
   autoCloseTitle: 'Close sign-ups automatically',
@@ -134,15 +148,16 @@ export const events = {
   unsaved: {
     title: 'Unsaved changes',
     body: "You have changes here that aren't saved yet. Leave and discard them?",
-    bodyTemplate: "Your template isn't saved yet — it needs its own Save template tap. Leave and discard it?",
+    bodyTemplate: "Your template isn't saved yet. It needs its own Save template tap. Leave and discard it?",
     stay: 'Keep editing',
     discard: 'Discard & leave',
   },
   // Save-as-template (86exyp8gn) — snapshot this event's setup into a template.
-  saveTemplateLabel: 'Reuse this setup',
+  // Section label was "Reuse this setup" (z8uq9m0hw3, item 8; Max, PR #305).
+  saveTemplateLabel: 'Template',
   saveTemplateCta: 'Save as template',
   saveTemplateHint: "Saves this event's tiers, capacity, and settings as a reusable template you can pick next time.",
-  saveTemplatePlaceholder: 'Template name, e.g. "Lofi — open air"',
+  saveTemplatePlaceholder: 'Template name, e.g. "Lofi, open air"',
   saveTemplateConfirm: 'Save template',
   saveTemplateCancel: 'Cancel',
   saveTemplateDoneTitle: '"{name}" is saved.',
@@ -162,13 +177,23 @@ export const events = {
 
   // ── Guest tiers (formerly "Tiers & aliases") ────────────────────────────────
   tiersTitle: 'Guest tiers',
+  // The guided step right after creating an event (z8uq9m0hw3, item 7): save the
+  // event first, then its tiers. `skip` shows while there are no tiers yet.
+  setupStep: {
+    title: 'Next: add your guest tiers',
+    body: 'Guests need a tier before they can go on the list. Start with one like "Guest" or "VIP".',
+    done: 'Go to event',
+    skip: 'Skip for now',
+  },
   errCreateTier: "Couldn't create the tier.",
   errSaveAlias: "Couldn't save the alias.",
   newTier: 'New tier',
-  tierNamePlaceholder: 'Name, e.g. "Backstage"',
+  // The example is a tier name a first-time venue actually recognizes (ADE UX
+  // round 17/9/2026, item F) — "Backstage" read as a feature, not an example.
+  tierNamePlaceholder: 'Name, e.g. "Guest"',
   color: 'Color',
   colorAria: 'Color {color}',
-  colorAllUsedWarning: 'All colors are in use — picking one will reuse it.',
+  colorAllUsedWarning: 'All colors are in use. Picking one will reuse it.',
   maxOptional: 'Max (optional)',
   maxPlaceholder: '∞ no maximum',
   // Paid tiers (#34 — display only, no payment processing). Free/Paid toggle (T3).
@@ -181,6 +206,9 @@ export const events = {
   vatLabel: 'VAT % · display only',
   vatPlaceholder: '9',
   tierVatChip: '{pct}% VAT',
+  // Alias copy is kept but unused while the alias UI is hidden (ADE UX round
+  // 17/9/2026, item E — see TIER_ALIASES_UI in src/features/guests/tiers.ts).
+  // It renders again the moment that flag flips back on.
   aliasesFeedLabel: 'Aliases · feed the quick-add',
   aliasesPlaceholder: 'backstage, bs, prod…',
   aliasesNote:
@@ -198,6 +226,15 @@ export const events = {
   saveTier: 'Save',
   saveTierAndNew: 'Save & add another',
   cancelTier: 'Cancel',
+  // Under a non-empty tier list (z8uq9m0hw3, item 4), replaces the header "+".
+  addAnotherTier: 'Add another tier',
+  // Editing a tier after creation (z8uq9m0hw3, item 5): same sheet, prefilled.
+  editTier: 'Edit tier',
+  editTierAria: 'Edit {name}',
+  saveTierChanges: 'Save changes',
+  errUpdateTier: "Couldn't save the tier.",
+  // Lowering the max below what the tier holds: allowed, nobody is removed.
+  maxBelowUsed: "{used} people are already on this tier. They stay on the list, but no one new fits until there's room under {max}.",
 
   // ── Past-event recap ────────────────────────────────────────────────────────
   recapTitle: 'Recap',
@@ -215,6 +252,13 @@ export const events = {
   addedBy: 'added by {by}',
   noShowTag: 'no-show',
   showAllNoShows: 'Show all {n} no-shows',
+  // The same guests while the event still runs (z8uq9m0hw4): a recap opened
+  // mid-event never calls them no-shows. Before the event they aren't shown.
+  onTheWay: 'On the way',
+  onTheWayLabel: 'On the way · {n}',
+  onTheWayTag: 'on the way',
+  showAllOnTheWay: 'Show all {n} on the way',
+  everyoneInside: "Everyone's in.",
   byTier: 'By tier',
   noTierData: 'No tier data.',
   refused: 'Bounced',
@@ -241,7 +285,7 @@ export const events = {
     // Crew screen.
     title: 'External crew',
     explainer:
-      'Your Team works every event automatically. External crew is added to this one event, like a DJ, artist, or guest organizer — they can add guests (up to a quota you set) and work the door, with no access to the rest of your venue.',
+      'Your Team works every event automatically. External crew is added to this one event, like a DJ, artist, or guest organizer. They can add guests (up to a quota you set) and work the door, with no access to the rest of your venue.',
     listLabel: 'On this crew',
     loading: 'Loading crew…',
     loadError: "Couldn't load the crew.",
@@ -270,7 +314,7 @@ export const events = {
     invitePlaceholder: 'dj@email.com',
     inviteCta: 'Send invite',
     inviting: 'Inviting…',
-    inviteDone: 'Added to the crew. No invite email is sent — tell them to sign in at /login with this email.',
+    inviteDone: 'Added to the crew. No invite email is sent. Tell them to sign in at /login with this email.',
     inviteError: "Couldn't send the invite.",
     assignLabel: 'Add a returning crew member',
     assignHint: 'Someone who’s been external crew here before. They keep their login; just set their guest quota.',

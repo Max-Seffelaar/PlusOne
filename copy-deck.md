@@ -33,6 +33,12 @@
 
 ## §2 — Deur · knipoog NUL (telegrafisch, scanbaar)
 
+> **Glossarium-update (ADE UX-ronde, item L, 17/9):** de **tab, de sidebar-entry en de
+> desktop-paginatitel** heten `Check-in`, niet meer `Door` / `Event day`. "Door" blijft
+> uitsluitend de fysieke deur en de rol: `Doors 23:00`, de deurprijs en `Door host` zijn
+> ongewijzigd, net als de log-actor-fallback `Door` (§2c). Keys blijven `nav.door` en
+> `cockpit.pageTitle` — die benoemen de tab, niet het label.
+
 ### 2a · Check-in (`CheckInList`)
 | Element | Oud (NL) | Nieuw (EN) |
 |---|---|---|
@@ -155,6 +161,9 @@
 | Titel / log | `Guest` · `Log` |
 | Acties | `Edit` · `Refuse` · `Remove guest` |
 | Verwijder-bevestig | `Remove this guest? They'll drop off the list. You can't undo this.` |
+| Persoonsprofiel | titel `Guest` (vanuit een gastenlijst / Guests-tab) · `Contact` (vanuit Contacts) |
+| Event-rij "…" | `Open event` · `Edit +{n}` / `Add plus-ones` · `Change tier` · `Remove from list` · op slot: `This list is locked. An admin or the organizer can still change it.` |
+| Verwijder-bevestig (profiel) | titel `Remove from {event}?` · `{name} drops off the list. That frees up {n} {slots}.` · binnen: `{name} drops off the list. They're already inside, so this still counts as {n} {slots}.` · `You can't undo this.` · knop `Remove guest` |
 
 **Contacts** (Adresboek + Regulars samengevoegd)
 | Context | EN |
@@ -163,7 +172,7 @@
 | Zoek / toevoegen | placeholder `Search contacts…` · `Add to event` |
 | Regular | knop `Make regular` · badge `Regular` · sub `Auto-added to every list` |
 | Import-actie | `Import contacts` |
-| Leeg | `No contacts yet. Save a guest to reuse them next time.` |
+| Leeg | `No contacts yet. Guests with an email or phone number are saved here automatically. Added someone by name only? Add their email or phone to save them.` (naam-only gasten worden nooit automatisch contact: `guests_autolink_contact`, 20260622130100) |
 
 ## §5 — Events (dial: laag-midden)
 
@@ -180,7 +189,7 @@
 | Edit-titel / velden | `New event` / `Edit event` · `Name` · `Date` · `Doors` · `Landing page` · `Auto-lock` · `Lock list` · `Allow check-out` |
 | Lock-hint | `Locked lists can't be changed by staff.` |
 | Opslaan | `Create event` / `Save event` |
-| Tiers | titel `Tiers` · `Add tier` · velden `Tier name` / `Aliases` · leeg `No tiers yet. Add one like "VIP" or "Guest".` |
+| Tiers | titel `Tiers` · `Add tier` · veld `Name, e.g. "Guest"` · leeg `No tiers yet. Add one like "VIP" or "Guest".` (aliasveld verborgen sinds 17/9/2026 — `TIER_ALIASES_UI`) |
 | Recap (gesloten event) | kop `Recap` · `Turnout {pct}%` · `Checked in {n}` · `No-shows {n}` · `Refused {n}` · `Peak {time}` · `By tier` |
 
 ## §6 — Requests (dial: laag)

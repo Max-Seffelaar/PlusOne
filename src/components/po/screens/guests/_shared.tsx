@@ -4,10 +4,11 @@ import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { usePoCreateTier } from '@/features/po/mutations';
 import { usePoTiers } from '@/features/po/hooks';
-import { t, fmt } from '@/lib/i18n';
-import { TIER_COLORS, DEFAULT_TIER_COLOR, allColorsUsed, nextAvailableColor, tierInk } from '@/lib/po/tier-colors';
+import { TIER_ALIASES_UI } from '@/features/guests/tiers';
+import { t } from '@/lib/i18n';
+import { DEFAULT_TIER_COLOR, allColorsUsed, nextAvailableColor, tierInk } from '@/lib/po/tier-colors';
 import { Icon } from '../../icon';
-import { Btn, Field, Label, press, cardPress } from '../../kit';
+import { Btn, ColorSwatches, Field, Label, press, cardPress } from '../../kit';
 
 // FE-4: press/cardPress now live in kit.tsx — re-exported here so the many
 // guests/* screens importing them from './_shared' don't need to change.
@@ -65,8 +66,9 @@ export function DupeOption({ on, onClick, title, sub }: { on: boolean; onClick: 
 // surfaced via the quota `exempt` flag); everyone else gets a "ask a beheerder"
 // note instead of a button that would only fail with a 42501.
 
-/** The inline create-a-tier form (name/color/price/alias), shared by
- *  NoTiersBlock (first tier) and AddTierInline (any next tier). */
+/** The inline create-a-tier form (name/color/price), shared by NoTiersBlock (first
+ *  tier) and AddTierInline (any next tier). The alias field renders only when
+ *  `TIER_ALIASES_UI` is on — off since the ADE UX round (17/9/2026). */
 function TierCreateFields({ eventId, onDone, onCancel }: { eventId: string; onDone?: () => void; onCancel: () => void }): JSX.Element {
   const createTier = usePoCreateTier(eventId);
   const { data: tierList } = usePoTiers(eventId);
@@ -101,7 +103,8 @@ function TierCreateFields({ eventId, onDone, onCancel }: { eventId: string; onDo
         color,
         doorPriceCents,
         vatPercent,
-        aliases: alias.split(',').map((a) => a.trim()).filter(Boolean),
+        // Alias UI hidden (TIER_ALIASES_UI): never send half-filled aliases.
+        aliases: TIER_ALIASES_UI ? alias.split(',').map((a) => a.trim()).filter(Boolean) : [],
       });
       onDone?.();
     } catch (e) {
@@ -135,26 +138,7 @@ function TierCreateFields({ eventId, onDone, onCancel }: { eventId: string; onDo
       </div>
       <div>
         <Label className="mb-2">{t.guests.tierCreate.colorLabel}</Label>
-        <div className="flex flex-wrap gap-[9px]">
-          {TIER_COLORS.map((c) => {
-            const disabled = usedColors.includes(c) && !allUsed;
-            return (
-              <button
-                key={c}
-                type="button"
-                disabled={disabled}
-                aria-disabled={disabled}
-                onClick={() => !disabled && setColor(c)}
-                className={cn(
-                  'h-[30px] w-[30px] rounded-full transition-[filter]',
-                  disabled ? 'cursor-not-allowed opacity-30' : 'cursor-pointer hover:brightness-[1.1]',
-                )}
-                style={{ background: c, border: '2px solid ' + (color === c ? '#FFFFFF' : 'transparent') }}
-                aria-label={fmt(t.events.colorAria, { color: c })}
-              />
-            );
-          })}
-        </div>
+        <ColorSwatches value={color} onPick={setColor} isDisabled={(c) => usedColors.includes(c) && !allUsed} />
         {allUsed && <p className="mt-2 text-[12px] text-faint">{t.events.colorAllUsedWarning}</p>}
       </div>
       {kind === 'paid' && (
@@ -169,10 +153,12 @@ function TierCreateFields({ eventId, onDone, onCancel }: { eventId: string; onDo
           </div>
         </>
       )}
-      <div>
-        <Label className="mb-2">{t.guests.tierCreate.aliasLabel}</Label>
-        <Field icon="spark" placeholder={t.guests.tierCreate.aliasPlaceholder} value={alias} onChange={setAlias} />
-      </div>
+      {TIER_ALIASES_UI && (
+        <div>
+          <Label className="mb-2">{t.guests.tierCreate.aliasLabel}</Label>
+          <Field icon="spark" placeholder={t.guests.tierCreate.aliasPlaceholder} value={alias} onChange={setAlias} />
+        </div>
+      )}
       {err && (
         <p className="text-[12.5px] text-red-300" role="alert">
           {err}

@@ -20,7 +20,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(13);
+select plan(15);
 
 -- ---------------------------------------------------------------------------
 -- 1. anon holds no table privilege in public, bar one documented exception
@@ -32,7 +32,7 @@ select plan(13);
 -- returns zero rows. That probe is the only live dependant — the grant's
 -- original second reason (the `guest_requests_insert_public` WITH CHECK
 -- subquery) went dead for anon when 20260707170000 revoked anon's INSERT on
--- guest_requests.
+-- guest_requests, and the policy itself is gone since 20260924100000 (F-3).
 select is_empty($$
   select c.relname || ' -> ' || p as offender
   from pg_class c
@@ -100,6 +100,39 @@ select is_empty($$
       'venue_memberships'                        -- remove a member (#24)
     ])
 $$, 'authenticated holds DELETE only on the tables where a hard delete is intended');
+
+-- ---------------------------------------------------------------------------
+-- 4b. No app role may CREATE a row on a table whose creation path is an RPC
+-- ---------------------------------------------------------------------------
+-- guest_requests is the schema's one public-write surface, and every guard that
+-- makes it safe — per-IP throttle, silent dedup, honeypot, format checks,
+-- motivation truncation — lives in submit_guest_request, not in the table. A
+-- table grant next to that RPC is therefore not "belt and braces", it is a way
+-- around every one of them: F-3 (20260924100000) used the `authenticated` half
+-- to plant a hidden row that silently swallowed a real applicant's submission,
+-- and to turn `on conflict do nothing` into a "did this person apply" oracle
+-- for a role with no SELECT on the table. anon lost the same grant in
+-- 20260707170000 (C2) for the same reason. Asserted here, catalog-driven and
+-- next to the other grant rules, rather than only inside the feature's own test
+-- file: this is the layer under RLS, and re-granting it is the single change
+-- that re-opens both attacks.
+select is_empty($$
+  select r || ' holds INSERT on guest_requests' as offender
+  from unnest(array['anon','authenticated']) r
+  where has_table_privilege(r, 'public.guest_requests', 'INSERT')
+$$, 'no app role holds INSERT on guest_requests (creation is submit_guest_request only)');
+
+-- has_table_privilege is blind to a column-only grant (see assertion 2), and a
+-- single insertable column is all the squat needs: event_id + dedupe_key.
+select is_empty($$
+  select a.attname || ' -> INSERT to ' || x.grantee::regrole::text as offender
+  from pg_attribute a
+  cross join lateral aclexplode(a.attacl) x
+  where a.attrelid = 'public.guest_requests'::regclass
+    and a.attnum > 0 and not a.attisdropped
+    and x.privilege_type = 'INSERT'
+    and x.grantee in ('anon'::regrole, 'authenticated'::regrole)
+$$, '...nor a column-level INSERT on guest_requests');
 
 -- ---------------------------------------------------------------------------
 -- 5. The default ACLs that caused this cannot cause it again

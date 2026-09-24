@@ -19,6 +19,8 @@ export const settings = {
   more: {
     title: 'More',
     switchSub: '{name} · switch venue',
+    /** Same card with a single venue: it opens venue settings instead (z8uq9m0hw2). */
+    settingsSub: '{name} · venue settings',
     /** Shown instead of a name while the profile loads or on a load error — never a placeholder person. */
     nameFallback: 'your account',
     sectionVenue: 'This venue',
@@ -65,7 +67,7 @@ export const settings = {
     rolesLabel: 'Roles · pick one or more',
     mfaNotePre: 'We recommend Admin and Finance enable ',
     mfaNoteBold: 'MFA',
-    mfaNotePost: '. They get a friendly nudge after logging in — never a hard requirement.',
+    mfaNotePost: '. They get a friendly nudge after logging in, never a hard requirement.',
     eventScopeLabel: 'Add to event crew · optional',
     clearSelection: 'Clear selection',
     allEvents: 'All events',
@@ -95,7 +97,7 @@ export const settings = {
     crewLoadError: "Couldn't load the external crew.",
     crewEmpty: 'No external crew yet. Add a DJ, artist, or guest organizer via “Add someone”.',
     crewOn: 'Crew on {events}',
-    crewPending: 'Invite sent — not logged in yet',
+    crewPending: 'Invite sent, not logged in yet',
     invitesLabel: 'Invites',
     invitesEmpty: 'No invites yet.',
     invitedRoles: '{roles} · sent {when}',
@@ -125,7 +127,7 @@ export const settings = {
     chooseCrewTitle: 'External crew',
     chooseCrewSub: 'A DJ, artist, or guest organizer for specific events only. No access to the rest of the venue.',
     crewTitle: 'Invite external crew',
-    crewIntro: 'They get a login for the events you pick and can add guests up to a quota — nothing else in your venue.',
+    crewIntro: 'They get a login for the events you pick and can add guests up to a quota. Nothing else in your venue.',
     crewEventsLabel: 'Add to which events?',
     crewQuotaLabel: 'Guests they can add · optional',
     crewQuotaPlaceholder: 'e.g. 10 guests',
@@ -189,10 +191,14 @@ export const settings = {
     loadError: "Couldn't load the venue settings.",
     readonlyNote: 'You can view the settings, read-only. Only an admin can change them.',
     nameLabel: 'Venue name',
-    landingLabel: 'Landing page',
+    websiteLabel: 'Website',
+    websitePlaceholder: 'https://yourvenue.com',
+    websiteEmpty: 'No website yet',
+    websiteOpen: 'Open website',
+    websiteInvalid: "That web address doesn't look right. Start it with https://",
     defaultsLabel: 'Defaults for new events',
     defaultQuotaTitle: 'Default quota per member',
-    defaultQuotaSub: 'Seeds each new event — change it per event & per person',
+    defaultQuotaSub: 'Seeds each new event. Change it per event & per person',
     atDoorLabel: 'At the door',
     allowCheckoutTitle: 'Allow check-out',
     allowCheckoutSub: 'Can a check-in be reversed at the door? Override per event.',
@@ -210,7 +216,7 @@ export const settings = {
     postalFieldLabel: 'Postal code',
     cityFieldLabel: 'City',
     countryFieldLabel: 'Country',
-    companyNamePlaceholder: 'e.g. LOFI',
+    companyNamePlaceholder: 'Company name',
     kvkPlaceholder: '12345678',
     vatPlaceholder: 'NL000000000B00',
     billingEmailPlaceholder: 'billing@venue.com',
@@ -218,7 +224,7 @@ export const settings = {
     streetPlaceholder: 'Herengracht 1',
     postalPlaceholder: '1000 AA',
     cityPlaceholder: 'Amsterdam',
-    countryPlaceholder: 'NL',
+    countryPlaceholder: 'Pick a country',
     saved: 'Settings saved.',
     saving: 'Saving…',
     save: 'Save settings',
@@ -254,7 +260,7 @@ export const settings = {
     signOut: 'Sign out',
     signOutSub: 'Log out on this device',
     signingOut: 'Signing out…',
-    signOutFailed: 'Could not sign out — check your connection and try again.',
+    signOutFailed: 'Could not sign out. Check your connection and try again.',
     // Sign-out with door writes that never reached the server (86ey9et0h).
     // Names the number and what is lost — "unsynced entries" would let a
     // doorhost tap through a warning that actually costs them check-ins.
@@ -311,21 +317,26 @@ export const settings = {
     paymentNote: 'Payments by SEPA Direct Debit & iDEAL. We never store your IBAN. The payment provider handles that.',
     invoicesLabel: 'Invoices',
     invoicesSoon: 'Invoices and the billing portal show up here once billing goes live.',
-    invoicesPortal: 'Your invoices live in the billing portal — open it with the button above.',
+    invoicesPortal: 'Your invoices live in the billing portal. Open it with the button above.',
     // Checkout & portal (fase 13 PR 2). Browser-only; the native app stays read-only.
     setupPayment: 'Set up payment',
     reactivate: 'Reactivate subscription',
     managePortal: 'Manage payment & invoices',
     redirecting: 'One sec…',
-    trialEndsIn: 'Trial ends in {days} days — set up your payment to keep things running.',
+    trialEndsIn: 'Trial ends in {days} days. Set up your payment to keep things running.',
     trialEnded: 'Your trial has ended. Set up your payment to keep everything running.',
     manageOnWeb: 'Manage your subscription on the web version of PLUSONE.',
-    checkoutSuccess: "Payment set up — you're all good! ✨",
-    checkoutCanceled: 'Checkout canceled — nothing changed.',
+    checkoutSuccess: "Payment set up. You're all good! ✨",
+    checkoutCanceled: 'Checkout canceled. Nothing changed.',
     // Soft-block (fase 13 PR 3): growth actions lock, planned events keep running.
-    blockedTrial: 'Your trial has ended — set up your payment to plan new events and grow your team. Everything already planned keeps running.',
-    blockedCanceled: 'The subscription is canceled — reactivate billing to plan new events and grow your team. Your data and planned events stay untouched.',
+    blockedTrial: 'Your trial has ended. Set up your payment to plan new events and grow your team. Everything already planned keeps running.',
+    blockedCanceled: 'The subscription is canceled. Reactivate billing to plan new events and grow your team. Your data and planned events stay untouched.',
     blockedCta: 'Go to Billing',
+    // Invoicing soft-gate (checkout requires real company details, feedback Rik
+    // 2026-09-24): the venue display name is not the invoice legal entity, so
+    // checkout refuses until companyName is filled in Venue settings.
+    invoicingRequiredError: 'Add your company name for invoicing before setting up payment.',
+    invoicingRequiredCta: 'Add company details',
   },
 
   // Import (Import).
@@ -363,11 +374,11 @@ export const settings = {
     // Per-row correction (T12): over-long / invalid rows are flagged and fixed
     // inline in the preview instead of silently blocking or dropping the batch.
     needsFixTitle: 'A few rows need a quick fix',
-    needsFixOne: '{n} row is too long or invalid. Fix it below or remove it — nothing imports until it’s sorted.',
-    needsFixMany: '{n} rows are too long or invalid. Fix them below or remove them — nothing imports until they’re sorted.',
+    needsFixOne: '{n} row is too long or invalid. Fix it below or remove it. Nothing imports until it’s sorted.',
+    needsFixMany: '{n} rows are too long or invalid. Fix them below or remove them. Nothing imports until they’re sorted.',
     needsFixCount: '{n} to fix',
     errNameEmpty: 'Add a name',
-    errNameLong: 'Name is too long ({n}/500) — shorten it',
+    errNameLong: 'Name is too long ({n}/500): shorten it',
     errEmail: 'Check the email address',
     errPhone: 'Check the phone number, including the country code',
     fieldName: 'Name',

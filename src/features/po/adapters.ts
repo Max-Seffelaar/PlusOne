@@ -1,4 +1,4 @@
-import type { Guest, PoEvent, Tier, Role, GuestStatus, Priority, RecapGuest } from '@/lib/po/types';
+import type { Guest, PoEvent, Tier, Role, GuestStatus, GuestSource, Priority, RecapGuest, EventPhase } from '@/lib/po/types';
 import { eventPhase, eventWhenFromPhase } from './event-phase';
 import type { Database } from '@/lib/database.types';
 import type {
@@ -20,6 +20,11 @@ import type {
   PoQuotaStatus,
   ContactProfileHeader,
   ContactAppearance,
+  PlatformInviteRow,
+  PlatformFunnelRow,
+  PlatformVenueRow,
+  PlatformVenueOption,
+  PlatformAuditRow,
 } from './queries';
 import type { EventSummary, TierStat } from '@/features/stats/data';
 import { formatInTz as fmt, formatClock, toDateInput } from './format';
@@ -245,6 +250,11 @@ export function toPoGuest(row: PoGuestRow, extras: GuestExtras): Guest {
     addedAt: fmt(row.created_at, { day: 'numeric', month: 'short' }).replace('.', ''),
     status: guestStatusToPo(row.status),
     contactId: row.contact_id,
+    // Provenance (item J) rides on the ROW, not `extras`: both guest fetchers
+    // flatten the same two embeds, so no caller has to resolve it a second time.
+    source: row.source,
+    addedByName: row.addedByName,
+    linkLabel: row.linkLabel,
     eventId: extras.eventId,
     eventName: extras.eventName,
     // at/inBy come from check_ins (DoorProvider), not the guests row.
@@ -461,6 +471,23 @@ export interface PoProfileEvent {
   isOrigin: boolean;
   /** ISO event start — sorting + keys. */
   startsAt: string;
+  /** Time-derived phase: decides whether "Open event" lands on the recap. */
+  phase: EventPhase;
+  /** Current guest_tiers.id (the tier picker marks it). */
+  tierId: string | null;
+  /** guests.added_by (null = auto-approved request link). A staff member may
+   *  only change their own guests (guests_update RLS). */
+  addedById: string | null;
+  /** The event facts the row actions are gated on (`can_write_guests`). */
+  listLocked: boolean;
+  autoLockAt: string | null;
+  cancelled: boolean;
+  /** AVG-scrubbed row (#29): read-only for every client. */
+  anonymized: boolean;
+  /** Provenance for this appearance (item J) — feed straight to `guestSourceLabel`. */
+  source: GuestSource;
+  addedByName: string | null;
+  linkLabel: string | null;
 }
 
 export type ContactTimelineKind = 'added' | 'checkin' | 'void' | 'refusal';
@@ -537,10 +564,13 @@ export function toPoContactProfile(
     promoteGuestId?: string | null;
     originEventId?: string | null;
     restricted?: boolean;
+    /** Injected clock for the per-event phase (deterministic tests). */
+    nowMs?: number;
   } = {}
 ): PoContactProfile {
   const isContact = opts.isContact ?? true;
   const originEventId = opts.originEventId ?? null;
+  const nowMs = opts.nowMs ?? Date.now();
   const events: PoProfileEvent[] = appearances
     .map((a) => {
       // The active (non-voided) check-in is "currently inside"; its arrived count
@@ -566,6 +596,18 @@ export function toPoContactProfile(
         noteFlag: notePriorityToFlag(a.notePriority),
         isOrigin: originEventId != null && a.eventId === originEventId,
         startsAt: a.eventStartsAt,
+        phase: eventPhase(a.eventStartsAt, a.eventEndsAt, nowMs),
+        tierId: a.tierId,
+        addedById: a.addedBy ?? null,
+        listLocked: a.eventListLocked,
+        autoLockAt: a.eventAutoLockAt,
+        cancelled: a.eventCancelled,
+        anonymized: a.anonymized,
+        source: a.source,
+        // The profile already resolved every actor id to a name in one read —
+        // reuse that map instead of a second per-appearance profile embed.
+        addedByName: actorNames[a.addedBy] ?? null,
+        linkLabel: a.linkLabel,
       };
     })
     // Pin the event you came from to the top, then newest-first.
@@ -686,6 +728,22 @@ export interface PoGuestRequest {
   plus: number;
   /** Last-4 phone digits as a privacy-light identity hint, or null. */
   phoneLast4: string | null;
+  /**
+   * The requester's e-mail, in full, or null for a pre-86eyke279 row (the
+   * column stays NULLable — existing contactless requests must keep working).
+   *
+   * Both contact fields are required on the public form so the venue can reach
+   * an approved guest — but until 86eyke279 neither the card nor the approve
+   * sheet showed the address, so the organizer approved without ever seeing the
+   * channel the requirement exists for. Full, not masked: `•••• 5610` is an
+   * identity hint, and you cannot mail a hint. The same roles already read the
+   * complete address one screen over in Contacts, so this is not a new exposure
+   * class — RLS (admin/finance/organizer) is the boundary, as always.
+   */
+  email: string | null;
+  /** The requester's phone in full (E.164), or null. Same reasoning as `email`;
+   *  `phoneLast4` stays for the compact scan lines that only need a hint. */
+  phone: string | null;
   motivation: string;
   /** Relative time of submission. */
   at: string;
@@ -699,6 +757,8 @@ export interface PoGuestRequest {
   requestLinkId: string | null;
   /** Resolved link identity (influencer name ?? label); null for the default link. */
   viaLabel: string | null;
+  /** Came through the event's default link — shown as "Standard link" (z8uq9m0hw4). */
+  viaStandard: boolean;
   /** The refusal reason when status is 'denied'; null otherwise. */
   denyReason: string | null;
   /** Deterministic nudge for a large party (+3 or more); absent otherwise. */
@@ -728,12 +788,15 @@ export function toPoGuestRequest(row: PoGuestRequestRow, now?: Date): PoGuestReq
     name: row.full_name,
     plus: row.plus_ones,
     phoneLast4: digits.length >= 4 ? digits.slice(-4) : null,
+    email: row.email ?? null,
+    phone: row.phone ?? null,
     motivation: row.motivation ?? '',
     at: relativeTime(row.created_at, now),
     status,
     decidedVia: row.decided_via,
     requestLinkId: row.request_link_id,
     viaLabel: row.viaLabel,
+    viaStandard: row.viaStandard,
     denyReason: status === 'denied' ? row.decision_reason : null,
     flag: row.plus_ones >= 3 ? `Large group (+${row.plus_ones})` : undefined,
   };
@@ -964,6 +1027,8 @@ export interface PoVenueSettings {
   postalCode: string;
   city: string;
   country: string;
+  /** The venue's own website (http(s) URL), '' when not set. */
+  website: string;
 }
 
 export function toPoVenueSettings(row: PoVenueSettingsRow): PoVenueSettings {
@@ -982,6 +1047,7 @@ export function toPoVenueSettings(row: PoVenueSettingsRow): PoVenueSettings {
     postalCode: row.postal_code ?? '',
     city: row.city ?? '',
     country: row.country ?? 'NL',
+    website: row.website ?? '',
   };
 }
 
@@ -1032,5 +1098,151 @@ export function toPoSubscription(
     venueLabel: venueName,
     stripeLinked: !!row.stripe_subscription_id,
     trialEndsAt: row.status === 'trialing' ? trialEndsAt(row.created_at).toISOString() : null,
+  };
+}
+
+// ── Platform (system) admin surface — open-beta invites (P-04) ───────────────
+
+/** The five stages `platform_invite_overview()` can report, in funnel order.
+ *  `revoked` is terminal and deliberately outside the progression. */
+export const PLATFORM_INVITE_STAGES = ['invited', 'signed_in', 'company_created', 'first_event'] as const;
+export type PlatformInviteStage = (typeof PLATFORM_INVITE_STAGES)[number] | 'revoked';
+
+function toPlatformStage(raw: string): PlatformInviteStage {
+  if (raw === 'revoked') return 'revoked';
+  return (PLATFORM_INVITE_STAGES as readonly string[]).includes(raw)
+    ? (raw as PlatformInviteStage)
+    : 'invited';
+}
+
+/** The ONE canonical shape the Platform screen renders. */
+export interface PlatformInvite {
+  id: string;
+  email: string;
+  /** Operator note. Plain text — never rendered as HTML (PR #325, F9). */
+  note: string | null;
+  stage: PlatformInviteStage;
+  /** How far along the funnel this invite is (0-based), or null when revoked. */
+  stageIndex: number | null;
+  revoked: boolean;
+  invitedAt: string;
+  lastSentAt: string;
+  revokedAt: string | null;
+  invitedByName: string | null;
+  signedIn: boolean;
+  venueCount: number;
+  eventCount: number;
+}
+
+/** DB row -> domain. Every column PR #325 flagged as runtime-nullable is
+ *  normalised here, so no screen has to know about the generator's optimism. */
+export function toPlatformInvite(row: PlatformInviteRow): PlatformInvite {
+  const stage = toPlatformStage(row.stage);
+  const idx = PLATFORM_INVITE_STAGES.indexOf(stage as (typeof PLATFORM_INVITE_STAGES)[number]);
+  return {
+    id: row.id,
+    email: row.email,
+    note: row.note ?? null,
+    stage,
+    stageIndex: stage === 'revoked' ? null : idx,
+    revoked: stage === 'revoked' || row.revoked_at != null,
+    invitedAt: row.created_at,
+    lastSentAt: row.last_sent_at ?? row.created_at,
+    revokedAt: row.revoked_at ?? null,
+    invitedByName: row.invited_by_name ?? null,
+    signedIn: row.confirmed_at != null,
+    venueCount: row.venue_count ?? 0,
+    eventCount: row.event_count ?? 0,
+  };
+}
+
+/** SQL funnel rows -> a complete, ordered count per stage (missing stage = 0). */
+export function toPlatformFunnel(rows: PlatformFunnelRow[]): Record<PlatformInviteStage, number> {
+  const out: Record<PlatformInviteStage, number> = {
+    invited: 0,
+    signed_in: 0,
+    company_created: 0,
+    first_event: 0,
+    revoked: 0,
+  };
+  for (const r of rows) {
+    const stage = toPlatformStage(r.stage);
+    out[stage] += r.invite_count ?? 0;
+  }
+  return out;
+}
+
+// ── Platform (system) admin surface — venue overview + audit viewer (P-05) ──
+
+/** The ONE canonical shape the Platform > Venues screen renders. */
+export interface PlatformVenue {
+  venueId: string;
+  name: string;
+  slug: string;
+  memberCount: number;
+  eventCount: number;
+  subscriptionStatus: string | null;
+  lastActivityAt: string | null;
+}
+
+export function toPlatformVenue(row: PlatformVenueRow): PlatformVenue {
+  return {
+    venueId: row.venue_id,
+    name: row.name,
+    slug: row.slug,
+    memberCount: row.member_count ?? 0,
+    eventCount: row.event_count ?? 0,
+    subscriptionStatus: row.subscription_status ?? null,
+    lastActivityAt: row.last_activity_at ?? null,
+  };
+}
+
+export interface PlatformVenueOptionItem {
+  venueId: string;
+  name: string;
+}
+
+export function toPlatformVenueOption(row: PlatformVenueOption): PlatformVenueOptionItem {
+  return { venueId: row.venue_id, name: row.name };
+}
+
+/** The ONE canonical shape the Platform > Audit screen renders. `diff` stays
+ *  `unknown` here (never HTML) — the screen renders it as plain text only. */
+export interface PlatformAuditEntry {
+  id: string;
+  createdAt: string;
+  actorId: string | null;
+  /** Null when the actor row was deleted or the action had no actor (e.g. a
+   *  scheduled job) — the screen supplies the fallback copy. */
+  actorName: string | null;
+  venueId: string | null;
+  /** Null for a platform-scoped action with no venue (e.g. platform_admin_grant). */
+  venueName: string | null;
+  eventId: string | null;
+  entityType: string;
+  entityId: string | null;
+  action: string;
+  diff: unknown;
+  device: string | null;
+  /** True when the actor holds no CURRENT venue_memberships row at the
+   *  audited venue — a support action, computed in SQL (never client-side). */
+  isSupportAction: boolean;
+}
+
+export function toPlatformAuditEntry(row: PlatformAuditRow): PlatformAuditEntry {
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    actorId: row.actor_id ?? null,
+    actorName: row.actor_name ?? null,
+    venueId: row.venue_id ?? null,
+    venueName: row.venue_name ?? null,
+    eventId: row.event_id ?? null,
+    entityType: row.entity_type,
+    entityId: row.entity_id ?? null,
+    action: row.action,
+    diff: row.diff ?? null,
+    device: row.device_id ?? null,
+    isSupportAction: row.is_support_action === true,
   };
 }

@@ -64,7 +64,7 @@ function useIsDesktop(): boolean {
 }
 
 /** Close-on-outside-click + Escape for a popover anchored inside `ref`. */
-function useDismiss(ref: React.RefObject<HTMLElement>, open: boolean, close: () => void): void {
+function useDismiss(ref: React.RefObject<HTMLElement | null>, open: boolean, close: () => void): void {
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent): void => {
@@ -156,16 +156,24 @@ const popShell = 'absolute left-0 top-[calc(100%+8px)] z-50 rounded-[16px] borde
 export function DateField({
   value,
   onChange,
+  anchor,
   className,
 }: {
   value: string;
   onChange?: (v: string) => void;
+  /** 'YYYY-MM-DD' — the month the calendar opens on while `value` is empty
+   *  (End date and Auto-close are anchored to the event's start date, so an
+   *  empty end field never opens five months away from the night itself). */
+  anchor?: string;
   className?: string;
 }): JSX.Element {
   const desktop = useIsDesktop();
   const [open, setOpen] = useState(false);
   // Editing buffer while the user types; null = show the formatted value.
   const [text, setText] = useState<string | null>(null);
+  // The month the calendar shows. Set when the popover opens and whenever typed
+  // text parses, so the visible month always matches what the field says.
+  const [month, setMonth] = useState<Date | undefined>(undefined);
   const wrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -181,10 +189,16 @@ export function DateField({
     commitText();
   });
 
-  const selected = parseYmd(value);
+  const committed = parseYmd(value);
+  // While typing, a parseable draft previews as the selection (and drives the
+  // visible month); unparseable text leaves the committed value highlighted.
+  const typed = text === null || !desktop ? null : parseTypedDate(text);
+  const selected = typed ? parseYmd(typed) : typed === '' ? undefined : committed;
+  const anchorDate = anchor ? parseYmd(anchor) : undefined;
 
   const openPicker = (): void => {
     if (!onChange) return;
+    setMonth(selected ?? anchorDate ?? new Date());
     setOpen(true);
     inputRef.current?.focus();
   };
@@ -201,9 +215,18 @@ export function DateField({
         </span>
         <input
           ref={inputRef}
-          value={text ?? (selected ? (desktop ? dateLabel : dateLabelShort).format(selected) : '')}
-          onChange={(e) => setText(e.target.value)}
-          onFocus={() => onChange && setOpen(true)}
+          value={text ?? (committed ? (desktop ? dateLabel : dateLabelShort).format(committed) : '')}
+          onChange={(e) => {
+            const next = e.target.value;
+            setText(next);
+            // Follow the typing: a parseable date moves the calendar to its
+            // month right away (retest 17/9 — the caption stayed on September
+            // while the field already read October).
+            const parsed = parseTypedDate(next);
+            const asDate = parsed ? parseYmd(parsed) : undefined;
+            if (asDate) setMonth(asDate);
+          }}
+          onFocus={() => onChange && openPicker()}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               commitText();
@@ -239,6 +262,8 @@ export function DateField({
           >
             <PoDayPicker
             selected={selected}
+            month={month}
+            onMonthChange={setMonth}
             onSelect={(day) => {
               setText(null);
               onChange(day ? toYmd(day) : '');

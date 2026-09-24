@@ -34,14 +34,21 @@ import { usePoSetListLockOnHome } from '@/features/po/mutations';
 import { isOpenGuestRequest } from '@/features/po/adapters';
 import { canManageGuests, canSeeGuestCounts, canSeeRequestInbox, canSeeOwnRequests, canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '../context';
-import { Icon, type IconName } from '../icon';
-import { Btn, Empty, Note, Scroll, press } from '../kit';
+import { Icon } from '../icon';
+import { BackBtn, Btn, Empty, Note, Scroll, press } from '../kit';
 import { Sheet, Toast } from '../shell';
 import { PendingInvitesBanner } from '../pending-invites-banner';
+import { HomeHeaderActions } from './home-header-actions';
+import { PulseTile } from './home-pulse';
+import { ComboChart } from './home-chart';
+import { NoUpcomingEvents } from './no-upcoming-events';
 import { EventRow, StatusChip, toBoardEvents, type BoardEvent } from '../event-row';
 
 const TZ = 'Europe/Amsterdam';
 const PAGE_SIZE = 7;
+// Pager chips are 38px and 7px apart: each ring reaches 3px past the 1px border
+// (44x44), so neighbouring rings stay 1px clear of each other.
+const pagerHit = "relative before:absolute before:-inset-[4px] before:content-['']";
 // Home's past section is a recency pulse, not history (M11): anything older than
 // a week only lives under Events → Past. Older events are still fully editable —
 // this only trims what surfaces on the board. Shared with usePoHomeEvents's own
@@ -65,181 +72,7 @@ function greetingFor(hour: number, name: string): string {
 // BoardEvent + the event card (EventRow/StatusChip) live in ../event-row — shared
 // with the door's event picker so the two surfaces render the identical card.
 
-// ── pulse strip ─────────────────────────────────────────────────────────────
-// A tile is a plain readout, or — when `onClick` is set (Requests / Quota) — a
-// button that jumps into the approval inbox. Clickable tiles show a → affordance.
-function PulseTile({
-  icon,
-  label,
-  value,
-  action,
-  onClick,
-  className,
-}: {
-  icon: IconName;
-  label: string;
-  value: string | number;
-  action?: boolean;
-  onClick?: () => void;
-  className?: string;
-}): JSX.Element {
-  const cls = cn(
-    'flex min-w-0 flex-1 flex-col rounded-[18px] border p-[16px_18px] text-left',
-    action ? 'border-transparent bg-acc-dim' : 'border-line bg-elev',
-    onClick && press,
-    className
-  );
-  const inner = (
-    <>
-      <div className="mb-3 flex items-center gap-2">
-        <span className={action ? 'text-acc' : 'text-faint'}>
-          <Icon name={icon} size={16} />
-        </span>
-        <span className="font-body text-[11.5px] font-bold uppercase tracking-[0.03em] text-faint">{label}</span>
-        {onClick && (
-          <span className={cn('ml-auto', action ? 'text-acc' : 'text-ghost')}>
-            <Icon name="arrowR" size={15} />
-          </span>
-        )}
-      </div>
-      <div
-        className={cn(
-          'font-display text-[34px] font-extrabold leading-none tracking-[-0.03em]',
-          action ? 'text-acc' : 'text-text'
-        )}
-      >
-        {value}
-      </div>
-    </>
-  );
-  if (onClick)
-    return (
-      <button type="button" onClick={onClick} className={cls}>
-        {inner}
-      </button>
-    );
-  return <div className={cls}>{inner}</div>;
-}
-
-// ── combined graph (requested vs on-the-list, grouped per event) ──────────────
-// One chart, two bars per event on a SHARED y-scale so the comparison is honest.
-// Hovering (desktop) or tapping (touch) a column reveals a tooltip with both
-// exact numbers — the bars themselves stay number-free so 8 events read clean.
-function ComboChart({
-  data,
-}: {
-  data: { id: string; label: string; live: boolean; requested: number; onList: number }[];
-}): JSX.Element {
-  const [active, setActive] = useState<number | null>(null);
-  const H = 168;
-  const top = Math.max(...data.flatMap((d) => [d.requested, d.onList]), 1);
-  const last = data.length - 1;
-  const barH = (v: number): number => (v <= 0 ? 0 : Math.max((v / top) * (H - 16), 3));
-  return (
-    <div className="card flex min-w-0 flex-col rounded-[22px] border border-line bg-elev p-[22px]">
-      {/* header + legend */}
-      <div className="mb-5 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
-        <div className="min-w-0">
-          <div className="font-display text-[16.5px] font-bold tracking-[-0.01em] text-text">
-            {t.home.graphComboTitle}
-          </div>
-          <div className="mt-0.5 text-[12.5px] text-faint">{t.home.graphComboSub}</div>
-        </div>
-        <div className="flex items-center gap-[14px]">
-          <span className="inline-flex items-center gap-[7px] font-body text-[12px] font-semibold text-dim">
-            <span className="h-[10px] w-[10px] rounded-[3px] bg-acc-soft" />
-            {t.home.legRequested}
-          </span>
-          <span className="inline-flex items-center gap-[7px] font-body text-[12px] font-semibold text-dim">
-            <span className="h-[10px] w-[10px] rounded-[3px] bg-acc" />
-            {t.home.legOnList}
-          </span>
-        </div>
-      </div>
-
-      {/* plot */}
-      <div className="relative mb-[10px]" style={{ height: H }}>
-        <div className="pointer-events-none absolute inset-0 flex flex-col justify-between">
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className={i === 3 ? 'h-px bg-line' : 'h-px bg-line2'} />
-          ))}
-        </div>
-        <div className="relative flex h-full items-end gap-1">
-          {data.map((d, i) => {
-            const on = active === i;
-            return (
-              <button
-                type="button"
-                key={d.id}
-                aria-label={`${d.label}: ${d.requested} ${t.home.legRequested}, ${d.onList} ${t.home.legOnList}`}
-                onMouseEnter={() => setActive(i)}
-                onMouseLeave={() => setActive((cur) => (cur === i ? null : cur))}
-                onClick={() => setActive((cur) => (cur === i ? null : i))}
-                className="group relative flex h-full min-w-0 flex-1 items-end justify-center rounded-[8px] transition-colors"
-                style={{ background: on ? 'rgba(255,255,255,0.04)' : undefined }}
-              >
-                <span className="flex h-full items-end justify-center gap-[4px] px-0.5">
-                  <span
-                    className="w-full max-w-[15px] rounded-[5px_5px_2px_2px] bg-acc-soft transition-[height,filter] duration-300 group-hover:brightness-110"
-                    style={{ height: barH(d.requested), minWidth: 6 }}
-                  />
-                  <span
-                    className="relative w-full max-w-[15px] rounded-[5px_5px_2px_2px] bg-acc transition-[height,filter] duration-300 group-hover:brightness-110"
-                    style={{ height: barH(d.onList), minWidth: 6 }}
-                  >
-                    {d.live && (
-                      <span className="absolute -top-[3px] left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-white motion-safe:animate-pulse" />
-                    )}
-                  </span>
-                </span>
-
-                {on && (
-                  <span
-                    className={cn(
-                      'absolute bottom-[calc(100%+8px)] z-10 w-max max-w-[200px] rounded-[12px] border border-line bg-elev2 p-[10px_12px] text-left shadow-[0_10px_34px_rgba(0,0,0,0.5)]',
-                      i === 0 ? 'left-0' : i === last ? 'right-0' : 'left-1/2 -translate-x-1/2'
-                    )}
-                  >
-                    <span className="mb-1.5 block truncate font-display text-[13px] font-bold text-text">{d.label}</span>
-                    <span className="flex items-center justify-between gap-5 font-body text-[12.5px]">
-                      <span className="inline-flex items-center gap-[6px] text-dim">
-                        <span className="h-[9px] w-[9px] rounded-[2px] bg-acc-soft" />
-                        {t.home.legRequested}
-                      </span>
-                      <span className="font-display font-extrabold text-text">{d.requested}</span>
-                    </span>
-                    <span className="mt-1 flex items-center justify-between gap-5 font-body text-[12.5px]">
-                      <span className="inline-flex items-center gap-[6px] text-dim">
-                        <span className="h-[9px] w-[9px] rounded-[2px] bg-acc" />
-                        {t.home.legOnList}
-                      </span>
-                      <span className="font-display font-extrabold text-text">{d.onList}</span>
-                    </span>
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="flex gap-1">
-        {data.map((d, i) => (
-          <div
-            key={d.id}
-            className={cn(
-              'min-w-0 flex-1 truncate px-0.5 text-center font-body text-[10.5px] font-semibold',
-              active === i ? 'text-text' : d.live ? 'text-acc-soft' : 'text-faint'
-            )}
-          >
-            {d.label}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
+// PulseTile lives in ./home-pulse and ComboChart in ./home-chart (z8uq9m0hw4).
 // Count / ActionBtn / EventRow moved to ../event-row (shared with the door picker).
 
 // ── search + filter ───────────────────────────────────────────────────────────
@@ -322,7 +155,7 @@ function Pagination({
           type="button"
           disabled={page === 0}
           onClick={() => setPage(page - 1)}
-          className={cn('flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line bg-elev', press, page === 0 ? 'text-ghost' : 'text-dim')}
+          className={cn('flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line bg-elev', press, pagerHit, page === 0 ? 'text-ghost' : 'text-dim')}
         >
           <Icon name="back" size={17} />
         </button>
@@ -334,6 +167,7 @@ function Pagination({
             className={cn(
               'h-[38px] min-w-[38px] rounded-[11px] border font-display text-[14px] font-bold',
               press,
+              pagerHit,
               i === page ? 'border-transparent bg-acc text-on-acc' : 'border-line bg-elev text-dim'
             )}
           >
@@ -344,7 +178,7 @@ function Pagination({
           type="button"
           disabled={page === pages - 1}
           onClick={() => setPage(page + 1)}
-          className={cn('flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line bg-elev', press, page === pages - 1 ? 'text-ghost' : 'text-dim')}
+          className={cn('flex h-[38px] w-[38px] items-center justify-center rounded-[11px] border border-line bg-elev', press, pagerHit, page === pages - 1 ? 'text-ghost' : 'text-dim')}
         >
           <Icon name="chev" size={17} />
         </button>
@@ -562,14 +396,7 @@ export function Home(): JSX.Element {
           {/* greeting */}
           {nav.canGoBack && (
             <div>
-              <button
-                type="button"
-                onClick={nav.back}
-                aria-label={t.shared.kit.back}
-                className="flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.975]"
-              >
-                <Icon name="back" size={20} />
-              </button>
+              <BackBtn onClick={nav.back} />
             </div>
           )}
           <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end lg:gap-4">
@@ -596,20 +423,15 @@ export function Home(): JSX.Element {
                 )}
               </div>
             </div>
-            {showNewGuest && (
-              <div className="flex gap-2.5">
-                <Btn
-                  sm
-                  icon="plus"
-                  onClick={() => {
-                    setGuestQuery('');
-                    setGuestPickOpen(true);
-                  }}
-                >
-                  {t.home.newGuest}
-                </Btn>
-              </div>
-            )}
+            <HomeHeaderActions
+              isAdmin={isAdmin}
+              showNewGuest={showNewGuest}
+              onNewEvent={() => nav.push('eventedit', { isNew: true })}
+              onNewGuest={() => {
+                setGuestQuery('');
+                setGuestPickOpen(true);
+              }}
+            />
           </div>
 
           {isAdmin && billingLock.blocked && (
@@ -637,6 +459,9 @@ export function Home(): JSX.Element {
                 label={t.home.pulseRequests}
                 value={pulse.requests}
                 action={pulse.requests > 0}
+                // Pulsing count badge (z8uq9m0hw4): the same OPEN definition as
+                // the nav badge, so Home and the sidebar/More tab always agree.
+                badge={pulse.requests}
                 // 'landing' is aanvragen's own default (approvals.tsx: `initialTab ?? 'landing'`)
                 // — omit it rather than pass it explicitly, so the URL for the
                 // default view stays /app/requests (routes.ts's round-trip
@@ -784,14 +609,7 @@ export function Home(): JSX.Element {
             {t.home.pickEventForGuest}
           </h2>
           {pickable.length === 0 ? (
-            <div className="flex flex-col items-center gap-4 py-6 text-center">
-              <p className="text-[14px] text-faint">{t.home.noUpcomingToday}</p>
-              {isAdmin && !billingLock.blocked && (
-                <Btn sm kind="primary" icon="cal" onClick={() => { setGuestPickOpen(false); nav.push('eventedit', { isNew: true }); }}>
-                  {t.home.newEvent}
-                </Btn>
-              )}
-            </div>
+            <NoUpcomingEvents text={t.home.noUpcomingToday} onNewEvent={() => setGuestPickOpen(false)} />
           ) : (
             <>
               <div className="mb-3 flex w-full items-center gap-[11px] rounded-[14px] border border-line bg-bg px-[15px] py-[11px]">

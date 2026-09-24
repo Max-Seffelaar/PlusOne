@@ -40,6 +40,11 @@ settings"):
 - Local mirror: `config.toml` → `[auth] enable_signup = false`
   (`GOTRUE_DISABLE_SIGNUP=true`). Note: do **not** set `[auth.email].enable_signup`
   — in the CLI that key toggles the whole email provider off.
+- **Platform (system) admin is not an invite-flow role.** `user_profiles.is_platform_admin`
+  is a boolean outside `venue_role[]`, only writable through `public.set_platform_admin()`.
+  The first platform admin on a fresh project has no dashboard toggle — bootstrap it with
+  the one-line SQL runbook in the header of `supabase/migrations/20260923120000_platform_admin.sql`
+  (decision #49, CLAUDE.md §Non-negotiable architecture decisions).
 
 ## 2. Token lifetimes & sessions (Authentication → Sessions / JWT)
 
@@ -90,10 +95,24 @@ Local mirror: `[auth.email] otp_length = 6`, `otp_expiry = 600`.
 
 ### Email template must show the code
 
-The OTP/Magic-Link email template **must include `{{ .Token }}`** so the user
-sees the 6-digit code (not only a link). The Supabase default template already
-includes both a link and "enter the code: {{ .Token }}" — if you customise it,
-keep the token. Template editor: **Authentication → Email Templates → Magic Link**.
+**Every** template that can be the first mail a user acts on must include
+`{{ .Token }}` so the user sees the 6-digit code (not only a link) — the login
+screen promises a code, and a template without one is a dead end (P-01,
+`z8uq9m0tnq`: a beta invitee got the *Confirm signup* mail, which carried no
+code at all, while `/login` asked for one). That means **all three** of
+`magic_link.html`, `invite.html` and `confirmation.html`, which now each render
+the code above the button. Template editor: **Authentication → Email
+Templates**.
+
+> ⚠️ **Re-paste all three templates after this change** (Magic Link, Invite
+> user, Confirm signup) — the dashboard copies are snapshots, not links to the
+> repo.
+
+The prod template is the committed **`supabase/templates/magic_link.html`**: paste
+that file into the Magic Link editor verbatim, subject **`Your PlusOne login code`**
+(the same subject `config.toml` sets locally). It carries the `{{ .Token }}` code
+and the one-tap `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink&next=/app`
+link. Its copy says the code "works for 10 minutes", which is the OTP expiry above.
 
 ### Invite email → must use the SSR `token_hash` route (REQUIRED)
 
@@ -101,25 +120,97 @@ keep the token. Template editor: **Authentication → Email Templates → Magic 
 `inviteUserByEmail`. For the **server-side** session to come up, the link must hit
 our own `/auth/confirm` route with a `token_hash` — a raw PKCE `code` link can't be
 exchanged from an e-mail click (there is no verifier cookie), so the default
-`{{ .ConfirmationURL }}` template will *silently fail to log the invitee in*. Edit
-**Authentication → Email Templates → "Invite user"** to:
+`{{ .ConfirmationURL }}` template will *silently fail to log the invitee in*. Set
+**Authentication → Email Templates → "Invite user"** to the committed
+**`supabase/templates/invite.html`**, pasted verbatim, subject
+**`You've been invited to PlusOne`**. Every link in it (button, Outlook fallback,
+paste-this-link fallback) has this format:
 
 ```html
-<h2>You've been invited to PlusOne</h2>
-<p>Accept your invite and set up access:</p>
-<p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite&next=/app">Accept the invite</a></p>
+<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=invite&amp;next=/app">
 ```
+
+`&amp;` is just the HTML-escaped `&` inside an attribute: the mail client resolves
+it to `…&type=invite&next=/app`, the same URL as before.
 
 - **Site URL** (§6) must be the production app URL — it is the `{{ .SiteURL }}` base.
 - `{{ .TokenHash }}` + `type=invite` are verified statelessly by `/auth/confirm`
   (`verifyOtp`), which then runs `accept_pending_invites()` and lands them at `/app`.
 - The **"Magic Link"** template (above) already drives the *existing-user* invite
   notification (a user from another venue, #24) — same token_hash / 6-digit code.
-- **Local mirror (since T1 PR b):** both templates are committed under
+- **Local mirror (since T1 PR b):** the templates are committed under
   `supabase/templates/` and wired in `config.toml`
-  (`[auth.email.template.invite]` / `[auth.email.template.magic_link]`), so the
-  Mailpit e-mails carry the same clickable `/auth/confirm` links as prod should.
-  Restart the local stack after changing them.
+  (`[auth.email.template.invite]` / `[auth.email.template.magic_link]` /
+  `[auth.email.template.confirmation]`), so the Mailpit e-mails carry the same
+  clickable `/auth/confirm` links as prod should. Restart the local stack after
+  changing them.
+
+### Confirm signup email (NOT dormant — invitees receive it)
+
+Public signups are **off** (`[auth].enable_signup = false`, invite-only, §1), so
+nobody can trigger this mail from outside. It is still sent to real users:
+inviting an address that **already has an unconfirmed account** (any re-invite or
+resend — `sendInviteEmail` calls `inviteUserByEmail` first) makes GoTrue treat it
+as a re-confirmation and send the **Confirm signup** template instead of the
+Invite one. That is how a beta invitee ended up with a code-less mail in P-01.
+Treat this template as a live, user-facing mail: set
+**Authentication → Email Templates → "Confirm signup"** to the committed
+**`supabase/templates/confirmation.html`**, pasted verbatim, subject
+**`Confirm your PlusOne account`**. Like the invite, its links skip
+`{{ .ConfirmationURL }}` for the same server-side-session reason and go through our
+route with `type=signup` (which `/auth/confirm` accepts):
+
+```html
+<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=signup&amp;next=/app">
+```
+
+### One-time tokens are single-use AND single-slot (P-01 finding)
+
+Measured against the local stack (GoTrue v2.195.0) on 2026-09-23, with
+`auth.one_time_tokens` read before and after each step:
+
+- GoTrue keeps **exactly one row per `(user_id, token_type)`**. An invite, a
+  re-invite and a "Confirm signup" mail all write the **same**
+  `confirmation_token` slot, so **sending a second mail silently invalidates the
+  first mail's link**. The older link then fails with GoTrue's "One-time token
+  not found" / `otp_expired` — the exact 403 a prod invitee hit on 2026-09-23
+  (`/verify 403` at 09:39:31).
+- A token is **consumed on first successful use**; a second click on the same
+  link returns the same error. Anything that opens the link before the human
+  does (mail scanners, link previewers, a tapped-twice button) therefore burns
+  it.
+- Practical rules: only ever hand out the **newest** link for an address, and
+  never resend while someone is mid-click. `scripts/invite-link.mjs` mints a new
+  token by design — the link it prints supersedes every earlier one.
+- **There are only two slots that matter**, and the verify types inside one are
+  interchangeable: `invite` ≡ `signup` (`confirmation_token`) and `magiclink` ≡
+  `email` ≡ `recovery` (`recovery_token`). Slot-level isolation therefore does
+  not exist — a recovery token verifies as `type=magiclink` with or without any
+  app-side fallback. That is safe only because password auth, and so password
+  recovery, is disabled project-wide (#20): **revisit the fallback the day
+  password recovery is enabled.**
+- Link verification is tolerant of the declared `type` on this GoTrue version
+  (an invite token verified fine as `signup`, its 6-digit code fine as `email`),
+  but that is not guaranteed across versions, so `/auth/confirm` and the login
+  form both fall back (`src/features/auth/verify-fallback.ts`). The link path
+  tries **one type per slot** — the declared type, then one type from the other
+  slot — so a click costs at most two verifies: it runs server-side from one
+  shared Vercel egress IP and GoTrue rate-limits `/verify` per IP. `email_change`
+  and `recovery` never fall back and are never fallback targets.
+- `scripts/invite-link.mjs` **refuses an address without an account** and exits;
+  do not remove that check. `admin.generateLink({type:'invite'})` *creates* the
+  auth user when it does not exist (the service role bypasses "signups
+  disabled"), so a typo in a production run would otherwise mint a real account
+  outside the invite-only invariant. With the check in place, running it against
+  prod is safe: the worst a typo does is exit 1.
+- It also picks the link type from the account's state: `invite` for a
+  never-confirmed account, `magiclink` for a confirmed one. Do not "just use
+  magiclink" — GoTrue happily **mints** a magic link for a never-confirmed
+  account and then refuses to complete it, so the operator hands out a link that
+  dies on click (measured, 2026-09-23).
+- A dead link is no longer a dead end: `/auth/confirm` bounces to
+  `/login?error=link`, which explains what happened and puts the "Send code"
+  step in front of the user.
 
 ## 4. MFA / TOTP (Authentication → Multi-Factor)
 
@@ -157,7 +248,7 @@ stricter via the dashboard.
 
 ## 6. URLs (Authentication → URL Configuration)
 
-- **Site URL**: the production app URL (e.g. `https://app.plusone.nl`).
+- **Site URL**: the production app URL `https://app.plus-one.io`.
 - **Redirect URLs** (allow-list): include `…/auth/callback` and `…/auth/confirm`
   for every environment (the confirm route handles the e-mail-change link).
 - Local mirror: `[auth] site_url`, `additional_redirect_urls`.

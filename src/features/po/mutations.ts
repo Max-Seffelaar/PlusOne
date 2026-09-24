@@ -121,6 +121,11 @@ import { revokeOwnSessionAction, adminRevokeSessionAction } from '@/features/aut
 import { updateMemberRolesAction, removeMemberAction, updateVenueSettingsAction } from '@/features/venues/actions';
 import { setDefaultQuotaAction } from '@/features/quotas/default-quota-actions';
 import { createCheckoutSessionAction, createPortalSessionAction } from '@/features/billing/actions';
+import {
+  inviteBetaCustomerAction,
+  resendBetaInviteAction,
+  revokeBetaInviteAction,
+} from '@/features/platform/invite-actions';
 import type { VenueRole } from '@/features/auth/roles';
 import type { Guest, Tier } from '@/lib/po/types';
 import type { CheckinArrival, PoRequestLink } from './queries';
@@ -392,11 +397,14 @@ export function usePoPromoteGuestToContact(eventId: string) {
   ));
 }
 
+// A removal also drops the contact's "N× on a list" count in the address book.
+// Inactive queries are only marked stale here, so this costs nothing until the
+// Contacts screen is opened again.
 export function usePoRemoveGuest(eventId: string) {
   const qc = useQueryClient();
   return useMutation(guestMutation(qc, eventId,
     async (guestId: string) => throwOnError(await removeGuest(guestId)),
-    [...TIERS_KEY(eventId), CONTACT_PROFILE_KEY],
+    [...TIERS_KEY(eventId), CONTACT_PROFILE_KEY, CONTACTS_KEY],
   ));
 }
 
@@ -1590,6 +1598,7 @@ export interface PoVenueSettingsInput {
   postalCode: string;
   city: string;
   country: string;
+  website: string;
 }
 
 /** Update the active venue's settings + company profile (admin-only in the action). */
@@ -1613,6 +1622,7 @@ export function usePoUpdateVenueSettings() {
       fd.set('postalCode', input.postalCode);
       fd.set('city', input.city);
       fd.set('country', input.country);
+      fd.set('website', input.website);
       return throwOnActionError(await updateVenueSettingsAction(NO_PREV, fd));
     },
     onSuccess: () => {
@@ -1651,5 +1661,65 @@ export function usePoBillingPortal() {
       if (!res.ok) throw new Error(res.message);
       return res.url;
     },
+  });
+}
+
+// ── Platform (system) admin surface — open-beta invites (P-04) ──────────────
+// All three reuse the P-03 `(prev, FormData) → PlatformActionState` server
+// actions unchanged: every statement there runs through the user-scoped client,
+// so RLS + the DB-side throttle stay the boundary. Nothing offline-critical
+// here, so a plain server action is correct (#37 checklist: online-only write).
+
+/** Invalidate both platform reads after any invite write — the funnel is a SQL
+ *  aggregate over every row, so it moves whenever the list does. */
+function invalidatePlatform(qc: QueryClient): void {
+  void qc.invalidateQueries({ queryKey: poKeys.platformInvites() });
+  void qc.invalidateQueries({ queryKey: poKeys.platformFunnel() });
+}
+
+export interface PlatformInviteInput {
+  email: string;
+  note: string;
+}
+
+/** Invite a customer into the open beta (e-mail + optional operator note). */
+export function usePoInviteBetaCustomer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: PlatformInviteInput) => {
+      const fd = new FormData();
+      fd.set('email', input.email);
+      if (input.note.trim()) fd.set('note', input.note.trim());
+      return throwOnActionError(await inviteBetaCustomerAction(NO_PREV, fd));
+    },
+    // Also on error: the action records the row BEFORE the mail, so a failed
+    // send ("use Resend") still changed the list the operator is looking at.
+    onSettled: () => invalidatePlatform(qc),
+  });
+}
+
+/** Re-send the invite mail for an open row. */
+export function usePoResendBetaInvite() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (inviteId: string) => {
+      const fd = new FormData();
+      fd.set('inviteId', inviteId);
+      return throwOnActionError(await resendBetaInviteAction(NO_PREV, fd));
+    },
+    onSettled: () => invalidatePlatform(qc),
+  });
+}
+
+/** Stop following up on an invite (soft stamp — see the screen's copy). */
+export function usePoRevokeBetaInvite() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (inviteId: string) => {
+      const fd = new FormData();
+      fd.set('inviteId', inviteId);
+      return throwOnActionError(await revokeBetaInviteAction(NO_PREV, fd));
+    },
+    onSettled: () => invalidatePlatform(qc),
   });
 }

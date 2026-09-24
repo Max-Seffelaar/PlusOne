@@ -3,6 +3,12 @@ import { EMAIL_RE } from './validation';
 
 const uuid = z.string().uuid();
 
+/** Missing-contact messages (86eyke279). Shared by the "absent", "empty string"
+ *  and "whitespace only" cases so all three read identically to the requester —
+ *  the field is missing, the shape is not the complaint. */
+const EMAIL_REQUIRED = 'Enter your email address';
+const PHONE_REQUIRED = 'Enter your phone number';
+
 /** Trimmed free text that treats an empty string as "not provided". */
 const optionalText = (max: number) =>
   z
@@ -13,9 +19,13 @@ const optionalText = (max: number) =>
     .transform((v) => (v && v.length > 0 ? v : undefined));
 
 /**
- * Public landing-page submission (#12). Name is the only required field; the
- * rest is optional (#9: more data is better, but never mandatory). `company` is
- * a honeypot — a hidden field real users leave empty; the server action drops
+ * Public landing-page submission (#12). Name, e-mail AND phone are all
+ * required (86eyke279, 2026-08-19 — narrows #9's "never mandatory" for THIS
+ * path only: a venue that approves a guest must be able to reach them). The
+ * rest stays optional. Enforced again inside the SECURITY DEFINER
+ * `submit_guest_request` RPC (migration 20260819110000) — this schema only
+ * guards the app path, the RPC guards the raw anon call. `company` is a
+ * honeypot — a hidden field real users leave empty; the server action drops
  * the request silently when it is filled.
  */
 export const submitGuestRequestSchema = z.object({
@@ -29,24 +39,25 @@ export const submitGuestRequestSchema = z.object({
   fullName: z.string().trim().min(2, 'Enter your name').max(120),
   // Same shape check as the form's inline `isValidEmail` (validation.ts) — a
   // request that passes client-side never gets silently rejected here.
+  // Required (86eyke279). `.trim()` runs before `.min(1)` in Zod's ordered
+  // check list, so '   ' collapses to '' and fails "required" rather than
+  // sneaking through as a non-empty string; a non-string (null included) is
+  // already rejected by `z.string()` itself.
   email: z
-    .string()
+    .string({ required_error: EMAIL_REQUIRED, invalid_type_error: EMAIL_REQUIRED })
     .trim()
+    .min(1, EMAIL_REQUIRED)
     .max(254)
-    .regex(EMAIL_RE, 'Invalid email')
-    .optional()
-    .or(z.literal(''))
-    .transform((v) => (v && v.length > 0 ? v : undefined)),
+    .regex(EMAIL_RE, 'Invalid email'),
   // Phone arrives already normalised to E.164 by the form (libphonenumber); it
   // must carry a country code or it is useless to the venue. Canonical E.164
-  // shape (+ then up to 15 digits) so no valid international number is rejected.
+  // shape (+ then up to 15 digits) so no valid international number is
+  // rejected. Required since 86eyke279, same empty-value handling as e-mail.
   phone: z
-    .string()
+    .string({ required_error: PHONE_REQUIRED, invalid_type_error: PHONE_REQUIRED })
     .trim()
-    .regex(/^\+[1-9]\d{1,14}$/, 'Invalid phone number')
-    .optional()
-    .or(z.literal(''))
-    .transform((v) => (v && v.length > 0 ? v : undefined)),
+    .min(1, PHONE_REQUIRED)
+    .regex(/^\+[1-9]\d{1,14}$/, 'Invalid phone number'),
   plusOnes: z.coerce.number().int().min(0).max(20).default(0),
   motivation: optionalText(1000),
   // Optional birthdate (#8) — captured into the venue address book. ISO date.
@@ -68,11 +79,31 @@ export const submitGuestRequestSchema = z.object({
 });
 export type SubmitGuestRequestInput = z.input<typeof submitGuestRequestSchema>;
 
-/** Admin/organizer approves a landing request and assigns a tier (#12/#31). */
+/** Cap on the venue's message to the requester (z8uq9m0hw6). The DB holds the
+ *  same cap twice: the `guest_requests_decision_message_check` CHECK and the
+ *  approve_guest_request RPC. The message (`guest_requests.decision_message`)
+ *  is untrusted plain text typed by venue staff: the status page renders it as
+ *  a React text node, and the transactional mail that will send it (ClickUp
+ *  86ey6bn05) MUST HTML-escape it, never interpolate it into markup raw. */
+export const DECISION_MESSAGE_MAX = 280;
+
+/**
+ * Admin/organizer approves a landing request and assigns a tier (#12/#31).
+ *
+ * z8uq9m0hw6 — two optional extras, both omitted by a plain approval so the
+ * RPC call keeps the 2-arg shape the pre-migration function also accepts:
+ *   * `plusOnes`: approve for FEWER plus-ones than requested. Only the bounds
+ *     every request shares are checked here (0..20, the submit cap); "never
+ *     above THIS request" needs the row and is enforced by the RPC (23514).
+ *   * `message`: plain text for the requester's status page. Trimmed; blank
+ *     means none.
+ */
 export const approveGuestRequestSchema = z.object({
   requestId: uuid,
   tierId: uuid,
   eventId: uuid.optional(),
+  plusOnes: z.number().int().min(0).max(20).optional(),
+  message: optionalText(DECISION_MESSAGE_MAX),
 });
 export type ApproveGuestRequestInput = z.input<typeof approveGuestRequestSchema>;
 
@@ -100,3 +131,27 @@ export const submitGuestRequestResultSchema = z.object({
   status: z.enum(['ok', 'rate_limited', 'closed', 'invalid']),
   auto_approved: z.unknown().optional(),
 });
+
+/**
+ * Result shape of the `get_request_status` RPC (jsonb) for a FOUND token.
+ * Anything else (`{found:false}`, a drifted shape) fails this parse and the
+ * page renders the neutral not-found (#28). Only the keys every deployed
+ * version of the function has returned are required; the z8uq9m0hw6 additions
+ * are `nullish()` so a page deployed ahead of that migration still renders the
+ * old payload instead of calling a real request "not found".
+ */
+export const requestStatusPayloadSchema = z.object({
+  found: z.literal(true),
+  status: z.enum(['pending', 'approved', 'denied']),
+  full_name: z.string().nullish(),
+  plus_ones: z.number().int().min(0).nullish(),
+  event_name: z.string().min(1),
+  starts_at: z.string().nullish(),
+  ends_at: z.string().nullish(),
+  approved_plus_ones: z.number().int().min(0).nullish(),
+  decision_message: z.string().nullish(),
+  venue_address_line: z.string().nullish(),
+  venue_postal_code: z.string().nullish(),
+  venue_city: z.string().nullish(),
+});
+export type RequestStatusPayload = z.infer<typeof requestStatusPayloadSchema>;

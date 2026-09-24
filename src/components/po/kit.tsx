@@ -6,10 +6,12 @@
  * pixel values use arbitrary Tailwind values so the visual output matches the
  * handoff. Interaction: hover `brightness(1.07)`, active `scale(0.975)`.
  */
-import type { CSSProperties, JSX, ReactNode } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import type { CSSProperties, JSX, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
-import { t } from '@/lib/i18n';
+import { t, fmt } from '@/lib/i18n';
 import type { Tier } from '@/lib/po/types';
+import { TIER_COLORS, tierInk, tintTier } from '@/lib/po/tier-colors';
 import { Icon, type IconName } from './icon';
 
 // FE-4: the canonical press/cardPress feels — 26 files hand-rolled a local copy
@@ -30,14 +32,50 @@ export function initials(name: string): string {
 }
 
 // ── Avatar ──────────────────────────────────────────────────────────────────
-export function Avatar({ name, size = 44, accent }: { name: string; size?: number; accent?: boolean }): JSX.Element {
+/**
+ * Initials bubble. Three fills, in priority order:
+ *
+ * - `color` — the guest's TIER colour (ADE round, item I). Ink comes from
+ *   `tierInk` so a dark custom tier stays legible, and the border goes
+ *   transparent so the shape reads as one solid chip of the tier.
+ *   With `dim` it drops to the door's low-alpha tint + white ink, the same
+ *   recipe the cockpit uses for a guest who is already inside.
+ * - `accent` — the lavender brand fill, for NON-guest uses (venue, own profile,
+ *   "already imported"). Never use it to mean "VIP": a tier's real colour is
+ *   `color`, and the two disagreed for every non-lavender VIP-ish tier.
+ * - neither — the neutral elevated fill.
+ */
+export function Avatar({
+  name,
+  size = 44,
+  accent,
+  color,
+  dim,
+}: {
+  name: string;
+  size?: number;
+  accent?: boolean;
+  /** Tier colour (#RRGGBB) to fill with — wins over `accent`. */
+  color?: string;
+  /** Low-alpha tint of `color` + white ink (guest already inside). */
+  dim?: boolean;
+}): JSX.Element {
+  const style: CSSProperties = { width: size, height: size, borderRadius: size * 0.32, fontSize: size * 0.34 };
+  if (color) {
+    style.background = dim ? tintTier(color, 0.14) : color;
+    style.color = dim ? '#FFFFFF' : tierInk(color);
+  }
   return (
     <div
       className={cn(
-        'flex shrink-0 items-center justify-center font-display font-bold tracking-[-0.02em]',
-        accent ? 'bg-acc text-on-acc border border-transparent' : 'bg-elev2 text-text border border-line',
+        'flex shrink-0 items-center justify-center border font-display font-bold tracking-[-0.02em]',
+        color
+          ? 'border-transparent'
+          : accent
+            ? 'bg-acc text-on-acc border-transparent'
+            : 'bg-elev2 text-text border-line',
       )}
-      style={{ width: size, height: size, borderRadius: size * 0.32, fontSize: size * 0.34 }}
+      style={style}
     >
       {initials(name)}
     </div>
@@ -77,6 +115,57 @@ export function StatusDot({ status, label = true }: { status: 'in' | 'wait'; lab
 }
 
 // ── PayChip ─────────────────────────────────────────────────────────────────
+// ── SyncDot ─────────────────────────────────────────────────────────────────
+/**
+ * Connection traffic light (spec §4 point 4). Shared by the mobile door's
+ * SyncBar and the desktop Check-in cockpit header (z8uq9m0hw4), so both read
+ * the same state in the same colours. The status comes from
+ * `deriveSyncStatus` (features/door/sync/status.ts). Deliberately outside the
+ * single-accent palette: live = mint, stale = gold (both already tier colours),
+ * warn = red. The ping ring only runs while live, and only under motion-safe.
+ */
+export const SYNC_STATUS_COLOR = { live: '#4FD1A1', stale: '#E8C98A', warn: '#E5704F' } as const;
+export type SyncDotStatus = keyof typeof SYNC_STATUS_COLOR;
+
+export function SyncDot({ status }: { status: SyncDotStatus }): JSX.Element {
+  const color = SYNC_STATUS_COLOR[status];
+  return (
+    <span aria-hidden className="relative flex h-[10px] w-[10px] shrink-0 items-center justify-center">
+      {status === 'live' && (
+        <span
+          className="absolute inline-flex h-full w-full rounded-full opacity-60 motion-safe:animate-ping"
+          style={{ background: color }}
+        />
+      )}
+      <span className="relative inline-flex h-[9px] w-[9px] rounded-full" style={{ background: color }} />
+    </span>
+  );
+}
+
+// ── CountBadge ──────────────────────────────────────────────────────────────
+/**
+ * Lavender count bubble for "needs your attention" numbers (open requests).
+ * Same look as the nav/tab-bar badge. `pulse` adds a slow ping ring behind it
+ * (z8uq9m0hw4, Home's Open requests tile) that only runs under motion-safe, so
+ * prefers-reduced-motion gets the static bubble. Renders nothing at 0.
+ */
+export function CountBadge({ n, pulse, className }: { n: number; pulse?: boolean; className?: string }): JSX.Element | null {
+  if (n <= 0) return null;
+  return (
+    <span className={cn('relative inline-flex shrink-0', className)}>
+      {pulse && (
+        <span
+          aria-hidden
+          className="absolute inset-0 rounded-full bg-acc opacity-50 motion-safe:animate-ping motion-safe:[animation-duration:2s]"
+        />
+      )}
+      <span className="relative flex h-[20px] min-w-[20px] items-center justify-center rounded-full border-2 border-bg bg-acc px-[5px] font-display text-[11px] font-extrabold leading-none text-on-acc">
+        {n}
+      </span>
+    </span>
+  );
+}
+
 export function PayChip({ pay }: { pay: string }): JSX.Element | null {
   if (pay !== 'pay') return null;
   return (
@@ -267,6 +356,58 @@ export function TierPicker({
 }
 
 // ── Field (input or static display) ──────────────────────────────────────────
+// ── Select ───────────────────────────────────────────────────────────────────
+/**
+ * A native `<select>` in the Field's own skin — the `po` kit had no dropdown
+ * primitive before P-05's audit-viewer venue filter needed one. Native
+ * (not a custom listbox) on purpose: with up to hundreds of venues, a native
+ * `<select>` gets free virtualisation, keyboard nav, and screen-reader
+ * support the button-list `Sheet` pattern (see `audit.tsx`'s FilterSheet)
+ * doesn't scale to. `ariaLabel` mirrors `Field`'s own prop for a filter bar
+ * where the visible `Label` sits above rather than wrapping the control.
+ */
+export function Select({
+  value,
+  onChange,
+  options,
+  placeholder,
+  ariaLabel,
+  icon,
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: readonly { value: string; label: string }[];
+  /** The unselected/"all" option's label, e.g. "All venues". */
+  placeholder?: string;
+  ariaLabel?: string;
+  icon?: IconName;
+  className?: string;
+}): JSX.Element {
+  return (
+    <div className={cn('flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]', className)}>
+      {icon && (
+        <span className="text-faint">
+          <Icon name={icon} size={19} />
+        </span>
+      )}
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={ariaLabel}
+        className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none"
+      >
+        {placeholder != null && <option value="">{placeholder}</option>}
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 export function Field({
   icon,
   placeholder,
@@ -277,6 +418,8 @@ export function Field({
   inputMode,
   maxLength,
   className,
+  ariaLabel,
+  onKeyDown,
 }: {
   icon?: IconName;
   placeholder?: string;
@@ -284,9 +427,12 @@ export function Field({
   onChange?: (v: string) => void;
   autoFocus?: boolean;
   type?: string;
-  inputMode?: 'text' | 'numeric' | 'email' | 'tel';
+  inputMode?: 'text' | 'numeric' | 'decimal' | 'email' | 'tel';
   maxLength?: number;
   className?: string;
+  /** Accessible name for an input with no visible label (e.g. an inline search). */
+  ariaLabel?: string;
+  onKeyDown?: (e: ReactKeyboardEvent<HTMLInputElement>) => void;
 }): JSX.Element {
   return (
     <div className={cn('flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]', className)}>
@@ -304,12 +450,52 @@ export function Field({
           type={type}
           inputMode={inputMode}
           maxLength={maxLength}
+          aria-label={ariaLabel}
+          onKeyDown={onKeyDown}
           className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none placeholder:text-faint"
         />
       ) : (
         <span className={cn('min-w-0 flex-1 font-body text-[16px]', value ? 'text-text' : 'text-faint')}>{value || placeholder}</span>
       )}
     </div>
+  );
+}
+
+// ── TextArea (multi-line Field) ──────────────────────────────────────────────
+// Same skin as Field. 16px text on purpose: iOS zooms into any smaller field.
+export function TextArea({
+  value,
+  onChange,
+  placeholder,
+  maxLength,
+  rows = 3,
+  autoFocus,
+  ariaLabel,
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  maxLength?: number;
+  rows?: number;
+  autoFocus?: boolean;
+  ariaLabel?: string;
+  className?: string;
+}): JSX.Element {
+  return (
+    <textarea
+      autoFocus={autoFocus}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      maxLength={maxLength}
+      rows={rows}
+      aria-label={ariaLabel}
+      className={cn(
+        'w-full resize-none rounded-field border border-line bg-elev px-[15px] py-[13px] font-body text-[16px] leading-[1.4] text-text outline-none placeholder:text-faint focus:border-acc',
+        className,
+      )}
+    />
   );
 }
 
@@ -379,6 +565,38 @@ export function Row({
   );
 }
 
+// ── Tap targets ──────────────────────────────────────────────────────────────
+/**
+ * Tap-target floor (CLAUDE.md: >= 44px) for the prototype's 40px icon chips.
+ * The chip keeps its visible 40px so header geometry doesn't move; an invisible
+ * `::before` ring reaches 2px past every edge, making the pointer hit area
+ * 44x44. The inset is 3px because an absolute box is placed against the
+ * *padding* box: 1px of it goes to the chip's own 1px border. The ring is part
+ * of the button, so a tap on it is a tap on the button. Chips sit `gap-2` (8px)
+ * apart, so neighbouring rings never overlap. Pinned by `kit.tap-target.test.tsx`,
+ * which also fails CI on any new sub-44 button.
+ *
+ * Smaller row/card controls use the same ring with their own inset, written out
+ * next to the control: (44 - visible) / 2 + border width per side, lopsided
+ * where a neighbour is closer on one side (door `SyncBar`, cockpit `MiniBtn`).
+ * Tailwind only sees literal class strings, so the insets can't be computed.
+ */
+export const hitArea44 = "relative before:absolute before:-inset-[3px] before:content-['']";
+
+/** The header back chip (`Top`'s `onBack`, and Home's back when it was pushed). */
+export function BackBtn({ onClick }: { onClick?: () => void }): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text', press, hitArea44)}
+      aria-label={t.shared.kit.back}
+    >
+      <Icon name="back" size={20} />
+    </button>
+  );
+}
+
 // ── Top (screen header) ──────────────────────────────────────────────────────
 export function Top({
   title,
@@ -393,11 +611,7 @@ export function Top({
   right?: ReactNode;
   sub?: ReactNode;
 }): JSX.Element {
-  const backBtn = (
-    <button type="button" onClick={onBack} className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text', press)} aria-label={t.shared.kit.back}>
-      <Icon name="back" size={20} />
-    </button>
-  );
+  const backBtn = <BackBtn onClick={onBack} />;
   if (big) {
     return (
       <div className="flex-none px-5 pb-[14px] pt-2">
@@ -426,11 +640,14 @@ export function IconBtn({
   name,
   onClick,
   ariaLabel,
+  className,
 }: {
   name: IconName;
   onClick?: () => void;
   /** Accessible name (also shown as a hover tooltip) for icon-only buttons with no visible label. */
   ariaLabel?: string;
+  /** Size/tone overrides, e.g. `h-[44px] w-[44px]` for an in-list trigger. */
+  className?: string;
 }): JSX.Element {
   return (
     <button
@@ -438,7 +655,7 @@ export function IconBtn({
       onClick={onClick}
       aria-label={ariaLabel}
       title={ariaLabel}
-      className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text', press)}
+      className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text', press, hitArea44, className)}
     >
       <Icon name={name} size={19} />
     </button>
@@ -455,6 +672,11 @@ export function Scroll({ children, pad = 20, bottom = 24, className }: { childre
 }
 
 // ── Toggle / ToggleRow ───────────────────────────────────────────────────────
+// The 46x28 switch is wide enough; the ring adds 8px above and below (44 tall),
+// which stays inside ToggleRow's 13px vertical padding. `inset-x-0` is needed:
+// with left/right left at auto the empty ::before is 0px wide and hits nothing.
+const toggleHit = "relative before:absolute before:inset-x-0 before:-inset-y-[8px] before:content-['']";
+
 export function Toggle({ on, onClick }: { on: boolean; onClick?: () => void }): JSX.Element {
   return (
     <button
@@ -462,7 +684,7 @@ export function Toggle({ on, onClick }: { on: boolean; onClick?: () => void }): 
       onClick={onClick}
       role="switch"
       aria-checked={on}
-      className={cn('flex h-[28px] w-[46px] cursor-pointer rounded-full p-[3px] transition-colors', press, on ? 'justify-end bg-acc' : 'justify-start bg-elev2')}
+      className={cn('flex h-[28px] w-[46px] cursor-pointer rounded-full p-[3px] transition-colors', press, toggleHit, on ? 'justify-end bg-acc' : 'justify-start bg-elev2')}
     >
       <span className={cn('block h-[22px] w-[22px] rounded-full', on ? 'bg-on-acc' : 'bg-faint')} />
     </button>
@@ -481,6 +703,49 @@ export function ToggleRow({ title, sub, on, set, last }: { title: string; sub?: 
   );
 }
 
+// ── ColorSwatches (tier colour picker) ───────────────────────────────────────
+// Was copied into the tier sheet, the add-guest tier form and the template tier
+// editor. 34px dots 10px apart, wrapping: each ring reaches 5px past the dot
+// (inset 7 = 5 + the 2px border), so every dot hits at 44x44 and neighbouring
+// rings meet without overlapping, across wrapped rows too.
+const swatchHit = "relative before:absolute before:-inset-[7px] before:content-['']";
+
+export function ColorSwatches({
+  value,
+  onPick,
+  isDisabled,
+  className,
+}: {
+  value: string;
+  onPick: (color: string) => void;
+  isDisabled?: (color: string) => boolean;
+  className?: string;
+}): JSX.Element {
+  return (
+    <div className={cn('flex flex-wrap gap-[10px]', className)}>
+      {TIER_COLORS.map((c) => {
+        const disabled = isDisabled?.(c) ?? false;
+        return (
+          <button
+            key={c}
+            type="button"
+            disabled={disabled}
+            aria-disabled={disabled}
+            onClick={() => !disabled && onPick(c)}
+            className={cn(
+              'h-[34px] w-[34px] shrink-0 rounded-full border-2 transition-[filter]',
+              swatchHit,
+              disabled ? 'cursor-not-allowed opacity-30' : 'cursor-pointer hover:brightness-[1.1]',
+            )}
+            style={{ background: c, borderColor: value === c ? '#FFFFFF' : 'transparent' }}
+            aria-label={fmt(t.events.colorAria, { color: c })}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Note / Empty / MiniChip ──────────────────────────────────────────────────
 export function Note({ children, icon = 'shield' }: { children: ReactNode; icon?: IconName }): JSX.Element {
   return (
@@ -495,6 +760,225 @@ export function Note({ children, icon = 'shield' }: { children: ReactNode; icon?
 
 export function Empty({ text }: { text: string }): JSX.Element {
   return <div className="py-[30px] text-center text-[14px] text-faint">{text}</div>;
+}
+
+// ── PageNav ──────────────────────────────────────────────────────────────────
+/**
+ * Prev/next pager for a server-windowed list (offset/limit RPC), plus an
+ * optional "X of Y" summary. Added with the Platform venue overview + audit
+ * viewer (P-05) as a kit primitive — any screen that pages a windowed read
+ * (never "load everything and paginate in JS") reaches for this instead of
+ * inventing its own buttons.
+ */
+export function PageNav({
+  summary,
+  hasPrev,
+  hasNext,
+  onPrev,
+  onNext,
+  prevLabel,
+  nextLabel,
+}: {
+  summary?: string;
+  hasPrev: boolean;
+  hasNext: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+  prevLabel: string;
+  nextLabel: string;
+}): JSX.Element {
+  return (
+    <div className="mt-3 flex items-center justify-between gap-3">
+      {summary ? <span className="text-[12px] text-faint">{summary}</span> : <span />}
+      <div className="flex gap-2">
+        <Btn kind="ghost" sm className="min-h-[44px]" disabled={!hasPrev} onClick={onPrev}>
+          {prevLabel}
+        </Btn>
+        <Btn kind="ghost" sm className="min-h-[44px]" disabled={!hasNext} onClick={onNext}>
+          {nextLabel}
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
+// ── StatTile ─────────────────────────────────────────────────────────────────
+/**
+ * One number with its label: the smallest "here is a count" unit. Added with
+ * the Platform funnel strip (P-04) as a kit primitive rather than a local
+ * component, because it is the same shape every dashboard/funnel row wants.
+ * Stack them in a `flex`/`grid` container; the tile itself is full-width and
+ * sizes to its parent, so a 2-up on mobile and a 5-up on desktop is a parent
+ * class, not a variant here.
+ */
+export function StatTile({
+  label,
+  value,
+  accent,
+  muted,
+}: {
+  label: string;
+  value: number | string;
+  /** The one lavender tile in a strip (the step that matters right now). */
+  accent?: boolean;
+  /** A terminal/park state (e.g. "Stopped") — present but not a goal. */
+  muted?: boolean;
+}): JSX.Element {
+  return (
+    <div
+      className={cn(
+        'min-w-0 rounded-[14px] border px-[12px] py-[11px]',
+        accent ? 'border-acc/40 bg-acc-dim' : 'border-line bg-elev',
+      )}
+    >
+      <div
+        className={cn(
+          'font-display text-[22px] font-extrabold leading-none tracking-[-0.02em]',
+          muted ? 'text-faint' : accent ? 'text-acc' : 'text-text',
+        )}
+      >
+        {value}
+      </div>
+      <div className="mt-[6px] text-[11.5px] leading-[1.3] text-faint">{label}</div>
+    </div>
+  );
+}
+
+// ── GuideCard ────────────────────────────────────────────────────────────────
+/**
+ * The lavender-bordered "here's your next step" card: icon, bold title, one
+ * line of body, optional action buttons underneath. Was inlined as the event
+ * setup nudge (EventView); now shared with the new-event tiers step
+ * (z8uq9m0hw3). Louder than a `Note`, which explains; this one leads.
+ */
+export function GuideCard({
+  icon = 'spark',
+  title,
+  body,
+  actions,
+  className,
+}: {
+  icon?: IconName;
+  title: string;
+  body: string;
+  /** Buttons under the text (kit `Btn sm`), wrapped on narrow screens. */
+  actions?: ReactNode;
+  className?: string;
+}): JSX.Element {
+  return (
+    <div className={cn('mb-3 rounded-[18px] border bg-elev p-4', className)} style={{ borderColor: 'rgba(181,166,255,0.4)' }}>
+      <div className="flex gap-[11px]">
+        <span className="mt-px shrink-0 text-acc">
+          <Icon name={icon} size={19} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="font-display text-[15.5px] font-bold text-text">{title}</div>
+          <p className="mt-1 text-[12.5px] leading-[1.45] text-faint">{body}</p>
+        </div>
+      </div>
+      {actions && <div className="mt-3 flex flex-wrap gap-[10px]">{actions}</div>}
+    </div>
+  );
+}
+
+// ── InfoTip ──────────────────────────────────────────────────────────────────
+/**
+ * A 44x44 "i" button that explains the control beside it (ADE UX round, item D).
+ * One DOM node for both densities: an anchored popover from `lg:` up, a bottom
+ * sheet with a dimmed backdrop below it — no media-query JS, so it behaves the
+ * same in a Capacitor webview (#37). Closes on Escape, on an outside tap and on
+ * its own close button; the panel is wired to the button via `aria-describedby`.
+ * All copy comes from the caller's i18n surface — the kit ships no strings.
+ */
+export function InfoTip({
+  label,
+  title,
+  body,
+  closeLabel,
+  className,
+}: {
+  /** Accessible name for the "i" button, e.g. "What the sign-up link does". */
+  label: string;
+  title: string;
+  body: string;
+  closeLabel: string;
+  className?: string;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
+  const wrapRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent): void => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <span ref={wrapRef} className={cn('relative inline-flex', className)}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label={label}
+        aria-expanded={open}
+        aria-describedby={open ? panelId : undefined}
+        className={cn(
+          'flex h-[44px] w-[44px] cursor-pointer items-center justify-center rounded-full text-faint',
+          press,
+          open && 'text-acc',
+        )}
+      >
+        <span
+          className={cn(
+            'flex h-[19px] w-[19px] items-center justify-center rounded-full border border-current font-display text-[12px] font-bold leading-none',
+          )}
+          aria-hidden="true"
+        >
+          i
+        </span>
+      </button>
+      {open && (
+        <>
+          {/* Touch only: the sheet gets a backdrop; the desktop popover doesn't. */}
+          <span className="fixed inset-0 z-40 bg-[rgba(6,6,8,0.6)] backdrop-blur-[2px] lg:hidden" />
+          <span
+            id={panelId}
+            role="dialog"
+            aria-label={title}
+            className={cn(
+              // The extra bottom padding keeps the sheet's content clear of the
+              // mobile tab bar (which sits in normal flow under this overlay).
+              'fixed inset-x-0 bottom-0 z-50 block rounded-t-[22px] border border-line bg-elev p-[18px] pb-[calc(80px+env(safe-area-inset-bottom))] text-left shadow-[0_-16px_40px_rgba(0,0,0,0.55)]',
+              'lg:absolute lg:inset-x-auto lg:bottom-auto lg:left-0 lg:top-[calc(100%+6px)] lg:w-[300px] lg:rounded-[16px] lg:p-4 lg:shadow-[0_16px_40px_rgba(0,0,0,0.55)]',
+            )}
+          >
+            <span className="block font-display text-[15.5px] font-extrabold tracking-[-0.01em] text-text">{title}</span>
+            <span className="mt-1.5 block text-[13px] leading-[1.5] text-faint">{body}</span>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className={cn(
+                'mt-3 flex h-[44px] w-full cursor-pointer items-center justify-center rounded-[12px] border border-line font-display text-[13px] font-bold text-dim lg:h-[36px]',
+                press,
+              )}
+            >
+              {closeLabel}
+            </button>
+          </span>
+        </>
+      )}
+    </span>
+  );
 }
 
 // ── Spinner / Loading ─────────────────────────────────────────────────────────
@@ -534,4 +1018,54 @@ export function MiniChip({ children, className, onClick }: { children: ReactNode
     );
   }
   return <span className={cls}>{children}</span>;
+}
+
+// ── ActionItem ───────────────────────────────────────────────────────────────
+/**
+ * One choice in a "…" action sheet: icon badge + verb-first label + an optional
+ * one-line sub (the current value it changes). Stack them inside a `Sheet`
+ * (shell.tsx). `danger` is the destructive choice, which goes last and asks for
+ * a confirm of its own. At least 52px tall, so the tap target clears 44px.
+ */
+export function ActionItem({
+  icon,
+  label,
+  sub,
+  danger,
+  disabled,
+  onClick,
+}: {
+  icon: IconName;
+  label: ReactNode;
+  sub?: ReactNode;
+  danger?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'flex min-h-[52px] w-full items-center gap-[12px] rounded-[13px] border px-[13px] py-[10px] text-left',
+        press,
+        'disabled:pointer-events-none disabled:opacity-50',
+        danger ? 'border-red-500/25 bg-red-500/[0.05] text-red-300' : 'border-line bg-bg text-text',
+      )}
+    >
+      <span
+        className={cn(
+          'flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-[10px]',
+          danger ? 'bg-red-500/15 text-red-300' : 'bg-elev2 text-dim',
+        )}
+      >
+        <Icon name={icon} size={16} sw={2} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-display text-[14.5px] font-bold">{label}</span>
+        {sub && <span className="mt-px block truncate font-body text-[12px] text-faint">{sub}</span>}
+      </span>
+    </button>
+  );
 }

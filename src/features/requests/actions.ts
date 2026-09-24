@@ -85,13 +85,16 @@ export async function submitGuestRequest(input: SubmitGuestRequestInput): Promis
   const statusToken = randomBytes(32).toString('base64url');
   const statusTokenHash = createHash('sha256').update(statusToken).digest('hex');
 
-  // Optionals collapse to '' — the RPC treats '' as "not provided" (and the
-  // generated arg types are non-nullable strings).
+  // email/phone are required by the schema (86eyke279) and already trimmed +
+  // shape-checked, so they go through as-is; the remaining optionals collapse
+  // to '' — the RPC treats '' as "not provided" (and the generated arg types
+  // are non-nullable strings). The RPC re-checks both fields itself: this
+  // action is not the boundary, the SECURITY DEFINER function is.
   const { data, error } = await supabase.rpc('submit_guest_request', {
     p_slug: slug,
     p_full_name: fullName,
-    p_email: email ?? '',
-    p_phone: phone ?? '',
+    p_email: email,
+    p_phone: phone,
     p_plus_ones: plusOnes,
     p_motivation: motivation ?? '',
     p_ip_hash: ipHash,
@@ -143,12 +146,18 @@ export async function submitGuestRequest(input: SubmitGuestRequestInput): Promis
 /**
  * Approve a request → create the guest (source=landing, #31) and mark the
  * request approved, atomically via the RPC (re-checks admin/organizer, applies
- * tier-max). A full tier surfaces as 45002.
+ * tier-max / capacity / link-max). A full tier surfaces as 45002.
+ *
+ * z8uq9m0hw6: optionally for fewer plus-ones and with a message for the
+ * requester's status page. Both are sent ONLY when set, so a plain approval
+ * stays the 2-arg call the pre-migration function also resolves (the app may
+ * deploy before the schema push). The RPC is the boundary for "never above the
+ * request" and the message cap; this schema only rejects obvious garbage.
  */
 export async function approveGuestRequest(input: ApproveGuestRequestInput): Promise<ActionResult> {
   const parsed = approveGuestRequestSchema.safeParse(input);
   if (!parsed.success) return invalidInput(parsed.error.issues[0]?.message);
-  const { requestId, tierId, eventId } = parsed.data;
+  const { requestId, tierId, eventId, plusOnes, message } = parsed.data;
 
   const supabase = await createClient();
   const {
@@ -159,6 +168,8 @@ export async function approveGuestRequest(input: ApproveGuestRequestInput): Prom
   const { error } = await supabase.rpc('approve_guest_request', {
     p_request_id: requestId,
     p_tier_id: tierId,
+    ...(plusOnes !== undefined ? { p_plus_ones: plusOnes } : {}),
+    ...(message !== undefined ? { p_message: message } : {}),
   });
   if (error) return mapMutationError(error);
 
@@ -181,8 +192,10 @@ export async function denyGuestRequest(input: DenyGuestRequestInput): Promise<Ac
   } = await supabase.auth.getUser();
   if (!user) return unauthorized();
 
-  // RLS (guest_requests_decide) pins status='pending', the actor, and the
-  // admin/organizer role; a stale/decided request simply matches no row.
+  // RLS (guest_requests_decide) pins status='pending' -> 'denied', the actor,
+  // and the admin/organizer role; a stale/decided request simply matches no row.
+  // authenticated may UPDATE only these four columns (20260919150000), so adding
+  // a field here needs a column grant in a migration first.
   const { error } = await supabase
     .from('guest_requests')
     .update({

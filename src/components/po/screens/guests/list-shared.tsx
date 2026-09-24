@@ -1,10 +1,11 @@
 'use client';
 
-import { type JSX, useRef } from 'react';
+import { type JSX, type ReactNode, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { cn } from '@/lib/utils';
-import type { Guest as GuestT } from '@/lib/po/types';
+import type { Guest as GuestT, PoEvent } from '@/lib/po/types';
 import { DEFAULT_TIER_COLOR, tierInk, tintTier } from '@/lib/po/tier-colors';
+import { guestSourceLabel } from '@/features/po/format';
 import { t, fmt } from '@/lib/i18n';
 import { Icon } from '../../icon';
 import { Avatar, Btn, PayChip, StatusDot } from '../../kit';
@@ -17,18 +18,129 @@ import { press, cardPress, TierPill } from './_shared';
 // only a file-boundary move.
 
 /** Scope chip for the Guests-tab event picker ("All events" + each event). */
-export function ScopeChip({ on, onClick, children }: { on: boolean; onClick: () => void; children: string }): JSX.Element {
+export function ScopeChip({
+  on,
+  onClick,
+  children,
+  ariaExpanded,
+}: {
+  on: boolean;
+  onClick: () => void;
+  children: ReactNode;
+  ariaExpanded?: boolean;
+}): JSX.Element {
   return (
     <button
       type="button"
       onClick={onClick}
+      aria-expanded={ariaExpanded}
       className={cn(
-        'shrink-0 whitespace-nowrap rounded-full border px-3 py-[7px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.07]',
+        'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-[7px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.07]',
         on ? 'border-transparent bg-text text-bg' : 'border-line bg-transparent text-dim',
       )}
     >
       {children}
     </button>
+  );
+}
+
+/** Thin separator between chip groups. */
+function ChipDivider(): JSX.Element {
+  return <span className="mx-1 h-4 w-px shrink-0 bg-line" />;
+}
+
+/** Past events stay collapsed past this many chips (item H) — a venue with four
+ *  years of history must not push "Regulars" a screen and a half to the right. */
+const PAST_CHIPS_CAP = 12;
+
+/**
+ * The Guests-tab scope row (item H): All events → the upcoming events, soonest
+ * first → a "Past" toggle that reveals past events inline (most recent first,
+ * capped, with "Show all") → the Regulars filter, always last.
+ *
+ * Deliberately not persisted: the row reopens closed on every visit, so the
+ * default view is always "what's coming up". Picking a past event leaves the
+ * group open, so the selected chip never hides itself.
+ */
+export function GuestScopeChips({
+  events,
+  scope,
+  onScope,
+  regularsOnly,
+  onToggleRegulars,
+}: {
+  events: PoEvent[];
+  scope: string | null;
+  onScope: (id: string | null) => void;
+  regularsOnly: boolean;
+  onToggleRegulars: () => void;
+}): JSX.Element {
+  const [pastOpen, setPastOpen] = useState(false);
+  const [allPast, setAllPast] = useState(false);
+  // `events` arrives newest-first (starts_at desc). Upcoming reads best the other
+  // way round (what's next comes first); past keeps most-recent-first.
+  const upcoming = useMemo(() => events.filter((e) => e.when === 'upcoming').reverse(), [events]);
+  const past = useMemo(() => events.filter((e) => e.when === 'past'), [events]);
+  const pastShown = allPast ? past : past.slice(0, PAST_CHIPS_CAP);
+
+  return (
+    <div className="flex-none overflow-x-auto px-4 pb-3">
+      <div className="flex w-max items-center gap-1.5">
+        <ScopeChip on={scope === null} onClick={() => onScope(null)}>
+          {t.guests.list.allScope}
+        </ScopeChip>
+        {upcoming.map((e) => (
+          <ScopeChip key={e.id} on={scope === e.id} onClick={() => onScope(e.id)}>
+            {e.name}
+          </ScopeChip>
+        ))}
+        {past.length > 0 && (
+          <>
+            <ChipDivider />
+            <ScopeChip on={pastOpen} ariaExpanded={pastOpen} onClick={() => setPastOpen((v) => !v)}>
+              {t.guests.list.pastScope}
+              <Icon name="chevD" size={12} className={cn('transition-transform', pastOpen && 'rotate-180')} />
+            </ScopeChip>
+            {pastOpen &&
+              pastShown.map((e) => (
+                <ScopeChip key={e.id} on={scope === e.id} onClick={() => onScope(e.id)}>
+                  {e.name}
+                </ScopeChip>
+              ))}
+            {pastOpen && past.length > pastShown.length && (
+              <button
+                type="button"
+                onClick={() => setAllPast(true)}
+                className={cn(
+                  'shrink-0 whitespace-nowrap rounded-full px-3 py-[7px] font-display text-[12.5px] font-bold text-acc',
+                  press,
+                )}
+              >
+                {t.guests.list.pastShowAll}
+              </button>
+            )}
+          </>
+        )}
+        <ChipDivider />
+        <button
+          type="button"
+          onClick={onToggleRegulars}
+          aria-pressed={regularsOnly}
+          className={cn(
+            'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-[7px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.07]',
+            regularsOnly ? 'border-transparent bg-acc-dim text-acc' : 'border-line bg-transparent text-dim',
+          )}
+        >
+          <Icon
+            name="star"
+            size={12}
+            fill={regularsOnly ? '#B5A6FF' : 'none'}
+            stroke={regularsOnly ? '#B5A6FF' : 'currentColor'}
+          />
+          {t.guests.list.regularsFilter}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -95,6 +207,18 @@ export function BulkTierSheet({
 // Mobile card ≈ avatar 34 + py-8 + one line (denser, feedback Joeri); desktop row ≈ avatar 36 + py-11.
 const GUEST_CARD_EST = 52;
 const GUEST_ROW_EST = 58;
+// Select column = one 44px tap target (CLAUDE.md floor). The header box (18px)
+// and the row dot (20px) sit centred in it, and each ring (technique: kit
+// `hitArea44`) fills the column: (44 - size) / 2 + the 2px border per side.
+// The header row is 44 tall (py 13 around the 18px box) so its ring fits too.
+const selectAllHit = "relative before:absolute before:-inset-[15px] before:content-['']";
+const selectRowHit = "relative before:absolute before:-inset-[14px] before:content-['']";
+
+/** The row's provenance caption ("Added by Sanne", "Sign-up link · Joeri") —
+ *  empty for a row that predates the field (mock/optimistic) so nothing renders. */
+function sourceLine(g: GuestT): string {
+  return g.source ? guestSourceLabel({ source: g.source, addedByName: g.addedByName, linkLabel: g.linkLabel }) : '';
+}
 
 /** Virtualized mobile card list (own scroll parent → the virtualizer windows it).
  *  Long-press (≥350ms) enters multi-select mode for the pressed card. */
@@ -188,15 +312,23 @@ export function GuestCardList({
                       {isSelected && <Icon name="check2" size={11} stroke="#0B0B0D" sw={2.8} />}
                     </span>
                   ) : (
-                    <Avatar name={g.name} size={34} accent={g.role === 'VIP'} />
+                    // Tier colour on the avatar (item I). A non-refused card is
+                    // ALREADY painted in the tier colour, so a same-colour bubble
+                    // would vanish into it — there the neutral avatar stays the
+                    // contrast element and the row itself carries the tier.
+                    <Avatar name={g.name} size={34} color={isRefused ? tierBg : undefined} />
                   )}
                   <span className="flex min-w-0 flex-1 flex-col" style={ink ? { color: ink } : undefined}>
                     <span className={cn('truncate font-display text-[14.5px] font-bold', isRefused && 'text-text')}>
                       {g.name}
                       {g.plus > 0 && <span className={cn('font-semibold', isRefused ? 'text-faint' : 'opacity-70')}> +{g.plus}</span>}
                     </span>
-                    {g.eventName && (
-                      <span className={cn('truncate font-body text-[11px]', isRefused ? 'text-faint' : 'opacity-70')}>{g.eventName}</span>
+                    {/* One subline: event (venue-wide mode only) + where the name
+                        came from (item J). Joined so the card keeps its density. */}
+                    {(g.eventName || sourceLine(g)) && (
+                      <span className={cn('truncate font-body text-[11px]', isRefused ? 'text-faint' : 'opacity-70')}>
+                        {[g.eventName, sourceLine(g)].filter(Boolean).join(' · ')}
+                      </span>
                     )}
                   </span>
                   {g.note && !isSelected && (
@@ -261,15 +393,15 @@ export function GuestTable({
     overscan: 12,
     getItemKey: (i) => rows[i]?.id ?? i,
   });
-  const cols = 'grid-cols-[40px_1fr_120px_120px_170px]';
+  const cols = 'grid-cols-[44px_1fr_120px_120px_170px]';
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
   return (
     <div ref={scrollRef} className="po-scroll hidden min-h-0 flex-1 overflow-y-auto lg:block" style={{ padding: '0 16px 24px' }}>
       <div className="overflow-hidden rounded-[16px] border border-line bg-elev">
         <table className="w-full border-collapse text-left">
           <thead className="sticky top-0 z-[1]">
-            <tr className={cn('grid bg-elev2', cols, '[&>th]:px-3 [&>th]:py-[11px] [&>th]:font-body [&>th]:text-[11px] [&>th]:font-bold [&>th]:uppercase [&>th]:tracking-[0.04em] [&>th]:text-faint')}>
-              <th className="!pl-3">
+            <tr className={cn('grid bg-elev2', cols, '[&>th]:px-3 [&>th]:py-[13px] [&>th]:font-body [&>th]:text-[11px] [&>th]:font-bold [&>th]:uppercase [&>th]:tracking-[0.04em] [&>th]:text-faint')}>
+              <th className="!pl-[13px]">
                 <button
                   type="button"
                   // Toggle on pointerdown, not click: in the virtualized table a
@@ -283,6 +415,7 @@ export function GuestTable({
                   aria-pressed={allSelected}
                   className={cn(
                     'flex h-[18px] w-[18px] items-center justify-center rounded-[5px] border-2 transition-colors',
+                    selectAllHit,
                     allSelected ? 'border-acc bg-acc' : 'border-ghost bg-transparent hover:border-dim',
                   )}
                 >
@@ -321,7 +454,7 @@ export function GuestTable({
                     className="!pl-3"
                     // Toggle on pointerdown (see the header checkbox): the trusted
                     // click gets cancelled by the virtualized re-render, pointerdown
-                    // does not. Covers clicks on the whole 40px column, not just the
+                    // does not. Covers clicks on the whole 44px column, not just the
                     // 20px dot. onClick handles keyboard focus only. (T11)
                     onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); onToggle(g.id); }}
                     onClick={(e) => { e.stopPropagation(); }}
@@ -332,6 +465,7 @@ export function GuestTable({
                       aria-label={isSelected ? 'Deselect' : 'Select'}
                       className={cn(
                         'flex h-[20px] w-[20px] items-center justify-center rounded-full border-2 transition-colors',
+                        selectRowHit,
                         isSelected ? 'border-acc bg-acc' : 'border-ghost bg-transparent hover:border-dim',
                       )}
                     >
@@ -340,14 +474,23 @@ export function GuestTable({
                   </td>
                   <td>
                     <div className="flex items-center gap-[11px]">
-                      <Avatar name={g.name} size={36} accent={g.role === 'VIP'} />
+                      {/* Tier colour on the avatar (item I); a guest who is already
+                          inside gets the door's dimmed tint, same as the cockpit. */}
+                      <Avatar
+                        name={g.name}
+                        size={36}
+                        color={g.tierColor ?? DEFAULT_TIER_COLOR}
+                        dim={g.status === 'in'}
+                      />
                       <span className="min-w-0">
                         <span className="font-display text-[14.5px] font-bold text-text">
                           {g.name}
                           {g.plus > 0 && <span className="font-semibold text-faint"> +{g.plus}</span>}
                         </span>
-                        {g.eventName && (
-                          <span className="mt-0.5 block max-w-[280px] truncate text-[12px] text-faint">{g.eventName}</span>
+                        {(g.eventName || sourceLine(g)) && (
+                          <span className="mt-0.5 block max-w-[280px] truncate text-[12px] text-faint">
+                            {[g.eventName, sourceLine(g)].filter(Boolean).join(' · ')}
+                          </span>
                         )}
                         {g.note && (
                           <span className="mt-0.5 block max-w-[280px] truncate text-[12px] text-acc-soft">{g.note}</span>

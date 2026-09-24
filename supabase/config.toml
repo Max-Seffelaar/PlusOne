@@ -54,6 +54,12 @@ content_path = "./supabase/templates/invite.html"
 subject = "Your PlusOne login code"
 content_path = "./supabase/templates/magic_link.html"
 
+# Only sent if public signup is ever switched on (enable_signup = false above:
+# invite-only). Same token_hash route, type=signup.
+[auth.email.template.confirmation]
+subject = "Confirm your PlusOne account"
+content_path = "./supabase/templates/confirmation.html"
+
 # Mandatory MFA for admin/finance is enforced in-app + RLS; the factor type is
 # TOTP (decision #20). Enrollment/verification must be enabled here.
 [auth.mfa.totp]

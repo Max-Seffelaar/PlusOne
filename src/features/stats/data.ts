@@ -101,6 +101,9 @@ export interface PickerEvent {
   id: string;
   name: string;
   startsAt: string;
+  /** Needed for the event's phase (z8uq9m0hw4): the stats panel names its
+   *  not-checked-in tile by it, and the picker defaults to the latest started. */
+  endsAt: string | null;
   status: Database['public']['Enums']['event_status'];
 }
 
@@ -108,7 +111,7 @@ export interface PickerEvent {
 export async function fetchVenueEvents(client: Client, venueId: string): Promise<PickerEvent[]> {
   const { data, error } = await client
     .from('events')
-    .select('id, name, starts_at, status')
+    .select('id, name, starts_at, ends_at, status')
     .eq('venue_id', venueId)
     .order('starts_at', { ascending: false });
 
@@ -120,6 +123,7 @@ export async function fetchVenueEvents(client: Client, venueId: string): Promise
     id: e.id,
     name: e.name,
     startsAt: e.starts_at,
+    endsAt: e.ends_at,
     status: e.status,
   }));
 }

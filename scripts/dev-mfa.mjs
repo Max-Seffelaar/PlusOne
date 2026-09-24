@@ -8,6 +8,9 @@
 //      Re-running this fixes it without a disruptive reset.
 //   2. Stamps a fixed TOTP secret on the MFA accounts (see below).
 //   3. Mints a one-click magic-link login for a venue-less owner.
+//   4. Flags admin@plusone.test as a PLATFORM admin (P-02/P-04) so the Platform
+//      tab is reachable locally. Not in seed.sql on purpose — see
+//      ensurePlatformAdmin() below.
 //
 // Creating a venue makes you admin, and admin/finance MFA is mandatory (#20), so
 // every fresh test account would otherwise force a brand-new TOTP enrollment. This
@@ -157,6 +160,38 @@ function ensureOnboardingRpcs() {
   }
 }
 
+/**
+ * Make admin@plusone.test a PLATFORM admin (P-02/P-04), so the Platform tab is
+ * reachable locally without hand-running the bootstrap SQL from
+ * `20260923120000_platform_admin.sql`.
+ *
+ * Deliberately HERE and not in `supabase/seed.sql`: the pgTAP suite runs against
+ * the seeded database and uses this exact user as "a venue admin who is NOT a
+ * platform admin" (`supabase/tests/database/platform_admin.test.sql`), so
+ * flipping the flag in the seed turns 14 assertions red. `pnpm dev:mfa` is
+ * local-dev-only and is part of `pnpm db:fresh`, so the tab still comes back
+ * after a reset without the DB tests ever seeing the flag.
+ *
+ * The GUC is the guard trigger's only accepted write path (P-02 section 7);
+ * `set_config(..., true)` is transaction-local and the update is idempotent.
+ */
+function ensurePlatformAdmin() {
+  try {
+    psql(`
+      begin;
+      select set_config('plusone.platform_admin_write', 'on', true);
+      update public.user_profiles
+         set is_platform_admin = true
+       where email = 'admin@plusone.test'
+         and is_platform_admin is distinct from true;
+      commit;
+    `);
+  } catch {
+    // Pre-P-02 database (column does not exist yet) — not worth failing the run.
+    console.warn('[dev:mfa] Could not set is_platform_admin on admin@plusone.test (older schema?).');
+  }
+}
+
 async function main() {
   const { apiUrl, serviceKey } = creds();
   if (!serviceKey) {
@@ -166,6 +201,7 @@ async function main() {
 
   ensureOnboardingRpcs();
   ensureOwner();
+  ensurePlatformAdmin();
   // Stamp the fixed factor only on the rich-data seed accounts (admin/finance).
   // The venue-less owner is left factor-less ON PURPOSE so the onboarding flow
   // shows the real MFA-enroll QR step at the end.

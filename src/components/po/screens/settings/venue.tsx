@@ -8,13 +8,21 @@ import { venueCapabilities } from '@/features/venues/access';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { usePoVenueSettings } from '@/features/po/hooks';
 import { usePoUpdateVenueSettings } from '@/features/po/mutations';
+import { COUNTRIES } from '@/lib/countries';
 import { useNav, usePo } from '../../context';
 import { Icon } from '../../icon';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, Scroll, ToggleRow, Top, press } from '../../kit';
+import { SearchSelect, type SearchSelectOption } from '../../search-select';
 import { BottomBar } from '../../shell';
 import { col, FormError } from './_shared';
 
-const iconSm = 'flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border border-line text-faint';
+// 34px quota stepper; the ring reaches 5px past its 1px border (44x44). Minus and
+// plus sit 38px apart (the count between them), so the rings never meet.
+const iconSm = "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border border-line text-faint relative before:absolute before:-inset-[6px] before:content-['']";
+
+/** venues.country holds the ISO 3166-1 alpha-2 code ('NL'); the list shows the
+ *  English name with the code beside it. */
+const COUNTRY_OPTIONS: readonly SearchSelectOption[] = COUNTRIES.map((c) => ({ value: c.code, label: c.name, hint: c.code }));
 
 // ── VENUE SWITCHER (pushed) ──────────────────────────────────────────────────
 export function VenueSwitch(): JSX.Element {
@@ -37,6 +45,9 @@ export function VenueSwitch(): JSX.Element {
           <div className="flex flex-col gap-[10px]">
             {myVenues.map((v) => {
               const cur = v.venueId === activeVenueId;
+              // "Manage" opens venue settings, which only admin/finance may see
+              // (z8uq9m0hw2): anyone else would land on a "no rights" page.
+              const canManage = cur && venueCapabilities(v.roles).viewSettings;
               return (
                 <div key={v.venueId} className={cn('rounded-[18px] border p-[15px]', cur ? 'border-transparent bg-acc-dim' : 'border-line bg-elev')}>
                   <div className="flex items-center gap-[13px]">
@@ -55,17 +66,19 @@ export function VenueSwitch(): JSX.Element {
                       </div>
                     </div>
                   </div>
-                  <div className="mt-[13px] flex items-center justify-end gap-[7px]">
-                    {cur ? (
-                      <Btn sm kind="ghost" icon="cog" onClick={() => nav.push('venuesettings', { id: v.venueId })}>
-                        {t.settings.venueSwitch.manage}
-                      </Btn>
-                    ) : (
-                      <Btn sm kind="primary" icon="swap" onClick={() => switchToVenue(v.venueId)}>
-                        {t.settings.venueSwitch.switch}
-                      </Btn>
-                    )}
-                  </div>
+                  {(canManage || !cur) && (
+                    <div className="mt-[13px] flex items-center justify-end gap-[7px]">
+                      {cur ? (
+                        <Btn sm kind="ghost" icon="cog" onClick={() => nav.push('venuesettings', { id: v.venueId })}>
+                          {t.settings.venueSwitch.manage}
+                        </Btn>
+                      ) : (
+                        <Btn sm kind="primary" icon="swap" onClick={() => switchToVenue(v.venueId)}>
+                          {t.settings.venueSwitch.switch}
+                        </Btn>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -75,6 +88,51 @@ export function VenueSwitch(): JSX.Element {
           {t.settings.venueSwitch.addVenue}
         </Btn>
       </Scroll>
+    </div>
+  );
+}
+
+/** Only an http(s) URL ever becomes a live link. The Zod rule and the DB CHECK
+ *  already guarantee it; this keeps any other stored string inert. */
+const isLinkable = (url: string): boolean => /^https?:\/\//i.test(url);
+
+/** The venue's own website (z8uq9m0hw2). Admin: an input, plus a link to the
+ *  SAVED address once there is one. Read-only (finance): the saved address is
+ *  itself the tappable link. Opens in a new tab / the system browser. */
+function WebsiteField({ value, saved, onChange }: { value: string; saved: string; onChange?: (v: string) => void }): JSX.Element {
+  const link = saved !== '' && isLinkable(saved) ? saved : null;
+  if (!onChange) {
+    return link ? (
+      <a
+        href={link}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={cn('mb-[18px] flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]', press)}
+      >
+        <span className="text-faint">
+          <Icon name="link" size={19} />
+        </span>
+        <span className="min-w-0 flex-1 truncate font-body text-[16px] text-acc">{link}</span>
+        <Icon name="arrowR" size={17} className="text-faint" />
+      </a>
+    ) : (
+      <Field icon="link" value="" placeholder={t.settings.venue.websiteEmpty} className="mb-[18px]" />
+    );
+  }
+  return (
+    <div className="mb-[18px]">
+      <Field icon="link" type="url" value={value} onChange={onChange} placeholder={t.settings.venue.websitePlaceholder} />
+      {link && (
+        <a
+          href={link}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-1 inline-flex min-h-[44px] items-center gap-[6px] font-display text-[13.5px] font-bold text-acc"
+        >
+          {t.settings.venue.websiteOpen}
+          <Icon name="arrowR" size={15} />
+        </a>
+      )}
     </div>
   );
 }
@@ -104,6 +162,7 @@ export function VenueSettings(): JSX.Element {
     postalCode: '',
     city: '',
     country: 'NL',
+    website: '',
   });
   const [loaded, setLoaded] = useState(false);
 
@@ -122,13 +181,14 @@ export function VenueSettings(): JSX.Element {
         postalCode: s.postalCode,
         city: s.city,
         country: s.country,
+        website: s.website,
       });
       setLoaded(true);
     }
   }, [s, loaded]);
 
   const canEdit = caps.editSettings;
-  type StrField = 'name' | 'companyName' | 'kvkNumber' | 'vatNumber' | 'financeEmail' | 'addressLine' | 'postalCode' | 'city' | 'country';
+  type StrField = 'name' | 'companyName' | 'kvkNumber' | 'vatNumber' | 'financeEmail' | 'addressLine' | 'postalCode' | 'city' | 'country' | 'website';
   const editStr = (k: StrField, sanitize?: (v: string) => string) =>
     canEdit ? (v: string) => setForm((f) => ({ ...f, [k]: sanitize ? sanitize(v) : v })) : undefined;
 
@@ -175,7 +235,8 @@ export function VenueSettings(): JSX.Element {
     form.addressLine !== s.addressLine ||
     form.postalCode !== s.postalCode ||
     form.city !== s.city ||
-    form.country !== s.country;
+    form.country !== s.country ||
+    form.website !== s.website;
   const canSave = canEdit && dirty && form.name.trim() !== '' && !save.isPending;
 
   return (
@@ -186,8 +247,8 @@ export function VenueSettings(): JSX.Element {
 
         <Label className="mb-2">{t.settings.venue.nameLabel}</Label>
         <Field icon="building" value={form.name} onChange={editStr('name')} className="mb-[14px]" />
-        <Label className="mb-2">{t.settings.venue.landingLabel}</Label>
-        <Field icon="link" value={`plus.one/${s.slug}`} className="mb-[18px]" />
+        <Label className="mb-2">{t.settings.venue.websiteLabel}</Label>
+        <WebsiteField value={form.website} saved={s.website} onChange={editStr('website')} />
 
         <Label className="mb-[10px]">{t.settings.venue.defaultsLabel}</Label>
         <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-4 py-1">
@@ -279,10 +340,29 @@ export function VenueSettings(): JSX.Element {
           </div>
         </div>
         <Label className="mb-2">{t.settings.venue.countryFieldLabel}</Label>
-        <Field value={form.country} onChange={editStr('country')} placeholder={t.settings.venue.countryPlaceholder} className="mb-1.5" />
+        {/* A stored value that isn't a code (legacy free text) shows as-is and is
+            only replaced when the admin picks a country. */}
+        <SearchSelect
+          value={form.country}
+          options={COUNTRY_OPTIONS}
+          onChange={editStr('country')}
+          label={t.settings.venue.countryFieldLabel}
+          placeholder={t.settings.venue.countryPlaceholder}
+          searchPlaceholder={t.shared.country.searchPlaceholder}
+          searchLabel={t.shared.country.searchAria}
+          emptyText={t.shared.country.empty}
+          className="mb-1.5"
+        />
 
         <FormError error={save.isError ? save.error : null} />
         {save.isSuccess && !dirty && <p className="mt-3 text-[12.5px] text-acc-soft">{t.settings.venue.saved}</p>}
+
+        {/* With one venue the venue card lands here instead of the switcher
+            (z8uq9m0hw2), so "Add a new venue" has to live here too. */}
+        <Label className="mb-[10px] mt-[22px]">{t.settings.venueSwitch.title}</Label>
+        <Btn kind="dark" full icon="plus" onClick={() => nav.push('venuecreate')}>
+          {t.settings.venueSwitch.addVenue}
+        </Btn>
       </Scroll>
       {canEdit && (
         <BottomBar>

@@ -60,6 +60,16 @@ import {
   fetchEventLinkFunnel,
   fetchInfluencerLeaderboard,
   fetchVenueLabelFunnel,
+  fetchIsPlatformAdmin,
+  fetchPlatformInvites,
+  fetchPlatformFunnel,
+  fetchPlatformVenueOverview,
+  fetchPlatformVenueOverviewCount,
+  fetchPlatformVenueOptions,
+  fetchPlatformAuditOverview,
+  fetchPlatformAuditOverviewCount,
+  type PlatformVenueParams,
+  type PlatformAuditParams,
   type PoRequestLink,
   type PoLinkOption,
   type PoInfluencer,
@@ -97,6 +107,16 @@ import {
   toPoProfile,
   toPoVenueSettings,
   toPoSubscription,
+  toPlatformInvite,
+  toPlatformFunnel,
+  toPlatformVenue,
+  toPlatformVenueOption,
+  toPlatformAuditEntry,
+  type PlatformInvite,
+  type PlatformInviteStage,
+  type PlatformVenue,
+  type PlatformVenueOptionItem,
+  type PlatformAuditEntry,
   type PoContact,
   type PoContactProfile,
   type PoGuestRequest,
@@ -112,6 +132,14 @@ import {
   type PoSubscription,
 } from './adapters';
 import { normalizeEmail, normalizePhoneToDigits } from '@/features/contacts/import/parse';
+import {
+  contactNameMatches,
+  distinctContactNames,
+  normalizeContactName,
+  resolveContactMatches,
+  searchContactsForReuse,
+  type ContactCandidate,
+} from '@/features/guests/contact-match';
 import { usePoIdentity } from './PoLiveProvider';
 import { canWorkDoor } from '@/features/auth/roles';
 import { fetchEventStats } from '@/features/stats/data';
@@ -529,6 +557,19 @@ export function usePoEventForEdit(eventId: string) {
   });
   const isAdmin = roles.includes('admin');
   return { ...query, isAdmin, canManage: isAdmin || !!query.data?.isOrganizer };
+}
+
+/**
+ * Whether the caller may create a request link on this event (z8uq9m0hw4):
+ * admin, or organizer of that event — exactly the request_links_insert RLS.
+ * The ONE gate for every "New link" entry (Requests header, Promotion hub
+ * header + empty state), so finance (reads Promotion, can't create) never gets
+ * a button that dead-ends on RLS. `isAdmin` decides whether the create flow may
+ * offer a venue-wide event picker; everyone else stays on the one event.
+ */
+export function usePoCanCreateLink(eventId: string): { canCreate: boolean; isAdmin: boolean } {
+  const { canManage, isAdmin } = usePoEventForEdit(eventId);
+  return { canCreate: !!eventId && canManage, isAdmin };
 }
 
 /** External crew (event_organizers, #6/#24) assigned to an event. RLS limits reads
@@ -951,6 +992,46 @@ export function usePoContacts(search = '') {
   });
 }
 
+// ── Contact-by-name match (K, ADE UX round) ──
+// A name-only guest may already exist in the address book. Staff cannot SELECT
+// `contacts`, so both hooks read through `search_contacts_for_reuse` (member-
+// gated, PII-free) and keep only EXACT name matches. Failure degrades to "no
+// match": the offer is a convenience, never a gate on adding the guest.
+
+/** Exact-name contact matches for ONE typed name (quick-add). Debounce upstream. */
+export function usePoContactNameMatch(name: string) {
+  const { venueId } = usePoIdentity();
+  const key = normalizeContactName(name);
+  return useQuery<ContactCandidate[]>({
+    queryKey: [...poKeys.all, 'contact-name-match', venueId ?? '', key],
+    // < 2 characters would ilike half the address book for nothing.
+    enabled: !!venueId && key.length >= 2,
+    staleTime: 60_000,
+    queryFn: async () => {
+      if (!venueId) return [];
+      try {
+        return contactNameMatches(key, await searchContactsForReuse(createClient(), venueId, key));
+      } catch {
+        return [];
+      }
+    },
+  });
+}
+
+/** Exact-name matches for MANY names at once (bulk paste preview), keyed by the
+ *  normalized name. Distinct names only, capped and concurrency-limited. */
+export function usePoContactNameMatches(names: string[]) {
+  const { venueId } = usePoIdentity();
+  const keys = distinctContactNames(names);
+  return useQuery<Map<string, ContactCandidate[]>>({
+    queryKey: [...poKeys.all, 'contact-name-matches', venueId ?? '', keys],
+    enabled: !!venueId && keys.length > 0,
+    staleTime: 60_000,
+    queryFn: async () =>
+      venueId ? resolveContactMatches(createClient(), venueId, keys) : new Map<string, ContactCandidate[]>(),
+  });
+}
+
 /** Permanent contacts only (the Guests tab's "Regulars" filter) — derived from the unsearched list. */
 export function usePoPermanentContacts() {
   const query = usePoContacts('');
@@ -1011,6 +1092,28 @@ export function usePoPersonProfile(args: {
       });
     },
   });
+}
+
+const NO_IDS: readonly string[] = [];
+
+/**
+ * The event ids at the active venue the caller organizes (event_organizers,
+ * #6/#24). One venue-scoped read (the same fetch the Home board uses), so a
+ * screen can gate per-event guest actions for external crew without an N+1.
+ * An admin never needs it (`can_write_guests` passes admin first), so it
+ * short-circuits to an empty list without a request. RLS is still the boundary.
+ * Cached as a plain array (JSON-safe), not the fetcher's Set.
+ */
+export function usePoOrganizerEventIds(): readonly string[] {
+  const { venueId, userId, roles } = usePoIdentity();
+  const isAdmin = roles.includes('admin');
+  const { data } = useQuery<string[]>({
+    queryKey: poKeys.organizerEventIds(venueId ?? ''),
+    enabled: !!venueId && !!userId && !isAdmin,
+    queryFn: async () =>
+      venueId && userId ? [...(await fetchOrganizerEventIds(createClient(), venueId, userId))] : [],
+  });
+  return data ?? NO_IDS;
 }
 
 // ── Settings cluster reads (STAP 3.7/3.8) ──
@@ -1243,5 +1346,108 @@ export function usePoGuestHistory(guestId: string | null) {
     queryKey: poKeys.guestHistory(guestId ?? ''),
     enabled: !!guestId,
     queryFn: () => fetchPoGuestHistory(createClient(), guestId ?? ''),
+  });
+}
+
+// ── Platform (system) admin surface (P-04, z8uq9m0tnw) ──────────────────────
+
+/**
+ * Whether the signed-in user is a PlusOne platform admin.
+ *
+ * Gates the Platform nav entry only — RLS is the real boundary, so a non-admin
+ * who types `/app/platform` reaches the screen but reads nothing. Deliberately
+ * NOT venue-scoped and NOT read in the shell root: it lives in `app-chrome`
+ * beside the other chrome reads, so a refetch can never reach the door subtree
+ * (86eykm76k). One cheap select on the caller's own profile row.
+ */
+export function usePoIsPlatformAdmin(): boolean {
+  const { userId } = usePoIdentity();
+  const { data } = useQuery<boolean>({
+    queryKey: poKeys.isPlatformAdmin(userId),
+    enabled: !!userId,
+    // Effectively immutable for a session: only another platform admin can flip
+    // it, and the screen it gates re-checks against RLS anyway.
+    staleTime: 5 * 60_000,
+    queryFn: () => (userId ? fetchIsPlatformAdmin(createClient(), userId) : Promise.resolve(false)),
+  });
+  return data === true;
+}
+
+/** The open-beta invite list (server-windowed). `enabled` keeps it idle for a
+ *  non-platform-admin who lands on the URL, so we never fire a doomed RPC. */
+export function usePoPlatformInvites(options?: { enabled?: boolean }) {
+  return useQuery<PlatformInvite[]>({
+    queryKey: poKeys.platformInvites(),
+    enabled: options?.enabled ?? true,
+    queryFn: async () => (await fetchPlatformInvites(createClient())).map(toPlatformInvite),
+  });
+}
+
+/** Funnel counts over EVERY invite — a SQL GROUP BY, not a count of the page. */
+export function usePoPlatformFunnel(options?: { enabled?: boolean }) {
+  return useQuery<Record<PlatformInviteStage, number>>({
+    queryKey: poKeys.platformFunnel(),
+    enabled: options?.enabled ?? true,
+    queryFn: async () => toPlatformFunnel(await fetchPlatformFunnel(createClient())),
+  });
+}
+
+// ── Platform (system) admin surface — venue overview + audit viewer (P-05,
+// z8uq9m0tnx). Same shape as the invites hooks above: server-windowed RPCs,
+// `enabled` keeps a non-platform-admin from ever firing a doomed read.
+
+/** Server-windowed venue overview, one page at a time. */
+export function usePoPlatformVenues(
+  params: PlatformVenueParams = {},
+  options?: { enabled?: boolean }
+) {
+  return useQuery<PlatformVenue[]>({
+    queryKey: poKeys.platformVenues(params),
+    enabled: options?.enabled ?? true,
+    queryFn: async () => (await fetchPlatformVenueOverview(createClient(), params)).map(toPlatformVenue),
+  });
+}
+
+/** Total venue count matching the search filter — for "X of Y" pagination
+ *  without pulling every row. */
+export function usePoPlatformVenuesCount(search?: string, options?: { enabled?: boolean }) {
+  return useQuery<number>({
+    queryKey: poKeys.platformVenuesCount(search),
+    enabled: options?.enabled ?? true,
+    queryFn: () => fetchPlatformVenueOverviewCount(createClient(), search),
+  });
+}
+
+/** Every venue's id + name (capped server-side) for the audit filter's venue
+ *  picker. */
+export function usePoPlatformVenueOptions(options?: { enabled?: boolean }) {
+  return useQuery<PlatformVenueOptionItem[]>({
+    queryKey: poKeys.platformVenueOptions(),
+    enabled: options?.enabled ?? true,
+    queryFn: async () => (await fetchPlatformVenueOptions(createClient())).map(toPlatformVenueOption),
+  });
+}
+
+/** Server-windowed, filterable audit feed across EVERY venue. */
+export function usePoPlatformAudit(
+  params: PlatformAuditParams = {},
+  options?: { enabled?: boolean }
+) {
+  return useQuery<PlatformAuditEntry[]>({
+    queryKey: poKeys.platformAudit(params),
+    enabled: options?.enabled ?? true,
+    queryFn: async () => (await fetchPlatformAuditOverview(createClient(), params)).map(toPlatformAuditEntry),
+  });
+}
+
+/** Total audit row count matching the same filters — for "X of Y". */
+export function usePoPlatformAuditCount(
+  params: Omit<PlatformAuditParams, 'limit' | 'offset'> = {},
+  options?: { enabled?: boolean }
+) {
+  return useQuery<number>({
+    queryKey: poKeys.platformAuditCount(params),
+    enabled: options?.enabled ?? true,
+    queryFn: () => fetchPlatformAuditOverviewCount(createClient(), params),
   });
 }

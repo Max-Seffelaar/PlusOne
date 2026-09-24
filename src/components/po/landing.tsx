@@ -7,7 +7,7 @@
  *  honeypot-protected submit action; a filled honeypot still shows success.
  *  Phone is collected WITH a country code (E.164); e-mail + phone get inline
  *  validation; a marketing opt-in box records AVG consent. */
-import { type JSX, useEffect, useRef, useState, useTransition, type ReactNode } from 'react';
+import { type JSX, useEffect, useRef, useState, useTransition } from 'react';
 import Script from 'next/script';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
@@ -17,9 +17,9 @@ import { isValidEmail } from '@/features/requests/validation';
 import { CountrySelect, PhoneInput, isPhoneValid, type CountryCode } from './phone-lazy';
 import { Icon, type IconName } from './icon';
 import { fieldErrorBorder, fieldErrorText } from './kit';
+import { LandingFooter as Footer, LandingWrap as Wrap } from './landing-frame';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.985]';
-const LANDING_BG = 'radial-gradient(120% 70% at 50% -8%, #211d3a 0%, #100f18 42%, #0B0B0D 100%)';
 
 // Cloudflare Turnstile (86ey2czr6). Keyless dev/CI: without the public site
 // key the widget never renders — matches the server's verifyTurnstileToken,
@@ -148,6 +148,7 @@ function LField({
   type = 'text',
   inputMode,
   optional,
+  required,
   area,
   error,
 }: {
@@ -159,6 +160,9 @@ function LField({
   type?: string;
   inputMode?: 'text' | 'tel' | 'email';
   optional?: boolean;
+  /** Renders the "required" badge (86eyke279). Only meaningful on a form that
+   *  also has optional fields — it is the contrast that carries the message. */
+  required?: boolean;
   area?: boolean;
   error?: string | null;
 }): JSX.Element {
@@ -167,6 +171,7 @@ function LField({
       <div className="mb-[7px] flex items-center justify-between">
         <span className="text-[12px] font-bold uppercase tracking-[0.04em] text-faint">{label}</span>
         {optional && <span className="text-[11.5px] text-ghost">{t.landing.optional}</span>}
+        {required && <span className="text-[11.5px] text-faint">{t.landing.required}</span>}
       </div>
       <div className={cn('flex gap-[11px] rounded-[14px] border bg-elev px-[15px] transition-colors focus-within:border-acc', error ? fieldErrorBorder : 'border-line', area ? 'items-start py-[13px]' : 'items-center py-[14px]')}>
         <span className={cn('text-faint', area && 'mt-0.5')}>
@@ -179,23 +184,6 @@ function LField({
         )}
       </div>
       {error && <FieldError text={error} />}
-    </div>
-  );
-}
-
-function Footer(): JSX.Element {
-  return (
-    <div className="mt-[22px] flex items-center justify-center gap-[7px] text-center text-[12px] text-ghost">
-      <div className="flex h-[18px] w-[18px] items-center justify-center rounded-[6px] bg-elev2 font-display text-[9px] font-extrabold tracking-[-0.03em] text-faint">+1</div>
-      {t.landing.footer}
-    </div>
-  );
-}
-
-function Wrap({ children }: { children: ReactNode }): JSX.Element {
-  return (
-    <div className="flex min-h-[100dvh] items-center justify-center px-[18px] pb-10 pt-7 text-text" style={{ background: LANDING_BG }}>
-      <div className="po-screen-anim w-full max-w-[460px]">{children}</div>
     </div>
   );
 }
@@ -240,93 +228,6 @@ function StatusLinkBlock({ token }: { token: string }): JSX.Element {
         </button>
       </div>
     </div>
-  );
-}
-
-export type RequestStatusData = {
-  status: 'pending' | 'approved' | 'denied';
-  fullName: string;
-  plusOnes: number;
-  eventName: string;
-  date: string;
-};
-
-/** The /r/[token] status page (#28: an invalid/revoked token renders the same
- *  neutral not-found — passed as data=null). Read-only; no PII beyond what the
- *  requester submitted themselves. Explicitly NOT a ticket. */
-export function RequestStatus({ data }: { data: RequestStatusData | null }): JSX.Element {
-  if (!data) {
-    return (
-      <Wrap>
-        <div className="rounded-[24px] border border-line bg-elev px-[26px] py-[34px] text-center">
-          <div className="mx-auto mb-5 flex h-[62px] w-[62px] items-center justify-center rounded-[20px] bg-elev2">
-            <Icon name="warn" size={30} className="text-faint" />
-          </div>
-          <h1 className="m-0 mb-[10px] font-display text-[26px] font-extrabold tracking-[-0.02em]">{t.landing.statusNotFoundTitle}</h1>
-          <p className="mx-auto max-w-[330px] text-[15px] leading-[1.55] text-dim">{t.landing.statusNotFoundBody}</p>
-        </div>
-        <Footer />
-      </Wrap>
-    );
-  }
-
-  const heads = 1 + data.plusOnes;
-  const view = {
-    pending: {
-      icon: 'clock' as IconName,
-      iconBg: 'bg-elev2',
-      iconStroke: undefined,
-      title: t.landing.statusPendingTitle,
-      body: fmt(t.landing.statusPendingBody, { event: data.eventName }),
-    },
-    approved: {
-      icon: 'check2' as IconName,
-      iconBg: 'bg-acc',
-      iconStroke: '#16132B',
-      title: t.landing.statusApprovedTitle,
-      body: fmt(t.landing.statusApprovedBody, { event: data.eventName, date: data.date }),
-    },
-    denied: {
-      icon: 'warn' as IconName,
-      iconBg: 'bg-elev2',
-      iconStroke: undefined,
-      title: t.landing.statusDeniedTitle,
-      body: fmt(t.landing.statusDeniedBody, { event: data.eventName }),
-    },
-  }[data.status];
-
-  return (
-    <Wrap>
-      <div className="mb-[22px] text-center">
-        <div className="inline-flex items-center gap-2 rounded-full bg-acc-dim px-[13px] py-1.5">
-          <div className="flex h-[22px] w-[22px] items-center justify-center rounded-[7px] bg-acc font-display text-[12px] font-extrabold tracking-[-0.03em] text-on-acc">+1</div>
-          <span className="font-body text-[12.5px] font-bold text-acc-soft">{fmt(t.landing.eyebrow, { event: data.eventName })}</span>
-        </div>
-        <h1 className="m-0 mt-4 font-display text-[40px] font-extrabold leading-[0.98] tracking-[-0.03em]">{data.eventName}</h1>
-        <div className="mt-[12px] inline-flex items-center gap-[7px] rounded-[11px] border border-line bg-elev px-[13px] py-2 text-[13px] font-semibold text-dim">
-          <Icon name="cal" size={15} className="text-faint" />
-          {data.date}
-        </div>
-      </div>
-      <div className="rounded-[24px] border border-line bg-elev px-[26px] py-[34px] text-center">
-        <div className={cn('mx-auto mb-5 flex h-[62px] w-[62px] items-center justify-center rounded-[20px]', view.iconBg)}>
-          <Icon name={view.icon} size={30} stroke={view.iconStroke} className={view.iconStroke ? undefined : 'text-faint'} sw={view.iconStroke ? 2.4 : undefined} />
-        </div>
-        <h2 className="m-0 mb-[10px] font-display text-[26px] font-extrabold tracking-[-0.02em]">{view.title}</h2>
-        <p className="mx-auto max-w-[330px] text-[15px] leading-[1.55] text-dim">
-          <b className="text-text">{data.fullName}</b>
-          {heads > 1 && <span> · {fmt(t.landing.statusApprovedGroup, { n: heads })}</span>}
-        </p>
-        <p className="mx-auto mt-[8px] max-w-[330px] text-[15px] leading-[1.55] text-dim">{view.body}</p>
-        {data.status === 'approved' && (
-          <div className="mt-[22px] flex items-center gap-[11px] rounded-[14px] bg-acc-dim px-4 py-[14px] text-left">
-            <Icon name="shield" size={18} stroke="#B5A6FF" />
-            <span className="text-[13px] leading-[1.4] text-text">{t.landing.successInfo}</span>
-          </div>
-        )}
-      </div>
-      <Footer />
-    </Wrap>
   );
 }
 
@@ -411,32 +312,49 @@ export function LandingForm({
     if (pending) return;
     setError(null);
 
-    // The button stays tappable even with an empty name (86eyd3men) — a silent
-    // disabled state gave no feedback. A submit attempt with no name surfaces an
-    // explicit error on the field instead.
-    if (!ok) {
-      setNameErr(t.landing.nameError);
-      return;
-    }
-    setNameErr(null);
-
-    // Inline validation: e-mail (if given) and phone. libphonenumber validates
-    // the number per the selected country (E.164); a wrong/incomplete one is
-    // caught here before submit. The phone check is async — its metadata lives in
-    // the lazy phone chunk (#B4) — so it runs inside the transition.
-    const eErr = email.trim() && !isValidEmail(email) ? t.landing.emailError : null;
+    // The button stays tappable even with empty fields (86eyd3men) — a silent
+    // disabled state gave no feedback. A submit attempt surfaces explicit
+    // per-field errors instead.
+    //
+    // All three required fields report AT ONCE (86eyke279). Before, name
+    // short-circuited before e-mail and phone were ever looked at; with three
+    // blocking fields that cascade would cost the requester three round trips
+    // to discover three empty boxes.
+    //
+    // Missing and malformed are separate messages: "check your email" is
+    // nonsense when the box is empty. Trim first — '   ' is empty, not a value
+    // (the same rule the Zod schema and the RPC apply).
+    const nErr = ok ? null : t.landing.nameError;
+    const trimmedEmail = email.trim();
+    const eErr = !trimmedEmail
+      ? t.landing.emailRequired
+      : isValidEmail(trimmedEmail)
+        ? null
+        : t.landing.emailError;
+    // PhoneInput emits E.164 or undefined; trim defensively so a whitespace
+    // value can never be mistaken for a number.
+    const trimmedPhone = phone?.trim() ?? '';
+    setNameErr(nErr);
+    setEmailErr(eErr);
 
     startTransition(async () => {
-      const pErr = phone && !(await isPhoneValid(phone)) ? t.landing.phoneError : null;
-      setEmailErr(eErr);
+      // libphonenumber validates the number per the selected country (E.164);
+      // a wrong/incomplete one is caught here before submit. The check is
+      // async — its metadata lives in the lazy phone chunk (#B4) — so it runs
+      // inside the transition. "Empty" needs no metadata and is decided above.
+      const pErr = !trimmedPhone
+        ? t.landing.phoneRequired
+        : (await isPhoneValid(trimmedPhone))
+          ? null
+          : t.landing.phoneError;
       setPhoneErr(pErr);
-      if (eErr || pErr) return;
+      if (nErr || eErr || pErr) return;
 
       const res = await action({
         slug,
         fullName: name.trim(),
-        email: email.trim() || undefined,
-        phone: phone || undefined,
+        email: trimmedEmail,
+        phone: trimmedPhone,
         plusOnes: plus,
         motivation: motiv.trim() || undefined,
         marketingOptIn: marketing,
@@ -580,6 +498,7 @@ export function LandingForm({
             if (nameErr) setNameErr(null);
           }}
           placeholder={t.landing.namePlaceholder}
+          required
           error={nameErr}
         />
 
@@ -625,13 +544,13 @@ export function LandingForm({
           placeholder={t.landing.emailPlaceholder}
           type="email"
           inputMode="email"
-          optional
+          required
           error={emailErr}
         />
         <div className="mb-[14px]">
           <div className="mb-[7px] flex items-center justify-between">
             <span className="text-[12px] font-bold uppercase tracking-[0.04em] text-faint">{t.landing.phoneLabel}</span>
-            <span className="text-[11.5px] text-ghost">{t.landing.optional}</span>
+            <span className="text-[11.5px] text-faint">{t.landing.required}</span>
           </div>
           <div className={cn('flex items-center gap-[8px] rounded-[14px] border bg-elev py-[10px] pl-[9px] pr-[15px] transition-colors focus-within:border-acc', phoneErr ? fieldErrorBorder : 'border-line')}>
             <CountrySelect

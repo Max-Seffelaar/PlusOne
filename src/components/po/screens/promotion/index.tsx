@@ -16,7 +16,7 @@
  */
 import { type JSX, useState } from 'react';
 import { t } from '@/lib/i18n';
-import { usePoEvents } from '@/features/po/hooks';
+import { usePoCanCreateLink, usePoEvents } from '@/features/po/hooks';
 import { useNav, usePo } from '../../context';
 import { Empty, IconBtn, Scroll, Seg, Top } from '../../kit';
 import { CreateLinkFlow } from './create-link-flow';
@@ -47,6 +47,11 @@ export function PromotionHub({ tab, eventId }: { tab?: string; eventId?: string 
   const events = eventsQ.data ?? [];
   const defaultEvent = soonestUpcoming(events) ?? events[0] ?? null;
   const [creating, setCreating] = useState(false);
+  // Hub ACCESS is reporting access (admin/finance), but CREATING a link is
+  // admin or organizer of that event (request_links_insert RLS). Finance reads
+  // the hub and never gets the "+" (z8uq9m0hw4, same gate as the Requests
+  // header). Only an admin gets the flow's venue-wide event picker.
+  const { canCreate, isAdmin } = usePoCanCreateLink(defaultEvent?.id ?? '');
 
   if (statsVenues.length === 0) {
     return (
@@ -71,7 +76,7 @@ export function PromotionHub({ tab, eventId }: { tab?: string; eventId?: string 
         onBack={nav.back}
         title={t.promo.title}
         right={
-          active !== 'roster' && defaultEvent ? (
+          active !== 'roster' && defaultEvent && canCreate ? (
             <IconBtn name="plus" ariaLabel={t.promo.newLink} onClick={() => setCreating(true)} />
           ) : undefined
         }
@@ -88,11 +93,11 @@ export function PromotionHub({ tab, eventId }: { tab?: string; eventId?: string 
           )}
         </div>
       </Scroll>
-      {creating && defaultEvent && (
+      {creating && defaultEvent && canCreate && (
         <CreateLinkFlow
           eventId={defaultEvent.id}
           eventName={defaultEvent.name}
-          events={events}
+          events={isAdmin ? events : undefined}
           onClose={() => setCreating(false)}
         />
       )}

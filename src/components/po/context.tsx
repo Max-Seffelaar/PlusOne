@@ -42,7 +42,14 @@ export type ScreenName =
   | 'templates'
   | 'templateedit'
   | 'links'
-  | 'promotion';
+  | 'promotion'
+  /** PlusOne's own operator surface (P-04) — only reachable for a platform
+   *  admin; RLS, not this union, is what keeps its data closed. */
+  | 'platform'
+  /** Platform > Venues (P-05) — same closed-by-RLS shape as 'platform'. */
+  | 'platformvenues'
+  /** Platform > Audit (P-05) — same closed-by-RLS shape as 'platform'. */
+  | 'platformaudit';
 
 export interface ScreenProps {
   id?: string;
@@ -53,6 +60,10 @@ export interface ScreenProps {
    *  Promotion hub's tab ('overview' | 'events' | 'roster'). Like 'landing',
    *  'overview' is its screen's URL-less default — callers omit it. */
   tab?: 'landing' | 'quota' | 'overview' | 'events' | 'roster';
+  /** Tiers only: the guided step right after creating an event (z8uq9m0hw3,
+   *  `?setup=1`). Shows the "add your tiers next" card and a way on to the
+   *  event. Omitted (never `false`) on a plain visit, like `isNew`. */
+  setup?: boolean;
 }
 
 export interface Nav {

@@ -1,4 +1,124 @@
-<h2>You've been invited to PlusOne</h2>
-<p>Accept your invite and set up access:</p>
-<p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite&next=/app">Accept the invite</a></p>
-<p style="color:#888;font-size:12px">Didn't expect this? You can ignore this email.</p>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "https://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<meta name="color-scheme" content="light" />
+<meta name="supported-color-schemes" content="light" />
+<title>You're on the list</title>
+<!--[if mso]>
+<noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
+<![endif]-->
+</head>
+<body style="margin:0; padding:0; background-color:#F2EFFB; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%;">
+<div style="display:none; max-height:0; overflow:hidden; opacity:0; mso-hide:all; font-size:1px; line-height:1px; color:#F2EFFB;">You've been invited to PlusOne.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F2EFFB;">
+<tr>
+<td align="center" style="padding:32px 16px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%; max-width:600px;">
+
+<!-- Wordmark -->
+<tr>
+<td style="padding:8px 8px 28px 8px;" align="left">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td style="font-family:Helvetica,Arial,sans-serif; font-size:18px; font-weight:bold; letter-spacing:1px; color:#16132B;">PLUSONE</td>
+<td style="padding-left:10px;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+<td style="background-color:#B5A6FF; border-radius:7px; padding:4px 9px; font-family:Helvetica,Arial,sans-serif; font-size:13px; font-weight:bold; color:#16132B; line-height:1;">+1</td>
+</tr></table>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+
+<!-- Card -->
+<tr>
+<td style="background-color:#FFFFFF; border:1px solid #E5E0F1; border-radius:22px; padding:44px 40px;">
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td style="font-family:Helvetica,Arial,sans-serif; font-size:12px; font-weight:bold; letter-spacing:2px; text-transform:uppercase; color:#8B8798; padding-bottom:18px;">Invite</td>
+</tr>
+<tr>
+<td style="font-family:Helvetica,Arial,sans-serif; font-size:30px; line-height:36px; font-weight:bold; letter-spacing:-0.5px; color:#16132B; padding-bottom:18px;">You're on the list</td>
+</tr>
+<tr>
+<td style="font-family:Helvetica,Arial,sans-serif; font-size:16px; line-height:26px; color:#4A4658; padding-bottom:24px;">You've been invited to PlusOne, the guest list app for venues and events. Enter this code on the login screen, or accept with the button below.</td>
+</tr>
+
+<!-- Code -->
+<tr>
+<td style="padding-bottom:32px;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td style="background-color:#F2EFFB; border:1px solid #E5E0F1; border-radius:14px; padding:16px 26px; font-family:'Courier New',Courier,monospace; font-size:32px; line-height:36px; font-weight:bold; letter-spacing:8px; color:#16132B;">{{ .Token }}</td>
+</tr>
+</table>
+</td>
+</tr>
+
+<tr>
+<td style="font-family:Helvetica,Arial,sans-serif; font-size:14px; line-height:22px; color:#4A4658; padding-bottom:14px;">Or accept with one tap:</td>
+</tr>
+
+<!-- Bulletproof button -->
+<tr>
+<td>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td align="center" style="border-radius:14px; background-color:#B5A6FF;">
+<!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=invite&amp;next=/app" style="height:50px;v-text-anchor:middle;width:250px;" arcsize="28%" stroke="f" fillcolor="#B5A6FF">
+<w:anchorlock/>
+<center style="color:#16132B;font-family:Helvetica,Arial,sans-serif;font-size:16px;font-weight:bold;">Accept invite</center>
+</v:roundrect>
+<![endif]-->
+<!--[if !mso]><!-- -->
+<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=invite&amp;next=/app" target="_blank" style="display:inline-block; padding:16px 38px; font-family:Helvetica,Arial,sans-serif; font-size:16px; font-weight:bold; color:#16132B; text-decoration:none; border-radius:14px; background-color:#B5A6FF;">Accept invite</a>
+<!--<![endif]-->
+</td>
+</tr>
+</table>
+</td>
+</tr>
+
+<tr>
+<td style="padding-top:32px; border-top:1px solid #ECE8F6;"></td>
+</tr>
+<tr>
+<td style="font-family:Helvetica,Arial,sans-serif; font-size:13px; line-height:22px; color:#8B8798; padding-top:24px;">Button not working? Paste this link into your browser:</td>
+</tr>
+<tr>
+<td style="font-family:Helvetica,Arial,sans-serif; font-size:13px; line-height:20px; color:#5B4FC0; word-break:break-all; padding-top:8px;"><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=invite&amp;next=/app" target="_blank" style="color:#5B4FC0; text-decoration:underline;">{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=invite&amp;next=/app</a></td>
+</tr>
+
+</table>
+</td>
+</tr>
+
+<!-- Footer -->
+<tr>
+<td style="padding:28px 40px 8px 40px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td style="font-family:Helvetica,Arial,sans-serif; font-size:14px; line-height:22px; font-weight:bold; color:#4A4658; padding-bottom:6px;">Put them on the list. We'll handle the door.</td>
+</tr>
+<tr>
+<td style="font-family:Helvetica,Arial,sans-serif; font-size:12px; line-height:20px; color:#9A96A6;">Don't know who sent this? You can safely ignore this invite.</td>
+</tr>
+<tr>
+<td style="font-family:Helvetica,Arial,sans-serif; font-size:12px; line-height:20px; color:#9A96A6; padding-top:14px;">PlusOne · Guest lists for venues &amp; events</td>
+</tr>
+</table>
+</td>
+</tr>
+
+</table>
+</td>
+</tr>
+</table>
+</body>
+</html>

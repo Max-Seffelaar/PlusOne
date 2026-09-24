@@ -47,6 +47,9 @@ export const poKeys = {
   contactKeys: (venueId: string) => [...poKeys.all, 'contact-keys', venueId] as const,
   /** A single contact's full profile (header + cross-event appearances + timeline). */
   contactProfile: (contactId: string) => [...poKeys.all, 'contact-profile', contactId] as const,
+  /** The event ids at a venue the caller organizes (event_organizers) — gates
+   *  per-event guest actions for external crew without an N+1 read. */
+  organizerEventIds: (venueId: string) => [...poKeys.all, 'organizer-event-ids', venueId] as const,
   // Settings cluster — team/quota + invites scope to a venue, sessions/profile to
   // the caller, venue-settings + subscription to a venue.
   team: (venueId: string) => [...poKeys.all, 'team', venueId] as const,
@@ -91,4 +94,28 @@ export const poKeys = {
     [...poKeys.all, 'promo', venueId, 'leaderboard', range] as const,
   promoLabelFunnel: (venueId: string, range: string) =>
     [...poKeys.all, 'promo', venueId, 'labels', range] as const,
+  // Platform (system) admin surface (P-04). NOT venue-scoped: these are
+  // PlusOne-wide, and the only gate is `is_platform_admin`, which hangs on the
+  // user. Keyed on the user id so a venue switch never serves another
+  // account's cached list.
+  isPlatformAdmin: (userId: string) => [...poKeys.all, 'is-platform-admin', userId] as const,
+  platformInvites: () => [...poKeys.all, 'platform-invites'] as const,
+  platformFunnel: () => [...poKeys.all, 'platform-funnel'] as const,
+  // P-05: venue overview + audit viewer. Also PlusOne-wide, not venue-scoped —
+  // params are part of the key so a paged/searched/filtered read caches per
+  // combination rather than colliding on one shared entry.
+  platformVenues: (params: { limit?: number; offset?: number; search?: string }) =>
+    [...poKeys.all, 'platform-venues', params] as const,
+  platformVenuesCount: (search?: string) =>
+    [...poKeys.all, 'platform-venues-count', search ?? ''] as const,
+  platformVenueOptions: () => [...poKeys.all, 'platform-venue-options'] as const,
+  platformAudit: (params: {
+    venueId?: string;
+    since?: string;
+    until?: string;
+    limit?: number;
+    offset?: number;
+  }) => [...poKeys.all, 'platform-audit', params] as const,
+  platformAuditCount: (params: { venueId?: string; since?: string; until?: string }) =>
+    [...poKeys.all, 'platform-audit-count', params] as const,
 } as const;

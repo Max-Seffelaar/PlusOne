@@ -17,6 +17,8 @@ export const requests = {
   noVenue: 'No active venue selected.',
   noAccess: "You don't have access to requests.",
   ownTitle: 'Your requests',
+  // Header action (z8uq9m0hw4): opens Promotion's create-link flow from here.
+  newLink: 'New request link',
 
   // ── Search ──────────────────────────────────────────────────────────────────
   searchPlaceholder: 'Search by name…',
@@ -36,9 +38,9 @@ export const requests = {
   // ── Read-only / own-status framing (M1, K-4/K-5) — finance sees the venue
   // inbox with no decide buttons; staff sees only their own submissions.
   pendingReviewBadge: 'Pending review',
-  readOnlyNote: "You can see every request here, but only an admin can decide. Reason: fraud resistance — every approval needs a single accountable decider.",
+  readOnlyNote: "You can see every request here, but only an admin can decide. Reason: fraud resistance. Every approval needs a single accountable decider.",
   ownQuotaNote:
-    "Extra slots you've asked for at this venue. An admin decides — once they do, the request drops off this list.",
+    "Extra slots you've asked for at this venue. An admin decides. Once they do, the request drops off this list.",
   ownEmptyQuota: 'No pending requests. Ask for extra slots from the add-guest screen when you run out.',
 
   // ── Landing-page (guest-list) queue ─────────────────────────────────────────
@@ -46,8 +48,17 @@ export const requests = {
     'Guest-list requests fall outside your own quota. Approving one costs you no spot, but it still counts toward the tier max.',
   emptyLandingSearch: 'No open requests for "{q}".',
   emptyLanding: 'No requests right now. The line\'s clear.',
-  cardPhoneVia: 'phone •••• {last4} · via landing page · {at}',
-  cardVia: 'via landing page · {at}',
+  // The generic "via landing page" is gone (z8uq9m0hw4): every card now names
+  // its actual link in a chip ("Standard link" / "via {label}", requestLinkLabel).
+  cardPhone: 'phone •••• {last4} · {at}',
+  // 86eyke279: the public form now REQUIRES both contact fields so the venue can
+  // reach an approved guest — so the approve surface has to show them. The card
+  // keeps its compact scan line (masked phone) and adds the address underneath;
+  // the approve sheet spells both out in full, because that is the moment you
+  // commit to reaching this person.
+  contactHeading: 'Contact',
+  contactNoEmail: 'No email: filed before it was required',
+  contactNoPhone: 'No phone: filed before it was required',
   decline: 'Decline',
   approveAdd: 'Approve…',
 
@@ -55,7 +66,7 @@ export const requests = {
   deniedHeading: 'Declined · {n}',
   deniedPhone: 'phone •••• {last4} · {at}',
   declined: 'Declined',
-  declinedReason: 'Declined — "{reason}"',
+  declinedReason: 'Declined: "{reason}"',
   approveAnyway: 'Approve anyway',
 
   // ── Quota queue ─────────────────────────────────────────────────────────────
@@ -70,6 +81,8 @@ export const requests = {
   approveExtra: 'Approve +{n}',
 
   // ── Request-link filter + via-chip (F1, 86ey21vjt) ──────────────────────────
+  // The chip shows on every request (z8uq9m0hw4): the default link as
+  // `standardLink` below, any other as viaChip.
   viaChip: 'via {label}',
   linkFilterAll: 'All links',
   linkFilterAria: 'Filter by request link',
@@ -94,6 +107,15 @@ export const requests = {
   tierUsedOfMax: '{used}/{max} used',
   tierNoMax: 'No max',
   assignSummary: '{n} people land on the list',
+  // z8uq9m0hw6: partial approval + an optional note for the status page.
+  assignSummaryReduced: '{n} of {requested} people land on the list',
+  assignPeopleQuestion: 'How many people get in?',
+  assignPeopleHint: 'They asked for {n}. You can approve fewer, never more.',
+  assignMessageLabel: 'Message to the guest',
+  assignMessageOptional: 'optional',
+  assignMessagePlaceholder: 'e.g. Doors close at 01:00, so come on time.',
+  assignMessageHint: 'Shows on their status page.',
+  assignMessageCount: '{n}/{max}',
   assignSummaryTierConnector: ' under ',
   assignBusy: 'Working…',
   assignConfirm: 'Add to the list',

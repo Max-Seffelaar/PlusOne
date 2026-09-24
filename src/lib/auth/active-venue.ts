@@ -35,3 +35,21 @@ export async function resolveActiveVenueId(
 
   return candidates[0]?.venueId ?? null;
 }
+
+/**
+ * The raw active-venue cookie value, with NO validation against a candidate
+ * set. `resolveActiveVenueId` above only ever returns an id already present
+ * in `candidates` — exactly right for every ordinary caller, but it means a
+ * platform admin's switch into a venue they hold no membership at (P-05,
+ * decision #49) is silently dropped: the cookie gets written by
+ * `switchActiveVenueAction`, then discarded here because it isn't in
+ * `accessVenues`. `src/app/app/layout.tsx` uses this as a narrow, explicit
+ * fallback — ONLY after confirming the caller is a platform admin AND the
+ * venue still exists (`getPlatformAdminVenue`) — rather than widening
+ * `resolveActiveVenueId` itself and risking a forged cookie ever winning for
+ * an ordinary user.
+ */
+export async function getActiveVenueCookieValue(): Promise<string | null> {
+  const cookieStore = await cookies();
+  return cookieStore.get(ACTIVE_VENUE_COOKIE)?.value ?? null;
+}

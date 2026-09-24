@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
 import { getSessionUser, getAuthContext } from '@/lib/auth/context';
-import { getMyMemberships, getOrganizerVenues } from '@/lib/auth/memberships';
+import { getMyMemberships, getOrganizerVenues, getPlatformAdminVenue } from '@/lib/auth/memberships';
 import { ACTIVE_VENUE_COOKIE } from '@/lib/auth/active-venue';
 import { canGrantRoles, type VenueRole } from '@/features/auth/roles';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
@@ -108,7 +108,15 @@ export async function switchActiveVenueAction(venueId: string): Promise<SwitchVe
     getOrganizerVenues().catch(() => []),
   ]);
   const reachable = new Set([...memberships, ...organizerVenues].map((m) => m.venueId));
-  if (!reachable.has(parsed.data.venueId)) return 'denied';
+  if (!reachable.has(parsed.data.venueId)) {
+    // Support/debug access (decision #49, P-05): a PlusOne platform admin may
+    // switch into a venue they hold no membership at, so "jump in to help"
+    // from the Platform > Venues screen actually works. `getPlatformAdminVenue`
+    // re-checks `is_platform_admin()` itself and confirms the venue exists —
+    // a forged id for a non-admin still falls through to 'denied' below.
+    const platformVenue = await getPlatformAdminVenue(parsed.data.venueId).catch(() => null);
+    if (!platformVenue) return 'denied';
+  }
 
   const cookieStore = await cookies();
   cookieStore.set(ACTIVE_VENUE_COOKIE, parsed.data.venueId, {
@@ -148,6 +156,7 @@ export async function updateVenueSettingsAction(
     postalCode: formData.get('postalCode'),
     city: formData.get('city'),
     country: formData.get('country'),
+    website: formData.get('website'),
     defaultPersonalQuota: formData.get('defaultPersonalQuota'),
     allowUncheck: formData.get('allowUncheck'),
   });
@@ -176,6 +185,7 @@ export async function updateVenueSettingsAction(
         postal_code: fields.postalCode,
         city: fields.city,
         country: fields.country,
+        website: fields.website,
         default_personal_quota: fields.defaultPersonalQuota,
         allow_uncheck: fields.allowUncheck,
       },

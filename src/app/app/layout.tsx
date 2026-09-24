@@ -3,14 +3,21 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { PoLiveProvider, type PoIdentity } from '@/features/po/PoLiveProvider';
 import { AppShellDataProvider } from '@/components/po/app-shell-data';
+import { PlusOneAppClient } from '@/components/po/app-client';
 import { getOnboardingState } from '@/lib/auth/onboarding';
 import { recommendMfaIfDue } from '@/lib/auth/guards';
 import { acceptedCurrentTerms } from '@/lib/auth/consent';
-import { getMyMemberships, getOrganizerVenues, getReportingVenues } from '@/lib/auth/memberships';
+import {
+  getMyMemberships,
+  getOrganizerVenues,
+  getReportingVenues,
+  getPlatformAdminVenue,
+} from '@/lib/auth/memberships';
 import { getSessionUser } from '@/lib/auth/context';
-import { resolveActiveVenueId } from '@/lib/auth/active-venue';
+import { resolveActiveVenueId, getActiveVenueCookieValue } from '@/lib/auth/active-venue';
 import { createClient } from '@/lib/supabase/server';
 import { ROLE_LABELS, VENUE_ROLES } from '@/features/auth/roles';
+import { REQUEST_PATH_HEADER, appGateNextPath } from '@/features/auth/next-path';
 import { isMobileUA } from '@/lib/ua';
 
 /**
@@ -31,21 +38,30 @@ import { isMobileUA } from '@/lib/ua';
  * query-string change. `page.tsx` (the only child) now does zero server data
  * work of its own, so query-only navigations stay fully client-side.
  *
- * Trade-off: this layout also never receives the dynamic `segments` param (it
- * sits ABOVE `[[...segments]]` in the route tree — Next only passes a dynamic
- * segment's params to that segment and below), so the one-time consent/MFA
- * `next=` redirect can't reconstruct the exact deep link the user requested;
- * it falls back to bare `/app`. Acceptable: that gate fires once, on first
- * login, and most first logins land on bare `/app` anyway.
+ * Deep links through the gates: this layout also never receives the dynamic
+ * `segments` param (it sits ABOVE `[[...segments]]` in the route tree — Next
+ * only passes a dynamic segment's params to that segment and below). The
+ * consent/MFA gates below still need the exact URL for their `next=`: they fire
+ * not only on first login but for every signed-in user after a TERMS_VERSION
+ * bump, and for admin/finance each time the MFA nudge's snooze runs out — often
+ * on a shared or bookmarked `/app/events/<id>`. The middleware therefore stamps
+ * the request path into the `x-po-request-path` header, read here via
+ * `headers()` (NOT `searchParams`, which keeps the zero-server-work page intact)
+ * and sanitized by `appGateNextPath` — it is client-controllable on
+ * matcher-skipped paths. Anything that doesn't pass falls back to bare `/app`.
  */
 export default async function AppLayout({ children }: { children: ReactNode }): Promise<JSX.Element> {
+  const requestHeaders = await headers();
+  // The deep link to come back to after any gate below (see the note above).
+  const gateNext = appGateNextPath(requestHeaders.get(REQUEST_PATH_HEADER));
+
   // Defense in depth (G1 review): the catch-all route now matches paths that
   // used to 404 before every screen had a real URL (e.g. /app/anything.txt),
   // and the middleware matcher's static-extension exclusion skips the auth
   // check for those — so this layout, which runs for every /app/* request,
   // re-verifies the session itself instead of relying solely on middleware.
   const user = await getSessionUser();
-  if (!user) redirect(`/login?next=${encodeURIComponent('/app')}`);
+  if (!user) redirect(`/login?next=${encodeURIComponent(gateNext)}`);
 
   // Venue-less users go through onboarding first (#40); the wizard is responsive,
   // so it serves mobile web too.
@@ -68,8 +84,35 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
   ]);
   const memberIds = new Set(memberships.map((m) => m.venueId));
   const accessVenues = [...memberships, ...organizerVenues.filter((v) => !memberIds.has(v.venueId))];
-  const activeVenueId = await resolveActiveVenueId(accessVenues).catch(() => null);
-  const active = accessVenues.find((m) => m.venueId === activeVenueId) ?? null;
+  let activeVenueId: string | null = null;
+  let active: (typeof accessVenues)[number] | null = null;
+  let viaPlatformAdmin = false;
+  // Platform admin support/debug access (decision #49, P-05): the cookie may
+  // point at a venue the caller holds no REAL membership at (written by
+  // `switchActiveVenueAction`'s platform-admin branch after a "switch into
+  // this venue" tap on Platform > Venues). This has to run BEFORE
+  // `resolveActiveVenueId`: that helper falls back to `accessVenues[0]` for
+  // any cookie value it doesn't recognise — for a real multi-venue member
+  // that fallback is exactly right, but it means a foreign cookie value is
+  // silently replaced by the caller's own first venue rather than surfacing
+  // as "not found", so checking it here first is the only way to reach the
+  // platform-admin branch at all. `getPlatformAdminVenue` re-checks
+  // `is_platform_admin()` itself and confirms the venue still exists. A
+  // synthetic `roles: []` membership, same shape external-crew access already
+  // gets: role-gated UI stays off, a known limitation documented there.
+  const cookieVenueId = await getActiveVenueCookieValue().catch(() => null);
+  if (cookieVenueId && !accessVenues.some((m) => m.venueId === cookieVenueId)) {
+    const platformVenue = await getPlatformAdminVenue(cookieVenueId).catch(() => null);
+    if (platformVenue) {
+      activeVenueId = platformVenue.venueId;
+      active = platformVenue;
+      viaPlatformAdmin = true;
+    }
+  }
+  if (!active) {
+    activeVenueId = await resolveActiveVenueId(accessVenues).catch(() => null);
+    active = accessVenues.find((m) => m.venueId === activeVenueId) ?? null;
+  }
   const identity: PoIdentity = {
     userId: user.id,
     venueId: active?.venueId ?? null,
@@ -84,30 +127,33 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
     .select('full_name, terms_accepted_at, terms_version')
     .eq('id', user.id)
     .maybeSingle();
-  // First-login consent gate (#20/#40): accept Terms + Privacy before the app.
-  // See the trade-off note above: next= can't carry the exact deep link here.
-  // Runs BEFORE the MFA recommendation (UX/IA 9/7, 2026-07-09) — a fresh
-  // invitee sees the terms first, a security nudge is not the first thing they
-  // meet. This is the live guard for `/app`; `requireAppAccess` in
+  // Consent gate (#20/#40): accept the current Terms + Privacy before the app —
+  // on first login and again after every TERMS_VERSION bump. `gateNext` brings
+  // the user back to the deep link they opened (see the note above). Runs
+  // BEFORE the MFA recommendation (UX/IA 9/7, 2026-07-09) — a fresh invitee
+  // sees the terms first, a security nudge is not the first thing they meet.
+  // This is the live guard for `/app`; `requireAppAccess` in
   // src/lib/auth/guards.ts documents the same order but isn't called from here.
-  if (!acceptedCurrentTerms(profileRow)) redirect(`/consent?next=${encodeURIComponent('/app')}`);
+  if (!acceptedCurrentTerms(profileRow)) redirect(`/consent?next=${encodeURIComponent(gateNext)}`);
   // MFA recommendation (optional since #20 refinement 2026-07-02): skippable
   // nudge for admin/finance without a factor, snooze-aware — never a hard gate.
-  await recommendMfaIfDue('/app');
+  await recommendMfaIfDue(gateNext);
   const userName = profileRow?.full_name || user.email || 'Account';
   const roleLabel =
     active && active.roles.length > 0
       ? VENUE_ROLES.filter((r) => active.roles.includes(r))
           .map((r) => ROLE_LABELS[r])
           .join(' · ')
-      : active
-        ? 'External crew'
-        : 'Member';
+      : viaPlatformAdmin
+        ? 'Platform admin (support)'
+        : active
+          ? 'External crew'
+          : 'Member';
   const userSub = roleLabel;
 
   // First-paint viewport hint (corrected client-side by matchMedia) + the live
   // active-venue name for the S0 nav-shell header/sidebar.
-  const serverHint = isMobileUA((await headers()).get('user-agent'));
+  const serverHint = isMobileUA(requestHeaders.get('user-agent'));
 
   return (
     <PoLiveProvider identity={identity}>
@@ -122,6 +168,28 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
           liveUserSub: userSub,
         }}
       >
+        {/*
+          The shell is rendered by the LAYOUT, not by `[[...segments]]/page.tsx`
+          (86ey9uc87). A layout instance survives client-side navigation to
+          sibling pages; the `{children}` page slot below does not — Next
+          rebuilds the page subtree for every segment path, which remounted
+          `PlusOneApp` in full on every `router.push` (empirically confirmed:
+          a mount probe fired on every single navigation). That re-ran every
+          shell effect per navigation — billing-return, identity, viewport,
+          nav construction, the entrance animation — and reset all shell state.
+
+          `PlusOneApp` derives its active screen from `usePathname()`/
+          `useSearchParams()`, which are client hooks that re-render in place,
+          so it needs no page-slot re-render to follow the URL. Nothing about
+          the SSR-suspense rule changes here: `PlusOneAppClient` is a CLIENT
+          module whose `next/dynamic(..., { ssr: false })` call therefore still
+          removes the server suspension by construction — this server layout is
+          exactly the same kind of parent `page.tsx` was. Guarded by
+          `tests/unit/app-shell-no-ssr-suspense.test.ts`.
+        */}
+        <PlusOneAppClient />
+        {/* Always null today (`page.tsx` renders nothing) — kept so the route
+            slot stays honest and a future nested /app page still has a home. */}
         {children}
       </AppShellDataProvider>
     </PoLiveProvider>

@@ -8,6 +8,2927 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-24 — P-06 seed part: Max and Joeri as platform admins (z8uq9m0tny)
+
+The other half of P-06 (docs part landed in PR #328). Migration
+`20260924130000_seed_platform_admins.sql` flips `user_profiles.is_platform_admin`
+to true for exactly two PlusOne operator accounts Max confirmed as existing,
+confirmed, prod accounts with a `user_profiles` row already in place and the
+flag currently false. No other account.
+
+**This repo is PUBLIC — no e-mail address in it, corrected mid-session.** The
+first version of this migration matched on the literal addresses and got
+(rightly) refused at commit time. Rewritten to match on
+`encode(extensions.digest(lower(email), 'sha256'), 'hex')` instead — the two
+hex hashes are the only trace of the addresses anywhere in the repo, computed
+and hashed outside it. **Framing corrected in review:** this is
+scraper-resistance, not confidentiality — an unsalted sha256 of a plausible
+address is crackable in seconds by hashing a candidate list, so "no address
+anywhere" is true but "the addresses are secret" would not be. `pgcrypto`'s
+`digest()` is assumed already present in schema `extensions` (bundled on the
+Supabase Postgres image, confirmed locally); the migration does **not**
+re-issue `create extension if not exists ... with schema extensions` —
+review caught that `IF NOT EXISTS` silently ignores `WITH SCHEMA` when the
+extension already exists elsewhere, so the statement is not the safety net
+it looks like and was dropped rather than left in as decoration.
+
+**Why not `public.set_platform_admin()`.** The RPC (P-02) requires an EXISTING
+platform admin caller — it re-checks `is_platform_admin()` on the session
+itself — which is exactly the chicken-and-egg this migration resolves for the
+FIRST admins. Follows the bootstrap path `20260923120000_platform_admin.sql`'s
+header documents instead: the transaction-local GUC
+`plusone.platform_admin_write = 'on'` set immediately before the `UPDATE`,
+cleared immediately after — the guard trigger applies to every role,
+including the migration runner, so skipping it is not an option.
+
+**The match/write/audit logic is one helper,
+`public.seed_platform_admin_by_email_hash(p_hash text)`** — SECURITY DEFINER,
+`search_path = ''`, EXECUTE revoked from `public`/`anon`/`authenticated`/
+`service_role`, so only the owner (migrations, and the pgTAP suite, which
+runs as the same owner) can call it. Factored out for exactly one reason: it
+lets the test file prove the logic against a fixture hash without a real
+address anywhere in it either. Resolves a hash to a `user_profiles.id` via an
+`order by created_at, id` (tiebreaker added in review), `deleted_at is null`
+pick of `auth.users` (defensive shape borrowed from
+`platform_invite_stage_rows()`'s LATERAL match, minus the LATERAL itself —
+`user_profiles.id = auth.users.id` directly here, so a scalar subquery is
+enough).
+
+**Review round (fresh-session `/code-review`): NEEDS CHANGES, both MAJOR
+findings about the helper going quiet on exactly the cases that matter.**
+1. It was `returns void` and treated "no match" as a silent no-op — if either
+   hash were wrong (typo, trailing newline, wrong address), the migration
+   would apply cleanly and grant nobody, with a manual `SELECT` afterwards as
+   the only way to notice. Fixed: the helper now `returns text`
+   (`'matched'` / `'already'` / `'missing'`), and the migration body wraps
+   both calls in a `do $$ ... end $$` block that `raise warning`s on
+   `'missing'` — surfaced in `supabase db push`'s own output, never a hard
+   failure (the local/CI case, where neither address exists, must stay a
+   no-op).
+2. An `auth.users` row matched by hash but with NO `user_profiles` row
+   collapsed into the exact same silent "no-op" as "no account at all" —
+   but that combination should never happen and is a real data anomaly, not
+   a normal local/CI case. Fixed: the helper now resolves the `auth.users`
+   id into its own variable first; if that is non-null but the profile
+   lookup comes back null, it `raise exception`s (default `P0001`) instead
+   of returning.
+
+Both findings share one root cause: conflating "this environment doesn't
+have that account" (expected, must be silent) with "something is actually
+wrong" (must be loud) into the same return path. Splitting them into three
+distinct outcomes is the actual fix, not just the warning/exception wording.
+
+No matching row → `'missing'`, warned, never an error (true for every
+local/CI database, since these are prod-only addresses). Already flagged →
+`'already'`, silent no-op, so calling it again (a second migration run, or a
+`supabase db reset` re-applying it) never double-writes.
+
+**Audited on name, same as the RPC.** One `audit_log` row per actual flip:
+`entity_type = 'user_profiles'`, `action = 'platform_admin_grant'`, the same
+`before`/`after` diff shape `set_platform_admin()` writes. `actor_id` is
+`null` — a migration has no calling session/`auth.uid()` — matching the
+existing "system action" convention (the anonymization job, #29). `venue_id`/
+`event_id` are also `null`, so — like every `set_platform_admin()` row —
+these two rows are readable only by a platform admin.
+
+**Testing.** `supabase/tests/database/seed_platform_admins.test.sql` grew from
+9 to **17 assertions** in the review round (fixture addresses only, no real
+one anywhere): calling the helper with a fixture hash returns `'matched'`,
+flags the account and audits the grant; calling it again returns
+`'already'` (idempotent — same state, no error, no duplicate audit row); a
+hash matching nothing returns `'missing'`, never raises; an `auth.users` row
+with no `user_profiles` row makes the helper raise instead of returning
+(`throws_ok`, `P0001`) — the MAJOR-2 fix, proved directly; the
+transaction-local GUC is asserted `'off'` right after a successful call, and
+a direct `UPDATE` immediately afterwards still throws `42501` — same
+invariant `platform_admin.test.sql`'s F4/F5 prove for `set_platform_admin()`
+itself (MINOR-3); a fixture whose hash was never passed in is never flagged;
+the helper has no EXECUTE grant for `authenticated`/`anon`/`service_role`;
+all six real local seed users (`admin@plusone.test` and friends) are still
+`false` after the reset that ran this migration for real —
+`platform_admin.test.sql` depends on that exact fact (`admin@plusone.test`
+is its "venue admin who is NOT a platform admin" fixture) and stays green.
+Full suite after a clean `supabase db reset`: pgTAP **67 files / 1555
+assertions PASS**. `pnpm lint` and `pnpm run type-check` clean — no
+schema/type change, so `src/lib/database.types.ts` is untouched.
+
+**Two more MINOR fixes from the same review.** The header comment now states
+explicitly that the transaction-local GUC needs no exception handler to
+close again — Postgres discards all transaction-local `set_config` state
+when the aborting (sub)transaction rolls back, so an explicit cleanup path
+would be redundant work someone could later "simplify" into a real bug. It
+also now names the trade-off the helper leaves behind: it stays in the
+schema permanently after this migration runs, deliberately bypasses
+`set_platform_admin()`'s own `is_platform_admin()` check, and writes
+`actor_id = null` — exactly what a hash-driven bootstrap needs, reachable
+only by the DB owner (never any app role, EXECUTE already revoked from all
+of them), which the review confirmed is an acceptable, explicitly-stated
+trade-off rather than an oversight.
+
+**Not touched, per the task's context budget:** `scripts/dev-mfa.mjs` and
+`supabase/seed.sql` — the local `admin@plusone.test` platform-admin fixture
+stays exactly as P-04 left it.
+
+**Verifying after the prod push (for whoever runs it):** query
+`select email from auth.users where encode(extensions.digest(lower(email), 'sha256'), 'hex') in (<the two hashes from the migration file>)`
+joined to `user_profiles.is_platform_admin` — the PR body carries the exact
+two hashes so this can be run without opening the migration file.
+
+**Milestone:** Now (open beta) — closes out the P-02..P-06 platform-admin
+program.
+
+---
+
+## 2026-09-24 — P-06 docs part: platform-admin invariant + decision #49 (z8uq9m0tny)
+
+Docs-only half of P-06. The seed part (idempotent migration flipping
+`is_platform_admin` for Max's and Joeri's production accounts) is **not built in
+this PR** — their production login e-mails were not available in this session and
+guessing them is exactly the kind of silent deviation CLAUDE.md forbids. See "Seed
+part pending" in the PR body; a second commit picks it up once Max supplies the
+addresses.
+
+**Numbering correction.** P-02/P-03/P-04/P-05 all announced this decision as
+"decision #41" (CLAUDE.md #1's exception clause, and the "stays with P-06" note
+at the end of the P-02 entry below) — but `gastenlijst-app-spec.md` already had
+#41 assigned to the surface-unification decision (PR #50, 2026-06-21), and the
+table runs to #48 as of the Joeri-walkthrough entry. Filed as **decision #49**
+instead; CLAUDE.md #1's exception clause now points at a new "Platform admins"
+subsection instead of restating the mechanism inline, so the invariant and the
+spec entry cannot drift apart the same way twice. The stray "#41" references
+inside `src/`, `tests/`, `README.md`, `launchplan-claude-code.md` and
+`ux-walkthrough-2026-07-02.md` are out of this docs-only PR's touched-file scope
+(CLAUDE.md, `gastenlijst-app-spec.md`, `docs/changelog.md`,
+`docs/auth-setup.md` only) — flagged in the PR body for a follow-up.
+
+**What shipped.**
+- CLAUDE.md: new "Platform admins (decision #49)" subsection (outside
+  `venue_role[]`, RLS is the boundary, cross-tenant writes audited on name /
+  reads not, MFA deliberately not required yet, bootstrap path, `pnpm dev:mfa`
+  local fixture, PlusOne Admin-venue = ordinary venue-creation flow); item #1's
+  exception clause shortened to reference it; the stale "(#1–#39)" decision-range
+  pointer in the intro corrected to "(#1–#49)".
+- `gastenlijst-app-spec.md`: decision **#49** — system admin + `platform_invites`,
+  open beta, same facts as CLAUDE.md plus the open items P-03 already flagged and
+  never closed (revoke = row-stamp only, no AVG retention on prospect PII in
+  `platform_invites`, no read-audit of support sessions).
+- `docs/auth-setup.md`: one reference to the platform-admin bootstrap SQL, next to
+  the invite-only signup section.
+
+**Milestone:** Now (open beta) — same program as P-02/P-03/P-04/P-05.
+
+---
+
+## 2026-09-24 — P-05 Platform: venue overview + audit viewer (z8uq9m0tnx)
+
+The other half of the operator console: which companies exist, jump into one to help,
+and see back who did what — with a name, across every venue.
+
+**What shipped.**
+- Migration `20260924110000_platform_venue_audit_overview.sql` — five SECURITY DEFINER
+  RPCs, all `authenticated`-only and re-checking `is_platform_admin()` in their own body
+  (same shape as P-03's `platform_invite_overview`), no new table so no grant-matrix
+  entry: `platform_venue_overview`/`_count` (member/event counts, subscription status,
+  last activity, one GROUP BY-shaped query, windowed + searchable), `platform_venue_options`
+  (id+name, capped 500, for the audit filter's venue picker), `platform_audit_overview`/
+  `_count` (filterable by venue + period, windowed, `is_support_action` computed in SQL —
+  the actor holds no CURRENT `venue_memberships` row at the audited venue).
+- Two screens under Platform: `screens/platform-venues.tsx` (search + paged cards, each
+  with "View audit" and "Switch into this venue") and `screens/platform-audit.tsx`
+  (venue/period filter bar, mobile cards + desktop table, the diff rendered as **plain
+  text only** — never `dangerouslySetInnerHTML`, it can carry any free-form input from
+  anywhere in the product). Both self-gate on `usePoIsPlatformAdmin()` exactly like the
+  Platform tab itself, so a bookmarked URL for a non-admin fires no read.
+- Routes: `/app/platform/venues`, `/app/platform/audit` (+ `?venue=` pre-scope from a
+  venue row's "View audit") via `routes.ts`/`context.tsx`'s `ScreenName` union;
+  `nav-map.ts` maps both to the `platform` sidebar entry and into `WIDE_DESKTOP`; lazy
+  chunks in `app-screens.tsx` like the rest of the Platform surface.
+- New kit primitive `PageNav` (prev/next + "X of Y" for a windowed offset/limit read).
+- Data: `fetchPlatformVenueOverview(Count)`/`fetchPlatformAuditOverview(Count)`/
+  `fetchPlatformVenueOptions` in `queries.ts`; `toPlatformVenue`/`toPlatformVenueOption`/
+  `toPlatformAuditEntry` in `adapters.ts`; `usePoPlatformVenues(Count)`/
+  `usePoPlatformAudit(Count)`/`usePoPlatformVenueOptions` in `hooks.ts`.
+
+**The "jump in to help" wiring — the one part that touched auth, not just the Platform
+surface.** "Switch into this venue" reuses the EXISTING `switchToVenue` (no bespoke
+mechanism, per the task), but that action refused a platform admin outright for any venue
+they hold no real membership at — which is the common case, and the whole point of the
+feature. Three small, isolated changes make it actually land the admin in the venue:
+- `switchActiveVenueAction` (`src/features/venues/actions.ts`) falls back to
+  `getPlatformAdminVenue()` (new, `src/lib/auth/memberships.ts`) when the caller isn't a
+  member — it re-checks `is_platform_admin()` itself and confirms the venue exists.
+- `resolveActiveVenueId` still only ever returns an id from the caller's real
+  `accessVenues` (unchanged, untouched signature) — the cookie is instead read directly
+  via new `getActiveVenueCookieValue()` (`active-venue.ts`) and layout.tsx re-validates it
+  through the same `getPlatformAdminVenue()` before building a synthetic `roles: []`
+  membership.
+- **Known, documented limitation, not new here:** that synthetic membership is the SAME
+  shape `getOrganizerVenues()` already hands external crew — every locally role-gated
+  button (`venueCapabilities(roles)`) stays off even though RLS would allow the write,
+  because those checks read client-side `roles`, not `is_platform_admin()`. A platform
+  admin who switches in today gets read access and whatever screens don't role-gate
+  locally; broadening capability-gating for cross-venue support is a P-02-scope decision,
+  not something this PR expanded into.
+- `roleLabel` in `layout.tsx` says "Platform admin (support)" instead of the misleading
+  "External crew" when this fallback fires.
+
+**Testing.** pgTAP `supabase/tests/database/platform_venue_audit_overview.test.sql` (55
+assertions after the review round below): a platform admin reads venues/audit rows he
+holds no membership at, member/event counts and subscription status aggregate correctly
+(including the zero/null case for an empty venue), search + windowing (`p_limit`/
+`p_offset`, an absurd limit capped, `*_count` matches, negative/zero clamps), the audit
+feed's venue + period filters, `is_support_action` true for the platform admin's own
+action at a venue he isn't a member of / false for a real member's action at their own
+venue / false for a null-venue action, pagination stability across rows with an identical
+`created_at`/venue `name` — and every other role (admin, user_manager, finance, staff,
+doorhost, organizer) plus anon get zero rows or 42501 from all five functions individually,
+both sides. Full suite re-verified on the same reset: pgTAP 66 files / 1538 assertions
+PASS. Vitest: adapter + screen-visibility files (no-admin fires no read, matching
+`platform-tab-visibility.test.tsx`'s pattern) + `layout.test.ts` cases for the
+platform-admin cookie fallback. `pnpm run type-check` and `pnpm lint` clean.
+
+**Review round (fresh-session `/code-review` + `/security-review`, same PR, before merge).**
+Security review: SAFE TO MERGE (the auth widening holds — 12 direct RPC calls as a
+non-platform-admin all returned zero rows, anon got 42501). Code review: NEEDS CHANGES,
+fixed in follow-up commits, not a new migration (the schema hadn't reached prod yet):
+- **Blocker** — `platform_audit_overview`'s `order by created_at desc` and
+  `platform_venue_overview`'s `order by name asc` had no tiebreaker. `audit_trigger()`'s
+  `created_at` is the enclosing transaction's `now()`, so a real trigger-batch (several
+  guests inserted in one statement) writes several rows with an IDENTICAL timestamp —
+  pagination could silently duplicate or drop a row as `p_offset` advanced. Fixed by
+  adding `, id desc` / `, id asc`; two same-`created_at`/same-`name` fixtures + a
+  disjoint-and-complete pgTAP assertion prove it.
+- **Major** — the platform-wide (no venue filter) path of `platform_audit_overview`/
+  `_count` scanned+sorted the whole `audit_log` table with no supporting index (the only
+  existing one is the composite `(venue_id, created_at)`, useless without a venue
+  predicate). Added `audit_log_created_at_idx on (created_at desc)` in the same migration.
+- **Major** — `platform-audit.tsx`'s "From"/"Until" date inputs parsed inconsistently
+  (`new Date('YYYY-MM-DD')` = UTC midnight vs `new Date('YYYY-MM-DDT23:59:59')` = local
+  time) — fixed to build both as local midnight.
+- **Minor fixes**: the platform-admin cookie-fallback branch in `layout.tsx` was untested
+  (added 3 cases to `layout.test.ts`, including the negative one — the actual invariant);
+  removed two dead i18n keys (`venuesSwitchPending`/`venuesSwitchDenied`); extracted a
+  `Select` kit primitive instead of a hand-styled native `<select>`; associated filter
+  labels via `Field`'s/`Select`'s `ariaLabel` instead of unlinked `<label>` text;
+  `subscription_status` now renders through an i18n label map instead of the raw enum;
+  `platform-audit.tsx` keys its console on the `?venue=` pre-scope so a second "View
+  audit" tap while already mounted actually resets the filter; `PageNav` no longer
+  renders under a loading/error/empty state ("0 of 0"); pgTAP now checks negative/zero
+  `p_limit`/`p_offset` clamps and every non-admin role against all five functions
+  individually (the PR body claimed that already — now it's literally true); the
+  migration header + the support-badge copy both now say the flag is indicative, not
+  forensic, since a platform admin's own `is_platform_admin()` already satisfies
+  `venue_memberships_insert`'s role check at ANY venue, so they could self-insert a real
+  membership and un-flag their own past support rows (itself audited, not silent).
+- **Corrected claim**: the original PR body asserted `venue_memberships_insert`/`_update`/
+  `_delete` still required AAL2, in tension with CLAUDE.md's "no AAL2 requirement in RLS
+  anywhere." Verified against the LIVE schema (`pg_policy`, not just grepping migration
+  files — `20260702120000_mfa_fully_optional` had already dropped `is_aal2()` from all
+  three): zero policies on `venue_memberships` reference `is_aal2()` today. Claim
+  retracted; the stale `audit_log_select_aal2` comment in `queries.ts`'s
+  `fetchPoAuditFeed` header (a real, if unrelated, doc drift spotted while writing that
+  claim) is fixed in the same pass since the file was already touched.
+- **Parked, not built** (follow-up, not this PR): the read-only cross-venue switch writes
+  no audit row — reads are never audited anywhere in this codebase, a standing scope
+  decision, not a gap specific to this feature; `platform_venue_options`'s 500-row cap has
+  no UI signal if a platform's venue count ever approaches it.
+
+**Milestone:** Now (open beta) — same program as P-02/P-03/P-04.
+
+---
+
+## 2026-09-24 — Only submit_guest_request may create a landing request (F-3)
+
+Branch `claude/guest-requests-insert-revoke`. Milestone: **Now**, a live RLS/grant gap on
+prod. Migration `20260924100000_guest_requests_revoke_client_insert.sql` — first written
+as `20260923120000`, renamed when P-02 landed `20260923120000_platform_admin.sql` on the
+same timestamp while this PR sat open. A duplicate breaks `db push`/`db reset`, so the
+new name also sorts past P-03's `20260923150000`. Second time in a week the rule bites
+(the L5 entry below has its own rename), and both times the collision appeared *after*
+the branch was cut — the timestamp check belongs immediately before merge, not only when
+the file is written. High-risk surface (RLS + grants), so the PR body carries an
+adversarial security-research prompt.
+
+**Review gate: not used, on Max's explicit call.** CLAUDE.md asks for a fresh-session
+`/code-review` + `/security-review` on this surface, and PR #310 — the directly preceding,
+near-identical change — went through it. Here Max decided on 24/9 that the two SQL
+statements did not warrant it and asked to merge; no review landed on the PR
+(`reviewDecision` empty, zero reviews). Recorded because the two questions the prompt
+raises are still unanswered: whether an attacker can *cause* the squat shape through
+retention rather than a direct insert, and what the status-mirror branch does when someone
+submits on a victim's e-mail first. Neither is created by this change — both predate it —
+but neither was ruled out either.
+
+**The bug.** `docs/security-audit.md` F-3, found by the fresh-session security review of
+PR #310 (19-9), pre-existing, deliberately kept out of that PR so the L5 fix could reach
+prod unchanged. `authenticated` held a table-wide INSERT grant on `guest_requests` and
+`guest_requests_insert_public` pinned only `status = 'pending'` + a landing-active,
+non-cancelled event (+ an open `request_link` when one is named). No role, no ownership,
+no column. So any logged-in user could POST straight to `/rest/v1/guest_requests`.
+Reproduced as **staff** — a role with no decide rights and no SELECT on the table — on
+their own venue's seed event, on the shared local stack, in rolled-back transactions:
+
+- **Silent suppression.** A row with `status = 'pending'`, `anonymized_at = now()` and the
+  victim's e-mail as `dedupe_key` is invisible in the approvals inbox (`fetchGuestRequests`
+  filters `anonymized_at is null`) yet still occupies `guest_requests_dedupe_idx`. The real
+  applicant's submission then trips that index, and the dedup branch skips anonymized rows
+  (`20260918160000`), so no status mirror is written either. Measured:
+  `submit_guest_request` answers `{"status": "ok", "auto_approved": false}`, `real request
+  stored: 0`, `/r/[token]` answers `{"found": false}`. Silent on both sides by
+  construction — #28 makes a duplicate indistinguishable from a new request on purpose.
+- **E-mail oracle.** `insert … on conflict do nothing` against that index: measured
+  `DID apply -> inserted 0`, `did NOT apply -> inserted 1` (plain insert: `23505` vs
+  success). That is the exact fact `guest_requests_select` withholds, readable by a role
+  whose own `select count(*) from guest_requests` returns 0.
+- **Validation/throttle bypass.** The RPC's throttle, honeypot, format checks and
+  `left(motivation, 1000)` live in the function, not the table: `email = 'x'`,
+  `phone = null`, `plus_ones = 99`, `junk rows planted: 500` in one statement.
+
+Already closed before this migration and unchanged by it: cross-venue insert (`42501`),
+forged `venue_id` (shared BEFORE trigger, `20260713160000`), attributing to a
+`request_link` the caller cannot see.
+
+**The fix.** `revoke insert on table public.guest_requests from authenticated` — the other
+half of `20260707170000` (C2), which did the same for `anon` and left `authenticated`
+without stating why — and `guest_requests_insert_public` **dropped**, not narrowed.
+Reasoning, in the migration header: after the revoke neither of the policy's roles holds
+INSERT, so a predicate in it is decoration, and it buys nothing against the one way the
+grant returns (a blanket `grant all …` / stock default ACL, the `20260917100000`
+mechanism) because RLS with **zero** applicable INSERT policies already denies every
+client insert — the absence *is* the guard. A restrictive `false` policy would differ but
+would also block any future legitimate insert policy. Intent moved to `comment on table`.
+Checked before dropping: it was the table's only `FOR INSERT` policy and nothing else
+referenced it.
+
+**Why it is safe.** `src/` has no `.from('guest_requests').insert`/`.upsert` at all (two
+SELECTs in `src/features/po/queries.ts`, the deny UPDATE in
+`src/features/requests/actions.ts`); checked across `src/`, `scripts/` and
+`supabase/functions/`. The table is not FORCE ROW LEVEL SECURITY, so `submit_guest_request`
+(and approve / auto-approve / retention) run as the owner past both the grant and the
+policy; the seed and pgTAP fixtures are superuser; `scripts/perf/scale-audit.mjs` is
+`service_role` (BYPASSRLS). Pure contract step — no released app version inserts, so a
+rollback keeps working.
+
+**Grant matrix now** — `anon`: nothing · `authenticated`: table SELECT + UPDATE on
+`status, decided_by, decided_at, decision_reason` (`20260919150000`) · `service_role` and
+owner: unchanged.
+
+**Tests.** New `guest_requests_insert_revoke.test.sql` (29): grant/policy layer incl.
+catalog-driven "no `FOR INSERT` policy exists" and no column-level INSERT; the squat, both
+oracle forms and the 500-row batch refused `42501` for staff, admin, organizer, doorhost
+and anon; the previously suppressed applicant now stored with `{"found": true}` on their
+own name; and the legit paths — anon submit, silent dedup, auto-approve,
+`approve_guest_request`, the client deny, retention, the seed's privilege level,
+`service_role`. `grant_matrix.test.sql` +2 (13 to 15). `venue_id_rls_integrity.test.sql`
+S1d rewritten: the client insert is `42501` (it used to comment that *any* logged-in user
+could do it) and the `venue_id` trigger half moved to the owner path, plan 8 to 9.
+Re-pointed for the same reason: `guest_requests_decide.test.sql` A3 (asserted INSERT
+*unchanged*; now asserts it is gone) and `venue_scope_denormalization.test.sql` 2d (its
+fixture inserted as staff).
+
+Ran per file in one rolled-back transaction on the shared local stack, with
+`20260919150000` (which that DB lacks) + the new migration prepended. Failing files:
+`analytics`, `auth.invites`, `guests_added_by_bind`, `onboarding`, `quota`, `rls` — all
+fail identically **without** the new migration (baseline verified), data drift in the
+shared DB. `npx tsc --noEmit` clean, `next lint` clean (2 pre-existing a11y warnings in
+`datetime-field.tsx`). Vitest 1725/1735; the 10 failures are in
+`pre-push-hook-is-executable`, `pgtap-plan-run-gate` and `datetime-field.datefield` —
+Windows/worktree environment (absolute `core.hooksPath` from the worktree-local config;
+"Could not run `supabase test db`"), and the diff is SQL-only, so no TS test can be
+affected by it. CI runs on a fresh reset.
+
+## 2026-09-23 — P-04 Platform tab: invites + status in the app (z8uq9m0tnw)
+
+The UI on top of P-03: a **Platform** entry in `/app` that only a platform admin sees,
+where a customer is invited with nothing but an e-mail address and the funnel is visible
+without opening the Supabase dashboard. **No migration and no schema change at all** —
+P-02/P-03 already shipped everything this needs; the only DB-adjacent edit is one
+local-dev line in `scripts/dev-mfa.mjs` (see below).
+
+**What shipped.**
+- Route + nav: `screenPath('platform')` → `/app/platform`, `parseAppUrl` the inverse (G1,
+  a real bookmarkable URL); `navKeyForScreen` gets its own `platform` key and the screen
+  joins `WIDE_DESKTOP`. Lazy chunk in `app-screens.tsx` like Stats/Audit — a venue user
+  never downloads it.
+- Visibility: `usePoIsPlatformAdmin()` (one cached select on the caller's own
+  `user_profiles` row) read in **`app-chrome.tsx`**, beside the other chrome reads and
+  never in the shell root, so it cannot reach the door subtree (86eykm76k). Desktop
+  sidebar entry + a mobile-only More-hub row (the M5 de-duplication rule).
+- Screen `src/components/po/screens/platform.tsx` (381 LOC): invite form (e-mail +
+  optional note), a SQL-aggregated funnel strip, and one card per invite with its stage
+  track, company/event chips, the operator note **as plain text**, Resend and Stop
+  following up (with a confirm sheet).
+- Data: `fetchPlatformInvites` / `fetchPlatformFunnel` / `fetchIsPlatformAdmin` in
+  `queries.ts`, ONE adapter (`toPlatformInvite` + `toPlatformFunnel`) in `adapters.ts`,
+  hooks in `hooks.ts`, and three mutations wrapping the P-03 server actions unchanged.
+- New kit primitive `StatTile` (one number + its label), used six times by the funnel.
+- New i18n surface `src/lib/i18n/surfaces/platform.ts`.
+
+**Two things worth remembering.**
+- **Runtime nullability.** The type generator marks every `RETURNS TABLE` column
+  non-null while `user_id`, `confirmed_at`, `last_sign_in_at`, `note`, `revoked_at`,
+  `revoked_by` and `invited_by_name` are nullable in reality (PR #325). `PlatformInviteRow`
+  narrows them by hand and the adapter normalises them, so no screen has to know.
+- **Revoke is honest about what it does.** Revoking marks the row only: the invitee keeps
+  a valid link and can still sign in and create a company (PR #325, follow-up F1). The
+  button therefore says **"Stop following up"** with the helper line "Stops resends and
+  hides them from the funnel. It does not block sign-in." All of that is one block in the
+  i18n surface, so it is a copy edit if Max decides revoke should really close the door.
+
+**Local dev — and where that flag may NOT live.** `scripts/dev-mfa.mjs` (`pnpm dev:mfa`,
+so also `pnpm db:fresh`) now flips `is_platform_admin` on `admin@plusone.test`,
+idempotently, through the `plusone.platform_admin_write` GUC the P-02 guard accepts.
+It started out in `supabase/seed.sql` and **CI caught that**: the pgTAP suite runs
+against the seeded database and uses that exact user as "a venue admin who is NOT a
+platform admin", so the seed line turned 14 assertions in `platform_admin.test.sql` red
+and knocked `platform_invites.test.sql` off its plan. `dev:mfa` is local-dev-only, so
+the tab survives a reset and the DB tests never see the flag. The prod platform admin
+is P-06.
+
+**Gotcha that cost real time.** The Browser-pane preview started a dev server against the
+**main checkout** while claiming the worktree's port; `/app/platform` rendered Home and
+the sidebar had no Platform entry, with correct source on disk and green unit tests. The
+tell was the Turbopack chunk names (`Documents_GitHub_PlusOne_src_…`, no
+`_claude_worktrees_…`). CLAUDE.md's "a port is a checkout, not a PR" applies to the
+preview tool too: check the chunk paths before believing a screen is broken.
+
+---
+
+## 2026-09-23 — dev-login deep links landing on Home (z8uq9m0jcf)
+
+Branch `fix/z8uq9m0jcf-dev-login-deep-link`. Milestone: **Now** (dev/test loop
+correctness; the route 404s in prod). Found while building PR #304: in the fixture
+harness, `…/auth/dev-login?email=manager@plusone.test&next=/app/contacts` landed on
+Home, while opening `/app/contacts` after login worked.
+
+**Root cause (fixture harness): not the app.** The PR #304 screenshot script was called
+from Git Bash as `node hw5-shot.mjs <name> "/app/contacts" …`. MSYS path conversion
+rewrote that argument to `C:/Program Files/Git/app/contacts` before Node saw it. The
+request that reached dev-login was `next=C%3A%2FProgram%20Files%2FGit%2Fapp%2Fcontacts`.
+`safeNextPath` rejected it correctly (not root-relative) and fell back to `/app`. With
+`MSYS_NO_PATHCONV=1` the same script lands on `/app/contacts`. The steps that worked had
+the path inside a JSON string argument, which MSYS doesn't rewrite. Reproduced both ways
+with a request trace on :7100 (fixture) and :7000 (local stack).
+
+**Second cause (local stack): a real one, in dev-login.** On the local stack the clean
+URL still ended on Home: `/app/contacts` → `307 /consent?next=%2Fapp`. The seed doesn't
+stamp `terms_accepted_at`, so the `/app` layout's consent gate fires, and that gate can
+only send users back to bare `/app` (the layout can't see the requested path; documented
+trade-off in `src/app/app/layout.tsx`). The real entry routes (`/auth/confirm`,
+`/auth/callback`) avoid this by resolving the final hop with `resolveEntryDestination`,
+which sends an unconsented user to `/consent?next=<deep link>`. dev-login redirected
+straight to `next` and skipped that step.
+
+**Fix** (`src/app/auth/dev-login/route.ts`, dev-only):
+- The final redirect now goes through `resolveEntryDestination`, the same as the real
+  entry routes. On the local stack: `/consent?next=%2Fapp%2Fcontacts`.
+- A `next` that the guard rejects now logs a `[dev-login] ignored next=…` warning in the
+  dev-server log instead of silently landing on `/app`. A drive-letter value adds the
+  `MSYS_NO_PATHCONV=1` hint.
+- The dev gate now compares the Supabase URL's **hostname** (`localhost` / `127.0.0.1`)
+  instead of substring-matching the whole URL, which also accepted a real host such as
+  `https://localhost.attacker.dev`. Prod was never exposed (the `NODE_ENV` conjunct), but
+  any non-prod deploy running `next dev` would have been.
+- `safeNextPath` is unchanged here. The new `route.test.ts` (11 tests; 3 fail on the old
+  route) covers the forms its literal clauses reject — it does **not** prove the guard is
+  airtight: `%09`/`%0A`/`%0D` still pass it and `new URL()` then strips them, which is an
+  open redirect on `/consent`, `/login`, `/auth/callback` and `/auth/confirm` too. Found
+  by the fresh-session review of this PR; fixed in its own security PR.
+
+**Prod login `next` handling: fine.** `/login?next=` → OTP → `/auth/callback` (or the
+e-mail link → `/auth/confirm`) already keeps the deep link through consent.
+
+**The other half, split off and since shipped:** an *already signed-in* user who opened a
+deep link while a layout gate was due also landed on Home, after a `TERMS_VERSION` bump or
+when the MFA nudge came due, because the layout hard-coded `next=/app`. That needed a
+middleware change, so it went to its own session and landed as PR #316 (the
+`x-po-request-path` header + `appGateNextPath`, entry below).
+
+**Found by this PR's fresh-session review, fixed separately:** `safeNextPath` let ASCII
+control characters through, and the URL parser strips them before resolving, so
+`?next=%2F%09%2Fevil.com` resolved to another origin on the production entry routes too.
+See the z8uq9m0tp5 entry.
+
+---
+
+## 2026-09-23 — safeNextPath let tab/CR/LF through (z8uq9m0tp5)
+
+Branch `fix/z8uq9m0tp5-next-path-control-chars`. Milestone: **Now** — a live open redirect
+on prod. No migration. Found by the fresh-session `/code-review` of PR #314 (z8uq9m0jcf);
+pre-existing, not caused by that PR.
+
+**The bug.** `safeNextPath` rejected `//`, `://`, `\`, `..`, `/login` and `/auth/*`, but not
+ASCII control characters. The WHATWG URL parser strips those *before* resolving, so a
+candidate slipped through every literal check and then changed origin:
+
+```
+raw   = '/<TAB>/evil.com'          // passes all five clauses
+new URL(raw, 'https://app.plus-one.io/consent').origin === 'https://evil.com'
+```
+
+Measured: `%09`, `%0A`, `%0D` and `%0D%0A` all resolve to `http://evil.com`.
+
+**Reach.** The same guard feeds `/auth/callback` (`route.ts:12`), `/auth/confirm`
+(`route.ts:34`), `/login` (`page.tsx:18`) and `/consent` (`page.tsx:27`, plus
+`ConsentScreen`'s `window.location.replace`). The cheapest exploit needs no token: a
+signed-in user clicks `…/consent?next=%2F%09%2Fevil.com` and leaves the origin — a phishing
+hand-off carrying our domain as the referrer. `src/middleware.ts` was never exposed: it
+copies only `pathname`/`search` onto a clone of `request.nextUrl`, so the origin cannot
+move. CR/LF in a Node redirect header throws `ERR_INVALID_CHAR` (a 500, not header
+injection); TAB is a legal header byte and redirects cleanly.
+
+**Fix** (`src/features/auth/next-path.ts`): reject the ASCII control range (U+0000 to U+001F, plus U+007F) up front, and add
+a backstop that resolves the candidate against a reserved `.invalid` origin and refuses
+anything whose origin moves or that will not parse. The backstop is what stops this guard
+from depending on the completeness of its own literal checks — the next parser quirk fails
+closed instead of open.
+
+**Tests:** `next-path.test.ts` grows the six control-character cases, an off-origin
+resolution assertion, and a positive case for encoded characters and a query string, each
+asserted through `new URL()` the way the callers use the value. Seven of them fail on the
+old guard. Full unit suite green (1735 passed; the 8 failures in `pgtap-plan-run-gate` and
+`pre-push-hook-is-executable` are this Windows box — no Supabase CLI, absolute
+`core.hooksPath` — not this change).
+
+**Merged with #316 and #318, by union.** #316 added `appGateNextPath`, which calls
+`safeNextPath` first, so the `/app` gates inherit this fix. #318 then restructured
+`safeNextPath` itself into a decode-to-fixed-point loop against percent-encoded traversal,
+landing before this branch. The two fixes close different holes in overlapping lines, so
+the resolution keeps BOTH: the control-character clause runs first on the raw value, #318's
+loop runs next, and the origin backstop guards the loop's clean exit. Taking either side
+alone reinstates a proven one-click attack — `%2F%09%2Fevil.com` if this branch loses,
+`/app/%2e%2e/auth/callback` if main does (security review of this PR, 2026-09-23).
+---
+
+## 2026-09-23 — P-03 `platform_invites`: invite customers into the open beta (z8uq9m0tnv)
+
+A platform admin (P-02) invites a new customer with nothing but an e-mail address. We
+create **no** venue and **no** `public.invites` row — the invitee walks the existing
+onboarding wizard, makes their own company, accepts the terms themselves and lands on
+`trialing`. `platform_invites` is the outreach record plus the funnel source, never an
+access grant. Migration `20260923150000_platform_invites.sql`.
+
+**What shipped.**
+- `public.platform_invites` (`id` uuid v7, `email`, `note`, `invited_by`, `created_at`,
+  `last_sent_at`, `revoked_at`, `revoked_by`). One OPEN invite per address (partial
+  unique index on `lower(email)`); a revoked address can be re-invited.
+- RLS: `select` / `insert` / `update` all `to authenticated` with `is_platform_admin()`
+  as the only term. Insert pins `invited_by = auth.uid()` and forces the row open;
+  update allows resend + revoke only. **No DELETE policy and no DELETE grant** —
+  revoking is a soft `revoked_at` stamp, so the audit trail survives.
+- Grant matrix stated explicitly (`revoke all … from anon, authenticated` first, then
+  `grant select, insert, update … to authenticated`; `service_role` untouched).
+- `guard_platform_invite_update()` freezes `id`/`email`/`invited_by`/`created_at` and
+  makes a revoke one-way — RLS is row-level, so without it a platform admin could
+  re-point an existing row at another address.
+- `audit_trigger()` attached unchanged. The table has no `venue_id`, so the generic
+  branch writes `venue_id = null`, which is exactly the P-02 shape: a null-venue audit
+  row is readable only by platform admins.
+- `consume_platform_invite_throttle()` — SECURITY DEFINER wrapper over the internal
+  `consume_public_throttle()`; 20 outbound beta mails per platform admin per hour,
+  shared by invite and resend. Raises 42501 for anyone else. It is consumed
+  immediately before the mail — after validation, after the insert — so a rejected
+  address or a duplicate never eats an hour of somebody's quota.
+- `platform_invite_stage_rows()` (internal, no app role holds EXECUTE) computes the
+  funnel stage once; `platform_invite_overview(p_limit, p_offset)` (windowed, default
+  100, hard cap 500) and `platform_invite_funnel()` (GROUP BY over ALL invites) both
+  sit on it. Stages: `invited` → `signed_in` → `company_created` → `first_event`, plus
+  `revoked`. SECURITY DEFINER is forced by `auth.users.confirmed_at`, which
+  `authenticated` cannot read; each re-checks `is_platform_admin()` in its own body,
+  EXECUTE is revoked from public/anon/service_role, and a non-platform-admin gets zero
+  rows rather than an error (no existence oracle). The `auth.users` match is a LATERAL
+  "pick one" filtered on `deleted_at is null`: GoTrue's e-mail uniqueness is partial
+  (`where is_sso_user = false`), so a plain join both duplicated invites in the list
+  and double-counted them in the funnel.
+- `src/features/platform/invite-actions.ts`: `inviteBetaCustomerAction`,
+  `resendBetaInviteAction`, `revokeBetaInviteAction`. Every statement runs through the
+  USER-scoped client so RLS is the boundary; the app-layer `is_platform_admin()` probe
+  is only there for a clear message. Row FIRST, mail after (86ey9ea00 #54).
+  `src/features/platform/schemas.ts` holds the Zod input.
+
+**Service role — where and why.** Exactly one place: `sendInviteEmail()` from
+`src/features/auth/invite-mail.ts`. `auth.admin.inviteUserByEmail` is a service-role-only
+API (it provisions an auth identity) and the magic-link fallback for an already-confirmed
+address uses a bare anon client. Nothing in `public` is ever written with the service
+client here.
+
+**Review round (fresh-session `/code-review` + `/security-review`, both on PR #325).**
+The security review found the DB boundary holding against all 27 attacks it ran (anon,
+venue admin, PostgREST upsert, embedded resource, count oracle, throttle race, the P-02
+GUC trick). What changed afterwards, in the same PR:
+- **The mail is the deliverable, so any undelivered mail is now a failure.** Unlike a
+  crew invite, the row grants nothing — reporting "Invite sent." after a failed
+  magic-link fallback was a lie. And because the row holds the unique-index slot, a
+  plain retry could only ever answer "already an open invite", so every undelivered
+  path now names Resend as the recovery instead of "try again".
+- All three actions probe `is_platform_admin()` first and answer one uniform
+  `NOT_ALLOWED`; previously resend leaked a rate-limit message where the others said
+  "no access", because the throttle RPC's 42501 collapsed into "limited".
+- The revoke guard also freezes `revoked_by` and `note`: the update policy only demands
+  `revoked_by = auth.uid()`, so a SECOND platform admin could re-stamp a colleague's
+  revoke (or rewrite the note explaining it) while leaving `revoked_at` untouched.
+- `sendInviteEmail()` gained `seedName` (default true, crew behaviour unchanged).
+  `inviteUserByEmail`'s `data` payload OVERWRITES an existing unconfirmed account's
+  `raw_user_meta_data`, so a re-invite replaced a real crew invitee's name with their
+  address' local part. Pre-existing, but P-03 made it reachable for arbitrary
+  addresses; platform invites pass `seedName: false` and write no metadata.
+- pgTAP gaps closed: the resend-audit assertion used `now()` inside the transaction, so
+  the value never changed, `audit_changed()` returned null and no audit row was written
+  — the assertion passed on a rowcount regardless. It now bumps by a distinct interval
+  and asserts the audit row. Added: insert with a pre-stamped revoke, a second platform
+  admin re-stamping `revoked_by`, the 21st mail hitting the throttle, `service_role`
+  being unable to execute the three functions, the funnel as a non-admin, and the
+  LATERAL dedup / `deleted_at` / windowing behaviour. 51 assertions.
+
+**Open decision for Max (asked in the PR, deliberately not chosen here):** revoking marks
+the row only — the person can still log in and self-onboard. The alternative is also
+deleting the auth account while it was never confirmed. The minimal variant shipped.
+This matters more than it reads: a revoked invitee keeps a valid link, and
+`create_venue_with_owner` checks no invite, so they can still create a company. Options
+if that is not wanted: `auth.admin.deleteUser` guarded on `confirmed_at is null`, gating
+onboarding on an open invite row, or simply renaming the button "stop following up".
+
+**Follow-ups noted, not built.** AVG: `platform_invites` holds prospect PII (address +
+note) and so do its `audit_log` diffs, with no retention or erasure path —
+`run_privacy_retention()` does not touch either. For P-04: never render `note` through
+`dangerouslySetInnerHTML`, and note that the overview is deliberately an
+account-existence probe for the platform admin. The fixed-window throttle (and `+`
+address aliasing around it) is accepted as-is.
+
+**Verification (after the review round).** `supabase db reset` clean; `pnpm db:test`
+64 files / 1451 assertions PASS (new `supabase/tests/database/platform_invites.test.sql`,
+51 assertions; `tables.test.sql` allowlist extended). `npx vitest run` 1806 passed — the
+7 `pgtap-plan-run-gate.test.ts` failures are the known Windows-only environment noise and
+the 2 `datetime-field.datefield.test.tsx` timeouts pass in isolation. `pnpm lint` clean,
+`npx tsc --noEmit` clean. `src/lib/database.types.ts` carries only the real additions.
+
+**For P-04 — `platform_invite_overview()` nullability.** The generator types every
+RETURNS TABLE column as non-null. In reality `user_id`, `confirmed_at`,
+`last_sign_in_at` (the LEFT JOIN LATERAL), `note`, `revoked_at`, `revoked_by` and
+`invited_by_name` are all nullable at runtime. Treat them as optional in the UI.
+---
+
+## 2026-09-23 — P-02 platform (system) admin: `is_platform_admin` + RLS helpers (z8uq9m0tnt)
+
+PlusOne's own operators can now read and write in every venue, with the boundary in RLS
+and every action stamped with their own `auth.uid()`. Migration
+`20260923120000_platform_admin.sql`.
+
+**Why the capability is not a `venue_role` value.** That array flows through `invites`,
+`canGrantRoles` and ~59 policies; a superuser value inside it makes every venue admin a
+potential superuser-granter. It is a separate boolean on `user_profiles` instead, with
+its own helper and its own RPC.
+
+**What shipped.**
+- `user_profiles.is_platform_admin boolean not null default false`.
+- `public.is_platform_admin()` — stable, SECURITY DEFINER, `search_path = ''`.
+- `or public.is_platform_admin()` inside `is_venue_member`, `has_venue_role`,
+  `is_event_organizer`, `is_venue_organizer` and `can_view_profile`. 59 of the 68 public
+  policies route through those, and none carries its own membership join, so there is no
+  policy-by-policy work.
+- `public.set_platform_admin(uuid, boolean)` — SECURITY DEFINER, requires
+  `is_platform_admin()` itself, refuses self-revoke (lockout), writes its own `audit_log`
+  row with `venue_id = null` (so only platform admins can read it back).
+- `public.guard_platform_admin_flag()` on `user_profiles` BEFORE INSERT/UPDATE.
+
+**Two things the task description did not name, both found by running the suite.**
+- **The column guard is not optional.** `user_profiles_update_self` and
+  `user_profiles_insert_self` already let a user write their own row, and RLS is
+  row-level, not column-level — without a guard, any authenticated user promotes
+  themselves to platform admin in one PostgREST call.
+- **`user_is_quota_exempt` had to be widened too.** It takes the *adder's* id as a
+  parameter instead of reading `auth.uid()`, so the helper widening does not reach it:
+  `guests_insert` pins `added_by` to the caller, a platform admin holds no `quotas` row
+  at a foreign venue, and `user_event_quota` falls through to 0 — every cross-venue guest
+  add would die on `enforce_guest_quota` with 45001. The write half of the boundary is
+  theatre without it.
+
+**The GUC guard turned out not to be a boundary — the column grant is.** A fresh
+`/security-review` ran the attacks against the local stack and proved that `authenticated`
+can set the custom GUC itself, in the same statement it is guarding:
+`update … set is_platform_admin = true where id = auth.uid() and
+set_config('plusone.platform_admin_write','on',true) = 'on'` — the WHERE is evaluated
+before the BEFORE trigger fires, and the flag flips. The only thing that stopped it was
+the shape of the statements PostgREST is willing to emit, which is an app-layer property,
+and CLAUDE.md #1 forbids leaning on one. Fix: `revoke insert, update on
+public.user_profiles from authenticated` plus an explicit column list that omits
+`is_platform_admin`. The list is every pre-existing column and nothing else — narrowing it
+further breaks `rls.test` L2, which depends on a cross-user `email` UPDATE being
+RLS-filtered to 0 rows rather than erroring. The GUC trigger stays as defence in depth
+(it is what still stops the *owner* from writing the column outside the RPC, which the
+tests assert separately). SELECT is deliberately untouched: dropping the column from the
+read grant would break every `select *` PostgREST issues against `user_profiles` app-wide,
+for one enumeration oracle that is only open to people who already share a venue with the
+operator. Accepted; moving the read behind an RPC is noted for P-04.
+
+**A suspected hole that measured closed.** Both reviews flagged that `user_is_quota_exempt`
+is keyed on the adder, so a quota-bound doorhost might re-point `added_by` at a platform
+admin and inherit the exemption. It cannot: `20260819100000` already binds `added_by` on
+update (42501, not a filtered 0 rows), and the door-INSERT hand-off branch rejects a
+platform admin as actor at a venue he is no member of. The branch got
+`and p_user_id = (select auth.uid())` anyway — strictly tighter, free — and both halves are
+now asserted, because the exemption is only safe while both hold.
+
+**Gotcha worth remembering: copy the CURRENT body, not the one in the migration the task
+points you at.** The first pass rebased `user_is_quota_exempt` on its original
+20260613180000 body and silently restored the organizer exemption that 20260625120000
+had removed (86ey21vre). `quota.test.sql` caught it — 3 failures. Any
+`create or replace` of a helper must start from `grep -rn "create or replace function
+public.<name>"` across *all* migrations, never from the one file you happen to be reading.
+
+**Audit.** `audit_trigger()` already stamps `actor_id = auth.uid()`, so nothing changed
+there; `platform_admin.test.sql` proves the stamp lands on guests, guest_tiers, quotas,
+event_quotas, check_ins and venue_memberships for a platform-admin writer.
+
+**Tests.** New `supabase/tests/database/platform_admin.test.sql`, 54 assertions, both
+sides per role: platform admin reads+writes in a venue he is no member of; admin /
+user_manager / finance / staff / doorhost / organizer unchanged and still locked out; a
+venue admin cannot set the flag by direct UPDATE, by self-INSERT, or through the RPC;
+anon reaches none of it; plus the column-privilege assertions, the GUC-window-closes proof
+(run as the owner, since `authenticated` no longer holds the column at all), the
+merge-duplicates upsert path, and `venue_id is null` audit rows staying invisible to venue
+admin and finance. Full run after a clean `supabase db reset`: **63 files / 1400
+assertions PASS**. `pnpm lint` clean (2 pre-existing a11y warnings in `datetime-field`),
+`tsc --noEmit` clean, Vitest 1757 passed / 7 failed — all 7 pre-existing Windows-only
+environment failures (`pgtap-plan-run-gate.test.ts` writes an extensionless `supabase`
+stub that libuv cannot spawn on Windows).
+
+**CLAUDE.md #1 gained its exception clause** (platform admins, enforced in the RLS helpers,
+every cross-tenant write audited on name — decision #41). The full spec decision #41 and
+its own invariant section stay with P-06.
+
+**Follow-ups, deliberately not in this PR.** No seed platform admin and no dev-login for
+one (P-01 territory); no UI. Bootstrapping the first platform admin is a one-line SQL
+runbook step, documented in the migration header.
+---
+
+## 2026-09-23 — First login for new invitees: code in every mail + verify fallback (z8uq9m0tnq)
+
+**P-01.** No beta invitee could get in on their own. The prod auth log of 23/9 for one
+invitee reads: invite sent 09:35:06 → the invite link 403 "One-time token not found"
+09:39:31 → "send me a code" 09:39:39 → the typed code 403 three times → a *second* mail
+09:40:46 → in at 09:41:32 via that mail's link. Three independent causes, all fixed here.
+
+**1 — The mail had no code.** An invitee who already has an unconfirmed account gets the
+**Confirm signup** template (GoTrue treats a re-invite as a re-confirmation), and neither
+`confirmation.html` nor `invite.html` carried `{{ .Token }}` — while `/login` asks for a
+6-digit code. Both templates now render the code above the button, exactly like
+`magic_link.html`. **These are dashboard snapshots: Max must re-paste all three templates
+into Authentication → Email Templates.** `docs/auth-setup.md` no longer calls the Confirm
+signup template "dormant" — it is a live, user-facing mail.
+
+**2 — Verification was locked to one token slot.** `OtpLoginForm` always verified
+`type: 'email'` and `/auth/confirm` always trusted the type in the link. A never-confirmed
+invitee's token lives in the confirmation slot. Both now fall back through
+`src/features/auth/verify-fallback.ts`: `email → signup → invite` for a typed code (client
+side, the user's own IP), and for a link **one type per slot** — the declared type, then one
+type from the other slot. GoTrue has only two slots that matter and the types inside one are
+interchangeable (`invite` ≡ `signup`; `magiclink` ≡ `email` ≡ `recovery`), so a same-slot
+retry would cost a round trip for nothing. Capping the link path at two attempts matters: it
+runs server-side from one shared Vercel egress IP while GoTrue rate-limits `/verify` per IP,
+so a nazorg batch must not cost four verifies per click (PR #324 reviews). `email_change`
+and `recovery` never fall back and are never targets. Slot-level isolation does not exist
+either way — a recovery token already verifies as `magiclink` — which is acceptable only
+because password recovery is off (#20); the code says to revisit it if that changes. A
+verify that succeeds but returns no user is terminal, not a slot miss: the token is spent.
+A terminal error (a 429) is also what the user hears about, instead of being buried under an
+earlier slot's 403 with the cooldown never starting.
+
+**3 — "One-time token not found", explained and measured.** Reproduced on the local stack
+(GoTrue v2.195.0) with `auth.one_time_tokens` read before and after each step: GoTrue keeps
+**exactly one row per `(user_id, token_type)`**, and invite / re-invite / confirm-signup all
+write the same `confirmation_token` slot. Minting a second link replaced the row's hash
+(`0d08e0ed… → 0c26f874…`), and the first link then failed with precisely that error; a used
+link fails identically on replay. So any second mail — or anything that opens the link
+before the human does — kills the first one. Which of the two triggered it for that invitee
+cannot be settled from the available prod log; the mechanism is proven, the specific trigger
+is not. Note the prod log's own ordering: the failing click came *before* the "send code"
+call, so it was not that call that superseded it.
+
+**4 — A dead link is no longer a dead end.** `/auth/confirm` still bounces to
+`/login?error=link`, but `/login` now renders what happened ("that link didn't work — it may
+already have been used, or a newer email replaced it") with the Send-code step right there,
+instead of a generic error with no way forward.
+
+**5 — `scripts/invite-link.mjs`** now looks the account up first and **refuses an address
+without an account**. That check is a safety boundary, not a nicety: `generateLink({type:
+'invite'})` *creates* the auth user when it does not exist (the service role bypasses
+"signups disabled"), so a typo in a prod nazorg run would otherwise mint a real account
+outside the invite-only invariant (#20) — one that could walk through /onboarding and create
+a venue. Found by the PR's security review; guarded by
+`tests/unit/invite-link-no-provisioning.test.ts`. For an account that does exist it mints the
+type matching its state: `invite` when never confirmed, `magiclink` when confirmed (the other
+as fallback, and the *first* meaningful error reported when both miss). Also not cosmetic:
+GoTrue happily mints a magic link for a never-confirmed account and then refuses to complete
+it, so the earlier magiclink-first order printed a link that dies on click — measured, and
+both printed links now verify end to end. `signup` is not a tier
+(`generateLink({type:'signup'})` requires a password).
+
+**6 — Every `?error=` value on `/login` now has copy**, including `devlogin`, and `verify()`
+early-returns while a verification is in flight (the auto-submit and the form submit could
+otherwise race).
+
+Tests: `src/features/auth/verify-fallback.test.ts` (13) covers the order, the two-attempt
+link budget, that a valid type is never retried, that the first error is the one surfaced,
+and the rate-limit abort; `src/app/auth/confirm/route.test.ts` gained 7 against a mocked SSR
+client (declared-type-first, sibling fallback, never a third slot, no fallback out of
+magiclink/email_change, terminal no-user, rate-limit stop, e-mail-change destination);
+`OtpLoginForm.test.tsx` gained 6. No migration.
+
+**Nazorg for Max:** `gar***@gmail` (18/9), `pet***@hotmail` and `roe***@gmail` are still
+stuck — hand them a fresh link with `node scripts/invite-link.mjs <email>
+https://app.plus-one.io` and make sure no other mail is sent to that address afterwards.
+---
+## 2026-09-23 — `safeNextPath` rejects percent-encoded traversal in `?next=`
+
+Branch `claude/next-path-encoded-traversal`. Milestone: Now-adjacent hardening (small).
+Found by a fresh-session `/code-review` of PR #316, which judged it pre-existing and out of
+scope for that PR.
+
+**The hole.** `safeNextPath` rejected traversal with `pathOnly.split('/').includes('..')`,
+which only matches a LITERAL `..` segment. `/app/%2e%2e/auth/callback` has none, so it passed
+the guard — and the WHATWG URL parser treats `%2e%2e` as a double-dot path segment, so it then
+normalized to `/auth/callback`, exactly the route the guard's own deny-list
+(`raw === '/login' || raw.startsWith('/auth/')`) exists to block. It was reachable with a plain
+link, no header forging: `/consent`, `/mfa/enroll`, `/mfa/verify`, the authed `/login?next=`
+branch in `src/middleware.ts`, and the `/auth/callback` + `/auth/confirm` routes all feed a
+client-supplied `?next=` into it, and `/consent` ends in `window.location.replace(next)`.
+
+**Not an open redirect.** Every consumer re-runs `safeNextPath` and resolves the result against
+`request.url`, and the `//`, `://` and `\` checks still held, so the value stayed same-origin
+throughout. The damage was bounded to landing on a deny-listed in-app route.
+
+**The fix.** `safeNextPath` now percent-decodes the path once and runs every structural check
+against both the raw and the decoded form: protocol-relative prefix, scheme, backslash,
+`..` segment, and the login/auth deny-list. Three judgment calls worth recording:
+
+- **Unwrap to a fixed point, not once.** A single decode models what the URL parser does today
+  (it matches `..`, `.%2e`, `%2e.` and `%2e%2e` as double-dot segments but leaves `%252e%252e` as
+  literal text, which never normalizes), so `/app/%252e%252e/…` is harmless *for today's
+  consumers*. It is rejected anyway: the guard must not depend on every hop decoding exactly once,
+  because a future consumer that decodes twice would reopen the hole. This reverses the first cut
+  of this change, which decoded once and asserted the double-encoded form passed through — the
+  fresh-session **security review of #316** reached the opposite conclusion for `appGateNextPath`,
+  and the argument applies to every `?next=` consumer, not just the /app gates (Max, 23/9: align
+  before merging). Bounded at `MAX_DECODE_ROUNDS = 5` so a hostile value cannot drive the loop.
+- **Encoded slashes are treated as separators.** Decoding turns `%2f` into a real `/`, so
+  `/app/%2e%2e%2fauth/callback` and `/app/..%2Flogin` are now rejected. This is stricter than the
+  URL parser alone, which does not split on `%2f` — deliberately, because Next's router decodes
+  the pathname before it matches a route, so an encoded slash can still change which route runs.
+  The previous test asserted `/app/..%2Flogin` was "harmless"; that expectation is what changed.
+- **A malformed escape falls back.** `decodeURIComponent` throwing on `/app/%2` means the value
+  is not a path we ever served, so it is treated as hostile rather than passed through.
+
+**Tightened in passing, same bypass class.** The deny-list now compares the path only rather than
+the whole raw value, so `/login?next=/app` no longer slips past the exact `raw === '/login'`
+match; and running it on the decoded path also closes `/%61uth/callback`, where percent-encoding
+the route name hid it from `startsWith('/auth/')`.
+
+**A tolerant decode, after a peer review from the #316 session.** The first fixed-point cut used
+`decodeURIComponent` per round and rejected on a throw. That quietly broke a legitimate deep
+link: `/app/events/50%25korting` decodes to `/app/events/50%korting`, where `%ko` is not an escape
+at all, so round two threw and the user was downgraded to bare /app — the exact feature #316
+shipped. The #316 session proposed accepting on a throw past round 0; that has a hole, verified
+here: `/app/%25252e%25252e/a%2525zz` reads `/app/%2e%2e/a%zz` by round 2, and `new URL()`
+normalizes THAT to `/a%zz`, out of /app. So instead each round decodes tolerantly — every maximal
+run of `%XX` is decoded together (multi-byte UTF-8 like `caf%C3%A9` survives) and an unresolvable
+run is left as literal text, exactly as the WHATWG URL parser leaves it — while a malformed escape
+in the value as HANDED to the guard (`/app/%2`) is still rejected up front. Both properties hold:
+the legitimate `%` survives, and traversal hiding behind a bad escape does not. `appGateNextPath`
+got the same treatment, since its own loop would otherwise have rejected the deep link anyway.
+
+**Relation to PR #316 (merged first, `182e63f`).** #316 added `appGateNextPath`, a narrowing of
+the guard for the `/app` consent/MFA gates, and its own fresh-session security review pushed that
+function to unwrap to a fixed point — explicitly rejecting the single-decode reasoning this change
+started from. Rather than land two guards that disagree, the fixed-point rule moved to the shared
+layer here, where every `?next=` consumer gets it. `appGateNextPath`'s local loop is now provably
+redundant and is **kept as defense in depth**: its own `/app` prefix test still runs on the
+ENCODED path, which is only safe while the shared guard keeps treating `%2e%2e` as traversal and
+`%2f` as a separator. That is the strictest part of the guard and the likeliest to be relaxed for
+some future deep link; keeping the check local means relaxing it cannot silently open the gates.
+Both docblocks now say this, and the stale "`safeNextPath` only rejects literal `..` segments"
+note is gone from #316's function and its test.
+
+Suites: CI `lint-and-test` green. Locally 1753/1761 Vitest tests pass; the 8 failures sit in `tests/unit/pgtap-plan-run-gate.test.ts` and
+`tests/unit/pre-push-hook-is-executable.test.ts`, both environmental (they need the Supabase CLI
+and a non-worktree `core.hooksPath`) and failing identically on `main`. `tsc --noEmit` clean,
+`next lint` clean (two pre-existing a11y warnings in `datetime-field.tsx`, untouched).
+
+---
+
+## 2026-09-23 — ADE UX round test pass: 28/28 green, task closed (z8uq9m0g0j)
+
+No code change — a verification session that closes the test handoff the 18/9 entry left
+open. Both PRs ([#298](https://github.com/Max-Seffelaar/PlusOne/pull/298),
+[#299](https://github.com/Max-Seffelaar/PlusOne/pull/299)) merged on 18/9; Max answered
+all 28 handoff questions ✅ today, so `z8uq9m0g0j` moves to `complete`.
+
+**What was actually tested.** The local stack on `main` @ `900f0f2` — eight PRs past
+#298, not the PR branch — after `pnpm db:fresh`, dev server on 7000. That makes the pass
+a statement about current `main` rather than about the merge commit alone.
+
+**Two questions the seed cannot really exercise**, worth knowing before treating 28/28 as
+total coverage:
+- **Q19** (paste-a-list, ambiguous contact match): the seed has no two contacts sharing a
+  normalized name, so only the matched and unmatched paths were exercised. The
+  ambiguous-match branch is unit-tested only.
+- **Q23** ("Added by a colleague"): probing RLS directly (`set local role authenticated`
+  with each seed user's `sub`) shows staff sees 8 guests, all their own, and *every*
+  co-member profile is readable by both staff and doorhost. The `addedByName === null`
+  fallback therefore cannot render on seed data at all; `guest-source.test.ts` is its only
+  coverage. What Q23 confirmed is the positive case ("Added by Tom").
+
+**Setup gotchas that cost time and will recur:**
+- **The Supabase CLI is not on PATH on this machine.** `pnpm db:fresh` fails with
+  `'supabase' is not recognized`. The working copy lives in the npx cache
+  (`~/AppData/Local/npm-cache/_npx/b96a6bd565c470ce/node_modules/.bin`, v2.115.0) — prepend
+  it to PATH, or `npx supabase db reset && pnpm dev:mfa`. A cache directory can be pruned;
+  the durable fix would be `pnpm add -D supabase`.
+- **A resumed session must diff applied migrations against the repo before trusting a test
+  pass.** The stack had been up 4 days; `main` had moved and `20260918203700_venue_website`
+  + `20260919090000_partial_approval_decision_message` were never applied locally. Check
+  `select version from supabase_migrations.schema_migrations order by version desc` against
+  `supabase/migrations/` — a stale local schema fails in ways that read as UI bugs.
+- **The handoff's "manager" persona is wrong against the local seed.** `manager@plusone.test`
+  is Noor, a *pure* `user_manager`: not admin, cannot write guests, and reads zero guests
+  under RLS. Every S1–S4 question aimed at "manager" needs `admin@plusone.test` (one-click
+  after `pnpm dev:mfa`). The PR's handoff was written against the fixture backend
+  (`pnpm dev:fake`), which has no RLS and no role matrix — that is exactly the class of gap
+  the fixture harness cannot catch, so a handoff written there should have its personas
+  re-checked against `supabase/seed.sql`.
+- **Q20 needed fixture data the seed does not carry.** The seed has one always-upcoming
+  event and no past ones, while `PAST_CHIPS_CAP = 12` in
+  `src/components/po/screens/guests/list-shared.tsx` means "Show all" only appears past 13
+  past events. Fourteen weekly `Past test night N` events plus one extra upcoming event
+  were inserted locally for the pass and dropped again by the later `pnpm db:fresh`.
+
+---
+
+## 2026-09-19 — /app gates keep the deep link (consent re-prompt, MFA nudge)
+
+Branch `claude/app-gate-deep-link`. No ClickUp task (Max, 2026-09-19). Milestone: **Now**
+— venue staff share and bookmark `/app/events/<id>`-style links. Decision (Max): reverse
+the documented trade-off in `src/app/app/layout.tsx` ("the gate fires once, on first
+login, so `next=/app` is fine"). It didn't hold up. The consent gate re-fires for every
+signed-in user after a `TERMS_VERSION` bump, and the MFA recommendation re-fires for
+admin/finance without TOTP 24h after acceptance and again each time a 7-day snooze runs
+out. Each time, a deep link landed on Home. Fresh logins were already fine
+(`resolveEntryDestination` in the auth callback/confirm routes).
+
+**Changed.** `src/middleware.ts` stamps `x-po-request-path` (pathname + search, `_rsc`
+stripped) onto the forwarded request before `updateSession`. It always uses `set`, on
+every route, so a client value never survives a request the middleware sees. The layout
+reads it via `headers()`, not `searchParams`, so `[[...segments]]/page.tsx` stays free of
+server work and the door invariant (#25) is untouched. It passes the value through the
+new `appGateNextPath` (`safeNextPath` + the `/app` surface only + a 2048-char cap) and uses
+the result as `next=` for the consent gate, `recommendMfaIfDue`, and the layout's own
+`/login` fallback. Anything that fails falls back to bare `/app`, the old behaviour.
+
+**Why the layout re-sanitizes.** The middleware matcher skips static-extension paths
+(`/app/x.txt` still hits the catch-all), so there the client's header reaches the layout
+unfiltered. Worst case is a same-origin `/app…` target the user could have typed.
+
+**Tests.** Vitest: `next-path.test.ts` (helpers), `middleware.test.ts` (forwarding via
+`x-middleware-request-*`, `_rsc` strip, client value overwritten), new
+`src/app/app/layout.test.ts` (each gate's `next=`, plus forged/missing header). With the
+fix reverted, 7 of those tests fail. Real runtime on the local stack (dev server + browser,
+staff consent cleared then restored): `/app/contacts?q=anna` → `/consent?next=%2Fapp%2Fcontacts%3Fq%3Danna`;
+a forged header on `/app/contacts` is overwritten; an RSC request doesn't leak `_rsc`;
+on `/app/probe.txt` an off-site, `//`, traversal or non-`/app` header falls back to
+`/app`; after consent, `/consent?next=…` lands on `/app/contacts?q=anna`. New e2e
+`tests/e2e/app-gate-deep-link.spec.ts` was **not executed** in this session (Playwright
+couldn't launch Chromium in the sandbox). It isn't in `e2e:smoke`.
+
+**Review gate.** Middleware is a high-risk surface. The PR body carries an adversarial
+security-research prompt. A fresh session ran `/code-review high` on 2026-09-23 and
+cleared the design on security grounds (no cross-origin escape; `x-middleware-request-*`
+spoofing doesn't work because the stamp is written before `updateSession` builds the
+response; `next@15.5.19` is past the CVE-2025-29927 middleware-skip fix; the service
+worker's `isStorable()` refuses redirects, so no gate 307 is ever cached; no gate can
+point at itself; `[[...segments]]/page.tsx` byte-identical to main). Follow-ups applied
+in the same branch: the stamp is now scoped to `/app` paths and deleted elsewhere, so a
+bearer token in a `/r`, `/i` or webhook URL is never copied into a header nobody reads;
+`appGateNextPath` re-checks the DECODED path, because `safeNextPath` only rejects literal
+`..` and `/app/%2e%2e/auth/callback` would otherwise normalize out of `/app` in the
+browser; the e2e spec restores the shared `staff@plusone.test` consent in a `finally`;
+the length-cap comment now says what it actually bounds.
+
+A second fresh session ran `/security-review` on 2026-09-23 against the post-fix branch:
+**no high or medium findings, approved for merge.** It ran 28 payloads through the real
+sanitizer chain (sanitize → `encodeURIComponent` → `/consent` searchParams decode →
+`safeNextPath` → WHATWG URL resolution) — encoded/uppercase/double-encoded traversal,
+`..;/`, encoded slashes and backslashes, fragment smuggling, raw TAB, `%09`, `%00`,
+fullwidth and fraction solidus, CRLF, malformed escapes, over-cap — with zero off-site and
+zero out-of-`/app` results. It also confirmed `x-middleware-subrequest` is gone from the
+installed `next@15.5.19`, that `x-middleware-override-headers` is in Next's
+`INTERNAL_HEADERS` (never honoured from an external request), that every non-`/app` path
+shape (`/app%2fx`, `//app/x`, `/APP/x`) lands in the fail-safe `delete` branch, that no
+`/app` query param mutates state on load, and that a forged header can only ever affect
+the forger (no cross-site way to set it). Its two hardening notes are applied here:
+`appGateNextPath` decodes to a FIXED POINT (single-decode was safe only because every hop
+decodes exactly once — a future double-decoding consumer would have reopened it), and
+`requestPathForHeader` edits the query as text so the `_rsc` branch keeps the rest
+byte-for-byte like the no-`_rsc` branch.
+
+**Left open.** `safeNextPath` accepting percent-encoded dot segments is PRE-EXISTING and
+reachable today with a plain link on every `?next=` consumer (`/consent`, `/login`,
+`/mfa/enroll`, `/auth/callback`). Same-origin only — every consumer re-runs the guard and
+resolves against `request.url`, so it cannot leave the origin — but it belongs in its own
+PR. Second: the Sentry scrubber's `RELATIVE_URL_QUERY_RE`
+(`src/lib/observability/scrub.ts`) requires 2+ path segments, so a free-text
+`/consent?next=…` or `/login?next=…` is not scrubbed while `/mfa/enroll?next=…` is.
+Unreachable today — there is no client-side Sentry SDK in the repo, and `scrubEvent`
+deletes `event.request` server-side — and `main` already writes `pathname + search` into
+`/login?next=`, so it is the same pattern, not a new one. Its own small PR.
+Unrelated pre-existing behaviour worth knowing: `isSessionGone()` in
+`public/service-worker.js` treats any opaqueredirect on an `/app*` navigation as "session
+gone" and wipes `plusone-session-v1`, so a TERMS_VERSION bump clears the session cache on
+every device that hits the gate.
+
+## 2026-09-19 — Client writes on guest_requests can only deny (L5, z8uq9m0jce)
+
+Branch `claude/guest-requests-decide-status-guard`. Milestone: **Now**, a live RLS gap on
+prod. Migration `20260919150000_guest_requests_decide_deny_only.sql` (first written as
+`20260918213000`, renamed to sort after #308's `20260919090000`, which prod already has:
+the CLI refuses a local migration older than the newest remote one). High-risk surface
+(RLS policy + grants), so the PR body carries an adversarial security-research prompt and
+the PR needs a fresh-session `/code-review` + `/security-review` before merge.
+
+**The bug.** Found by the fresh-session review of PR #308 (finding L5), pre-existing.
+`guest_requests_decide` pinned the old row (`status = 'pending'`), the actor and the
+admin/organizer role, but not the new status, and `authenticated` held a table-wide
+UPDATE. An admin PATCH of `status = 'approved'` succeeded with no guest row: tier-max,
+capacity and link-max never ran, and `/r/[token]` showed the requester "approved" for a
+list they were not on. Reproduced locally in a rolled-back transaction (`UPDATE 1`,
+0 guests). The same grant let a deny rewrite any other column in the same PATCH.
+
+**The fix.** Two layers. The policy's `WITH CHECK` requires `status = 'denied'` (the only
+client transition is `pending → denied`); UPDATE is granted per column on exactly what
+`denyGuestRequest` writes (`status`, `decided_by`, `decided_at`, `decision_reason`). A
+column grant also keeps columns added later closed by default. SECURITY DEFINER paths
+(approve, re-approve, auto-approve, retention) run as the owner and are unaffected.
+USING also gained `anonymized_at is null` (review finding, below), so the deny path is
+symmetric with `approve_guest_request`, which refuses anonymized requests with P0002.
+
+**Side effect worth knowing.** Every remaining client write flips `status`, so
+`audit_guest_requests` (trigger `WHEN old.status IS DISTINCT FROM new.status`) now fires
+on 100% of them. Before this migration a PII rewrite through the deny path was unaudited.
+
+**Relation to #308 (`20260919090000`).** Its `guard_guest_request_decision_fields`
+trigger (plus_ones, approved_plus_ones, decision_message) is not duplicated. The column
+grant now refuses those writes first and the trigger stays as a second layer; its
+migration comment about a table-wide UPDATE grant is stale from here on. Checked by
+applying both migrations in order in one transaction: `partial_approval.test.sql` and
+`guest_requests_decide.test.sql` both pass.
+
+**Tests.** New `guest_requests_decide.test.sql` (37). `rls.test.sql` N3 asserted the
+direct approve as *allowed* and now asserts it is refused (N3) and that the deny works
+(N3b), plan 74 to 75. The full suite ran with the migration applied inside one rolled-back
+transaction per file on the shared local stack. The only failures (`analytics`,
+`auth.invites`, `onboarding`, `rls` P1) fail identically without the migration; they come
+from data drift in the shared DB (for example 16 events where the seed has 1). CI runs on
+a fresh reset.
+
+**Review gate.** Fresh-session `/code-review` + `/security-review`, both on Fable, both in
+their own session and worktree. Security: **approve**, nothing in the migration itself a
+finding; it re-verified L5 as fixed (UPDATE, upsert and fresh INSERT all 42501) and
+refuted the race with the approve RPC (EvalPlanQual re-checks USING), the
+`event_venue()`/`venue_id` divergence, PostgREST `return=representation` / `columns=` /
+filter-less PATCH, trigger-ordering and `current_user` bypass on #308's guard, and an
+existence oracle through UPDATE errors. Code review: **approve after one blocking line** —
+a client deny still matched anonymized rows, writing a fresh free-text reason (and an
+audit diff carrying it) onto a row retention had scrubbed. Fixed here with
+`anonymized_at is null` in USING + tests H1/H2, which are red without it (`have:
+denied|Piet Jansen was vervelend`). Test-quality fixes from the same review: B2 now
+upserts a row B1 never touched (it used to pass for the wrong reason in a red run),
+plus a finance deny (D5b) and the organizer arm of the RPC (E4a/E4b). Plan 37 → 42.
+
+**Follow-ups (not in this PR).** (1) `authenticated` still holds table-wide **INSERT** on
+`guest_requests` although no client code inserts — submission is the anon SECURITY
+DEFINER RPC. The security review reproduced, as *staff*: planting a row with
+`anonymized_at = now()` plus the victim's e-mail as `dedupe_key`, which is invisible in
+the inbox but still holds the dedup slot, so the real person's submission is silently
+swallowed and their status page says `found: false`; an e-mail oracle via
+`on conflict do nothing` / `23505`; and validation/throttle bypass (`email='x'`,
+`plus_ones=99`, 500 rows in one statement). Medium, pre-existing, deliberately a separate
+PR + migration so this one reaches prod unchanged. (2) `denyGuestRequest` returns
+`{ok:true}` on 0 affected rows, so the inbox reports a deny that changed nothing — fix
+with `.select('id')` and the same not-found error shape the RPC's 45003 gets.
+(3) `decided_at` stays client-chosen on a deny; nothing downstream reads it (confirmed),
+so pinning it is optional.
+
+**Gotcha.** A policy cannot compare OLD with NEW, so a status rule in `WITH CHECK` does
+not stop a deny from also rewriting other columns. That part needs a column grant or a
+trigger.
+
+---
+
+## 2026-09-19 — 44px tap targets on the 22 known-debt row/card controls
+
+Branch `claude/tap-target-debt-44`, stacked on `claude/iconbtn-tap-target-44` (#313).
+Milestone: **Now** (the tap-target floor is a hard CLAUDE.md rule; door and cockpit
+controls are the most tap-critical ones). No migration.
+
+**What changed.** Every control in the tap-target ratchet's `KNOWN_DEBT` now hits at
+44x44 or more, and the list is empty. The fix per control was the least churn that fit:
+
+- **Invisible ring, zero pixel change** (17 controls): influencer-stats clear-search and
+  QR close, kit `Toggle`, event-row cog, both quota steppers, contact-row select / star /
+  add, Home pager (the page-number chips too, which the scan can't see), door add-on-spot
+  and task check, cockpit check-in slots, cockpit task check, cockpit approve/deny. The
+  ring is lopsided where one neighbour is closer: clear-search (5px toward the input),
+  door task check (4px clear of both neighbours), cockpit approve/deny (3px toward the
+  partner, 11px outward, as in `SyncBar`).
+- **Colour swatches** (3 copies): now one kit primitive, `ColorSwatches`: 34px dots,
+  10px gap, wrapping, 5px ring each, so rings meet without overlapping. That moved the
+  add-guest form's 30px dots to 34px and the gap from 9px to 10px everywhere. It also
+  fixes a real bug: the template tier editor didn't wrap, so at 390px its 11 dots were
+  squashed into 20px-wide pills.
+- **Desktop guest table:** the select column went from 40px to 44px and the header row
+  from 40px to 44px tall, so the select-all box and the row dots each get a full 44px cell.
+
+**Measured, not assumed.** A Playwright probe against the fixture harness measured each
+control's real hit extent with `elementFromPoint` at 390x844 (touch) and 1440x900:
+121 control instances, all at least 44x44 afterwards, none stealing from a neighbour.
+Before/after clips of the ring-only fixes are pixel-identical. The probe also caught
+a bug that the class-derived test had missed: a `::before` with only `top`/`bottom`
+set has `left`/`right: auto`, so an empty one is 0px wide and hits nothing. The
+`Toggle` ring needs `before:inset-x-0`, and the test now gives no credit to a ring
+that leaves a side unset.
+
+**Guard tightened.** The ratchet's tag scan stopped at the first `<`, so
+`quotaDefault <= 0 && …` in a className cut the event-edit minus stepper out of the scan
+(the list said 1 stepper for that file; there were 2). The scan now only stops at a `<`
+that opens a tag. `Toggle` and `ColorSwatches` get their own render checks. Mutation-checked
+by dropping `inset-x-0`, shrinking the swatch inset to 6px and removing a contact-row ring:
+each one fails the suite.
+
+**Fixture harness (`scripts/dev/fake-supabase.mjs`).** It gained a `get_influencer_stats`
+RPC, so `/i/<any token>` renders, and one event template. `event_quota_status` now
+reports admins as exempt, like the real RPC does. That exempt flag also gates the inline
+"Add tier" form. `FAKE_EXTRA_EVENTS=N` adds N empty upcoming events so Home's pager
+shows. It is off by default, so existing baselines don't move.
+
+---
+
+## 2026-09-18/19 — Joeri walkthrough round (J1–J6)
+
+Source: a screen-recorded walkthrough by Joeri (pilot partner running the ADE campaign),
+transcribed and triaged with Max on 18/9. Items already fixed by the 17/9 round (#298:
+end-date follow, alias hidden, +N from profile, guest source, Door → Check-in) were
+dropped; the rest was bundled into six ClickUp tasks, each built by a separate agent in
+its own worktree, with before/after screenshots for Max where he asked for them.
+Milestone: **Now** (ADE campaign).
+
+| Bundle | ClickUp | PR | What shipped |
+|---|---|---|---|
+| J1 copy sweep | `z8uq9m0hw1` | #303 | 64 user-facing em/en-dash sentences rewritten, "Influencer" → "Promoter" in copy only (code/DB/routes unchanged), guard `tests/unit/no-em-dash-in-copy.test.ts`. |
+| J2 onboarding & settings | `z8uq9m0hw2` | #309 (db), #307 | Team step "Skip for now" / "Add another team member", outdated MFA note removed, Company name placeholder, searchable country dropdown (one shared list with the phone picker), single-venue shortcut to venue settings, "Manage" hidden for roles without access, dead `plus.one/<slug>` "Landing page" row replaced by an optional `venues.website` (http(s) CHECK), English invite / login-code / confirm-signup e-mail templates. |
+| J3 events & tiers | `z8uq9m0hw3` | #305 | No past-event preselect in quick-add, working Events search, end time before doors rolls to the next day, "Add another tier" below the list, tiers editable after creation, sign-up link on by default, new event without tiers lands on the tiers step, "Template" label. `updateTier` now fails instead of reporting success on a 0-row update. |
+| J4 requests, check-in, analytics | `z8uq9m0hw4` | #306 | Quick-add contact fields marked optional with the contact rule explained, connection pill in the desktop cockpit (`SyncDot` kit primitive), "New request link" from Requests, link label on every request, pending-requests badge on Home, "On the way" during / "No-shows" only after an event (stats panel + recap, UI-only), Analytics opens on the latest started event, Promotion "+ New link" gated like Requests. |
+| J5 guest profile | `z8uq9m0hw5` | #304 | Per-event "…" actions on the profile (open event, +N, tier, remove) from any entry point, permissions mirrored from RLS in `src/features/guests/permissions.ts`, door-only gets "Open event" only, Guest/Contact title, Contacts empty state explains the name-only rule. |
+| J6 partial approval & status page | `z8uq9m0hw6` | #308 | Approve fewer people than requested + optional venue message (`decision_message`, 280 chars, approved only), status page shows date, start–end time, venue address, "Approved for 3 of 5" and the message; footer links to plus-one.io. Spec #48 + #43(f) amendment. |
+
+**J6 review gate.** High-risk (SECURITY DEFINER approve RPC, anonymous status RPC,
+guard trigger, retention). An independent fresh-session `/code-review` +
+`/security-review` returned "merge after fixes": M1 retention only scrubbed
+`decision_message`/`decision_reason` for requests anonymized in the current run (old
+rows kept the deny reason in the audit diff; an anonymized request could still be
+approved with a message). Fixed with `redact_anonymized_request_audit_pii()` keyed on
+`anonymized_at` (backfills, idempotent) and P0002 for anonymized requests; plus L1
+mirror tokens no longer get the address, L2 no party size for approved mirrors, L3 one
+whitespace set validated before any insert (a CHECK failure used to echo the row), L4
+role check before the row lock, event_id re-checked after the lock. Re-review:
+merge-ready. Accepted residual: a mirror token becomes recognisable after the original
+is approved (`docs/security-audit.md` §4A).
+
+**Prod push.** `20260918203700_venue_website` was first applied through the Supabase
+MCP connector, which stamps its own ledger version (`20260918173900`); Max then linked
+the CLI in the main checkout and realigned the ledger with `supabase migration repair`
+(reverted `20260918173900` and the older MCP artefact `20260918153321`, applied
+`20260918203700`). The J6 migration was renamed from `20260918174500` to
+`20260919090000` before merge because the CLI refuses a local migration older than the
+newest remote one, then pushed with `supabase db push`; dry-run afterwards: "Remote
+database is up to date". Lesson: prefer the CLI; if the connector is used, repair the
+ledger in the same session.
+
+**Process notes.** Split a PR whose code reads a new column into a migration-only PR
+merged and pushed first (J2: #309 before #307); Vercel deploys on merge, the push comes
+after. The shared git config had `core.hooksPath` switched to an absolute path into the
+main checkout (stale hooks in worktrees); reset to `scripts/hooks`.
+
+**Tests.** Every PR: type-check clean, lint clean (2 pre-existing `datetime-field.tsx`
+warnings), vitest green except the 7 Windows-only `pgtap-plan-run-gate` failures
+(`spawn supabase ENOENT`, not reproducible in CI); CI `lint-and-test` (incl. pgTAP on a
+fresh stack) green on every PR and on main. Playwright not run locally (needs a DB reset
+on the shared stack).
+
+**Follow-ups.** `z8uq9m0jce` guest_requests_decide lets an admin set `approved` without
+the RPC (pre-existing, found by the J6 review, high-risk) · `z8uq9m0jcf` dev-login
+`next=/app/contacts` lands on Home · `z8uq9m0jcg` 44px icon buttons (shipped, entry
+below) · `86ey6bn05` transactional mails via Resend (queue / approved / adjusted /
+denied; uses `decision_message`, must HTML-escape) · `z8uq9m0hw7` J7 ADE campaign link
+(design) · open with Max: preset reasons for deny/adjust visible to the guest.
+
+---
+
+## 2026-09-18 — 44px tap targets on header icon buttons
+
+Branch `claude/iconbtn-tap-target-44`. Milestone: **Now** (CLAUDE.md's tap-target floor
+is a hard rule; the door is the most tap-critical surface). No migration.
+
+**The gap.** The kit's `IconBtn` and `Top`'s back button were 40x40, as were the
+hand-rolled header chips built the same way (contact-profile star, audit filter,
+pushed-Home back, link-card QR). The door's `SyncBar` wake-lock and sync-now chips
+were 30x30. Measured in a real browser against the fixture harness with
+`elementFromPoint`: every one of them hit at exactly its visible size.
+
+**Fix, zero visual churn.** `design-system.md` asks for a pixel match with the
+prototype, so the visible chips keep their size. `hitArea44` (kit) adds an invisible
+`::before` ring that is part of the button, taking the hit area to 44x44. Before/after
+screenshots of 11 headers at 390px and 1440px are pixel-identical (the only differing
+pixels are the cockpit's live clock). `SyncBar`'s chips are only 10px apart, so their
+ring is lopsided (5px inside, 9px outside) and the two rings meet without overlapping.
+
+**Gotcha worth keeping.** An absolutely positioned `::before` is placed against the
+*padding* box, so `before:-inset-[2px]` on a 1px-bordered chip only gains 1px per side
+(42, not 44). The first browser probe caught it; the inset is 3px.
+
+**Guard.** `src/components/po/kit.tap-target.test.tsx` renders the kit chips and derives
+their hit box from their classes (visible size + ring - border), and a source ratchet
+fails CI on any new fixed-size `<button>` under 44px. The 22 sub-44 row/card controls
+that predate it (colour swatches, steppers, 38px row actions, cockpit check slots,
+Toggle) are listed per file with exact counts, so the list can only shrink. Those are
+the follow-up.
+
+---
+
+## 2026-09-18 — Domain placeholders point at plus-one.io
+
+Branch `chore/plus-one-io-domain`. Milestone: **Now** — the consent gate links and every
+setup doc must name the real domain before venue #5 signs. Decision (Max): the marketing
+site owns `plus-one.io` (apex canonical, `www` redirects to it; repo `Plus-One.io`), the
+app moves to `app.plus-one.io`. Recorded as resolved open point 3 in the spec and in
+CLAUDE.md §Env.
+
+**Changed.** `src/lib/legal.ts` Terms/Privacy fallbacks `plusone.app/terms|privacy` →
+`https://plus-one.io/legal#terms|#privacy` (the site's legal page picks its tab from the
+hash); the go-live TODO (86ey1vbrj) now covers only the final legal text. `.env.example`
+`NEXT_PUBLIC_APP_URL`, the Supabase Site URL example (`docs/auth-setup.md`), the Stripe
+webhook endpoint, the uptime monitor URL, the Turnstile hostname, the runbook's Sentry
+checks + key facts, the `invite-link.mjs` usage lines and the S15/S16 design mocks all
+name `app.plus-one.io` / `plus-one.io` now. No runtime origin is hard-coded: in-app links
+already use `window.location.origin` and billing reads `NEXT_PUBLIC_APP_URL`.
+
+**Not in this change (live config, done by hand when the domain goes live).** Attach
+`app.plus-one.io` to the Vercel project `plus-one`; attach `plus-one.io` + `www` to
+`plus-one-io` and flip the redirect to www → apex (today the apex 308s to `www`, which
+404s); Supabase Auth Site URL + redirect allow-list; Stripe webhook endpoint; Turnstile
+hostname; BetterStack monitor; `NEXT_PUBLIC_APP_URL` in Vercel. The Resend sending
+domain stays `theoperators.nl` until F3 (86ey6b3hv).
+
+## 2026-09-18 — Status-token hijack on the silent-dedup path (z8uq9m0h2v)
+
+Branch `fix/z8uq9m0h2v-status-token-hijack`. Milestone: **Now** — anon-reachable PII
+disclosure live on prod. Migration `20260918140000_status_token_mirror.sql`. High-risk
+surface (SECURITY DEFINER + `anon` + the landing surface), so the PR body carries an
+adversarial security-research prompt for a fresh reviewing session.
+
+**The bug.** `submit_guest_request` is SECURITY DEFINER and granted to `anon`, so it is
+reachable with nothing but the public anon key and a link slug. On the silent-dedup path —
+a submission matching an existing *pending* request on the same event — it rotated that
+row's `status_token_hash` to the value the **caller** passed in `p_status_token_hash`. The
+caller chooses that value. Pre-existing; found by the fresh-session review of PR #296 but
+not caused by it, and recorded in `docs/security-audit.md` §4A as an open residual.
+
+**Reproduced first, not assumed.** Local stack, PostgREST, anon key only, manual-review
+link:
+
+| step | call | result |
+|---|---|---|
+| 1 | victim submits, token `V` | `{"status":"ok","auto_approved":false}` |
+| 2 | `get_request_status(V)` | `found:true`, `full_name:"Victim Vandermeer"`, `plus_ones:2` |
+| 3 | attacker submits the **victim's e-mail** with attacker-chosen token `A` | `{"status":"ok","auto_approved":false}` |
+| 4 | `get_request_status(A)` | `found:true`, **`full_name:"Victim Vandermeer"`, `plus_ones:2`** |
+| 5 | `get_request_status(V)` | `{"found":false}` |
+
+One unauthenticated call: an existence oracle, disclosure of a named individual's
+attendance and plus-ones, and a DoS on the victim's own status URL. `p_ip_hash` is an
+*argument*, so a direct PostgREST caller picks its own throttle bucket and has no
+effective limit on probing addresses.
+
+**Why neither obvious fix was taken.** Both "ignore `p_status_token_hash` on dedup" and
+"accept it only when `status_token_hash is null`" close the disclosure and hand back a
+clean one-call enumeration oracle in its place — *my token resolves ⇒ fresh address, my
+token does not ⇒ taken address*. That is the exact trade PR #296 made in the neighbouring
+block and had to write up as a swap, and it would be **new** on manual-review links, where
+`auto_approved` is constant `false`. Checked rather than assumed that nothing else already
+leaks that bit: `anon` holds no INSERT on `guest_requests` since `20260707170000`, so the
+partial dedupe index is not reachable as a 409-vs-201 probe without a session.
+
+**What shipped.** The rotation became an **additive, identity-scoped binding**. The dedup
+branch never writes to the existing row; the caller's token hash goes into a new
+`guest_request_status_mirrors` (`request_id` PK, `token_hash` unique, plus the
+`full_name`/`plus_ones` *that caller* submitted), and `get_request_status` resolves
+`guest_requests.status_token_hash` first, the mirror second — answering a mirror with the
+**mirror's own** identity and the request's live status. Victim keeps their URL and their
+row; the prober reads back only what they themselves sent; a deduped submission returns a
+**byte-identical** payload to a fresh one at submit time and on every read before a staff
+decision. Bounded by the primary key (one mirror per pending request), RLS on with no
+policies and no grants to `anon`/`authenticated`, and dropped by `run_privacy_retention`
+alongside the request anonymization it belongs to (#29).
+
+**Residual, not claimed away.** A mirror reports the deduped-against request's *live*
+status, so after a staff decision an attacker who submitted junk and polls can read an
+`approved` as evidence the address belongs to someone who was let in. Delayed, dependent
+on a staff action they cannot trigger, probabilistic, and it yields no name, no plus-ones
+and no DoS — where the bug it replaces was instant, certain and gave all three. Freezing a
+mirror at `pending` was weighed and rejected: it installs the mirror image of the same
+signal *and* breaks the legitimate re-submitter, whose second URL would never show their
+approval. Written into the migration header, §4A and here, in the same words.
+
+**Guards proven red before green.** Reverted the three function bodies in the live database
+to their pre-fix definitions and re-ran: `landing.test.sql` failed 7/67 (F5 `have:
+tok-hj-attacker want: tok-hj-victim`; F9 `have: Hijack Victim want: Hijack Attacker`;
+F11b's jsonb equality printing the victim's name where the attacker's belongs) and
+`status_token.test.sql` failed 5/17 (B3–B6, D4). Restored, both green. A second round after
+the review questions added F16–F22 (behaviour-level 42501 for `anon` **and** for a venue
+admin, the second-probe overwrite, and the one-row-per-request growth bound) and re-ran the
+revert: **10/74** red, F11b among them. The K10 drift guard
+now also covers `get_request_status`, and that entry was likewise proven by perturbing the
+canonical file and watching it fail.
+
+**Also touched.** `status_token.test.sql` section B asserted the *old* rotation behaviour
+(“the fresh URL works, the earlier one is dead”) — that was the vulnerability written down
+as an expectation, and it is now B3–B6 asserting the additive binding and the untouched
+stored hash. `tables.test.sql` needed the new table in its exact-table-set list (it caught
+it unprompted, which is the guard working). `supabase/canonical/` gained
+`get_request_status.sql` and the guard's function list grew to five.
+
+**Suites.** pgTAP `pnpm db:test` on a fresh `supabase db reset`: **58 files / 1180
+assertions, `Result: PASS`**, plan/run gate clean. `pnpm vitest run`: **129 files / 1374
+tests passed**. `pnpm type-check` clean; `pnpm lint` clean bar two pre-existing
+`jsx-a11y` warnings in `datetime-field.tsx`. Noted honestly: `tests/unit/pgtap-plan-run-gate.test.ts`
+is flaky under full-suite parallelism in this container — it failed 1–2 of its 21
+assertions on some runs *including on the unmodified tree* (`git stash`-verified) and
+passes in isolation every time; not caused by this change.
+
+**Second round — the fresh-session security review came back `REQUEST CHANGES`.** Migration
+`20260918160000_status_token_mirror_hardening.sql`. The reviewer rebuilt the stack without
+Docker (stock PG 16.13 + a hand-written platform shim, all 104 migrations clean, pgTAP through
+this repo's own plan/run gate), reproduced 59/1202 and 144/1493 exactly, got **14** assertions
+red on reverting the function body, tampered with the grant matrix and the canonical file to
+confirm those guards fire, and could not break the mirror on any of its six attack questions —
+including a timing run that showed the fix *narrowed* the dedup/fresh gap (+0.054 ms, against
++0.134 ms pre-fix). The design stands. Two defects did not:
+
+- **F-1, a regression this PR introduced.** `p_status_token_hash` is anon-controlled unbounded
+  `text` going into a unique btree index on both paths. Past the ~2704-byte index-row ceiling
+  postgres raises `54000` — and once the mirror existed the two paths named **different
+  indexes** in the message, which PostgREST forwards verbatim in its 500 body. A one-call
+  e-mail-existence oracle, in exactly the class the mirror was designed to avoid. Reproduced
+  locally before fixing (`…mirrors_token_idx` vs `…status_token_idx`). Fixed by capping the
+  argument at 128 chars with the other argument-only guards above the throttle — the rule
+  `86eyke279` already applies to `v_email` in this function for this same ceiling. Both paths
+  now answer `{"status":"invalid"}` over real anon PostgREST.
+- **F-2, an AVG retention gap.** Step 2b deleted only the mirrors of requests *that run* had
+  anonymized, but retention leaves a request `pending` with its `dedupe_key`, so it keeps
+  catching later submissions and those mirrored a fresh caller's real name onto a row no sweep
+  would revisit. Reproduced: retention run #2 returned `0 0 0 0` and `"Late Caller Name"`
+  survived. Fixed on both halves — the sweep drives off `anonymized_at` instead of the run's id
+  list (self-healing), and the dedup branch refuses to mirror onto an anonymized request.
+
+**A test that would have hidden itself.** The F-1 probe only works with *incompressible* input:
+`repeat('A', 5000)` never reaches the btree ceiling because pglz compresses it inside the index
+tuple. A length assertion built on a repeated character would have passed whether or not the
+guard existed. G0 asserts the probe builder's output length before G1–G3 use it. Same care on
+the F-2 side: G11 plants its orphan with `on conflict do update` so G13 pins the **sweep** half
+even on a build where the **write** half is missing — without that, the reverted build already
+occupies the row, the plain insert trips the primary key, and the abort hides whether the sweep
+works at all. That is the shape of guard this repo keeps getting bitten by, so it was worth the
+two extra lines.
+
+**Red-on-revert, per finding.** Reverting both halves of F-2 while keeping F-1's cap: **G10**
+(`have: 1 / want: 0` — the late caller's name parked in the table) and **G13** (`have: 1 /
+want: 0` — the orphan surviving the sweep) go red independently, 2/91. Reverting F-1's cap:
+`landing.test.sql` aborts at G1 with `ERROR: index row size 2712 exceeds btree version 4
+maximum 2704 for index "guest_request_status_mirrors_token_idx"` — the raise *is* the finding.
+
+**F-3, and why the header mattered.** `20260918140000`'s header claimed, twice and unqualified,
+that deduped and fresh are byte-identical "on every read before a staff decision". True on
+manual-review links, false on an auto-approve link below capacity, where the split is inherited
+from `20260918100000`. `docs/security-audit.md` already had it right, so the two documents
+disagreed — and the next reader of that comment is a future session deciding whether some change
+is safe. The claim is scoped in place (that migration is unmerged and has never been applied
+anywhere), and G14–G16 now pin all three regimes so the residual is tested rather than merely
+described. Second time in two PRs a migration header has over-claimed; reading one's own header
+adversarially is now part of the routine.
+
+**F-4, left open on purpose and written down.** Past the retention window, on an event whose
+link is still open, the dedup path *is* oracle (a). Pre-existing — the reviewer confirmed the
+identical split pre-fix — and F-2's write-side half does not change it (that token answered
+`{"found": false}` before and after, verified live). The structural close is
+`request_link_open()` shutting a link once its event is past the venue's retention window,
+which would take F-2's precondition and F-4 together; a behaviour change to the public landing
+surface, so its own task.
+
+**Suites after the second round**, on a fresh `supabase db reset`: pgTAP **59 files / 1219
+assertions PASS** (1202 → 1219 is section G), concurrency `PASS`, vitest **144 files / 1493**,
+type-check clean, lint 0 errors.
+
+**Not done here.** The two auto-approve enumeration residuals in §4A are untouched — this
+change does not widen or narrow them, and the at-capacity regime was re-checked against the
+live stack in both directions to confirm it.
+
+---
+
+---
+
+## 2026-09-18 — `@types/react` 18 → 19 (z8uq9m0h2h)
+
+Branch `chore/z8uq9m0h2h-types-react-19`. Milestone: Now — it unblocks a group of safe
+dependency bumps. No migration, no schema change, no runtime dependency change.
+
+**Not a React major and not Next 16.** `react`/`react-dom` have been on 19 since long
+before this; only `@types/react`/`@types/react-dom` were still on 18.3.31. Next 16 stays
+parked as `86eyd39mx`.
+
+**Measured, not estimated.** With `@types/react@19.3.0` + `@types/react-dom@19.3.0`
+installed, `tsc --noEmit` over the whole tree produced exactly three errors in two files —
+the same three the task predicted, re-measured on `9fba195` after `5206701` and `9fba195`
+had landed (the latter split `app.tsx` into `app-chrome` / `app-screens` / `door-branch`):
+
+```
+src/components/po/datetime-field.tsx(179,14): TS2345  RefObject<HTMLDivElement | null>
+src/components/po/datetime-field.tsx(308,14): TS2345  idem
+src/features/door/sync/useWakeLock.ts(62,22):  TS2554  Expected 1 arguments, but got 0
+```
+
+Both fixes are typing-only:
+
+- `datetime-field.tsx:67` — React 19 types `useRef<T>(null)` as `RefObject<T | null>`, so
+  `useDismiss(ref: React.RefObject<HTMLElement>, …)` → `RefObject<HTMLElement | null>`.
+  One signature, both call sites; it is the only place in the codebase where a `RefObject`
+  crosses a function boundary.
+- `useWakeLock.ts:62` — `useRef<() => Promise<void>>()` → `useRef<(() => Promise<void>) |
+  undefined>(undefined)`. This ref is the deliberate cycle-breaker between `acquire` and
+  `onSentinelReleased`; door code, so invariant #25 applies. Runtime behaviour is
+  identical (`useRef()` already passed `undefined`). Verified by probe: replacing
+  `void acquireRef.current?.()` with a no-op turns
+  `useWakeLock.test.ts > re-acquires when the browser revokes the lock while STILL visible`
+  red, so that path is genuinely under test, and it is green with the fix in place.
+
+**The `JSX` guard kept, its doc comment corrected.** The earlier 269-annotation sweep
+(86eyd39gn) is why this cost three errors instead of 272. Its comment claimed "tsc cannot
+catch a regression while `@types/react` is still pinned to 18" — now stale. Under 19 tsc
+does catch it: a probe file with a bare `JSX.Element` fails with
+`TS2503: Cannot find namespace 'JSX'`, and the same probe turns
+`tests/unit/jsx-namespace-imported.test.ts` red (offenders list non-empty). Both were
+observed, then the probe removed and the suite re-run green. The guard stays — it names
+the file and the fix, runs in the unit suite, and still holds if the types are ever pinned
+back to 18.
+
+**Suites.** `pnpm type-check` clean. `pnpm lint` 0 errors, 2 warnings — both pre-existing
+`jsx-a11y/role-has-required-aria-props` on `datetime-field.tsx:218/353`, identical on an
+unmodified tree. `pnpm vitest run` 1372/1372 passed, 129/129 files, four consecutive clean
+runs. One earlier run of the full suite failed
+`pgtap-plan-run-gate.test.ts > does not truncate its diagnostic when the reader is slow`;
+it passes in isolation and in four subsequent full runs, and it asserts on a subprocess's
+stderr under a slow reader, so it is a load-timing flake in that test, unrelated to this
+change — recorded here rather than swept up, because it will resurface.
+`pnpm e2e:smoke` **could not run in this session**: no Supabase CLI, no reachable Docker
+daemon and no `.env.local`, so the Playwright web server dies on
+`Missing required env var: NEXT_PUBLIC_SUPABASE_URL`. CI's `lint-and-test` covers it.
+
+**The Dependabot ignore rule that was not doing its job.** `.github/dependabot.yml` ignores
+`@types/react` majors, and PR #291 pulled one in anyway. What the config now records, with
+the evidence behind each point:
+
+- Dependabot's own PR body for #291 lists 12 updates, all production dependencies.
+  `@types/react`/`@types/react-dom` are **not** among them — there was no "@types/react
+  update" for an ignore condition to filter.
+- The edit is not forced by resolution. With those 12 bumps applied and the types left at
+  18, `pnpm install --lockfile-only` resolves cleanly to `@types/react@18.3.31` against
+  `react@19.3.0`, no peer complaint.
+- PR #292 (development-dependencies — the group `@types/react` actually belongs to, being a
+  devDependency) left it at `^18.3.3` while bumping `@types/node` 20→26, `eslint` 8→10,
+  `vitest` 1→5 and `tailwindcss` 3→4 around it.
+
+So the rule works where Dependabot evaluates it; the bump rode in as a companion of the
+`react`/`react-dom` update, on a path where ignore conditions are never consulted. GitHub
+does not document that path and exposes no knob for it, so there is nothing to tighten —
+**accepted deliberately**, and written into `.github/dependabot.yml` at the rule itself so
+it stops reading as airtight. Aligning the types is the structural fix: the companion bump
+only had a major to do while runtime (19) and types (18) had drifted; with both on 19 and
+`react` majors ignored, it cannot produce a types major again without a react major first.
+The control that actually stopped #291 was blocking CI plus branch protection.
+
+**Not done here:** #291/#292 were left untouched — they share `package.json` and
+`pnpm-lock.yaml` with this branch and want a rebase after it lands.
+## 2026-09-18 — `main` back to green: the core-flow e2e race the ADE round exposed (z8uq9m0g0j)
+
+Branch `fix/z8uq9m0g0j-core-flow-e2e`. Milestone: **Now** — `main` was red, which blocks
+every open PR behind it. No migration, no app code: one test file.
+
+**What was red.** `lint-and-test` → `e2e:smoke` → `tests/e2e/core-flow.spec.ts:91`, a 240 s
+timeout on `getByRole('button', { name: 'Add guest' })` after the `Back` click. `main` ran
+green at `9fba195` (#297), went red at `ee01118` (#298) and stayed red at `529503e` (#299).
+Every other CI step — pgTAP, concurrency, lint, type-check, unit — was green throughout, and
+`app-shell-no-remount.spec.ts` (the one selector #298 flagged) passed. Unowned: the session
+that merged #298/#299 had already unsubscribed, and its own entry records that e2e never ran
+for that round (no docker in that container).
+
+**Stale spec, not an app regression — established, not assumed.** Reproduced locally, then
+probed the app directly:
+
+- Playwright's page snapshot at the moment of failure shows the app on **Home** ("Good
+  morning, Max.", buttons `New event` / `New guest`), not the Events list. There is no
+  `Add guest` on Home, so the wait could never succeed.
+- A throwaway probe spec proved the nav itself is healthy: clicking the sidebar `Events`
+  moves `/app` → `/app/events` and renders its `Add guest` CTA in **333 ms**.
+- The same probe proved what changed: Home now carries **exactly one** `New event` button —
+  item A of the round (`home-header-actions.tsx`). Before it, Home had none.
+
+So the click at step 2 could resolve against **Home's** `New event` during the ~300 ms the
+tab switch takes. The form is then pushed from Home, and the `Back` at step 3 correctly
+returns to Home — where `Add guest` does not exist. The race predates the round; item A only
+made it observable, because until then Home had no button of that name and Playwright was
+forced to wait for the Events screen to render one. That accidental synchronisation was the
+only thing holding the spec up.
+
+Nothing a user can do is broken: from Home, `New event` → form → `Back` → Home is the correct
+journey, and Home's guest action is `New guest`. So the fix belongs in the spec — and it is a
+real synchronisation, not a selector patched until it goes green:
+
+```ts
+await page.getByRole('button', { name: 'Events', exact: true }).click();
+await page.waitForURL('**/app/events', { timeout: 30_000 });   // ← added
+await page.getByRole('button', { name: 'New event' }).click({ timeout: 30_000 });
+```
+
+Every screen has a real, bookmarkable URL (G1), so the URL is the honest signal that the tab
+switch completed — not a sleep, not a guess about render timing.
+
+**The flagged selector was already fixed.** #298's entry left
+`app-shell-no-remount.spec.ts:193` (`'Door'` → `'Check-in'`, item L) for a local-stack pass.
+It is already `tab(page, 'Check-in')` on `main`, with the rename explained at line 141, and
+the spec passes. The flag was stale; nothing to do. No literal `'Door'` selector survives in
+`tests/e2e/`.
+
+**Suites**, on a fresh `supabase db reset` each time:
+
+| suite | result |
+|---|---|
+| `pnpm e2e:smoke` (the 4 CI specs) | **6 passed**, 54.4 s — the set CI reported as `1 failed / 5 passed` |
+| `core-flow.spec.ts` alone, pre-fix | fails identically to CI (`Add guest`, 240 s) |
+| `core-flow.spec.ts` alone, post-fix | **1 passed**, 41.7 s |
+| `pnpm db:test` | **59 files / 1174 assertions, `Result: PASS`** |
+| `pnpm db:test:concurrency` | `PASS — 0 assertion(s) failed` |
+| `pnpm vitest run` | **144 files / 1491 tests passed** |
+| `pnpm type-check` · `pnpm lint` | clean · 0 errors |
+
+**Container note, not a finding.** This container has no `chrome-headless-shell` for the
+pinned Playwright build (1223 vs the pre-installed 1194) and the environment forbids
+`playwright install`, so the runs above used a scratch config pointing `executablePath` at
+`/opt/pw-browsers/chromium`. It was deleted before committing — CI uses the repo's own
+`playwright.config.ts` untouched. Separately: running pgTAP straight after e2e goes red,
+because `core-flow.spec.ts` leaves events behind and the pgTAP files assume the seed. Reset
+between them; the numbers above all come from clean resets.
+
+**Not done here.** Scope was held to the two items. One thing noticed and deliberately left:
+`supabase/.temp/cli-latest` is listed in `.gitignore` but tracked, so it shows as dirty for
+anyone who runs the Supabase CLI — `git rm --cached` in its own housekeeping commit.
+
+---
+
+## 2026-09-18 — ADE UX round: Joeri feedback 17/9, items A–O + K5 (z8uq9m0g0j)
+
+Two draft PRs, both open, task stays `in progress` until merged + tested. Milestone: Now
+(ADE campaign). Built per `docs/plan-ade-ux-round-2026-09-17.md` as one orchestrating
+session spawning 6 parallel worktree sub-agents (streams S1–S5 for the UI, S6 for the
+one migration), merged in the plan's order (S2 → S1 → S5 → S4 → S3), reconciled, and
+visually verified against the fixture harness (`pnpm dev:fake` + `pnpm shot`, plus a few
+throwaway interactive Playwright scripts for click-through behaviour the harness alone
+can't capture).
+
+**PR 1** [#298](https://github.com/Max-Seffelaar/PlusOne/pull/298) — items A–O, no
+migration. `pnpm lint` clean, `pnpm type-check` clean, `pnpm vitest run` **144 files /
+1492 tests green** (baseline before this round: 123 files / 1253 tests). pgTAP, the
+concurrency suite, e2e and `pnpm build` were not run (no docker/supabase CLI in this
+container); the PR body says so explicitly and flags one known e2e selector
+(`tests/e2e/app-shell-no-remount.spec.ts:193`, literal `'Door'` → `'Check-in'` for item
+L) left for a local-stack pass.
+
+**PR 2** [#299](https://github.com/Max-Seffelaar/PlusOne/pull/299) — item K5, the round's
+only migration and its only high-risk surface, on its own branch
+(`claude/ade-ux-round-z8uq9m0g0j-db`) with the review-gate security-research prompt in
+the body per CLAUDE.md. Not yet reviewed (`/code-review` + `/security-review` still
+needed) or run against pgTAP.
+
+**Cross-stream reconciliation the orchestrating session had to do after all 5 UI streams
+merged** (none of it improvised feature work — all mechanical fixes to make streams that
+were built blind to each other's exact shape agree):
+- S5 built the door "Edit plus-ones" call site against an assumed `PlusOnesSheet`
+  signature (`plusOnes`, no `onSaved`) before S4 landed; S4's actual sheet takes
+  `current` + `onSaved`. Fixed the call site and its test's mock to match.
+- Item A's "New event" button pushed `home.tsx` from 840 to 851 LOC, over the plan's
+  explicit "never grow these" line for files already past 800 (`home.tsx`,
+  `EventDayCockpit.tsx`, `guests/index.tsx`, `events/edit.tsx`). Extracted the header
+  action row into `home-header-actions.tsx`; `home.tsx` is now 836.
+- S6's migration was built in a worktree off a stale `main` and picked the timestamp
+  `20260918100000`, which collided with `20260918100000_submit_guest_request_standing.sql`
+  (PR #296, merged in the meantime). Rebased S6's branch onto current `main` and renamed
+  the migration to `20260918110000` — verified unique via `git ls-tree -r origin/main --
+  supabase/migrations` and the repo's own `check-migration-collisions.mjs` /
+  `check-migration-duplicates.mjs` guards (both exit 0). Also merged current `main` into
+  PR 1's branch for the same reason (`docs/changelog.md` had moved too) — clean, no
+  conflicts.
+- One purely-environmental flake, not caused by any merged code: `core.hooksPath` had
+  drifted to an absolute path (`/home/user/PlusOne/scripts/hooks` instead of the tracked
+  relative `scripts/hooks`) partway through the session, tripping
+  `tests/unit/pre-push-hook-is-executable.test.ts`. Re-running
+  `git config core.hooksPath scripts/hooks` (which is exactly what
+  `scripts/setup-git-hooks.mjs`'s postinstall hook does) fixed it immediately — nothing
+  in the repo needed changing, and re-running it confirmed the script itself was never
+  the cause (it always writes the relative form). Left as an open question for whoever
+  investigates further: something in this session's parallel worktree activity
+  apparently wrote the absolute form to the shared `.git/config` at some point.
+
+**K5 design notes worth carrying forward** (from S6's report, full detail in the
+migration's own header comment and PR #299's body): the venue check resolves via
+`event_venue(new.event_id)`, never the client-supplied `new.venue_id` — BEFORE row
+triggers fire alphabetically and `guests_contact_same_venue` sorts before
+`guests_set_scope`, so trusting `new.venue_id` would have been a bypass hiding in plain
+sight. The guard is `SECURITY DEFINER` (staff can't `SELECT contacts` under RLS at all,
+so an INVOKER guard would reject the very feature it protects). It validates a *change*
+to `contact_id`, not merely its presence, specifically so a guest linked to a contact the
+AVG sweep later anonymizes stays writable — a door check-in must never fail because
+someone exercised their right to be forgotten.
+
+**Not done, deliberately left to Max / a local-stack session:** merging either PR,
+running pgTAP/e2e/the concurrency suite, the `/code-review` + `/security-review` PR 2
+needs, the flagged e2e selector fix, and the full per-screen test handoff (posted on PR 1
+and to the ClickUp task) — the fixture backend has no RLS, so every permission-difference
+question in that handoff needs answering on the local stack, not `pnpm dev:fake`.
+
+
+---
+
+## 2026-09-18 — The door branch moves out of `app.tsx` (86eykm76k)
+
+Branch `refactor/86eykm76k-extract-door-branch`. Milestone: ≥5 (maintainability on a
+high-risk surface). No migration, no schema change, no new dependency. Follow-up on PR #261
+findings 12 + 13, unblocked by #287 (R7) landing first.
+
+**What was wrong.** PR #261's door render-scope fix worked, and its correctness rested on an
+invariant spread across ~600 lines of `app.tsx`: a `useMemo`'d `<PoDoorTab>` element held
+stable by six `useCallback`s and a ten-entry dependency array, so that `DoorProvider` /
+`DoorQueryProvider` — which forward `children` untouched — could bail React out of
+re-rendering the virtualized check-in list. Adding a ninth prop to `<PoDoorTab>` without
+adding it to that dep array froze the new prop silently: no type error, no lint rule, no
+failing test. The shell root read `usePoEvents`, `usePoDoorCandidates` and
+`usePoGuestRequests`, so any of those refetching rebuilt the root's whole element tree and
+the door had to be defended from it by hand, twelve times over.
+
+**What replaced it.** The door is its own component (`src/components/po/door-branch.tsx`), and
+the three venue-wide queries moved into its *siblings* rather than its ancestors:
+
+| read | now lives in | mounted when |
+|---|---|---|
+| `usePoEvents` | `app-screens.tsx` | only when NOT on a door URL |
+| `usePoGuestRequests`, `usePoCanManageTemplates` | `app-chrome.tsx` | always (it is the nav badge) |
+| `usePoDoorCandidates` | `door-branch.tsx` | the door itself, plus a null-rendering `DesktopDoorAutoOpen` for the T6 one-shot |
+
+An unrelated shell update now cannot schedule a door render at all — there is no re-render to
+bail out of. All twelve hand-memos are gone with it, along with the `isMobile`/`isDoorTab`
+guards that wrapped the pin effect (the component carrying it is simply not mounted off the
+door tab).
+
+**The one memo that stayed, and why it is a different thing.** `DoorTree` is `React.memo`'d.
+`usePoDoorCandidates` declares `isFetching` in its `notifyOnChangeProps` and the door's
+resolver reads it, so every background candidate refetch re-renders the resolver twice.
+`React.memo` absorbs that *without a dependency list*: it compares whatever props `DoorTree`
+declares, so a ninth prop threaded down to `PoDoorTab` is compared automatically and the type
+checker refuses to let you forget to thread it. That is precisely the property the old dep
+array did not have.
+
+**A real bug the extraction surfaced.** `useDoorOverride` dropped its override in a
+`useEffect` keyed on `[pathname, searchParamsStr]`. That was fine while the pin effect lived
+in the same component (effects run in declaration order), but child effects run BEFORE parent
+effects — so once the door became a child, its single-candidate pin (#278) wrote an override
+and the parent effect wiped it in the very same commit. The pin was lost and the door fell
+back to re-deriving it from `candidates.length === 1` every render: exactly the bug #278
+fixed. The reset now happens during render (React's documented "adjusting state when a prop
+changes" pattern), before any child renders or effects, so the two cannot race. The three
+existing #278 pin tests caught this and pass **unmodified** — they were not touched in this PR.
+
+**`door-tab-element-identity-bailout.test.ts` is deleted, not weakened.** It asserted, by
+reading `app.tsx` as text, that the door element was built with `useMemo`, handed to
+`<DoorProvider>` as a bare identifier, and forwarded through every provider layer untouched.
+All three were true; all three have stopped existing. A source-shape assertion about a memo
+that is gone can only be deleted. What it was ultimately protecting is the outcome, and that
+is now asserted behaviourally in `src/components/po/door-render-isolation.test.tsx` with real
+render counters against the real `PlusOneApp`. Each mocked query is a subscribable store read
+through `useSyncExternalStore` and the tests push data into those stores rather than calling
+`rerender(<App/>)` — that distinction is the whole test, and an earlier draft passed even with
+a venue-wide query moved back into the shell root precisely because it re-rendered from the
+root. Two counters: `candidateReads` (did the door subtree get entered at all — the structural
+claim) and `doorTabRenders` (did the check-in list re-render — the outcome claim).
+
+Red-on-revert, run rather than assumed — each revert applied to the real source, each failing
+on the assertion that names it:
+
+| revert | failing assertion |
+|---|---|
+| `usePoGuestRequests` back into the shell root | `an unrelated shell update re-rendered the door branch: expected 3 to be 2` |
+| `DoorTree` loses `React.memo` | `a candidate refetch re-rendered PoDoorTab: expected 4 to be 2` |
+| `DoorTree` over-memoized (`() => true`) | `the door never re-rendered on its own state change: expected 1 to be greater than 1` |
+
+The third is the control: without it, a door frozen solid would satisfy the first two.
+
+**Finding 13 (the LOC ceiling), and it is enforced now.** `app.tsx` 1148 → **328** lines. The
+`max-lines` eslint override was extended to the four shell files — but as `error` at a plain
+`max: 800` (no `skipComments`/`skipBlankLines`), not as the screens override's `warn` at 850
+on code lines only. `next lint` exits 0 on warnings, so a warning would have been as
+aspirational as the prose was. Verified live by temporarily lowering the limit to 50 and
+watching all four files error.
+
+    app.tsx        1148 → 328      door-branch.tsx   383 (new)
+    app-chrome.tsx  307 (new)      app-screens.tsx   200 (new)
+    nav-map.ts      122 (new)
+
+**Secondary target, from #261's efficiency angle.** `navItems` (~10 objects + 10 closures)
+was rebuilt on every render and handed to an unmemoized `ResponsiveShell`. It is memoized in
+`app-chrome.tsx` now, along with `mobileTabs` and `mobileBadges`, and only rebuilds when
+something in it actually changed.
+
+**Door callbacks carry no dependency array at all.** `doorNav` is one permanently stable
+object whose handlers read what they need out of a latest-value ref at call time instead of
+capturing it. Handlers only run after a commit, and the ref is never read during render.
+Nothing in it can go stale because nothing in it is captured — a handler added later gets the
+same guarantee for free.
+
+**Guards, unchanged and green.** `tests/e2e/app-shell-no-remount.spec.ts` (both specs — the
+#287 measurement of the exact behaviour this PR restructures),
+`tests/e2e/app-home-events-visible.spec.ts` (both — the `ssr:false` 86eya4yuf guard),
+`tests/unit/app-shell-no-ssr-suspense.test.ts`, and `core-flow.spec.ts` (door check-in
+asserted in the database). None was modified. `app.code-split.test.ts` was repointed from
+`app.tsx` to `app-screens.tsx` — the file that owns the screen switch now — with every
+assertion left identical.
+
+**Suites.** `pnpm lint` clean (2 pre-existing a11y warnings in `datetime-field.tsx`,
+untouched). `pnpm type-check` clean. `pnpm vitest run`: 129 files, **1372 passed, 0 failed**
+(1373 before: −4 deleted identity-bailout tests, +3 isolation tests). `pnpm e2e:smoke`: **6
+passed, 0 failed**.
+
+---
+
+## 2026-09-18 — Security: `auto_approved` stops answering "is this person on the list?" (z8uq9m0gvy)
+
+Branch `fix/z8uq9m0gvy-auto-approved-oracle`. Milestone: ≥5 venues. One migration
+(`20260918100000_submit_guest_request_standing.sql`), no app code, no schema change, no new
+dependency. Found in the fresh-session review of PR #276, where it was pre-existing and
+out of scope.
+
+**The bug.** `public.submit_guest_request` is SECURITY DEFINER and granted to `anon`, so it is
+reachable straight off the public key plus a link slug. On a link with `auto_approve = true`
+and an unlocked list it returned `auto_approved = false` *exactly* when the submitted e-mail
+already held an approved request on that event. Measured on the local stack before the fix:
+
+```
+1 victim signs up (fresh)        -> status=ok  auto_approved=true
+2 attacker retries that e-mail   -> status=ok  auto_approved=false
+3 attacker tries unknown address -> status=ok  auto_approved=true
+```
+
+That is a reliable yes/no answer to "is this named person on the list for this event?" —
+the thing CLAUDE.md's security checklist forbids outright ("public endpoints … never reveal
+whether a guest/e-mail exists"), and AVG-relevant besides: it confirms a named individual's
+attendance at a party. `p_ip_hash` is a function *argument*, so a direct PostgREST caller
+picks its own throttle bucket and has no effective rate limit on probing.
+
+The sharp part is that the function already committed to indistinguishability for its
+neighbours — the fullness branch is commented *"full: stays pending, indistinguishable for
+the requester"* and the block header says *"#28: link config/fullness is not enumerable"*.
+The already-approved branch was the single place that commitment was not kept.
+
+**The fix.** `auto_approved` now reports the requester's **standing** ("you hold an approved
+spot for this event") instead of "this call did the inserting". Those two coincide for a
+first-time submitter and came apart for a repeat one, which is the whole leak. `true` is
+honest — the person really is on the list, and the landing page's *"say your name at the
+door"* is the correct thing to tell them.
+
+**Why the obvious one-liner would not have been a fix.** Flipping only the already-approved
+branch moves the oracle one probe later instead of closing it. The silent-dedup path
+(`v_request_id := null`, a pending row already existed) *also* answered `false`, so probing
+any address twice still separated the cases:
+
+```
+pre-approved address : true, false        <- leak survives at probe 2
+unknown address      : true, true, false
+```
+
+Both arms are covered, so all four probes agree. `landing.test.sql` E4/E5 exist specifically
+to fail if someone later "simplifies" this back to one branch.
+
+**What did not change.** No approval behaviour moves: no guest row is created that was not
+created before, no request is decided that was not decided before, and the deliberate
+"a re-submit lands as a NEW pending row so staff can judge the repeat manually" behaviour is
+untouched (E6/E7 pin both). The judgement call is that the requester is told about *their
+spot* while a fresh pending row sits in the staff queue — the requester's operative fact is
+that they get in at the door, and that is true.
+
+Everything now hangs off one `not v_locked` gate, so a locked list still answers `false` to
+every e-mail alike (E8/E9) — the fix does not trade the e-mail oracle for a lock-state one.
+
+**Known residuals — corrected after review; this is a swap, not a close.** The first draft of
+this PR described the at-capacity case as an inherited residual and justified it with a
+mechanism that does not exist. The fresh-session review disproved both, and the migration
+header, `docs/security-audit.md` §4A and this entry were rewritten to match:
+
+- **Below capacity** the oracle is closed: a fresh address, an already-approved one and a
+  repeat probe of either all answer `true`.
+- **At capacity the oracle is open, and this migration opened it.** Before the change the
+  `v_already` arm did not exist, so an already-approved address fell through to `false` and
+  matched the stranger whose insert the capacity triggers had just rejected. Now the
+  already-approved address answers `true` and the stranger `false`. Net: the leaking regime
+  moved, it did not disappear. Keeping the change is still right — below capacity is where
+  an event spends most of its life, and the leak there was unconditional — but the endpoint
+  must not be described as free of e-mail enumeration.
+- **The stated justification was factually wrong.** The claim that
+  `guests_event_contact_uidx` rejects the duplicate at index time is false:
+  `guests_autolink_contact` is BEFORE INSERT and leaves `contact_id` NULL on this path, and
+  the index is partial (`where contact_id is not null`), so the probe insert reaches the
+  capacity triggers and raises `45006`. The review proved this live. The rationale is
+  removed, not restated.
+- **One-sidedness is not mitigation.** Two throwaway addresses establish the regime for
+  free — two `true`s means below capacity, two `false`s means at capacity — after which any
+  `true` is definitive.
+- **Closing it does not require duplicating the capacity rules.** Attempting the same insert
+  in a subtransaction that is always rolled back reuses the triggers as the single source of
+  truth. That is a real change to a SECURITY DEFINER function on the anon surface, so it is
+  its own reviewed task rather than an addition to this one.
+
+The undecided-pending residual is unchanged: an address with an *undecided* pending request
+still answers `false`, and closing it means auto-deciding a request that arrived through
+another, possibly manual-review, link — a workflow change, left for an explicit decision.
+§4A also now records the **caller-chosen `p_status_token_hash` on the silent-dedup path**
+(HIGH, pre-existing, untouched here) so that section is not read as a closed set. The same
+pass corrected §4A's stale rate-limit numbers — the doc still said 10 requests / 10 min; the
+code has been 5 / 15 min since `20260625100000`.
+
+**An existing assertion changed, deliberately.** `auto_approve.test.sql` E1 required
+`auto_approved = 'false'` for the already-approved re-submission — it was pinning the leak.
+It now requires `'true'`; E2, the guard that section is really about (on the list exactly
+once, repeat waits for staff), is unchanged and still passes.
+
+**Suites**, run on a fresh `supabase db reset`: pgTAP **58 files / 1152 assertions PASS**
+(`pnpm db:test`, plan/run gate green); Vitest **1373/1373** across 129 files; `pnpm
+type-check` clean; `pnpm lint` exit 0 (2 pre-existing `jsx-a11y` warnings in
+`datetime-field.tsx`, untouched). Red-on-revert was shown: with the pre-fix body reinstalled,
+E2/E4/E5 fail `have: false, want: true` while E1/E3/E6–E9 stay green.
+
+**Not pushed to prod.** Production has not deployed since 2026-08-19 (Vercel env guard,
+`NEXT_PUBLIC_SENTRY_DSN` unset in the Production scope). Per the task, the migration stops at
+merge; the schema deploy happens centrally once the app deploy is unblocked.
+
+---
+## 2026-09-17 — ADE UX round planned: 15 items from Joeri's feedback, verified in code, plus a docker-free screenshot harness
+
+Branch `claude/wonderful-hopper-ji35cw` (plan-only PR, no app code). Source: Fathom call
+Max <> Joeri 17/9 + Max's decisions in the planning session of the same day. Deliverables:
+
+- `docs/plan-ade-ux-round-2026-09-17.md` — items A–O, each with Decision / Today
+  (verified in code, file + line) / Spec / Tests, six work streams with file ownership,
+  two PRs (K5's `guests.contact_id` venue guard is the only migration → its own PR and
+  the review gates).
+- `docs/prompts/ade-ux-round-orchestrator.md` — the paste-in prompt for the ONE building
+  session (subagents in worktrees, merge order, harness, PRs, bookkeeping, test
+  handoff). ClickUp umbrella task `z8uq9m0g0j`.
+- `scripts/dev/fake-supabase.mjs` + `scripts/dev/screenshot.mjs` (`pnpm dev:fake`,
+  `pnpm shot`) — a fixture-backed GoTrue/PostgREST subset so the REAL app boots in a web
+  container (no docker, no supabase CLI) for looking at screens. Not a test double: no
+  RLS, realtime 404s, writes stay in memory; nothing in CI depends on it. Ports
+  55421/7100 sit beside the local stack (553xx) and `pnpm dev` (7000/70xx).
+
+Findings worth keeping (all carried in the plan): the desktop guest-list avatar is
+lavender for VIP-*type* tiers regardless of the tier's colour (`accent={role === 'VIP'}`,
+four sites); the event form never derives an end date, and the day picker has no
+month/year dropdown and does not follow typed text while open; name-only guests never
+link to a contact by design (autolink is email/phone only) and there is NO database
+guard that `guests.contact_id` belongs to the guest's venue (only `add_contact_to_event`
+checks); the "+N" chip on the guest profile is a static `MiniChip`; the door overlay's
+"…" button has no handler; `t.guests.add.contactPromptHint` has no render site.
+
+Validated here: `pnpm dev:fake` boots against the fixtures, dev-login through the fake
+sets real cookies, `pnpm shot` captured 30+ desktop + mobile screens used in the
+session. Not run: pgTAP / e2e (no stack in the container) — this PR touches no app code.
+
+## 2026-08-19 — Perf: the /app shell stops remounting on every navigation (86ey9uc87)
+
+Branch `perf/86ey9uc87-no-remount-shell`. Milestone: Now. No migration, no schema change, no
+new dependency. Three files of production code, and two of them are almost entirely comments.
+
+**The bug.** `PlusOneApp` — the entire `/app` shell — was torn down and recreated on every
+`router.push`. It was rendered by `src/app/app/[[...segments]]/page.tsx`, and Next rebuilds
+the *page* subtree for each segment path; only the *layout* instance is preserved across
+client-side navigation. So every screen change re-ran every shell effect (billing-return,
+Sentry screen tag, viewport resolution, nav construction, the door auto-open one-shot, the
+entrance animation) and reset every piece of shell state.
+
+This was known, not suspected: the `hasPushedThisSession` comment in `app.tsx` documented a
+mount/unmount probe firing on every navigation, and the module-level variable exists *because*
+a `useRef` could not survive it.
+
+**The measurement, since "feels faster" is not evidence.** A mount counter on `PlusOneApp`
+(`window.__poShellMounts`, dev/test builds only), read across one real browser session on the
+mobile viewport. Counts are doubled by `reactStrictMode`'s dev double-invoke, so one real
+mount reads as 2 — what matters is whether the number moves at all.
+
+| step | before (`main`) | after |
+| --- | --- | --- |
+| initial `/app` load | 2 | 2 |
+| tab → Events | 2 | 2 |
+| push → event detail | **4** | 2 |
+| browser Back → events | **8** | 2 |
+| tab → Guests | 8 | 2 |
+| tab → Door (+ `?event=` pin) | **12** | 2 |
+
+Before: five navigations, the shell mounted six times. After: it mounts once and never again.
+Note the *shape* of the old behaviour — tab-root switches at the same segment depth did not
+rebuild, deeper segment paths did. That is why this never showed up as an obvious break: the
+cheapest navigation to try by hand was the one that already worked.
+
+**The fix.** Render `<PlusOneAppClient />` from `src/app/app/layout.tsx` instead of from
+`page.tsx`; `page.tsx` now renders `null` and exists only so the catch-all route matches.
+`PlusOneApp` already derives its active screen from `usePathname()`/`useSearchParams()` (G1),
+which are client hooks that re-render in place — it never needed the page slot to re-render in
+order to follow the URL.
+
+**The `ssr:false` trap was checked, not assumed (86eya4yuf).** CLAUDE.md forbids a client
+component that suspends during SSR from hanging under a page `<Suspense>` at a route root, and
+`/app` mounts via `app-client.tsx` with `ssr:false` for exactly that reason. Moving the mount
+point does not touch that property: `app-client.tsx` carries `'use client'`, so its
+`next/dynamic(..., { ssr: false })` runs in a *client* module and removes the server suspension
+by construction, regardless of which server parent renders it — and the layout is the same kind
+of server parent `page.tsx` was. `tests/unit/app-shell-no-ssr-suspense.test.ts` was widened
+rather than relaxed: it now forbids a direct shell import from *either* file, requires exactly
+one of them to mount via `app-client` (two mounts would mean two `DoorProvider`s and two
+outboxes), and pins that the one is the layout. `tests/e2e/app-home-events-visible.spec.ts` —
+including its `requestAnimationFrame`-stubbed never-painted-tab case — is untouched and green.
+
+**Blast radius, walked deliberately.** Every piece of state that was silently
+remount-scoped is now session-scoped:
+
+- `hasPushedThisSession` **stays module-level.** A ref would work for screen-to-screen pushes
+  now, but the flag's real question is "does this browser tab have history to pop?", and
+  history belongs to the tab. `PlusOneApp` still unmounts when the user leaves `/app` for a
+  sibling route (`/door/[id]`, `/e/[slug]`) and remounts on return — a client-side navigation
+  that pushes real history entries while the component is gone. A ref would forget them and
+  send the next `back()` down the cold-deep-link branch, reintroducing the original bug on a
+  path the e2e suite does not cover. Left alone; comment rewritten to say why.
+- **The #278 door-candidate pin is intact.** Both halves are derived from current state, not
+  from a memory of what this mount wrote, which is precisely what makes them remount-count
+  independent. One adjustment: `staleDoorRefetchRef` (one refetch per rejected `?event=`) used
+  to be reset for free by the per-navigation remount. Without that it would live for the whole
+  tab session, so an id going absent → present → absent again would be rejected against a
+  possibly-stale list with no retry. It is now released alongside `rejectedDoorId` when the id
+  reappears — "one retry per rejection episode", with no new memory of who chose the id.
+- **The #281 venue-switch fix is untouched** (it ends in `window.location.assign`, a full load).
+- **Door offline invariant #25 holds.** Overlay open/close still goes through `pushDoorState`
+  on raw history, which never involved the router in the first place. `page.tsx` still does
+  zero server data work, so query-string-only navigation stays fully client-side.
+- The billing-return `sessionStorage` round-trip is kept even though the same mount now reads
+  its own parked flag straight back: it costs nothing and still carries the toast across the
+  strip-and-`replaceState` and any genuine reload.
+
+**86ey9tq62 re-tested** (overlay stays open / Back lands wrong after check-in), since this
+remount was its suspected cause: `tests/e2e/door-overlay-back.spec.ts` passes both before and
+after. It was already fixed by the popstate listener in `use-door-override.ts`; the remount was
+not what kept it alive. Reported as-is rather than claimed.
+
+**New guard.** `tests/e2e/app-shell-no-remount.spec.ts` drives tab switches, a pushed detail
+screen, browser Back, the door's `?event=` pin, the guest overlay's `?guest=` and the popstate
+back out of it, asserting the mount count never leaves its baseline. Verified adversarially: on
+`main`'s arrangement it fails on the first pushed screen (expected 2, received 4).
+
+**Gates.** `pnpm lint` clean (2 pre-existing a11y warnings in `datetime-field.tsx`, untouched),
+`pnpm type-check` clean, `npx vitest run` 122 files / 1242 tests green, Playwright e2e green
+(see PR body for the run's real counts).
+
+**Fresh-session `/code-review` (PR #287) — no correctness bug in the production code**, and the
+acceptance criterion was reproduced in both directions by the reviewer. Three findings, all in
+the new *test* material, all fixed on the branch:
+
+1. **The guard never ran in CI.** `.github/workflows/ci.yml` has exactly one Playwright step,
+   `pnpm e2e:smoke`, and that script named three files — not this one. `pnpm e2e` is never
+   invoked by CI. So moving the mount back under `page.tsx` would have stayed green forever,
+   in a file that exists precisely because the regression is invisible to every other test.
+   `app-shell-no-remount.spec.ts` is now in `e2e:smoke`, next to the sibling guard
+   `app-home-events-visible.spec.ts` that is wired in for the same reason. `STACK_SUITES` in
+   `scripts/session-setup.mjs` names the *script*, not its files, so its runtime validation
+   against `package.json` still passes unchanged.
+2. **The spec was not hermetic** — fixed FIRST, because wiring a DB-order-dependent spec into
+   CI is how you buy a flaky pipeline. It entered the door through the bottom tab and so
+   depended on the door's implicit single-candidate auto-pin, i.e. on the venue having exactly
+   ONE open event. `core-flow.spec.ts` leaves extra open events behind, so on a second run
+   against the same database the picker rendered instead of the check-in list and the spec
+   failed on a missing search box — reading as a broken door rather than a dirty database. It
+   survived a full `pnpm e2e` only because alphabetical file order happened to put it ahead of
+   `core-flow`. The measurement now enters the door explicitly via the event's own "Check-in"
+   button (`nav.openDoor` → `/app/door?event=<id>`, the same URL `door-overlay-back.spec.ts`
+   uses), which is independent of the candidate count and still exercises the `?event=`
+   query-string leg. The implicit pin keeps its own assertion in a second test, written to
+   cover both database states: one candidate → the pin fires, more than one → the picker is
+   correct, and a picker offering a *single* card fails it.
+3. **The one behavioural change had no test.** The `staleDoorRefetchRef` release above is the
+   PR's only logic change, and deleting the line left the entire suite green (DoD #4).
+   `src/components/po/door-pin-lifetime.test.tsx` gains a third phase on the existing retry
+   test: it drives the requested id absent → present → **absent again** and asserts the refetch
+   fires a second time. Red-on-revert, measured: with the line deleted the file runs
+   **1 failed | 3 passed** (`expected 1 to be 2`); restored, **4 passed**.
+
+**Post-review gates** (this branch, local Supabase): `pnpm lint` clean (same 2 pre-existing
+a11y warnings), `pnpm type-check` clean, `npx vitest run` **122 files / 1242 tests passed**,
+`pnpm e2e:smoke` **6 passed (53.2s)** on a `pnpm db:fresh` database and **6 passed (47.6s)** on
+an immediate second run with no reset in between — the exact scenario that used to fail. For
+the record, the pre-fix spec re-run against that same dirty database still fails on
+`getByPlaceholder('Search a name…')`, so the hermeticity fix is what changed the outcome.
+
+---
+
+## 2026-08-19 — `add_contact_to_event` PII-reuse is by design, documented (86ey9e9nb)
+
+Branch `docs/86ey9e9nb-contact-reuse-by-design`. Documentation only — no policy, function,
+or permission changed. Spec decision **#47** added to `gastenlijst-app-spec.md` (with a
+pointer amendment on the Adresboek & auto-contact paragraph); explanatory comments added at
+the call sites in `src/features/contacts/actions.ts`.
+
+**The finding this closes out.** `add_contact_to_event` (`SECURITY DEFINER`,
+`supabase/migrations/20260619000000_add_contact_to_event_plus_ones.sql:38,55`) gates only on
+`can_write_guests(p_event_id)` — true for staff and doorhost, not just managers. It reads the
+contact via DEFINER rights (past `contacts_select`, which denies staff/doorhost direct PII
+reads) and copies `full_name`/`email`/`phone` into the new `guests` row (`added_by =
+auth.uid()`); because `guests_select` shows a caller their own `added_by = self` rows, the
+staffer reads that PII straight back. A repeat `/security-review` kept re-surfacing this
+because the bulk sibling, `add_contacts_to_event`, is admin/organizer-only while this
+single-add path isn't — an unexplained asymmetry reads as a forgotten tightening.
+
+**The decision (Max, 19/8): by design, not a gap.** This is exactly the "reuse in one tap"
+path `search_contacts_for_reuse()` exists to power. Anyone who reaches this RPC already holds
+unrestricted `can_write_guests` — they could type that same name/e-mail/phone into a manual
+guest add regardless, so copying an existing contact's PII into a guest row they own grants no
+new capability. The managers-only read on `contacts` governs *browsing* the whole address
+book; it was never meant to gate reusing one already-identified contact. The bulk RPC stays
+admin/organizer-only because it's the tail of the admin-only CRM-import flow
+(`upsert_contacts`), not the "I recognize this person" moment the single-add path serves — the
+asymmetry is intentional. **The gate stays `can_write_guests(p_event_id)`; nothing in the code
+changed.**
+
+**Why documentation only, no new migration.** A `COMMENT ON FUNCTION` migration was
+considered so the explanation would live next to the SQL itself, but the applied migration
+can't be edited in place (repo convention), and a comment-only migration still carries a
+`db push` + fresh-`supabase db reset` + pgTAP cycle for zero behavioural change. Chose instead:
+the full write-up in the spec's decision table (#47, the durable source of truth per
+`CLAUDE.md`) plus a pointer comment at both TypeScript call sites
+(`addContactToEvent`/`addContactsToEvent` in `src/features/contacts/actions.ts`) — a future
+reader hits the explanation exactly where they'd look, without a schema change for a comment.
+
+**Verification:** `pnpm lint` clean (pre-existing warnings only, unrelated file), `pnpm
+type-check` clean, `pnpm vitest run` — 115 files / 1188 tests green. No RLS/pgTAP change, so no
+`supabase db reset` was needed for this PR.
+## 2026-08-19 — PR #276 visual-QA response: phone accepted a non-number, approve screen hid the e-mail (86eyke279)
+
+Branch `feat/86eyke279-landing-contact-required`, same PR/task as the two entries below —
+the visual-QA response pass, not a new task. A QA session walked the whole PR on a real local
+stack (15 handoff questions: 12 ✅ · 3 ⚠️ · 0 ❌, plus eight edge-case blocks) and came back
+with one blocker and three smaller items. Every finding was re-measured here before it was
+touched.
+
+**BLOCKER — `12345` was accepted and stored as `+3112345`.** Reproduced in one pass: a valid
+name + e-mail, `12345` in the phone field with the selector on 🇳🇱 +31, submit → *"Request
+sent."* and `guest_requests.phone` holding `+3112345`. Not a number anybody can call.
+
+Root cause, re-measured against the installed `react-phone-number-input` 3.4.17 /
+`libphonenumber-js` 1.13.6 rather than taken on report:
+
+```
+                     +3112345   +31612345678   +31201234567
+default (= /min)     true       true           true
+/max                 false      true           true
+/mobile              false      true           false
+```
+
+The default entry ships libphonenumber's **`min`** metadata — per-country *length bands*, no
+numbering plan — so a five-digit non-number sits inside the NL band and passes. The DB regex
+`^\+[1-9][0-9]{1,14}$` is a deliberate **shape** check and cannot catch it either. The field
+this PR makes mandatory was therefore the path of least resistance for anyone unwilling to
+give a real number, which contradicts the PR's own premise that *"a required field that
+accepts `x` is theatre"*.
+
+**Fixed by moving the WHOLE phone surface to `/max`**, not just the validator: `isPhoneValid`
+and `phoneCountryOf` (`react-phone-number-input/max`), the input build (`/input-max`) and the
+country picker (`country-select.tsx`). Changing only the validator would have bundled *two*
+metadata blobs and left the input formatting numbers under `min` that the validator then
+rejects under `max`. `/mobile` was considered and rejected: it refuses the valid Amsterdam
+landline `+31201234567`.
+
+**Bundle cost — measured, not estimated.** Two full production builds (`pnpm build`),
+baseline `993196f` vs the patched tree:
+
+| | before | after | delta |
+|---|---|---|---|
+| First Load JS, **every** route | — | — | **identical** (route-table diff empty) |
+| `/e/[slug]` First Load | 147 kB | 147 kB | 0 |
+| lazy phone chunk, raw | 164.5 kB | 236.4 kB | +71.9 kB |
+| lazy phone chunk, gz | **39.6 kB** | **59.8 kB** | **+20.2 kB** |
+
+The metadata already sat behind the #B4 lazy boundary, so the delta lands **only** on users
+who actually render a phone field — never on first paint of the public landing page. The
++71.9 kB raw is exactly one metadata blob (`metadata.max.json` 154.3 kB − `metadata.min.json`
+82.3 kB = 72.0 kB), which confirms the single-build approach worked and no `min`+`max`
+duplication crept in. Judged acceptable: 20 kB gz on a deferred chunk buys correctness on the
+one field the PR makes mandatory.
+
+**The server-side alternative was considered and rejected.** Tightening `submit_guest_request`
+cannot express a numbering-plan check without hand-porting libphonenumber's per-country plans
+into SQL, which is strictly worse to write and to keep current. The RPC keeps its shape check
+by design, and the PR body records the residual: a hand-rolled caller can still post its own
+junk number — it just cannot post it *through the form*.
+
+**Guard.** New `tests/unit/phone-metadata-max.test.ts` locks both halves: the behaviour
+(`/max` refuses the blocker, keeps NL mobile **and** landline, keeps international numbers)
+and the wiring (every phone entry point resolves to the same `/max` build). It **complements**
+`tests/unit/phone-lazy-imports.test.ts` — which keeps the library out of First Load JS and was
+neither relaxed nor edited. Red-on-revert verified against the previous code:
+
+```
+FAIL  the app's own isPhoneValid (what the landing form calls) > refuses the reported blocker
+AssertionError: expected true to be false
+FAIL  src/components/po/phone-lazy.tsx imports only /max phone builds
+FAIL  src/components/po/country-select.tsx imports only /max phone builds
+```
+
+**The e-mail was invisible on the screen where requests are approved.** The PR requires the
+field *"so the organizer can reach the guest"*, but the Requests card showed only
+`phone •••• 5610` and the Approve sheet showed no contact at all — the address existed
+correctly in the DB and appeared one screen over in Contacts, which is exactly one screen too
+far at the moment of deciding. `guest_requests.email` is now selected
+(`fetchGuestRequests`), carried on the domain type (`PoGuestRequest.email` / `.phone`, full
+values alongside the existing `phoneLast4` hint), rendered on the pending **and** declined
+cards, and spelled out in full in a Contact block in the Approve sheet — you cannot mail a
+masked hint, and the same RLS-scoped roles (admin/finance/organizer) already read the complete
+address in Contacts, so this is not a new exposure class. Pre-rule rows keep both columns
+NULLable and say so ("No email — filed before it was required") instead of rendering an empty
+box.
+
+**Three smaller items, all from the same QA pass.**
+- The country-code button was a **31px** tap target, under the 44px rule, on the very field
+  this PR makes required. A `before:` overlay lifts the hit area to 44px **without** changing
+  the 53px row height or the visual — 44px fits inside the row, so nothing reflows.
+- **Name carried no `required` badge** while being just as blocking: three required fields,
+  two badges. Now three. A reader who trusted the badges was reading a wrong form.
+- The phone error said *"…including the country code"* to someone who pasted
+  `+44 7911 123456` into an NL-selected field — accusing them of omitting the one thing they
+  typed. It now names the **country selector**, which is accurate for both failure modes (an
+  incomplete national number, and a correct number under the wrong flag).
+
+**Deliberately left alone**, both confirmed pre-existing and out of this PR's scope: the
+`auto_approved` e-mail-existence oracle on auto-approve links (already recorded as a follow-up
+in the PR body) and the fixed `manager@` role restriction on Requests. The handoff link in the
+PR body pointed at `manager@plusone.test`, which is `user_manager` on Club Vesper and gets
+*"You don't have access to requests."* — corrected to `admin@plusone.test`. This was the
+**second** handoff this sweep pointing at a role that cannot reach the screen it names (#278's
+QA found the same for the Deur tab, where `manager@` is not in `DOOR_ROLES`); a cheap
+structural catch is sketched in the PR body but deliberately **not** built unasked.
+
+**Suites:** vitest **1220 passed / 116 files**, `pnpm type-check` **0 errors**, `pnpm lint`
+clean (pre-existing `datetime-field.tsx` a11y warnings only). No migration, no type
+regeneration — this pass is client-side plus one added column in an existing `select`. pgTAP
+unchanged and still CI's verdict.
+
+---
+
+## 2026-08-19 — PR #276 review response: e-mail length cap + K10 guard hardening (86eyke279)
+
+Branch `feat/86eyke279-landing-contact-required`, same PR/task as the entry directly below —
+this is the fresh-session review-response pass, not a new task. The `/code-review` on PR #276
+found **no merge-blockers** (server-side half re-measured against a real Postgres 16: all
+eleven empty/unusable variants refuse and write zero rows, red-on-revert holds). Three
+non-blocking points remained; this session closed two and recorded the third.
+
+**Fixed — `v_email` had no length cap (migration `20260819110000:93`).** The comment claimed
+"a raw anon caller still can't store junk", which wasn't quite true: `full_name` caps at 120,
+`motivation` truncates at 1000, `v_phone` is implicitly bounded by the E.164 regex (~16
+chars) — but the e-mail shape regex alone puts no ceiling on length, and this is an anon write
+path. Measured on a bare local Postgres 16 (no Docker here either; same "minimal stubs"
+method as the entry below, this time with all 99 migrations + `seed.sql` applied for real
+fixtures instead of hand-built ones):
+
+- An e-mail made of **repeated** characters compresses under TOAST and can slip past the
+  `guest_requests_dedupe_idx` btree row-size ceiling even at 5000 chars — silently stored.
+- An **incompressible** (random) 4000+ char local-part reproduces exactly what the reviewer
+  reported: `ERROR 54000: index row size 4208 exceeds btree version 4 maximum 2704` — escapes
+  the function entirely (not caught by the `unique_violation` handler), so the whole RPC call
+  fails instead of returning a clean `invalid`.
+
+Fix: `char_length(v_email) > 254` added to the same `if` as the shape checks (254 matches
+Zod's `.max(254)`, keeping "everything the client accepts passes here" true). Applied
+identically to the migration and `supabase/canonical/submit_guest_request.sql` (verified
+byte-for-byte equal, K10 guard passes). **Red-on-revert:** reapplying the previous (unpatched)
+body against the same random 4000-char e-mail reproduces the 54000 error; the patched body
+returns `invalid` and writes zero rows. New pgTAP (`landing.test.sql` A25–A27): 254 chars
+accepted, 255 refused, zero rows on refusal — extends `plan(39)` to `plan(42)`.
+
+**Fixed — the K10 canonical guard could repeat the exact drift it just caught.**
+`tests/unit/canonical-functions.test.ts` scanned only for `create or replace function
+public.<name>(...)`. The reviewer traced why the guard went silently green for six migrations
+while `supabase/canonical/submit_guest_request.sql` described a function that no longer
+existed: `20260706103000` changed the arg list, which Postgres can only do via `drop` +
+**bare** `create function` (no `or replace`) — a shape the old regex never matched. This PR's
+migration uses `create or replace` and fixes the symptom, but the next arg-list change would
+trip the same gap again. Widened the pattern to `create (?:or replace )?function public\.` and
+added two focused unit tests (bare `create function` matches; `create or replace` still
+matches) — red-on-revert verified by reverting the regex locally and confirming the bare-create
+test goes red.
+
+**Recorded, not fixed — `auto_approved` is an e-mail-existence oracle (`…sql:208`).** Pre-existing
+(introduced in `20260706103000`'s auto-approve feature, unrelated to and unchanged by this PR's
+scope), so left alone per instructions; written up as a suggested follow-up task in the PR body
+so it doesn't get lost. On an `auto_approve = true` link, the `auto_approved` field in the RPC's
+return value is `true` for a fresh submission and `false` when the same e-mail is already
+approved on that event — an anonymous caller can use it to test whether a specific e-mail is on
+the guest list, with no rate limit of its own (`p_ip_hash` is caller-supplied). This is narrower
+than the blanket "no enumeration" framing in `docs/security-audit.md:101` (which is about the
+`closed` slug/event answer, a different and still-true claim) — worth a follow-up nuance to that
+doc alongside the fix, not done here to keep this PR narrow.
+
+Suites: `pnpm lint` clean (same pre-existing `datetime-field.tsx` a11y warnings), `pnpm
+type-check` 0 errors, Vitest **1208 passed / 115 files** (+2 from the new
+`canonical-functions.test.ts` cases). pgTAP not runnable here (no Docker) — CI is the verdict,
+same as the building session; the new A25–A27 assertions were dry-run as plain SQL against the
+bare-Postgres fixture above and match the expected pgTAP outcome.
+
+Not merged. Replied to and resolved all three review threads on PR #276.
+
+---
+
+## 2026-08-19 — E-mail én telefoon verplicht op het publieke aanvraagformulier (86eyke279)
+
+Branch `feat/86eyke279-landing-contact-required`. Milestone: **Now** — dit raakt het vermogen
+van een pilot-venue om een goedgekeurde gast te bereiken. Spec: **#9 verfijnd** (niet een
+nieuw nummer — dit versmalt een bestaande beslissing) + de datamodelregel bij `guests`/
+`guest_requests` in `gastenlijst-app-spec.md`.
+
+**Wat er mis was.** Max vond het op 2026-08-10 tijdens het testen van `86eyd3men` (PR #245):
+een bezoeker kon op `/e/[slug]` een aanvraag indienen met **alleen een naam**. De venue hield
+daar een goedgekeurde gast aan over zonder één kanaal om die te bereiken — geen bevestiging,
+geen wijziging, geen afmelding. Dat was geen bug maar een gedocumenteerde keuze (#9,
+dataminimalisatie); het besluit van 2026-08-10 draait die keuze **voor dit ene pad** terug.
+
+**Reikwijdte, expliciet.** Alleen de publieke landing/influencer-linkflow: `/e/[slug]`,
+`/r/[token]`, `submitGuestRequestSchema` en de `submit_guest_request`-RPC. De **interne**
+toevoegpaden (quick-add #33, bulk-paste, admin- en deur-add) blijven ongemoeid en optioneel —
+daar staat een medewerker naast de gast en is anoniem "Jan +2" nog steeds de bedoeling.
+
+**Twee lagen, allebei nodig.**
+
+| laag | wat het doet | waarom het alleen niet genoeg is |
+|---|---|---|
+| `submitGuestRequestSchema` + het formulier | `email`/`phone` van optioneel naar verplicht; directe veldfeedback | de RPC is aan `anon` gegrant — een hand-geschreven PostgREST-call slaat de client volledig over |
+| `submit_guest_request` (SECURITY DEFINER, migratie `20260819110000`) | weigert dezelfde gevallen met `status: 'invalid'` | een DB-only regel zou de aanvrager pas ná het versturen een generieke fout geven |
+
+**Wat "leeg" betekent — aan beide kanten hetzelfde.** `null`, `''` en whitespace-only worden
+alle drie geweigerd. In SQL was dat niet vanzelfsprekend: `btrim(x)` strijkt **alleen ASCII
+spatie** weg, dus een telefoonnummer van één tab overleefde het als "waarde". De functie
+gebruikt nu één benoemde whitespace-set (`E' \t\n\r\f\x0B'`) voor naam, e-mail, telefoon
+én motivatie. Bovenop de aanwezigheidscheck staat een **bruikbaarheidscheck** (e-mailvorm,
+E.164) — een verplicht veld dat `x` accepteert is theater, en zonder die tweede check glipt
+een NBSP-only waarde er alsnog doorheen (die overleeft `btrim` wél). De DB-checks zijn
+bewust **losser** dan de Zod-regels: alles wat de client accepteert komt hier langs, zodat een
+strengere client nooit stil door de database wordt overruled.
+
+**Waar de guard staat, en waarom dat uitmaakt.** Direct naast de bestaande naamcheck, dus
+**vóór** de throttle. Dat is verdedigbaar juist omdat het antwoord volledig uit de argumenten
+van de aanvrager zelf volgt: er wordt geen slug, link of rij van ons gelezen voordat
+`invalid` terugkomt, dus het lekt niets over welke events of links bestaan (#28). Onder de
+throttle zetten zou niets opleveren — wie slugs probeert stuurt gewoon geldige contactgegevens
+mee — en zou een legitieme bezoeker met een typefout zijn budget kosten.
+
+**Bestaande rijen blijven staan — bewust geen NOT NULL.** `guest_requests.email`/`.phone`
+blijven NULLable. Aanvragen van vóór vandaag blijven bestaan, blijven goedkeurbaar en blijven
+door de retentie-job geanonimiseerd worden. Dit is een **toelatingsregel op nieuwe publieke
+indieningen**, geen invariant van de tabel; een kolomconstraint zou expand-contract breken en
+historische data ongeldig maken.
+
+**Bijvangst, los van de taak maar in dezelfde bestanden.**
+
+- De **K10-canonical-guard klopte niet meer**: `supabase/canonical/submit_guest_request.sql`
+  hield de 7-args-versie uit `20260624200000` bij, terwijl `20260706103000` die overload
+  **droppte** en de live functie met `create function` (niet `create or replace`) opnieuw
+  aanmaakte — waar de guard-test niet op scant. Het canonieke bestand beschreef dus een
+  functie die niet meer bestond. Deze migratie gebruikt `create or replace`, waardoor het
+  bestand weer de echt gedeployde body bevat.
+- **Twee beslissingen stonden buiten de beslistabel.** #45 en #46 (sessie `86ey9et0h`,
+  12/8) waren aan regel 3 van de spec geplakt, achter de statusregel, in plaats van onder
+  #44. Verplaatst; de tabel loopt weer 1–46 op volgorde. Geen inhoudelijke wijziging.
+- `tests/e2e/landing-request.spec.ts` vult nu een e-mail. Die spec is verder **gedrift**
+  (Nederlandse labels tegen een EN-only surface, de uitgefaseerde `/dashboard` + `/events/*`
+  routes) en draait niet in CI (`pnpm e2e:smoke` bevat hem niet); alleen de contactvelden
+  zijn bijgetrokken, de rest is een eigen taak.
+
+**Bewezen, niet aangenomen.** Deze container heeft geen Docker, dus `supabase db reset` /
+`test db` konden hier niet draaien — CI doet dat. Wat hier wél kon: een kale lokale
+PostgreSQL 16 met minimale stubs, waarin de migratie schoon toepast, alle elf lege/onbruikbare
+varianten `invalid` teruggeven en geen rij schrijven, en de complete aanvraag `ok` geeft.
+**Red-on-revert is aan beide kanten gecontroleerd:** met de vorige functiebody
+(`20260706103000`) geven diezelfde vier contactloze gevallen `ok` en schrijven ze vier rijen.
+
+**Bestaande pgTAP moest mee.** Zeven suites riepen de RPC aan met `null, null` als
+contactgegevens; die zouden na deze migratie op `invalid` stuklopen. Alle call-sites in
+`landing`, `contacts.capture`, `auto_approve`, `event_lifecycle_capacity`, `rls`,
+`status_token` en `attacker_landing_spam` dragen nu geldige contactgegevens — inclusief de
+gevallen die `closed` of `rate_limited` moeten bewijzen, want die moeten de guard eerst
+passeren om überhaupt bij de slug-resolutie of de throttle te komen. Eén test veranderde van
+betekenis: `contacts.capture` C1 was "een naam-only aanvraag wordt geaccepteerd maar niet
+vastgelegd" en is nu "een naam-only aanvraag wordt geweigerd".
+
+**Bekende beperking, expliciet niet gedicht.** De regel bindt `anon`, niet `authenticated`.
+Voor `anon` is de RPC echt het enige schrijfpad — `20260707170000` C2 trok de directe
+INSERT-grant op `guest_requests` in — dus voor het bedreigingsmodel van deze taak is de guard
+compleet. Maar `authenticated` heeft nog steeds `grant select, insert, update` op die tabel
+(`20260613000000_full_schema.sql:405`) en de compat-policy `guest_requests_insert_public` stelt
+géén eis aan contactgegevens: een ingelogde gebruiker kan een contactloze aanvraag rechtstreeks
+wegschrijven. Bewust niet meegenomen — dat valt buiten de scope, en die policy raakt ook de
+interne paden die deze taak juist met rust moest laten. Vervolgtaak voor Max: óf dezelfde regel
+in de policy, óf de directe insert-grant voor `authenticated` helemaal weg.
+
+**Openstaand voor Max:** de per-screen test handoff op de PR, en `/security-review` door een
+verse sessie (SECURITY DEFINER op een publiek anoniem schrijfpad = high-risk). Niet zelf
+gemerged. Typegeneratie (`src/lib/database.types.ts`) is **niet** nodig: de signatuur van de
+RPC is ongewijzigd, alleen de body.
+## 2026-08-19 — Stripe webhook: a malformed `client_reference_id` no longer retries forever (86ey9e9re)
+
+Branch `fix/86ey9e9re-stripe-webhook-uuid-guard`. Milestone: Now (a stuck webhook queue hides
+every *real* billing failure behind it). No migration — the fix is entirely application-layer.
+
+**The bug.** `checkout.session.completed` carried `session.client_reference_id` straight into
+`apply_stripe_subscription_update` as `p_venue_id`, whose declared type is `uuid`. That field is
+an arbitrary Stripe-side string, not a validated id: a checkout started from the Stripe
+dashboard, a legacy/typo value, or an attacker-supplied one all arrived verbatim. Postgres
+failed the cast (`22P02`), the RPC returned an error, and the handler's one and only error
+branch answered **500** — the code Stripe reads as "retry me". The same unfixable event then
+came back with backoff for days, and genuine webhook failures drowned in that noise.
+
+**The fix, and the line it draws.** A `z.string().uuid()` guard runs between the mapping and the
+RPC. A present-but-malformed venue id is reported to Sentry and answered **200 `unprocessable`**;
+the RPC is never called. The reasoning is a property of the input, not a preference: a
+malformed `client_reference_id` cannot become valid on redelivery, so a retry has no possible
+success path and 500 is simply the wrong answer. 500 stays reserved for what it was documented
+for — genuinely transient failures.
+
+**What this does NOT fix — the storm moves one event downstream.** Stated plainly because the
+first version of this entry did overclaim it. The guard retires *this* event; for the scenario
+that motivates the fix it does not make the venue work.
+
+Take a Stripe-**dashboard**-created checkout whose `client_reference_id` was typed by hand into
+something non-UUID. That venue's `subscriptions.stripe_customer_id` is `NULL`: `stamp_stripe_customer`
+runs only in `createCheckoutSessionAction`, i.e. the app's own path. The one remaining chance to
+link the customer is the webhook's own RPC, which writes
+`stripe_customer_id = coalesce(p_stripe_customer_id, …)`. The guard returns before that call — so
+the customer id is never stamped **at all**. Then `invoice.paid` arrives, carries no
+`client_reference_id`, matches on `stripe_customer_id`, finds nothing, and raises `P0002`. The
+handler's single error branch makes that a 500; the raise rolled back the ledger insert in the
+same transaction, so the redelivery is never recognised as a replay and re-raises identically,
+forever — now on the event that carries the money. The venue never activates and a real payment
+lands silently in nothing.
+
+**It is still strictly better, and the blast radius is narrow.** Pre-fix *both* events 500'd in a
+loop; post-fix only the second does. And the guard is unreachable from our own checkout:
+`stripe-adapter.ts` sets `client_reference_id: input.venueId` from a Zod-parsed, admin-checked
+venue id, and `stamp_stripe_customer` runs before the redirect. Only dashboard/external checkouts
+can reach it, and only those where somebody actually filled the field in — a dashboard checkout
+with the field left *blank* never trips the guard at all and lands in the same `P0002` loop it
+already had. So: this PR removes one permanent retry loop and routes a narrow, pre-existing
+second one onto the money event.
+
+**Therefore the `event.created`-age cutoff below is the priority follow-up**, not a nice-to-have:
+it is the piece that turns that surviving `P0002` loop into a bounded failure.
+
+Two boundaries worth stating, because both are load-bearing:
+
+- **A `null` venueId still flows through.** `invoice.paid` and the subscription events carry no
+  `client_reference_id` at all and match on `stripe_customer_id`; the guard rejects *malformed*,
+  never *absent*. Regression-tested.
+- **`mapStripeEvent` stays pure.** It reports what Stripe actually sent, non-UUID included;
+  validation is the handler's concern. A test pins that passthrough so a later "helpful" null-ing
+  inside the mapper can't quietly turn a poison event into a silent no-op.
+
+**Deliberately rejected: falling back to customer-matching.** With `p_venue_id` null the RPC
+matches on `stripe_customer_id`, so a malformed venue id *could* have been nulled and the event
+applied anyway. That would infer intent from a malformed billing event and mutate a subscription
+on a guess. A human reads the Sentry warning instead.
+
+**New: `src/lib/observability/sentry-server.ts`.** There was a lazy *browser* Sentry facade but
+no server one. It reaches the SDK (already initialised by `instrumentation.ts`) through a dynamic
+`import()`, including for its types. Telemetry swallows its own failures — it must never turn a
+200 into a 500.
+
+The type-position workaround is worth recording, because **the lazy-import guard it routes around
+is itself buggy**. `tests/unit/sentry-lazy-imports.test.ts:35` uses
+`/import\s+(?!type\s)[\s\S]*?from\s+['"]@sentry\/nextjs['"]/`. The `[\s\S]*?` spans the whole file, so
+the negative lookahead only ever inspects the **first** import statement: any preceding import
+(`import 'server-only'`, `import { z } from 'zod'`) starts the match and the scan runs on to the
+Sentry `from` clause. Verified by running the real regex against constructed cases —
+
+| source | result |
+|---|---|
+| `import type { X } from '@sentry/nextjs'` alone | ok |
+| `import 'server-only'` + that same type import | **FLAGGED** |
+| `import { z } from 'zod'` + that same type import | **FLAGGED** |
+| `typeof import('@sentry/nextjs')` (what this module uses) | ok |
+| `import * as Sentry from '@sentry/nextjs'` | **FLAGGED** |
+
+— which contradicts the guard's own doc comment ("`import type … from '@sentry/nextjs'` is fine
+and not flagged"): it is flagged in every realistic file. Writing the types as
+`typeof import('@sentry/nextjs')` leaves no `from` clause, so the guard stays intact and this
+module needs no allowlist entry. **Fixed separately** (see the follow-up entry) — a CI-required
+guard deserves its own reviewable change, not a passenger seat in a billing PR.
+
+**Left open, reported not fixed (scope).** The same 500-means-retry-forever shape survives on the
+RPC side. `apply_stripe_subscription_update` (current definition:
+`20260714130000_stripe_event_ordering_guard.sql`) raises on three more conditions, and because the
+raise rolls back the `stripe_webhook_events` ledger insert too, the redelivery is never recognised
+as a replay — it re-raises identically, forever:
+
+| errcode | condition | retryable? |
+|---|---|---|
+| `45010` | venue already linked to another Stripe customer | **never** — same payload, same raise |
+| `22004` | event carries neither venue nor customer | **never** |
+| `P0002` | no subscription matches the event | **mixed** |
+
+`45010` is unfixable by construction and is the closest sibling of the bug fixed here. `P0002` is
+the one that cannot simply be mapped to 2xx: it has a legitimately transient sub-case — the webhook
+racing ahead of `stamp_stripe_customer`, which the original migration comment calls out as the
+*reason* it raises — alongside a permanent one (a dashboard-created customer, a deleted
+subscription row). Separating "not yet" from "never" needs a decision, not a patch; an
+`event.created`-age cutoff is the obvious candidate. Detailed in the PR body; not touched here.
+
+**Review round (fresh-session `/code-review` + `/security-review`: no blocking defect, four inline
+findings).** What changed in response, and what deliberately did not:
+
+- **Log levels now agree — `console.warn`, not `console.error`.** Sentry filed this at
+  `level: 'warning'` while the console call was `console.error`. On Vercel, log drains and
+  alerting key on `console.error`, so a branch that has *deliberately decided the event is not
+  actionable* (it answers 200 on purpose) was paging as an error. Both sinks are `warning` now,
+  pinned by a test that asserts `console.error` is **not** called on this path.
+- **The Sentry warning is now self-contained enough to triage.** Keeping the rejected value out
+  of the logs is right (unvalidated third-party input, CLAUDE.md §Security), but it left an
+  operator unable to tell *what* arrived without opening Stripe. New `fingerprintOf` emits only
+  derived facts: `valueType`, `valueLength`, and `valueCharset` — the set of character classes
+  present, `+`-joined. `dash+hex` at length 18 is a truncated uuid; `alpha+dash+hex` is a
+  hand-typed label; `punct`-heavy is a pasted blob. It cannot reconstruct the value (a test
+  asserts no substring of the input ever appears in the output), the class set is capped at six
+  members and the scan at 4 096 chars, so a megabyte of junk still yields one bounded log line.
+  `valueType` also names the case where `client_reference_id` deserialises to a non-string —
+  which is itself the finding.
+- **A dead-letter record for dropped billing events: deliberately NOT in this PR.** The review is
+  right that a discarded **billing** event currently survives only in two best-effort sinks —
+  Sentry (`enabled: Boolean(dsn)`, a silent no-op without a DSN) and Vercel runtime logs, which
+  age out — and that "how many did we drop last month?" has no queryable answer in a repo whose
+  stated core value is *fraud resistance — everything audited*. Three reasons it waits:
+  1. It needs a table, RLS policies, pgTAP coverage for both allowed and denied cases, and an AVG
+     retention decision. That is a migration-shaped change inside a PR that deliberately has no
+     migration; it belongs with the `P0002` work that will define what else lands in the same
+     store.
+  2. The event is not actually unrecoverable in the window that matters: Stripe retains event
+     objects and their delivery attempts for ~30 days, and the `eventId` we *do* log is the key to
+     look one up. The gap is real but it is a **retention** gap, not a total loss.
+  3. Milestone rule: the reachable population is dashboard/external checkouts with a hand-filled
+     non-UUID reference — near-zero today, and zero from our own checkout path by construction.
+     A new audited persistence surface for that is not "Now".
+  Recorded here rather than dropped: the correct shape is a record keyed **differently** from the
+  live `stripe_webhook_events` ledger (a separate table, or a `rejected_reason` column on a
+  distinctly-keyed row), because a ledger insert here would burn the event id and leave the event
+  permanently replay-suppressed even after the cause is fixed. The guard returning *before* the
+  RPC is what preserves that option, and that part is correct as it stands.
+
+**Follow-ups this PR consciously leaves open**, in priority order:
+1. **`event.created`-age cutoff on the RPC's `P0002` path** — the one that bounds the surviving
+   retry loop described above. Highest value.
+2. **Dead-letter record for discarded billing events**, per the reasoning above; pairs with (1).
+3. `45010` / `22004`, which are unfixable-by-construction retries with the same ledger-rollback
+   shape.
+
+**Tests.** On the branch merged up to `main` (`daf0e58`): Vitest **1257 passed / 120 files**,
+pgTAP **1112 passed / 57 files** — both run here against a live local stack, on the complete merged
+migration set. `pnpm lint` clean (2 pre-existing `datetime-field.tsx` a11y warnings, file
+untouched), `pnpm type-check` zero errors.
+
+This PR's own contribution, measured on its pre-merge base: **+24 vitest tests** (1188 → 1197 in
+the first round, → 1212 after the review round). No SQL, so the pgTAP delta is zero.
+
+Every new assertion verified red against the behaviour it replaces, not assumed:
+- the 6 original guard assertions fail with `expected 500 to be 200` on the unguarded handler,
+  with the RPC mock returning the real `22P02` cast error rather than a synthetic one;
+- the 6 new level assertions fail with `expected "warn" to be called 1 times, but got 0 times`
+  when `console.warn` is reverted to `console.error`.
+
+**The `P0002` chain was reproduced on a real database**, not reasoned about. Against the local
+stack, an `invoice.paid` for a customer that was never linked raises `no subscription matches
+stripe event …`; `select count(*) from stripe_webhook_events` for that id returns **0** (the raise
+rolled the insert back); the redelivery raises identically. The contrast case — same call with a
+linked customer — returns `applied = t` and leaves **1** ledger row. And the linking chance the
+guard forecloses is real: a valid-UUID `checkout.session.completed` moves
+`subscriptions.stripe_customer_id` from `NULL` to the event's customer through the RPC itself,
+while the malformed sibling dies at the cast with `invalid input syntax for type uuid` before the
+function body runs.
+
+High-risk surface (billing webhook) → draft PR carries a proactive adversarial security-research
+prompt; a fresh session reviews before merge.
+
+---
+
+## 2026-08-19 — Stale-resume guard extended to the desktop Event-dag cockpit; wake lock deliberately not (86eykg2x1)
+
+Branch `feat/86eykg2x1-cockpit-stale-resume` (PR #279, draft, **not merged**). Milestone: Now. No
+migration. No RLS/auth/`service_role`/PII surface touched — this is a read-only consumer of
+existing React Query state plus one already-shipped overlay component.
+
+Follow-up on `86ey6x56p` / PR #252, which shipped the wake lock and the stale-resume guard into
+`PoDoorTab` only — i.e. the **mobile** `/door/[eventId]` route and the mobile `/app` Deur tab. The
+desktop (≥1024px) Deur tab renders something else entirely (`EventDayCockpitGate`), so it had zero
+coverage. PR #252 corrected its own false "covers the cockpit too" claims; this task builds the
+thing those claims described.
+
+**What is actually connected now** (and nothing beyond it):
+
+- `src/features/po/eventday/cockpitFreshness.ts` — pure freshness math, DOM-free, same role as
+  `features/door/sync/staleResume.ts`. Two rules: take the **oldest** `dataUpdatedAt` across the
+  tracked queries, never the newest (one query that refetched a second ago next to four that last
+  succeeded eleven hours ago is still an eleven-hour-old screen); and treat a query that has never
+  loaded (`dataUpdatedAt === 0`) as *never synced*, because part of the screen then has no truth
+  behind it at all.
+- `src/features/po/eventday/useCockpitSync.ts` — adapter that synthesises the exact four fields
+  `useStaleResumeGuard` needs (`online` / `syncing` / `lastSyncAt` / `forceSync`) out of React
+  Query. **No second state machine and no second overlay were written**: the guard, its one-retry
+  path, the 8s backstop, the self-heal and `StaleResumeOverlay` are the door's, reused verbatim.
+  `online` comes from React Query's own `onlineManager` rather than a second `navigator.onLine`
+  listener — it is the very flag RQ consults when deciding whether to run or pause the refetch we
+  are waiting on, so the two can never disagree.
+- `useStaleResumeGuard`'s parameter type was narrowed from `DoorSyncState` to a new structural
+  `StaleResumeSyncSource` (declared in `staleResume.ts`). Behaviour unchanged; `DoorSyncState`
+  satisfies it structurally, so the door side is untouched.
+- `EventDayCockpit.tsx` mounts the guard once and `inert`s its own body while blocking — the
+  cockpit's search field is Enter-to-check-in, so a barcode-scanner wedge must not reach it behind
+  the overlay (same reasoning as `PoDoorTab`).
+
+**Why the cockpit needs this despite having no outbox.** `refetchOnWindowFocus` is off on the
+`/app` query client and React Query pauses `refetchInterval` while the document is hidden. So a
+cockpit that was backgrounded — lid closed overnight is the canonical case — resumes on last
+night's numbers and self-corrects only up to 60s later, or never if the realtime channel died
+while it slept. The missing outbox makes this *worse*, not milder: a check-in attempted against
+those stale numbers has nowhere to queue, it simply fails.
+
+**Detect on a narrow set, repair the whole set.** Only the load-bearing polled live reads
+(`usePoGuests`, `usePoTiers`, `usePoCheckinArrivals`) vote on staleness. The event-config read
+(`usePoEventForEdit`) and the two request reads have no refresh cadence of their own, so their age
+drifts past the 5 min threshold while the screen sits perfectly live in the foreground — including
+them would fire the overlay on every resume and train doorhosts to click straight through it.
+`usePoEventStats` was in this set as originally shipped and was **removed in review round 2**
+(below) — it polls, but it is decorative and its veto was disproportionate. Everything excluded is
+still refetched by the resume repair; it just does not get to raise the alarm.
+
+**One string had to differ, so it is a prop and not a fork.** The door's offline copy promises
+"check-ins will queue and sync once you're back online" — true there, a lie on an online-only
+cockpit. `StaleResumeOverlay` gained an optional `offlineSub` override (default unchanged);
+`t.cockpit.resumeOfflineSub` says the opposite and points at a phone. Every other string in that
+overlay reads correctly on both surfaces, so nothing else was duplicated.
+
+**Wake lock: deliberately NOT built, and this is the reasoning.** The Screen Wake Lock API is
+released by the OS the moment the document becomes hidden and never prevents system sleep or a lid
+close — so it cannot prevent the very scenario the stale-resume guard exists for. All it would buy
+on a desktop is "the monitor doesn't dim while you are looking at this tab", which costs one mouse
+move to undo and zero check-in throughput. That is categorically unlike a phone at the door, where
+every auto-lock is a re-unlock in front of a waiting guest, which is why it earned its place on the
+mobile door. Building it here would add a permission surface and a toggle nobody asked for, for no
+measurable gain. If a concrete counter-scenario turns up (an unattended kiosk-mode display running
+the cockpit as the primary check-in surface), it is a small, separable follow-up.
+
+**Stated limit, rather than a repeat of the #252 mistake.** This is a *resume* guard. A cockpit
+that stays continuously visible — a wall display that never goes hidden — produces no
+hidden→visible edge and is therefore **not** covered by it; the realtime "live" indicator is what
+speaks to that case. Nothing else on the desktop surface gained wake-lock or offline behaviour.
+
+**Tests (as first shipped).** `npx vitest run` **1211 passed / 118 files, 0 failures** (23 new):
+`cockpitFreshness.test.ts` (9), `useCockpitSync.test.tsx` (6), `EventDayCockpit.staleResume.test.tsx`
+(8 — mounts the REAL gate/guard/overlay and proves the wiring PR #252 was missing: fresh resume
+stays silent, stale resume blocks and refetches all seven reads, `inert` applied and released,
+auto-close on fresh data, never-loaded arms the guard, the cockpit's own offline copy shows and the
+door's does NOT, continue-anyway always escapes). **Red-on-revert verified on four independent
+reverts**: removing the overlay render → 5 fail; flipping oldest→newest in `cockpitFreshness` → 2
+fail; dropping the `offlineSub` override → 1 fail; dropping `inert` → 1 fail. `pnpm lint` clean (2
+pre-existing `jsx-a11y` warnings in `datetime-field.tsx`, untouched); `pnpm type-check` clean.
+pgTAP not run — no Docker in this container, and no migration in this branch. **Round 2 changed
+these files and these counts — see the section below for the current figures.**
+
+> **`pnpm test` is bare `vitest`, i.e. WATCH MODE — it never exits.** Two sessions in this sweep
+> stalled on "test suite running" because of it. Use `npx vitest run` (or `CI=1 pnpm test`).
+
+**Diff-reading note:** `EventDayCockpit.tsx`'s JSX body shifted 2 spaces because the root div is
+now wrapped in a fragment alongside the overlay. Review with `git diff -w` — the real change there
+is ~95 lines, not ~800.
+
+### Review round 2 — three findings from a fresh-session `/code-review`, all confirmed and fixed
+
+Each was reproduced against the running code before being acted on; none was taken on description.
+
+1. **`usePoEventStats` held a veto over the whole cockpit.** `oldestDataUpdatedAt` is a hard AND,
+   and React Query never stamps `dataUpdatedAt` for a query that has never succeeded — so a read
+   that keeps failing pins `lastSyncAt` at "never synced" with **no path back**. `fetchEventStats`
+   bundles five RPCs and throws if any one errors, so a single drifting or 500-ing RPC was enough:
+   from then on *every* hidden→visible transition opened the blocking overlay, the forced refresh
+   and its one internal retry could not clear it, and the doorhost sat out the 8s backstop before
+   "continue anyway" even appeared — over a `canSeeStats`-gated read (peak tile, per-quarter card)
+   that a doorhost never sees rendered at all. Reproduced: with stats pinned at 0 and guests/tiers/
+   arrivals fresh, the overlay opened on resume and re-opened on every subsequent one. Stats is now
+   out of the detecting set; `refreshCockpit` still repairs it. Guests/tiers/arrivals keep the veto
+   — a persistent failure there really does mean the screen is wrong. The general lesson is in the
+   header of `cockpitFreshness.ts`: **membership in `tracked` is a veto, so cadence alone does not
+   earn it — the read must also be one the doorhost steers on.**
+
+2. **Focus was dropped when the guard opened and never handed back.** `inert` makes the browser
+   blur the focused descendant, which on the cockpit is the Enter-to-check-in search field — i.e.
+   exactly the barcode-wedge target `inert` is there to protect — and nothing restored it. On the
+   common online path the overlay flashes for about a second and auto-closes, so the next scan
+   typed into `<body>`: no check-in, no error, nothing on screen to explain it. Same after
+   "continue anyway", whose autofocused button is unmounted with focus on it. Reproduced (jsdom
+   implements the `inert` attribute but not its focus semantics, so the browser's blur is modelled
+   explicitly in the tests). Fixed in `useStaleResumeGuard`: capture `document.activeElement` on
+   the closed→open edge — **synchronously in the visibilitychange handler, because `inert` lands
+   during React's commit and any effect already runs too late** — and hand it back on close, only
+   when focus actually went nowhere (`<body>`), so it never steals focus the operator has moved.
+   **This also fixes the same latent bug on the mobile door**, which applies `inert` identically
+   and shipped it in #252; that is why the fix lives in the shared guard rather than the cockpit.
+
+3. **`syncing` meant "any cockpit traffic at all", not "the resume refresh is running".** The
+   guard's resolve effect bails out while `sync.syncing` is true, and `syncing` was derived from
+   "is any tracked query fetching". But those reads are on a 60s `refetchInterval` **and** are
+   invalidated by `usePoEventRealtime` on every check-in (throttled to 500ms), so during a door
+   rush they are almost never all idle at once. Reproduced: with all four stamps demonstrably fresh
+   and one ambient fetch in flight, the blocking overlay stayed up over a live cockpit and the 8s
+   backstop then flipped it to the "connection is stuck" copy. On the door `syncing` is one
+   explicit sync cycle, so idle gaps are reliable; with four independently-polled queries plus
+   realtime they are not. `useCockpitSync` now counts **its own forced refreshes** (the promise
+   `refreshCockpit` returns) instead of sampling `fetchStatus`, restoring the meaning the guard has
+   always assumed. A refetch React Query has *paused* while offline keeps its promise pending, so
+   it still reads as in-flight — the 8s backstop bounds that wait, exactly as before. Side effect:
+   the cockpit no longer reads `fetchStatus` at all, so it stops re-rendering on every fetch
+   start/end; `dataUpdatedAt` only moves on success. `anyQueryInFlight` was deleted with its tests.
+
+**Tests after round 2.** `npx vitest run` → **1222 passed / 118 files, 0 failures**. Per file:
+`cockpitFreshness.test.ts` 9 → **7** (the 4 `anyQueryInFlight` cases removed with the function; 2
+added for the veto property), `useCockpitSync.test.tsx` 6 → **10**, `EventDayCockpit.staleResume`
+`.test.tsx` 8 → **13**, `useStaleResumeGuard.test.ts` 13 → **17** (focus restoration, on the shared
+guard, so the door is covered too). The cockpit test's fake data layer was reworked from one shared
+snapshot to per-query state — three of the new behaviours are about queries *disagreeing* — and it
+now models React Query faithfully on the two points the guard depends on: a successful refetch
+advances that query's `dataUpdatedAt`, and a refetch while offline stays pending.
+
+**Red-on-revert verified, five independent reverts, each run to confirm it actually goes red:**
+
+| revert | result |
+|---|---|
+| put `statsQuery` back into `trackedFreshness` | **1 fail** |
+| derive `syncing` from ambient `fetchStatus` again | **1 fail** |
+| drop the focus *restore* effect | **4 fail** (2 door, 2 cockpit) |
+| drop the focus *capture* (keep the restore) | **4 fail** (2 door, 2 cockpit) |
+| restore focus unconditionally (drop the "went nowhere" check) | **2 fail** |
+
+`pnpm lint` clean (the same 2 pre-existing `jsx-a11y` warnings in the untouched
+`datetime-field.tsx`); `pnpm type-check` clean. pgTAP still not run — no Docker in this container,
+and this round adds no migration and touches no RLS/auth/`service_role`/PII surface.
+
+**Not changed, deliberately:** `src/components/po/app.tsx` (two sister branches are editing it),
+the wake-lock decision (still not built, reasoning above), and the stated resume-only limit — a
+continuously-visible wall display still produces no hidden→visible edge and is still not covered.
+## 2026-08-19 (later) — Code-review round on the `onblocked` fix: the wipe guard now covers the open path too (86ey9e9wc)
+
+Branch `fix/86ey9e9wc-idb-open-onblocked`, PR #283. A fresh-session `/code-review` left four
+inline findings. All four were re-checked against the code before acting — the reviewer was
+right on all four, and one of them is a real PII defect.
+
+**Finding 1 (blocker, fixed).** `settled` only becomes `true` when the grace timer fires, so the
+existing `close()` on late arrival covered the window *after* give-up but not the one *before*
+it. A `blocked` open that is still in flight when the doorhost signs out took the normal success
+path: it adopted itself as `dbConn` and resolved. `openDb()` never consulted the wipe epoch, and
+`idbClearAll` has no way to mark an in-flight attempt as abandoned.
+
+The blast radius is wider than "an untracked connection". `idbSet` awaits `openDb()` *after* the
+outbox's own epoch re-check (`outbox/store.ts:271`), so a write that legitimately passed the
+guard and then parked inside a blocked open lands **after** the wipe — the previous doorhost's
+queued check-ins written into the database the next doorhost boots on, on a shared tablet.
+Device storage is session-scoped unless provably PII-free (CLAUDE.md), so this had to be fixed
+before merge. `onsuccess` now bails on `settled || epoch !== openedAt`, closing the connection
+and **rejecting** — the reviewer's suggested snippet returned without settling, which would have
+hung every awaiting caller, i.e. the bug this file exists to remove.
+
+**Finding 2 (fixed).** Give-up nulled `dbPromise` with no backoff, and the callers are not
+occasional (persister on a 2 s trailing throttle, `outbox.commit()` on every enqueue,
+`useDoorSync` every 60 s), so a persistently frozen sibling meant open → 2 s → give up → Sentry,
+every few seconds indefinitely. Added `IDB_OPEN_BLOCKED_COOLDOWN_MS` (30 s): during it every
+`openDb` fails fast instead of arming its own grace period, and because no attempt runs there is
+no second report — the same transition-guard shape `setPersistDegraded` already uses two files
+over. Time-boxed, and cleared by `idbClearAll`, so it can never leave IndexedDB switched off for
+whoever uses the device next.
+
+**Finding 4 (fixed) and 3 (decided, not fixed).** The 2 s was a guess, and one constant was
+doing two jobs with opposite cost asymmetries: a failed *write* costs nothing user-visible (the
+entry is in memory, every persist path is fire-and-forget), while a failed *boot restore* costs
+the whole cached guest list — and at the door offline is the normal case, so there is no refetch.
+Split: writes keep 2 s, the boot restore gets `IDB_OPEN_BLOCKED_RESTORE_GRACE_MS` (8 s), plumbed
+as `idbGet(key, { graceMs })` with an in-flight attempt taking the longest grace any current
+waiter asked for. Both numbers are now documented as **accepted guesses, not measurements** —
+which is what the finding asked for; measuring `close()`-to-release on a throttled webview is the
+way to replace them.
+
+Finding 3 — a blocked restore is silent, because `idbGet` swallows the rejection and `undefined`
+is indistinguishable from a cold cache — is **acknowledged and deliberately not fixed here**. The
+longer restore grace reduces how often it happens and telemetry already covers it, but a
+doorhost-facing "your cached list could not be loaded" signal applies to *every* restore failure
+(corrupt snapshot, quota exceeded), not just a blocked open. It belongs to `restoreClient`'s
+error contract and its own UI decision, not bolted onto this fix. Recorded at the call site in
+`persister.ts` so it is discoverable rather than lost; needs its own task.
+
+**Tests** — 3 added (7 total in `idb.test.ts`), each verified **red against its own revert**:
+removing the epoch guard fails the wipe test with `expected true to be false` (the pre-wipe write
+reports as landed); removing the cooldown fails with `expected Symbol(pending) to be false`;
+removing the restore split fails with `expected undefined to be Symbol(pending)`.
+
+**What the harness cannot prove — stated rather than papered over.** Two downstream consequences
+of the adoption were probed against the unfixed code and came out **green** under
+`fake-indexeddb`: the previous doorhost's record surviving on disk past the wipe, and the adopted
+connection blocking a later `deleteDatabase`. Both depend on browser event ordering that
+fake-indexeddb does not model, which matches the reviewer's own experience of getting the disk
+outcome once and clean on repeat. Asserting either would be a test that can never fail, so
+neither is asserted; the test pins the one deterministic step they all hang off — a post-wipe
+attempt being adopted and its pre-wipe write reported as landed.
+
+Gates: `pnpm lint` clean (exit 0; the 2 pre-existing `datetime-field.tsx` a11y warnings are
+untouched), `pnpm type-check` 0 errors, **116 files / 1195 tests / 0 failures**. No migration and
+no route change, so pgTAP and e2e were not run.
+
+---
+
+## 2026-08-19 — `indexedDB.open` no longer hangs the door when a sibling tab blocks a VERSION bump (86ey9e9wc)
+
+Branch `fix/86ey9e9wc-idb-open-onblocked`. Milestone: Now (a door that never finishes booting
+is a door that cannot check anyone in). **Scope note:** four of this task's five points had
+already shipped under `86ey9et07` (PR #233) and were re-verified on `main` before any code was
+written — connection closed before `deleteDatabase` (`idb.ts`), the PII wipe on sign-out
+(`sign-out-device.ts`, with test), `onversionchange` on the open DB, and the HMR-accumulation
+fix that follows from the tracked connection. Only the fifth was genuinely missing.
+
+**The gap.** `openDb()` wired `onupgradeneeded`, `onsuccess` and `onerror` on its
+`indexedDB.open` request — but not `onblocked`. `blocked` fires only when a version bump has to
+run while another connection still holds the old version. Our own tabs release on
+`versionchange`, so in practice this needs a tab that *cannot* respond: a frozen or backgrounded
+webview, or one whose `close()` is deferred behind an in-flight transaction. An open request has
+no timeout of its own, so in that case `dbPromise` stayed pending **forever**: `restoreClient`
+(persister.ts) never settled, `PersistQueryClientProvider` never left `isRestoring`, and the
+door sat on the restore gate with nothing logged anywhere.
+
+**Why it was worth fixing before it ever fired.** `VERSION` is still `1`, so this could not
+happen yet — it is armed by the *next* schema bump. The failure would therefore first appear as
+"the door stopped booting after the deploy", on the venue's tablet, at the door.
+
+**The behaviour chosen.** Hanging is wrong, but so is silently carrying on without a store —
+the door must not serve an empty cache as though everything were fine. So `onblocked` starts a
+grace period (`IDB_OPEN_BLOCKED_GRACE_MS`, 2 s) rather than failing instantly: a merely *busy*
+sibling clears within a few frames and keeps its cache. If the block outlasts it, the open is
+abandoned and the promise **rejects**, which the existing helpers already turn into visible
+degradation — `idbSet` returns `false`, which flips the outbox's `persistDegraded` (doorhost
+warning + Sentry, O4), and `idbGet` returns `undefined` so the restore gate releases. A static
+`captureMessage` (no keys, no values — door payloads carry guest PII) names the real cause,
+because otherwise the helpers' `catch` would make the frozen-tab case invisible in telemetry.
+`dbPromise` is cleared on give-up so the *next* call opens from scratch instead of inheriting
+one stale rejection for the rest of the session.
+
+**The second-order bug this had to avoid.** An open request cannot be cancelled, so the one we
+abandoned can still succeed later, once the frozen tab dies. Left alone, that late connection
+would be untracked — `idbClearAll` closes only `dbConn` — and would go on to block sign-out's
+`deleteDatabase` (previous doorhost's guest data surviving on a shared tablet) and the *next*
+version change: precisely the failure just recovered from, re-created. The late `onsuccess`
+therefore closes its own result when the attempt was already abandoned.
+
+**Deliberately not changed:** `idbClearAll` still *resolves* on `onblocked` (`idb.ts`, reasoning
+in place there). That is the opposite trade-off to this one and it is the right one — a
+sign-out must not be held hostage by a sibling tab, and that tab's own unload finalizes the
+delete.
+
+**Tests** — `src/features/door/offline/idb.test.ts` (4). They drive a real `blocked` event via
+`fake-indexeddb` against a real second connection; the version bump is simulated by rewriting
+the version the module requests, since `VERSION` is a module constant. Only `setTimeout` is
+faked, so fake-indexeddb's `setImmediate`-based scheduler keeps delivering events. A `PENDING`
+sentinel raced against the promise turns "hangs forever" into an immediate assertion failure
+instead of a suite timeout. **Red-on-revert verified:** against the unfixed `openDb`, 3 of the 4
+fail with `expected Symbol(pending) to be false` — and still fail after advancing 60 s of fake
+time, confirming a true hang rather than a slow settle. The fourth (a busy tab that releases
+inside the grace period still gets its connection, no false alarm) passes both ways by design.
+
+**Review posture:** door surface = high-risk, so this does not self-merge.
+## 2026-08-19 — Lazy-Sentry import guard: the rule now matches its own documented contract
+
+Branch `fix/sentry-lazy-import-guard-regex`. Milestone: Now (a CI guard that is wrong about what
+it flags trains the next author to route around it). No migration, no `src/` change — the fix is
+in `tests/unit/sentry-lazy-imports.test.ts` alone.
+
+Found during the fresh-session review of the Stripe webhook PR (86ey9e9re, PR #273), which had to
+work around this to add a server-side Sentry facade.
+
+**The bug.** The rule was
+
+```
+/import\s+(?!type\s)[\s\S]*?from\s+['"]@sentry\/nextjs['"]/
+```
+
+`[\s\S]*?` spans the entire file, so the `(?!type\s)` negative lookahead only ever inspects the
+**first** import statement. Any import above the Sentry one — `import 'server-only'`,
+`import { z } from 'zod'` — starts the match, and the scan then runs on to the Sentry `from`
+clause regardless of whether that statement said `type`. The guard's own doc comment promises
+"`import type { … } from '@sentry/nextjs'` is fine (erased at build) and not flagged". It was
+flagged, in every file that had any import above it. `src/lib/observability/sentry-client.ts`
+passes only by accident: its type-only Sentry import happens to be the file's first.
+
+**The fix.** Confine a match to one statement. The clause between `import` and `from` may span
+lines (prettier wraps long named imports) but may never cross a `;`, a quote, or another `import`
+keyword, and `^` under the `m` flag anchors the start to a statement — so a mid-line
+`await import('…')` or `typeof import('…')` can never start one.
+
+**It is strictly stronger, not weaker.** The bare side-effect form `import '@sentry/nextjs'` has
+no `from` clause and was invisible to the old rule; it eagerizes the SDK just the same, and is now
+caught. An inline type specifier mixed into a value import (`import { type Scope, captureMessage }
+from …`) is flagged too — deliberately conservative, since whether that elides at runtime depends
+on compiler settings.
+
+**Evidence, both directions.** A new `describe('VALUE_IMPORT (the rule itself)')` pins 9
+must-not-flag cases and 9 must-flag cases, plus an assertion that all three allowlisted files still
+match the rule (an allowlist that no longer matches anything is dead code hiding a regression). Run
+against the OLD regex, exactly 5 fail: the 4 legal `import type` forms it wrongly flagged, and the
+bare side-effect import it wrongly missed. All 8 other must-flag cases pass under both regexes —
+that is what makes this a fix rather than a weakening.
+
+**Tests.** `tests/unit/sentry-lazy-imports.test.ts` **21 passed** (was 2 — the 19 new cases are the
+rule's own contract). Full suite on the branch merged up to `main` (`daf0e58`): Vitest **1252
+passed / 120 files**; the +19 over that base are all from this change. `pnpm lint` clean (2
+pre-existing `datetime-field.tsx` a11y warnings, file untouched), `pnpm type-check` zero errors.
+Touches no SQL and no `src/` file, so pgTAP is unaffected.
+
+Follow-on: `src/lib/observability/sentry-server.ts` (PR #273) may now use the ordinary
+`import type` form. No need to change it — `typeof import(…)` is correct either way — but the trap
+it documents is disarmed.
+
+---
+
+## 2026-09-17 — A regression guard for the pre-push hook mode (the fix itself landed elsewhere)
+
+Branch `fix/pre-push-hook-not-executable`. Milestone: Now — a migration-timestamp
+collision breaks `db push` and `db reset` for everyone, and is discovered only after
+the merge.
+
+**Scope correction, written after the fact.** This branch was opened on 2026-08-19,
+when `scripts/hooks/pre-push` was still committed as mode **100644**. Git silently
+skips a non-executable hook — it says so only in a `hint:` line that scrolls past in
+normal push output — so the migration-collision guard had never run, for anyone,
+while `scripts/setup-git-hooks.mjs` printed `pre-push migration-collision guard
+active` on every `pnpm install`.
+
+The mode fix then landed independently on `main` a week later, in `834012f`
+(2026-08-26, PR #288): *"track pre-push guard as executable — git silently ignored
+it"*. Two people found the same hole a week apart, which says something about how
+invisible it was. **The chmod in this branch is therefore redundant** and merges as a
+no-op against today's `main`.
+
+**What this PR still contributes**, and neither half is on `main`:
+
+- `tests/unit/pre-push-hook-is-executable.test.ts` — asserts the mode **git records**,
+  not the mode on disk. A local `chmod` would mask a regression for whoever ran it
+  while every other clone stayed broken. It also asserts `core.hooksPath`, because a
+  correct mode on a hook git never looks at is equally inert. Verified red on revert:
+  flipping the mode back gives `expected '100644' to be '100755'`. Without this, the
+  mode can silently regress again and nothing would notice — which is exactly how it
+  got here the first time.
+- `scripts/setup-git-hooks.mjs` no longer announces a guard it has not verified. It
+  reads the committed mode and, when it is not `100755`, warns that the guard is **not**
+  running and prints the one-line fix. Both branches exercised.
+
+**Scope.** This does not make the hook a security boundary — it stays bypassable with
+`git push --no-verify`, as its own comment says, and blocking CI remains the real
+backstop. What changed is that the local guard can no longer regress to silence
+unnoticed, and the installer can no longer lie about it.
+
+---
+
 ## 2026-09-17 — Fase 17 (native apps): plan reviewed against the code, start approved
 
 Branch `claude/dashboard-app-store-p4fxls`. Max asked how long the App Store / Play

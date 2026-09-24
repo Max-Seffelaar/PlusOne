@@ -233,6 +233,9 @@ describe('toPoGuest', () => {
     note_acknowledged_at: null,
     created_at: '2024-11-28T12:00:00Z',
     contact_id: 'c1',
+    source: 'app',
+    addedByName: 'Max Seffelaar',
+    linkLabel: null,
   };
 
   it('maps a guest row + extras to the po Guest shape (incl. the real tier name + color)', () => {
@@ -539,13 +542,21 @@ describe('toPoContactProfile', () => {
       eventId: 'e1',
       eventName: 'FRENZY',
       eventStartsAt: '2024-12-14T22:00:00Z', // Sat 14 Dec, 23:00 Amsterdam
+      eventEndsAt: '2024-12-15T04:00:00Z',
+      eventListLocked: false,
+      eventAutoLockAt: '2024-12-14T21:00:00Z',
+      eventCancelled: false,
       plusOnes: 2,
       status: 'checked_in',
+      tierId: 't-vip',
       tierName: 'VIP',
       tierColor: '#FFD700',
+      anonymized: false,
       note: 'Bottle on table',
       notePriority: 'high',
       addedBy: 'u-max',
+      source: 'app',
+      linkLabel: null,
       addedAt: '2024-12-01T10:00:00Z',
       checkIns: [
         { checkedAt: '2024-12-14T22:30:00Z', checkedBy: 'u-door', arrived: 1, voidedAt: null, voidedBy: null },
@@ -557,13 +568,21 @@ describe('toPoContactProfile', () => {
       eventId: 'e2',
       eventName: 'LOFI',
       eventStartsAt: '2024-11-09T22:00:00Z',
+      eventEndsAt: null,
+      eventListLocked: true,
+      eventAutoLockAt: null,
+      eventCancelled: true,
       plusOnes: 0,
       status: 'refused',
+      tierId: null,
       tierName: null,
       tierColor: null,
+      anonymized: true,
       note: null,
       notePriority: 'none',
       addedBy: 'u-max',
+      source: 'landing',
+      linkLabel: 'Joeri',
       addedAt: '2024-11-01T10:00:00Z',
       checkIns: [],
       refusals: [{ refusedAt: '2024-11-09T22:45:00Z', refusedBy: 'u-door', reason: 'List full' }],
@@ -631,6 +650,24 @@ describe('toPoContactProfile', () => {
     expect(v.events.map((e) => e.eventId)).toEqual(['e2', 'e1']); // origin first, despite being older
     expect(v.events[0].isOrigin).toBe(true);
     expect(v.events[1].isOrigin).toBe(false);
+  });
+
+  it('carries the facts the row actions are gated on, plus the event phase', () => {
+    // 1 Jan 2025: both events are over, so "Open event" must land on the recap.
+    const v = toPoContactProfile(header, appearances, actorNames, { nowMs: Date.parse('2025-01-01T00:00:00Z') });
+    expect(v.events[0]).toMatchObject({
+      phase: 'past',
+      tierId: 't-vip',
+      addedById: 'u-max',
+      listLocked: false,
+      autoLockAt: '2024-12-14T21:00:00Z',
+      cancelled: false,
+      anonymized: false,
+    });
+    expect(v.events[1]).toMatchObject({ tierId: null, listLocked: true, cancelled: true, anonymized: true });
+    // Mid-night on FRENZY: live, not past.
+    const live = toPoContactProfile(header, appearances, actorNames, { nowMs: Date.parse('2024-12-14T23:30:00Z') });
+    expect(live.events[0].phase).toBe('live');
   });
 
   it('renders a name-only guest as a single-event profile, role from the tier', () => {
@@ -837,6 +874,7 @@ describe('toPoVenueSettings', () => {
     postal_code: null,
     city: null,
     country: 'NL',
+    website: null,
   };
   it('coalesces nullable company/address fields to empty strings', () => {
     expect(toPoVenueSettings(row)).toEqual({
@@ -854,7 +892,19 @@ describe('toPoVenueSettings', () => {
       postalCode: '',
       city: '',
       country: 'NL',
+      website: '',
     });
+  });
+
+  it('passes a stored country through untouched, even when it is not a code', () => {
+    // z8uq9m0hw2: the Country dropdown shows legacy free text as-is; the
+    // adapter must never "fix" it on load.
+    expect(toPoVenueSettings({ ...row, country: 'Nederland' }).country).toBe('Nederland');
+    expect(toPoVenueSettings({ ...row, country: 'nl' }).country).toBe('nl');
+  });
+
+  it('maps the venue website', () => {
+    expect(toPoVenueSettings({ ...row, website: 'https://lofi.nl' }).website).toBe('https://lofi.nl');
   });
 });
 
@@ -932,6 +982,7 @@ describe('toPoGuestRequest', () => {
     id: 'gr1',
     event_id: 'ee1',
     full_name: 'Mara Visser',
+    email: 'mara@example.com',
     phone: '+31612344821',
     plus_ones: 1,
     motivation: 'Vriendin van de DJ',
@@ -941,6 +992,7 @@ describe('toPoGuestRequest', () => {
     request_link_id: null,
     decided_via: 'manual',
     viaLabel: null,
+    viaStandard: false,
   };
 
   it('maps a pending row, masks the phone to its last 4, and formats the time', () => {
@@ -950,14 +1002,25 @@ describe('toPoGuestRequest', () => {
       name: 'Mara Visser',
       plus: 1,
       phoneLast4: '4821',
+      email: 'mara@example.com',
+      phone: '+31612344821',
       motivation: 'Vriendin van de DJ',
       at: '18 min ago',
       status: 'pending',
       decidedVia: 'manual',
       requestLinkId: null,
       viaLabel: null,
+      viaStandard: false,
       denyReason: null,
       flag: undefined,
+    });
+  });
+
+  it('carries the default-link flag so the inbox can say "Standard link" (z8uq9m0hw4)', () => {
+    expect(toPoGuestRequest({ ...base, request_link_id: 'rl0', viaStandard: true }, now)).toMatchObject({
+      requestLinkId: 'rl0',
+      viaLabel: null,
+      viaStandard: true,
     });
   });
 
@@ -985,7 +1048,23 @@ describe('toPoGuestRequest', () => {
 
   it('flags a large party (+3 or more) and tolerates a null phone/motivation', () => {
     const r = toPoGuestRequest({ ...base, phone: null, motivation: null, plus_ones: 3 }, now);
-    expect(r).toMatchObject({ phoneLast4: null, motivation: '', flag: 'Large group (+3)' });
+    expect(r).toMatchObject({ phoneLast4: null, phone: null, motivation: '', flag: 'Large group (+3)' });
+  });
+
+  // 86eyke279: the approve surface has to be able to SHOW the channel the
+  // public form now requires. A pre-rule row keeps both columns NULLable, so
+  // the adapter must pass a missing address through as null rather than ''.
+  it('carries the full e-mail and phone through for the approve surface', () => {
+    const r = toPoGuestRequest(base, now);
+    expect(r.email).toBe('mara@example.com');
+    expect(r.phone).toBe('+31612344821');
+    // The masked hint stays alongside the full value — the card still scans.
+    expect(r.phoneLast4).toBe('4821');
+  });
+
+  it('passes a pre-86eyke279 contactless row through as null, not empty string', () => {
+    const r = toPoGuestRequest({ ...base, email: null, phone: null }, now);
+    expect(r).toMatchObject({ email: null, phone: null, phoneLast4: null });
   });
 
   it('does not mask a phone too short to yield 4 digits', () => {
