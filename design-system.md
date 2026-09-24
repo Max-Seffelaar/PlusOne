@@ -52,6 +52,32 @@ Interactie: hover `brightness(1.07)`, active `scale(0.975)`; entrance-animaties 
 - **Events:** gegroepeerd per maand met datumchips; event-overzicht met onderweg/binnen, opkomstbalk en alerts.
 - **Toelages:** "7/10"-weergave bij de eigen gastenteller; teamleden met allowance en per-event override.
 
+## Breakpoints & tablet (T1, beslissing 2026-09-24)
+
+iPad zit in native v1 (capacitor-plan beslissing 10), dus 641–1023px is geen polish meer. **Eén beslissing, geen uitzonderingen per scherm** — drie assen, elk met één sleutel:
+
+| As | Sleutel | Waarde | Waar |
+|---|---|---|---|
+| **Chrome** (navigatie) | viewportbreedte | `<1024px` bottom-tabs · `≥1024px` sidebar (252px) | `use-viewport.ts`, `ResponsiveShell` |
+| **Content-layout** (grids, tabel vs. kaartlijst, kop-rijen) | viewportbreedte | `md:` (768px) | de schermen zelf |
+| **Dichtheid** (tikdoelen, invoervelden) | pointer | 44px-basis; kleiner alléén `lg:[@media(pointer:fine)]:` | kit, daypicker, `datetime-field` |
+
+En één kolomregel: de per-scherm contentbreedte (`WIDE_DESKTOP` in `nav-map.ts`: 640 leeskolom · 820 promotion · 1080 breed) geldt in **beide** chromes. Op een telefoon (≤640px) valt hij nooit, op een tablet centreert hij hetzelfde als op desktop.
+
+**Waarom de chrome-breakpoint 1024 blijft (geen tablet-tier):**
+- **iPad portrait (744/768/820/834px) houdt bottom-tabs.** Een sidebar van 252px laat 492–582px content over: telefoonbreedte, voor vijf items die de tabbalk al toont. Een tabbalk is op iPad een gewoon iOS-patroon; de items staan gecentreerd (max 640px), niet 200px uit elkaar.
+- **Dezelfde schakelaar kiest de Deur-variant.** `<1024px` = de deur mét offline outbox (#25); `≥1024px` = de online-only Event-dag-cockpit. De chrome-breakpoint verlagen zet een iPad-portrait aan de deur op de cockpit zonder outbox: precies het scenario dat T1 als belangrijkste noemt.
+- **iPad landscape (1024/1180/1366px) en iPad 13" portrait (1024px) krijgen de sidebar.** Contentkolom 772–1114px: dezelfde desktoplayout als een laptop.
+- **Split View / Slide Over** geven willekeurige breedtes; op breedte sleutelen laat ze vanzelf in de juiste chrome vallen.
+
+**Waarom content-layout op `md:` (768) en niet `lg:`:** een iPad-portraitkolom (768–834px, geen sidebar) is net zo breed als de desktopkolom op 1024px (1024 − 252 = 772px). De tweekoloms-grids, tabellen en horizontale eventkaarten die daar werken, passen dus ook op een iPad-portrait. `lg:` in een scherm is alleen nog voor dingen die écht aan de sidebar-chrome hangen. De iPad mini portrait (744px) blijft op de telefoonlayout, met de leeskolom-cap.
+
+**Waarom dichtheid op de pointer:** iPad landscape heeft desktopbreedte en een vinger. `lg:h-[30px]` gaf daar 30px-knoppen en typbare datumvelden. Kleiner dan 44px mag alleen achter `(pointer: fine)` (muis/trackpad), en dat matcht een iPad nooit. De datum/tijd-velden kiezen hun desktopmodus (typen, half-uur-dropdown) op `(min-width: 1024px) and (pointer: fine)`; op touch opent de kalender gecentreerd en blijft het native tijdwiel. Bewaakt door `tests/unit/touch-density.test.ts`.
+
+**Wat Max per formaat ziet:** 768/820/834 portrait = bottom-tabs, formulieren in een gecentreerde kolom van 640px, lijsten en dashboards over de volle breedte met tweekoloms-grids; de Deur-lijst over de volle breedte, gast-detail en ter-plekke-toevoegen in de 640-kolom. 1024/1180/1366 landscape = sidebar, desktopdichtheid qua layout, maar 44px-tikdoelen en touch-invoer.
+
+**Open (niet in deze beslissing):** een iPad in landscape aan de deur krijgt nu de online-only cockpit, niet de outbox-deur. Voor een tablet op een standaard bij de ingang is dat een risico voor #25. Voorstel: de deurvariant kiezen op `(pointer: coarse)` óf `<1024px` in plaats van alleen de breedte. Dat raakt `app.tsx` en `DoorRoute.tsx` en vraagt een besluit van Max.
+
 ## Scherm-inventaris: gedekt vs. ontbrekend
 
 **Gedekt door het prototype (mobiel):** welcome/login-frame, events per maand, event-overzicht, gastenlijst met filters/rollen, gast-detail + logboek + check-in-sheet, deur-modus (toggle, AL BINNEN-divider), Let op!-popup, Taken-tab, vaste gasten, contacten, rollen & toelages, import, instellingen.
