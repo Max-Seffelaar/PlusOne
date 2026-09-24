@@ -34,7 +34,7 @@ import {
 import type { PlatformAuditEntry } from '@/features/po/adapters';
 import { formatWhen } from '@/features/audit/translate';
 import { useNav } from '../context';
-import { Btn, Empty, Field, MiniChip, PageNav, Scroll, Top } from '../kit';
+import { Btn, Empty, Field, Label, MiniChip, PageNav, Scroll, Select, Top } from '../kit';
 
 const col = 'flex h-full flex-col';
 const PAGE_SIZE = 50;
@@ -53,7 +53,14 @@ export function PlatformAudit({ venueId: initialVenueId }: { venueId?: string } 
       </div>
     );
   }
-  return <AuditConsole initialVenueId={initialVenueId} />;
+  // Keyed on the pre-scope (review finding, z8uq9m0tnx): arriving here a
+  // SECOND time with a different `?venue=` (e.g. "View audit" tapped on a
+  // different venue card while this screen is already mounted) must reset
+  // the filter to the new venue, not keep whatever the first mount's
+  // useState captured — a plain prop change wouldn't re-run that initial
+  // state. 'all' is a safe key for "no pre-scope" since a real venue id is
+  // always a UUID, never that literal string.
+  return <AuditConsole key={initialVenueId ?? 'all'} initialVenueId={initialVenueId} />;
 }
 
 function AuditConsole({ initialVenueId }: { initialVenueId?: string }): JSX.Element {
@@ -66,7 +73,12 @@ function AuditConsole({ initialVenueId }: { initialVenueId?: string }): JSX.Elem
 
   const filters = {
     venueId,
-    since: since ? new Date(since).toISOString() : undefined,
+    // Both built as LOCAL midnight, not one UTC + one local (review finding,
+    // z8uq9m0tnx): `new Date('YYYY-MM-DD')` parses as UTC midnight, which is
+    // hours off from `new Date('YYYY-MM-DDT23:59:59')`'s local-time parse in
+    // most timezones — a "From" filter that silently excluded part of the
+    // selected start day.
+    since: since ? new Date(`${since}T00:00:00`).toISOString() : undefined,
     until: until ? new Date(`${until}T23:59:59`).toISOString() : undefined,
   };
 
@@ -83,32 +95,24 @@ function AuditConsole({ initialVenueId }: { initialVenueId?: string }): JSX.Elem
       <Scroll bottom={100}>
         <div className="mb-4 flex flex-wrap items-end gap-2 rounded-[16px] border border-line bg-elev p-[12px]">
           <div className="min-w-[200px] flex-1">
-            <label className="mb-1 block text-[11.5px] font-semibold text-faint">
-              {t.platform.auditFilterVenueLabel}
-            </label>
-            <select
+            <Label className="mb-1">{t.platform.auditFilterVenueLabel}</Label>
+            <Select
               value={venueId ?? ''}
-              onChange={(e) => {
-                setVenueId(e.target.value || undefined);
+              onChange={(v) => {
+                setVenueId(v || undefined);
                 setPage(0);
               }}
-              className="h-[44px] w-full rounded-[12px] border border-line bg-bg px-3 text-[13.5px] text-text"
-            >
-              <option value="">{t.platform.auditFilterAllVenues}</option>
-              {(venuesQ.data ?? []).map((v) => (
-                <option key={v.venueId} value={v.venueId}>
-                  {v.name}
-                </option>
-              ))}
-            </select>
+              ariaLabel={t.platform.auditFilterVenueLabel}
+              placeholder={t.platform.auditFilterAllVenues}
+              options={(venuesQ.data ?? []).map((v) => ({ value: v.venueId, label: v.name }))}
+            />
           </div>
           <div className="min-w-[140px] flex-1">
-            <label className="mb-1 block text-[11.5px] font-semibold text-faint">
-              {t.platform.auditFilterSinceLabel}
-            </label>
+            <Label className="mb-1">{t.platform.auditFilterSinceLabel}</Label>
             <Field
               icon="cal"
               type="date"
+              ariaLabel={t.platform.auditFilterSinceLabel}
               value={since}
               onChange={(v) => {
                 setSince(v);
@@ -117,12 +121,11 @@ function AuditConsole({ initialVenueId }: { initialVenueId?: string }): JSX.Elem
             />
           </div>
           <div className="min-w-[140px] flex-1">
-            <label className="mb-1 block text-[11.5px] font-semibold text-faint">
-              {t.platform.auditFilterUntilLabel}
-            </label>
+            <Label className="mb-1">{t.platform.auditFilterUntilLabel}</Label>
             <Field
               icon="cal"
               type="date"
+              ariaLabel={t.platform.auditFilterUntilLabel}
               value={until}
               onChange={(v) => {
                 setUntil(v);
@@ -177,18 +180,20 @@ function AuditConsole({ initialVenueId }: { initialVenueId?: string }): JSX.Elem
                 </tbody>
               </table>
             </div>
+
+            {/* Only while there is a real page to show — never "0 of 0" under
+                an empty/loading/error state (review finding, z8uq9m0tnx). */}
+            <PageNav
+              summary={fmt(t.platform.auditCountOf, { shown: offset + entries.length, total })}
+              hasPrev={page > 0}
+              hasNext={offset + entries.length < total}
+              onPrev={() => setPage((p) => Math.max(0, p - 1))}
+              onNext={() => setPage((p) => p + 1)}
+              prevLabel={t.platform.pagePrev}
+              nextLabel={t.platform.pageNext}
+            />
           </>
         )}
-
-        <PageNav
-          summary={fmt(t.platform.auditCountOf, { shown: offset + entries.length, total })}
-          hasPrev={page > 0}
-          hasNext={offset + entries.length < total}
-          onPrev={() => setPage((p) => Math.max(0, p - 1))}
-          onNext={() => setPage((p) => p + 1)}
-          prevLabel={t.platform.pagePrev}
-          nextLabel={t.platform.pageNext}
-        />
       </Scroll>
     </div>
   );

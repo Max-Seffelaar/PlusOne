@@ -35,10 +35,29 @@
 -- their own past support actions stop being flagged). This is the same
 -- limitation every other "is member" check in this codebase has (RLS itself
 -- is always evaluated against CURRENT membership) and is documented rather
--- than solved here.
+-- than solved here. It is indicative, not forensic: `is_platform_admin()`
+-- already satisfies `venue_memberships_insert`'s role check for ANY venue
+-- (review finding, z8uq9m0tnx), so a platform admin can self-insert a real
+-- membership row (itself audited) and un-flag their own past support rows —
+-- an audited trail, not a tamper-proof one.
 --
 -- No new table, so no grant-matrix entry: only new functions, `authenticated`
 -- only, `revoke` before `grant` per convention.
+--
+-- Index (review finding, z8uq9m0tnx): the platform-wide default view of
+-- `platform_audit_overview`/`_count` (no `p_venue_id`) scans + sorts the
+-- WHOLE table by `created_at`, and the only existing index on `audit_log` is
+-- the composite `(venue_id, created_at)` — useless for a query with no
+-- venue_id predicate. `audit_log` is append-only and grows without bound
+-- (CLAUDE.md "the audit table grows hard"), so this index is not optional at
+-- scale.
+
+create index if not exists audit_log_created_at_idx
+  on public.audit_log (created_at desc);
+
+comment on index public.audit_log_created_at_idx is
+  'Supports the platform-wide (no venue filter) path of platform_audit_overview/'
+  '_count — an ORDER BY created_at DESC + LIMIT/OFFSET scan across every venue.';
 
 -- ---------------------------------------------------------------------------
 -- 1. Venue overview — GROUP BY aggregate, windowed
@@ -90,7 +109,10 @@ as $$
   ) al on true
   where public.is_platform_admin()
     and (p_search is null or v.name ilike '%' || btrim(p_search) || '%')
-  order by v.name asc
+  -- `id` is a tiebreaker, not cosmetic: two venues can share a `name` and
+  -- `order by name` alone gives Postgres no stable order between them, so a
+  -- row can be skipped or repeated across pages (review finding, z8uq9m0tnx).
+  order by v.name asc, v.id asc
   limit least(greatest(coalesce(p_limit, 50), 1), 200)
   offset greatest(coalesce(p_offset, 0), 0);
 $$;
@@ -189,7 +211,15 @@ as $$
     and (p_venue_id is null or a.venue_id = p_venue_id)
     and (p_since is null or a.created_at >= p_since)
     and (p_until is null or a.created_at <= p_until)
-  order by a.created_at desc
+  -- `id` is a tiebreaker, not cosmetic: audit_trigger() writes a whole
+  -- trigger-batch (e.g. several guests inserted in one statement) with
+  -- IDENTICAL created_at (the enclosing transaction's now()), so `order by
+  -- created_at desc` alone gives no stable order within a batch — a row can
+  -- be duplicated on one page and skipped on the next as p_offset advances
+  -- (review finding, z8uq9m0tnx). id is a UUIDv7 (time-ordered within the
+  -- same timestamp for rows inserted in sequence), so this also keeps the
+  -- within-batch order close to insertion order, not just stable.
+  order by a.created_at desc, a.id desc
   limit least(greatest(coalesce(p_limit, 100), 1), 200)
   offset greatest(coalesce(p_offset, 0), 0);
 $$;

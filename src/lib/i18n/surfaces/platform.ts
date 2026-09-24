@@ -95,11 +95,18 @@ export const platform = {
   venuesNoSubscription: 'No subscription',
   venuesOpenAudit: 'View audit',
   venuesSwitchInto: 'Switch into this venue',
-  venuesSwitchPending: 'Switching…',
-  venuesSwitchDenied: "Couldn't switch into that venue. It may have been removed.",
   venuesCountOf: '{shown} of {total}',
   pagePrev: 'Previous',
   pageNext: 'Next',
+
+  // Subscription status labels (subscription_status enum → display text).
+  // Never render the raw enum value — `trialing`/`past_due` etc. are DB
+  // vocabulary, not copy (review finding, z8uq9m0tnx).
+  subscriptionTrialing: 'Trialing',
+  subscriptionActive: 'Active',
+  subscriptionPastDue: 'Past due',
+  subscriptionCanceled: 'Canceled',
+  subscriptionComped: 'Comped',
 
   // ── Audit screen ──────────────────────────────────────────────────────────
   auditTitle: 'Audit',
@@ -113,7 +120,12 @@ export const platform = {
   auditFilterUntilLabel: 'Until',
   auditFilterClear: 'Clear filters',
   auditSupportBadge: 'Support action',
-  auditSupportHint: 'The acting operator is not a member of this venue.',
+  // The flag is indicative, not forensic (review finding, z8uq9m0tnx): a
+  // platform admin can self-insert a real membership at any venue (their
+  // own is_platform_admin() already satisfies that policy's role check) and
+  // un-flag their own past rows there — an audited trail, not a tamper-proof
+  // one, so this hint stays a present-tense description of the check.
+  auditSupportHint: 'The acting operator is not CURRENTLY a member of this venue.',
   auditNoVenue: 'No venue',
   auditUnknownActor: 'Unknown',
   auditColWho: 'Who',

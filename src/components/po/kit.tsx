@@ -356,6 +356,58 @@ export function TierPicker({
 }
 
 // ── Field (input or static display) ──────────────────────────────────────────
+// ── Select ───────────────────────────────────────────────────────────────────
+/**
+ * A native `<select>` in the Field's own skin — the `po` kit had no dropdown
+ * primitive before P-05's audit-viewer venue filter needed one. Native
+ * (not a custom listbox) on purpose: with up to hundreds of venues, a native
+ * `<select>` gets free virtualisation, keyboard nav, and screen-reader
+ * support the button-list `Sheet` pattern (see `audit.tsx`'s FilterSheet)
+ * doesn't scale to. `ariaLabel` mirrors `Field`'s own prop for a filter bar
+ * where the visible `Label` sits above rather than wrapping the control.
+ */
+export function Select({
+  value,
+  onChange,
+  options,
+  placeholder,
+  ariaLabel,
+  icon,
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: readonly { value: string; label: string }[];
+  /** The unselected/"all" option's label, e.g. "All venues". */
+  placeholder?: string;
+  ariaLabel?: string;
+  icon?: IconName;
+  className?: string;
+}): JSX.Element {
+  return (
+    <div className={cn('flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]', className)}>
+      {icon && (
+        <span className="text-faint">
+          <Icon name={icon} size={19} />
+        </span>
+      )}
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={ariaLabel}
+        className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none"
+      >
+        {placeholder != null && <option value="">{placeholder}</option>}
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 export function Field({
   icon,
   placeholder,

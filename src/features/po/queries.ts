@@ -1847,10 +1847,13 @@ export async function fetchSubscription(
 // Client-agnostic mirror of the SERVER-only src/features/audit/queries.ts so the
 // mobile po surface can read the same audit_feed over the BROWSER client (same
 // pattern as fetchPoGuests lifting the desktop guests select). RLS
-// (audit_log_select_aal2: admin/finance + AAL2, inherited by the view) is the
-// boundary — an AAL1 or unauthorised caller simply gets [], and the screen then
-// shows its MFA / permission state. The Dutch sentence composition is SHARED
-// (describeAuditEntry, translate.ts), so desktop and mobile read identically.
+// (audit_log_select_admin: admin/finance, role-only — the AAL2 requirement
+// this policy carried was dropped in 20260624160000_mfa_scope_sensitive_actions,
+// matching CLAUDE.md's "no AAL2 requirement in RLS anywhere"; the name here is
+// stale, not the behaviour) is the boundary — an unauthorised caller simply
+// gets [], and the screen then shows its permission state. The Dutch sentence
+// composition is SHARED (describeAuditEntry, translate.ts), so desktop and
+// mobile read identically.
 
 export interface PoAuditFilters {
   venueId: string;

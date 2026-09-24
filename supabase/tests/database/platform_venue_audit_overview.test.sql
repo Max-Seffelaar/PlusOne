@@ -40,7 +40,7 @@ begin
 end;
 $fn$;
 
-select plan(41);
+select plan(55);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner — RLS bypassed, like the seed)
@@ -79,6 +79,15 @@ insert into public.venues (id, name, slug) values
 -- No members, no events, no subscription row for either — coalesce-to-zero /
 -- null-status path.
 
+-- Two venues with an IDENTICAL name (review finding, z8uq9m0tnx): the ORDER
+-- BY on `platform_venue_overview` sorted on `name` alone before this fix, so
+-- two same-named venues had no stable order between them and could be
+-- skipped or repeated across pages. Scoped under its own search term so it
+-- doesn't disturb the unfiltered counts (B1 etc.) beyond the flat +2.
+insert into public.venues (id, name, slug) values
+  ('c3000000-0000-4000-8000-000000000001', 'Twin Venue', 'twin-venue-1'),
+  ('c3000000-0000-4000-8000-000000000002', 'Twin Venue', 'twin-venue-2');
+
 -- Support-action fixture: Watcher (platform admin, member of NOTHING) touches
 -- Club Vesper (aa...01) directly in audit_log; Max (a real Club Vesper admin,
 -- seed id 111...) touches it too. A third row has venue_id null (the
@@ -89,6 +98,25 @@ insert into public.audit_log (actor_id, venue_id, entity_type, entity_id, action
   ('11111111-1111-4111-8111-111111111111', 'aa000000-0000-7000-8000-000000000001',
    'guests', gen_random_uuid(), 'update', '{"before":{},"after":{}}'::jsonb),
   (null, null, 'user_profiles', gen_random_uuid(), 'platform_admin_grant', '{"before":{},"after":{}}'::jsonb);
+
+-- Trigger-batch fixture (BLOCKER, review finding z8uq9m0tnx): `now()` is
+-- constant for the whole transaction in Postgres, so every row below carries
+-- an IDENTICAL created_at — exactly what a real trigger-batch (several guests
+-- inserted in one statement) produces. Explicit ids (not the uuid_generate_v7
+-- default) so the pagination assertions below can name them. Scoped to Aurora
+-- Loods, which otherwise has zero audit activity, so a page's row count is
+-- exact, not "at least".
+insert into public.audit_log (id, actor_id, venue_id, entity_type, entity_id, action, diff) values
+  ('d1000000-0000-7000-8000-000000000001', 'c1000000-0000-4000-8000-000000000001',
+   'c2000000-0000-4000-8000-000000000001', 'guests', gen_random_uuid(), 'update', '{"before":{},"after":{}}'::jsonb),
+  ('d1000000-0000-7000-8000-000000000002', 'c1000000-0000-4000-8000-000000000001',
+   'c2000000-0000-4000-8000-000000000001', 'guests', gen_random_uuid(), 'update', '{"before":{},"after":{}}'::jsonb),
+  ('d1000000-0000-7000-8000-000000000003', 'c1000000-0000-4000-8000-000000000001',
+   'c2000000-0000-4000-8000-000000000001', 'guests', gen_random_uuid(), 'update', '{"before":{},"after":{}}'::jsonb),
+  ('d1000000-0000-7000-8000-000000000004', 'c1000000-0000-4000-8000-000000000001',
+   'c2000000-0000-4000-8000-000000000001', 'guests', gen_random_uuid(), 'update', '{"before":{},"after":{}}'::jsonb),
+  ('d1000000-0000-7000-8000-000000000005', 'c1000000-0000-4000-8000-000000000001',
+   'c2000000-0000-4000-8000-000000000001', 'guests', gen_random_uuid(), 'update', '{"before":{},"after":{}}'::jsonb);
 
 -- ---------------------------------------------------------------------------
 -- A. Grants — anon reaches none of the five functions
@@ -131,8 +159,8 @@ reset role;
 
 select pg_temp.login('c1000000-0000-4000-8000-000000000001');
 
-select is((select count(*)::int from public.platform_venue_overview(200, 0)), 4,
-  'B1 the platform admin sees all 4 venues, including two he holds no membership at');
+select is((select count(*)::int from public.platform_venue_overview(200, 0)), 6,
+  'B1 the platform admin sees all 6 venues, including several he holds no membership at');
 
 -- Seed membership at Club Vesper: Max, Noor, Femke, Tom, Lisa = 5.
 select is((select member_count from public.platform_venue_overview(200, 0)
@@ -160,18 +188,49 @@ select is((select venue_id from public.platform_venue_overview(200, 0, 'zenith')
 
 select is((select count(*)::int from public.platform_venue_overview(2, 0)), 2,
   'B7 p_limit is honoured');
-select is((select count(*)::int from public.platform_venue_overview(2, 3)), 1,
-  'B8 p_offset is honoured (4 total, offset 3 leaves 1)');
-select is((select count(*)::int from public.platform_venue_overview(100000, 0)), 4,
-  'B9 an absurd p_limit is capped, not obeyed blindly (still just 4 rows exist)');
+select is((select count(*)::int from public.platform_venue_overview(2, 3)), 2,
+  'B8 p_offset is honoured (6 total, offset 3 leaves 3, capped to limit 2)');
+select is((select count(*)::int from public.platform_venue_overview(100000, 0)), 6,
+  'B9 an absurd p_limit is capped, not obeyed blindly (still just 6 rows exist)');
 
-select is(public.platform_venue_overview_count(), 4,
+select is(public.platform_venue_overview_count(), 6,
   'B10 the unwindowed count matches the total row count');
 select is(public.platform_venue_overview_count('zenith'), 1,
   'B11 the count respects the same search filter');
 
-select is((select count(*)::int from public.platform_venue_options()), 4,
+select is((select count(*)::int from public.platform_venue_options()), 6,
   'B12 the venue picker lists every venue');
+
+-- B13/B14 (BLOCKER, review finding): two venues sharing the exact same
+-- `name` must still be disjoint and complete across pages — proves the
+-- `order by name asc, id asc` tiebreaker actually works, not just that it
+-- compiles. Scoped to their own search term so the two-row universe is exact.
+select is(
+  (select array_agg(venue_id order by venue_id) from (
+    select venue_id from public.platform_venue_overview(1, 0, 'twin venue')
+    union
+    select venue_id from public.platform_venue_overview(1, 1, 'twin venue')
+  ) u),
+  array['c3000000-0000-4000-8000-000000000001', 'c3000000-0000-4000-8000-000000000002']::uuid[],
+  'B13 two same-named venues, paged one at a time, are together and disjoint');
+
+select is(
+  (select count(*)::int from (
+    select venue_id from public.platform_venue_overview(1, 0, 'twin venue')
+    union all
+    select venue_id from public.platform_venue_overview(1, 1, 'twin venue')
+  ) u),
+  2, 'B14 ...and neither page repeats the other (UNION ALL count == UNION count)');
+
+-- B15-B17 (MINOR — negative/zero clamps, review finding): p_limit clamps to
+-- at least 1 rather than returning everything or erroring; p_offset clamps to
+-- at least 0 rather than wrapping/erroring.
+select is((select count(*)::int from public.platform_venue_overview(0, 0)), 1,
+  'B15 p_limit=0 is clamped up to 1, not treated as "no limit"');
+select is((select count(*)::int from public.platform_venue_overview(-5, 0)), 1,
+  'B16 a negative p_limit is clamped up to 1 too');
+select is((select count(*)::int from public.platform_venue_overview(200, -3)), 6,
+  'B17 a negative p_offset is clamped to 0, not applied literally');
 
 reset role;
 
@@ -191,7 +250,7 @@ select cmp_ok((select count(*)::int from public.platform_audit_overview(
   '>=', 2, 'C2 filtering by venue_id returns at least our fixture rows for that venue');
 
 select is((select count(*)::int from public.platform_audit_overview(
-              'c2000000-0000-4000-8000-000000000001', null, null, 200, 0)), 0,
+              'c2000000-0000-4000-8000-000000000002', null, null, 200, 0)), 0,
   'C2b filtering by an untouched venue returns nothing');
 
 select is((select is_support_action from public.platform_audit_overview(
@@ -238,6 +297,47 @@ select is(
   public.platform_audit_overview_count('aa000000-0000-7000-8000-000000000001', null, null) >= 2,
   true, 'C12 the count respects the venue filter and includes our fixture rows');
 
+-- C13/C14 (BLOCKER, review finding): audit_trigger()'s created_at is the
+-- ENCLOSING TRANSACTION's now(), so a real trigger-batch (several guests
+-- inserted in one statement) writes several audit_log rows with an
+-- IDENTICAL created_at — `order by created_at desc` alone gives Postgres no
+-- stable order between them, so a row could be duplicated on one page and
+-- skipped on the next as p_offset advances. The 5-row Aurora Loods fixture
+-- above shares exactly that (all inserted in this same test transaction).
+select is(
+  (select array_agg(id order by id) from (
+    select id from public.platform_audit_overview(
+      'c2000000-0000-4000-8000-000000000001', null, null, 3, 0)
+    union
+    select id from public.platform_audit_overview(
+      'c2000000-0000-4000-8000-000000000001', null, null, 3, 3)
+  ) u),
+  array['d1000000-0000-7000-8000-000000000001', 'd1000000-0000-7000-8000-000000000002',
+        'd1000000-0000-7000-8000-000000000003', 'd1000000-0000-7000-8000-000000000004',
+        'd1000000-0000-7000-8000-000000000005']::uuid[],
+  'C13 two pages over rows with an identical created_at are together and disjoint');
+
+select is(
+  (select count(*)::int from (
+    select id from public.platform_audit_overview(
+      'c2000000-0000-4000-8000-000000000001', null, null, 3, 0)
+    union all
+    select id from public.platform_audit_overview(
+      'c2000000-0000-4000-8000-000000000001', null, null, 3, 3)
+  ) u),
+  5, 'C14 ...and neither page repeats a row from the other');
+
+-- C15-C17 (MINOR — negative/zero clamps, review finding).
+select is((select count(*)::int from public.platform_audit_overview(
+              'c2000000-0000-4000-8000-000000000001', null, null, 0, 0)), 1,
+  'C15 p_limit=0 is clamped up to 1 on the audit feed too');
+select is((select count(*)::int from public.platform_audit_overview(
+              'c2000000-0000-4000-8000-000000000001', null, null, -5, 0)), 1,
+  'C16 a negative p_limit is clamped up to 1 too');
+select is((select count(*)::int from public.platform_audit_overview(
+              'c2000000-0000-4000-8000-000000000001', null, null, 200, -3)), 5,
+  'C17 a negative p_offset is clamped to 0, not applied literally');
+
 reset role;
 
 -- ---------------------------------------------------------------------------
@@ -255,29 +355,70 @@ select is((select count(*)::int from public.platform_venue_options()), 0,
   'D5 the venue picker is empty too');
 reset role;
 
+-- D6-D10 (review finding — the PR body claimed every non-admin role is
+-- checked against all five functions; make that literally true instead of
+-- sampling one or two per role).
 select pg_temp.login('22222222-2222-4222-8222-222222222222'); -- Noor, user_manager
-select is((select count(*)::int from public.platform_venue_overview()), 0, 'D6 user_manager sees nothing');
+select ok(
+  (select count(*)::int from public.platform_venue_overview()) = 0
+  and public.platform_venue_overview_count() = 0
+  and (select count(*)::int from public.platform_venue_options()) = 0
+  and (select count(*)::int from public.platform_audit_overview()) = 0
+  and public.platform_audit_overview_count() = 0,
+  'D6 user_manager gets zero rows from all five functions');
 reset role;
 
 select pg_temp.login('33333333-3333-4333-8333-333333333333'); -- Femke, finance
-select is((select count(*)::int from public.platform_audit_overview()), 0, 'D7 finance sees nothing');
+select ok(
+  (select count(*)::int from public.platform_venue_overview()) = 0
+  and public.platform_venue_overview_count() = 0
+  and (select count(*)::int from public.platform_venue_options()) = 0
+  and (select count(*)::int from public.platform_audit_overview()) = 0
+  and public.platform_audit_overview_count() = 0,
+  'D7 finance gets zero rows from all five functions');
 reset role;
 
 select pg_temp.login('55555555-5555-4555-8555-555555555555'); -- Tom, staff
-select is((select count(*)::int from public.platform_venue_overview()), 0, 'D8 staff sees nothing');
+select ok(
+  (select count(*)::int from public.platform_venue_overview()) = 0
+  and public.platform_venue_overview_count() = 0
+  and (select count(*)::int from public.platform_venue_options()) = 0
+  and (select count(*)::int from public.platform_audit_overview()) = 0
+  and public.platform_audit_overview_count() = 0,
+  'D8 staff gets zero rows from all five functions');
 reset role;
 
 select pg_temp.login('66666666-6666-4666-8666-666666666666'); -- Lisa, doorhost
-select is((select count(*)::int from public.platform_audit_overview()), 0, 'D9 a doorhost sees nothing');
+select ok(
+  (select count(*)::int from public.platform_venue_overview()) = 0
+  and public.platform_venue_overview_count() = 0
+  and (select count(*)::int from public.platform_venue_options()) = 0
+  and (select count(*)::int from public.platform_audit_overview()) = 0
+  and public.platform_audit_overview_count() = 0,
+  'D9 a doorhost gets zero rows from all five functions');
 reset role;
 
 select pg_temp.login('44444444-4444-4444-8444-444444444444'); -- Yusuf, organizer
-select is((select count(*)::int from public.platform_venue_overview()), 0, 'D10 an event organizer sees nothing');
+select ok(
+  (select count(*)::int from public.platform_venue_overview()) = 0
+  and public.platform_venue_overview_count() = 0
+  and (select count(*)::int from public.platform_venue_options()) = 0
+  and (select count(*)::int from public.platform_audit_overview()) = 0
+  and public.platform_audit_overview_count() = 0,
+  'D10 an event organizer gets zero rows from all five functions');
 reset role;
 
 select pg_temp.login_anon();
+select throws_ok($$select * from public.platform_venue_overview()$$,
+  '42501', null, 'D11a anon is refused at the grant layer (venue overview)');
+select throws_ok($$select public.platform_venue_overview_count()$$,
+  '42501', null, 'D11b ...and the venue count');
+select throws_ok($$select * from public.platform_venue_options()$$,
+  '42501', null, 'D11c ...and the venue picker');
 select throws_ok($$select * from public.platform_audit_overview()$$,
-  '42501', null, 'D11 anon is refused at the grant layer for the audit overview too');
+  '42501', null, 'D11d ...and the audit overview');
+select throws_ok($$select public.platform_audit_overview_count()$$,
+  '42501', null, 'D11e ...and the audit count');
 reset role;
 
 select * from finish();

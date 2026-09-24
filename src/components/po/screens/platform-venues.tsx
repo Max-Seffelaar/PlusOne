@@ -36,6 +36,20 @@ import { Btn, Empty, Field, MiniChip, PageNav, Scroll, StatTile, Top } from '../
 const col = 'flex h-full flex-col';
 const PAGE_SIZE = 20;
 
+// subscription_status enum -> display label (review finding, z8uq9m0tnx):
+// the DB value is app vocabulary, never copy. Falls back to the raw value
+// for a status this map hasn't caught up with yet, rather than hiding it.
+const SUBSCRIPTION_STATUS_LABEL: Record<string, string> = {
+  trialing: t.platform.subscriptionTrialing,
+  active: t.platform.subscriptionActive,
+  past_due: t.platform.subscriptionPastDue,
+  canceled: t.platform.subscriptionCanceled,
+  comped: t.platform.subscriptionComped,
+};
+function subscriptionStatusLabel(status: string): string {
+  return SUBSCRIPTION_STATUS_LABEL[status] ?? status;
+}
+
 export function PlatformVenues(): JSX.Element {
   const nav = useNav();
   const isPlatformAdmin = usePoIsPlatformAdmin();
@@ -93,27 +107,31 @@ function VenuesConsole(): JSX.Element {
         ) : venues.length === 0 ? (
           <Empty text={t.platform.venuesEmpty} />
         ) : (
-          <div className="flex flex-col gap-2">
-            {venues.map((v) => (
-              <VenueCard
-                key={v.venueId}
-                venue={v}
-                onSwitch={() => switchToVenue(v.venueId)}
-                onViewAudit={() => nav.push('platformaudit', { id: v.venueId })}
-              />
-            ))}
-          </div>
-        )}
+          <>
+            <div className="flex flex-col gap-2">
+              {venues.map((v) => (
+                <VenueCard
+                  key={v.venueId}
+                  venue={v}
+                  onSwitch={() => switchToVenue(v.venueId)}
+                  onViewAudit={() => nav.push('platformaudit', { id: v.venueId })}
+                />
+              ))}
+            </div>
 
-        <PageNav
-          summary={fmt(t.platform.venuesCountOf, { shown: offset + venues.length, total })}
-          hasPrev={page > 0}
-          hasNext={offset + venues.length < total}
-          onPrev={() => setPage((p) => Math.max(0, p - 1))}
-          onNext={() => setPage((p) => p + 1)}
-          prevLabel={t.platform.pagePrev}
-          nextLabel={t.platform.pageNext}
-        />
+            {/* Only while there is a real page to show — never "0 of 0"
+                under an empty/loading/error state (review finding, z8uq9m0tnx). */}
+            <PageNav
+              summary={fmt(t.platform.venuesCountOf, { shown: offset + venues.length, total })}
+              hasPrev={page > 0}
+              hasNext={offset + venues.length < total}
+              onPrev={() => setPage((p) => Math.max(0, p - 1))}
+              onNext={() => setPage((p) => p + 1)}
+              prevLabel={t.platform.pagePrev}
+              nextLabel={t.platform.pageNext}
+            />
+          </>
+        )}
       </Scroll>
     </div>
   );
@@ -149,7 +167,7 @@ function VenueCard({
           </div>
         </div>
         {venue.subscriptionStatus ? (
-          <MiniChip>{venue.subscriptionStatus}</MiniChip>
+          <MiniChip>{subscriptionStatusLabel(venue.subscriptionStatus)}</MiniChip>
         ) : (
           <MiniChip className="border-line2 text-faint">{t.platform.venuesNoSubscription}</MiniChip>
         )}
