@@ -2,7 +2,7 @@
 
 Multi-tenant guest list SaaS for venues (clubs, event spaces). Hundreds of venues, dozens of events/month each, 50–150 guests per event. Core values: **fraud resistance** (everything audited), **door speed** (offline-tolerant check-in), **quota enforcement** (staff get limited guest list slots).
 
-The full functional spec lives in `gastenlijst-app-spec.md` (repo root). Decision numbers (#1–#39) point to the decision table in that spec. When in doubt, the spec wins. If code and spec conflict, flag it — never silently deviate.
+The full functional spec lives in `gastenlijst-app-spec.md` (repo root). Decision numbers (#1–#49) point to the decision table in that spec. When in doubt, the spec wins. If code and spec conflict, flag it — never silently deviate.
 
 **This file holds current invariants and open work only.** Shipped-phase history (PRs, root causes, gotchas) lives in `docs/changelog.md` — session-end status reports go THERE, newest first; CLAUDE.md changes only when an invariant changes.
 
@@ -17,7 +17,7 @@ The full functional spec lives in `gastenlijst-app-spec.md` (repo root). Decisio
 
 ## Non-negotiable architecture decisions
 
-1. **RLS is the security boundary.** Every table has Row Level Security enabled. App-layer checks are convenience, not security. A user with the anon/auth key and raw API access must never be able to read or write outside their memberships — except platform admins: `user_profiles.is_platform_admin`, enforced in the RLS helpers themselves, every cross-tenant write audited on name (decision #41).
+1. **RLS is the security boundary.** Every table has Row Level Security enabled. App-layer checks are convenience, not security. A user with the anon/auth key and raw API access must never be able to read or write outside their memberships — except platform admins, who are the deliberate cross-tenant exception; see "Platform admins" below (decision #49).
 2. **All primary keys are UUIDv7, generated client-side** for entities that can be created offline (`guests`, `check_ins`, `refusals`). All writes from the offline outbox are idempotent upserts. (#25)
 3. **Soft delete only.** Guests are never hard-deleted; status becomes `removed`. Hard DELETE is revoked for app roles at the database level. (#21)
 4. **Audit log via Postgres triggers**, not application code. Triggers on `guests`, `quotas`, `event_quotas`, `guest_tiers`, `check_ins` write actor, action, and JSONB before/after diff. Never write audit entries from app code; never bypass.
@@ -28,6 +28,19 @@ The full functional spec lives in `gastenlijst-app-spec.md` (repo root). Decisio
 9. **Stats and quotas hang on the event, never the calendar day.** Events cross midnight. (#26)
 10. **No ticketing integrations in the core. No outbound invitations (mail/WhatsApp).** Read-only ticketing connectors are a phase-3 layer (#36).
 11. **Native apps are planned, not optional (#37).** MVP is a browser PWA; the same codebase gets wrapped with Capacitor (remote-URL model) for both stores. Never introduce a feature that would force a rewrite at wrap time — see the Capacitor checklist below.
+
+## Platform admins (decision #49)
+
+PlusOne's own operators (Max, Joeri) need cross-venue read+write for support/debug, without becoming a seventh `venue_role` (that array flows through `invites`/`canGrantRoles`/~59 policies — a superuser value inside it would make every venue admin a potential superuser-granter).
+
+- **Outside `venue_role[]`.** A single boolean, `user_profiles.is_platform_admin`, only mutable through `public.set_platform_admin()` (SECURITY DEFINER, requires the flag itself, refuses self-revoke). Column-level grants on `user_profiles` exclude `is_platform_admin` from `authenticated`, so no self-promotion via a direct row update; a BEFORE INSERT/UPDATE guard is defence in depth on top of that.
+- **RLS is the boundary, not app code** — `or public.is_platform_admin()` is the last disjunct in `is_venue_member`, `has_venue_role`, `is_venue_organizer`, `is_event_organizer`, and `can_view_profile`.
+- **Writes are audited on name via the existing triggers** (rule #4) — a platform admin's cross-tenant guest/quota/check-in writes land in `audit_log` under their own `auth.uid()`, same as any other actor. Reads are not audited — consistent with the rest of this codebase, where no read path is audited anywhere.
+- **MFA for this role is deliberately not yet mandatory** (decision, Max, 2026-09-23) — same "role-only, no AAL2 gate" stance as the rest of Auth below.
+- `platform_invites` (outreach/funnel record, never an access grant) and the Platform tab (`/app/platform`: invites, venues, audit) are visible only to `is_platform_admin()`.
+- **Bootstrapping the first platform admin** is manual SQL (no seed migration yet) — the runbook lives in the header of `supabase/migrations/20260923120000_platform_admin.sql`. Locally, `pnpm dev:mfa` flips the flag on `admin@plusone.test` instead — deliberately never in `supabase/seed.sql`, because pgTAP relies on that exact user being a venue admin who is **not** a platform admin.
+- **PlusOne Admin-venue** is not a special case in code: Max creates it himself via More → Switch venue → New venue, same flow every venue owner uses.
+- New columns on `user_profiles` (or any table) start with no grant for `authenticated` — same rule as new tables/views below.
 
 ## Auth (decision #20)
 

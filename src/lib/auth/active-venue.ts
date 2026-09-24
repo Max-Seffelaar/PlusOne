@@ -41,7 +41,7 @@ export async function resolveActiveVenueId(
  * set. `resolveActiveVenueId` above only ever returns an id already present
  * in `candidates` — exactly right for every ordinary caller, but it means a
  * platform admin's switch into a venue they hold no membership at (P-05,
- * decision #41) is silently dropped: the cookie gets written by
+ * decision #49) is silently dropped: the cookie gets written by
  * `switchActiveVenueAction`, then discarded here because it isn't in
  * `accessVenues`. `src/app/app/layout.tsx` uses this as a narrow, explicit
  * fallback — ONLY after confirming the caller is a platform admin AND the

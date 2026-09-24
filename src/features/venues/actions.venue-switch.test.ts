@@ -24,7 +24,7 @@ const H = vi.hoisted(() => ({
   memberships: [] as Membership[],
   organizerVenues: [] as Membership[],
   organizerThrows: false,
-  // null = "not a platform admin, or the venue doesn't exist" (P-05, #41).
+  // null = "not a platform admin, or the venue doesn't exist" (P-05, #49).
   platformVenue: null as Membership | null,
   cookieSet: vi.fn(),
   revalidatePath: vi.fn(),
@@ -136,7 +136,7 @@ describe('switchActiveVenueAction (86eykm7rk)', () => {
     expect(H.cookieSet).toHaveBeenCalledTimes(1);
   });
 
-  // ── Platform admin support/debug access (decision #41, P-05) ──────────────
+  // ── Platform admin support/debug access (decision #49, P-05) ──────────────
   describe('platform admin fallback', () => {
     it('allows a platform admin to switch into a venue they hold no membership at', async () => {
       H.memberships = [membership(VENUE_A)]; // not a member of VENUE_B

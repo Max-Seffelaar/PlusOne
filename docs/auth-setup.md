@@ -40,6 +40,11 @@ settings"):
 - Local mirror: `config.toml` → `[auth] enable_signup = false`
   (`GOTRUE_DISABLE_SIGNUP=true`). Note: do **not** set `[auth.email].enable_signup`
   — in the CLI that key toggles the whole email provider off.
+- **Platform (system) admin is not an invite-flow role.** `user_profiles.is_platform_admin`
+  is a boolean outside `venue_role[]`, only writable through `public.set_platform_admin()`.
+  The first platform admin on a fresh project has no dashboard toggle — bootstrap it with
+  the one-line SQL runbook in the header of `supabase/migrations/20260923120000_platform_admin.sql`
+  (decision #49, CLAUDE.md §Non-negotiable architecture decisions).
 
 ## 2. Token lifetimes & sessions (Authentication → Sessions / JWT)
 

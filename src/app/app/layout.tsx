@@ -87,7 +87,7 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
   let activeVenueId: string | null = null;
   let active: (typeof accessVenues)[number] | null = null;
   let viaPlatformAdmin = false;
-  // Platform admin support/debug access (decision #41, P-05): the cookie may
+  // Platform admin support/debug access (decision #49, P-05): the cookie may
   // point at a venue the caller holds no REAL membership at (written by
   // `switchActiveVenueAction`'s platform-admin branch after a "switch into
   // this venue" tap on Platform > Venues). This has to run BEFORE
