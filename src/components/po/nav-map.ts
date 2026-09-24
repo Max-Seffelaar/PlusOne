@@ -15,7 +15,7 @@ import type { ScreenName, ScreenProps } from './context';
  *  full-bleed regardless. (S3.3) */
 export const WIDE_DESKTOP = new Set([
   'start', 'events', 'guests', 'lijst', 'stats', 'audit', 'gebruikers',
-  'event', 'pastevent', 'aanvragen', 'deur', 'platform',
+  'event', 'pastevent', 'aanvragen', 'deur', 'platform', 'platformvenues', 'platformaudit',
 ]);
 
 /** Mobile only has 5 real bottom tabs — collapse every desktop-only sidebar
@@ -67,6 +67,8 @@ export function navKeyForScreen(name: ScreenName, _props: ScreenProps): string {
     case 'gebruikers':
       return 'gebruikers';
     case 'platform':
+    case 'platformvenues':
+    case 'platformaudit':
       return 'platform';
     default:
       // rollen, import, venueswitch, venuesettings, venuecreate, profile,

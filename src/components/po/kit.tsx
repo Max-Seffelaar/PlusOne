@@ -710,6 +710,46 @@ export function Empty({ text }: { text: string }): JSX.Element {
   return <div className="py-[30px] text-center text-[14px] text-faint">{text}</div>;
 }
 
+// ── PageNav ──────────────────────────────────────────────────────────────────
+/**
+ * Prev/next pager for a server-windowed list (offset/limit RPC), plus an
+ * optional "X of Y" summary. Added with the Platform venue overview + audit
+ * viewer (P-05) as a kit primitive — any screen that pages a windowed read
+ * (never "load everything and paginate in JS") reaches for this instead of
+ * inventing its own buttons.
+ */
+export function PageNav({
+  summary,
+  hasPrev,
+  hasNext,
+  onPrev,
+  onNext,
+  prevLabel,
+  nextLabel,
+}: {
+  summary?: string;
+  hasPrev: boolean;
+  hasNext: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+  prevLabel: string;
+  nextLabel: string;
+}): JSX.Element {
+  return (
+    <div className="mt-3 flex items-center justify-between gap-3">
+      {summary ? <span className="text-[12px] text-faint">{summary}</span> : <span />}
+      <div className="flex gap-2">
+        <Btn kind="ghost" sm className="min-h-[44px]" disabled={!hasPrev} onClick={onPrev}>
+          {prevLabel}
+        </Btn>
+        <Btn kind="ghost" sm className="min-h-[44px]" disabled={!hasNext} onClick={onNext}>
+          {nextLabel}
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
 // ── StatTile ─────────────────────────────────────────────────────────────────
 /**
  * One number with its label: the smallest "here is a count" unit. Added with

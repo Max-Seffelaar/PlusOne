@@ -24,6 +24,8 @@ const H = vi.hoisted(() => ({
   memberships: [] as Membership[],
   organizerVenues: [] as Membership[],
   organizerThrows: false,
+  // null = "not a platform admin, or the venue doesn't exist" (P-05, #41).
+  platformVenue: null as Membership | null,
   cookieSet: vi.fn(),
   revalidatePath: vi.fn(),
 }));
@@ -43,6 +45,7 @@ vi.mock('@/lib/auth/memberships', () => ({
     if (H.organizerThrows) throw new Error('rls');
     return H.organizerVenues;
   },
+  getPlatformAdminVenue: async () => H.platformVenue,
 }));
 
 const { switchActiveVenueAction } = await import('./actions');
@@ -66,6 +69,7 @@ beforeEach(() => {
   H.memberships = [membership(VENUE_A), membership(VENUE_B)];
   H.organizerVenues = [];
   H.organizerThrows = false;
+  H.platformVenue = null;
   H.cookieSet.mockClear();
   H.revalidatePath.mockClear();
 });
@@ -130,5 +134,30 @@ describe('switchActiveVenueAction (86eykm7rk)', () => {
     H.organizerThrows = true;
     await expect(switchActiveVenueAction(VENUE_B)).resolves.toBe('ok');
     expect(H.cookieSet).toHaveBeenCalledTimes(1);
+  });
+
+  // ── Platform admin support/debug access (decision #41, P-05) ──────────────
+  describe('platform admin fallback', () => {
+    it('allows a platform admin to switch into a venue they hold no membership at', async () => {
+      H.memberships = [membership(VENUE_A)]; // not a member of VENUE_B
+      H.platformVenue = { venueId: VENUE_B, venueName: 'Venue B', roles: [] };
+      await expect(switchActiveVenueAction(VENUE_B)).resolves.toBe('ok');
+      expect(H.cookieSet.mock.calls[0]?.[1]).toBe(VENUE_B);
+    });
+
+    it('still denies when getPlatformAdminVenue reports null (not a platform admin)', async () => {
+      H.memberships = [membership(VENUE_A)];
+      H.platformVenue = null;
+      await expect(switchActiveVenueAction(VENUE_B)).resolves.toBe('denied');
+      expect(H.cookieSet).not.toHaveBeenCalled();
+    });
+
+    it('never even calls the platform-admin fallback for a venue the caller already reaches', async () => {
+      // A real member never needs the fallback path — proven indirectly: even
+      // with platformVenue null, a real membership still switches fine.
+      H.platformVenue = null;
+      await expect(switchActiveVenueAction(VENUE_B)).resolves.toBe('ok');
+      expect(H.cookieSet).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -44,6 +44,7 @@ import { formatShortDate } from '@/features/po/format';
 import { useNav } from '../context';
 import { Icon } from '../icon';
 import {
+  ActionItem,
   Btn,
   Empty,
   Field,
@@ -115,6 +116,8 @@ function PlatformConsole(): JSX.Element {
         onBack={nav.canGoBack ? nav.back : undefined}
       />
       <Scroll bottom={100}>
+        <PlatformNav />
+
         <InviteForm />
 
         <Label className="mb-[10px] mt-[26px]">{t.platform.funnelTitle}</Label>
@@ -157,6 +160,28 @@ function PlatformConsole(): JSX.Element {
           <Note icon="warn">{t.platform.revokeConfirmBody}</Note>
         </ConfirmSheet>
       )}
+    </div>
+  );
+}
+
+// ── Nav into the venue overview + audit viewer (P-05) ────────────────────────
+
+function PlatformNav(): JSX.Element {
+  const nav = useNav();
+  return (
+    <div className="mb-[18px] flex flex-col gap-2">
+      <ActionItem
+        icon="building"
+        label={t.platform.venuesNavTitle}
+        sub={t.platform.venuesNavSub}
+        onClick={() => nav.push('platformvenues', {})}
+      />
+      <ActionItem
+        icon="shield"
+        label={t.platform.auditNavTitle}
+        sub={t.platform.auditNavSub}
+        onClick={() => nav.push('platformaudit', {})}
+      />
     </div>
   );
 }

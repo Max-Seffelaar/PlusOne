@@ -85,6 +85,16 @@ const Platform = dynamic(() => import('./screens/platform').then((m) => m.Platfo
   loading: ScreenLoading,
   ssr: false,
 });
+// Platform > Venues / Audit (P-05): same reasoning as Platform itself — split
+// out of the common chunk, reachable only for a platform admin.
+const PlatformVenues = dynamic(
+  () => import('./screens/platform-venues').then((m) => m.PlatformVenues),
+  { loading: ScreenLoading, ssr: false },
+);
+const PlatformAudit = dynamic(
+  () => import('./screens/platform-audit').then((m) => m.PlatformAudit),
+  { loading: ScreenLoading, ssr: false },
+);
 // QuickAdd (#2b): the guest quick-add flow carries the parser + dedupe engine and
 // (via the lazy phone field) the country picker — heavy and only ever reached by
 // tapping "add guest", never on the door-only / common path. Split into its own
@@ -170,6 +180,10 @@ function screenFor(name: ScreenName, p: ScreenProps, nav: Nav, ev: (id?: string)
       return <PromotionHub tab={p.tab} eventId={p.id} />;
     case 'platform':
       return <Platform />;
+    case 'platformvenues':
+      return <PlatformVenues />;
+    case 'platformaudit':
+      return <PlatformAudit venueId={p.id} />;
     default:
       return null;
   }

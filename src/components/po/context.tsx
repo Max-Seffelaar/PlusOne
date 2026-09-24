@@ -45,7 +45,11 @@ export type ScreenName =
   | 'promotion'
   /** PlusOne's own operator surface (P-04) — only reachable for a platform
    *  admin; RLS, not this union, is what keeps its data closed. */
-  | 'platform';
+  | 'platform'
+  /** Platform > Venues (P-05) — same closed-by-RLS shape as 'platform'. */
+  | 'platformvenues'
+  /** Platform > Audit (P-05) — same closed-by-RLS shape as 'platform'. */
+  | 'platformaudit';
 
 export interface ScreenProps {
   id?: string;

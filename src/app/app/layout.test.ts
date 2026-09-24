@@ -47,9 +47,13 @@ vi.mock('@/lib/auth/memberships', () => ({
   getMyMemberships: vi.fn(async () => []),
   getOrganizerVenues: vi.fn(async () => []),
   getReportingVenues: vi.fn(async () => []),
+  // Not a platform admin in this suite — the P-05 support-access fallback
+  // (layout.tsx) always resolves to null, same as everyone else.
+  getPlatformAdminVenue: vi.fn(async () => null),
 }));
 vi.mock('@/lib/auth/active-venue', () => ({
   resolveActiveVenueId: vi.fn(async () => null),
+  getActiveVenueCookieValue: vi.fn(async () => null),
 }));
 vi.mock('@/features/po/PoLiveProvider', () => ({ PoLiveProvider: () => null }));
 vi.mock('@/components/po/app-shell-data', () => ({ AppShellDataProvider: () => null }));

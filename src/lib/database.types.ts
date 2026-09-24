@@ -2037,6 +2037,34 @@ export type Database = {
         Args: { p_venue_id: string }
         Returns: boolean
       }
+      platform_audit_overview: {
+        Args: {
+          p_limit?: number
+          p_offset?: number
+          p_since?: string
+          p_until?: string
+          p_venue_id?: string
+        }
+        Returns: {
+          action: string
+          actor_id: string
+          actor_name: string
+          created_at: string
+          device_id: string
+          diff: Json
+          entity_id: string
+          entity_type: string
+          event_id: string
+          id: string
+          is_support_action: boolean
+          venue_id: string
+          venue_name: string
+        }[]
+      }
+      platform_audit_overview_count: {
+        Args: { p_since?: string; p_until?: string; p_venue_id?: string }
+        Returns: number
+      }
       platform_invite_funnel: {
         Args: never
         Returns: {
@@ -2075,6 +2103,29 @@ export type Database = {
           user_id: string
           venue_count: number
         }[]
+      }
+      platform_venue_options: {
+        Args: never
+        Returns: {
+          name: string
+          venue_id: string
+        }[]
+      }
+      platform_venue_overview: {
+        Args: { p_limit?: number; p_offset?: number; p_search?: string }
+        Returns: {
+          event_count: number
+          last_activity_at: string
+          member_count: number
+          name: string
+          slug: string
+          subscription_status: string
+          venue_id: string
+        }[]
+      }
+      platform_venue_overview_count: {
+        Args: { p_search?: string }
+        Returns: number
       }
       promote_guest_to_contact: {
         Args: { p_guest_id: string }

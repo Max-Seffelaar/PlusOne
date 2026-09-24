@@ -63,6 +63,13 @@ import {
   fetchIsPlatformAdmin,
   fetchPlatformInvites,
   fetchPlatformFunnel,
+  fetchPlatformVenueOverview,
+  fetchPlatformVenueOverviewCount,
+  fetchPlatformVenueOptions,
+  fetchPlatformAuditOverview,
+  fetchPlatformAuditOverviewCount,
+  type PlatformVenueParams,
+  type PlatformAuditParams,
   type PoRequestLink,
   type PoLinkOption,
   type PoInfluencer,
@@ -102,8 +109,14 @@ import {
   toPoSubscription,
   toPlatformInvite,
   toPlatformFunnel,
+  toPlatformVenue,
+  toPlatformVenueOption,
+  toPlatformAuditEntry,
   type PlatformInvite,
   type PlatformInviteStage,
+  type PlatformVenue,
+  type PlatformVenueOptionItem,
+  type PlatformAuditEntry,
   type PoContact,
   type PoContactProfile,
   type PoGuestRequest,
@@ -1376,5 +1389,65 @@ export function usePoPlatformFunnel(options?: { enabled?: boolean }) {
     queryKey: poKeys.platformFunnel(),
     enabled: options?.enabled ?? true,
     queryFn: async () => toPlatformFunnel(await fetchPlatformFunnel(createClient())),
+  });
+}
+
+// ── Platform (system) admin surface — venue overview + audit viewer (P-05,
+// z8uq9m0tnx). Same shape as the invites hooks above: server-windowed RPCs,
+// `enabled` keeps a non-platform-admin from ever firing a doomed read.
+
+/** Server-windowed venue overview, one page at a time. */
+export function usePoPlatformVenues(
+  params: PlatformVenueParams = {},
+  options?: { enabled?: boolean }
+) {
+  return useQuery<PlatformVenue[]>({
+    queryKey: poKeys.platformVenues(params),
+    enabled: options?.enabled ?? true,
+    queryFn: async () => (await fetchPlatformVenueOverview(createClient(), params)).map(toPlatformVenue),
+  });
+}
+
+/** Total venue count matching the search filter — for "X of Y" pagination
+ *  without pulling every row. */
+export function usePoPlatformVenuesCount(search?: string, options?: { enabled?: boolean }) {
+  return useQuery<number>({
+    queryKey: poKeys.platformVenuesCount(search),
+    enabled: options?.enabled ?? true,
+    queryFn: () => fetchPlatformVenueOverviewCount(createClient(), search),
+  });
+}
+
+/** Every venue's id + name (capped server-side) for the audit filter's venue
+ *  picker. */
+export function usePoPlatformVenueOptions(options?: { enabled?: boolean }) {
+  return useQuery<PlatformVenueOptionItem[]>({
+    queryKey: poKeys.platformVenueOptions(),
+    enabled: options?.enabled ?? true,
+    queryFn: async () => (await fetchPlatformVenueOptions(createClient())).map(toPlatformVenueOption),
+  });
+}
+
+/** Server-windowed, filterable audit feed across EVERY venue. */
+export function usePoPlatformAudit(
+  params: PlatformAuditParams = {},
+  options?: { enabled?: boolean }
+) {
+  return useQuery<PlatformAuditEntry[]>({
+    queryKey: poKeys.platformAudit(params),
+    enabled: options?.enabled ?? true,
+    queryFn: async () => (await fetchPlatformAuditOverview(createClient(), params)).map(toPlatformAuditEntry),
+  });
+}
+
+/** Total audit row count matching the same filters — for "X of Y". */
+export function usePoPlatformAuditCount(
+  params: Omit<PlatformAuditParams, 'limit' | 'offset'> = {},
+  options?: { enabled?: boolean }
+) {
+  return useQuery<number>({
+    queryKey: poKeys.platformAuditCount(params),
+    enabled: options?.enabled ?? true,
+    queryFn: () => fetchPlatformAuditOverviewCount(createClient(), params),
   });
 }

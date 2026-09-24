@@ -7,9 +7,14 @@ import { PlusOneAppClient } from '@/components/po/app-client';
 import { getOnboardingState } from '@/lib/auth/onboarding';
 import { recommendMfaIfDue } from '@/lib/auth/guards';
 import { acceptedCurrentTerms } from '@/lib/auth/consent';
-import { getMyMemberships, getOrganizerVenues, getReportingVenues } from '@/lib/auth/memberships';
+import {
+  getMyMemberships,
+  getOrganizerVenues,
+  getReportingVenues,
+  getPlatformAdminVenue,
+} from '@/lib/auth/memberships';
 import { getSessionUser } from '@/lib/auth/context';
-import { resolveActiveVenueId } from '@/lib/auth/active-venue';
+import { resolveActiveVenueId, getActiveVenueCookieValue } from '@/lib/auth/active-venue';
 import { createClient } from '@/lib/supabase/server';
 import { ROLE_LABELS, VENUE_ROLES } from '@/features/auth/roles';
 import { REQUEST_PATH_HEADER, appGateNextPath } from '@/features/auth/next-path';
@@ -79,8 +84,29 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
   ]);
   const memberIds = new Set(memberships.map((m) => m.venueId));
   const accessVenues = [...memberships, ...organizerVenues.filter((v) => !memberIds.has(v.venueId))];
-  const activeVenueId = await resolveActiveVenueId(accessVenues).catch(() => null);
-  const active = accessVenues.find((m) => m.venueId === activeVenueId) ?? null;
+  let activeVenueId = await resolveActiveVenueId(accessVenues).catch(() => null);
+  let active = accessVenues.find((m) => m.venueId === activeVenueId) ?? null;
+  // Platform admin support/debug access (decision #41, P-05): the cookie may
+  // point at a venue the caller holds no REAL membership at (written by
+  // `switchActiveVenueAction`'s platform-admin branch after a "switch into
+  // this venue" tap on Platform > Venues). `resolveActiveVenueId` only ever
+  // returns an id already in `accessVenues`, so that cookie value is read
+  // directly here and re-validated — `getPlatformAdminVenue` re-checks
+  // `is_platform_admin()` itself and confirms the venue still exists. A
+  // synthetic `roles: []` membership, same shape external-crew access already
+  // gets: role-gated UI stays off, a known limitation documented there.
+  let viaPlatformAdmin = false;
+  if (!active) {
+    const cookieVenueId = await getActiveVenueCookieValue().catch(() => null);
+    if (cookieVenueId && cookieVenueId !== activeVenueId) {
+      const platformVenue = await getPlatformAdminVenue(cookieVenueId).catch(() => null);
+      if (platformVenue) {
+        activeVenueId = platformVenue.venueId;
+        active = platformVenue;
+        viaPlatformAdmin = true;
+      }
+    }
+  }
   const identity: PoIdentity = {
     userId: user.id,
     venueId: active?.venueId ?? null,
@@ -112,9 +138,11 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
       ? VENUE_ROLES.filter((r) => active.roles.includes(r))
           .map((r) => ROLE_LABELS[r])
           .join(' · ')
-      : active
-        ? 'External crew'
-        : 'Member';
+      : viaPlatformAdmin
+        ? 'Platform admin (support)'
+        : active
+          ? 'External crew'
+          : 'Member';
   const userSub = roleLabel;
 
   // First-paint viewport hint (corrected client-side by matchMedia) + the live

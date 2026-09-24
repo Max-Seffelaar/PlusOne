@@ -43,6 +43,13 @@ function withEventQuery(base: string, eventId: string | undefined): string {
   return `${base}?${new URLSearchParams({ event: eventId }).toString()}`;
 }
 
+/** Same shape as `withEventQuery`, for the platform audit viewer's venue
+ *  pre-scope (P-05). */
+function withVenueQuery(base: string, venueId: string | undefined): string {
+  if (!venueId) return base;
+  return `${base}?${new URLSearchParams({ venue: venueId }).toString()}`;
+}
+
 /** Build the URL (path + optional query) for a pushed/replaced screen. */
 export function screenPath(name: ScreenName, props: ScreenProps = {}): string {
   const { id, eventId, isNew, tab, setup } = props;
@@ -113,6 +120,13 @@ export function screenPath(name: ScreenName, props: ScreenProps = {}): string {
       return isNew ? '/app/templates/new' : `/app/templates/${id}`;
     case 'platform':
       return '/app/platform';
+    case 'platformvenues':
+      return '/app/platform/venues';
+    case 'platformaudit':
+      // `id` pre-scopes the venue filter (e.g. arriving from a venue overview
+      // row's "View audit"); the filter sheet still lets the user widen back
+      // to "All venues".
+      return withVenueQuery('/app/platform/audit', id);
     // Promotion hub (G3): 'overview' is the URL-less default tab — an explicit
     // {tab:'overview'} builds the same URL as {} (mirrors aanvragen's 'landing').
     case 'promotion':
@@ -248,8 +262,14 @@ export function parseAppUrl(pathname: string, search: URLSearchParams): ParsedTa
   if (first === 'sessions') return { kind: 'screen', name: 'adminsessions', props: {} };
   // A real bookmarkable URL for every role — the screen itself renders a plain
   // "not available" state for anyone who isn't a platform admin, and RLS means
-  // a guessed URL yields no data either way (P-04).
-  if (first === 'platform') return { kind: 'screen', name: 'platform', props: {} };
+  // a guessed URL yields no data either way (P-04/P-05).
+  if (first === 'platform') {
+    if (second === 'venues') return { kind: 'screen', name: 'platformvenues', props: {} };
+    if (second === 'audit') {
+      return { kind: 'screen', name: 'platformaudit', props: { id: search.get('venue') ?? undefined } };
+    }
+    return { kind: 'screen', name: 'platform', props: {} };
+  }
 
   if (first === 'templates') {
     if (!second) return { kind: 'screen', name: 'templates', props: {} };

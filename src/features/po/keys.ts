@@ -101,4 +101,21 @@ export const poKeys = {
   isPlatformAdmin: (userId: string) => [...poKeys.all, 'is-platform-admin', userId] as const,
   platformInvites: () => [...poKeys.all, 'platform-invites'] as const,
   platformFunnel: () => [...poKeys.all, 'platform-funnel'] as const,
+  // P-05: venue overview + audit viewer. Also PlusOne-wide, not venue-scoped —
+  // params are part of the key so a paged/searched/filtered read caches per
+  // combination rather than colliding on one shared entry.
+  platformVenues: (params: { limit?: number; offset?: number; search?: string }) =>
+    [...poKeys.all, 'platform-venues', params] as const,
+  platformVenuesCount: (search?: string) =>
+    [...poKeys.all, 'platform-venues-count', search ?? ''] as const,
+  platformVenueOptions: () => [...poKeys.all, 'platform-venue-options'] as const,
+  platformAudit: (params: {
+    venueId?: string;
+    since?: string;
+    until?: string;
+    limit?: number;
+    offset?: number;
+  }) => [...poKeys.all, 'platform-audit', params] as const,
+  platformAuditCount: (params: { venueId?: string; since?: string; until?: string }) =>
+    [...poKeys.all, 'platform-audit-count', params] as const,
 } as const;
