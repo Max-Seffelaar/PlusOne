@@ -1037,6 +1037,65 @@ export type Database = {
         }
         Relationships: []
       }
+      notification_outbox: {
+        Row: {
+          attempts: number
+          created_at: string
+          dedupe_key: string
+          id: string
+          kind: string
+          last_error: string | null
+          locked_at: string | null
+          next_attempt_at: string
+          payload: Json
+          recipient_user_id: string
+          sent_at: string | null
+          source_id: string
+          status: string
+          venue_id: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          dedupe_key: string
+          id?: string
+          kind: string
+          last_error?: string | null
+          locked_at?: string | null
+          next_attempt_at?: string
+          payload: Json
+          recipient_user_id: string
+          sent_at?: string | null
+          source_id: string
+          status?: string
+          venue_id: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          dedupe_key?: string
+          id?: string
+          kind?: string
+          last_error?: string | null
+          locked_at?: string | null
+          next_attempt_at?: string
+          payload?: Json
+          recipient_user_id?: string
+          sent_at?: string | null
+          source_id?: string
+          status?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_outbox_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       platform_invites: {
         Row: {
           created_at: string
@@ -1084,6 +1143,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      push_tokens: {
+        Row: {
+          created_at: string
+          device_label: string | null
+          id: string
+          last_seen_at: string
+          session_id: string
+          token: string
+          transport: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          device_label?: string | null
+          id?: string
+          last_seen_at?: string
+          session_id: string
+          token: string
+          transport: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          device_label?: string | null
+          id?: string
+          last_seen_at?: string
+          session_id?: string
+          token?: string
+          transport?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       quota_requests: {
         Row: {
@@ -1786,7 +1878,21 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      claim_push_outbox: {
+        Args: { p_limit?: number; p_secret: string }
+        Returns: {
+          attempts: number
+          id: string
+          kind: string
+          payload: Json
+          tokens: Json
+        }[]
+      }
       cleanup_landing_request_throttle: { Args: never; Returns: number }
+      complete_push_outbox: {
+        Args: { p_error?: string; p_id: string; p_outcome: string }
+        Returns: string
+      }
       consume_platform_invite_throttle: { Args: never; Returns: boolean }
       consume_public_throttle: {
         Args: { p_key: string; p_max: number; p_window_min: number }
@@ -2008,6 +2114,7 @@ export type Database = {
       }
       is_venue_member: { Args: { p_venue_id: string }; Returns: boolean }
       is_venue_organizer: { Args: { p_venue_id: string }; Returns: boolean }
+      kick_push_dispatch: { Args: never; Returns: boolean }
       link_headcount_contribution: {
         Args: {
           g: Database["public"]["Tables"]["guests"]["Row"]
@@ -2131,6 +2238,10 @@ export type Database = {
         Args: { p_guest_id: string }
         Returns: undefined
       }
+      prune_push_tokens: { Args: { p_ids: string[] }; Returns: number }
+      prune_stale_push_tokens: { Args: never; Returns: number }
+      push_dispatch_setting: { Args: { p_name: string }; Returns: string }
+      push_outbox_sweep: { Args: never; Returns: number }
       record_link_pageview: {
         Args: { p_ip_hash: string; p_slug: string }
         Returns: undefined
