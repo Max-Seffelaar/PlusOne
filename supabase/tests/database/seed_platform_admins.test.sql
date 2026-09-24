@@ -2,17 +2,25 @@
 --
 -- 20260924130000_seed_platform_admins.sql already ran once, at reset time,
 -- before this file's transaction opens — and on this local database neither
--- real target address exists, so that first run was a no-op. This file
--- proves public.seed_platform_admin_by_email_hash()'s properties directly,
--- against fixture addresses that are NOT the real ones (no real e-mail
--- appears anywhere in this repo, which is public):
+-- real target address exists, so that first run was a no-op (both hashes
+-- came back 'missing', each surfaced as a WARNING in the reset output). This
+-- file proves public.seed_platform_admin_by_email_hash()'s properties
+-- directly, against fixture addresses that are NOT the real ones (no real
+-- e-mail appears anywhere in this repo, which is public):
 --
---   * calling it with a fixture hash flags that account, audits the grant,
---     and is idempotent (running it twice is the same end state, no error,
---     no duplicate audit row);
+--   * a fixture hash that matches an account returns 'matched', flags it,
+--     and audits the grant;
+--   * calling it again with the SAME hash is idempotent — returns 'already',
+--     same end state, no error, no duplicate audit row;
+--   * the transaction-local GUC the write depends on is closed again right
+--     after the helper returns — a direct UPDATE immediately afterwards is
+--     still blocked;
+--   * a hash matching no account returns 'missing' (never raises);
+--   * an auth.users row with NO user_profiles row is a genuine anomaly —
+--     the helper raises, it does not silently return;
 --   * a fixture account whose hash was never passed in is never flagged;
---   * the helper is not reachable by any app role — only the owner (the
---     migration, and this suite) can call it;
+--   * the helper is not reachable by any app role — only the owner can call
+--     it;
 --   * the real local seed users (admin@plusone.test and friends) are still
 --     ordinary, non-platform-admin accounts after a fresh reset —
 --     platform_admin.test.sql's fixtures depend on that exact fact.
@@ -23,11 +31,12 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(13);
+select plan(17);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures — two stand-in addresses to grant, one decoy never passed to the
--- helper, none colliding with seed.sql's or platform_admin.test.sql's ids.
+-- helper, one orphan auth.users row with NO user_profiles row (the anomaly
+-- case). None collide with seed.sql's or platform_admin.test.sql's ids.
 -- Hashes below are sha256(lower(address)) for these FIXTURE addresses only —
 -- unrelated to the real hashes in the migration.
 -- ---------------------------------------------------------------------------
@@ -45,29 +54,32 @@ select
   jsonb_build_object('full_name', u.full_name),
   now(), now(), '', '', '', '', '', '', '', ''
 from (values
-  ('f0000000-0000-4000-8000-000000000001'::uuid, 'fixture-max@example.test',   'Fixture Max'),
-  ('f0000000-0000-4000-8000-000000000002'::uuid, 'fixture-joeri@example.test', 'Fixture Joeri'),
-  ('f0000000-0000-4000-8000-000000000003'::uuid, 'fixture-decoy@example.test', 'Fixture Decoy')
+  ('f0000000-0000-4000-8000-000000000001'::uuid, 'fixture-max@example.test',    'Fixture Max'),
+  ('f0000000-0000-4000-8000-000000000002'::uuid, 'fixture-joeri@example.test',  'Fixture Joeri'),
+  ('f0000000-0000-4000-8000-000000000003'::uuid, 'fixture-decoy@example.test',  'Fixture Decoy'),
+  ('f0000000-0000-4000-8000-000000000004'::uuid, 'fixture-orphan@example.test', 'Fixture Orphan')
 ) as u (id, email, full_name);
 
 insert into public.user_profiles (id, full_name, email) values
   ('f0000000-0000-4000-8000-000000000001', 'Fixture Max',   'fixture-max@example.test'),
   ('f0000000-0000-4000-8000-000000000002', 'Fixture Joeri', 'fixture-joeri@example.test'),
   ('f0000000-0000-4000-8000-000000000003', 'Fixture Decoy', 'fixture-decoy@example.test');
+-- Deliberately no row for f0000000-...-000000000004 (Fixture Orphan) — that
+-- is the point of the anomaly test below.
 
 -- ---------------------------------------------------------------------------
 -- Run 1 — grant to the two fixture hashes, decoy's hash never passed
 -- ---------------------------------------------------------------------------
 
-select lives_ok($$
-  select public.seed_platform_admin_by_email_hash(
-    '66173f455a0f8ba77db621d5088a4b270856a141b9a08a657d3e62d06b3c8341')
-$$, 'A1 the helper runs without error for the fixture-max hash');
+select is(
+  public.seed_platform_admin_by_email_hash(
+    '66173f455a0f8ba77db621d5088a4b270856a141b9a08a657d3e62d06b3c8341'),
+  'matched', 'A1 the helper reports ''matched'' for the fixture-max hash');
 
-select lives_ok($$
-  select public.seed_platform_admin_by_email_hash(
-    'a1f69c21315735fd58f3bc17149800f9b831aeaa700b0b51f6519062774948bc')
-$$, 'A2 the helper runs without error for the fixture-joeri hash');
+select is(
+  public.seed_platform_admin_by_email_hash(
+    'a1f69c21315735fd58f3bc17149800f9b831aeaa700b0b51f6519062774948bc'),
+  'matched', 'A2 the helper reports ''matched'' for the fixture-joeri hash');
 
 select ok((select is_platform_admin from public.user_profiles
            where id = 'f0000000-0000-4000-8000-000000000001'),
@@ -89,19 +101,33 @@ select is((select count(*)::int from public.audit_log
              and actor_id is null), 2,
   'B4 exactly one audited grant per fixture, actor_id null (system action, like #29)');
 
+-- The GUC the write depends on must be closed again the moment the helper
+-- returns — same invariant platform_admin.test.sql's F4/F5 prove for
+-- set_platform_admin() itself.
+
+select is(current_setting('plusone.platform_admin_write', true), 'off',
+  'G1 the GUC is closed again right after the helper''s writes');
+
+select throws_ok($$
+  update public.user_profiles set is_platform_admin = true
+   where id = 'f0000000-0000-4000-8000-000000000003'
+$$, '42501', null,
+  'G2 a direct UPDATE right after the helper call is still blocked');
+
 -- ---------------------------------------------------------------------------
--- Run 2 — same two hashes again: idempotent, no error, no extra audit rows
+-- Run 2 — same two hashes again: idempotent, reports 'already', no extra
+-- audit rows
 -- ---------------------------------------------------------------------------
 
-select lives_ok($$
-  select public.seed_platform_admin_by_email_hash(
-    '66173f455a0f8ba77db621d5088a4b270856a141b9a08a657d3e62d06b3c8341')
-$$, 'C1 calling the helper again for the same hash does not error');
+select is(
+  public.seed_platform_admin_by_email_hash(
+    '66173f455a0f8ba77db621d5088a4b270856a141b9a08a657d3e62d06b3c8341'),
+  'already', 'C1 calling the helper again for the same hash reports ''already''');
 
-select lives_ok($$
-  select public.seed_platform_admin_by_email_hash(
-    'a1f69c21315735fd58f3bc17149800f9b831aeaa700b0b51f6519062774948bc')
-$$, 'C2 …nor does the second');
+select is(
+  public.seed_platform_admin_by_email_hash(
+    'a1f69c21315735fd58f3bc17149800f9b831aeaa700b0b51f6519062774948bc'),
+  'already', 'C2 …and so does the second');
 
 select is((select count(*)::int from public.audit_log
            where entity_type = 'user_profiles'
@@ -110,6 +136,23 @@ select is((select count(*)::int from public.audit_log
                                 'f0000000-0000-4000-8000-000000000002')
              and actor_id is null), 2,
   'C3 run 2 wrote NO extra audit rows — same 2 as after run 1');
+
+-- ---------------------------------------------------------------------------
+-- The two non-normal outcomes: a hash that matches nothing (expected on
+-- every local/CI database, never an error) vs. an auth.users row with no
+-- user_profiles row (a genuine data anomaly, which must raise).
+-- ---------------------------------------------------------------------------
+
+select is(
+  public.seed_platform_admin_by_email_hash(
+    '244f9fa579f1a552e121e958e9f372553fa5d2df5d209d77c74573f417e4ff51'),
+  'missing', 'M1 a hash matching no auth.users row reports ''missing'', no error');
+
+select throws_ok($$
+  select public.seed_platform_admin_by_email_hash(
+    '6fc0c530969221e6f5182cc505a09a05fd28f41d78ad274b6ab97bb45d0cee66')
+$$, 'P0001', null,
+  'O1 an auth.users match with no user_profiles row raises instead of returning');
 
 -- ---------------------------------------------------------------------------
 -- The helper is not reachable by any app role — only the owner (migrations,

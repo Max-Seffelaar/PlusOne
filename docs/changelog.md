@@ -20,11 +20,17 @@ flag currently false. No other account.
 first version of this migration matched on the literal addresses and got
 (rightly) refused at commit time. Rewritten to match on
 `encode(extensions.digest(lower(email), 'sha256'), 'hex')` instead — the two
-hex hashes are the only trace of the addresses anywhere in the repo; the
-addresses themselves were computed and hashed outside it. `pgcrypto`'s
-`digest()` already lives in schema `extensions` on the Supabase Postgres
-image (measured locally); the migration adds a defensive
-`create extension if not exists` anyway.
+hex hashes are the only trace of the addresses anywhere in the repo, computed
+and hashed outside it. **Framing corrected in review:** this is
+scraper-resistance, not confidentiality — an unsalted sha256 of a plausible
+address is crackable in seconds by hashing a candidate list, so "no address
+anywhere" is true but "the addresses are secret" would not be. `pgcrypto`'s
+`digest()` is assumed already present in schema `extensions` (bundled on the
+Supabase Postgres image, confirmed locally); the migration does **not**
+re-issue `create extension if not exists ... with schema extensions` —
+review caught that `IF NOT EXISTS` silently ignores `WITH SCHEMA` when the
+extension already exists elsewhere, so the statement is not the safety net
+it looks like and was dropped rather than left in as decoration.
 
 **Why not `public.set_platform_admin()`.** The RPC (P-02) requires an EXISTING
 platform admin caller — it re-checks `is_platform_admin()` on the session
@@ -42,12 +48,39 @@ including the migration runner, so skipping it is not an option.
 runs as the same owner) can call it. Factored out for exactly one reason: it
 lets the test file prove the logic against a fixture hash without a real
 address anywhere in it either. Resolves a hash to a `user_profiles.id` via an
-oldest-first, `deleted_at is null` pick of `auth.users` (defensive shape
-borrowed from `platform_invite_stage_rows()`'s LATERAL match, minus the
-LATERAL itself — `user_profiles.id = auth.users.id` directly here, so a
-scalar subquery is enough). No matching row → silent no-op (true for every
+`order by created_at, id` (tiebreaker added in review), `deleted_at is null`
+pick of `auth.users` (defensive shape borrowed from
+`platform_invite_stage_rows()`'s LATERAL match, minus the LATERAL itself —
+`user_profiles.id = auth.users.id` directly here, so a scalar subquery is
+enough).
+
+**Review round (fresh-session `/code-review`): NEEDS CHANGES, both MAJOR
+findings about the helper going quiet on exactly the cases that matter.**
+1. It was `returns void` and treated "no match" as a silent no-op — if either
+   hash were wrong (typo, trailing newline, wrong address), the migration
+   would apply cleanly and grant nobody, with a manual `SELECT` afterwards as
+   the only way to notice. Fixed: the helper now `returns text`
+   (`'matched'` / `'already'` / `'missing'`), and the migration body wraps
+   both calls in a `do $$ ... end $$` block that `raise warning`s on
+   `'missing'` — surfaced in `supabase db push`'s own output, never a hard
+   failure (the local/CI case, where neither address exists, must stay a
+   no-op).
+2. An `auth.users` row matched by hash but with NO `user_profiles` row
+   collapsed into the exact same silent "no-op" as "no account at all" —
+   but that combination should never happen and is a real data anomaly, not
+   a normal local/CI case. Fixed: the helper now resolves the `auth.users`
+   id into its own variable first; if that is non-null but the profile
+   lookup comes back null, it `raise exception`s (default `P0001`) instead
+   of returning.
+
+Both findings share one root cause: conflating "this environment doesn't
+have that account" (expected, must be silent) with "something is actually
+wrong" (must be loud) into the same return path. Splitting them into three
+distinct outcomes is the actual fix, not just the warning/exception wording.
+
+No matching row → `'missing'`, warned, never an error (true for every
 local/CI database, since these are prod-only addresses). Already flagged →
-silent no-op too, so calling it again (a second migration run, or a
+`'already'`, silent no-op, so calling it again (a second migration run, or a
 `supabase db reset` re-applying it) never double-writes.
 
 **Audited on name, same as the RPC.** One `audit_log` row per actual flip:
@@ -58,19 +91,39 @@ existing "system action" convention (the anonymization job, #29). `venue_id`/
 `event_id` are also `null`, so — like every `set_platform_admin()` row —
 these two rows are readable only by a platform admin.
 
-**Testing.** New `supabase/tests/database/seed_platform_admins.test.sql` (13
-assertions, fixture addresses only, no real one anywhere): calling the helper
-with a fixture hash flags that account and audits the grant; calling it a
-second time is idempotent (same state, no error, no duplicate audit row); a
-fixture whose hash was never passed in is never flagged; the helper has no
-EXECUTE grant for `authenticated`/`anon`/`service_role`; all six real local
-seed users (`admin@plusone.test` and friends) are still `false` after the
-reset that ran this migration for real — `platform_admin.test.sql` depends on
-that exact fact (`admin@plusone.test` is its "venue admin who is NOT a
-platform admin" fixture) and stays green. Full suite after a clean
-`supabase db reset`: pgTAP **67 files / 1551 assertions PASS**. `pnpm lint`
-and `pnpm run type-check` clean — no schema/type change, so
-`src/lib/database.types.ts` is untouched.
+**Testing.** `supabase/tests/database/seed_platform_admins.test.sql` grew from
+9 to **17 assertions** in the review round (fixture addresses only, no real
+one anywhere): calling the helper with a fixture hash returns `'matched'`,
+flags the account and audits the grant; calling it again returns
+`'already'` (idempotent — same state, no error, no duplicate audit row); a
+hash matching nothing returns `'missing'`, never raises; an `auth.users` row
+with no `user_profiles` row makes the helper raise instead of returning
+(`throws_ok`, `P0001`) — the MAJOR-2 fix, proved directly; the
+transaction-local GUC is asserted `'off'` right after a successful call, and
+a direct `UPDATE` immediately afterwards still throws `42501` — same
+invariant `platform_admin.test.sql`'s F4/F5 prove for `set_platform_admin()`
+itself (MINOR-3); a fixture whose hash was never passed in is never flagged;
+the helper has no EXECUTE grant for `authenticated`/`anon`/`service_role`;
+all six real local seed users (`admin@plusone.test` and friends) are still
+`false` after the reset that ran this migration for real —
+`platform_admin.test.sql` depends on that exact fact (`admin@plusone.test`
+is its "venue admin who is NOT a platform admin" fixture) and stays green.
+Full suite after a clean `supabase db reset`: pgTAP **67 files / 1555
+assertions PASS**. `pnpm lint` and `pnpm run type-check` clean — no
+schema/type change, so `src/lib/database.types.ts` is untouched.
+
+**Two more MINOR fixes from the same review.** The header comment now states
+explicitly that the transaction-local GUC needs no exception handler to
+close again — Postgres discards all transaction-local `set_config` state
+when the aborting (sub)transaction rolls back, so an explicit cleanup path
+would be redundant work someone could later "simplify" into a real bug. It
+also now names the trade-off the helper leaves behind: it stays in the
+schema permanently after this migration runs, deliberately bypasses
+`set_platform_admin()`'s own `is_platform_admin()` check, and writes
+`actor_id = null` — exactly what a hash-driven bootstrap needs, reachable
+only by the DB owner (never any app role, EXECUTE already revoked from all
+of them), which the review confirmed is an acceptable, explicitly-stated
+trade-off rather than an oversight.
 
 **Not touched, per the task's context budget:** `scripts/dev-mfa.mjs` and
 `supabase/seed.sql` — the local `admin@plusone.test` platform-admin fixture
