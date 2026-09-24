@@ -87,7 +87,7 @@ select is(
   'A2 authenticated may UPDATE exactly the four columns the deny path writes');
 
 -- SELECT is what this migration's revoke had to leave alone; INSERT was still
--- there when this file was written and is gone since 20260923120000 (F-3) — a
+-- there when this file was written and is gone since 20260924100000 (F-3) — a
 -- landing request is created by submit_guest_request only, so the grant that
 -- made the suppression squat and the e-mail oracle possible no longer exists.
 -- Asserted negatively here so this file cannot go stale on it; the full F-3

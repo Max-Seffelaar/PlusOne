@@ -11,7 +11,7 @@ records (repo root), and `engineering-review-2026-07.md`.
 ## 2026-09-23 — Only submit_guest_request may create a landing request (F-3)
 
 Branch `claude/guest-requests-insert-revoke`. Milestone: **Now**, a live RLS/grant gap on
-prod. Migration `20260923120000_guest_requests_revoke_client_insert.sql`. High-risk
+prod. Migration `20260924100000_guest_requests_revoke_client_insert.sql`. High-risk
 surface (RLS + grants), so the PR body carries an adversarial security-research prompt and
 the PR needs a fresh-session `/code-review` + `/security-review` before merge.
 

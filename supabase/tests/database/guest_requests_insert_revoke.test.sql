@@ -1,5 +1,5 @@
 -- pgTAP — a landing request is created by submit_guest_request and by nothing
--- else (F-3, migration 20260923120000; run: supabase test db).
+-- else (F-3, migration 20260924100000; run: supabase test db).
 --
 -- Before that migration `authenticated` held a table-wide INSERT grant and
 -- guest_requests_insert_public pinned only status='pending' + a landing-active

@@ -136,4 +136,4 @@ revoke insert on table public.guest_requests from authenticated;
 drop policy guest_requests_insert_public on public.guest_requests;
 
 comment on table public.guest_requests is
-  'Landing-page guest requests (#12/#28). INSERT is RPC-only: public.submit_guest_request (SECURITY DEFINER) is the single creation path, so the throttle, silent dedup, honeypot and format checks cannot be walked around. No app role holds INSERT and there is deliberately no INSERT policy — with RLS on, the absence denies every client insert (20260923120000, F-3). Re-granting INSERT to anon or authenticated re-opens the suppression squat and the e-mail oracle; grant EXECUTE on the RPC instead.';
+  'Landing-page guest requests (#12/#28). INSERT is RPC-only: public.submit_guest_request (SECURITY DEFINER) is the single creation path, so the throttle, silent dedup, honeypot and format checks cannot be walked around. No app role holds INSERT and there is deliberately no INSERT policy — with RLS on, the absence denies every client insert (20260924100000, F-3). Re-granting INSERT to anon or authenticated re-opens the suppression squat and the e-mail oracle; grant EXECUTE on the RPC instead.';

@@ -87,7 +87,7 @@ select is(
       and requested_extra = 1),
   'aa000000-0000-7000-8000-000000000001'::uuid, '2c quota_requests.venue_id auto-filled from the event');
 
--- As the owner, not as staff: since 20260923120000 (F-3) no client role holds
+-- As the owner, not as staff: since 20260924100000 (F-3) no client role holds
 -- INSERT on guest_requests — a landing request is created by
 -- submit_guest_request (SECURITY DEFINER) and by nothing else, and that
 -- function never sends venue_id. The BEFORE trigger under test is the same one

@@ -32,7 +32,7 @@ select plan(15);
 -- returns zero rows. That probe is the only live dependant — the grant's
 -- original second reason (the `guest_requests_insert_public` WITH CHECK
 -- subquery) went dead for anon when 20260707170000 revoked anon's INSERT on
--- guest_requests, and the policy itself is gone since 20260923120000 (F-3).
+-- guest_requests, and the policy itself is gone since 20260924100000 (F-3).
 select is_empty($$
   select c.relname || ' -> ' || p as offender
   from pg_class c
@@ -108,7 +108,7 @@ $$, 'authenticated holds DELETE only on the tables where a hard delete is intend
 -- makes it safe — per-IP throttle, silent dedup, honeypot, format checks,
 -- motivation truncation — lives in submit_guest_request, not in the table. A
 -- table grant next to that RPC is therefore not "belt and braces", it is a way
--- around every one of them: F-3 (20260923120000) used the `authenticated` half
+-- around every one of them: F-3 (20260924100000) used the `authenticated` half
 -- to plant a hidden row that silently swallowed a real applicant's submission,
 -- and to turn `on conflict do nothing` into a "did this person apply" oracle
 -- for a role with no SELECT on the table. anon lost the same grant in

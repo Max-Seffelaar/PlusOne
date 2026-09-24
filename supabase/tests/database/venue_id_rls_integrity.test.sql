@@ -81,7 +81,7 @@ reset role;
 -- ---------------------------------------------------------------------------
 -- S1d. guest_requests: there is no longer a client insert to forge on.
 -- This case used to plant the row as staff through guest_requests_insert_public
--- and assert the trigger corrected venue_id. 20260923120000 (F-3) revoked
+-- and assert the trigger corrected venue_id. 20260924100000 (F-3) revoked
 -- INSERT on guest_requests from `authenticated` and dropped that policy — a
 -- landing request is created by submit_guest_request (SECURITY DEFINER) and by
 -- nothing else — so the client arm is now a 42501, and the trigger arm is
@@ -97,7 +97,7 @@ select throws_ok(
      values ('ee000000-0000-7000-8000-000000000001', 'Forged Venue Request',
              'aa000000-0000-7000-8000-000000000002') $$,
   '42501', null,
-  'S1d staff can no longer insert a guest_request at all (F-3, 20260923120000)');
+  'S1d staff can no longer insert a guest_request at all (F-3, 20260924100000)');
 reset role;
 
 insert into public.guest_requests (event_id, full_name, venue_id)

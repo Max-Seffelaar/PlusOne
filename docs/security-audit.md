@@ -456,7 +456,7 @@ attributing to a request link (`request_links` RLS).
 **Why it stayed open at the time:** kept out of PR #310 on the reviewer's advice so the
 L5 fix could reach prod unchanged. It needed its own migration + ClickUp task.
 
-**Fix** (`20260923120000_guest_requests_revoke_client_insert.sql`): `revoke insert on
+**Fix** (`20260924100000_guest_requests_revoke_client_insert.sql`): `revoke insert on
 table public.guest_requests from authenticated`, and `guest_requests_insert_public`
 **dropped** rather than narrowed. With the grant gone, the policy's two roles
 (`anon` since C2, `authenticated` now) both lack INSERT, so any predicate left in it is
