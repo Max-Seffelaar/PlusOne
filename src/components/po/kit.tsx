@@ -710,6 +710,48 @@ export function Empty({ text }: { text: string }): JSX.Element {
   return <div className="py-[30px] text-center text-[14px] text-faint">{text}</div>;
 }
 
+// ── StatTile ─────────────────────────────────────────────────────────────────
+/**
+ * One number with its label: the smallest "here is a count" unit. Added with
+ * the Platform funnel strip (P-04) as a kit primitive rather than a local
+ * component, because it is the same shape every dashboard/funnel row wants.
+ * Stack them in a `flex`/`grid` container; the tile itself is full-width and
+ * sizes to its parent, so a 2-up on mobile and a 5-up on desktop is a parent
+ * class, not a variant here.
+ */
+export function StatTile({
+  label,
+  value,
+  accent,
+  muted,
+}: {
+  label: string;
+  value: number | string;
+  /** The one lavender tile in a strip (the step that matters right now). */
+  accent?: boolean;
+  /** A terminal/park state (e.g. "Stopped") — present but not a goal. */
+  muted?: boolean;
+}): JSX.Element {
+  return (
+    <div
+      className={cn(
+        'min-w-0 rounded-[14px] border px-[12px] py-[11px]',
+        accent ? 'border-acc/40 bg-acc-dim' : 'border-line bg-elev',
+      )}
+    >
+      <div
+        className={cn(
+          'font-display text-[22px] font-extrabold leading-none tracking-[-0.02em]',
+          muted ? 'text-faint' : accent ? 'text-acc' : 'text-text',
+        )}
+      >
+        {value}
+      </div>
+      <div className="mt-[6px] text-[11.5px] leading-[1.3] text-faint">{label}</div>
+    </div>
+  );
+}
+
 // ── GuideCard ────────────────────────────────────────────────────────────────
 /**
  * The lavender-bordered "here's your next step" card: icon, bold title, one

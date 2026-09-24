@@ -94,4 +94,11 @@ export const poKeys = {
     [...poKeys.all, 'promo', venueId, 'leaderboard', range] as const,
   promoLabelFunnel: (venueId: string, range: string) =>
     [...poKeys.all, 'promo', venueId, 'labels', range] as const,
+  // Platform (system) admin surface (P-04). NOT venue-scoped: these are
+  // PlusOne-wide, and the only gate is `is_platform_admin`, which hangs on the
+  // user. Keyed on the user id so a venue switch never serves another
+  // account's cached list.
+  isPlatformAdmin: (userId: string) => [...poKeys.all, 'is-platform-admin', userId] as const,
+  platformInvites: () => [...poKeys.all, 'platform-invites'] as const,
+  platformFunnel: () => [...poKeys.all, 'platform-funnel'] as const,
 } as const;

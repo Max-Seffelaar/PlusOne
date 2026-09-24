@@ -2278,3 +2278,71 @@ export async function fetchVenueLabelFunnel(
     checkedInHeads: r.checked_in_heads,
   }));
 }
+
+// ── Platform (system) admin surface — open-beta invites (P-04, z8uq9m0tnw) ───
+// Reads for the Platform tab. All three go through the user-scoped BROWSER
+// client, so RLS / the functions' own `is_platform_admin()` check is the
+// boundary: a non-platform-admin gets an empty list or a 42501, never data.
+
+/**
+ * One row of `platform_invite_overview()`.
+ *
+ * The generator types every `RETURNS TABLE` column as non-null; in reality the
+ * columns below are nullable at runtime (PR #325, "For P-04"), so the row type
+ * is narrowed here rather than trusting `Database['public']['Functions']`.
+ */
+export interface PlatformInviteRow {
+  id: string;
+  email: string;
+  note: string | null;
+  created_at: string;
+  last_sent_at: string;
+  revoked_at: string | null;
+  invited_by_name: string | null;
+  user_id: string | null;
+  confirmed_at: string | null;
+  last_sign_in_at: string | null;
+  venue_count: number;
+  event_count: number;
+  stage: string;
+}
+
+/** Server-windowed (the RPC caps `p_limit` itself — default 100, max 500). */
+export async function fetchPlatformInvites(
+  client: Client,
+  limit = 100,
+  offset = 0
+): Promise<PlatformInviteRow[]> {
+  const { data, error } = await client.rpc('platform_invite_overview', {
+    p_limit: limit,
+    p_offset: offset,
+  });
+  if (error) throw error;
+  return (data ?? []) as unknown as PlatformInviteRow[];
+}
+
+export interface PlatformFunnelRow {
+  stage: string;
+  invite_count: number;
+}
+
+/** Aggregated in SQL over EVERY invite — never a client-side count of the page. */
+export async function fetchPlatformFunnel(client: Client): Promise<PlatformFunnelRow[]> {
+  const { data, error } = await client.rpc('platform_invite_funnel');
+  if (error) throw error;
+  return (data ?? []) as PlatformFunnelRow[];
+}
+
+/** Whether the signed-in user is a PlusOne platform admin. Reads the caller's
+ *  OWN `user_profiles` row (readable under RLS) rather than the SECURITY
+ *  DEFINER RPC, so it stays one cheap, cacheable select. It gates UI only —
+ *  RLS decides what the Platform screen can actually read. */
+export async function fetchIsPlatformAdmin(client: Client, userId: string): Promise<boolean> {
+  const { data, error } = await client
+    .from('user_profiles')
+    .select('is_platform_admin')
+    .eq('id', userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.is_platform_admin === true;
+}

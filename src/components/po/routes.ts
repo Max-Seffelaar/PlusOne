@@ -111,6 +111,8 @@ export function screenPath(name: ScreenName, props: ScreenProps = {}): string {
       return '/app/templates';
     case 'templateedit':
       return isNew ? '/app/templates/new' : `/app/templates/${id}`;
+    case 'platform':
+      return '/app/platform';
     // Promotion hub (G3): 'overview' is the URL-less default tab — an explicit
     // {tab:'overview'} builds the same URL as {} (mirrors aanvragen's 'landing').
     case 'promotion':
@@ -244,6 +246,10 @@ export function parseAppUrl(pathname: string, search: URLSearchParams): ParsedTa
   if (first === 'analytics') return { kind: 'screen', name: 'stats', props: {} };
   if (first === 'audit') return { kind: 'screen', name: 'audit', props: { id: search.get('event') ?? undefined } };
   if (first === 'sessions') return { kind: 'screen', name: 'adminsessions', props: {} };
+  // A real bookmarkable URL for every role — the screen itself renders a plain
+  // "not available" state for anyone who isn't a platform admin, and RLS means
+  // a guessed URL yields no data either way (P-04).
+  if (first === 'platform') return { kind: 'screen', name: 'platform', props: {} };
 
   if (first === 'templates') {
     if (!second) return { kind: 'screen', name: 'templates', props: {} };

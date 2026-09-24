@@ -110,6 +110,10 @@ vi.mock('@/features/po/hooks', async () => {
     }),
     usePoCanManageTemplates: () => false,
     usePoIsDoorOrganizer: () => false,
+    // P-04: the chrome reads this for the Platform nav entry. Static here —
+    // it is a chrome-only read, so it must not be able to move the door
+    // counters either way.
+    usePoIsPlatformAdmin: () => false,
   };
 });
 // The open-requests badge counts "pending" — keep the real shape honest.
