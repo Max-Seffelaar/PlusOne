@@ -8,6 +8,46 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-24 — P-06 docs part: platform-admin invariant + decision #49 (z8uq9m0tny)
+
+Docs-only half of P-06. The seed part (idempotent migration flipping
+`is_platform_admin` for Max's and Joeri's production accounts) is **not built in
+this PR** — their production login e-mails were not available in this session and
+guessing them is exactly the kind of silent deviation CLAUDE.md forbids. See "Seed
+part pending" in the PR body; a second commit picks it up once Max supplies the
+addresses.
+
+**Numbering correction.** P-02/P-03/P-04/P-05 all announced this decision as
+"decision #41" (CLAUDE.md #1's exception clause, and the "stays with P-06" note
+at the end of the P-02 entry below) — but `gastenlijst-app-spec.md` already had
+#41 assigned to the surface-unification decision (PR #50, 2026-06-21), and the
+table runs to #48 as of the Joeri-walkthrough entry. Filed as **decision #49**
+instead; CLAUDE.md #1's exception clause now points at a new "Platform admins"
+subsection instead of restating the mechanism inline, so the invariant and the
+spec entry cannot drift apart the same way twice. The stray "#41" references
+inside `src/`, `tests/`, `README.md`, `launchplan-claude-code.md` and
+`ux-walkthrough-2026-07-02.md` are out of this docs-only PR's touched-file scope
+(CLAUDE.md, `gastenlijst-app-spec.md`, `docs/changelog.md`,
+`docs/auth-setup.md` only) — flagged in the PR body for a follow-up.
+
+**What shipped.**
+- CLAUDE.md: new "Platform admins (decision #49)" subsection (outside
+  `venue_role[]`, RLS is the boundary, cross-tenant writes audited on name /
+  reads not, MFA deliberately not required yet, bootstrap path, `pnpm dev:mfa`
+  local fixture, PlusOne Admin-venue = ordinary venue-creation flow); item #1's
+  exception clause shortened to reference it; the stale "(#1–#39)" decision-range
+  pointer in the intro corrected to "(#1–#49)".
+- `gastenlijst-app-spec.md`: decision **#49** — system admin + `platform_invites`,
+  open beta, same facts as CLAUDE.md plus the open items P-03 already flagged and
+  never closed (revoke = row-stamp only, no AVG retention on prospect PII in
+  `platform_invites`, no read-audit of support sessions).
+- `docs/auth-setup.md`: one reference to the platform-admin bootstrap SQL, next to
+  the invite-only signup section.
+
+**Milestone:** Now (open beta) — same program as P-02/P-03/P-04/P-05.
+
+---
+
 ## 2026-09-24 — P-05 Platform: venue overview + audit viewer (z8uq9m0tnx)
 
 The other half of the operator console: which companies exist, jump into one to help,
