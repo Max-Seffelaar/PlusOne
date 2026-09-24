@@ -21,6 +21,40 @@ describe('safeNextPath (open-redirect guard)', () => {
     expect(safeNextPath('/a\\b')).toBe('/app');
   });
 
+  // z8uq9m0tp5: the URL parser strips these BEFORE resolving, so they used to
+  // pass every literal check and land the caller on another origin. Asserted
+  // through `new URL()` too, because that is what the callers do with the
+  // return value (auth callback/confirm redirects, /consent, /login).
+  it.each([
+    ['tab', '\t'],
+    ['newline', '\n'],
+    ['carriage return', '\r'],
+    ['CRLF', '\r\n'],
+    ['NUL', '\u0000'],
+    ['DEL', '\u007F'],
+  ])('blocks the control character the URL parser strips (%s)', (_label, ctrl) => {
+    const raw = `/${ctrl}/evil.com`;
+
+    expect(safeNextPath(raw)).toBe('/app');
+    expect(new URL(safeNextPath(raw), 'https://app.plus-one.io/consent').origin).toBe(
+      'https://app.plus-one.io'
+    );
+  });
+
+  it('keeps an off-origin candidate off-origin once resolved', () => {
+    for (const raw of ['/\t/evil.com', '//evil.com', 'https://evil.com', '/\\evil.com']) {
+      expect(new URL(safeNextPath(raw), 'https://app.plus-one.io/login').origin).toBe(
+        'https://app.plus-one.io'
+      );
+    }
+  });
+
+  it('still passes ordinary paths, including encoded characters and a query', () => {
+    expect(safeNextPath('/app/contacts')).toBe('/app/contacts');
+    expect(safeNextPath('/app/guests/abc?event=1#top')).toBe('/app/guests/abc?event=1#top');
+    expect(safeNextPath('/app/search?q=caf%C3%A9%20bar')).toBe('/app/search?q=caf%C3%A9%20bar');
+  });
+
   it('blocks dot-segment traversal', () => {
     expect(safeNextPath('/app/../login')).toBe('/app');
     expect(safeNextPath('/../auth/callback')).toBe('/app');
