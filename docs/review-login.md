@@ -12,6 +12,7 @@ met fake data en één demo-user, plus de prod-safe route
 - `POST /auth/review-login`: de code gaat in de **form body**, nooit in de URL.
   Bij een match wordt de sessie van de demo-user gezet en gaat de reviewer naar `/app`
   (eerst de consent-gate, net als elke andere login).
+- **Elke andere methode** (OPTIONS/PUT/PATCH/DELETE) geeft dezelfde lege 404.
 - **Uit = 404, en het venster sluit vanzelf.** De route staat alleen aan als
   `REVIEW_LOGIN_CODE` minstens 26 letters/cijfers heeft (streepjes tellen niet mee;
   130 bits) **én** `REVIEW_LOGIN_EXPIRES_AT` een ISO-tijdstip met tijdzone is dat in de
@@ -21,15 +22,28 @@ met fake data en één demo-user, plus de prod-safe route
   constante in de code (`src/features/auth/review-window.ts`), geen env-var en geen
   request-parameter. `demo.plus-one.io` heeft geen MX-record, dus niemand kan mail op
   dat adres ontvangen. De bestemming is vast (`/app`); er is geen `next=`.
-- **Fail-closed na het inloggen.** De sessie wordt direct weer uitgelogd als het
-  account een geverifieerde TOTP-factor heeft, platform-admin is, of niet lid is van
-  precies één venue: de demo-venue op **vast id** `de300000-0000-7000-8000-000000000001`
-  (de naam is alleen voor weergave). De serverlog noemt de reden.
+- **Fail-closed, vóór er een cookie bestaat.** De route verifieert de token op een
+  client zonder cookies en doet daar alle checks. Pas als alles klopt, gaan de
+  sessie-cookies naar de browser; een weigering hangt dus niet af van een geslaagde
+  sign-out. Geweigerd wordt als:
+  - het account niet zowel het vaste **user-id** `de300000-0000-7000-8000-00000000a001`
+    als het demo-adres heeft;
+  - er een geverifieerde TOTP-factor is;
+  - het account platform-admin is;
+  - het niet lid is van precies één venue: de demo-venue op **vast id**
+    `de300000-0000-7000-8000-000000000001` (de naam is alleen voor weergave);
+  - de demo-venue niet geïsoleerd is: er is nog een ander lid, of er staat een open
+    invite in die venue of naar het demo-adres (`venue_not_isolated`).
+
+  De serverlog noemt de reden.
+- **Het e-mailadres ligt vast.** `updateEmailAction` weigert de demo-account (op id
+  of adres), los van de Supabase-instelling "Secure email change".
 - **Eén demo-sessie tegelijk.** Na een geslaagde login worden alle *andere* sessies van
   de demo-user uitgelogd (`scope: 'others'`). Een uitgelekte oude sessie sterft bij de
   volgende review-login.
 - **Sessies sterven met het venster.** Is het venster dicht (verlopen, of de code
-  weg), dan stuurt de `/app`-layout een demo-sessie naar `/auth/review-login/end`. Die
+  weg), dan stuurt de `/app`-layout een demo-sessie (herkend op id óf adres) naar
+  `/auth/review-login/end`. Die
   logt alle demo-sessies uit (`scope: 'global'`) en gaat naar `/login`. Voor andere
   users is dit alleen een e-mailvergelijking, zonder query. Er is geen cron en geen
   migratie. De IndexedDB/SW-cache van dat toestel wordt hierbij niet gewist (dat doet
@@ -73,10 +87,26 @@ node scripts/seed-demo-venue.mjs --prod
 - Het script is idempotent: vaste id's en alleen invoegen wat nog ontbreekt. Een tweede
   run verandert niets, behalve dat de twee demo-events weer naar voren worden geschoven
   (alleen `starts_at`/`ends_at`), zodat ze bij elke submissie in de toekomst liggen.
-- Het **reset** de demo-user: alle MFA-factoren weg, rollen terug naar `admin,doorhost`
-  en de venuenaam hersteld.
-- Het **stopt** (exit 1) als de demo-user platform-admin is of lid is van een andere
-  venue. Onderzoek dat en ruim het met de hand op; het script dekt het niet af.
+- Het **reset** de demo-user en de venue:
+  - alle MFA-factoren worden verwijderd;
+  - `mfa_snooze_until = 'infinity'`, dus nooit een MFA-nudge op het gedeelde account;
+  - de rollen gaan terug naar `admin,doorhost`;
+  - de venuenaam wordt hersteld;
+  - open invites in de demo-venue of naar het demo-adres worden verwijderd.
+- De demo-user wordt aangemaakt met het vaste user-id. Bestaat het adres onder een
+  ander id, of het id onder een ander adres, dan **stopt** het script.
+- Het **stopt** (exit 1) als:
+  - de demo-user platform-admin is;
+  - de demo-user lid is van een andere venue;
+  - de demo-venue andere leden heeft. Met `--reset-members` worden die leden
+    verwijderd in plaats van dat het script stopt.
+
+  Onderzoek zo'n stop eerst; een extra lid betekent meestal dat een code-houder
+  iemand heeft uitgenodigd.
+- Het print hoeveel live sessies de demo-user heeft (daarvoor is
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY` in de env nodig).
+- Een slug-conflict met een echte venue of een echt event geeft een duidelijke
+  melding (23505) in plaats van een ruwe constraint-fout.
 - Het draait nooit in CI (`CI` gezet ⇒ weigert) en weigert een niet-lokale URL zonder `--prod`.
 - Waarom `admin.createUser` en niet `inviteUserByEmail`: het demo-adres heeft geen
   mailbox, dus een invite kan alleen bouncen (slecht voor de afzenderreputatie) en de

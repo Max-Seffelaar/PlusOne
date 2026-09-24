@@ -51,6 +51,19 @@ Branch `claude/86ey6bfug-review-login`, PR #332. No migration.
   unset); `.env.example` gains `REVIEW_LOGIN_CODE` + `REVIEW_LOGIN_EXPIRES_AT`.
 - Second round (orchestrator, Max's decision): no global limiter cap, venue by
   id, the time-boxed code + `scope: 'others'` + the layout gate.
+- Third round (§6 reviewer findings, Max: fix now):
+  - The route verifies and checks on a **cookie-less** client and sets cookies
+    only after every check passes. A refusal no longer depends on `signOut`.
+  - **Venue isolation:** refused unless the demo user is the only member of the
+    demo venue and no open invite points at it or at the demo address.
+  - **Fixed demo user id** (`de300000-…a001`). The login requires id AND e-mail;
+    the layout gate, end route and `updateEmailAction` catch id OR e-mail.
+    `updateEmailAction` refuses the demo account.
+  - OPTIONS/PUT/PATCH/DELETE → the same empty 404.
+  - Seed: `mfa_snooze_until = 'infinity'`, stray members → stop or
+    `--reset-members`, open invites deleted, clear 23505 slug error, `?filter=`
+    user lookup, live-session count.
+  - Shared `clientIpFromHeaders` in `src/features/requests/ip-hash.ts`.
 - Tests: review-login, review-window, both routes, and the layout branch. Not run
   here (no Supabase stack in the container): the seed script and a real login,
   local or prod.
