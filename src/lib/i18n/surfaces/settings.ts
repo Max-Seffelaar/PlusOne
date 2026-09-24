@@ -332,6 +332,11 @@ export const settings = {
     blockedTrial: 'Your trial has ended. Set up your payment to plan new events and grow your team. Everything already planned keeps running.',
     blockedCanceled: 'The subscription is canceled. Reactivate billing to plan new events and grow your team. Your data and planned events stay untouched.',
     blockedCta: 'Go to Billing',
+    // Invoicing soft-gate (checkout requires real company details, feedback Rik
+    // 2026-09-24): the venue display name is not the invoice legal entity, so
+    // checkout refuses until companyName is filled in Venue settings.
+    invoicingRequiredError: 'Add your company name for invoicing before setting up payment.',
+    invoicingRequiredCta: 'Add company details',
   },
 
   // Import (Import).

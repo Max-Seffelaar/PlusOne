@@ -89,7 +89,7 @@ export function TierFormSheet({
       {draft.kind === 'paid' && (
         <>
           <Label className="mb-2">{t.events.priceLabel}</Label>
-          <Field placeholder={t.events.pricePlaceholder} value={draft.price} onChange={(v) => set({ price: v })} inputMode="numeric" className="mb-[14px]" />
+          <Field placeholder={t.events.pricePlaceholder} value={draft.price} onChange={(v) => set({ price: v })} inputMode="decimal" className="mb-[14px]" />
           <Label className="mb-2">{t.events.vatLabel}</Label>
           <Field placeholder={t.events.vatPlaceholder} value={draft.vat} onChange={(v) => set({ vat: v })} inputMode="numeric" className="mb-[14px]" />
         </>

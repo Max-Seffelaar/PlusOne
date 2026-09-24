@@ -5,6 +5,7 @@ import { headers } from 'next/headers';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { getAuthContext } from '@/lib/auth/context';
+import { t } from '@/lib/i18n';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
 import { billing } from './provider';
 import { DEFAULT_PLAN_ID, isPlanId, trialEndsAt, type PlanId } from './plans';
@@ -146,6 +147,15 @@ export async function createCheckoutSessionAction(
       .maybeSingle(),
   ]);
   if (!venue || !sub) return invalidInput('No subscription found for this venue.');
+
+  // Invoicing soft-gate (feedback Rik 2026-09-24): the venue display name is
+  // often not the legal entity name, so checkout must not silently fall back
+  // to it (as the company object below still does for callers that bypass
+  // this check). Real invoicing details are asked here, at the point the
+  // trial actually converts to paid — not during onboarding.
+  if (!venue.company_name) {
+    return billingErr('invoicing_required', t.settings.billing.invoicingRequiredError);
+  }
 
   if (sub.status === 'comped') {
     return billingErr('comped', 'This venue runs on a pilot agreement. Billing is handled by us.');

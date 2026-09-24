@@ -98,12 +98,15 @@ export const createVenueSchema = z.object({
     .optional()
     .transform((v) => v ?? ''),
   venueType: z.enum(VENUE_TYPES as unknown as [string, ...string[]]),
+  // Default to the longest offered option (feedback Rik 2026-09-24): retention
+  // is not something a fresh owner should have to decide during onboarding —
+  // start safe/long, let them shorten it later in Venue settings if they want.
   retentionMonths: z.coerce
     .number()
     .int('Enter a whole number of months')
     .min(1, 'At least 1 month')
     .max(60, 'At most 60 months')
-    .default(12),
+    .default(24),
   kvkNumber: optionalText(20)
     .optional()
     .refine((v) => v == null || /^\d{8}$/.test(v), 'KVK number is 8 digits'),
