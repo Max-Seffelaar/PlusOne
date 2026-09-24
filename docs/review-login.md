@@ -41,7 +41,10 @@ met fake data en één demo-user, plus de prod-safe route
 
   De serverlog noemt de reden.
 - **Het e-mailadres ligt vast.** `updateEmailAction` weigert de demo-account (op id
-  of adres), los van de Supabase-instelling "Secure email change".
+  of adres). Dat is belt and braces bovenop Supabase's **Secure email change**: een
+  code-houder kan GoTrue ook direct aanroepen (`PUT /auth/v1/user`), en dan houdt
+  alleen de dubbele bevestiging via het mailboxloze demo-adres de wijziging tegen.
+  Controleer dus dat die instelling in prod aan staat (zie hieronder).
 - **Eén demo-sessie tegelijk.** Na een geslaagde login worden alle *andere* sessies van
   de demo-user uitgelogd (`scope: 'others'`). Een uitgelekte oude sessie sterft bij de
   volgende review-login.
@@ -155,6 +158,11 @@ Dat is alles. Na de vervaldatum is de route een 404 en eindigt elke demo-sessie 
 het volgende `/app`-verzoek; opruimen is niet nodig. Een oude code werkt niet meer
 zodra je een nieuwe zet. Wil je eerder stoppen, verwijder dan een van de twee
 env-vars en redeploy; ook dan eindigen de demo-sessies.
+
+Controleer in het **prod-Supabase-dashboard** (project `tolxwgqhppdcvnogdpel` →
+Authentication → Sign In / Providers → Email) dat **Secure email change AAN** staat.
+Zonder die instelling kan een code-houder het demo-adres via de GoTrue-API naar een
+eigen mailbox omzetten; de check in `updateEmailAction` dekt alleen de app.
 
 Controleer ook dat `LANDING_IP_SALT` in prod gezet is. De route en de end-route gebruiken
 die salt voor de client-hash en falen (500) zonder.

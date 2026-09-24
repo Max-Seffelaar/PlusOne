@@ -66,8 +66,11 @@ export async function updateEmailAction(
   if (!user) return { ok: false, error: "You're not logged in." };
   // The shared store-review demo account (86ey6bfug) keeps its address for
   // good: rebinding it to a reachable mailbox would hand whoever did it a
-  // normal OTP login that outlives every review window. Config-independent,
-  // so it holds even if "Secure email change" is ever switched off.
+  // normal OTP login that outlives every review window. Belt and braces on
+  // top of Supabase's "Secure email change": this only covers the app path. A
+  // code holder can still call GoTrue directly (PUT /auth/v1/user with the
+  // session), and then the double confirm to the mailbox-less demo address is
+  // what stops the change (runbook: docs/review-login.md).
   if (isDemoReviewUser(user)) return { ok: false, error: "This account's email can't be changed." };
 
   const parsed = emailChangeSchema.safeParse({ email: formData.get('email') });
