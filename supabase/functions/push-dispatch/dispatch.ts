@@ -218,7 +218,9 @@ export function classifyFcmError(httpStatus: number, body: FcmErrorBody | null):
 
   if (code === 'UNREGISTERED' || code === 'SENDER_ID_MISMATCH') return { kind: 'prune', code };
   if (code === 'INVALID_ARGUMENT') {
-    return /registration token/i.test(err?.message ?? '')
+    // Prune only when the FcmError detail itself says INVALID_ARGUMENT — the
+    // gRPC `status` fallback carries the same string for any bad request.
+    return fcmCode === 'INVALID_ARGUMENT' && /registration token/i.test(err?.message ?? '')
       ? { kind: 'prune', code }
       : { kind: 'permanent', code };
   }

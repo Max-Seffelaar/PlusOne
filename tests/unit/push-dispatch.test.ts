@@ -354,6 +354,7 @@ describe('FCM error classification', () => {
     [403, fcmErr('PERMISSION_DENIED', 'SENDER_ID_MISMATCH'), 'prune'],
     [400, fcmErr('INVALID_ARGUMENT', 'INVALID_ARGUMENT', 'The registration token is not a valid FCM registration token'), 'prune'],
     [400, fcmErr('INVALID_ARGUMENT', 'INVALID_ARGUMENT', 'Invalid value at message.data'), 'permanent'],
+    [400, fcmErr('INVALID_ARGUMENT', undefined, 'The registration token is not a valid FCM registration token'), 'permanent'],
     [429, fcmErr('RESOURCE_EXHAUSTED', 'QUOTA_EXCEEDED'), 'transient'],
     [500, fcmErr('INTERNAL', 'INTERNAL'), 'transient'],
     [401, fcmErr('UNAUTHENTICATED', 'THIRD_PARTY_AUTH_ERROR'), 'transient'],

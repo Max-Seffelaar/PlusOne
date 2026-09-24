@@ -92,6 +92,9 @@ select public.kick_push_dispatch();
 --                                (runtime-injected: redeploy the function; nothing in Vault)
 --   503 fcm_not_configured       FCM_PROJECT_ID / FCM_SERVICE_ACCOUNT_JSON missing or unparsable
 --   500 misconfigured            SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY absent in the runtime
+-- A long drain can outlast pg_net's 60 s timeout and show up here as a timeout
+-- with no status: for long drains the function logs are the source of truth, not
+-- net._http_response.
 select id, status_code, left(content::text, 200), created
 from net._http_response order by created desc limit 10;
 

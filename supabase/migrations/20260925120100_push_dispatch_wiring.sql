@@ -104,7 +104,7 @@ begin
   v_token := encode(extensions.gen_random_bytes(32), 'hex');
   insert into public.push_dispatch_tokens (token_hash)
   values (extensions.digest(v_token, 'sha256'));
-  execute 'select net.http_post(url := $1, body := $2, headers := $3, timeout_milliseconds := 5000)'
+  execute 'select net.http_post(url := $1, body := $2, headers := $3, timeout_milliseconds := 60000)'
     using v_url, '{}'::jsonb,
           jsonb_build_object('Content-Type', 'application/json', 'x-push-dispatch-token', v_token);
   return true;
