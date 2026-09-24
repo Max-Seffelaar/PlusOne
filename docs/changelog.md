@@ -108,6 +108,63 @@ Windows/worktree environment (absolute `core.hooksPath` from the worktree-local 
 "Could not run `supabase test db`"), and the diff is SQL-only, so no TS test can be
 affected by it. CI runs on a fresh reset.
 
+## 2026-09-23 — dev-login deep links landing on Home (z8uq9m0jcf)
+
+Branch `fix/z8uq9m0jcf-dev-login-deep-link`. Milestone: **Now** (dev/test loop
+correctness; the route 404s in prod). Found while building PR #304: in the fixture
+harness, `…/auth/dev-login?email=manager@plusone.test&next=/app/contacts` landed on
+Home, while opening `/app/contacts` after login worked.
+
+**Root cause (fixture harness): not the app.** The PR #304 screenshot script was called
+from Git Bash as `node hw5-shot.mjs <name> "/app/contacts" …`. MSYS path conversion
+rewrote that argument to `C:/Program Files/Git/app/contacts` before Node saw it. The
+request that reached dev-login was `next=C%3A%2FProgram%20Files%2FGit%2Fapp%2Fcontacts`.
+`safeNextPath` rejected it correctly (not root-relative) and fell back to `/app`. With
+`MSYS_NO_PATHCONV=1` the same script lands on `/app/contacts`. The steps that worked had
+the path inside a JSON string argument, which MSYS doesn't rewrite. Reproduced both ways
+with a request trace on :7100 (fixture) and :7000 (local stack).
+
+**Second cause (local stack): a real one, in dev-login.** On the local stack the clean
+URL still ended on Home: `/app/contacts` → `307 /consent?next=%2Fapp`. The seed doesn't
+stamp `terms_accepted_at`, so the `/app` layout's consent gate fires, and that gate can
+only send users back to bare `/app` (the layout can't see the requested path; documented
+trade-off in `src/app/app/layout.tsx`). The real entry routes (`/auth/confirm`,
+`/auth/callback`) avoid this by resolving the final hop with `resolveEntryDestination`,
+which sends an unconsented user to `/consent?next=<deep link>`. dev-login redirected
+straight to `next` and skipped that step.
+
+**Fix** (`src/app/auth/dev-login/route.ts`, dev-only):
+- The final redirect now goes through `resolveEntryDestination`, the same as the real
+  entry routes. On the local stack: `/consent?next=%2Fapp%2Fcontacts`.
+- A `next` that the guard rejects now logs a `[dev-login] ignored next=…` warning in the
+  dev-server log instead of silently landing on `/app`. A drive-letter value adds the
+  `MSYS_NO_PATHCONV=1` hint.
+- The dev gate now compares the Supabase URL's **hostname** (`localhost` / `127.0.0.1`)
+  instead of substring-matching the whole URL, which also accepted a real host such as
+  `https://localhost.attacker.dev`. Prod was never exposed (the `NODE_ENV` conjunct), but
+  any non-prod deploy running `next dev` would have been.
+- `safeNextPath` is unchanged here. The new `route.test.ts` (11 tests; 3 fail on the old
+  route) covers the forms its literal clauses reject — it does **not** prove the guard is
+  airtight: `%09`/`%0A`/`%0D` still pass it and `new URL()` then strips them, which is an
+  open redirect on `/consent`, `/login`, `/auth/callback` and `/auth/confirm` too. Found
+  by the fresh-session review of this PR; fixed in its own security PR.
+
+**Prod login `next` handling: fine.** `/login?next=` → OTP → `/auth/callback` (or the
+e-mail link → `/auth/confirm`) already keeps the deep link through consent.
+
+**The other half, split off and since shipped:** an *already signed-in* user who opened a
+deep link while a layout gate was due also landed on Home, after a `TERMS_VERSION` bump or
+when the MFA nudge came due, because the layout hard-coded `next=/app`. That needed a
+middleware change, so it went to its own session and landed as PR #316 (the
+`x-po-request-path` header + `appGateNextPath`, entry below).
+
+**Found by this PR's fresh-session review, fixed separately:** `safeNextPath` let ASCII
+control characters through, and the URL parser strips them before resolving, so
+`?next=%2F%09%2Fevil.com` resolved to another origin on the production entry routes too.
+See the z8uq9m0tp5 entry.
+
+---
+
 ## 2026-09-23 — safeNextPath let tab/CR/LF through (z8uq9m0tp5)
 
 Branch `fix/z8uq9m0tp5-next-path-control-chars`. Milestone: **Now** — a live open redirect
@@ -155,7 +212,6 @@ the resolution keeps BOTH: the control-character clause runs first on the raw va
 loop runs next, and the origin backstop guards the loop's clean exit. Taking either side
 alone reinstates a proven one-click attack — `%2F%09%2Fevil.com` if this branch loses,
 `/app/%2e%2e/auth/callback` if main does (security review of this PR, 2026-09-23).
-
 ---
 
 ## 2026-09-23 — P-03 `platform_invites`: invite customers into the open beta (z8uq9m0tnv)
@@ -264,7 +320,6 @@ the 2 `datetime-field.datefield.test.tsx` timeouts pass in isolation. `pnpm lint
 RETURNS TABLE column as non-null. In reality `user_id`, `confirmed_at`,
 `last_sign_in_at` (the LEFT JOIN LATERAL), `note`, `revoked_at`, `revoked_by` and
 `invited_by_name` are all nullable at runtime. Treat them as optional in the UI.
-
 ---
 
 ## 2026-09-23 — P-02 platform (system) admin: `is_platform_admin` + RLS helpers (z8uq9m0tnt)
@@ -438,7 +493,6 @@ magiclink/email_change, terminal no-user, rate-limit stop, e-mail-change destina
 stuck — hand them a fresh link with `node scripts/invite-link.mjs <email>
 https://app.plus-one.io` and make sure no other mail is sent to that address afterwards.
 ---
-
 ## 2026-09-23 — `safeNextPath` rejects percent-encoded traversal in `?next=`
 
 Branch `claude/next-path-encoded-traversal`. Milestone: Now-adjacent hardening (small).
