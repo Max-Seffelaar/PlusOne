@@ -8,6 +8,10 @@
 // through as explicit ?next= targets until they are retired.
 const DEFAULT_NEXT = '/app';
 
+// Only used to resolve a candidate the way every caller does; never returned,
+// and `.invalid` is reserved by RFC 2606, so it can never be a host we reach.
+const RESOLVE_ORIGIN = 'https://next-path-check.invalid';
+
 // Encoding depths unwrapped before a value is rejected outright. Nothing this
 // app produces is encoded even twice; the bound exists so a hostile value can
 // never drive an unbounded loop.
@@ -64,6 +68,14 @@ function isDeniedRoute(pathOnly: string): boolean {
 
 export function safeNextPath(raw: string | null | undefined, fallback = DEFAULT_NEXT): string {
   if (!raw) return fallback;
+  // ASCII control characters, TAB/CR/LF above all: the WHATWG URL parser strips
+  // them BEFORE resolving, so a candidate like `/<TAB>/evil.com` survives every
+  // literal check below and `new URL(...)` then yields https://evil.com/
+  // (z8uq9m0tp5). CR/LF additionally make a Node redirect header throw. Checked
+  // on the RAW value, before the decode loop: a percent-encoded control char is
+  // inert (no consumer double-decodes), a literal one is not.
+  // eslint-disable-next-line no-control-regex -- matching them is the point
+  if (/[\u0000-\u001F\u007F]/.test(raw)) return fallback;
   // Must be a root-relative path, not a protocol-relative ("//evil") or
   // absolute ("https://evil") URL, and must not smuggle a scheme.
   if (!raw.startsWith('/')) return fallback;
@@ -101,7 +113,19 @@ export function safeNextPath(raw: string | null | undefined, fallback = DEFAULT_
   for (let round = 0; round < MAX_DECODE_ROUNDS; round += 1) {
     if (isUnsafePath(decoded)) return fallback;
     const next = decodePathOnce(decoded);
-    if (next === decoded) return raw; // fixed point, clean at every depth
+    if (next === decoded) {
+      // Backstop, so this guard stops depending on the completeness of the
+      // checks above: resolve the candidate exactly as the callers do
+      // (`new URL(next, request.url)`, `redirect(next)`, `location.replace(next)`).
+      // Anything whose origin moves, or that will not parse at all, is not an
+      // in-app path, whatever trick got it this far.
+      try {
+        if (new URL(raw, RESOLVE_ORIGIN).origin !== RESOLVE_ORIGIN) return fallback;
+      } catch {
+        return fallback;
+      }
+      return raw; // fixed point, clean at every depth, and still same-origin
+    }
     decoded = next;
   }
   return fallback; // still unwrapping after MAX_DECODE_ROUNDS — not ours either

@@ -8,6 +8,56 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-23 — safeNextPath let tab/CR/LF through (z8uq9m0tp5)
+
+Branch `fix/z8uq9m0tp5-next-path-control-chars`. Milestone: **Now** — a live open redirect
+on prod. No migration. Found by the fresh-session `/code-review` of PR #314 (z8uq9m0jcf);
+pre-existing, not caused by that PR.
+
+**The bug.** `safeNextPath` rejected `//`, `://`, `\`, `..`, `/login` and `/auth/*`, but not
+ASCII control characters. The WHATWG URL parser strips those *before* resolving, so a
+candidate slipped through every literal check and then changed origin:
+
+```
+raw   = '/<TAB>/evil.com'          // passes all five clauses
+new URL(raw, 'https://app.plus-one.io/consent').origin === 'https://evil.com'
+```
+
+Measured: `%09`, `%0A`, `%0D` and `%0D%0A` all resolve to `http://evil.com`.
+
+**Reach.** The same guard feeds `/auth/callback` (`route.ts:12`), `/auth/confirm`
+(`route.ts:34`), `/login` (`page.tsx:18`) and `/consent` (`page.tsx:27`, plus
+`ConsentScreen`'s `window.location.replace`). The cheapest exploit needs no token: a
+signed-in user clicks `…/consent?next=%2F%09%2Fevil.com` and leaves the origin — a phishing
+hand-off carrying our domain as the referrer. `src/middleware.ts` was never exposed: it
+copies only `pathname`/`search` onto a clone of `request.nextUrl`, so the origin cannot
+move. CR/LF in a Node redirect header throws `ERR_INVALID_CHAR` (a 500, not header
+injection); TAB is a legal header byte and redirects cleanly.
+
+**Fix** (`src/features/auth/next-path.ts`): reject the ASCII control range (U+0000 to U+001F, plus U+007F) up front, and add
+a backstop that resolves the candidate against a reserved `.invalid` origin and refuses
+anything whose origin moves or that will not parse. The backstop is what stops this guard
+from depending on the completeness of its own literal checks — the next parser quirk fails
+closed instead of open.
+
+**Tests:** `next-path.test.ts` grows the six control-character cases, an off-origin
+resolution assertion, and a positive case for encoded characters and a query string, each
+asserted through `new URL()` the way the callers use the value. Seven of them fail on the
+old guard. Full unit suite green (1735 passed; the 8 failures in `pgtap-plan-run-gate` and
+`pre-push-hook-is-executable` are this Windows box — no Supabase CLI, absolute
+`core.hooksPath` — not this change).
+
+**Merged with #316 and #318, by union.** #316 added `appGateNextPath`, which calls
+`safeNextPath` first, so the `/app` gates inherit this fix. #318 then restructured
+`safeNextPath` itself into a decode-to-fixed-point loop against percent-encoded traversal,
+landing before this branch. The two fixes close different holes in overlapping lines, so
+the resolution keeps BOTH: the control-character clause runs first on the raw value, #318's
+loop runs next, and the origin backstop guards the loop's clean exit. Taking either side
+alone reinstates a proven one-click attack — `%2F%09%2Fevil.com` if this branch loses,
+`/app/%2e%2e/auth/callback` if main does (security review of this PR, 2026-09-23).
+
+---
+
 ## 2026-09-23 — P-03 `platform_invites`: invite customers into the open beta (z8uq9m0tnv)
 
 A platform admin (P-02) invites a new customer with nothing but an e-mail address. We
@@ -209,7 +259,6 @@ its own invariant section stay with P-06.
 **Follow-ups, deliberately not in this PR.** No seed platform admin and no dev-login for
 one (P-01 territory); no UI. Bootstrapping the first platform admin is a one-line SQL
 runbook step, documented in the migration header.
-
 ---
 
 ## 2026-09-23 — First login for new invitees: code in every mail + verify fallback (z8uq9m0tnq)
@@ -288,7 +337,6 @@ magiclink/email_change, terminal no-user, rate-limit stop, e-mail-change destina
 **Nazorg for Max:** `gar***@gmail` (18/9), `pet***@hotmail` and `roe***@gmail` are still
 stuck — hand them a fresh link with `node scripts/invite-link.mjs <email>
 https://app.plus-one.io` and make sure no other mail is sent to that address afterwards.
-
 ---
 
 ## 2026-09-23 — `safeNextPath` rejects percent-encoded traversal in `?next=`
