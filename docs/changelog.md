@@ -108,6 +108,63 @@ Windows/worktree environment (absolute `core.hooksPath` from the worktree-local 
 "Could not run `supabase test db`"), and the diff is SQL-only, so no TS test can be
 affected by it. CI runs on a fresh reset.
 
+## 2026-09-23 — P-04 Platform tab: invites + status in the app (z8uq9m0tnw)
+
+The UI on top of P-03: a **Platform** entry in `/app` that only a platform admin sees,
+where a customer is invited with nothing but an e-mail address and the funnel is visible
+without opening the Supabase dashboard. **No migration and no schema change at all** —
+P-02/P-03 already shipped everything this needs; the only DB-adjacent edit is one
+local-dev line in `scripts/dev-mfa.mjs` (see below).
+
+**What shipped.**
+- Route + nav: `screenPath('platform')` → `/app/platform`, `parseAppUrl` the inverse (G1,
+  a real bookmarkable URL); `navKeyForScreen` gets its own `platform` key and the screen
+  joins `WIDE_DESKTOP`. Lazy chunk in `app-screens.tsx` like Stats/Audit — a venue user
+  never downloads it.
+- Visibility: `usePoIsPlatformAdmin()` (one cached select on the caller's own
+  `user_profiles` row) read in **`app-chrome.tsx`**, beside the other chrome reads and
+  never in the shell root, so it cannot reach the door subtree (86eykm76k). Desktop
+  sidebar entry + a mobile-only More-hub row (the M5 de-duplication rule).
+- Screen `src/components/po/screens/platform.tsx` (381 LOC): invite form (e-mail +
+  optional note), a SQL-aggregated funnel strip, and one card per invite with its stage
+  track, company/event chips, the operator note **as plain text**, Resend and Stop
+  following up (with a confirm sheet).
+- Data: `fetchPlatformInvites` / `fetchPlatformFunnel` / `fetchIsPlatformAdmin` in
+  `queries.ts`, ONE adapter (`toPlatformInvite` + `toPlatformFunnel`) in `adapters.ts`,
+  hooks in `hooks.ts`, and three mutations wrapping the P-03 server actions unchanged.
+- New kit primitive `StatTile` (one number + its label), used six times by the funnel.
+- New i18n surface `src/lib/i18n/surfaces/platform.ts`.
+
+**Two things worth remembering.**
+- **Runtime nullability.** The type generator marks every `RETURNS TABLE` column
+  non-null while `user_id`, `confirmed_at`, `last_sign_in_at`, `note`, `revoked_at`,
+  `revoked_by` and `invited_by_name` are nullable in reality (PR #325). `PlatformInviteRow`
+  narrows them by hand and the adapter normalises them, so no screen has to know.
+- **Revoke is honest about what it does.** Revoking marks the row only: the invitee keeps
+  a valid link and can still sign in and create a company (PR #325, follow-up F1). The
+  button therefore says **"Stop following up"** with the helper line "Stops resends and
+  hides them from the funnel. It does not block sign-in." All of that is one block in the
+  i18n surface, so it is a copy edit if Max decides revoke should really close the door.
+
+**Local dev — and where that flag may NOT live.** `scripts/dev-mfa.mjs` (`pnpm dev:mfa`,
+so also `pnpm db:fresh`) now flips `is_platform_admin` on `admin@plusone.test`,
+idempotently, through the `plusone.platform_admin_write` GUC the P-02 guard accepts.
+It started out in `supabase/seed.sql` and **CI caught that**: the pgTAP suite runs
+against the seeded database and uses that exact user as "a venue admin who is NOT a
+platform admin", so the seed line turned 14 assertions in `platform_admin.test.sql` red
+and knocked `platform_invites.test.sql` off its plan. `dev:mfa` is local-dev-only, so
+the tab survives a reset and the DB tests never see the flag. The prod platform admin
+is P-06.
+
+**Gotcha that cost real time.** The Browser-pane preview started a dev server against the
+**main checkout** while claiming the worktree's port; `/app/platform` rendered Home and
+the sidebar had no Platform entry, with correct source on disk and green unit tests. The
+tell was the Turbopack chunk names (`Documents_GitHub_PlusOne_src_…`, no
+`_claude_worktrees_…`). CLAUDE.md's "a port is a checkout, not a PR" applies to the
+preview tool too: check the chunk paths before believing a screen is broken.
+
+---
+
 ## 2026-09-23 — dev-login deep links landing on Home (z8uq9m0jcf)
 
 Branch `fix/z8uq9m0jcf-dev-login-deep-link`. Milestone: **Now** (dev/test loop
