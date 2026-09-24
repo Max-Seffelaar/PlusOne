@@ -10,32 +10,53 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ## 2026-09-24 — Fase 17 S3: store-review login + demo venue (86ey6bfug)
 
-Branch `claude/86ey6bfug-review-login`, draft PR (see ClickUp). No migration.
+Branch `claude/86ey6bfug-review-login`, PR #332. No migration.
 
-- `src/app/auth/review-login/route.ts` (new) + helpers in
-  `src/features/auth/review-login.ts`: GET serves a static code form, POST takes
-  the code **in the body**. `REVIEW_LOGIN_CODE` unset/blank/<16 chars → empty 404
-  on both. Same-origin check, per-instance attempt limiter (5/client, 30/instance
-  per 15 min) BEFORE a sha256+`timingSafeEqual` compare, then ONE service-role
-  call (`generateLink` for the constant `app-review@demo.plus-one.io`), verify as
-  the user, and fail-closed checks (e-mail, no verified TOTP, not platform admin,
-  exactly one membership = "PLUSONE Demo") that sign the session out again.
-  Fixed destination `/app` via `resolveEntryDestination`; no `next=`. All
-  responses `no-store`.
-- "Audited" = one structured PII-free server-log line per POST (no code, e-mail
-  or raw IP) + GoTrue's own auth audit log. No app-code `audit_log` writes (#4).
-- `scripts/seed-demo-venue.mjs` (new): idempotent demo tenant (venue, 2 events
-  moved forward on each run, tiers, 34 fake guests, 3 open requests), demo user
-  via `admin.createUser` (no mailbox exists; invite would bounce), roles
-  `admin,doorhost`, MFA factors reset, refuses CI / non-local without `--prod`,
-  stops on platform-admin flag or foreign memberships. `comped` stays the manual
-  SQL from `docs/stripe-setup.md` §5 (the script prints it).
-- Runbook `docs/review-login.md`; `.env.example` gains an empty `REVIEW_LOGIN_CODE`.
-- Tests: `review-login.test.ts` + `route.test.ts` (43). Not run here (no Supabase
-  stack in the container): the seed script and a real login, local or prod.
-- Open for the orchestrator: how the reviewer reaches the route inside the
-  native shell (no URL bar), durable DB rate limit (would need a migration),
-  Vercel Firewall rule (manual).
+- `src/app/auth/review-login/route.ts` (new), plus helpers in
+  `src/features/auth/review-login.ts` and `review-window.ts`:
+  - GET serves a static code form; POST takes the code **in the body**.
+  - The route is off (empty 404 on both) unless `REVIEW_LOGIN_CODE` has ≥26
+    letters/digits (130 bits) AND `REVIEW_LOGIN_EXPIRES_AT` is a zoned ISO
+    timestamp in the future and ≤60 days out. The window closes by itself.
+  - Order of checks: same-origin → per-client limiter (5/15 min, **no global
+    cap**, so junk from many IPs can't lock the reviewer out) →
+    sha256 + `timingSafeEqual` → ONE service-role call (`generateLink` for the
+    constant `app-review@demo.plus-one.io`) → verify as the user → fail-closed
+    checks (e-mail, no verified TOTP, not platform admin, exactly one membership
+    **by the fixed venue id** `de300000-…0001`, name is display only).
+  - On success, `signOut({ scope: 'others' })`: one live demo session at a time;
+    if that fails, the new session is dropped too.
+  - Fixed destination `/app` via `resolveEntryDestination`; no `next=`. All
+    responses `no-store`.
+- `src/app/auth/review-login/end/route.ts` (new) + a branch in
+  `src/app/app/layout.tsx`: once the window is closed, a demo-account session is
+  sent to the end route, which signs out every demo session (`scope: 'global'`)
+  and lands on `/login`.
+  - The layout cannot clear cookies, and a signed-in user on `/login` is bounced
+    back to `/app`, hence the route. Only an e-mail compare for other users.
+  - It never acts on another user or on an open window.
+- "Audited" = one structured PII-free server-log line per POST / ended session
+  (no code, e-mail or raw IP) + GoTrue's own auth audit log. No app-code
+  `audit_log` writes (#4).
+- `scripts/seed-demo-venue.mjs` (new): idempotent demo tenant.
+  - Venue on the fixed id, 2 events moved forward on each run, tiers, 34 fake
+    guests, 3 open requests.
+  - Demo user via `admin.createUser` (no mailbox exists; an invite would bounce),
+    roles `admin,doorhost`, MFA factors reset.
+  - Refuses CI and a non-local target without `--prod`; stops on the
+    platform-admin flag or on foreign memberships.
+  - `comped` stays the manual SQL from `docs/stripe-setup.md` §5 (the script
+    prints it).
+- Runbook `docs/review-login.md` (per submission: set code + expiry, nothing to
+  unset); `.env.example` gains `REVIEW_LOGIN_CODE` + `REVIEW_LOGIN_EXPIRES_AT`.
+- Second round (orchestrator, Max's decision): no global limiter cap, venue by
+  id, the time-boxed code + `scope: 'others'` + the layout gate.
+- Tests: review-login, review-window, both routes, and the layout branch. Not run
+  here (no Supabase stack in the container): the seed script and a real login,
+  local or prod.
+- Open for the orchestrator: how the reviewer reaches the route inside the native
+  shell (no URL bar); a durable DB rate limit (would need a migration); the Vercel
+  Firewall rule (manual).
 
 ## 2026-09-24 — P-06 seed part: Max and Joeri as platform admins (z8uq9m0tny)
 
