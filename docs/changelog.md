@@ -78,6 +78,106 @@ as the P-04 precedent) + two screen-visibility files (no-admin fires no read, ma
 
 ---
 
+## 2026-09-24 — Only submit_guest_request may create a landing request (F-3)
+
+Branch `claude/guest-requests-insert-revoke`. Milestone: **Now**, a live RLS/grant gap on
+prod. Migration `20260924100000_guest_requests_revoke_client_insert.sql` — first written
+as `20260923120000`, renamed when P-02 landed `20260923120000_platform_admin.sql` on the
+same timestamp while this PR sat open. A duplicate breaks `db push`/`db reset`, so the
+new name also sorts past P-03's `20260923150000`. Second time in a week the rule bites
+(the L5 entry below has its own rename), and both times the collision appeared *after*
+the branch was cut — the timestamp check belongs immediately before merge, not only when
+the file is written. High-risk surface (RLS + grants), so the PR body carries an
+adversarial security-research prompt.
+
+**Review gate: not used, on Max's explicit call.** CLAUDE.md asks for a fresh-session
+`/code-review` + `/security-review` on this surface, and PR #310 — the directly preceding,
+near-identical change — went through it. Here Max decided on 24/9 that the two SQL
+statements did not warrant it and asked to merge; no review landed on the PR
+(`reviewDecision` empty, zero reviews). Recorded because the two questions the prompt
+raises are still unanswered: whether an attacker can *cause* the squat shape through
+retention rather than a direct insert, and what the status-mirror branch does when someone
+submits on a victim's e-mail first. Neither is created by this change — both predate it —
+but neither was ruled out either.
+
+**The bug.** `docs/security-audit.md` F-3, found by the fresh-session security review of
+PR #310 (19-9), pre-existing, deliberately kept out of that PR so the L5 fix could reach
+prod unchanged. `authenticated` held a table-wide INSERT grant on `guest_requests` and
+`guest_requests_insert_public` pinned only `status = 'pending'` + a landing-active,
+non-cancelled event (+ an open `request_link` when one is named). No role, no ownership,
+no column. So any logged-in user could POST straight to `/rest/v1/guest_requests`.
+Reproduced as **staff** — a role with no decide rights and no SELECT on the table — on
+their own venue's seed event, on the shared local stack, in rolled-back transactions:
+
+- **Silent suppression.** A row with `status = 'pending'`, `anonymized_at = now()` and the
+  victim's e-mail as `dedupe_key` is invisible in the approvals inbox (`fetchGuestRequests`
+  filters `anonymized_at is null`) yet still occupies `guest_requests_dedupe_idx`. The real
+  applicant's submission then trips that index, and the dedup branch skips anonymized rows
+  (`20260918160000`), so no status mirror is written either. Measured:
+  `submit_guest_request` answers `{"status": "ok", "auto_approved": false}`, `real request
+  stored: 0`, `/r/[token]` answers `{"found": false}`. Silent on both sides by
+  construction — #28 makes a duplicate indistinguishable from a new request on purpose.
+- **E-mail oracle.** `insert … on conflict do nothing` against that index: measured
+  `DID apply -> inserted 0`, `did NOT apply -> inserted 1` (plain insert: `23505` vs
+  success). That is the exact fact `guest_requests_select` withholds, readable by a role
+  whose own `select count(*) from guest_requests` returns 0.
+- **Validation/throttle bypass.** The RPC's throttle, honeypot, format checks and
+  `left(motivation, 1000)` live in the function, not the table: `email = 'x'`,
+  `phone = null`, `plus_ones = 99`, `junk rows planted: 500` in one statement.
+
+Already closed before this migration and unchanged by it: cross-venue insert (`42501`),
+forged `venue_id` (shared BEFORE trigger, `20260713160000`), attributing to a
+`request_link` the caller cannot see.
+
+**The fix.** `revoke insert on table public.guest_requests from authenticated` — the other
+half of `20260707170000` (C2), which did the same for `anon` and left `authenticated`
+without stating why — and `guest_requests_insert_public` **dropped**, not narrowed.
+Reasoning, in the migration header: after the revoke neither of the policy's roles holds
+INSERT, so a predicate in it is decoration, and it buys nothing against the one way the
+grant returns (a blanket `grant all …` / stock default ACL, the `20260917100000`
+mechanism) because RLS with **zero** applicable INSERT policies already denies every
+client insert — the absence *is* the guard. A restrictive `false` policy would differ but
+would also block any future legitimate insert policy. Intent moved to `comment on table`.
+Checked before dropping: it was the table's only `FOR INSERT` policy and nothing else
+referenced it.
+
+**Why it is safe.** `src/` has no `.from('guest_requests').insert`/`.upsert` at all (two
+SELECTs in `src/features/po/queries.ts`, the deny UPDATE in
+`src/features/requests/actions.ts`); checked across `src/`, `scripts/` and
+`supabase/functions/`. The table is not FORCE ROW LEVEL SECURITY, so `submit_guest_request`
+(and approve / auto-approve / retention) run as the owner past both the grant and the
+policy; the seed and pgTAP fixtures are superuser; `scripts/perf/scale-audit.mjs` is
+`service_role` (BYPASSRLS). Pure contract step — no released app version inserts, so a
+rollback keeps working.
+
+**Grant matrix now** — `anon`: nothing · `authenticated`: table SELECT + UPDATE on
+`status, decided_by, decided_at, decision_reason` (`20260919150000`) · `service_role` and
+owner: unchanged.
+
+**Tests.** New `guest_requests_insert_revoke.test.sql` (29): grant/policy layer incl.
+catalog-driven "no `FOR INSERT` policy exists" and no column-level INSERT; the squat, both
+oracle forms and the 500-row batch refused `42501` for staff, admin, organizer, doorhost
+and anon; the previously suppressed applicant now stored with `{"found": true}` on their
+own name; and the legit paths — anon submit, silent dedup, auto-approve,
+`approve_guest_request`, the client deny, retention, the seed's privilege level,
+`service_role`. `grant_matrix.test.sql` +2 (13 to 15). `venue_id_rls_integrity.test.sql`
+S1d rewritten: the client insert is `42501` (it used to comment that *any* logged-in user
+could do it) and the `venue_id` trigger half moved to the owner path, plan 8 to 9.
+Re-pointed for the same reason: `guest_requests_decide.test.sql` A3 (asserted INSERT
+*unchanged*; now asserts it is gone) and `venue_scope_denormalization.test.sql` 2d (its
+fixture inserted as staff).
+
+Ran per file in one rolled-back transaction on the shared local stack, with
+`20260919150000` (which that DB lacks) + the new migration prepended. Failing files:
+`analytics`, `auth.invites`, `guests_added_by_bind`, `onboarding`, `quota`, `rls` — all
+fail identically **without** the new migration (baseline verified), data drift in the
+shared DB. `npx tsc --noEmit` clean, `next lint` clean (2 pre-existing a11y warnings in
+`datetime-field.tsx`). Vitest 1725/1735; the 10 failures are in
+`pre-push-hook-is-executable`, `pgtap-plan-run-gate` and `datetime-field.datefield` —
+Windows/worktree environment (absolute `core.hooksPath` from the worktree-local config;
+"Could not run `supabase test db`"), and the diff is SQL-only, so no TS test can be
+affected by it. CI runs on a fresh reset.
+
 ## 2026-09-23 — P-04 Platform tab: invites + status in the app (z8uq9m0tnw)
 
 The UI on top of P-03: a **Platform** entry in `/app` that only a platform admin sees,

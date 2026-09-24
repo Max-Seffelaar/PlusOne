@@ -1,0 +1,139 @@
+-- F-3 (fresh-session security review of PR #310, 2026-09-19; pre-existing) — a
+-- landing request can only be created by submit_guest_request. No client role
+-- holds INSERT on public.guest_requests any more.
+--
+-- THE BUG
+--
+-- `authenticated` held a table-wide INSERT grant and guest_requests_insert_public
+-- (20260613120000, last amended 20260706103000) pinned only `status = 'pending'`,
+-- a landing-active, non-cancelled event and — when one is named — an open
+-- request_link of that same event. It pins no role, no ownership and no column.
+-- So ANY logged-in user could POST /rest/v1/guest_requests for any
+-- landing-active event they can name, including roles with no decide rights and
+-- no SELECT on the table at all. Reproduced as staff (Tom, `{staff}` at Club
+-- Vesper) on their own venue's event, on the local stack, in a rolled-back
+-- transaction:
+--
+--   1. SILENT SUPPRESSION. Insert a row with `status = 'pending'`,
+--      `anonymized_at = now()` and the victim's e-mail as `dedupe_key`. The
+--      approvals inbox filters `anonymized_at is null` (fetchGuestRequests,
+--      src/features/po/queries.ts), so the row is invisible there — but it is
+--      still `pending` with a non-null dedupe_key, so it occupies
+--      guest_requests_dedupe_idx, the partial unique index on
+--      (event_id, dedupe_key) the RPC dedups on (20260614100000). The real
+--      applicant's submission then trips that index;
+--      the dedup branch skips anonymized rows (20260918160000), so it writes no
+--      status mirror either. submit_guest_request answers {"status": "ok",
+--      "auto_approved": false}, nothing is stored, and /r/[token] answers
+--      {"found": false}. Measured: `real request stored: 0`,
+--      `status: {"found": false}`. The venue never learns the person applied,
+--      and the person is told nothing went wrong. Silent by construction,
+--      because #28 makes a duplicate indistinguishable from a new request on
+--      purpose.
+--
+--   2. E-MAIL ORACLE. `insert … on conflict do nothing` against the same index
+--      returns 1 row for an address with no pending request on that event and 0
+--      for one that has (a plain insert raises 23505 instead). Measured, as
+--      staff, whose own `select count(*) from guest_requests` returns 0 rows:
+--      `DID apply -> inserted 0`, `did NOT apply -> inserted 1`. That is a read
+--      of exactly the fact the table's SELECT policy exists to withhold — "did
+--      this person ask to come" — available to every logged-in user of the
+--      venue.
+--
+--   3. VALIDATION / THROTTLE BYPASS. The RPC's per-IP throttle, honeypot,
+--      name/e-mail format checks and `left(motivation, 1000)` live in the
+--      function, not the table, so a direct insert skips all of them:
+--      `email = 'x'`, `phone = null`, `plus_ones = 99`, 500 rows in one
+--      statement. Measured: `junk rows planted: 500`.
+--
+-- Not reachable even before this migration, and unchanged by it: inserting on
+-- another venue's event (42501 — the event is not landing-active/visible),
+-- forging `venue_id` (the shared BEFORE trigger overwrites it from the event,
+-- 20260713160000), and attributing a request to a request_link the caller
+-- cannot see (the WITH CHECK subquery reads request_links under RLS).
+--
+-- THE LEGITIMATE INSERT PATHS (verified, not assumed)
+--
+-- None of them is a client insert:
+--   * submit_guest_request — SECURITY DEFINER, owned by postgres, the only
+--     public submission path (anon + authenticated EXECUTE). It also runs the
+--     auto-approve branch and the contacts capture.
+--   * the seed (supabase/seed.sql) and every pgTAP fixture — superuser.
+--   * scripts/perf/scale-audit.mjs — service_role.
+-- `src/` contains no `.from('guest_requests').insert` / `.upsert` at all: the
+-- three call sites are two SELECTs (src/features/po/queries.ts) and the deny
+-- UPDATE (src/features/requests/actions.ts). Checked across src/, scripts/ and
+-- supabase/functions/.
+--
+-- guest_requests is not FORCE ROW LEVEL SECURITY, so the SECURITY DEFINER
+-- functions run as the table owner and are bound by neither the grant nor the
+-- policy. service_role holds its own grants and BYPASSRLS. Both keep working.
+--
+-- THE FIX — revoke the grant, then drop the policy it was the only user of
+--
+-- Precedent: 20260707170000 (C2) did exactly this revoke for `anon` and said
+-- why — force every public submission through the throttled, deduping,
+-- honeypotted RPC. It left `authenticated` in place without stating why; there
+-- was no reason, and this migration finishes that job. The policy's anon arm
+-- has been dead since C2; this kills the authenticated arm too.
+--
+-- DROP vs. NARROW — dropping, deliberately.
+--
+-- Narrowing (e.g. `with check (false)`, or adding a role/ownership tie) was
+-- rejected: after the revoke, the policy's roles are {anon, authenticated} and
+-- NEITHER holds INSERT, so the policy governs nothing and any predicate in it
+-- is decoration. It buys no defense-in-depth against the one way the grant
+-- could come back — a blanket `grant all on all tables in schema public to
+-- authenticated`, or a stock Supabase default ACL, the mechanism that caused
+-- this in the first place (see 20260917100000) — because RLS with ZERO
+-- applicable INSERT policies already denies every client insert, exactly as a
+-- permissive `with check (false)` one would. A RESTRICTIVE false policy would
+-- differ, but it would also block any future legitimate insert policy, which is
+-- a worse default than fail-closed-by-absence. And a policy still named
+-- "insert_public" documents a direct-insert surface that no longer exists and
+-- invites the next reader to "just re-add the grant". The table comment below
+-- carries the intent instead, where a schema dump and a schema diff both show
+-- it.
+--
+-- GRANT MATRIX for public.guest_requests after this migration
+--
+--   role           | SELECT | INSERT | UPDATE                                  | DELETE
+--   ---------------+--------+--------+-----------------------------------------+-------
+--   anon           | –      | –      | –                                       | –
+--   authenticated  | table  | –      | columns status, decided_by, decided_at,  | –
+--                  |        |        | decision_reason (20260919150000)         |
+--   service_role   | table  | table  | table                                   | table
+--   postgres (own) | table  | table  | table                                   | table
+--
+-- Policies left on the table: guest_requests_select (admin/finance of the venue
+-- or organizer of the event) and guest_requests_decide (pending -> denied only,
+-- 20260919150000). No INSERT policy — by design, and the absence is the guard.
+--
+-- EXPAND-CONTRACT: this is a contract step whose expand shipped long ago. The
+-- deployed app never inserts into this table (verified above), so the currently
+-- running version keeps working unchanged; a rollback of the app code to any
+-- released version also keeps working, because no released version inserts
+-- either. Nothing is renamed or dropped that live code reads.
+
+-- ---------------------------------------------------------------------------
+-- 1. No client role may create a landing request
+-- ---------------------------------------------------------------------------
+-- anon lost this in 20260707170000; `authenticated` is the other half. A
+-- table-level REVOKE also removes column privileges of the same kind, so this
+-- covers a column-level INSERT grant if one is ever added above it.
+revoke insert on table public.guest_requests from authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 2. ...so the policy that governed those inserts governs nothing
+-- ---------------------------------------------------------------------------
+-- Checked before dropping: guest_requests_insert_public is the table's only
+-- FOR INSERT policy (pg_policy.polcmd = 'a'), it is referenced by no other
+-- policy, view, function or trigger, and the two tests that name it
+-- (grant_matrix.test.sql in a comment, venue_id_rls_integrity.test.sql S1d) are
+-- updated in this PR. Its WITH CHECK is the only INSERT-path reader of
+-- public.request_link_open(request_links); that function stays — submit_guest_request
+-- and request_links.test.sql both use it.
+drop policy guest_requests_insert_public on public.guest_requests;
+
+comment on table public.guest_requests is
+  'Landing-page guest requests (#12/#28). INSERT is RPC-only: public.submit_guest_request (SECURITY DEFINER) is the single creation path, so the throttle, silent dedup, honeypot and format checks cannot be walked around. No app role holds INSERT and there is deliberately no INSERT policy — with RLS on, the absence denies every client insert (20260924100000, F-3). Re-granting INSERT to anon or authenticated re-opens the suppression squat and the e-mail oracle; grant EXECUTE on the RPC instead.';
