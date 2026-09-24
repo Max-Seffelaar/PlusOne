@@ -8,6 +8,53 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-25 — Fase 17 N2: push backend, live-but-sleeping (86ey6bfbe)
+
+Branch `claude/86ey6bfbe-push-backend`. Three migrations, the repo's first Edge
+Function, pgTAP, a runbook. No UI, no client registration (N5), no Vercel env.
+
+- `20260925120000_push_tokens_outbox.sql` — `push_tokens` (owner-only RLS on all
+  verbs, no platform-admin bypass; `session_id` stamped from the JWT by a BEFORE
+  trigger, so a client can neither pick a foreign session nor register without
+  one; a token held by a *dead* session of another user yields on re-register —
+  shared door tablets — a live one raises 23505) and `notification_outbox` (RLS
+  on, no policies, no app-role grants). AFTER triggers on `quota_requests`
+  (created → venue admins; decided → requester) and `guest_requests` (created →
+  venue admins + that event's organizers). Recipients come straight from
+  `venue_memberships`/`event_organizers` of the row's venue/event — never the
+  `auth.uid()` helpers with the platform-admin disjunct. Payload = ids + kind
+  only. Dedupe key `unique (dedupe_key, recipient_user_id)`; the trigger body
+  runs in its own exception block, so broken plumbing never fails a request.
+- `20260925120100_push_dispatch_wiring.sql` — `pg_net` (guarded like pg_cron),
+  Vault-backed config (`plusone_push_dispatch_url`/`_secret`; absent ⇒ asleep),
+  statement-level kick on outbox insert, service_role-only RPCs
+  `claim_push_outbox` (secret-gated; hands out only FCM tokens whose auth session
+  still exists), `complete_push_outbox` (retry/backoff 2^n min, max 5 attempts),
+  `prune_push_tokens`; pg_cron `plusone-push-outbox-sweep` (2 min) and
+  `plusone-push-token-prune` (daily: 90 days unseen or dead session; finished
+  outbox rows > 30 days). App-role privileges on the `net` schema revoked (the
+  invocation secret sits in pg_net's queue until sent).
+- `20260925120200_push_tokens_revoke_on_logout.sql` — `revoke_own_session` /
+  `admin_revoke_session` also delete the revoked session's tokens; authorization
+  logic and signatures unchanged (`session-actions.ts` untouched).
+- `supabase/functions/push-dispatch/` — FCM HTTP v1 via an RS256 service-account
+  JWT (WebCrypto), prune on `UNREGISTERED` / `SENDER_ID_MISMATCH` / invalid-token
+  `INVALID_ARGUMENT`, never logs tokens/JSON/secret. `verify_jwt = false`
+  (`supabase/config.toml`); the gate is the Vault secret checked in
+  `claim_push_outbox`. Logic sits in a runtime-agnostic `dispatch.ts` so CI's
+  vitest covers it (`tests/unit/push-dispatch.test.ts`, 23 tests) — CI runs no
+  Deno tests.
+- pgTAP: `push_tokens.test.sql` (36), `push_outbox.test.sql` (23),
+  `push_dispatch.test.sql` (35); `grant_matrix.test.sql` allowlists
+  `push_tokens` DELETE; `tables.test.sql` lists the two tables.
+- Spec decision #50; runbook `docs/push-dispatch.md` (FCM Edge secrets, deploy,
+  Vault on-switch, check queries).
+
+**Not run in the building session** (no Supabase stack/Docker in the container):
+`pnpm db:test`, `supabase db reset`, `db:test:concurrency`, e2e, a Deno run of the
+function. `database.types.ts` was hand-written to the schema — regenerate after
+merge to confirm. Ran: lint, type-check, vitest (176 files / 1891 tests).
+
 ## 2026-09-24 — P-06 seed part: Max and Joeri as platform admins (z8uq9m0tny)
 
 The other half of P-06 (docs part landed in PR #328). Migration
