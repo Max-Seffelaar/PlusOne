@@ -114,6 +114,11 @@ describe('demo constants mirrored in scripts/seed-demo-venue.mjs', () => {
     expect(script).toContain("from('invites')");
   });
 
+  it('lists venues a stray member created, and never deletes them', () => {
+    expect(script).toContain("'settings->onboarding->>created_by'");
+    expect(script).not.toMatch(/from\('venues'\)\s*\.delete\(/);
+  });
+
   it('refuses a non-local target without --prod', () => {
     expect(script).toContain("process.argv.includes('--prod')");
   });

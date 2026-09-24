@@ -303,6 +303,25 @@ const venueMembers = await must('venue members read', db.from('venue_memberships
 const strays = venueMembers.filter((m) => m.user_id !== userId);
 if (strays.length > 0) {
   const list = strays.map((m) => `${m.user_id} (${(m.roles ?? []).join(',')})`).join(', ');
+  // Did a stray account create a tenant of its own (create_venue_with_owner
+  // stamps settings.onboarding.created_by)? Shown only, never deleted: that
+  // venue may hold real data, so Max decides. Chunked (≤120 ids per .in()).
+  const strayIds = strays.map((m) => m.user_id);
+  const strayVenues = [];
+  for (let i = 0; i < strayIds.length; i += 120) {
+    strayVenues.push(
+      ...(await must(
+        'stray-created venues read',
+        db.from('venues').select('id, name, created_at, settings->onboarding->>created_by').in('settings->onboarding->>created_by', strayIds.slice(i, i + 120)),
+      )),
+    );
+  }
+  if (strayVenues.length > 0) {
+    const rows = strayVenues.map((v) => `  ${v.id} "${v.name}" created ${v.created_at} by ${v.created_by}`).join('\n');
+    console.warn(
+      `[seed-demo-venue] stray demo-venue member(s) created ${strayVenues.length} venue(s) — investigate, this script never touches them:\n${rows}`,
+    );
+  }
   if (!RESET_MEMBERS) {
     fail(
       `The demo venue has other members: ${list}. A code holder (admin) may have invited them. ` +
