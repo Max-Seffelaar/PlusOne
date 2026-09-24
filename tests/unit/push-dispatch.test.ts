@@ -3,8 +3,8 @@
 // CI runs no Deno tests, so the function's logic lives in a runtime-agnostic
 // module (supabase/functions/push-dispatch/dispatch.ts) and is exercised here
 // under Node with a mocked fetch standing in for PostgREST, Google OAuth and
-// FCM HTTP v1. The SQL half (claim/complete/prune semantics, the Vault secret
-// gate) is covered by supabase/tests/database/push_dispatch.test.sql.
+// FCM HTTP v1. The SQL half (claim/complete/prune semantics, the single-use
+// token gate) is covered by supabase/tests/database/push_dispatch.test.sql.
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import {
@@ -17,7 +17,7 @@ import {
   type DispatchEnv,
 } from '../../supabase/functions/push-dispatch/dispatch';
 
-const SECRET = 'x'.repeat(40);
+const TOKEN = 'ab'.repeat(32); // 64 hex chars, the shape kick_push_dispatch mints
 const SUPABASE_URL = 'https://ref.supabase.test';
 const SERVICE_KEY = 'service-role-key-for-tests';
 const DEVICE_A = 'device-token-A';
@@ -122,9 +122,9 @@ function fakeUpstreams(opts: {
   return { fetchFn, calls };
 }
 
-function post(secret: string | null = SECRET): Request {
+function post(token: string | null = TOKEN): Request {
   const headers: Record<string, string> = {};
-  if (secret !== null) headers['x-push-dispatch-secret'] = secret;
+  if (token !== null) headers['x-push-dispatch-token'] = token;
   return new Request('https://ref.functions.test/push-dispatch', { method: 'POST', headers, body: '{}' });
 }
 
@@ -153,27 +153,27 @@ describe('push-dispatch caller gate', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('rejects a missing or short secret without touching the database', async () => {
+  it('rejects a missing or malformed token without touching the database', async () => {
     const { fetchFn, calls } = fakeUpstreams({});
-    for (const s of [null, '', 'short']) {
+    for (const s of [null, '', 'short', 'x'.repeat(64), 'AB'.repeat(32), 'ab'.repeat(33)]) {
       const res = await handleDispatch(post(s), { env: env(), fetch: fetchFn, log: () => {} });
       expect(res.status).toBe(401);
     }
     expect(calls).toHaveLength(0);
   });
 
-  it('maps the RPC secret check (42501) to 401 and sends nothing', async () => {
+  it('maps a refused token (42501: unknown, used or expired) to 401 and sends nothing', async () => {
     const { fetchFn, calls } = fakeUpstreams({ claimStatus: 403, claimCode: '42501' });
-    const res = await handleDispatch(post('y'.repeat(40)), { env: env(), fetch: fetchFn, log: () => {} });
+    const res = await handleDispatch(post('cd'.repeat(32)), { env: env(), fetch: fetchFn, log: () => {} });
     expect(res.status).toBe(401);
     expect(calls.map((c) => c.url)).toEqual([`${SUPABASE_URL}/rest/v1/rpc/claim_push_outbox`]);
   });
 
-  it('forwards the caller secret to claim_push_outbox with the service_role key', async () => {
+  it('forwards the caller token to claim_push_outbox with the service_role key', async () => {
     const { fetchFn, calls } = fakeUpstreams({ batches: [[]] });
     const res = await handleDispatch(post(), { env: env(), fetch: fetchFn, log: () => {} });
     expect(res.status).toBe(200);
-    expect(calls[0].body).toEqual({ p_secret: SECRET, p_limit: 50 });
+    expect(calls[0].body).toEqual({ p_token: TOKEN, p_limit: 200 });
     expect(calls[0].headers.authorization).toBe(`Bearer ${SERVICE_KEY}`);
   });
 
@@ -248,17 +248,22 @@ describe('push-dispatch delivery', () => {
     ]);
   });
 
-  it('drains multiple full batches and stops on a short one', async () => {
-    const full = Array.from({ length: 50 }, (_, i) => row(`a${i}`, [`tok-a${i}`]));
+  it('claims exactly once per invocation (single-use token) and mints one OAuth token', async () => {
+    const full = Array.from({ length: 200 }, (_, i) => row(`a${i}`, [`tok-a${i}`]));
     const { fetchFn, calls } = fakeUpstreams({ batches: [full, [row('b0', ['tok-b0'])]] });
     const res = await handleDispatch(post(), { env: env(), fetch: fetchFn, log: () => {} });
-    expect(await res.json()).toMatchObject({ claimed: 51, sent: 51 });
-    expect(calls.filter((c) => c.url.endsWith('/claim_push_outbox'))).toHaveLength(2);
-    // One OAuth token per invocation, not per batch.
+    expect(await res.json()).toMatchObject({ claimed: 200, sent: 200 });
+    expect(calls.filter((c) => c.url.endsWith('/claim_push_outbox'))).toHaveLength(1);
     expect(calls.filter((c) => c.url.startsWith('https://oauth2.googleapis.test/'))).toHaveLength(1);
   });
 
-  it('never logs the service-account JSON, device tokens, access token or caller secret', async () => {
+  it('does not mint an OAuth token when there is nothing to send', async () => {
+    const { fetchFn, calls } = fakeUpstreams({ batches: [[]] });
+    await handleDispatch(post(), { env: env(), fetch: fetchFn, log: () => {} });
+    expect(calls.map((c) => c.url)).toEqual([`${SUPABASE_URL}/rest/v1/rpc/claim_push_outbox`]);
+  });
+
+  it('never logs the service-account JSON, device tokens, access token or caller token', async () => {
     const lines: string[] = [];
     const log = (event: string, fields?: Record<string, unknown>) => lines.push(JSON.stringify({ event, ...fields }));
     const { fetchFn } = fakeUpstreams({ batches: [[row('r1', [DEVICE_A, DEVICE_B])]], fcm: { [DEVICE_A]: unregistered } });
@@ -267,7 +272,7 @@ describe('push-dispatch delivery', () => {
     await handleDispatch(post(), { env: env(), fetch: f2, log });
     const all = lines.join('\n');
     expect(lines.length).toBeGreaterThan(0);
-    for (const secret of [SECRET, DEVICE_A, DEVICE_B, 'ya29.test-access', 'PRIVATE KEY', 'client_email', SERVICE_KEY]) {
+    for (const secret of [TOKEN, DEVICE_A, DEVICE_B, 'ya29.test-access', 'PRIVATE KEY', 'client_email', SERVICE_KEY]) {
       expect(all).not.toContain(secret);
     }
   });

@@ -2,23 +2,28 @@
 -- RPCs the push-dispatch Edge Function drains the outbox with, and pg_cron
 -- (retry sweep + token TTL).
 --
--- CONFIG — nothing is hard-coded here. Two Supabase Vault secrets drive it:
+-- CONFIG — nothing is hard-coded here. One Supabase Vault secret drives it:
 --
---   plusone_push_dispatch_url     https://<project-ref>.supabase.co/functions/v1/push-dispatch
---   plusone_push_dispatch_secret  a long random string (≥ 32 chars)
+--   plusone_push_dispatch_url   https://<project-ref>.supabase.co/functions/v1/push-dispatch
 --
 -- Unset (every local stack, CI) ⇒ the pipeline SLEEPS: triggers still fill
 -- notification_outbox, kick_push_dispatch() is a no-op, and claim_push_outbox
--- refuses every caller. Runbook: docs/push-dispatch.md.
+-- refuses every caller (no token was ever issued). Runbook: docs/push-dispatch.md.
 --
--- Caller authentication for the Edge Function: the function is deployed with
--- verify_jwt = false (supabase/config.toml) and forwards the
--- x-push-dispatch-secret header it received into claim_push_outbox(), which
--- compares it against the Vault secret. The secret therefore lives in exactly
--- one place (Vault), and a caller without it cannot claim a row. The function
--- never takes notification content from the request — it only drains rows
--- the triggers wrote — so even a leaked secret can at worst make queued
--- notifications go out sooner.
+-- Caller authentication for the Edge Function (deployed with verify_jwt =
+-- false, supabase/config.toml): every kick mints a fresh random 256-bit token,
+-- stores only its sha256 in push_dispatch_tokens, and sends the token as the
+-- x-push-dispatch-token header. The function forwards it to
+-- claim_push_outbox(), which CONSUMES it (single use, 10-minute lifetime).
+--
+-- Why not a static shared secret: pg_net persists each request, headers
+-- included, in net.http_request_queue until its worker sends it, and on
+-- Supabase the platform grants anon/authenticated USAGE on schema net (plus
+-- EXECUTE on net.http_*) — objects owned by supabase_admin, which postgres
+-- cannot revoke (verified in CI). A static secret would be readable there by
+-- any logged-in user. A single-use token read from the queue is worth at most
+-- one early drain of rows the triggers already wrote: the function never takes
+-- notification content from the request.
 
 -- ── pg_net ───────────────────────────────────────────────────────────────────
 -- Guarded like the pg_cron schedules (20260812120000): a stack without the
@@ -37,27 +42,20 @@ begin
 end;
 $$;
 
--- The kick below puts the invocation secret into a pg_net request header, and
--- pg_net persists requests (net.http_request_queue) until its worker sends
--- them. Make sure no app role can read that queue or fire requests itself.
--- Best effort: the objects belong to the extension owner; the pgTAP suite
--- asserts the resulting privilege state either way.
-do $$
-begin
-  if exists (select 1 from pg_namespace where nspname = 'net') then
-    begin
-      -- Schema-wide on purpose (unlike the public grant matrix): this is a
-      -- third-party schema no app role has any business in, and USAGE is the
-      -- gate that also covers objects a future pg_net version adds.
-      revoke usage on schema net from anon, authenticated;
-      revoke all on all tables in schema net from anon, authenticated;
-      revoke all on all functions in schema net from anon, authenticated;
-    exception when others then
-      raise notice 'could not tighten net.* privileges (%): see push_dispatch.test.sql', sqlerrm;
-    end;
-  end if;
-end;
-$$;
+-- ── Single-use invocation tokens ─────────────────────────────────────────────
+-- Only the sha256 is stored. RLS on, no policies, no grants: written by
+-- kick_push_dispatch(), consumed by claim_push_outbox(), swept by
+-- push_outbox_sweep() — all SECURITY DEFINER.
+create table public.push_dispatch_tokens (
+  token_hash bytea primary key,
+  created_at timestamptz not null default now()
+);
+
+comment on table public.push_dispatch_tokens is
+  'Single-use invocation tokens for the push-dispatch Edge Function (Fase 17 N2): sha256 only, 10-minute lifetime, consumed by claim_push_outbox. No app-role grants.';
+
+alter table public.push_dispatch_tokens enable row level security;
+revoke all on table public.push_dispatch_tokens from anon, authenticated;
 
 -- ── Vault-backed config ──────────────────────────────────────────────────────
 -- Owner-only. Returns null when Vault or the secret is absent.
@@ -71,7 +69,7 @@ as $$
 declare
   v text;
 begin
-  if p_name not in ('plusone_push_dispatch_url', 'plusone_push_dispatch_secret') then
+  if p_name is distinct from 'plusone_push_dispatch_url' then
     return null;
   end if;
   begin
@@ -88,8 +86,8 @@ revoke execute on function public.push_dispatch_setting(text) from public, anon,
 
 -- Fire-and-forget wake-up of the Edge Function. pg_net only queues the request
 -- inside this transaction; its worker sends it after commit, so the function
--- always sees the committed outbox rows (and a rolled-back request never
--- wakes anything). Never raises.
+-- always sees the committed outbox rows (and a rolled-back kick leaves neither
+-- a request nor a token). Never raises.
 create or replace function public.kick_push_dispatch()
 returns boolean
 language plpgsql
@@ -98,14 +96,17 @@ set search_path = ''
 as $$
 declare
   v_url text := public.push_dispatch_setting('plusone_push_dispatch_url');
-  v_secret text := public.push_dispatch_setting('plusone_push_dispatch_secret');
+  v_token text;
 begin
-  if v_url is null or v_secret is null then
+  if v_url is null then
     return false;
   end if;
+  v_token := encode(extensions.gen_random_bytes(32), 'hex');
+  insert into public.push_dispatch_tokens (token_hash)
+  values (extensions.digest(v_token, 'sha256'));
   execute 'select net.http_post(url := $1, body := $2, headers := $3, timeout_milliseconds := 5000)'
     using v_url, '{}'::jsonb,
-          jsonb_build_object('Content-Type', 'application/json', 'x-push-dispatch-secret', v_secret);
+          jsonb_build_object('Content-Type', 'application/json', 'x-push-dispatch-token', v_token);
   return true;
 exception when others then
   raise warning 'push dispatch kick failed: % (%)', sqlerrm, sqlstate;
@@ -146,12 +147,13 @@ create trigger notification_outbox_kick
 -- (2, 4, 8, 16) between them; a row stuck in 'sending' for 5 minutes (the
 -- function died mid-batch) goes back to 'pending' via the sweep.
 
--- Claim a batch. The secret check is the Edge Function's caller gate (see the
--- header). Digest comparison so the equality check leaks no useful timing.
--- Returns each row with the recipient's FCM tokens bound to a session that
--- STILL EXISTS — a signed-out/expired session's device gets nothing even
--- before the TTL sweep removes its row.
-create or replace function public.claim_push_outbox(p_secret text, p_limit integer default 50)
+-- Claim a batch (one per invocation: the token is single use; anything left
+-- over is picked up by the next kick or the 2-minute sweep). The token check
+-- is the Edge Function's caller gate (see the header). Returns each row with
+-- the recipient's FCM tokens bound to a session that STILL EXISTS — a
+-- signed-out/expired session's device gets nothing even before the TTL sweep
+-- removes its row.
+create or replace function public.claim_push_outbox(p_token text, p_limit integer default 200)
 returns table (
   id uuid,
   kind text,
@@ -164,12 +166,12 @@ security definer
 set search_path = ''
 as $$
 #variable_conflict use_column
-declare
-  v_secret text := public.push_dispatch_setting('plusone_push_dispatch_secret');
 begin
-  if v_secret is null
-     or p_secret is null
-     or extensions.digest(p_secret, 'sha256') <> extensions.digest(v_secret, 'sha256') then
+  -- Consume: a null token matches nothing, an expired one is left for the sweep.
+  delete from public.push_dispatch_tokens t
+  where t.token_hash = extensions.digest(p_token, 'sha256')
+    and t.created_at > now() - interval '10 minutes';
+  if not found then
     raise exception 'not authorized' using errcode = '42501';
   end if;
 
@@ -179,7 +181,7 @@ begin
     from public.notification_outbox o
     where o.status = 'pending' and o.next_attempt_at <= now()
     order by o.next_attempt_at
-    limit least(greatest(coalesce(p_limit, 50), 1), 200)
+    limit least(greatest(coalesce(p_limit, 200), 1), 200)
     for update skip locked
   ),
   claimed as (
@@ -278,9 +280,10 @@ grant execute on function public.prune_push_tokens(uuid[]) to service_role;
 
 -- ── pg_cron jobs (owner-only functions) ─────────────────────────────────────
 
--- Every 2 minutes: un-stick rows a crashed invocation left in 'sending', then
--- wake the function if anything is due (covers backoff retries and any kick
--- pg_net dropped).
+-- Every 2 minutes: un-stick rows a crashed invocation left in 'sending', drop
+-- expired invocation tokens, then wake the function if anything is due (covers
+-- backoff retries, batches left over by a full claim, and any kick pg_net
+-- dropped).
 create or replace function public.push_outbox_sweep()
 returns integer
 language plpgsql
@@ -295,6 +298,10 @@ begin
       last_error = coalesce(o.last_error, 'stuck in sending'),
       locked_at = null
   where o.status = 'sending' and o.locked_at < now() - interval '5 minutes';
+
+  -- Tokens of kicks that never reached the function (or were never used).
+  delete from public.push_dispatch_tokens t
+  where t.created_at < now() - interval '10 minutes';
 
   select count(*)::integer into v_due
   from public.notification_outbox o

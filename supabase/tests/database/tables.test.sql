@@ -43,9 +43,10 @@ select tables_are(
     -- P-03 (z8uq9m0tnv): open-beta outreach log. Platform admins only; grants
     -- no access — the invitee self-onboards through the existing wizard.
     'platform_invites',
-    -- Fase 17 N2 (86ey6bfbe): device push registrations (owner-only RLS) and
-    -- the push outbox (RLS on, no policies, no app-role grants).
-    'push_tokens', 'notification_outbox'
+    -- Fase 17 N2 (86ey6bfbe): device push registrations (owner-only RLS), the
+    -- push outbox and the dispatch function's single-use invocation tokens
+    -- (both RLS on, no policies, no app-role grants).
+    'push_tokens', 'notification_outbox', 'push_dispatch_tokens'
   ],
   'public schema contains exactly the MVP tables (Fase 1 + invites + landing + adresboek + templates + request links + billing)' 
 );

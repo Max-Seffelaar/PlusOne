@@ -5,8 +5,8 @@
 // Deployed with verify_jwt = false (supabase/config.toml): the only caller is
 // pg_net (and the pg_cron sweep through it), which holds no user JWT. A
 // gateway JWT check would add nothing here — the public anon key passes it —
-// so the real gate is the Vault-held invocation secret, checked inside
-// claim_push_outbox() before a single row is touched.
+// so the real gate is the single-use token pg_net sends with each kick,
+// consumed inside claim_push_outbox() before a single row is touched.
 //
 // Env: SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are injected by the Edge
 // runtime (server-side only — this is the documented service_role use: the

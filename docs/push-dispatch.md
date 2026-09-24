@@ -15,7 +15,7 @@ After the migrations are pushed, the pipeline is **live-but-sleeping**:
 
 - the triggers fill `notification_outbox` (rows stay `pending`);
 - `kick_push_dispatch()` returns `false` (no Vault config → no HTTP call);
-- `claim_push_outbox()` refuses every caller (no secret configured);
+- `claim_push_outbox()` refuses every caller (no invocation token was ever issued);
 - no client registers tokens yet (that is N5), so even a woken pipeline would
   mark rows `skipped`.
 
@@ -23,7 +23,7 @@ Nothing breaks and nothing is sent. Local stacks and CI stay in this state.
 
 ## Turning it on (prod) — once, from the linked main checkout
 
-Order matters: function + FCM secrets first, the Vault switch last.
+Order matters: function + FCM secrets first, the Vault URL last.
 
 ### 1. Edge Function secrets (FCM)
 
@@ -46,28 +46,27 @@ supabase functions deploy push-dispatch --no-verify-jwt
 
 `verify_jwt = false` is also pinned in `supabase/config.toml`; the flag makes it
 explicit. The caller (pg_net) holds no user JWT, and a gateway JWT check would pass
-with the public anon key anyway. The real gate is the invocation secret (step 3),
-checked inside `claim_push_outbox()` before any row is touched.
+with the public anon key anyway. The real gate is a **single-use token**: every kick
+mints a fresh random 256-bit token, stores only its sha256, and sends it as the
+`x-push-dispatch-token` header; `claim_push_outbox()` consumes it (10-minute
+lifetime) before any row is touched. Nothing to generate, store or rotate.
 
-### 3. Vault secrets — the on-switch
+Why not a static shared secret: pg_net keeps each request, headers included, in
+`net.http_request_queue` until it is sent, and Supabase grants `anon`/`authenticated`
+access to schema `net` (a platform grant `postgres` cannot revoke — CI proved it). A
+token read from there is worth at most one early drain of already-queued rows.
 
-SQL editor (prod). Generate the secret locally first, e.g. `openssl rand -hex 32`:
+### 3. Vault secret — the on-switch
+
+SQL editor (prod):
 
 ```sql
 select vault.create_secret(
   'https://tolxwgqhppdcvnogdpel.supabase.co/functions/v1/push-dispatch',
   'plusone_push_dispatch_url');
-select vault.create_secret('<the 64-hex-char secret>', 'plusone_push_dispatch_secret');
 ```
 
-That secret exists **only** in Vault: pg_net sends it as the
-`x-push-dispatch-secret` header, the function forwards it to `claim_push_outbox()`,
-and Postgres compares it there. It is not an Edge Function secret.
-
-Never put these in a migration — this repo is public.
-
-**Rotate:** `select vault.update_secret(id, '<new>') from vault.secrets where name = 'plusone_push_dispatch_secret';`
-Takes effect at the next kick; nothing else to change.
+Set it via the SQL editor, never in a migration.
 
 **Switch off again:** `delete from vault.secrets where name = 'plusone_push_dispatch_url';`
 The outbox keeps filling; nothing is sent.
@@ -85,7 +84,7 @@ select status, count(*) from public.notification_outbox group by status;
 -- is it configured? (true = a request was queued)
 select public.kick_push_dispatch();
 
--- did pg_net reach the function? (status 200 = drained, 401 = secret mismatch,
+-- did pg_net reach the function? (status 200 = drained, 401 = token refused,
 -- 503 = FCM secrets missing)
 select id, status_code, left(content::text, 200), created
 from net._http_response order by created desc limit 10;
@@ -102,8 +101,8 @@ member in the app (or on a local stack), then run the first query: one `pending`
 per venue admin. Approve it: one `quota_request_decided` row for the requester.
 
 Function logs: Dashboard → Edge Functions → push-dispatch → Logs. They contain
-counts and error **codes** only — never tokens, the service-account JSON, or the
-secret.
+counts and error **codes** only — never device tokens, the service-account JSON,
+or the invocation token.
 
 ## Outcomes and retries
 

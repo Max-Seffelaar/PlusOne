@@ -1144,6 +1144,21 @@ export type Database = {
           },
         ]
       }
+      push_dispatch_tokens: {
+        Row: {
+          created_at: string
+          token_hash: string
+        }
+        Insert: {
+          created_at?: string
+          token_hash: string
+        }
+        Update: {
+          created_at?: string
+          token_hash?: string
+        }
+        Relationships: []
+      }
       push_tokens: {
         Row: {
           created_at: string
@@ -1879,7 +1894,7 @@ export type Database = {
         }
       }
       claim_push_outbox: {
-        Args: { p_limit?: number; p_secret: string }
+        Args: { p_limit?: number; p_token: string }
         Returns: {
           attempts: number
           id: string

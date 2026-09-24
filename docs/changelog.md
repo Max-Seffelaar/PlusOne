@@ -26,27 +26,30 @@ Function, pgTAP, a runbook. No UI, no client registration (N5), no Vercel env.
   only. Dedupe key `unique (dedupe_key, recipient_user_id)`; the trigger body
   runs in its own exception block, so broken plumbing never fails a request.
 - `20260925120100_push_dispatch_wiring.sql` — `pg_net` (guarded like pg_cron),
-  Vault-backed config (`plusone_push_dispatch_url`/`_secret`; absent ⇒ asleep),
-  statement-level kick on outbox insert, service_role-only RPCs
-  `claim_push_outbox` (secret-gated; hands out only FCM tokens whose auth session
-  still exists), `complete_push_outbox` (retry/backoff 2^n min, max 5 attempts),
+  Vault-backed URL (`plusone_push_dispatch_url`; absent ⇒ asleep),
+  statement-level kick on outbox insert that mints a single-use invocation token
+  (`push_dispatch_tokens`, sha256 only, 10 min), service_role-only RPCs
+  `claim_push_outbox` (consumes the token; hands out only FCM tokens whose auth
+  session still exists), `complete_push_outbox` (retry/backoff 2^n min, max 5 attempts),
   `prune_push_tokens`; pg_cron `plusone-push-outbox-sweep` (2 min) and
   `plusone-push-token-prune` (daily: 90 days unseen or dead session; finished
-  outbox rows > 30 days). App-role privileges on the `net` schema revoked (the
-  invocation secret sits in pg_net's queue until sent).
+  outbox rows > 30 days). **First CI run showed Supabase keeps `anon`/`authenticated`
+  access to schema `net`** (platform grant, `postgres` cannot revoke it), so a
+  static secret in the pg_net header would have been readable from
+  `net.http_request_queue` — hence the single-use token instead of a Vault secret.
 - `20260925120200_push_tokens_revoke_on_logout.sql` — `revoke_own_session` /
   `admin_revoke_session` also delete the revoked session's tokens; authorization
   logic and signatures unchanged (`session-actions.ts` untouched).
 - `supabase/functions/push-dispatch/` — FCM HTTP v1 via an RS256 service-account
   JWT (WebCrypto), prune on `UNREGISTERED` / `SENDER_ID_MISMATCH` / invalid-token
   `INVALID_ARGUMENT`, never logs tokens/JSON/secret. `verify_jwt = false`
-  (`supabase/config.toml`); the gate is the Vault secret checked in
-  `claim_push_outbox`. Logic sits in a runtime-agnostic `dispatch.ts` so CI's
-  vitest covers it (`tests/unit/push-dispatch.test.ts`, 23 tests) — CI runs no
+  (`supabase/config.toml`); the gate is the single-use token consumed in
+  `claim_push_outbox`, one claim (≤ 200 rows) per invocation. Logic sits in a runtime-agnostic `dispatch.ts` so CI's
+  vitest covers it (`tests/unit/push-dispatch.test.ts`, 24 tests) — CI runs no
   Deno tests.
 - pgTAP: `push_tokens.test.sql` (36), `push_outbox.test.sql` (23),
-  `push_dispatch.test.sql` (35); `grant_matrix.test.sql` allowlists
-  `push_tokens` DELETE; `tables.test.sql` lists the two tables.
+  `push_dispatch.test.sql` (39); `grant_matrix.test.sql` allowlists
+  `push_tokens` DELETE; `tables.test.sql` lists the three tables.
 - Spec decision #50; runbook `docs/push-dispatch.md` (FCM Edge secrets, deploy,
   Vault on-switch, check queries).
 

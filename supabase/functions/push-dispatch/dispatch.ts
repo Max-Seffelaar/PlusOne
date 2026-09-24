@@ -12,13 +12,14 @@
 //      an OAuth2 access token minted from the service account (RS256 JWT);
 //   3. prune tokens FCM reports as permanently dead.
 //
-// Caller auth: the x-push-dispatch-secret header is passed to
-// claim_push_outbox(), which compares it with the Vault secret and raises
-// 42501 otherwise — so the secret lives in one place (Vault) and this code
-// never holds a copy to compare against.
+// Caller auth: every pg_net kick carries a fresh single-use token in the
+// x-push-dispatch-token header (only its sha256 is stored, 10-minute
+// lifetime). This code forwards it to claim_push_outbox(), which consumes it
+// or raises 42501 — so this function holds no secret of its own to compare
+// against, and one invocation = one claim.
 //
 // Never logged: the service-account JSON, the access token, device tokens,
-// the caller's secret, FCM error messages (only their error codes).
+// the caller's token, FCM error messages (only their error codes).
 
 export interface DispatchEnv {
   SUPABASE_URL?: string;
@@ -59,8 +60,8 @@ export type RowOutcome = 'sent' | 'skipped' | 'retry' | 'failed';
 
 const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
 const DEFAULT_TOKEN_URI = 'https://oauth2.googleapis.com/token';
-const BATCH_SIZE = 50;
-const MAX_BATCHES = 5;
+/** One claim per invocation (the token is single use); leftovers go on the next kick or the 2-minute sweep. */
+const BATCH_SIZE = 200;
 
 // ── copy ─────────────────────────────────────────────────────────────────────
 // English (the app's only locale). Generic by design: no guest or member names
@@ -293,9 +294,10 @@ export async function handleDispatch(req: Request, deps: DispatchDeps): Promise<
 
   if (req.method !== 'POST') return json(405, { error: 'method_not_allowed' });
 
-  // Cheap pre-filter before any DB round trip; the real check is in the RPC.
-  const secret = req.headers.get('x-push-dispatch-secret') ?? '';
-  if (secret.length < 32 || secret.length > 512) return json(401, { error: 'unauthorized' });
+  // Cheap pre-filter before any DB round trip; the real check (consume the
+  // single-use token) is in the RPC. Tokens are 64 hex chars.
+  const token = req.headers.get('x-push-dispatch-token') ?? '';
+  if (!/^[0-9a-f]{64}$/.test(token)) return json(401, { error: 'unauthorized' });
 
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, FCM_PROJECT_ID } = deps.env;
   const sa = parseServiceAccount(deps.env.FCM_SERVICE_ACCOUNT_JSON);
@@ -306,65 +308,62 @@ export async function handleDispatch(req: Request, deps: DispatchDeps): Promise<
   }
 
   const totals = { claimed: 0, sent: 0, skipped: 0, retry: 0, failed: 0, pruned: 0 };
-  let accessToken: string | null = null;
 
-  for (let batch = 0; batch < MAX_BATCHES; batch++) {
-    let rows: ClaimedRow[];
-    try {
-      rows = await rpc<ClaimedRow[]>(deps, 'claim_push_outbox', { p_secret: secret, p_limit: BATCH_SIZE });
-    } catch (e) {
-      if (e instanceof RpcError && (e.pgCode === '42501' || e.httpStatus === 401 || e.httpStatus === 403)) {
-        log('unauthorized');
-        return json(401, { error: 'unauthorized' });
-      }
-      log('claim_failed', { error: e instanceof Error ? e.message : 'unknown' });
-      return json(502, { error: 'claim_failed', ...totals });
+  let rows: ClaimedRow[];
+  try {
+    rows = await rpc<ClaimedRow[]>(deps, 'claim_push_outbox', { p_token: token, p_limit: BATCH_SIZE });
+  } catch (e) {
+    if (e instanceof RpcError && (e.pgCode === '42501' || e.httpStatus === 401 || e.httpStatus === 403)) {
+      log('unauthorized');
+      return json(401, { error: 'unauthorized' });
     }
-    if (rows.length === 0) break;
-    totals.claimed += rows.length;
+    log('claim_failed', { error: e instanceof Error ? e.message : 'unknown' });
+    return json(502, { error: 'claim_failed', ...totals });
+  }
+  totals.claimed = rows.length;
+  if (rows.length === 0) {
+    log('done', totals);
+    return json(200, totals);
+  }
 
-    if (!accessToken) {
-      try {
-        accessToken = await fetchAccessToken(sa, deps.fetch, now());
-      } catch (e) {
-        const code = e instanceof Error ? e.message : 'oauth_error';
-        log('oauth_failed', { error: code });
-        for (const row of rows) {
-          await rpc(deps, 'complete_push_outbox', { p_id: row.id, p_outcome: 'retry', p_error: code }).catch(() => undefined);
-        }
-        totals.retry += rows.length;
-        return json(502, { error: 'oauth_failed', ...totals });
-      }
-    }
-
-    const prune: string[] = [];
+  let accessToken: string;
+  try {
+    accessToken = await fetchAccessToken(sa, deps.fetch, now());
+  } catch (e) {
+    const code = e instanceof Error ? e.message : 'oauth_error';
+    log('oauth_failed', { error: code });
     for (const row of rows) {
-      const results = await Promise.all(
-        row.tokens.map(async (t) => {
-          const r = await sendToToken(deps.fetch, FCM_PROJECT_ID, accessToken!, t.token, row);
-          if (r.kind === 'prune') prune.push(t.id);
-          return r;
-        })
-      );
-      const { outcome, error } = rowOutcome(results);
-      totals[outcome] += 1;
-      try {
-        await rpc(deps, 'complete_push_outbox', { p_id: row.id, p_outcome: outcome, p_error: error });
-      } catch (e) {
-        // The sweep puts a row stuck in 'sending' back after 5 minutes.
-        log('complete_failed', { error: e instanceof Error ? e.message : 'unknown' });
-      }
+      await rpc(deps, 'complete_push_outbox', { p_id: row.id, p_outcome: 'retry', p_error: code }).catch(() => undefined);
     }
+    totals.retry += rows.length;
+    return json(502, { error: 'oauth_failed', ...totals });
+  }
 
-    if (prune.length) {
-      try {
-        totals.pruned += await rpc<number>(deps, 'prune_push_tokens', { p_ids: prune });
-      } catch (e) {
-        log('prune_failed', { error: e instanceof Error ? e.message : 'unknown' });
-      }
+  const prune: string[] = [];
+  for (const row of rows) {
+    const results = await Promise.all(
+      row.tokens.map(async (t) => {
+        const r = await sendToToken(deps.fetch, FCM_PROJECT_ID, accessToken, t.token, row);
+        if (r.kind === 'prune') prune.push(t.id);
+        return r;
+      })
+    );
+    const { outcome, error } = rowOutcome(results);
+    totals[outcome] += 1;
+    try {
+      await rpc(deps, 'complete_push_outbox', { p_id: row.id, p_outcome: outcome, p_error: error });
+    } catch (e) {
+      // The sweep puts a row stuck in 'sending' back after 5 minutes.
+      log('complete_failed', { error: e instanceof Error ? e.message : 'unknown' });
     }
+  }
 
-    if (rows.length < BATCH_SIZE) break;
+  if (prune.length) {
+    try {
+      totals.pruned += await rpc<number>(deps, 'prune_push_tokens', { p_ids: prune });
+    } catch (e) {
+      log('prune_failed', { error: e instanceof Error ? e.message : 'unknown' });
+    }
   }
 
   log('done', totals);

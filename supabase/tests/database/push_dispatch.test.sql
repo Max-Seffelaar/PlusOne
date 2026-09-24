@@ -2,15 +2,19 @@
 -- 20260925120100). Run: pnpm db:test.
 --
 -- Proves: privilege boundaries (the three Edge Function RPCs are service_role-
--- only; kick/config/sweep/TTL are owner-only; app roles cannot reach pg_net's
--- request queue, where the invocation secret sits until sent); the pipeline
--- SLEEPS without Vault config (kick no-ops, claim refuses everyone); with
--- config, an outbox insert queues exactly one pg_net request and a dedupe hit
--- none; claim hands out only live-session FCM tokens and gates on the secret;
--- complete's retry/backoff/max-attempts state machine; token pruning; the
--- stuck-row sweep; and the 90-day / dead-session TTL.
+-- only; kick/config/sweep/TTL are owner-only; the invocation-token table is
+-- closed to app roles); the pipeline SLEEPS without Vault config (kick no-ops,
+-- no token exists, claim refuses everyone); with config, an outbox insert
+-- queues exactly one pg_net request and a dedupe hit none; the header each kick
+-- sends is a fresh single-use token stored only as a hash — so a request read
+-- out of pg_net's queue (which Supabase leaves readable by app roles, a
+-- platform grant postgres cannot revoke) holds nothing reusable; claim gates on
+-- that token (unknown / expired / reused → 42501) and hands out only
+-- live-session FCM tokens; complete's retry/backoff/max-attempts state
+-- machine; token pruning; the stuck-row + expired-token sweep; and the
+-- 90-day / dead-session TTL.
 --
--- The Vault secrets and every pg_net request created here roll back with the
+-- The Vault secret and every pg_net request created here roll back with the
 -- transaction, so nothing is ever sent. Seed users as in push_tokens.test.sql.
 
 begin;
@@ -31,7 +35,7 @@ returns int language sql as $fn$
   where url = 'http://127.0.0.1:9/functions/v1/push-dispatch';
 $fn$;
 
-select plan(35);
+select plan(39);
 
 select set_config('request.jwt.claims', '{}', true);
 
@@ -70,15 +74,15 @@ select is_empty($$
   where has_function_privilege(r, f, 'EXECUTE')
 $$, 'A3 config/kick/sweep/TTL/trigger functions are owner-only');
 
-select ok(
-  not has_schema_privilege('anon', 'net', 'USAGE')
-  and not has_schema_privilege('authenticated', 'net', 'USAGE'),
-  'A4 app roles have no USAGE on pg_net''s schema');
+select ok((select relrowsecurity from pg_class where oid = 'public.push_dispatch_tokens'::regclass),
+  'A4 RLS is enabled on push_dispatch_tokens');
 
-select ok(
-  not has_table_privilege('authenticated', 'net.http_request_queue', 'SELECT')
-  and not has_table_privilege('anon', 'net.http_request_queue', 'SELECT'),
-  'A5 app roles cannot read the pg_net queue (it holds the invocation secret)');
+select is_empty($$
+  select r || ':' || p
+  from unnest(array['anon','authenticated']) r
+  cross join unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) p
+  where has_table_privilege(r, 'public.push_dispatch_tokens', p)
+$$, 'A5 no app role holds any privilege on push_dispatch_tokens');
 
 -- ---------------------------------------------------------------------------
 -- B. Asleep without config
@@ -86,12 +90,14 @@ select ok(
 select is(public.push_dispatch_setting('plusone_push_dispatch_url'), null,
   'B1 no dispatch URL configured on a fresh stack');
 select is(public.kick_push_dispatch(), false, 'B2 kick is a no-op while unconfigured');
-select is(public.push_dispatch_setting('some_other_vault_secret'), null,
-  'B3 the config reader refuses names outside its two keys');
+select is((select count(*)::int from public.push_dispatch_tokens), 0,
+  'B3 …and mints no invocation token (the seed''s kicks minted none either)');
+select is(public.push_dispatch_setting('plusone_push_dispatch_secret'), null,
+  'B4 the config reader refuses every name but the URL');
 
 select pg_temp.as_service();
-select throws_ok($$select * from public.claim_push_outbox(repeat('s', 40), 10)$$,
-  '42501', null, 'B4 claim refuses every caller while no secret is configured');
+select throws_ok($$select * from public.claim_push_outbox(repeat('ab', 32), 10)$$,
+  '42501', null, 'B5 claim refuses every caller while no token has been issued');
 reset role;
 select set_config('request.jwt.claims', '{}', true);
 
@@ -99,14 +105,16 @@ select set_config('request.jwt.claims', '{}', true);
 -- C. Configured: kick + claim
 -- ---------------------------------------------------------------------------
 select vault.create_secret('http://127.0.0.1:9/functions/v1/push-dispatch', 'plusone_push_dispatch_url');
-select vault.create_secret(repeat('s', 40), 'plusone_push_dispatch_secret');
 
 select is(public.kick_push_dispatch(), true, 'C1 kick queues a request once configured');
 select is(pg_temp.queued(), 1, 'C2 exactly one pg_net request to the configured URL');
-select is(
-  (select headers ->> 'x-push-dispatch-secret' from net.http_request_queue
-   where url = 'http://127.0.0.1:9/functions/v1/push-dispatch' limit 1),
-  repeat('s', 40), 'C3 the request carries the invocation secret header');
+select ok(
+  (select q.headers ->> 'x-push-dispatch-token' ~ '^[0-9a-f]{64}$'
+          and exists (select 1 from public.push_dispatch_tokens t
+                      where t.token_hash = extensions.digest(q.headers ->> 'x-push-dispatch-token', 'sha256'))
+   from net.http_request_queue q
+   where q.url = 'http://127.0.0.1:9/functions/v1/push-dispatch' limit 1),
+  'C3 the request carries a fresh 256-bit token, stored server-side only as its sha256');
 
 insert into auth.sessions (id, user_id, created_at, updated_at, aal) values
   ('5d550000-0000-4000-8000-000000000001', '55555555-5555-4555-8555-555555555555', now(), now(), 'aal1');
@@ -133,25 +141,42 @@ values ('guest_request_created', gen_random_uuid(), 'aa000000-0000-7000-8000-000
 on conflict (dedupe_key, recipient_user_id) do nothing;
 select is(pg_temp.queued(), 2, 'C5 a dedupe hit inserts nothing and wakes nothing');
 
+-- The token the latest kick actually sent, as an attacker reading the queue
+-- (or the real function) would see it.
+select set_config('pgtap.tok', (
+  select headers ->> 'x-push-dispatch-token' from net.http_request_queue
+  where url = 'http://127.0.0.1:9/functions/v1/push-dispatch' order by id desc limit 1), true);
+
+-- Extra tokens for the later claims (known plaintexts, stored hashed like
+-- kick_push_dispatch does), plus one past its 10-minute lifetime.
+insert into public.push_dispatch_tokens (token_hash, created_at)
+select extensions.digest(t, 'sha256'), c
+from (values ('pgtap-token-2', now()), ('pgtap-token-3', now()), ('pgtap-token-4', now()),
+             ('pgtap-token-5', now()), ('pgtap-expired', now() - interval '11 minutes')) v (t, c);
+
 select pg_temp.as_service();
-select throws_ok($$select * from public.claim_push_outbox(repeat('t', 40), 10)$$,
-  '42501', null, 'C6 claim refuses a wrong secret');
+select throws_ok($$select * from public.claim_push_outbox(repeat('cd', 32), 10)$$,
+  '42501', null, 'C6 claim refuses a token that was never issued');
 select throws_ok($$select * from public.claim_push_outbox(null, 10)$$,
-  '42501', null, 'C7 claim refuses a missing secret');
+  '42501', null, 'C7 claim refuses a missing token');
+select throws_ok($$select * from public.claim_push_outbox('pgtap-expired', 10)$$,
+  '42501', null, 'C8 claim refuses an expired token');
 
 create temp table claimed on commit drop as
-  select * from public.claim_push_outbox(repeat('s', 40), 10);
+  select * from public.claim_push_outbox(current_setting('pgtap.tok'), 10);
 
-select is((select count(*)::int from claimed), 2, 'C8 the right secret claims both due rows');
+select is((select count(*)::int from claimed), 2, 'C9 the sent token claims both due rows');
 select is(
   (select tokens from claimed where id = '9d000000-0000-7000-8000-000000000001'),
   '[{"id": "7d000000-0000-4000-8000-00000000000a", "token": "tok-live"}]'::jsonb,
-  'C9 only FCM tokens on a LIVE session are handed out (dead session and web-push excluded)');
+  'C10 only FCM tokens on a LIVE session are handed out (dead session and web-push excluded)');
 select is(
   (select tokens from claimed where id = '9d000000-0000-7000-8000-000000000002'),
-  '[]'::jsonb, 'C10 a recipient without devices gets an empty token list');
-select is((select count(*)::int from public.claim_push_outbox(repeat('s', 40), 10)), 0,
-  'C11 a claimed row is not handed out twice');
+  '[]'::jsonb, 'C11 a recipient without devices gets an empty token list');
+select throws_ok($$select * from public.claim_push_outbox(current_setting('pgtap.tok'), 10)$$,
+  '42501', null, 'C12 a token works once: replaying it is refused');
+select is((select count(*)::int from public.claim_push_outbox('pgtap-token-2', 10)), 0,
+  'C13 a claimed row is not handed out twice');
 
 reset role;
 select set_config('request.jwt.claims', '{}', true);
@@ -159,7 +184,7 @@ select set_config('request.jwt.claims', '{}', true);
 select is(
   (select status || '/' || attempts || '/' || (locked_at is not null)
    from public.notification_outbox where id = '9d000000-0000-7000-8000-000000000001'),
-  'sending/1/true', 'C12 claiming moves the row to sending, counts the attempt and locks it');
+  'sending/1/true', 'C14 claiming moves the row to sending, counts the attempt and locks it');
 
 -- ---------------------------------------------------------------------------
 -- D. complete_push_outbox state machine
@@ -173,7 +198,7 @@ select is(
           and last_error = 'fcm:UNAVAILABLE' and locked_at is null
    from public.notification_outbox where id = '9d000000-0000-7000-8000-000000000001'),
   true, 'D2 …with exponential backoff (2 min after attempt 1), the error code, and the lock released');
-select is((select count(*)::int from public.claim_push_outbox(repeat('s', 40), 10)), 0,
+select is((select count(*)::int from public.claim_push_outbox('pgtap-token-3', 10)), 0,
   'D3 a backed-off row is not claimable yet');
 
 select is(public.complete_push_outbox('9d000000-0000-7000-8000-000000000002', 'sent', null),
@@ -189,7 +214,7 @@ update public.notification_outbox set attempts = 4, next_attempt_at = now() - in
 where id = '9d000000-0000-7000-8000-000000000001';
 
 select pg_temp.as_service();
-select is((select attempts from public.claim_push_outbox(repeat('s', 40), 10)), 5,
+select is((select attempts from public.claim_push_outbox('pgtap-token-4', 10)), 5,
   'D7 the fifth attempt is claimed');
 select is(public.complete_push_outbox('9d000000-0000-7000-8000-000000000001', 'retry', 'fcm:UNAVAILABLE'),
   'failed', 'D8 a retry after the fifth attempt is terminal');
@@ -226,6 +251,11 @@ select is(
                 '9d000000-0000-7000-8000-000000000005')),
   array['pending', 'failed', 'sending'],
   'F2 stuck rows go back to pending (or failed at the attempt cap); a fresh claim is left alone');
+select is(
+  (select array_agg(t order by t) from (values ('pgtap-token-5'), ('pgtap-expired')) v (t)
+   where exists (select 1 from public.push_dispatch_tokens d where d.token_hash = extensions.digest(t, 'sha256'))),
+  array['pgtap-token-5'],
+  'F3 the sweep drops expired invocation tokens and keeps fresh unused ones');
 
 -- ---------------------------------------------------------------------------
 -- G. TTL: 90 days unseen, or bound to a session that is gone
