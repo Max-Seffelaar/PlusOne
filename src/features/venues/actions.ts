@@ -9,6 +9,7 @@ import { ACTIVE_VENUE_COOKIE } from '@/lib/auth/active-venue';
 import { canGrantRoles, type VenueRole } from '@/features/auth/roles';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
 import { TERMS_VERSION } from '@/lib/legal';
+import { isDemoReviewUser } from '@/features/auth/review-window';
 import {
   venueSettingsSchema,
   createVenueSchema,
@@ -341,6 +342,13 @@ export async function createVenueAction(input: CreateVenueInput): Promise<Create
   const supabase = await createClient();
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
+
+  // The store-review demo account never creates venues (86ey6bfug). The real
+  // stop is in the RPC (20260925130000_review_demo_guard.sql raises 42501 for
+  // the demo id, whoever calls it); this only gives the UI a clear message.
+  if (isDemoReviewUser(ctx.user)) {
+    return { ok: false, code: '42501', message: "The demo account can't create venues." };
+  }
 
   const { data, error } = await supabase.rpc('create_venue_with_owner', {
     p_name: name,

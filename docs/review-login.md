@@ -32,6 +32,10 @@ met fake data en één demo-user, plus de prod-safe route
   - het account platform-admin is;
   - het niet lid is van precies één venue: de demo-venue op **vast id**
     `de300000-0000-7000-8000-000000000001` (de naam is alleen voor weergave);
+  - de rollen van die membership niet precies `admin,doorhost` zijn (`roles_changed`).
+    Deze check komt vóór de isolatie-check: alleen als admin ziet de demo-user de
+    andere leden en de invites van zijn venue, en een admin kan zijn eigen rij
+    wijzigen;
   - de demo-venue niet geïsoleerd is: er is nog een ander lid, of er staat een open
     invite in die venue of naar het demo-adres (`venue_not_isolated`).
 
@@ -72,9 +76,17 @@ en geen MFA.
 
 **Rest-risico van `admin`, bewust geaccepteerd.** Wie de code heeft, kan binnen de
 demo-venue alles wat een venue-admin kan. Dat omvat ook crew uitnodigen (dan gaat er
-echte invite-mail naar een willekeurig adres) en een nieuwe venue aanmaken. Dat laatste
-blokkeert de route vanzelf (fail-closed op het aantal memberships) totdat je het
-opruimt. Het venster houdt dit kort: hooguit 60 dagen, en daarna sterft elke demo-sessie.
+echte invite-mail naar een willekeurig adres). Het venster houdt dit kort: hooguit 60
+dagen, en daarna sterft elke demo-sessie.
+
+**Een eigen venue aanmaken kan níet, en dat regelt de database.** De route zou het
+alleen kunnen *detecteren*, niet blokkeren: een code-houder kan een venue maken, daar
+een echt adres als admin uitnodigen en dan zijn eigen membership verwijderen, waarna
+het aantal memberships weer klopt. Daarom weigert `create_venue_with_owner` het vaste
+demo-id met 42501 (migratie `20260925130000_review_demo_guard.sql`, pgTAP
+`review_demo_guard.test.sql`), wie de RPC ook aanroept. `createVenueAction` weigert
+het ook, alleen voor een nette foutmelding. Als tripwire stopt het seedscript als er
+`audit_log`-rijen zijn met het demo-id als actor in een andere venue dan de demo-venue.
 
 ## Eenmalig: seed de demo-venue
 
@@ -100,6 +112,8 @@ node scripts/seed-demo-venue.mjs --prod
   - de demo-user lid is van een andere venue;
   - de demo-venue andere leden heeft. Met `--reset-members` worden die leden
     verwijderd in plaats van dat het script stopt.
+  - er `audit_log`-rijen zijn met het demo-id als actor en een andere `venue_id` dan
+    de demo-venue (tripwire: de code-houder heeft ergens anders iets gedaan).
 
   Onderzoek zo'n stop eerst; een extra lid betekent meestal dat een code-houder
   iemand heeft uitgenodigd.

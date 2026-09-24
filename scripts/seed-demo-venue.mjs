@@ -228,6 +228,31 @@ if (elsewhere.length > 0) {
       'review-login refuses to sign in until the demo venue is the only one.',
   );
 }
+// Tripwire: anything the demo user ever did OUTSIDE the demo venue. The DB
+// refuses venue creation for the demo id (20260925130000_review_demo_guard.sql),
+// but a venue created, an invite sent or a membership dropped elsewhere before
+// that guard (or through a path nobody thought of) leaves audit rows under the
+// demo actor. Those must be investigated by hand, never papered over.
+const foreignAudit = await must(
+  'audit tripwire',
+  db
+    .from('audit_log')
+    .select('created_at, entity_type, action, venue_id, entity_id')
+    .eq('actor_id', DEMO_USER_ID)
+    .neq('venue_id', VENUE_ID)
+    .order('created_at', { ascending: true })
+    .limit(50),
+);
+if (foreignAudit.length > 0) {
+  const rows = foreignAudit
+    .map((r) => `  ${r.created_at}  ${r.entity_type}.${r.action}  venue ${r.venue_id}  entity ${r.entity_id}`)
+    .join('\n');
+  fail(
+    `The demo user has audit_log rows outside the demo venue (first ${foreignAudit.length}):\n${rows}\n` +
+      'A code holder acted in another venue. Investigate those venues/members by hand before the next review window.',
+  );
+}
+
 // Roles: admin sees and decides approvals (approve_* RPCs require admin) and
 // gets the approvals push; doorhost makes the Check-in tab the reviewer's
 // door view. Upsert so a reviewer-edited role set is restored.
