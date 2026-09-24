@@ -1037,6 +1037,54 @@ export type Database = {
         }
         Relationships: []
       }
+      platform_invites: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          invited_by: string
+          last_sent_at: string
+          note: string | null
+          revoked_at: string | null
+          revoked_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          invited_by: string
+          last_sent_at?: string
+          note?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          invited_by?: string
+          last_sent_at?: string
+          note?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "platform_invites_invited_by_fkey"
+            columns: ["invited_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "platform_invites_revoked_by_fkey"
+            columns: ["revoked_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       quota_requests: {
         Row: {
           created_at: string
@@ -1436,6 +1484,7 @@ export type Database = {
           first_name: string | null
           full_name: string
           id: string
+          is_platform_admin: boolean
           last_name: string | null
           mfa_snooze_until: string | null
           phone: string | null
@@ -1449,6 +1498,7 @@ export type Database = {
           first_name?: string | null
           full_name: string
           id: string
+          is_platform_admin?: boolean
           last_name?: string | null
           mfa_snooze_until?: string | null
           phone?: string | null
@@ -1462,6 +1512,7 @@ export type Database = {
           first_name?: string | null
           full_name?: string
           id?: string
+          is_platform_admin?: boolean
           last_name?: string | null
           mfa_snooze_until?: string | null
           phone?: string | null
@@ -1736,6 +1787,7 @@ export type Database = {
         }
       }
       cleanup_landing_request_throttle: { Args: never; Returns: number }
+      consume_platform_invite_throttle: { Args: never; Returns: boolean }
       consume_public_throttle: {
         Args: { p_key: string; p_max: number; p_window_min: number }
         Returns: boolean
@@ -1946,6 +1998,7 @@ export type Database = {
       }
       is_aal2: { Args: never; Returns: boolean }
       is_event_organizer: { Args: { p_event_id: string }; Returns: boolean }
+      is_platform_admin: { Args: never; Returns: boolean }
       is_valid_event_status_transition: {
         Args: {
           p_from: Database["public"]["Enums"]["event_status"]
@@ -1983,6 +2036,45 @@ export type Database = {
       organizes_event_at_venue: {
         Args: { p_venue_id: string }
         Returns: boolean
+      }
+      platform_invite_funnel: {
+        Args: never
+        Returns: {
+          invite_count: number
+          stage: string
+        }[]
+      }
+      platform_invite_overview: {
+        Args: { p_limit?: number; p_offset?: number }
+        Returns: {
+          confirmed_at: string
+          created_at: string
+          email: string
+          event_count: number
+          id: string
+          invited_by: string
+          invited_by_name: string
+          last_sent_at: string
+          last_sign_in_at: string
+          note: string
+          revoked_at: string
+          revoked_by: string
+          stage: string
+          user_id: string
+          venue_count: number
+        }[]
+      }
+      platform_invite_stage_rows: {
+        Args: never
+        Returns: {
+          confirmed_at: string
+          event_count: number
+          invite_id: string
+          last_sign_in_at: string
+          stage: string
+          user_id: string
+          venue_count: number
+        }[]
       }
       promote_guest_to_contact: {
         Args: { p_guest_id: string }
@@ -2039,6 +2131,10 @@ export type Database = {
           id: string
           preferred_role: Database["public"]["Enums"]["contact_role"]
         }[]
+      }
+      set_platform_admin: {
+        Args: { p_user_id: string; p_value: boolean }
+        Returns: undefined
       }
       set_venue_plan: {
         Args: { p_plan_id: string; p_venue_id: string }
