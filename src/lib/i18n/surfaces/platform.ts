@@ -72,4 +72,67 @@ export const platform = {
   revokeConfirm: 'Yes, stop following up',
   cancel: 'Cancel',
   actionsFor: 'Actions for {email}',
+
+  // ── Venue overview + audit viewer (P-05) — nav from the Platform tab ───────
+  venuesNavTitle: 'Venues',
+  venuesNavSub: 'Every company, at a glance',
+  auditNavTitle: 'Audit',
+  auditNavSub: 'Who did what, everywhere',
+
+  // ── Venues screen ─────────────────────────────────────────────────────────
+  venuesTitle: 'Venues',
+  venuesSubtitle: 'Every company on the platform',
+  venuesSearchPlaceholder: 'Search by name…',
+  venuesEmpty: 'No venues match that search.',
+  venuesLoading: 'Loading venues…',
+  venuesLoadError: "Couldn't load the venues. Try again in a moment.",
+  venuesMembers: '{count} member',
+  venuesMembersPlural: '{count} members',
+  venuesEvents: '{count} event',
+  venuesEventsPlural: '{count} events',
+  venuesNoActivity: 'No activity yet',
+  venuesLastActivity: 'Last activity {date}',
+  venuesNoSubscription: 'No subscription',
+  venuesOpenAudit: 'View audit',
+  venuesSwitchInto: 'Switch into this venue',
+  venuesCountOf: '{shown} of {total}',
+  pagePrev: 'Previous',
+  pageNext: 'Next',
+
+  // Subscription status labels (subscription_status enum → display text).
+  // Never render the raw enum value — `trialing`/`past_due` etc. are DB
+  // vocabulary, not copy (review finding, z8uq9m0tnx).
+  subscriptionTrialing: 'Trialing',
+  subscriptionActive: 'Active',
+  subscriptionPastDue: 'Past due',
+  subscriptionCanceled: 'Canceled',
+  subscriptionComped: 'Comped',
+
+  // ── Audit screen ──────────────────────────────────────────────────────────
+  auditTitle: 'Audit',
+  auditSubtitle: 'Every audited action, across every venue',
+  auditEmpty: 'No audit entries match these filters.',
+  auditLoading: 'Loading audit entries…',
+  auditLoadError: "Couldn't load the audit feed. Try again in a moment.",
+  auditFilterVenueLabel: 'Venue',
+  auditFilterAllVenues: 'All venues',
+  auditFilterSinceLabel: 'From',
+  auditFilterUntilLabel: 'Until',
+  auditFilterClear: 'Clear filters',
+  auditSupportBadge: 'Support action',
+  // The flag is indicative, not forensic (review finding, z8uq9m0tnx): a
+  // platform admin can self-insert a real membership at any venue (their
+  // own is_platform_admin() already satisfies that policy's role check) and
+  // un-flag their own past rows there — an audited trail, not a tamper-proof
+  // one, so this hint stays a present-tense description of the check.
+  auditSupportHint: 'The acting operator is not CURRENTLY a member of this venue.',
+  auditNoVenue: 'No venue',
+  auditUnknownActor: 'Unknown',
+  auditColWho: 'Who',
+  auditColAction: 'Action',
+  auditColVenue: 'Venue',
+  auditColWhen: 'When',
+  auditDiffLabel: 'Before / after',
+  auditNoDiff: 'No field-level diff for this action.',
+  auditCountOf: '{shown} of {total}',
 } as const;

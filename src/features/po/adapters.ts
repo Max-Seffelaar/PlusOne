@@ -22,6 +22,9 @@ import type {
   ContactAppearance,
   PlatformInviteRow,
   PlatformFunnelRow,
+  PlatformVenueRow,
+  PlatformVenueOption,
+  PlatformAuditRow,
 } from './queries';
 import type { EventSummary, TierStat } from '@/features/stats/data';
 import { formatInTz as fmt, formatClock, toDateInput } from './format';
@@ -1167,4 +1170,79 @@ export function toPlatformFunnel(rows: PlatformFunnelRow[]): Record<PlatformInvi
     out[stage] += r.invite_count ?? 0;
   }
   return out;
+}
+
+// ── Platform (system) admin surface — venue overview + audit viewer (P-05) ──
+
+/** The ONE canonical shape the Platform > Venues screen renders. */
+export interface PlatformVenue {
+  venueId: string;
+  name: string;
+  slug: string;
+  memberCount: number;
+  eventCount: number;
+  subscriptionStatus: string | null;
+  lastActivityAt: string | null;
+}
+
+export function toPlatformVenue(row: PlatformVenueRow): PlatformVenue {
+  return {
+    venueId: row.venue_id,
+    name: row.name,
+    slug: row.slug,
+    memberCount: row.member_count ?? 0,
+    eventCount: row.event_count ?? 0,
+    subscriptionStatus: row.subscription_status ?? null,
+    lastActivityAt: row.last_activity_at ?? null,
+  };
+}
+
+export interface PlatformVenueOptionItem {
+  venueId: string;
+  name: string;
+}
+
+export function toPlatformVenueOption(row: PlatformVenueOption): PlatformVenueOptionItem {
+  return { venueId: row.venue_id, name: row.name };
+}
+
+/** The ONE canonical shape the Platform > Audit screen renders. `diff` stays
+ *  `unknown` here (never HTML) — the screen renders it as plain text only. */
+export interface PlatformAuditEntry {
+  id: string;
+  createdAt: string;
+  actorId: string | null;
+  /** Null when the actor row was deleted or the action had no actor (e.g. a
+   *  scheduled job) — the screen supplies the fallback copy. */
+  actorName: string | null;
+  venueId: string | null;
+  /** Null for a platform-scoped action with no venue (e.g. platform_admin_grant). */
+  venueName: string | null;
+  eventId: string | null;
+  entityType: string;
+  entityId: string | null;
+  action: string;
+  diff: unknown;
+  device: string | null;
+  /** True when the actor holds no CURRENT venue_memberships row at the
+   *  audited venue — a support action, computed in SQL (never client-side). */
+  isSupportAction: boolean;
+}
+
+export function toPlatformAuditEntry(row: PlatformAuditRow): PlatformAuditEntry {
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    actorId: row.actor_id ?? null,
+    actorName: row.actor_name ?? null,
+    venueId: row.venue_id ?? null,
+    venueName: row.venue_name ?? null,
+    eventId: row.event_id ?? null,
+    entityType: row.entity_type,
+    entityId: row.entity_id ?? null,
+    action: row.action,
+    diff: row.diff ?? null,
+    device: row.device_id ?? null,
+    isSupportAction: row.is_support_action === true,
+  };
 }

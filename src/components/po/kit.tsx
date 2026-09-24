@@ -356,6 +356,58 @@ export function TierPicker({
 }
 
 // ── Field (input or static display) ──────────────────────────────────────────
+// ── Select ───────────────────────────────────────────────────────────────────
+/**
+ * A native `<select>` in the Field's own skin — the `po` kit had no dropdown
+ * primitive before P-05's audit-viewer venue filter needed one. Native
+ * (not a custom listbox) on purpose: with up to hundreds of venues, a native
+ * `<select>` gets free virtualisation, keyboard nav, and screen-reader
+ * support the button-list `Sheet` pattern (see `audit.tsx`'s FilterSheet)
+ * doesn't scale to. `ariaLabel` mirrors `Field`'s own prop for a filter bar
+ * where the visible `Label` sits above rather than wrapping the control.
+ */
+export function Select({
+  value,
+  onChange,
+  options,
+  placeholder,
+  ariaLabel,
+  icon,
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: readonly { value: string; label: string }[];
+  /** The unselected/"all" option's label, e.g. "All venues". */
+  placeholder?: string;
+  ariaLabel?: string;
+  icon?: IconName;
+  className?: string;
+}): JSX.Element {
+  return (
+    <div className={cn('flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]', className)}>
+      {icon && (
+        <span className="text-faint">
+          <Icon name={icon} size={19} />
+        </span>
+      )}
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={ariaLabel}
+        className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none"
+      >
+        {placeholder != null && <option value="">{placeholder}</option>}
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 export function Field({
   icon,
   placeholder,
@@ -708,6 +760,46 @@ export function Note({ children, icon = 'shield' }: { children: ReactNode; icon?
 
 export function Empty({ text }: { text: string }): JSX.Element {
   return <div className="py-[30px] text-center text-[14px] text-faint">{text}</div>;
+}
+
+// ── PageNav ──────────────────────────────────────────────────────────────────
+/**
+ * Prev/next pager for a server-windowed list (offset/limit RPC), plus an
+ * optional "X of Y" summary. Added with the Platform venue overview + audit
+ * viewer (P-05) as a kit primitive — any screen that pages a windowed read
+ * (never "load everything and paginate in JS") reaches for this instead of
+ * inventing its own buttons.
+ */
+export function PageNav({
+  summary,
+  hasPrev,
+  hasNext,
+  onPrev,
+  onNext,
+  prevLabel,
+  nextLabel,
+}: {
+  summary?: string;
+  hasPrev: boolean;
+  hasNext: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+  prevLabel: string;
+  nextLabel: string;
+}): JSX.Element {
+  return (
+    <div className="mt-3 flex items-center justify-between gap-3">
+      {summary ? <span className="text-[12px] text-faint">{summary}</span> : <span />}
+      <div className="flex gap-2">
+        <Btn kind="ghost" sm className="min-h-[44px]" disabled={!hasPrev} onClick={onPrev}>
+          {prevLabel}
+        </Btn>
+        <Btn kind="ghost" sm className="min-h-[44px]" disabled={!hasNext} onClick={onNext}>
+          {nextLabel}
+        </Btn>
+      </div>
+    </div>
+  );
 }
 
 // ── StatTile ─────────────────────────────────────────────────────────────────

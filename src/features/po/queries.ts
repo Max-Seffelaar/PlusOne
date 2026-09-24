@@ -1847,10 +1847,13 @@ export async function fetchSubscription(
 // Client-agnostic mirror of the SERVER-only src/features/audit/queries.ts so the
 // mobile po surface can read the same audit_feed over the BROWSER client (same
 // pattern as fetchPoGuests lifting the desktop guests select). RLS
-// (audit_log_select_aal2: admin/finance + AAL2, inherited by the view) is the
-// boundary — an AAL1 or unauthorised caller simply gets [], and the screen then
-// shows its MFA / permission state. The Dutch sentence composition is SHARED
-// (describeAuditEntry, translate.ts), so desktop and mobile read identically.
+// (audit_log_select_admin: admin/finance, role-only — the AAL2 requirement
+// this policy carried was dropped in 20260624160000_mfa_scope_sensitive_actions,
+// matching CLAUDE.md's "no AAL2 requirement in RLS anywhere"; the name here is
+// stale, not the behaviour) is the boundary — an unauthorised caller simply
+// gets [], and the screen then shows its permission state. The Dutch sentence
+// composition is SHARED (describeAuditEntry, translate.ts), so desktop and
+// mobile read identically.
 
 export interface PoAuditFilters {
   venueId: string;
@@ -2345,4 +2348,121 @@ export async function fetchIsPlatformAdmin(client: Client, userId: string): Prom
     .maybeSingle();
   if (error) throw error;
   return data?.is_platform_admin === true;
+}
+
+// ── Platform (system) admin surface — venue overview + audit viewer (P-05,
+// z8uq9m0tnx). Same shape as the invites reads above: SECURITY DEFINER RPCs
+// that check `is_platform_admin()` themselves, called over the BROWSER client,
+// windowed server-side (never an unbounded `.in()`, never a client-side count).
+
+export interface PlatformVenueRow {
+  venue_id: string;
+  name: string;
+  slug: string;
+  member_count: number;
+  event_count: number;
+  subscription_status: string | null;
+  last_activity_at: string | null;
+}
+
+export interface PlatformVenueParams {
+  limit?: number;
+  offset?: number;
+  search?: string;
+}
+
+/** Server-windowed venue overview (the RPC caps `p_limit` — default 50, max 200). */
+export async function fetchPlatformVenueOverview(
+  client: Client,
+  params: PlatformVenueParams = {}
+): Promise<PlatformVenueRow[]> {
+  const { data, error } = await client.rpc('platform_venue_overview', {
+    p_limit: params.limit ?? 50,
+    p_offset: params.offset ?? 0,
+    p_search: params.search?.trim() || undefined,
+  });
+  if (error) throw error;
+  return (data ?? []) as unknown as PlatformVenueRow[];
+}
+
+/** Total venue count matching the same search filter — for "X of Y", never by
+ *  pulling every row client-side. */
+export async function fetchPlatformVenueOverviewCount(
+  client: Client,
+  search?: string
+): Promise<number> {
+  const { data, error } = await client.rpc('platform_venue_overview_count', {
+    p_search: search?.trim() || undefined,
+  });
+  if (error) throw error;
+  return data ?? 0;
+}
+
+export interface PlatformVenueOption {
+  venue_id: string;
+  name: string;
+}
+
+/** Every venue's id + name (capped 500 server-side) for the audit filter's
+ *  venue picker. */
+export async function fetchPlatformVenueOptions(client: Client): Promise<PlatformVenueOption[]> {
+  const { data, error } = await client.rpc('platform_venue_options');
+  if (error) throw error;
+  return (data ?? []) as unknown as PlatformVenueOption[];
+}
+
+export interface PlatformAuditRow {
+  id: string;
+  created_at: string;
+  actor_id: string | null;
+  actor_name: string | null;
+  venue_id: string | null;
+  venue_name: string | null;
+  event_id: string | null;
+  entity_type: string;
+  entity_id: string | null;
+  action: string;
+  diff: unknown;
+  device_id: string | null;
+  is_support_action: boolean;
+}
+
+export interface PlatformAuditParams {
+  venueId?: string;
+  since?: string;
+  until?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/** Server-windowed, filterable audit feed across EVERY venue (the RPC caps
+ *  `p_limit` — default 100, max 200). `is_support_action` is computed in SQL
+ *  (actor holds no CURRENT membership at the audited venue), never client-side. */
+export async function fetchPlatformAuditOverview(
+  client: Client,
+  params: PlatformAuditParams = {}
+): Promise<PlatformAuditRow[]> {
+  const { data, error } = await client.rpc('platform_audit_overview', {
+    p_venue_id: params.venueId ?? undefined,
+    p_since: params.since ?? undefined,
+    p_until: params.until ?? undefined,
+    p_limit: params.limit ?? 100,
+    p_offset: params.offset ?? 0,
+  });
+  if (error) throw error;
+  return (data ?? []) as unknown as PlatformAuditRow[];
+}
+
+/** Total audit row count matching the same filters — for "X of Y". */
+export async function fetchPlatformAuditOverviewCount(
+  client: Client,
+  params: Omit<PlatformAuditParams, 'limit' | 'offset'> = {}
+): Promise<number> {
+  const { data, error } = await client.rpc('platform_audit_overview_count', {
+    p_venue_id: params.venueId ?? undefined,
+    p_since: params.since ?? undefined,
+    p_until: params.until ?? undefined,
+  });
+  if (error) throw error;
+  return data ?? 0;
 }

@@ -7,9 +7,14 @@ import { PlusOneAppClient } from '@/components/po/app-client';
 import { getOnboardingState } from '@/lib/auth/onboarding';
 import { recommendMfaIfDue } from '@/lib/auth/guards';
 import { acceptedCurrentTerms } from '@/lib/auth/consent';
-import { getMyMemberships, getOrganizerVenues, getReportingVenues } from '@/lib/auth/memberships';
+import {
+  getMyMemberships,
+  getOrganizerVenues,
+  getReportingVenues,
+  getPlatformAdminVenue,
+} from '@/lib/auth/memberships';
 import { getSessionUser } from '@/lib/auth/context';
-import { resolveActiveVenueId } from '@/lib/auth/active-venue';
+import { resolveActiveVenueId, getActiveVenueCookieValue } from '@/lib/auth/active-venue';
 import { createClient } from '@/lib/supabase/server';
 import { ROLE_LABELS, VENUE_ROLES } from '@/features/auth/roles';
 import { REQUEST_PATH_HEADER, appGateNextPath } from '@/features/auth/next-path';
@@ -79,8 +84,35 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
   ]);
   const memberIds = new Set(memberships.map((m) => m.venueId));
   const accessVenues = [...memberships, ...organizerVenues.filter((v) => !memberIds.has(v.venueId))];
-  const activeVenueId = await resolveActiveVenueId(accessVenues).catch(() => null);
-  const active = accessVenues.find((m) => m.venueId === activeVenueId) ?? null;
+  let activeVenueId: string | null = null;
+  let active: (typeof accessVenues)[number] | null = null;
+  let viaPlatformAdmin = false;
+  // Platform admin support/debug access (decision #41, P-05): the cookie may
+  // point at a venue the caller holds no REAL membership at (written by
+  // `switchActiveVenueAction`'s platform-admin branch after a "switch into
+  // this venue" tap on Platform > Venues). This has to run BEFORE
+  // `resolveActiveVenueId`: that helper falls back to `accessVenues[0]` for
+  // any cookie value it doesn't recognise — for a real multi-venue member
+  // that fallback is exactly right, but it means a foreign cookie value is
+  // silently replaced by the caller's own first venue rather than surfacing
+  // as "not found", so checking it here first is the only way to reach the
+  // platform-admin branch at all. `getPlatformAdminVenue` re-checks
+  // `is_platform_admin()` itself and confirms the venue still exists. A
+  // synthetic `roles: []` membership, same shape external-crew access already
+  // gets: role-gated UI stays off, a known limitation documented there.
+  const cookieVenueId = await getActiveVenueCookieValue().catch(() => null);
+  if (cookieVenueId && !accessVenues.some((m) => m.venueId === cookieVenueId)) {
+    const platformVenue = await getPlatformAdminVenue(cookieVenueId).catch(() => null);
+    if (platformVenue) {
+      activeVenueId = platformVenue.venueId;
+      active = platformVenue;
+      viaPlatformAdmin = true;
+    }
+  }
+  if (!active) {
+    activeVenueId = await resolveActiveVenueId(accessVenues).catch(() => null);
+    active = accessVenues.find((m) => m.venueId === activeVenueId) ?? null;
+  }
   const identity: PoIdentity = {
     userId: user.id,
     venueId: active?.venueId ?? null,
@@ -112,9 +144,11 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
       ? VENUE_ROLES.filter((r) => active.roles.includes(r))
           .map((r) => ROLE_LABELS[r])
           .join(' · ')
-      : active
-        ? 'External crew'
-        : 'Member';
+      : viaPlatformAdmin
+        ? 'Platform admin (support)'
+        : active
+          ? 'External crew'
+          : 'Member';
   const userSub = roleLabel;
 
   // First-paint viewport hint (corrected client-side by matchMedia) + the live

@@ -8,6 +8,124 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-24 — P-05 Platform: venue overview + audit viewer (z8uq9m0tnx)
+
+The other half of the operator console: which companies exist, jump into one to help,
+and see back who did what — with a name, across every venue.
+
+**What shipped.**
+- Migration `20260924110000_platform_venue_audit_overview.sql` — five SECURITY DEFINER
+  RPCs, all `authenticated`-only and re-checking `is_platform_admin()` in their own body
+  (same shape as P-03's `platform_invite_overview`), no new table so no grant-matrix
+  entry: `platform_venue_overview`/`_count` (member/event counts, subscription status,
+  last activity, one GROUP BY-shaped query, windowed + searchable), `platform_venue_options`
+  (id+name, capped 500, for the audit filter's venue picker), `platform_audit_overview`/
+  `_count` (filterable by venue + period, windowed, `is_support_action` computed in SQL —
+  the actor holds no CURRENT `venue_memberships` row at the audited venue).
+- Two screens under Platform: `screens/platform-venues.tsx` (search + paged cards, each
+  with "View audit" and "Switch into this venue") and `screens/platform-audit.tsx`
+  (venue/period filter bar, mobile cards + desktop table, the diff rendered as **plain
+  text only** — never `dangerouslySetInnerHTML`, it can carry any free-form input from
+  anywhere in the product). Both self-gate on `usePoIsPlatformAdmin()` exactly like the
+  Platform tab itself, so a bookmarked URL for a non-admin fires no read.
+- Routes: `/app/platform/venues`, `/app/platform/audit` (+ `?venue=` pre-scope from a
+  venue row's "View audit") via `routes.ts`/`context.tsx`'s `ScreenName` union;
+  `nav-map.ts` maps both to the `platform` sidebar entry and into `WIDE_DESKTOP`; lazy
+  chunks in `app-screens.tsx` like the rest of the Platform surface.
+- New kit primitive `PageNav` (prev/next + "X of Y" for a windowed offset/limit read).
+- Data: `fetchPlatformVenueOverview(Count)`/`fetchPlatformAuditOverview(Count)`/
+  `fetchPlatformVenueOptions` in `queries.ts`; `toPlatformVenue`/`toPlatformVenueOption`/
+  `toPlatformAuditEntry` in `adapters.ts`; `usePoPlatformVenues(Count)`/
+  `usePoPlatformAudit(Count)`/`usePoPlatformVenueOptions` in `hooks.ts`.
+
+**The "jump in to help" wiring — the one part that touched auth, not just the Platform
+surface.** "Switch into this venue" reuses the EXISTING `switchToVenue` (no bespoke
+mechanism, per the task), but that action refused a platform admin outright for any venue
+they hold no real membership at — which is the common case, and the whole point of the
+feature. Three small, isolated changes make it actually land the admin in the venue:
+- `switchActiveVenueAction` (`src/features/venues/actions.ts`) falls back to
+  `getPlatformAdminVenue()` (new, `src/lib/auth/memberships.ts`) when the caller isn't a
+  member — it re-checks `is_platform_admin()` itself and confirms the venue exists.
+- `resolveActiveVenueId` still only ever returns an id from the caller's real
+  `accessVenues` (unchanged, untouched signature) — the cookie is instead read directly
+  via new `getActiveVenueCookieValue()` (`active-venue.ts`) and layout.tsx re-validates it
+  through the same `getPlatformAdminVenue()` before building a synthetic `roles: []`
+  membership.
+- **Known, documented limitation, not new here:** that synthetic membership is the SAME
+  shape `getOrganizerVenues()` already hands external crew — every locally role-gated
+  button (`venueCapabilities(roles)`) stays off even though RLS would allow the write,
+  because those checks read client-side `roles`, not `is_platform_admin()`. A platform
+  admin who switches in today gets read access and whatever screens don't role-gate
+  locally; broadening capability-gating for cross-venue support is a P-02-scope decision,
+  not something this PR expanded into.
+- `roleLabel` in `layout.tsx` says "Platform admin (support)" instead of the misleading
+  "External crew" when this fallback fires.
+
+**Testing.** pgTAP `supabase/tests/database/platform_venue_audit_overview.test.sql` (55
+assertions after the review round below): a platform admin reads venues/audit rows he
+holds no membership at, member/event counts and subscription status aggregate correctly
+(including the zero/null case for an empty venue), search + windowing (`p_limit`/
+`p_offset`, an absurd limit capped, `*_count` matches, negative/zero clamps), the audit
+feed's venue + period filters, `is_support_action` true for the platform admin's own
+action at a venue he isn't a member of / false for a real member's action at their own
+venue / false for a null-venue action, pagination stability across rows with an identical
+`created_at`/venue `name` — and every other role (admin, user_manager, finance, staff,
+doorhost, organizer) plus anon get zero rows or 42501 from all five functions individually,
+both sides. Full suite re-verified on the same reset: pgTAP 66 files / 1538 assertions
+PASS. Vitest: adapter + screen-visibility files (no-admin fires no read, matching
+`platform-tab-visibility.test.tsx`'s pattern) + `layout.test.ts` cases for the
+platform-admin cookie fallback. `pnpm run type-check` and `pnpm lint` clean.
+
+**Review round (fresh-session `/code-review` + `/security-review`, same PR, before merge).**
+Security review: SAFE TO MERGE (the auth widening holds — 12 direct RPC calls as a
+non-platform-admin all returned zero rows, anon got 42501). Code review: NEEDS CHANGES,
+fixed in follow-up commits, not a new migration (the schema hadn't reached prod yet):
+- **Blocker** — `platform_audit_overview`'s `order by created_at desc` and
+  `platform_venue_overview`'s `order by name asc` had no tiebreaker. `audit_trigger()`'s
+  `created_at` is the enclosing transaction's `now()`, so a real trigger-batch (several
+  guests inserted in one statement) writes several rows with an IDENTICAL timestamp —
+  pagination could silently duplicate or drop a row as `p_offset` advanced. Fixed by
+  adding `, id desc` / `, id asc`; two same-`created_at`/same-`name` fixtures + a
+  disjoint-and-complete pgTAP assertion prove it.
+- **Major** — the platform-wide (no venue filter) path of `platform_audit_overview`/
+  `_count` scanned+sorted the whole `audit_log` table with no supporting index (the only
+  existing one is the composite `(venue_id, created_at)`, useless without a venue
+  predicate). Added `audit_log_created_at_idx on (created_at desc)` in the same migration.
+- **Major** — `platform-audit.tsx`'s "From"/"Until" date inputs parsed inconsistently
+  (`new Date('YYYY-MM-DD')` = UTC midnight vs `new Date('YYYY-MM-DDT23:59:59')` = local
+  time) — fixed to build both as local midnight.
+- **Minor fixes**: the platform-admin cookie-fallback branch in `layout.tsx` was untested
+  (added 3 cases to `layout.test.ts`, including the negative one — the actual invariant);
+  removed two dead i18n keys (`venuesSwitchPending`/`venuesSwitchDenied`); extracted a
+  `Select` kit primitive instead of a hand-styled native `<select>`; associated filter
+  labels via `Field`'s/`Select`'s `ariaLabel` instead of unlinked `<label>` text;
+  `subscription_status` now renders through an i18n label map instead of the raw enum;
+  `platform-audit.tsx` keys its console on the `?venue=` pre-scope so a second "View
+  audit" tap while already mounted actually resets the filter; `PageNav` no longer
+  renders under a loading/error/empty state ("0 of 0"); pgTAP now checks negative/zero
+  `p_limit`/`p_offset` clamps and every non-admin role against all five functions
+  individually (the PR body claimed that already — now it's literally true); the
+  migration header + the support-badge copy both now say the flag is indicative, not
+  forensic, since a platform admin's own `is_platform_admin()` already satisfies
+  `venue_memberships_insert`'s role check at ANY venue, so they could self-insert a real
+  membership and un-flag their own past support rows (itself audited, not silent).
+- **Corrected claim**: the original PR body asserted `venue_memberships_insert`/`_update`/
+  `_delete` still required AAL2, in tension with CLAUDE.md's "no AAL2 requirement in RLS
+  anywhere." Verified against the LIVE schema (`pg_policy`, not just grepping migration
+  files — `20260702120000_mfa_fully_optional` had already dropped `is_aal2()` from all
+  three): zero policies on `venue_memberships` reference `is_aal2()` today. Claim
+  retracted; the stale `audit_log_select_aal2` comment in `queries.ts`'s
+  `fetchPoAuditFeed` header (a real, if unrelated, doc drift spotted while writing that
+  claim) is fixed in the same pass since the file was already touched.
+- **Parked, not built** (follow-up, not this PR): the read-only cross-venue switch writes
+  no audit row — reads are never audited anywhere in this codebase, a standing scope
+  decision, not a gap specific to this feature; `platform_venue_options`'s 500-row cap has
+  no UI signal if a platform's venue count ever approaches it.
+
+**Milestone:** Now (open beta) — same program as P-02/P-03/P-04.
+
+---
+
 ## 2026-09-24 — Only submit_guest_request may create a landing request (F-3)
 
 Branch `claude/guest-requests-insert-revoke`. Milestone: **Now**, a live RLS/grant gap on
