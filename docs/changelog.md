@@ -8,6 +8,84 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-24 — P-06 seed part: Max and Joeri as platform admins (z8uq9m0tny)
+
+The other half of P-06 (docs part landed in PR #328). Migration
+`20260924130000_seed_platform_admins.sql` flips `user_profiles.is_platform_admin`
+to true for exactly two PlusOne operator accounts Max confirmed as existing,
+confirmed, prod accounts with a `user_profiles` row already in place and the
+flag currently false. No other account.
+
+**This repo is PUBLIC — no e-mail address in it, corrected mid-session.** The
+first version of this migration matched on the literal addresses and got
+(rightly) refused at commit time. Rewritten to match on
+`encode(extensions.digest(lower(email), 'sha256'), 'hex')` instead — the two
+hex hashes are the only trace of the addresses anywhere in the repo; the
+addresses themselves were computed and hashed outside it. `pgcrypto`'s
+`digest()` already lives in schema `extensions` on the Supabase Postgres
+image (measured locally); the migration adds a defensive
+`create extension if not exists` anyway.
+
+**Why not `public.set_platform_admin()`.** The RPC (P-02) requires an EXISTING
+platform admin caller — it re-checks `is_platform_admin()` on the session
+itself — which is exactly the chicken-and-egg this migration resolves for the
+FIRST admins. Follows the bootstrap path `20260923120000_platform_admin.sql`'s
+header documents instead: the transaction-local GUC
+`plusone.platform_admin_write = 'on'` set immediately before the `UPDATE`,
+cleared immediately after — the guard trigger applies to every role,
+including the migration runner, so skipping it is not an option.
+
+**The match/write/audit logic is one helper,
+`public.seed_platform_admin_by_email_hash(p_hash text)`** — SECURITY DEFINER,
+`search_path = ''`, EXECUTE revoked from `public`/`anon`/`authenticated`/
+`service_role`, so only the owner (migrations, and the pgTAP suite, which
+runs as the same owner) can call it. Factored out for exactly one reason: it
+lets the test file prove the logic against a fixture hash without a real
+address anywhere in it either. Resolves a hash to a `user_profiles.id` via an
+oldest-first, `deleted_at is null` pick of `auth.users` (defensive shape
+borrowed from `platform_invite_stage_rows()`'s LATERAL match, minus the
+LATERAL itself — `user_profiles.id = auth.users.id` directly here, so a
+scalar subquery is enough). No matching row → silent no-op (true for every
+local/CI database, since these are prod-only addresses). Already flagged →
+silent no-op too, so calling it again (a second migration run, or a
+`supabase db reset` re-applying it) never double-writes.
+
+**Audited on name, same as the RPC.** One `audit_log` row per actual flip:
+`entity_type = 'user_profiles'`, `action = 'platform_admin_grant'`, the same
+`before`/`after` diff shape `set_platform_admin()` writes. `actor_id` is
+`null` — a migration has no calling session/`auth.uid()` — matching the
+existing "system action" convention (the anonymization job, #29). `venue_id`/
+`event_id` are also `null`, so — like every `set_platform_admin()` row —
+these two rows are readable only by a platform admin.
+
+**Testing.** New `supabase/tests/database/seed_platform_admins.test.sql` (13
+assertions, fixture addresses only, no real one anywhere): calling the helper
+with a fixture hash flags that account and audits the grant; calling it a
+second time is idempotent (same state, no error, no duplicate audit row); a
+fixture whose hash was never passed in is never flagged; the helper has no
+EXECUTE grant for `authenticated`/`anon`/`service_role`; all six real local
+seed users (`admin@plusone.test` and friends) are still `false` after the
+reset that ran this migration for real — `platform_admin.test.sql` depends on
+that exact fact (`admin@plusone.test` is its "venue admin who is NOT a
+platform admin" fixture) and stays green. Full suite after a clean
+`supabase db reset`: pgTAP **67 files / 1551 assertions PASS**. `pnpm lint`
+and `pnpm run type-check` clean — no schema/type change, so
+`src/lib/database.types.ts` is untouched.
+
+**Not touched, per the task's context budget:** `scripts/dev-mfa.mjs` and
+`supabase/seed.sql` — the local `admin@plusone.test` platform-admin fixture
+stays exactly as P-04 left it.
+
+**Verifying after the prod push (for whoever runs it):** query
+`select email from auth.users where encode(extensions.digest(lower(email), 'sha256'), 'hex') in (<the two hashes from the migration file>)`
+joined to `user_profiles.is_platform_admin` — the PR body carries the exact
+two hashes so this can be run without opening the migration file.
+
+**Milestone:** Now (open beta) — closes out the P-02..P-06 platform-admin
+program.
+
+---
+
 ## 2026-09-24 — P-06 docs part: platform-admin invariant + decision #49 (z8uq9m0tny)
 
 Docs-only half of P-06. The seed part (idempotent migration flipping
