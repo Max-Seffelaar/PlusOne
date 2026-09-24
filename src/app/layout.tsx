@@ -33,6 +33,10 @@ export const viewport: Viewport = {
   userScalable: false,
   colorScheme: 'dark',
   themeColor: '#0B0B0D',
+  // Edge-to-edge under the notch/home indicator (Capacitor wrap, #37): without
+  // `cover` iOS reports env(safe-area-inset-*) as 0, so the insets shell.tsx
+  // already pads with would never apply.
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({
