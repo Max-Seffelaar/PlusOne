@@ -85,4 +85,13 @@ export const auth = {
   consentSubmit: 'Agree & continue',
   consentBusy: 'Working…',
   consentError: 'Something went wrong.',
+
+  // ── App review sign-in (/auth/review-login, store reviewers only) ────────
+  reviewTitle: 'App review sign-in',
+  reviewHelp: 'Enter the review code from the App Review notes to open the PlusOne demo venue.',
+  reviewCodeLabel: 'Review code',
+  reviewSubmit: 'Sign in',
+  reviewErrorCode: "That code didn't work. Check the review notes and try again.",
+  reviewErrorWait: 'Too many attempts. Wait 15 minutes and try again.',
+  reviewErrorFailed: "Sign-in didn't go through. Try again in a minute.",
 } as const;
