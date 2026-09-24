@@ -45,9 +45,15 @@ schema; the only DB change is a local-dev seed line.
   hides them from the funnel. It does not block sign-in." All of that is one block in the
   i18n surface, so it is a copy edit if Max decides revoke should really close the door.
 
-**Local dev.** `supabase/seed.sql` now flips `is_platform_admin` on `admin@plusone.test`
-(idempotent, via the `plusone.platform_admin_write` GUC the P-02 guard accepts), so
-`pnpm db:fresh` gives the tab to the dev admin. The prod seed is P-06.
+**Local dev — and where that flag may NOT live.** `scripts/dev-mfa.mjs` (`pnpm dev:mfa`,
+so also `pnpm db:fresh`) now flips `is_platform_admin` on `admin@plusone.test`,
+idempotently, through the `plusone.platform_admin_write` GUC the P-02 guard accepts.
+It started out in `supabase/seed.sql` and **CI caught that**: the pgTAP suite runs
+against the seeded database and uses that exact user as "a venue admin who is NOT a
+platform admin", so the seed line turned 14 assertions in `platform_admin.test.sql` red
+and knocked `platform_invites.test.sql` off its plan. `dev:mfa` is local-dev-only, so
+the tab survives a reset and the DB tests never see the flag. The prod platform admin
+is P-06.
 
 **Gotcha that cost real time.** The Browser-pane preview started a dev server against the
 **main checkout** while claiming the worktree's port; `/app/platform` rendered Home and

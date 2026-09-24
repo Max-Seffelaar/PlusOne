@@ -59,19 +59,6 @@ select
 from auth.users as u
 where u.email like '%@plusone.test';
 
--- LOCAL DEV ONLY: make admin@plusone.test a platform admin so the Platform tab
--- (P-04) is reachable from `pnpm dev:mfa` / `pnpm db:fresh` without hand-running
--- the bootstrap SQL from 20260923120000_platform_admin.sql. Prod gets its own
--- seeded platform admin in P-06; this file never runs against prod.
--- The GUC is the guard trigger's only accepted write path (P-02 section 7);
--- `set_config(..., true)` is transaction-local, and the update is idempotent.
-select set_config('plusone.platform_admin_write', 'on', true);
-update public.user_profiles
-   set is_platform_admin = true
- where email = 'admin@plusone.test'
-   and is_platform_admin is distinct from true;
-select set_config('plusone.platform_admin_write', 'off', true);
-
 -- ---------------------------------------------------------------------------
 -- Venues + subscriptions (decision #32: access is read from subscriptions)
 -- ---------------------------------------------------------------------------
