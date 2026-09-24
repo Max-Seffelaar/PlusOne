@@ -84,28 +84,34 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
   ]);
   const memberIds = new Set(memberships.map((m) => m.venueId));
   const accessVenues = [...memberships, ...organizerVenues.filter((v) => !memberIds.has(v.venueId))];
-  let activeVenueId = await resolveActiveVenueId(accessVenues).catch(() => null);
-  let active = accessVenues.find((m) => m.venueId === activeVenueId) ?? null;
+  let activeVenueId: string | null = null;
+  let active: (typeof accessVenues)[number] | null = null;
+  let viaPlatformAdmin = false;
   // Platform admin support/debug access (decision #41, P-05): the cookie may
   // point at a venue the caller holds no REAL membership at (written by
   // `switchActiveVenueAction`'s platform-admin branch after a "switch into
-  // this venue" tap on Platform > Venues). `resolveActiveVenueId` only ever
-  // returns an id already in `accessVenues`, so that cookie value is read
-  // directly here and re-validated — `getPlatformAdminVenue` re-checks
+  // this venue" tap on Platform > Venues). This has to run BEFORE
+  // `resolveActiveVenueId`: that helper falls back to `accessVenues[0]` for
+  // any cookie value it doesn't recognise — for a real multi-venue member
+  // that fallback is exactly right, but it means a foreign cookie value is
+  // silently replaced by the caller's own first venue rather than surfacing
+  // as "not found", so checking it here first is the only way to reach the
+  // platform-admin branch at all. `getPlatformAdminVenue` re-checks
   // `is_platform_admin()` itself and confirms the venue still exists. A
   // synthetic `roles: []` membership, same shape external-crew access already
   // gets: role-gated UI stays off, a known limitation documented there.
-  let viaPlatformAdmin = false;
-  if (!active) {
-    const cookieVenueId = await getActiveVenueCookieValue().catch(() => null);
-    if (cookieVenueId && cookieVenueId !== activeVenueId) {
-      const platformVenue = await getPlatformAdminVenue(cookieVenueId).catch(() => null);
-      if (platformVenue) {
-        activeVenueId = platformVenue.venueId;
-        active = platformVenue;
-        viaPlatformAdmin = true;
-      }
+  const cookieVenueId = await getActiveVenueCookieValue().catch(() => null);
+  if (cookieVenueId && !accessVenues.some((m) => m.venueId === cookieVenueId)) {
+    const platformVenue = await getPlatformAdminVenue(cookieVenueId).catch(() => null);
+    if (platformVenue) {
+      activeVenueId = platformVenue.venueId;
+      active = platformVenue;
+      viaPlatformAdmin = true;
     }
+  }
+  if (!active) {
+    activeVenueId = await resolveActiveVenueId(accessVenues).catch(() => null);
+    active = accessVenues.find((m) => m.venueId === activeVenueId) ?? null;
   }
   const identity: PoIdentity = {
     userId: user.id,
