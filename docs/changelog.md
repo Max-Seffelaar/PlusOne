@@ -8,6 +8,25 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-24 — Fase 17 S3 round 3: the demo venue never invites (86ey6bfug)
+
+Same branch/PR (#332), follow-up on the round-3 review. **Adds a migration.**
+
+- **Migration `20260925130100_review_demo_no_invites.sql`**: a `before insert` trigger on
+  `public.invites` refuses (42501) any invite into the demo venue (fixed id), for every role
+  incl. service_role. Closes the invitee hop: the demo admin invites its own mailbox, that
+  account creates a venue (the round-2 guard keys on the demo id only). Trigger function is
+  `security invoker`, `search_path = ''`, execute revoked from `public, anon, authenticated`.
+  The only invite insert path in the code is `createInviteAction`; none targets the demo venue.
+  pgTAP `review_demo_no_invites.test.sql` (plan 12): demo admin / service role / owner
+  refused, `accept_pending_invites` adds nothing, a normal venue still invites, trigger shape.
+- **Seed:** on stray demo-venue members, also lists venues whose
+  `settings.onboarding.created_by` is a stray id (shown only, never deleted).
+- **Runbook:** venue creation + invites both blocked in the DB; the `LANDING_IP_SALT` line
+  now says only the login route 500s without it (the end route logs `no-client`).
+- Checks here: lint, tsc, vitest. **Not run here:** pgTAP (no Docker/Supabase CLI; CI is
+  the DB gate), the seed script.
+
 ## 2026-09-24 — Fase 17 S3 round 2: demo guard migration, middleware gate, role check (86ey6bfug)
 
 Same branch/PR (#332), follow-up session on the round-2 review. **Adds a migration.**
