@@ -27,6 +27,14 @@ export const DEMO_VENUE_ID = 'de300000-0000-7000-8000-000000000001';
 export const DEMO_VENUE_NAME = 'PLUSONE Demo';
 
 /**
+ * The exact role set the seed gives the demo membership. The review login
+ * refuses any other set: the venue-isolation reads below only see other rows
+ * of the venue while the membership carries `admin`, and an admin can edit its
+ * own row (venue_memberships_update), so a demoted row would blind the check.
+ */
+export const DEMO_ROLES: readonly string[] = ['admin', 'doorhost'];
+
+/**
  * Minimum alphanumeric characters in the code (dashes and whitespace do not
  * count). 26 base32 characters carry 130 bits: the code's own entropy is the
  * brute-force bound, the per-client limit and the Vercel Firewall rule sit on

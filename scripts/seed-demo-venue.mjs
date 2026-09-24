@@ -40,7 +40,7 @@
 //
 // Constants mirrored in src/features/auth/review-window.ts (guarded by
 // review-login.test.ts): keep DEMO_REVIEW_EMAIL, DEMO_USER_ID, VENUE_ID
-// (= DEMO_VENUE_ID) and DEMO_VENUE_NAME identical. The demo user is created
+// (= DEMO_VENUE_ID), DEMO_VENUE_NAME and DEMO_ROLES identical. The demo user is created
 // with exactly DEMO_USER_ID; the route and the /app layout key on it.
 
 import { readFileSync } from 'node:fs';
@@ -49,6 +49,8 @@ import { createClient } from '@supabase/supabase-js';
 const DEMO_REVIEW_EMAIL = 'app-review@demo.plus-one.io';
 const DEMO_USER_ID = 'de300000-0000-7000-8000-00000000a001';
 const DEMO_VENUE_NAME = 'PLUSONE Demo';
+// = DEMO_ROLES: review-login refuses any other role set on the demo membership.
+const DEMO_ROLES = ['admin', 'doorhost'];
 const RESET_MEMBERS = process.argv.includes('--reset-members');
 
 // Fixed ids (UUIDv7-shaped, `de30` prefix = demo) so every run targets the same rows.
@@ -233,7 +235,7 @@ await must(
   'membership upsert',
   db
     .from('venue_memberships')
-    .upsert({ venue_id: VENUE_ID, user_id: userId, roles: ['admin', 'doorhost'], job_title: 'App review' }, { onConflict: 'venue_id,user_id' }),
+    .upsert({ venue_id: VENUE_ID, user_id: userId, roles: DEMO_ROLES, job_title: 'App review' }, { onConflict: 'venue_id,user_id' }),
 );
 
 // Venue isolation. Other members: stop with the list, or remove them with

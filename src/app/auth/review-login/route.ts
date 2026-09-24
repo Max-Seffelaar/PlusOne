@@ -5,6 +5,7 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { resolveEntryDestination } from '@/features/auth/entry-redirect';
 import {
   DEMO_REVIEW_EMAIL,
+  DEMO_ROLES,
   DEMO_VENUE_ID,
   configuredReviewCode,
   isExactDemoAccount,
@@ -44,8 +45,10 @@ import {
 //   6. The token is verified on a COOKIE-LESS client, and every check runs
 //      there: the session must be the demo account (id AND e-mail), with no
 //      verified TOTP factor, no platform-admin flag, exactly one membership
-//      (venue_id = DEMO_VENUE_ID), and the demo venue must be isolated (no other
-//      member, no open invite into it or to the demo address). A refusal never
+//      (venue_id = DEMO_VENUE_ID) whose roles are exactly DEMO_ROLES, and the
+//      demo venue must be isolated (no other member, no open invite into it or
+//      to the demo address). The role check comes first: the isolation reads
+//      only see the whole venue AS ADMIN. A refusal never
 //      wrote a cookie, so it does not depend on a sign-out succeeding.
 //   7. Still on that client, the demo user's OTHER sessions are revoked: one
 //      live demo session at a time. Only then are the cookies set.
@@ -233,18 +236,24 @@ async function demoAccountRefusal(
   // User isolation, by id (a venue admin can rename a venue, not re-key it).
   const { data: own, error: ownError } = await probe
     .from('venue_memberships')
-    .select('venue_id')
+    .select('venue_id, roles')
     .eq('user_id', user.id);
   if (ownError || !own) return 'memberships_unreadable';
   if (own.length !== 1) return 'membership_count';
   if (own[0]?.venue_id !== DEMO_VENUE_ID) return 'membership_venue';
+  // Exactly the seeded roles, BEFORE the counts below are trusted: those reads
+  // see other members and the venue's invites only while this row carries
+  // `admin` (venue_memberships_select / invites_select), and an admin can
+  // rewrite its own row. A demoted row would make the counts look clean.
+  if (!sameRoles(own[0]?.roles, DEMO_ROLES)) return 'roles_changed';
 
   // Venue isolation: nobody else in the demo venue (a code holder, as admin,
   // could invite a real address that outlives every window), and no open
   // invite into the demo venue or addressed to the demo e-mail (consent would
-  // accept that one AFTER this check). The demo user can read all of this:
-  // members of its own venue, its venue's invites as admin, and invites to
-  // its own address (invites_select).
+  // accept that one AFTER this check). As admin of the venue (checked just
+  // above) the demo user can read all of this under RLS: every membership of
+  // its venue, its venue's invites, and invites to its own address
+  // (invites_select, via the JWT e-mail).
   const { data: members, error: membersError } = await probe
     .from('venue_memberships')
     .select('user_id')
@@ -261,4 +270,10 @@ async function demoAccountRefusal(
   if ((venueInvites.data?.length ?? 0) > 0 || (addressedInvites.data?.length ?? 0) > 0) return 'venue_not_isolated';
 
   return null;
+}
+
+function sameRoles(actual: readonly string[] | null | undefined, expected: readonly string[]): boolean {
+  if (!actual || actual.length !== expected.length) return false;
+  const want = new Set(expected);
+  return new Set(actual).size === want.size && actual.every((r) => want.has(r));
 }

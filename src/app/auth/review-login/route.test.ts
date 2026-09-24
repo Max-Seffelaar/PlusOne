@@ -108,7 +108,7 @@ beforeEach(() => {
   probeSignOut.mockResolvedValue({ error: null });
   rpc.mockResolvedValue({ data: false, error: null });
   setSession.mockResolvedValue({ data: {}, error: null });
-  ownMemberships = [{ venue_id: DEMO_VENUE_ID }];
+  ownMemberships = [{ venue_id: DEMO_VENUE_ID, roles: ['admin', 'doorhost'] }];
   venueMembers = [{ user_id: DEMO.id }];
   venueInvites = [];
   addressedInvites = [];
@@ -264,8 +264,8 @@ describe('POST', () => {
       ['platform admin', () => rpc.mockResolvedValue({ data: true, error: null })],
       ['platform flag unreadable', () => rpc.mockResolvedValue({ data: null, error: { message: 'x' } })],
       ['no membership', () => (ownMemberships = [])],
-      ['a second venue', () => (ownMemberships = [{ venue_id: DEMO_VENUE_ID }, { venue_id: 'w' }])],
-      ['a venue NAMED "PLUSONE Demo" but with another id', () => (ownMemberships = [{ venue_id: 'aa000000-0000-7000-8000-000000000009' }])],
+      ['a second venue', () => (ownMemberships = [{ venue_id: DEMO_VENUE_ID, roles: ['admin', 'doorhost'] }, { venue_id: 'w', roles: ['admin'] }])],
+      ['a venue NAMED "PLUSONE Demo" but with another id', () => (ownMemberships = [{ venue_id: 'aa000000-0000-7000-8000-000000000009', roles: ['admin', 'doorhost'] }])],
       ['another member in the demo venue', () => (venueMembers = [{ user_id: DEMO.id }, { user_id: 'someone-invited' }])],
       ['an open invite into the demo venue', () => (venueInvites = [{ id: 'i1' }])],
       ['an open invite addressed to the demo e-mail', () => (addressedInvites = [{ id: 'i2' }])],
@@ -278,6 +278,31 @@ describe('POST', () => {
       expect(location(res).searchParams.get('error')).toBe('failed');
       expect(setSession).not.toHaveBeenCalled();
       expect(res.headers.get('set-cookie')).toBeNull();
+    });
+
+    it.each([
+      ['demoted to doorhost', ['doorhost']],
+      ['admin only', ['admin']],
+      ['an extra role', ['admin', 'doorhost', 'finance']],
+      ['roles missing', null],
+    ])('roles changed (%s) → roles_changed, even though the counts look clean', async (_label, roles) => {
+      // A demoted row cannot see the other members or the venue's invites, so
+      // the isolation reads would come back "clean": the role check must win.
+      ownMemberships = [{ venue_id: DEMO_VENUE_ID, roles }];
+      venueMembers = [{ user_id: DEMO.id }];
+      const warn = vi.spyOn(console, 'warn');
+      const res = await post(form(CODE));
+      expect(location(res).searchParams.get('error')).toBe('failed');
+      expect(setSession).not.toHaveBeenCalled();
+      expect(res.headers.get('set-cookie')).toBeNull();
+      const logged = warn.mock.calls.map((c) => JSON.parse(String(c[0])));
+      expect(logged).toContainEqual(expect.objectContaining({ outcome: 'refused', reason: 'roles_changed' }));
+    });
+
+    it('the seeded roles in another order still pass', async () => {
+      ownMemberships = [{ venue_id: DEMO_VENUE_ID, roles: ['doorhost', 'admin'] }];
+      const res = await post(form(CODE));
+      expect(location(res).pathname).toBe('/app');
     });
 
     it('still refused cleanly when the sign-out itself rejects (no dependency on it)', async () => {
