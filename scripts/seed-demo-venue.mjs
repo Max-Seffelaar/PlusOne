@@ -307,15 +307,19 @@ for (const [e, event] of EVENTS.entries()) {
       venue_id: VENUE_ID,
       name: event.name,
       landing_slug: event.slug,
-      landing_active: true,
+      // No public request page on prod: the slugs are in a public repo, and a
+      // live form would take real PII into a demo tenant. The approvals screen
+      // has seeded requests instead.
+      landing_active: false,
       status: 'open',
       default_member_quota: 5,
       ...window,
     },
   ]);
-  // Keep the demo events upcoming on every run; dates only, never the status
-  // (a reviewer may have closed one, and closed → open is not a valid move).
-  await must('event dates', db.from('events').update(window).eq('id', event.id));
+  // Keep the demo events upcoming on every run, and their landing page off (a
+  // reviewer may have switched it on). Never the status: a reviewer may have
+  // closed one, and closed → open is not a valid move.
+  await must('event dates', db.from('events').update({ ...window, landing_active: false }).eq('id', event.id));
 
   const regular = tierId(e + 1, 1);
   const vip = tierId(e + 1, 2);

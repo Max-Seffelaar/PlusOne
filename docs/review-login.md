@@ -108,6 +108,9 @@ node scripts/seed-demo-venue.mjs --prod
   - de rollen gaan terug naar `admin,doorhost`;
   - de venuenaam wordt hersteld;
   - open invites in de demo-venue of naar het demo-adres worden verwijderd.
+  - de publieke aanvraagpagina van de demo-events staat uit (`landing_active = false`):
+    de slugs staan in een publieke repo en een open formulier zou echte PII in een
+    demo-tenant laten landen. De reviewer gebruikt de geseede aanvragen.
 - De demo-user wordt aangemaakt met het vaste user-id. Bestaat het adres onder een
   ander id, of het id onder een ander adres, dan **stopt** het script.
 - Het **stopt** (exit 1) als:
