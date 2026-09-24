@@ -28,8 +28,8 @@ Privacy policy v0.2 (`[…]` in the text):
 - [ ] §10 CRM/prospect retention after last contact (draft: 24 months) and support correspondence (draft: 2 years)
 - [ ] §10 export window at end of contract (draft: 30 days — must match DPA §11.2)
 - [ ] §11.5 processor breach-notification deadline (draft: 48 hours — must match DPA §10.1)
-- [ ] §12 push-notification content: "no guest names" vs "first name only" — decision for N2 (`capacitor-plan-claude-code.md` §2.3/§3 leave the payload unspecified). The store labels depend on this
-- [ ] §7 the planned guest confirmation e-mail (`86ey6bn05`) — keep the bracketed sentence until it ships, then rewrite
+- [ ] §12 push notifications: the payload is **ids + kind only** (N2, PR #336 — no names or e-mails; the device fetches details after the tap) and the text now says so. Still open: whether the **event name** may appear in the visible notification text — decision for N5, and the M4/S5 store labels depend on it
+- [ ] §7 the guest confirmation e-mail (`86ey6bn05`) is **under consideration, not scheduled** (CLAUDE.md rule 10 / spec #40(d): the MVP sends guests nothing) — keep the bracketed sentence and the "under consideration" row in subprocessors §C until a decision, then rewrite or drop
 - [ ] §14 minimum age for account holders (draft: 16)
 
 Subprocessor list v0.2:
@@ -49,6 +49,7 @@ Subprocessor list v0.2:
 6. **Marketing opt-in on the request form** is stored but never shown to the venue and cannot be exported. Is it honest to call it a "choice between you and the venue" while the venue cannot act on it? Either surface it in the inbox/export, or drop the checkbox until it is usable.
 7. **Guest-facing notice on `/e/[slug]`.** The public form shows a one-line privacy note and links to no policy, and never names the venue as controller (only "the organizer of this event"). Art. 13 information is the venue's duty, but the page is ours. Recommendation: add a "How your details are used" link (to `#privacy` §4 and the venue's own notice) and name the venue. Code change outside this task.
 8. **Minimum age** for account holders: 16 (Dutch AVG consent age) or 18 (door work at clubs)?
+9. **Brand casing.** This PR writes "PlusOne"; the terms PR (#334) and the v0.1 DPA write "PLUSONE". Pick one for all four documents (and the legal entity line) — the marketing site and app UI use "PlusOne".
 
 ## Code follow-ups the policy text assumes (not built on `main`)
 
@@ -61,7 +62,7 @@ The v0.2 text describes the intended behaviour. Each item below is a place where
 - **`platform_invites` (prospect e-mail + free-text note) has no retention** (#49 open point). Policy §10 promises [24 months] after last contact. Needs a sweep, or a manual runbook step.
 - **Inactive-account deletion** (§10, [24 months]) does not exist. Build it or drop it.
 - **`retention_months` changes are not audited** (only `allow_uncheck` on `venues` is). Cheap to add to the venues audit trigger; worth it because retention is a controller instruction under the DPA.
-- **Native app (Fase 17):** the "no advertising ID / no analytics SDK" commitment in §12 has no line in the plan yet. N3/N5 must verify that `@capacitor/push-notifications` + `firebase-messaging` is pulled in **without** Firebase Analytics/Crashlytics, and M4/S5 must copy the §12 statements into the store labels. Push-token retention (sign-out, admin revoke, 90-day TTL, FCM `UNREGISTERED` prune) matches plan §3 — keep them aligned.
+- **Native app (Fase 17):** the "no advertising ID / no analytics SDK" commitment in §12 has no line in the plan yet. N3/N5 must verify that `@capacitor/push-notifications` + `firebase-messaging` is pulled in **without** Firebase Analytics/Crashlytics, and M4/S5 must copy the §12 statements into the store labels. Push-token retention (sign-out, admin revoke, 90-day TTL, FCM `UNREGISTERED` prune) matches plan §3 and PR #336 — keep them aligned. Note for N5: `signOutDevice` does not delete tokens server-side; N5 must call `unregister()` before the IDB wipe or policy §12's "deleted when you sign out" is only true via the revoke path.
 - **Sentry offline queue** (IndexedDB) is not cleared by `signOutDevice` (`plusone-door` DB, Cache Storage and the outbox are). Scrubbed events only, so no guest PII, but the policy's "everything is wiped at sign-out" (§12) is about the door copy; keep it that way or add the queue to the wipe.
 
 ## Keep in sync with the code
@@ -76,7 +77,7 @@ These documents state facts about the system. If any of the following change, up
 - subprocessor set or regions (Supabase eu-west-1, Vercel fra1, Sentry de.sentry.io, Resend/SES eu-west-1)
 - payment methods (SEPA + iDEAL), what is sent to Stripe (company name, finance e-mail, VAT id, venue id), trial length (14 days), soft-block behaviour (door never gated)
 - e-mail: Resend as Supabase custom SMTP; any new outbound mail (guest confirmations `86ey6bn05`) → policy §7 + subprocessors C→B
-- push: `push_tokens` schema and retention (`capacitor-plan-claude-code.md` §3), payload content
+- push: `push_tokens` schema and retention (`capacitor-plan-claude-code.md` §3, built in PR #336: 90-day TTL, revoke-on-logout, `device_label` ≤120 chars), outbox payload = ids + kind only
 - analytics: still none in code; GA (site) / PostHog (app) are consent-gated plans
 
 ## DPA Annex 2 delta (for the `z8uq9m0w3u` session — do not edit here)

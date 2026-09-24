@@ -63,6 +63,12 @@ says default Supabase SMTP; `docs/auth-setup.md` + `docs/privacy.md` say MFA man
 Weeztix pages (EN + NL privacy policy and subprocessor list) fetched fine through the
 proxy and used as the completeness floor (Art. 13/14 items, subprocessor table shape).
 
+**Review round (orchestrator, PR comment):** push wording aligned with N2 (PR #336 —
+outbox payload is ids + kind only, visible text generic, only "event name in the text?"
+left as a placeholder); the Resend guest-mail row demoted to "under consideration, not
+scheduled" (CLAUDE.md rule 10 / spec #40(d)); brand casing (PlusOne vs PLUSONE across
+the four docs) added to the README as a question for Max.
+
 ## 2026-09-24 — P-06 seed part: Max and Joeri as platform admins (z8uq9m0tny)
 
 The other half of P-06 (docs part landed in PR #328). Migration
