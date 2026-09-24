@@ -17,7 +17,7 @@
 import '@testing-library/jest-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
-import { ResponsiveShell } from './shell-responsive';
+import { ResponsiveShell, ROOT_SAFE_AREA } from './shell-responsive';
 import { TabBar } from './shell';
 import { DateField, DESKTOP_INPUT_QUERY } from './datetime-field';
 
@@ -84,6 +84,26 @@ describe('T1 · one chrome breakpoint, one content column', () => {
     renderShell('max-w-[1080px]');
     await waitFor(() => expect(screen.getByRole('complementary')).toBeInTheDocument());
     expect(screen.getByTestId('screen').parentElement).toHaveClass('max-w-[1080px]');
+  });
+
+  it('the shell root pads the top + side safe area, never the bottom', () => {
+    // Asserted on the object both chrome roots spread into `style` — jsdom's
+    // CSS parser silently drops a bare `env()` value, so the rendered style
+    // attribute can't carry it here (a real browser keeps it).
+    expect(ROOT_SAFE_AREA).toEqual({
+      paddingTop: 'env(safe-area-inset-top)',
+      paddingLeft: 'env(safe-area-inset-left)',
+      paddingRight: 'env(safe-area-inset-right)',
+    });
+    // The bottom edge belongs to TabBar / BottomBar / Sheet / the sidebar footer.
+    expect(ROOT_SAFE_AREA).not.toHaveProperty('paddingBottom');
+  });
+
+  it('the sidebar footer clears the home indicator itself', async () => {
+    stubDevice({ width: 1180, finePointer: false });
+    renderShell('max-w-[1080px]');
+    const aside = await screen.findByRole('complementary');
+    expect(aside.getAttribute('style') ?? '').toContain('safe-area-inset-bottom');
   });
 
   it('the tab bar centers its items in a 640px row instead of spreading them', () => {

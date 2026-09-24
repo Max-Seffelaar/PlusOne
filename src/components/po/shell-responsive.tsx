@@ -20,10 +20,16 @@ import { Icon, type IconName } from './icon';
 import { TabBar, type TabKey } from './shell';
 import { useViewport } from './use-viewport';
 
-/** Landscape notch/rounded-corner insets. `env()` resolves to 0 unless the
- *  viewport opts into `viewport-fit=cover` (the native shell may), so this is
- *  inert in a plain browser and correct in a webview that draws edge to edge. */
-const SIDE_SAFE_AREA = {
+/** Safe-area insets for the shell ROOT, applied once for both chromes. N1
+ *  (#331) sets `viewportFit: 'cover'` and the installed iOS PWA already runs
+ *  `black-translucent`, so the page draws under the status bar/notch/Dynamic
+ *  Island and these `env()` values are real (0 in a plain desktop browser).
+ *  Top + sides only: the BOTTOM inset is already owned by whatever sits at the
+ *  bottom edge — `TabBar`, `BottomBar`, `Sheet` (shell.tsx) and the desktop
+ *  sidebar footer below — and padding the root too would count it twice.
+ *  Exported for the test only (jsdom's style parser drops a bare `env()`). */
+export const ROOT_SAFE_AREA = {
+  paddingTop: 'env(safe-area-inset-top)',
   paddingLeft: 'env(safe-area-inset-left)',
   paddingRight: 'env(safe-area-inset-right)',
 } as const;
@@ -87,12 +93,11 @@ export function ResponsiveShell({
   const isMobile = useViewport(serverHint);
 
   // Mobile + tablet: bottom tab bar. Full-bleed on a phone; from 641px the
-  // content column is centered at the screen's own width class (T1). The
-  // side safe-area padding only bites in a notched landscape phone once the
-  // viewport opts into `viewport-fit=cover` (0 otherwise).
+  // content column is centered at the screen's own width class (T1). The root
+  // pads for the top/side safe area (status bar, notch, landscape phone).
   if (isMobile) {
     return (
-      <div className="flex h-[100dvh] flex-col overflow-hidden bg-bg" style={SIDE_SAFE_AREA}>
+      <div className="flex h-[100dvh] flex-col overflow-hidden bg-bg" style={ROOT_SAFE_AREA}>
         <div className={cn('relative mx-auto flex min-h-0 w-full flex-1 flex-col overflow-hidden', mainMaxClass)}>
           {children}
         </div>
@@ -103,8 +108,14 @@ export function ResponsiveShell({
 
   // Desktop (and iPad landscape): 252px sidebar + content column.
   return (
-    <div className="flex h-[100dvh] overflow-hidden bg-bg" style={SIDE_SAFE_AREA}>
-      <aside className="flex w-[252px] flex-none flex-col border-r border-line2 bg-bg px-4 pb-4 pt-[22px]">
+    <div className="flex h-[100dvh] overflow-hidden bg-bg" style={ROOT_SAFE_AREA}>
+      {/* The sidebar is its own bottom edge (the profile card sits on it), so
+          it — not the root — clears the iPad home indicator. The content
+          column's own `BottomBar` handles its side. */}
+      <aside
+        className="flex w-[252px] flex-none flex-col border-r border-line2 bg-bg px-4 pt-[22px]"
+        style={{ paddingBottom: 'calc(16px + env(safe-area-inset-bottom))' }}
+      >
         <div className="flex items-center gap-[11px] px-2 pb-[22px]">
           <div className="flex h-9 w-9 items-center justify-center rounded-[11px] bg-acc font-display text-[17px] font-extrabold tracking-[-0.03em] text-on-acc">
             +1
