@@ -27,6 +27,14 @@ function redirectTo(request: NextRequest, path: string): NextResponse {
   return res;
 }
 
+function logClientKey(headers: Headers): string {
+  try {
+    return reviewClientKey(headers);
+  } catch {
+    return 'no-client';
+  }
+}
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const supabase = await createClient();
   const {
@@ -35,8 +43,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!user) return redirectTo(request, '/login');
   if (!demoSessionMustEnd(user)) return redirectTo(request, '/app');
 
-  const client = reviewClientKey(request.headers);
+  // Revoke first, log second: the client key needs LANDING_IP_SALT and throws
+  // without it in production, and the revoke must never depend on a log line.
   const { error } = await supabase.auth.signOut({ scope: 'global' });
+  const client = logClientKey(request.headers);
   if (error) {
     // The cookies were not cleared: redirecting to /login would bounce back to
     // /app and here again. Stop with a plain error instead of a redirect loop.

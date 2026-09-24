@@ -5,9 +5,16 @@ import { NextRequest } from 'next/server';
 // closed, and does nothing at all for anyone else.
 const getUser = vi.fn();
 const signOut = vi.fn();
+const clientKey = vi.fn();
+const real = vi.hoisted(() => ({ key: null as ((h: Headers) => string) | null }));
 vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({ auth: { getUser, signOut } }),
 }));
+vi.mock('@/features/auth/review-login', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/features/auth/review-login')>();
+  real.key = actual.reviewClientKey;
+  return { ...actual, reviewClientKey: (h: Headers) => clientKey(h) };
+});
 
 const ORIGIN = 'http://localhost:3000';
 const DEMO = { id: 'de300000-0000-7000-8000-00000000a001', email: 'app-review@demo.plus-one.io' };
@@ -30,6 +37,7 @@ beforeEach(() => {
   vi.spyOn(console, 'info').mockImplementation(() => undefined);
   vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   signOut.mockResolvedValue({ error: null });
+  clientKey.mockImplementation((h: Headers) => real.key!(h));
 });
 
 afterEach(() => {
@@ -73,6 +81,28 @@ describe('GET /auth/review-login/end', () => {
     const res = await hit();
     expect(signOut).not.toHaveBeenCalled();
     expect(new URL(res.headers.get('location')!).pathname).toBe('/login');
+  });
+
+  it('the revoke does not depend on logging: a throwing client key still signs out and logs "no-client"', async () => {
+    // reviewClientKey throws in production when LANDING_IP_SALT is unset.
+    clientKey.mockImplementation(() => {
+      throw new Error('LANDING_IP_SALT missing');
+    });
+    getUser.mockResolvedValue({ data: { user: DEMO } });
+    const res = await hit();
+    expect(signOut).toHaveBeenCalledWith({ scope: 'global' });
+    expect(new URL(res.headers.get('location')!).pathname).toBe('/login');
+    const lines = [...vi.mocked(console.info).mock.calls, ...vi.mocked(console.warn).mock.calls].map((c) => JSON.parse(String(c[0])));
+    expect(lines).toContainEqual(expect.objectContaining({ outcome: 'session_ended', client: 'no-client' }));
+  });
+
+  it('sign-out runs before the client key is computed', async () => {
+    const order: string[] = [];
+    signOut.mockImplementation(async () => (order.push('signOut'), { error: null }));
+    clientKey.mockImplementation(() => (order.push('key'), 'k'.repeat(64)));
+    getUser.mockResolvedValue({ data: { user: DEMO } });
+    await hit();
+    expect(order).toEqual(['signOut', 'key']);
   });
 
   it('sign-out failure → 503, not a redirect (a redirect would loop /login → /app → here)', async () => {
