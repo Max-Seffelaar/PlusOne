@@ -1,7 +1,7 @@
 # PLUSONE — Data Processing Agreement (Verwerkersovereenkomst)
 
-> **DRAFT v0.1 — 9 July 2026 — NOT LEGALLY REVIEWED.**
-> This draft must be reviewed by a Dutch lawyer before any customer signs. Bracketed placeholders `[like this]` must be completed first.
+> **DRAFT v0.1.1 — 24 September 2026 — NOT LEGALLY REVIEWED.**
+> v0.1 (9 July 2026) amended only where it conflicted with Terms of Service v0.2 (definitions, support access by Platform Administrators, data export on termination). Annex 2 is maintained by the Subprocessor List and was not touched here. This draft must be reviewed by a Dutch lawyer before any customer signs. Bracketed placeholders `[like this]` must be completed first.
 
 This Data Processing Agreement ("**DPA**") forms part of the agreement between:
 
@@ -12,11 +12,11 @@ together the "**Parties**", and supplements the PLUSONE Terms of Service or othe
 
 ## 1. Definitions
 
-Terms such as "personal data", "processing", "controller", "processor", "data subject", "personal data breach" and "supervisory authority" have the meanings given in Regulation (EU) 2016/679 ("**GDPR**"). "**Guest Data**" means personal data of guests, guest requesters and address book contacts that the Customer (or its staff, or data subjects via the Customer's public request pages) enters into the PLUSONE platform. "**Subprocessor**" means a third party engaged by PLUSONE to process Guest Data on the Customer's behalf.
+Terms such as "personal data", "processing", "controller", "processor", "data subject", "personal data breach" and "supervisory authority" have the meanings given in Regulation (EU) 2016/679 ("**GDPR**"). Capitalized terms not defined here (including "Customer Content", "Event", "Guest", "Native App", "Platform Administrator", "Request Link", "User" and "Venue") have the meaning given in the PLUSONE Terms of Service. "**Guest Data**" means personal data of Guests (persons on a guest list, persons who request a spot via a Request Link, and persons checked in or refused at the door) and of address book contacts that the Customer, its Users, or data subjects via the Customer's Request Links enter into the Service; Guest Data is part of Customer Content. "**Subprocessor**" means a third party engaged by PLUSONE to process Guest Data on the Customer's behalf.
 
 ## 2. Subject matter, roles, and scope
 
-2.1. PLUSONE provides a guest list management platform, including guest list administration, public guest request pages, door check-in (including offline operation), quota management, statistics and audit logging (the "**Service**").
+2.1. PLUSONE provides a guest list management platform, including guest list administration, Request Links with public request and status pages, door check-in (including offline operation, in the browser and in the Native Apps), quota and tier management, statistics and audit logging (the "**Service**"), as described in the Terms of Service.
 
 2.2. For **Guest Data**, the Customer is the **controller** and PLUSONE is the **processor**. PLUSONE processes Guest Data exclusively on behalf of and for the purposes of the Customer.
 
@@ -35,6 +35,8 @@ This DPA applies for as long as PLUSONE processes Guest Data under the Agreement
 4.2. The Agreement, this DPA, and the Customer's configuration of the Service (including the venue retention period, guest request link settings, role assignments, and use of the erasure function) constitute the Customer's complete documented instructions. Additional instructions require written agreement of both Parties.
 
 4.3. PLUSONE informs the Customer immediately if, in its opinion, an instruction infringes the GDPR or other applicable data protection law.
+
+4.4. **Support access.** The Customer instructs PLUSONE that its Platform Administrators may access Guest Data in the Customer's Venue, including by making changes, to the extent reasonably necessary to provide support requested by the Customer, to investigate and resolve incidents and defects, and to protect the security and integrity of the Service. Such access is limited to the purpose at hand, is subject to clause 5 (confidentiality), and every change made through it is recorded in the append-only audit log under the identity of the PLUSONE operator concerned, where the Customer can see it. PLUSONE does not use this access to take decisions about Guests on the Customer's behalf.
 
 ## 5. Confidentiality
 
@@ -83,7 +85,7 @@ PLUSONE ensures that every person authorized to process Guest Data (including it
 
 11.1. During the term, the Customer controls retention through the venue retention setting (1–60 months per event; default 12 months) and the erasure function.
 
-11.2. Upon termination of the Agreement, the Customer may **export** its Guest Data in a structured, commonly used, machine-readable format within **30 days**. After this period, PLUSONE deletes or irreversibly anonymizes all Guest Data, unless EU or member state law requires longer storage. Non-personal, aggregated statistics (e.g. attendance counts) may be retained, as they no longer relate to an identifiable person.
+11.2. Upon termination of the Agreement, PLUSONE will, on the Customer's written request made within **30 days** after termination, provide an **export** of the Customer's non-anonymized Guest Data in a structured, commonly used, machine-readable format (such as CSV or JSON). After this period, PLUSONE deletes or irreversibly anonymizes all Guest Data, unless EU or member state law requires longer storage. Non-personal, aggregated statistics (e.g. attendance counts) may be retained, as they no longer relate to an identifiable person. Guest Data that was already anonymized under clause 11.1 before the request cannot be restored.
 
 11.3. On written request, PLUSONE confirms in writing that deletion/anonymization has been completed.
 
@@ -112,7 +114,7 @@ The liability of each Party under this DPA is governed by the limitations and ex
 # Annex 1 — Details of the processing
 
 **A. Subject matter and nature of the processing**
-Hosting, storage, display, modification, transmission, and automated retention/anonymization of Guest Data as part of the operation of the PLUSONE guest list platform, including: guest list administration; intake of guest requests via public request pages and personal invite links; approval workflows; door check-in and refusal registration (including offline caching on door devices with deferred synchronization); quota and tier management; statistics; and append-only audit logging of all changes.
+Hosting, storage, display, modification, transmission, and automated retention/anonymization of Guest Data as part of the operation of the PLUSONE guest list platform, including: guest list administration; intake of guest requests via Request Links (public request pages and personal invite links) and display of the request status to the requester on a token-protected status page; approval workflows; door check-in and refusal registration (including offline caching on door devices with deferred synchronization, in the browser and in the Native Apps); quota and tier management; statistics; append-only audit logging of all changes; and support access by Platform Administrators under clause 4.4.
 
 **B. Purpose of the processing**
 Enabling the Customer to manage guest lists for its events: maintaining lists, deciding on guest requests, controlling access at the door, enforcing staff quotas, and auditing changes for fraud prevention.
