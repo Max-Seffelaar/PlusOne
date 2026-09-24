@@ -84,8 +84,14 @@ select status, count(*) from public.notification_outbox group by status;
 -- is it configured? (true = a request was queued)
 select public.kick_push_dispatch();
 
--- did pg_net reach the function? (status 200 = drained, 401 = token refused,
--- 503 = FCM secrets missing)
+-- did pg_net reach the function? Status / body:
+--   200                          drained (counts in the body)
+--   401 invalid_token            the kick's token was unknown, used or expired (>10 min
+--                                between kick and delivery) — not a config problem
+--   502 service_key_rejected     PostgREST refused the function's SUPABASE_SERVICE_ROLE_KEY
+--                                (runtime-injected: redeploy the function; nothing in Vault)
+--   503 fcm_not_configured       FCM_PROJECT_ID / FCM_SERVICE_ACCOUNT_JSON missing or unparsable
+--   500 misconfigured            SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY absent in the runtime
 select id, status_code, left(content::text, 200), created
 from net._http_response order by created desc limit 10;
 

@@ -6,11 +6,12 @@
 // FCM HTTP v1. The SQL half (claim/complete/prune semantics, the single-use
 // token gate) is covered by supabase/tests/database/push_dispatch.test.sql.
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import {
   classifyFcmError,
   handleDispatch,
   parseServiceAccount,
+  resetAccessTokenCache,
   rowOutcome,
   signServiceAccountJwt,
   type ClaimedRow,
@@ -39,6 +40,10 @@ beforeAll(async () => {
   );
   privatePem = toPem(await crypto.subtle.exportKey('pkcs8', pair.privateKey));
   publicKey = pair.publicKey;
+});
+
+beforeEach(() => {
+  resetAccessTokenCache();
 });
 
 function env(overrides: Partial<DispatchEnv> = {}): DispatchEnv {
@@ -78,6 +83,8 @@ interface Call {
  */
 function fakeUpstreams(opts: {
   batches?: ClaimedRow[][];
+  /** push_dispatch_token_valid: true/false, or an HTTP error {status, code}. */
+  tokenValid?: boolean | { status: number; code?: string };
   claimStatus?: number;
   claimCode?: string;
   oauthStatus?: number;
@@ -97,6 +104,11 @@ function fakeUpstreams(opts: {
     }
     calls.push({ url, body, headers });
 
+    if (url.endsWith('/rest/v1/rpc/push_dispatch_token_valid')) {
+      const v = opts.tokenValid ?? true;
+      if (typeof v === 'boolean') return Response.json(v);
+      return new Response(JSON.stringify({ code: v.code ?? null }), { status: v.status });
+    }
     if (url.endsWith('/rest/v1/rpc/claim_push_outbox')) {
       if (opts.claimStatus) {
         return new Response(JSON.stringify({ code: opts.claimCode ?? null }), { status: opts.claimStatus });
@@ -162,28 +174,65 @@ describe('push-dispatch caller gate', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('maps a refused token (42501: unknown, used or expired) to 401 and sends nothing', async () => {
-    const { fetchFn, calls } = fakeUpstreams({ claimStatus: 403, claimCode: '42501' });
-    const res = await handleDispatch(post('cd'.repeat(32)), { env: env(), fetch: fetchFn, log: () => {} });
+  it('refuses an unknown/used/expired token (check says false) with 401 and claims nothing', async () => {
+    const lines: string[] = [];
+    const { fetchFn, calls } = fakeUpstreams({ tokenValid: false });
+    const res = await handleDispatch(post('cd'.repeat(32)), { env: env(), fetch: fetchFn, log: (e) => lines.push(e) });
     expect(res.status).toBe(401);
-    expect(calls.map((c) => c.url)).toEqual([`${SUPABASE_URL}/rest/v1/rpc/claim_push_outbox`]);
+    expect(await res.json()).toEqual({ error: 'invalid_token' });
+    expect(calls.map((c) => c.url)).toEqual([`${SUPABASE_URL}/rest/v1/rpc/push_dispatch_token_valid`]);
+    expect(lines).toEqual(['token_refused']);
   });
 
-  it('forwards the caller token to claim_push_outbox with the service_role key', async () => {
+  it('maps a token consumed between check and claim (42501 on claim) to 401 as well', async () => {
+    const { fetchFn } = fakeUpstreams({ claimStatus: 403, claimCode: '42501' });
+    const res = await handleDispatch(post(), { env: env(), fetch: fetchFn, log: () => {} });
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: 'invalid_token' });
+  });
+
+  it('tells a rejected service-role key (401/403 without 42501) apart from a bad caller token', async () => {
+    for (const status of [401, 403]) {
+      const lines: string[] = [];
+      const { fetchFn } = fakeUpstreams({ tokenValid: { status } });
+      const res = await handleDispatch(post(), { env: env(), fetch: fetchFn, log: (e) => lines.push(e) });
+      expect(res.status).toBe(502);
+      expect(await res.json()).toEqual({ error: 'service_key_rejected' });
+      expect(lines).toEqual(['service_key_rejected']);
+    }
+  });
+
+  it('checks the token, then claims with it, both with the service_role key', async () => {
     const { fetchFn, calls } = fakeUpstreams({ batches: [[]] });
     const res = await handleDispatch(post(), { env: env(), fetch: fetchFn, log: () => {} });
     expect(res.status).toBe(200);
-    expect(calls[0].body).toEqual({ p_token: TOKEN, p_limit: 200 });
-    expect(calls[0].headers.authorization).toBe(`Bearer ${SERVICE_KEY}`);
+    expect(calls.map((c) => [c.url.split('/rpc/')[1], c.body])).toEqual([
+      ['push_dispatch_token_valid', { p_token: TOKEN }],
+      ['claim_push_outbox', { p_token: TOKEN, p_limit: 200 }],
+    ]);
+    expect(calls.every((c) => c.headers.authorization === `Bearer ${SERVICE_KEY}`)).toBe(true);
   });
 
-  it('sleeps (503, no claim) when FCM secrets are absent — no attempt burned', async () => {
+  it('sleeps (503, no claim) when FCM secrets are absent — but only after the caller is authenticated', async () => {
     for (const missing of [{ FCM_SERVICE_ACCOUNT_JSON: undefined }, { FCM_PROJECT_ID: undefined }, { FCM_SERVICE_ACCOUNT_JSON: '{not json' }]) {
       const { fetchFn, calls } = fakeUpstreams({ batches: [[row('r1', [DEVICE_A])]] });
       const res = await handleDispatch(post(), { env: env(missing), fetch: fetchFn, log: () => {} });
       expect(res.status).toBe(503);
-      expect(calls).toHaveLength(0);
+      expect(calls.map((c) => c.url)).toEqual([`${SUPABASE_URL}/rest/v1/rpc/push_dispatch_token_valid`]);
     }
+  });
+
+  it('gives an unauthenticated caller no 503-vs-401 oracle on the FCM config', async () => {
+    const { fetchFn } = fakeUpstreams({ tokenValid: false });
+    const res = await handleDispatch(post(), { env: env({ FCM_PROJECT_ID: undefined }), fetch: fetchFn, log: () => {} });
+    expect(res.status).toBe(401);
+  });
+
+  it('fails closed (500) if the runtime-injected Supabase env is missing', async () => {
+    const { fetchFn, calls } = fakeUpstreams({});
+    const res = await handleDispatch(post(), { env: env({ SUPABASE_SERVICE_ROLE_KEY: undefined }), fetch: fetchFn, log: () => {} });
+    expect(res.status).toBe(500);
+    expect(calls).toHaveLength(0);
   });
 });
 
@@ -260,7 +309,20 @@ describe('push-dispatch delivery', () => {
   it('does not mint an OAuth token when there is nothing to send', async () => {
     const { fetchFn, calls } = fakeUpstreams({ batches: [[]] });
     await handleDispatch(post(), { env: env(), fetch: fetchFn, log: () => {} });
-    expect(calls.map((c) => c.url)).toEqual([`${SUPABASE_URL}/rest/v1/rpc/claim_push_outbox`]);
+    expect(calls.some((c) => c.url.startsWith('https://oauth2.googleapis.test/'))).toBe(false);
+  });
+
+  it('reuses the cached access token across invocations until 5 minutes before expiry', async () => {
+    const oauthCalls = () => all.filter((c) => c.url.startsWith('https://oauth2.googleapis.test/')).length;
+    const all: Call[] = [];
+    const t0 = 1_800_000_000_000;
+    for (const [i, at] of [[1, t0], [2, t0 + 30 * 60_000], [3, t0 + 56 * 60_000]] as const) {
+      const { fetchFn, calls } = fakeUpstreams({ batches: [[row(`r${i}`, [DEVICE_A])]] });
+      await handleDispatch(post(), { env: env(), fetch: fetchFn, log: () => {}, now: () => at });
+      all.push(...calls);
+      // 1st mints, 2nd (30 min later) reuses, 3rd (inside the 5-minute margin of the 60-minute token) re-mints.
+      expect(oauthCalls()).toBe(i === 1 ? 1 : i === 2 ? 1 : 2);
+    }
   });
 
   it('never logs the service-account JSON, device tokens, access token or caller token', async () => {
@@ -296,6 +358,8 @@ describe('FCM error classification', () => {
     [500, fcmErr('INTERNAL', 'INTERNAL'), 'transient'],
     [401, fcmErr('UNAUTHENTICATED', 'THIRD_PARTY_AUTH_ERROR'), 'transient'],
     [502, null, 'transient'],
+    [404, { error: { status: 'NOT_FOUND', message: 'Requested entity was not found.' } }, 'permanent'],
+    [404, null, 'permanent'],
   ] as const)('HTTP %i → %s', (status, body, kind) => {
     expect(classifyFcmError(status, body).kind).toBe(kind);
   });

@@ -35,7 +35,7 @@ returns int language sql as $fn$
   where url = 'http://127.0.0.1:9/functions/v1/push-dispatch';
 $fn$;
 
-select plan(39);
+select plan(42);
 
 select set_config('request.jwt.claims', '{}', true);
 
@@ -46,15 +46,17 @@ update public.notification_outbox set status = 'sent' where status in ('pending'
 -- A. Privileges
 -- ---------------------------------------------------------------------------
 select ok(
-  has_function_privilege('service_role', 'public.claim_push_outbox(text, integer)', 'EXECUTE')
+  has_function_privilege('service_role', 'public.push_dispatch_token_valid(text)', 'EXECUTE')
+  and has_function_privilege('service_role', 'public.claim_push_outbox(text, integer)', 'EXECUTE')
   and has_function_privilege('service_role', 'public.complete_push_outbox(uuid, text, text)', 'EXECUTE')
   and has_function_privilege('service_role', 'public.prune_push_tokens(uuid[])', 'EXECUTE'),
-  'A1 service_role can call the three Edge Function RPCs');
+  'A1 service_role can call the four Edge Function RPCs');
 
 select is_empty($$
   select r || ' -> ' || f
   from unnest(array['anon', 'authenticated']) r
   cross join unnest(array[
+    'public.push_dispatch_token_valid(text)',
     'public.claim_push_outbox(text, integer)',
     'public.complete_push_outbox(uuid, text, text)',
     'public.prune_push_tokens(uuid[])']) f
@@ -155,6 +157,10 @@ from (values ('pgtap-token-2', now()), ('pgtap-token-3', now()), ('pgtap-token-4
              ('pgtap-token-5', now()), ('pgtap-expired', now() - interval '11 minutes')) v (t, c);
 
 select pg_temp.as_service();
+select is(public.push_dispatch_token_valid(current_setting('pgtap.tok')), true,
+  'C5b the pre-check accepts the token the kick sent (without consuming it)');
+select is(public.push_dispatch_token_valid('pgtap-expired'), false,
+  'C5c …and rejects an expired one');
 select throws_ok($$select * from public.claim_push_outbox(repeat('cd', 32), 10)$$,
   '42501', null, 'C6 claim refuses a token that was never issued');
 select throws_ok($$select * from public.claim_push_outbox(null, 10)$$,
@@ -175,6 +181,8 @@ select is(
   '[]'::jsonb, 'C11 a recipient without devices gets an empty token list');
 select throws_ok($$select * from public.claim_push_outbox(current_setting('pgtap.tok'), 10)$$,
   '42501', null, 'C12 a token works once: replaying it is refused');
+select is(public.push_dispatch_token_valid(current_setting('pgtap.tok')), false,
+  'C12b …and the pre-check no longer accepts it either');
 select is((select count(*)::int from public.claim_push_outbox('pgtap-token-2', 10)), 0,
   'C13 a claimed row is not handed out twice');
 

@@ -17,7 +17,8 @@ Function, pgTAP, a runbook. No UI, no client registration (N5), no Vercel env.
   verbs, no platform-admin bypass; `session_id` stamped from the JWT by a BEFORE
   trigger, so a client can neither pick a foreign session nor register without
   one; a token held by a *dead* session of another user yields on re-register —
-  shared door tablets — a live one raises 23505) and `notification_outbox` (RLS
+  shared door tablets — superseded in review: possession of the device token now
+  wins for a live session too, see below) and `notification_outbox` (RLS
   on, no policies, no app-role grants). AFTER triggers on `quota_requests`
   (created → venue admins; decided → requester) and `guest_requests` (created →
   venue admins + that event's organizers). Recipients come straight from
@@ -45,13 +46,26 @@ Function, pgTAP, a runbook. No UI, no client registration (N5), no Vercel env.
   `INVALID_ARGUMENT`, never logs tokens/JSON/secret. `verify_jwt = false`
   (`supabase/config.toml`); the gate is the single-use token consumed in
   `claim_push_outbox`, one claim (≤ 200 rows) per invocation. Logic sits in a runtime-agnostic `dispatch.ts` so CI's
-  vitest covers it (`tests/unit/push-dispatch.test.ts`, 24 tests) — CI runs no
+  vitest covers it (`tests/unit/push-dispatch.test.ts`, 31 tests) — CI runs no
   Deno tests.
-- pgTAP: `push_tokens.test.sql` (36), `push_outbox.test.sql` (23),
-  `push_dispatch.test.sql` (39); `grant_matrix.test.sql` allowlists
+- pgTAP: `push_tokens.test.sql` (40), `push_outbox.test.sql` (24),
+  `push_dispatch.test.sql` (42); `grant_matrix.test.sql` allowlists
   `push_tokens` DELETE; `tables.test.sql` lists the three tables.
 - Spec decision #50; runbook `docs/push-dispatch.md` (FCM Edge secrets, deploy,
   Vault on-switch, check queries).
+
+**Review round (orchestrator + independent review of `a707afd`), folded into one push:**
+decided-branch notifies `old.user_id` (the requester as filed — `authenticated` still
+holds a table-wide UPDATE on `quota_requests`; narrowing that column grant is a
+separate task); a bare FCM 404 is `permanent`, never `prune`; the function
+authenticates the caller first via the read-only `push_dispatch_token_valid`
+(no 503-vs-401 oracle) and tells a refused invocation token (401 `invalid_token`)
+apart from a rejected service-role key (502 `service_key_rejected`); module-scope
+OAuth token cache with expiry; `push_tokens.session_id` defaults from the JWT;
+shared tablet: possession of the device token wins (a live-session row of another
+user for the same `(transport, token)` is replaced). Parked for milestone ≥25:
+chunked/batch `complete_push_outbox`, kick debounce, outbox cleanup on membership
+removal.
 
 **Not run in the building session** (no Supabase stack/Docker in the container):
 `pnpm db:test`, `supabase db reset`, `db:test:concurrency`, e2e, a Deno run of the

@@ -19,12 +19,13 @@
 create table public.push_tokens (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
-  -- auth session id from the JWT `session_id` claim. Stamped server-side by
-  -- push_tokens_stamp() below — whatever the client sends is overwritten. No
-  -- FK into auth.sessions (cross-schema coupling to a GoTrue-owned table);
-  -- revocation deletes by value instead (20260925120200) and dispatch only
-  -- ever delivers to tokens whose session still exists (20260925120100).
-  session_id uuid not null,
+  -- auth session id from the JWT `session_id` claim. The default means a
+  -- client never has to send one; push_tokens_stamp() below overwrites
+  -- whatever an end-user write carries anyway. No FK into auth.sessions
+  -- (cross-schema coupling to a GoTrue-owned table); revocation deletes by
+  -- value instead (20260925120200) and dispatch only ever delivers to tokens
+  -- whose session still exists (20260925120100).
+  session_id uuid not null default (nullif(auth.jwt() ->> 'session_id', ''))::uuid,
   transport text not null check (transport in ('web-push', 'fcm', 'apns')),
   token text not null check (char_length(token) between 1 and 4096),
   device_label text check (device_label is null or char_length(device_label) <= 120),
@@ -40,11 +41,15 @@ create index push_tokens_last_seen_at_idx on public.push_tokens (last_seen_at);
 comment on table public.push_tokens is
   'Device push registrations (Fase 17 N2). Owner-only RLS; session_id stamped from the JWT; deleted on revoke_own_session/admin_revoke_session and by the 90-day TTL sweep. Device plumbing: not audited, hard delete intended.';
 
--- Session binding. SECURITY DEFINER because the INSERT branch reads
--- auth.sessions and may remove a row owned by ANOTHER user — but only a row
--- whose session no longer exists (a device handed over after the previous
--- user's session ended: same FCM token, dead owner). A row bound to a live
--- session is never touched here; that conflict still raises 23505.
+-- Session binding + device handover. SECURITY DEFINER because the INSERT
+-- branch removes a row owned by ANOTHER user: possession of the device token
+-- wins (orchestrator decision 2026-09-24, spec #50). An FCM/APNs token only
+-- exists inside the app on that one device, so whoever registers it from a
+-- live session of their own is the device's current user — the shared door
+-- tablet case, where the previous user's session row may linger for days
+-- after they walked away (GoTrue deletes timeboxed sessions lazily). The
+-- delete is narrow: same (transport, token) only, never another row of the
+-- previous owner, and only after the caller's identity checks below passed.
 --
 -- Stamping applies to end-user JWTs only (auth.uid() not null). service_role
 -- and the table owner (migrations, seed, pgTAP fixtures) write as given.
@@ -68,12 +73,17 @@ begin
   new.session_id := v_sid;
 
   if tg_op = 'INSERT' then
+    -- Checked here, not only by the INSERT policy (which runs after this
+    -- trigger): the handover delete below must never run for a forged owner.
+    if new.user_id is distinct from (select auth.uid()) then
+      raise exception 'push token owner must be the caller' using errcode = '42501';
+    end if;
     new.created_at := now();
     new.last_seen_at := now();
     delete from public.push_tokens p
     where p.transport = new.transport
       and p.token = new.token
-      and not exists (select 1 from auth.sessions s where s.id = p.session_id);
+      and p.user_id <> new.user_id;
   else
     -- Identity of the row is not the client's to rewrite.
     new.id := old.id;
@@ -169,7 +179,10 @@ revoke all on table public.notification_outbox from anon, authenticated;
 --     approve_quota_request is admin-only)
 -- (b) guest request created        → the venue's admins + that event's
 --     organizers (approve_guest_request's exact gate)
--- (c) quota request decided        → the requester
+-- (c) quota request decided        → the requester AS FILED (old.user_id:
+--     authenticated still holds a table-wide UPDATE on quota_requests and the
+--     decide policy does not pin user_id, so new.user_id is client-writable;
+--     narrowing that column grant is a separate task)
 --
 -- Recipients are resolved from venue_memberships/event_organizers of the
 -- ROW's venue/event directly — never through has_venue_role()/is_*() helpers,
@@ -214,7 +227,7 @@ begin
       insert into public.notification_outbox
         (kind, source_id, venue_id, recipient_user_id, dedupe_key, payload)
       select
-        'quota_request_decided', new.id, new.venue_id, new.user_id,
+        'quota_request_decided', new.id, new.venue_id, old.user_id,
         'quota_request_decided:' || new.id || ':' || new.status,
         jsonb_build_object(
           'kind', 'quota_request_decided',
@@ -222,7 +235,7 @@ begin
           'event_id', new.event_id,
           'request_id', new.id,
           'status', new.status)
-      where new.decided_by is distinct from new.user_id
+      where new.decided_by is distinct from old.user_id
       on conflict (dedupe_key, recipient_user_id) do nothing;
     end if;
   exception when others then

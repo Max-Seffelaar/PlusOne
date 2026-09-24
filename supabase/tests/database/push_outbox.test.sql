@@ -3,7 +3,8 @@
 --
 -- Proves: the outbox is closed to every app role; (a) a quota request reaches
 -- exactly the venue's admins, (b) a guest request exactly the venue's admins
--- + that event's organizers, (c) a quota decision exactly the requester;
+-- + that event's organizers, (c) a quota decision exactly the requester as
+-- filed (old.user_id), even when the decision rewrites user_id;
 -- nobody from ANOTHER venue is ever a recipient (a venue-2-only admin, Vera,
 -- and venue-1's organizer are the probes); payloads carry ids, not names;
 -- re-fires and replays do not duplicate; and a broken outbox never fails the
@@ -41,7 +42,7 @@ returns uuid[] language sql as $fn$
   where source_id = p_source and kind = p_kind;
 $fn$;
 
-select plan(23);
+select plan(24);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner): Vera — admin of venue2 ONLY; a venue2 event.
@@ -214,6 +215,22 @@ where id = '9a000000-0000-7000-8000-000000000002';
 select is(
   pg_temp.recipients('9a000000-0000-7000-8000-000000000002', 'quota_request_decided'),
   '{}'::uuid[], 'D5 a self-decided request notifies nobody');
+
+-- The decision goes to the requester AS FILED. authenticated still holds a
+-- table-wide UPDATE on quota_requests and the decide policy does not pin
+-- user_id, so an admin's decision PATCH can rewrite it; the push must not
+-- follow that rewrite into another venue (Vera is venue-2-only).
+insert into public.quota_requests (id, event_id, user_id, requested_extra)
+values ('9a000000-0000-7000-8000-000000000004', 'ee000000-0000-7000-8000-000000000001',
+        '66666666-6666-4666-8666-666666666666', 1);
+update public.quota_requests
+   set status = 'approved', decided_by = '11111111-1111-4111-8111-111111111111', decided_at = now(),
+       user_id = '77770000-0000-4000-8000-000000000002'
+ where id = '9a000000-0000-7000-8000-000000000004';
+select is(
+  pg_temp.recipients('9a000000-0000-7000-8000-000000000004', 'quota_request_decided'),
+  array['66666666-6666-4666-8666-666666666666']::uuid[],
+  'D6 a decision that rewrites user_id still notifies only the original requester — never the rewritten (venue-2) user');
 
 -- ---------------------------------------------------------------------------
 -- E. Broken plumbing never fails the request

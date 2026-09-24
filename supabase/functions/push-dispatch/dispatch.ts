@@ -14,9 +14,12 @@
 //
 // Caller auth: every pg_net kick carries a fresh single-use token in the
 // x-push-dispatch-token header (only its sha256 is stored, 10-minute
-// lifetime). This code forwards it to claim_push_outbox(), which consumes it
-// or raises 42501 — so this function holds no secret of its own to compare
-// against, and one invocation = one claim.
+// lifetime). This code first checks it read-only (push_dispatch_token_valid)
+// — before revealing anything, even whether FCM is configured — then claims
+// with it; claim_push_outbox consumes it or raises 42501. So this function
+// holds no secret of its own, and one invocation = one claim. A 401/403
+// without 42501 is PostgREST rejecting OUR service-role key: reported as 502
+// service_key_rejected, never as a bad caller.
 //
 // Never logged: the service-account JSON, the access token, device tokens,
 // the caller's token, FCM error messages (only their error codes).
@@ -138,11 +141,37 @@ export async function signServiceAccountJwt(sa: ServiceAccount, nowMs: number): 
   return `${signingInput}.${base64UrlFromBytes(new Uint8Array(sig))}`;
 }
 
-export async function fetchAccessToken(
+// Module-scope cache: an Edge worker serves many invocations, so a burst of
+// kicks reuses one Google access token instead of minting one per call.
+// Keyed by service account so a rotated secret never reuses an old token;
+// refreshed 5 minutes before Google's stated expiry.
+let tokenCache: { key: string; token: string; expiresAtMs: number } | null = null;
+const TOKEN_REFRESH_MARGIN_MS = 5 * 60 * 1000;
+
+/** Test hook: forget the cached access token. */
+export function resetAccessTokenCache(): void {
+  tokenCache = null;
+}
+
+export async function getAccessToken(
   sa: ServiceAccount,
   fetchFn: typeof fetch,
   nowMs: number
 ): Promise<string> {
+  const key = `${sa.client_email}|${sa.token_uri}`;
+  if (tokenCache && tokenCache.key === key && tokenCache.expiresAtMs - TOKEN_REFRESH_MARGIN_MS > nowMs) {
+    return tokenCache.token;
+  }
+  const { token, expiresInS } = await fetchAccessToken(sa, fetchFn, nowMs);
+  tokenCache = { key, token, expiresAtMs: nowMs + expiresInS * 1000 };
+  return token;
+}
+
+export async function fetchAccessToken(
+  sa: ServiceAccount,
+  fetchFn: typeof fetch,
+  nowMs: number
+): Promise<{ token: string; expiresInS: number }> {
   const assertion = await signServiceAccountJwt(sa, nowMs);
   const res = await fetchFn(sa.token_uri, {
     method: 'POST',
@@ -153,9 +182,10 @@ export async function fetchAccessToken(
     }).toString(),
   });
   if (!res.ok) throw new Error(`oauth_${res.status}`);
-  const json = (await res.json()) as { access_token?: unknown };
+  const json = (await res.json()) as { access_token?: unknown; expires_in?: unknown };
   if (typeof json.access_token !== 'string' || !json.access_token) throw new Error('oauth_no_token');
-  return json.access_token;
+  const expiresInS = typeof json.expires_in === 'number' && json.expires_in > 0 ? json.expires_in : 3600;
+  return { token: json.access_token, expiresInS };
 }
 
 // ── FCM send + classification ───────────────────────────────────────────────
@@ -170,13 +200,16 @@ interface FcmErrorBody {
 
 /**
  * Map an FCM v1 error to what we do with the TOKEN and the ROW.
- * prune     — the token is dead for good (UNREGISTERED, SENDER_ID_MISMATCH,
- *             or INVALID_ARGUMENT that names the registration token).
+ * prune     — the token is dead for good. Only on an explicit FcmError code
+ *             (UNREGISTERED, SENDER_ID_MISMATCH) or INVALID_ARGUMENT that names
+ *             the registration token — a bare 404 is what a wrong
+ *             FCM_PROJECT_ID returns, and pruning on it would wipe every
+ *             token in the batch.
  * transient — worth retrying the row (429, 5xx, auth/config problems that
  *             a fixed secret resolves).
  * permanent — the request itself is wrong (INVALID_ARGUMENT about anything
- *             but the token); retrying cannot help, and pruning would wrongly
- *             wipe every token on a payload bug.
+ *             but the token, or a 404 without FcmError detail); retrying
+ *             cannot help, and pruning would wrongly wipe good tokens.
  */
 export function classifyFcmError(httpStatus: number, body: FcmErrorBody | null): SendResult {
   const err = body?.error;
@@ -189,7 +222,7 @@ export function classifyFcmError(httpStatus: number, body: FcmErrorBody | null):
       ? { kind: 'prune', code }
       : { kind: 'permanent', code };
   }
-  if (httpStatus === 404) return { kind: 'prune', code };
+  if (httpStatus === 404) return { kind: 'permanent', code };
   return { kind: 'transient', code };
 }
 
@@ -294,31 +327,59 @@ export async function handleDispatch(req: Request, deps: DispatchDeps): Promise<
 
   if (req.method !== 'POST') return json(405, { error: 'method_not_allowed' });
 
-  // Cheap pre-filter before any DB round trip; the real check (consume the
-  // single-use token) is in the RPC. Tokens are 64 hex chars.
+  // Cheap pre-filter before any DB round trip. Tokens are 64 hex chars.
   const token = req.headers.get('x-push-dispatch-token') ?? '';
-  if (!/^[0-9a-f]{64}$/.test(token)) return json(401, { error: 'unauthorized' });
+  if (!/^[0-9a-f]{64}$/.test(token)) return json(401, { error: 'invalid_token' });
 
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, FCM_PROJECT_ID } = deps.env;
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    // Runtime-injected on Supabase; missing means a broken deploy, not a caller problem.
+    log('runtime_env_missing');
+    return json(500, { error: 'misconfigured' });
+  }
+
+  // 1. Authenticate the caller first, so nothing below (e.g. "FCM not
+  //    configured") is observable without a valid token.
+  //    42501 = the token is unknown/expired/used; a 401/403 WITHOUT that code
+  //    means PostgREST rejected our own service-role key — a different knob.
+  const refused = (e: unknown): Response => {
+    if (e instanceof RpcError && e.pgCode === '42501') {
+      log('token_refused');
+      return json(401, { error: 'invalid_token' });
+    }
+    if (e instanceof RpcError && (e.httpStatus === 401 || e.httpStatus === 403)) {
+      log('service_key_rejected', { status: e.httpStatus });
+      return json(502, { error: 'service_key_rejected' });
+    }
+    log('rpc_failed', { error: e instanceof Error ? e.message : 'unknown' });
+    return json(502, { error: 'rpc_failed' });
+  };
+  try {
+    const valid = await rpc<boolean>(deps, 'push_dispatch_token_valid', { p_token: token });
+    if (!valid) {
+      log('token_refused');
+      return json(401, { error: 'invalid_token' });
+    }
+  } catch (e) {
+    return refused(e);
+  }
+
+  // 2. Only an authenticated caller learns that FCM is not configured. Claim
+  //    nothing then, so no attempt is burned while asleep.
   const sa = parseServiceAccount(deps.env.FCM_SERVICE_ACCOUNT_JSON);
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !FCM_PROJECT_ID || !sa) {
-    // Not configured: claim nothing, so no attempt is burned while asleep.
-    log('not_configured');
-    return json(503, { error: 'unavailable' });
+  if (!FCM_PROJECT_ID || !sa) {
+    log('fcm_not_configured');
+    return json(503, { error: 'fcm_not_configured' });
   }
 
   const totals = { claimed: 0, sent: 0, skipped: 0, retry: 0, failed: 0, pruned: 0 };
 
+  // 3. Claim (consumes the token: one claim per invocation).
   let rows: ClaimedRow[];
   try {
     rows = await rpc<ClaimedRow[]>(deps, 'claim_push_outbox', { p_token: token, p_limit: BATCH_SIZE });
   } catch (e) {
-    if (e instanceof RpcError && (e.pgCode === '42501' || e.httpStatus === 401 || e.httpStatus === 403)) {
-      log('unauthorized');
-      return json(401, { error: 'unauthorized' });
-    }
-    log('claim_failed', { error: e instanceof Error ? e.message : 'unknown' });
-    return json(502, { error: 'claim_failed', ...totals });
+    return refused(e);
   }
   totals.claimed = rows.length;
   if (rows.length === 0) {
@@ -328,7 +389,7 @@ export async function handleDispatch(req: Request, deps: DispatchDeps): Promise<
 
   let accessToken: string;
   try {
-    accessToken = await fetchAccessToken(sa, deps.fetch, now());
+    accessToken = await getAccessToken(sa, deps.fetch, now());
   } catch (e) {
     const code = e instanceof Error ? e.message : 'oauth_error';
     log('oauth_failed', { error: code });

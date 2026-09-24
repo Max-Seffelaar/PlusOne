@@ -1175,7 +1175,7 @@ export type Database = {
           device_label?: string | null
           id?: string
           last_seen_at?: string
-          session_id: string
+          session_id?: string
           token: string
           transport: string
           user_id?: string
@@ -2256,6 +2256,7 @@ export type Database = {
       prune_push_tokens: { Args: { p_ids: string[] }; Returns: number }
       prune_stale_push_tokens: { Args: never; Returns: number }
       push_dispatch_setting: { Args: { p_name: string }; Returns: string }
+      push_dispatch_token_valid: { Args: { p_token: string }; Returns: boolean }
       push_outbox_sweep: { Args: never; Returns: number }
       record_link_pageview: {
         Args: { p_ip_hash: string; p_slug: string }

@@ -147,6 +147,24 @@ create trigger notification_outbox_kick
 -- (2, 4, 8, 16) between them; a row stuck in 'sending' for 5 minutes (the
 -- function died mid-batch) goes back to 'pending' via the sweep.
 
+-- Read-only token check, so the function can authenticate its caller BEFORE
+-- deciding anything else (e.g. "FCM not configured"): an unauthenticated
+-- caller then only ever sees 401, never a 503 that reveals configuration.
+-- Does not consume — claim_push_outbox does that.
+create or replace function public.push_dispatch_token_valid(p_token text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.push_dispatch_tokens t
+    where t.token_hash = extensions.digest(p_token, 'sha256')
+      and t.created_at > now() - interval '10 minutes'
+  );
+$$;
+
 -- Claim a batch (one per invocation: the token is single use; anything left
 -- over is picked up by the next kick or the 2-minute sweep). The token check
 -- is the Edge Function's caller gate (see the header). Returns each row with
@@ -271,9 +289,11 @@ begin
 end;
 $$;
 
+revoke execute on function public.push_dispatch_token_valid(text) from public, anon, authenticated, service_role;
 revoke execute on function public.claim_push_outbox(text, integer) from public, anon, authenticated, service_role;
 revoke execute on function public.complete_push_outbox(uuid, text, text) from public, anon, authenticated, service_role;
 revoke execute on function public.prune_push_tokens(uuid[]) from public, anon, authenticated, service_role;
+grant execute on function public.push_dispatch_token_valid(text) to service_role;
 grant execute on function public.claim_push_outbox(text, integer) to service_role;
 grant execute on function public.complete_push_outbox(uuid, text, text) to service_role;
 grant execute on function public.prune_push_tokens(uuid[]) to service_role;
