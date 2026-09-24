@@ -8,6 +8,30 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-24 — Fase 17 S3 round 2: demo guard migration, middleware gate, role check (86ey6bfug)
+
+Same branch/PR (#332), follow-up session on the round-2 review. **Adds a migration.**
+
+- **Role check** (`route.ts`): the demo membership must carry exactly `DEMO_ROLES`
+  (`admin,doorhost`, mirrored in the seed) → else `roles_changed`, checked BEFORE the
+  member/invite counts (those reads only see the whole venue as admin, and an admin can
+  rewrite its own row).
+- **Migration `20260925130000_review_demo_guard.sql`**: `create or replace` of the latest
+  `create_venue_with_owner` (20260713180000) with one guard: `auth.uid()` = the fixed demo
+  id → 42501. Signature, `security definer`, `search_path = ''` and ACL unchanged. pgTAP
+  `review_demo_guard.test.sql` (plan 10). `createVenueAction` refuses the demo account with
+  a clear message; the seed fails on `audit_log` rows by the demo actor outside the demo venue.
+- **Middleware** (`updateSession`): the demo account outside its window gets a global
+  sign-out + 303 `/login` (503 if the sign-out fails) on every covered route, reusing the
+  user it already resolved, with no query. Seed `--end-review` revokes every demo session. Residual:
+  a pure-API client that never requests the app keeps its session until the next review
+  login or `--end-review`.
+- End route computes the log key after the sign-out (`'no-client'` fallback). Demo events
+  `landing_active = false` (restored every run). Wording: the e-mail lock is "belt and
+  braces on top of Secure email change", with a runbook check that it is ON in prod.
+- Checks here: lint, tsc, vitest. **Not run here:** pgTAP (`pnpm db:test`, no Docker/Supabase
+  CLI in the container; CI is the DB gate), the seed script, a real login.
+
 ## 2026-09-24 — Fase 17 S3: store-review login + demo venue (86ey6bfug)
 
 Branch `claude/86ey6bfug-review-login`, PR #332. No migration.
