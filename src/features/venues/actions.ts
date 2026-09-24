@@ -109,7 +109,7 @@ export async function switchActiveVenueAction(venueId: string): Promise<SwitchVe
   ]);
   const reachable = new Set([...memberships, ...organizerVenues].map((m) => m.venueId));
   if (!reachable.has(parsed.data.venueId)) {
-    // Support/debug access (decision #41, P-05): a PlusOne platform admin may
+    // Support/debug access (decision #49, P-05): a PlusOne platform admin may
     // switch into a venue they hold no membership at, so "jump in to help"
     // from the Platform > Venues screen actually works. `getPlatformAdminVenue`
     // re-checks `is_platform_admin()` itself and confirms the venue exists —

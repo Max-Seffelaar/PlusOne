@@ -165,7 +165,7 @@ export async function isPlatformAdminServer(): Promise<boolean> {
 
 /**
  * A venue a platform admin may switch into even though they hold no
- * `venue_memberships` row there — support/debug access (decision #41). Returns
+ * `venue_memberships` row there — support/debug access (decision #49). Returns
  * `roles: []`, the SAME shape `getOrganizerVenues()` already returns for
  * external-crew access: every role-gated capability elsewhere stays off,
  * which is a known, pre-existing limitation of that shape (not new here) —
