@@ -18,6 +18,7 @@ import type { PluginListenerHandle } from '@capacitor/core';
 import type { PushNotificationsPlugin, PermissionStatus } from '@capacitor/push-notifications';
 import { t } from '@/lib/i18n';
 import type { NotificationProvider, PushMessage, PushPermission, PushRegistration, Unsubscribe } from './provider';
+import { PUSH_TRANSPORT } from './transport';
 
 /** Keep in sync with `plusone_push_channel_id` in android/app/src/main/res/values/plusone_push.xml. */
 export const PUSH_CHANNEL_ID = 'approvals';
@@ -59,6 +60,11 @@ export class CapacitorPushProvider implements NotificationProvider {
   private readyP: Promise<PushNotificationsPlugin | null> | null = null;
 
   constructor(private readonly deps: CapacitorPushDeps = defaultDeps) {}
+
+  /** Android-only today (gate 1), so the token is always FCM from an Android device. */
+  private registration(token: string): PushRegistration {
+    return { token, transport: PUSH_TRANSPORT.fcm, platform: 'android' };
+  }
 
   isSupported(): boolean {
     return this.deps.platform() === 'android';
@@ -122,7 +128,7 @@ export class CapacitorPushProvider implements NotificationProvider {
       };
       const timer = setTimeout(() => finish(null), REGISTER_TIMEOUT_MS);
       handles.push(
-        push.addListener('registration', ({ value }) => finish(value ? { token: value, transport: 'fcm' } : null)),
+        push.addListener('registration', ({ value }) => finish(value ? this.registration(value) : null)),
         push.addListener('registrationError', () => finish(null)),
       );
       push.register().catch(() => finish(null));
@@ -155,7 +161,7 @@ export class CapacitorPushProvider implements NotificationProvider {
   onRegistration(cb: (reg: PushRegistration) => void): Unsubscribe {
     return this.listen('registration', (raw) => {
       const value = (raw as { value?: unknown } | null)?.value;
-      if (typeof value === 'string' && value) cb({ token: value, transport: 'fcm' });
+      if (typeof value === 'string' && value) cb(this.registration(value));
     });
   }
 

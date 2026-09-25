@@ -53,3 +53,16 @@ describe('provider selection (N5: native shell → Capacitor, else no-op; no web
     expect(getNotificationProvider()).toBe(first);
   });
 });
+
+describe('push transports', () => {
+  it('match the push_tokens.transport check constraint in the N2 migration', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { PUSH_TRANSPORTS, PUSH_TRANSPORT } = await import('./transport');
+    const sql = readFileSync('supabase/migrations/20260925120000_push_tokens_outbox.sql', 'utf8');
+    const m = sql.match(/transport text not null check \(transport in \(([^)]*)\)\)/);
+    expect(m).not.toBeNull();
+    const values = m![1].split(',').map((v) => v.trim().replace(/^'|'$/g, ''));
+    expect([...PUSH_TRANSPORTS].sort()).toEqual(values.sort());
+    expect(Object.values(PUSH_TRANSPORT).sort()).toEqual(values.sort());
+  });
+});

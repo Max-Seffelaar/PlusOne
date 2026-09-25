@@ -1,7 +1,8 @@
 /**
  * signOutDevice × push (Fase 17 N5). The order is the contract:
- *   outbox gate → push rows deleted + FCM token invalidated (session still alive,
- *   owner-only RLS needs it) → auth.signOut → session confirmed gone → wipe.
+ *   outbox gate → push rows deleted (session still alive, owner-only RLS needs
+ *   it) → auth.signOut → session confirmed gone → FCM token invalidated → wipe.
+ * The FCM token is never touched on a path where the user stays signed in.
  * Every step writes to one log so the tests assert the sequence, not just calls.
  */
 import 'fake-indexeddb/auto';
@@ -18,7 +19,7 @@ const fake = vi.hoisted(() => ({
   }),
   register: vi.fn(async () => {
     log.push('fcm-register');
-    return { token: 'fcm-new', transport: 'fcm' };
+    return { token: 'fcm-new', transport: 'fcm', platform: 'android' };
   }),
 }));
 vi.mock('@/features/notifications/provider', () => ({
@@ -39,13 +40,14 @@ vi.mock('@/lib/supabase/client', () => {
     const filters: string[] = [];
     const b = {
       delete: () => b,
+      abortSignal: () => b,
       eq: (c: string, v: string) => {
         filters.push(`${c}=${v}`);
         return b;
       },
-      upsert: async (row: { token: string }) => {
+      upsert: (row: { token: string }) => {
         log.push(`upsert ${table} ${row.token}`);
-        return { error: null };
+        return { select: () => ({ single: async () => ({ data: { id: 'row-1' }, error: null }) }) };
       },
       then: (res: (v: unknown) => unknown) => {
         log.push(`delete ${table} ${filters.join('&')}${state.signedIn ? '' : ' (NO SESSION)'}`);
@@ -83,6 +85,7 @@ vi.mock('@/features/door/offline/idb', async (importOriginal) => {
 
 import { idbSet } from '@/features/door/offline/idb';
 import { outbox } from '@/features/door/outbox/store';
+import { __resetPushClientForTests } from '@/features/notifications/push-client';
 import { PendingOutboxError, signOutDevice } from './sign-out-device';
 
 const assign = vi.fn();
@@ -95,6 +98,7 @@ beforeEach(() => {
   fake.supported = true;
   fake.perm = 'granted';
   prefs.clear();
+  __resetPushClientForTests();
   vi.stubGlobal('window', {
     location: { assign },
     localStorage: {
@@ -110,14 +114,22 @@ afterEach(() => {
 });
 
 describe('signOutDevice — push unregister ordering (N5)', () => {
-  it('deletes this session\'s push rows and the FCM token BEFORE the session ends and BEFORE the wipe', async () => {
+  it('deletes this session\'s push rows BEFORE the session ends, and the FCM token only once it is gone, before the wipe', async () => {
     await signOutDevice('local');
-    expect(log).toEqual([`delete push_tokens session_id=${SID}`, 'fcm-unregister', 'signOut:local', 'wipe']);
+    expect(log).toEqual([`delete push_tokens session_id=${SID}`, 'signOut:local', 'fcm-unregister', 'wipe']);
     expect(assign).toHaveBeenCalledWith('/login');
   });
 
+  it('also deletes the remembered row by id — the FCM token itself never goes into a filter', async () => {
+    prefs.set('po:push-row', 'row-1');
+    await signOutDevice('local');
+    expect(log.slice(0, 2)).toEqual([`delete push_tokens session_id=${SID}`, 'delete push_tokens id=row-1']);
+    expect(log.join('\n')).not.toContain('token=');
+  });
+
   it('clears the device push prefs with the wipe (next person on a shared device starts clean)', async () => {
-    prefs.set('po:push-off', '1');
+    prefs.set('po:push', 'on');
+    prefs.set('po:push-row', 'row-1');
     prefs.set('po:push-ask-snooze', '9999999999999');
     await signOutDevice('local');
     expect(prefs.size).toBe(0);
@@ -159,13 +171,16 @@ describe('signOutDevice — push unregister ordering (N5)', () => {
     expect(log[0]).toBe(`delete push_tokens session_id=${SID}`);
   });
 
-  it('sign-out-incomplete (session survives) re-registers push so the user is not left deaf', async () => {
+  it('sign-out-incomplete (session survives) re-registers push and never invalidates the FCM token', async () => {
+    prefs.set('po:push', 'on');
     state.signOutFails = true;
     await expect(signOutDevice('local')).rejects.toThrow('sign-out-incomplete');
     await new Promise((r) => setTimeout(r, 0));
-    expect(log.slice(0, 2)).toEqual([`delete push_tokens session_id=${SID}`, 'fcm-unregister']);
+    expect(log[0]).toBe(`delete push_tokens session_id=${SID}`);
     expect(log).not.toContain('wipe');
+    expect(log).not.toContain('fcm-unregister');
     expect(log).toContain('fcm-register');
     expect(log).toContain('upsert push_tokens fcm-new');
+    expect(prefs.get('po:push')).toBe('on'); // the person's choice survives the failed sign-out
   });
 });

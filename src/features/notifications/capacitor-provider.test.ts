@@ -123,7 +123,7 @@ describe('configured Android build', () => {
     push.register.mockImplementation(async () => {
       setTimeout(() => push.emit('registration', { value: 'fcm-token-1' }), 0);
     });
-    await expect(new CapacitorPushProvider(deps()).register()).resolves.toEqual({ token: 'fcm-token-1', transport: 'fcm' });
+    await expect(new CapacitorPushProvider(deps()).register()).resolves.toEqual({ token: 'fcm-token-1', transport: 'fcm', platform: 'android' });
     await flush();
     expect(push.listeners.get('registration') ?? []).toHaveLength(0);
     expect(push.listeners.get('registrationError') ?? []).toHaveLength(0);
@@ -167,7 +167,7 @@ describe('configured Android build', () => {
     push.emit('registration', { value: 'refreshed' });
     expect(taps).toEqual([{ kind: 'guest_request_created' }]);
     expect(fg).toEqual([{ kind: 'quota_request_created' }]);
-    expect(regs).toEqual([{ token: 'refreshed', transport: 'fcm' }]);
+    expect(regs).toEqual([{ token: 'refreshed', transport: 'fcm', platform: 'android' }]);
     offTap();
     await flush();
     push.emit('pushNotificationActionPerformed', { notification: { data: {} } });

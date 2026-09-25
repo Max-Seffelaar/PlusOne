@@ -13,6 +13,7 @@
 // `push-client.ts` and the po chrome, never in here.
 import { isNativeShell } from '@/lib/platform';
 import { CapacitorPushProvider } from './capacitor-provider';
+import type { PushDevicePlatform, PushTransport } from './transport';
 
 /** `default` = never asked (or asked-and-dismissed on Android <13's model): we may prompt. */
 export type PushPermission = 'granted' | 'denied' | 'default' | 'unsupported';
@@ -20,7 +21,9 @@ export type PushPermission = 'granted' | 'denied' | 'default' | 'unsupported';
 export interface PushRegistration {
   /** Opaque transport token: web-push endpoint/keys (browser) or FCM/APNs token (native). */
   token: string;
-  transport: 'web-push' | 'fcm' | 'apns';
+  transport: PushTransport;
+  /** The platform that issued it — what `device_label` records. */
+  platform: PushDevicePlatform;
 }
 
 /** A received push. `data` is the FCM data map: ids + kind only, all strings (N2 payload). */
