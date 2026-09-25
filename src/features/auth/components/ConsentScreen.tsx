@@ -9,7 +9,7 @@ import { type JSX, useState, useTransition } from 'react';
 import { t, fmt } from '@/lib/i18n';
 import { AUTH_GRADIENT } from '@/lib/po/theme';
 import { Icon } from '@/components/po/icon';
-import { Btn, Field, Label } from '@/components/po/kit';
+import { Btn, ExternalLink, Field, Label } from '@/components/po/kit';
 import { CountrySelect, PhoneInput, type CountryCode } from '@/components/po/phone-lazy';
 import { TERMS_URL, PRIVACY_URL } from '@/lib/legal';
 import { acceptTermsAction } from '@/features/auth/consent-actions';
@@ -133,13 +133,13 @@ export function ConsentScreen({
           />
           <span className="text-[13.5px] leading-[1.5] text-text">
             {t.auth.consentPre}
-            <a href={TERMS_URL} target="_blank" rel="noreferrer" className="font-semibold text-acc underline">
+            <ExternalLink href={TERMS_URL} className="font-semibold text-acc underline">
               {t.auth.consentTerms}
-            </a>
+            </ExternalLink>
             {t.auth.consentMid}
-            <a href={PRIVACY_URL} target="_blank" rel="noreferrer" className="font-semibold text-acc underline">
+            <ExternalLink href={PRIVACY_URL} className="font-semibold text-acc underline">
               {t.auth.consentPrivacy}
-            </a>
+            </ExternalLink>
             {t.auth.consentPost}
           </span>
         </label>

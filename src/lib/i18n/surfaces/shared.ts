@@ -23,6 +23,9 @@ export const shared = {
     loading: 'Loading…',
     /** Copy-button label when the clipboard refused (copyText → false). */
     copyFailed: "Couldn't copy",
+    /** Generic copy-button idle/success labels for `CopyableField` (kit.tsx). */
+    copyLabel: 'Copy',
+    copyDone: 'Copied!',
   },
 
   // ── Date/time fields (datetime-field.tsx) — desktop calendar + time selects ──
@@ -49,6 +52,7 @@ export const shared = {
     setupNow: 'Set up now',
     enrollNote: 'Scan the QR code with your authenticator app (or enter the key by hand), then enter the 6-digit code.',
     qrAlt: 'MFA QR code',
+    copySecretAria: 'Copy the secret key',
     codeLabel: '6-digit code',
     codeError: 'That code is wrong or expired. Try again.',
     verifying: 'Verifying…',
