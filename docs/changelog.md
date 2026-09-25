@@ -37,6 +37,15 @@ below). No migration, no dependency change.
   links never claim `/e/*`, plan decision 11) is left as-is, same as N1.
 - Tests: `MfaEnrollCard.test.tsx` (updated), new `ConsentScreen.test.tsx` and
   `steps/VenueStep.test.tsx` (2 cases each, pattern from `kit.webview.test.tsx`).
+- **Round 2 (Max's hands-on test):** the po Profile "Turn on two-factor" sheet
+  is a *different* component (`PoMfaSheet` in `mfa-gate.tsx`, shared with the
+  `useMfaGate` step-up) — the round-1 fix only touched the `/mfa/enroll`
+  route's `MfaEnrollCard`, so the secret there still had no copy button. Added
+  a `CopyableField` primitive to `kit.tsx` (value + trailing copy button on
+  `useCopyText`/`copyStateLabel`, 44px real tap height) and used it for the
+  secret in `mfa-gate.tsx`; new `t.shared.kit.copyLabel`/`copyDone` +
+  `t.shared.mfaGate.copySecretAria` strings. Test:
+  `mfa-gate.copy-secret.test.tsx` (copy success + clipboard-failure labels).
 
 ---
 

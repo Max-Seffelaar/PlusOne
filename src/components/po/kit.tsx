@@ -1181,6 +1181,48 @@ export function copyStateLabel(state: CopyState | null, idle: string, done: stri
   return idle;
 }
 
+/**
+ * A read-only value with a trailing copy button — the MFA secret key, an
+ * invite token, anything meant to be typed or pasted elsewhere. The value
+ * stays selectable so it works even if the copy fails; the button carries a
+ * real 44px tap target (CLAUDE.md floor) via its own height rather than the
+ * `hitArea44` ring, since its width is driven by the label and never fixed.
+ */
+export function CopyableField({
+  value,
+  ariaLabel,
+  copyLabel = t.shared.kit.copyLabel,
+  copyDoneLabel = t.shared.kit.copyDone,
+  className,
+}: {
+  value: string;
+  ariaLabel: string;
+  copyLabel?: string;
+  copyDoneLabel?: string;
+  className?: string;
+}): JSX.Element {
+  const [copyState, copy] = useCopyText();
+  const copied = copyState === 'copied';
+  return (
+    <div className={cn('flex items-center gap-2 rounded-[12px] border border-line bg-elev2 py-2 pl-3 pr-2', className)}>
+      <span className="min-w-0 flex-1 select-all break-all font-mono text-[12px] text-dim">{value}</span>
+      <button
+        type="button"
+        onClick={() => void copy(value)}
+        aria-label={ariaLabel}
+        className={cn(
+          'flex h-[44px] shrink-0 items-center gap-1.5 rounded-[10px] border px-3 font-display text-[12px] font-bold',
+          press,
+          copied ? 'border-acc/40 bg-acc-dim text-acc' : 'border-line text-dim',
+        )}
+      >
+        <Icon name={copied ? 'check' : 'copy'} size={14} />
+        {copyStateLabel(copyState, copyLabel, copyDoneLabel)}
+      </button>
+    </div>
+  );
+}
+
 interface CapacitorBrowserGlobal {
   Plugins?: { Browser?: { open?: (opts: { url: string }) => Promise<void> } };
 }
