@@ -186,8 +186,8 @@ function invalidateAfterAdd(qc: QueryClient, eventId: string): void {
 
 // The settings cluster reuses the EXISTING (prev, FormData) → ActionState server
 // actions (useActionState shape), so writes keep going through RLS + the audit
-// triggers + the AAL2 gates unchanged. We build the FormData here and surface the
-// action's `.error` (AAL2 / permission / validation copy) as a thrown error so
+// triggers + the role checks unchanged. We build the FormData here and surface the
+// action's `.error` (permission / validation copy) as a thrown error so
 // React Query's onError shows it. No new write paths, no service-role.
 interface ActionStateLike {
   ok: boolean;
@@ -1409,7 +1409,7 @@ export interface PoInviteInput {
   eventIds?: string[];
 }
 
-/** Invite a user to the active venue (AAL2 + escalation enforced by the action). */
+/** Invite a user to the active venue (role + escalation enforced by the action). */
 export function usePoInviteUser() {
   const qc = useQueryClient();
   const { venueId } = usePoIdentity();
@@ -1457,7 +1457,7 @@ export function usePoResendInvite() {
   });
 }
 
-/** Change a member's roles (AAL2 + escalation + last-admin guard in the action). */
+/** Change a member's roles (role + escalation + last-admin guard in the action). */
 export function usePoUpdateMemberRoles() {
   const qc = useQueryClient();
   const { venueId } = usePoIdentity();
@@ -1490,7 +1490,7 @@ export function usePoRemoveMember() {
   });
 }
 
-/** Set a member's default guest quota (AAL2 + admin-only in the action). */
+/** Set a member's default guest quota (admin-only in the action). */
 export function usePoSetDefaultQuota() {
   const qc = useQueryClient();
   const { venueId } = usePoIdentity();
@@ -1571,7 +1571,7 @@ export function usePoRevokeOwnSession() {
 }
 
 /** Admin remote-logout of a team member's session (#20 §5). The server action
- *  re-asserts AAL2 and the RPC re-enforces admin-at-a-shared-venue. Invalidates
+ *  verifies the session and the RPC enforces admin-at-a-shared-venue (role-only). Invalidates
  *  that member's session list so the row disappears on success. */
 export function usePoAdminRevokeSession(targetUserId: string) {
   const qc = useQueryClient();

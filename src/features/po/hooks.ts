@@ -1230,8 +1230,8 @@ export function usePoSessions() {
 
 /**
  * A team member's active sessions for the admin remote-logout screen (#20 §5).
- * Admin-at-a-shared-venue + AAL2 are enforced in the RPC; the caller passes
- * `enabled` (isAdmin && AAL2 && a selected member) so we never fire the
+ * Admin-at-a-shared-venue (role-only) is enforced in the RPC; the caller passes
+ * `enabled` (isAdmin && a selected member) so we never fire the
  * guaranteed-empty query. Never reports "current" — it is someone else's session.
  */
 export function usePoUserSessions(targetUserId: string | null, options?: { enabled?: boolean }) {
@@ -1313,8 +1313,8 @@ export function useBillingBlocked(): { blocked: boolean; reason: 'canceled' | 't
 
 /**
  * The active venue's audit feed (S10), filtered + capped in the database. Gated
- * to admin/finance + AAL2 by RLS; the caller passes `enabled` (canAudit && AAL2)
- * so we never fire the guaranteed-empty AAL1 query.
+ * to admin/finance by RLS (role-only); the caller passes `enabled` (canAudit)
+ * so we never fire a guaranteed-empty query.
  */
 export function usePoAuditFeed(
   filters: Omit<PoAuditFilters, 'venueId'>,

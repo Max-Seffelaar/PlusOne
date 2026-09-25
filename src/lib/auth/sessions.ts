@@ -30,7 +30,7 @@ export async function listOwnSessions(): Promise<SessionRow[]> {
 }
 
 // A member's sessions, for the admin remote-logout screen. The RPC enforces
-// admin-at-a-shared-venue + AAL2; on denial it errors and we surface nothing.
+// admin-at-a-shared-venue (role-only); on denial it errors and we surface nothing.
 export async function adminListSessions(targetUserId: string): Promise<SessionRow[]> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('admin_list_user_sessions', {

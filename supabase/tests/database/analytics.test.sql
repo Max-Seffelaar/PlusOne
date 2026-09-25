@@ -2,8 +2,8 @@
 -- Proves: the aggregation functions return correct numbers on the seed; the
 -- audit_feed view enriches rows (actor/guest/tier names) for readable log lines;
 -- and — the security core — staff see NOTHING, organizers see only their own
--- event, finance/admin see all (read-only), and the audit feed additionally
--- requires AAL2. Relies on the standard seed; everything rolls back.
+-- event, finance/admin see all (read-only), and the audit feed is admin/finance
+-- only (role-only; AAL2 dropped in 20260624160000). Relies on the standard seed; everything rolls back.
 --
 -- Seed baseline (supabase/seed.sql): venue aa..01 has one event ee..01 with 30
 -- guests; 27 are "registered"/on-list (status approved/checked_in — pending

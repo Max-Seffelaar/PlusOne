@@ -52,7 +52,7 @@ export const home = {
   actionOpenDoor: 'Open the door',
   actionRequests: 'Review requests',
 
-  // Activity feed (admin / AAL2)
+  // Activity feed (admin/finance, role-only)
   latest: 'Latest',
   auditLog: 'Audit log',
   loading: 'Loading…',

@@ -64,7 +64,7 @@ import {
 
 // Every action follows the CLAUDE.md security checklist: verify the session
 // server-side, validate input with Zod, then mutate through the USER-scoped
-// client so RLS (membership/role/AAL2, #23/#24) and the fase-6 status trigger
+// client so RLS (membership/role, #23/#24) and the fase-6 status trigger
 // (SQLSTATE 45004) are the real boundary — never the service client, except the
 // documented organizer-invite account provisioning. Invalid status moves surface
 // as 45004 → src/lib/db-errors.ts.

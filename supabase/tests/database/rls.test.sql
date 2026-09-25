@@ -397,7 +397,7 @@ select is(
                   decided_at = now(),
                   decision_reason = 'Lijst zit vol'
               where requested_extra = 3$$),
-  1, 'J7 admin (AAL2) decides (denies) the pending request');
+  1, 'J7 admin decides (denies) the pending request');
 
 reset role;
 

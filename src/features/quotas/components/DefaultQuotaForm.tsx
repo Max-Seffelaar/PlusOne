@@ -5,8 +5,8 @@ import { setDefaultQuotaAction, type ActionState } from '../default-quota-action
 
 const INITIAL: ActionState = { ok: false };
 
-// Inline default-quota editor for one member (admin only — RLS quotas_*_admin +
-// AAL2). Read-only finance never renders this; it shows a plain number instead.
+// Inline default-quota editor for one member (admin only — RLS quotas_*_admin,
+// role-only). Read-only finance never renders this; it shows a plain number instead.
 export function DefaultQuotaForm({
   venueId,
   userId,

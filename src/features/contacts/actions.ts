@@ -110,7 +110,7 @@ export async function upsertContact(input: UpsertContactInput): Promise<ActionRe
  * On-request erasure (AVG art. 17 / #29): immediately anonymize one address-book
  * contact + all its linked guests + their refusals, ignoring the retention
  * window. The forget_contact RPC self-guards admin-of-venue (the DB is the
- * boundary); admin is an MFA-mandatory role, so no extra per-action AAL2 step-up.
+ * boundary); role-only — MFA is optional, there is no AAL2 step-up.
  * Irreversible — the UI confirms before calling this.
  */
 export async function forgetContact(input: ForgetContactInput): Promise<ActionResult> {
