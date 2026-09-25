@@ -8,6 +8,50 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-25 — Fase 17 T1 session 2: tablet pass over the remaining screens (z8uq9m0fzj)
+
+Branch `claude/z8uq9m0fzj-tablet-layouts-2`, follows PR #335. Frontend only: no
+migrations, no dependencies, none of the fenced files (`app.tsx`, `app-chrome.tsx`,
+`door-branch.tsx`, `screens/door.tsx`, `src/features/door|auth|onboarding/**`).
+
+- **Method.** Playwright against `pnpm dev:fake` (fixture Supabase), a touch context
+  (`pointer: coarse` confirmed in-page) at 744/768/820/834/1024/1180/1366 for 31
+  screens: horizontal overflow, controls past the right edge, and every control's
+  effective tap box (its `::before` hit ring and wrapping `<label>` counted).
+  Result: **no overflow and nothing off-screen at any width**; the only width-dependent
+  finding was the InfoTip. The sub-44px controls it found were the same at every
+  width, i.e. phone bugs too, and are fixed below.
+- **N1-fenced items (N1 has landed).** Kit `InfoTip`: the popover, its 36px close button
+  and the backdrop switch now key on `lg:[@media(pointer:fine)]:`, so an iPad in
+  landscape gets the bottom sheet (capped at 560px like the kit `Sheet`, no tab-bar
+  padding in the sidebar chrome). `kit.tsx` left `KNOWN_DEBT` in
+  `touch-density.test.ts`, which is now empty. Promotion `roster.tsx`/`event-links.tsx`
+  grids moved `lg:` → `md:`.
+- **New guard** `tests/unit/tablet-content-breakpoint.test.ts`: no screen under
+  `src/components/po/screens` may carry a width-only `lg:` class (only the pointer gate).
+- **Tap areas (invisible hit rings, no visual change):** kit `Seg` (40px), cockpit status
+  segments (36px) and tier chips (35px), event edit Copy link (35px), new-event template
+  chips (35px), Promotion range segments (36px) and "links on this event" (19px),
+  Profile MFA Turn on/off (19px), per-event links Copy link (39px), Import source/tier
+  pills (37–40px). Wrapped chip rows got a larger row gap so neighbouring rings meet
+  without overlapping; the Import source scroller got `py-1` so `overflow` does not clip
+  the ring. `design-system.md` records the hit-ring rule.
+- **Cockpit at 1024 touch:** no overlap; only the filter chips needed rings. Behaviour
+  unchanged. It stays online-only on an iPad in landscape until N6.
+- **Known, not fixed here:** 42–43px near-misses (Roles steppers 42, Quick-add "Add tier"
+  42, template-edit check-out segments 43, venue-switch "Manage" 43, event edit "Cancel
+  event" 43, onboarding role toggles 42 — onboarding is fenced). The InfoTip sheet at
+  ≥1024 touch is positioned inside the content column (a transformed ancestor is its
+  containing block), so the sidebar is not dimmed; a tap outside still closes it. Copy:
+  "1 links on this event" needs a plural form.
+- **Not checked visually:** Platform venues (the fixture manager is not a platform admin,
+  so the screen shows the no-access state), billing in the native shell (read-only rules
+  untouched), onboarding beyond the Team step.
+- Tests: `pnpm type-check` clean; `pnpm lint` only the 2 pre-existing combobox warnings;
+  vitest 180 files / 1926 tests green. Not run here: pgTAP, e2e, real iPad hardware.
+
+---
+
 ## 2026-09-25 — Fase 17 N2: push backend, live-but-sleeping (86ey6bfbe)
 
 Branch `claude/86ey6bfbe-push-backend`. Three migrations, the repo's first Edge
