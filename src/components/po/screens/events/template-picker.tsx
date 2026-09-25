@@ -11,12 +11,12 @@ import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import type { PoTemplateRow } from '@/features/po/queries';
-import { Label, Note } from '../../kit';
+import { Label, Note, hitRingY6 } from '../../kit';
 
-// The chips are 35px; an invisible 5px ring gives a 45px tap area on touch
-// (technique: kit `hitArea44`) without changing how they look. Wrapped rows sit
-// 10px apart so two rows' rings meet without overlapping (T1, iPad = touch).
-const chipHit = "relative before:absolute before:-inset-y-[5px] before:inset-x-0 before:content-['']";
+// The chips are 34.8px with a 1px border; an invisible 6px ring (kit
+// `hitRingY6`) gives a 44.8px tap area on touch without changing how they look.
+// Each ring reaches 5px past the chip, and wrapped rows sit 10px apart, so two
+// rows' rings meet without overlapping (T1, iPad = touch).
 
 /** A blank/template selector chip. */
 function TemplateChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }): JSX.Element {
@@ -26,7 +26,7 @@ function TemplateChip({ label, active, onClick }: { label: string; active: boole
       onClick={onClick}
       className={cn(
         'rounded-full border px-[13px] py-[7px] font-display text-[12.5px] font-bold transition-colors',
-        chipHit,
+        hitRingY6,
         active ? 'border-acc bg-acc-dim text-acc' : 'border-line text-dim hover:brightness-110',
       )}
     >
@@ -64,7 +64,7 @@ export function TemplatePicker({
           <button
             type="button"
             onClick={() => setExpanded(true)}
-            className={cn('rounded-full border border-dashed border-line px-[13px] py-[7px] font-display text-[12.5px] font-bold text-faint transition-colors hover:brightness-110', chipHit)}
+            className={cn('rounded-full border border-dashed border-line px-[13px] py-[7px] font-display text-[12.5px] font-bold text-faint transition-colors hover:brightness-110', hitRingY6)}
           >
             {fmt(t.events.templateShowAll, { n: templates.length })}
           </button>

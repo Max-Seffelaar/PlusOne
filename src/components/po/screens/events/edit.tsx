@@ -26,7 +26,7 @@ import { isoToLocalInput, localInputToIso } from '@/features/events/datetime';
 import { useNav } from '../../context';
 import { DateField, TimeField } from '../../datetime-field';
 import { Icon } from '../../icon';
-import { Btn, Field, InfoTip, Label, Note, Scroll, ToggleRow, Top, copyStateLabel, press, useCopyText } from '../../kit';
+import { Btn, Field, InfoTip, Label, Note, Scroll, ToggleRow, Top, copyStateLabel, hitRingY6, press, useCopyText } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
 import { SaveAsTemplate } from './save-as-template';
 import { ScheduleFields } from './schedule-fields';
@@ -444,8 +444,10 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
                 onClick={() => void copyLink()}
                 aria-label={t.events.copyLinkAria}
                 className={cn(
-                  // Invisible 5px ring → 45px tap area inside the row's own padding (T1, touch).
-                  "relative flex shrink-0 items-center gap-1.5 rounded-[10px] border px-3 py-[7px] font-display text-[12.5px] font-bold transition-[filter] before:absolute before:-inset-y-[5px] before:inset-x-0 before:content-[''] hover:brightness-[1.2]",
+                  // 34.8px bordered button + an invisible 6px ring (kit `hitRingY6`)
+                  // → 44.8px tap area inside the row's own padding (T1, touch).
+                  'flex shrink-0 items-center gap-1.5 rounded-[10px] border px-3 py-[7px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.2]',
+                  hitRingY6,
                   copied ? 'border-acc/40 bg-acc-dim text-acc' : 'border-line text-dim',
                 )}
               >

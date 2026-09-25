@@ -24,6 +24,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import { t } from '@/lib/i18n';
 import { BackBtn, ColorSwatches, IconBtn, Toggle, Top, hitArea44 } from './kit';
+import * as kitExports from './kit';
 
 const MIN = 44;
 
@@ -94,6 +95,39 @@ describe('hitBox (the measuring stick itself)', () => {
   });
 });
 
+describe('kit hit rings reach 44 on the controls that use them', () => {
+  // Visible heights measured in Chromium (fixture harness, 820 and 1024 touch):
+  // a ring's size is only right for the box it was picked for.
+  const cases: [string, string, string, number][] = [
+    ['Btn sm (Manage, Cancel event)', 'h-[43px] border', kitExports.hitRingY2, 45],
+    ['template check-out segment', 'h-[42.8px] border', kitExports.hitRingY2, 44.8],
+    ['kit Seg pill', 'h-[39.5px] border', kitExports.hitRingY4, 45.5],
+    ['cockpit status segment', 'h-[36.3px]', kitExports.hitRingY4, 44.3],
+    ['Quick-add "Add tier"', 'h-[41.5px] border', kitExports.hitRingY4, 47.5],
+    ['Promotion range segment', 'h-[35.5px]', kitExports.hitRingY5, 45.5],
+    ['Import tier pill', 'h-[36.8px] border', kitExports.hitRingY5, 44.8],
+    ['template / cockpit tier chip, Copy link', 'h-[34.8px] border', kitExports.hitRingY6, 44.8],
+    ['inline text button (MFA, links jump)', 'h-[18.8px]', kitExports.hitRingY13, 44.8],
+  ];
+  it.each(cases)('%s', (_name, box, ring, expected) => {
+    const hit = hitBox(`w-[100px] ${box} ${ring}`);
+    expect(hit?.h).toBeCloseTo(expected, 5);
+    expect(hit!.h).toBeGreaterThanOrEqual(MIN);
+  });
+
+  it('the Roles stepper ring grows both axes to 44', () => {
+    expect(hitBox(`h-[42px] w-[42px] border ${kitExports.hitRing2}`)).toEqual({ w: 44, h: 44 });
+  });
+
+  it('Btn sm carries the ring; the full-size Btn needs none', () => {
+    render(<kitExports.Btn sm>Small</kitExports.Btn>);
+    render(<kitExports.Btn>Large</kitExports.Btn>);
+    const has = (el: HTMLElement): boolean => kitExports.hitRingY2.split(' ').every((c) => el.classList.contains(c));
+    expect(has(screen.getByRole('button', { name: 'Small' }))).toBe(true);
+    expect(has(screen.getByRole('button', { name: 'Large' }))).toBe(false);
+  });
+});
+
 describe('kit header chips are at least 44x44', () => {
   const expectFloor = (el: HTMLElement): void => {
     const box = hitBox(el.className);
@@ -158,9 +192,14 @@ function tsxFiles(dir: string): string[] {
   });
 }
 
-/** Same-file `const X = '...'` string constants, plus the kit's exported ring. */
+/** The kit's exported rings: `hitArea44` and every `hitRing*` size. */
+const KIT_RINGS: [string, string][] = Object.entries(kitExports as Record<string, unknown>).filter(
+  (e): e is [string, string] => (e[0] === 'hitArea44' || e[0].startsWith('hitRing')) && typeof e[1] === 'string',
+);
+
+/** Same-file `const X = '...'` string constants, plus the kit's exported rings. */
 function stringConsts(src: string): Map<string, string> {
-  const map = new Map<string, string>([['hitArea44', hitArea44]]);
+  const map = new Map<string, string>(KIT_RINGS);
   for (const m of src.matchAll(/\bconst\s+(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)'|`([^`$]*)`)\s*;/g)) {
     map.set(m[1], m[2] ?? m[3] ?? m[4]);
   }

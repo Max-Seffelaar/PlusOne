@@ -19,14 +19,15 @@ import { usePoContactKeys, usePoEvents, usePoTiers } from '@/features/po/hooks';
 import { usePoImportContacts, usePoAddContactsToEvent } from '@/features/po/mutations';
 import { useNav } from '../../context';
 import { Icon, type IconName } from '../../icon';
-import { Avatar, Btn, Field, Label, MiniChip, Note, Scroll, Top, press } from '../../kit';
+import { Avatar, Btn, Field, Label, MiniChip, Note, Scroll, Top, hitRingY4, hitRingY5, press } from '../../kit';
 import { BottomBar } from '../../shell';
 import { col, FormError } from './_shared';
 
-// The source and tier pills are 37–40px; an invisible 4px ring above and below
-// gives ≥44px on touch without changing their look (T1, iPad = touch). Wrapped
-// rows sit 8px apart, so two rows' rings meet without overlapping.
-const pillHit = "relative before:absolute before:-inset-y-[4px] before:inset-x-0 before:content-['']";
+// Invisible rings above and below give ≥44px on touch without changing the
+// look (T1, iPad = touch). The source pills are 39.5px with a 1px border: a 4px
+// ring (kit `hitRingY4`) makes 45.5px and stays inside the scroller's 4px
+// padding. The tier pills are 36.8px: a 5px ring (kit `hitRingY5`) makes 44.8px
+// and reaches 4px past the pill, so wrapped rows 8px apart meet without overlapping.
 
 // ── IMPORTEREN (pushed) — S3 Import, live ────────────────────────────────────
 // Paste a list or a CSV → parse + coerce (phone to E.164, plausible birthdate) →
@@ -190,7 +191,7 @@ export function Import(): JSX.Element {
                 className={cn(
                   'inline-flex shrink-0 items-center gap-[7px] rounded-full border px-[14px] py-[9px] font-display text-[13px] font-bold',
                   press,
-                  pillHit,
+                  hitRingY4,
                   on ? 'border-transparent bg-acc text-on-acc' : 'border-line text-dim',
                   soon && 'opacity-40',
                 )}
@@ -380,7 +381,7 @@ function AddImportedToEvent({ contactIds }: { contactIds: string[] }): JSX.Eleme
         <button
           type="button"
           onClick={() => setTierId('')}
-          className={cn('inline-flex items-center gap-[7px] rounded-full border px-[13px] py-[8px] font-display text-[12.5px] font-bold', press, pillHit, tierId === '' ? 'border-transparent bg-acc text-on-acc' : 'border-line text-dim')}
+          className={cn('inline-flex items-center gap-[7px] rounded-full border px-[13px] py-[8px] font-display text-[12.5px] font-bold', press, hitRingY5, tierId === '' ? 'border-transparent bg-acc text-on-acc' : 'border-line text-dim')}
         >
           <Icon name="spark" size={14} />
           {t.settings.import.toEventTierAuto}
@@ -392,7 +393,7 @@ function AddImportedToEvent({ contactIds }: { contactIds: string[] }): JSX.Eleme
               key={tier.id}
               type="button"
               onClick={() => setTierId(tier.id)}
-              className={cn('inline-flex items-center gap-[7px] rounded-full border px-[13px] py-[8px] font-display text-[12.5px] font-bold', press, pillHit, on ? 'border-transparent bg-acc text-on-acc' : 'border-line text-dim')}
+              className={cn('inline-flex items-center gap-[7px] rounded-full border px-[13px] py-[8px] font-display text-[12.5px] font-bold', press, hitRingY5, on ? 'border-transparent bg-acc text-on-acc' : 'border-line text-dim')}
             >
               <span className="h-[9px] w-[9px] rounded-full" style={{ background: tier.color }} />
               {tier.name}

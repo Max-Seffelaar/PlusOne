@@ -244,7 +244,9 @@ export function Btn({
         desktop ? 'rounded-[12px]' : 'rounded-btn',
         desktop ? pressDesktop : press,
         'disabled:pointer-events-none',
-        sm ? 'px-4 py-[10px] text-[14px]' : 'px-5 py-[15px] text-[16px]',
+        // sm renders 43px (10 + 21 line + 10 + 2 border): a 2px ring above and
+        // below makes the tap area 45 without changing the look.
+        sm ? cn('px-4 py-[10px] text-[14px]', hitRingY2) : 'px-5 py-[15px] text-[16px]',
         full ? 'w-full' : 'w-auto',
         BTN_KINDS[kind],
         className,
@@ -286,9 +288,10 @@ export function Seg<T extends string>({
           type="button"
           onClick={() => onChange(k)}
           className={cn(
-            // 40px pill + an invisible 2px ring above and below = a 44px tap area
-            // on touch, without changing the look (technique: `hitArea44`).
-            "relative flex-1 cursor-pointer rounded-full border py-[9px] font-display text-[13px] font-bold transition-[filter] before:absolute before:-inset-y-[2px] before:inset-x-0 before:content-[''] hover:brightness-[1.07]",
+            // 39.5px bordered pill + an invisible 4px ring above and below = a
+            // 45.5px tap area on touch, without changing the look.
+            'flex-1 cursor-pointer rounded-full border py-[9px] font-display text-[13px] font-bold transition-[filter] hover:brightness-[1.07]',
+            hitRingY4,
             value === k ? 'border-transparent bg-text text-bg' : 'border-line bg-transparent text-dim',
           )}
         >
@@ -586,6 +589,26 @@ export function Row({
  * Tailwind only sees literal class strings, so the insets can't be computed.
  */
 export const hitArea44 = "relative before:absolute before:-inset-[3px] before:content-['']";
+
+/**
+ * Hit rings for controls whose visible box sits a few px under 44. Same
+ * technique as `hitArea44`; the number is the inset in px, so the tap area is
+ * the padding box + 2x that. Pick the smallest one that reaches 44:
+ * (44 - visible) / 2 + border width, rounded up. Tailwind only sees literal
+ * class strings, so each size is spelled out here once and imported, never
+ * copied into a screen.
+ *
+ * `hitRingY*` grows only along y (`inset-x-0`), for pills and segments that sit
+ * side by side and must not steal taps from their horizontal neighbours; the
+ * row gap above and below has to be at least the inset. `hitRing2` grows on
+ * every side.
+ */
+export const hitRingY2 = "relative before:absolute before:-inset-y-[2px] before:inset-x-0 before:content-['']";
+export const hitRingY4 = "relative before:absolute before:-inset-y-[4px] before:inset-x-0 before:content-['']";
+export const hitRingY5 = "relative before:absolute before:-inset-y-[5px] before:inset-x-0 before:content-['']";
+export const hitRingY6 = "relative before:absolute before:-inset-y-[6px] before:inset-x-0 before:content-['']";
+export const hitRingY13 = "relative before:absolute before:-inset-y-[13px] before:inset-x-0 before:content-['']";
+export const hitRing2 = "relative before:absolute before:-inset-[2px] before:content-['']";
 
 /** The header back chip (`Top`'s `onBack`, and Home's back when it was pushed). */
 export function BackBtn({ onClick }: { onClick?: () => void }): JSX.Element {

@@ -26,7 +26,7 @@ import {
 } from '@/features/po/hooks';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Empty, pressDesktop } from '../../kit';
+import { Avatar, Empty, hitRingY5, hitRingY13, pressDesktop } from '../../kit';
 import { CreateLinkFlow } from './create-link-flow';
 import { EventPicker, Kicker, soonestUpcoming } from './shared';
 
@@ -277,11 +277,12 @@ function OverviewCard({
           type="button"
           onClick={onManageLinks}
           className={cn(
-            "relative inline-flex items-center gap-1 font-semibold text-acc before:absolute before:-inset-y-[13px] before:inset-x-0 before:content-['']",
+            'inline-flex items-center gap-1 font-semibold text-acc',
+            hitRingY13,
             press,
           )}
         >
-          {fmt(t.promo.convLinks, { n: links.length })}
+          {fmt(links.length === 1 ? t.promo.convLinksOne : t.promo.convLinks, { n: links.length })}
           <Icon name="chev" size={13} />
         </button>
       </div>
@@ -301,9 +302,10 @@ function RangeSeg({ range, setRange }: { range: PromoRange; setRange: (r: PromoR
             type="button"
             onClick={() => setRange(r.key)}
             className={cn(
-              // 36px inside a 3px-padded, 1px-bordered strip: a 4px ring → 44px
-              // tap area that stays inside the strip (T1, touch).
-              "relative whitespace-nowrap rounded-[8px] px-[13px] py-2 font-display text-[13px] font-bold before:absolute before:-inset-y-[4px] before:inset-x-0 before:content-['']",
+              // 35.5px inside a 3px-padded, 1px-bordered strip: a 5px ring →
+              // 45.5px tap area, 1px past the strip's edge (T1, touch).
+              'whitespace-nowrap rounded-[8px] px-[13px] py-2 font-display text-[13px] font-bold',
+              hitRingY5,
               on ? 'bg-acc-dim text-acc' : 'text-faint',
               press,
             )}
