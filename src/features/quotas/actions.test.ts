@@ -8,6 +8,7 @@
 import { describe, expect, it, vi, type Mock } from 'vitest';
 import { decideQuotaRequest } from './actions';
 import { createClient } from '@/lib/supabase/server';
+import { t } from '@/lib/i18n';
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(),
@@ -91,5 +92,28 @@ describe('decideQuotaRequest — only granted columns reach quota_requests', () 
     expect(res).toEqual({ ok: true });
     expect(rpc).toHaveBeenCalledWith('approve_quota_request', { p_request_id: REQUEST_ID });
     expect(from).not.toHaveBeenCalled();
+  });
+
+  it('an approve that lost the race (45003) shows English catalogue copy, never the raw DB message', async () => {
+    const { rpc } = mockSupabase();
+    rpc.mockResolvedValueOnce({
+      error: { code: '45003', message: 'Dit verzoek is al afgehandeld.' },
+    } as never);
+
+    const res = await decideQuotaRequest({ requestId: REQUEST_ID, decision: 'approved' });
+
+    expect(res).toEqual({ ok: false, code: '45003', message: t.quotaRequests.alreadyHandled });
+    expect(res).toEqual({ ok: false, code: '45003', message: 'This request has already been handled.' });
+    expect(res).not.toMatchObject({ message: 'Dit verzoek is al afgehandeld.' });
+  });
+
+  it('any other approve error still goes through the generic mapper', async () => {
+    const { rpc } = mockSupabase();
+    rpc.mockResolvedValueOnce({ error: { code: 'P0002', message: 'Verzoek niet gevonden.' } } as never);
+
+    const res = await decideQuotaRequest({ requestId: REQUEST_ID, decision: 'approved' });
+
+    expect(res).toMatchObject({ ok: false, code: 'P0002' });
+    expect(res).not.toMatchObject({ message: 'Verzoek niet gevonden.' });
   });
 });

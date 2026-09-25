@@ -4,16 +4,28 @@ import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import type { Database } from '@/lib/database.types';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
+import { t } from '@/lib/i18n';
+import { quotaRequestSchema, decideQuotaRequestSchema, type QuotaRequestInput, type DecideQuotaRequestInput } from './schemas';
+
+/** SQLSTATE the quota engine raises for a request that is no longer pending. */
+const REQUEST_DECIDED = '45003';
 
 /** A deny that matched no row: already decided, or not the caller's to decide.
  *  One message for both — it never says which, so it reveals nothing the caller
  *  couldn't already read. */
 const NOT_DECIDABLE: MutationError = {
   ok: false,
-  code: '45003',
-  message: 'This request has already been handled or cannot be decided by you.',
+  code: REQUEST_DECIDED,
+  message: t.quotaRequests.notDecidable,
 };
-import { quotaRequestSchema, decideQuotaRequestSchema, type QuotaRequestInput, type DecideQuotaRequestInput } from './schemas';
+
+/** An approve that lost the race (or hit an already-decided row). The RPC's
+ *  45003 message is Dutch DB text; map it by code to English catalogue copy. */
+const ALREADY_HANDLED: MutationError = {
+  ok: false,
+  code: REQUEST_DECIDED,
+  message: t.quotaRequests.alreadyHandled,
+};
 
 export type ActionResult = { ok: true } | MutationError;
 
@@ -75,6 +87,7 @@ export async function decideQuotaRequest(
 
   if (decision === 'approved') {
     const { error } = await supabase.rpc('approve_quota_request', { p_request_id: requestId });
+    if (error?.code === REQUEST_DECIDED) return ALREADY_HANDLED;
     if (error) return mapMutationError(error);
   } else {
     const { data, error } = await supabase
