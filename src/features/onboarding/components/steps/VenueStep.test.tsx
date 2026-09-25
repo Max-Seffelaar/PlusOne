@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// N1 leftover (86eykm76k webview-prep follow-up): same external-link fix as
+// N1 leftover (86ey6bfam webview-prep follow-up): same external-link fix as
 // ConsentScreen — the terms/privacy links were bare `<a target="_blank">`,
 // which Capacitor's remote-URL webview loads INSIDE itself with no way back
 // (#37). They now go through the kit's `ExternalLink`, mirroring the pattern

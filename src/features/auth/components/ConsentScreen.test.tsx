@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// N1 leftover (86eykm76k webview-prep follow-up): the terms/privacy links used
+// N1 leftover (86ey6bfam webview-prep follow-up): the terms/privacy links used
 // to be bare `<a target="_blank">`, which Capacitor's remote-URL webview loads
 // INSIDE itself with no way back (#37). They now go through the kit's
 // `ExternalLink`, same as `onboarding.tsx`'s VenueCreate did in PR #331. Two
