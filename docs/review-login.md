@@ -103,10 +103,21 @@ gewoon account en zou wél een venue kunnen maken (de tenant ontstaat dan één 
 later). Daarom weigert een `before insert`-trigger op `invites` elke invite in de
 demo-venue met 42501, voor iedereen, service role incluis (migratie
 `20260925130100_review_demo_no_invites.sql`, pgTAP `review_demo_no_invites.test.sql`).
-Zonder invite kan `accept_pending_invites` niemand aan de demo-venue toevoegen, en een
-directe membership-insert voegt alleen *bestaande* accounts toe (er ontstaat geen nieuw
-account). Er is geen legitiem pad dat in de demo-venue uitnodigt: de seed maakt de ene
-membership direct aan.
+Zonder invite kan `accept_pending_invites` niemand aan de demo-venue toevoegen. Er is
+geen legitiem pad dat in de demo-venue uitnodigt: de seed maakt de ene membership direct
+aan.
+
+Een directe membership-insert (RLS `venue_memberships_insert`: een admin voegt een
+*bestaand* account toe, zonder invite) of een update die de eigen rij naar een ander
+`user_id` verhangt, zou de demo-venue niet-geïsoleerd maken: de volgende review-login
+weigert dan met `venue_not_isolated` en de reviewer staat buiten. Hetzelfde via crew:
+`event_organizers_insert_admin` zet een bestaand account op een event (`assignOrganizer`).
+Daarom weigert migratie `20260925150000_demo_venue_no_new_members.sql` (pgTAP
+`review_demo_no_new_members.test.sql`) met 42501, voor iedereen, service role incluis:
+- `venue_memberships` insert/update (`venue_id`, `user_id`) van een rij in de demo-venue
+  voor iemand anders dan de demo-user (de seed-upsert van de eigen rij blijft werken);
+- elke `event_organizers`-insert op een event van de demo-venue (de seed maakt geen crew).
+`assignOrganizer` weigert het demo-account ook, voor een nette melding.
 
 De uitnodigingsflow voor externe crew (`inviteExternalCrew` in
 `src/features/events/actions.ts`) schrijft géén `invites`-rij: die maakt via de service
@@ -120,11 +131,23 @@ Elke weigering noemt het demo-account, zodat een reviewer het leest als bewuste 
 en niet als bug (guideline 2.1). De copy staat in de catalogus (`t.auth.demo*` in
 `src/lib/i18n/surfaces/auth.ts`):
 
-| Actie | Waar | Melding |
-| --- | --- | --- |
-| Iemand uitnodigen (team-invite, invite opnieuw sturen, externe crew) | `inviteUserAction`, `resendInviteAction`, `inviteExternalCrew`, `resendCrewInvite` | "Invites are turned off for the demo account." |
-| Nieuwe venue maken | `createVenueAction` | "The demo account can't create venues." |
-| E-mailadres wijzigen | `updateEmailAction` | "The demo account's email can't be changed." |
+De reviewer ziet de weigering **vooraf**: de knop blijft zichtbaar maar is inert
+(`RefusedAction` / `disabled`), met de melding als `Note` eronder. Er opent geen
+formulier of sheet dat pas bij verzenden faalt. De server-actions en DB-triggers blijven
+de grens; de UI-check is alleen presentatie.
+
+| Actie | UI-ingang (vooraf geweigerd) | Server / DB | Melding |
+| --- | --- | --- | --- |
+| Iemand uitnodigen (team) | Team: "Invite" + header-"+", beide "Resend"-chips | `inviteUserAction`, `resendInviteAction`; `invites`-trigger | "Invites are turned off for the demo account." |
+| Crew toevoegen (e-mail of terugkerend) | Event → Crew: "Add crew" (sheet opent niet) | `inviteExternalCrew`, `resendCrewInvite`, `assignOrganizer`; `event_organizers`-trigger | "Invites are turned off for the demo account." |
+| Nieuwe venue maken | Venue-switcher ("+" en "New venue"), Venue settings "New venue", deeplink `/app/venues/new` | `createVenueAction`; `create_venue_with_owner` | "The demo account can't create venues." |
+| E-mailadres wijzigen | Profiel: e-mail read-only | `updateEmailAction` | "The demo account's email can't be changed." |
+
+Wie het demo-account is, leest de client uit twee onafhankelijke bronnen (elk volstaat):
+de `demoAccount`-vlag van de `/app`-layout én het user-id van de live identity
+(`useIsDemoAccount`, `src/components/po/app-shell-data.tsx`). Team- en crew-ingangen zijn
+ook inert voor iedereen die in de demo-venue werkt (platform-support), want de DB weigert
+daar elk nieuw lid (`useIsDemoVenue`).
 
 Plak dit in de App Review-notes (App Store Connect) en de Play-reviewnotities, onder de
 review-code:

@@ -8,6 +8,46 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-25 — Fase 17 S3 round 8: demo refusals on every entry point (86ey6bfug)
+
+Follow-up to PR #332 (merged). Max re-tested prod as the demo account: "New venue"
+still looked usable (the note appeared only after the tap), the team invite and the
+event-crew invite still opened. Draft PR `fix(auth): demo refusals on every entry point (86ey6bfug)`.
+
+- **Root cause, as far as it could be pinned without the prod session:** round 7's
+  hunks are all on prod (deploy of `56b6a47`), and the only "New venue" / invite
+  entry points in the codebase are the ones it changed. Two things were real: (1) the
+  crew "Add crew" button still opened its sheet by design (only the e-mail form
+  inside was swapped for the note, "returning crew" stayed usable), which reads as
+  "can still invite"; (2) every round-7 test mocked `useIsDemoAccount` itself, so
+  nothing proved the layout flag reaches the screens. The client refusal hung on that
+  one prop. Not reproduced: why the team/venue entries were not inert for Max.
+- **Client:** `useIsDemoAccount` now reads two independent signals, either enough:
+  the layout's `demoAccount` flag OR the live identity's user id (`PoLiveProvider`,
+  new tolerant `usePoIdentityOptional`). New `useIsDemoVenue` (demo account OR the
+  active venue is the demo venue) drives team invite/resend and crew add, so platform
+  support in the demo venue sees the refusal too; "New venue" stays theirs. Crew "Add
+  crew" is now a `RefusedAction`: the sheet never opens. Ids moved to a client-safe
+  `src/features/auth/demo-account.ts` (re-exported by `review-window.ts`).
+- **Server:** `assignOrganizer` refuses the demo account (42501, `t.auth.demoNoInvites`).
+- **DB (migration `20260925150000_demo_venue_no_new_members.sql`):** BEFORE INSERT OR
+  UPDATE OF `venue_id, user_id` trigger on `venue_memberships` refuses a demo-venue row
+  for anyone but the demo user (closes the direct `venue_memberships_insert` path and
+  the "hand my own row to another user_id" update); BEFORE INSERT trigger on
+  `event_organizers` refuses crew on a demo-venue event. Security invoker, pinned
+  search_path, execute revoked; service role included. The seed's own upsert passes.
+  pgTAP `review_demo_no_new_members.test.sql` (18).
+- **Tests:** `src/components/po/demo-refusals.providers.test.tsx` mounts the real
+  `AppShellDataProvider` + `PoLiveProvider` (no demo-hook mock) around the real
+  screens (venue switch/settings/create, team, crew) for flag-only, identity-only,
+  support-in-demo-venue and normal admin. Unit suite 2113 green; pgTAP not run here
+  (no Supabase stack in the session): CI is the DB gate.
+- **Open (not in this PR):** the demo admin can still edit its own roles in the team
+  member sheet; dropping `doorhost` makes the next review login refuse
+  (`roles_changed`) until the seed is re-run. Candidate for a small follow-up.
+
+---
+
 ## 2026-09-25 — Fase 17 N3: Capacitor scaffold + Android shell (86ey6bfdm)
 
 Golf 2 of Fase 17. No migration. Draft PR `feat(native): Capacitor scaffold + Android shell (86ey6bfdm)`.
