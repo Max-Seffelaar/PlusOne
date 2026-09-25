@@ -129,6 +129,7 @@ function LinkCard({
           aria-label={t.links.copyAria}
           className={cn(
             'flex shrink-0 items-center gap-1.5 rounded-[10px] border px-3 py-[9px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.2]',
+            hitArea44,
             copied ? 'border-acc/40 bg-acc-dim text-acc' : 'border-line text-dim',
           )}
         >
