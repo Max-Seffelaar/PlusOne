@@ -8,6 +8,47 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-25 — Fase 17 N3 follow-ups: standalone door back + iOS backup exclusion (86ey6bfdm)
+
+Branch `claude/86ey6bfdm-native-followups`. Fixes the two non-blocking findings from the independent
+review of #340 that were left open at merge. No migration, no dependency change, `capacitor.config.ts` untouched.
+
+- **Standalone door back (`/door/<eventId>`):** the guest-detail/add sheets there are React state in
+  `DoorRoute`, not history entries, so Android back used to replace to the `/door` picker and unload the
+  door mid-check-in. New `src/components/po/native-back-intercept.ts` (`useNativeBackIntercept`, a
+  newest-first stack) lets local overlay state claim back before `nativeBackAction` routes it;
+  `NativeBackButton` runs the intercept first, online or offline. `DoorRoute` registers one while a sheet
+  is open: two added lines, kept clear of N6's hunks (#344). Closing is plain state, so `DoorProvider`
+  never remounts and the outbox (#25) is untouched. The `/app` door is unchanged: its overlays already are
+  URL/history entries. Tests: `native-back-intercept.test.tsx` (stack semantics) and
+  `DoorRoute.native-back.test.tsx` (the real route + the real listener: sheet → closes, again → picker;
+  offline → closes, then no-op; picker → minimize; one `DoorProvider` mount throughout).
+- **iOS backup exclusion:** `AppDelegate.swift` marks `Library/WebKit` (WKWebView website data:
+  IndexedDB, localStorage, cookies), `Library/Cookies` and `Library/HTTPStorages` (the
+  `HTTPCookieStorage.shared` mirror Capacitor's cookie observer writes) `isExcludedFromBackup` on every
+  launch, creating them first when missing. This is the iOS counterpart of Android's `allowBackup=false` + the
+  data-extraction rules. Apple treats the flag as backup guidance, not a guarantee, and the system can reset
+  it, which is why it is applied on every launch. `tests/unit/capacitor-native-shell.test.ts` guards the call in
+  `didFinishLaunching`, the three directories and the Android manifest flags.
+- **Review round (issuecomment-5834214837):**
+  - **B1, leaving with unsynced writes:** online back on `/door/<eventId>` did `router.replace('/door')` even
+    with queued check-ins. That is a client-side transition, so DoorProvider's `beforeunload` prompt never
+    fired, and unmounting the route stops the door's flush loop. There is now a second slot in
+    `native-back-intercept.ts`, `useNativeLeaveGuard`. `NativeBackButton` consults it only when back is about
+    to navigate: an open sheet still closes first, minimize is unaffected, and offline back is still a no-op.
+    The new `DoorLeaveGuard` (`src/features/door/components/`, rendered inside `DoorProvider`) reads the
+    existing public `useDoor().pendingCount`, the same per-event number the sync bar shows. It adds no new
+    outbox accessor and no second IDB reader. With pending > 0 it opens the kit's `ConfirmSheet`
+    (copy `t.door.leaveUnsynced*`: "N check-ins haven't synced yet. Leave anyway?"). Stay, or back again,
+    keeps the door up, and only Leave navigates. Tests cover: pending → confirm with no navigation; Leave →
+    picker; Stay or back → stays; pending = 0 → direct; sheet + pending → sheet first, then confirm; offline
+    + pending → no confirm, no navigation. I checked that dropping the guard makes 4 of these fail.
+  - **N1:** `SceneDelegate.sceneDidEnterBackground` re-applies the exclusion (`excludeWebDataFromBackup` is now
+    a `static func` on `AppDelegate`). With the UIScene lifecycle `applicationDidEnterBackground` never fires,
+    and backups run while the app is suspended. The Swift guard test covers it.
+- Not run here: Xcode/Gradle builds, device tests, pgTAP, e2e. The Swift is checked by reading it only; the
+  TestFlight check is in the PR.
+
 ## 2026-09-25 — Fase 17 N3: Capacitor scaffold + Android shell (86ey6bfdm)
 
 Golf 2 of Fase 17. No migration. Draft PR `feat(native): Capacitor scaffold + Android shell (86ey6bfdm)`.

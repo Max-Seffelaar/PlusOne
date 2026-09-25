@@ -14,6 +14,12 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
     }
 
+    func sceneDidEnterBackground(_ scene: UIScene) {
+        // Re-flag webview data that WebKit may have (re)created since launch, before
+        // an overnight backup runs against the suspended app (86ey6bfdm).
+        AppDelegate.excludeWebDataFromBackup()
+    }
+
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
         SceneDelegateProxy.shared.scene(scene, openURLContexts: URLContexts)
     }

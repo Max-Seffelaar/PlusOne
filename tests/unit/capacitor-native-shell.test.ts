@@ -64,3 +64,37 @@ describe('iOS navigation boundary (App-Bound Domains)', () => {
     expect(domains).toEqual(['app.plus-one.io']);
   });
 });
+
+// iOS counterpart of Android's allowBackup=false + data_extraction_rules.xml:
+// the webview's cookies and the door's IndexedDB snapshot (guest PII) must stay
+// out of iCloud/Finder backups (CLAUDE.md device-storage rule, 86ey6bfdm).
+describe('webview data is excluded from device backups', () => {
+  it('iOS AppDelegate marks Library/WebKit, Cookies and HTTPStorages isExcludedFromBackup at launch', () => {
+    const swift = read('ios/App/App/AppDelegate.swift');
+    const launch = swift.match(/didFinishLaunchingWithOptions[\s\S]*?return true/);
+    expect(launch, 'didFinishLaunchingWithOptions missing').not.toBeNull();
+    expect(launch![0]).toContain('excludeWebDataFromBackup()');
+
+    const fn = swift.match(/func excludeWebDataFromBackup\(\)[\s\S]*?\n {4}\}\n/);
+    expect(fn, 'excludeWebDataFromBackup() missing').not.toBeNull();
+    expect(fn![0]).toContain('.libraryDirectory');
+    expect(fn![0]).toMatch(/\["WebKit", "Cookies", "HTTPStorages"\]/);
+    expect(fn![0]).toContain('isExcludedFromBackup = true');
+    expect(fn![0]).toContain('setResourceValues(values)');
+  });
+
+  it('iOS re-applies the exclusion when the scene enters the background (UIScene lifecycle)', () => {
+    const scene = read('ios/App/App/SceneDelegate.swift');
+    const bg = scene.match(/func sceneDidEnterBackground\(_ scene: UIScene\)[\s\S]*?\n {4}\}\n/);
+    expect(bg, 'sceneDidEnterBackground missing').not.toBeNull();
+    expect(bg![0]).toContain('AppDelegate.excludeWebDataFromBackup()');
+    // Callable from the scene delegate: not private, and a type method.
+    expect(read('ios/App/App/AppDelegate.swift')).toMatch(/\n {4}static func excludeWebDataFromBackup\(\)/);
+  });
+
+  it('Android keeps allowBackup off with the data-extraction rules', () => {
+    const manifest = read('android/app/src/main/AndroidManifest.xml');
+    expect(manifest).toContain('android:allowBackup="false"');
+    expect(manifest).toContain('android:dataExtractionRules="@xml/data_extraction_rules"');
+  });
+});
