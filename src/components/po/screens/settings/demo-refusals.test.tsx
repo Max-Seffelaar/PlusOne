@@ -177,11 +177,18 @@ describe('team member sheet: the demo membership', () => {
 });
 
 describe('profile two-factor card', () => {
-  it('demo: the note instead of any enroll entry', async () => {
+  it('demo: a refused, inert enroll entry with the note', async () => {
     H.demo = true;
-    render(<Profile />);
-    expect(await screen.findByText(t.auth.demoNoMfa)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: t.settings.profile.mfaEnable })).toBeNull();
+    const { container } = render(<Profile />);
+    const note = await screen.findByText(t.auth.demoNoMfa);
+    const refused = note.closest('[data-refused-action]');
+    expect(refused).not.toBeNull();
+    expect(container.querySelectorAll('[data-refused-action]')).toHaveLength(1);
+    const btn = screen.getByRole('button', { name: t.settings.profile.mfaEnable });
+    expect(btn).toBeDisabled();
+    expect(refused).toContainElement(btn);
+    fireEvent.click(btn);
+    expect(screen.queryByText(t.settings.profile.mfaEnrollTitle)).toBeNull();
   });
 
   it('admin: the enroll entry as before', async () => {

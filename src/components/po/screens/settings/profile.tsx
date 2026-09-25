@@ -10,7 +10,7 @@ import { groupPoSessions } from '@/features/po/adapters';
 import { PoMfaSheet } from '../../mfa-gate';
 import { useNav } from '../../context';
 import { Icon, type IconName } from '../../icon';
-import { Avatar, Btn, Empty, Field, Label, Loading, MiniChip, Note, Scroll, Top, press } from '../../kit';
+import { Avatar, Btn, Empty, Field, Label, Loading, MiniChip, Note, RefusedAction, Scroll, Top, press } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
 import { CountrySelect, PhoneInput, phoneCountryOf, type CountryCode } from '../../phone-lazy';
 import { useIsDemoAccount } from '../../app-shell-data';
@@ -88,10 +88,8 @@ function MfaCard({ recommended, demo = false }: { recommended: boolean; demo?: b
         <div className="mt-0.5 text-[12px] leading-[1.4] text-faint">{sub}</div>
         {demo ? (
           // The store-review demo account (86ey6bfug): a factor on the shared
-          // account locks the next reviewer out, so no enroll/disable entry.
-          <div className="mt-[7px]">
-            <Note icon="shield">{t.auth.demoNoMfa}</Note>
-          </div>
+          // account locks the next reviewer out, so the entry is refused upfront.
+          <RefusedAction className="mt-[7px]" icon="shield" label={t.settings.profile.mfaEnable} reason={t.auth.demoNoMfa} />
         ) : hasMfa !== null && (
           <button
             type="button"

@@ -153,7 +153,7 @@ Ronde 10 (onafhankelijke re-review) sluit de spiegelbeeld-gaten van beide trigge
   (`crew_elsewhere`) en de seed stopt als er toch zo'n rij is (defence in depth).
 - **Tweestapsverificatie.** Een TOTP-factor op het gedeelde account sluit de volgende
   reviewer buiten (`mfa_enrolled`) tot de seed hem verwijdert. De MFA-kaart in het profiel
-  toont voor het demo-account alleen de melding, en `/mfa/enroll` stuurt het terug naar
+  toont voor het demo-account een uitgeschakelde "Turn on" (`RefusedAction`) met de melding, en `/mfa/enroll` stuurt het terug naar
   `/app`. Restrisico: een directe GoTrue-call (`/auth/v1/factors`) kan nog steeds een
   factor aanmaken (buiten Postgres); de review-login weigert dan en de seed ruimt op.
 
@@ -186,7 +186,7 @@ de grens; de UI-check is alleen presentatie.
 | Eigen rollen wijzigen / eigen membership verwijderen | Team → eigen rij: alleen de melding | `updateMemberRolesAction`, `removeMemberAction`; `refuse_demo_member_self_change` | "The demo account's roles and venue access can't be changed." |
 | Demo-account toevoegen aan een andere venue (directe insert/update) | n.v.t. (andere venue, REST) | `refuse_demo_venue_new_member` (tweede predicaat) | generieke fout voor die admin |
 | Demo-account als crew op een event (elke venue) | n.v.t. | `assignOrganizer`; `refuse_demo_venue_new_crew` (tweede predicaat) | "The demo account can't be added to other venues or events." |
-| Tweestapsverificatie aanzetten | Profiel: MFA-kaart toont alleen de melding; `/mfa/enroll` → `/app` | (GoTrue, buiten Postgres; review-login + seed vangen het op) | "Two-factor sign-in is turned off for the demo account." |
+| Tweestapsverificatie aanzetten | Profiel: MFA-kaart: "Turn on" inert (`RefusedAction`) + melding; `/mfa/enroll` → `/app` | (GoTrue, buiten Postgres; review-login + seed vangen het op) | "Two-factor sign-in is turned off for the demo account." |
 
 **De onboarding-wizard (`/onboarding`).** Het demo-account kan er komen door
 `settings.onboarding.completed` van zijn eigen venue op `false` te zetten (het is admin).

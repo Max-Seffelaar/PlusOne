@@ -23,8 +23,9 @@ found one blocking gap plus optional items; all are fixed here.
 - **Crew symmetry.** `refuse_demo_venue_new_crew` refuses any organizer row for the demo
   user; `assignOrganizer` refuses the demo id as target; review-login refuses
   `crew_elsewhere` and the seed stops on a crew seat (defence in depth).
-- **TOTP self-lockout (pre-existing).** Profile MFA card shows only a note for the demo
-  account; `/mfa/enroll` redirects it to `/app`. A direct GoTrue factor call stays
+- **TOTP self-lockout (pre-existing).** Profile MFA card renders the kit's `RefusedAction`
+  (inert "Turn on" + "Two-factor sign-in is turned off for the demo account.") for the
+  demo account; `/mfa/enroll` redirects it to `/app`. A direct GoTrue factor call stays
   possible outside Postgres; review-login refuses and the seed deletes it.
 - **Smaller:** `TeamStep.finish()` checks the `completeOnboardingAction` result and shows
   the error instead of navigating; `useIsDemoVenue` and `useIsDemoAccount` share one
