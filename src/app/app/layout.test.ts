@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TERMS_VERSION } from '@/lib/legal';
 
 // The /app layout's consent + MFA gates must send the user back to the deep
@@ -232,5 +232,57 @@ describe('/app layout — platform-admin cookie fallback (z8uq9m0tnx)', () => {
 
     expect(getPlatformAdminVenueMock).not.toHaveBeenCalled();
     expect(identityOf(el).venueId).toBe(OWN_VENUE);
+  });
+});
+
+// Store-review demo account (86ey6bfug): its sessions die with the review window.
+describe('/app layout ends a demo-account session once the review window closes', () => {
+  const DEMO = { id: 'de300000-0000-7000-8000-00000000a001', email: 'app-review@demo.plus-one.io' };
+  const inDays = (d: number) => new Date(Date.now() + d * 86_400_000).toISOString();
+
+  beforeEach(() => {
+    redirectMock.mockClear();
+    getSessionUserMock.mockReset();
+    profileRow = ACCEPTED;
+    withRequestPath(null);
+    myMemberships = [{ venueId: 'de300000-0000-7000-8000-000000000001', venueName: 'PlusOne Demo', roles: ['admin'] }];
+    activeVenueCookieValue = null;
+    vi.stubEnv('REVIEW_LOGIN_CODE', 'k7p2-x9qm-4hzt-8wva-3bcd-efgh-jk');
+    vi.stubEnv('REVIEW_LOGIN_EXPIRES_AT', inDays(7));
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('closed window (expiry past) → sent to the sign-out route before anything else runs', async () => {
+    vi.stubEnv('REVIEW_LOGIN_EXPIRES_AT', inDays(-1));
+    getSessionUserMock.mockResolvedValue(DEMO);
+    await expect(renderLayout()).rejects.toThrow('REDIRECT:/auth/review-login/end');
+  });
+
+  it('the demo id with a rebound e-mail is caught too (keyed on the id)', async () => {
+    vi.stubEnv('REVIEW_LOGIN_EXPIRES_AT', inDays(-1));
+    getSessionUserMock.mockResolvedValue({ ...DEMO, email: 'rebound@attacker.example' });
+    await expect(renderLayout()).rejects.toThrow('REDIRECT:/auth/review-login/end');
+  });
+
+  it('code removed → same', async () => {
+    vi.stubEnv('REVIEW_LOGIN_CODE', '');
+    getSessionUserMock.mockResolvedValue(DEMO);
+    await expect(renderLayout()).rejects.toThrow('REDIRECT:/auth/review-login/end');
+  });
+
+  it('open window → the demo account renders the app normally', async () => {
+    getSessionUserMock.mockResolvedValue(DEMO);
+    await renderLayout();
+    expect(redirectMock).not.toHaveBeenCalled();
+  });
+
+  it('closed window never affects any other user', async () => {
+    vi.stubEnv('REVIEW_LOGIN_EXPIRES_AT', '');
+    getSessionUserMock.mockResolvedValue({ id: 'user-1', email: 'u@plusone.test' });
+    await renderLayout();
+    expect(redirectMock).not.toHaveBeenCalled();
   });
 });

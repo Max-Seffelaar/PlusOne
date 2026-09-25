@@ -51,7 +51,10 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   } else {
     request.headers.delete(REQUEST_PATH_HEADER);
   }
-  const { response, user } = await updateSession(request);
+  const { response, user, demoSessionEnded } = await updateSession(request);
+  // The review demo account outside its window was just signed out globally
+  // (86ey6bfug): its redirect/503 carries the cookie deletions, return it as is.
+  if (demoSessionEnded) return response;
 
   // A signed-in user has no business on the login screen → the one app surface.
   // Same for the marketing root: invite links used to strand a logged-in user
