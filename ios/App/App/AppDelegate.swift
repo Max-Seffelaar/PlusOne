@@ -8,7 +8,34 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Override point for customization after application launch.
+        excludeWebDataFromBackup()
         return true
+    }
+
+    /// Keeps the webview's session cookies and the door's IndexedDB snapshot
+    /// (guest PII) out of iCloud/Finder backups: the iOS counterpart of Android's
+    /// `allowBackup="false"` + `data_extraction_rules.xml` (CLAUDE.md device-storage
+    /// rule, 86ey6bfdm). WKWebView keeps website data (IndexedDB, localStorage,
+    /// cookies) under `Library/WebKit`; `Library/Cookies` and `Library/HTTPStorages`
+    /// hold the `HTTPCookieStorage.shared` mirror Capacitor's cookie observer writes.
+    /// `Library/Caches` is never backed up. The flag on a directory covers its
+    /// contents; it is re-applied on every launch because the system can reset it
+    /// and WebKit may recreate its directories. Apple treats it as guidance for
+    /// backups, not a guarantee (see `URLResourceValues.isExcludedFromBackup`).
+    private func excludeWebDataFromBackup() {
+        let fileManager = FileManager.default
+        guard let library = fileManager.urls(for: .libraryDirectory, in: .userDomainMask).first else { return }
+        for name in ["WebKit", "Cookies", "HTTPStorages"] {
+            var directory = library.appendingPathComponent(name, isDirectory: true)
+            do {
+                try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+                var values = URLResourceValues()
+                values.isExcludedFromBackup = true
+                try directory.setResourceValues(values)
+            } catch {
+                NSLog("PlusOne: could not exclude Library/%@ from backup: %@", name, error.localizedDescription)
+            }
+        }
     }
 
     func applicationWillResignActive(_ application: UIApplication) {

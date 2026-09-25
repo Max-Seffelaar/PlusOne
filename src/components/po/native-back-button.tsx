@@ -11,12 +11,14 @@
  * It reads the pathname only — no venue-wide query — so mounting it in the
  * chrome adds nothing to the door's ancestor path (86eykm76k). While it is
  * mounted, Capacitor's default back behaviour (webview back, else exit) is
- * off; unmounting removes the listener and restores it.
+ * off; unmounting removes the listener and restores it. A screen with local
+ * overlay state claims back first via `useNativeBackIntercept`.
  */
 import { useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { isNativeShell } from '@/lib/platform';
 import { nativeBackAction } from './native-back';
+import { runNativeBackIntercept } from './native-back-intercept';
 
 export function NativeBackButton(): null {
   const pathname = usePathname();
@@ -34,6 +36,8 @@ export function NativeBackButton(): null {
     void import('@capacitor/app')
       .then(({ App }) =>
         App.addListener('backButton', ({ canGoBack }) => {
+          // An open sheet (standalone door) closes first, online or offline.
+          if (runNativeBackIntercept()) return;
           const online = typeof navigator === 'undefined' || navigator.onLine !== false;
           const action = nativeBackAction(pathRef.current ?? '/', { canGoBack, online });
           if (action.kind === 'none') return;

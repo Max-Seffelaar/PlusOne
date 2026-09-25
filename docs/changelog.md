@@ -8,6 +8,31 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-25 — Fase 17 N3 follow-ups: standalone door back + iOS backup exclusion (86ey6bfdm)
+
+Branch `claude/86ey6bfdm-native-followups`. Fixes the two non-blocking findings from the independent
+review of #340 that were left open at merge. No migration, no dependency change, `capacitor.config.ts` untouched.
+
+- **Standalone door back (`/door/<eventId>`):** the guest-detail/add sheets there are React state in
+  `DoorRoute`, not history entries, so Android back used to replace to the `/door` picker and unload the
+  door mid-check-in. New `src/components/po/native-back-intercept.ts` (`useNativeBackIntercept`, a
+  newest-first stack) lets local overlay state claim back before `nativeBackAction` routes it;
+  `NativeBackButton` runs the intercept first, online or offline. `DoorRoute` registers one while a sheet
+  is open: two added lines, kept clear of N6's hunks (#344). Closing is plain state, so `DoorProvider`
+  never remounts and the outbox (#25) is untouched. The `/app` door is unchanged: its overlays already are
+  URL/history entries. Tests: `native-back-intercept.test.tsx` (stack semantics) and
+  `DoorRoute.native-back.test.tsx` (the real route + the real listener: sheet → closes, again → picker;
+  offline → closes, then no-op; picker → minimize; one `DoorProvider` mount throughout).
+- **iOS backup exclusion:** `AppDelegate.swift` marks `Library/WebKit` (WKWebView website data:
+  IndexedDB, localStorage, cookies), `Library/Cookies` and `Library/HTTPStorages` (the
+  `HTTPCookieStorage.shared` mirror Capacitor's cookie observer writes) `isExcludedFromBackup` on every
+  launch, creating them first when missing. This is the iOS counterpart of Android's `allowBackup=false` + the
+  data-extraction rules. Apple treats the flag as backup guidance, not a guarantee, and the system can reset
+  it, which is why it is applied on every launch. `tests/unit/capacitor-native-shell.test.ts` guards the call in
+  `didFinishLaunching`, the three directories and the Android manifest flags.
+- Not run here: Xcode/Gradle builds, device tests, pgTAP, e2e. The Swift is checked by reading it only; the
+  TestFlight check is in the PR.
+
 ## 2026-09-25 — Fase 17 N3: Capacitor scaffold + Android shell (86ey6bfdm)
 
 Golf 2 of Fase 17. No migration. Draft PR `feat(native): Capacitor scaffold + Android shell (86ey6bfdm)`.
