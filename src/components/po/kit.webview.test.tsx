@@ -6,7 +6,8 @@
  * `copyText` must never throw and must only report `true` when a copy really
  * happened — the copy buttons show "Couldn't copy" on `false` instead of the
  * old silent no-op. `openExternal` must never fall back to `_blank` inside the
- * native shell when the in-app browser plugin is there.
+ * native shell when the in-app browser plugin is there (N3: typed
+ * `@capacitor/browser`), and never throw when it is not.
  */
 import '@testing-library/jest-dom';
 import type { JSX } from 'react';
@@ -14,6 +15,9 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
 import { t } from '@/lib/i18n';
 import { ExternalLink, copyStateLabel, copyText, openExternal, useCopyText } from './kit';
+
+const browserOpen = vi.hoisted(() => vi.fn());
+vi.mock('@capacitor/browser', () => ({ Browser: { open: browserOpen } }));
 
 const origClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
 
@@ -28,6 +32,7 @@ function setExecCommand(impl: ((cmd: string) => boolean) | undefined): void {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  browserOpen.mockReset();
   if (origClipboard) Object.defineProperty(navigator, 'clipboard', origClipboard);
   else delete (navigator as { clipboard?: unknown }).clipboard;
   delete (document as { execCommand?: unknown }).execCommand;
@@ -120,23 +125,41 @@ describe('openExternal', () => {
     expect(open).toHaveBeenCalledWith('https://plus-one.io/terms', '_blank', 'noopener,noreferrer');
   });
 
-  it('uses the native in-app browser plugin inside the native shell, not window.open', () => {
+  it('uses @capacitor/browser (Custom Tabs / SFSafariViewController) inside the native shell, not window.open', async () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null);
-    const browserOpen = vi.fn().mockResolvedValue(undefined);
-    (window as { Capacitor?: unknown }).Capacitor = {
-      isNativePlatform: () => true,
-      Plugins: { Browser: { open: browserOpen } },
-    };
+    browserOpen.mockResolvedValue(undefined);
+    (window as { Capacitor?: unknown }).Capacitor = { isNativePlatform: () => true };
     openExternal('https://plus-one.io/privacy');
-    expect(browserOpen).toHaveBeenCalledWith({ url: 'https://plus-one.io/privacy' });
+    await vi.waitFor(() => expect(browserOpen).toHaveBeenCalledWith({ url: 'https://plus-one.io/privacy' }));
     expect(open).not.toHaveBeenCalled();
   });
 
-  it('falls back to window.open in the native shell until the plugin is installed (N3 seam)', () => {
+  it('never throws and falls back to window.open when the native plugin refuses', async () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    browserOpen.mockRejectedValue(new Error('plugin not implemented'));
     (window as { Capacitor?: unknown }).Capacitor = { isNativePlatform: () => true };
+    expect(() => openExternal('https://plus-one.io/terms')).not.toThrow();
+    await vi.waitFor(() =>
+      expect(open).toHaveBeenCalledWith('https://plus-one.io/terms', '_blank', 'noopener,noreferrer'),
+    );
+  });
+
+  it('ignores non-http(s) URLs on both paths (no intent:/javascript: dispatch)', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    for (const bad of ['javascript:alert(1)', 'intent://x#Intent;end', 'file:///etc/hosts', '/relative']) {
+      openExternal(bad);
+    }
+    (window as { Capacitor?: unknown }).Capacitor = { isNativePlatform: () => true };
+    openExternal('intent://x#Intent;scheme=https;end');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(open).not.toHaveBeenCalled();
+    expect(browserOpen).not.toHaveBeenCalled();
+  });
+
+  it('does not touch the native plugin in a normal browser', () => {
+    vi.spyOn(window, 'open').mockReturnValue(null);
     openExternal('https://plus-one.io/terms');
-    expect(open).toHaveBeenCalledWith('https://plus-one.io/terms', '_blank', 'noopener,noreferrer');
+    expect(browserOpen).not.toHaveBeenCalled();
   });
 });
 

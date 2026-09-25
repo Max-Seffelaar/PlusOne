@@ -49,6 +49,55 @@ below). No migration, no dependency change.
 
 ---
 
+## 2026-09-25 — Fase 17 N3: Capacitor scaffold + Android shell (86ey6bfdm)
+
+Golf 2 of Fase 17. No migration. Draft PR `feat(native): Capacitor scaffold + Android shell (86ey6bfdm)`.
+
+- **Dependencies (exact-pinned, all Capacitor 8):** `@capacitor/core`, `app`, `browser`,
+  `status-bar`, `splash-screen`, `android`, `ios` 8.x; `@capacitor/cli` as devDependency.
+  `@capacitor/android`/`ios` are needed by `cap add`/`cap sync` (not in the brief's list of six).
+- **`capacitor.config.ts`:** `appId: 'app.plusone.guestlist'` (permanent), `appName: 'PlusOne'`,
+  `server.url = https://app.plus-one.io`, `androidScheme: 'https'`, no cleartext, no
+  `allowNavigation` (off-host navigation goes to the system browser). Optional
+  `CAP_SERVER_URL` override at sync time; cleartext only when that override is `http://`.
+  `webDir` = committed placeholder `native/www/index.html`. Near-black background, status
+  bar light content, splash without spinner/fade, `SystemBars.insetsHandling: 'css'` pinned.
+- **`android/` + `ios/` committed** (decision 8). iOS `TARGETED_DEVICE_FAMILY = "1,2"`
+  (template default, decision 10). Android: `allowBackup=false` + data-extraction rules
+  (session cookie + door IDB never backed up/transferred), keystores gitignored,
+  google-services plugin still conditional on the file (`android/README.md`).
+- **Android back button:** `native-back.ts` (pure decision: `/app` → minimize, other
+  `/app/*` → history back or `/app` with no history, `/door/<id>` → `/door` picker, and a
+  no-op offline so a working offline door is never left (#25), `/door` → minimize) +
+  `NativeBackButton` (registers only when `isNativeShell()`, lazy `@capacitor/app`, removes
+  itself on unmount). Mounted in `app-chrome.tsx` (pathname only, no venue-wide read —
+  door render isolation unchanged) and `src/app/door/layout.tsx`.
+- **`openExternal`:** typed, lazily imported `@capacitor/browser` `Browser.open` on native
+  (Custom Tabs / SFSafariViewController); global probe + `TODO(N3)` removed; browser path and
+  no-throw `window.open` fallback kept. `kit.webview.test.tsx` extended.
+- **Review round (independent review, same day):** the "no `WKAppBoundDomains`" proposal was
+  wrong. Capacitor iOS treats any URL that merely *starts with* `server.url` as in-app
+  (`WebViewDelegationHandler.swift`, string prefix), so `https://app.plus-one.io.evil.example/`
+  would load in the WKWebView with the bridge, and `CapacitorCookies`/`CapacitorHttp` would
+  hand it the session. Fixed: `WKAppBoundDomains = [app.plus-one.io]` in `Info.plist` +
+  `ios.limitsNavigationsToAppBoundDomains: true` + `ios.allowsLinkPreview: false`. Android
+  compares host + scheme exactly and was never affected. Also: back on a cold, offline
+  `/app/door` deep link now does nothing instead of replacing to `/app` (#25); `openExternal`
+  ignores non-http(s) URLs; dead `StatusBar.backgroundColor` dropped;
+  `tests/unit/capacitor-native-shell.test.ts` guards stale `cap sync` paths and the iOS
+  app-bound config.
+- **Not changed:** `next.config.js` (no nonce in prod `script-src`, so `'unsafe-inline'`
+  admits Capacitor's injected bridge script if it is injected inline at all — no block to fix),
+  `src/lib/platform.ts`.
+- **Safe area:** T1 (#335, merged) pads the top/side insets once in the po shell root;
+  with `insetsHandling: 'css'` Capacitor counts each inset once (natively on old WebViews
+  with `env()` = 0, else via `env()`), so nothing double-pads. `/door/<id>`
+  (`DoorRoute.tsx`) has no top inset at all → N6.
+- **Not run here:** Gradle/Xcode builds, the Android debug build on a device, pgTAP, e2e.
+  Ran: type-check, lint, vitest (180 files / 1903 tests after merging main), `pnpm build`.
+
+---
+
 ## 2026-09-25 — Fase 17 S3 round 4: explicit demo refusal copy (86ey6bfug)
 
 Same branch/PR (#332), after Max's hands-on test. **No migration.**
@@ -176,6 +225,8 @@ Branch `claude/86ey6bfug-review-login`, PR #332. No migration.
   shell (no URL bar); a durable DB rate limit (would need a migration); the Vercel
   Firewall rule (manual).
 
+---
+
 ## 2026-09-25 — Fase 17 N2: push backend, live-but-sleeping (86ey6bfbe)
 
 Branch `claude/86ey6bfbe-push-backend`. Three migrations, the repo's first Edge
@@ -240,6 +291,8 @@ removal.
 function. `database.types.ts` was hand-written to the schema — regenerate after
 merge to confirm. Ran: lint, type-check, vitest (176 files / 1891 tests).
 
+---
+
 ## 2026-09-24 — Fase 17 T1: tablet layouts, session 1 (z8uq9m0fzj)
 
 iPad is in native v1 (capacitor-plan decision 10), so 641–1023px became a hard
@@ -297,6 +350,8 @@ pre-existing combobox a11y warnings in `datetime-field.tsx`. `pnpm vitest run`:
 reader" failed once under full-suite load, and passed alone and on re-run. That
 is a timing flake, not related to this diff. Not run (no Supabase stack or
 docker in this container): pgTAP, e2e, and real-device/iPad screenshots.
+
+---
 
 ## 2026-09-24 — Fase 17 N1: webview-prep kit helpers (86ey6bfam)
 
