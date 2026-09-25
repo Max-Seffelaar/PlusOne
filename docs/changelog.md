@@ -8,6 +8,43 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-25 — Fase 17 N3: Capacitor scaffold + Android shell (86ey6bfdm)
+
+Golf 2 of Fase 17. No migration. Draft PR `feat(native): Capacitor scaffold + Android shell (86ey6bfdm)`.
+
+- **Dependencies (exact-pinned, all Capacitor 8):** `@capacitor/core`, `app`, `browser`,
+  `status-bar`, `splash-screen`, `android`, `ios` 8.x; `@capacitor/cli` as devDependency.
+  `@capacitor/android`/`ios` are needed by `cap add`/`cap sync` (not in the brief's list of six).
+- **`capacitor.config.ts`:** `appId: 'app.plusone.guestlist'` (permanent), `appName: 'PlusOne'`,
+  `server.url = https://app.plus-one.io`, `androidScheme: 'https'`, no cleartext, no
+  `allowNavigation` (off-host navigation goes to the system browser). Optional
+  `CAP_SERVER_URL` override at sync time; cleartext only when that override is `http://`.
+  `webDir` = committed placeholder `native/www/index.html`. Near-black background, status
+  bar light content, splash without spinner/fade, `SystemBars.insetsHandling: 'css'` pinned.
+- **`android/` + `ios/` committed** (decision 8). iOS `TARGETED_DEVICE_FAMILY = "1,2"`
+  (template default, decision 10). Android: `allowBackup=false` + data-extraction rules
+  (session cookie + door IDB never backed up/transferred), keystores gitignored,
+  google-services plugin still conditional on the file (`android/README.md`).
+- **Android back button:** `native-back.ts` (pure decision: `/app` → minimize, other
+  `/app/*` → history back or `/app` with no history, `/door/<id>` → `/door` picker, and a
+  no-op offline so a working offline door is never left (#25), `/door` → minimize) +
+  `NativeBackButton` (registers only when `isNativeShell()`, lazy `@capacitor/app`, removes
+  itself on unmount). Mounted in `app-chrome.tsx` (pathname only, no venue-wide read —
+  door render isolation unchanged) and `src/app/door/layout.tsx`.
+- **`openExternal`:** typed, lazily imported `@capacitor/browser` `Browser.open` on native
+  (Custom Tabs / SFSafariViewController); global probe + `TODO(N3)` removed; browser path and
+  no-throw `window.open` fallback kept. `kit.webview.test.tsx` extended.
+- **Not changed:** `next.config.js` (no nonce in prod `script-src`, so `'unsafe-inline'`
+  admits Capacitor's injected bridge script if it is injected inline at all — no block to fix),
+  `src/lib/platform.ts`, `WKAppBoundDomains` (proposal: don't use — PR body).
+- **Open:** the po shell has no top/side safe-area inset on `main` until T1 (#335) merges —
+  under edge-to-edge the header sits under the status bar until then. `/door/<id>`
+  (`DoorRoute.tsx`) has no top inset at all → N6.
+- **Not run here:** Gradle/Xcode builds, the Android debug build on a device, pgTAP, e2e.
+  Ran: type-check, lint, vitest (178 files / 1892 tests), `pnpm build`.
+
+---
+
 ## 2026-09-24 — Fase 17 N1: webview-prep kit helpers (86ey6bfam)
 
 Golf 1 of Fase 17. No migration, no dependency change.
