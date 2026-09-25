@@ -7,6 +7,8 @@ import { assertVenueBillingActive } from '@/features/billing/gate';
 import { sendInviteEmail } from './invite-mail';
 import { inviteSchema, revokeInviteSchema, resendInviteSchema } from './schemas';
 import { canGrantRoles, type VenueRole } from './roles';
+import { isDemoReviewUser } from './review-window';
+import { t } from '@/lib/i18n';
 
 export interface ActionState {
   ok: boolean;
@@ -53,6 +55,11 @@ export async function inviteUserAction(
 ): Promise<ActionState> {
   const user = await getSessionUser();
   if (!user) return { ok: false, error: "You're not logged in." };
+  // The store-review demo account never invites (86ey6bfug). The real stop is
+  // the invites trigger (20260925130100_review_demo_no_invites.sql, 42501 for
+  // any invite into the demo venue); this only swaps its generic "Couldn't
+  // record the invite." for copy a reviewer reads as a restriction, not a bug.
+  if (isDemoReviewUser(user)) return { ok: false, error: t.auth.demoNoInvites };
 
   const parsed = inviteSchema.safeParse({
     venueId: formData.get('venueId'),
@@ -173,6 +180,9 @@ export async function resendInviteAction(
 ): Promise<ActionState> {
   const user = await getSessionUser();
   if (!user) return { ok: false, error: "You're not logged in." };
+  // Same demo refusal as inviting (86ey6bfug): the demo venue holds no invites
+  // to resend, but the reviewer should never see "Couldn't find the invite.".
+  if (isDemoReviewUser(user)) return { ok: false, error: t.auth.demoNoInvites };
 
   const parsed = resendInviteSchema.safeParse({ inviteId: formData.get('inviteId') });
   if (!parsed.success) return { ok: false, error: 'Invalid invite.' };

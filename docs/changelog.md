@@ -8,6 +8,27 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-25 — Fase 17 S3 round 4: explicit demo refusal copy (86ey6bfug)
+
+Same branch/PR (#332), after Max's hands-on test. **No migration.**
+
+- **Invite refusal was generic:** the invites trigger's 42501 fell through
+  `inviteUserAction` as "Couldn't record the invite.", which a store reviewer reads as a bug
+  (guideline 2.1). `inviteUserAction` and `resendInviteAction` now refuse the demo account
+  (`isDemoReviewUser`) right after the session check, before any read/insert. The trigger
+  stays the boundary.
+- **Found while grepping:** `inviteExternalCrew` provisions an account through the service
+  role with no `invites` row, so the round-3 trigger never saw it: the demo admin could make
+  its own mailbox crew on a demo event and create a venue as that account (the same one-hop
+  tenant). It and `resendCrewInvite` now refuse the demo account before any side effect;
+  for the demo account this app check IS the stop on that path. (Round 3's note that
+  "the only invite path is createInviteAction" missed it; the function is `inviteUserAction`.)
+- **Copy in the catalogue:** `t.auth.demoNoInvites` / `demoNoVenues` / `demoNoEmailChange`;
+  e-mail copy now "The demo account's email can't be changed.".
+- **Runbook:** "Wat de reviewer ziet" table + a ready-to-paste review-notes paragraph.
+- Tests: `invite-actions.test.ts` (demo refused, no read/insert/mail; admin reaches insert),
+  new `actions.crew-demo.test.ts`, `profile-actions.test.ts` asserts the new copy.
+
 ## 2026-09-24 — Fase 17 S3 round 3: the demo venue never invites (86ey6bfug)
 
 Same branch/PR (#332), follow-up on the round-3 review. **Adds a migration.**

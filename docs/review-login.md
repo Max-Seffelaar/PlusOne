@@ -108,6 +108,30 @@ directe membership-insert voegt alleen *bestaande* accounts toe (er ontstaat gee
 account). Er is geen legitiem pad dat in de demo-venue uitnodigt: de seed maakt de ene
 membership direct aan.
 
+De uitnodigingsflow voor externe crew (`inviteExternalCrew` in
+`src/features/events/actions.ts`) schrijft géén `invites`-rij: die maakt via de service
+role direct een account aan, dus de trigger ziet hem niet. Daar is de app-check op het
+demo-account de stop (vóór elke read of service-role-call); `resendCrewInvite` weigert
+het demo-account ook.
+
+## Wat de reviewer ziet
+
+Elke weigering noemt het demo-account, zodat een reviewer het leest als bewuste beperking
+en niet als bug (guideline 2.1). De copy staat in de catalogus (`t.auth.demo*` in
+`src/lib/i18n/surfaces/auth.ts`):
+
+| Actie | Waar | Melding |
+| --- | --- | --- |
+| Iemand uitnodigen (team-invite, invite opnieuw sturen, externe crew) | `inviteUserAction`, `resendInviteAction`, `inviteExternalCrew`, `resendCrewInvite` | "Invites are turned off for the demo account." |
+| Nieuwe venue maken | `createVenueAction` | "The demo account can't create venues." |
+| E-mailadres wijzigen | `updateEmailAction` | "The demo account's email can't be changed." |
+
+Plak dit in de App Review-notes (App Store Connect) en de Play-reviewnotities, onder de
+review-code:
+
+> Demo account: full access to guest lists, approvals and the door check-in. Creating
+> venues, inviting people and changing the account e-mail are disabled for this account.
+
 ## Eenmalig: seed de demo-venue
 
 Vanuit de **gelinkte main-checkout** (de `.env.local` daar wijst naar prod):

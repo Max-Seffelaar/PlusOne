@@ -6,6 +6,7 @@ import { getSessionUser } from '@/lib/auth/context';
 import { profileSchema, emailChangeSchema } from './schemas';
 import { describeAuthError } from './errors';
 import { isDemoReviewUser } from './review-window';
+import { t } from '@/lib/i18n';
 
 export interface ActionState {
   ok: boolean;
@@ -71,7 +72,7 @@ export async function updateEmailAction(
   // code holder can still call GoTrue directly (PUT /auth/v1/user with the
   // session), and then the double confirm to the mailbox-less demo address is
   // what stops the change (runbook: docs/review-login.md).
-  if (isDemoReviewUser(user)) return { ok: false, error: "This account's email can't be changed." };
+  if (isDemoReviewUser(user)) return { ok: false, error: t.auth.demoNoEmailChange };
 
   const parsed = emailChangeSchema.safeParse({ email: formData.get('email') });
   if (!parsed.success) {

@@ -31,7 +31,7 @@ describe('updateEmailAction — demo account', () => {
     getSessionUser.mockResolvedValue(user);
     const { updateEmailAction } = await import('./profile-actions');
     const res = await updateEmailAction({ ok: false }, formWith('attacker@example.com'));
-    expect(res.ok).toBe(false);
+    expect(res).toEqual({ ok: false, error: "The demo account's email can't be changed." });
     expect(updateUser).not.toHaveBeenCalled();
   });
 

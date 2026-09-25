@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
-import { inviteUserAction } from './invite-actions';
+import { inviteUserAction, resendInviteAction } from './invite-actions';
 import { createClient } from '@/lib/supabase/server';
 import { sendInviteEmail } from './invite-mail';
 
@@ -40,7 +40,10 @@ interface MembershipsChain {
   maybeSingle: Mock;
 }
 
-function makeClient(opts: { insertError?: { code?: string; message: string } | null }) {
+function makeClient(opts: {
+  insertError?: { code?: string; message: string } | null;
+  user?: { id: string; email?: string };
+}) {
   const callLog: string[] = [];
 
   const membershipsChain: MembershipsChain = {
@@ -64,7 +67,7 @@ function makeClient(opts: { insertError?: { code?: string; message: string } | n
 
   return {
     client: {
-      auth: { getUser: vi.fn(async () => ({ data: { user: { id: USER_ID } } })) },
+      auth: { getUser: vi.fn(async () => ({ data: { user: opts.user ?? { id: USER_ID } } })) },
       from,
     },
     callLog,
@@ -116,5 +119,53 @@ describe('inviteUserAction — insert-then-mail ordering (86ey9ea00 #54)', () =>
 
     expect(result.ok).toBe(false);
     expect(sendInviteEmail).not.toHaveBeenCalled();
+  });
+});
+
+// Store-review demo account (86ey6bfug): the invites trigger is the real stop,
+// but its 42501 would surface as the generic "Couldn't record the invite.",
+// which a reviewer reads as a bug. The action refuses first, with named copy.
+describe('inviteUserAction / resendInviteAction — demo account', () => {
+  const DEMO_ID = 'de300000-0000-7000-8000-00000000a001';
+  const DEMO_EMAIL = 'app-review@demo.plus-one.io';
+  const DEMO_COPY = 'Invites are turned off for the demo account.';
+
+  it.each([
+    ['by id and e-mail', { id: DEMO_ID, email: DEMO_EMAIL }],
+    ['by id alone', { id: DEMO_ID, email: 'someone@else.example' }],
+    ['by e-mail alone', { id: USER_ID, email: DEMO_EMAIL }],
+  ])('refuses the demo account %s with the demo copy, before any read or insert', async (_label, user) => {
+    const { client, callLog } = makeClient({ user });
+    (createClient as Mock).mockResolvedValue(client);
+
+    const result = await inviteUserAction({ ok: false }, inviteFormData());
+
+    expect(result).toEqual({ ok: false, error: DEMO_COPY });
+    expect(callLog).toEqual([]);
+    expect(client.from).not.toHaveBeenCalled();
+    expect(sendInviteEmail).not.toHaveBeenCalled();
+  });
+
+  it('refuses a resend from the demo account with the same copy, touching nothing', async () => {
+    const { client } = makeClient({ user: { id: DEMO_ID, email: DEMO_EMAIL } });
+    (createClient as Mock).mockResolvedValue(client);
+    const fd = new FormData();
+    fd.set('inviteId', '22222222-2222-4222-8222-222222222222');
+
+    const result = await resendInviteAction({ ok: false }, fd);
+
+    expect(result).toEqual({ ok: false, error: DEMO_COPY });
+    expect(client.from).not.toHaveBeenCalled();
+    expect(sendInviteEmail).not.toHaveBeenCalled();
+  });
+
+  it('a normal admin still reaches the insert', async () => {
+    const { client, callLog } = makeClient({ user: { id: USER_ID, email: 'admin@plusone.test' } });
+    (createClient as Mock).mockResolvedValue(client);
+
+    const result = await inviteUserAction({ ok: false }, inviteFormData());
+
+    expect(result.ok).toBe(true);
+    expect(callLog).toEqual(['insert']);
   });
 });

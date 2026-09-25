@@ -10,6 +10,7 @@ import { canGrantRoles, type VenueRole } from '@/features/auth/roles';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
 import { TERMS_VERSION } from '@/lib/legal';
 import { isDemoReviewUser } from '@/features/auth/review-window';
+import { t } from '@/lib/i18n';
 import {
   venueSettingsSchema,
   createVenueSchema,
@@ -347,7 +348,7 @@ export async function createVenueAction(input: CreateVenueInput): Promise<Create
   // stop is in the RPC (20260925130000_review_demo_guard.sql raises 42501 for
   // the demo id, whoever calls it); this only gives the UI a clear message.
   if (isDemoReviewUser(ctx.user)) {
-    return { ok: false, code: '42501', message: "The demo account can't create venues." };
+    return { ok: false, code: '42501', message: t.auth.demoNoVenues };
   }
 
   const { data, error } = await supabase.rpc('create_venue_with_owner', {
