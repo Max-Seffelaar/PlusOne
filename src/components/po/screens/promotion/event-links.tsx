@@ -211,7 +211,7 @@ export function EventLinks({ eventId, embedded }: { eventId?: string; embedded?:
       ) : links.length === 0 ? (
         <Empty text={canManage ? t.links.empty : t.links.noAccess} />
       ) : (
-        <div className="flex flex-col gap-[11px] lg:grid lg:grid-cols-2 lg:items-start">
+        <div className="flex flex-col gap-[11px] md:grid md:grid-cols-2 md:items-start">
           {links.map((link) => (
             <LinkCard
               key={link.id}

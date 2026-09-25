@@ -54,7 +54,7 @@ export function PromotionRoster(): JSX.Element {
       ) : list.length === 0 ? (
         <Empty text={t.links.influencersEmpty} />
       ) : (
-        <div className="flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px] lg:items-start">
+        <div className="flex flex-col gap-[9px] md:grid md:grid-cols-2 md:gap-[10px] md:items-start">
           {list.map((inf) => (
             <button
               key={inf.id}
