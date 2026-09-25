@@ -24,8 +24,8 @@ the backend). One migration (review round, below); decision #51 in the spec; run
   every start until it lands. `savePushToken` refuses unless `po:push = on`, so a late
   `registration` event after "off" cannot recreate the row.
 - 🟠 Sign-out race: the 3 s cap didn't cancel the chain. Now an `AbortController` per
-  sign-out step (request aborted at the cap or when `resumePush` runs; no bookkeeping
-  after), and the FCM `unregister()` moved to after the session is confirmed gone —
+  sign-out step (request aborted at the cap; `signOutDevice` awaits the step, so it is
+  over before any re-registration; no bookkeeping after), and the FCM `unregister()` moved to after the session is confirmed gone —
   the `sign-out-incomplete` path never touches the transport token. Residual: a DELETE
   that already reached PostgREST executes there; it precedes the re-registration.
 - 🟠 FCM token in the DELETE query string (API logs). Deletes are now by `session_id`
@@ -43,6 +43,19 @@ the backend). One migration (review round, below); decision #51 in the spec; run
   verbatim (SECURITY DEFINER, `search_path ''`, owner pass-through). Grants unchanged.
   The client stopped sending `last_seen_at`. pgTAP `push_tokens.test.sql` 40 → 52
   (F1–F12). **Needs the prod-push flow after merge** (go-live step 0).
+
+**Re-review (5319828005, approve + 9 🟡 nits, all fixed here):** `enablePush` returns
+`{ perm, registered }` and a granted-but-not-stored turn-on says so (`t.push.onPending`,
+toast + Profile line; `on` stays, every start retries); `disablePush` clears the per-run
+save dedupe so a same-run "turn on" re-upserts; an upsert landing after "off" hands its
+row to `off-pending`; the provider no longer memoizes a failed plugin load (listeners
+retry 3× at 2 s, so a retained cold-start tap survives one bad chunk fetch — a clean
+"no Firebase" is not retried); the dead `resumePush` abort + module controller are gone
+(the timer is the guarantee; docs corrected); `switchToVenue`'s `landing` goes through
+`appGateNextPath` (only ever `/app…`); the Profile row uses the ask card's role gate
+(`canReceivePush`); a non-uuid `po:push-row` is dropped instead of sent; the provider
+reports the shell's platform instead of a constant `android`. Kept two DELETEs rather
+than one `.or()` (no localStorage value inside a PostgREST filter string).
 
 - **Dependency:** `@capacitor/push-notifications` 8.1.2 (exact pin, Capacitor 8 like the
   rest), `npx cap sync` output committed (Android gradle + iOS `Package.swift`). FCM only.

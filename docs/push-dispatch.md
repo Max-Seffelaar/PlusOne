@@ -184,6 +184,9 @@ Decision #51 in `gastenlijst-app-spec.md`.
   push is re-registered and the FCM token is never touched. `scope: 'global'`
   does not delete the other devices' rows (GoTrue ends those sessions
   directly); they are inert and the daily prune drops them.
+- **Profile row.** Same role gate as the ask card (`canReceivePush`: admin, staff,
+  event organizer). A turn-on whose token could not be stored yet (FCM or the
+  network silent) keeps `on`, says it finishes later, and every start retries.
 - **Profile "off".** Records `off-pending`, deletes the rows, invalidates the FCM
   token, and settles to `off` only when the delete succeeded. Offline the row
   shows that it could not reach the server, and every app start retries the
