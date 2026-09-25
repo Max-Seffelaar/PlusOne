@@ -8,6 +8,70 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-25 — Fase 17 T1 session 2: tablet pass over the remaining screens (z8uq9m0fzj)
+
+Branch `claude/z8uq9m0fzj-tablet-layouts-2`, follows PR #335. Frontend only: no
+migrations, no dependencies, none of the fenced files (`app.tsx`, `app-chrome.tsx`,
+`door-branch.tsx`, `screens/door.tsx`, `src/features/door|auth|onboarding/**`).
+
+- **Method.** Playwright against `pnpm dev:fake` (fixture Supabase), a touch context
+  (`pointer: coarse` confirmed in-page) at 744/768/820/834/1024/1180/1366 for 31
+  screens: horizontal overflow, controls past the right edge, and every control's
+  effective tap box (its `::before` hit ring and wrapping `<label>` counted).
+  Result: **no overflow and nothing off-screen at any width**; the only width-dependent
+  finding was the InfoTip. The sub-44px controls it found were the same at every
+  width, i.e. phone bugs too, and are fixed below.
+- **N1-fenced items (N1 has landed).** Kit `InfoTip`: the popover, its 36px close button
+  and the backdrop switch now key on `lg:[@media(pointer:fine)]:`, so an iPad in
+  landscape gets the bottom sheet (capped at 560px like the kit `Sheet`, no tab-bar
+  padding in the sidebar chrome). `kit.tsx` left `KNOWN_DEBT` in
+  `touch-density.test.ts`, which is now empty. Promotion `roster.tsx`/`event-links.tsx`
+  grids moved `lg:` → `md:`.
+- **New guard** `tests/unit/tablet-content-breakpoint.test.ts`: no screen under
+  `src/components/po/screens` may carry a width-only `lg:` class (only the pointer gate).
+- **Tap areas (invisible hit rings, no visual change):** kit `Seg` (40px), cockpit status
+  segments (36px) and tier chips (35px), event edit Copy link (35px), new-event template
+  chips (35px), Promotion range segments (36px) and "links on this event" (19px),
+  Profile MFA Turn on/off (19px), per-event links Copy link (39px), Import source/tier
+  pills (37–40px). Wrapped chip rows got a larger row gap so neighbouring rings meet
+  without overlapping; the Import source scroller got `py-1` so `overflow` does not clip
+  the ring. `design-system.md` records the hit-ring rule.
+- **Cockpit at 1024 touch:** no overlap; only the filter chips needed rings. Behaviour
+  unchanged. It stays online-only on an iPad in landscape until N6.
+- **Review round (adversarial review on #343).** Merged `main` (N3 #340 and later).
+  - The five 42–43px near-misses now reach ≥44: kit `Btn sm` carries a 2px y-ring (43 →
+    45; covers venue-switch "Manage", event edit "Cancel event" and every other small
+    button), Roles steppers a 2px ring on all sides (42 → 44), template-edit check-out
+    segments a 2px y-ring (42.8 → 44.8), Quick-add "Add tier" a 4px y-ring (41.5 → 47.5).
+  - Re-measured every ring in Chromium (border counted, `::before` box read from
+    `getComputedStyle`). Several first-round rings fell short: kit `Seg` 41.5, template
+    chips / cockpit tier chips / event edit Copy link 42.8, Promotion range segments
+    43.5, Import tier pills 42.8, the MFA "Turn on" label 43.7 wide. All were raised to
+    ≥44 (`Seg` y4, chips y6, range y5, tier pills y5, "Turn on" `min-w-[44px]`). Wrapped
+    rows keep their gaps; the rings still meet without overlapping.
+  - The hit-ring strings are now exported kit constants (`hitRing2`, `hitRingY2/4/5/6/13`
+    next to `hitArea44`). Every call site in this PR imports them. The tap-target ratchet
+    resolves them, and a new table pins the size each ring was picked for.
+  - The cockpit comment now points to plan decision 14 for which door variant a device
+    gets, so it stays true whether or not #344 lands first.
+  - InfoTip pointer switch (popover for a hover-capable pointer, sheet for touch) signed
+    off by the orchestrator as an interaction-mode choice. It is CSS-only, and a new
+    no-DOM server-render test plus a hydration test (fine and coarse pointer) prove it
+    is SSR-safe.
+  - Copy: "1 link on this event" (singular key `convLinksOne`).
+- **Known, not fixed here:** onboarding role toggles 42px (onboarding is fenced). The
+  desktop sidebar nav items measure 43.8px at ≥1024 (shell chrome, outside this PR's
+  fence). The InfoTip sheet at ≥1024 touch is positioned inside the content column (a
+  transformed ancestor is its containing block), so the sidebar is not dimmed; a tap
+  outside still closes it.
+- **Not checked visually:** Platform venues (the fixture manager is not a platform admin,
+  so the screen shows the no-access state), billing in the native shell (read-only rules
+  untouched), onboarding beyond the Team step.
+- Tests: `pnpm type-check` clean; `pnpm lint` only the 2 pre-existing combobox warnings;
+  vitest 180 files / 1926 tests green. Not run here: pgTAP, e2e, real iPad hardware.
+
+---
+
 ## 2026-09-25 — Fase 17 N3: Capacitor scaffold + Android shell (86ey6bfdm)
 
 Golf 2 of Fase 17. No migration. Draft PR `feat(native): Capacitor scaffold + Android shell (86ey6bfdm)`.

@@ -16,7 +16,7 @@ import { t, fmt } from '@/lib/i18n';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { useTransientValue } from '@/lib/use-transient-value';
 import { Icon, type IconName } from '@/components/po/icon';
-import { Avatar, Label, Btn, Card, pressDesktop } from '@/components/po/kit';
+import { Avatar, Label, Btn, Card, hitRingY4, hitRingY6, pressDesktop } from '@/components/po/kit';
 import { tierInk } from '@/lib/po/tier-colors';
 import { canWorkDoor } from '@/features/auth/roles';
 import { useNav } from '@/components/po/context';
@@ -606,6 +606,7 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                         className={cn(
                           'inline-flex items-center gap-[7px] rounded-[9px] px-[13px] py-2 font-display text-[13.5px] font-bold',
                           press,
+                          hitRingY4,
                           on ? 'bg-elev2 text-text' : 'text-faint'
                         )}
                       >
@@ -616,7 +617,7 @@ function EventDayCockpit({ event, onChangeEvent }: { event: PoDoorEvent; onChang
                   })}
                 </div>
               </div>
-              <div className="flex flex-wrap gap-[7px]">
+              <div className="flex flex-wrap gap-x-[7px] gap-y-[10px]">
                 <TierChip on={tierF === 'all'} onClick={() => setTierF('all')}>
                   {t.cockpit.allTiers}
                 </TierChip>
@@ -1000,6 +1001,7 @@ function TierChip({
       className={cn(
         'inline-flex items-center gap-[7px] whitespace-nowrap rounded-full border px-[13px] py-[7px] font-display text-[12.5px] font-bold',
         press,
+        hitRingY6,
         color ? 'border-transparent' : on ? 'border-transparent bg-text text-bg' : 'border-line text-dim',
         on && color && 'ring-2 ring-acc'
       )}
@@ -1009,6 +1011,16 @@ function TierChip({
     </button>
   );
 }
+
+// T1 (design-system.md "Breakpoints & tablet"): which door variant a device
+// gets is plan decision 14's rule, not this file's. Whatever that rule sends
+// here, a touch screen at ≥1024px must still be able to work the cockpit, so its
+// filter chips get a 44px hit area without changing how they look. The status
+// segments are 36px inside a strip with 3px padding + a 1px border, so a 4px
+// ring (kit `hitRingY4`) reaches 44px and stays inside the strip. The tier chips
+// are 34.8px with a 1px border; a 6px ring (kit `hitRingY6`) makes 44.8px and
+// reaches 5px past the chip, and the wrapped rows sit 10px apart so two rows'
+// rings meet without overlapping.
 
 // Approve/deny chips come in pairs 6px apart, so the 44px hit ring (technique:
 // kit `hitArea44`) is lopsided: 3px toward the partner (the rings meet, never

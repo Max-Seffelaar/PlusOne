@@ -26,6 +26,7 @@ export const promo = {
   convApproved: 'approved',
   convShowedUp: 'showed up',
   convLinks: '{n} links on this event',
+  convLinksOne: '{n} link on this event',
 
   // ── Section 1 — leaderboard ─────────────────────────────────────────────────
   deliversKicker: 'Leaderboard',
