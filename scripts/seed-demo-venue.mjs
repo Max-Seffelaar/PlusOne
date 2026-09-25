@@ -266,13 +266,16 @@ if (elsewhere.length > 0) {
 // but a venue created, an invite sent or a membership dropped elsewhere before
 // that guard (or through a path nobody thought of) leaves audit rows under the
 // demo actor. Those must be investigated by hand, never papered over.
+// `venue_id is null` counts as foreign too: SQL `<>` never matches NULL, and the
+// only venue-less audit rows (platform_invites, set_platform_admin) are
+// platform-admin actions the demo user must never have.
 const foreignAudit = await must(
   'audit tripwire',
   db
     .from('audit_log')
     .select('created_at, entity_type, action, venue_id, entity_id')
     .eq('actor_id', DEMO_USER_ID)
-    .neq('venue_id', VENUE_ID)
+    .or(`venue_id.is.null,venue_id.neq.${VENUE_ID}`)
     .order('created_at', { ascending: true })
     .limit(50),
 );
