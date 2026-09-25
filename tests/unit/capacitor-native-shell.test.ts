@@ -64,3 +64,43 @@ describe('iOS navigation boundary (App-Bound Domains)', () => {
     expect(domains).toEqual(['app.plus-one.io']);
   });
 });
+
+describe('push (Fase 17 N5)', () => {
+  const manifest = () => read('android/app/src/main/AndroidManifest.xml');
+
+  it('declares the Android 13+ runtime permission', () => {
+    expect(manifest()).toContain('<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />');
+  });
+
+  it('the manifest default channel is the one the web app creates', async () => {
+    const { PUSH_CHANNEL_ID } = await import('../../src/features/notifications/capacitor-provider');
+    const values = read('android/app/src/main/res/values/plusone_push.xml');
+    expect(values).toContain(`<string name="plusone_push_channel_id" translatable="false">${PUSH_CHANNEL_ID}</string>`);
+    expect(manifest()).toMatch(/default_notification_channel_id"\s+android:value="@string\/plusone_push_channel_id"/);
+    expect(manifest()).toMatch(/default_notification_icon"\s+android:resource="@drawable\/ic_stat_plusone"/);
+    // A distinct name outside mipmap/splash, which S2's @capacitor/assets regenerates.
+    expect(existsSync(resolve(root, 'android/app/src/main/res/drawable/ic_stat_plusone.xml'))).toBe(true);
+  });
+
+  it('registers the Firebase-config guard plugin before the bridge starts', () => {
+    const main = read('android/app/src/main/java/app/plusone/guestlist/MainActivity.java');
+    const reg = main.indexOf('registerPlugin(PushConfigPlugin.class)');
+    expect(reg).toBeGreaterThan(-1);
+    expect(reg).toBeLessThan(main.indexOf('super.onCreate'));
+    expect(read('android/app/src/main/java/app/plusone/guestlist/PushConfigPlugin.java')).toContain('@CapacitorPlugin(name = "PlusOnePushConfig")');
+  });
+
+  it('FCM only: no Firebase Analytics or Crashlytics anywhere in the Android build', () => {
+    for (const f of ['android/build.gradle', 'android/app/build.gradle', 'android/app/capacitor.build.gradle', 'android/variables.gradle']) {
+      expect(read(f), f).not.toMatch(/firebase-analytics|firebase-crashlytics|crashlytics/i);
+    }
+  });
+
+  it('the google-services plugin stays conditional, so a build without google-services.json still works', () => {
+    expect(read('android/app/build.gradle')).toMatch(/file\('google-services\.json'\)[\s\S]*apply plugin: 'com\.google\.gms\.google-services'/);
+  });
+
+  it('no system banner in the foreground: the app shows its own toast', () => {
+    expect(config.plugins?.PushNotifications).toEqual({ presentationOptions: [] });
+  });
+});

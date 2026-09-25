@@ -37,6 +37,7 @@
     "@capacitor/browser": "8.0.4",
     "@capacitor/core": "8.5.2",
     "@capacitor/ios": "8.5.2",
+    "@capacitor/push-notifications": "8.1.2",
     "@capacitor/splash-screen": "8.0.2",
     "@capacitor/status-bar": "8.0.3",
     "@sentry/nextjs": "^10.70.0",
