@@ -259,7 +259,7 @@ export function GuestCardList({
     getItemKey: (i) => rows[i]?.id ?? i,
   });
   return (
-    <div ref={scrollRef} className="po-scroll min-h-0 flex-1 overflow-y-auto lg:hidden" style={{ padding: '0 16px 24px' }}>
+    <div ref={scrollRef} className="po-scroll min-h-0 flex-1 overflow-y-auto md:hidden" style={{ padding: '0 16px 24px' }}>
       <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
         {virtualizer.getVirtualItems().map((vi) => {
           const g = rows[vi.index];
@@ -396,7 +396,7 @@ export function GuestTable({
   const cols = 'grid-cols-[44px_1fr_120px_120px_170px]';
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
   return (
-    <div ref={scrollRef} className="po-scroll hidden min-h-0 flex-1 overflow-y-auto lg:block" style={{ padding: '0 16px 24px' }}>
+    <div ref={scrollRef} className="po-scroll hidden min-h-0 flex-1 overflow-y-auto md:block" style={{ padding: '0 16px 24px' }}>
       <div className="overflow-hidden rounded-[16px] border border-line bg-elev">
         <table className="w-full border-collapse text-left">
           <thead className="sticky top-0 z-[1]">

@@ -177,7 +177,7 @@ export function Crew({ eventId }: { eventId?: string }): JSX.Element {
         ) : crew.length === 0 ? (
           <Empty text={t.events.crew.empty} />
         ) : (
-          <div className="mb-5 flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px]">
+          <div className="mb-5 flex flex-col gap-[9px] md:grid md:grid-cols-2 md:gap-[10px]">
             {crew.map((m) => (
               <CrewMemberRow key={m.userId} eventId={id} member={m} canManage={isAdmin} />
             ))}

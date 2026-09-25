@@ -8,6 +8,64 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-24 — Fase 17 T1: tablet layouts, session 1 (z8uq9m0fzj)
+
+iPad is in native v1 (capacitor-plan decision 10), so 641–1023px became a hard
+S5 dependency. This session: the breakpoint decision, the shell, the Door tab,
+and the screen-wide content rules. Draft PR, branch `claude/z8uq9m0fzj-tablet-layouts`.
+
+**Decision (design-system.md "Breakpoints & tablet"): one chrome breakpoint,
+three axes.** The chrome stays at 1024px: bottom tabs below it, the sidebar at
+and above it. There is no tablet chrome tier. The reason that carried it: `useViewport` also
+picks the Door variant. Lowering the chrome breakpoint would move an iPad
+portrait at the door from the offline-outbox door (#25) to the online-only
+cockpit. A 252px sidebar on 744–834px also leaves a phone-width column.
+Content layout switches at `md:` (768px), because an iPad portrait column
+(768–834px) is as wide as desktop's at 1024px (772px). Density follows the
+pointer: sizes below 44px only apply behind `lg:[@media(pointer:fine)]:`.
+The per-screen column class (`WIDE_DESKTOP`) now applies in both chromes.
+
+**Changed.** `shell-responsive.tsx`: the column cap applies in the bottom-tab
+chrome too, and both roots pad for side safe-area insets (inert until
+`viewport-fit=cover`). `shell.tsx`: the tab bar clusters its items in a centered
+640px row, and `Sheet` is capped at 560px. `datetime-field.tsx`: desktop input
+mode needs `(min-width: 1024px) and (pointer: fine)`, so iPad landscape keeps the
+centered calendar and the native time wheel. `daypicker.tsx`: its compact sizes
+are pointer-gated. `event-row.tsx` and the screens home, events (+crew, past,
+stats-panel), approvals, team, guests (index, list-shared, bulk-add), audit,
+platform-audit and platform: content `lg:` → `md:`. `screens/door.tsx`: the
+Check-in/Tasks pills and "Switch" were about 31px tall; an invisible 7px ring
+makes them 45px. Guest detail and add-on-spot sit in a centered 640px column
+on tablet.
+
+**Guards.** `tests/unit/touch-density.test.ts` fails on any width-only shrink
+below 44px in `src/components/po`, `src/features/po` and `src/features/door`.
+`kit.tsx` is known debt until N1. `src/components/po/shell-tablet.test.tsx`
+pins the chrome/column/pointer decision. Its pointer test failed when the
+query was reverted to width-only.
+
+**Not done / waiting.** The `kit.tsx` InfoTip (the `lg:h-[36px]` close button,
+and its popover-vs-sheet switch on `lg:`) plus `promotion/roster.tsx` and
+`promotion/event-links.tsx` (`lg:grid-cols-2` → `md:`) are frozen until N1
+(86ey6bfam) merges. **Door on iPad landscape, decided by Max the same day
+(plan decision 14, task N6 after N3):** `(pointer: coarse)` or `<1024px` gets the
+outbox door, and the cockpit is only for a fine pointer at `≥1024px`. Until N6
+lands, an iPad in landscape at the door still gets the online-only cockpit.
+
+**Review round (orchestrator).** The shell root now pads the top and side safe
+area once, for both chromes (N1 turns on `viewport-fit=cover`). The desktop
+sidebar footer clears the home indicator itself. The bottom inset stays with
+`TabBar`/`BottomBar`/`Sheet`, so it is never counted twice. The standalone
+`/door/<id>` route (`DoorRoute.tsx`, outside the fence) has its own root and
+does not get the top inset yet.
+
+**Tests run here.** `pnpm type-check` clean. `pnpm lint`: only the two
+pre-existing combobox a11y warnings in `datetime-field.tsx`. `pnpm vitest run`:
+177 files / 1877 tests green. `tests/unit/pgtap-plan-run-gate.test.ts` › "slow
+reader" failed once under full-suite load, and passed alone and on re-run. That
+is a timing flake, not related to this diff. Not run (no Supabase stack or
+docker in this container): pgTAP, e2e, and real-device/iPad screenshots.
+
 ## 2026-09-24 — Fase 17 N1: webview-prep kit helpers (86ey6bfam)
 
 Golf 1 of Fase 17. No migration, no dependency change.
