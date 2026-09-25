@@ -208,3 +208,35 @@ describe('middleware — unauthenticated access (unchanged behaviour)', () => {
     expect(res.headers.get('location')).toBeNull();
   });
 });
+
+describe('middleware — review demo session ended by updateSession (86ey6bfug)', () => {
+  beforeEach(() => updateSessionMock.mockReset());
+
+  it('returns updateSession’s sign-out redirect as is, on every covered route', async () => {
+    const { middleware } = await loadMiddleware();
+    for (const path of ['/app', '/door/e1', '/app/profile', '/login']) {
+      const ended = NextResponse.redirect(new URL('/login', 'http://localhost:3000'), 303);
+      ended.cookies.set('sb-local-auth-token', '', { maxAge: 0 });
+      updateSessionMock.mockImplementation(async () => ({
+        response: ended,
+        user: null,
+        gate: { isAal2: true, hasFactor: false, requiresMfa: false },
+        demoSessionEnded: true,
+      }));
+
+      const res = await middleware(new NextRequest(`http://localhost:3000${path}`));
+
+      expect(res, path).toBe(ended);
+      expect(new URL(res.headers.get('location')!).search, path).toBe('');
+    }
+  });
+
+  it('public exceptions stay public: an anonymous Stripe webhook POST passes straight through', async () => {
+    mockAnonymous();
+    const { middleware } = await loadMiddleware();
+    for (const path of ['/api/webhooks/stripe', '/e/some-event', '/auth/review-login']) {
+      const res = await middleware(new NextRequest(`http://localhost:3000${path}`, { method: 'POST' }));
+      expect(res.headers.get('location'), path).toBeNull();
+    }
+  });
+});

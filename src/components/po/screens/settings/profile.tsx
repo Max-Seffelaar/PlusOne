@@ -13,6 +13,7 @@ import { Icon, type IconName } from '../../icon';
 import { Avatar, Btn, Empty, Field, Label, Loading, MiniChip, Note, Scroll, Top, press } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
 import { CountrySelect, PhoneInput, phoneCountryOf, type CountryCode } from '../../phone-lazy';
+import { useIsDemoAccount } from '../../app-shell-data';
 import { col, FormError, PendingOutboxError, PendingOutboxSheet, signOutDevice } from './_shared';
 
 // MFA row in the profile's security card (S4.3). MFA is OPTIONAL for every role
@@ -140,6 +141,9 @@ export function Profile(): JSX.Element {
   const updateProfile = usePoUpdateProfile();
   const updateEmail = usePoUpdateEmail();
   const revokeSession = usePoRevokeOwnSession();
+  // Store-review demo account (86ey6bfug): the e-mail is shown read-only with the
+  // refusal upfront. UX only — updateEmailAction still refuses the demo account.
+  const demo = useIsDemoAccount();
 
   const p = profileQ.data ?? null;
   const [firstName, setFirstName] = useState('');
@@ -230,11 +234,20 @@ export function Profile(): JSX.Element {
         )}
 
         <Label className="mb-2 mt-[18px]">{t.settings.profile.emailLabel}</Label>
-        <Field icon="mail" value={email} onChange={setEmail} inputMode="email" className="mb-1.5" />
-        <div className="pl-0.5 text-[12px] leading-[1.4] text-faint">
-          {t.settings.profile.emailNote}
-        </div>
-        {emailChanged && (
+        {demo ? (
+          <>
+            <Field icon="mail" value={p.email} className="mb-2.5" />
+            <Note icon="shield">{t.auth.demoNoEmailChange}</Note>
+          </>
+        ) : (
+          <>
+            <Field icon="mail" value={email} onChange={setEmail} inputMode="email" className="mb-1.5" />
+            <div className="pl-0.5 text-[12px] leading-[1.4] text-faint">
+              {t.settings.profile.emailNote}
+            </div>
+          </>
+        )}
+        {emailChanged && !demo && (
           <Btn kind="dark" full icon="mail" className="mt-3" disabled={updateEmail.isPending} onClick={() => updateEmail.mutate(email.trim())}>
             {updateEmail.isPending ? t.settings.profile.sending : t.settings.profile.changeEmail}
           </Btn>
