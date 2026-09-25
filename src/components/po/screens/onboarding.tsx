@@ -13,6 +13,7 @@ import { t, fmt } from '@/lib/i18n';
 import { createVenueAction, switchActiveVenueAction } from '@/features/venues/actions';
 import { VENUE_TYPES, type VenueType } from '@/features/venues/schemas';
 import { TERMS_URL, PRIVACY_URL } from '@/lib/legal';
+import { useIsDemoAccount } from '../app-shell-data';
 import { useNav } from '../context';
 import { Icon } from '../icon';
 import { Btn, ExternalLink, Field, Label, Note, Scroll, Top, press } from '../kit';
@@ -42,9 +43,13 @@ export function VenueCreate(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const ok = name.trim().length > 1 && agreed;
+  // Store-review demo account (86ey6bfug): a deep link to /app/venues/new shows
+  // the refusal instead of a form that would only fail on submit. UX only —
+  // createVenueAction and the DB guard still refuse the demo account.
+  const demo = useIsDemoAccount();
 
   function submit(): void {
-    if (!ok || pending) return;
+    if (demo || !ok || pending) return;
     setError(null);
     startTransition(async () => {
       const res = await createVenueAction({
@@ -81,6 +86,17 @@ export function VenueCreate(): JSX.Element {
       }
       window.location.assign('/app');
     });
+  }
+
+  if (demo) {
+    return (
+      <div className={col}>
+        <Top onBack={nav.back} title={vc.title} />
+        <Scroll bottom={24}>
+          <Note icon="shield">{t.auth.demoNoVenues}</Note>
+        </Scroll>
+      </div>
+    );
   }
 
   return (
