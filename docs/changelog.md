@@ -8,6 +8,67 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-24 — Legal v0.2: privacy policy + subprocessor list rewritten against `main` (z8uq9m0w3t)
+
+Branch `claude/z8uq9m0w3t-privacy-policy-v02`. Docs-only, Fase 17 wave 1 (L1 is a hard
+S5 dependency: both stores need a live privacy URL). Milestone: **Now**. Not published;
+Max's Dutch lawyer reads it first. Sibling session `z8uq9m0w3u` revises the DPA/ToS in
+parallel and owns those files; this session owns `docs/legal/README.md`.
+
+**What changed vs v0.1 (9 July).** Every factual claim re-verified against the code on
+`main` (four parallel research passes: retention/audit/data model, auth/mail/Sentry/
+Stripe/hosting, door/offline/public pages, subprocessor inventory incl. the Capacitor
+plan) instead of against the v0.1 text. Structure moved from "Part A controller / Part B
+processor" to Attendium-style **per audience** (venue team · guests/requesters/promoters ·
+website visitors), with Paylogic's explicit security + breach section (§11.1–11.5) and
+the transactional-vs-marketing split (§7). Domains are `plus-one.io/legal#privacy` and
+`#subprocessors`; `plusone.app` is gone. Corrections that were wrong or missing in v0.1:
+
+- **Resend is live, not planned** — Supabase Auth custom SMTP via Amazon SES
+  `eu-west-1`, sending domain still `theoperators.nl` (`docs/mail-deliverability.md`).
+- **Cloudflare Turnstile is an active guest-data subprocessor** (`/e/*` sends the
+  requester's raw IP + browser signals to Cloudflare; `src/features/requests/turnstile.ts`).
+- Public request form: **name, e-mail and phone all required** since `20260819110000`
+  (#9 refined); a submission auto-creates a venue address-book contact; status link
+  `/r/[token]` (sha256 only, no expiry, revoked at anonymization) documented.
+- Door cache: **e-mail never copied to the device**, full phone is (last four shown),
+  7-day `maxAge`, wiped by `signOutDevice`; a random `plusone-device-id` survives sign-out.
+- Sessions screen exposes colleagues' **IP + user agent** to venue admins — disclosed.
+- Cookies/storage table from code (`sb-…-auth-token` 30 d, `po_active_venue` 365 d, IDB).
+- Platform admins (#49) disclosed: cross-venue support access, writes audited, reads not.
+- Native app section (§12): push token + optional device label bound to the session,
+  90-day TTL / sign-out / admin-revoke deletion per plan §3, FCM+APNs, **no advertising
+  IDs or analytics SDK** (a commitment the plan does not yet state — README lists it as
+  an N3/N5/M4 follow-up), stores as independent controllers, Codemagic as build-only.
+- Subprocessor list regrouped: A guest-data (Supabase, Vercel, Sentry, Cloudflare) ·
+  B controller-side (Resend/SES, Stripe, Google Workspace) · C planned (FCM/APNs,
+  Attio, guest mail `86ey6bn05`, GA on the site, PostHog, Slack) · D not subprocessors
+  (Better Stack, App Store/Play, Codemagic, GitHub) · E notice rule + version history.
+
+**Code gaps the text exposes** (README "Code follow-ups", none fixed here — scope fence):
+`run_privacy_retention` leaves `guest_requests.dedupe_key` (plain lowercased e-mail /
+phone digits), `birthdate` and `marketing_opt_in` in place; `forget_contact` skips
+landing requests; no retention for `audit_log`, `invites`, `influencers`,
+`venue_memberships.job_title`, `platform_invites`; no inactive-account cleanup; no
+data export at all (DPA §11.2 promises one); `retention_months` changes unaudited;
+`/e/[slug]` links no policy and never names the venue as controller; marketing opt-in
+is stored but invisible to the venue. Plus an operations question: Claude sessions have
+read prod state through the Supabase/Resend/Sentry MCPs → Anthropic as subprocessor or
+forbid it.
+
+**Also noticed, not touched:** `docs/ARCHITECTURE.md` says `eu-central-1`; `docs/runbook.md`
+says default Supabase SMTP; `docs/auth-setup.md` + `docs/privacy.md` say MFA mandatory;
+`docs/uptime-setup.md` says the probe hits `venues` (it hits `request_links`).
+
+Weeztix pages (EN + NL privacy policy and subprocessor list) fetched fine through the
+proxy and used as the completeness floor (Art. 13/14 items, subprocessor table shape).
+
+**Review round (orchestrator, PR comment):** push wording aligned with N2 (PR #336 —
+outbox payload is ids + kind only, visible text generic, only "event name in the text?"
+left as a placeholder); the Resend guest-mail row demoted to "under consideration, not
+scheduled" (CLAUDE.md rule 10 / spec #40(d)); brand casing (PlusOne vs PLUSONE across
+the four docs) added to the README as a question for Max.
+
 ## 2026-09-24 — P-06 seed part: Max and Joeri as platform admins (z8uq9m0tny)
 
 The other half of P-06 (docs part landed in PR #328). Migration

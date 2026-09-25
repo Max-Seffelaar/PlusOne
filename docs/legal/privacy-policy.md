@@ -1,179 +1,223 @@
-# PLUSONE — Privacy Policy
+# PlusOne — Privacy Policy
 
-> **DRAFT v0.1 — 9 July 2026 — NOT LEGALLY REVIEWED.**
-> This draft must be reviewed by a Dutch lawyer before publication and before any customer signs. Bracketed placeholders `[like this]` must be completed first.
+> **DRAFT v0.2 — 24 September 2026 — NOT LEGALLY REVIEWED.**
+> Rewritten from v0.1 (9 July 2026) against the code on `main` and the native-app plans (Fase 17). A Dutch lawyer must review this text before it is published at `https://plus-one.io/legal#privacy`. Bracketed placeholders `[like this]` must be completed first; the open list is in `docs/legal/README.md`.
 
-**Last updated:** [date of publication]
+**Last updated:** [date of publication] · **Version:** [1.0]
 
 ---
 
 ## 1. Who we are
 
-PLUSONE is a guest list management platform for venues and event organizers ("**PLUSONE**", "**we**", "**us**"). The platform is operated by:
+PlusOne is a guest list platform for venues, clubs and event organizers. It is operated by:
 
-- **Legal entity:** [PlusOne V.O.F. / PlusOne B.V.]
+- **Legal entity:** [PlusOne V.O.F. / PlusOne B.V.] ("**PlusOne**", "**we**", "**us**")
 - **Chamber of Commerce (KvK):** [KvK number]
-- **Registered address:** [address]
-- **Contact for privacy matters:** [privacy@ e-mail address]
+- **Registered address:** [street, postal code, city], the Netherlands
+- **Privacy contact:** [privacy@plus-one.io]
 
-This privacy policy explains how we handle personal data in connection with the PLUSONE platform (the web application, the door check-in app, and public guest request pages) and our business operations.
+This policy applies to:
 
-## 2. Our two roles: controller and processor
+- our website **plus-one.io**;
+- the PlusOne application at **app.plus-one.io**, whether you use it in a browser, as an installed web app, or as the **PlusOne app for iOS and Android** (the same application in a native shell, see section 12);
+- the **door mode** of the application, used at the entrance of an event to check guests in;
+- the **public guest pages**: the request page a venue shares for an event (`app.plus-one.io/e/…`), the status page a guest receives after requesting a spot (`/r/…`), and the statistics page of a promoter (`/i/…`).
 
-PLUSONE processes personal data in two distinct legal roles under the EU General Data Protection Regulation (GDPR / AVG):
+## 2. Our two roles
 
-1. **PLUSONE as processor.** Guest data — the names and contact details of people on a guest list — is entered into the platform by or on behalf of a **venue**. For that data, the **venue is the data controller** and PLUSONE is the **data processor**: we only process guest data on the venue's instructions, under a Data Processing Agreement (DPA). **If you are a guest and want to know how your data is used, exercise your rights, or have your data removed, please contact the venue that manages the guest list you are on.** We support venues in handling such requests (see section 8).
+Under the EU General Data Protection Regulation (GDPR, in the Netherlands the AVG) we act in two different roles, and which one applies decides who you should turn to.
 
-2. **PLUSONE as controller.** For everything needed to run our own business — staff user accounts, billing, our website, customer relationship management, and support — PLUSONE decides the purposes and means of processing and acts as the **data controller**.
+**PlusOne as controller.** For everything we need to run our own business we decide why and how personal data is processed: the accounts of venue teams, our customer relationship with venues, billing, our website, support and the integrity of the platform itself (audit trail, error monitoring). Sections 3, 5 and 6 describe this.
 
-Part A below covers the data we process as controller; Part B covers guest data we process as processor on behalf of venues.
+**PlusOne as processor.** Guest lists belong to the venue. When a venue adds a guest, imports its address book, or shares a request page for an event, the **venue is the controller** of that data and PlusOne only processes it on the venue's behalf, under a Data Processing Agreement (DPA). **If you are a guest and want to know what a venue holds about you, correct it, or have it removed, contact the venue that runs the guest list.** We support venues in handling such requests, and we never use guest data for our own purposes. Section 4 describes this.
 
----
+The rest of this policy is organized by who you are.
 
-## Part A — Data we process as controller
+## 3. If you work at a venue (account holders)
 
-## 3. Categories of data, purposes and legal bases
+Accounts are created by invitation only: a venue admin invites you by e-mail, or PlusOne invites a venue owner directly. There is no public sign-up and no password.
 
-### 3.1 Platform user accounts (venue staff, organizers, door hosts)
+**What we process**
 
-Accounts are created by invitation only. For each user we process:
-
-- Name, e-mail address, and optionally a phone number and job title;
-- Authentication data: one-time login codes (e-mail OTP), session and refresh tokens, and — if the user voluntarily enables two-factor authentication — a TOTP enrolment;
-- Role assignments per venue and per event (e.g. admin, staff, door host);
-- Acceptance of terms (timestamp and version);
-- Activity records in the audit log (which actions a user performed in the platform — see section 3.5).
-
-**Purpose:** providing access to the platform, securing accounts, enforcing role-based permissions, and fraud prevention.
-**Legal basis:** performance of the contract with the venue (Art. 6(1)(b) GDPR) and our legitimate interest in securing the platform (Art. 6(1)(f)).
-
-A user account exists independently of any single venue: removing a user from one venue does not delete the account or affect their access at other venues. Only the user can change their own e-mail address.
-
-### 3.2 Billing and subscription data
-
-For paying venues we process the venue's business details, the billing contact's name and e-mail address, subscription status, and Stripe reference IDs (`customer` and `subscription` identifiers). Payment is handled entirely by **Stripe** (SEPA Direct Debit and iDEAL). **We never store bank account numbers, IBANs, or card details** — those stay with Stripe.
-
-**Purpose:** invoicing and subscription management.
-**Legal basis:** performance of contract (Art. 6(1)(b)) and legal (tax) obligations (Art. 6(1)(c)).
-
-### 3.3 Prospects and customer relationship management
-
-We keep business contact details of (prospective) customers — venue name, contact person, business e-mail address, phone number, and the status of our commercial relationship — in our CRM system. Once our CRM integration (Attio) is live, this also includes aggregated, non-personal platform usage indicators per venue (e.g. number of events in the last 30 days). **No guest data is ever synced to our CRM.**
-
-**Purpose:** sales, onboarding, and account management.
-**Legal basis:** legitimate interest in operating and growing our business (Art. 6(1)(f)).
-
-### 3.4 Support and correspondence
-
-When you contact us, we process your contact details and the content of the correspondence (e-mail via Google Workspace).
-
-**Purpose:** answering questions and providing support.
-**Legal basis:** legitimate interest (Art. 6(1)(f)) or performance of contract (Art. 6(1)(b)).
-
-### 3.5 Platform integrity: audit log and error monitoring
-
-- **Audit log.** Every relevant action in the platform (adding, changing or checking in a guest, changing quotas, locking a list, changing roles, billing status changes) is recorded automatically at the database level: who did what, when, and what changed. This log is append-only and cannot be edited by anyone, including us through the application. Purpose: fraud resistance and accountability — core features of the product. Legal basis: legitimate interest (Art. 6(1)(f)) and performance of contract.
-- **Error monitoring (Sentry).** When a technical error occurs we send a scrubbed error report to Sentry (EU data residency, Germany). Reports are aggressively filtered before sending: no request bodies, no cookies, no headers, no query strings, no IP addresses, no e-mail addresses or phone numbers; a user is identified by a random internal ID only. Session replay is disabled. Legal basis: legitimate interest in a stable, secure service (Art. 6(1)(f)).
-- **Uptime monitoring (Better Stack).** Our uptime monitor only calls a public health endpoint and processes no personal data.
-
-### 3.6 Website visitors and cookies
-
-The PLUSONE application uses only **functional cookies and storage** that are strictly necessary to operate the service:
-
-- Authentication/session cookies (keeping you logged in securely);
-- Local storage on door devices for offline operation (see section 12).
-
-We currently use **no analytics or tracking cookies**. If we introduce analytics (Google Analytics and/or product analytics such as PostHog are planned), we will do so with EU data residency where available, update this policy, and — where legally required — ask for consent via a cookie banner before placing non-functional cookies.
-
----
-
-## Part B — Guest data we process on behalf of venues
-
-## 4. What guest data the platform holds
-
-Venues use PLUSONE to manage guest lists for their events. Depending on what the venue or the guest provides, the platform processes:
-
-| Category | Fields |
+| Category | Details |
 |---|---|
-| Guest list entries | Full name; optionally e-mail address, phone number, and a note; number of accompanying guests (+1s); guest tier/category; status (pending, approved, denied, checked in, refused, removed) |
-| Public guest requests | Full name; optionally e-mail address, phone number and motivation, submitted by the guest via a public request page or personal invite link; explicit marketing opt-in choice; decision and decision reason |
-| Venue address book (contacts) | Full name; optionally e-mail address, phone number, birthdate, note, preferred tier — reusable across the venue's events |
-| Door records | Check-in time, number of guests arrived, device identifier, the staff member who performed the check-in; refusals with time and reason |
-| Audit trail | Before/after snapshots of changes to the records above (redacted after the retention period — see section 5) |
+| Identity and contact | First and last name, e-mail address, optionally a phone number; per venue an optional job title |
+| Login and security | Six-digit one-time codes sent by e-mail; session and refresh tokens; if you choose to enable two-factor authentication, an authenticator (TOTP) enrolment |
+| Roles | Your role(s) per venue (admin, user manager, finance, staff, door host) and any events you organize |
+| Consent record | When you accepted the terms and which version |
+| Sessions | For every active login our authentication service records the browser or device (user agent), the IP address and the time. You can see and end your own sessions; a venue admin can see and end the sessions of team members at that venue |
+| Activity (audit trail) | Every relevant action you perform in the platform — adding, changing or checking in a guest, changing quotas, locking a list, changing roles — is recorded automatically: who, what, when, and what changed. A random device identifier generated in your browser is stored with door actions so a venue can tell which device performed them |
+| Native app | If you enable notifications in the iOS/Android app: a push token and an optional device label (section 12) |
+| Support | Your messages to us and our replies |
 
-Guest data enters the platform in two ways: **(a)** venue staff add guests directly, and **(b)** guests submit their own details through a public request page or personal invite link for a specific event. Public submissions are protected against abuse (rate limiting per hashed IP — raw IP addresses are not stored — and anti-enumeration measures) and only become guest list entries after the venue approves them (unless the venue has enabled auto-approval for a specific link).
+**Where it comes from.** The venue that invites you (your e-mail address), you (name, phone, settings), and the platform itself (sessions, activity).
 
-**Marketing:** if a guest ticks the explicit marketing opt-in when submitting a request, the venue (not PLUSONE) may use the provided contact details for its own marketing. PLUSONE itself never contacts guests.
+**Good to know**
 
-## 5. Retention and anonymization of guest data
+- Your account exists independently of any venue. If a venue removes you from its team, your account and your access to other venues are unaffected. Only you can change your own e-mail address.
+- Two-factor authentication is optional for every role. We recommend it; we never require it.
+- Venue admins and finance users can read the venue's audit trail, which includes your actions. This is a core anti-fraud feature of the product.
+- You can ask us to delete your account once it is no longer needed for a venue you work with (section 13).
 
-- Retention is **configured per venue** (1–60 months; **default 12 months**), anchored to the **end date of the event** — not the date a record was created.
-- An automated job runs **daily** and **irreversibly anonymizes** expired records: names are replaced with a neutral label (e.g. "Gast #12"), and e-mail addresses, phone numbers, notes, motivations and refusal reasons are erased. Status-check links for guest requests are revoked at the same time.
-- Anonymization also **rewrites the audit log**: personal data inside historical before/after snapshots is redacted while the non-personal structure (who acted, when, what type of change) is preserved for fraud prevention and accountability.
-- Address book contacts are anonymized once they are no longer linked to any retained event and have been inactive for the retention period.
-- Non-personal statistics (attendance counts, +1 totals, tier occupancy) survive anonymization; they can no longer be linked to a person.
+## 4. If you are a guest, requester or promoter of an event
 
-## 6. Erasure on request (right to be forgotten)
+For this data the **venue is the controller** and PlusOne is the processor. What follows describes what the platform holds so you know what to ask the venue about.
 
-Venues can erase a specific person **immediately, without waiting for the retention period**, using the built-in "forget" function. This anonymizes the person's address book entry, every guest list entry linked to them across the venue's events, refusal records, and all personal data in the related audit history, in one irreversible operation. Guests should direct erasure requests to the venue; we assist the venue as processor (see our DPA).
+**4.1 Guest list entries.** A venue's team can put you on the list of an event with your name; optionally an e-mail address, a phone number, a note, the number of people you bring (+1s), a guest category (tier) and your status (approved, checked in, refused, removed). Only a name is required.
 
----
+**4.2 Requests through a public request page.** A venue can share a link (or QR code) where you can request a spot yourself. The form asks for your **name, e-mail address and phone number** (all three are required, so the venue can reach you about your request), the number of people you bring, an optional message, and whether you want to hear from **the venue** about upcoming nights (marketing opt-in, off by default). The venue decides on your request; its decision, an optional reason (internal to the venue) and an optional message to you are stored with it. Some links approve requests automatically within a fixed number of spots.
 
-## 7. Recipients and subprocessors
+After submitting you receive a **personal status link**. It shows the event, your status and the number of spots; once approved it also shows the venue's address and message. The link is not sent anywhere: it is shown to you once, and only a cryptographic hash of it is stored, so nobody can reconstruct it from our database. It stays valid until the request is anonymized (section 10).
 
-We do not sell personal data. We share personal data only with:
+A request with an e-mail address or phone number is also added to the **venue's address book** (4.3), so the venue recognizes you the next time.
 
-- **Subprocessors** that host or support the platform (Supabase, Vercel, Stripe, Sentry, Google Workspace, and planned additions). The current list, including regions and safeguards, is maintained in our **Subprocessor List** ([link to subprocessor page]).
-- **Government or judicial authorities**, where we are legally required to do so.
-- **A prospective acquirer** of our business, under confidentiality obligations, if PLUSONE is ever sold or merged.
+To keep these public pages free of abuse, submissions are **rate-limited** using a salted hash of your IP address that is deleted within two hours, and protected by **Cloudflare Turnstile**, a bot check that sends your IP address and browser signals to Cloudflare for the duration of the check (see our Subprocessor List). Raw IP addresses are not stored by PlusOne. Page views of request links are counted as daily totals without cookies or any personal data. The page never reveals whether a name or e-mail address is already on a list.
 
-## 8. International transfers
+**4.3 Venue address book.** Venues keep a reusable list of people they know: name; optionally e-mail address, phone number, date of birth, preferred guest category and a note. Entries come from the venue's team, from a spreadsheet the venue imports, or from your own request (4.2).
 
-The platform's primary data storage and hosting are in the **European Union**: the database and authentication run in Ireland (Supabase, AWS `eu-west-1`), the application is served from Frankfurt, Germany (Vercel `fra1`), and error monitoring uses Sentry's EU region (Germany). Where a subprocessor's parent entity is established outside the EEA (e.g. US-based providers), transfers are safeguarded by the **EU Standard Contractual Clauses** and, where applicable, an adequacy decision such as the EU–US Data Privacy Framework. Details per subprocessor are in the Subprocessor List.
+**4.4 Door records.** At the entrance the venue's door host checks you in or refuses entry. We store the time, the number of people who arrived, the team member who did it, the device used, and — for a refusal — the reason the door host typed. No ticket, QR scan, photo or location is involved: your name is the ticket.
 
-## 9. Security
+**4.5 Promoters (influencers).** A venue can give a promoter a personal request link. For that we store the promoter's name, an optional handle, notes the venue adds, and a hashed access token for the promoter's statistics page, which shows aggregate numbers (requests, approvals, arrivals) and no guest details.
 
-Key measures include:
+**4.6 Audit trail.** Changes to the records above are logged with before/after values so the venue can detect fraud and account for its list. Personal data inside this log is redacted when the record itself is anonymized (section 10).
 
-- Row-level security enforced **in the database** as the hard authorization boundary — every query is checked against the user's venue memberships and roles;
-- Passwordless authentication (e-mail one-time codes), invite-only accounts, optional two-factor authentication (TOTP), short-lived access tokens with refresh rotation, and admin-controlled remote logout of devices;
-- Encryption in transit (TLS) and at rest;
-- An append-only, trigger-based audit log that cannot be bypassed by the application;
-- Soft-deletion only — destructive deletes are revoked at the database level;
-- Aggressive scrubbing of personal data from error reports and logs (no personal data in URLs or logs);
-- Rate limiting and anti-enumeration protection on all public endpoints.
+**What we do not do with guest data.** We never contact guests, never send marketing, never sell or share guest data with anyone but the venue and our subprocessors, never sync it to our CRM, and never use it to build profiles. The marketing opt-in on the request form is a choice between you and the venue: PlusOne only stores it.
 
-## 10. Your rights
+## 5. If you visit our website or use the app in a browser
 
-Under the GDPR you have the right to access, rectify, and erase your personal data, to restrict or object to processing, to data portability, and to withdraw consent where processing is based on consent.
+**Cookies and storage we use.** The platform works with strictly necessary cookies and browser storage only:
 
-- **Guests:** exercise these rights with the **venue** that manages your data (the controller). We support the venue in responding.
-- **Platform users, billing contacts, prospects:** contact us at [privacy@ e-mail address]. We respond within one month.
+| Name | Type | Purpose | Lifetime |
+|---|---|---|---|
+| `sb-…-auth-token` | Cookie (secure, httpOnly) | Keeps you signed in to app.plus-one.io | 30 days, refreshed while you use the app |
+| `po_active_venue` | Cookie (secure, httpOnly) | Remembers which venue you last worked in | 1 year |
+| `plusone-device-id` | Local storage | Random identifier for this browser, stored with door actions (section 3) | Until you clear browser data |
+| Door cache and outbox | IndexedDB | Lets the door work without internet (section 12) | Cleared at sign-out; entries expire after 7 days |
+| Error queue | IndexedDB | Holds error reports while offline, sent when back online | Until sent |
+| UI preferences | Local/session storage | Small flags such as "keep the screen awake at the door" | Session or until cleared |
 
-You also have the right to lodge a complaint with the Dutch supervisory authority, the **Autoriteit Persoonsgegevens** (autoriteitpersoonsgegevens.nl), or the supervisory authority of your EU member state.
+**No analytics or tracking today.** We do not use analytics cookies, advertising cookies, session replay or fingerprinting on plus-one.io or in the app. If we introduce website analytics on plus-one.io (Google Analytics) or product analytics in the app (PostHog) we will use EU data residency where available, update this policy first, and ask for your consent through a cookie banner before placing any non-functional cookie.
 
-## 11. Retention as controller
+**Bot protection on public pages.** The guest request pages use Cloudflare Turnstile (section 4.2), which may set its own functional cookie for the duration of the check.
+
+**Website contact.** If you use a contact form or e-mail us from the website, we process your name, e-mail address and message to answer you.
+
+## 6. Purposes and legal bases
+
+| Purpose | Data | Role | Legal basis |
+|---|---|---|---|
+| Providing access to the platform: accounts, login codes, roles, sessions | Account holder data (section 3) | Controller | Contract with the venue (Art. 6(1)(b)); our legitimate interest in securing accounts (Art. 6(1)(f)) |
+| Fraud resistance and accountability: the audit trail, device identifiers, session records | Account holder and guest data | Controller (own audit design) / processor (guest content) | Legitimate interest of PlusOne and of venues in a guest list that cannot be tampered with unnoticed (Art. 6(1)(f)); contract |
+| Subscription and billing | Venue company details, billing contact, VAT number, subscription status, payment references | Controller | Contract (Art. 6(1)(b)); tax law (Art. 6(1)(c)) |
+| Customer relationship, onboarding and sales | Business contact details of venues and prospects; aggregated platform usage per venue | Controller | Legitimate interest in running and growing our business (Art. 6(1)(f)) |
+| Support and correspondence | Your messages and contact details | Controller | Legitimate interest (Art. 6(1)(f)); contract |
+| Keeping the platform stable and secure: error monitoring, uptime, rate limiting, bot protection | Scrubbed error reports; salted IP hashes; Turnstile checks | Controller | Legitimate interest (Art. 6(1)(f)) |
+| Push notifications in the native app | Push token, device label | Controller | Your choice to enable them (Art. 6(1)(a), withdrawable in the app or OS settings) |
+| Guest list management, requests, door check-in, retention | Guest, requester and promoter data (section 4) | Processor | Determined by the venue as controller (typically its legitimate interest in access control, or the guest's own request) |
+| Legal obligations and disputes | Whatever a specific obligation requires | Controller | Legal obligation (Art. 6(1)(c)); legitimate interest (Art. 6(1)(f)) |
+
+Where we rely on legitimate interest you can object (section 13). We do not make automated decisions with legal or similarly significant effects about individuals. Automatic approval of a guest request is a rule the venue configures for a link (a spot limit), not a decision about you as a person.
+
+## 7. How we use your contact details
+
+- **Transactional messages only.** We e-mail account holders for login codes, invitations and essential service messages (for example a security notice or a change to these terms). We do not send account holders marketing without a separate, explicit opt-in that you can withdraw at any time.
+- **Guests are never contacted by PlusOne.** The venue may contact you about your request or, if you opted in, about its upcoming nights. [Under consideration, not scheduled: an optional confirmation e-mail to a requester about the venue's decision, sent on the venue's behalf. The current product sends guests no messages at all; this policy and the Subprocessor List will be updated before that changes.]
+- **Venue owners and prospects** may hear from us about the product and our commercial relationship; you can opt out at any time by replying or by e-mailing [privacy@plus-one.io].
+
+## 8. Who receives personal data
+
+**Subprocessors and service providers.** We use a small number of providers to host and run the platform. The current list — with the entity, purpose, data, location and transfer safeguard for each — is our **Subprocessor List** at `https://plus-one.io/legal#subprocessors`. In summary:
+
+- database, authentication and realtime infrastructure (Supabase, EU/Ireland);
+- application hosting and content delivery (Vercel, EU/Frankfurt, with a global edge network for connections);
+- delivery of login and invitation e-mails (Resend, EU);
+- bot protection on public pages (Cloudflare Turnstile);
+- error monitoring with scrubbed reports (Sentry, EU/Germany);
+- subscription billing (Stripe: SEPA Direct Debit and iDEAL; we never see or store your bank account number or card);
+- business e-mail and documents (Google Workspace);
+- and, once live, push notification delivery for the native app (Firebase Cloud Messaging / Apple Push Notification service) and our CRM (Attio).
+
+**Your venue.** For guest data, the venue's team sees what its roles allow: admins and finance the full picture, staff their own guests within their quota, door hosts the door view of one event.
+
+**Our own team.** A small number of PlusOne operators (platform administrators) can access every venue's data to provide support and resolve incidents. Any change they make is written to the audit trail under their own name, exactly as for any other user.
+
+**Authorities.** We disclose personal data to police, courts or supervisory authorities when we are legally required to, and we inform the venue where the data concerns its guests and the law allows it.
+
+**Business transfer.** If PlusOne is sold, merged or restructured, personal data may be transferred to the acquirer under confidentiality, with this policy continuing to apply. We will inform venue admins by e-mail.
+
+**We do not sell personal data**, and we do not share it with advertising networks or data brokers.
+
+## 9. International transfers
+
+Personal data is stored and processed in the **European Union**: the database and authentication in Ireland (Supabase, AWS `eu-west-1`), the application in Frankfurt, Germany (Vercel `fra1`), login e-mails via Amazon SES in Ireland (Resend), and error reports in Sentry's EU region in Germany. Connections to the app pass through the provider's global network of edge locations, which may briefly process connection data (such as your IP address) outside the EU while routing your request.
+
+Some providers are established, or have parent companies, in the United States or the United Kingdom. For those we rely on an adequacy decision of the European Commission (the EU–US Data Privacy Framework for certified US providers; the UK adequacy decision) and/or the EU Standard Contractual Clauses, recorded per provider in the Subprocessor List. Where neither applies, we do not use the provider.
+
+## 10. How long we keep data
+
+**Data we process as controller**
 
 | Data | Retention |
 |---|---|
-| User accounts | For as long as the account exists; accounts can be deleted on request once no longer linked to active obligations |
-| Audit log entries | Retained for platform integrity; personal data inside entries is redacted per the guest retention rules (Part B) |
-| Billing records | 7 years (Dutch fiscal retention obligation) |
-| CRM / prospect data | For the duration of the (prospective) relationship; removed on request |
-| Support correspondence | Up to 2 years after the last contact |
+| Account (name, e-mail, phone, roles, consent record) | For as long as the account exists. We delete or anonymize an account on request once it is no longer needed for a venue you work with, or after [24 months] of inactivity |
+| Login codes | 10 minutes |
+| Sessions | Until you sign out, the session is ended by an admin, or it expires after 30 days without use |
+| Push tokens (native app) | Deleted when you sign out, disable notifications, or the token is unused for 90 days |
+| Audit trail | Kept for as long as the venue exists, for fraud resistance and accountability; personal data inside entries is redacted according to the rules below when the underlying record is anonymized |
+| Error reports | [90 days] in Sentry, then deleted automatically |
+| Rate-limit records (salted IP hashes) | At most 2 hours |
+| Billing and invoices | 7 years (Dutch fiscal retention obligation, Art. 52 AWR) |
+| Customer and prospect records (CRM, invitations) | For the duration of the (prospective) customer relationship, and [24 months] after the last contact |
+| Support correspondence | [2 years] after the last message |
 
-## 12. Offline door devices
+**Guest data we process as processor**
 
-The door check-in app is built to keep working when the internet connection drops. For that purpose the guest list of the active event is cached locally on the door device and check-ins are queued locally until connectivity returns. Mitigations: every staff member uses a personal login, sessions are short-lived, an admin can remotely log out any device, and the local cache is cleared on logout.
+- **The venue sets the retention period** for its guest data: between 1 and 60 months, counted from the **end of the event** (12 months in the standard setup, 24 months in the guided onboarding).
+- Every night an automated job **irreversibly anonymizes** records past that period: the name is replaced by a neutral label (for example "Gast #12"), and e-mail addresses, phone numbers, notes, messages, decision texts and refusal reasons are erased. The status link of a request stops working at the same moment. Address book entries are anonymized once they are no longer linked to a retained event and have not been used for the retention period.
+- The same job **rewrites the audit trail**: personal data inside historical before/after values is replaced, while the structure (who acted, when, what kind of change) is kept so the venue's accountability record stays intact.
+- Aggregate statistics (attendance, +1 totals, tier occupancy, promoter funnels) survive anonymization; they no longer relate to an identifiable person.
+- **Erasure on request.** A venue admin can erase a specific person **immediately**, without waiting for the retention period: one action anonymizes the address book entry, every guest list entry linked to it across the venue's events, the related refusals, and the personal data in the related audit history. Guests should address such requests to the venue; we assist as processor.
+- **End of contract.** When a venue stops using PlusOne it can export its guest data within [30 days]; after that we delete or anonymize it, unless the law requires longer storage.
 
-## 13. Children
+## 11. Security and data breaches
 
-PLUSONE is a business tool. We do not knowingly process children's data for our own purposes; age policies for events and their guests are the responsibility of the venue.
+**11.1 Procedures.** Security is part of how the platform is built, not a layer on top. Authorization is enforced **inside the database** on every query (row-level security): a user, even with direct API access, can only read or write data of venues and events they are a member of. Every change to guest, quota and check-in records is written to an **append-only audit trail by the database itself**; the application cannot skip or edit it. Records are never hard-deleted (destructive deletes are revoked at the database level); they are anonymized instead. Changes to security-sensitive code get an independent review before release, and automated tests block secrets from ever reaching browser code.
 
-## 14. Changes to this policy
+**11.2 Standards and encryption.** All traffic is encrypted in transit (TLS); data is encrypted at rest by our hosting providers, who hold SOC 2 and/or ISO 27001 certifications (see the Subprocessor List). Authentication is passwordless (one-time codes) with short-lived access tokens and rotating refresh tokens; two-factor authentication is available to every user. Public pages are rate-limited, bot-protected and designed not to reveal whether a person or e-mail address exists.
 
-We may update this policy from time to time. The current version is always available at [URL]. For material changes we will notify venue admins by e-mail.
+**11.3 Access on a need-to-know basis.** Within a venue, access follows roles. Within PlusOne, only named platform administrators can access customer data, for support and incident response, and their changes are audited under their own name. Error reports sent to our monitoring provider are scrubbed before they leave the platform: no request contents, cookies, headers, query strings, e-mail addresses or phone numbers; a user appears only as a random internal ID. Session replay is off.
 
-## 15. Contact
+**11.4 Storage.** Production data lives in the EU (section 9), with automated backups managed by our database provider. Door devices keep a temporary local copy of one event's list so the door keeps working when the connection drops; section 12 explains what that copy contains and when it is wiped.
 
-Questions about privacy: [privacy@ e-mail address].
+**11.5 Data breaches.** If we discover a breach of security that affects personal data, we contain it, investigate it and record it. As processor we notify the affected venues **without undue delay and at the latest within [48 hours]** of becoming aware, with what we know at that point, so they can meet their own obligations. As controller we notify the Dutch supervisory authority within 72 hours where the GDPR requires it, and the people affected where the breach is likely to result in a high risk to them.
+
+## 12. Door devices and the native apps
+
+**Offline door mode.** When a door host opens an event at the door, the guest list of that event is copied to the device so check-ins keep working without internet, and actions performed offline are queued and sent when the connection returns. That local copy contains, per guest: name, phone number (shown on screen as the last four digits only), the note, the number of +1s, category and status, plus the event's check-ins and refusals (including the typed reason) and the names of the team members involved. **E-mail addresses are deliberately never copied to the device.** Only the events actually opened on that device are stored, entries expire after 7 days, and everything is wiped when the user signs out. Because a device could be lost, every team member has a personal login, sessions are short-lived, and a venue admin can remotely end any session; the device then deletes its copy the next time it connects.
+
+**The PlusOne app for iOS and Android** is the same application in a native shell and processes the same data. The app additionally processes:
+
+- **Push notifications (optional).** If you turn notifications on, the app registers a push token with Firebase Cloud Messaging (Google) — on iOS delivered through the Apple Push Notification service — and we store that token together with the login session it belongs to and an optional device label you can set. Notifications are limited to the working of the platform (for example a new guest request or a quota request for a venue you work at). The message that passes through Google and Apple contains only internal identifiers and the kind of event, never a guest's name or contact details; the visible text is generic (for example "New guest request") [and may name the event — decision pending]. The app fetches the details from PlusOne only after you tap the notification. The token is deleted when you sign out, when a venue admin ends your session, when you disable notifications, or after 90 days without use.
+- **No advertising or tracking identifiers.** The app does not read the advertising ID of your device (IDFA/AAID), does not track you across apps or websites, and contains no analytics or advertising SDK. The app's data-collection labels in the App Store and Google Play are derived from this policy.
+- **App stores.** Apple and Google process your download and any crash report you send them under their own privacy policies; PlusOne receives no personal data from the stores.
+
+## 13. Your rights
+
+Under the GDPR you have the right to access your personal data, to have it corrected or erased, to restrict or object to its processing, to receive it in a portable format, and to withdraw consent where processing is based on consent. You also have the right to lodge a complaint with the **Autoriteit Persoonsgegevens** (autoriteitpersoonsgegevens.nl) or the supervisory authority of the EU member state where you live or work.
+
+- **Guests, requesters and promoters:** exercise your rights with the **venue** that manages the event; it is the controller. If you contact us directly we will refer you to the venue without undue delay and support it in responding.
+- **Account holders, venue contacts and prospects:** e-mail [privacy@plus-one.io]. We may ask you to confirm your identity from the e-mail address on file. We respond within one month; for complex requests we may extend this by two months and will tell you why.
+
+## 14. Children
+
+PlusOne is a business tool. Account holders must be at least 16 years old. Age policies for events and their guests are set and enforced by the venue; PlusOne does not knowingly process children's data for its own purposes.
+
+## 15. Changes to this policy
+
+We may update this policy when the platform or the law changes. The current version, with its date, is always at `https://plus-one.io/legal#privacy`. For material changes we notify venue admins by e-mail before they take effect and, where the change concerns the app, ask account holders to accept the updated terms at their next login.
+
+## 16. Contact
+
+[PlusOne V.O.F. / B.V.] · [address] · KvK [number]
+Privacy questions and requests: [privacy@plus-one.io]
+General support: [support@plus-one.io]
