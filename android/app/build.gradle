@@ -1,5 +1,26 @@
 apply plugin: 'com.android.application'
 
+// Versioning + release signing (Fase 17 S1a, 86ey6bfpy — docs/native/android-release.md).
+// Codemagic (codemagic.yaml) exports PLUSONE_VERSION_CODE = its BUILD_NUMBER and
+// PLUSONE_VERSION_NAME = APP_VERSION_NAME. Without them (Android Studio, local
+// `./gradlew assembleDebug`) the defaults below keep every local build working.
+def envVersionCode = System.getenv('PLUSONE_VERSION_CODE')?.trim()
+def plusoneVersionCode = 1
+if (envVersionCode) {
+    if (!(envVersionCode ==~ /[1-9][0-9]{0,9}/) || envVersionCode.toLong() > 2100000000L) {
+        throw new GradleException("PLUSONE_VERSION_CODE must be an integer 1..2100000000, got '${envVersionCode}'")
+    }
+    plusoneVersionCode = envVersionCode.toInteger()
+}
+def plusoneVersionName = System.getenv('PLUSONE_VERSION_NAME')?.trim() ?: '0.0.0-dev'
+
+// The upload keystore only ever comes from Codemagic's Android code signing
+// (CM_KEYSTORE_PATH & co.). No keystore, no passwords in the repo. When the vars
+// are absent the release build is simply unsigned (debug builds are unaffected);
+// codemagic.yaml refuses to build or publish unsigned.
+def cmKeystorePath = System.getenv('CM_KEYSTORE_PATH')
+def hasUploadKey = cmKeystorePath && file(cmKeystorePath).exists()
+
 android {
     namespace = "app.plusone.guestlist"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +28,8 @@ android {
         applicationId "app.plusone.guestlist"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode plusoneVersionCode
+        versionName plusoneVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,8 +37,21 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (hasUploadKey) {
+            release {
+                storeFile file(cmKeystorePath)
+                storePassword System.getenv('CM_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('CM_KEY_ALIAS')
+                keyPassword System.getenv('CM_KEY_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         release {
+            if (hasUploadKey) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
