@@ -66,5 +66,15 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<!-- App-Bound Domains (Fase 17 N3): WebKit only injects the Capacitor bridge
+	     (WKUserScript + message handlers) into, and only navigates the webview to,
+	     these domains. Capacitor's own "is this the app" test is a string prefix on
+	     server.url, so without this a lookalike host (https://app.plus-one.io.evil.example)
+	     would load in-app with the bridge attached. Paired with
+	     ios.limitsNavigationsToAppBoundDomains in capacitor.config.ts. -->
+	<key>WKAppBoundDomains</key>
+	<array>
+		<string>app.plus-one.io</string>
+	</array>
 </dict>
 </plist>
