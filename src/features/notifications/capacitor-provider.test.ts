@@ -5,7 +5,13 @@
  * the local PlusOnePushConfig plugin says Firebase is configured.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CapacitorPushProvider, PUSH_CHANNEL_ID, REGISTER_TIMEOUT_MS, type CapacitorPushDeps } from './capacitor-provider';
+import {
+  CapacitorPushProvider,
+  LISTEN_RETRY_MS,
+  PUSH_CHANNEL_ID,
+  REGISTER_TIMEOUT_MS,
+  type CapacitorPushDeps,
+} from './capacitor-provider';
 
 type Listener = (e: unknown) => void;
 
@@ -182,5 +188,64 @@ describe('configured Android build', () => {
     await flush();
     push.emit('pushNotificationActionPerformed', { notification: { data: {} } });
     expect(seen).toEqual([]);
+  });
+});
+
+describe('a transient plugin-load failure is not memoized', () => {
+  function flakyDeps(failures: number): CapacitorPushDeps {
+    let left = failures;
+    return {
+      ...deps(),
+      loadPush: async () => {
+        if (left > 0) {
+          left -= 1;
+          throw new Error('ChunkLoadError');
+        }
+        return push as never;
+      },
+    };
+  }
+
+  it('the next call loads the plugin again instead of staying "unsupported" for the run', async () => {
+    push.receive = 'granted';
+    const p = new CapacitorPushProvider(flakyDeps(1));
+    await expect(p.checkPermission()).resolves.toBe('unsupported');
+    await expect(p.checkPermission()).resolves.toBe('granted');
+  });
+
+  it('a listener retries, so a retained cold-start tap still arrives', async () => {
+    vi.useFakeTimers();
+    const p = new CapacitorPushProvider(flakyDeps(1));
+    const taps: unknown[] = [];
+    p.onTap((m) => taps.push(m.data));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(push.addListener).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(LISTEN_RETRY_MS + 1);
+    push.emit('pushNotificationActionPerformed', { notification: { data: { kind: 'guest_request_created' } } });
+    expect(taps).toEqual([{ kind: 'guest_request_created' }]);
+  });
+
+  it('a clean "no Firebase" is not retried', async () => {
+    vi.useFakeTimers();
+    configured = false;
+    const loadConfig = vi.fn(deps().loadConfig);
+    const p = new CapacitorPushProvider({ ...deps(), loadConfig });
+    p.onTap(() => {});
+    await vi.advanceTimersByTimeAsync(LISTEN_RETRY_MS * 5);
+    expect(loadConfig).toHaveBeenCalledTimes(1);
+    expect(push.addListener).not.toHaveBeenCalled();
+  });
+});
+
+describe('registration platform', () => {
+  it('comes from the shell, not a constant (S1b: an iPhone must never be labelled android)', async () => {
+    const p = new CapacitorPushProvider(deps());
+    const regs: unknown[] = [];
+    p.onRegistration((r) => regs.push(r));
+    await flush();
+    await flush();
+    platform = 'ios';
+    push.emit('registration', { value: 't' });
+    expect(regs).toEqual([{ token: 't', transport: 'fcm', platform: 'ios' }]);
   });
 });

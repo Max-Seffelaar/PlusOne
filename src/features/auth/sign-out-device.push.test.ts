@@ -47,7 +47,7 @@ vi.mock('@/lib/supabase/client', () => {
       },
       upsert: (row: { token: string }) => {
         log.push(`upsert ${table} ${row.token}`);
-        return { select: () => ({ single: async () => ({ data: { id: 'row-1' }, error: null }) }) };
+        return { select: () => ({ single: async () => ({ data: { id: '0190f0b2-7c1a-7cc3-9a61-2b3c4d5e6f99' }, error: null }) }) };
       },
       then: (res: (v: unknown) => unknown) => {
         log.push(`delete ${table} ${filters.join('&')}${state.signedIn ? '' : ' (NO SESSION)'}`);
@@ -121,15 +121,15 @@ describe('signOutDevice — push unregister ordering (N5)', () => {
   });
 
   it('also deletes the remembered row by id — the FCM token itself never goes into a filter', async () => {
-    prefs.set('po:push-row', 'row-1');
+    prefs.set('po:push-row', '0190f0b2-7c1a-7cc3-9a61-2b3c4d5e6f99');
     await signOutDevice('local');
-    expect(log.slice(0, 2)).toEqual([`delete push_tokens session_id=${SID}`, 'delete push_tokens id=row-1']);
+    expect(log.slice(0, 2)).toEqual([`delete push_tokens session_id=${SID}`, 'delete push_tokens id=0190f0b2-7c1a-7cc3-9a61-2b3c4d5e6f99']);
     expect(log.join('\n')).not.toContain('token=');
   });
 
   it('clears the device push prefs with the wipe (next person on a shared device starts clean)', async () => {
     prefs.set('po:push', 'on');
-    prefs.set('po:push-row', 'row-1');
+    prefs.set('po:push-row', '0190f0b2-7c1a-7cc3-9a61-2b3c4d5e6f99');
     prefs.set('po:push-ask-snooze', '9999999999999');
     await signOutDevice('local');
     expect(prefs.size).toBe(0);

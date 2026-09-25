@@ -18,12 +18,15 @@ import type { PluginListenerHandle } from '@capacitor/core';
 import type { PushNotificationsPlugin, PermissionStatus } from '@capacitor/push-notifications';
 import { t } from '@/lib/i18n';
 import type { NotificationProvider, PushMessage, PushPermission, PushRegistration, Unsubscribe } from './provider';
-import { PUSH_TRANSPORT } from './transport';
+import { PUSH_TRANSPORT, type PushDevicePlatform } from './transport';
 
 /** Keep in sync with `plusone_push_channel_id` in android/app/src/main/res/values/plusone_push.xml. */
 export const PUSH_CHANNEL_ID = 'approvals';
 /** FCM usually answers in well under a second; past this the registration counts as failed. */
 export const REGISTER_TIMEOUT_MS = 15_000;
+/** A listener whose plugin load failed (a transient chunk fetch) tries again this often. */
+export const LISTEN_RETRY_MS = 2_000;
+export const LISTEN_RETRIES = 3;
 
 interface PushConfigPlugin {
   isConfigured(): Promise<{ configured: boolean }>;
@@ -61,16 +64,25 @@ export class CapacitorPushProvider implements NotificationProvider {
 
   constructor(private readonly deps: CapacitorPushDeps = defaultDeps) {}
 
-  /** Android-only today (gate 1), so the token is always FCM from an Android device. */
+  /** FCM token; the platform comes from the shell itself, so the day S1b turns
+   *  iOS on (FCM there too) an iPhone is never labelled `android`. */
   private registration(token: string): PushRegistration {
-    return { token, transport: PUSH_TRANSPORT.fcm, platform: 'android' };
+    const p = this.deps.platform();
+    const platform: PushDevicePlatform = p === 'android' || p === 'ios' ? p : 'web';
+    return { token, transport: PUSH_TRANSPORT.fcm, platform };
   }
 
   isSupported(): boolean {
     return this.deps.platform() === 'android';
   }
 
-  /** The push plugin, or null when this build must not touch Firebase. Memoized. */
+  /** Set when the last `ready()` failed on an error (not on a clean "no"). */
+  private readyFailed = false;
+
+  /** The push plugin, or null when this build must not touch Firebase. A clean
+   *  answer (supported or not, configured or not) is memoized for the run; a
+   *  failure (e.g. a lazy chunk that did not load) is not, so the next call tries
+   *  again — the shell must never depend on the service worker having cached it. */
   private ready(): Promise<PushNotificationsPlugin | null> {
     this.readyP ??= (async () => {
       if (!this.isSupported()) return null;
@@ -88,7 +100,17 @@ export class CapacitorPushProvider implements NotificationProvider {
         })
         .catch(() => undefined);
       return push;
-    })().catch(() => null);
+    })().then(
+      (push) => {
+        this.readyFailed = false;
+        return push;
+      },
+      () => {
+        this.readyFailed = true;
+        this.readyP = null;
+        return null;
+      },
+    );
     return this.readyP;
   }
 
@@ -144,16 +166,30 @@ export class CapacitorPushProvider implements NotificationProvider {
   private listen(event: 'registration' | 'pushNotificationActionPerformed' | 'pushNotificationReceived', cb: (raw: unknown) => void): Unsubscribe {
     let cancelled = false;
     let handle: PluginListenerHandle | null = null;
-    void this.ready()
-      .then((push) => (push ? push.addListener(event as 'registration', cb as (raw: { value: string }) => void) : null))
-      .then((h) => {
-        if (!h) return;
-        if (cancelled) void h.remove().catch(() => undefined);
-        else handle = h;
-      })
-      .catch(() => undefined);
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const attach = (attemptsLeft: number): void => {
+      void this.ready()
+        .then((push) => {
+          if (cancelled) return null;
+          if (!push) {
+            // A failed plugin load retries, so a retained cold-start tap is not
+            // lost to one bad chunk fetch; a clean "no Firebase" does not.
+            if (this.readyFailed && attemptsLeft > 0) retry = setTimeout(() => attach(attemptsLeft - 1), LISTEN_RETRY_MS);
+            return null;
+          }
+          return push.addListener(event as 'registration', cb as (raw: { value: string }) => void);
+        })
+        .then((h) => {
+          if (!h) return;
+          if (cancelled) void h.remove().catch(() => undefined);
+          else handle = h;
+        })
+        .catch(() => undefined);
+    };
+    attach(LISTEN_RETRIES);
     return () => {
       cancelled = true;
+      clearTimeout(retry);
       if (handle) void handle.remove().catch(() => undefined);
     };
   }

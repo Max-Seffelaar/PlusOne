@@ -195,7 +195,7 @@ describe('enable / resume / denial', () => {
   it('denied at the OS prompt → nothing registered, nothing stored, and the refusal is remembered', async () => {
     fake.requestResult = 'denied';
     const { supabase, calls } = client();
-    await expect(enablePush(supabase)).resolves.toBe('denied');
+    await expect(enablePush(supabase)).resolves.toEqual({ perm: 'denied', registered: false });
     expect(fake.register).not.toHaveBeenCalled();
     expect(calls).toEqual([]);
     expect(isPushUndecided()).toBe(false);
@@ -211,7 +211,7 @@ describe('enable / resume / denial', () => {
   it('granted → registers, stores the token, clears a previous opt-out', async () => {
     store.set('po:push', 'off');
     const { supabase, calls } = client();
-    await expect(enablePush(supabase)).resolves.toBe('granted');
+    await expect(enablePush(supabase)).resolves.toEqual({ perm: 'granted', registered: true });
     expect(calls).toHaveLength(1);
     expect(isPushOptedOut()).toBe(false);
     expect(isPushOnHere()).toBe(true);
@@ -372,20 +372,52 @@ describe('sign-out steps', () => {
     expect(store.get('po:push-row')).toBe(ROW_ID); // bookkeeping untouched
     expect(fake.unregister).not.toHaveBeenCalled(); // and the FCM token is alive
   });
+});
 
-  it('resume abandons a sign-out step still in flight (before its cap)', async () => {
-    vi.useFakeTimers();
+describe('re-review nits', () => {
+  it('granted but nothing stored (FCM silent, upsert failed) reports registered:false, stays on, and the next start retries', async () => {
+    fake.token = null; // register() resolves null: registrationError / timeout
+    const { supabase } = client();
+    await expect(enablePush(supabase)).resolves.toEqual({ perm: 'granted', registered: false });
+    expect(isPushOnHere()).toBe(true);
+    fake.token = 'fcm-token-1';
+    fake.perm = 'granted';
+    const next = client();
+    await resumePush(next.supabase);
+    expect(next.calls.filter((c) => c.op === 'upsert')).toHaveLength(1);
+  });
+
+  it('after a partly failed "off", a same-run "turn on" with the same token upserts again', async () => {
     store.set('po:push', 'on');
-    store.set('po:push-row', ROW_ID);
-    const slow = client({ late: true });
-    let done = false;
-    void unregisterPushForSignOut(slow.supabase).then(() => (done = true));
-    await vi.advanceTimersByTimeAsync(10);
-    await resumePush(client().supabase);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(done).toBe(true);
-    slow.release();
-    await vi.advanceTimersByTimeAsync(10);
+    const first = client();
+    await savePushToken(first.supabase, reg('fcm-token-1'));
+    await expect(disablePush(client({ fail: true }).supabase)).rejects.toThrow('push-off-incomplete');
+    const again = client();
+    await enablePush(again.supabase);
+    expect(again.calls.filter((c) => c.op === 'upsert')).toHaveLength(1);
+  });
+
+  it('an upsert that lands after "off" hands its row to the pending-off retry', async () => {
+    store.set('po:push', 'on');
+    const { supabase } = client();
+    const inFlight = savePushToken(supabase, reg('late'));
+    store.set('po:push', 'off'); // disablePush settled while the upsert was on the wire
+    await expect(inFlight).resolves.toBe(false);
+    expect(store.get('po:push')).toBe('off-pending');
     expect(store.get('po:push-row')).toBe(ROW_ID);
+    const next = client();
+    await resumePush(next.supabase);
+    expect(next.calls).toContainEqual({ op: 'delete', table: 'push_tokens', filters: [`id=${ROW_ID}`] });
+    expect(store.get('po:push')).toBe('off');
+  });
+
+  it('a corrupted po:push-row is dropped, never sent — so a pending off can settle', async () => {
+    store.set('po:push', 'off-pending');
+    store.set('po:push-row', 'not-a-uuid');
+    const { supabase, calls } = client();
+    await resumePush(supabase);
+    expect(calls).toEqual([{ op: 'delete', table: 'push_tokens', filters: [`session_id=${SID}`] }]);
+    expect(store.has('po:push-row')).toBe(false);
+    expect(store.get('po:push')).toBe('off');
   });
 });

@@ -99,6 +99,18 @@ export function clearPushPrefs(): void {
  *  receive the same `registration` event (register() + the persistent one). */
 let saving: { token: string; done: Promise<boolean> } | null = null;
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The remembered row id — only ever a uuid. Anything else (a tampered or
+ *  corrupted key) is dropped: it would make the by-id DELETE fail with 22P02
+ *  forever, and an `off-pending` could then never settle. */
+function rememberedRowId(): string | null {
+  const v = readPref(ROW_KEY);
+  if (v === null) return null;
+  if (UUID_RE.test(v)) return v;
+  writePref(ROW_KEY, null);
+  return null;
+}
 
 /** The exact upsert body. Exported for the shape test: no user_id, no session_id,
  *  no last_seen_at — the stamp trigger owns all three. */
@@ -123,6 +135,12 @@ export function savePushToken(supabase: Client, reg: PushRegistration): Promise<
       .single();
     if (error || !data) return false;
     writePref(ROW_KEY, data.id);
+    // The person turned push off while this upsert was in flight: the row it just
+    // (re)created must go too, so hand it to the pending-off retry.
+    if (!isPushOnHere()) {
+      if (pushState() === 'off') writePref(STATE_KEY, 'off-pending');
+      return false;
+    }
     return true;
   })().catch(() => false);
   const entry = { token: reg.token, done };
@@ -158,7 +176,7 @@ export async function deleteThisDevicePushTokens(supabase: Client, signal?: Abor
   try {
     const { data } = await supabase.auth.getSession();
     const sid = data.session ? sessionIdFromAccessToken(data.session.access_token) : null;
-    const rowId = readPref(ROW_KEY);
+    const rowId = rememberedRowId();
     const ops: PromiseLike<{ error: unknown }>[] = [];
     const del = () => {
       const q = supabase.from('push_tokens').delete();
@@ -198,11 +216,9 @@ async function finishPendingOff(supabase: Client): Promise<void> {
  * allows it (refreshes the row). Never prompts, and never registers a device on
  * the OS grant alone: Android 12 and below report `granted` from install, so the
  * explain-first card is the consent step on every Android version. A pending
- * "off" is finished here. Also abandons an unfinished sign-out push step: the
- * caller is still signed in, and nothing from that step may undo this.
+ * "off" is finished here.
  */
 export async function resumePush(supabase: Client): Promise<PushPermission> {
-  abandonSignOutStep();
   const provider = getNotificationProvider();
   if (!provider.isSupported()) return 'unsupported';
   const perm = await provider.checkPermission();
@@ -212,17 +228,23 @@ export async function resumePush(supabase: Client): Promise<PushPermission> {
   return perm;
 }
 
+export interface EnableResult {
+  perm: PushPermission;
+  /** A row was stored for this device. False with `granted` = the choice is saved
+   *  but FCM or the network did not answer; every later start retries. */
+  registered: boolean;
+}
+
 /** An explicit "turn on" (ask card or Profile). Shows the OS prompt if needed. A
  *  result without a grant is remembered, so the ask card does not come back. */
-export async function enablePush(supabase: Client): Promise<PushPermission> {
+export async function enablePush(supabase: Client): Promise<EnableResult> {
   const perm = await getNotificationProvider().requestPermission();
   if (perm === 'granted') {
     writePref(STATE_KEY, 'on');
-    await registerPush(supabase);
-  } else if (perm !== 'unsupported' && !isPushOptedOut()) {
-    writePref(STATE_KEY, 'declined');
+    return { perm, registered: (await registerPush(supabase)) !== null };
   }
-  return perm;
+  if (perm !== 'unsupported' && !isPushOptedOut()) writePref(STATE_KEY, 'declined');
+  return { perm, registered: false };
 }
 
 /**
@@ -233,6 +255,8 @@ export async function enablePush(supabase: Client): Promise<PushPermission> {
  */
 export async function disablePush(supabase: Client): Promise<void> {
   writePref(STATE_KEY, 'off-pending');
+  // Whatever happens below, a later "turn on" in this run must reach the server.
+  saving = null;
   const ok = await deleteThisDevicePushTokens(supabase);
   await getNotificationProvider().unregister();
   if (!ok) throw new Error('push-off-incomplete');
@@ -240,43 +264,31 @@ export async function disablePush(supabase: Client): Promise<void> {
 }
 
 // ── sign-out ─────────────────────────────────────────────────────────────────
-/** The sign-out step in flight, abandoned by `resumePush` or by its own timeout. */
-let signOutStep: AbortController | null = null;
-
-function abandonSignOutStep(): void {
-  // Aborts the request if it is still in flight client-side. Residual: a DELETE
-  // that already reached PostgREST executes there regardless; it arrives before
-  // the re-registration that follows, so ordering still favours the new row.
-  signOutStep?.abort();
-  signOutStep = null;
-}
-
 /**
  * Sign-out step 1 (called by `signOutDevice` while the session is still alive):
  * delete this device's `push_tokens` rows under the user's own JWT. Never
  * throws, never holds sign-out hostage: offline or on a captive portal it gives
  * up after SIGN_OUT_PUSH_TIMEOUT_MS and aborts the request — a leftover row is
  * inert once the session is gone (dispatch skips dead sessions, the daily prune
- * drops them). Nothing of this step runs after the cap or after `resumePush`
- * abandoned it, so it can never undo the re-registration on the
- * `sign-out-incomplete` path. The transport token is NOT touched here — see
- * `invalidatePushTransportForSignOut`.
+ * drops them). `signOutDevice` awaits this step, so it is over — completed or
+ * aborted at the cap — before any `sign-out-incomplete` re-registration starts,
+ * and after an abort nothing of it runs any more. Residual: a DELETE that already
+ * reached PostgREST executes there regardless; it arrives before the
+ * re-registration, so ordering still favours the new row. The transport token is
+ * NOT touched here — see `invalidatePushTransportForSignOut`.
  */
 export async function unregisterPushForSignOut(supabase: Client): Promise<void> {
   if (!getNotificationProvider().isSupported()) return;
-  abandonSignOutStep();
   // Whatever this step manages to delete, the next save must go to the server
   // again (the sign-out-incomplete re-registration), not reuse this run's result.
   saving = null;
   const ctrl = new AbortController();
-  signOutStep = ctrl;
   const timer = setTimeout(() => ctrl.abort(), SIGN_OUT_PUSH_TIMEOUT_MS);
   const aborted = new Promise<void>((resolve) => ctrl.signal.addEventListener('abort', () => resolve(), { once: true }));
   try {
     await Promise.race([deleteThisDevicePushTokens(supabase, ctrl.signal), aborted]);
   } finally {
     clearTimeout(timer);
-    if (signOutStep === ctrl) signOutStep = null;
   }
 }
 
@@ -304,5 +316,4 @@ export async function invalidatePushTransportForSignOut(): Promise<void> {
 /** Tests only: a fresh app run (module state, as on a real app start). */
 export function __resetPushClientForTests(): void {
   saving = null;
-  signOutStep = null;
 }
