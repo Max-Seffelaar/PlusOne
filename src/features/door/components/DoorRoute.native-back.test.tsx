@@ -5,12 +5,18 @@
  * first — without navigating and without remounting `DoorProvider` (#25) — and
  * only then leave for the `/door` picker (online) or stay put (offline).
  *
- * Renders the real `DoorRoute` + the real `NativeBackButton`; mocks only the
- * Capacitor plugin, the router, the door's data provider and the door screen.
+ * With unsynced outbox writes, a back that would leave for the picker asks
+ * first (review B1): `router.replace` never fires DoorProvider's
+ * `beforeunload` prompt, and leaving stops the door's sync loop.
+ *
+ * Renders the real `DoorRoute`, `DoorLeaveGuard` (+ the kit's ConfirmSheet)
+ * and `NativeBackButton`; mocks only the Capacitor plugin, the router, the
+ * door's data provider and the door screen.
  */
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { useEffect, type JSX, type ReactNode } from 'react';
 import { render, cleanup, waitFor, act, fireEvent } from '@testing-library/react';
+import { t } from '@/lib/i18n';
 
 const H = vi.hoisted(() => ({
   pathname: '/door/ev-a',
@@ -20,6 +26,7 @@ const H = vi.hoisted(() => ({
   minimizeApp: vi.fn(async () => undefined),
   providerMounts: 0,
   providerUnmounts: 0,
+  pendingCount: 0,
 }));
 
 vi.mock('next/navigation', () => {
@@ -47,6 +54,8 @@ vi.mock('../DoorProvider', () => ({
     }, []);
     return <>{children}</>;
   },
+  // DoorLeaveGuard reads only the public per-event pending count.
+  useDoor: () => ({ pendingCount: H.pendingCount }),
 }));
 vi.mock('@/components/po/screens/door', () => ({
   PoDoorTab: ({
@@ -92,6 +101,7 @@ beforeEach(() => {
   H.pathname = '/door/ev-a';
   H.providerMounts = 0;
   H.providerUnmounts = 0;
+  H.pendingCount = 0;
   setOnline(true);
 });
 
@@ -159,5 +169,78 @@ describe('standalone door: Android back matrix', () => {
     await waitFor(() => expect(H.listener).not.toBeNull());
     back();
     expect(H.minimizeApp).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('standalone door: back with unsynced outbox writes', () => {
+  const confirmText = (n: number): string => `${n} check-ins haven't synced yet`;
+
+  it('pending > 0, online → back shows the confirm and does not navigate', async () => {
+    H.pendingCount = 3;
+    const view = await mount();
+    back();
+    expect(view.getByText(t.door.leaveUnsyncedTitle)).toBeTruthy();
+    expect(view.getByText(new RegExp(confirmText(3)))).toBeTruthy();
+    expect(H.replace).not.toHaveBeenCalled();
+    expect(H.back).not.toHaveBeenCalled();
+    expect(H.providerUnmounts).toBe(0);
+  });
+
+  it('confirming Leave navigates to the picker', async () => {
+    H.pendingCount = 1;
+    const view = await mount();
+    back();
+    expect(view.getByText(t.door.leaveUnsyncedBodyOne)).toBeTruthy();
+    fireEvent.click(view.getByText(t.door.leaveUnsyncedLeave));
+    expect(H.replace).toHaveBeenCalledTimes(1);
+    expect(H.replace).toHaveBeenCalledWith('/door');
+    expect(view.queryByText(t.door.leaveUnsyncedTitle)).toBeNull();
+  });
+
+  it('Stay keeps the door up; back while the confirm is open also stays', async () => {
+    H.pendingCount = 2;
+    const view = await mount();
+    back();
+    fireEvent.click(view.getByText(t.door.leaveUnsyncedStay));
+    expect(view.queryByText(t.door.leaveUnsyncedTitle)).toBeNull();
+    back(); // confirm again
+    expect(view.getByText(t.door.leaveUnsyncedTitle)).toBeTruthy();
+    back(); // back on the confirm = Stay
+    expect(view.queryByText(t.door.leaveUnsyncedTitle)).toBeNull();
+    expect(H.replace).not.toHaveBeenCalled();
+    expect(H.providerUnmounts).toBe(0);
+  });
+
+  it('pending = 0 → back navigates directly, no confirm', async () => {
+    const view = await mount();
+    back();
+    expect(view.queryByText(t.door.leaveUnsyncedTitle)).toBeNull();
+    expect(H.replace).toHaveBeenCalledWith('/door');
+  });
+
+  it('sheet open with pending writes → back closes the sheet first, then confirms', async () => {
+    H.pendingCount = 4;
+    const view = await mount();
+    fireEvent.click(view.getByText('guest'));
+    back();
+    expect(view.getByTestId('overlay').textContent).toBe('none');
+    expect(view.queryByText(t.door.leaveUnsyncedTitle)).toBeNull();
+    back();
+    expect(view.getByText(t.door.leaveUnsyncedTitle)).toBeTruthy();
+    expect(H.replace).not.toHaveBeenCalled();
+  });
+
+  it('offline with pending writes → back closes the sheet, then does nothing (no confirm, #25)', async () => {
+    H.pendingCount = 5;
+    setOnline(false);
+    const view = await mount();
+    fireEvent.click(view.getByText('add'));
+    back();
+    expect(view.getByTestId('overlay').textContent).toBe('none');
+    back();
+    expect(view.queryByText(t.door.leaveUnsyncedTitle)).toBeNull();
+    expect(H.replace).not.toHaveBeenCalled();
+    expect(H.back).not.toHaveBeenCalled();
+    expect(H.minimizeApp).not.toHaveBeenCalled();
   });
 });

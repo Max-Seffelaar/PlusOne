@@ -5,7 +5,12 @@
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { renderHook, cleanup } from '@testing-library/react';
-import { runNativeBackIntercept, useNativeBackIntercept } from './native-back-intercept';
+import {
+  runNativeBackIntercept,
+  runNativeLeaveGuard,
+  useNativeBackIntercept,
+  useNativeLeaveGuard,
+} from './native-back-intercept';
 
 afterEach(cleanup);
 
@@ -54,5 +59,32 @@ describe('useNativeBackIntercept', () => {
     top.unmount();
     runNativeBackIntercept();
     expect(lower).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useNativeLeaveGuard', () => {
+  it('no guard → the caller navigates itself', () => {
+    const leave = vi.fn();
+    expect(runNativeLeaveGuard(leave)).toBe(false);
+    expect(leave).not.toHaveBeenCalled();
+  });
+
+  it('an active guard receives `leave` and decides when to call it', () => {
+    let held: (() => void) | null = null;
+    const { rerender, unmount } = renderHook(({ on }: { on: boolean }) =>
+      useNativeLeaveGuard(on ? (go) => { held = go; } : null), { initialProps: { on: true } });
+    const leave = vi.fn();
+    expect(runNativeLeaveGuard(leave)).toBe(true);
+    expect(leave).not.toHaveBeenCalled();
+    held!();
+    expect(leave).toHaveBeenCalledTimes(1);
+    rerender({ on: false });
+    expect(runNativeLeaveGuard(vi.fn())).toBe(false);
+    unmount();
+  });
+
+  it('is separate from the intercept stack: a guard never swallows a plain back', () => {
+    renderHook(() => useNativeLeaveGuard(() => undefined));
+    expect(runNativeBackIntercept()).toBe(false);
   });
 });
