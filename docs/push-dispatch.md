@@ -16,10 +16,30 @@ After the migrations are pushed, the pipeline is **live-but-sleeping**:
 - the triggers fill `notification_outbox` (rows stay `pending`);
 - `kick_push_dispatch()` returns `false` (no Vault config → no HTTP call);
 - `claim_push_outbox()` refuses every caller (no invocation token was ever issued);
-- no client registers tokens yet (that is N5), so even a woken pipeline would
-  mark rows `skipped`.
+- no device can register a token until the Android build carries
+  `google-services.json` (N5 ships the client, but without Firebase config the
+  app never asks), so even a woken pipeline would mark rows `skipped`.
 
 Nothing breaks and nothing is sent. Local stacks and CI stay in this state.
+
+## Go-live order (who does what)
+
+Push works end to end only after all four steps. Each one is harmless alone.
+
+1. **Firebase client config in the repo — Max, then a PR.** Firebase console →
+   project settings → Android app `app.plusone.guestlist` → download
+   `google-services.json` → commit it at `android/app/google-services.json`
+   (a client identifier, not a secret; plan decision 13). Rebuild the Android
+   app. Before this, `android/app/build.gradle` skips the google-services plugin,
+   the app reports push as unsupported and never shows the ask.
+2. **FCM Edge secrets — Max.** Step 1 below (`FCM_PROJECT_ID`,
+   `FCM_SERVICE_ACCOUNT_JSON`).
+3. **Deploy the function — Max, from the linked main checkout.** Step 2 below.
+4. **Vault URL, the on-switch — Max, SQL editor.** Step 3 below. Last on purpose:
+   from this moment the triggers' rows are sent.
+
+From step 1 on, devices register tokens (rows appear in `push_tokens`) even
+while the pipeline still sleeps; nothing is sent until step 4.
 
 ## Turning it on (prod) — once, from the linked main checkout
 
@@ -112,6 +132,46 @@ per venue admin. Approve it: one `quota_request_decided` row for the requester.
 Function logs: Dashboard → Edge Functions → push-dispatch → Logs. They contain
 counts and error **codes** only — never device tokens, the service-account JSON,
 or the invocation token.
+
+## The client (Fase 17 N5)
+
+Code: `src/features/notifications/` (provider seam, `CapacitorPushProvider`,
+`push-client.ts`) + `src/components/po/push-client.tsx` (chrome hook: register,
+taps, foreground toast, the ask card) + `push-settings-card.tsx` (Profile toggle).
+Decision #51 in `gastenlijst-app-spec.md`.
+
+- **Where it runs.** Native shell, Android only. Web and SSR get the no-op
+  provider; iOS reports `unsupported` until S1b (the plugin gives an APNs token
+  there, and dispatch only speaks FCM).
+- **No Firebase, no crash.** The push plugin's `register()`/`unregister()` crash
+  the app natively when there is no `google-services.json`. The web side asks
+  the local `PlusOnePushConfig` plugin (`android/app/src/main/java/app/plusone/guestlist/PushConfigPlugin.java`)
+  first and never reaches those calls when the answer is no.
+- **Asking.** Never at launch. ~8 s after the shell mounts, off the Deur tab, for
+  admins, event organizers and staff only: an explain-first card; the OS prompt
+  (Android 13+ `POST_NOTIFICATIONS`) appears only after "Turn on". "Not now"
+  snoozes 14 days; a denial is final for the card. Profile → Security →
+  "Push notifications" turns it on/off for this device (or explains the OS
+  setting when Android blocks the prompt).
+- **Register.** Plain upsert into `push_tokens` on `(transport, token)` with the
+  user's own session: body = `transport`, `token`, `device_label: 'android'`,
+  `last_seen_at`. Never `user_id`/`session_id` — the defaults and the
+  `push_tokens_stamp` trigger fill them from the JWT. Re-run on every app start
+  (refreshes `last_seen_at`, which the trigger only sets on INSERT) and on every
+  FCM token refresh.
+- **Unregister.** `signOutDevice` deletes this device's rows (by the session's
+  `session_id` and by the stored token) and invalidates the FCM token, after the
+  outbox gate and before `auth.signOut()`, bounded to 3 s. Profile "off" does
+  the same and remembers the choice on the device; sign-out clears that flag.
+- **Tap.** Payload `kind` + ids → `/app/requests/quota?event=…` (quota created /
+  decided) or `/app/requests?event=…` (guest request). Cold start works: the
+  plugin retains the tap until the web app's listener attaches. A notification
+  for another venue switches the active venue first.
+- **Foreground.** No system banner (`presentationOptions: []` in
+  `capacitor.config.ts`); the app shows its own toast.
+- **Android bits.** Channel `approvals` (created by the app, named as FCM's
+  default in the manifest), small icon `@drawable/ic_stat_plusone` (placeholder
+  plus glyph until S2), accent tint `#B5A6FF`.
 
 ## Outcomes and retries
 

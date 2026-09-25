@@ -8,6 +8,51 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-25 — Fase 17 N5: push client + Capacitor push provider (86ey6bfkb)
+
+Branch `claude/86ey6bfkb-push-client`. Client half of the approvals-loop push (N2 is
+the backend). No migration; decision #51 in the spec; runbook `docs/push-dispatch.md`
+("Go-live order" + "The client").
+
+- **Dependency:** `@capacitor/push-notifications` 8.1.2 (exact pin, Capacitor 8 like the
+  rest), `npx cap sync` output committed (Android gradle + iOS `Package.swift`). FCM only.
+- **Crash found and guarded:** the plugin's Android `register()`/`unregister()` call
+  `FirebaseMessaging.getInstance()` unguarded; with no `google-services.json` that throws
+  on the plugin thread and Capacitor rethrows it — the app dies. New local plugin
+  `PushConfigPlugin` (`isConfigured()` = the `google_app_id` resource exists), registered
+  in `MainActivity`; the provider never reaches Firebase paths when it says no (or is
+  missing in an older shell). Until the file lands, push is simply "unsupported".
+- **Provider seam:** `getNotificationProvider()` selects `CapacitorPushProvider` in the
+  native shell, the no-op elsewhere (no web-push adapter, decision 2). Android only: iOS
+  reports unsupported until S1b (APNs token ≠ FCM token).
+- **Lifecycle:** token upsert on `(transport, token)` via the user-scoped client, body
+  without `user_id`/`session_id` (N2 defaults + stamp trigger). `last_seen_at` is sent on
+  every registration because the trigger only stamps it on INSERT — without it the 90-day
+  sweep would drop an active device. Follow-up worth considering (supabase fence, not
+  done here): let `push_tokens_stamp` set `last_seen_at := now()` on UPDATE too and stop
+  trusting the client clock.
+- **Sign-out:** `signOutDevice` deletes this device's rows (by `session_id` from the JWT
+  and by the stored token) and invalidates the FCM token after the outbox gate and before
+  `auth.signOut()`; bounded to 3 s; on `sign-out-incomplete` push is re-registered. Push
+  prefs are wiped with IDB/caches.
+- **UX:** explain-first ask card from the chrome (never at launch, ~8 s, off the Deur tab,
+  admins/organizers/staff only, "Not now" = 14 days, denial respected), Profile →
+  Security toggle, foreground push = in-app toast, tap → Requests of that event (venue
+  switch first when needed), cold + warm (the plugin retains the tap event).
+- **Android:** `POST_NOTIFICATIONS`, channel `approvals` as FCM default,
+  `@drawable/ic_stat_plusone` placeholder icon (S2 replaces artwork, keeps the name).
+- **Tests:** provider selection + crash-guard gates, permission mapping, register /
+  timeout / error, upsert shape (no ids), denial and snooze, sign-out ordering (log-based:
+  push delete → FCM unregister → signOut → wipe; refused sign-out touches nothing; web no-op;
+  incomplete sign-out re-registers), kind→route map + payload validation, native-shell
+  guards (permission, channel id sync, no Analytics/Crashlytics, conditional
+  google-services). `door-render-isolation` green; `app.tsx` untouched.
+- **Ran:** `pnpm lint` (2 pre-existing warnings), `pnpm type-check`, `CI=1 pnpm test`
+  (199 files / 2162 tests), `pnpm build`. **Not run here:** Gradle/Android build, a device,
+  real FCM delivery, pgTAP/e2e (no Supabase stack or Docker in this container).
+
+---
+
 ## 2026-09-25 — Fase 17 N3: Capacitor scaffold + Android shell (86ey6bfdm)
 
 Golf 2 of Fase 17. No migration. Draft PR `feat(native): Capacitor scaffold + Android shell (86ey6bfdm)`.
