@@ -13,7 +13,7 @@ records (repo root), and `engineering-review-2026-07.md`.
 N3 (#340) is merged. Max's Android debug build (Samsung SM-S721B, Android Studio on Windows) passed A1–A5: e-mail-code login, server-action writes, door offline (queue, then drain on reconnect, plus the stale-resume overlay), external links in the in-app browser sheet, and the hardware back button retracing the stack and minimizing on Home.
 
 - **Root cause of the first blank screen:** the Vercel project `plus-one` only had `plus-one-phi.vercel.app`, so `server.url` (`https://app.plus-one.io`) pointed at a domain that didn't exist yet. Max attached `app.plus-one.io` to the project, set `NEXT_PUBLIC_APP_URL`, and set the Supabase Auth Site URL. It's now plan item M5 and a hard precondition for S1a/S1b.
-- **Supabase Redirect URLs:** narrowed to `https://app.plus-one.io/**`. The earlier `plus-*-one-the-operators.vercel.app` wildcards matched any Vercel project a third party could name that way. The auth e-mail templates only use `{{ .SiteURL }}`, and the app never passes `redirectTo`, so nothing depended on them.
+- **Supabase Redirect URLs:** to be narrowed by Max to `https://app.plus-one.io/**`. The earlier `plus-*-one-the-operators.vercel.app` wildcards matched any Vercel project a third party could name that way. The auth e-mail templates only use `{{ .SiteURL }}`, and the app never passes `redirectTo`, so nothing depended on them.
 - **N4 (#342):** decision 15 is in the plan. N7 (door cold-boot offline in the shell) is proposed and waiting for Max's go-ahead.
 
 ## 2026-09-25 — Fase 17 golf 1: orchestrator report (epic 86exxuvye)
