@@ -8,6 +8,53 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-25 — Fase 17 golf 1: orchestrator report (epic 86exxuvye)
+
+Golf 1 ran N1, N2, S3, T1 and L1 in parallel from one orchestrator session, with
+workers spawned per task and every PR reviewed adversarially before it reached Max.
+
+**Merged:** N1 #331 (webview-prep kit helpers) and #338 (root cause of the
+`pgtap-plan-run-gate` "slow reader" flake: Node's `flushStdio` resumes a paused
+stdio stream that has no `'readable'` listener on child exit, so the test harness
+threw away the gate's diagnostic. The harness was at fault, the gate was not).
+**Through test, awaiting merge:** T1 #335 (tablet layouts; `main` merged in for the
+changelog conflict), N2 #336 (push backend, live but asleep; the §6 reviewer round
+is done, and Max's local run confirmed the outbox rows and that the hand-written
+types match the generated ones), S3 #332 (store-review login; six review/fix rounds).
+**Legal:** #333/#334 (v0.2 texts) and Plus-One.io#6 (`plus-one.io/legal`) wait for
+the lawyer's check.
+
+**What the rounds caught (all fixed in the same PR, standing rule "fix now"):**
+- S3: `inviteExternalCrew` minted an auth account through the service role, which
+  the invites trigger never sees. A review-code holder could have made their own
+  mailbox crew on a demo event and created a real tenant. Now refused before any
+  side effect. Also: explicit demo-refusal copy (a generic error reads as a bug
+  under App Review 2.1); refusals shown before a form opens, not after submit;
+  the demo venue is named "PlusOne Demo" (brand written PlusOne, spec #38); the
+  seed's audit tripwire also catches rows with `venue_id is null`; the seed
+  mirror tests are CRLF-safe.
+- N2: a single-use per-kick invocation token instead of a static secret,
+  because pg_net's request queue is readable by app roles on Supabase.
+  Possession of the device token wins the row handover.
+
+**Process lessons.**
+- Test plans must use the role a screen actually needs: `manager@` is a user
+  manager, not an admin.
+- Hand the non-UI checks (curl/SQL/seed-script) to Max's local Claude session
+  instead of asking Max to run them by hand.
+- Workers run tests in the foreground and never end a turn before their push.
+- The ClickUp MCP daily limit (100 calls) is shared by all sessions, so workers
+  put their ClickUp text in the PR body when it's exhausted.
+
+**Golf 2 started 2026-09-25** once N1 merged: N3 (Capacitor scaffold + Android,
+86ey6bfdm) and a small N1-leftovers PR (MfaEnrollCard clipboard,
+Consent/VenueStep external links). Golf 2's exit is N3 merged **and** Max's Android
+debug build passing the five checks (OTP login, a server action, offline door,
+external link in the in-app browser tab, back button that only minimizes on the
+`/app` root).
+
+---
+
 ## 2026-09-24 — Fase 17 N1: webview-prep kit helpers (86ey6bfam)
 
 Golf 1 of Fase 17. No migration, no dependency change.
