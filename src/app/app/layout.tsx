@@ -19,7 +19,7 @@ import { createClient } from '@/lib/supabase/server';
 import { ROLE_LABELS, VENUE_ROLES } from '@/features/auth/roles';
 import { REQUEST_PATH_HEADER, appGateNextPath } from '@/features/auth/next-path';
 import { isMobileUA } from '@/lib/ua';
-import { REVIEW_SESSION_END_PATH, demoSessionMustEnd } from '@/features/auth/review-window';
+import { REVIEW_SESSION_END_PATH, demoSessionMustEnd, isDemoReviewUser } from '@/features/auth/review-window';
 
 /**
  * Session/identity/venue resolution for the whole `/app` surface, run ONCE per
@@ -173,6 +173,8 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
           liveVenueName: active?.venueName ?? undefined,
           liveUserName: userName,
           liveUserSub: userSub,
+          // UX only (86ey6bfug): refused demo actions show their note upfront.
+          demoAccount: isDemoReviewUser(user),
         }}
       >
         {/*

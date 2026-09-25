@@ -641,9 +641,12 @@ export function IconBtn({
   onClick,
   ariaLabel,
   className,
+  disabled,
 }: {
   name: IconName;
   onClick?: () => void;
+  /** Visible but inert (e.g. an action refused for this account — pair it with a `Note` saying why). */
+  disabled?: boolean;
   /** Accessible name (also shown as a hover tooltip) for icon-only buttons with no visible label. */
   ariaLabel?: string;
   /** Size/tone overrides, e.g. `h-[44px] w-[44px]` for an in-list trigger. */
@@ -653,9 +656,10 @@ export function IconBtn({
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-label={ariaLabel}
       title={ariaLabel}
-      className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text', press, hitArea44, className)}
+      className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text', press, hitArea44, 'disabled:pointer-events-none disabled:opacity-[0.45]', className)}
     >
       <Icon name={name} size={19} />
     </button>
@@ -754,6 +758,35 @@ export function Note({ children, icon = 'shield' }: { children: ReactNode; icon?
         <Icon name={icon} size={17} />
       </span>
       <div className="text-[12.5px] leading-[1.45] text-text">{children}</div>
+    </div>
+  );
+}
+
+// ── RefusedAction ────────────────────────────────────────────────────────────
+/**
+ * An action this viewer can see but may not use, with the reason shown upfront
+ * (86ey6bfug: the store-review demo account). The entry stays visible — a
+ * reviewer sees the feature exists — but is a disabled button with the refusal
+ * as a `Note` right under it, instead of opening a form that only fails on
+ * submit. Presentation only: the server action / DB guard stays the boundary.
+ */
+export function RefusedAction({
+  label,
+  reason,
+  icon = 'plus',
+  className,
+}: {
+  label: ReactNode;
+  reason: ReactNode;
+  icon?: IconName;
+  className?: string;
+}): JSX.Element {
+  return (
+    <div className={className} data-refused-action="">
+      <Btn kind="dark" full icon={icon} disabled className="mb-2.5 opacity-[0.45]">
+        {label}
+      </Btn>
+      <Note icon="shield">{reason}</Note>
     </div>
   );
 }
@@ -1005,14 +1038,25 @@ export function Loading({ text = t.shared.kit.loading, className }: { text?: str
   );
 }
 
-export function MiniChip({ children, className, onClick }: { children: ReactNode; className?: string; onClick?: () => void }): JSX.Element {
+export function MiniChip({
+  children,
+  className,
+  onClick,
+  disabled,
+}: {
+  children: ReactNode;
+  className?: string;
+  onClick?: () => void;
+  /** Visible but inert: rendered as a disabled button (pair with a `Note` saying why). */
+  disabled?: boolean;
+}): JSX.Element {
   const cls = cn(
     'inline-flex items-center gap-[5px] whitespace-nowrap rounded-[7px] border border-line bg-transparent px-[9px] py-[4px] font-body text-[10.5px] font-bold tracking-[0.03em] text-dim',
     className,
   );
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} className={cn(cls, 'cursor-pointer', press)}>
+      <button type="button" onClick={onClick} disabled={disabled} className={cn(cls, 'cursor-pointer', press, 'disabled:pointer-events-none disabled:opacity-[0.45]')}>
         {children}
       </button>
     );

@@ -11,9 +11,10 @@ import { usePoUpdateVenueSettings } from '@/features/po/mutations';
 import { COUNTRIES } from '@/lib/countries';
 import { useNav, usePo } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, Scroll, ToggleRow, Top, press } from '../../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, RefusedAction, Scroll, ToggleRow, Top, press } from '../../kit';
 import { SearchSelect, type SearchSelectOption } from '../../search-select';
 import { BottomBar } from '../../shell';
+import { useIsDemoAccount } from '../../app-shell-data';
 import { col, FormError } from './_shared';
 
 // 34px quota stepper; the ring reaches 5px past its 1px border (44x44). Minus and
@@ -28,10 +29,13 @@ const COUNTRY_OPTIONS: readonly SearchSelectOption[] = COUNTRIES.map((c) => ({ v
 export function VenueSwitch(): JSX.Element {
   const nav = useNav();
   const { myVenues, activeVenueId, switchToVenue } = usePo();
+  // Store-review demo account (86ey6bfug): "New venue" stays visible but inert,
+  // with the refusal upfront. UX only — createVenueAction + the DB guard still refuse.
+  const demo = useIsDemoAccount();
   const activeName = myVenues.find((v) => v.venueId === activeVenueId)?.venueName ?? t.settings.venueSwitch.thisVenueFallback;
   return (
     <div className={col}>
-      <Top onBack={nav.back} title={t.settings.venueSwitch.title} sub={t.settings.venueSwitch.sub} right={<IconBtn name="plus" onClick={() => nav.push('venuecreate')} />} />
+      <Top onBack={nav.back} title={t.settings.venueSwitch.title} sub={t.settings.venueSwitch.sub} right={<IconBtn name="plus" disabled={demo} onClick={() => nav.push('venuecreate')} />} />
       <Scroll bottom={24}>
         <Note icon="building">
           {t.settings.venueSwitch.notePre}
@@ -84,9 +88,13 @@ export function VenueSwitch(): JSX.Element {
             })}
           </div>
         )}
-        <Btn kind="dark" full icon="plus" className="mt-[14px]" onClick={() => nav.push('venuecreate')}>
-          {t.settings.venueSwitch.addVenue}
-        </Btn>
+        {demo ? (
+          <RefusedAction className="mt-[14px]" label={t.settings.venueSwitch.addVenue} reason={t.auth.demoNoVenues} />
+        ) : (
+          <Btn kind="dark" full icon="plus" className="mt-[14px]" onClick={() => nav.push('venuecreate')}>
+            {t.settings.venueSwitch.addVenue}
+          </Btn>
+        )}
       </Scroll>
     </div>
   );
@@ -145,6 +153,7 @@ export function VenueSettings(): JSX.Element {
   const nav = useNav();
   const { roles, venueName } = usePoIdentity();
   const caps = venueCapabilities(roles);
+  const demo = useIsDemoAccount(); // UX only (86ey6bfug), see VenueSwitch
   const settingsQ = usePoVenueSettings();
   const save = usePoUpdateVenueSettings();
 
@@ -360,9 +369,13 @@ export function VenueSettings(): JSX.Element {
         {/* With one venue the venue card lands here instead of the switcher
             (z8uq9m0hw2), so "Add a new venue" has to live here too. */}
         <Label className="mb-[10px] mt-[22px]">{t.settings.venueSwitch.title}</Label>
-        <Btn kind="dark" full icon="plus" onClick={() => nav.push('venuecreate')}>
-          {t.settings.venueSwitch.addVenue}
-        </Btn>
+        {demo ? (
+          <RefusedAction label={t.settings.venueSwitch.addVenue} reason={t.auth.demoNoVenues} />
+        ) : (
+          <Btn kind="dark" full icon="plus" onClick={() => nav.push('venuecreate')}>
+            {t.settings.venueSwitch.addVenue}
+          </Btn>
+        )}
       </Scroll>
       {canEdit && (
         <BottomBar>
