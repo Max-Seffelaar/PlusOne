@@ -57,6 +57,29 @@ export const en = {
   guestsTab: {
     empty: 'No events yet. Create an event to start a guest list.',
   },
+  /** Push notifications in the native app (Fase 17 N5). Never shown on the web. */
+  push: {
+    /** Android system settings → Notifications: the one channel we post to. */
+    channelName: 'Requests',
+    channelDescription: 'Guest list and quota requests, and decisions on yours.',
+    askTitle: 'Know when a request comes in',
+    askBody: 'Get a notification when someone asks for a spot or extra quota, and when your own request is decided. Nothing else.',
+    askEnable: 'Turn on',
+    askLater: 'Not now',
+    /** After a denial from the ask card. */
+    deniedToast: 'Notifications are off. You can turn them on later in Profile.',
+    profileTitle: 'Push notifications',
+    profileSubOn: 'On for this device: new requests and decisions on yours.',
+    profileSubOff: 'Off for this device.',
+    profileBlocked: "Blocked in your phone's settings. Open Settings → Apps → PlusOne → Notifications to allow them.",
+    profileError: 'Could not change notifications. Check your connection and try again.',
+    /** Foreground receipt: an in-app toast instead of a system notification. */
+    foreground: {
+      quota_request_created: 'New quota request. Open Requests to review it.',
+      guest_request_created: 'New guest request. Open Requests to review it.',
+      quota_request_decided: 'Your quota request was decided. Open Requests to see it.',
+    },
+  },
 } as const;
 
 export type Messages = typeof en;

@@ -16,6 +16,7 @@ import { supabaseGateway } from '@/features/door/outbox/gateway';
 import { drainOutbox } from '@/features/door/outbox/replay';
 import { outbox } from '@/features/door/outbox/store';
 import { isPending, isRetryable } from '@/features/door/outbox/types';
+import { clearPushPrefs, resumePush, unregisterPushForSignOut } from '@/features/notifications/push-client';
 
 /**
  * Thrown when signing out would destroy door writes that never reached the
@@ -116,6 +117,7 @@ async function wipeDevice(): Promise<void> {
   await idbClearAll();
   await clearDeviceCaches();
   outbox.reset();
+  clearPushPrefs();
 }
 
 /** Real sign-out (T1 #7/#15): end the Supabase session, wipe this device, land on
@@ -159,7 +161,16 @@ async function wipeDevice(): Promise<void> {
  *  device either way, so nothing was protected by the early wipe. Either we
  *  leave (and the device is wiped) or we stay (and the device is intact and
  *  still theirs). The wipes remain network-independent; only their position
- *  moved. */
+ *  moved.
+ *
+ *  PUSH (Fase 17 N5, 86ey6bfkb): this device's `push_tokens` rows are deleted —
+ *  and the FCM token invalidated — AFTER the outbox gate (a refused sign-out
+ *  changes nothing) and BEFORE `auth.signOut()`, because the delete runs under
+ *  this user's own JWT and owner-only RLS: once the session is gone the client
+ *  can no longer remove its row. Bounded and non-throwing (native only; a no-op
+ *  on the web). On the `sign-out-incomplete` path the user stays signed in, so
+ *  push is re-registered before throwing — staying signed in must not silently
+ *  mean staying without notifications. */
 export async function signOutDevice(
   scope: 'local' | 'global',
   opts?: { discardPending?: boolean },
@@ -176,6 +187,8 @@ export async function signOutDevice(
     if (stillPending > 0) throw new PendingOutboxError(stillPending);
   }
 
+  await unregisterPushForSignOut(supabase);
+
   try {
     await supabase.auth.signOut({ scope });
   } catch {
@@ -188,6 +201,7 @@ export async function signOutDevice(
   }
   if (await hasLocalSession(supabase)) {
     // Still signed in: keep this user's data, surface the failure to the caller.
+    void resumePush(supabase).catch(() => undefined);
     throw new Error('sign-out-incomplete');
   }
 
