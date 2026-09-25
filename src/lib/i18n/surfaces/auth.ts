@@ -85,4 +85,18 @@ export const auth = {
   consentSubmit: 'Agree & continue',
   consentBusy: 'Working…',
   consentError: 'Something went wrong.',
+
+  // ── App review sign-in (/auth/review-login, store reviewers only) ────────
+  reviewTitle: 'App review sign-in',
+  reviewHelp: 'Enter the review code from the App Review notes to open the PlusOne demo venue.',
+  reviewCodeLabel: 'Review code',
+  reviewSubmit: 'Sign in',
+  reviewErrorCode: "That code didn't work. Check the review notes and try again.",
+  reviewErrorWait: 'Too many attempts. Wait 15 minutes and try again.',
+  reviewErrorFailed: "Sign-in didn't go through. Try again in a minute.",
+  // What the demo account is refused (86ey6bfug). Store reviewers read these, so
+  // each one names the demo account: a generic error reads as a bug (guideline 2.1).
+  demoNoInvites: 'Invites are turned off for the demo account.',
+  demoNoVenues: "The demo account can't create venues.",
+  demoNoEmailChange: "The demo account's email can't be changed.",
 } as const;
