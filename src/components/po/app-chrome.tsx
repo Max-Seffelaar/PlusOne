@@ -31,6 +31,7 @@ import { navKeyForScreen, mobileTabForScreen, venueEntryScreen, WIDE_DESKTOP } f
 import { Toast, type TabKey } from './shell';
 import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
 import { useAppShellData } from './app-shell-data';
+import { NativeBackButton } from './native-back-button';
 import { t } from '@/lib/i18n';
 
 /** How long a venue-switch error stays up. Longer than the 4s billing toast:
@@ -283,6 +284,8 @@ export function AppShellChrome({
 
   return (
     <PoProvider value={po}>
+      {/* Android back button in the native shell (N3). Pathname-only, no query. */}
+      <NativeBackButton />
       <ResponsiveShell
         serverHint={serverHint}
         // Tab bar is always visible when authenticated, even on pushed/detail
