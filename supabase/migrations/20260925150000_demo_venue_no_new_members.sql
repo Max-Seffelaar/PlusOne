@@ -66,15 +66,21 @@
 --     The actor is read from the request's JWT role (request.jwt.claims, what
 --     PostgREST sets for every API call), not current_user, so a SECURITY
 --     DEFINER RPC called by the demo user is refused too. A statement with no
---     JWT at all (the table owner in the SQL editor or a migration, and FK
---     cascades from a deliberate user/venue removal) passes when current_user
---     is not an API role: those already hold every privilege there is.
+--     JWT at all (the table owner in the SQL editor or a migration) passes when
+--     current_user is not an API role: it already holds every privilege there
+--     is. (No FK cascade reaches this table: its FKs are ON DELETE RESTRICT.)
 --     job_title-only updates are untouched (the column list), and every other
 --     membership row is out of scope (the OLD check).
 --
 -- Both functions only read NEW/OLD and request settings, so they are security
 -- invoker with a pinned empty search_path, and execute is revoked from every
 -- app role, like the two above.
+--
+-- Round 10 closes the mirror image of both round-8 triggers (independent
+-- re-review): refuse_demo_venue_new_member also refuses any row that puts the
+-- demo USER in another venue, and refuse_demo_venue_new_crew any organizer row
+-- for the demo user, for every writer. The seed only writes the demo user's
+-- demo-venue row, so it needs no exception.
 --
 -- If the demo venue, user or e-mail ever needs another value, these constants
 -- move with it (a new migration, never an edit of this one once applied).
@@ -89,6 +95,15 @@ begin
   if new.venue_id = 'de300000-0000-7000-8000-000000000001'::uuid
      and new.user_id is distinct from 'de300000-0000-7000-8000-00000000a001'::uuid then
     raise exception 'the demo venue cannot gain members' using errcode = '42501';
+  end if;
+  -- Round 10: the other direction. Any other venue's admin could insert the
+  -- demo user into THEIR venue (venue_memberships_insert checks the caller's
+  -- role on the target venue, nothing about user_id), locking every later
+  -- reviewer out (membership_count) and giving whoever holds the review code
+  -- a seat in a real venue. The seed only ever writes the demo-venue row.
+  if new.user_id = 'de300000-0000-7000-8000-00000000a001'::uuid
+     and new.venue_id is distinct from 'de300000-0000-7000-8000-000000000001'::uuid then
+    raise exception 'the demo account cannot join another venue' using errcode = '42501';
   end if;
   return new;
 end;
@@ -109,6 +124,11 @@ as $$
 begin
   if public.event_venue(new.event_id) = 'de300000-0000-7000-8000-000000000001'::uuid then
     raise exception 'the demo venue cannot gain crew' using errcode = '42501';
+  end if;
+  -- Round 10: nor is the demo account crew on any other venue's event (the
+  -- same asymmetry as the membership trigger above; the seed creates no crew).
+  if new.user_id = 'de300000-0000-7000-8000-00000000a001'::uuid then
+    raise exception 'the demo account cannot be crew' using errcode = '42501';
   end if;
   return new;
 end;

@@ -21,6 +21,10 @@
 --     (self-lockout), not even as admin there; a job_title edit still works;
 --   * the seed's path (service_role JWT) still can change and delete it;
 --   * other venues' memberships are unaffected.
+-- Round 10 (same migration):
+--   * no writer puts the demo USER in another venue (insert or re-pointed
+--     update) or on another venue's event crew; ordinary crew still works;
+--   * the seed's real full-column upsert of the demo row still passes.
 --
 -- Everything rolls back.
 
@@ -46,7 +50,7 @@ begin
 end;
 $fn$;
 
-select plan(41);
+select plan(50);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner — RLS bypassed, like the demo seed): the demo user and
@@ -112,7 +116,9 @@ $$, '42501', 'the demo venue cannot gain members',
   'T4 not with a lesser role either');
 reset role;
 
-select set_config('role', 'service_role', true);
+-- request.jwt.claims is transaction-scoped and `reset role` does not clear it:
+-- every writer below gets its own claims (service JWT, or none for the owner).
+select pg_temp.as_service();
 select throws_ok($$
   insert into public.venue_memberships (venue_id, user_id, roles)
   values ('de300000-0000-7000-8000-000000000001', '44444444-4444-4444-8444-444444444444', '{staff}')
@@ -120,6 +126,7 @@ $$, '42501', 'the demo venue cannot gain members',
   'T5 the service role cannot add another member to the demo venue');
 reset role;
 
+select set_config('request.jwt.claims', '', true);
 select throws_ok($$
   insert into public.venue_memberships (venue_id, user_id, roles)
   values ('de300000-0000-7000-8000-000000000001', '44444444-4444-4444-8444-444444444444', '{staff}')
@@ -198,7 +205,7 @@ $$, '42501', 'the demo venue cannot gain crew',
   'T12 the demo admin cannot put an existing user on a demo event''s crew');
 reset role;
 
-select set_config('role', 'service_role', true);
+select pg_temp.as_service();
 select throws_ok($$
   insert into public.event_organizers (event_id, user_id)
   values ('de300000-0000-7000-8000-0000000000f1', '44444444-4444-4444-8444-444444444444')
@@ -365,6 +372,87 @@ select is(
     where venue_id = 'aa000000-0000-7000-8000-000000000001'
       and user_id = '44444444-4444-4444-8444-444444444444'),
   0, 'T38 and the removal landed');
+
+-- ---------------------------------------------------------------------------
+-- H. round 10: the demo USER never joins another venue or another event's crew
+-- ---------------------------------------------------------------------------
+
+-- Max = admin of venue 1: puts the demo user into HIS venue (both ids are public).
+select pg_temp.login('11111111-1111-4111-8111-111111111111', 'admin@plusone.test');
+select throws_ok($$
+  insert into public.venue_memberships (venue_id, user_id, roles)
+  values ('aa000000-0000-7000-8000-000000000001', 'de300000-0000-7000-8000-00000000a001', '{staff}')
+$$, '42501', 'the demo account cannot join another venue',
+  'T41 another venue''s admin cannot add the demo user to their venue');
+
+-- The UPDATE variant: re-point an existing venue-1 row (Tom, staff) onto the demo user.
+select throws_ok($$
+  update public.venue_memberships set user_id = 'de300000-0000-7000-8000-00000000a001'
+   where venue_id = 'aa000000-0000-7000-8000-000000000001'
+     and user_id = '55555555-5555-4555-8555-555555555555'
+$$, '42501', 'the demo account cannot join another venue',
+  'T42 nor re-point an existing membership row onto the demo user');
+reset role;
+
+select pg_temp.as_service();
+select throws_ok($$
+  insert into public.venue_memberships (venue_id, user_id, roles)
+  values ('aa000000-0000-7000-8000-000000000001', 'de300000-0000-7000-8000-00000000a001', '{staff}')
+$$, '42501', 'the demo account cannot join another venue',
+  'T43 nor can the service role');
+reset role;
+
+select is(
+  (select count(*)::int from public.venue_memberships
+    where user_id = 'de300000-0000-7000-8000-00000000a001'
+      and venue_id <> 'de300000-0000-7000-8000-000000000001'),
+  0, 'T44 the demo user holds no membership outside the demo venue');
+
+-- Crew: an event in venue 1 (owner fixture), then the same hop via event_organizers.
+select set_config('request.jwt.claims', '', true);
+insert into public.events (id, venue_id, name, starts_at, ends_at, status)
+values ('aa000000-0000-7000-8000-0000000000f9', 'aa000000-0000-7000-8000-000000000001',
+        'Demo Guard Control Night', now() + interval '3 days', now() + interval '3 days' + interval '6 hours', 'open');
+
+select pg_temp.login('11111111-1111-4111-8111-111111111111', 'admin@plusone.test');
+select throws_ok($$
+  insert into public.event_organizers (event_id, user_id)
+  values ('aa000000-0000-7000-8000-0000000000f9', 'de300000-0000-7000-8000-00000000a001')
+$$, '42501', 'the demo account cannot be crew',
+  'T45 another venue''s admin cannot put the demo user on their event''s crew');
+
+select lives_ok($$
+  insert into public.event_organizers (event_id, user_id)
+  values ('aa000000-0000-7000-8000-0000000000f9', '44444444-4444-4444-8444-444444444444')
+$$, 'T46 ordinary crew on a normal venue''s event still works');
+reset role;
+
+select pg_temp.as_service();
+select throws_ok($$
+  insert into public.event_organizers (event_id, user_id)
+  values ('aa000000-0000-7000-8000-0000000000f9', 'de300000-0000-7000-8000-00000000a001')
+$$, '42501', 'the demo account cannot be crew',
+  'T47 nor can the service role');
+reset role;
+
+select is(
+  (select count(*)::int from public.event_organizers
+    where user_id = 'de300000-0000-7000-8000-00000000a001'),
+  0, 'T48 the demo user is crew nowhere');
+
+-- The seed's REAL upsert: supabase-js .upsert(..., { onConflict: 'venue_id,user_id' })
+-- emits DO UPDATE SET for every column, so both UPDATE triggers fire under the
+-- service JWT; it must still pass.
+select pg_temp.as_service();
+select lives_ok($$
+  insert into public.venue_memberships (venue_id, user_id, roles, job_title)
+  values ('de300000-0000-7000-8000-000000000001', 'de300000-0000-7000-8000-00000000a001',
+          '{admin,doorhost}', 'App review')
+  on conflict (venue_id, user_id) do update
+    set venue_id = excluded.venue_id, user_id = excluded.user_id,
+        roles = excluded.roles, job_title = excluded.job_title
+$$, 'T49 the seed''s full-column upsert of the demo row still passes');
+reset role;
 
 -- ---------------------------------------------------------------------------
 -- E. shape: BEFORE INSERT trigger, security invoker, pinned search_path, no
