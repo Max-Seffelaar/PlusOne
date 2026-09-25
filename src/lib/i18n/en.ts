@@ -73,6 +73,9 @@ export const en = {
     profileSubOff: 'Off for this device.',
     profileBlocked: "Blocked in your phone's settings. Open Settings → Apps → PlusOne → Notifications to allow them.",
     profileError: 'Could not change notifications. Check your connection and try again.',
+    /** "On" was saved, but FCM or the server did not answer yet; the app retries on
+     *  every start. Toast after the ask card, error line in Profile. */
+    onPending: "Turned on, but we couldn't register this device yet. It finishes the next time the app is online.",
     /** "Off" was saved on the device, but the server could not be reached to stop
      *  delivery yet. The app retries on its next start; this says so honestly. */
     profileOffPending: "Turned off on this device, but we couldn't reach the server yet. It finishes the next time the app is online.",

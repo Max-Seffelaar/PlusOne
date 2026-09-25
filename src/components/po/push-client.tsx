@@ -45,6 +45,13 @@ import { pushTargetPath } from './push-routes';
 /** Long enough that the card never competes with the first paint or the MFA/consent nudges. */
 export const ASK_DELAY_MS = 8000;
 
+/** Push v1 delivers to admins + event organizers (new requests) and to the
+ *  requester (decisions, i.e. staff). One gate for the ask card and the Profile
+ *  row, so nobody registers a token nothing will ever target. */
+export function canReceivePush(roles: readonly string[], organizesHere: boolean): boolean {
+  return roles.includes('admin') || roles.includes('staff') || organizesHere;
+}
+
 export interface PushAsk {
   /** Show the explain-first card now. */
   show: boolean;
@@ -122,8 +129,8 @@ export function usePushClient({
   const turnOn = useCallback((): void => {
     setBusy(true);
     void enablePush(createClient())
-      .catch(() => 'denied' as const)
-      .then((perm) => {
+      .catch(() => ({ perm: 'denied' as const, registered: false }))
+      .then(({ perm, registered }) => {
         setBusy(false);
         setAskable(false);
         if (perm !== 'granted') {
@@ -131,6 +138,10 @@ export function usePushClient({
           // throw on the way, so the card cannot come straight back either way.
           snoozePushPrompt();
           live.current.onToast(t.push.deniedToast);
+        } else if (!registered) {
+          // The choice is saved; FCM or the network did not answer yet. Every
+          // later start retries — say so rather than implying it is done.
+          live.current.onToast(t.push.onPending);
         }
       });
   }, []);

@@ -24,7 +24,7 @@ import { disablePush, enablePush, isPushOnHere } from '@/features/notifications/
 import { Icon } from './icon';
 import { Toggle } from './kit';
 
-export function PushSettingsRow(): JSX.Element | null {
+export function PushSettingsRow({ canReceive }: { canReceive: boolean }): JSX.Element | null {
   const [perm, setPerm] = useState<PushPermission | null>(null);
   const [onHere, setOnHere] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -46,7 +46,8 @@ export function PushSettingsRow(): JSX.Element | null {
     refresh();
   }, [refresh]);
 
-  if (perm === null || perm === 'unsupported') return null;
+  // Same gate as the ask card: a role push v1 never targets gets no toggle.
+  if (!canReceive || perm === null || perm === 'unsupported') return null;
 
   const on = perm === 'granted' && onHere;
   const blocked = perm === 'denied';
@@ -57,7 +58,10 @@ export function PushSettingsRow(): JSX.Element | null {
     const turningOff = on;
     try {
       if (turningOff) await disablePush(createClient());
-      else await enablePush(createClient());
+      else {
+        const { perm: after, registered } = await enablePush(createClient());
+        if (after === 'granted' && !registered) setError(t.push.onPending);
+      }
     } catch {
       setError(turningOff ? t.push.profileOffPending : t.push.profileError);
     }

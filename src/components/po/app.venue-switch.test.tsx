@@ -73,6 +73,13 @@ vi.mock('./screens/home', async () => {
           {/* A push tap for another venue (N5): same switch, landing on its target. */}
           <button
             type="button"
+            data-testid="switch-hostile"
+            onClick={() => switchToVenue('018f3a2e-0000-7000-8000-00000000000b', 'https://evil.example/app')}
+          >
+            hostile landing
+          </button>
+          <button
+            type="button"
             data-testid="switch-landing"
             onClick={() => switchToVenue('018f3a2e-0000-7000-8000-00000000000b', '/app/requests?event=018f3a2e-0000-7000-8000-0000000000e1')}
           >
@@ -273,6 +280,16 @@ describe('PlusOneApp switchToVenue (86eykm7rk)', () => {
       await waitFor(() => expect(screen.getByText(t.venue.switchFailed)).toBeDefined());
       expect(assign).not.toHaveBeenCalled();
       expect(routerReplace).not.toHaveBeenCalledWith(LANDING);
+    });
+
+    it('never leaves the /app surface, whatever landing a caller passes', async () => {
+      H.switchActiveVenueAction.mockResolvedValue('ok');
+      renderApp();
+      await act(async () => {
+        screen.getByTestId('switch-hostile').click();
+        await Promise.resolve();
+      });
+      await waitFor(() => expect(assign).toHaveBeenCalledWith('/app'));
     });
 
     it('stays put and says so when the switch throws', async () => {

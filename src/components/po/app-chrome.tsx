@@ -32,7 +32,8 @@ import { Toast, type TabKey } from './shell';
 import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
 import { useAppShellData } from './app-shell-data';
 import { NativeBackButton } from './native-back-button';
-import { PushAskCard, usePushClient } from './push-client';
+import { PushAskCard, canReceivePush, usePushClient } from './push-client';
+import { appGateNextPath } from '@/features/auth/next-path';
 import { t } from '@/lib/i18n';
 
 /** How long a venue-switch error stays up. Longer than the 4s billing toast:
@@ -161,7 +162,9 @@ export function AppShellChrome({
             showTransientToast(t.venue.switchFailed);
             return;
           }
-          window.location.assign(landing);
+          // `landing` is public API on the context: only ever an in-app /app
+          // path (same guard as the gates' `next=`), whatever a caller passes.
+          window.location.assign(appGateNextPath(landing));
         })
         .catch(() => {
           // A thrown action (network blip, 500) has to speak too. Clearing the
@@ -232,7 +235,7 @@ export function AppShellChrome({
   // delivers to admins + event organizers (new requests) and to the requester
   // (decisions, i.e. staff); nobody else is asked.
   const pushAsk = usePushClient({
-    canReceive: roles.includes('admin') || roles.includes('staff') || canManageTemplates,
+    canReceive: canReceivePush(roles, canManageTemplates),
     activeVenueId,
     switchToVenue,
     onToast: showTransientToast,

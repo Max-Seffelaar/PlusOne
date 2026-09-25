@@ -34,6 +34,7 @@ const pc = vi.hoisted(() => ({
   undecided: true,
   snoozed: false,
   enableResult: 'granted' as string,
+  registered: true,
   snooze: vi.fn(),
   enable: vi.fn(),
   resume: vi.fn(),
@@ -47,7 +48,7 @@ vi.mock('@/features/notifications/push-client', () => ({
   savePushToken: vi.fn(async () => true),
 }));
 
-import { ASK_DELAY_MS, PushAskCard, usePushClient } from './push-client';
+import { ASK_DELAY_MS, PushAskCard, canReceivePush, usePushClient } from './push-client';
 import { t } from '@/lib/i18n';
 
 const V = '0190f0b2-7c1a-7cc3-9a61-2b3c4d5e6f70';
@@ -74,8 +75,9 @@ beforeEach(() => {
   pc.undecided = true;
   pc.snoozed = false;
   pc.enableResult = 'granted';
+  pc.registered = true;
   pc.resume.mockImplementation(async () => pc.perm);
-  pc.enable.mockImplementation(async () => pc.enableResult);
+  pc.enable.mockImplementation(async () => ({ perm: pc.enableResult, registered: pc.enableResult === 'granted' && pc.registered }));
 });
 afterEach(() => {
   cleanup();
@@ -196,5 +198,27 @@ describe('taps and foreground receipts', () => {
     await mountAndWait({}, 0);
     act(() => p.fg!({ data: { kind: 'quota_request_decided', venue_id: V, event_id: E, status: 'approved' } }));
     expect(toast).toHaveBeenCalledWith(t.push.foreground.quota_request_decided);
+  });
+});
+
+describe('re-review nits', () => {
+  it('"Turn on" granted but not stored yet → the card goes, and a toast says it finishes later', async () => {
+    pc.registered = false;
+    await mountAndWait();
+    await act(async () => {
+      fireEvent.click(screen.getByText(t.push.askEnable));
+    });
+    expect(screen.queryByText(t.push.askTitle)).toBeNull();
+    expect(toast).toHaveBeenCalledWith(t.push.onPending);
+    expect(pc.snooze).not.toHaveBeenCalled();
+  });
+
+  it('canReceivePush: admins, staff and organizers only (one gate for the card and the Profile row)', () => {
+    expect(canReceivePush(['admin'], false)).toBe(true);
+    expect(canReceivePush(['staff'], false)).toBe(true);
+    expect(canReceivePush(['doorhost'], true)).toBe(true);
+    expect(canReceivePush(['doorhost'], false)).toBe(false);
+    expect(canReceivePush(['finance'], false)).toBe(false);
+    expect(canReceivePush(['user_manager'], false)).toBe(false);
   });
 });
