@@ -272,7 +272,15 @@ function OverviewCard({
         ))}
         <span className="text-ghost">·</span>
         {/* Link management moved to the Per-event tab (G3) — jump through. */}
-        <button type="button" onClick={onManageLinks} className={cn('inline-flex items-center gap-1 font-semibold text-acc', press)}>
+        {/* 19px inline text: an invisible 13px ring gives a 45px tap area (T1, touch). */}
+        <button
+          type="button"
+          onClick={onManageLinks}
+          className={cn(
+            "relative inline-flex items-center gap-1 font-semibold text-acc before:absolute before:-inset-y-[13px] before:inset-x-0 before:content-['']",
+            press,
+          )}
+        >
           {fmt(t.promo.convLinks, { n: links.length })}
           <Icon name="chev" size={13} />
         </button>
@@ -293,7 +301,9 @@ function RangeSeg({ range, setRange }: { range: PromoRange; setRange: (r: PromoR
             type="button"
             onClick={() => setRange(r.key)}
             className={cn(
-              'whitespace-nowrap rounded-[8px] px-[13px] py-2 font-display text-[13px] font-bold',
+              // 36px inside a 3px-padded, 1px-bordered strip: a 4px ring → 44px
+              // tap area that stays inside the strip (T1, touch).
+              "relative whitespace-nowrap rounded-[8px] px-[13px] py-2 font-display text-[13px] font-bold before:absolute before:-inset-y-[4px] before:inset-x-0 before:content-['']",
               on ? 'bg-acc-dim text-acc' : 'text-faint',
               press,
             )}

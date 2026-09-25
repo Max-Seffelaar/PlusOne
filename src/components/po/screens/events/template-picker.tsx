@@ -13,6 +13,11 @@ import { t, fmt } from '@/lib/i18n';
 import type { PoTemplateRow } from '@/features/po/queries';
 import { Label, Note } from '../../kit';
 
+// The chips are 35px; an invisible 5px ring gives a 45px tap area on touch
+// (technique: kit `hitArea44`) without changing how they look. Wrapped rows sit
+// 10px apart so two rows' rings meet without overlapping (T1, iPad = touch).
+const chipHit = "relative before:absolute before:-inset-y-[5px] before:inset-x-0 before:content-['']";
+
 /** A blank/template selector chip. */
 function TemplateChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }): JSX.Element {
   return (
@@ -21,6 +26,7 @@ function TemplateChip({ label, active, onClick }: { label: string; active: boole
       onClick={onClick}
       className={cn(
         'rounded-full border px-[13px] py-[7px] font-display text-[12.5px] font-bold transition-colors',
+        chipHit,
         active ? 'border-acc bg-acc-dim text-acc' : 'border-line text-dim hover:brightness-110',
       )}
     >
@@ -49,7 +55,7 @@ export function TemplatePicker({
   return (
     <>
       <Label className="mb-2">{t.events.fieldTemplate}</Label>
-      <div className="mb-[14px] flex flex-wrap gap-2">
+      <div className="mb-[14px] flex flex-wrap gap-x-2 gap-y-[10px]">
         <TemplateChip label={t.events.templateBlank} active={!templateId} onClick={() => onChange(null)} />
         {shown.map((tpl) => (
           <TemplateChip key={tpl.id} label={tpl.name} active={templateId === tpl.id} onClick={() => onChange(tpl.id)} />
@@ -58,7 +64,7 @@ export function TemplatePicker({
           <button
             type="button"
             onClick={() => setExpanded(true)}
-            className="rounded-full border border-dashed border-line px-[13px] py-[7px] font-display text-[12.5px] font-bold text-faint transition-colors hover:brightness-110"
+            className={cn('rounded-full border border-dashed border-line px-[13px] py-[7px] font-display text-[12.5px] font-bold text-faint transition-colors hover:brightness-110', chipHit)}
           >
             {fmt(t.events.templateShowAll, { n: templates.length })}
           </button>

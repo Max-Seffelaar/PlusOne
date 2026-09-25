@@ -89,7 +89,13 @@ function MfaCard({ recommended }: { recommended: boolean }): JSX.Element {
           <button
             type="button"
             onClick={() => (on ? setConfirmDisable(true) : setEnroll(true))}
-            className={cn('mt-[7px] font-body text-[12.5px] font-bold', press, on ? 'text-faint' : 'text-acc')}
+            // 19px text button: an invisible 13px ring → 45px tap area, inside
+            // the row's own 14px bottom padding (T1, touch).
+            className={cn(
+              "relative mt-[7px] font-body text-[12.5px] font-bold before:absolute before:-inset-y-[13px] before:inset-x-0 before:content-['']",
+              press,
+              on ? 'text-faint' : 'text-acc',
+            )}
           >
             {on ? t.settings.profile.mfaDisable : t.settings.profile.mfaEnable}
           </button>

@@ -444,7 +444,8 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
                 onClick={() => void copyLink()}
                 aria-label={t.events.copyLinkAria}
                 className={cn(
-                  'flex shrink-0 items-center gap-1.5 rounded-[10px] border px-3 py-[7px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.2]',
+                  // Invisible 5px ring → 45px tap area inside the row's own padding (T1, touch).
+                  "relative flex shrink-0 items-center gap-1.5 rounded-[10px] border px-3 py-[7px] font-display text-[12.5px] font-bold transition-[filter] before:absolute before:-inset-y-[5px] before:inset-x-0 before:content-[''] hover:brightness-[1.2]",
                   copied ? 'border-acc/40 bg-acc-dim text-acc' : 'border-line text-dim',
                 )}
               >
