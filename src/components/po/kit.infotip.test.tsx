@@ -9,6 +9,9 @@
 import '@testing-library/jest-dom';
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { act } from 'react';
+import { hydrateRoot } from 'react-dom/client';
+import { renderToString } from 'react-dom/server';
 import { InfoTip } from './kit';
 
 const PROPS = {
@@ -93,5 +96,36 @@ describe('InfoTip', () => {
     }
     expect(panel.className).toContain('lg:[@media(pointer:fine)]:absolute');
     expect(close.className).toContain('h-[44px]');
+  });
+
+  it.each(['(pointer: fine)', '(pointer: coarse)'])('hydrates server HTML without a mismatch on a %s device', async (pointer) => {
+    const html = renderToString(<InfoTip {...PROPS} />);
+    const original = window.matchMedia;
+    window.matchMedia = ((q: string) => ({
+      matches: q.includes(pointer.slice(1, -1)),
+      media: q,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    })) as typeof window.matchMedia;
+    const errors: unknown[] = [];
+    const container = document.createElement('div');
+    container.innerHTML = html;
+    document.body.appendChild(container);
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    try {
+      await act(async () => {
+        root = hydrateRoot(container, <InfoTip {...PROPS} />, { onRecoverableError: (e) => errors.push(e) });
+      });
+      expect(errors).toEqual([]);
+      expect(container.innerHTML).toBe(html);
+    } finally {
+      window.matchMedia = original;
+      act(() => root?.unmount());
+      container.remove();
+    }
   });
 });
