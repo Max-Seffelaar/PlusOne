@@ -8,6 +8,18 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-25 — Fase 17 S2: Icons, splash, store listing drafts (86ey6bft8)
+
+Golf 3 of Fase 17, depends on N3 (merged). Draft PR `feat(native): app icons, splash, store listing drafts (86ey6bft8)`. No migration.
+
+- **Source constraint:** the repo has no vector/larger-than-512px brand source — `public/icon-maskable-512x512.png` is the largest master. Flagged for Max: a real 1024×1024+ (ideally SVG) master is needed before App Store submission; everything generated here is upscaled from 512px and will not be crisp at the full-size App Store icon slot.
+- **Generation:** `@capacitor/assets@3.0.5` from `assets/icon.png` (a checked-in copy of the maskable 512 source) via Custom-mode `--ios --android` generation, `--iconBackgroundColor/--iconBackgroundColorDark '#B5A6FF'` (matches the existing baked-in icon background — the icon tile itself has always been lavender, only the shell/splash is near-black), `--splashBackgroundColor/--splashBackgroundColorDark '#0B0B0D'` (design-system near-black, matches `SHELL_BACKGROUND` in `capacitor.config.ts` and `plusone_colors.xml` — no separate light/dark theme, both variants render identically on purpose, no white flash).
+- **Could not run `@capacitor/assets` via `pnpm dlx` in this container:** its pinned `sharp@0.32.6` failed to load a prebuilt binary through `pnpm dlx`'s install path. Fell back to the documented escape hatch: installed `sharp@0.32.6` + `@capacitor/assets@3.0.5` with plain `npm install` in a throwaway directory *outside* the repo (not committed, doesn't touch `package.json`/the lockfile), then ran the CLI binary from there against the repo. `package.json`/`pnpm-lock.yaml` are untouched.
+- **Android:** full adaptive-icon set (`ic_launcher_foreground`/`_background` per density incl. a generated `ldpi` bucket, `mipmap-anydpi-v26/ic_launcher*.xml`) + legacy square/round launcher icons + light/night splash drawables (both identical — single dark theme). The generator also reformatted `AndroidManifest.xml` whitespace (attribute values unchanged) as part of its normal write path.
+- **iOS:** single-size `AppIcon-512@2x.png` (1024×1024, RGB, no alpha — App Store requires opaque) in the modern one-entry `AppIcon.appiconset`; `Splash.imageset` regenerated as `Default@{1,2,3}x~universal~anyany[-dark].png`. Removed the three now-orphaned N3-scaffold placeholder splash PNGs (`splash-2732x2732*.png`) that the new `Contents.json` no longer references.
+- **Store metadata** (`docs/store/`): Play + App Store listing drafts in Dutch (primary) + English — short/full descriptions, subtitle, promotional text, keywords, data-safety/privacy-nutrition-label notes, export compliance (HTTPS-only, exempt), review notes for the 4.2 defense, and a `screenshots.md` shot-list (iPhone 6.7" + iPad 13" + Android phone) blocked on T1 (tablet layouts) landing first. Content matches shipped features only — no ticketing, no outbound invites, no native billing UI (decisions #36/#32).
+- **Open items for Max:** a proper ≥1024×1024 icon master (SVG preferred); screenshots after T1; final category/age-rating choice in each console; App Store review-login credentials once S3 lands.
+
 ## 2026-09-25 — Fase 17 N3: Capacitor scaffold + Android shell (86ey6bfdm)
 
 Golf 2 of Fase 17. No migration. Draft PR `feat(native): Capacitor scaffold + Android shell (86ey6bfdm)`.
