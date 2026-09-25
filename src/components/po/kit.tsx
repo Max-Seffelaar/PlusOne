@@ -886,9 +886,11 @@ export function GuideCard({
 // ── InfoTip ──────────────────────────────────────────────────────────────────
 /**
  * A 44x44 "i" button that explains the control beside it (ADE UX round, item D).
- * One DOM node for both densities: an anchored popover from `lg:` up, a bottom
- * sheet with a dimmed backdrop below it — no media-query JS, so it behaves the
- * same in a Capacitor webview (#37). Closes on Escape, on an outside tap and on
+ * One DOM node for both densities: an anchored popover for a fine pointer from
+ * `lg:` up, a bottom sheet with a dimmed backdrop everywhere else — including an
+ * iPad in landscape, which has desktop width but a finger (T1, design-system.md
+ * "Breakpoints & tablet"). No media-query JS, so it behaves the same in a
+ * Capacitor webview (#37). Closes on Escape, on an outside tap and on
  * its own close button; the panel is wired to the button via `aria-describedby`.
  * All copy comes from the caller's i18n surface — the kit ships no strings.
  */
@@ -952,16 +954,18 @@ export function InfoTip({
       {open && (
         <>
           {/* Touch only: the sheet gets a backdrop; the desktop popover doesn't. */}
-          <span className="fixed inset-0 z-40 bg-[rgba(6,6,8,0.6)] backdrop-blur-[2px] lg:hidden" />
+          <span className="fixed inset-0 z-40 bg-[rgba(6,6,8,0.6)] backdrop-blur-[2px] lg:[@media(pointer:fine)]:hidden" />
           <span
             id={panelId}
             role="dialog"
             aria-label={title}
             className={cn(
               // The extra bottom padding keeps the sheet's content clear of the
-              // mobile tab bar (which sits in normal flow under this overlay).
-              'fixed inset-x-0 bottom-0 z-50 block rounded-t-[22px] border border-line bg-elev p-[18px] pb-[calc(80px+env(safe-area-inset-bottom))] text-left shadow-[0_-16px_40px_rgba(0,0,0,0.55)]',
-              'lg:absolute lg:inset-x-auto lg:bottom-auto lg:left-0 lg:top-[calc(100%+6px)] lg:w-[300px] lg:rounded-[16px] lg:p-4 lg:shadow-[0_16px_40px_rgba(0,0,0,0.55)]',
+              // mobile tab bar (which sits in normal flow under this overlay);
+              // the sidebar chrome (lg) has no tab bar. Capped at the kit
+              // Sheet's 560px so a tablet doesn't get an edge-to-edge sheet.
+              'fixed inset-x-0 bottom-0 z-50 mx-auto block max-w-[560px] rounded-t-[22px] border border-line bg-elev p-[18px] pb-[calc(80px+env(safe-area-inset-bottom))] text-left shadow-[0_-16px_40px_rgba(0,0,0,0.55)] lg:pb-[calc(18px+env(safe-area-inset-bottom))]',
+              'lg:[@media(pointer:fine)]:absolute lg:[@media(pointer:fine)]:inset-x-auto lg:[@media(pointer:fine)]:bottom-auto lg:[@media(pointer:fine)]:left-0 lg:[@media(pointer:fine)]:top-[calc(100%+6px)] lg:[@media(pointer:fine)]:mx-0 lg:[@media(pointer:fine)]:w-[300px] lg:[@media(pointer:fine)]:rounded-[16px] lg:[@media(pointer:fine)]:p-4 lg:[@media(pointer:fine)]:shadow-[0_16px_40px_rgba(0,0,0,0.55)]',
             )}
           >
             <span className="block font-display text-[15.5px] font-extrabold tracking-[-0.01em] text-text">{title}</span>
@@ -970,7 +974,7 @@ export function InfoTip({
               type="button"
               onClick={() => setOpen(false)}
               className={cn(
-                'mt-3 flex h-[44px] w-full cursor-pointer items-center justify-center rounded-[12px] border border-line font-display text-[13px] font-bold text-dim lg:h-[36px]',
+                'mt-3 flex h-[44px] w-full cursor-pointer items-center justify-center rounded-[12px] border border-line font-display text-[13px] font-bold text-dim lg:[@media(pointer:fine)]:h-[36px]',
                 press,
               )}
             >

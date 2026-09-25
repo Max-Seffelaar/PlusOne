@@ -78,4 +78,20 @@ describe('InfoTip', () => {
     fireEvent.click(screen.getByRole('button', { name: PROPS.closeLabel }));
     expect(screen.queryByText(PROPS.body)).toBeNull();
   });
+
+  // T1 (design-system.md "Breakpoints & tablet"): an iPad in landscape has
+  // desktop width and a finger — it must get the sheet, not a 300px popover
+  // with a 36px close button. The popover is gated on a fine pointer.
+  it('switches to the anchored popover only for a fine pointer, never on width alone', () => {
+    render(<InfoTip {...PROPS} />);
+    fireEvent.click(screen.getByRole('button', { name: PROPS.label }));
+    const panel = screen.getByRole('dialog');
+    const close = screen.getByRole('button', { name: PROPS.closeLabel });
+    for (const el of [panel, close]) {
+      const bareLg = el.className.split(/\s+/).filter((c) => /^lg:(?!\[@media)/.test(c) && !/^lg:pb-/.test(c));
+      expect(bareLg, el.tagName).toEqual([]);
+    }
+    expect(panel.className).toContain('lg:[@media(pointer:fine)]:absolute');
+    expect(close.className).toContain('h-[44px]');
+  });
 });
