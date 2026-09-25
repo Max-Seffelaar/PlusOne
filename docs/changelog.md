@@ -40,6 +40,255 @@ below). No migration, no dependency change.
 
 ---
 
+## 2026-09-25 — Fase 17 S3 round 4: explicit demo refusal copy (86ey6bfug)
+
+Same branch/PR (#332), after Max's hands-on test. **No migration.**
+
+- **Invite refusal was generic:** the invites trigger's 42501 fell through
+  `inviteUserAction` as "Couldn't record the invite.", which a store reviewer reads as a bug
+  (guideline 2.1). `inviteUserAction` and `resendInviteAction` now refuse the demo account
+  (`isDemoReviewUser`) right after the session check, before any read/insert. The trigger
+  stays the boundary.
+- **Found while grepping:** `inviteExternalCrew` provisions an account through the service
+  role with no `invites` row, so the round-3 trigger never saw it: the demo admin could make
+  its own mailbox crew on a demo event and create a venue as that account (the same one-hop
+  tenant). It and `resendCrewInvite` now refuse the demo account before any side effect;
+  for the demo account this app check IS the stop on that path. (Round 3's note that
+  "the only invite path is createInviteAction" missed it; the function is `inviteUserAction`.)
+- **Copy in the catalogue:** `t.auth.demoNoInvites` / `demoNoVenues` / `demoNoEmailChange`;
+  e-mail copy now "The demo account's email can't be changed.".
+- **Runbook:** "Wat de reviewer ziet" table + a ready-to-paste review-notes paragraph.
+- Tests: `invite-actions.test.ts` (demo refused, no read/insert/mail; admin reaches insert),
+  new `actions.crew-demo.test.ts`, `profile-actions.test.ts` asserts the new copy.
+
+## 2026-09-24 — Fase 17 S3 round 3: the demo venue never invites (86ey6bfug)
+
+Same branch/PR (#332), follow-up on the round-3 review. **Adds a migration.**
+
+- **Migration `20260925130100_review_demo_no_invites.sql`**: a `before insert` trigger on
+  `public.invites` refuses (42501) any invite into the demo venue (fixed id), for every role
+  incl. service_role. Closes the invitee hop: the demo admin invites its own mailbox, that
+  account creates a venue (the round-2 guard keys on the demo id only). Trigger function is
+  `security invoker`, `search_path = ''`, execute revoked from `public, anon, authenticated`.
+  The only invite insert path in the code is `createInviteAction`; none targets the demo venue.
+  pgTAP `review_demo_no_invites.test.sql` (plan 12): demo admin / service role / owner
+  refused, `accept_pending_invites` adds nothing, a normal venue still invites, trigger shape.
+- **Seed:** on stray demo-venue members, also lists venues whose
+  `settings.onboarding.created_by` is a stray id (shown only, never deleted).
+- **Runbook:** venue creation + invites both blocked in the DB; the `LANDING_IP_SALT` line
+  now says only the login route 500s without it (the end route logs `no-client`).
+- Checks here: lint, tsc, vitest. **Not run here:** pgTAP (no Docker/Supabase CLI; CI is
+  the DB gate), the seed script.
+
+## 2026-09-24 — Fase 17 S3 round 2: demo guard migration, middleware gate, role check (86ey6bfug)
+
+Same branch/PR (#332), follow-up session on the round-2 review. **Adds a migration.**
+
+- **Role check** (`route.ts`): the demo membership must carry exactly `DEMO_ROLES`
+  (`admin,doorhost`, mirrored in the seed) → else `roles_changed`, checked BEFORE the
+  member/invite counts (those reads only see the whole venue as admin, and an admin can
+  rewrite its own row).
+- **Migration `20260925130000_review_demo_guard.sql`**: `create or replace` of the latest
+  `create_venue_with_owner` (20260713180000) with one guard: `auth.uid()` = the fixed demo
+  id → 42501. Signature, `security definer`, `search_path = ''` and ACL unchanged. pgTAP
+  `review_demo_guard.test.sql` (plan 10). `createVenueAction` refuses the demo account with
+  a clear message; the seed fails on `audit_log` rows by the demo actor outside the demo venue.
+- **Middleware** (`updateSession`): the demo account outside its window gets a global
+  sign-out + 303 `/login` (503 if the sign-out fails) on every covered route, reusing the
+  user it already resolved, with no query. Seed `--end-review` revokes every demo session. Residual:
+  a pure-API client that never requests the app keeps its session until the next review
+  login or `--end-review`.
+- End route computes the log key after the sign-out (`'no-client'` fallback). Demo events
+  `landing_active = false` (restored every run). Wording: the e-mail lock is "belt and
+  braces on top of Secure email change", with a runbook check that it is ON in prod.
+- Checks here: lint, tsc, vitest. **Not run here:** pgTAP (`pnpm db:test`, no Docker/Supabase
+  CLI in the container; CI is the DB gate), the seed script, a real login.
+
+## 2026-09-24 — Fase 17 S3: store-review login + demo venue (86ey6bfug)
+
+Branch `claude/86ey6bfug-review-login`, PR #332. No migration.
+
+- `src/app/auth/review-login/route.ts` (new), plus helpers in
+  `src/features/auth/review-login.ts` and `review-window.ts`:
+  - GET serves a static code form; POST takes the code **in the body**.
+  - The route is off (empty 404 on both) unless `REVIEW_LOGIN_CODE` has ≥26
+    letters/digits (130 bits) AND `REVIEW_LOGIN_EXPIRES_AT` is a zoned ISO
+    timestamp in the future and ≤60 days out. The window closes by itself.
+  - Order of checks: same-origin → per-client limiter (5/15 min, **no global
+    cap**, so junk from many IPs can't lock the reviewer out) →
+    sha256 + `timingSafeEqual` → ONE service-role call (`generateLink` for the
+    constant `app-review@demo.plus-one.io`) → verify as the user → fail-closed
+    checks (e-mail, no verified TOTP, not platform admin, exactly one membership
+    **by the fixed venue id** `de300000-…0001`, name is display only).
+  - On success, `signOut({ scope: 'others' })`: one live demo session at a time;
+    if that fails, the new session is dropped too.
+  - Fixed destination `/app` via `resolveEntryDestination`; no `next=`. All
+    responses `no-store`.
+- `src/app/auth/review-login/end/route.ts` (new) + a branch in
+  `src/app/app/layout.tsx`: once the window is closed, a demo-account session is
+  sent to the end route, which signs out every demo session (`scope: 'global'`)
+  and lands on `/login`.
+  - The layout cannot clear cookies, and a signed-in user on `/login` is bounced
+    back to `/app`, hence the route. Only an e-mail compare for other users.
+  - It never acts on another user or on an open window.
+- "Audited" = one structured PII-free server-log line per POST / ended session
+  (no code, e-mail or raw IP) + GoTrue's own auth audit log. No app-code
+  `audit_log` writes (#4).
+- `scripts/seed-demo-venue.mjs` (new): idempotent demo tenant.
+  - Venue on the fixed id, 2 events moved forward on each run, tiers, 34 fake
+    guests, 3 open requests.
+  - Demo user via `admin.createUser` (no mailbox exists; an invite would bounce),
+    roles `admin,doorhost`, MFA factors reset.
+  - Refuses CI and a non-local target without `--prod`; stops on the
+    platform-admin flag or on foreign memberships.
+  - `comped` stays the manual SQL from `docs/stripe-setup.md` §5 (the script
+    prints it).
+- Runbook `docs/review-login.md` (per submission: set code + expiry, nothing to
+  unset); `.env.example` gains `REVIEW_LOGIN_CODE` + `REVIEW_LOGIN_EXPIRES_AT`.
+- Second round (orchestrator, Max's decision): no global limiter cap, venue by
+  id, the time-boxed code + `scope: 'others'` + the layout gate.
+- Third round (§6 reviewer findings, Max: fix now):
+  - The route verifies and checks on a **cookie-less** client and sets cookies
+    only after every check passes. A refusal no longer depends on `signOut`.
+  - **Venue isolation:** refused unless the demo user is the only member of the
+    demo venue and no open invite points at it or at the demo address.
+  - **Fixed demo user id** (`de300000-…a001`). The login requires id AND e-mail;
+    the layout gate, end route and `updateEmailAction` catch id OR e-mail.
+    `updateEmailAction` refuses the demo account.
+  - OPTIONS/PUT/PATCH/DELETE → the same empty 404.
+  - Seed: `mfa_snooze_until = 'infinity'`, stray members → stop or
+    `--reset-members`, open invites deleted, clear 23505 slug error, `?filter=`
+    user lookup, live-session count.
+  - Shared `clientIpFromHeaders` in `src/features/requests/ip-hash.ts`.
+- Tests: review-login, review-window, both routes, and the layout branch. Not run
+  here (no Supabase stack in the container): the seed script and a real login,
+  local or prod.
+- Open for the orchestrator: how the reviewer reaches the route inside the native
+  shell (no URL bar); a durable DB rate limit (would need a migration); the Vercel
+  Firewall rule (manual).
+
+## 2026-09-25 — Fase 17 N2: push backend, live-but-sleeping (86ey6bfbe)
+
+Branch `claude/86ey6bfbe-push-backend`. Three migrations, the repo's first Edge
+Function, pgTAP, a runbook. No UI, no client registration (N5), no Vercel env.
+
+- `20260925120000_push_tokens_outbox.sql` — `push_tokens` (owner-only RLS on all
+  verbs, no platform-admin bypass; `session_id` stamped from the JWT by a BEFORE
+  trigger, so a client can neither pick a foreign session nor register without
+  one; a token held by a *dead* session of another user yields on re-register —
+  shared door tablets — superseded in review: possession of the device token now
+  wins for a live session too, see below) and `notification_outbox` (RLS
+  on, no policies, no app-role grants). AFTER triggers on `quota_requests`
+  (created → venue admins; decided → requester) and `guest_requests` (created →
+  venue admins + that event's organizers). Recipients come straight from
+  `venue_memberships`/`event_organizers` of the row's venue/event — never the
+  `auth.uid()` helpers with the platform-admin disjunct. Payload = ids + kind
+  only. Dedupe key `unique (dedupe_key, recipient_user_id)`; the trigger body
+  runs in its own exception block, so broken plumbing never fails a request.
+- `20260925120100_push_dispatch_wiring.sql` — `pg_net` (guarded like pg_cron),
+  Vault-backed URL (`plusone_push_dispatch_url`; absent ⇒ asleep),
+  statement-level kick on outbox insert that mints a single-use invocation token
+  (`push_dispatch_tokens`, sha256 only, 10 min), service_role-only RPCs
+  `claim_push_outbox` (consumes the token; hands out only FCM tokens whose auth
+  session still exists), `complete_push_outbox` (retry/backoff 2^n min, max 5 attempts),
+  `prune_push_tokens`; pg_cron `plusone-push-outbox-sweep` (2 min) and
+  `plusone-push-token-prune` (daily: 90 days unseen or dead session; finished
+  outbox rows > 30 days). **First CI run showed Supabase keeps `anon`/`authenticated`
+  access to schema `net`** (platform grant, `postgres` cannot revoke it), so a
+  static secret in the pg_net header would have been readable from
+  `net.http_request_queue` — hence the single-use token instead of a Vault secret.
+- `20260925120200_push_tokens_revoke_on_logout.sql` — `revoke_own_session` /
+  `admin_revoke_session` also delete the revoked session's tokens; authorization
+  logic and signatures unchanged (`session-actions.ts` untouched).
+- `supabase/functions/push-dispatch/` — FCM HTTP v1 via an RS256 service-account
+  JWT (WebCrypto), prune on `UNREGISTERED` / `SENDER_ID_MISMATCH` / invalid-token
+  `INVALID_ARGUMENT`, never logs tokens/JSON/secret. `verify_jwt = false`
+  (`supabase/config.toml`); the gate is the single-use token consumed in
+  `claim_push_outbox`, one claim (≤ 200 rows) per invocation. Logic sits in a runtime-agnostic `dispatch.ts` so CI's
+  vitest covers it (`tests/unit/push-dispatch.test.ts`, 31 tests) — CI runs no
+  Deno tests.
+- pgTAP: `push_tokens.test.sql` (40), `push_outbox.test.sql` (24),
+  `push_dispatch.test.sql` (42); `grant_matrix.test.sql` allowlists
+  `push_tokens` DELETE; `tables.test.sql` lists the three tables.
+- Spec decision #50; runbook `docs/push-dispatch.md` (FCM Edge secrets, deploy,
+  Vault on-switch, check queries).
+
+**Review round (orchestrator + independent review of `a707afd`), folded into one push:**
+decided-branch notifies `old.user_id` (the requester as filed — `authenticated` still
+holds a table-wide UPDATE on `quota_requests`; narrowing that column grant is a
+separate task); a bare FCM 404 is `permanent`, never `prune`; the function
+authenticates the caller first via the read-only `push_dispatch_token_valid`
+(no 503-vs-401 oracle) and tells a refused invocation token (401 `invalid_token`)
+apart from a rejected service-role key (502 `service_key_rejected`); module-scope
+OAuth token cache with expiry; `push_tokens.session_id` defaults from the JWT;
+shared tablet: possession of the device token wins (a live-session row of another
+user for the same `(transport, token)` is replaced). Parked for milestone ≥25:
+chunked/batch `complete_push_outbox`, kick debounce, outbox cleanup on membership
+removal.
+
+**Not run in the building session** (no Supabase stack/Docker in the container):
+`pnpm db:test`, `supabase db reset`, `db:test:concurrency`, e2e, a Deno run of the
+function. `database.types.ts` was hand-written to the schema — regenerate after
+merge to confirm. Ran: lint, type-check, vitest (176 files / 1891 tests).
+
+## 2026-09-24 — Fase 17 T1: tablet layouts, session 1 (z8uq9m0fzj)
+
+iPad is in native v1 (capacitor-plan decision 10), so 641–1023px became a hard
+S5 dependency. This session: the breakpoint decision, the shell, the Door tab,
+and the screen-wide content rules. Draft PR, branch `claude/z8uq9m0fzj-tablet-layouts`.
+
+**Decision (design-system.md "Breakpoints & tablet"): one chrome breakpoint,
+three axes.** The chrome stays at 1024px: bottom tabs below it, the sidebar at
+and above it. There is no tablet chrome tier. The reason that carried it: `useViewport` also
+picks the Door variant. Lowering the chrome breakpoint would move an iPad
+portrait at the door from the offline-outbox door (#25) to the online-only
+cockpit. A 252px sidebar on 744–834px also leaves a phone-width column.
+Content layout switches at `md:` (768px), because an iPad portrait column
+(768–834px) is as wide as desktop's at 1024px (772px). Density follows the
+pointer: sizes below 44px only apply behind `lg:[@media(pointer:fine)]:`.
+The per-screen column class (`WIDE_DESKTOP`) now applies in both chromes.
+
+**Changed.** `shell-responsive.tsx`: the column cap applies in the bottom-tab
+chrome too, and both roots pad for side safe-area insets (inert until
+`viewport-fit=cover`). `shell.tsx`: the tab bar clusters its items in a centered
+640px row, and `Sheet` is capped at 560px. `datetime-field.tsx`: desktop input
+mode needs `(min-width: 1024px) and (pointer: fine)`, so iPad landscape keeps the
+centered calendar and the native time wheel. `daypicker.tsx`: its compact sizes
+are pointer-gated. `event-row.tsx` and the screens home, events (+crew, past,
+stats-panel), approvals, team, guests (index, list-shared, bulk-add), audit,
+platform-audit and platform: content `lg:` → `md:`. `screens/door.tsx`: the
+Check-in/Tasks pills and "Switch" were about 31px tall; an invisible 7px ring
+makes them 45px. Guest detail and add-on-spot sit in a centered 640px column
+on tablet.
+
+**Guards.** `tests/unit/touch-density.test.ts` fails on any width-only shrink
+below 44px in `src/components/po`, `src/features/po` and `src/features/door`.
+`kit.tsx` is known debt until N1. `src/components/po/shell-tablet.test.tsx`
+pins the chrome/column/pointer decision. Its pointer test failed when the
+query was reverted to width-only.
+
+**Not done / waiting.** The `kit.tsx` InfoTip (the `lg:h-[36px]` close button,
+and its popover-vs-sheet switch on `lg:`) plus `promotion/roster.tsx` and
+`promotion/event-links.tsx` (`lg:grid-cols-2` → `md:`) are frozen until N1
+(86ey6bfam) merges. **Door on iPad landscape, decided by Max the same day
+(plan decision 14, task N6 after N3):** `(pointer: coarse)` or `<1024px` gets the
+outbox door, and the cockpit is only for a fine pointer at `≥1024px`. Until N6
+lands, an iPad in landscape at the door still gets the online-only cockpit.
+
+**Review round (orchestrator).** The shell root now pads the top and side safe
+area once, for both chromes (N1 turns on `viewport-fit=cover`). The desktop
+sidebar footer clears the home indicator itself. The bottom inset stays with
+`TabBar`/`BottomBar`/`Sheet`, so it is never counted twice. The standalone
+`/door/<id>` route (`DoorRoute.tsx`, outside the fence) has its own root and
+does not get the top inset yet.
+
+**Tests run here.** `pnpm type-check` clean. `pnpm lint`: only the two
+pre-existing combobox a11y warnings in `datetime-field.tsx`. `pnpm vitest run`:
+177 files / 1877 tests green. `tests/unit/pgtap-plan-run-gate.test.ts` › "slow
+reader" failed once under full-suite load, and passed alone and on re-run. That
+is a timing flake, not related to this diff. Not run (no Supabase stack or
+docker in this container): pgTAP, e2e, and real-device/iPad screenshots.
+
 ## 2026-09-24 — Fase 17 N1: webview-prep kit helpers (86ey6bfam)
 
 Golf 1 of Fase 17. No migration, no dependency change.

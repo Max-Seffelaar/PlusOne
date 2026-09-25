@@ -12,6 +12,7 @@ import { useNav } from '../../context';
 import { Icon } from '../../icon';
 import { Avatar, Btn, Empty, Field, Label, MiniChip, Note, Scroll, Top, press } from '../../kit';
 import { Sheet } from '../../shell';
+import { useIsDemoAccount } from '../../app-shell-data';
 import { col } from './shared';
 
 // ── EXTERNAL CREW (pushed) — event_organizers + per-event quota (#6/#24, 86ey21vre) ──
@@ -126,6 +127,10 @@ export function Crew({ eventId }: { eventId?: string }): JSX.Element {
   const edit = usePoEventForEdit(id);
   const defaultQuota = edit.data?.defaultMemberQuota ?? 0;
   const invite = usePoInviteExternalCrew();
+  // Store-review demo account (86ey6bfug): the e-mail invite is refused, so its
+  // form is replaced by the refusal upfront (adding returning crew still works).
+  // UX only — inviteExternalCrewAction still refuses the demo account.
+  const demo = useIsDemoAccount();
 
   const [addOpen, setAddOpen] = useState(false);
   const [email, setEmail] = useState('');
@@ -177,7 +182,7 @@ export function Crew({ eventId }: { eventId?: string }): JSX.Element {
         ) : crew.length === 0 ? (
           <Empty text={t.events.crew.empty} />
         ) : (
-          <div className="mb-5 flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px]">
+          <div className="mb-5 flex flex-col gap-[9px] md:grid md:grid-cols-2 md:gap-[10px]">
             {crew.map((m) => (
               <CrewMemberRow key={m.userId} eventId={id} member={m} canManage={isAdmin} />
             ))}
@@ -202,6 +207,11 @@ export function Crew({ eventId }: { eventId?: string }): JSX.Element {
             {t.events.crew.addHeading}
           </Btn>
         )}
+        {isAdmin && demo && (
+          <div className="mt-3">
+            <Note icon="shield">{t.auth.demoNoInvites}</Note>
+          </div>
+        )}
 
         {notice && (
           <p className="mt-3 text-[12.5px] text-acc-soft" role="status">
@@ -218,24 +228,30 @@ export function Crew({ eventId }: { eventId?: string }): JSX.Element {
 
           {/* Way 1: invite a brand-new external person by email, with a quota. */}
           <Label className="mb-2">{t.events.crew.inviteLabel}</Label>
-          <p className="mb-2.5 text-[12.5px] leading-[1.45] text-faint">{t.events.crew.inviteHint}</p>
-          <Field icon="mail" placeholder={t.events.crew.invitePlaceholder} value={email} onChange={setEmail} inputMode="email" className="mb-2.5" />
-          <Field
-            icon="ticket"
-            placeholder={String(defaultQuota)}
-            value={inviteQuota}
-            onChange={(v) => setInviteQuota(v.replace(/[^0-9]/g, '').slice(0, 4))}
-            inputMode="numeric"
-            className="mb-1.5"
-          />
-          <div className="mb-2.5 pl-0.5 text-[12px] leading-[1.4] text-faint">{t.events.crew.quotaHelp}</div>
-          <Btn kind="primary" full icon="plus" disabled={!canInvite} className={canInvite ? '' : 'opacity-[0.45]'} onClick={doInvite}>
-            {invite.isPending ? t.events.crew.inviting : t.events.crew.inviteCta}
-          </Btn>
-          {err && (
-            <p className="mt-2 text-[12px] text-red-300" role="alert">
-              {err}
-            </p>
+          {demo ? (
+            <Note icon="shield">{t.auth.demoNoInvites}</Note>
+          ) : (
+            <>
+              <p className="mb-2.5 text-[12.5px] leading-[1.45] text-faint">{t.events.crew.inviteHint}</p>
+              <Field icon="mail" placeholder={t.events.crew.invitePlaceholder} value={email} onChange={setEmail} inputMode="email" className="mb-2.5" />
+              <Field
+                icon="ticket"
+                placeholder={String(defaultQuota)}
+                value={inviteQuota}
+                onChange={(v) => setInviteQuota(v.replace(/[^0-9]/g, '').slice(0, 4))}
+                inputMode="numeric"
+                className="mb-1.5"
+              />
+              <div className="mb-2.5 pl-0.5 text-[12px] leading-[1.4] text-faint">{t.events.crew.quotaHelp}</div>
+              <Btn kind="primary" full icon="plus" disabled={!canInvite} className={canInvite ? '' : 'opacity-[0.45]'} onClick={doInvite}>
+                {invite.isPending ? t.events.crew.inviting : t.events.crew.inviteCta}
+              </Btn>
+              {err && (
+                <p className="mt-2 text-[12px] text-red-300" role="alert">
+                  {err}
+                </p>
+              )}
+            </>
           )}
 
           <div className="my-4 border-t border-line2" />

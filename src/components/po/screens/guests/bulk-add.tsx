@@ -61,7 +61,7 @@ export function GuestBulkBar({
 }): JSX.Element {
   const ms = t.guests.multiSelect;
   return (
-    <div className="flex w-full flex-wrap items-center gap-2 pb-3 lg:pb-0">
+    <div className="flex w-full flex-wrap items-center gap-2 pb-3 md:pb-0">
       <span className="flex-1 whitespace-nowrap font-display text-[14px] font-bold text-text">
         {fmt(ms.selectionBar, { n: count })}
       </span>
