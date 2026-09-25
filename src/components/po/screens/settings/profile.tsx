@@ -21,7 +21,7 @@ import { col, FormError, PendingOutboxError, PendingOutboxSheet, signOutDevice }
 // mfa-gate: QR + 6-digit code) and disable it again. For admin/finance we still
 // RECOMMEND it (`recommended`, was `mandatory`) — copy + chip only, never a gate.
 // The verified factor is read client-side from GoTrue (Capacitor-safe, #37).
-function MfaCard({ recommended }: { recommended: boolean }): JSX.Element {
+function MfaCard({ recommended, demo = false }: { recommended: boolean; demo?: boolean }): JSX.Element {
   const [hasMfa, setHasMfa] = useState<boolean | null>(null); // null = still loading
   const [enroll, setEnroll] = useState(false);
   const [confirmDisable, setConfirmDisable] = useState(false);
@@ -86,7 +86,13 @@ function MfaCard({ recommended }: { recommended: boolean }): JSX.Element {
       <div className="flex-1">
         <div className="text-[14.5px] font-semibold text-text">{t.settings.profile.mfaTitle}</div>
         <div className="mt-0.5 text-[12px] leading-[1.4] text-faint">{sub}</div>
-        {hasMfa !== null && (
+        {demo ? (
+          // The store-review demo account (86ey6bfug): a factor on the shared
+          // account locks the next reviewer out, so no enroll/disable entry.
+          <div className="mt-[7px]">
+            <Note icon="shield">{t.auth.demoNoMfa}</Note>
+          </div>
+        ) : hasMfa !== null && (
           <button
             type="button"
             onClick={() => (on ? setConfirmDisable(true) : setEnroll(true))}
@@ -259,7 +265,7 @@ export function Profile(): JSX.Element {
 
         <Label className="mb-[10px] mt-[18px]">{t.settings.profile.securityLabel}</Label>
         <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-4 py-1">
-          <MfaCard recommended={p.mfaRequired} />
+          <MfaCard recommended={p.mfaRequired} demo={demo} />
           <div className="flex items-center gap-[12px] py-[14px]">
             <span className="text-faint">
               <Icon name="mail" size={19} />

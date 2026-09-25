@@ -46,7 +46,11 @@ export function TeamStep({ venueId, demoAccount = false }: { venueId: string; de
   }
 
   async function finish(): Promise<void> {
-    await completeOnboardingAction({ venueId });
+    const res = await completeOnboardingAction({ venueId });
+    if (!res.ok) {
+      setError(res.message ?? c.finishError);
+      return;
+    }
     // Land on Home (Max, 3/7 test round): a fresh owner should arrive at the
     // dashboard and orient first — not be pushed straight into event creation.
     router.push('/app');
@@ -88,9 +92,12 @@ export function TeamStep({ venueId, demoAccount = false }: { venueId: string; de
         heading={c.heading}
         sub={c.sub}
         footer={
-          <Btn kind="dark" full onClick={skip} disabled={pending}>
-            {c.skip}
-          </Btn>
+          <>
+            {error && <div className="mb-3 text-[13.5px] text-[#ff9b9b]">{error}</div>}
+            <Btn kind="dark" full onClick={skip} disabled={pending}>
+              {c.skip}
+            </Btn>
+          </>
         }
       >
         <RefusedAction label={c.send} reason={t.auth.demoNoInvites} />

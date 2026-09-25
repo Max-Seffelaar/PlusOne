@@ -176,6 +176,22 @@ describe('team member sheet: the demo membership', () => {
   });
 });
 
+describe('profile two-factor card', () => {
+  it('demo: the note instead of any enroll entry', async () => {
+    H.demo = true;
+    render(<Profile />);
+    expect(await screen.findByText(t.auth.demoNoMfa)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: t.settings.profile.mfaEnable })).toBeNull();
+  });
+
+  it('admin: the enroll entry as before', async () => {
+    H.demo = false;
+    render(<Profile />);
+    expect(await screen.findByRole('button', { name: t.settings.profile.mfaEnable })).toBeInTheDocument();
+    expect(screen.queryByText(t.auth.demoNoMfa)).toBeNull();
+  });
+});
+
 describe('profile e-mail change', () => {
   it('demo: e-mail is read-only with the note, no change button', async () => {
     H.demo = true;

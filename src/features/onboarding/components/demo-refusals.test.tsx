@@ -74,6 +74,14 @@ describe('TeamStep', () => {
     expect(H.invite).not.toHaveBeenCalled();
   });
 
+  it('stays put and shows the error when completing onboarding fails', async () => {
+    H.complete.mockResolvedValueOnce({ ok: false, code: 'x', message: 'no access' } as never);
+    render(<TeamStep venueId={VENUE} demoAccount />);
+    fireEvent.click(screen.getByRole('button', { name: t.onboarding.teamStep.skip }));
+    expect(await screen.findByText('no access')).toBeInTheDocument();
+    expect(H.push).not.toHaveBeenCalled();
+  });
+
   it('shows a normal owner the unchanged form', () => {
     render(<TeamStep venueId={VENUE} />);
     expect(refusal()).toBeNull();

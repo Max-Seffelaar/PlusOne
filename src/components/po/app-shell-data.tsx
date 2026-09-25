@@ -46,10 +46,15 @@ export function AppShellDataProvider({ value, children }: { value: AppShellData;
  * missing providers (screens rendered on their own): that reads as "not
  * demo", which only ever shows the normal form; the server still refuses.
  */
-export function useIsDemoAccount(): boolean {
+function useDemoSignals(): { account: boolean; venue: boolean } {
   const flag = useContext(AppShellDataContext)?.demoAccount === true;
   const identity = usePoIdentityOptional();
-  return flag || identity?.userId === DEMO_USER_ID;
+  const account = flag || identity?.userId === DEMO_USER_ID;
+  return { account, venue: account || identity?.venueId === DEMO_VENUE_ID };
+}
+
+export function useIsDemoAccount(): boolean {
+  return useDemoSignals().account;
 }
 
 /**
@@ -59,9 +64,7 @@ export function useIsDemoAccount(): boolean {
  * and every crew row (20260925130100 + 20260925150000). UX only.
  */
 export function useIsDemoVenue(): boolean {
-  const demo = useIsDemoAccount();
-  const identity = usePoIdentityOptional();
-  return demo || identity?.venueId === DEMO_VENUE_ID;
+  return useDemoSignals().venue;
 }
 
 export function useAppShellData(): AppShellData {

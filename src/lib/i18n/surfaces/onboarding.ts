@@ -79,5 +79,6 @@ export const onboarding = {
     skipHintBold: 'Team',
     skipHintPost: '.',
     sendError: "Couldn't send the invite.",
+    finishError: "Couldn't finish setting up. Try again.",
   },
 } as const;

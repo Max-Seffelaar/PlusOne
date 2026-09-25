@@ -100,4 +100,6 @@ export const auth = {
   demoNoVenues: "The demo account can't create venues.",
   demoNoEmailChange: "The demo account's email can't be changed.",
   demoNoOwnMembership: "The demo account's roles and venue access can't be changed.",
+  demoCannotJoin: "The demo account can't be added to other venues or events.",
+  demoNoMfa: 'Two-factor sign-in is turned off for the demo account.',
 } as const;
