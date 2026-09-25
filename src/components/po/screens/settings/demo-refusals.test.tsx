@@ -56,6 +56,7 @@ vi.mock('@/features/po/hooks', () => ({
     data: { firstName: 'A', lastName: 'B', phone: '', email: 'me@example.com', name: 'A B', roleLabel: 'Admin', mfaRequired: false },
   }),
   usePoSessions: () => ({ data: [] }),
+  usePoCanManageTemplates: () => false,
 }));
 vi.mock('@/features/po/mutations', () => {
   const names = [

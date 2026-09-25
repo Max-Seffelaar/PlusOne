@@ -4,7 +4,7 @@ import { type JSX, useCallback, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { createClient } from '@/lib/supabase/client';
-import { usePoProfile, usePoSessions } from '@/features/po/hooks';
+import { usePoCanManageTemplates, usePoProfile, usePoSessions } from '@/features/po/hooks';
 import { usePoUpdateProfile, usePoUpdateEmail, usePoRevokeOwnSession } from '@/features/po/mutations';
 import { groupPoSessions } from '@/features/po/adapters';
 import { PoMfaSheet } from '../../mfa-gate';
@@ -14,6 +14,9 @@ import { Avatar, Btn, Empty, Field, Label, Loading, MiniChip, Note, Scroll, Top,
 import { BottomBar, Sheet } from '../../shell';
 import { CountrySelect, PhoneInput, phoneCountryOf, type CountryCode } from '../../phone-lazy';
 import { useIsDemoAccount } from '../../app-shell-data';
+import { PushSettingsRow } from '../../push-settings-card';
+import { canReceivePush } from '../../push-client';
+import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { col, FormError, PendingOutboxError, PendingOutboxSheet, signOutDevice } from './_shared';
 
 // MFA row in the profile's security card (S4.3). MFA is OPTIONAL for every role
@@ -137,6 +140,8 @@ function MfaCard({ recommended }: { recommended: boolean }): JSX.Element {
 export function Profile(): JSX.Element {
   const nav = useNav();
   const profileQ = usePoProfile();
+  const { roles } = usePoIdentity();
+  const organizesHere = usePoCanManageTemplates();
   const sessionsQ = usePoSessions();
   const updateProfile = usePoUpdateProfile();
   const updateEmail = usePoUpdateEmail();
@@ -260,6 +265,7 @@ export function Profile(): JSX.Element {
         <Label className="mb-[10px] mt-[18px]">{t.settings.profile.securityLabel}</Label>
         <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-4 py-1">
           <MfaCard recommended={p.mfaRequired} />
+          <PushSettingsRow canReceive={canReceivePush(roles, organizesHere)} />
           <div className="flex items-center gap-[12px] py-[14px]">
             <span className="text-faint">
               <Icon name="mail" size={19} />

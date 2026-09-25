@@ -16,6 +16,12 @@ import { supabaseGateway } from '@/features/door/outbox/gateway';
 import { drainOutbox } from '@/features/door/outbox/replay';
 import { outbox } from '@/features/door/outbox/store';
 import { isPending, isRetryable } from '@/features/door/outbox/types';
+import {
+  clearPushPrefs,
+  invalidatePushTransportForSignOut,
+  resumePush,
+  unregisterPushForSignOut,
+} from '@/features/notifications/push-client';
 
 /**
  * Thrown when signing out would destroy door writes that never reached the
@@ -116,6 +122,7 @@ async function wipeDevice(): Promise<void> {
   await idbClearAll();
   await clearDeviceCaches();
   outbox.reset();
+  clearPushPrefs();
 }
 
 /** Real sign-out (T1 #7/#15): end the Supabase session, wipe this device, land on
@@ -159,7 +166,24 @@ async function wipeDevice(): Promise<void> {
  *  device either way, so nothing was protected by the early wipe. Either we
  *  leave (and the device is wiped) or we stay (and the device is intact and
  *  still theirs). The wipes remain network-independent; only their position
- *  moved. */
+ *  moved.
+ *
+ *  PUSH (Fase 17 N5, 86ey6bfkb), two steps, both native-only and bounded:
+ *  1. This device's `push_tokens` rows are deleted AFTER the outbox gate (a
+ *     refused sign-out changes nothing) and BEFORE `auth.signOut()`, because the
+ *     delete runs under this user's own JWT and owner-only RLS: once the session
+ *     is gone the client can no longer remove its row. Capped at 3 s and
+ *     aborted at the cap; nothing of it runs afterwards.
+ *  2. The FCM token itself is invalidated only once the session is confirmed
+ *     gone, right before the wipe — it needs no session, and it must never run
+ *     on a path where the user stays signed in.
+ *  On the `sign-out-incomplete` path the user stays signed in, so push is
+ *  re-registered before throwing (which also abandons whatever is left of step
+ *  1) — staying signed in must not silently mean staying without
+ *  notifications. `scope: 'global'` ends the OTHER devices' sessions inside
+ *  GoTrue, not through `revoke_own_session`, so their rows are not deleted
+ *  here; they are inert (dispatch needs a live session) and the daily prune
+ *  drops them. */
 export async function signOutDevice(
   scope: 'local' | 'global',
   opts?: { discardPending?: boolean },
@@ -176,6 +200,8 @@ export async function signOutDevice(
     if (stillPending > 0) throw new PendingOutboxError(stillPending);
   }
 
+  await unregisterPushForSignOut(supabase);
+
   try {
     await supabase.auth.signOut({ scope });
   } catch {
@@ -188,9 +214,11 @@ export async function signOutDevice(
   }
   if (await hasLocalSession(supabase)) {
     // Still signed in: keep this user's data, surface the failure to the caller.
+    void resumePush(supabase).catch(() => undefined);
     throw new Error('sign-out-incomplete');
   }
 
+  await invalidatePushTransportForSignOut();
   await wipeDevice();
   window.location.assign('/login');
 }

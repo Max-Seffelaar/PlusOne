@@ -98,6 +98,12 @@ const config: CapacitorConfig = {
       backgroundColor: SHELL_BACKGROUND,
       showSpinner: false,
     },
+    // Push (N5): no system banner while the app is in the foreground — the web
+    // app shows its own toast (push-client.tsx). Explicit so a plugin default
+    // change can't start double-notifying.
+    PushNotifications: {
+      presentationOptions: [],
+    },
   },
 };
 

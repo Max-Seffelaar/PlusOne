@@ -8,6 +8,93 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-25 — Fase 17 N5: push client + Capacitor push provider (86ey6bfkb)
+
+Branch `claude/86ey6bfkb-push-client`. Client half of the approvals-loop push (N2 is
+the backend). One migration (review round, below); decision #51 in the spec; runbook
+`docs/push-dispatch.md` ("Go-live order" + "The client").
+
+**Review round (independent review 5319103122 — 2 🔴, 2 🟠, 3 🟡, all fixed here):**
+- 🔴 First denial on Android 13+ comes back as `prompt-with-rationale` (= `default`), so
+  the card returned every launch. `enablePush` now records any non-grant (`po:push =
+  declined`) and the card also snoozes; the card shows only while nothing was decided.
+- 🔴 Profile "off" swallowed every failure. Now `off-pending` → delete results checked
+  (PostgREST returns `{ error }`, never throws) → `off` only on success; otherwise it
+  throws and the row shows `profileOffPending`. `resumePush` retries a pending off on
+  every start until it lands. `savePushToken` refuses unless `po:push = on`, so a late
+  `registration` event after "off" cannot recreate the row.
+- 🟠 Sign-out race: the 3 s cap didn't cancel the chain. Now an `AbortController` per
+  sign-out step (request aborted at the cap; `signOutDevice` awaits the step, so it is
+  over before any re-registration; no bookkeeping after), and the FCM `unregister()` moved to after the session is confirmed gone —
+  the `sign-out-incomplete` path never touches the transport token. Residual: a DELETE
+  that already reached PostgREST executes there; it precedes the re-registration.
+- 🟠 FCM token in the DELETE query string (API logs). Deletes are now by `session_id`
+  and by the row `id` the upsert returns (`po:push-row`, a uuid, wiped on sign-out).
+- 🟡 Cross-venue tap on a refused switch navigated anyway → the tap now uses the chrome's
+  own `switchToVenue(venueId, landing)`: stays put + `switchFailed`/`switchError` toast.
+- 🟡 Two identical upserts per registration → one in-flight/done save per token per run.
+- 🟡 Android ≤12 registered at first launch (OS grants from install) → registration now
+  requires `po:push = on`, written only by "Turn on"; the card shows for `granted` too.
+  Transport/label come from `src/features/notifications/transport.ts` (pinned to the
+  N2 check constraint by a unit test) and the provider's platform, no bare strings.
+- **Migration `20260925160000_push_tokens_last_seen_server_stamp.sql`** (the reviewer's
+  suggested follow-up, done now by orchestrator decision): `push_tokens_stamp` sets
+  `last_seen_at := now()` on INSERT and UPDATE for end-user writes; everything else
+  verbatim (SECURITY DEFINER, `search_path ''`, owner pass-through). Grants unchanged.
+  The client stopped sending `last_seen_at`. pgTAP `push_tokens.test.sql` 40 → 52
+  (F1–F12). **Needs the prod-push flow after merge** (go-live step 0).
+
+**Re-review (5319828005, approve + 9 🟡 nits, all fixed here):** `enablePush` returns
+`{ perm, registered }` and a granted-but-not-stored turn-on says so (`t.push.onPending`,
+toast + Profile line; `on` stays, every start retries); `disablePush` clears the per-run
+save dedupe so a same-run "turn on" re-upserts; an upsert landing after "off" hands its
+row to `off-pending`; the provider no longer memoizes a failed plugin load (listeners
+retry 3× at 2 s, so a retained cold-start tap survives one bad chunk fetch — a clean
+"no Firebase" is not retried); the dead `resumePush` abort + module controller are gone
+(the timer is the guarantee; docs corrected); `switchToVenue`'s `landing` goes through
+`appGateNextPath` (only ever `/app…`); the Profile row uses the ask card's role gate
+(`canReceivePush`); a non-uuid `po:push-row` is dropped instead of sent; the provider
+reports the shell's platform instead of a constant `android`. Kept two DELETEs rather
+than one `.or()` (no localStorage value inside a PostgREST filter string).
+
+- **Dependency:** `@capacitor/push-notifications` 8.1.2 (exact pin, Capacitor 8 like the
+  rest), `npx cap sync` output committed (Android gradle + iOS `Package.swift`). FCM only.
+- **Crash found and guarded:** the plugin's Android `register()`/`unregister()` call
+  `FirebaseMessaging.getInstance()` unguarded; with no `google-services.json` that throws
+  on the plugin thread and Capacitor rethrows it — the app dies. New local plugin
+  `PushConfigPlugin` (`isConfigured()` = the `google_app_id` resource exists), registered
+  in `MainActivity`; the provider never reaches Firebase paths when it says no (or is
+  missing in an older shell). Until the file lands, push is simply "unsupported".
+- **Provider seam:** `getNotificationProvider()` selects `CapacitorPushProvider` in the
+  native shell, the no-op elsewhere (no web-push adapter, decision 2). Android only: iOS
+  reports unsupported until S1b (APNs token ≠ FCM token).
+- **Lifecycle:** token upsert on `(transport, token)` via the user-scoped client, body
+  `transport`/`token`/`device_label` only (N2 defaults + stamp trigger own `user_id`,
+  `session_id` and — since the review round — `last_seen_at`).
+- **Sign-out:** `signOutDevice` deletes this device's rows (by `session_id` from the JWT
+  and by the remembered row id) after the outbox gate and before `auth.signOut()`, capped
+  and aborted at 3 s; the FCM token is invalidated once the session is confirmed gone;
+  on `sign-out-incomplete` push is re-registered. Push prefs are wiped with IDB/caches.
+- **UX:** explain-first ask card from the chrome (never at launch, ~8 s, off the Deur tab,
+  admins/organizers/staff only, "Not now" = 14 days, denial recorded), Profile →
+  Security toggle, foreground push = in-app toast, tap → Requests of that event (venue
+  switch first when needed), cold + warm (the plugin retains the tap event).
+- **Android:** `POST_NOTIFICATIONS`, channel `approvals` as FCM default,
+  `@drawable/ic_stat_plusone` placeholder icon (S2 replaces artwork, keeps the name).
+- **Tests:** provider selection + crash-guard gates, permission mapping, register /
+  timeout / error, upsert shape (no ids, no last_seen_at), denial and snooze, first-denial
+  record, Android ≤12 consent, offline off → online self-heal, dedupe, sign-out ordering
+  (log-based: push delete → signOut → FCM unregister → wipe; refused sign-out touches
+  nothing; web no-op; incomplete sign-out re-registers and never unregisters FCM), the
+  abandoned-delete race, cross-venue tap on a refused switch, kind→route map + payload validation, native-shell
+  guards (permission, channel id sync, no Analytics/Crashlytics, conditional
+  google-services). `door-render-isolation` green; `app.tsx` untouched.
+- **Ran:** `pnpm lint` (2 pre-existing warnings), `pnpm type-check`, `CI=1 pnpm test`
+  (199 files / 2162 tests), `pnpm build`. **Not run here:** Gradle/Android build, a device,
+  real FCM delivery, pgTAP/e2e (no Supabase stack or Docker in this container).
+
+---
+
 ## 2026-09-25 — Fase 17 N3: Capacitor scaffold + Android shell (86ey6bfdm)
 
 Golf 2 of Fase 17. No migration. Draft PR `feat(native): Capacitor scaffold + Android shell (86ey6bfdm)`.

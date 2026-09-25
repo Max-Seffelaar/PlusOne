@@ -66,9 +66,26 @@ vi.mock('./screens/home', async () => {
     Home: () => {
       const { switchToVenue } = usePo();
       return (
-        <button type="button" data-testid="switch" onClick={() => switchToVenue('018f3a2e-0000-7000-8000-00000000000b')}>
-          switch
-        </button>
+        <>
+          <button type="button" data-testid="switch" onClick={() => switchToVenue('018f3a2e-0000-7000-8000-00000000000b')}>
+            switch
+          </button>
+          {/* A push tap for another venue (N5): same switch, landing on its target. */}
+          <button
+            type="button"
+            data-testid="switch-hostile"
+            onClick={() => switchToVenue('018f3a2e-0000-7000-8000-00000000000b', 'https://evil.example/app')}
+          >
+            hostile landing
+          </button>
+          <button
+            type="button"
+            data-testid="switch-landing"
+            onClick={() => switchToVenue('018f3a2e-0000-7000-8000-00000000000b', '/app/requests?event=018f3a2e-0000-7000-8000-0000000000e1')}
+          >
+            switch to target
+          </button>
+        </>
       );
     },
   };
@@ -238,5 +255,49 @@ describe('PlusOneApp switchToVenue (86eykm7rk)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe('with a landing path (push tap for another venue, N5)', () => {
+    const LANDING = '/app/requests?event=018f3a2e-0000-7000-8000-0000000000e1';
+    async function clickLanding() {
+      await act(async () => {
+        screen.getByTestId('switch-landing').click();
+        await Promise.resolve();
+      });
+    }
+
+    it('reloads onto the target when the switch succeeds', async () => {
+      H.switchActiveVenueAction.mockResolvedValue('ok');
+      renderApp();
+      await clickLanding();
+      await waitFor(() => expect(assign).toHaveBeenCalledWith(LANDING));
+    });
+
+    it('stays put and shows the refusal toast when the server refuses — never an unreachable event', async () => {
+      H.switchActiveVenueAction.mockResolvedValue('denied');
+      renderApp();
+      await clickLanding();
+      await waitFor(() => expect(screen.getByText(t.venue.switchFailed)).toBeDefined());
+      expect(assign).not.toHaveBeenCalled();
+      expect(routerReplace).not.toHaveBeenCalledWith(LANDING);
+    });
+
+    it('never leaves the /app surface, whatever landing a caller passes', async () => {
+      H.switchActiveVenueAction.mockResolvedValue('ok');
+      renderApp();
+      await act(async () => {
+        screen.getByTestId('switch-hostile').click();
+        await Promise.resolve();
+      });
+      await waitFor(() => expect(assign).toHaveBeenCalledWith('/app'));
+    });
+
+    it('stays put and says so when the switch throws', async () => {
+      H.switchActiveVenueAction.mockRejectedValue(new Error('network'));
+      renderApp();
+      await clickLanding();
+      await waitFor(() => expect(screen.getByText(t.venue.switchError)).toBeDefined());
+      expect(assign).not.toHaveBeenCalled();
+    });
   });
 });

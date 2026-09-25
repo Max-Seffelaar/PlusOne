@@ -23,6 +23,13 @@ secret, and may be committed (plan decision 13). Until it exists the build works
 without it: `app/build.gradle` only applies the `com.google.gms.google-services`
 plugin when the file is present. FCM only — no Firebase Analytics/Crashlytics.
 
+Without the file the app must not call the push plugin's `register()`/`unregister()`
+(they throw natively and crash the app). The local `PushConfigPlugin` (registered in
+`MainActivity`) tells the web app whether Firebase is configured; see
+`docs/push-dispatch.md` → "The client". Notification icon: `res/drawable/ic_stat_plusone.xml`
+(placeholder — S2 replaces the artwork, keep the name); channel id in
+`res/values/plusone_push.xml`.
+
 ## Never commit
 
 Upload/signing keystores (`*.jks`, `*.keystore` — ignored); they live in Codemagic (S1a).

@@ -32,6 +32,8 @@ import { Toast, type TabKey } from './shell';
 import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
 import { useAppShellData } from './app-shell-data';
 import { NativeBackButton } from './native-back-button';
+import { PushAskCard, canReceivePush, usePushClient } from './push-client';
+import { appGateNextPath } from '@/features/auth/next-path';
 import { t } from '@/lib/i18n';
 
 /** How long a venue-switch error stays up. Longer than the 4s billing toast:
@@ -139,7 +141,7 @@ export function AppShellChrome({
   // so app/page.tsx re-resolves the identity and every live query re-scopes to the
   // new venue. (Local state alone can't re-scope server-resolved identity.)
   const switchToVenue = useCallback(
-    (venueId: string): void => {
+    (venueId: string, landing = '/app'): void => {
       // A no-op for the already-active venue (context.tsx) — unreachable from
       // the UI today, kept as a guard since this is public API (86ey9e9vc).
       if (venueId === activeVenueId) return;
@@ -160,7 +162,9 @@ export function AppShellChrome({
             showTransientToast(t.venue.switchFailed);
             return;
           }
-          window.location.assign('/app');
+          // `landing` is public API on the context: only ever an in-app /app
+          // path (same guard as the gates' `next=`), whatever a caller passes.
+          window.location.assign(appGateNextPath(landing));
         })
         .catch(() => {
           // A thrown action (network blip, 500) has to speak too. Clearing the
@@ -225,6 +229,17 @@ export function AppShellChrome({
   // One venue + may see its settings: the venue card opens them, not a
   // one-item switcher (z8uq9m0hw2).
   const venueEntry = venueEntryScreen(myVenues.length, caps.viewSettings);
+
+  // Native push (N5): registration, taps, foreground toasts, and the explain-first
+  // ask. No query — `canManageTemplates` above is the organizer signal. Push v1
+  // delivers to admins + event organizers (new requests) and to the requester
+  // (decisions, i.e. staff); nobody else is asked.
+  const pushAsk = usePushClient({
+    canReceive: canReceivePush(roles, canManageTemplates),
+    activeVenueId,
+    switchToVenue,
+    onToast: showTransientToast,
+  });
 
   const navItems: ShellNavItem[] = useMemo(
     () => [
@@ -315,7 +330,7 @@ export function AppShellChrome({
             </div>
             {/* A self-clearing toast wins over a sticky one: the only overlap is a
                 venue switch, where the error REPLACES "Switching…". */}
-            {(transientToast ?? toast) && <Toast>{transientToast ?? toast}</Toast>}
+            {(transientToast ?? toast) ? <Toast>{transientToast ?? toast}</Toast> : <PushAskCard ask={pushAsk} />}
           </>
         )}
       </ResponsiveShell>
