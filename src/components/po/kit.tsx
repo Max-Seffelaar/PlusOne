@@ -286,7 +286,9 @@ export function Seg<T extends string>({
           type="button"
           onClick={() => onChange(k)}
           className={cn(
-            'flex-1 cursor-pointer rounded-full border py-[9px] font-display text-[13px] font-bold transition-[filter] hover:brightness-[1.07]',
+            // 40px pill + an invisible 2px ring above and below = a 44px tap area
+            // on touch, without changing the look (technique: `hitArea44`).
+            "relative flex-1 cursor-pointer rounded-full border py-[9px] font-display text-[13px] font-bold transition-[filter] before:absolute before:-inset-y-[2px] before:inset-x-0 before:content-[''] hover:brightness-[1.07]",
             value === k ? 'border-transparent bg-text text-bg' : 'border-line bg-transparent text-dim',
           )}
         >
