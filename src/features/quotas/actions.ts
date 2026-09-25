@@ -4,14 +4,26 @@ import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import type { Database } from '@/lib/database.types';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
+
+/** A deny that matched no row: already decided, or not the caller's to decide.
+ *  One message for both — it never says which, so it reveals nothing the caller
+ *  couldn't already read. */
+const NOT_DECIDABLE: MutationError = {
+  ok: false,
+  code: '45003',
+  message: 'This request has already been handled or cannot be decided by you.',
+};
 import { quotaRequestSchema, decideQuotaRequestSchema, type QuotaRequestInput, type DecideQuotaRequestInput } from './schemas';
 
 export type ActionResult = { ok: true } | MutationError;
 
-// Quota-request flow (#4/#5). Staff file; admins decide with AAL2. Both the
-// filing and the decision are enforced by RLS; approval also flows through the
-// approve_quota_request RPC so the override write + status flip are atomic and
-// re-checked server-side. Everything lands in the audit log via triggers.
+// Quota-request flow (#4/#5). Staff file; admins decide. Privilege is role-only
+// (no AAL2 anywhere since 20260624160000): the filing and the deny are enforced
+// by RLS, and the column UPDATE grant (20260925140000) limits a client write to
+// status/decided_by/decided_at/decision_reason with status = 'denied' only.
+// Approval flows exclusively through the approve_quota_request RPC so the
+// override write + status flip are atomic and re-checked server-side (row-locked
+// since 20260925140100). Everything lands in the audit log via triggers.
 
 /** Staff requests X extra slots with a motivation (#5). */
 export async function requestExtraSlots(input: QuotaRequestInput): Promise<ActionResult> {
@@ -42,8 +54,11 @@ export async function requestExtraSlots(input: QuotaRequestInput): Promise<Actio
 
 /**
  * Admin decides a request. Approve -> approve_quota_request RPC (atomic override
- * grant, AAL2-checked in the DB). Deny -> a direct, RLS-gated update with the
- * reason. eventId is only used to revalidate the right paths.
+ * grant; admin role checked in the DB). Deny -> a direct, RLS-gated update of
+ * exactly the four granted columns. RLS turns a row the caller may not decide
+ * (already decided, other venue, not an admin) into UPDATE 0, not an error, so
+ * the deny asks for the updated id back and treats zero rows as a refusal.
+ * eventId is only used to revalidate the right paths.
  */
 export async function decideQuotaRequest(
   input: DecideQuotaRequestInput & { eventId?: string }
@@ -62,7 +77,7 @@ export async function decideQuotaRequest(
     const { error } = await supabase.rpc('approve_quota_request', { p_request_id: requestId });
     if (error) return mapMutationError(error);
   } else {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('quota_requests')
       .update({
         status: 'denied',
@@ -70,8 +85,10 @@ export async function decideQuotaRequest(
         decided_at: new Date().toISOString(),
         decision_reason: reason ?? null,
       })
-      .eq('id', requestId);
+      .eq('id', requestId)
+      .select('id');
     if (error) return mapMutationError(error);
+    if (!data || data.length === 0) return NOT_DECIDABLE;
   }
 
   if (input.eventId) {

@@ -20,8 +20,11 @@ vi.mock('next/cache', () => ({
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const REQUEST_ID = '9c000000-0000-7000-8000-000000000001';
 
-function mockSupabase() {
-  const eq = vi.fn(async () => ({ error: null }));
+type SelectResult = { data: { id: string }[] | null; error: { code: string; message: string } | null };
+
+function mockSupabase(denyRows: { id: string }[] = [{ id: REQUEST_ID }]) {
+  const select = vi.fn(async (): Promise<SelectResult> => ({ data: denyRows, error: null }));
+  const eq = vi.fn(() => ({ select }));
   const update = vi.fn(() => ({ eq }));
   const from = vi.fn(() => ({ update }));
   const rpc = vi.fn(async () => ({ error: null }));
@@ -30,12 +33,12 @@ function mockSupabase() {
     from,
     rpc,
   });
-  return { from, update, eq, rpc };
+  return { from, update, eq, select, rpc };
 }
 
 describe('decideQuotaRequest — only granted columns reach quota_requests', () => {
   it('a deny updates exactly the four granted columns, with status denied, as the actor', async () => {
-    const { from, update, eq, rpc } = mockSupabase();
+    const { from, update, eq, select, rpc } = mockSupabase();
 
     const res = await decideQuotaRequest({ requestId: REQUEST_ID, decision: 'denied', reason: 'Vol' });
 
@@ -47,6 +50,37 @@ describe('decideQuotaRequest — only granted columns reach quota_requests', () 
     expect(Object.keys(body).sort()).toEqual(['decided_at', 'decided_by', 'decision_reason', 'status']);
     expect(body).toMatchObject({ status: 'denied', decided_by: USER_ID, decision_reason: 'Vol' });
     expect(eq).toHaveBeenCalledWith('id', REQUEST_ID);
+    expect(select).toHaveBeenCalledWith('id');
+  });
+
+  it('a deny that matches no row (already decided / not the caller\'s) is a refusal, not ok', async () => {
+    const { update } = mockSupabase([]);
+
+    const res = await decideQuotaRequest({ requestId: REQUEST_ID, decision: 'denied', reason: 'Vol' });
+
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(res).toMatchObject({ ok: false, code: '45003' });
+    // Same copy whatever the cause: no hint whether the row exists or who decided it.
+    expect(res).toEqual({
+      ok: false,
+      code: '45003',
+      message: 'This request has already been handled or cannot be decided by you.',
+    });
+  });
+
+  it('a database error on the deny is mapped, not swallowed', async () => {
+    const { eq } = mockSupabase();
+    eq.mockReturnValueOnce({
+      select: vi.fn(async (): Promise<SelectResult> => ({
+        data: null,
+        error: { code: '42501', message: 'raw detail' },
+      })),
+    });
+
+    const res = await decideQuotaRequest({ requestId: REQUEST_ID, decision: 'denied', reason: 'Vol' });
+
+    expect(res).toMatchObject({ ok: false, code: '42501' });
+    expect(res).not.toMatchObject({ message: 'raw detail' });
   });
 
   it('an approval goes through approve_quota_request and never writes the table directly', async () => {
