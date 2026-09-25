@@ -395,7 +395,7 @@ export function Aanvragen({
             {openG === 0 ? (
               <Empty text={q ? fmt(t.requests.emptyLandingSearch, { q: search.trim() }) : t.requests.emptyLanding} />
             ) : (
-              <div className="flex flex-col gap-[11px] lg:grid lg:grid-cols-2 lg:gap-[11px] lg:items-start">
+              <div className="flex flex-col gap-[11px] md:grid md:grid-cols-2 md:gap-[11px] md:items-start">
               {pendingG.map((r) => (
                 <div
                   key={r.id}
@@ -455,7 +455,7 @@ export function Aanvragen({
                   <Icon name="chevD" size={16} className={cn('text-ghost transition-transform', showDenied && 'rotate-180')} />
                 </button>
                 {showDenied && (
-                  <div className="flex flex-col gap-[11px] lg:grid lg:grid-cols-2 lg:gap-[11px] lg:items-start">
+                  <div className="flex flex-col gap-[11px] md:grid md:grid-cols-2 md:gap-[11px] md:items-start">
                     {deniedG.map((r) => (
                       <div key={r.id} className="rounded-[18px] border border-line bg-elev p-[15px]">
                         {showAllEvents && <EventTag name={nameById.get(r.eventId) ?? 'Event'} />}
@@ -504,7 +504,7 @@ export function Aanvragen({
                   <Icon name="chevD" size={16} className={cn('text-ghost transition-transform', showAuto && 'rotate-180')} />
                 </button>
                 {showAuto && (
-                  <div className="flex flex-col gap-[11px] lg:grid lg:grid-cols-2 lg:gap-[11px] lg:items-start">
+                  <div className="flex flex-col gap-[11px] md:grid md:grid-cols-2 md:gap-[11px] md:items-start">
                     {autoG.map((r) => (
                       <div key={r.id} className="rounded-[18px] border border-line bg-elev p-[15px]">
                         {showAllEvents && <EventTag name={nameById.get(r.eventId) ?? 'Event'} />}
@@ -536,7 +536,7 @@ export function Aanvragen({
             {openQ === 0 ? (
               <Empty text={q ? fmt(t.requests.emptyQuotaSearch, { q: search.trim() }) : ownOnly ? t.requests.ownEmptyQuota : t.requests.emptyQuota} />
             ) : (
-              <div className="flex flex-col gap-[11px] lg:grid lg:grid-cols-2 lg:gap-[11px] lg:items-start">
+              <div className="flex flex-col gap-[11px] md:grid md:grid-cols-2 md:gap-[11px] md:items-start">
               {scopeQ.map((r) => (
                 <div key={r.id} className="rounded-[18px] border border-line bg-elev p-[15px]">
                   {showAllEvents && <EventTag name={nameById.get(r.eventId) ?? 'Event'} />}
