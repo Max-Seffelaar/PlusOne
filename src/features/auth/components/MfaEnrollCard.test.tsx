@@ -3,10 +3,14 @@
 // Coverage for the same-device enrollment affordances (code review follow-up
 // on PR #187): the otpauth:// deep link and the manual-secret copy button.
 // Both read straight off supabase.auth.mfa.enroll()'s response, so the mock
-// below stands in for that call.
+// below stands in for that call. The copy button goes through the kit's
+// `useCopyText`/`copyStateLabel` (Fase 17 N1 leftover) instead of a bare
+// `navigator.clipboard` call, so a failed copy now shows a visible
+// "Couldn't copy" label instead of silently staying on "Copy".
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { t } from '@/lib/i18n';
 
 const ENROLL_DATA = {
   id: 'factor-1',
@@ -35,8 +39,15 @@ vi.mock('@/features/auth/mfa-actions', () => ({
 // Import after the mocks so the component picks up the mocked supabase client.
 import { MfaEnrollCard } from './MfaEnrollCard';
 
+const origClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+const origExecCommand = Object.getOwnPropertyDescriptor(document, 'execCommand');
+
 afterEach(() => {
   vi.clearAllMocks();
+  if (origClipboard) Object.defineProperty(navigator, 'clipboard', origClipboard);
+  else delete (navigator as { clipboard?: unknown }).clipboard;
+  if (origExecCommand) Object.defineProperty(document, 'execCommand', origExecCommand);
+  else delete (document as { execCommand?: unknown }).execCommand;
 });
 
 // Step 1 is ask-first (no QR yet) — every case here needs "Set up now" clicked
@@ -71,8 +82,9 @@ describe('MfaEnrollCard — same-device enrollment', () => {
     expect(await screen.findByRole('button', { name: /^copied!$/i })).toBeInTheDocument();
   });
 
-  it('does not throw when the clipboard API is unavailable (webview restriction)', async () => {
+  it('shows the visible failure label when the clipboard API is unavailable (webview restriction)', async () => {
     Object.assign(navigator, { clipboard: undefined });
+    Object.defineProperty(document, 'execCommand', { value: undefined, configurable: true, writable: true });
 
     await enterStep2();
 
@@ -80,7 +92,8 @@ describe('MfaEnrollCard — same-device enrollment', () => {
       fireEvent.click(screen.getByRole('button', { name: /^copy$/i }));
     });
 
-    // Stays on "Copy" — no crash, no false "Copied!" when the write never happened.
-    expect(screen.getByRole('button', { name: /^copy$/i })).toBeInTheDocument();
+    // No crash, no false "Copied!" when the write never happened — the kit's
+    // useCopyText surfaces the failure instead of a silent no-op.
+    expect(await screen.findByRole('button', { name: t.shared.kit.copyFailed })).toBeInTheDocument();
   });
 });

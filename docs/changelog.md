@@ -8,6 +8,38 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-25 — Fase 17 N1 leftovers: kit copy/external-link helpers in auth + onboarding
+
+Closes the three leftovers the 86ey6bfam N1 task fenced out (see that entry
+below). No migration, no dependency change.
+
+- **`MfaEnrollCard.tsx`**: the TOTP-secret copy button used a bare
+  `navigator.clipboard.writeText` wrapped in its own try/catch + local
+  `useTransientValue` state. Switched to the kit's `useCopyText` +
+  `copyStateLabel`, so a blocked clipboard (some webviews, insecure contexts)
+  now shows the shared "Couldn't copy" label instead of silently staying on
+  "Copy" forever. The secret stays visible/selectable either way (unchanged
+  fallback). `MfaEnrollCard.test.tsx`'s clipboard-unavailable case now asserts
+  the failure label instead of "no crash, stays on Copy".
+- **`ConsentScreen.tsx`** and **`VenueStep.tsx`**: terms/privacy links were
+  bare `<a target="_blank" rel="noreferrer">`, same trap `screens/onboarding.tsx`
+  already fixed in N1 (`ExternalLink` — Capacitor's remote-URL webview loads
+  `_blank` INSIDE itself with no way back). Both links sit inside the `<label>`
+  wrapping the consent checkbox; `ExternalLink`'s `preventDefault()` on a plain
+  click already stops the label's own toggle action, so no extra handling was
+  needed — verified with a dedicated test per screen (link has no `target`
+  attribute, and clicking it leaves the checkbox unchecked).
+- Repo-wide grep for `target="_blank"` / `window.open(` / `navigator.clipboard`
+  outside `kit.tsx` turned up nothing else in `/app`, `/consent`, `/mfa`,
+  `/login` or onboarding — `screens/settings/venue.tsx` was already on
+  `ExternalLink` (the "known leftover" note under N1 below was stale).
+  `landing-frame.tsx` (public `/e`/`/r` footer, browser-only surface — app
+  links never claim `/e/*`, plan decision 11) is left as-is, same as N1.
+- Tests: `MfaEnrollCard.test.tsx` (updated), new `ConsentScreen.test.tsx` and
+  `steps/VenueStep.test.tsx` (2 cases each, pattern from `kit.webview.test.tsx`).
+
+---
+
 ## 2026-09-24 — Fase 17 N1: webview-prep kit helpers (86ey6bfam)
 
 Golf 1 of Fase 17. No migration, no dependency change.
