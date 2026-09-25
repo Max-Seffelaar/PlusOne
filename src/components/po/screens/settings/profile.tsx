@@ -14,6 +14,7 @@ import { Avatar, Btn, Empty, Field, Label, Loading, MiniChip, Note, Scroll, Top,
 import { BottomBar, Sheet } from '../../shell';
 import { CountrySelect, PhoneInput, phoneCountryOf, type CountryCode } from '../../phone-lazy';
 import { useIsDemoAccount } from '../../app-shell-data';
+import { PushSettingsRow } from '../../push-settings-card';
 import { col, FormError, PendingOutboxError, PendingOutboxSheet, signOutDevice } from './_shared';
 
 // MFA row in the profile's security card (S4.3). MFA is OPTIONAL for every role
@@ -260,6 +261,7 @@ export function Profile(): JSX.Element {
         <Label className="mb-[10px] mt-[18px]">{t.settings.profile.securityLabel}</Label>
         <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-4 py-1">
           <MfaCard recommended={p.mfaRequired} />
+          <PushSettingsRow />
           <div className="flex items-center gap-[12px] py-[14px]">
             <span className="text-faint">
               <Icon name="mail" size={19} />
