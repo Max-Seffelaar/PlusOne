@@ -1,10 +1,14 @@
 'use client';
 
 /** Onboarding step 1 — create the venue (#40a). On success the caller becomes
- *  Admin and we advance to the plan step with the new venue id. */
+ *  Admin and we advance to the plan step with the new venue id. The store-review
+ *  demo account (86ey6bfug) gets the refusal instead of the form: the server
+ *  action and the DB guard refuse it anyway, so a form would only fail on submit. */
 import { type JSX, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { Field, Label, Btn, press } from '@/components/po/kit';
+import { t } from '@/lib/i18n';
+import { Field, Label, Btn, RefusedAction, press } from '@/components/po/kit';
 import { createVenueAction } from '@/features/venues/actions';
 import { VENUE_TYPES, type VenueType } from '@/features/venues/schemas';
 import { TERMS_URL, PRIVACY_URL } from '@/lib/legal';
@@ -22,7 +26,14 @@ const TYPE_LABEL: Record<VenueType, string> = {
 // onboarding (feedback Rik 2026-09-24). Adjustable any time in Venue settings.
 const DEFAULT_RETENTION_MONTHS = 24;
 
-export function VenueStep({ onCreated }: { onCreated: (venueId: string) => void }): JSX.Element {
+export function VenueStep({
+  onCreated,
+  demoAccount = false,
+}: {
+  onCreated: (venueId: string) => void;
+  demoAccount?: boolean;
+}): JSX.Element {
+  const router = useRouter();
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
   const [venueType, setVenueType] = useState<VenueType>('club');
@@ -51,19 +62,39 @@ export function VenueStep({ onCreated }: { onCreated: (venueId: string) => void 
     });
   }
 
+  const panel = (
+    <WizardPanel
+      title="Put your venue on the map"
+      sub="The base for every guest list and check-in you'll run."
+      bullets={[
+        'Add more venues later',
+        'You can always change these details in settings',
+      ]}
+    />
+  );
+
+  if (demoAccount) {
+    return (
+      <WizardShell
+        current={1}
+        panel={panel}
+        heading="Tell us about your venue"
+        sub="Guests see this on your landing pages and at check-in."
+        footer={
+          <Btn kind="primary" full icon="arrowR" onClick={() => router.push('/app')}>
+            {t.onboarding.demo.backToApp}
+          </Btn>
+        }
+      >
+        <RefusedAction label={t.onboarding.venueCreate.submit} reason={t.auth.demoNoVenues} />
+      </WizardShell>
+    );
+  }
+
   return (
     <WizardShell
       current={1}
-      panel={
-        <WizardPanel
-          title="Put your venue on the map"
-          sub="The base for every guest list and check-in you'll run."
-          bullets={[
-            'Add more venues later',
-            'You can always change these details in settings',
-          ]}
-        />
-      }
+      panel={panel}
       heading="Tell us about your venue"
       sub="Guests see this on your landing pages and at check-in."
       footer={

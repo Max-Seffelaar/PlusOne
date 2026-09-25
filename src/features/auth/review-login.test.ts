@@ -127,6 +127,18 @@ describe('demo constants mirrored in scripts/seed-demo-venue.mjs', () => {
     expect(block).not.toContain(".neq('venue_id'");
   });
 
+  it('re-asserts settings.onboarding.completed = true on the demo venue on every run, keeping the other keys', () => {
+    // The demo admin can PATCH the flag back to false; the wizard's steps are
+    // venue creation and invites, both refused for it (86ey6bfug).
+    const block = script.slice(script.indexOf("'venue read'"), script.indexOf("'subscription read'"));
+    expect(block).toContain("select('name, settings')");
+    expect(block).toContain('if (onboarding.completed !== true)');
+    expect(block).toMatch(/settings: \{ \.\.\.settings, onboarding: \{ \.\.\.onboarding, completed: true/);
+    expect(block).toContain(".eq('id', VENUE_ID)");
+    // Not only on first insert: the check sits outside insertMissing.
+    expect(script.indexOf('if (onboarding.completed !== true)')).toBeGreaterThan(script.indexOf("insertMissing('venues'"));
+  });
+
   it('refuses a non-local target without --prod', () => {
     expect(script).toContain("process.argv.includes('--prod')");
   });

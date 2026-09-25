@@ -13,7 +13,9 @@
 //
 // IDEMPOTENT: fixed ids, insert-if-missing. A second run changes nothing except
 // that the two demo events are moved forward again (starts_at/ends_at only), so
-// the door always has upcoming events at submission time. Data a reviewer
+// the door always has upcoming events at submission time, and the venue's name,
+// settings.onboarding.completed = true and the demo membership's roles are
+// restored. Data a reviewer
 // created or changed is left alone; reviewer-caused drift that would weaken the
 // isolation (a membership outside the demo venue, the platform-admin flag) makes
 // the script STOP instead of papering over it.
@@ -233,10 +235,27 @@ await insertMissing('venues', [
     settings: { venue_type: 'club', onboarding: { completed: true, created_by: userId } },
   },
 ]);
-const venue = await must('venue read', db.from('venues').select('name').eq('id', VENUE_ID).single());
+const venue = await must('venue read', db.from('venues').select('name, settings').eq('id', VENUE_ID).single());
 if (venue.name !== DEMO_VENUE_NAME) {
   console.warn(`[seed-demo-venue] demo venue was renamed; restoring "${DEMO_VENUE_NAME}"`);
   await must('venue rename', db.from('venues').update({ name: DEMO_VENUE_NAME }).eq('id', VENUE_ID));
+}
+// The demo account is admin here, so it can PATCH settings.onboarding.completed
+// back to false; getOnboardingState would then count the venue as unfinished
+// and the wizard's venue/invite steps (both refused for it) would be the next
+// screen. The /app layout never redirects the demo account there, but restore
+// the flag on every run anyway, keeping every other settings key as it is.
+const settings = venue.settings && typeof venue.settings === 'object' && !Array.isArray(venue.settings) ? venue.settings : {};
+const onboarding = settings.onboarding && typeof settings.onboarding === 'object' && !Array.isArray(settings.onboarding) ? settings.onboarding : {};
+if (onboarding.completed !== true) {
+  console.warn('[seed-demo-venue] demo venue onboarding was reopened; marking it completed again');
+  await must(
+    'venue onboarding',
+    db
+      .from('venues')
+      .update({ settings: { ...settings, onboarding: { ...onboarding, completed: true, created_by: onboarding.created_by ?? userId } } })
+      .eq('id', VENUE_ID),
+  );
 }
 
 const existingSub = await must('subscription read', db.from('subscriptions').select('status').eq('venue_id', VENUE_ID).maybeSingle());

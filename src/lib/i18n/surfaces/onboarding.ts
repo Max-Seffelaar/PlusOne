@@ -49,6 +49,12 @@ export const onboarding = {
     consentPost: '.',
   },
 
+  // Onboarding wizard, store-review demo account (86ey6bfug): the venue step
+  // shows the refusal (t.auth.demoNoVenues) and this way out instead of a form.
+  demo: {
+    backToApp: 'Back to the app',
+  },
+
   // Onboarding wizard, step 3: invite the team (TeamStep). The other wizard
   // steps still carry their copy inline.
   teamStep: {
