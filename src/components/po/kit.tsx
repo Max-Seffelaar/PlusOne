@@ -9,6 +9,8 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties, JSX, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { isNativeShell } from '@/lib/platform';
+import { useTransientValue } from '@/lib/use-transient-value';
 import { t, fmt } from '@/lib/i18n';
 import type { Tier } from '@/lib/po/types';
 import { TIER_COLORS, tierInk, tintTier } from '@/lib/po/tier-colors';
@@ -1067,5 +1069,121 @@ export function ActionItem({
         {sub && <span className="mt-px block truncate font-body text-[12px] text-faint">{sub}</span>}
       </span>
     </button>
+  );
+}
+
+// ── Webview-safe platform helpers (Fase 17 N1, decision #37) ──────────────────
+// The po surface is wrapped by Capacitor (remote-URL model). Two browser habits
+// break there: a bare `navigator.clipboard` (absent/blocked in some webviews and
+// insecure contexts) and `target="_blank"` (Capacitor loads it INSIDE the same
+// webview, with no back button on iOS). Every po screen goes through these two.
+
+/**
+ * Copy `text` to the clipboard. Never throws; resolves `true` only when the
+ * copy actually happened, so the caller can show "Copied" vs "Couldn't copy".
+ * Order: async Clipboard API → legacy `execCommand('copy')` on a detached
+ * textarea (older Android WebViews, non-secure contexts) → `false`.
+ */
+export async function copyText(text: string): Promise<boolean> {
+  if (typeof navigator !== 'undefined' && typeof navigator.clipboard?.writeText === 'function') {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Permission denied / not focused — fall through to the legacy path.
+    }
+  }
+  if (typeof document === 'undefined' || typeof document.execCommand !== 'function') return false;
+  const ta = document.createElement('textarea');
+  try {
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '0';
+    ta.style.left = '0';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    ta.remove();
+  }
+}
+
+export type CopyState = 'copied' | 'failed';
+
+/**
+ * `copyText` + the visible feedback every copy button shows: the returned state
+ * is `'copied'` or `'failed'` for `ttlMs`, then `null`. Render it on the button
+ * itself (`copyStateLabel`) — the same transient-label pattern the copy buttons
+ * already used, now with a failure state instead of a silent no-op.
+ */
+export function useCopyText(ttlMs = 1800): [CopyState | null, (text: string) => Promise<boolean>, () => void] {
+  const [state, trigger, clear] = useTransientValue<CopyState>(ttlMs);
+  const copy = async (text: string): Promise<boolean> => {
+    const ok = await copyText(text);
+    trigger(ok ? 'copied' : 'failed');
+    return ok;
+  };
+  return [state, copy, clear];
+}
+
+/** Button label for a copy state: `failed` always reads "Couldn't copy". */
+export function copyStateLabel(state: CopyState | null, idle: string, done: string): string {
+  if (state === 'copied') return done;
+  if (state === 'failed') return t.shared.kit.copyFailed;
+  return idle;
+}
+
+interface CapacitorBrowserGlobal {
+  Plugins?: { Browser?: { open?: (opts: { url: string }) => Promise<void> } };
+}
+
+/**
+ * Open an external URL outside the app. Browser/PWA: a new tab
+ * (`noopener,noreferrer`). Native shell: the in-app browser sheet, which has
+ * its own close button — `_blank` would replace the webview with no way back.
+ *
+ * Seam: `@capacitor/browser` is not installed yet (dependencies land in N3), so
+ * the native branch reaches the plugin through the `window.Capacitor.Plugins`
+ * global the native runtime injects — no import of an absent package.
+ * TODO(N3 86ey6bfdm): swap to `Browser.open` from `@capacitor/browser` once it
+ * is a dependency. Until the plugin exists, native falls back to `window.open`.
+ */
+export function openExternal(url: string): void {
+  if (typeof window === 'undefined') return;
+  if (isNativeShell()) {
+    const browser = (window as { Capacitor?: CapacitorBrowserGlobal }).Capacitor?.Plugins?.Browser;
+    if (typeof browser?.open === 'function') {
+      void browser.open({ url }).catch(() => window.open(url, '_blank', 'noopener,noreferrer'));
+      return;
+    }
+  }
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+/**
+ * An anchor to an external URL that opens via `openExternal` — never
+ * `target="_blank"` in the po surface. `href` stays on the element so the link
+ * reads as a link (a11y, hover preview, long-press menu); the click itself is
+ * taken over so the native shell can route it to the in-app browser.
+ */
+export function ExternalLink({ href, className, children }: { href: string; className?: string; children: ReactNode }): JSX.Element {
+  return (
+    <a
+      href={href}
+      rel="noopener noreferrer"
+      className={className}
+      onClick={(e) => {
+        // Modified clicks (cmd/ctrl/shift/middle) keep the browser's own behaviour.
+        if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        openExternal(href);
+      }}
+    >
+      {children}
+    </a>
   );
 }

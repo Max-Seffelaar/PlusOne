@@ -21,6 +21,8 @@ export const shared = {
     back: 'Back',
     loadingAria: 'Loading',
     loading: 'Loading…',
+    /** Copy-button label when the clipboard refused (copyText → false). */
+    copyFailed: "Couldn't copy",
   },
 
   // ── Date/time fields (datetime-field.tsx) — desktop calendar + time selects ──
