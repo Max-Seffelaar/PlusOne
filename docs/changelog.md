@@ -36,6 +36,21 @@ Branch `claude/quota-requests-column-grant`. Found in the N2 push-backend review
   `database.types.ts` unchanged (grants don't change types).
 - Not runnable in the building session (no Docker/Supabase CLI): pgTAP is gated
   by CI `lint-and-test`.
+- **Review round (independent `/code-review` + `/security-review`):** merged
+  `origin/main` (changelog-only conflict, all entries kept). Every finding fixed
+  in-PR: `20260925140100_approve_quota_request_row_lock.sql` — the RPC now reads
+  the request `for update` and flips only `status = 'pending'` (rowcount check →
+  45003), so an approve can no longer overwrite a concurrent deny; nothing else
+  in the function changed. `20260925140200_quota_requests_stamp_decided_at.sql` —
+  BEFORE UPDATE OF status trigger sets `decided_at = now()` on every decision, so
+  a client can't backdate a deny (grant kept: the deployed app still sends the
+  column, the value is just ignored). `decideQuotaRequest` deny now
+  `.select('id')`s and maps UPDATE 0 (already decided / finance / other venue)
+  to one generic 45003 MutationError instead of `{ ok: true }`. Stale AAL2 /
+  "table-wide UPDATE" comments fixed (`actions.ts`, `push_outbox.test.sql`).
+  `quota_requests_column_grant.test.sql` 29 → 37 (B13 now via `req_state`
+  incl. `venue_id`; F1–F5 approve-after-deny + definer/search_path/ACL/lock;
+  G1–G3 server-stamped `decided_at`). pgTAP again CI-only here.
 
 ---
 
