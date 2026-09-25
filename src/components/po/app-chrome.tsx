@@ -31,6 +31,7 @@ import { navKeyForScreen, mobileTabForScreen, venueEntryScreen, WIDE_DESKTOP } f
 import { Toast, type TabKey } from './shell';
 import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
 import { useAppShellData } from './app-shell-data';
+import { NativeBackButton } from './native-back-button';
 import { t } from '@/lib/i18n';
 
 /** How long a venue-switch error stays up. Longer than the 4s billing toast:
@@ -270,11 +271,12 @@ export function AppShellChrome({
 
   const activeScreenKey: string =
     target.kind === 'screen' ? target.name : target.kind === 'door' ? 'deur' : target.tab;
-  // Wide desktop screens (home dashboard, guest table, stats charts, audit table)
-  // opt into the full content width; every other screen keeps the reading column.
+  // Wide screens (home dashboard, guest table, stats charts, audit table) opt
+  // into the full content width; every other screen keeps the reading column.
   // Promotion (S15) is a single centered 760px column by design — between the
-  // reading column and the full dashboard width.
-  const desktopMainMax =
+  // reading column and the full dashboard width. Applies in BOTH chromes (T1):
+  // a tablet in the bottom-tab chrome gets the same column as desktop.
+  const mainMax =
     activeScreenKey === 'promotion'
       ? 'max-w-[820px]'
       : WIDE_DESKTOP.has(activeScreenKey)
@@ -283,6 +285,8 @@ export function AppShellChrome({
 
   return (
     <PoProvider value={po}>
+      {/* Android back button in the native shell (N3). Pathname-only, no query. */}
+      <NativeBackButton />
       <ResponsiveShell
         serverHint={serverHint}
         // Tab bar is always visible when authenticated, even on pushed/detail
@@ -300,7 +304,7 @@ export function AppShellChrome({
         onOpenProfile={() => nav.push('profile')}
         userName={liveUserName ?? t.common.account}
         userSub={liveUserSub ?? ''}
-        mainMaxClass={desktopMainMax}
+        mainMaxClass={mainMax}
       >
         {isDoorTab ? (
           children

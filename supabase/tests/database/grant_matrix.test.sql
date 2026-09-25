@@ -96,6 +96,7 @@ select is_empty($$
       'event_templates', 'event_template_tiers', -- template config, not guest data
       'guest_tiers',                             -- tier config
       'invites',                                 -- withdraw a pending invite
+      'push_tokens',                             -- unregister your OWN device (owner-only RLS; device plumbing, not guest data — 20260925120000)
       'quotas',                                  -- venue-level quota rows
       'venue_memberships'                        -- remove a member (#24)
     ])

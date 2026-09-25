@@ -5,6 +5,8 @@ import { createClient } from '@/lib/supabase/server';
 import { getSessionUser } from '@/lib/auth/context';
 import { profileSchema, emailChangeSchema } from './schemas';
 import { describeAuthError } from './errors';
+import { isDemoReviewUser } from './review-window';
+import { t } from '@/lib/i18n';
 
 export interface ActionState {
   ok: boolean;
@@ -63,6 +65,14 @@ export async function updateEmailAction(
 ): Promise<ActionState> {
   const user = await getSessionUser();
   if (!user) return { ok: false, error: "You're not logged in." };
+  // The shared store-review demo account (86ey6bfug) keeps its address for
+  // good: rebinding it to a reachable mailbox would hand whoever did it a
+  // normal OTP login that outlives every review window. Belt and braces on
+  // top of Supabase's "Secure email change": this only covers the app path. A
+  // code holder can still call GoTrue directly (PUT /auth/v1/user with the
+  // session), and then the double confirm to the mailbox-less demo address is
+  // what stops the change (runbook: docs/review-login.md).
+  if (isDemoReviewUser(user)) return { ok: false, error: t.auth.demoNoEmailChange };
 
   const parsed = emailChangeSchema.safeParse({ email: formData.get('email') });
   if (!parsed.success) {
