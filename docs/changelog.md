@@ -38,12 +38,32 @@ migrations, no dependencies, none of the fenced files (`app.tsx`, `app-chrome.ts
   the ring. `design-system.md` records the hit-ring rule.
 - **Cockpit at 1024 touch:** no overlap; only the filter chips needed rings. Behaviour
   unchanged. It stays online-only on an iPad in landscape until N6.
-- **Known, not fixed here:** 42–43px near-misses (Roles steppers 42, Quick-add "Add tier"
-  42, template-edit check-out segments 43, venue-switch "Manage" 43, event edit "Cancel
-  event" 43, onboarding role toggles 42 — onboarding is fenced). The InfoTip sheet at
-  ≥1024 touch is positioned inside the content column (a transformed ancestor is its
-  containing block), so the sidebar is not dimmed; a tap outside still closes it. Copy:
-  "1 links on this event" needs a plural form.
+- **Review round (adversarial review on #343).** Merged `main` (N3 #340 and later).
+  - The five 42–43px near-misses now reach ≥44: kit `Btn sm` carries a 2px y-ring (43 →
+    45; covers venue-switch "Manage", event edit "Cancel event" and every other small
+    button), Roles steppers a 2px ring on all sides (42 → 44), template-edit check-out
+    segments a 2px y-ring (42.8 → 44.8), Quick-add "Add tier" a 4px y-ring (41.5 → 47.5).
+  - Re-measured every ring in Chromium (border counted, `::before` box read from
+    `getComputedStyle`). Several first-round rings fell short: kit `Seg` 41.5, template
+    chips / cockpit tier chips / event edit Copy link 42.8, Promotion range segments
+    43.5, Import tier pills 42.8, the MFA "Turn on" label 43.7 wide. All were raised to
+    ≥44 (`Seg` y4, chips y6, range y5, tier pills y5, "Turn on" `min-w-[44px]`). Wrapped
+    rows keep their gaps; the rings still meet without overlapping.
+  - The hit-ring strings are now exported kit constants (`hitRing2`, `hitRingY2/4/5/6/13`
+    next to `hitArea44`). Every call site in this PR imports them. The tap-target ratchet
+    resolves them, and a new table pins the size each ring was picked for.
+  - The cockpit comment now points to plan decision 14 for which door variant a device
+    gets, so it stays true whether or not #344 lands first.
+  - InfoTip pointer switch (popover for a hover-capable pointer, sheet for touch) signed
+    off by the orchestrator as an interaction-mode choice. It is CSS-only, and a new
+    no-DOM server-render test plus a hydration test (fine and coarse pointer) prove it
+    is SSR-safe.
+  - Copy: "1 link on this event" (singular key `convLinksOne`).
+- **Known, not fixed here:** onboarding role toggles 42px (onboarding is fenced). The
+  desktop sidebar nav items measure 43.8px at ≥1024 (shell chrome, outside this PR's
+  fence). The InfoTip sheet at ≥1024 touch is positioned inside the content column (a
+  transformed ancestor is its containing block), so the sidebar is not dimmed; a tap
+  outside still closes it.
 - **Not checked visually:** Platform venues (the fixture manager is not a platform admin,
   so the screen shows the no-access state), billing in the native shell (read-only rules
   untouched), onboarding beyond the Team step.
