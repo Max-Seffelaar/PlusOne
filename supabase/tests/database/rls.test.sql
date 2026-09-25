@@ -387,15 +387,17 @@ select is(
               where requested_extra = 2$$),
   0, 'J6 staff cannot approve their own request');
 
+-- A direct client decision is a denial only since 20260925140000; approving
+-- is approve_quota_request (quota.test.sql §9, quota_requests_column_grant).
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2');
 select is(
   pg_temp.rowcount($$update public.quota_requests
-              set status = 'approved',
+              set status = 'denied',
                   decided_by = '11111111-1111-4111-8111-111111111111',
                   decided_at = now(),
-                  decision_reason = 'Akkoord voor launch night'
+                  decision_reason = 'Lijst zit vol'
               where requested_extra = 3$$),
-  1, 'J7 admin (AAL2) decides the pending request');
+  1, 'J7 admin (AAL2) decides (denies) the pending request');
 
 reset role;
 
