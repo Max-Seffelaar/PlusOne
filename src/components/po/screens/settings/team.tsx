@@ -306,17 +306,17 @@ export function Gebruikers(): JSX.Element {
           </Note>
         )}
         {(caps.manageTeam || caps.viewQuota) && (
-          <div className="lg:mb-[18px] lg:flex lg:gap-3">
+          <div className="md:mb-[18px] md:flex md:gap-3">
             {caps.manageTeam && !billingLock.blocked && demo && (
-              <RefusedAction className="mb-3 lg:mb-0 lg:flex-1" label={t.settings.team.inviteCta} reason={t.auth.demoNoInvites} />
+              <RefusedAction className="mb-3 md:mb-0 md:flex-1" label={t.settings.team.inviteCta} reason={t.auth.demoNoInvites} />
             )}
             {caps.manageTeam && !billingLock.blocked && !demo && (
-              <Btn kind="dark" full icon="plus" className="mb-3 lg:mb-0 lg:w-auto" onClick={startInvite}>
+              <Btn kind="dark" full icon="plus" className="mb-3 md:mb-0 md:w-auto" onClick={startInvite}>
                 {t.settings.team.inviteCta}
               </Btn>
             )}
             {caps.viewQuota && (
-              <Btn kind="ghost" full icon="ticket" className="mb-[18px] lg:mb-0 lg:w-auto" onClick={() => nav.push('rollen')}>
+              <Btn kind="ghost" full icon="ticket" className="mb-[18px] md:mb-0 md:w-auto" onClick={() => nav.push('rollen')}>
                 {t.settings.team.quotaPerMember}
               </Btn>
             )}
@@ -330,7 +330,7 @@ export function Gebruikers(): JSX.Element {
         ) : teamCount === 0 ? (
           <Empty text={t.settings.team.teamEmpty} />
         ) : (
-          <div className="mb-5 flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px]">
+          <div className="mb-5 flex flex-col gap-[9px] md:grid md:grid-cols-2 md:gap-[10px]">
             {(team.data ?? []).map((tm) => {
               const rowInner = (
                 <>
@@ -377,7 +377,7 @@ export function Gebruikers(): JSX.Element {
         ) : crewCount === 0 ? (
           <Empty text={t.settings.team.crewEmpty} />
         ) : (
-          <div className="mb-5 flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px]">
+          <div className="mb-5 flex flex-col gap-[9px] md:grid md:grid-cols-2 md:gap-[10px]">
             {(crewQ.data ?? []).map((cm) => {
               const busy = resendCrew.isPending && resendCrew.variables === cm.userId;
               const sent = resendCrew.isSuccess && resendCrew.variables === cm.userId;
@@ -411,7 +411,7 @@ export function Gebruikers(): JSX.Element {
         ) : inviteCount === 0 ? (
           <Empty text={t.settings.team.invitesEmpty} />
         ) : (
-          <div className="flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px]">
+          <div className="flex flex-col gap-[9px] md:grid md:grid-cols-2 md:gap-[10px]">
             {(invitesQ.data ?? []).map((iv) => {
               const accepted = iv.status === 'accepted';
               const resendBusy = resendInvite.isPending && resendInvite.variables === iv.id;

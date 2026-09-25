@@ -135,6 +135,166 @@ Branch `claude/86ey6bfug-review-login`, PR #332. No migration.
   shell (no URL bar); a durable DB rate limit (would need a migration); the Vercel
   Firewall rule (manual).
 
+## 2026-09-25 — Fase 17 N2: push backend, live-but-sleeping (86ey6bfbe)
+
+Branch `claude/86ey6bfbe-push-backend`. Three migrations, the repo's first Edge
+Function, pgTAP, a runbook. No UI, no client registration (N5), no Vercel env.
+
+- `20260925120000_push_tokens_outbox.sql` — `push_tokens` (owner-only RLS on all
+  verbs, no platform-admin bypass; `session_id` stamped from the JWT by a BEFORE
+  trigger, so a client can neither pick a foreign session nor register without
+  one; a token held by a *dead* session of another user yields on re-register —
+  shared door tablets — superseded in review: possession of the device token now
+  wins for a live session too, see below) and `notification_outbox` (RLS
+  on, no policies, no app-role grants). AFTER triggers on `quota_requests`
+  (created → venue admins; decided → requester) and `guest_requests` (created →
+  venue admins + that event's organizers). Recipients come straight from
+  `venue_memberships`/`event_organizers` of the row's venue/event — never the
+  `auth.uid()` helpers with the platform-admin disjunct. Payload = ids + kind
+  only. Dedupe key `unique (dedupe_key, recipient_user_id)`; the trigger body
+  runs in its own exception block, so broken plumbing never fails a request.
+- `20260925120100_push_dispatch_wiring.sql` — `pg_net` (guarded like pg_cron),
+  Vault-backed URL (`plusone_push_dispatch_url`; absent ⇒ asleep),
+  statement-level kick on outbox insert that mints a single-use invocation token
+  (`push_dispatch_tokens`, sha256 only, 10 min), service_role-only RPCs
+  `claim_push_outbox` (consumes the token; hands out only FCM tokens whose auth
+  session still exists), `complete_push_outbox` (retry/backoff 2^n min, max 5 attempts),
+  `prune_push_tokens`; pg_cron `plusone-push-outbox-sweep` (2 min) and
+  `plusone-push-token-prune` (daily: 90 days unseen or dead session; finished
+  outbox rows > 30 days). **First CI run showed Supabase keeps `anon`/`authenticated`
+  access to schema `net`** (platform grant, `postgres` cannot revoke it), so a
+  static secret in the pg_net header would have been readable from
+  `net.http_request_queue` — hence the single-use token instead of a Vault secret.
+- `20260925120200_push_tokens_revoke_on_logout.sql` — `revoke_own_session` /
+  `admin_revoke_session` also delete the revoked session's tokens; authorization
+  logic and signatures unchanged (`session-actions.ts` untouched).
+- `supabase/functions/push-dispatch/` — FCM HTTP v1 via an RS256 service-account
+  JWT (WebCrypto), prune on `UNREGISTERED` / `SENDER_ID_MISMATCH` / invalid-token
+  `INVALID_ARGUMENT`, never logs tokens/JSON/secret. `verify_jwt = false`
+  (`supabase/config.toml`); the gate is the single-use token consumed in
+  `claim_push_outbox`, one claim (≤ 200 rows) per invocation. Logic sits in a runtime-agnostic `dispatch.ts` so CI's
+  vitest covers it (`tests/unit/push-dispatch.test.ts`, 31 tests) — CI runs no
+  Deno tests.
+- pgTAP: `push_tokens.test.sql` (40), `push_outbox.test.sql` (24),
+  `push_dispatch.test.sql` (42); `grant_matrix.test.sql` allowlists
+  `push_tokens` DELETE; `tables.test.sql` lists the three tables.
+- Spec decision #50; runbook `docs/push-dispatch.md` (FCM Edge secrets, deploy,
+  Vault on-switch, check queries).
+
+**Review round (orchestrator + independent review of `a707afd`), folded into one push:**
+decided-branch notifies `old.user_id` (the requester as filed — `authenticated` still
+holds a table-wide UPDATE on `quota_requests`; narrowing that column grant is a
+separate task); a bare FCM 404 is `permanent`, never `prune`; the function
+authenticates the caller first via the read-only `push_dispatch_token_valid`
+(no 503-vs-401 oracle) and tells a refused invocation token (401 `invalid_token`)
+apart from a rejected service-role key (502 `service_key_rejected`); module-scope
+OAuth token cache with expiry; `push_tokens.session_id` defaults from the JWT;
+shared tablet: possession of the device token wins (a live-session row of another
+user for the same `(transport, token)` is replaced). Parked for milestone ≥25:
+chunked/batch `complete_push_outbox`, kick debounce, outbox cleanup on membership
+removal.
+
+**Not run in the building session** (no Supabase stack/Docker in the container):
+`pnpm db:test`, `supabase db reset`, `db:test:concurrency`, e2e, a Deno run of the
+function. `database.types.ts` was hand-written to the schema — regenerate after
+merge to confirm. Ran: lint, type-check, vitest (176 files / 1891 tests).
+
+## 2026-09-24 — Fase 17 T1: tablet layouts, session 1 (z8uq9m0fzj)
+
+iPad is in native v1 (capacitor-plan decision 10), so 641–1023px became a hard
+S5 dependency. This session: the breakpoint decision, the shell, the Door tab,
+and the screen-wide content rules. Draft PR, branch `claude/z8uq9m0fzj-tablet-layouts`.
+
+**Decision (design-system.md "Breakpoints & tablet"): one chrome breakpoint,
+three axes.** The chrome stays at 1024px: bottom tabs below it, the sidebar at
+and above it. There is no tablet chrome tier. The reason that carried it: `useViewport` also
+picks the Door variant. Lowering the chrome breakpoint would move an iPad
+portrait at the door from the offline-outbox door (#25) to the online-only
+cockpit. A 252px sidebar on 744–834px also leaves a phone-width column.
+Content layout switches at `md:` (768px), because an iPad portrait column
+(768–834px) is as wide as desktop's at 1024px (772px). Density follows the
+pointer: sizes below 44px only apply behind `lg:[@media(pointer:fine)]:`.
+The per-screen column class (`WIDE_DESKTOP`) now applies in both chromes.
+
+**Changed.** `shell-responsive.tsx`: the column cap applies in the bottom-tab
+chrome too, and both roots pad for side safe-area insets (inert until
+`viewport-fit=cover`). `shell.tsx`: the tab bar clusters its items in a centered
+640px row, and `Sheet` is capped at 560px. `datetime-field.tsx`: desktop input
+mode needs `(min-width: 1024px) and (pointer: fine)`, so iPad landscape keeps the
+centered calendar and the native time wheel. `daypicker.tsx`: its compact sizes
+are pointer-gated. `event-row.tsx` and the screens home, events (+crew, past,
+stats-panel), approvals, team, guests (index, list-shared, bulk-add), audit,
+platform-audit and platform: content `lg:` → `md:`. `screens/door.tsx`: the
+Check-in/Tasks pills and "Switch" were about 31px tall; an invisible 7px ring
+makes them 45px. Guest detail and add-on-spot sit in a centered 640px column
+on tablet.
+
+**Guards.** `tests/unit/touch-density.test.ts` fails on any width-only shrink
+below 44px in `src/components/po`, `src/features/po` and `src/features/door`.
+`kit.tsx` is known debt until N1. `src/components/po/shell-tablet.test.tsx`
+pins the chrome/column/pointer decision. Its pointer test failed when the
+query was reverted to width-only.
+
+**Not done / waiting.** The `kit.tsx` InfoTip (the `lg:h-[36px]` close button,
+and its popover-vs-sheet switch on `lg:`) plus `promotion/roster.tsx` and
+`promotion/event-links.tsx` (`lg:grid-cols-2` → `md:`) are frozen until N1
+(86ey6bfam) merges. **Door on iPad landscape, decided by Max the same day
+(plan decision 14, task N6 after N3):** `(pointer: coarse)` or `<1024px` gets the
+outbox door, and the cockpit is only for a fine pointer at `≥1024px`. Until N6
+lands, an iPad in landscape at the door still gets the online-only cockpit.
+
+**Review round (orchestrator).** The shell root now pads the top and side safe
+area once, for both chromes (N1 turns on `viewport-fit=cover`). The desktop
+sidebar footer clears the home indicator itself. The bottom inset stays with
+`TabBar`/`BottomBar`/`Sheet`, so it is never counted twice. The standalone
+`/door/<id>` route (`DoorRoute.tsx`, outside the fence) has its own root and
+does not get the top inset yet.
+
+**Tests run here.** `pnpm type-check` clean. `pnpm lint`: only the two
+pre-existing combobox a11y warnings in `datetime-field.tsx`. `pnpm vitest run`:
+177 files / 1877 tests green. `tests/unit/pgtap-plan-run-gate.test.ts` › "slow
+reader" failed once under full-suite load, and passed alone and on re-run. That
+is a timing flake, not related to this diff. Not run (no Supabase stack or
+docker in this container): pgTAP, e2e, and real-device/iPad screenshots.
+
+## 2026-09-24 — Fase 17 N1: webview-prep kit helpers (86ey6bfam)
+
+Golf 1 of Fase 17. No migration, no dependency change.
+
+- **`copyText(text): Promise<boolean>`** in `src/components/po/kit.tsx`: Clipboard
+  API → legacy `execCommand('copy')` on a detached textarea → `false`. Never
+  throws, guards `navigator`/`document`. Plus `useCopyText(ttl)` (built on
+  `useTransientValue`) and `copyStateLabel()`: the copy button shows "Copied!"
+  or the new `t.shared.kit.copyFailed` ("Couldn't copy"). Before this, all six
+  sites failed silently. Rewired: `landing.tsx`, `influencer-stats.tsx`,
+  `screens/events/edit.tsx`, `screens/promotion/{roster,create-link-flow,event-links}.tsx`
+  (event-links has two: row + QR sheet). One behaviour change: the create-link
+  "done" sheet's "Copied" label used to stay on. It now reverts after 1.8s,
+  the same as every other copy button.
+- **`openExternal(url)`** + **`ExternalLink`** primitive: `window.open(url,
+  '_blank', 'noopener,noreferrer')` in the browser. In the native shell it calls
+  the in-app browser through the `window.Capacitor.Plugins.Browser` global the
+  runtime injects (no import of the not-yet-installed `@capacitor/browser`).
+  `TODO(N3 86ey6bfdm)` swaps it for the typed import. `screens/onboarding.tsx`
+  terms/privacy links now use `ExternalLink` (href kept, no `target`).
+- `viewportFit: 'cover'` in the root `viewport` export, so `env(safe-area-inset-*)`
+  stops reading 0 on iOS.
+- `next.config.js`: comment-only CSP wrap notes. Prod `script-src` already
+  carries `'unsafe-inline'`, so the Android bridge injection is not expected to
+  be blocked today. If N3 proves otherwise, the fix is a hash/nonce.
+- Tests: `src/components/po/kit.webview.test.tsx` (12 cases).
+
+**Known leftovers, outside this task's scope fence:** `src/features/auth/components/MfaEnrollCard.tsx`
+(bare clipboard); `target="_blank"` in `screens/settings/venue.tsx` (website
+field ×2, reachable in the native app), `landing-frame.tsx` (public footer),
+`features/auth/components/ConsentScreen.tsx` and
+`features/onboarding/components/steps/VenueStep.tsx` (terms/privacy). The shell
+has no `safe-area-inset-top` padding anywhere, only bottom (`shell.tsx`).
+Because Next merges `viewport` per key, `cover` also reaches `/e`, `/r`, `/i`.
+Those pages don't pad for safe areas; the impact is landscape iPhone only.
+
+---
+
 ## 2026-09-24 — P-06 seed part: Max and Joeri as platform admins (z8uq9m0tny)
 
 The other half of P-06 (docs part landed in PR #328). Migration

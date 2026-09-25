@@ -16,7 +16,7 @@ import { TERMS_URL, PRIVACY_URL } from '@/lib/legal';
 import { useIsDemoAccount } from '../app-shell-data';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Btn, Field, Label, Note, Scroll, Top, press } from '../kit';
+import { Btn, ExternalLink, Field, Label, Note, Scroll, Top, press } from '../kit';
 import { BottomBar } from '../shell';
 
 const col = 'flex h-full flex-col';
@@ -170,9 +170,9 @@ export function VenueCreate(): JSX.Element {
           <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-[2px] h-[19px] w-[19px] shrink-0 accent-acc" />
           <span className="text-[13px] leading-[1.5] text-text">
             {vc.consentPre}
-            <a href={TERMS_URL} target="_blank" rel="noreferrer" className="font-semibold text-acc underline">{vc.consentTerms}</a>
+            <ExternalLink href={TERMS_URL} className="font-semibold text-acc underline">{vc.consentTerms}</ExternalLink>
             {vc.consentMid}
-            <a href={PRIVACY_URL} target="_blank" rel="noreferrer" className="font-semibold text-acc underline">{vc.consentPrivacy}</a>
+            <ExternalLink href={PRIVACY_URL} className="font-semibold text-acc underline">{vc.consentPrivacy}</ExternalLink>
             {vc.consentPost}
           </span>
         </label>

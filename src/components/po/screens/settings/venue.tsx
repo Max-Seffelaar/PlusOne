@@ -11,7 +11,7 @@ import { usePoUpdateVenueSettings } from '@/features/po/mutations';
 import { COUNTRIES } from '@/lib/countries';
 import { useNav, usePo } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, RefusedAction, Scroll, ToggleRow, Top, press } from '../../kit';
+import { Avatar, Btn, Empty, ExternalLink, Field, IconBtn, Label, MiniChip, Note, RefusedAction, Scroll, ToggleRow, Top, press } from '../../kit';
 import { SearchSelect, type SearchSelectOption } from '../../search-select';
 import { BottomBar } from '../../shell';
 import { useIsDemoAccount } from '../../app-shell-data';
@@ -111,10 +111,8 @@ function WebsiteField({ value, saved, onChange }: { value: string; saved: string
   const link = saved !== '' && isLinkable(saved) ? saved : null;
   if (!onChange) {
     return link ? (
-      <a
+      <ExternalLink
         href={link}
-        target="_blank"
-        rel="noopener noreferrer"
         className={cn('mb-[18px] flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]', press)}
       >
         <span className="text-faint">
@@ -122,7 +120,7 @@ function WebsiteField({ value, saved, onChange }: { value: string; saved: string
         </span>
         <span className="min-w-0 flex-1 truncate font-body text-[16px] text-acc">{link}</span>
         <Icon name="arrowR" size={17} className="text-faint" />
-      </a>
+      </ExternalLink>
     ) : (
       <Field icon="link" value="" placeholder={t.settings.venue.websiteEmpty} className="mb-[18px]" />
     );
@@ -131,15 +129,13 @@ function WebsiteField({ value, saved, onChange }: { value: string; saved: string
     <div className="mb-[18px]">
       <Field icon="link" type="url" value={value} onChange={onChange} placeholder={t.settings.venue.websitePlaceholder} />
       {link && (
-        <a
+        <ExternalLink
           href={link}
-          target="_blank"
-          rel="noopener noreferrer"
           className="mt-1 inline-flex min-h-[44px] items-center gap-[6px] font-display text-[13.5px] font-bold text-acc"
         >
           {t.settings.venue.websiteOpen}
           <Icon name="arrowR" size={15} />
-        </a>
+        </ExternalLink>
       )}
     </div>
   );

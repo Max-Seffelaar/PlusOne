@@ -49,7 +49,7 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
       <Scroll bottom={28}>
         {/* Desktop (S3.3): two columns — left = opkomst + ingecheckt, right =
             no-shows + per-tier + acties. Stacks to one column below lg. */}
-        <div className="lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start">
+        <div className="md:grid md:grid-cols-2 md:gap-5 md:items-start">
         <div>
         <div className="mb-[14px] rounded-[18px] bg-acc-dim p-[18px]">
           <Label className="mb-[10px] text-acc-soft">{t.events.recapHeading}</Label>
@@ -118,7 +118,7 @@ export function PastEvent({ id }: { id?: string }): JSX.Element {
         )}
 
         </div>
-        <div className="mt-4 lg:mt-0">
+        <div className="mt-4 md:mt-0">
         {absent && (
           <>
           <Label className="mb-[10px]">{fmt(absent.heading, { n: r.noShows.length })}</Label>
