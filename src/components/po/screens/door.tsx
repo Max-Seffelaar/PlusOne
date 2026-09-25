@@ -36,6 +36,14 @@ import type { DoorOverlayState } from '../routes';
 // original name since screens/door.tsx was where callers already imported it.
 export type DoorOverlay = DoorOverlayState;
 
+// The segment pills and the event-bar "Switch" are ~31px tall by design (a
+// dense strip above the list); an invisible ring grows the hit area to 45px
+// without changing the look — the door is worked one-handed, often on a tablet
+// (T1). Same `before:` ring technique as the kit's header chips. 7px each way
+// keeps the ring inside its own strip's padding (the segment row's `py-2`, the
+// event bar's `py-2.5`), so it never steals the top of the search field below.
+const SEG_HIT = "relative before:absolute before:-inset-y-[7px] before:inset-x-0 before:content-['']";
+
 // Stable empty override so the picker's board memo doesn't recompute per render.
 const NO_LOCK_OVERRIDE: Record<string, boolean> = {};
 
@@ -121,6 +129,7 @@ function DoorEventBar({ name, onChange }: { name: string; onChange: () => void }
         className={cn(
           'shrink-0 rounded-full border border-line px-3 py-1.5 font-display text-[12px] font-bold text-dim',
           'transition-[filter] hover:brightness-[1.12]',
+          SEG_HIT,
         )}
       >
         Switch
@@ -195,7 +204,7 @@ export function PoDoorTab({
           <DoorEventBar name={currentEventName} onChange={onChangeEvent} />
         )}
         {!overlay && onTab && (
-          <div className="flex flex-none items-center gap-2 px-5 pb-1 pt-2">
+          <div className="flex flex-none items-center gap-2 px-5 py-2">
             {(['deur', 'taken'] as const).map((s) => (
               <button
                 key={s}
@@ -204,6 +213,7 @@ export function PoDoorTab({
                 className={cn(
                   'rounded-full px-[14px] py-[6px] font-display text-[13px] font-bold transition-[filter] hover:brightness-110',
                   tab === s ? 'bg-acc text-on-acc' : 'border border-line bg-elev text-dim',
+                  SEG_HIT,
                 )}
               >
                 {s === 'deur' ? t.nav.checkin : t.nav.tasks}
@@ -211,7 +221,16 @@ export function PoDoorTab({
             ))}
           </div>
         )}
-        <div key={navKey} className="po-screen-anim flex min-h-0 flex-1 flex-col">
+        {/* Guest detail / add-on-spot are single-guest forms: on a tablet
+            (641–1023px, T1) they sit in a centered 640px column like every
+            other form, instead of stretching their full-width action buttons
+            across the screen. The list itself keeps the full width — more
+            room for names, tiers and notes at the door. A phone never reaches
+            the cap. */}
+        <div
+          key={navKey}
+          className={cn('po-screen-anim flex min-h-0 flex-1 flex-col', overlay && 'mx-auto w-full max-w-[640px]')}
+        >
           {screen}
         </div>
         {toast && <Toast>{toast}</Toast>}

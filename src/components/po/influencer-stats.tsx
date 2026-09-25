@@ -5,14 +5,15 @@
  * The influencer's private numbers: totals, per-event mini funnels, copy/QR for
  * upcoming events. Recreated from the approved Claude Design
  * (docs/design/S16-slim.html). PUBLIC surface: like landing.tsx it never imports
- * the po app — only the icon primitive + Tailwind tokens. Entrance animations are
- * translateY-only (#38); clipboard/window access is guarded (#37).
+ * the po app — only the icon primitive, the kit's copy helper + Tailwind tokens.
+ * Entrance animations are translateY-only (#38); clipboard goes through the
+ * kit's webview-safe `copyText` and window access is guarded (#37).
  */
 import { type JSX, useEffect, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
-import { useTransientValue } from '@/lib/use-transient-value';
 import { Icon } from './icon';
+import { copyStateLabel, useCopyText } from './kit';
 
 const press = 'transition-[filter,transform,background,border-color,color] hover:brightness-[1.08] active:scale-[0.98]';
 // 44px hit rings (CLAUDE.md tap-target floor; technique: kit `hitArea44`). The
@@ -53,21 +54,6 @@ export interface InfluencerStatsData {
 function eventUrl(slug: string): string {
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   return `${origin}/e/${slug}`;
-}
-
-function useCopy(): [boolean, (text: string) => void] {
-  const [copiedFlag, triggerCopied] = useTransientValue<true>(1800);
-  const copy = (text: string): void => {
-    try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        void navigator.clipboard.writeText(text);
-        triggerCopied(true);
-      }
-    } catch {
-      // Clipboard blocked — the URL stays visible elsewhere on the card/modal.
-    }
-  };
-  return [copiedFlag === true, copy];
 }
 
 // ── Header ────────────────────────────────────────────────────────────────────
@@ -197,7 +183,8 @@ function QrModal({ ev, onClose }: { ev: InfluencerStatsEvent; onClose: () => voi
   const url = ev.slug ? eventUrl(ev.slug) : '';
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  const [copied, copy] = useCopy();
+  const [copyState, copy] = useCopyText();
+  const copied = copyState === 'copied';
 
   useEffect(() => {
     let cancelled = false;
@@ -253,7 +240,7 @@ function QrModal({ ev, onClose }: { ev: InfluencerStatsEvent; onClose: () => voi
         <div className="flex w-full gap-[10px]">
           <button
             type="button"
-            onClick={() => copy(url)}
+            onClick={() => void copy(url)}
             className={cn(
               'inline-flex flex-1 items-center justify-center gap-[7px] rounded-[13px] border py-3 font-display text-[14px] font-bold',
               copied ? 'border-transparent bg-acc-dim text-acc' : 'border-line bg-transparent text-text',
@@ -261,7 +248,7 @@ function QrModal({ ev, onClose }: { ev: InfluencerStatsEvent; onClose: () => voi
             )}
           >
             <Icon name={copied ? 'check' : 'copy'} size={15} sw={2.2} />
-            {copied ? t.influencerStats.copied : t.influencerStats.copyLink}
+            {copyStateLabel(copyState, t.influencerStats.copyLink, t.influencerStats.copied)}
           </button>
           {dataUrl ? (
             <a
@@ -286,7 +273,8 @@ function QrModal({ ev, onClose }: { ev: InfluencerStatsEvent; onClose: () => voi
 
 // ── Event card ────────────────────────────────────────────────────────────────
 function EventCard({ ev, onQr }: { ev: InfluencerStatsEvent; onQr: (ev: InfluencerStatsEvent) => void }): JSX.Element {
-  const [copied, copy] = useCopy();
+  const [copyState, copy] = useCopyText();
+  const copied = copyState === 'copied';
   const started = ev.f.views > 0;
   const canShare = !ev.past && ev.slug != null;
   return (
@@ -317,7 +305,7 @@ function EventCard({ ev, onQr }: { ev: InfluencerStatsEvent; onQr: (ev: Influenc
         <div className="mt-4 flex gap-[10px]">
           <button
             type="button"
-            onClick={() => ev.slug && copy(eventUrl(ev.slug))}
+            onClick={() => { if (ev.slug) void copy(eventUrl(ev.slug)); }}
             className={cn(
               'inline-flex flex-1 items-center justify-center gap-[7px] rounded-[12px] border py-[11px] font-display text-[13.5px] font-bold',
               copied ? 'border-transparent bg-acc-dim text-acc' : 'border-line bg-elev2 text-text',
@@ -325,7 +313,7 @@ function EventCard({ ev, onQr }: { ev: InfluencerStatsEvent; onQr: (ev: Influenc
             )}
           >
             <Icon name={copied ? 'check' : 'copy'} size={15} sw={2.2} />
-            {copied ? t.influencerStats.copied : t.influencerStats.copyLink}
+            {copyStateLabel(copyState, t.influencerStats.copyLink, t.influencerStats.copied)}
           </button>
           <button
             type="button"

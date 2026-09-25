@@ -4,7 +4,6 @@
 import { type JSX, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
-import { useTransientValue } from '@/lib/use-transient-value';
 import {
   usePoEventForEdit,
   usePoTemplates,
@@ -27,7 +26,7 @@ import { isoToLocalInput, localInputToIso } from '@/features/events/datetime';
 import { useNav } from '../../context';
 import { DateField, TimeField } from '../../datetime-field';
 import { Icon } from '../../icon';
-import { Btn, Field, InfoTip, Label, Note, Scroll, ToggleRow, Top, press } from '../../kit';
+import { Btn, Field, InfoTip, Label, Note, Scroll, ToggleRow, Top, copyStateLabel, press, useCopyText } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
 import { SaveAsTemplate } from './save-as-template';
 import { ScheduleFields } from './schedule-fields';
@@ -92,8 +91,8 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
   // save like the lock/check-out controls, so it never counts toward form-dirty.
   const [quotaDefault, setQuotaDefault] = useState(0);
   const [err, setErr] = useState<string | null>(null);
-  const [copiedFlag, triggerCopied] = useTransientValue<true>(1800);
-  const copied = copiedFlag === true;
+  const [copyState, copy] = useCopyText();
+  const copied = copyState === 'copied';
   // Leaving with unsaved edits asks first (retest 3/7, Q6). Immediate controls
   // (lock, check-out, cancel) commit on toggle, so they never count as dirty.
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -290,12 +289,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
 
   const copyLink = async (): Promise<void> => {
     if (!ev?.landingSlug) return;
-    try {
-      await navigator.clipboard.writeText(`${window.location.origin}/e/${ev.landingSlug}`);
-      triggerCopied(true);
-    } catch {
-      // Clipboard blocked (rare in webviews) — silently ignore; the slug is visible.
-    }
+    await copy(`${window.location.origin}/e/${ev.landingSlug}`);
   };
 
   return (
@@ -455,7 +449,7 @@ export function EventEdit({ id, isNew }: { id?: string; isNew?: boolean }): JSX.
                 )}
               >
                 <Icon name={copied ? 'check' : 'link'} size={15} />
-                {copied ? t.events.copyLinkDone : t.events.copyLinkLabel}
+                {copyStateLabel(copyState, t.events.copyLinkLabel, t.events.copyLinkDone)}
               </button>
             </div>
           )}
