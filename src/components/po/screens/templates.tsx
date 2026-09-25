@@ -28,7 +28,7 @@ import { TIER_ALIASES_UI } from '@/features/guests/tiers';
 import { TIER_COLORS } from '@/lib/po/tier-colors';
 import { useNav } from '../context';
 import { Icon } from '../icon';
-import { Btn, ColorSwatches, Empty, Field, IconBtn, Label, Note, Scroll, ToggleRow, Top, cardPress } from '../kit';
+import { Btn, ColorSwatches, Empty, Field, IconBtn, Label, Note, Scroll, ToggleRow, Top, cardPress, hitRingY2 } from '../kit';
 import { BottomBar } from '../shell';
 
 const col = 'flex h-full flex-col';
@@ -286,7 +286,11 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
               disabled={!writable}
               onClick={() => writable && setAllowUncheck(val)}
               className={cn(
+                // 43px segment + an invisible 2px ring above and below (kit
+                // `hitRingY2`) = a 45px tap area; the label above sits 10px away
+                // and the next section 18px (T1, touch).
                 'flex-1 rounded-[12px] border px-3 py-[11px] font-display text-[12.5px] font-bold transition-colors',
+                hitRingY2,
                 allowUncheck === val ? 'border-acc bg-acc-dim text-acc' : 'border-line text-dim',
               )}
             >
