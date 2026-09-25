@@ -96,8 +96,10 @@ export interface PoApp {
   /** The active (cookie-resolved) venue id, or null. */
   activeVenueId: string | null;
   /** Switch the active venue server-side (cookie) + full reload, so every live
-   *  query re-scopes to the new venue (#1). A no-op for the already-active venue. */
-  switchToVenue: (venueId: string) => void;
+   *  query re-scopes to the new venue (#1). A no-op for the already-active venue.
+   *  `landing` (an in-app `/app…` path, default `/app`) is where the reload goes —
+   *  a push tap lands on its target. A refused or failed switch stays put. */
+  switchToVenue: (venueId: string, landing?: string) => void;
   nav: Nav;
   /** Current viewport (S0 breakpoint, ≥1024px = desktop). Lets a screen hide
    *  chrome that's redundant with the desktop sidebar (M12/M5: one venue-switch

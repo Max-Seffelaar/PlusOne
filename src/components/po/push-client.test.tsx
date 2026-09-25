@@ -2,7 +2,7 @@
 /**
  * usePushClient + PushAskCard (Fase 17 N5): never ask on first paint, only for
  * roles push v1 delivers to, respect "Not now" and a denial, and route a tap
- * to the right Requests screen (switching venue first when needed).
+ * to the right Requests screen (through the chrome's venue switch when needed).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -14,8 +14,7 @@ vi.mock('next/navigation', () => {
   return { useRouter: () => router };
 });
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({}) }));
-const venue = vi.hoisted(() => ({ switch: vi.fn(async (_id: string) => 'ok' as const) }));
-vi.mock('@/features/venues/actions', () => ({ switchActiveVenueAction: venue.switch }));
+const venue = vi.hoisted(() => ({ switch: vi.fn((_id: string, _landing: string) => {}) }));
 
 const p = vi.hoisted(() => ({
   supported: true,
@@ -32,7 +31,7 @@ vi.mock('@/features/notifications/provider', () => ({
 }));
 const pc = vi.hoisted(() => ({
   perm: 'default' as string,
-  optedOut: false,
+  undecided: true,
   snoozed: false,
   enableResult: 'granted' as string,
   snooze: vi.fn(),
@@ -42,7 +41,7 @@ const pc = vi.hoisted(() => ({
 vi.mock('@/features/notifications/push-client', () => ({
   resumePush: pc.resume,
   enablePush: pc.enable,
-  isPushOptedOut: () => pc.optedOut,
+  isPushUndecided: () => pc.undecided,
   isPushPromptSnoozed: () => pc.snoozed,
   snoozePushPrompt: pc.snooze,
   savePushToken: vi.fn(async () => true),
@@ -57,7 +56,7 @@ const E = '0190f0b2-7c1a-7cc3-9a61-2b3c4d5e6f71';
 
 const toast = vi.fn();
 function Harness({ canReceive = true }: { canReceive?: boolean }) {
-  const ask = usePushClient({ canReceive, activeVenueId: V, onToast: toast });
+  const ask = usePushClient({ canReceive, activeVenueId: V, switchToVenue: venue.switch, onToast: toast });
   return <PushAskCard ask={ask} />;
 }
 
@@ -72,7 +71,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   p.supported = true;
   pc.perm = 'default';
-  pc.optedOut = false;
+  pc.undecided = true;
   pc.snoozed = false;
   pc.enableResult = 'granted';
   pc.resume.mockImplementation(async () => pc.perm);
@@ -95,11 +94,16 @@ describe('the ask', () => {
     expect(pc.enable).not.toHaveBeenCalled(); // no OS prompt until the user says so
   });
 
+  it('is shown on Android ≤12 too, where the OS grants from install: the card is the consent step', async () => {
+    pc.perm = 'granted';
+    await mountAndWait();
+    expect(screen.getByText(t.push.askTitle)).toBeTruthy();
+  });
+
   it.each([
-    ['already granted', () => (pc.perm = 'granted')],
     ['denied before', () => (pc.perm = 'denied')],
     ['unsupported build', () => (pc.perm = 'unsupported')],
-    ['turned off in Profile', () => (pc.optedOut = true)],
+    ['already decided on this device (on, off, or declined)', () => (pc.undecided = false)],
     ['snoozed', () => (pc.snoozed = true)],
   ])('is never shown when %s', async (_l, setup) => {
     setup();
@@ -137,14 +141,30 @@ describe('the ask', () => {
     expect(toast).not.toHaveBeenCalled();
   });
 
-  it('"Turn on" → denied is respected: card gone, a toast points at Profile', async () => {
-    pc.enableResult = 'denied';
+  it.each(['denied', 'default'])('"Turn on" → %s is respected: card gone, snoozed on top of enablePush\'s record, a toast points at Profile', async (result) => {
+    // 'default' = Android 13+ after a first "Don't allow" (prompt-with-rationale).
+    pc.enableResult = result;
     await mountAndWait();
     await act(async () => {
       fireEvent.click(screen.getByText(t.push.askEnable));
     });
     expect(screen.queryByText(t.push.askTitle)).toBeNull();
+    expect(pc.snooze).toHaveBeenCalledTimes(1);
     expect(toast).toHaveBeenCalledWith(t.push.deniedToast);
+  });
+
+  it('first denial → the next launch does not bring the card back', async () => {
+    pc.enableResult = 'default';
+    await mountAndWait();
+    await act(async () => {
+      fireEvent.click(screen.getByText(t.push.askEnable));
+    });
+    cleanup();
+    // What enablePush recorded: no longer undecided (and snoozed on top).
+    pc.undecided = false;
+    pc.snoozed = true;
+    await mountAndWait();
+    expect(screen.queryByText(t.push.askTitle)).toBeNull();
   });
 });
 
@@ -156,15 +176,14 @@ describe('taps and foreground receipts', () => {
     expect(venue.switch).not.toHaveBeenCalled();
   });
 
-  it('a tap for another venue switches the venue first, then loads the target', async () => {
-    const assign = vi.fn();
-    Object.defineProperty(window, 'location', { value: { assign }, configurable: true });
+  it('a tap for another venue goes through the chrome\'s venue switch, landing on the target', async () => {
     await mountAndWait({}, 0);
     await act(async () => {
       p.tap!({ data: { kind: 'guest_request_created', venue_id: V2, event_id: E } });
     });
-    expect(venue.switch).toHaveBeenCalledWith(V2);
-    expect(assign).toHaveBeenCalledWith(`/app/requests?event=${E}`);
+    expect(venue.switch).toHaveBeenCalledWith(V2, `/app/requests?event=${E}`);
+    // No navigation of its own: a refused switch must stay put (switchToVenue toasts).
+    expect(nav.push).not.toHaveBeenCalled();
   });
 
   it('a malformed tap payload navigates nowhere', async () => {

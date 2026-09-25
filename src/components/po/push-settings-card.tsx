@@ -7,8 +7,11 @@
  * S1b), so the Profile screen needs no platform checks of its own.
  *
  * - On: shows the OS prompt when the permission was never asked; registers.
+ *   "On" means the person turned it on here — an OS grant alone (Android ≤12
+ *   grants from install) still reads Off until they do.
  * - Off: deletes this device's `push_tokens` rows, invalidates the FCM token,
- *   and remembers the choice on this device.
+ *   and remembers the choice on this device. When the delete cannot reach the
+ *   server the row says so; the next start online finishes it.
  * - Blocked at OS level (Android denied twice): Android will not prompt again,
  *   so the row explains where to allow it instead of a toggle that does nothing.
  */
@@ -17,15 +20,15 @@ import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import { createClient } from '@/lib/supabase/client';
 import { getNotificationProvider, type PushPermission } from '@/features/notifications/provider';
-import { disablePush, enablePush, isPushOptedOut } from '@/features/notifications/push-client';
+import { disablePush, enablePush, isPushOnHere } from '@/features/notifications/push-client';
 import { Icon } from './icon';
 import { Toggle } from './kit';
 
 export function PushSettingsRow(): JSX.Element | null {
   const [perm, setPerm] = useState<PushPermission | null>(null);
-  const [optedOut, setOptedOut] = useState(false);
+  const [onHere, setOnHere] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     const provider = getNotificationProvider();
@@ -33,7 +36,7 @@ export function PushSettingsRow(): JSX.Element | null {
       setPerm('unsupported');
       return;
     }
-    setOptedOut(isPushOptedOut());
+    setOnHere(isPushOnHere());
     void provider
       .checkPermission()
       .then(setPerm)
@@ -45,17 +48,18 @@ export function PushSettingsRow(): JSX.Element | null {
 
   if (perm === null || perm === 'unsupported') return null;
 
-  const on = perm === 'granted' && !optedOut;
+  const on = perm === 'granted' && onHere;
   const blocked = perm === 'denied';
 
   const toggle = async (): Promise<void> => {
     setBusy(true);
-    setError(false);
+    setError(null);
+    const turningOff = on;
     try {
-      if (on) await disablePush(createClient());
+      if (turningOff) await disablePush(createClient());
       else await enablePush(createClient());
     } catch {
-      setError(true);
+      setError(turningOff ? t.push.profileOffPending : t.push.profileError);
     }
     setBusy(false);
     refresh();
@@ -73,7 +77,7 @@ export function PushSettingsRow(): JSX.Element | null {
         </div>
         {error && (
           <p className="mt-1 text-[12.5px] text-red-300" role="alert">
-            {t.push.profileError}
+            {error}
           </p>
         )}
       </div>

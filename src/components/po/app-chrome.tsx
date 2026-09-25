@@ -140,7 +140,7 @@ export function AppShellChrome({
   // so app/page.tsx re-resolves the identity and every live query re-scopes to the
   // new venue. (Local state alone can't re-scope server-resolved identity.)
   const switchToVenue = useCallback(
-    (venueId: string): void => {
+    (venueId: string, landing = '/app'): void => {
       // A no-op for the already-active venue (context.tsx) — unreachable from
       // the UI today, kept as a guard since this is public API (86ey9e9vc).
       if (venueId === activeVenueId) return;
@@ -161,7 +161,7 @@ export function AppShellChrome({
             showTransientToast(t.venue.switchFailed);
             return;
           }
-          window.location.assign('/app');
+          window.location.assign(landing);
         })
         .catch(() => {
           // A thrown action (network blip, 500) has to speak too. Clearing the
@@ -234,6 +234,7 @@ export function AppShellChrome({
   const pushAsk = usePushClient({
     canReceive: roles.includes('admin') || roles.includes('staff') || canManageTemplates,
     activeVenueId,
+    switchToVenue,
     onToast: showTransientToast,
   });
 
