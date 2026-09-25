@@ -118,7 +118,7 @@ Open work (ClickUp list `901818739469`, one task per session): **Prod-ready 9/7*
 
 ## Env & prod-push
 
-**Domains (decided 2026-09-18):** the app runs on `app.plus-one.io` (Vercel project `plus-one`); `plus-one.io` is the marketing site (separate repo `Plus-One.io`, Vercel project `plus-one-io`, apex canonical) and hosts the legal pages the consent gate links to (`src/lib/legal.ts`). Never hard-code an app origin — in-app links use `window.location.origin`, server code `NEXT_PUBLIC_APP_URL`.
+**Domains (decided 2026-09-18):** the app runs on `app.plus-one.io` (Vercel project `plus-one`); `plus-one.io` is the marketing site (separate repo `Plus-One.io`, Vercel project `plus-one-io`; `www.plus-one.io` is canonical, the apex redirects to it — kept as is, Max 2026-09-25) and hosts the legal pages the consent gate links to (`src/lib/legal.ts`). Never hard-code an app origin — in-app links use `window.location.origin`, server code `NEXT_PUBLIC_APP_URL`.
 
 **No staging.** One Supabase project — prod, ref `tolxwgqhppdcvnogdpel`. The app reads plain env names: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, server-only `SUPABASE_SERVICE_ROLE_KEY` (the `_STAGING`/`_PROD` names in `.env.example` are stale). Local dev/tests run against the local stack.
 

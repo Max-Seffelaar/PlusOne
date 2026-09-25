@@ -83,7 +83,7 @@ Effort in Claude Code-sessies (de werkeenheid van dit project: één ClickUp-taa
 
 | # | Tag | Inhoud |
 |---|-----|--------|
-| M1 | NOW | **D-U-N-S** aanvragen (gratis, 1–2 wk; welke bedrijfsentiteit PlusOne draagt is een M1-beslissing) → **Apple Developer org-account** (€99/jr; org-verificatie 1–2 wk extra, incl. telefonische check). Langste doorlooptijd van het hele traject. |
+| M1 | NOW | **D-U-N-S** aanvragen (gratis, 1–2 wk; entiteit: **The Operators, KvK 99992841** (besluit Max 2026-09-25) — D-U-N-S, Apple-org, Play-org en de juridische teksten op die naam) → **Apple Developer org-account** (€99/jr; org-verificatie 1–2 wk extra, incl. telefonische check). Langste doorlooptijd van het hele traject. |
 | M2 | NOW | **Google Play Console org-account** ($25 eenmalig; een org-account vermijdt de regel voor nieuwe personal accounts — **20 testers, 14 dagen** closed test vóór productie; Play vraagt ook D-U-N-S). |
 | M3 | NOW | **Firebase-project** aanmaken (gratis — deblokkeert de echte send-test van N2); **APNs-key** uploaden zodra het Apple-account er is. |
 | M4 | SHIP | Store-listing NL, screenshots (**iPhone 6,7" + iPad 13"** — beslissing 10), privacy nutrition labels + Play data-safety (spiegelen `/privacy` uit L1), export compliance (HTTPS-only → exempt), Codemagic-account + App Store Connect API-key. |
