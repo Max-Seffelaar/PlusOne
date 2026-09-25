@@ -51,6 +51,13 @@ Branch `claude/quota-requests-column-grant`. Found in the N2 push-backend review
   `quota_requests_column_grant.test.sql` 29 → 37 (B13 now via `req_state`
   incl. `venue_id`; F1–F5 approve-after-deny + definer/search_path/ACL/lock;
   G1–G3 server-stamped `decided_at`). pgTAP again CI-only here.
+- **Verification nits:** stale AAL2 comments corrected repo-wide (quotas,
+  venues, audit, contacts, po hooks/mutations, mfa-gate, three pgTAP headers +
+  the J7 label). Comment/label text only, no `plan()` change. Dead
+  `QuotaRequestsInbox.tsx` deleted (it had no importers). An approve that loses
+  the race (45003) is mapped by code to `t.quotaRequests.alreadyHandled`, so the
+  RPC's Dutch message never reaches the UI (applied migration untouched). Two
+  unit tests. `NOT_DECIDABLE` now sits below the imports and reads catalogue copy.
 
 ---
 
