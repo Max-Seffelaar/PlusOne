@@ -119,6 +119,25 @@ Daarom weigert migratie `20260925150000_demo_venue_no_new_members.sql` (pgTAP
 - elke `event_organizers`-insert op een event van de demo-venue (de seed maakt geen crew).
 `assignOrganizer` weigert het demo-account ook, voor een nette melding.
 
+Dezelfde migratie (ronde 9) sluit nog twee gaten:
+- **Een invite náár het demo-adres, vanuit elke venue.** `refuse_demo_venue_invite`
+  keyde alleen op `venue_id`; de admin van een willekeurige andere venue kon
+  `app-review@demo.plus-one.io` uitnodigen. Dan weigert de review-login
+  (`venue_not_isolated`) en de reviewer staat buiten, en bij de consent-stap zou
+  `accept_pending_invites` het demo-account lid maken van een echte venue. De functie
+  weigert nu ook `lower(btrim(email)) = 'app-review@demo.plus-one.io'` (42501), voor
+  iedereen, service role incluis. De invite-reads in de review-login blijven als defence
+  in depth (invites van vóór de migratie).
+- **Zichzelf buitensluiten.** Als admin van de demo-venue kon het demo-account zijn eigen
+  rollen wijzigen (een update van alleen `roles`) of zijn eigen membership verwijderen,
+  waarna elke volgende reviewer buitenstaat (`roles_changed` / `membership_venue`) tot
+  een re-seed. `refuse_demo_member_self_change` weigert elke update van `venue_id`,
+  `user_id` of `roles`, en elke delete, op díe rij (demo-venue + demo-user), tenzij de
+  request-JWT `service_role` is (de seed). De check leest de JWT-rol, niet
+  `current_user`, dus ook een SECURITY DEFINER-RPC namens het demo-account wordt
+  geweigerd. Zonder JWT (tabel-owner in de SQL-editor, een FK-cascade) mag het wel.
+  Alleen `job_title` wijzigen blijft werken; andere venues merken niets.
+
 De uitnodigingsflow voor externe crew (`inviteExternalCrew` in
 `src/features/events/actions.ts`) schrijft géén `invites`-rij: die maakt via de service
 role direct een account aan, dus de trigger ziet hem niet. Daar is de app-check op het
@@ -142,6 +161,18 @@ de grens; de UI-check is alleen presentatie.
 | Crew toevoegen (e-mail of terugkerend) | Event → Crew: "Add crew" (sheet opent niet) | `inviteExternalCrew`, `resendCrewInvite`, `assignOrganizer`; `event_organizers`-trigger | "Invites are turned off for the demo account." |
 | Nieuwe venue maken | Venue-switcher ("+" en "New venue"), Venue settings "New venue", deeplink `/app/venues/new` | `createVenueAction`; `create_venue_with_owner` | "The demo account can't create venues." |
 | E-mailadres wijzigen | Profiel: e-mail read-only | `updateEmailAction` | "The demo account's email can't be changed." |
+| Onboarding-wizard: venue maken | `/onboarding` venue-stap: "Create venue" inert + "Back to the app" | `createVenueAction`; `create_venue_with_owner` | "The demo account can't create venues." |
+| Onboarding-wizard: team uitnodigen | `/onboarding` team-stap: "Send invites" inert, alleen "Skip for now" | `inviteUserAction`; `invites`-trigger | "Invites are turned off for the demo account." |
+| Demo-account uitnodigen (vanuit een andere venue) | n.v.t. (andere venue) | `invites`-trigger (adres-predicaat) | generieke fout voor die admin |
+| Eigen rollen wijzigen / eigen membership verwijderen | n.v.t. | `refuse_demo_member_self_change` | generieke fout |
+
+**De onboarding-wizard (`/onboarding`).** Het demo-account kan er komen door
+`settings.onboarding.completed` van zijn eigen venue op `false` te zetten (het is admin).
+Drie lagen: (1) de seed zet die vlag bij elke run terug op `true`; (2) de `/app`-layout
+stuurt het demo-account nooit naar `/onboarding`; (3) bij een directe bezoek slaat de
+wizard welkom/plan/betaling over en toont de venue- en team-stap alleen de weigering
+(`RefusedAction`), nooit een formulier. "Skip for now" rondt de onboarding van de eigen
+venue af en gaat terug naar `/app`.
 
 Wie het demo-account is, leest de client uit twee onafhankelijke bronnen (elk volstaat):
 de `demoAccount`-vlag van de `/app`-layout én het user-id van de live identity
@@ -171,6 +202,7 @@ node scripts/seed-demo-venue.mjs --prod
   - `mfa_snooze_until = 'infinity'`, dus nooit een MFA-nudge op het gedeelde account;
   - de rollen gaan terug naar `admin,doorhost`;
   - de venuenaam wordt hersteld;
+  - `settings.onboarding.completed` gaat terug naar `true` (andere settings-keys blijven);
   - open invites in de demo-venue of naar het demo-adres worden verwijderd.
   - de publieke aanvraagpagina van de demo-events staat uit (`landing_active = false`):
     de slugs staan in een publieke repo en een open formulier zou echte PII in een
