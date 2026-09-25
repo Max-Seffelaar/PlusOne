@@ -10,7 +10,11 @@
  * - Any other `/app/*` URL → history back. Every screen, tab and door overlay
  *   is a real URL (G1, `routes.ts`), so the browser history IS the nav stack.
  *   With no history (cold start on a deep link) → replace to the `/app` root,
- *   so back never dead-ends.
+ *   so back never dead-ends — EXCEPT on the Deur tab (`/app/door…`) while
+ *   offline: replacing to `/app` is an RSC fetch that falls back to a hard
+ *   navigation when it fails, and no service worker covers `/app`, so the
+ *   doorhost would land on the browser's offline page. There back does nothing
+ *   (#25). A history-back offline is fine: it reuses the router cache.
  * - Standalone door: `/door/<eventId>` → the `/door` picker (replace, not
  *   history: the picker is the door's logical parent whatever came before);
  *   the picker itself → minimize. OFFLINE, back on `/door/<eventId>` does
@@ -43,6 +47,10 @@ export function nativeBackAction(pathname: string, { canGoBack, online }: Native
   const path = normalize(pathname);
   if (path === '/app' || path === '/door') return { kind: 'minimize' };
   if (path.startsWith('/door/')) return online ? { kind: 'replace', to: '/door' } : { kind: 'none' };
-  if (path.startsWith('/app/')) return canGoBack ? { kind: 'history-back' } : { kind: 'replace', to: '/app' };
+  if (path.startsWith('/app/')) {
+    if (canGoBack) return { kind: 'history-back' };
+    if (!online && (path === '/app/door' || path.startsWith('/app/door/'))) return { kind: 'none' };
+    return { kind: 'replace', to: '/app' };
+  }
   return canGoBack ? { kind: 'history-back' } : { kind: 'minimize' };
 }

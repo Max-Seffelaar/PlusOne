@@ -34,6 +34,20 @@ describe('nativeBackAction (Android back button, N3)', () => {
     expect(nativeBackAction('/door', online)).toEqual({ kind: 'minimize' });
   });
 
+  it('never replaces the offline Deur tab away when there is no history (#25)', () => {
+    const coldOffline = { canGoBack: false, online: false };
+    expect(nativeBackAction('/app/door', coldOffline)).toEqual({ kind: 'none' });
+    // pathname only — the query (?event=…&guest=…) never reaches it
+    expect(nativeBackAction('/app/door/', coldOffline)).toEqual({ kind: 'none' });
+    // with history, back offline is fine (router cache)
+    expect(nativeBackAction('/app/door', { canGoBack: true, online: false })).toEqual({ kind: 'history-back' });
+    // online, the cold-start fallback still goes to the root
+    expect(nativeBackAction('/app/door', { canGoBack: false, online: true })).toEqual({ kind: 'replace', to: '/app' });
+    // the guard is door-only: other screens keep the root fallback offline
+    expect(nativeBackAction('/app/events/abc', coldOffline)).toEqual({ kind: 'replace', to: '/app' });
+    expect(nativeBackAction('/app/doorways', coldOffline)).toEqual({ kind: 'replace', to: '/app' });
+  });
+
   it('never leaves a working offline door for the network-only picker (#25)', () => {
     expect(nativeBackAction('/door/evt-1', { canGoBack: true, online: false })).toEqual({ kind: 'none' });
   });
