@@ -1137,29 +1137,24 @@ export function copyStateLabel(state: CopyState | null, idle: string, done: stri
   return idle;
 }
 
-interface CapacitorBrowserGlobal {
-  Plugins?: { Browser?: { open?: (opts: { url: string }) => Promise<void> } };
-}
-
 /**
  * Open an external URL outside the app. Browser/PWA: a new tab
- * (`noopener,noreferrer`). Native shell: the in-app browser sheet, which has
- * its own close button — `_blank` would replace the webview with no way back.
+ * (`noopener,noreferrer`). Native shell: `@capacitor/browser` — Custom Tabs on
+ * Android, SFSafariViewController on iOS — which has its own close button;
+ * `_blank` would replace the webview with no way back (decision 12).
  *
- * Seam: `@capacitor/browser` is not installed yet (dependencies land in N3), so
- * the native branch reaches the plugin through the `window.Capacitor.Plugins`
- * global the native runtime injects — no import of an absent package.
- * TODO(N3 86ey6bfdm): swap to `Browser.open` from `@capacitor/browser` once it
- * is a dependency. Until the plugin exists, native falls back to `window.open`.
+ * The plugin is imported lazily so the web bundle never loads it. Never
+ * throws: if the plugin is missing (an older native build) or refuses, it
+ * falls back to `window.open`.
  */
 export function openExternal(url: string): void {
   if (typeof window === 'undefined') return;
   if (isNativeShell()) {
-    const browser = (window as { Capacitor?: CapacitorBrowserGlobal }).Capacitor?.Plugins?.Browser;
-    if (typeof browser?.open === 'function') {
-      void browser.open({ url }).catch(() => window.open(url, '_blank', 'noopener,noreferrer'));
-      return;
-    }
+    const fallback = (): void => {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    };
+    void import('@capacitor/browser').then(({ Browser }) => Browser.open({ url })).catch(fallback);
+    return;
   }
   window.open(url, '_blank', 'noopener,noreferrer');
 }
