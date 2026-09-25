@@ -23,6 +23,7 @@ import { Icon } from '../../icon';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, RefusedAction, Scroll, Top, press, cardPress } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
 import { useIsDemoVenue } from '../../app-shell-data';
+import { DEMO_USER_ID } from '@/features/auth/demo-account';
 import { col, FormError, RolePicker } from './_shared';
 
 // ── GEBRUIKERS (pushed) — S6 Team-beheer, live ───────────────────────────────
@@ -511,7 +512,11 @@ function MemberSheet({
         </div>
       </div>
 
-      {!canManageThis ? (
+      {member.userId === DEMO_USER_ID ? (
+        // The demo membership (86ey6bfug): the DB refuses every change to it but
+        // the seed's (a demoted or removed demo admin locks the next reviewer out).
+        <Note icon="shield">{t.auth.demoNoOwnMembership}</Note>
+      ) : !canManageThis ? (
         <Note icon="shield">{t.settings.team.sheetNoRights}</Note>
       ) : confirmRemove ? (
         <>

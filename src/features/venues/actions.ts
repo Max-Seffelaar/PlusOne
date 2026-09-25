@@ -10,6 +10,7 @@ import { canGrantRoles, type VenueRole } from '@/features/auth/roles';
 import { mapMutationError, unauthorized, invalidInput, type MutationError } from '@/lib/db-errors';
 import { TERMS_VERSION } from '@/lib/legal';
 import { isDemoReviewUser } from '@/features/auth/review-window';
+import { DEMO_USER_ID, DEMO_VENUE_ID } from '@/features/auth/demo-account';
 import { t } from '@/lib/i18n';
 import {
   venueSettingsSchema,
@@ -204,6 +205,11 @@ export async function updateVenueSettingsAction(
   return { ok: true, message: 'Settings saved.' };
 }
 
+/** The store-review demo account's own membership in the demo venue (86ey6bfug). */
+function isDemoMembership(venueId: string, userId: string): boolean {
+  return venueId === DEMO_VENUE_ID && userId === DEMO_USER_ID;
+}
+
 /**
  * Change a member's roles (AAL2 — role grant is sensitive). Mirrors RLS
  * venue_memberships_update: manager authority + the escalation guard on BOTH
@@ -227,6 +233,9 @@ export async function updateMemberRolesAction(
   }
   const { venueId, userId, roles } = parsed.data;
   const newRoles = roles as VenueRole[];
+  // The demo membership (86ey6bfug): the DB refuses every change to it except
+  // the seed's (refuse_demo_member_self_change); name the reason upfront.
+  if (isDemoMembership(venueId, userId)) return { ok: false, error: t.auth.demoNoOwnMembership };
 
   const callerRoles = await callerRolesAt(venueId, user.id);
   const currentRoles = await memberRolesAt(venueId, userId);
@@ -281,6 +290,7 @@ export async function removeMemberAction(
   });
   if (!parsed.success) return { ok: false, error: 'Invalid input.' };
   const { venueId, userId } = parsed.data;
+  if (isDemoMembership(venueId, userId)) return { ok: false, error: t.auth.demoNoOwnMembership };
 
   const callerRoles = await callerRolesAt(venueId, user.id);
   const targetRoles = await memberRolesAt(venueId, userId);

@@ -9,7 +9,7 @@
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
-import { t } from '@/lib/i18n';
+import { t, fmt } from '@/lib/i18n';
 
 const A = '018f3a2e-0000-7000-8000-00000000000a';
 
@@ -32,6 +32,7 @@ const H = vi.hoisted(() => ({
     website: '',
   },
   demo: false,
+  team: [] as { userId: string; name: string; email: string; roles: string[]; rolesLabel: string; quota: number }[],
   push: vi.fn(),
   mutations: {} as Record<string, { mutate: ReturnType<typeof vi.fn> }>,
 }));
@@ -44,7 +45,7 @@ vi.mock('../../context', () => ({
 vi.mock('@/features/po/PoLiveProvider', () => ({ usePoIdentity: () => ({ roles: ['admin'], venueName: 'Venue A' }) }));
 vi.mock('@/features/po/hooks', () => ({
   usePoVenueSettings: () => ({ data: H.settings, isLoading: false, isError: false }),
-  usePoTeam: () => ({ data: [] }),
+  usePoTeam: () => ({ data: H.team }),
   usePoInvites: () => ({
     data: [{ id: 'inv-1', email: 'x@example.com', status: 'pending', rolesLabel: 'Staff', sentAt: 'today' }],
   }),
@@ -95,6 +96,7 @@ afterEach(() => {
   cleanup();
   H.push.mockClear();
   H.mutations = {};
+  H.team = [];
 });
 
 const btn = (label: string) => screen.getByRole('button', { name: new RegExp(label) });
@@ -147,6 +149,30 @@ describe('team invite + resend', () => {
     expect(H.mutations.usePoResendCrewInvite?.mutate).toHaveBeenCalledWith('crew-1');
     fireEvent.click(btn(t.settings.team.inviteCta));
     expect(screen.getByText(t.settings.team.chooseTitle)).toBeInTheDocument();
+  });
+});
+
+describe('team member sheet: the demo membership', () => {
+  const DEMO = 'de300000-0000-7000-8000-00000000a001';
+  const member = (userId: string, name: string) => ({ userId, name, email: `${name}@example.com`, roles: ['admin', 'doorhost'], rolesLabel: 'Admin', quota: 5 });
+
+  it('the demo row shows the refusal, no role picker and no remove', () => {
+    H.demo = true;
+    H.team = [member(DEMO, 'Reviewer')];
+    render(<Gebruikers />);
+    fireEvent.click(screen.getByRole('button', { name: fmt(t.settings.team.manageAria, { name: 'Reviewer' }) }));
+    expect(screen.getByText(t.auth.demoNoOwnMembership)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: new RegExp(t.settings.team.saveRoles) })).toBeNull();
+    expect(screen.queryByRole('button', { name: t.settings.team.removeAccess })).toBeNull();
+  });
+
+  it('any other member keeps the role picker', () => {
+    H.demo = false;
+    H.team = [member('018f3a2e-0000-7000-8000-0000000000b1', 'Other')];
+    render(<Gebruikers />);
+    fireEvent.click(screen.getByRole('button', { name: fmt(t.settings.team.manageAria, { name: 'Other' }) }));
+    expect(screen.queryByText(t.auth.demoNoOwnMembership)).toBeNull();
+    expect(screen.getByRole('button', { name: new RegExp(t.settings.team.saveRoles) })).toBeInTheDocument();
   });
 });
 
