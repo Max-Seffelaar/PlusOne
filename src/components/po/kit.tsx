@@ -1189,10 +1189,14 @@ export function copyStateLabel(state: CopyState | null, idle: string, done: stri
  *
  * The plugin is imported lazily so the web bundle never loads it. Never
  * throws: if the plugin is missing (an older native build) or refuses, it
- * falls back to `window.open`.
+ * falls back to `window.open`. Anything but an http(s) URL is ignored.
  */
 export function openExternal(url: string): void {
   if (typeof window === 'undefined') return;
+  // http(s) only: Android's Browser plugin dispatches any scheme as an implicit
+  // ACTION_VIEW (`intent:`, `javascript:`…), and iOS's refusal would fall back
+  // to window.open inside the webview. Every caller today passes http(s).
+  if (!/^https?:\/\//i.test(url)) return;
   if (isNativeShell()) {
     const fallback = (): void => {
       window.open(url, '_blank', 'noopener,noreferrer');

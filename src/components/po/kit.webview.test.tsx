@@ -144,6 +144,18 @@ describe('openExternal', () => {
     );
   });
 
+  it('ignores non-http(s) URLs on both paths (no intent:/javascript: dispatch)', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    for (const bad of ['javascript:alert(1)', 'intent://x#Intent;end', 'file:///etc/hosts', '/relative']) {
+      openExternal(bad);
+    }
+    (window as { Capacitor?: unknown }).Capacitor = { isNativePlatform: () => true };
+    openExternal('intent://x#Intent;scheme=https;end');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(open).not.toHaveBeenCalled();
+    expect(browserOpen).not.toHaveBeenCalled();
+  });
+
   it('does not touch the native plugin in a normal browser', () => {
     vi.spyOn(window, 'open').mockReturnValue(null);
     openExternal('https://plus-one.io/terms');
