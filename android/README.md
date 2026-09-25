@@ -6,10 +6,14 @@ decision 8). The webview loads the deployed web app (`server.url` in
 
 - **App id:** `app.plusone.guestlist` — permanent (plan decision 13).
 - **Toolchain:** JDK 21 (Android Studio's bundled JBR is fine), compileSdk/targetSdk 36, minSdk 24.
-- **After `pnpm install` or any plugin change:** `npx cap sync android` (regenerates
-  `capacitor.settings.gradle`, `app/capacitor.build.gradle` and the gitignored assets).
+- **After any `@capacitor/*` version bump or plugin change: `npx cap sync` is mandatory**
+  (regenerates `capacitor.settings.gradle`, `app/capacitor.build.gradle`, iOS
+  `CapApp-SPM/Package.swift` and the gitignored assets) and the result is committed.
+  Those files carry the exact pnpm store path; `tests/unit/capacitor-native-shell.test.ts`
+  fails CI when they point at a version that is no longer installed.
 - **Debug build against another server:** `CAP_SERVER_URL=https://<preview-url> npx cap sync android`
-  (an `http://` LAN URL also enables cleartext). Run a plain `npx cap sync android`
+  (an `http://` LAN URL also enables cleartext — Android only; iOS keeps default ATS and
+  App-Bound Domains admits only `app.plus-one.io`). Run a plain `npx cap sync android`
   again afterwards — the synced config is what the build uses.
 
 ## google-services.json (Firebase, push — N5)
