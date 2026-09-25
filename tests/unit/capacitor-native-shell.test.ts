@@ -83,6 +83,15 @@ describe('webview data is excluded from device backups', () => {
     expect(fn![0]).toContain('setResourceValues(values)');
   });
 
+  it('iOS re-applies the exclusion when the scene enters the background (UIScene lifecycle)', () => {
+    const scene = read('ios/App/App/SceneDelegate.swift');
+    const bg = scene.match(/func sceneDidEnterBackground\(_ scene: UIScene\)[\s\S]*?\n {4}\}\n/);
+    expect(bg, 'sceneDidEnterBackground missing').not.toBeNull();
+    expect(bg![0]).toContain('AppDelegate.excludeWebDataFromBackup()');
+    // Callable from the scene delegate: not private, and a type method.
+    expect(read('ios/App/App/AppDelegate.swift')).toMatch(/\n {4}static func excludeWebDataFromBackup\(\)/);
+  });
+
   it('Android keeps allowBackup off with the data-extraction rules', () => {
     const manifest = read('android/app/src/main/AndroidManifest.xml');
     expect(manifest).toContain('android:allowBackup="false"');
