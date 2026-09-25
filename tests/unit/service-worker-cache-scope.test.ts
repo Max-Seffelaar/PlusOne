@@ -620,7 +620,9 @@ describe('persistent-shell PII contract', () => {
 
     expect(returned.startsWith('<DoorRoute')).toBe(true);
     const props = [...returned.matchAll(/(\w+)=\{/g)].map((m) => m[1]);
-    expect(new Set(props)).toEqual(new Set(['eventId', 'serverHint']));
+    // N6 dropped the UA `serverHint` (the door variant keys on the pointer,
+    // decided client-side) — the page now hands down the id and nothing else.
+    expect(new Set(props)).toEqual(new Set(['eventId']));
     expect(src).not.toMatch(/\.from\(['"]guests['"]\)/);
   });
 

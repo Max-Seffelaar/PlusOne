@@ -78,7 +78,7 @@ En één kolomregel: de per-scherm contentbreedte (`WIDE_DESKTOP` in `nav-map.ts
 
 **Wat Max per formaat ziet:** 768/820/834 portrait = bottom-tabs, formulieren in een gecentreerde kolom van 640px, lijsten en dashboards over de volle breedte met tweekoloms-grids; de Deur-lijst over de volle breedte, gast-detail en ter-plekke-toevoegen in de 640-kolom. 1024/1180/1366 landscape = sidebar, desktopdichtheid qua layout, maar 44px-tikdoelen en touch-invoer.
 
-**Besloten 2026-09-24 (Max, plan-beslissing 14, uitvoering N6 na N3):** de deurvariant volgt touch óf breedte. `(pointer: coarse)` of `<1024px` krijgt de outbox-deur, de cockpit alleen een fijne pointer op `≥1024px`. De chrome-breakpoint blijft 1024. Tot N6 er is, krijgt een iPad in landscape aan de deur nog de online-only cockpit.
+**Besloten 2026-09-24 (Max, plan-beslissing 14, uitvoering N6 na N3):** de deurvariant volgt touch óf breedte. `(pointer: coarse)` of `<1024px` krijgt de outbox-deur, de cockpit alleen een fijne pointer op `≥1024px`. De chrome-breakpoint blijft 1024. **Geïmplementeerd in N6** (`use-door-variant.ts`; eenmaal gekozen blijft de outbox staan tot je de Deur-tab verlaat).
 
 ## Scherm-inventaris: gedekt vs. ontbrekend
 

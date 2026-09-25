@@ -18,31 +18,45 @@
  * own loading affordance (tab spinner) instead of a silent blank screen while
  * the other layout's data resolves (retest 13/7 — a slow /app compile/data
  * fetch read as "broken" with nothing on screen in the meantime).
+ *
+ * Which devices redirect follows decision 14 (N6), not width alone: only a fine
+ * pointer at ≥1024px goes to the cockpit; touch at any width (iPad landscape)
+ * keeps this outbox door. The variant is `null` through SSR + hydration, so the
+ * server HTML is the neutral spinner and `DoorProvider` mounts exactly once, on
+ * the real answer — never on a UA guess that a media query later overturns.
+ * Latched: once the outbox is up, a later pointer/width change never redirects
+ * it away mid-shift.
+ *
+ * Root pads the top/side safe area like the `/app` shell root (T1
+ * `ROOT_SAFE_AREA`): under `viewport-fit=cover` this route otherwise draws
+ * under the status bar/notch. The bottom inset stays with the door's own
+ * bottom-edge components.
  */
 import { type JSX, useEffect, useState } from 'react';
 import { PoDoorTab, type DoorOverlay } from '@/components/po/screens/door';
 import { Spinner } from '@/components/po/kit';
 import { t } from '@/lib/i18n';
 import { doorPath } from '@/components/po/routes';
-import { useViewport } from '@/components/po/use-viewport';
+import { useLatchedDoorVariant } from '@/components/po/use-door-variant';
+import { ROOT_SAFE_AREA } from '@/components/po/shell-responsive';
 import { DoorProvider } from '../DoorProvider';
 
-export function DoorRoute({ eventId, serverHint }: { eventId: string; serverHint?: boolean }): JSX.Element {
-  const isMobile = useViewport(serverHint);
+export function DoorRoute({ eventId }: { eventId: string }): JSX.Element {
+  const variant = useLatchedDoorVariant();
   const [tab, setTab] = useState<'deur' | 'taken'>('deur');
   const [overlay, setOverlay] = useState<DoorOverlay>(null);
 
   useEffect(() => {
-    if (!isMobile) window.location.replace(doorPath({ eventId }));
-  }, [isMobile, eventId]);
+    if (variant === 'cockpit') window.location.replace(doorPath({ eventId }));
+  }, [variant, eventId]);
 
   const openGuest = (id: string): void => setOverlay({ kind: 'guest', id });
   const openAdd = (): void => setOverlay({ kind: 'add' });
   const closeOverlay = (): void => setOverlay(null);
 
-  if (!isMobile) {
+  if (variant !== 'outbox') {
     return (
-      <div className="flex h-[100dvh] items-center justify-center gap-3 bg-bg text-faint">
+      <div className="flex h-[100dvh] items-center justify-center gap-3 bg-bg text-faint" style={ROOT_SAFE_AREA}>
         <Spinner size={20} />
         <span className="text-[13.5px]">{t.common.loading}</span>
       </div>
@@ -51,7 +65,7 @@ export function DoorRoute({ eventId, serverHint }: { eventId: string; serverHint
 
   return (
     <DoorProvider eventId={eventId}>
-      <div className="flex h-[100dvh] flex-col overflow-hidden bg-bg">
+      <div className="flex h-[100dvh] flex-col overflow-hidden bg-bg" style={ROOT_SAFE_AREA}>
         <PoDoorTab
           tab={tab}
           onTab={setTab}

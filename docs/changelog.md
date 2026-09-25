@@ -8,6 +8,54 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-25 — Fase 17 N6: door variant follows touch or width (decision 14)
+
+Branch `claude/n6-door-variant`. Which Door-tab variant mounts, nothing else —
+the outbox (`src/features/door`) and the cockpit are unchanged.
+
+- New `src/components/po/use-door-variant.ts`: `useDoorVariant()` =
+  `'cockpit'` only for `(pointer: fine)` at ≥1024px, `'outbox'` otherwise (no
+  `matchMedia` ⇒ outbox, via `hasFinePointer()`). `useSyncExternalStore`, so
+  the `ssr:false` `/app` shell reads the real answer on its first render; the
+  server snapshot is `null` (placeholder, neither variant mounted).
+  `useLatchedDoorVariant()` keeps `'outbox'` for the caller's lifetime once
+  chosen — a pointer toggle or resize never unmounts a live `DoorProvider`;
+  leaving the tab re-evaluates.
+- `door-branch.tsx`: `PoDoorBranch` picks via the latched hook (the `isMobile`
+  prop is gone). `app.tsx`: chrome still keys on `useViewport` (1024 unchanged);
+  the T6 cockpit auto-open now gates on the cockpit variant.
+- `DoorRoute.tsx` (`/door/[id]`): same latched hook; SSR HTML is the spinner,
+  so the outbox mounts once, client-side, on the real answer. The page no longer
+  reads the UA (`serverHint` dropped; the SW PII guard's prop set tightened to
+  `eventId` only). Root now pads `ROOT_SAFE_AREA` (top/sides) like the po shell.
+- **Review round 1 (blocking): `ResponsiveShell` remounted the door.** The
+  shell returned two different trees for the two chromes, so `children` (the
+  Deur tab) sat at a different element path in each and every flip at 1024px
+  remounted `DoorProvider` — a UA-misseeded first load (iPad portrait with the
+  iPadOS `Macintosh` UA, a narrow laptop window: 2 mounts vs. 1 on base), an
+  iPad rotated across 1024 mid-shift, a laptop window widened past 1024. The
+  remount also reset the latch (component state), so widening swapped a live
+  outbox for the cockpit. Fix (scope extension authorized by the orchestrator):
+  `shell-responsive.tsx` now renders ONE tree, `div > main > div > children`
+  in both chromes, with the sidebar and tab bar as conditional siblings and
+  only the wrapper classes switching; visuals unchanged. `use-viewport.ts`, the
+  door internals and `app.tsx`'s reads are untouched.
+- Behaviour change to know: a laptop whose window was <1024px when it opened
+  the door keeps the outbox door after widening, until it leaves the Deur tab.
+  Narrowing from the cockpit below 1024 switches to the outbox (safe direction).
+- `src/app/door/[eventId]/page.tsx` is outside N6's file list but required:
+  `DoorRoute` no longer takes `serverHint`, so the page stops reading the UA.
+- Tests: `use-door-variant.test.tsx` (24 — matrix × hook/branch/route incl.
+  touch at exactly 1024 → outbox, no remount on pointer/width change, SSR
+  placeholder); new `shell-door-mount.test.tsx` (10 — the real shell around the
+  real branch: 1 mount on UA-misseeded first loads incl. 768px, iPad rotation
+  both ways across 1024, laptop widen keeps the outbox, narrow switches to it,
+  leaving the tab resets the latch; 8 of 10 fail against the old shell);
+  `app.auto-open.test.tsx` now stubs a fine pointer. Not run here: pgTAP, e2e
+  (no Supabase/Docker) — CI.
+
+---
+
 ## 2026-09-25 — Fase 17 N3: Capacitor scaffold + Android shell (86ey6bfdm)
 
 Golf 2 of Fase 17. No migration. Draft PR `feat(native): Capacitor scaffold + Android shell (86ey6bfdm)`.

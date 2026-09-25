@@ -1,9 +1,7 @@
 import type { JSX } from 'react';
-import { headers } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { DoorRoute } from '@/features/door/components/DoorRoute';
-import { isMobileUA } from '@/lib/ua';
 
 // The door experience for one event. Access is enforced here (doorhost/admin at
 // the venue, or organizer of the event) AND by RLS on every query/mutation.
@@ -50,11 +48,9 @@ export default async function DoorEventPage({
   const canWorkDoor = roles.includes('doorhost') || roles.includes('admin') || Boolean(organizer);
   if (!canWorkDoor) notFound();
 
-  // Desktop split (G2 retest 13/7): a laptop/desktop visitor gets redirected to
-  // the full /app shell's Deur tab instead of this focused Door-modus — see
-  // DoorRoute. serverHint just picks the first-paint guess; DoorRoute corrects
-  // it client-side via matchMedia before deciding whether to redirect.
-  const serverHint = isMobileUA((await headers()).get('user-agent'));
-
-  return <DoorRoute eventId={eventId} serverHint={serverHint} />;
+  // Desktop split (G2 retest 13/7): a fine-pointer ≥1024px visitor gets
+  // redirected to the full /app shell's Deur tab instead of this focused
+  // Door-modus — see DoorRoute. That choice is client-only (decision 14 keys it
+  // on the pointer, which no UA reveals), so no server-side device hint here.
+  return <DoorRoute eventId={eventId} />;
 }
