@@ -77,7 +77,8 @@ describe('renderReviewForm', () => {
 });
 
 describe('demo constants mirrored in scripts/seed-demo-venue.mjs', () => {
-  const script = readFileSync(path.resolve(process.cwd(), 'scripts/seed-demo-venue.mjs'), 'utf8');
+  // Normalised once so every slice below holds on a CRLF (Windows) checkout too.
+  const script = readFileSync(path.resolve(process.cwd(), 'scripts/seed-demo-venue.mjs'), 'utf8').replace(/\r\n/g, '\n');
 
   it('uses the same demo e-mail, user id, venue id, venue name and roles as the route', () => {
     expect(script).toContain(`const DEMO_ROLES = [${DEMO_ROLES.map((r) => `'${r}'`).join(', ')}];`);
@@ -117,6 +118,13 @@ describe('demo constants mirrored in scripts/seed-demo-venue.mjs', () => {
   it('lists venues a stray member created, and never deletes them', () => {
     expect(script).toContain("'settings->onboarding->>created_by'");
     expect(script).not.toMatch(/from\('venues'\)\s*\.delete\(/);
+  });
+
+  it('audit tripwire also catches demo-actor rows with no venue (NULL is never <> anything)', () => {
+    const block = script.slice(script.indexOf("'audit tripwire'"), script.indexOf('if (foreignAudit.length > 0)'));
+    expect(block).toContain(".eq('actor_id', DEMO_USER_ID)");
+    expect(block).toContain('.or(`venue_id.is.null,venue_id.neq.${VENUE_ID}`)');
+    expect(block).not.toContain(".neq('venue_id'");
   });
 
   it('refuses a non-local target without --prod', () => {
