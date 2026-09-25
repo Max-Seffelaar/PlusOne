@@ -1,8 +1,8 @@
 import type { JSX } from 'react';
 import { requireUser } from '@/lib/auth/guards';
 
-// MFA routes sit OUTSIDE the (app) group so the AAL2-enforcing app layout can
-// never redirect-loop them. They require only a signed-in user.
+// MFA routes sit OUTSIDE the (app) group so the app layout's MFA
+// recommendation redirect can never loop them. They require only a signed-in user.
 export default async function MfaLayout({
   children,
 }: {

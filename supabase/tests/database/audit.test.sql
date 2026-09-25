@@ -373,12 +373,11 @@ select ok(
       = '55555555-5555-4555-8555-555555555555',
   'I1 quota request gets its own create entry with the requester as actor');
 
+-- Approval goes through approve_quota_request: since 20260925140000 a direct
+-- client write can only deny. The RPC is SECURITY DEFINER, but the audit
+-- trigger still records auth.uid() — the deciding admin — as the actor.
 select pg_temp.login('11111111-1111-4111-8111-111111111111', 'aal2');
-update public.quota_requests
-set status = 'approved',
-    decided_by = '11111111-1111-4111-8111-111111111111',
-    decided_at = now()
-where id = 'bb000000-0000-7000-8000-000000000401';
+select public.approve_quota_request('bb000000-0000-7000-8000-000000000401');
 reset role;
 
 select is(

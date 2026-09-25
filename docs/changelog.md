@@ -8,6 +8,59 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-25 — quota_requests: column-level UPDATE grant, deny-only client decision
+
+Branch `claude/quota-requests-column-grant`. Found in the N2 push-backend review
+(PR #336); mirrors `20260919150000` (guest_requests, L5).
+
+- **Bug:** `authenticated` held a table-wide UPDATE on `quota_requests` and
+  `quota_requests_decide_admin` pinned only the old row (pending, admin) and the
+  actor. An admin could therefore (a) rewrite `user_id`/`event_id`/`venue_id`/
+  `requested_extra`/`motivation`/`created_at` in the same PATCH as a deny, and
+  (b) approve by a direct write — `status = 'approved'` with no `event_quotas`
+  override, because `approve_quota_request` never ran (the requester is told
+  "approved", incl. the N2 push, for slots they don't have).
+- `20260925140000_quota_requests_column_update_grant.sql` — WITH CHECK now
+  requires `status = 'denied'` (client transition = pending → denied only;
+  approval = the RPC), and `revoke update` → `grant update (status, decided_by,
+  decided_at, decision_reason)`: exactly what `decideQuotaRequest`'s deny branch
+  writes. That is the only client UPDATE path (no staff cancel/withdraw exists).
+  INSERT/SELECT untouched; `set_event_scope` still assigns `venue_id` (triggers
+  aren't subject to column grants); `approve_quota_request` is SECURITY DEFINER.
+- Tests: new `quota_requests_column_grant.test.sql` (29: grant catalog, admin
+  A / staff / admin B-only / anon, legit deny + audit, RPC approve + override).
+  `audit.test.sql` I2 now approves via the RPC and `rls.test.sql` J7 now denies
+  — both used a direct approve write that is refused by design now. Unit guard
+  `src/features/quotas/actions.test.ts` pins the deny body to the four columns.
+  `grant_matrix.test.sql` unchanged (no UPDATE allowlist there);
+  `database.types.ts` unchanged (grants don't change types).
+- Not runnable in the building session (no Docker/Supabase CLI): pgTAP is gated
+  by CI `lint-and-test`.
+- **Review round (independent `/code-review` + `/security-review`):** merged
+  `origin/main` (changelog-only conflict, all entries kept). Every finding fixed
+  in-PR: `20260925140100_approve_quota_request_row_lock.sql` — the RPC now reads
+  the request `for update` and flips only `status = 'pending'` (rowcount check →
+  45003), so an approve can no longer overwrite a concurrent deny; nothing else
+  in the function changed. `20260925140200_quota_requests_stamp_decided_at.sql` —
+  BEFORE UPDATE OF status trigger sets `decided_at = now()` on every decision, so
+  a client can't backdate a deny (grant kept: the deployed app still sends the
+  column, the value is just ignored). `decideQuotaRequest` deny now
+  `.select('id')`s and maps UPDATE 0 (already decided / finance / other venue)
+  to one generic 45003 MutationError instead of `{ ok: true }`. Stale AAL2 /
+  "table-wide UPDATE" comments fixed (`actions.ts`, `push_outbox.test.sql`).
+  `quota_requests_column_grant.test.sql` 29 → 37 (B13 now via `req_state`
+  incl. `venue_id`; F1–F5 approve-after-deny + definer/search_path/ACL/lock;
+  G1–G3 server-stamped `decided_at`). pgTAP again CI-only here.
+- **Verification nits:** stale AAL2 comments corrected repo-wide (quotas,
+  venues, audit, contacts, po hooks/mutations, mfa-gate, three pgTAP headers +
+  the J7 label). Comment/label text only, no `plan()` change. Dead
+  `QuotaRequestsInbox.tsx` deleted (it had no importers). An approve that loses
+  the race (45003) is mapped by code to `t.quotaRequests.alreadyHandled`, so the
+  RPC's Dutch message never reaches the UI (applied migration untouched). Two
+  unit tests. `NOT_DECIDABLE` now sits below the imports and reads catalogue copy.
+
+---
+
 ## 2026-09-25 — Fase 17 N3: Capacitor scaffold + Android shell (86ey6bfdm)
 
 Golf 2 of Fase 17. No migration. Draft PR `feat(native): Capacitor scaffold + Android shell (86ey6bfdm)`.

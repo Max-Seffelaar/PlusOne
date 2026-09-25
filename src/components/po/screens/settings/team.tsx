@@ -469,7 +469,7 @@ export function Gebruikers(): JSX.Element {
 }
 
 // Member action sheet: edit roles or revoke venue access. Both writes go through
-// the AAL2 + escalation + last-admin guarded venues actions; the sheet only
+// the role + escalation + last-admin guarded venues actions; the sheet only
 // offers controls the caller may use and surfaces the action's copy on refusal.
 function MemberSheet({
   member,

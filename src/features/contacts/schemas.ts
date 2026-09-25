@@ -102,7 +102,7 @@ export type MarkGuestRegularInput = z.input<typeof markGuestRegularSchema>;
 
 /**
  * On-request erasure ("forget me", AVG art. 17 / #29): anonymize one contact +
- * all its linked guests immediately. Admin + AAL2 is enforced in the DB function
+ * all its linked guests immediately. Admin-of-venue (role-only) is enforced in the DB function
  * (forget_contact) — this schema only guards the shape.
  */
 export const forgetContactSchema = z.object({
