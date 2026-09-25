@@ -36,7 +36,7 @@ const H = vi.hoisted(() => ({
   mutations: {} as Record<string, { mutate: ReturnType<typeof vi.fn> }>,
 }));
 
-vi.mock('../../app-shell-data', () => ({ useIsDemoAccount: () => H.demo }));
+vi.mock('../../app-shell-data', () => ({ useIsDemoAccount: () => H.demo, useIsDemoVenue: () => H.demo }));
 vi.mock('../../context', () => ({
   useNav: () => ({ push: H.push, back: vi.fn() }),
   usePo: () => ({ myVenues: [{ venueId: A, venueName: 'Venue A', roles: ['admin'] }], activeVenueId: A, switchToVenue: vi.fn() }),

@@ -22,7 +22,7 @@ import { useNav } from '../../context';
 import { Icon } from '../../icon';
 import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, RefusedAction, Scroll, Top, press, cardPress } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
-import { useIsDemoAccount } from '../../app-shell-data';
+import { useIsDemoVenue } from '../../app-shell-data';
 import { col, FormError, RolePicker } from './_shared';
 
 // ── GEBRUIKERS (pushed) — S6 Team-beheer, live ───────────────────────────────
@@ -42,9 +42,10 @@ export function Gebruikers(): JSX.Element {
   const resendInvite = usePoResendInvite();
   const resendCrew = usePoResendCrewInvite();
   const mfa = useMfaGate();
-  // Store-review demo account (86ey6bfug): invite + resend stay visible but
-  // inert, with the refusal upfront. UX only — the invite actions still refuse.
-  const demo = useIsDemoAccount();
+  // Store-review demo account / demo venue (86ey6bfug): invite + resend stay
+  // visible but inert, with the refusal upfront. UX only — the invite actions
+  // and the DB guards (no invite, no new member in the demo venue) still refuse.
+  const demo = useIsDemoVenue();
 
   const [invite, setInvite] = useState(false);
   // Invite fork (86ey21vre): 'choose' = pick Team vs External crew (admins only),

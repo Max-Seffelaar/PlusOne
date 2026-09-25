@@ -415,6 +415,10 @@ export async function assignOrganizer(input: AssignOrganizerInput): Promise<Acti
   const supabase = await createClient();
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
+  // The store-review demo account adds no crew (86ey6bfug): the real stop is
+  // the event_organizers trigger (20260925150000), this only gives the UI a
+  // clear message.
+  if (isDemoReviewUser(ctx.user)) return { ok: false, code: '42501', message: t.auth.demoNoInvites };
 
   const { error } = await supabase
     .from('event_organizers')

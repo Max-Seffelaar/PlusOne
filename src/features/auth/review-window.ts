@@ -1,4 +1,5 @@
 import 'server-only';
+import { DEMO_USER_ID } from './demo-account';
 
 // Store-review window (Fase 17 S3, 86ey6bfug). Pure, dependency-free predicates
 // shared by /auth/review-login (is the route on?), the middleware and the /app
@@ -21,10 +22,10 @@ export const DEMO_REVIEW_EMAIL = 'app-review@demo.plus-one.io';
  * id. Checks key on the id AND the e-mail, so a rebound address (see
  * updateEmailAction, which refuses the demo account) can never slip past.
  */
-export const DEMO_USER_ID = 'de300000-0000-7000-8000-00000000a001';
+export { DEMO_USER_ID } from './demo-account';
 
 /** The only venue the demo user may be a member of, by id (the name is display only). */
-export const DEMO_VENUE_ID = 'de300000-0000-7000-8000-000000000001';
+export { DEMO_VENUE_ID } from './demo-account';
 export const DEMO_VENUE_NAME = 'PlusOne Demo';
 
 /**

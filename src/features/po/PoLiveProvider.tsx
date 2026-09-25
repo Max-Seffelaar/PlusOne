@@ -19,6 +19,11 @@ export interface PoIdentity {
 
 const PoIdentityContext = createContext<PoIdentity | null>(null);
 
+/** Like `usePoIdentity`, but null outside a `PoLiveProvider` instead of throwing. */
+export function usePoIdentityOptional(): PoIdentity | null {
+  return useContext(PoIdentityContext);
+}
+
 export function usePoIdentity(): PoIdentity {
   const value = useContext(PoIdentityContext);
   if (!value) throw new Error('usePoIdentity must be used within PoLiveProvider');
