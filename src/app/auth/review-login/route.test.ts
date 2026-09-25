@@ -265,7 +265,7 @@ describe('POST', () => {
       ['platform flag unreadable', () => rpc.mockResolvedValue({ data: null, error: { message: 'x' } })],
       ['no membership', () => (ownMemberships = [])],
       ['a second venue', () => (ownMemberships = [{ venue_id: DEMO_VENUE_ID, roles: ['admin', 'doorhost'] }, { venue_id: 'w', roles: ['admin'] }])],
-      ['a venue NAMED "PLUSONE Demo" but with another id', () => (ownMemberships = [{ venue_id: 'aa000000-0000-7000-8000-000000000009', roles: ['admin', 'doorhost'] }])],
+      ['a venue NAMED "PlusOne Demo" but with another id', () => (ownMemberships = [{ venue_id: 'aa000000-0000-7000-8000-000000000009', roles: ['admin', 'doorhost'] }])],
       ['another member in the demo venue', () => (venueMembers = [{ user_id: DEMO.id }, { user_id: 'someone-invited' }])],
       ['an open invite into the demo venue', () => (venueInvites = [{ id: 'i1' }])],
       ['an open invite addressed to the demo e-mail', () => (addressedInvites = [{ id: 'i2' }])],

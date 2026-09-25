@@ -24,7 +24,7 @@ import {
 // PROD store-review login (Fase 17 S3, 86ey6bfug; capacitor-plan §2 decision 6).
 // App Store / Play reviewers need a working login, but the app is invite-only +
 // passwordless and /auth/dev-login is hard non-prod-gated. This route signs in
-// exactly ONE account, the demo user of the "PLUSONE Demo" venue, when the
+// exactly ONE account, the demo user of the "PlusOne Demo" venue, when the
 // reviewer submits the per-submission REVIEW_LOGIN_CODE.
 //
 //   GET  /auth/review-login  → the code form (static HTML, no JS)

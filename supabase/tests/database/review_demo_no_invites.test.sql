@@ -53,7 +53,7 @@ insert into public.user_profiles (id, full_name, email)
 values ('de300000-0000-7000-8000-00000000a001', 'App Review', 'app-review@demo.plus-one.io');
 
 insert into public.venues (id, name, slug)
-values ('de300000-0000-7000-8000-000000000001', 'PLUSONE Demo', 'plusone-demo-test');
+values ('de300000-0000-7000-8000-000000000001', 'PlusOne Demo', 'plusone-demo-test');
 
 insert into public.venue_memberships (venue_id, user_id, roles)
 values ('de300000-0000-7000-8000-000000000001', 'de300000-0000-7000-8000-00000000a001',

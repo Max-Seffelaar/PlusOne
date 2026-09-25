@@ -245,7 +245,7 @@ describe('/app layout ends a demo-account session once the review window closes'
     getSessionUserMock.mockReset();
     profileRow = ACCEPTED;
     withRequestPath(null);
-    myMemberships = [{ venueId: 'de300000-0000-7000-8000-000000000001', venueName: 'PLUSONE Demo', roles: ['admin'] }];
+    myMemberships = [{ venueId: 'de300000-0000-7000-8000-000000000001', venueName: 'PlusOne Demo', roles: ['admin'] }];
     activeVenueCookieValue = null;
     vi.stubEnv('REVIEW_LOGIN_CODE', 'k7p2-x9qm-4hzt-8wva-3bcd-efgh-jk');
     vi.stubEnv('REVIEW_LOGIN_EXPIRES_AT', inDays(7));

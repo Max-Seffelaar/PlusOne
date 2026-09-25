@@ -2,7 +2,7 @@
 
 App Store- en Play-reviewers hebben een werkende login nodig, maar de app is
 invite-only + passwordless en `/auth/dev-login` is hard non-prod-gated. Oplossing
-(capacitor-plan §2 beslissing 6): een geïsoleerde **"PLUSONE Demo"**-venue in prod
+(capacitor-plan §2 beslissing 6): een geïsoleerde **"PlusOne Demo"**-venue in prod
 met fake data en één demo-user, plus de prod-safe route
 [`src/app/auth/review-login/route.ts`](../src/app/auth/review-login/route.ts).
 

@@ -25,7 +25,7 @@ export const DEMO_USER_ID = 'de300000-0000-7000-8000-00000000a001';
 
 /** The only venue the demo user may be a member of, by id (the name is display only). */
 export const DEMO_VENUE_ID = 'de300000-0000-7000-8000-000000000001';
-export const DEMO_VENUE_NAME = 'PLUSONE Demo';
+export const DEMO_VENUE_NAME = 'PlusOne Demo';
 
 /**
  * The exact role set the seed gives the demo membership. The review login

@@ -1,4 +1,4 @@
-// Store-review demo tenant (Fase 17 S3, 86ey6bfug): the "PLUSONE Demo" venue
+// Store-review demo tenant (Fase 17 S3, 86ey6bfug): the "PlusOne Demo" venue
 // with fake data + the ONE demo user that /auth/review-login signs in.
 // Runbook: docs/review-login.md. Max runs this by hand; it never runs in CI.
 //
@@ -49,7 +49,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const DEMO_REVIEW_EMAIL = 'app-review@demo.plus-one.io';
 const DEMO_USER_ID = 'de300000-0000-7000-8000-00000000a001';
-const DEMO_VENUE_NAME = 'PLUSONE Demo';
+const DEMO_VENUE_NAME = 'PlusOne Demo';
 // = DEMO_ROLES: review-login refuses any other role set on the demo membership.
 const DEMO_ROLES = ['admin', 'doorhost'];
 const RESET_MEMBERS = process.argv.includes('--reset-members');
