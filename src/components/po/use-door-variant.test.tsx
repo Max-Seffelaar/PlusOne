@@ -117,6 +117,7 @@ const MATRIX = [
   { name: 'laptop window at exactly 1024px, fine pointer', width: 1024, fine: true, variant: 'cockpit' },
   { name: 'narrow desktop window — fine pointer, 800px', width: 800, fine: true, variant: 'outbox' },
   { name: 'iPad landscape — coarse pointer, 1366px', width: 1366, fine: false, variant: 'outbox' },
+  { name: 'iPad Pro portrait at exactly 1024px — coarse pointer', width: 1024, fine: false, variant: 'outbox' },
   { name: 'iPad portrait — coarse pointer, 768px', width: 768, fine: false, variant: 'outbox' },
   { name: 'phone — coarse pointer, 390px', width: 390, fine: false, variant: 'outbox' },
 ] as const;

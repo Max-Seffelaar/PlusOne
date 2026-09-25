@@ -40,13 +40,13 @@ function subscribe(onChange: () => void): () => void {
   const mqls = typeof window.matchMedia === 'function' ? QUERIES.map((q) => window.matchMedia(q)) : [];
   for (const mql of mqls) {
     if (typeof mql.addEventListener === 'function') mql.addEventListener('change', onChange);
-    else mql.addListener(onChange);
+    else if (typeof mql.addListener === 'function') mql.addListener(onChange);
   }
   return () => {
     window.removeEventListener('resize', onChange);
     for (const mql of mqls) {
       if (typeof mql.removeEventListener === 'function') mql.removeEventListener('change', onChange);
-      else mql.removeListener(onChange);
+      else if (typeof mql.removeListener === 'function') mql.removeListener(onChange);
     }
   };
 }
