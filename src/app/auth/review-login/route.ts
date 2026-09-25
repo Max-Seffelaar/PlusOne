@@ -255,7 +255,10 @@ async function demoAccountRefusal(
   // accept that one AFTER this check). As admin of the venue (checked just
   // above) the demo user can read all of this under RLS: every membership of
   // its venue, its venue's invites, and invites to its own address
-  // (invites_select, via the JWT e-mail).
+  // (invites_select, via the JWT e-mail). Since 20260925150000 the DB refuses
+  // both kinds of invite outright (refuse_demo_venue_invite keys on the venue
+  // AND the address); the reads stay as defence in depth, for an invite written
+  // before that migration or through a path nobody thought of.
   const { data: members, error: membersError } = await probe
     .from('venue_memberships')
     .select('user_id')

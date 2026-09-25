@@ -14,6 +14,13 @@
 --   * a normal venue can still add an existing user directly;
 --   * the trigger shape: BEFORE INSERT, security invoker, pinned search_path,
 --     no execute for app roles.
+-- Round 9 (same migration):
+--   * an invite ADDRESSED to the demo e-mail is refused from any venue, for
+--     any writer, case- and whitespace-insensitively; ordinary invites work;
+--   * the demo user cannot demote, move or delete its own demo membership
+--     (self-lockout), not even as admin there; a job_title edit still works;
+--   * the seed's path (service_role JWT) still can change and delete it;
+--   * other venues' memberships are unaffected.
 --
 -- Everything rolls back.
 
@@ -30,7 +37,16 @@ begin
 end;
 $fn$;
 
-select plan(18);
+-- The seed's writer: the service key's JWT role, as PostgREST sets it.
+create function pg_temp.as_service()
+returns void language plpgsql as $fn$
+begin
+  perform set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
+  perform set_config('role', 'service_role', true);
+end;
+$fn$;
+
+select plan(41);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner — RLS bypassed, like the demo seed): the demo user and
@@ -110,15 +126,27 @@ select throws_ok($$
 $$, '42501', 'the demo venue cannot gain members',
   'T6 nor can the table owner');
 
--- The UPDATE hop: the demo admin rewrites its own row onto another user.
+-- The UPDATE hop: the demo admin rewrites its own row onto another user. Since
+-- round 9 refuse_demo_member_self_change (fires first: triggers run in name
+-- order) refuses any change to that row from the API; T7b proves the
+-- new-member trigger still refuses the same move on its own, for a writer the
+-- self-change trigger lets through (the owner, no JWT).
 select pg_temp.login('de300000-0000-7000-8000-00000000a001', 'app-review@demo.plus-one.io');
 select throws_ok($$
   update public.venue_memberships set user_id = '44444444-4444-4444-8444-444444444444'
    where venue_id = 'de300000-0000-7000-8000-000000000001'
      and user_id = 'de300000-0000-7000-8000-00000000a001'
-$$, '42501', 'the demo venue cannot gain members',
+$$, '42501', 'the demo membership can only be changed by the demo seed',
   'T7 the demo admin cannot hand its own membership row to another user');
 reset role;
+
+select set_config('request.jwt.claims', '', true);
+select throws_ok($$
+  update public.venue_memberships set user_id = '44444444-4444-4444-8444-444444444444'
+   where venue_id = 'de300000-0000-7000-8000-000000000001'
+     and user_id = 'de300000-0000-7000-8000-00000000a001'
+$$, '42501', 'the demo venue cannot gain members',
+  'T7b nor can the table owner (the new-member trigger on its own)');
 
 -- Moving a normal venue's row onto the demo venue is refused too (owner = the
 -- strongest writer; RLS would already stop a demo admin who is not admin there).
@@ -184,6 +212,161 @@ select is(
   0, 'T14 no crew row exists on the demo event');
 
 -- ---------------------------------------------------------------------------
+-- F. round 9 (a): no invite addressed to the demo e-mail, from any venue
+-- ---------------------------------------------------------------------------
+
+-- Max = admin of venue 1 (Club Vesper): another venue's admin, not the demo one.
+select pg_temp.login('11111111-1111-4111-8111-111111111111', 'admin@plusone.test');
+select throws_ok($$
+  insert into public.invites (venue_id, email, roles, invited_by, expires_at)
+  values ('aa000000-0000-7000-8000-000000000001', 'app-review@demo.plus-one.io', '{staff}',
+          '11111111-1111-4111-8111-111111111111', now() + interval '7 days')
+$$, '42501', 'the demo account cannot be invited',
+  'T19 another venue''s admin cannot invite the demo e-mail');
+
+select throws_ok($$
+  insert into public.invites (venue_id, email, roles, invited_by, expires_at)
+  values ('aa000000-0000-7000-8000-000000000001', 'App-Review@Demo.PLUS-ONE.io', '{staff}',
+          '11111111-1111-4111-8111-111111111111', now() + interval '7 days')
+$$, '42501', 'the demo account cannot be invited',
+  'T20 not in another case either');
+
+select throws_ok($$
+  insert into public.invites (venue_id, email, roles, invited_by, expires_at)
+  values ('aa000000-0000-7000-8000-000000000001', '  app-review@demo.plus-one.io ', '{staff}',
+          '11111111-1111-4111-8111-111111111111', now() + interval '7 days')
+$$, '42501', 'the demo account cannot be invited',
+  'T21 nor padded with whitespace');
+reset role;
+
+select pg_temp.as_service();
+select throws_ok($$
+  insert into public.invites (venue_id, email, roles, invited_by, expires_at)
+  values ('aa000000-0000-7000-8000-000000000001', 'app-review@demo.plus-one.io', '{staff}',
+          '11111111-1111-4111-8111-111111111111', now() + interval '7 days')
+$$, '42501', 'the demo account cannot be invited',
+  'T22 nor can the service role');
+reset role;
+
+select is(
+  (select count(*)::int from public.invites
+    where lower(btrim(email)) = 'app-review@demo.plus-one.io'),
+  0, 'T23 no invite to the demo e-mail exists');
+
+select pg_temp.login('11111111-1111-4111-8111-111111111111', 'admin@plusone.test');
+select lives_ok($$
+  insert into public.invites (venue_id, email, roles, invited_by, expires_at)
+  values ('aa000000-0000-7000-8000-000000000001', 'demo-guard-round9@plusone.test', '{staff}',
+          '11111111-1111-4111-8111-111111111111', now() + interval '7 days')
+$$, 'T24 an ordinary invite from a normal venue still works');
+reset role;
+
+-- The replaced body keeps the venue predicate (and its own message).
+select throws_ok($$
+  insert into public.invites (venue_id, email, roles, invited_by, expires_at)
+  values ('de300000-0000-7000-8000-000000000001', 'someone@plusone.test', '{staff}',
+          'de300000-0000-7000-8000-00000000a001', now() + interval '7 days')
+$$, '42501', 'the demo venue cannot invite',
+  'T25 an invite into the demo venue is still refused');
+
+-- ---------------------------------------------------------------------------
+-- G. round 9 (b): no self-lockout of the demo membership
+-- ---------------------------------------------------------------------------
+
+select pg_temp.login('de300000-0000-7000-8000-00000000a001', 'app-review@demo.plus-one.io');
+select throws_ok($$
+  update public.venue_memberships set roles = '{doorhost}'
+   where venue_id = 'de300000-0000-7000-8000-000000000001'
+     and user_id = 'de300000-0000-7000-8000-00000000a001'
+$$, '42501', 'the demo membership can only be changed by the demo seed',
+  'T26 the demo admin cannot demote itself (roles-only update)');
+
+select throws_ok($$
+  update public.venue_memberships set roles = '{admin,doorhost,staff}'
+   where venue_id = 'de300000-0000-7000-8000-000000000001'
+     and user_id = 'de300000-0000-7000-8000-00000000a001'
+$$, '42501', 'the demo membership can only be changed by the demo seed',
+  'T27 nor change its role set any other way');
+
+select throws_ok($$
+  delete from public.venue_memberships
+   where venue_id = 'de300000-0000-7000-8000-000000000001'
+     and user_id = 'de300000-0000-7000-8000-00000000a001'
+$$, '42501', 'the demo membership can only be changed by the demo seed',
+  'T28 the demo admin cannot delete its own membership');
+
+select lives_ok($$
+  update public.venue_memberships set job_title = 'App review (edited)'
+   where venue_id = 'de300000-0000-7000-8000-000000000001'
+     and user_id = 'de300000-0000-7000-8000-00000000a001'
+$$, 'T29 a job_title-only edit of its own row still works');
+reset role;
+
+select is(
+  (select roles from public.venue_memberships
+    where venue_id = 'de300000-0000-7000-8000-000000000001'
+      and user_id = 'de300000-0000-7000-8000-00000000a001'),
+  '{admin,doorhost}'::public.venue_role[],
+  'T30 the demo membership still exists with the seed''s role set');
+
+-- The seed's path: a service_role JWT may change and delete the row.
+select pg_temp.as_service();
+select lives_ok($$
+  update public.venue_memberships set roles = '{doorhost}'
+   where venue_id = 'de300000-0000-7000-8000-000000000001'
+     and user_id = 'de300000-0000-7000-8000-00000000a001'
+$$, 'T31 the service role can change the demo role set');
+
+select lives_ok($$
+  delete from public.venue_memberships
+   where venue_id = 'de300000-0000-7000-8000-000000000001'
+     and user_id = 'de300000-0000-7000-8000-00000000a001'
+$$, 'T32 and delete the demo membership');
+
+select is(
+  (select count(*)::int from public.venue_memberships
+    where venue_id = 'de300000-0000-7000-8000-000000000001'),
+  0, 'T33 the delete really happened');
+
+select lives_ok($$
+  insert into public.venue_memberships (venue_id, user_id, roles, job_title)
+  values ('de300000-0000-7000-8000-000000000001', 'de300000-0000-7000-8000-00000000a001',
+          '{admin,doorhost}', 'App review')
+  on conflict (venue_id, user_id) do update set roles = excluded.roles, job_title = excluded.job_title
+$$, 'T34 and the seed''s upsert restores it');
+reset role;
+
+-- Other venues: Max (admin of venue 1) edits and removes Yusuf's venue-1 row (T11).
+select pg_temp.login('11111111-1111-4111-8111-111111111111', 'admin@plusone.test');
+select lives_ok($$
+  update public.venue_memberships set roles = '{doorhost}'
+   where venue_id = 'aa000000-0000-7000-8000-000000000001'
+     and user_id = '44444444-4444-4444-8444-444444444444'
+$$, 'T35 an admin of a normal venue can still change a member''s roles');
+reset role;
+
+select is(
+  (select roles from public.venue_memberships
+    where venue_id = 'aa000000-0000-7000-8000-000000000001'
+      and user_id = '44444444-4444-4444-8444-444444444444'),
+  '{doorhost}'::public.venue_role[],
+  'T36 and the change landed');
+
+select pg_temp.login('11111111-1111-4111-8111-111111111111', 'admin@plusone.test');
+select lives_ok($$
+  delete from public.venue_memberships
+   where venue_id = 'aa000000-0000-7000-8000-000000000001'
+     and user_id = '44444444-4444-4444-8444-444444444444'
+$$, 'T37 and remove that member');
+reset role;
+
+select is(
+  (select count(*)::int from public.venue_memberships
+    where venue_id = 'aa000000-0000-7000-8000-000000000001'
+      and user_id = '44444444-4444-4444-8444-444444444444'),
+  0, 'T38 and the removal landed');
+
+-- ---------------------------------------------------------------------------
 -- E. shape: BEFORE INSERT trigger, security invoker, pinned search_path, no
 --    execute for app roles
 -- ---------------------------------------------------------------------------
@@ -228,6 +411,28 @@ select ok(
       and not p.prosecdef and p.proconfig = array['search_path=""']
   ),
   'T18 refuse_demo_venue_new_crew: enabled BEFORE INSERT row trigger, security invoker, pinned search_path');
+
+select ok(
+  exists (
+    select 1 from pg_trigger t
+    join pg_class c on c.oid = t.tgrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    join pg_proc p on p.oid = t.tgfoid
+    where n.nspname = 'public' and c.relname = 'venue_memberships'
+      and t.tgname = 'refuse_demo_member_self_change'
+      and not t.tgisinternal and t.tgenabled = 'O'
+      -- tgtype bits: 1 = ROW, 2 = BEFORE, 8 = DELETE, 16 = UPDATE; no INSERT.
+      and t.tgtype = (1 | 2 | 8 | 16)
+      and not p.prosecdef and p.proconfig = array['search_path=""']
+  ),
+  'T39 refuse_demo_member_self_change: enabled BEFORE UPDATE OR DELETE row trigger, security invoker, pinned search_path');
+
+select ok(
+  not has_function_privilege('authenticated', 'public.refuse_demo_member_self_change()', 'execute')
+  and not has_function_privilege('anon', 'public.refuse_demo_member_self_change()', 'execute')
+  and not has_function_privilege('authenticated', 'public.refuse_demo_venue_invite()', 'execute')
+  and not has_function_privilege('anon', 'public.refuse_demo_venue_invite()', 'execute'),
+  'T40 no execute on the round-9 trigger functions for authenticated or anon');
 
 select * from finish();
 

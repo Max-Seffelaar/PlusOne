@@ -38,10 +38,46 @@
 -- public.event_venue, the existing security definer helper every crew policy
 -- already uses), so they are security invoker (the minimum), with a
 -- pinned empty search_path. A trigger function needs no EXECUTE grant to fire,
--- so execute is revoked from every app role. No existing object is changed.
+-- so execute is revoked from every app role. Round 8 changes no existing
+-- object; round 9 (a) below replaces one function body.
 --
--- If the demo venue or user ever needs another id, these constants move with
--- it (a new migration, never an edit of this one).
+-- Round 9 adds two more closures to this (still unapplied) file:
+--
+-- (a) An invite ADDRESSED to the demo e-mail, from any venue.
+--     refuse_demo_venue_invite (20260925130100) keyed on new.venue_id only, so
+--     any other venue's admin could invite app-review@demo.plus-one.io. The
+--     review login then refuses (venue_not_isolated: an open invite to the demo
+--     address), locking the reviewer out, and on the reviewer's consent step
+--     accept_pending_invites would hand the demo account a membership in a real
+--     venue. The function is replaced (create or replace: same signature, same
+--     trigger, owner and ACL kept) with a second predicate on
+--     lower(btrim(new.email)); accept_pending_invites matches addresses
+--     case-insensitively, so the check does too. Still INSERT only: authenticated
+--     may update invites.expires_at only (column grant, 20260707113000).
+--
+-- (b) Self-lockout. The demo user is admin of the demo venue, and
+--     venue_memberships_update / venue_memberships_delete only check the admin
+--     role, so it could demote itself (roles-only UPDATE: the new-member trigger
+--     above fires on venue_id/user_id only) or delete its own row. Either one
+--     locks every later reviewer out (review-login refuses roles_changed /
+--     membership_venue) until a re-seed. A BEFORE UPDATE OF venue_id, user_id,
+--     roles OR DELETE trigger refuses any change to THAT row (OLD = demo venue +
+--     demo user) unless the request runs as service_role (the seed's upsert).
+--     The actor is read from the request's JWT role (request.jwt.claims, what
+--     PostgREST sets for every API call), not current_user, so a SECURITY
+--     DEFINER RPC called by the demo user is refused too. A statement with no
+--     JWT at all (the table owner in the SQL editor or a migration, and FK
+--     cascades from a deliberate user/venue removal) passes when current_user
+--     is not an API role: those already hold every privilege there is.
+--     job_title-only updates are untouched (the column list), and every other
+--     membership row is out of scope (the OLD check).
+--
+-- Both functions only read NEW/OLD and request settings, so they are security
+-- invoker with a pinned empty search_path, and execute is revoked from every
+-- app role, like the two above.
+--
+-- If the demo venue, user or e-mail ever needs another value, these constants
+-- move with it (a new migration, never an edit of this one once applied).
 
 create function public.refuse_demo_venue_new_member()
 returns trigger
@@ -83,3 +119,59 @@ revoke execute on function public.refuse_demo_venue_new_crew() from public, anon
 create trigger refuse_demo_venue_new_crew
   before insert on public.event_organizers
   for each row execute function public.refuse_demo_venue_new_crew();
+
+-- ── round 9 (a): no invite addressed to the demo e-mail, from any venue ──────
+
+create or replace function public.refuse_demo_venue_invite()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  if new.venue_id = 'de300000-0000-7000-8000-000000000001'::uuid then
+    raise exception 'the demo venue cannot invite' using errcode = '42501';
+  end if;
+  if lower(btrim(new.email)) = 'app-review@demo.plus-one.io' then
+    raise exception 'the demo account cannot be invited' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+
+revoke execute on function public.refuse_demo_venue_invite() from public, anon, authenticated;
+
+-- ── round 9 (b): the demo user cannot demote, move or delete its own row ─────
+
+create function public.refuse_demo_member_self_change()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  -- Same resolution as auth.role(): the legacy per-claim setting first, then
+  -- the claims object PostgREST sets for every request.
+  v_jwt_role text := coalesce(
+    nullif(current_setting('request.jwt.claim.role', true), ''),
+    nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'
+  );
+begin
+  if old.venue_id = 'de300000-0000-7000-8000-000000000001'::uuid
+     and old.user_id = 'de300000-0000-7000-8000-00000000a001'::uuid
+     and v_jwt_role is distinct from 'service_role'
+     and (v_jwt_role is not null or current_user in ('authenticated', 'anon')) then
+    raise exception 'the demo membership can only be changed by the demo seed' using errcode = '42501';
+  end if;
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end;
+$$;
+
+revoke execute on function public.refuse_demo_member_self_change() from public, anon, authenticated;
+
+create trigger refuse_demo_member_self_change
+  before update of venue_id, user_id, roles or delete on public.venue_memberships
+  for each row execute function public.refuse_demo_member_self_change();
