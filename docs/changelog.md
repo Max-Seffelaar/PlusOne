@@ -11,8 +11,38 @@ records (repo root), and `engineering-review-2026-07.md`.
 ## 2026-09-25 — Fase 17 N5: push client + Capacitor push provider (86ey6bfkb)
 
 Branch `claude/86ey6bfkb-push-client`. Client half of the approvals-loop push (N2 is
-the backend). No migration; decision #51 in the spec; runbook `docs/push-dispatch.md`
-("Go-live order" + "The client").
+the backend). One migration (review round, below); decision #51 in the spec; runbook
+`docs/push-dispatch.md` ("Go-live order" + "The client").
+
+**Review round (independent review 5319103122 — 2 🔴, 2 🟠, 3 🟡, all fixed here):**
+- 🔴 First denial on Android 13+ comes back as `prompt-with-rationale` (= `default`), so
+  the card returned every launch. `enablePush` now records any non-grant (`po:push =
+  declined`) and the card also snoozes; the card shows only while nothing was decided.
+- 🔴 Profile "off" swallowed every failure. Now `off-pending` → delete results checked
+  (PostgREST returns `{ error }`, never throws) → `off` only on success; otherwise it
+  throws and the row shows `profileOffPending`. `resumePush` retries a pending off on
+  every start until it lands. `savePushToken` refuses unless `po:push = on`, so a late
+  `registration` event after "off" cannot recreate the row.
+- 🟠 Sign-out race: the 3 s cap didn't cancel the chain. Now an `AbortController` per
+  sign-out step (request aborted at the cap or when `resumePush` runs; no bookkeeping
+  after), and the FCM `unregister()` moved to after the session is confirmed gone —
+  the `sign-out-incomplete` path never touches the transport token. Residual: a DELETE
+  that already reached PostgREST executes there; it precedes the re-registration.
+- 🟠 FCM token in the DELETE query string (API logs). Deletes are now by `session_id`
+  and by the row `id` the upsert returns (`po:push-row`, a uuid, wiped on sign-out).
+- 🟡 Cross-venue tap on a refused switch navigated anyway → the tap now uses the chrome's
+  own `switchToVenue(venueId, landing)`: stays put + `switchFailed`/`switchError` toast.
+- 🟡 Two identical upserts per registration → one in-flight/done save per token per run.
+- 🟡 Android ≤12 registered at first launch (OS grants from install) → registration now
+  requires `po:push = on`, written only by "Turn on"; the card shows for `granted` too.
+  Transport/label come from `src/features/notifications/transport.ts` (pinned to the
+  N2 check constraint by a unit test) and the provider's platform, no bare strings.
+- **Migration `20260925160000_push_tokens_last_seen_server_stamp.sql`** (the reviewer's
+  suggested follow-up, done now by orchestrator decision): `push_tokens_stamp` sets
+  `last_seen_at := now()` on INSERT and UPDATE for end-user writes; everything else
+  verbatim (SECURITY DEFINER, `search_path ''`, owner pass-through). Grants unchanged.
+  The client stopped sending `last_seen_at`. pgTAP `push_tokens.test.sql` 40 → 52
+  (F1–F12). **Needs the prod-push flow after merge** (go-live step 0).
 
 - **Dependency:** `@capacitor/push-notifications` 8.1.2 (exact pin, Capacitor 8 like the
   rest), `npx cap sync` output committed (Android gradle + iOS `Package.swift`). FCM only.
@@ -26,25 +56,24 @@ the backend). No migration; decision #51 in the spec; runbook `docs/push-dispatc
   native shell, the no-op elsewhere (no web-push adapter, decision 2). Android only: iOS
   reports unsupported until S1b (APNs token ≠ FCM token).
 - **Lifecycle:** token upsert on `(transport, token)` via the user-scoped client, body
-  without `user_id`/`session_id` (N2 defaults + stamp trigger). `last_seen_at` is sent on
-  every registration because the trigger only stamps it on INSERT — without it the 90-day
-  sweep would drop an active device. Follow-up worth considering (supabase fence, not
-  done here): let `push_tokens_stamp` set `last_seen_at := now()` on UPDATE too and stop
-  trusting the client clock.
+  `transport`/`token`/`device_label` only (N2 defaults + stamp trigger own `user_id`,
+  `session_id` and — since the review round — `last_seen_at`).
 - **Sign-out:** `signOutDevice` deletes this device's rows (by `session_id` from the JWT
-  and by the stored token) and invalidates the FCM token after the outbox gate and before
-  `auth.signOut()`; bounded to 3 s; on `sign-out-incomplete` push is re-registered. Push
-  prefs are wiped with IDB/caches.
+  and by the remembered row id) after the outbox gate and before `auth.signOut()`, capped
+  and aborted at 3 s; the FCM token is invalidated once the session is confirmed gone;
+  on `sign-out-incomplete` push is re-registered. Push prefs are wiped with IDB/caches.
 - **UX:** explain-first ask card from the chrome (never at launch, ~8 s, off the Deur tab,
-  admins/organizers/staff only, "Not now" = 14 days, denial respected), Profile →
+  admins/organizers/staff only, "Not now" = 14 days, denial recorded), Profile →
   Security toggle, foreground push = in-app toast, tap → Requests of that event (venue
   switch first when needed), cold + warm (the plugin retains the tap event).
 - **Android:** `POST_NOTIFICATIONS`, channel `approvals` as FCM default,
   `@drawable/ic_stat_plusone` placeholder icon (S2 replaces artwork, keeps the name).
 - **Tests:** provider selection + crash-guard gates, permission mapping, register /
-  timeout / error, upsert shape (no ids), denial and snooze, sign-out ordering (log-based:
-  push delete → FCM unregister → signOut → wipe; refused sign-out touches nothing; web no-op;
-  incomplete sign-out re-registers), kind→route map + payload validation, native-shell
+  timeout / error, upsert shape (no ids, no last_seen_at), denial and snooze, first-denial
+  record, Android ≤12 consent, offline off → online self-heal, dedupe, sign-out ordering
+  (log-based: push delete → signOut → FCM unregister → wipe; refused sign-out touches
+  nothing; web no-op; incomplete sign-out re-registers and never unregisters FCM), the
+  abandoned-delete race, cross-venue tap on a refused switch, kind→route map + payload validation, native-shell
   guards (permission, channel id sync, no Analytics/Crashlytics, conditional
   google-services). `door-render-isolation` green; `app.tsx` untouched.
 - **Ran:** `pnpm lint` (2 pre-existing warnings), `pnpm type-check`, `CI=1 pnpm test`
