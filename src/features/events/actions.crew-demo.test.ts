@@ -10,6 +10,7 @@
  * 20260925150000 is the real stop; this is the clear message).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { t } from '@/lib/i18n';
 
 const H = vi.hoisted(() => ({
   user: null as { id: string; email?: string } | null,
@@ -101,6 +102,13 @@ describe('assignOrganizer — demo account', () => {
     H.user = user;
     const res = await assignOrganizer({ eventId: EVENT_ID, userId: CREW_ID });
     expect(res).toEqual({ ok: false, code: '42501', message: DEMO_COPY });
+    expect(H.from).not.toHaveBeenCalled();
+  });
+
+  it('refuses ANY admin adding the demo account as crew (round 10), before any write', async () => {
+    H.user = { id: '44444444-4444-4444-8444-444444444444', email: 'admin@plusone.test' };
+    const res = await assignOrganizer({ eventId: EVENT_ID, userId: DEMO_USER_ID });
+    expect(res).toEqual({ ok: false, code: '42501', message: t.auth.demoCannotJoin });
     expect(H.from).not.toHaveBeenCalled();
   });
 

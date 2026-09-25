@@ -280,6 +280,16 @@ if (elsewhere.length > 0) {
       'review-login refuses to sign in until the demo venue is the only one.',
   );
 }
+// Crew seats: the seed creates none, and the DB refuses every organizer row for
+// the demo user (20260925150000, round 10). A row here predates that guard or
+// came through a path nobody thought of: stop, like a foreign membership.
+const crewSeats = await must('crew seats read', db.from('event_organizers').select('event_id').eq('user_id', userId));
+if (crewSeats.length > 0) {
+  fail(
+    `The demo user is crew on ${crewSeats.length} event(s): ${crewSeats.map((c) => c.event_id).join(', ')}. ` +
+      'Investigate and remove those event_organizers rows by hand. review-login refuses to sign in until there are none.',
+  );
+}
 // Tripwire: anything the demo user ever did OUTSIDE the demo venue. The DB
 // refuses venue creation for the demo id (20260925130000_review_demo_guard.sql),
 // but a venue created, an invite sent or a membership dropped elsewhere before

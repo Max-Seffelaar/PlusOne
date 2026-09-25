@@ -139,6 +139,12 @@ describe('demo constants mirrored in scripts/seed-demo-venue.mjs', () => {
     expect(script.indexOf('if (onboarding.completed !== true)')).toBeGreaterThan(script.indexOf("insertMissing('venues'"));
   });
 
+  it('stops when the demo user is crew on any event (defence in depth for the round-10 trigger)', () => {
+    const block = script.slice(script.indexOf("'crew seats read'"), script.indexOf('// Tripwire: anything'));
+    expect(block).toContain(".from('event_organizers').select('event_id').eq('user_id', userId)");
+    expect(block).toMatch(/if \(crewSeats\.length > 0\) \{\s*fail\(/);
+  });
+
   it('refuses a non-local target without --prod', () => {
     expect(script).toContain("process.argv.includes('--prod')");
   });

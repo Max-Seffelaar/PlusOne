@@ -6,6 +6,7 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { alreadyRegistered, sendInviteEmail } from '@/features/auth/invite-mail';
 import { getAuthContext } from '@/lib/auth/context';
 import { isDemoReviewUser } from '@/features/auth/review-window';
+import { DEMO_USER_ID } from '@/features/auth/demo-account';
 import { t } from '@/lib/i18n';
 import { mapMutationError, unauthorized, invalidInput, notFound, type MutationError } from '@/lib/db-errors';
 import { assertVenueBillingActive } from '@/features/billing/gate';
@@ -419,6 +420,9 @@ export async function assignOrganizer(input: AssignOrganizerInput): Promise<Acti
   // the event_organizers trigger (20260925150000), this only gives the UI a
   // clear message.
   if (isDemoReviewUser(ctx.user)) return { ok: false, code: '42501', message: t.auth.demoNoInvites };
+  // Nor is the demo account ever added as crew, by anyone (round 10: the
+  // trigger refuses organizer rows for the demo user too).
+  if (userId === DEMO_USER_ID) return { ok: false, code: '42501', message: t.auth.demoCannotJoin };
 
   const { error } = await supabase
     .from('event_organizers')

@@ -249,6 +249,15 @@ async function demoAccountRefusal(
   // rewrite its own row. A demoted row would make the counts look clean.
   if (!sameRoles(own[0]?.roles, DEMO_ROLES)) return 'roles_changed';
 
+  // No crew seat anywhere: the seed creates none, and a crew row on another
+  // venue's event is event-scoped access outside the demo venue. The DB
+  // refuses every event_organizers row for the demo user (refuse_demo_venue_new_crew,
+  // 20260925150000); this read is defence in depth. RLS always lets a user read
+  // its own organizer rows (event_organizers_select: user_id = auth.uid()).
+  const { data: crew, error: crewError } = await probe.from('event_organizers').select('event_id').eq('user_id', user.id);
+  if (crewError || !crew) return 'crew_unreadable';
+  if (crew.length > 0) return 'crew_elsewhere';
+
   // Venue isolation: nobody else in the demo venue (a code holder, as admin,
   // could invite a real address that outlives every window), and no open
   // invite into the demo venue or addressed to the demo e-mail (consent would

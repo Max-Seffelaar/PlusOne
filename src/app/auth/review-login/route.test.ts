@@ -22,6 +22,7 @@ let ownMemberships: unknown[];
 let venueMembers: unknown[];
 let venueInvites: unknown[];
 let addressedInvites: unknown[];
+let crewRows: unknown[];
 let failTable: string | null;
 
 function query(table: string) {
@@ -43,6 +44,7 @@ function resolveQuery(table: string, filters: Record<string, unknown>) {
   if (table === 'venue_memberships') {
     return { data: 'user_id' in filters ? ownMemberships : venueMembers, error: null };
   }
+  if (table === 'event_organizers') return { data: crewRows, error: null };
   if (table === 'invites') {
     return { data: 'venue_id' in filters ? venueInvites : addressedInvites, error: null };
   }
@@ -112,6 +114,7 @@ beforeEach(() => {
   venueMembers = [{ user_id: DEMO.id }];
   venueInvites = [];
   addressedInvites = [];
+  crewRows = [];
   failTable = null;
 });
 
@@ -271,6 +274,8 @@ describe('POST', () => {
       ['an open invite addressed to the demo e-mail', () => (addressedInvites = [{ id: 'i2' }])],
       ['memberships unreadable', () => (failTable = 'venue_memberships')],
       ['invites unreadable', () => (failTable = 'invites')],
+      ['a crew seat on any event', () => (crewRows = [{ event_id: 'e-elsewhere' }])],
+      ['crew rows unreadable', () => (failTable = 'event_organizers')],
     ])('%s', async (_label, arrange) => {
       arrange();
       const res = await post(form(CODE));
