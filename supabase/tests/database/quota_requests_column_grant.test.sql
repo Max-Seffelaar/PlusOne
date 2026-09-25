@@ -18,7 +18,12 @@
 --   C. staff: files requests (INSERT, untouched) and can change nothing after;
 --   D. admin of venue B only: cannot decide venue A's request, can decide their
 --      own venue's; an admin of both cannot move a request across venues;
---   E. anon: no privilege at all.
+--   E. anon: no privilege at all;
+--   F. approve_quota_request (20260925140100): refuses a request that was
+--      denied first (45003, no override), still security definer with a pinned
+--      search_path, same ACL, locks the row and only flips a pending one;
+--   G. decided_at is stamped by the server on a decision (20260925140200): a
+--      client-supplied timestamp is ignored.
 --
 -- Seed (supabase/seed.sql): venue A aa..01 with event ee..01; venue B aa..02.
 -- Max 11.. = admin of A and B, Noor 22.. = user_manager of A (made admin of B
@@ -87,7 +92,7 @@ create temp table tom_quota_before as
   select public.user_event_quota('ee000000-0000-7000-8000-000000000001',
                                  '55555555-5555-4555-8555-555555555555') as q;
 
-select plan(29);
+select plan(37);
 
 -- ---------------------------------------------------------------------------
 -- A. The grant layer
@@ -246,12 +251,16 @@ select is(
                       where id = '9c000000-0000-7000-8000-000000000001' $$),
   1, 'B12 admin denies a pending request (the deny path still works)');
 reset role;
+-- req_state includes venue_id: B12 is where set_event_scope (BEFORE UPDATE)
+-- runs under the column grant, so this also proves the trigger left venue_id
+-- intact (triggers are not subject to column grants).
 select is(
-  (select status::text || '|' || decided_by::text || '|' || decision_reason || '|' || user_id::text
-          || '|' || requested_extra::text || '|' || motivation
-     from public.quota_requests where id = '9c000000-0000-7000-8000-000000000001'),
-  'denied|11111111-1111-4111-8111-111111111111|Lijst zit vol|55555555-5555-4555-8555-555555555555|2|Verjaardag',
-  'B13 the row is denied by the admin, with what the requester filed intact');
+  pg_temp.req_state('9c000000-0000-7000-8000-000000000001') || '|' ||
+    (select decision_reason from public.quota_requests
+      where id = '9c000000-0000-7000-8000-000000000001'),
+  replace((select s from r1_before), 'pending|-|',
+          'denied|11111111-1111-4111-8111-111111111111|') || '|Lijst zit vol',
+  'B13 the row is denied by the admin, with everything the requester filed (incl. venue_id) intact');
 select is(
   (select count(*)::int from public.audit_log
     where entity_type = 'quota_requests' and action = 'deny'
@@ -298,6 +307,71 @@ select throws_ok(
       where id = '9c000000-0000-7000-8000-000000000002' $$,
   '42501', null, 'E1 anon cannot update quota_requests at all');
 reset role;
+
+-- ---------------------------------------------------------------------------
+-- F. approve_quota_request — row lock + pending-only flip (20260925140100)
+-- ---------------------------------------------------------------------------
+
+-- Request 1 was denied in B12. Approving it now is the losing side of the
+-- deny-vs-approve race: refused, and no override is written.
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select throws_ok(
+  $$ select public.approve_quota_request('9c000000-0000-7000-8000-000000000001') $$,
+  '45003', null, 'F1 approve after a deny is refused (45003)');
+reset role;
+select is(
+  (select status::text from public.quota_requests where id = '9c000000-0000-7000-8000-000000000001')
+  || '|' || (public.user_event_quota('ee000000-0000-7000-8000-000000000001',
+                                     '55555555-5555-4555-8555-555555555555')
+             - (select q from tom_quota_before))::text,
+  'denied|2',
+  'F2 ...the deny stands and the override is unchanged (only B16''s +2)');
+
+select ok(
+  (select p.prosecdef and p.proconfig = array['search_path=""']
+     from pg_proc p where p.oid = 'public.approve_quota_request(uuid)'::regprocedure),
+  'F3 approve_quota_request is still SECURITY DEFINER with search_path pinned to empty');
+select ok(
+  has_function_privilege('authenticated', 'public.approve_quota_request(uuid)', 'EXECUTE')
+  and has_function_privilege('service_role', 'public.approve_quota_request(uuid)', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.approve_quota_request(uuid)', 'EXECUTE')
+  and not exists (
+    select 1 from pg_proc p, aclexplode(p.proacl) a
+     where p.oid = 'public.approve_quota_request(uuid)'::regprocedure
+       and a.grantee = 0 and a.privilege_type = 'EXECUTE'),
+  'F4 same ACL: EXECUTE for authenticated + service_role, not anon, not PUBLIC');
+-- The race itself needs two sessions (not possible inside one pgTAP
+-- transaction); pin the two mechanisms that close it instead.
+select ok(
+  (select p.prosrc ~* 'where\s+id\s*=\s*p_request_id\s+for\s+update'
+      and p.prosrc ~* 'and\s+status\s*=\s*''pending'''
+     from pg_proc p where p.oid = 'public.approve_quota_request(uuid)'::regprocedure),
+  'F5 the request row is read FOR UPDATE and only a still-pending row is flipped');
+
+-- ---------------------------------------------------------------------------
+-- G. decided_at is the server's clock (20260925140200)
+-- ---------------------------------------------------------------------------
+
+insert into public.quota_requests (id, event_id, user_id, requested_extra) values
+  ('9c000000-0000-7000-8000-000000000006', 'ee000000-0000-7000-8000-000000000001',
+   '55555555-5555-4555-8555-555555555555', 1);
+select pg_temp.login('11111111-1111-4111-8111-111111111111');
+select is(
+  pg_temp.rowcount($$ update public.quota_requests
+                        set status = 'denied', decided_by = '11111111-1111-4111-8111-111111111111',
+                            decided_at = '2020-01-01T00:00:00Z', decision_reason = 'x'
+                      where id = '9c000000-0000-7000-8000-000000000006' $$),
+  1, 'G1 a deny with a client-chosen decided_at still succeeds');
+reset role;
+select is(
+  (select decided_at from public.quota_requests where id = '9c000000-0000-7000-8000-000000000006'),
+  now(), 'G2 ...but decided_at is the transaction time, not the backdated value');
+select ok(
+  (select not p.prosecdef and p.proconfig = array['search_path=""']
+      and not has_function_privilege('authenticated', p.oid, 'EXECUTE')
+      and not has_function_privilege('anon', p.oid, 'EXECUTE')
+     from pg_proc p where p.oid = 'public.quota_requests_stamp_decided_at()'::regprocedure),
+  'G3 the stamp trigger function is SECURITY INVOKER, search_path pinned, not callable by app roles');
 
 select * from finish();
 
