@@ -34,9 +34,20 @@ Golf 2 of Fase 17. No migration. Draft PR `feat(native): Capacitor scaffold + An
 - **`openExternal`:** typed, lazily imported `@capacitor/browser` `Browser.open` on native
   (Custom Tabs / SFSafariViewController); global probe + `TODO(N3)` removed; browser path and
   no-throw `window.open` fallback kept. `kit.webview.test.tsx` extended.
+- **Review round (independent review, same day):** the "no `WKAppBoundDomains`" proposal was
+  wrong. Capacitor iOS treats any URL that merely *starts with* `server.url` as in-app
+  (`WebViewDelegationHandler.swift`, string prefix), so `https://app.plus-one.io.evil.example/`
+  would load in the WKWebView with the bridge, and `CapacitorCookies`/`CapacitorHttp` would
+  hand it the session. Fixed: `WKAppBoundDomains = [app.plus-one.io]` in `Info.plist` +
+  `ios.limitsNavigationsToAppBoundDomains: true` + `ios.allowsLinkPreview: false`. Android
+  compares host + scheme exactly and was never affected. Also: back on a cold, offline
+  `/app/door` deep link now does nothing instead of replacing to `/app` (#25); `openExternal`
+  ignores non-http(s) URLs; dead `StatusBar.backgroundColor` dropped;
+  `tests/unit/capacitor-native-shell.test.ts` guards stale `cap sync` paths and the iOS
+  app-bound config.
 - **Not changed:** `next.config.js` (no nonce in prod `script-src`, so `'unsafe-inline'`
   admits Capacitor's injected bridge script if it is injected inline at all — no block to fix),
-  `src/lib/platform.ts`, `WKAppBoundDomains` (proposal: don't use — PR body).
+  `src/lib/platform.ts`.
 - **Safe area:** T1 (#335, merged) pads the top/side insets once in the po shell root;
   with `insetsHandling: 'css'` Capacitor counts each inset once (natively on old WebViews
   with `env()` = 0, else via `env()`), so nothing double-pads. `/door/<id>`
