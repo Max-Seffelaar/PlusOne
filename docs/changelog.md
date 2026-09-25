@@ -30,6 +30,22 @@ review of #340 that were left open at merge. No migration, no dependency change,
   data-extraction rules. Apple treats the flag as backup guidance, not a guarantee, and the system can reset
   it, which is why it is applied on every launch. `tests/unit/capacitor-native-shell.test.ts` guards the call in
   `didFinishLaunching`, the three directories and the Android manifest flags.
+- **Review round (issuecomment-5834214837):**
+  - **B1, leaving with unsynced writes:** online back on `/door/<eventId>` did `router.replace('/door')` even
+    with queued check-ins. That is a client-side transition, so DoorProvider's `beforeunload` prompt never
+    fired, and unmounting the route stops the door's flush loop. There is now a second slot in
+    `native-back-intercept.ts`, `useNativeLeaveGuard`. `NativeBackButton` consults it only when back is about
+    to navigate: an open sheet still closes first, minimize is unaffected, and offline back is still a no-op.
+    The new `DoorLeaveGuard` (`src/features/door/components/`, rendered inside `DoorProvider`) reads the
+    existing public `useDoor().pendingCount`, the same per-event number the sync bar shows. It adds no new
+    outbox accessor and no second IDB reader. With pending > 0 it opens the kit's `ConfirmSheet`
+    (copy `t.door.leaveUnsynced*`: "N check-ins haven't synced yet. Leave anyway?"). Stay, or back again,
+    keeps the door up, and only Leave navigates. Tests cover: pending → confirm with no navigation; Leave →
+    picker; Stay or back → stays; pending = 0 → direct; sheet + pending → sheet first, then confirm; offline
+    + pending → no confirm, no navigation. I checked that dropping the guard makes 4 of these fail.
+  - **N1:** `SceneDelegate.sceneDidEnterBackground` re-applies the exclusion (`excludeWebDataFromBackup` is now
+    a `static func` on `AppDelegate`). With the UIScene lifecycle `applicationDidEnterBackground` never fires,
+    and backups run while the app is suspended. The Swift guard test covers it.
 - Not run here: Xcode/Gradle builds, device tests, pgTAP, e2e. The Swift is checked by reading it only; the
   TestFlight check is in the PR.
 
