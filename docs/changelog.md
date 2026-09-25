@@ -8,6 +8,37 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-25 — Fase 17 S3 round 10: the demo user joins nothing else (86ey6bfug)
+
+Same PR (#348). The independent re-review of round 9 confirmed items 1 and 3 and
+found one blocking gap plus optional items; all are fixed here.
+
+- **Blocking: the demo account in another venue.** `venue_memberships_insert` checks only
+  the caller's role on the target venue, so any other venue's admin could insert the
+  (public) demo user id into their own venue with one PostgREST call: review-login
+  refuses (`membership_count`), the seed stops, and whoever holds the review code sits
+  in a real venue. `refuse_demo_venue_new_member` gets a second predicate
+  (`new.user_id = demo user and new.venue_id <> demo venue` → 42501, every writer);
+  the existing `UPDATE OF venue_id, user_id` firing covers re-pointing a row too.
+- **Crew symmetry.** `refuse_demo_venue_new_crew` refuses any organizer row for the demo
+  user; `assignOrganizer` refuses the demo id as target; review-login refuses
+  `crew_elsewhere` and the seed stops on a crew seat (defence in depth).
+- **TOTP self-lockout (pre-existing).** Profile MFA card shows only a note for the demo
+  account; `/mfa/enroll` redirects it to `/app`. A direct GoTrue factor call stays
+  possible outside Postgres; review-login refuses and the seed deletes it.
+- **Smaller:** `TeamStep.finish()` checks the `completeOnboardingAction` result and shows
+  the error instead of navigating; `useIsDemoVenue` and `useIsDemoAccount` share one
+  context read; migration header no longer claims FK cascades reach `venue_memberships`
+  (its FKs are `on delete restrict`).
+- **pgTAP** 41 → 50: other venue's admin / service role inserting the demo user, the
+  re-pointing update, no row written; the same for crew, ordinary crew still works; the
+  seed's real full-column upsert (`DO UPDATE SET venue_id, user_id, roles, job_title`)
+  under the service JWT; T5/T6/T13 now run with their own claims instead of the demo
+  user's leftover ones. Trigger bodies smoke-tested on a local Postgres 16 stub; the
+  real suite runs in CI.
+
+---
+
 ## 2026-09-25 — Fase 17 S3 round 9: onboarding wizard, addressed invites, self-lockout (86ey6bfug)
 
 Same PR (#348), closing the two open threads of the independent security review
@@ -29,7 +60,7 @@ Same PR (#348), closing the two open threads of the independent security review
   `venue_id, user_id, roles` OR DELETE on `venue_memberships` refuses any change to the
   demo user's demo-venue row unless the request JWT role is `service_role` (the seed);
   keyed on the JWT role, not `current_user`, so a definer RPC called by the demo user is
-  refused too; no-JWT owner/cascade statements pass. `job_title` edits untouched. The
+  refused too; no-JWT owner statements pass. `job_title` edits untouched. The
   team member sheet shows the refusal upfront for that row, and
   `updateMemberRolesAction` / `removeMemberAction` refuse it with
   `t.auth.demoNoOwnMembership`.

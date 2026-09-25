@@ -135,8 +135,27 @@ Dezelfde migratie (ronde 9) sluit nog twee gaten:
   `user_id` of `roles`, en elke delete, op díe rij (demo-venue + demo-user), tenzij de
   request-JWT `service_role` is (de seed). De check leest de JWT-rol, niet
   `current_user`, dus ook een SECURITY DEFINER-RPC namens het demo-account wordt
-  geweigerd. Zonder JWT (tabel-owner in de SQL-editor, een FK-cascade) mag het wel.
-  Alleen `job_title` wijzigen blijft werken; andere venues merken niets.
+  geweigerd. Zonder JWT (tabel-owner in de SQL-editor of een migratie) mag het wel;
+  er is geen FK-cascade naar deze tabel (`on delete restrict`). Alleen `job_title`
+  wijzigen blijft werken; andere venues merken niets.
+
+Ronde 10 (onafhankelijke re-review) sluit de spiegelbeeld-gaten van beide triggers:
+- **Het demo-account in een andere venue.** `venue_memberships_insert` checkt alleen de
+  rol van de aanroeper op de doelvenue, niets over `user_id`. De admin van elke andere
+  venue kon dus met één PostgREST-insert het demo-user-id (publiek) aan zijn eigen venue
+  toevoegen: de volgende review-login weigert (`membership_count`), de seed stopt, en
+  wie de review-code heeft zit in een echte venue. `refuse_demo_venue_new_member`
+  weigert nu ook elke rij met het demo-user-id buiten de demo-venue (insert én een
+  update die een rij naar de demo-user verhangt), voor iedereen, service role incluis.
+- **Het demo-account als crew.** `refuse_demo_venue_new_crew` weigert nu ook elke
+  `event_organizers`-rij voor het demo-user-id, op welk event dan ook. `assignOrganizer`
+  weigert het demo-id als doel met een nette melding; de review-login weigert
+  (`crew_elsewhere`) en de seed stopt als er toch zo'n rij is (defence in depth).
+- **Tweestapsverificatie.** Een TOTP-factor op het gedeelde account sluit de volgende
+  reviewer buiten (`mfa_enrolled`) tot de seed hem verwijdert. De MFA-kaart in het profiel
+  toont voor het demo-account alleen de melding, en `/mfa/enroll` stuurt het terug naar
+  `/app`. Restrisico: een directe GoTrue-call (`/auth/v1/factors`) kan nog steeds een
+  factor aanmaken (buiten Postgres); de review-login weigert dan en de seed ruimt op.
 
 De uitnodigingsflow voor externe crew (`inviteExternalCrew` in
 `src/features/events/actions.ts`) schrijft géén `invites`-rij: die maakt via de service
@@ -164,7 +183,10 @@ de grens; de UI-check is alleen presentatie.
 | Onboarding-wizard: venue maken | `/onboarding` venue-stap: "Create venue" inert + "Back to the app" | `createVenueAction`; `create_venue_with_owner` | "The demo account can't create venues." |
 | Onboarding-wizard: team uitnodigen | `/onboarding` team-stap: "Send invites" inert, alleen "Skip for now" | `inviteUserAction`; `invites`-trigger | "Invites are turned off for the demo account." |
 | Demo-account uitnodigen (vanuit een andere venue) | n.v.t. (andere venue) | `invites`-trigger (adres-predicaat) | generieke fout voor die admin |
-| Eigen rollen wijzigen / eigen membership verwijderen | n.v.t. | `refuse_demo_member_self_change` | generieke fout |
+| Eigen rollen wijzigen / eigen membership verwijderen | Team → eigen rij: alleen de melding | `updateMemberRolesAction`, `removeMemberAction`; `refuse_demo_member_self_change` | "The demo account's roles and venue access can't be changed." |
+| Demo-account toevoegen aan een andere venue (directe insert/update) | n.v.t. (andere venue, REST) | `refuse_demo_venue_new_member` (tweede predicaat) | generieke fout voor die admin |
+| Demo-account als crew op een event (elke venue) | n.v.t. | `assignOrganizer`; `refuse_demo_venue_new_crew` (tweede predicaat) | "The demo account can't be added to other venues or events." |
+| Tweestapsverificatie aanzetten | Profiel: MFA-kaart toont alleen de melding; `/mfa/enroll` → `/app` | (GoTrue, buiten Postgres; review-login + seed vangen het op) | "Two-factor sign-in is turned off for the demo account." |
 
 **De onboarding-wizard (`/onboarding`).** Het demo-account kan er komen door
 `settings.onboarding.completed` van zijn eigen venue op `false` te zetten (het is admin).
@@ -212,6 +234,7 @@ node scripts/seed-demo-venue.mjs --prod
 - Het **stopt** (exit 1) als:
   - de demo-user platform-admin is;
   - de demo-user lid is van een andere venue;
+  - de demo-user crew is op een event (`event_organizers`);
   - de demo-venue andere leden heeft. Met `--reset-members` worden die leden
     verwijderd in plaats van dat het script stopt. In beide gevallen toont het ook
     de venues waarvan `settings.onboarding.created_by` zo'n lid is (alleen tonen,
