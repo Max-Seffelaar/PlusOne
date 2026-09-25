@@ -99,7 +99,22 @@ function renderApp() {
   );
 }
 
+// A laptop: fine pointer, ≥1024px. Since N6 (decision 14) the cockpit — and
+// with it this auto-open — needs the fine pointer, not just jsdom's 1024px width.
+function stubDesktopMatchMedia(): void {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    configurable: true,
+    value: (query: string) => ({
+      matches: query === '(pointer: fine)',
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }),
+  });
+}
+
 beforeEach(() => {
+  stubDesktopMatchMedia();
   H.store.reset();
   routerReplace.mockClear();
   try {
