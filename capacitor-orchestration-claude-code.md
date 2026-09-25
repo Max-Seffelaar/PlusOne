@@ -142,7 +142,7 @@ S2  86ey6bft8  Icons/splash/store-metadata       Sonnet  branch claude/86ey6bft8
 S4  86ey6bfxa  App links (alleen /auth/*)        Opus    branch claude/86ey6bfxa-app-links
     Raakt: route handlers voor /.well-known/apple-app-site-association + assetlinks.json, appUrlOpen-listener.
     Verboden: /e/* claimen (beslissing 11), auth-routes zelf wijzigen.
-N6  [ClickUp: aan te maken]  Deurvariant op touch óf <1024px  Opus  branch claude/<taskid>-door-variant
+N6  z8uq9m0y1x  Deurvariant op touch óf <1024px  Opus  branch claude/<taskid>-door-variant
     Wacht ook op T1 gemerged. Raakt: door-branch.tsx, DoorRoute.tsx, app.tsx (alleen de variant-afleiding), tests.
     Verboden: DoorProvider/outbox-internals (src/features/door), use-viewport-chrome-breakpoint.
 S1a 86ey6bfpy  Android-build + Codemagic         Opus + Max  branch claude/86ey6bfpy-codemagic-android
