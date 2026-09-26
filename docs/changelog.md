@@ -8,6 +8,63 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-25 — Fase 17 golf 2: exit passed on a real Android device (epic 86exxuvye)
+
+N3 (#340) is merged. Max's Android debug build (Samsung SM-S721B, Android Studio on Windows) passed A1–A5: e-mail-code login, server-action writes, door offline (queue, then drain on reconnect, plus the stale-resume overlay), external links in the in-app browser sheet, and the hardware back button retracing the stack and minimizing on Home.
+
+- **Root cause of the first blank screen:** the Vercel project `plus-one` only had `plus-one-phi.vercel.app`, so `server.url` (`https://app.plus-one.io`) pointed at a domain that didn't exist yet. Max attached `app.plus-one.io` to the project, set `NEXT_PUBLIC_APP_URL`, and set the Supabase Auth Site URL. It's now plan item M5 and a hard precondition for S1a/S1b.
+- **Supabase Redirect URLs:** narrowed by Max to `https://app.plus-one.io/**`. The earlier `plus-*-one-the-operators.vercel.app` wildcards matched any Vercel project a third party could name that way. The auth e-mail templates only use `{{ .SiteURL }}`, and the app never passes `redirectTo`, so nothing depended on them.
+- **N4 (#342):** decision 15 is in the plan. N7 (door cold-boot offline in the shell) is proposed and waiting for Max's go-ahead.
+
+## 2026-09-25 — Fase 17 golf 1: orchestrator report (epic 86exxuvye)
+
+Golf 1 ran N1, N2, S3, T1 and L1 in parallel from one orchestrator session, with
+workers spawned per task and every PR reviewed adversarially before it reached Max.
+
+**Merged, all on 2026-09-25:**
+- N1 #331: webview-prep kit helpers.
+- #338: root cause of the `pgtap-plan-run-gate` "slow reader" flake. Node's
+  `flushStdio` resumes a paused stdio stream that has no `'readable'` listener
+  when the child exits, so the test harness threw away the gate's diagnostic.
+  The harness was at fault, not the gate.
+- T1 #335: tablet layouts.
+- N2 #336: push backend, live but asleep.
+- S3 #332: store-review login; seven review/fix rounds.
+
+Their five migrations (`20260925120000`–`130100`) were pushed to prod the same day.
+
+**Legal:** #333/#334 (v0.2 texts) and Plus-One.io#6 (`plus-one.io/legal`) wait for
+the lawyer's check.
+
+**What the rounds caught (all fixed in the same PR, standing rule "fix now"):**
+- S3: `inviteExternalCrew` minted an auth account through the service role, which
+  the invites trigger never sees. A review-code holder could have made their own
+  mailbox crew on a demo event and created a real tenant. Now refused before any
+  side effect. Also: explicit demo-refusal copy (a generic error reads as a bug
+  under App Review 2.1); refusals shown before a form opens, not after submit;
+  the demo venue is named "PlusOne Demo" (brand written PlusOne, spec #38); the
+  seed's audit tripwire also catches rows with `venue_id is null`; the seed
+  mirror tests are CRLF-safe.
+- N2: a single-use per-kick invocation token instead of a static secret,
+  because pg_net's request queue is readable by app roles on Supabase.
+  Possession of the device token wins the row handover.
+
+**Process lessons.**
+- Test plans must use the role a screen actually needs: `manager@` is a user
+  manager, not an admin.
+- Hand the non-UI checks (curl/SQL/seed-script) to Max's local Claude session
+  instead of asking Max to run them by hand.
+- Workers run tests in the foreground and never end a turn before their push.
+- The ClickUp MCP daily limit (100 calls) is shared by all sessions, so workers
+  put their ClickUp text in the PR body when it's exhausted.
+
+**Golf 2 started 2026-09-25** once N1 merged: N3 (Capacitor scaffold + Android,
+86ey6bfdm) and a small N1-leftovers PR (MfaEnrollCard clipboard,
+Consent/VenueStep external links). Golf 2's exit is N3 merged **and** Max's Android
+debug build passing the five checks (OTP login, a server action, offline door,
+external link in the in-app browser tab, back button that only minimizes on the
+`/app` root).
+
 ## 2026-09-25 — Fase 17 N3: Capacitor scaffold + Android shell (86ey6bfdm)
 
 Golf 2 of Fase 17. No migration. Draft PR `feat(native): Capacitor scaffold + Android shell (86ey6bfdm)`.

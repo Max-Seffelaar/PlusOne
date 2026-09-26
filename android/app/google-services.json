@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "95949681267",
+    "project_id": "plus-one-9c51e",
+    "storage_bucket": "plus-one-9c51e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:95949681267:android:aa702d97c67a4a9a62f006",
+        "android_client_info": {
+          "package_name": "app.plusone.guestlist"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCuVSoUf8ZciU0sCaisrYPcWf43GL2106E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
