@@ -23,7 +23,7 @@ let venueMembers: unknown[];
 let venueInvites: unknown[];
 let addressedInvites: unknown[];
 let crewRows: unknown[];
-let failTable: string | null;
+let failTables: Set<string>;
 
 function query(table: string) {
   const filters: Record<string, unknown> = {};
@@ -40,7 +40,7 @@ function query(table: string) {
 }
 
 function resolveQuery(table: string, filters: Record<string, unknown>) {
-  if (failTable === table) return { data: null, error: { message: 'boom' } };
+  if (failTables.has(table)) return { data: null, error: { message: 'boom' } };
   if (table === 'venue_memberships') {
     return { data: 'user_id' in filters ? ownMemberships : venueMembers, error: null };
   }
@@ -115,7 +115,7 @@ beforeEach(() => {
   venueInvites = [];
   addressedInvites = [];
   crewRows = [];
-  failTable = null;
+  failTables = new Set();
 });
 
 afterEach(() => {
@@ -272,10 +272,10 @@ describe('POST', () => {
       ['another member in the demo venue', () => (venueMembers = [{ user_id: DEMO.id }, { user_id: 'someone-invited' }])],
       ['an open invite into the demo venue', () => (venueInvites = [{ id: 'i1' }])],
       ['an open invite addressed to the demo e-mail', () => (addressedInvites = [{ id: 'i2' }])],
-      ['memberships unreadable', () => (failTable = 'venue_memberships')],
-      ['invites unreadable', () => (failTable = 'invites')],
+      ['memberships unreadable', () => (failTables = new Set(['venue_memberships']))],
+      ['invites unreadable', () => (failTables = new Set(['invites']))],
       ['a crew seat on any event', () => (crewRows = [{ event_id: 'e-elsewhere' }])],
-      ['crew rows unreadable', () => (failTable = 'event_organizers')],
+      ['crew rows unreadable', () => (failTables = new Set(['event_organizers']))],
     ])('%s', async (_label, arrange) => {
       arrange();
       const res = await post(form(CODE));
@@ -302,6 +302,58 @@ describe('POST', () => {
       expect(res.headers.get('set-cookie')).toBeNull();
       const logged = warn.mock.calls.map((c) => JSON.parse(String(c[0])));
       expect(logged).toContainEqual(expect.objectContaining({ outcome: 'refused', reason: 'roles_changed' }));
+    });
+
+    // The reads run in parallel (Promise.all); the verdict must still be the
+    // FIRST failing check in the original sequential order. Each chain lists
+    // compatible faults in that order; arranging faults i..n must log reason i.
+    const refusalReason = (warn: { mock: { calls: unknown[][] } }) =>
+      warn.mock.calls.map((c) => JSON.parse(String(c[0]))).find((l) => l.outcome === 'refused')?.reason;
+    const faultChains: Array<Array<[string, () => void]>> = [
+      [
+        ['mfa_enrolled', () => listFactors.mockResolvedValue({ data: { totp: [{ id: 'f', status: 'verified' }] }, error: null })],
+        ['platform_admin', () => rpc.mockResolvedValue({ data: true, error: null })],
+        ['roles_changed', () => (ownMemberships = [{ venue_id: DEMO_VENUE_ID, roles: ['doorhost'] }])],
+        ['crew_elsewhere', () => (crewRows = [{ event_id: 'e-elsewhere' }])],
+        ['venue_not_isolated', () => (venueMembers = [{ user_id: DEMO.id }, { user_id: 'someone-invited' }])],
+      ],
+      [
+        ['factors_unreadable', () => listFactors.mockResolvedValue({ data: null, error: { message: 'x' } })],
+        ['platform_flag_unreadable', () => rpc.mockResolvedValue({ data: null, error: { message: 'x' } })],
+        ['memberships_unreadable', () => failTables.add('venue_memberships')],
+        ['crew_unreadable', () => failTables.add('event_organizers')],
+        ['invites_unreadable', () => failTables.add('invites')],
+      ],
+      [
+        ['membership_count', () => (ownMemberships = [])],
+        ['crew_elsewhere', () => (crewRows = [{ event_id: 'e-elsewhere' }])],
+        ['venue_not_isolated', () => (addressedInvites = [{ id: 'i2' }])],
+      ],
+      [
+        ['membership_venue', () => (ownMemberships = [{ venue_id: 'aa000000-0000-7000-8000-000000000009', roles: ['admin', 'doorhost'] }])],
+        ['venue_members_unreadable', () => (venueMembers = null as unknown as unknown[])],
+      ],
+    ];
+    const precedenceCases = faultChains.flatMap((chain) =>
+      chain.map((_, i) => [chain.slice(i).map(([r]) => r).join(' > '), chain[i]![0], chain.slice(i).map(([, a]) => a)] as const),
+    );
+    it.each(precedenceCases)('precedence unchanged: %s → the first one wins', async (_label, expected, arrangements) => {
+      for (const arrange of arrangements) arrange();
+      const warn = vi.spyOn(console, 'warn');
+      const res = await post(form(CODE));
+      expect(location(res).searchParams.get('error')).toBe('failed');
+      expect(setSession).not.toHaveBeenCalled();
+      expect(refusalReason(warn)).toBe(expected);
+    });
+
+    it('issues every check read before any of them has answered (parallel, not sequential)', async () => {
+      let releaseFactors: (v: unknown) => void = () => undefined;
+      listFactors.mockReturnValue(new Promise((r) => (releaseFactors = r)));
+      const pending = post(form(CODE));
+      await vi.waitFor(() => expect(rpc).toHaveBeenCalledWith('is_platform_admin'));
+      releaseFactors({ data: { totp: [] }, error: null });
+      const res = await pending;
+      expect(location(res).pathname).toBe('/app');
     });
 
     it('the seeded roles in another order still pass', async () => {
