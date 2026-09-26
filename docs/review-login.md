@@ -152,10 +152,10 @@ Ronde 10 (onafhankelijke re-review) sluit de spiegelbeeld-gaten van beide trigge
   weigert het demo-id als doel met een nette melding; de review-login weigert
   (`crew_elsewhere`) en de seed stopt als er toch zo'n rij is (defence in depth).
 - **Tweestapsverificatie.** Een TOTP-factor op het gedeelde account sluit de volgende
-  reviewer buiten (`mfa_enrolled`) tot de seed hem verwijdert. De MFA-kaart in het profiel
+  reviewer buiten (`mfa_enrolled`) tot `--end-review` of een volledige seed hem verwijdert. De MFA-kaart in het profiel
   toont voor het demo-account een uitgeschakelde "Turn on" (`RefusedAction`) met de melding, en `/mfa/enroll` stuurt het terug naar
   `/app`. Restrisico: een directe GoTrue-call (`/auth/v1/factors`) kan nog steeds een
-  factor aanmaken (buiten Postgres); de review-login weigert dan en de seed ruimt op.
+  factor aanmaken (buiten Postgres); de review-login weigert dan en `--end-review` of de seed ruimt op.
 
 De uitnodigingsflow voor externe crew (`inviteExternalCrew` in
 `src/features/events/actions.ts`) schrijft géén `invites`-rij: die maakt via de service
@@ -245,7 +245,8 @@ node scripts/seed-demo-venue.mjs --prod
 
   Onderzoek zo'n stop eerst; een extra lid betekent meestal dat een code-houder
   iemand heeft uitgenodigd.
-- `--end-review` doet alléén de globale sign-out van alle demo-sessies en seedt niets
+- `--end-review` verwijdert alle MFA-factoren van de demo-user (dezelfde sweep als de
+  seed) en doet de globale sign-out van alle demo-sessies; het seedt niets
   (zie "Per submissie").
 - Het print hoeveel live sessies de demo-user heeft (daarvoor is
   `NEXT_PUBLIC_SUPABASE_ANON_KEY` in de env nodig).
@@ -293,8 +294,13 @@ in, ook die van een client die alleen de API gebruikt:
 node scripts/seed-demo-venue.mjs --prod --end-review
 ```
 
-Dat doet alleen een globale sign-out van de demo-user (via een probe-sessie met de
-anon-key, dus `NEXT_PUBLIC_SUPABASE_ANON_KEY` moet in de env staan) en seedt niets.
+Dat verwijdert eerst elke MFA-factor van de demo-user (admin-API, dezelfde sweep als de
+volledige seed) en doet dan een globale sign-out (via een probe-sessie met de
+anon-key, dus `NEXT_PUBLIC_SUPABASE_ANON_KEY` moet in de env staan); het seedt niets.
+
+**Weigert de review-login met `mfa_enrolled`** (een reviewer heeft toch een TOTP-factor
+op het gedeelde account gezet)? Dat los je op met `--end-review` óf met een volledige
+seed (`node scripts/seed-demo-venue.mjs --prod`): beide verwijderen elke factor.
 
 Controleer in het **prod-Supabase-dashboard** (project `tolxwgqhppdcvnogdpel` →
 Authentication → Sign In / Providers → Email) dat **Secure email change AAN** staat.

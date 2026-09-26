@@ -90,12 +90,31 @@ describe('demo constants mirrored in scripts/seed-demo-venue.mjs', () => {
     expect(script).toContain(`const DEMO_VENUE_NAME = '${DEMO_VENUE_NAME}';`);
   });
 
-  it('--end-review revokes every demo session (scope global) and seeds nothing', () => {
+  it('--end-review sweeps every demo MFA factor, revokes every demo session (scope global) and seeds nothing', () => {
     const block = script.slice(script.indexOf('if (END_REVIEW) {'), script.indexOf('process.exit(0);\n}', script.indexOf('if (END_REVIEW) {')));
     expect(block).toContain("signOut({ scope: 'global' })");
+    // A rogue factor must not survive the end of a review (review-login would
+    // refuse the next reviewer with mfa_enrolled): the SAME sweep as the seed,
+    // before the sign-out.
+    expect(block).toContain('await sweepDemoFactors(user.id);');
+    expect(block.indexOf('sweepDemoFactors(')).toBeLessThan(block.indexOf("signOut({ scope: 'global' })"));
     expect(block).not.toMatch(/insertMissing|upsert|update\(|delete\(/);
-    // Runs before the user can be created or anything seeded.
+    // Runs before the user can be created or anything seeded, and after the
+    // sweep function is defined.
     expect(script.indexOf('if (END_REVIEW) {')).toBeLessThan(script.indexOf("'createUser'"));
+    expect(script.indexOf('async function sweepDemoFactors(')).toBeLessThan(script.indexOf('if (END_REVIEW) {'));
+  });
+
+  it('has ONE MFA factor sweep, shared by the full seed and --end-review', () => {
+    const fn = script.slice(script.indexOf('async function sweepDemoFactors('), script.indexOf('\n}\n', script.indexOf('async function sweepDemoFactors(')));
+    expect(fn).toContain('db.auth.admin.mfa.listFactors({ userId })');
+    expect(fn).toContain('db.auth.admin.mfa.deleteFactor({ userId, id: factor.id })');
+    // Not duplicated: the admin MFA calls exist only inside the function.
+    expect(script.split('admin.mfa.listFactors(').length - 1).toBe(1);
+    expect(script.split('admin.mfa.deleteFactor(').length - 1).toBe(1);
+    // Called by --end-review and by the full seed.
+    expect(script.split('await sweepDemoFactors(').length - 1).toBe(2);
+    expect(script).toContain('await sweepDemoFactors(userId);');
   });
 
   it('keeps the demo events off the public landing page', () => {
