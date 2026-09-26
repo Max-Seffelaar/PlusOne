@@ -7,7 +7,10 @@
  *   2. a release never ships a non-prod server (CAP_SERVER_URL guard stays, and the
  *      YAML never sets it);
  *   3. signing + the Play credential come from Codemagic, never the repo;
- *   4. versionCode = BUILD_NUMBER, publishing targets the internal track.
+ *   4. versionCode is floored on Play's latest (never only BUILD_NUMBER), publishing
+ *      targets the internal track;
+ *   5. only commits already on main are released, and the synced server.url is
+ *      asserted to be exactly https://app.plus-one.io.
  */
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -45,11 +48,32 @@ describe('codemagic.yaml android-release', () => {
     expect(active).toContain('jarsigner -verify');
   });
 
-  it('versionCode comes from BUILD_NUMBER, read by build.gradle', () => {
-    expect(active).toContain('export PLUSONE_VERSION_CODE="$BUILD_NUMBER"');
+  it('versionCode = max(Play internal latest + 1, BUILD_NUMBER), read by build.gradle', () => {
+    expect(active).toContain(
+      'google-play get-latest-build-number --package-name "$PACKAGE_NAME" --tracks internal'
+    );
+    expect(active).toContain('NEXT=$((LATEST + 1))');
+    expect(active).toContain('if [ "$NEXT" -lt "$BUILD_NUMBER" ]; then NEXT="$BUILD_NUMBER"; fi');
+    expect(active).toContain('export PLUSONE_VERSION_CODE="$NEXT"');
+    expect(active).not.toContain('export PLUSONE_VERSION_CODE="$BUILD_NUMBER"');
     expect(gradle).toContain("System.getenv('PLUSONE_VERSION_CODE')");
     expect(gradle).toContain('versionCode plusoneVersionCode');
     expect(gradle).toContain("System.getenv('CM_KEYSTORE_PATH')");
+  });
+
+  it('only builds commits on main, as the first script', () => {
+    const first = active.match(
+      /scripts:\s*\n\s+-\s+name:\s*([^\n]+)\n\s+script:\s*\|\n([\s\S]*?)\n\s+-\s+name:/
+    );
+    expect(first, 'scripts missing').not.toBeNull();
+    expect(first![1]).toMatch(/not on main/);
+    expect(first![2]).toContain('git fetch origin main');
+    expect(first![2]).toContain('git merge-base --is-ancestor HEAD origin/main');
+  });
+
+  it('asserts the synced server.url is exactly https://app.plus-one.io', () => {
+    expect(active).toContain('npx cap sync android');
+    expect(active).toContain('c.server.url !== "https://app.plus-one.io"');
   });
 
   it('no keystore or service-account key is tracked in git', () => {

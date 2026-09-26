@@ -17,11 +17,14 @@
 #     must be unset (the script fails otherwise and re-checks the synced config).
 #   - No keystore and no service-account JSON in the repo: the keystore is a Codemagic
 #     code-signing reference, the Play credential lives in the `google_play` env group.
-#   - versionCode = Codemagic BUILD_NUMBER; versionName = APP_VERSION_NAME below
-#     (the single source for store builds — bump it here, nowhere else).
-#   - Never rename the `android-release` workflow key: BUILD_NUMBER counts per workflow,
-#     a renamed workflow restarts at 1 and Play rejects every upload (versionCode must
-#     only go up).
+#   - Only commits on main are released: the first script fails unless HEAD is an
+#     ancestor of origin/main (a tag on an unmerged branch would build that branch's
+#     codemagic.yaml / build.gradle / capacitor.config.ts).
+#   - versionCode = max(latest versionCode on the Play internal track + 1, BUILD_NUMBER).
+#     Play's own state is the floor, so a re-added Codemagic app or a renamed workflow
+#     (BUILD_NUMBER restarts at 1) can never produce a rejected lower versionCode.
+#   - versionName = APP_VERSION_NAME below (the single source for store builds — bump it
+#     here, nowhere else).
 
 workflows:
   android-release:
@@ -64,6 +67,18 @@ workflows:
         - $HOME/.gradle/caches
         - $HOME/Library/pnpm/store
     scripts:
+      - name: Refuse a commit that is not on main
+        script: |
+          set -euo pipefail
+          # Codemagic builds whatever commit the tag (or manual start) points at, with
+          # that commit's own codemagic.yaml and guards. Only merged code gets released.
+          # A shallow clone can make a real ancestor look unrelated — fetch full history.
+          if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then git fetch --unshallow origin; fi
+          git fetch origin main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "ERROR: $(git rev-parse HEAD) is not on origin/main. Release builds only come from main — merge first, then tag a main commit." >&2
+            exit 1
+          fi
       - name: Refuse a non-prod server URL
         script: |
           set -euo pipefail
@@ -103,7 +118,8 @@ workflows:
             const c = require("./android/app/src/main/assets/capacitor.config.json");
             const want = process.env.PROD_SERVER_URL;
             if (c.appId !== process.env.PACKAGE_NAME) { console.error("ERROR: appId is " + c.appId); process.exit(1); }
-            if (!c.server || c.server.url !== want) { console.error("ERROR: server.url is " + (c.server && c.server.url) + ", expected " + want); process.exit(1); }
+            if (want !== "https://app.plus-one.io") { console.error("ERROR: PROD_SERVER_URL is " + want + ", expected https://app.plus-one.io"); process.exit(1); }
+            if (!c.server || c.server.url !== "https://app.plus-one.io") { console.error("ERROR: server.url is " + (c.server && c.server.url) + ", expected exactly https://app.plus-one.io"); process.exit(1); }
             if (c.server.cleartext) { console.error("ERROR: cleartext is enabled in a release build"); process.exit(1); }
             console.log("capacitor.config.json OK: " + c.server.url);
           '
@@ -125,9 +141,20 @@ workflows:
       - name: Build signed AAB
         script: |
           set -euo pipefail
+          # versionCode: Play's latest on the internal track + 1, never below BUILD_NUMBER.
+          # google-play (Codemagic CLI, preinstalled) reads GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS
+          # from the google_play group. It fails / prints nothing before the first manual
+          # upload (the package doesn't exist in Play yet) — then latest = 0.
+          LATEST=$(google-play get-latest-build-number --package-name "$PACKAGE_NAME" --tracks internal || true)
+          case "$LATEST" in
+            ''|*[!0-9]*) echo "WARNING: no versionCode from Play (got '${LATEST}') — using 0 (expected only before the first upload)."; LATEST=0 ;;
+          esac
+          NEXT=$((LATEST + 1))
+          if [ "$NEXT" -lt "$BUILD_NUMBER" ]; then NEXT="$BUILD_NUMBER"; fi
+          echo "Play internal latest=$LATEST, BUILD_NUMBER=$BUILD_NUMBER -> versionCode $NEXT"
           # Read by android/app/build.gradle; without them Gradle falls back to
           # local-dev defaults (versionCode 1, "0.0.0-dev").
-          export PLUSONE_VERSION_CODE="$BUILD_NUMBER"
+          export PLUSONE_VERSION_CODE="$NEXT"
           export PLUSONE_VERSION_NAME="$APP_VERSION_NAME"
           echo "Building $PACKAGE_NAME $PLUSONE_VERSION_NAME ($PLUSONE_VERSION_CODE)"
           cd android
@@ -160,8 +187,8 @@ workflows:
   # S1b — iOS → TestFlight. PLACEHOLDER, NOT BUILT. Needs M1 (Apple org account),
   # M3 (APNs key in Firebase) and an App Store Connect API key integration.
   # Uncomment + fill in during S1b (z8uq9m0gvn). Same rules as Android: manual or
-  # `ios-v*` tag only, CAP_SERVER_URL must be unset, APP_VERSION_NAME is the
-  # marketing version, BUILD_NUMBER the build number.
+  # `ios-v*` tag only, main-only ancestry check, CAP_SERVER_URL must be unset,
+  # APP_VERSION_NAME is the marketing version, BUILD_NUMBER the build number.
   # ---------------------------------------------------------------------------
   # ios-release:
   #   name: iOS release → TestFlight
