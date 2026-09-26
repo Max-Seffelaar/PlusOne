@@ -4,21 +4,37 @@ Fase 17 **S1a** ([86ey6bfpy](https://app.clickup.com/t/86ey6bfpy)). The pipeline
 `codemagic.yaml` (repo root, workflow `android-release`). This file covers what only a
 human can do: accounts, keys, credentials, the first upload, testers.
 
+> **Hard precondition — before the first build (step 6) and before any rollout:**
+> `https://app.plus-one.io` must be live on the Vercel project **`plus-one`** (plan item
+> **M5**, done 2026-09-25). Verify it every time before you roll out a release: open
+> <https://app.plus-one.io/login> (desktop and phone browser) and see the PlusOne login page.
+> The app is a remote-URL shell pinned to that exact origin — if it doesn't load there,
+> every tester gets a near-black splash and a webview error. **Stop here until it does.**
+
 Everything below is done **once**, in this order. Sources checked on **2026-09-25**; the
 Play and Codemagic UIs move menus around — the menu paths are what they were on that date.
 
 ## How the pipeline works (one paragraph)
 
-Manual start in Codemagic, or push a tag `android-v*`. Codemagic installs with
+Manual start in Codemagic, or push a tag `android-v*`. The first step **fails unless the
+commit is on `main`** (`git merge-base --is-ancestor HEAD origin/main`) — a tag on an
+unmerged branch would otherwise build that branch's own `codemagic.yaml`/guards. Codemagic installs with
 `pnpm install --frozen-lockfile`, runs `npx cap sync android` with the plain prod config
 (the build **fails** if `CAP_SERVER_URL` is set, and re-checks that the synced
-`capacitor.config.json` points at `https://app.plus-one.io`), builds `bundleRelease`
+`capacitor.config.json` has `server.url` exactly `https://app.plus-one.io`), builds `bundleRelease`
 signed with the **upload key** from Codemagic's keystore store, verifies the signature, and
 uploads the AAB to the Play **internal** track as a **draft**. You press "Roll out" in Play.
 
-- **versionCode** = Codemagic `BUILD_NUMBER` (counts per workflow, always goes up). Never
-  rename the `android-release` workflow key — the counter would restart at 1 and Play
-  refuses every lower-or-equal versionCode.
+- **versionCode** = `max(latest on the Play internal track + 1, BUILD_NUMBER)`. The build
+  asks Play first (`google-play get-latest-build-number --package-name
+  app.plusone.guestlist --tracks internal`, Codemagic's preinstalled CLI, authenticated by
+  `GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS` from the `google_play` group); before the first
+  upload that returns nothing and counts as `0`. Codemagic's `BUILD_NUMBER` alone is not
+  enough: it restarts at 1 when the app is re-added in Codemagic, moved to another team, or
+  the workflow key is renamed — and Play refuses every versionCode that isn't higher than
+  the last one. Play's own state is the floor; `BUILD_NUMBER` only keeps numbers moving
+  while Play can't be read (the first build). Build log line: `Play internal latest=…,
+  BUILD_NUMBER=… -> versionCode …`.
 - **versionName** = `APP_VERSION_NAME` in `codemagic.yaml` — the single source. Bump it
   there in a PR before a release that users should see as a new version.
 - Local Android Studio builds get versionCode `1` / versionName `0.0.0-dev` and are
@@ -108,6 +124,7 @@ Source: <https://docs.codemagic.io/yaml-code-signing/signing-android/> (accessed
 
 ## 6. First build
 
+Precondition: <https://app.plus-one.io/login> shows the login page (see top). Then
 Codemagic → the app → **Start new build** → branch `main` → workflow
 **Android release → Play internal** → Start.
 
@@ -125,7 +142,9 @@ Download `app-release.aab` from the build's **Artifacts**.
 2. **App integrity / Play App Signing:** choose **Use Google-generated key** (recommended,
    the default). Our `.jks` stays the upload key.
 3. Drag in the downloaded `app-release.aab` → package name becomes
-   `app.plusone.guestlist` forever → release name defaults to `1 (1.0.0)` → **Next →
+   `app.plusone.guestlist` forever → release name defaults to `<versionCode> (1.0.0)`
+(the versionCode is Codemagic's build number here — not necessarily `1` if earlier runs
+failed; that is fine) → **Next →
    Save** → **Roll out to internal testing**.
 4. If Play lists unfinished "Set up your app" items that block the rollout, finish them on
    the Dashboard (app access, ads, content rating, target audience, data safety, privacy
@@ -172,7 +191,9 @@ Only exists after step 7 (Google generates the app signing key on the first uplo
 - **Manual:** Codemagic → Start new build → `main` → `android-release`.
 - **Tag:** `git tag android-v1.0.1 && git push origin android-v1.0.1` (bump
   `APP_VERSION_NAME` first if the version name should change).
-- Then Play Console → Internal testing → the new draft → **Roll out**.
+- Only a commit already on `main` builds; tag a merged commit.
+- Then check <https://app.plus-one.io/login> loads, and Play Console → Internal testing →
+  the new draft → **Roll out**.
 
 **Recommended:** GitHub → repo **Settings → Rules → Rulesets → New tag ruleset**, target
 `android-v*`, restrict creations/updates/deletions to admins — so only you can start a
