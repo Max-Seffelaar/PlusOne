@@ -71,9 +71,15 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
   if (demoSessionMustEnd(user)) redirect(REVIEW_SESSION_END_PATH);
 
   // Venue-less users go through onboarding first (#40); the wizard is responsive,
-  // so it serves mobile web too.
-  const state = await getOnboardingState();
-  if (state.step !== 'done') redirect('/onboarding');
+  // so it serves mobile web too. Never the demo account (86ey6bfug): the wizard
+  // only creates venues and sends invites, both refused for it, and it can reach
+  // an unfinished state on its own (it is admin of the demo venue, so it can
+  // PATCH settings.onboarding.completed back to false). The seed restores that
+  // flag; this keeps the reviewer in the app until it does.
+  if (!isDemoReviewUser(user)) {
+    const state = await getOnboardingState();
+    if (state.step !== 'done') redirect('/onboarding');
+  }
 
   // Best-effort: the caller's reporting venues (admin/finance) gate the
   // Statistieken entry in "Meer". Non-admin or no access → empty → hidden.

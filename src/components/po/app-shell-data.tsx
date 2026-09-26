@@ -9,6 +9,8 @@
  */
 import { createContext, type JSX, useContext, type ReactNode } from 'react';
 import type { PoVenueMembership } from './context';
+import { usePoIdentityOptional } from '@/features/po/PoLiveProvider';
+import { DEMO_USER_ID, DEMO_VENUE_ID } from '@/features/auth/demo-account';
 
 export interface AppShellData {
   statsAccess?: { venues: { venueId: string; venueName: string }[] };
@@ -36,12 +38,33 @@ export function AppShellDataProvider({ value, children }: { value: AppShellData;
 }
 
 /**
- * True for the store-review demo account. Tolerant of a missing provider
- * (screens rendered on their own, e.g. in tests) — that reads as "not demo",
- * which only ever shows the normal form; the server still refuses.
+ * True for the store-review demo account (86ey6bfug). Two independent sources,
+ * either one is enough: the layout's `demoAccount` flag (id OR e-mail, server
+ * side) and the live identity's user id. Round 7 read only the flag, and on
+ * prod the demo account still reached the forms, so the refusal no longer
+ * hangs on one prop surviving the layout → client boundary. Tolerant of
+ * missing providers (screens rendered on their own): that reads as "not
+ * demo", which only ever shows the normal form; the server still refuses.
  */
+function useDemoSignals(): { account: boolean; venue: boolean } {
+  const flag = useContext(AppShellDataContext)?.demoAccount === true;
+  const identity = usePoIdentityOptional();
+  const account = flag || identity?.userId === DEMO_USER_ID;
+  return { account, venue: account || identity?.venueId === DEMO_VENUE_ID };
+}
+
 export function useIsDemoAccount(): boolean {
-  return useContext(AppShellDataContext)?.demoAccount === true;
+  return useDemoSignals().account;
+}
+
+/**
+ * True when membership-changing actions (team invite, crew invite/assign) must
+ * be refused upfront: the demo account anywhere, OR anyone — a platform admin
+ * on support — acting in the demo venue, where the DB refuses every new member
+ * and every crew row (20260925130100 + 20260925150000). UX only.
+ */
+export function useIsDemoVenue(): boolean {
+  return useDemoSignals().venue;
 }
 
 export function useAppShellData(): AppShellData {

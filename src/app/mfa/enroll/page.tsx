@@ -5,6 +5,7 @@ import { getAuthContext } from '@/lib/auth/context';
 import { requireConsent } from '@/lib/auth/consent';
 import { safeNextPath } from '@/features/auth/next-path';
 import { MfaEnrollCard } from '@/features/auth/components/MfaEnrollCard';
+import { isDemoReviewUser } from '@/features/auth/review-window';
 
 export const metadata: Metadata = { title: 'Set up MFA · PlusOne' };
 
@@ -23,6 +24,12 @@ export default async function MfaEnrollPage({
   // /consent (this route sits outside the /app layout, so it needs its own
   // gate — mirrors the consent-before-MFA order in src/app/app/layout.tsx).
   await requireConsent(ctx.user.id, nextPath);
+
+  // The store-review demo account never enrols a factor (86ey6bfug): a factor
+  // on the shared account locks the next reviewer out (review-login refuses
+  // `mfa_enrolled` until the seed deletes it). Its nudge is snoozed for good,
+  // so only a direct visit lands here; send it back to the app.
+  if (isDemoReviewUser(ctx.user)) redirect('/app');
 
   // Already has a factor: enrollment is pointless — verify (or proceed).
   if (ctx.hasVerifiedTotp) {

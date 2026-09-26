@@ -8,6 +8,140 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-26 — Fase 17 S3 round 11: re-review residuals (86ey6bfug)
+
+Same PR (#348). The independent re-review APPROVED round 10 with four non-blocking
+residuals; all four are fixed here.
+
+- **`--end-review` also sweeps MFA factors.** It exited before the factor sweep, so a
+  rogue TOTP factor kept review-login refusing (`mfa_enrolled`) until a full seed. The
+  sweep is now one function (`sweepDemoFactors`) called by the full seed and by
+  `--end-review` (before the global sign-out); `review-login.test.ts` pins both call
+  sites and that the admin MFA calls exist once. Runbook: `mfa_enrolled` is fixed by
+  either command.
+- **`set_platform_admin` refuses the demo user.** A platform admin could grant the flag
+  to the demo id (review-login lockout + cross-tenant access for a code holder). The
+  unapplied `20260925150000` migration now `create or replace`s it (body verbatim from
+  `20260923120000`, same signature, SECURITY DEFINER, pinned `search_path`, ACL) with
+  one added check: granting to the demo id → 42501 `not allowed`. Revoking still works.
+  pgTAP T50–T54 (plan 50 → 55).
+- **Nit:** section E header in `review_demo_no_new_members.test.sql` now says
+  INSERT (OR UPDATE), matching T15.
+- **Nit:** `demoAccountRefusal` runs its seven reads in one `Promise.all` and then
+  evaluates them in the old order; `route.test.ts` pins the precedence (fault chains:
+  the first failing check still wins) and that the reads are issued in parallel.
+
+## 2026-09-25 — Fase 17 S3 round 10: the demo user joins nothing else (86ey6bfug)
+
+Same PR (#348). The independent re-review of round 9 confirmed items 1 and 3 and
+found one blocking gap plus optional items; all are fixed here.
+
+- **Blocking: the demo account in another venue.** `venue_memberships_insert` checks only
+  the caller's role on the target venue, so any other venue's admin could insert the
+  (public) demo user id into their own venue with one PostgREST call: review-login
+  refuses (`membership_count`), the seed stops, and whoever holds the review code sits
+  in a real venue. `refuse_demo_venue_new_member` gets a second predicate
+  (`new.user_id = demo user and new.venue_id <> demo venue` → 42501, every writer);
+  the existing `UPDATE OF venue_id, user_id` firing covers re-pointing a row too.
+- **Crew symmetry.** `refuse_demo_venue_new_crew` refuses any organizer row for the demo
+  user; `assignOrganizer` refuses the demo id as target; review-login refuses
+  `crew_elsewhere` and the seed stops on a crew seat (defence in depth).
+- **TOTP self-lockout (pre-existing).** Profile MFA card renders the kit's `RefusedAction`
+  (inert "Turn on" + "Two-factor sign-in is turned off for the demo account.") for the
+  demo account; `/mfa/enroll` redirects it to `/app`. A direct GoTrue factor call stays
+  possible outside Postgres; review-login refuses and the seed deletes it.
+- **Smaller:** `TeamStep.finish()` checks the `completeOnboardingAction` result and shows
+  the error instead of navigating; `useIsDemoVenue` and `useIsDemoAccount` share one
+  context read; migration header no longer claims FK cascades reach `venue_memberships`
+  (its FKs are `on delete restrict`).
+- **pgTAP** 41 → 50: other venue's admin / service role inserting the demo user, the
+  re-pointing update, no row written; the same for crew, ordinary crew still works; the
+  seed's real full-column upsert (`DO UPDATE SET venue_id, user_id, roles, job_title`)
+  under the service JWT; T5/T6/T13 now run with their own claims instead of the demo
+  user's leftover ones. Trigger bodies smoke-tested on a local Postgres 16 stub; the
+  real suite runs in CI.
+
+---
+
+## 2026-09-25 — Fase 17 S3 round 9: onboarding wizard, addressed invites, self-lockout (86ey6bfug)
+
+Same PR (#348), closing the two open threads of the independent security review
+(the DB boundary held against all six attacks) and round 8's known follow-up.
+
+- **`/onboarding` wizard.** The demo account could reach it by flipping its own
+  venue's `settings.onboarding.completed` to false (it is admin there), and the venue
+  and team steps then opened full forms that only failed on submit. Three layers:
+  the seed re-asserts `completed = true` on every run (other settings keys kept);
+  the `/app` layout never redirects the demo account to `/onboarding`; on a direct
+  visit the wizard skips welcome/plan/payment and the venue and team steps render
+  `RefusedAction` (+ "Back to the app" / "Skip for now") instead of a form.
+- **Invite addressed to the demo e-mail from any venue.** `refuse_demo_venue_invite`
+  now also refuses `lower(btrim(email)) = 'app-review@demo.plus-one.io'` (42501, every
+  writer). Before, any venue's admin could lock the reviewer out
+  (`venue_not_isolated`) and, on accept, hand the demo account a real-venue
+  membership. The review-login invite reads stay as defence in depth.
+- **Self-lockout.** New `refuse_demo_member_self_change`: BEFORE UPDATE OF
+  `venue_id, user_id, roles` OR DELETE on `venue_memberships` refuses any change to the
+  demo user's demo-venue row unless the request JWT role is `service_role` (the seed);
+  keyed on the JWT role, not `current_user`, so a definer RPC called by the demo user is
+  refused too; no-JWT owner statements pass. `job_title` edits untouched. The
+  team member sheet shows the refusal upfront for that row, and
+  `updateMemberRolesAction` / `removeMemberAction` refuse it with
+  `t.auth.demoNoOwnMembership`.
+- **Migration:** all in `20260925150000_demo_venue_no_new_members.sql` (not yet applied
+  to prod; the invite function is replaced with `create or replace`, the applied
+  `20260925130100` is untouched). Grant matrix unchanged. pgTAP
+  `review_demo_no_new_members.test.sql` 18 → 41 (T7 now expects the self-change message;
+  T7b keeps the new-member trigger's own proof). pgTAP runs in CI only (no Supabase stack
+  in the session); the trigger bodies were smoke-tested against a stub schema on a local
+  Postgres 16.
+- **Tests:** `src/features/onboarding/components/demo-refusals.test.tsx`,
+  `src/app/app/layout.onboarding-demo.test.ts`,
+  `src/features/venues/actions.demo-membership.test.ts`, the seed guard in
+  `review-login.test.ts`, the member-sheet cases in `settings/demo-refusals.test.tsx`.
+
+---
+
+## 2026-09-25 — Fase 17 S3 round 8: demo refusals on every entry point (86ey6bfug)
+
+Follow-up to PR #332 (merged). Max re-tested prod as the demo account: "New venue"
+still looked usable (the note appeared only after the tap), the team invite and the
+event-crew invite still opened. Draft PR `fix(auth): demo refusals on every entry point (86ey6bfug)`.
+
+- **Root cause, as far as it could be pinned without the prod session:** round 7's
+  hunks are all on prod (deploy of `56b6a47`), and the only "New venue" / invite
+  entry points in the codebase are the ones it changed. Two things were real: (1) the
+  crew "Add crew" button still opened its sheet by design (only the e-mail form
+  inside was swapped for the note, "returning crew" stayed usable), which reads as
+  "can still invite"; (2) every round-7 test mocked `useIsDemoAccount` itself, so
+  nothing proved the layout flag reaches the screens. The client refusal hung on that
+  one prop. Not reproduced: why the team/venue entries were not inert for Max.
+- **Client:** `useIsDemoAccount` now reads two independent signals, either enough:
+  the layout's `demoAccount` flag OR the live identity's user id (`PoLiveProvider`,
+  new tolerant `usePoIdentityOptional`). New `useIsDemoVenue` (demo account OR the
+  active venue is the demo venue) drives team invite/resend and crew add, so platform
+  support in the demo venue sees the refusal too; "New venue" stays theirs. Crew "Add
+  crew" is now a `RefusedAction`: the sheet never opens. Ids moved to a client-safe
+  `src/features/auth/demo-account.ts` (re-exported by `review-window.ts`).
+- **Server:** `assignOrganizer` refuses the demo account (42501, `t.auth.demoNoInvites`).
+- **DB (migration `20260925150000_demo_venue_no_new_members.sql`):** BEFORE INSERT OR
+  UPDATE OF `venue_id, user_id` trigger on `venue_memberships` refuses a demo-venue row
+  for anyone but the demo user (closes the direct `venue_memberships_insert` path and
+  the "hand my own row to another user_id" update); BEFORE INSERT trigger on
+  `event_organizers` refuses crew on a demo-venue event. Security invoker, pinned
+  search_path, execute revoked; service role included. The seed's own upsert passes.
+  pgTAP `review_demo_no_new_members.test.sql` (18).
+- **Tests:** `src/components/po/demo-refusals.providers.test.tsx` mounts the real
+  `AppShellDataProvider` + `PoLiveProvider` (no demo-hook mock) around the real
+  screens (venue switch/settings/create, team, crew) for flag-only, identity-only,
+  support-in-demo-venue and normal admin. Unit suite 2113 green; pgTAP not run here
+  (no Supabase stack in the session): CI is the DB gate.
+- **Open (closed in round 9, same PR):** the demo admin could still edit its own roles
+  in the team member sheet; dropping `doorhost` made the next review login refuse
+  (`roles_changed`) until the seed was re-run.
+
+---
+
 ## 2026-09-25 — Fase 17 N3: Capacitor scaffold + Android shell (86ey6bfdm)
 
 Golf 2 of Fase 17. No migration. Draft PR `feat(native): Capacitor scaffold + Android shell (86ey6bfdm)`.

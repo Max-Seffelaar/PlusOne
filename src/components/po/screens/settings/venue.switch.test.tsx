@@ -22,7 +22,10 @@ vi.mock('../../context', () => ({
   useNav: () => ({ push: H.push, back: vi.fn() }),
   usePo: () => ({ myVenues: H.myVenues, activeVenueId: A, switchToVenue: vi.fn() }),
 }));
-vi.mock('@/features/po/PoLiveProvider', () => ({ usePoIdentity: () => ({ roles: [], venueName: 'Venue A' }) }));
+vi.mock('@/features/po/PoLiveProvider', () => ({
+  usePoIdentity: () => ({ roles: [], venueName: 'Venue A' }),
+  usePoIdentityOptional: () => null,
+}));
 vi.mock('@/features/po/hooks', () => ({ usePoVenueSettings: () => ({ data: null }) }));
 vi.mock('@/features/po/mutations', () => ({ usePoUpdateVenueSettings: () => ({}) }));
 
