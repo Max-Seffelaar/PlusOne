@@ -8,6 +8,29 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-26 — Fase 17 S3 round 11: re-review residuals (86ey6bfug)
+
+Same PR (#348). The independent re-review APPROVED round 10 with four non-blocking
+residuals; all four are fixed here.
+
+- **`--end-review` also sweeps MFA factors.** It exited before the factor sweep, so a
+  rogue TOTP factor kept review-login refusing (`mfa_enrolled`) until a full seed. The
+  sweep is now one function (`sweepDemoFactors`) called by the full seed and by
+  `--end-review` (before the global sign-out); `review-login.test.ts` pins both call
+  sites and that the admin MFA calls exist once. Runbook: `mfa_enrolled` is fixed by
+  either command.
+- **`set_platform_admin` refuses the demo user.** A platform admin could grant the flag
+  to the demo id (review-login lockout + cross-tenant access for a code holder). The
+  unapplied `20260925150000` migration now `create or replace`s it (body verbatim from
+  `20260923120000`, same signature, SECURITY DEFINER, pinned `search_path`, ACL) with
+  one added check: granting to the demo id → 42501 `not allowed`. Revoking still works.
+  pgTAP T50–T54 (plan 50 → 55).
+- **Nit:** section E header in `review_demo_no_new_members.test.sql` now says
+  INSERT (OR UPDATE), matching T15.
+- **Nit:** `demoAccountRefusal` runs its seven reads in one `Promise.all` and then
+  evaluates them in the old order; `route.test.ts` pins the precedence (fault chains:
+  the first failing check still wins) and that the reads are issued in parallel.
+
 ## 2026-09-25 — Fase 17 S3 round 10: the demo user joins nothing else (86ey6bfug)
 
 Same PR (#348). The independent re-review of round 9 confirmed items 1 and 3 and
