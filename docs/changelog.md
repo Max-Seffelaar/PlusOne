@@ -8,6 +8,18 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-26 — Fase 17 S2: review round — data-safety/App Privacy fixed, push claim gated (86ey6bft8)
+
+Fresh-session adversarial review round on PR `feat(native): app icons, splash, store listing drafts (86ey6bft8)` (issuecomment-5834219588 + orchestrator triage issuecomment-5834234137). All findings fixed in this PR.
+
+- **B2 (blocking): the data-safety (Play) and App Privacy (Apple) drafts under-declared what the app processes.** Cross-checked every data type against `docs/legal/privacy-policy.md` v0.2 and `docs/legal/subprocessors.md` (both drafts, read from their PR branches) plus the code (`src/lib/database.types.ts` for `guests`/`contacts` phone/email/note columns, `src/sentry.client.init.ts` + `sentry.server.config.ts`/`sentry.edge.config.ts` + `src/lib/observability/scrub.ts` for crash/diagnostics and IP handling). Both `docs/store/play-store-listing.md` and `docs/store/app-store-listing.md` now carry a full per-data-type table: guest name/phone/e-mail/notes, account name/e-mail/phone, device push token, crash/diagnostics (Sentry), and IP address — each with collected/shared, purpose, optional, encrypted-in-transit and deletion columns. IP address is not collected/stored by PlusOne's Sentry integration (`sendDefaultPii: false`, `event.request` deleted in `beforeSend`) or by application code; only Vercel's hosting logs process it transiently.
+- **B1/push claim: kept, gated.** Per the orchestrator's triage, the push notification claim stays in both listings and the App Store review notes (4.2 defense) — pushed end-to-end (N5, #349) is already a precondition in the release checklist. Every push mention (marketing copy, the tone/intro line, the data-safety/App-Privacy push-token row, the 4.2 defense) now carries `<!-- valid only once N5 (#349) is merged and verified on device -->` so nobody submits the listing before N5 ships.
+- **N1: privacy/support URL scheme.** The drafts used `www.plus-one.io`; `src/lib/legal.ts` and CLAUDE.md's domain decision (2026-09-18) both name the bare apex as canonical. Fixed the drafts to `https://plus-one.io`, not `legal.ts`.
+- **N2: dropped `assets/icon.png`** — a byte-identical, out-of-scope-directory copy of `public/icon-maskable-512x512.png`. A future `@capacitor/assets` regeneration points at `public/` directly.
+- **N3:** removed the stray `plus one` keyword (App Store keyword fields, NL + EN) — it was the only non-"PlusOne" brand rendering in the listing text and wasted keyword-field characters Apple already indexes via the app name.
+- **N4:** the Dutch copy named a UI tab ("Aanvragen-tab") that doesn't exist — the app is English-only and the tab is "Requests"; both Dutch descriptions now say `'Requests'-tab`.
+- N5 (real 1024px+ icon master) is unchanged — still an open item for Max, not something this round could fix.
+
 ## 2026-09-25 — Fase 17 S2: Icons, splash, store listing drafts (86ey6bft8)
 
 Golf 3 of Fase 17, depends on N3 (merged). Draft PR `feat(native): app icons, splash, store listing drafts (86ey6bft8)`. No migration.

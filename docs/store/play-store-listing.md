@@ -2,10 +2,10 @@
 
 App name: **PlusOne**
 Category: **Business** (Events isn't a Play category; Business is the closest fit for a venue-staff tool)
-Support URL: `https://www.plus-one.io`
-Privacy policy URL: `https://www.plus-one.io/legal#privacy`
+Support URL: `https://plus-one.io`
+Privacy policy URL: `https://plus-one.io/legal#privacy`
 
-Tone: `tone-of-voice.md` — confident, nightlife-native, no filler. Content matches what the app does today: guest lists, quotas, approvals, offline door check-in, push for approvals. No ticketing, no outbound invites (CLAUDE.md decision #36) — never claim either.
+Tone: `tone-of-voice.md` — confident, nightlife-native, no filler. Content matches what the app does today: guest lists, quotas, approvals, offline door check-in, push for approvals. <!-- valid only once N5 (#349) is merged and verified on device --> No ticketing, no outbound invites (CLAUDE.md decision #36) — never claim either.
 
 ---
 
@@ -28,7 +28,7 @@ Tone: `tone-of-voice.md` — confident, nightlife-native, no filler. Content mat
 > Elke host krijgt een toegewezen aantal gasten per event. PlusOne rekent +N automatisch mee en blokkeert wie over zijn quotum gaat — de organisatie stelt de grenzen in, niet de host.
 >
 > **Aanvragen, geregeld met één tik**
-> Gasten sturen een aanvraag, hosts vragen extra quotum — beide landen in de Aanvragen-tab. Goedkeuren of afwijzen kost één tik, met een pushmelding zodra er iets wacht.
+> Gasten sturen een aanvraag, hosts vragen extra quotum — beide landen in de 'Requests'-tab. Goedkeuren of afwijzen kost één tik, met een pushmelding zodra er iets wacht. <!-- valid only once N5 (#349) is merged and verified on device -->
 >
 > **De deur werkt altijd**
 > Check-in blijft werken zonder internet: elke actie gaat in de wachtrij en synct zodra de verbinding terug is. Geen wifi aan de deur, geen probleem.
@@ -62,7 +62,7 @@ Tone: `tone-of-voice.md` — confident, nightlife-native, no filler. Content mat
 > Every host gets an assigned number of guests per event. PlusOne counts +N automatically and stops anyone going over their quota — the organization sets the limits, not the host.
 >
 > **Approvals in one tap**
-> Guests send requests, hosts ask for more quota — both land in the Requests tab. Approve or decline in one tap, with a push notification the moment something's waiting.
+> Guests send requests, hosts ask for more quota — both land in the Requests tab. Approve or decline in one tap, with a push notification the moment something's waiting. <!-- valid only once N5 (#349) is merged and verified on device -->
 >
 > **The door always works**
 > Check-in keeps working without a connection: every action queues and syncs the moment you're back online. No wifi at the door, no problem.
@@ -85,7 +85,17 @@ Tone: `tone-of-voice.md` — confident, nightlife-native, no filler. Content mat
 
 ## Data safety form (Play Console)
 
-Mirror `/privacy` from L1 once live. At minimum: collects account info (email), guest data entered by venue staff (name, tier, plus-ones — processed as a data processor on behalf of the venue, see `docs/legal/data-processing-agreement.md`), and device push tokens. No data sold, no advertising ID use, no third-party ticketing/marketing data sharing (decision #36/#10 — no outbound invites). Data is encrypted in transit (HTTPS/TLS to Supabase `eu-west-1`). Account/guest data deletion: in-app for guests (admin "forget contact", AVG art. 17); account deletion via support (invite-only, no in-app self-signup — see `capacitor-plan-claude-code.md` §1 "Account-verwijdering").
+Mirror `/privacy` from L1 once live. Cross-checked against `docs/legal/privacy-policy.md` (v0.2, §§3–4, 8, 12) and `docs/legal/subprocessors.md` — keep this table in sync with those if either changes.
+
+| Data type | Collected | Shared | Purpose | Optional | Encrypted in transit | Deletion |
+|---|---|---|---|---|---|---|
+| Personal info — name, e-mail address, phone number (account holder) | Yes | No | App functionality (account, invites, roles) | Phone optional; name/e-mail required for an invited account | Yes (HTTPS/TLS) | On request once the account is no longer needed for a venue (`privacy-policy.md` §13); no in-app self-service (invite-only) — via support |
+| Personal info — guest name, phone, e-mail; App activity — other user-generated content (staff-entered notes) | Yes | No — processed only on the venue's behalf (data processor, see `docs/legal/data-processing-agreement.md`) | App functionality (guest list, quotas, door check-in) | Phone/e-mail/notes optional; name required | Yes (HTTPS/TLS) | Per venue-configured AVG retention (1–60 months from event end), or immediately via admin "forget contact" (AVG art. 17) |
+| Device or other IDs — push token <!-- valid only once N5 (#349) is merged and verified on device --> | Yes, once notifications are enabled | Yes — with Firebase Cloud Messaging (Google) / APNs (Apple); token only, never guest data | App functionality (approval/request alerts) | Yes — opt-in, off by default | Yes (HTTPS/TLS) | Deleted on sign-out, on disabling notifications, or after 90 days unused |
+| App info and performance — crash logs, diagnostics | Yes | Yes — with Sentry (EU, Germany) | App functionality (stability/debugging) — never analytics or advertising | No — no user-facing toggle | Yes (HTTPS/TLS) | Per Sentry's configured retention window (see subprocessors list) |
+| Device or other IDs — IP address | Not stored by PlusOne application code or by Sentry (`sendDefaultPii: false`, request data stripped in `beforeSend`); Vercel's edge/function logs process it only transiently for hosting and abuse prevention | No | App functionality (hosting, rate limiting) | No | Yes (HTTPS/TLS) | Short-lived hosting logs only — not retained by the app |
+
+No data sold, no advertising ID use, no third-party ticketing/marketing data sharing (decision #36/#10 — no outbound invites), no third-party analytics SDKs (confirmed against `src/` and `docs/legal/subprocessors.md` §C, where Google Analytics/PostHog are listed as planned, not active).
 
 ## Export compliance
 
