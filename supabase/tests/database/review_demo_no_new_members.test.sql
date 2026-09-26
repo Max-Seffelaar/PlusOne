@@ -25,6 +25,11 @@
 --   * no writer puts the demo USER in another venue (insert or re-pointed
 --     update) or on another venue's event crew; ordinary crew still works;
 --   * the seed's real full-column upsert of the demo row still passes.
+-- Round 11 (same migration):
+--   * a platform admin cannot make the demo user a platform admin (42501,
+--     generic) and the flag stays false; promoting a normal user still works;
+--   * set_platform_admin keeps its shape (security definer, pinned
+--     search_path, execute for authenticated only).
 --
 -- Everything rolls back.
 
@@ -50,7 +55,7 @@ begin
 end;
 $fn$;
 
-select plan(50);
+select plan(55);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as owner — RLS bypassed, like the demo seed): the demo user and
@@ -455,8 +460,8 @@ $$, 'T49 the seed''s full-column upsert of the demo row still passes');
 reset role;
 
 -- ---------------------------------------------------------------------------
--- E. shape: BEFORE INSERT trigger, security invoker, pinned search_path, no
---    execute for app roles
+-- E. shape: BEFORE INSERT (OR UPDATE) row triggers, security invoker, pinned
+--    search_path, no execute for app roles
 -- ---------------------------------------------------------------------------
 
 select ok(
@@ -521,6 +526,67 @@ select ok(
   and not has_function_privilege('authenticated', 'public.refuse_demo_venue_invite()', 'execute')
   and not has_function_privilege('anon', 'public.refuse_demo_venue_invite()', 'execute'),
   'T40 no execute on the round-9 trigger functions for authenticated or anon');
+
+-- ---------------------------------------------------------------------------
+-- I. round 11: set_platform_admin never grants the flag to the demo user
+-- ---------------------------------------------------------------------------
+
+-- A platform admin (owner fixture, via the migration header's bootstrap GUC).
+reset role;
+select set_config('request.jwt.claims', '', true);
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+  confirmation_token, recovery_token, email_change, email_change_token_new,
+  email_change_token_current, phone_change, phone_change_token, reauthentication_token
+) values (
+  '00000000-0000-0000-0000-000000000000', '99999999-9999-4999-8999-999999999999',
+  'authenticated', 'authenticated', 'platform@plusone.test', '', now(),
+  '{"provider": "email", "providers": ["email"]}'::jsonb,
+  '{"full_name": "Joeri Platform"}'::jsonb,
+  now(), now(), '', '', '', '', '', '', '', ''
+);
+insert into public.user_profiles (id, full_name, email)
+values ('99999999-9999-4999-8999-999999999999', 'Joeri Platform', 'platform@plusone.test');
+select set_config('plusone.platform_admin_write', 'on', true);
+update public.user_profiles set is_platform_admin = true
+ where id = '99999999-9999-4999-8999-999999999999';
+select set_config('plusone.platform_admin_write', 'off', true);
+
+select pg_temp.login('99999999-9999-4999-8999-999999999999', 'platform@plusone.test');
+select throws_ok($$
+  select public.set_platform_admin('de300000-0000-7000-8000-00000000a001', true)
+$$, '42501', 'not allowed',
+  'T50 a platform admin cannot make the demo user a platform admin');
+
+reset role;
+select is(
+  (select is_platform_admin from public.user_profiles
+    where id = 'de300000-0000-7000-8000-00000000a001'),
+  false, 'T51 the demo user is still not a platform admin');
+
+-- Tom (staff, venue 1 in the seed): an ordinary user.
+select pg_temp.login('99999999-9999-4999-8999-999999999999', 'platform@plusone.test');
+select lives_ok($$
+  select public.set_platform_admin('55555555-5555-4555-8555-555555555555', true)
+$$, 'T52 a platform admin can still promote a normal user');
+
+reset role;
+select is(
+  (select is_platform_admin from public.user_profiles
+    where id = '55555555-5555-4555-8555-555555555555'),
+  true, 'T53 and the promotion landed');
+
+select ok(
+  exists (
+    select 1 from pg_proc p
+    where p.oid = 'public.set_platform_admin(uuid, boolean)'::regprocedure
+      and p.prosecdef and p.proconfig = array['search_path=""']
+  )
+  and has_function_privilege('authenticated', 'public.set_platform_admin(uuid, boolean)', 'execute')
+  and not has_function_privilege('anon', 'public.set_platform_admin(uuid, boolean)', 'execute')
+  and not has_function_privilege('service_role', 'public.set_platform_admin(uuid, boolean)', 'execute'),
+  'T54 set_platform_admin keeps security definer, pinned search_path and its ACL');
 
 select * from finish();
 

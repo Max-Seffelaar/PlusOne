@@ -82,6 +82,17 @@
 -- for the demo user, for every writer. The seed only writes the demo user's
 -- demo-venue row, so it needs no exception.
 --
+-- Round 11 (independent re-review of round 10): a platform admin could call
+-- set_platform_admin(<demo user id>, true). The review login then refuses
+-- (platform_admin), locking every reviewer out, and a review-code holder would
+-- hold cross-tenant read+write on every venue. set_platform_admin is replaced
+-- (create or replace: identical signature, SECURITY DEFINER, pinned empty
+-- search_path, owner and ACL kept; the body is copied verbatim from
+-- 20260923120000_platform_admin.sql, the latest definition) with ONE added
+-- check: granting the flag to the demo user id is refused with the same generic
+-- 42501 'not allowed' as every other refusal there. Revoking it stays possible,
+-- so the seed's "revoke that first" recovery path still works.
+--
 -- If the demo venue, user or e-mail ever needs another value, these constants
 -- move with it (a new migration, never an edit of this one once applied).
 
@@ -195,3 +206,81 @@ revoke execute on function public.refuse_demo_member_self_change() from public, 
 create trigger refuse_demo_member_self_change
   before update of venue_id, user_id, roles or delete on public.venue_memberships
   for each row execute function public.refuse_demo_member_self_change();
+
+-- ---------------------------------------------------------------------------
+-- Round 11: set_platform_admin never grants the flag to the demo user
+-- ---------------------------------------------------------------------------
+-- Body copied verbatim from 20260923120000_platform_admin.sql; the only change
+-- is the demo-user refusal after the caller check.
+
+create or replace function public.set_platform_admin(p_user_id uuid, p_value boolean)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_actor uuid := (select auth.uid());
+  v_old boolean;
+begin
+  if p_user_id is null or p_value is null then
+    raise exception 'set_platform_admin requires a user id and a value'
+      using errcode = '22023';
+  end if;
+
+  if not public.is_platform_admin() then
+    -- Generic on purpose: the caller learns nothing about the target.
+    raise exception 'not allowed' using errcode = '42501';
+  end if;
+
+  -- The store-review demo account (DEMO_USER_ID) is shared with whoever holds
+  -- the review code: it is never a platform admin. Revoking stays allowed.
+  if p_value and p_user_id = 'de300000-0000-7000-8000-00000000a001'::uuid then
+    raise exception 'not allowed' using errcode = '42501';
+  end if;
+
+  select p.is_platform_admin into v_old
+  from public.user_profiles p
+  where p.id = p_user_id;
+
+  if v_old is null then
+    raise exception 'not allowed' using errcode = '42501';
+  end if;
+
+  if v_old = p_value then
+    return; -- idempotent; nothing changed, nothing audited
+  end if;
+
+  if not p_value and p_user_id = v_actor then
+    raise exception 'a platform admin cannot revoke their own access'
+      using errcode = '42501';
+  end if;
+
+  perform set_config('plusone.platform_admin_write', 'on', true);
+  update public.user_profiles
+     set is_platform_admin = p_value
+   where id = p_user_id;
+  perform set_config('plusone.platform_admin_write', 'off', true);
+
+  insert into public.audit_log
+    (actor_id, venue_id, event_id, entity_type, entity_id, action, diff, device_id)
+  values
+    (v_actor, null, null, 'user_profiles', p_user_id,
+     case when p_value then 'platform_admin_grant' else 'platform_admin_revoke' end,
+     jsonb_build_object(
+       'before', jsonb_build_object('is_platform_admin', v_old),
+       'after',  jsonb_build_object('is_platform_admin', p_value)),
+     public.request_device_id());
+end;
+$$;
+
+comment on function public.set_platform_admin(uuid, boolean) is
+  'Grant/revoke PlusOne platform-admin status. Requires the caller to be a '
+  'platform admin; writes an audit_log entry (venue_id null, so only platform '
+  'admins can read it back). Self-revoke is refused to avoid a lockout. '
+  'Granting it to the store-review demo user is refused.';
+
+-- ACL restated exactly as 20260923120000 (create or replace keeps it anyway).
+revoke execute on function public.set_platform_admin(uuid, boolean)
+  from public, anon, service_role;
+grant execute on function public.set_platform_admin(uuid, boolean) to authenticated;
