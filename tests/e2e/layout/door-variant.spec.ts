@@ -66,7 +66,7 @@ test.describe('Deur variant (plan decision 14)', () => {
     }
   });
 
-  test.fixme('enable when #344 (N6) merges: touch at ≥1024px also gets the offline-outbox door', async ({ browser }) => {
+  test('touch at ≥1024px (iPad landscape) also gets the offline-outbox door', async ({ browser }) => {
     const testInfo = test.info();
     const device = deviceFor(testInfo.project.name);
     test.skip(!device.touch || device.width < CHROME_BREAKPOINT, 'only touch devices at ≥1024px');
