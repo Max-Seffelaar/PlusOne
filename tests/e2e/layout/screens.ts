@@ -22,6 +22,8 @@ export const SEED = {
   eventId: 'ee000000-0000-7000-8000-000000000001',
   guestId: 'cc000000-0000-7000-8000-000000000001',
   contactId: 'c0000000-0000-7000-8000-000000000001',
+  /** Not in seed.sql: upserted by `global-setup.ts` (see there for why). */
+  templateId: 'a7e00000-0000-7000-8000-000000000a01',
 } as const;
 
 export const USERS = {
@@ -92,6 +94,7 @@ export const LAYOUT_SCREENS: readonly LayoutScreen[] = [
   { id: 'audit', user: 'admin', path: screenPath('audit') },
   { id: 'adminsessions', user: 'admin', path: screenPath('adminsessions') },
   { id: 'templates', user: 'admin', path: screenPath('templates') },
+  { id: 'templateedit', user: 'admin', path: screenPath('templateedit', { id: SEED.templateId }) },
   { id: 'templateedit.new', user: 'admin', path: screenPath('templateedit', { isNew: true }) },
 
   // ── Promotion hub ──
