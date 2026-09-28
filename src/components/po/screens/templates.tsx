@@ -286,7 +286,7 @@ export function TemplateEdit({ id }: { id?: string; isNew?: boolean }): JSX.Elem
               disabled={!writable}
               onClick={() => writable && setAllowUncheck(val)}
               className={cn(
-                'flex-1 rounded-[12px] border px-3 py-[11px] font-display text-[12.5px] font-bold transition-colors',
+                'min-h-[44px] flex-1 rounded-[12px] border px-3 py-[11px] font-display text-[12.5px] font-bold transition-colors',
                 allowUncheck === val ? 'border-acc bg-acc-dim text-acc' : 'border-line text-dim',
               )}
             >
