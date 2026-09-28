@@ -28,15 +28,10 @@ const PREFIXED_SIZE =
 
 /**
  * Files that still shrink below 44px on width alone, with the reason. Only ever
- * shrink this list.
- *
- * - kit.tsx: the InfoTip's close button (`lg:h-[36px]`), and its popover-vs-sheet
- *   switch keys on `lg:` too. kit.tsx is frozen until N1 (86ey6bfam) merges; the
- *   fix is the same `lg:[@media(pointer:fine)]:` gate — T1 follow-up.
+ * shrink this list — it is empty now (the kit InfoTip was the last entry, fixed
+ * in T1 session 2), so a new offender fails outright.
  */
-const KNOWN_DEBT: Record<string, string> = {
-  'src/components/po/kit.tsx': 'InfoTip close button — frozen until N1 (86ey6bfam) merges',
-};
+const KNOWN_DEBT: Record<string, string> = {};
 
 function walk(dir: string): string[] {
   const out: string[] = [];
