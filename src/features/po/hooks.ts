@@ -333,7 +333,11 @@ export function usePoDoorCandidates() {
     // effect dep), `isSuccess` (the T6 auto-open effect's load-state guard —
     // review round 2, Blocker 2), and calls `.refetch()` imperatively — a
     // stable method reference, not gated by this list.
-    notifyOnChangeProps: ['data', 'isLoading', 'isFetching', 'isSuccess'],
+    // `fetchStatus` + `isError` (N7): the Deur tab's offline fallback mounts
+    // the last pinned door event when this list cannot load — paused offline
+    // (`fetchStatus === 'paused'`) or failed — and must re-render on exactly
+    // those transitions.
+    notifyOnChangeProps: ['data', 'isLoading', 'isFetching', 'isSuccess', 'fetchStatus', 'isError'],
     queryFn: async () => {
       if (!venueId) return [];
       return doorCandidates(await fetchEvents(createClient(), venueId), Date.now());

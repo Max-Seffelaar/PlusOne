@@ -36,6 +36,8 @@ export const en = {
     checkinTitle: 'Check-in',
     tasksTitle: 'Tasks',
     noEvent: 'No event to check in to yet. Create or open one first.',
+    /** Offline, and this device has no door event to fall back on (N7). */
+    noEventOffline: "You're offline. Open the door once with signal and it keeps working without.",
   },
   venue: {
     switching: 'Switching…',
