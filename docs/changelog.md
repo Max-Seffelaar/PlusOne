@@ -8,6 +8,47 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-28 — QA-1: automated layout/visual suite
+
+Milestone: Now. No migration. Draft PR `test(e2e): QA-1 automated layout/visual suite`.
+The goal is to shrink Max's per-UI-PR handoff from ~15 manual questions to the few
+only a human or a real device can judge.
+
+- **`pnpm e2e:layout`** (`playwright.layout.config.ts`, specs in `tests/e2e/layout/`)
+  reuses the base config's env loader, dev server and dev-login. It runs a 5-project
+  device matrix (390/768/1024/1366 touch, 1280 mouse); `matrix-sanity.spec.ts` asserts
+  each project really emulates its width and `(pointer: coarse|fine)`. Screens are built
+  with `screenPath`/`tabPath`/`doorPath` (48 screens, admin@ or door@).
+- **Per screen × device:** one load, one measurement pass, five independent checks:
+  horizontal overflow, ≥44px hit box on touch for controls, and separately for form
+  fields (the hit box includes the kit's `::before` hit-ring and a field's `<label>`),
+  the 1024 chrome switch, and console/network errors. `door-variant.spec.ts` checks plan
+  decision 14. Touch at ≥1024 is `test.fixme('enable when #344 (N6) merges', …)`.
+- **Cost control:** retries 0. Snapshots are cached per run, so a failing check (which
+  restarts the worker) never reloads its screen. 3 workers. About 9 min in CI.
+- **Screenshots:** full-page per screen × device (the inner scroller is unrolled first),
+  uploaded as the `layout-screenshots` artifact (14 days) together with `findings.md`, a
+  digest grouped by finding. The job summary links both. Visual-regression baselines
+  are out of scope.
+- **CI:** separate `layout-suite` job, not required. It installs through
+  `scripts/session-setup.mjs` and runs `pnpm dev:mfa` on its own fresh stack (admin@
+  TOTP + platform flag). `e2e:layout` was added to `STACK_SUITES`.
+- **Fixed on main (CSS-only, one class each):** sidebar nav rows 43.8→44px; kit small
+  `Btn` 43→44px; guests table guest column `1fr`→`minmax(0,1fr)` (it clipped "Added" at
+  768/1024); template tri-state 42.8→44; quick-add "Add tier" 41.5→44; requests
+  segment tabs 41.5→44.
+- **Found, not fixed** (`tests/e2e/layout/known-issues.ts`, one fixme per check):
+  - kit `Field`/`Select` and inline search boxes: a 21–26px input inside a padded
+    non-label `div` (19 screens);
+  - chips, segments and pills at 34–40px (door, guests, events, home, import, promotion,
+    links, event edit);
+  - 26px inline actions (crew Remove, invite Resend, session Log out) and 19px text
+    buttons (MFA Turn off, promotion "N links");
+  - steppers at 32px (crew) and 42px (roles);
+  - Declined toggle at 30px;
+  - inline Terms/Privacy links at 17px, which needs a decision on an inline-link
+    exemption.
+
 ## 2026-09-25 — Fase 17 N3: Capacitor scaffold + Android shell (86ey6bfdm)
 
 Golf 2 of Fase 17. No migration. Draft PR `feat(native): Capacitor scaffold + Android shell (86ey6bfdm)`.

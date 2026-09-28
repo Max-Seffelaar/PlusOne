@@ -142,6 +142,8 @@ Run locally against the **local Supabase stack**, never prod. Once per machine: 
 
 **One DB owner.** Only ONE session runs a destructive DB command at a time. Before a test pass: `pnpm db:fresh` (= reset + `pnpm dev:mfa`). While someone tests, no other session resets/pushes. RPCs missing after a foreign reset → `pnpm dev:mfa`, never a full reset mid-test.
 
+**Layout suite (QA-1):** `pnpm e2e:layout` (config `playwright.layout.config.ts`, specs in `tests/e2e/layout/`) loads every `po` screen on a 5-device matrix (390/768/1024/1366 touch, 1280 mouse). It checks horizontal overflow, ≥44px hit boxes on touch, the 1024 chrome switch, console/network errors and the Deur variant. Run `pnpm dev:mfa` first, since admin@ needs TOTP plus the platform flag. Full-page screenshots land in `layout-screenshots/<device>/<screen>.png` (gitignored). CI uploads them from the `layout-suite` job as the `layout-screenshots` artifact (14 days). Too-big findings go in `tests/e2e/layout/known-issues.ts`, never into a looser assertion.
+
 **Dev-login** (stable, no OTP/MFA):
 
 ```
