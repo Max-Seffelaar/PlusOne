@@ -24,7 +24,8 @@ only a human or a real device can judge.
   horizontal overflow, ≥44px hit box on touch for controls, and separately for form
   fields (the hit box includes the kit's `::before` hit-ring and a field's `<label>`),
   the 1024 chrome switch, and console/network errors. `door-variant.spec.ts` checks plan
-  decision 14. Touch at ≥1024 is `test.fixme('enable when #344 (N6) merges', …)`.
+  decision 14: coarse pointer OR <1024px gets the offline-outbox door, only a fine pointer
+  at ≥1024px gets the cockpit. The touch-at-≥1024 case runs since #344 (N6) merged.
 - **Cost control:** retries 0. Snapshots are cached per run, so a failing check (which
   restarts the worker) never reloads its screen. 3 workers. About 7 min for the suite,
   about 10 min for the job.
@@ -44,14 +45,17 @@ only a human or a real device can judge.
 - **Found, not fixed** (`tests/e2e/layout/known-issues.ts`, one fixme per check):
   - kit `Field`/`Select` and inline search boxes: a 21–26px input inside a padded
     non-label `div` (20 screens);
-  - chips, segments and pills at 34–40px (door, guests, events, home, import, promotion,
-    links, event edit, new-event template picker);
-  - 26px inline actions (crew Remove, invite Resend, session Log out) and 19px text
-    buttons (MFA Turn off, promotion "N links");
-  - steppers at 32px (crew) and 42px (roles);
+  - chips, segments and pills at 34–40px (door, guests, events, home);
+  - 26px inline actions (crew Remove, invite Resend, session Log out);
+  - the crew quota stepper at 32px;
   - Declined toggle at 30px;
   - inline Terms/Privacy links at 17px, which needs a decision on an inline-link
     exemption.
+  - After the main merge, #343's hit rings covered the import, promotion (hub tabs,
+    range pills, "N links"), link-copy, event-edit copy, template-picker, MFA toggle
+    and roles-stepper entries. Those were removed from `known-issues.ts` so their
+    checks run again. The door entries dropped their cockpit parts: since N6, touch at
+    ≥1024 gets the outbox door, so the cockpit is never measured on touch.
 
 ## 2026-09-26 — Fase 17 S3 round 11: re-review residuals (86ey6bfug)
 
