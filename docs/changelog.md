@@ -60,6 +60,98 @@ Golf 3 of Fase 17. No migration, no app code. Draft PR `ci(native): Codemagic An
   header. The first real run is Max's (runbook step 6).
 
 ---
+## 2026-09-25 — Fase 17 N4: door cold-start spike, go/no-go (86ey6bfe8)
+
+Wave 3 of Fase 17, decision task, no production code. Draft PR `docs(native): N4 door
+cold-start spike — go/no-go`, branch `claude/n4-door-cold-start-spike`. Deliverable:
+`docs/native/door-cold-start-spike.md`.
+
+- **Finding that reframes the question:** the native shell cold-starts at the origin → `/app`,
+  i.e. the Deur tab. That tab cannot cold-boot offline anywhere today (web included): the SW is
+  registered only on the standalone `/door/<id>` route (unreachable from the shell — no link, no
+  URL bar), and `MobileDoorBranch` mounts `DoorProvider` only after `usePoDoorCandidates` (network,
+  `po` QueryClient, not persisted) confirms the event id. The IndexedDB snapshot and outbox are
+  never reached. Warm resume (process not killed) works and is unchanged by the shell model.
+- **Decision:** Android v1 = remote-URL + SW (go). iOS v1 = App-Bound Domains
+  (`WKAppBoundDomains = [app.plus-one.io, localhost]` + `ios.limitsNavigationsToAppBoundDomains`),
+  staged in S1b as a second TestFlight build after a baseline build without the keys; keep only if
+  the bridge checks pass. Bundling the door locally = no-go for v1 (second build, second session
+  store with a token handoff, second copy of guest PII per origin, door updates via store review;
+  4–6 sessions). Reconciled with N3's "not in v1, N4 decides" (PR #340).
+- **Minimal next step (proposed N7, Opus, 1 session, needed by every variant):** register the SW
+  under `/app` too (seed `/`), and remember the last pinned door event in the door IDB store so
+  `MobileDoorBranch` can mount `DoorTree` when the candidate query is paused/errored and a snapshot
+  exists. Android `server.errorPath` offline page → S1a. Optional: launch at `/app` instead of `/`
+  (verify on device first).
+- **Platform facts verified (sources with URLs in the doc):** Android WebView has SW support
+  (`ServiceWorkerController`, API 24); Capacitor 8 injects the bridge via
+  `addDocumentStartJavaScript` scoped to the origin, so an SW-served page keeps the bridge on
+  WebViews with `DOCUMENT_START_SCRIPT` (older ones fall back to the intercept injector that SW
+  responses bypass — device check in the script); WKWebView needs App-Bound Domains for SW
+  (iOS 14+), restrictions apply to top-level navigation only, Supabase fetch/WebSocket unaffected;
+  `server.errorPath` is Android-only; Next `output: 'export'` cannot build `/door/[eventId]`.
+- **Not verifiable here:** prod `Cache-Control` on `/app` (egress proxy 502) — confirm via
+  `chrome://inspect` during the device test; ITP 7-day storage cap in WKWebView (unanswered by
+  Apple; single-origin shell with constant interaction makes it unlikely). Device script (12
+  steps, two rounds) is in the doc for Max's N3 Android build.
+## 2026-09-25 — Fase 17 golf 2: exit passed on a real Android device (epic 86exxuvye)
+
+N3 (#340) is merged. Max's Android debug build (Samsung SM-S721B, Android Studio on Windows) passed A1–A5: e-mail-code login, server-action writes, door offline (queue, then drain on reconnect, plus the stale-resume overlay), external links in the in-app browser sheet, and the hardware back button retracing the stack and minimizing on Home.
+
+- **Root cause of the first blank screen:** the Vercel project `plus-one` only had `plus-one-phi.vercel.app`, so `server.url` (`https://app.plus-one.io`) pointed at a domain that didn't exist yet. Max attached `app.plus-one.io` to the project, set `NEXT_PUBLIC_APP_URL`, and set the Supabase Auth Site URL. It's now plan item M5 and a hard precondition for S1a/S1b.
+- **Supabase Redirect URLs:** narrowed by Max to `https://app.plus-one.io/**`. The earlier `plus-*-one-the-operators.vercel.app` wildcards matched any Vercel project a third party could name that way. The auth e-mail templates only use `{{ .SiteURL }}`, and the app never passes `redirectTo`, so nothing depended on them.
+- **N4 (#342):** decision 15 is in the plan. N7 (door cold-boot offline in the shell) is proposed and waiting for Max's go-ahead.
+
+## 2026-09-25 — Fase 17 golf 1: orchestrator report (epic 86exxuvye)
+
+Golf 1 ran N1, N2, S3, T1 and L1 in parallel from one orchestrator session, with
+workers spawned per task and every PR reviewed adversarially before it reached Max.
+
+**Merged, all on 2026-09-25:**
+- N1 #331: webview-prep kit helpers.
+- #338: root cause of the `pgtap-plan-run-gate` "slow reader" flake. Node's
+  `flushStdio` resumes a paused stdio stream that has no `'readable'` listener
+  when the child exits, so the test harness threw away the gate's diagnostic.
+  The harness was at fault, not the gate.
+- T1 #335: tablet layouts.
+- N2 #336: push backend, live but asleep.
+- S3 #332: store-review login; seven review/fix rounds.
+
+Their five migrations (`20260925120000`–`130100`) were pushed to prod the same day.
+
+**Legal:** #333/#334 (v0.2 texts) and Plus-One.io#6 (`plus-one.io/legal`) wait for
+the lawyer's check.
+
+**What the rounds caught (all fixed in the same PR, standing rule "fix now"):**
+- S3: `inviteExternalCrew` minted an auth account through the service role, which
+  the invites trigger never sees. A review-code holder could have made their own
+  mailbox crew on a demo event and created a real tenant. Now refused before any
+  side effect. Also: explicit demo-refusal copy (a generic error reads as a bug
+  under App Review 2.1); refusals shown before a form opens, not after submit;
+  the demo venue is named "PlusOne Demo" (brand written PlusOne, spec #38); the
+  seed's audit tripwire also catches rows with `venue_id is null`; the seed
+  mirror tests are CRLF-safe.
+- N2: a single-use per-kick invocation token instead of a static secret,
+  because pg_net's request queue is readable by app roles on Supabase.
+  Possession of the device token wins the row handover.
+
+**Process lessons.**
+- Test plans must use the role a screen actually needs: `manager@` is a user
+  manager, not an admin.
+- Hand the non-UI checks (curl/SQL/seed-script) to Max's local Claude session
+  instead of asking Max to run them by hand.
+- Workers run tests in the foreground and never end a turn before their push.
+- The ClickUp MCP daily limit (100 calls) is shared by all sessions, so workers
+  put their ClickUp text in the PR body when it's exhausted.
+
+**Golf 2 started 2026-09-25** once N1 merged: N3 (Capacitor scaffold + Android,
+86ey6bfdm) and a small N1-leftovers PR (MfaEnrollCard clipboard,
+Consent/VenueStep external links). Golf 2's exit is N3 merged **and** Max's Android
+debug build passing the five checks (OTP login, a server action, offline door,
+external link in the in-app browser tab, back button that only minimizes on the
+`/app` root).
+
+
 
 ## 2026-09-25 — Fase 17 N3: Capacitor scaffold + Android shell (86ey6bfdm)
 
