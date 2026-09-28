@@ -39,5 +39,35 @@ when present; without them local builds get versionCode 1 / `0.0.0-dev` and an u
 - `allowBackup="false"` + `res/xml/data_extraction_rules.xml`: the webview's
   cookies and the door's IndexedDB snapshot (guest PII) never go to a cloud backup
   or a device transfer (CLAUDE.md device-storage rule).
-- Near-black `#0B0B0D` window + Android 12 splash background (`values/plusone_colors.xml`).
-  Icons and splash artwork are still the Capacitor defaults — they land in S2.
+- Near-black `#0B0B0D` window + splash background (`values/plusone_colors.xml`).
+- Launch theme parent is `Theme.SplashScreen.IconBackground`, not the template's
+  `Theme.SplashScreen`: only that variant forwards the icon-background colour on API 31+.
+
+## Icons & splash (S2, 86ey6bft8)
+
+Every icon and splash asset — Android, iOS **and** the PWA icons in `public/` — is
+generated from one vector master, `native/icon/plusone-mark.svg` (the "+1" in
+Bricolage Grotesque ExtraBold, ink `#16132B`, as paths; no font ships in the app):
+
+```
+node scripts/native-icons.mjs     # then commit everything it changed
+```
+
+Change the artwork only by editing the SVG (or `MARK_HEIGHT`/colours in the script)
+and re-running it; never hand-edit a generated file (they say so in a header).
+Geometry: the mark is centred on its ink bounding box at 36% of the visible tile.
+
+- **Launcher (API 26+):** adaptive icon = `@color/ic_launcher_background` (`#B5A6FF`)
+  + vector `drawable/ic_launcher_foreground` (the mark on transparent, inside the 66dp
+  safe zone of the 108dp canvas); the same vector is the Android 13 `monochrome`
+  (themed icon) layer. Pre-26: `mipmap-*/ic_launcher{,_round}.png` = the full tile.
+- **Splash:** `windowSplashScreenAnimatedIcon = @drawable/splash_icon` with
+  `windowSplashScreenIconBackgroundColor` lavender on `#0B0B0D` → a centred 160dp
+  lavender circle with the mark (240dp icon, 160dp inner circle).
+  `drawable-v31/splash_icon` is the mark alone; `drawable/splash_icon` (API < 31)
+  draws its own circle, because core-splashscreen paints the icon background in the
+  splash *background* colour there. `drawable/splash` (the theme's `android:background`)
+  is a layer-list of the same — no full-screen bitmaps, so no aspect ratio can crop it.
+- **iOS:** `AppIcon.appiconset` (every size, opaque RGB) and `Splash.imageset` (the
+  160pt circle) — `LaunchScreen.storyboard` centres it on `#0B0B0D` with constraints.
+- Guard: `tests/unit/native-icon-splash.test.ts`.
