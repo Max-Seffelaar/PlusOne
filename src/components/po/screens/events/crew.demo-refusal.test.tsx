@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 /**
  * Store-review demo account (86ey6bfug): the event crew screen shows the
- * invite refusal upfront and the add sheet carries the note instead of the
- * e-mail invite form. An admin keeps the form. UX only — the server action
- * still refuses the demo account.
+ * refusal upfront and "Add crew" is inert — the add sheet (e-mail invite AND
+ * returning crew) never opens. An admin keeps the sheet. UX only — the server
+ * actions and the DB triggers still refuse.
  */
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, afterEach } from 'vitest';
@@ -14,7 +14,7 @@ import { t } from '@/lib/i18n';
 const H = vi.hoisted(() => ({ demo: false, invite: vi.fn() }));
 const stub = () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false });
 
-vi.mock('../../app-shell-data', () => ({ useIsDemoAccount: () => H.demo }));
+vi.mock('../../app-shell-data', () => ({ useIsDemoVenue: () => H.demo }));
 vi.mock('../../context', () => ({ useNav: () => ({ push: vi.fn(), back: vi.fn() }) }));
 vi.mock('../../shell', () => ({ Sheet: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('@/features/po/PoLiveProvider', () => ({ usePoIdentity: () => ({ roles: ['admin'] }) }));
@@ -41,14 +41,16 @@ afterEach(() => {
 const openSheet = () => fireEvent.click(screen.getByRole('button', { name: new RegExp(t.events.crew.addHeading) }));
 
 describe('event crew invite', () => {
-  it('demo: the note is shown upfront and the sheet has no invite form', () => {
+  it('demo: the note is shown upfront, "Add crew" is inert and no sheet opens', () => {
     H.demo = true;
     render(<Crew eventId="e1" />);
     expect(screen.getByText(t.auth.demoNoInvites)).toBeInTheDocument();
+    const add = screen.getByRole('button', { name: new RegExp(t.events.crew.addHeading) });
+    expect(add).toBeDisabled();
     openSheet();
+    expect(screen.queryByText(t.events.crew.addExplainer)).toBeNull();
     expect(screen.queryByPlaceholderText(t.events.crew.invitePlaceholder)).toBeNull();
-    expect(screen.queryByRole('button', { name: new RegExp(t.events.crew.inviteCta) })).toBeNull();
-    expect(screen.getAllByText(t.auth.demoNoInvites).length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText(t.events.crew.assignLabel)).toBeNull();
     expect(H.invite).not.toHaveBeenCalled();
   });
 
