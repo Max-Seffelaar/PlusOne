@@ -10,12 +10,13 @@ import { doorPath } from '@/components/po/routes';
  * gets the door WITH the offline outbox (`DoorProvider`, #25); only a fine
  * pointer at ≥1024px gets the online-only Event-day cockpit.
  *
- * Markers, both tied to the variant rather than to copy that could move:
+ * Markers, both tied to the variant rather than to shared copy (both variants
+ * carry a "Check-in" page title, so a heading proves nothing):
  *   outbox door — the check-in list's search ("Search a name…") AND the
  *                 door's IndexedDB store (`plusone-door`, opened by the
  *                 DoorProvider's offline layer, never by the cockpit);
- *   cockpit     — its page heading and its own search ("Search a guest…" /
- *                 check-in search), with no door store opened.
+ *   cockpit     — its own search (quick check-in / "Search a guest…"), with
+ *                 no door-list search and no door store opened.
  *
  * Opened on the seed event (`?event=`) so the result never depends on how many
  * open events the database holds (see app-shell-no-remount.spec.ts).
@@ -23,6 +24,9 @@ import { doorPath } from '@/components/po/routes';
 
 const DOOR_URL = doorPath({ eventId: SEED.eventId });
 const DOOR_SEARCH = 'Search a name…';
+// The cockpit's search: `t.cockpit.searchCheckIn` for a doorhost, else
+// `t.cockpit.searchPlaceholder` (src/lib/i18n/surfaces/cockpit.ts).
+const COCKPIT_SEARCH = /^(Quick check-in\.|Search a guest…)/;
 
 async function doorStoreOpened(page: Page): Promise<boolean> {
   return page.evaluate(async () => {
@@ -33,12 +37,12 @@ async function doorStoreOpened(page: Page): Promise<boolean> {
 
 async function expectOutboxDoor(page: Page): Promise<void> {
   await expect(page.getByPlaceholder(DOOR_SEARCH)).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByRole('heading', { level: 1, name: 'Check-in', exact: true })).toHaveCount(0);
+  await expect(page.getByPlaceholder(COCKPIT_SEARCH)).toHaveCount(0);
   await expect.poll(() => doorStoreOpened(page), { message: 'the offline outbox store was never opened', timeout: 20_000 }).toBe(true);
 }
 
 async function expectCockpit(page: Page): Promise<void> {
-  await expect(page.getByRole('heading', { level: 1, name: 'Check-in', exact: true })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByPlaceholder(COCKPIT_SEARCH).first()).toBeVisible({ timeout: 60_000 });
   await expect(page.getByPlaceholder(DOOR_SEARCH)).toHaveCount(0);
   expect(await doorStoreOpened(page), 'the cockpit opened the door outbox store').toBe(false);
 }

@@ -58,6 +58,24 @@ export default async function globalTeardown(): Promise<void> {
     }
     lines.push('');
   }
+  // Exact screen × check → devices, the shape `known-issues.ts` is keyed by.
+  const perScreen = new Map<string, Set<string>>();
+  for (const s of snaps) {
+    const device = deviceFor(s.project);
+    const failing: string[] = [];
+    if (s.overflow.length || s.docScrollWidth > s.innerWidth) failing.push('overflow');
+    if (device.touch && s.smallTargets.length) failing.push('tap-targets');
+    if (device.touch && s.smallFields.length) failing.push('field-targets');
+    for (const check of failing) {
+      const key = `${s.screenId} · ${check}`;
+      perScreen.set(key, (perScreen.get(key) ?? new Set()).add(s.project));
+    }
+  }
+  if (perScreen.size) {
+    lines.push('### failing checks per screen', '');
+    for (const [key, projects] of [...perScreen].sort()) lines.push(`- ${key}: ${[...projects].sort().join(', ')}`);
+    lines.push('');
+  }
   const md = lines.join('\n');
   mkdirSync(SCREENSHOT_DIR, { recursive: true });
   writeFileSync(join(SCREENSHOT_DIR, 'findings.md'), md);

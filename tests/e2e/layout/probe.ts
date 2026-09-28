@@ -140,9 +140,18 @@ function stripQuery(url: string): string {
  *  screen's data has settled. */
 export async function openScreen(page: Page, user: LayoutUser, path: string): Promise<void> {
   const login = `/auth/dev-login?email=${encodeURIComponent(USERS[user].email)}&next=${encodeURIComponent(path)}`;
-  await page.goto(login, { waitUntil: 'domcontentloaded', timeout: 150_000 });
   const expected = path.split('?')[0];
-  await page.waitForURL((u) => u.pathname === expected, { timeout: 90_000 });
+  // Parallel workers log the SAME seed user in at once, and minting a magic
+  // link replaces that user's previous token — so a concurrent dev-login can
+  // lose the race and land on /login?error=devlogin. That is a harness race,
+  // not a screen defect: retry the LOGIN (never a check) with jitter.
+  for (let attempt = 1; ; attempt++) {
+    await page.goto(login, { waitUntil: 'domcontentloaded', timeout: 150_000 });
+    await page.waitForURL((u) => u.pathname === expected || u.pathname === '/login', { timeout: 90_000 });
+    if (new URL(page.url()).pathname === expected) break;
+    if (attempt >= 4) throw new Error(`dev-login as ${USERS[user].email} kept landing on ${page.url()}`);
+    await page.waitForTimeout(500 + Math.floor(Math.random() * 1500));
+  }
   // The shell is client-only (`ssr:false`): wait for its chrome to exist at all.
   await page.waitForSelector('aside, button', { timeout: 90_000 });
   await settle(page);
@@ -314,7 +323,9 @@ export async function measure(page: Page): Promise<Measured> {
       if (!isRendered(b, b.getBoundingClientRect())) continue;
       rows.set(b.parentElement, (rows.get(b.parentElement) ?? 0) + 1);
     }
-    const bar = [...rows].find(([, n]) => n >= 3)?.[0];
+    // The row is the TabBar's centered 640px inner cluster; its parent is the
+    // bar itself, whose padding carries the bottom safe area — dock-check that.
+    const bar = [...rows].find(([, n]) => n >= 3)?.[0]?.parentElement ?? undefined;
     const br = bar?.getBoundingClientRect();
 
     return {
