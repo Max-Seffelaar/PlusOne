@@ -30,6 +30,10 @@ const BASE_URL = `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: './tests/e2e',
+  // The QA-1 layout suite has its own device matrix and runs through
+  // `playwright.layout.config.ts` (`pnpm e2e:layout`), never under this
+  // single-project config.
+  testIgnore: /tests[\\/]e2e[\\/]layout[\\/]/,
   // One worker: the suite runs against the single local Supabase DB and shares
   // auth state (e.g. admin MFA factors), so serial execution is deterministic.
   workers: 1,
