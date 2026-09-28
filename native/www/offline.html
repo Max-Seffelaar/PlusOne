@@ -1,0 +1,189 @@
+<!doctype html>
+<!--
+  Android offline page (Fase 17 N7, decision 15). capacitor.config.ts sets
+  `server.errorPath: 'offline.html'`, so Capacitor's BridgeWebViewClient loads
+  this bundled file (from https://localhost, NO bridge) whenever a MAIN-FRAME
+  load of the app fails: a network error (onReceivedError) or an HTTP error
+  status (onReceivedHttpError) — on the first launch AND mid-session. Without it
+  the WebView sat on Chromium's dead error page with no way back but killing
+  the app (Max's device test, 2026-09-28).
+
+  Rules for this file:
+  - Self-contained: no external script, style, font or image. It must render
+    with zero network.
+  - PII-free: it shows no data and reads none. It is not the offline door —
+    the door boots from the service worker + IndexedDB on the app origin; this
+    page only appears when even that could not load (first launch offline,
+    evicted cache, server error).
+  - The app origin below is stamped at `npx cap sync` time from the synced
+    `server.url` (scripts/native/offline-origin.mjs, the `capacitor:copy:after`
+    hook), so a CAP_SERVER_URL debug build recovers to its own server. The
+    committed value is the production origin.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="plusone-app-origin" content="https://app.plus-one.io" />
+    <meta name="color-scheme" content="dark" />
+    <title>PlusOne · No connection</title>
+    <style>
+      :root {
+        --bg: #0b0b0d;
+        --fg: #f4f3f7;
+        --muted: #a09fab;
+        --accent: #b5a6ff;
+        --accent-ink: #0b0b0d;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        -webkit-text-size-adjust: 100%;
+      }
+      main {
+        box-sizing: border-box;
+        min-height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 16px;
+        padding: calc(env(safe-area-inset-top) + 24px) calc(env(safe-area-inset-right) + 24px)
+          calc(env(safe-area-inset-bottom) + 24px) calc(env(safe-area-inset-left) + 24px);
+        max-width: 420px;
+        margin: 0 auto;
+      }
+      .brand {
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        font-size: 20px;
+      }
+      .brand span {
+        color: var(--accent);
+      }
+      h1 {
+        margin: 8px 0 0;
+        font-size: 28px;
+        line-height: 1.15;
+        letter-spacing: -0.02em;
+      }
+      p {
+        margin: 0;
+        font-size: 16px;
+        line-height: 1.5;
+        color: var(--muted);
+      }
+      button {
+        margin-top: 8px;
+        min-height: 48px;
+        border: 0;
+        border-radius: 14px;
+        background: var(--accent);
+        color: var(--accent-ink);
+        font: inherit;
+        font-size: 16px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      button:focus-visible {
+        outline: 2px solid var(--fg);
+        outline-offset: 3px;
+      }
+      #status {
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">Plus<span>One</span></div>
+      <h1>No connection</h1>
+      <p>PlusOne can't reach the server right now. Check-ins you already queued stay on this device.</p>
+      <p id="status" role="status" aria-live="polite">We'll reconnect as soon as there's signal.</p>
+      <button id="retry" type="button">Try again</button>
+    </main>
+    <script>
+      (function () {
+        var FALLBACK_ORIGIN = 'https://app.plus-one.io';
+        var meta = document.querySelector('meta[name="plusone-app-origin"]');
+        var raw = meta && meta.getAttribute('content');
+        // Only ever an http(s) origin — never a path, query or other scheme.
+        var ORIGIN = raw && /^https?:\/\/[A-Za-z0-9.-]+(:\d+)?$/.test(raw) ? raw : FALLBACK_ORIGIN;
+        var TARGET = ORIGIN + '/app';
+        var PROBE = ORIGIN + '/manifest.json';
+        var KEY = 'plusone-offline-retry';
+        var status = document.getElementById('status');
+        var timer = null;
+        var leaving = false;
+
+        // Back-off state survives this page being reloaded by the next failed
+        // load, so a server that keeps answering 5xx is retried every 30 s at
+        // most instead of in a tight loop.
+        function readAttempts() {
+          try {
+            var s = JSON.parse(sessionStorage.getItem(KEY) || 'null');
+            if (s && typeof s.n === 'number' && Date.now() - s.t < 120000) return s.n;
+          } catch (e) {}
+          return 0;
+        }
+        function writeAttempts(n) {
+          try {
+            sessionStorage.setItem(KEY, JSON.stringify({ n: n, t: Date.now() }));
+          } catch (e) {}
+        }
+        var attempts = readAttempts();
+
+        function go() {
+          if (leaving) return;
+          leaving = true;
+          writeAttempts(attempts + 1);
+          status.textContent = 'Reconnecting…';
+          window.location.replace(TARGET);
+        }
+
+        // Reachable = the fetch resolves at all (an opaque no-cors response is
+        // fine). Offline it rejects. Nothing is read from the response.
+        function probe() {
+          if (leaving) return Promise.resolve(false);
+          return fetch(PROBE, { mode: 'no-cors', cache: 'no-store', credentials: 'omit' }).then(
+            function () {
+              return true;
+            },
+            function () {
+              return false;
+            },
+          );
+        }
+
+        function schedule() {
+          clearTimeout(timer);
+          var delay = Math.min(30000, 3000 * Math.pow(2, Math.min(attempts, 4)));
+          timer = setTimeout(function () {
+            probe().then(function (up) {
+              if (up) go();
+              else schedule();
+            });
+          }, delay);
+        }
+
+        document.getElementById('retry').addEventListener('click', go);
+        window.addEventListener('online', function () {
+          probe().then(function (up) {
+            if (up) go();
+          });
+        });
+        document.addEventListener('visibilitychange', function () {
+          if (document.visibilityState === 'visible') {
+            probe().then(function (up) {
+              if (up) go();
+            });
+          }
+        });
+        schedule();
+      })();
+    </script>
+  </body>
+</html>
