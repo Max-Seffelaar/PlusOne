@@ -33,13 +33,23 @@ export function isDoorQueryKey(queryKey: readonly unknown[]): boolean {
 }
 
 /**
- * Persist a query iff it is a door query, holds a successful result, and was
- * last updated within `maxAge`. `now` is injected so the predicate is pure and
- * unit-testable (callers pass `Date.now()`).
+ * Persist a query iff it is a door query, holds data from a successful fetch,
+ * and that data was last updated within `maxAge`. `now` is injected so the
+ * predicate is pure and unit-testable (callers pass `Date.now()`).
+ *
+ * "Holds data", not "status is success" (N7). Offline, the snapshot's refetch
+ * fails and flips the query to `status: 'error'` while KEEPING its data — which
+ * the door keeps rendering. Gating on `status === 'success'` dropped exactly that
+ * query from the next persist tick, so the snapshot in IndexedDB was overwritten
+ * without it and the SECOND offline reload booted a door with no guest list
+ * (Max's device test, 2026-09-28: "the whole page disappears"). `dataUpdatedAt`
+ * only moves on a successful fetch, so the recency gate still measures the age
+ * of real data.
  */
 export function shouldDehydrateDoorQuery(query: Query, now: number, maxAge: number): boolean {
   if (!isDoorQueryKey(query.queryKey)) return false;
-  if (query.state.status !== 'success') return false;
+  if (query.state.data === undefined || query.state.dataUpdatedAt === 0) return false;
+  if (query.state.status !== 'success' && query.state.status !== 'error') return false;
   return now - query.state.dataUpdatedAt <= maxAge;
 }
 

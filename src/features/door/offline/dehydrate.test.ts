@@ -11,10 +11,14 @@ function q(over: {
   status?: 'success' | 'pending' | 'error';
   updatedAt?: number;
   observers?: number;
+  /** Defaults to data present for `success`, absent otherwise. */
+  data?: unknown;
 }): Query {
+  const status = over.status ?? 'success';
+  const data = 'data' in over ? over.data : status === 'success' ? { guests: [] } : undefined;
   return {
     queryKey: over.key ?? ['door', 'ev1'],
-    state: { status: over.status ?? 'success', dataUpdatedAt: over.updatedAt ?? NOW },
+    state: { status, data, dataUpdatedAt: data === undefined ? 0 : (over.updatedAt ?? NOW) },
     getObserversCount: () => over.observers ?? 0,
   } as unknown as Query;
 }
@@ -49,9 +53,19 @@ describe('shouldDehydrateDoorQuery (P-IDB1)', () => {
     expect(shouldDehydrateDoorQuery(q({ key: ['guests', 'ev1'] }), NOW, WEEK)).toBe(false);
   });
 
-  it('never persists a non-success query (no error/pending garbage in the blob)', () => {
+  it('never persists a query without data (no error/pending garbage in the blob)', () => {
     expect(shouldDehydrateDoorQuery(q({ status: 'error' }), NOW, WEEK)).toBe(false);
     expect(shouldDehydrateDoorQuery(q({ status: 'pending' }), NOW, WEEK)).toBe(false);
+  });
+
+  it('KEEPS a snapshot whose offline refetch failed — error status, data retained (N7)', () => {
+    // Dropping it here overwrote the IndexedDB snapshot without the guest list,
+    // so the second offline reload booted an empty door.
+    expect(shouldDehydrateDoorQuery(q({ status: 'error', data: { guests: [] } }), NOW, WEEK)).toBe(true);
+    // ...still subject to the recency gate on the age of that data.
+    expect(
+      shouldDehydrateDoorQuery(q({ status: 'error', data: { guests: [] }, updatedAt: NOW - WEEK * 12 }), NOW, WEEK),
+    ).toBe(false);
   });
 });
 
