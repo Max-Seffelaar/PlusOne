@@ -8,6 +8,20 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-28 — Fase 17 S2: icon + splash rebuilt from a vector master after the device test (86ey6bft8)
+
+Max's device test of PR #347 failed: the icon did not show the "+1" properly, the splash showed it off-centre. Fixed in the same PR.
+
+- **Root cause:** the source (`public/icon-maskable-512x512.png`) had the "+1" in a system font and off-centre (ink centre ≈ (244,228) on 512); the adaptive `ic_launcher_foreground` was that whole lavender tile with the glyph baked in, so the launcher mask cropped and shifted it; `windowSplashScreenAnimatedIcon` was never set, so Android 12+ drew that broken adaptive icon as the splash; the pre-31 `drawable*/splash.png` were baked 2:3 bitmaps that crop per screen ratio.
+- **Vector master:** `native/icon/plusone-mark.svg` — "+" and "1" from Bricolage Grotesque ExtraBold (800, `@fontsource/bricolage-grotesque` 5.3.0) converted to paths once at design time, viewBox = tight ink bbox, ink `#16132B`. `native/icon/plusone-icon.svg` (mark on the `#B5A6FF` tile) is derived. No font or runtime dependency in the app.
+- **One regeneration script:** `node scripts/native-icons.mjs` (documented in `android/README.md`) writes every Android, iOS and PWA target; `sharp` pinned as a devDependency for it (it was already in the lockfile via `next`).
+- **Android:** adaptive icon = colour background + vector foreground (mark on transparent, inside the 66dp safe zone) + the same vector as the Android 13 `monochrome` layer, for both `ic_launcher` and `ic_launcher_round`; legacy mipmaps = full tile/circle. Splash: launch theme parent `Theme.SplashScreen.IconBackground` (only that variant forwards the icon-background colour on API 31+ — verified in the core-splashscreen 1.2.0 aar), `windowSplashScreenAnimatedIcon = @drawable/splash_icon`, icon background lavender, background `#0B0B0D`. Pre-31 compat paints the icon background in the splash background colour, so `drawable/splash_icon` carries its own 160dp circle while `drawable-v31/splash_icon` is the mark alone; `drawable/splash` is now a vector layer-list (colour + centred circle + mark). All 25 `splash.png` bitmaps and the per-density foreground/background PNGs are gone.
+- **iOS:** `AppIcon.appiconset` with every iPhone/iPad/marketing size, opaque RGB; `Splash.imageset` = the 160pt lavender circle, centred by constraints in `LaunchScreen.storyboard` on `#0B0B0D` (was an aspect-fill full-screen image on `systemBackground`, i.e. white in light mode).
+- **PWA:** `icon-{192,512}`, `icon-maskable-{192,512}` regenerated from the same master (mark well inside the 80% safe circle); added the `apple-touch-icon.png` that `src/app/layout.tsx` already linked but did not exist.
+- **Guard:** `tests/unit/native-icon-splash.test.ts` — the launch theme sets `windowSplashScreenAnimatedIcon` + the lavender icon background; the adaptive icons reference a separate foreground and background (+ monochrome); no `splash.png` bitmaps.
+- **Preview:** `docs/store/preview/icon-splash-before-after.png`.
+- Resolves the earlier open item "a real ≥1024px (SVG) icon master".
+
 ## 2026-09-26 — Fase 17 S2: review round — data-safety/App Privacy fixed, push claim gated (86ey6bft8)
 
 Fresh-session adversarial review round on PR `feat(native): app icons, splash, store listing drafts (86ey6bft8)` (issuecomment-5834219588 + orchestrator triage issuecomment-5834234137). All findings fixed in this PR.
