@@ -38,6 +38,13 @@
 // doorhost comes from their own online login, which the `seed-shell` message
 // below guarantees.
 //
+// WHERE IT RUNS (N7, decision 15): registered from both `/door` and `/app`, at
+// root scope. The native shell always cold-starts at the origin → `/app`, so the
+// Deur tab of the `/app` shell is the offline surface there, not `/door/<id>`.
+// Three seed messages fill what in-app navigation never shows the worker:
+// `seed-shell` (PII-free pages → SHELL), `seed-session` (`/app` → SESSION) and
+// `seed-assets` (already-loaded `/_next/static/` chunks → SHELL).
+//
 // Safety:
 //  - Only same-origin GET requests are handled; cross-origin (Supabase REST /
 //    Realtime) always goes straight to the network — auth, RLS and realtime are
@@ -61,8 +68,15 @@
 // concern, so on localhost the SW caches nothing, purges old caches, unregisters
 // itself, and reloads its clients so they drop SW control and fetch fresh.
 
+//
+// The one exception is an explicit opt-in on the script URL
+// (`/service-worker.js?dev-cache=1`), which `RegisterServiceWorker` only uses
+// when a page asks for it (the N7 offline-reload e2e spec) — so the offline
+// door can be proven end to end against the local stack. It changes nothing on
+// any non-localhost origin.
 const DEV =
-  self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
+  (self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1') &&
+  !/[?&]dev-cache=1(?:&|$)/.test(self.location.search || '');
 
 // Bumped from the single `plusone-door-v1`: `activate` deletes every cache that
 // is not one of these two, which is also what evicts the pre-fix cache holding
@@ -79,7 +93,18 @@ const KEEP = [SHELL_CACHE, SESSION_CACHE];
 // evicts — and origin eviction takes the IndexedDB outbox (un-synced check-ins)
 // with it. Static entries are evicted first; the navigation shells are the whole
 // point of the cache, so they go last.
-const SHELL_MAX_ENTRIES = 60;
+//
+// 200, not the old 60 (N7): since the SW also runs under `/app`, the shell has to
+// hold one build's COMPLETE `/app` chunk set (entry + the lazy door chunk + the
+// screens a cold boot touches) or an offline cold start 404s on an evicted chunk.
+// A Next build ships well under 200 chunks for `/app`; hashed statics from older
+// deploys are what gets evicted first (insertion order).
+const SHELL_MAX_ENTRIES = 200;
+
+// Upper bound on the asset URLs one `seed-assets` message may ask for. The list
+// is untrusted client input; this keeps a hostile or buggy page from turning the
+// worker into a fetch loop.
+const SEED_ASSETS_MAX = 250;
 
 // Wipe epoch for SESSION_CACHE, mirroring `idbEpoch()` in
 // src/features/door/offline/idb.ts. A navigation captures it before its fetch and
@@ -313,6 +338,96 @@ function seedCredentials(pathname) {
   return pathname === '/' ? 'omit' : 'same-origin';
 }
 
+/**
+ * Cache the JS/CSS chunks the page has ALREADY loaded (N7).
+ *
+ * The first `/app` visit is not controlled by the worker yet — it registers
+ * after the page loaded — so the chunks that visit fetched never went through
+ * the static handler below and an offline cold start would boot HTML whose
+ * scripts are nowhere on disk. The client posts `performance` resource URLs
+ * once the worker is ready (and again when the lazy door chunk has loaded).
+ *
+ * Untrusted input, same as `seed-shell`: only same-origin `/_next/static/…`
+ * paths are accepted — hashed, immutable build output with no per-user
+ * content — and they are fetched WITHOUT credentials, so what lands in the
+ * persistent shell is PII-free by construction.
+ */
+function seedAssets(urls) {
+  const wanted = [];
+  for (const raw of urls.slice(0, SEED_ASSETS_MAX)) {
+    if (typeof raw !== 'string') continue;
+    let url;
+    try {
+      url = new URL(raw, self.location.origin);
+    } catch {
+      continue;
+    }
+    if (url.origin !== self.location.origin) continue;
+    if (!url.pathname.startsWith('/_next/static/')) continue;
+    wanted.push(url.origin + url.pathname + url.search);
+  }
+  if (!wanted.length) return Promise.resolve();
+  return caches
+    .open(SHELL_CACHE)
+    .then((cache) =>
+      Promise.allSettled(
+        wanted.map((href) =>
+          cache.match(href).then((hit) =>
+            hit
+              ? undefined
+              : fetch(href, { credentials: 'omit' }).then((response) =>
+                  isStorable(response) ? cache.put(href, response) : undefined,
+                ),
+          ),
+        ),
+      ).then(() => trimShell(cache)),
+    )
+    .catch(() => undefined);
+}
+
+/**
+ * Seed the credentialed `/app` shell into the SESSION bucket (N7).
+ *
+ * The native shell's first launch reaches `/app` through a real navigation, but
+ * before the worker exists — so nothing is cached, and the next cold start
+ * offline has no `/app` to boot. Only the bare `/app` is accepted: every
+ * `/app/*` URL falls back to it (`fallbackFor`), and the shell derives its
+ * screen from the URL client-side. It goes to SESSION_CACHE (wiped on
+ * sign-out, like IndexedDB), never to the persistent shell, and the write
+ * carries the wipe epoch so a sign-out racing the fetch drops it.
+ */
+function seedSession(paths) {
+  if (!paths.some((p) => p === '/app')) return Promise.resolve();
+  const epochAtStart = sessionEpoch;
+  const request = new URL('/app', self.location.origin).href;
+  // redirect mode 'follow': a signed-out seed lands on /login as a followed
+  // redirect, which `isStorable` refuses.
+  return fetch(request, { credentials: 'same-origin' })
+    .then((response) => putInCache(SESSION_CACHE, request, response, epochAtStart))
+    .catch(() => undefined);
+}
+
+/**
+ * Offline `/` → the door (N7). The native shell and the installed PWA both
+ * cold-start at `/`, which online the middleware 307s to `/app` for a signed-in
+ * user. Offline we answer the same way — but only when this device still holds
+ * a signed-in `/app` shell in the SESSION bucket (which sign-out wipes), so a
+ * signed-out device keeps getting the public landing. The target is the Deur
+ * tab: offline it is the only surface that works (its data comes from
+ * IndexedDB), and it boots the last pinned door event from there.
+ */
+const OFFLINE_START_PATH = '/app/door';
+
+function offlineStart() {
+  return caches
+    .open(SESSION_CACHE)
+    .then((cache) => cache.match('/app', MATCH_OPTS))
+    .then((hit) =>
+      hit ? Response.redirect(new URL(OFFLINE_START_PATH, self.location.origin).href, 302) : undefined,
+    )
+    .catch(() => undefined);
+}
+
 self.addEventListener('message', (event) => {
   if (DEV) return;
   const data = event.data;
@@ -328,6 +443,16 @@ self.addEventListener('message', (event) => {
 
   if (data.type === 'seed-shell' && Array.isArray(data.paths)) {
     event.waitUntil(seedShell(data.paths));
+    return;
+  }
+
+  if (data.type === 'seed-session' && Array.isArray(data.paths)) {
+    event.waitUntil(seedSession(data.paths));
+    return;
+  }
+
+  if (data.type === 'seed-assets' && Array.isArray(data.urls)) {
+    event.waitUntil(seedAssets(data.urls));
   }
 });
 
@@ -359,8 +484,8 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() =>
-          caches
-            .match(request, MATCH_OPTS)
+          (url.pathname === '/' ? offlineStart() : Promise.resolve(undefined))
+            .then((start) => start || caches.match(request, MATCH_OPTS))
             .then((cached) => cached || (fallback ? caches.match(fallback, MATCH_OPTS) : undefined))
             .then((cached) => cached || Response.error()),
         ),
