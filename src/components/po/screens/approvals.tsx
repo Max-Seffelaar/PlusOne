@@ -369,7 +369,7 @@ export function Aanvragen({
               type="button"
               onClick={() => switchTab(k)}
               className={cn(
-                'inline-flex flex-1 cursor-pointer items-center justify-center gap-[7px] rounded-full border py-[10px] font-display text-[13px] font-bold transition-[filter] hover:brightness-[1.07]',
+                'inline-flex min-h-[44px] flex-1 cursor-pointer items-center justify-center gap-[7px] rounded-full border py-[10px] font-display text-[13px] font-bold transition-[filter] hover:brightness-[1.07]',
                 effectiveTab === k ? 'border-transparent bg-text text-bg' : 'border-line bg-transparent text-dim',
               )}
             >

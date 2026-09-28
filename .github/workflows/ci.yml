@@ -106,3 +106,93 @@ jobs:
           name: build-output
           path: .next/
           if-no-files-found: ignore
+
+  # QA-1 — automated layout/visual suite (`pnpm e2e:layout`): every po screen ×
+  # the device matrix in tests/e2e/layout/matrix.ts (overflow, ≥44px tap targets
+  # on touch, 1024px chrome, console/network, Deur variant) + one full-page
+  # screenshot per screen × device for human review. Deliberately NOT a
+  # required check yet — Max decides that once it has been stable. Same stack
+  # setup as lint-and-test: install through the ONE setup script, then the
+  # same Supabase start + env provisioning steps.
+  layout-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9.0.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install dependencies (shared session-setup script)
+        run: node scripts/session-setup.mjs install
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v3
+        with:
+          version: latest
+
+      - name: Start local Supabase stack
+        run: supabase start
+
+      - name: Provision .env.local from the running stack
+        run: node scripts/dev-env.mjs
+
+      # The documented local test-pass setup (`pnpm db:fresh` = reset + this):
+      # stamps admin@'s fixed TOTP so dev-login lands at AAL2, and makes admin@
+      # a platform admin so the Platform screens render real content. Never in
+      # seed.sql (pgTAP relies on admin@ NOT being one) — and this job runs no
+      # pgTAP, on its own fresh stack.
+      - name: Prepare seed users (dev:mfa)
+        run: pnpm dev:mfa
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run layout suite (Playwright)
+        run: pnpm e2e:layout
+
+      - name: Upload layout screenshots
+        id: screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: layout-screenshots
+          path: layout-screenshots/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Link screenshots in the job summary
+        if: always()
+        env:
+          ARTIFACT_URL: ${{ steps.screenshots.outputs.artifact-url }}
+        run: |
+          {
+            echo "## QA-1 layout suite — screenshots"
+            if [ -n "$ARTIFACT_URL" ]; then
+              echo "Full-page screenshot per screen × device (14 days): [layout-screenshots]($ARTIFACT_URL)"
+            else
+              echo "No screenshots were uploaded (the suite did not get far enough to take any)."
+            fi
+            if [ -d layout-screenshots ]; then
+              echo ""
+              echo "| Device | Screens |"
+              echo "|---|---|"
+              for d in layout-screenshots/*/; do
+                echo "| $(basename "$d") | $(find "$d" -name '*.png' | wc -l) |"
+              done
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: layout-traces
+          path: test-results/
+          if-no-files-found: ignore

@@ -66,3 +66,4 @@ supabase/.temp
 
 # Agent-tool worktree checkouts (isolation: "worktree")
 .claude/worktrees/
+/layout-screenshots/
