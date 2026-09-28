@@ -18,14 +18,16 @@ only a human or a real device can judge.
   reuses the base config's env loader, dev server and dev-login. It runs a 5-project
   device matrix (390/768/1024/1366 touch, 1280 mouse); `matrix-sanity.spec.ts` asserts
   each project really emulates its width and `(pointer: coarse|fine)`. Screens are built
-  with `screenPath`/`tabPath`/`doorPath` (48 screens, admin@ or door@).
+  with `screenPath`/`tabPath`/`doorPath` (48 screens, admin@ or door@). Global setup
+  upserts one event template: an empty Templates list jumps straight to "New".
 - **Per screen × device:** one load, one measurement pass, five independent checks:
   horizontal overflow, ≥44px hit box on touch for controls, and separately for form
   fields (the hit box includes the kit's `::before` hit-ring and a field's `<label>`),
   the 1024 chrome switch, and console/network errors. `door-variant.spec.ts` checks plan
   decision 14. Touch at ≥1024 is `test.fixme('enable when #344 (N6) merges', …)`.
 - **Cost control:** retries 0. Snapshots are cached per run, so a failing check (which
-  restarts the worker) never reloads its screen. 3 workers. About 9 min in CI.
+  restarts the worker) never reloads its screen. 3 workers. About 7 min for the suite,
+  about 10 min for the job.
 - **Screenshots:** full-page per screen × device (the inner scroller is unrolled first),
   uploaded as the `layout-screenshots` artifact (14 days) together with `findings.md`, a
   digest grouped by finding. The job summary links both. Visual-regression baselines
@@ -39,9 +41,9 @@ only a human or a real device can judge.
   segment tabs 41.5→44.
 - **Found, not fixed** (`tests/e2e/layout/known-issues.ts`, one fixme per check):
   - kit `Field`/`Select` and inline search boxes: a 21–26px input inside a padded
-    non-label `div` (19 screens);
+    non-label `div` (20 screens);
   - chips, segments and pills at 34–40px (door, guests, events, home, import, promotion,
-    links, event edit);
+    links, event edit, new-event template picker);
   - 26px inline actions (crew Remove, invite Resend, session Log out) and 19px text
     buttons (MFA Turn off, promotion "N links");
   - steppers at 32px (crew) and 42px (roles);

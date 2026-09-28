@@ -116,7 +116,7 @@ jobs:
   # same Supabase start + env provisioning steps.
   layout-suite:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 25
 
     steps:
       - uses: actions/checkout@v7
