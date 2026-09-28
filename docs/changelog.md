@@ -34,6 +34,19 @@ Fresh-session adversarial review round on PR `feat(native): app icons, splash, s
 - **N4:** the Dutch copy named a UI tab ("Aanvragen-tab") that doesn't exist — the app is English-only and the tab is "Requests"; both Dutch descriptions now say `'Requests'-tab`.
 - N5 (real 1024px+ icon master) is unchanged — still an open item for Max, not something this round could fix.
 
+## 2026-09-26 — Fase 17 S1a review round: release preconditions (86ey6bfpy)
+
+Fixes the adversarial review on PR #346 (all three findings). No migration, no app code.
+
+- **Runbook:** hard precondition at the top and before step 6/every rollout — `https://app.plus-one.io`
+  live on Vercel project `plus-one` (M5, done 2026-09-25); verify by opening
+  `https://app.plus-one.io/login`. The first-release name is `<versionCode> (1.0.0)`, not `1 (1.0.0)`.
+- **Workflow:** synced `server.url` must be exactly `https://app.plus-one.io` (literal, not only
+  `PROD_SERVER_URL`); first script fails unless `HEAD` is an ancestor of `origin/main`
+  (unshallows first); versionCode = `max(Play internal latest + 1, BUILD_NUMBER)` via
+  `google-play get-latest-build-number --tracks internal` (nothing uploaded yet ⇒ 0).
+- **Guard test** extended for all three.
+
 ## 2026-09-25 — Fase 17 S2: Icons, splash, store listing drafts (86ey6bft8)
 
 Golf 3 of Fase 17, depends on N3 (merged). Draft PR `feat(native): app icons, splash, store listing drafts (86ey6bft8)`. No migration.
@@ -45,6 +58,42 @@ Golf 3 of Fase 17, depends on N3 (merged). Draft PR `feat(native): app icons, sp
 - **iOS:** single-size `AppIcon-512@2x.png` (1024×1024, RGB, no alpha — App Store requires opaque) in the modern one-entry `AppIcon.appiconset`; `Splash.imageset` regenerated as `Default@{1,2,3}x~universal~anyany[-dark].png`. Removed the three now-orphaned N3-scaffold placeholder splash PNGs (`splash-2732x2732*.png`) that the new `Contents.json` no longer references.
 - **Store metadata** (`docs/store/`): Play + App Store listing drafts in Dutch (primary) + English — short/full descriptions, subtitle, promotional text, keywords, data-safety/privacy-nutrition-label notes, export compliance (HTTPS-only, exempt), review notes for the 4.2 defense, and a `screenshots.md` shot-list (iPhone 6.7" + iPad 13" + Android phone) blocked on T1 (tablet layouts) landing first. Content matches shipped features only — no ticketing, no outbound invites, no native billing UI (decisions #36/#32).
 - **Open items for Max:** a proper ≥1024×1024 icon master (SVG preferred); screenshots after T1; final category/age-rating choice in each console; App Store review-login credentials once S3 lands.
+
+## 2026-09-25 — Fase 17 S1a: Codemagic Android release → Play internal (86ey6bfpy)
+
+Golf 3 of Fase 17. No migration, no app code. Draft PR `ci(native): Codemagic Android release → Play internal track (86ey6bfpy)`.
+
+- **`codemagic.yaml`** (new, repo root), workflow `android-release`: `mac_mini_m2` (the only
+  free-plan machine), Node 22, JDK 21, pnpm via corepack (`packageManager`),
+  `pnpm install --frozen-lockfile`, `npx cap sync android`, `./gradlew bundleRelease`, signed
+  AAB → Play **internal** track with `submit_as_draft: true` (a human rolls out).
+  Triggers: manual + `android-v*` tags only — no push/PR events.
+- **Guards in the workflow:** fails if `CAP_SERVER_URL` is set at all (even empty), and
+  re-reads the synced `capacitor.config.json` (appId, `server.url === https://app.plus-one.io`,
+  no cleartext); refuses to build without the Codemagic keystore vars or the Play credential;
+  after the build `jarsigner -verify` + compares the AAB signer's SHA-256 to the upload key.
+- **Versioning:** versionCode = Codemagic `BUILD_NUMBER` (per workflow — never rename the
+  workflow key); versionName = `APP_VERSION_NAME` in `codemagic.yaml`, the single source (not
+  `package.json`, which N5 owns this wave and which sits at `0.1.0` for the web app).
+- **`android/app/build.gradle`:** reads `PLUSONE_VERSION_CODE` (validated 1..2100000000) /
+  `PLUSONE_VERSION_NAME` with local defaults `1` / `0.0.0-dev`; the release `signingConfig`
+  exists only when Codemagic's `CM_KEYSTORE_PATH` points at a file. Debug builds unchanged.
+- **`google-services.json`:** missing ⇒ warn and continue (no push) until N5 merges; then flip
+  `REQUIRE_GOOGLE_SERVICES` to `"true"` so a build without it fails.
+- **Runbook `docs/native/android-release.md`:** Play app creation (NL default), upload key
+  (keytool, password manager + Codemagic), service account with no GCP roles and only
+  "Release apps to testing tracks" on this app, Codemagic setup, the first manual AAB upload
+  (Codemagic: the first version must be uploaded by hand), Play App Signing, internal +
+  closed testing, the app-signing-key SHA-256 for S4. Policy check: the closed-test rule is
+  now **12** testers / 14 days (it was 20) and only applies to personal accounts created after
+  2023-11-13 — the org account (M2) is exempt.
+- **Guard:** `tests/unit/codemagic-android-release.test.ts` (trigger set, CAP_SERVER_URL guard,
+  keystore reference + env-group credential, internal track, BUILD_NUMBER wiring, no keystore
+  or service-account JSON tracked in git).
+- **iOS:** commented-out `ios-release` placeholder for S1b; not built.
+- **Not run here:** Codemagic itself, Gradle (no Android SDK in this container), any upload.
+  The YAML was parsed (PyYAML) and checked key-by-key against the Codemagic docs cited in its
+  header. The first real run is Max's (runbook step 6).
 
 ## 2026-09-25 — Fase 17 N4: door cold-start spike, go/no-go (86ey6bfe8)
 
@@ -137,6 +186,7 @@ Consent/VenueStep external links). Golf 2's exit is N3 merged **and** Max's Andr
 debug build passing the five checks (OTP login, a server action, offline door,
 external link in the in-app browser tab, back button that only minimizes on the
 `/app` root).
+
 
 
 ## 2026-09-25 — Fase 17 N3: Capacitor scaffold + Android shell (86ey6bfdm)

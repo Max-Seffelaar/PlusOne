@@ -27,6 +27,13 @@ plugin when the file is present. FCM only — no Firebase Analytics/Crashlytics.
 
 Upload/signing keystores (`*.jks`, `*.keystore` — ignored); they live in Codemagic (S1a).
 
+## Release builds (S1a)
+
+`codemagic.yaml` (repo root) builds the signed AAB and uploads it to the Play internal track;
+setup runbook: `docs/native/android-release.md`. `app/build.gradle` reads
+`PLUSONE_VERSION_CODE`/`PLUSONE_VERSION_NAME` and the Codemagic keystore vars (`CM_KEYSTORE_*`)
+when present; without them local builds get versionCode 1 / `0.0.0-dev` and an unsigned release.
+
 ## Deliberate deviations from the Capacitor template
 
 - `allowBackup="false"` + `res/xml/data_extraction_rules.xml`: the webview's
