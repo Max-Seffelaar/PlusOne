@@ -244,7 +244,9 @@ export function Btn({
         desktop ? 'rounded-[12px]' : 'rounded-btn',
         desktop ? pressDesktop : press,
         'disabled:pointer-events-none',
-        sm ? 'px-4 py-[10px] text-[14px]' : 'px-5 py-[15px] text-[16px]',
+        // min-h on sm: 10px padding + the 14px label's line box + border land at
+        // 43px, a hair under the 44px touch floor (T1).
+        sm ? 'min-h-[44px] px-4 py-[10px] text-[14px]' : 'px-5 py-[15px] text-[16px]',
         full ? 'w-full' : 'w-auto',
         BTN_KINDS[kind],
         className,
