@@ -244,7 +244,9 @@ export function Btn({
         desktop ? 'rounded-[12px]' : 'rounded-btn',
         desktop ? pressDesktop : press,
         'disabled:pointer-events-none',
-        sm ? 'px-4 py-[10px] text-[14px]' : 'px-5 py-[15px] text-[16px]',
+        // sm renders 43px (10 + 21 line + 10 + 2 border): a 2px ring above and
+        // below makes the tap area 45 without changing the look.
+        sm ? cn('px-4 py-[10px] text-[14px]', hitRingY2) : 'px-5 py-[15px] text-[16px]',
         full ? 'w-full' : 'w-auto',
         BTN_KINDS[kind],
         className,
@@ -286,7 +288,10 @@ export function Seg<T extends string>({
           type="button"
           onClick={() => onChange(k)}
           className={cn(
+            // 39.5px bordered pill + an invisible 4px ring above and below = a
+            // 45.5px tap area on touch, without changing the look.
             'flex-1 cursor-pointer rounded-full border py-[9px] font-display text-[13px] font-bold transition-[filter] hover:brightness-[1.07]',
+            hitRingY4,
             value === k ? 'border-transparent bg-text text-bg' : 'border-line bg-transparent text-dim',
           )}
         >
@@ -584,6 +589,26 @@ export function Row({
  * Tailwind only sees literal class strings, so the insets can't be computed.
  */
 export const hitArea44 = "relative before:absolute before:-inset-[3px] before:content-['']";
+
+/**
+ * Hit rings for controls whose visible box sits a few px under 44. Same
+ * technique as `hitArea44`; the number is the inset in px, so the tap area is
+ * the padding box + 2x that. Pick the smallest one that reaches 44:
+ * (44 - visible) / 2 + border width, rounded up. Tailwind only sees literal
+ * class strings, so each size is spelled out here once and imported, never
+ * copied into a screen.
+ *
+ * `hitRingY*` grows only along y (`inset-x-0`), for pills and segments that sit
+ * side by side and must not steal taps from their horizontal neighbours; the
+ * row gap above and below has to be at least the inset. `hitRing2` grows on
+ * every side.
+ */
+export const hitRingY2 = "relative before:absolute before:-inset-y-[2px] before:inset-x-0 before:content-['']";
+export const hitRingY4 = "relative before:absolute before:-inset-y-[4px] before:inset-x-0 before:content-['']";
+export const hitRingY5 = "relative before:absolute before:-inset-y-[5px] before:inset-x-0 before:content-['']";
+export const hitRingY6 = "relative before:absolute before:-inset-y-[6px] before:inset-x-0 before:content-['']";
+export const hitRingY13 = "relative before:absolute before:-inset-y-[13px] before:inset-x-0 before:content-['']";
+export const hitRing2 = "relative before:absolute before:-inset-[2px] before:content-['']";
 
 /** The header back chip (`Top`'s `onBack`, and Home's back when it was pushed). */
 export function BackBtn({ onClick }: { onClick?: () => void }): JSX.Element {
@@ -919,9 +944,11 @@ export function GuideCard({
 // ── InfoTip ──────────────────────────────────────────────────────────────────
 /**
  * A 44x44 "i" button that explains the control beside it (ADE UX round, item D).
- * One DOM node for both densities: an anchored popover from `lg:` up, a bottom
- * sheet with a dimmed backdrop below it — no media-query JS, so it behaves the
- * same in a Capacitor webview (#37). Closes on Escape, on an outside tap and on
+ * One DOM node for both densities: an anchored popover for a fine pointer from
+ * `lg:` up, a bottom sheet with a dimmed backdrop everywhere else — including an
+ * iPad in landscape, which has desktop width but a finger (T1, design-system.md
+ * "Breakpoints & tablet"). No media-query JS, so it behaves the same in a
+ * Capacitor webview (#37). Closes on Escape, on an outside tap and on
  * its own close button; the panel is wired to the button via `aria-describedby`.
  * All copy comes from the caller's i18n surface — the kit ships no strings.
  */
@@ -985,16 +1012,18 @@ export function InfoTip({
       {open && (
         <>
           {/* Touch only: the sheet gets a backdrop; the desktop popover doesn't. */}
-          <span className="fixed inset-0 z-40 bg-[rgba(6,6,8,0.6)] backdrop-blur-[2px] lg:hidden" />
+          <span className="fixed inset-0 z-40 bg-[rgba(6,6,8,0.6)] backdrop-blur-[2px] lg:[@media(pointer:fine)]:hidden" />
           <span
             id={panelId}
             role="dialog"
             aria-label={title}
             className={cn(
               // The extra bottom padding keeps the sheet's content clear of the
-              // mobile tab bar (which sits in normal flow under this overlay).
-              'fixed inset-x-0 bottom-0 z-50 block rounded-t-[22px] border border-line bg-elev p-[18px] pb-[calc(80px+env(safe-area-inset-bottom))] text-left shadow-[0_-16px_40px_rgba(0,0,0,0.55)]',
-              'lg:absolute lg:inset-x-auto lg:bottom-auto lg:left-0 lg:top-[calc(100%+6px)] lg:w-[300px] lg:rounded-[16px] lg:p-4 lg:shadow-[0_16px_40px_rgba(0,0,0,0.55)]',
+              // mobile tab bar (which sits in normal flow under this overlay);
+              // the sidebar chrome (lg) has no tab bar. Capped at the kit
+              // Sheet's 560px so a tablet doesn't get an edge-to-edge sheet.
+              'fixed inset-x-0 bottom-0 z-50 mx-auto block max-w-[560px] rounded-t-[22px] border border-line bg-elev p-[18px] pb-[calc(80px+env(safe-area-inset-bottom))] text-left shadow-[0_-16px_40px_rgba(0,0,0,0.55)] lg:pb-[calc(18px+env(safe-area-inset-bottom))]',
+              'lg:[@media(pointer:fine)]:absolute lg:[@media(pointer:fine)]:inset-x-auto lg:[@media(pointer:fine)]:bottom-auto lg:[@media(pointer:fine)]:left-0 lg:[@media(pointer:fine)]:top-[calc(100%+6px)] lg:[@media(pointer:fine)]:mx-0 lg:[@media(pointer:fine)]:w-[300px] lg:[@media(pointer:fine)]:rounded-[16px] lg:[@media(pointer:fine)]:p-4 lg:[@media(pointer:fine)]:shadow-[0_16px_40px_rgba(0,0,0,0.55)]',
             )}
           >
             <span className="block font-display text-[15.5px] font-extrabold tracking-[-0.01em] text-text">{title}</span>
@@ -1003,7 +1032,7 @@ export function InfoTip({
               type="button"
               onClick={() => setOpen(false)}
               className={cn(
-                'mt-3 flex h-[44px] w-full cursor-pointer items-center justify-center rounded-[12px] border border-line font-display text-[13px] font-bold text-dim lg:h-[36px]',
+                'mt-3 flex h-[44px] w-full cursor-pointer items-center justify-center rounded-[12px] border border-line font-display text-[13px] font-bold text-dim lg:[@media(pointer:fine)]:h-[36px]',
                 press,
               )}
             >

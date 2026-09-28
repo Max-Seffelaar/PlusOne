@@ -103,10 +103,59 @@ gewoon account en zou wél een venue kunnen maken (de tenant ontstaat dan één 
 later). Daarom weigert een `before insert`-trigger op `invites` elke invite in de
 demo-venue met 42501, voor iedereen, service role incluis (migratie
 `20260925130100_review_demo_no_invites.sql`, pgTAP `review_demo_no_invites.test.sql`).
-Zonder invite kan `accept_pending_invites` niemand aan de demo-venue toevoegen, en een
-directe membership-insert voegt alleen *bestaande* accounts toe (er ontstaat geen nieuw
-account). Er is geen legitiem pad dat in de demo-venue uitnodigt: de seed maakt de ene
-membership direct aan.
+Zonder invite kan `accept_pending_invites` niemand aan de demo-venue toevoegen. Er is
+geen legitiem pad dat in de demo-venue uitnodigt: de seed maakt de ene membership direct
+aan.
+
+Een directe membership-insert (RLS `venue_memberships_insert`: een admin voegt een
+*bestaand* account toe, zonder invite) of een update die de eigen rij naar een ander
+`user_id` verhangt, zou de demo-venue niet-geïsoleerd maken: de volgende review-login
+weigert dan met `venue_not_isolated` en de reviewer staat buiten. Hetzelfde via crew:
+`event_organizers_insert_admin` zet een bestaand account op een event (`assignOrganizer`).
+Daarom weigert migratie `20260925150000_demo_venue_no_new_members.sql` (pgTAP
+`review_demo_no_new_members.test.sql`) met 42501, voor iedereen, service role incluis:
+- `venue_memberships` insert/update (`venue_id`, `user_id`) van een rij in de demo-venue
+  voor iemand anders dan de demo-user (de seed-upsert van de eigen rij blijft werken);
+- elke `event_organizers`-insert op een event van de demo-venue (de seed maakt geen crew).
+`assignOrganizer` weigert het demo-account ook, voor een nette melding.
+
+Dezelfde migratie (ronde 9) sluit nog twee gaten:
+- **Een invite náár het demo-adres, vanuit elke venue.** `refuse_demo_venue_invite`
+  keyde alleen op `venue_id`; de admin van een willekeurige andere venue kon
+  `app-review@demo.plus-one.io` uitnodigen. Dan weigert de review-login
+  (`venue_not_isolated`) en de reviewer staat buiten, en bij de consent-stap zou
+  `accept_pending_invites` het demo-account lid maken van een echte venue. De functie
+  weigert nu ook `lower(btrim(email)) = 'app-review@demo.plus-one.io'` (42501), voor
+  iedereen, service role incluis. De invite-reads in de review-login blijven als defence
+  in depth (invites van vóór de migratie).
+- **Zichzelf buitensluiten.** Als admin van de demo-venue kon het demo-account zijn eigen
+  rollen wijzigen (een update van alleen `roles`) of zijn eigen membership verwijderen,
+  waarna elke volgende reviewer buitenstaat (`roles_changed` / `membership_venue`) tot
+  een re-seed. `refuse_demo_member_self_change` weigert elke update van `venue_id`,
+  `user_id` of `roles`, en elke delete, op díe rij (demo-venue + demo-user), tenzij de
+  request-JWT `service_role` is (de seed). De check leest de JWT-rol, niet
+  `current_user`, dus ook een SECURITY DEFINER-RPC namens het demo-account wordt
+  geweigerd. Zonder JWT (tabel-owner in de SQL-editor of een migratie) mag het wel;
+  er is geen FK-cascade naar deze tabel (`on delete restrict`). Alleen `job_title`
+  wijzigen blijft werken; andere venues merken niets.
+
+Ronde 10 (onafhankelijke re-review) sluit de spiegelbeeld-gaten van beide triggers:
+- **Het demo-account in een andere venue.** `venue_memberships_insert` checkt alleen de
+  rol van de aanroeper op de doelvenue, niets over `user_id`. De admin van elke andere
+  venue kon dus met één PostgREST-insert het demo-user-id (publiek) aan zijn eigen venue
+  toevoegen: de volgende review-login weigert (`membership_count`), de seed stopt, en
+  wie de review-code heeft zit in een echte venue. `refuse_demo_venue_new_member`
+  weigert nu ook elke rij met het demo-user-id buiten de demo-venue (insert én een
+  update die een rij naar de demo-user verhangt), voor iedereen, service role incluis.
+- **Het demo-account als crew.** `refuse_demo_venue_new_crew` weigert nu ook elke
+  `event_organizers`-rij voor het demo-user-id, op welk event dan ook. `assignOrganizer`
+  weigert het demo-id als doel met een nette melding; de review-login weigert
+  (`crew_elsewhere`) en de seed stopt als er toch zo'n rij is (defence in depth).
+- **Tweestapsverificatie.** Een TOTP-factor op het gedeelde account sluit de volgende
+  reviewer buiten (`mfa_enrolled`) tot `--end-review` of een volledige seed hem verwijdert. De MFA-kaart in het profiel
+  toont voor het demo-account een uitgeschakelde "Turn on" (`RefusedAction`) met de melding, en `/mfa/enroll` stuurt het terug naar
+  `/app`. Restrisico: een directe GoTrue-call (`/auth/v1/factors`) kan nog steeds een
+  factor aanmaken (buiten Postgres); de review-login weigert dan en `--end-review` of de seed ruimt op.
 
 De uitnodigingsflow voor externe crew (`inviteExternalCrew` in
 `src/features/events/actions.ts`) schrijft géén `invites`-rij: die maakt via de service
@@ -120,11 +169,38 @@ Elke weigering noemt het demo-account, zodat een reviewer het leest als bewuste 
 en niet als bug (guideline 2.1). De copy staat in de catalogus (`t.auth.demo*` in
 `src/lib/i18n/surfaces/auth.ts`):
 
-| Actie | Waar | Melding |
-| --- | --- | --- |
-| Iemand uitnodigen (team-invite, invite opnieuw sturen, externe crew) | `inviteUserAction`, `resendInviteAction`, `inviteExternalCrew`, `resendCrewInvite` | "Invites are turned off for the demo account." |
-| Nieuwe venue maken | `createVenueAction` | "The demo account can't create venues." |
-| E-mailadres wijzigen | `updateEmailAction` | "The demo account's email can't be changed." |
+De reviewer ziet de weigering **vooraf**: de knop blijft zichtbaar maar is inert
+(`RefusedAction` / `disabled`), met de melding als `Note` eronder. Er opent geen
+formulier of sheet dat pas bij verzenden faalt. De server-actions en DB-triggers blijven
+de grens; de UI-check is alleen presentatie.
+
+| Actie | UI-ingang (vooraf geweigerd) | Server / DB | Melding |
+| --- | --- | --- | --- |
+| Iemand uitnodigen (team) | Team: "Invite" + header-"+", beide "Resend"-chips | `inviteUserAction`, `resendInviteAction`; `invites`-trigger | "Invites are turned off for the demo account." |
+| Crew toevoegen (e-mail of terugkerend) | Event → Crew: "Add crew" (sheet opent niet) | `inviteExternalCrew`, `resendCrewInvite`, `assignOrganizer`; `event_organizers`-trigger | "Invites are turned off for the demo account." |
+| Nieuwe venue maken | Venue-switcher ("+" en "New venue"), Venue settings "New venue", deeplink `/app/venues/new` | `createVenueAction`; `create_venue_with_owner` | "The demo account can't create venues." |
+| E-mailadres wijzigen | Profiel: e-mail read-only | `updateEmailAction` | "The demo account's email can't be changed." |
+| Onboarding-wizard: venue maken | `/onboarding` venue-stap: "Create venue" inert + "Back to the app" | `createVenueAction`; `create_venue_with_owner` | "The demo account can't create venues." |
+| Onboarding-wizard: team uitnodigen | `/onboarding` team-stap: "Send invites" inert, alleen "Skip for now" | `inviteUserAction`; `invites`-trigger | "Invites are turned off for the demo account." |
+| Demo-account uitnodigen (vanuit een andere venue) | n.v.t. (andere venue) | `invites`-trigger (adres-predicaat) | generieke fout voor die admin |
+| Eigen rollen wijzigen / eigen membership verwijderen | Team → eigen rij: alleen de melding | `updateMemberRolesAction`, `removeMemberAction`; `refuse_demo_member_self_change` | "The demo account's roles and venue access can't be changed." |
+| Demo-account toevoegen aan een andere venue (directe insert/update) | n.v.t. (andere venue, REST) | `refuse_demo_venue_new_member` (tweede predicaat) | generieke fout voor die admin |
+| Demo-account als crew op een event (elke venue) | n.v.t. | `assignOrganizer`; `refuse_demo_venue_new_crew` (tweede predicaat) | "The demo account can't be added to other venues or events." |
+| Tweestapsverificatie aanzetten | Profiel: MFA-kaart: "Turn on" inert (`RefusedAction`) + melding; `/mfa/enroll` → `/app` | (GoTrue, buiten Postgres; review-login + seed vangen het op) | "Two-factor sign-in is turned off for the demo account." |
+
+**De onboarding-wizard (`/onboarding`).** Het demo-account kan er komen door
+`settings.onboarding.completed` van zijn eigen venue op `false` te zetten (het is admin).
+Drie lagen: (1) de seed zet die vlag bij elke run terug op `true`; (2) de `/app`-layout
+stuurt het demo-account nooit naar `/onboarding`; (3) bij een directe bezoek slaat de
+wizard welkom/plan/betaling over en toont de venue- en team-stap alleen de weigering
+(`RefusedAction`), nooit een formulier. "Skip for now" rondt de onboarding van de eigen
+venue af en gaat terug naar `/app`.
+
+Wie het demo-account is, leest de client uit twee onafhankelijke bronnen (elk volstaat):
+de `demoAccount`-vlag van de `/app`-layout én het user-id van de live identity
+(`useIsDemoAccount`, `src/components/po/app-shell-data.tsx`). Team- en crew-ingangen zijn
+ook inert voor iedereen die in de demo-venue werkt (platform-support), want de DB weigert
+daar elk nieuw lid (`useIsDemoVenue`).
 
 Plak dit in de App Review-notes (App Store Connect) en de Play-reviewnotities, onder de
 review-code:
@@ -148,6 +224,7 @@ node scripts/seed-demo-venue.mjs --prod
   - `mfa_snooze_until = 'infinity'`, dus nooit een MFA-nudge op het gedeelde account;
   - de rollen gaan terug naar `admin,doorhost`;
   - de venuenaam wordt hersteld;
+  - `settings.onboarding.completed` gaat terug naar `true` (andere settings-keys blijven);
   - open invites in de demo-venue of naar het demo-adres worden verwijderd.
   - de publieke aanvraagpagina van de demo-events staat uit (`landing_active = false`):
     de slugs staan in een publieke repo en een open formulier zou echte PII in een
@@ -157,6 +234,7 @@ node scripts/seed-demo-venue.mjs --prod
 - Het **stopt** (exit 1) als:
   - de demo-user platform-admin is;
   - de demo-user lid is van een andere venue;
+  - de demo-user crew is op een event (`event_organizers`);
   - de demo-venue andere leden heeft. Met `--reset-members` worden die leden
     verwijderd in plaats van dat het script stopt. In beide gevallen toont het ook
     de venues waarvan `settings.onboarding.created_by` zo'n lid is (alleen tonen,
@@ -167,7 +245,8 @@ node scripts/seed-demo-venue.mjs --prod
 
   Onderzoek zo'n stop eerst; een extra lid betekent meestal dat een code-houder
   iemand heeft uitgenodigd.
-- `--end-review` doet alléén de globale sign-out van alle demo-sessies en seedt niets
+- `--end-review` verwijdert alle MFA-factoren van de demo-user (dezelfde sweep als de
+  seed) en doet de globale sign-out van alle demo-sessies; het seedt niets
   (zie "Per submissie").
 - Het print hoeveel live sessies de demo-user heeft (daarvoor is
   `NEXT_PUBLIC_SUPABASE_ANON_KEY` in de env nodig).
@@ -215,8 +294,13 @@ in, ook die van een client die alleen de API gebruikt:
 node scripts/seed-demo-venue.mjs --prod --end-review
 ```
 
-Dat doet alleen een globale sign-out van de demo-user (via een probe-sessie met de
-anon-key, dus `NEXT_PUBLIC_SUPABASE_ANON_KEY` moet in de env staan) en seedt niets.
+Dat verwijdert eerst elke MFA-factor van de demo-user (admin-API, dezelfde sweep als de
+volledige seed) en doet dan een globale sign-out (via een probe-sessie met de
+anon-key, dus `NEXT_PUBLIC_SUPABASE_ANON_KEY` moet in de env staan); het seedt niets.
+
+**Weigert de review-login met `mfa_enrolled`** (een reviewer heeft toch een TOTP-factor
+op het gedeelde account gezet)? Dat los je op met `--end-review` óf met een volledige
+seed (`node scripts/seed-demo-venue.mjs --prod`): beide verwijderen elke factor.
 
 Controleer in het **prod-Supabase-dashboard** (project `tolxwgqhppdcvnogdpel` →
 Authentication → Sign In / Providers → Email) dat **Secure email change AAN** staat.

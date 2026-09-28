@@ -9,7 +9,7 @@
 import '@testing-library/jest-dom';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
-import { t } from '@/lib/i18n';
+import { t, fmt } from '@/lib/i18n';
 
 const A = '018f3a2e-0000-7000-8000-00000000000a';
 
@@ -32,11 +32,12 @@ const H = vi.hoisted(() => ({
     website: '',
   },
   demo: false,
+  team: [] as { userId: string; name: string; email: string; roles: string[]; rolesLabel: string; quota: number }[],
   push: vi.fn(),
   mutations: {} as Record<string, { mutate: ReturnType<typeof vi.fn> }>,
 }));
 
-vi.mock('../../app-shell-data', () => ({ useIsDemoAccount: () => H.demo }));
+vi.mock('../../app-shell-data', () => ({ useIsDemoAccount: () => H.demo, useIsDemoVenue: () => H.demo }));
 vi.mock('../../context', () => ({
   useNav: () => ({ push: H.push, back: vi.fn() }),
   usePo: () => ({ myVenues: [{ venueId: A, venueName: 'Venue A', roles: ['admin'] }], activeVenueId: A, switchToVenue: vi.fn() }),
@@ -44,7 +45,7 @@ vi.mock('../../context', () => ({
 vi.mock('@/features/po/PoLiveProvider', () => ({ usePoIdentity: () => ({ roles: ['admin'], venueName: 'Venue A' }) }));
 vi.mock('@/features/po/hooks', () => ({
   usePoVenueSettings: () => ({ data: H.settings, isLoading: false, isError: false }),
-  usePoTeam: () => ({ data: [] }),
+  usePoTeam: () => ({ data: H.team }),
   usePoInvites: () => ({
     data: [{ id: 'inv-1', email: 'x@example.com', status: 'pending', rolesLabel: 'Staff', sentAt: 'today' }],
   }),
@@ -95,6 +96,7 @@ afterEach(() => {
   cleanup();
   H.push.mockClear();
   H.mutations = {};
+  H.team = [];
 });
 
 const btn = (label: string) => screen.getByRole('button', { name: new RegExp(label) });
@@ -147,6 +149,53 @@ describe('team invite + resend', () => {
     expect(H.mutations.usePoResendCrewInvite?.mutate).toHaveBeenCalledWith('crew-1');
     fireEvent.click(btn(t.settings.team.inviteCta));
     expect(screen.getByText(t.settings.team.chooseTitle)).toBeInTheDocument();
+  });
+});
+
+describe('team member sheet: the demo membership', () => {
+  const DEMO = 'de300000-0000-7000-8000-00000000a001';
+  const member = (userId: string, name: string) => ({ userId, name, email: `${name}@example.com`, roles: ['admin', 'doorhost'], rolesLabel: 'Admin', quota: 5 });
+
+  it('the demo row shows the refusal, no role picker and no remove', () => {
+    H.demo = true;
+    H.team = [member(DEMO, 'Reviewer')];
+    render(<Gebruikers />);
+    fireEvent.click(screen.getByRole('button', { name: fmt(t.settings.team.manageAria, { name: 'Reviewer' }) }));
+    expect(screen.getByText(t.auth.demoNoOwnMembership)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: new RegExp(t.settings.team.saveRoles) })).toBeNull();
+    expect(screen.queryByRole('button', { name: t.settings.team.removeAccess })).toBeNull();
+  });
+
+  it('any other member keeps the role picker', () => {
+    H.demo = false;
+    H.team = [member('018f3a2e-0000-7000-8000-0000000000b1', 'Other')];
+    render(<Gebruikers />);
+    fireEvent.click(screen.getByRole('button', { name: fmt(t.settings.team.manageAria, { name: 'Other' }) }));
+    expect(screen.queryByText(t.auth.demoNoOwnMembership)).toBeNull();
+    expect(screen.getByRole('button', { name: new RegExp(t.settings.team.saveRoles) })).toBeInTheDocument();
+  });
+});
+
+describe('profile two-factor card', () => {
+  it('demo: a refused, inert enroll entry with the note', async () => {
+    H.demo = true;
+    const { container } = render(<Profile />);
+    const note = await screen.findByText(t.auth.demoNoMfa);
+    const refused = note.closest('[data-refused-action]');
+    expect(refused).not.toBeNull();
+    expect(container.querySelectorAll('[data-refused-action]')).toHaveLength(1);
+    const btn = screen.getByRole('button', { name: t.settings.profile.mfaEnable });
+    expect(btn).toBeDisabled();
+    expect(refused).toContainElement(btn);
+    fireEvent.click(btn);
+    expect(screen.queryByText(t.settings.profile.mfaEnrollTitle)).toBeNull();
+  });
+
+  it('admin: the enroll entry as before', async () => {
+    H.demo = false;
+    render(<Profile />);
+    expect(await screen.findByRole('button', { name: t.settings.profile.mfaEnable })).toBeInTheDocument();
+    expect(screen.queryByText(t.auth.demoNoMfa)).toBeNull();
   });
 });
 

@@ -90,12 +90,31 @@ describe('demo constants mirrored in scripts/seed-demo-venue.mjs', () => {
     expect(script).toContain(`const DEMO_VENUE_NAME = '${DEMO_VENUE_NAME}';`);
   });
 
-  it('--end-review revokes every demo session (scope global) and seeds nothing', () => {
+  it('--end-review sweeps every demo MFA factor, revokes every demo session (scope global) and seeds nothing', () => {
     const block = script.slice(script.indexOf('if (END_REVIEW) {'), script.indexOf('process.exit(0);\n}', script.indexOf('if (END_REVIEW) {')));
     expect(block).toContain("signOut({ scope: 'global' })");
+    // A rogue factor must not survive the end of a review (review-login would
+    // refuse the next reviewer with mfa_enrolled): the SAME sweep as the seed,
+    // before the sign-out.
+    expect(block).toContain('await sweepDemoFactors(user.id);');
+    expect(block.indexOf('sweepDemoFactors(')).toBeLessThan(block.indexOf("signOut({ scope: 'global' })"));
     expect(block).not.toMatch(/insertMissing|upsert|update\(|delete\(/);
-    // Runs before the user can be created or anything seeded.
+    // Runs before the user can be created or anything seeded, and after the
+    // sweep function is defined.
     expect(script.indexOf('if (END_REVIEW) {')).toBeLessThan(script.indexOf("'createUser'"));
+    expect(script.indexOf('async function sweepDemoFactors(')).toBeLessThan(script.indexOf('if (END_REVIEW) {'));
+  });
+
+  it('has ONE MFA factor sweep, shared by the full seed and --end-review', () => {
+    const fn = script.slice(script.indexOf('async function sweepDemoFactors('), script.indexOf('\n}\n', script.indexOf('async function sweepDemoFactors(')));
+    expect(fn).toContain('db.auth.admin.mfa.listFactors({ userId })');
+    expect(fn).toContain('db.auth.admin.mfa.deleteFactor({ userId, id: factor.id })');
+    // Not duplicated: the admin MFA calls exist only inside the function.
+    expect(script.split('admin.mfa.listFactors(').length - 1).toBe(1);
+    expect(script.split('admin.mfa.deleteFactor(').length - 1).toBe(1);
+    // Called by --end-review and by the full seed.
+    expect(script.split('await sweepDemoFactors(').length - 1).toBe(2);
+    expect(script).toContain('await sweepDemoFactors(userId);');
   });
 
   it('keeps the demo events off the public landing page', () => {
@@ -125,6 +144,24 @@ describe('demo constants mirrored in scripts/seed-demo-venue.mjs', () => {
     expect(block).toContain(".eq('actor_id', DEMO_USER_ID)");
     expect(block).toContain('.or(`venue_id.is.null,venue_id.neq.${VENUE_ID}`)');
     expect(block).not.toContain(".neq('venue_id'");
+  });
+
+  it('re-asserts settings.onboarding.completed = true on the demo venue on every run, keeping the other keys', () => {
+    // The demo admin can PATCH the flag back to false; the wizard's steps are
+    // venue creation and invites, both refused for it (86ey6bfug).
+    const block = script.slice(script.indexOf("'venue read'"), script.indexOf("'subscription read'"));
+    expect(block).toContain("select('name, settings')");
+    expect(block).toContain('if (onboarding.completed !== true)');
+    expect(block).toMatch(/settings: \{ \.\.\.settings, onboarding: \{ \.\.\.onboarding, completed: true/);
+    expect(block).toContain(".eq('id', VENUE_ID)");
+    // Not only on first insert: the check sits outside insertMissing.
+    expect(script.indexOf('if (onboarding.completed !== true)')).toBeGreaterThan(script.indexOf("insertMissing('venues'"));
+  });
+
+  it('stops when the demo user is crew on any event (defence in depth for the round-10 trigger)', () => {
+    const block = script.slice(script.indexOf("'crew seats read'"), script.indexOf('// Tripwire: anything'));
+    expect(block).toContain(".from('event_organizers').select('event_id').eq('user_id', userId)");
+    expect(block).toMatch(/if \(crewSeats\.length > 0\) \{\s*fail\(/);
   });
 
   it('refuses a non-local target without --prod', () => {

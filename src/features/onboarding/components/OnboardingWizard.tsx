@@ -17,17 +17,26 @@ export function OnboardingWizard({
   initialStep,
   venueId: initialVenueId,
   owner,
+  demoAccount = false,
 }: {
   initialStep: 'venue' | 'plan' | 'team';
   venueId: string | null;
   owner: { name: string; email: string };
+  /** The store-review demo account (86ey6bfug, `isDemoReviewUser` server side):
+   *  the venue and team steps show the refusal instead of their form. UX only. */
+  demoAccount?: boolean;
 }): JSX.Element {
-  const [step, setStep] = useState<WizardStep>(initialStep === 'venue' ? 'welkom' : initialStep);
+  // The demo account skips straight to the two steps that carry its refusal:
+  // no welcome, no plan pick, no payment (86ey6bfug).
+  const [step, setStep] = useState<WizardStep>(
+    demoAccount ? (initialVenueId ? 'team' : 'venue') : initialStep === 'venue' ? 'welkom' : initialStep
+  );
   const [venueId, setVenueId] = useState<string | null>(initialVenueId);
   const [planId, setPlanId] = useState<PlanId>(DEFAULT_PLAN_ID);
 
   const venueStep = (
     <VenueStep
+      demoAccount={demoAccount}
       onCreated={(id) => {
         setVenueId(id);
         setStep('plan');
@@ -55,7 +64,7 @@ export function OnboardingWizard({
     case 'betaling':
       return venueId ? <BetalingStep planId={planId} onNext={() => setStep('team')} /> : venueStep;
     case 'team':
-      return venueId ? <TeamStep venueId={venueId} /> : venueStep;
+      return venueId ? <TeamStep venueId={venueId} demoAccount={demoAccount} /> : venueStep;
     default:
       return venueStep;
   }

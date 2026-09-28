@@ -216,10 +216,11 @@ select is(
   pg_temp.recipients('9a000000-0000-7000-8000-000000000002', 'quota_request_decided'),
   '{}'::uuid[], 'D5 a self-decided request notifies nobody');
 
--- The decision goes to the requester AS FILED. authenticated still holds a
--- table-wide UPDATE on quota_requests and the decide policy does not pin
--- user_id, so an admin's decision PATCH can rewrite it; the push must not
--- follow that rewrite into another venue (Vera is venue-2-only).
+-- The decision goes to the requester AS FILED (old.user_id). Since
+-- 20260925140000 a client can no longer rewrite user_id (column UPDATE grant:
+-- status/decided_by/decided_at/decision_reason only), so this owner-run
+-- rewrite is defence in depth: even a privileged writer that changes user_id
+-- must not steer the push into another venue (Vera is venue-2-only).
 insert into public.quota_requests (id, event_id, user_id, requested_extra)
 values ('9a000000-0000-7000-8000-000000000004', 'ee000000-0000-7000-8000-000000000001',
         '66666666-6666-4666-8666-666666666666', 1);
