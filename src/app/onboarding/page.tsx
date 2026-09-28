@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { requireUser } from '@/lib/auth/guards';
 import { requireConsent } from '@/lib/auth/consent';
 import { getOnboardingState } from '@/lib/auth/onboarding';
+import { isDemoReviewUser } from '@/features/auth/review-window';
 import { OnboardingWizard } from '@/features/onboarding/components/OnboardingWizard';
 
 export const metadata: Metadata = {
@@ -25,5 +26,12 @@ export default async function OnboardingPage(): Promise<JSX.Element> {
     email: user.email ?? '',
   };
 
-  return <OnboardingWizard initialStep={state.step} venueId={state.venueId} owner={owner} />;
+  // The store-review demo account (86ey6bfug): the /app layout never sends it
+  // here, but a direct visit with an unfinished demo venue still renders the
+  // wizard, so every step that would open a form shows the refusal instead.
+  const demoAccount = isDemoReviewUser(user);
+
+  return (
+    <OnboardingWizard initialStep={state.step} venueId={state.venueId} owner={owner} demoAccount={demoAccount} />
+  );
 }
