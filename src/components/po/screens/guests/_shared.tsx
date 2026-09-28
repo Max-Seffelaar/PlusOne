@@ -223,7 +223,7 @@ export function AddTierInline({ eventId, className }: { eventId: string; classNa
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
-          'flex w-full items-center justify-center gap-[7px] rounded-[13px] border border-dashed border-line bg-transparent px-[13px] py-[10px] font-display text-[13px] font-bold text-faint transition-[filter] hover:brightness-[1.3]',
+          'flex min-h-[44px] w-full items-center justify-center gap-[7px] rounded-[13px] border border-dashed border-line bg-transparent px-[13px] py-[10px] font-display text-[13px] font-bold text-faint transition-[filter] hover:brightness-[1.3]',
           className,
         )}
       >
