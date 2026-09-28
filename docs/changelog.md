@@ -71,52 +71,189 @@ WebView sat on Chromium's dead error page until the app was killed.
   iOS cold start is unverified until S1b.
 
 ## 2026-09-25 — Fase 17 N6: door variant follows touch or width (decision 14)
+## 2026-09-28 — Fase 17 S2: store-listing domain URLs re-fixed to www (86ey6bft8)
 
-Branch `claude/n6-door-variant`. Which Door-tab variant mounts, nothing else —
-the outbox (`src/features/door`) and the cockpit are unchanged.
 
-- New `src/components/po/use-door-variant.ts`: `useDoorVariant()` =
-  `'cockpit'` only for `(pointer: fine)` at ≥1024px, `'outbox'` otherwise (no
-  `matchMedia` ⇒ outbox, via `hasFinePointer()`). `useSyncExternalStore`, so
-  the `ssr:false` `/app` shell reads the real answer on its first render; the
-  server snapshot is `null` (placeholder, neither variant mounted).
-  `useLatchedDoorVariant()` keeps `'outbox'` for the caller's lifetime once
-  chosen — a pointer toggle or resize never unmounts a live `DoorProvider`;
-  leaving the tab re-evaluates.
-- `door-branch.tsx`: `PoDoorBranch` picks via the latched hook (the `isMobile`
-  prop is gone). `app.tsx`: chrome still keys on `useViewport` (1024 unchanged);
-  the T6 cockpit auto-open now gates on the cockpit variant.
-- `DoorRoute.tsx` (`/door/[id]`): same latched hook; SSR HTML is the spinner,
-  so the outbox mounts once, client-side, on the real answer. The page no longer
-  reads the UA (`serverHint` dropped; the SW PII guard's prop set tightened to
-  `eventId` only). Root now pads `ROOT_SAFE_AREA` (top/sides) like the po shell.
-- **Review round 1 (blocking): `ResponsiveShell` remounted the door.** The
-  shell returned two different trees for the two chromes, so `children` (the
-  Deur tab) sat at a different element path in each and every flip at 1024px
-  remounted `DoorProvider` — a UA-misseeded first load (iPad portrait with the
-  iPadOS `Macintosh` UA, a narrow laptop window: 2 mounts vs. 1 on base), an
-  iPad rotated across 1024 mid-shift, a laptop window widened past 1024. The
-  remount also reset the latch (component state), so widening swapped a live
-  outbox for the cockpit. Fix (scope extension authorized by the orchestrator):
-  `shell-responsive.tsx` now renders ONE tree, `div > main > div > children`
-  in both chromes, with the sidebar and tab bar as conditional siblings and
-  only the wrapper classes switching; visuals unchanged. `use-viewport.ts`, the
-  door internals and `app.tsx`'s reads are untouched.
-- Behaviour change to know: a laptop whose window was <1024px when it opened
-  the door keeps the outbox door after widening, until it leaves the Deur tab.
-  Narrowing from the cockpit below 1024 switches to the outbox (safe direction).
-- `src/app/door/[eventId]/page.tsx` is outside N6's file list but required:
-  `DoorRoute` no longer takes `serverHint`, so the page stops reading the UA.
-- Tests: `use-door-variant.test.tsx` (24 — matrix × hook/branch/route incl.
-  touch at exactly 1024 → outbox, no remount on pointer/width change, SSR
-  placeholder); new `shell-door-mount.test.tsx` (10 — the real shell around the
-  real branch: 1 mount on UA-misseeded first loads incl. 768px, iPad rotation
-  both ways across 1024, laptop widen keeps the outbox, narrow switches to it,
-  leaving the tab resets the latch; 8 of 10 fail against the old shell);
-  `app.auto-open.test.tsx` now stubs a fine pointer. Not run here: pgTAP, e2e
-  (no Supabase/Docker) — CI.
+`main` moved CLAUDE.md's domain decision back to `www.plus-one.io` canonical (apex
+redirects to it, decided 2026-09-25 — the same-day 2026-09-18 apex-canonical text this
+PR's earlier review round had built the N1 fix on) partway through this PR's repeated
+merge-conflict rounds against a fast-moving `main`. `docs/store/play-store-listing.md`
+and `docs/store/app-store-listing.md` Support/Privacy URLs re-fixed from
+`https://plus-one.io` back to `https://www.plus-one.io`; `src/lib/legal.ts` untouched
+(out of scope — no `src/**` changes in this PR; the apex→www redirect already covers it
+either way). No other findings open.
+
+## 2026-09-28 — Fase 17 S2: icon + splash rebuilt from a vector master after the device test (86ey6bft8)
+
+Max's device test of PR #347 failed: the icon did not show the "+1" properly, the splash showed it off-centre. Fixed in the same PR.
+
+- **Root cause:** the source (`public/icon-maskable-512x512.png`) had the "+1" in a system font and off-centre (ink centre ≈ (244,228) on 512); the adaptive `ic_launcher_foreground` was that whole lavender tile with the glyph baked in, so the launcher mask cropped and shifted it; `windowSplashScreenAnimatedIcon` was never set, so Android 12+ drew that broken adaptive icon as the splash; the pre-31 `drawable*/splash.png` were baked 2:3 bitmaps that crop per screen ratio.
+- **Vector master:** `native/icon/plusone-mark.svg` — "+" and "1" from Bricolage Grotesque ExtraBold (800, `@fontsource/bricolage-grotesque` 5.3.0) converted to paths once at design time, viewBox = tight ink bbox, ink `#16132B`. `native/icon/plusone-icon.svg` (mark on the `#B5A6FF` tile) is derived. No font or runtime dependency in the app.
+- **One regeneration script:** `node scripts/native-icons.mjs` (documented in `android/README.md`) writes every Android, iOS and PWA target; `sharp` pinned as a devDependency for it (it was already in the lockfile via `next`).
+- **Android:** adaptive icon = colour background + vector foreground (mark on transparent, inside the 66dp safe zone) + the same vector as the Android 13 `monochrome` layer, for both `ic_launcher` and `ic_launcher_round`; legacy mipmaps = full tile/circle. Splash: launch theme parent `Theme.SplashScreen.IconBackground` (only that variant forwards the icon-background colour on API 31+ — verified in the core-splashscreen 1.2.0 aar), `windowSplashScreenAnimatedIcon = @drawable/splash_icon`, icon background lavender, background `#0B0B0D`. Pre-31 compat paints the icon background in the splash background colour, so `drawable/splash_icon` carries its own 160dp circle while `drawable-v31/splash_icon` is the mark alone; `drawable/splash` is now a vector layer-list (colour + centred circle + mark). All 25 `splash.png` bitmaps and the per-density foreground/background PNGs are gone.
+- **iOS:** `AppIcon.appiconset` with every iPhone/iPad/marketing size, opaque RGB; `Splash.imageset` = the 160pt lavender circle, centred by constraints in `LaunchScreen.storyboard` on `#0B0B0D` (was an aspect-fill full-screen image on `systemBackground`, i.e. white in light mode).
+- **PWA:** `icon-{192,512}`, `icon-maskable-{192,512}` regenerated from the same master (mark well inside the 80% safe circle); added the `apple-touch-icon.png` that `src/app/layout.tsx` already linked but did not exist.
+- **Guard:** `tests/unit/native-icon-splash.test.ts` — the launch theme sets `windowSplashScreenAnimatedIcon` + the lavender icon background; the adaptive icons reference a separate foreground and background (+ monochrome); no `splash.png` bitmaps.
+- **Preview:** `docs/store/preview/icon-splash-before-after.png`.
+- Resolves the earlier open item "a real ≥1024px (SVG) icon master".
+- **Favicon (follow-up, 2026-09-28):** the web app had no tab icon (no `favicon.ico`, no `icon.*`, no `<link rel="icon">`). `scripts/native-icons.mjs` now also writes `src/app/favicon.ico` (PNG-in-ICO, 16/32/48) and `src/app/icon.svg`, picked up by Next's file-based metadata convention. The apple-touch-icon stays the single explicit `<link>` in `src/app/layout.tsx` (no `src/app/apple-icon.*`). Favicon geometry is the one exception to the 36% rule: a 60% mark on a rounded lavender tile, so the "+1" stays legible at 16px on light and dark tab strips (`docs/store/preview/favicon-preview.png`). Middleware matcher already skips `favicon.ico` and `*.svg`; the service worker routes both to the PII-free shell cache as static assets, so neither needed a change. Guarded in `tests/unit/native-icon-splash.test.ts` (files non-empty, ICO entries 16/32/48, no duplicate icon declaration).
+
+## 2026-09-26 — Fase 17 S2: review round — data-safety/App Privacy fixed, push claim gated (86ey6bft8)
+
+Fresh-session adversarial review round on PR `feat(native): app icons, splash, store listing drafts (86ey6bft8)` (issuecomment-5834219588 + orchestrator triage issuecomment-5834234137). All findings fixed in this PR.
+
+- **B2 (blocking): the data-safety (Play) and App Privacy (Apple) drafts under-declared what the app processes.** Cross-checked every data type against `docs/legal/privacy-policy.md` v0.2 and `docs/legal/subprocessors.md` (both drafts, read from their PR branches) plus the code (`src/lib/database.types.ts` for `guests`/`contacts` phone/email/note columns, `src/sentry.client.init.ts` + `sentry.server.config.ts`/`sentry.edge.config.ts` + `src/lib/observability/scrub.ts` for crash/diagnostics and IP handling). Both `docs/store/play-store-listing.md` and `docs/store/app-store-listing.md` now carry a full per-data-type table: guest name/phone/e-mail/notes, account name/e-mail/phone, device push token, crash/diagnostics (Sentry), and IP address — each with collected/shared, purpose, optional, encrypted-in-transit and deletion columns. IP address is not collected/stored by PlusOne's Sentry integration (`sendDefaultPii: false`, `event.request` deleted in `beforeSend`) or by application code; only Vercel's hosting logs process it transiently.
+- **B1/push claim: kept, gated.** Per the orchestrator's triage, the push notification claim stays in both listings and the App Store review notes (4.2 defense) — pushed end-to-end (N5, #349) is already a precondition in the release checklist. Every push mention (marketing copy, the tone/intro line, the data-safety/App-Privacy push-token row, the 4.2 defense) now carries `<!-- valid only once N5 (#349) is merged and verified on device -->` so nobody submits the listing before N5 ships.
+- **N1: privacy/support URL scheme.** The drafts used `www.plus-one.io`; at the time, CLAUDE.md's domain decision (2026-09-18) named the bare apex as canonical, so the drafts were fixed to `https://plus-one.io`. CLAUDE.md's decision was revised the same day (2026-09-25 — see below) to make `www.plus-one.io` canonical again; that revision landed on `main` mid-session here and the drafts were re-fixed to `www.plus-one.io` in the same PR once the branch merged it in.
+- **N2: dropped `assets/icon.png`** — a byte-identical, out-of-scope-directory copy of `public/icon-maskable-512x512.png`. A future `@capacitor/assets` regeneration points at `public/` directly.
+- **N3:** removed the stray `plus one` keyword (App Store keyword fields, NL + EN) — it was the only non-"PlusOne" brand rendering in the listing text and wasted keyword-field characters Apple already indexes via the app name.
+- **N4:** the Dutch copy named a UI tab ("Aanvragen-tab") that doesn't exist — the app is English-only and the tab is "Requests"; both Dutch descriptions now say `'Requests'-tab`.
+- N5 (real 1024px+ icon master) is unchanged — still an open item for Max, not something this round could fix.
+
+## 2026-09-26 — Fase 17 S1a review round: release preconditions (86ey6bfpy)
+
+Fixes the adversarial review on PR #346 (all three findings). No migration, no app code.
+
+- **Runbook:** hard precondition at the top and before step 6/every rollout — `https://app.plus-one.io`
+  live on Vercel project `plus-one` (M5, done 2026-09-25); verify by opening
+  `https://app.plus-one.io/login`. The first-release name is `<versionCode> (1.0.0)`, not `1 (1.0.0)`.
+- **Workflow:** synced `server.url` must be exactly `https://app.plus-one.io` (literal, not only
+  `PROD_SERVER_URL`); first script fails unless `HEAD` is an ancestor of `origin/main`
+  (unshallows first); versionCode = `max(Play internal latest + 1, BUILD_NUMBER)` via
+  `google-play get-latest-build-number --tracks internal` (nothing uploaded yet ⇒ 0).
+- **Guard test** extended for all three.
+
+## 2026-09-26 — Fase 17 S3 round 11: re-review residuals (86ey6bfug)
+
+Same PR (#348). The independent re-review APPROVED round 10 with four non-blocking
+residuals; all four are fixed here.
+
+- **`--end-review` also sweeps MFA factors.** It exited before the factor sweep, so a
+  rogue TOTP factor kept review-login refusing (`mfa_enrolled`) until a full seed. The
+  sweep is now one function (`sweepDemoFactors`) called by the full seed and by
+  `--end-review` (before the global sign-out); `review-login.test.ts` pins both call
+  sites and that the admin MFA calls exist once. Runbook: `mfa_enrolled` is fixed by
+  either command.
+- **`set_platform_admin` refuses the demo user.** A platform admin could grant the flag
+  to the demo id (review-login lockout + cross-tenant access for a code holder). The
+  unapplied `20260925150000` migration now `create or replace`s it (body verbatim from
+  `20260923120000`, same signature, SECURITY DEFINER, pinned `search_path`, ACL) with
+  one added check: granting to the demo id → 42501 `not allowed`. Revoking still works.
+  pgTAP T50–T54 (plan 50 → 55).
+- **Nit:** section E header in `review_demo_no_new_members.test.sql` now says
+  INSERT (OR UPDATE), matching T15.
+- **Nit:** `demoAccountRefusal` runs its seven reads in one `Promise.all` and then
+  evaluates them in the old order; `route.test.ts` pins the precedence (fault chains:
+  the first failing check still wins) and that the reads are issued in parallel.
+
+## 2026-09-25 — Fase 17 S3 round 10: the demo user joins nothing else (86ey6bfug)
+
+Same PR (#348). The independent re-review of round 9 confirmed items 1 and 3 and
+found one blocking gap plus optional items; all are fixed here.
+
+- **Blocking: the demo account in another venue.** `venue_memberships_insert` checks only
+  the caller's role on the target venue, so any other venue's admin could insert the
+  (public) demo user id into their own venue with one PostgREST call: review-login
+  refuses (`membership_count`), the seed stops, and whoever holds the review code sits
+  in a real venue. `refuse_demo_venue_new_member` gets a second predicate
+  (`new.user_id = demo user and new.venue_id <> demo venue` → 42501, every writer);
+  the existing `UPDATE OF venue_id, user_id` firing covers re-pointing a row too.
+- **Crew symmetry.** `refuse_demo_venue_new_crew` refuses any organizer row for the demo
+  user; `assignOrganizer` refuses the demo id as target; review-login refuses
+  `crew_elsewhere` and the seed stops on a crew seat (defence in depth).
+- **TOTP self-lockout (pre-existing).** Profile MFA card renders the kit's `RefusedAction`
+  (inert "Turn on" + "Two-factor sign-in is turned off for the demo account.") for the
+  demo account; `/mfa/enroll` redirects it to `/app`. A direct GoTrue factor call stays
+  possible outside Postgres; review-login refuses and the seed deletes it.
+- **Smaller:** `TeamStep.finish()` checks the `completeOnboardingAction` result and shows
+  the error instead of navigating; `useIsDemoVenue` and `useIsDemoAccount` share one
+  context read; migration header no longer claims FK cascades reach `venue_memberships`
+  (its FKs are `on delete restrict`).
+- **pgTAP** 41 → 50: other venue's admin / service role inserting the demo user, the
+  re-pointing update, no row written; the same for crew, ordinary crew still works; the
+  seed's real full-column upsert (`DO UPDATE SET venue_id, user_id, roles, job_title`)
+  under the service JWT; T5/T6/T13 now run with their own claims instead of the demo
+  user's leftover ones. Trigger bodies smoke-tested on a local Postgres 16 stub; the
+  real suite runs in CI.
 
 ---
+
+## 2026-09-25 — Fase 17 S3 round 9: onboarding wizard, addressed invites, self-lockout (86ey6bfug)
+
+Same PR (#348), closing the two open threads of the independent security review
+(the DB boundary held against all six attacks) and round 8's known follow-up.
+
+- **`/onboarding` wizard.** The demo account could reach it by flipping its own
+  venue's `settings.onboarding.completed` to false (it is admin there), and the venue
+  and team steps then opened full forms that only failed on submit. Three layers:
+  the seed re-asserts `completed = true` on every run (other settings keys kept);
+  the `/app` layout never redirects the demo account to `/onboarding`; on a direct
+  visit the wizard skips welcome/plan/payment and the venue and team steps render
+  `RefusedAction` (+ "Back to the app" / "Skip for now") instead of a form.
+- **Invite addressed to the demo e-mail from any venue.** `refuse_demo_venue_invite`
+  now also refuses `lower(btrim(email)) = 'app-review@demo.plus-one.io'` (42501, every
+  writer). Before, any venue's admin could lock the reviewer out
+  (`venue_not_isolated`) and, on accept, hand the demo account a real-venue
+  membership. The review-login invite reads stay as defence in depth.
+- **Self-lockout.** New `refuse_demo_member_self_change`: BEFORE UPDATE OF
+  `venue_id, user_id, roles` OR DELETE on `venue_memberships` refuses any change to the
+  demo user's demo-venue row unless the request JWT role is `service_role` (the seed);
+  keyed on the JWT role, not `current_user`, so a definer RPC called by the demo user is
+  refused too; no-JWT owner statements pass. `job_title` edits untouched. The
+  team member sheet shows the refusal upfront for that row, and
+  `updateMemberRolesAction` / `removeMemberAction` refuse it with
+  `t.auth.demoNoOwnMembership`.
+- **Migration:** all in `20260925150000_demo_venue_no_new_members.sql` (not yet applied
+  to prod; the invite function is replaced with `create or replace`, the applied
+  `20260925130100` is untouched). Grant matrix unchanged. pgTAP
+  `review_demo_no_new_members.test.sql` 18 → 41 (T7 now expects the self-change message;
+  T7b keeps the new-member trigger's own proof). pgTAP runs in CI only (no Supabase stack
+  in the session); the trigger bodies were smoke-tested against a stub schema on a local
+  Postgres 16.
+- **Tests:** `src/features/onboarding/components/demo-refusals.test.tsx`,
+  `src/app/app/layout.onboarding-demo.test.ts`,
+  `src/features/venues/actions.demo-membership.test.ts`, the seed guard in
+  `review-login.test.ts`, the member-sheet cases in `settings/demo-refusals.test.tsx`.
+
+---
+
+## 2026-09-25 — Fase 17 S3 round 8: demo refusals on every entry point (86ey6bfug)
+
+Follow-up to PR #332 (merged). Max re-tested prod as the demo account: "New venue"
+still looked usable (the note appeared only after the tap), the team invite and the
+event-crew invite still opened. Draft PR `fix(auth): demo refusals on every entry point (86ey6bfug)`.
+
+- **Root cause, as far as it could be pinned without the prod session:** round 7's
+  hunks are all on prod (deploy of `56b6a47`), and the only "New venue" / invite
+  entry points in the codebase are the ones it changed. Two things were real: (1) the
+  crew "Add crew" button still opened its sheet by design (only the e-mail form
+  inside was swapped for the note, "returning crew" stayed usable), which reads as
+  "can still invite"; (2) every round-7 test mocked `useIsDemoAccount` itself, so
+  nothing proved the layout flag reaches the screens. The client refusal hung on that
+  one prop. Not reproduced: why the team/venue entries were not inert for Max.
+- **Client:** `useIsDemoAccount` now reads two independent signals, either enough:
+  the layout's `demoAccount` flag OR the live identity's user id (`PoLiveProvider`,
+  new tolerant `usePoIdentityOptional`). New `useIsDemoVenue` (demo account OR the
+  active venue is the demo venue) drives team invite/resend and crew add, so platform
+  support in the demo venue sees the refusal too; "New venue" stays theirs. Crew "Add
+  crew" is now a `RefusedAction`: the sheet never opens. Ids moved to a client-safe
+  `src/features/auth/demo-account.ts` (re-exported by `review-window.ts`).
+- **Server:** `assignOrganizer` refuses the demo account (42501, `t.auth.demoNoInvites`).
+- **DB (migration `20260925150000_demo_venue_no_new_members.sql`):** BEFORE INSERT OR
+  UPDATE OF `venue_id, user_id` trigger on `venue_memberships` refuses a demo-venue row
+  for anyone but the demo user (closes the direct `venue_memberships_insert` path and
+  the "hand my own row to another user_id" update); BEFORE INSERT trigger on
+  `event_organizers` refuses crew on a demo-venue event. Security invoker, pinned
+  search_path, execute revoked; service role included. The seed's own upsert passes.
+  pgTAP `review_demo_no_new_members.test.sql` (18).
+- **Tests:** `src/components/po/demo-refusals.providers.test.tsx` mounts the real
+  `AppShellDataProvider` + `PoLiveProvider` (no demo-hook mock) around the real
+  screens (venue switch/settings/create, team, crew) for flag-only, identity-only,
+  support-in-demo-venue and normal admin. Unit suite 2113 green; pgTAP not run here
+  (no Supabase stack in the session): CI is the DB gate.
+- **Open (closed in round 9, same PR):** the demo admin could still edit its own roles
+  in the team member sheet; dropping `doorhost` made the next review login refuse
+  (`roles_changed`) until the seed was re-run.
 
 ## 2026-09-25 — Fase 17 T1 session 2: tablet pass over the remaining screens (z8uq9m0fzj)
 
@@ -180,22 +317,115 @@ migrations, no dependencies, none of the fenced files (`app.tsx`, `app-chrome.ts
 - Tests: `pnpm type-check` clean; `pnpm lint` only the 2 pre-existing combobox warnings;
   vitest 180 files / 1926 tests green. Not run here: pgTAP, e2e, real iPad hardware.
 
+## 2026-09-25 — quota_requests: column-level UPDATE grant, deny-only client decision
+
+Branch `claude/quota-requests-column-grant`. Found in the N2 push-backend review
+(PR #336); mirrors `20260919150000` (guest_requests, L5).
+
+- **Bug:** `authenticated` held a table-wide UPDATE on `quota_requests` and
+  `quota_requests_decide_admin` pinned only the old row (pending, admin) and the
+  actor. An admin could therefore (a) rewrite `user_id`/`event_id`/`venue_id`/
+  `requested_extra`/`motivation`/`created_at` in the same PATCH as a deny, and
+  (b) approve by a direct write — `status = 'approved'` with no `event_quotas`
+  override, because `approve_quota_request` never ran (the requester is told
+  "approved", incl. the N2 push, for slots they don't have).
+- `20260925140000_quota_requests_column_update_grant.sql` — WITH CHECK now
+  requires `status = 'denied'` (client transition = pending → denied only;
+  approval = the RPC), and `revoke update` → `grant update (status, decided_by,
+  decided_at, decision_reason)`: exactly what `decideQuotaRequest`'s deny branch
+  writes. That is the only client UPDATE path (no staff cancel/withdraw exists).
+  INSERT/SELECT untouched; `set_event_scope` still assigns `venue_id` (triggers
+  aren't subject to column grants); `approve_quota_request` is SECURITY DEFINER.
+- Tests: new `quota_requests_column_grant.test.sql` (29: grant catalog, admin
+  A / staff / admin B-only / anon, legit deny + audit, RPC approve + override).
+  `audit.test.sql` I2 now approves via the RPC and `rls.test.sql` J7 now denies
+  — both used a direct approve write that is refused by design now. Unit guard
+  `src/features/quotas/actions.test.ts` pins the deny body to the four columns.
+  `grant_matrix.test.sql` unchanged (no UPDATE allowlist there);
+  `database.types.ts` unchanged (grants don't change types).
+- Not runnable in the building session (no Docker/Supabase CLI): pgTAP is gated
+  by CI `lint-and-test`.
+- **Review round (independent `/code-review` + `/security-review`):** merged
+  `origin/main` (changelog-only conflict, all entries kept). Every finding fixed
+  in-PR: `20260925140100_approve_quota_request_row_lock.sql` — the RPC now reads
+  the request `for update` and flips only `status = 'pending'` (rowcount check →
+  45003), so an approve can no longer overwrite a concurrent deny; nothing else
+  in the function changed. `20260925140200_quota_requests_stamp_decided_at.sql` —
+  BEFORE UPDATE OF status trigger sets `decided_at = now()` on every decision, so
+  a client can't backdate a deny (grant kept: the deployed app still sends the
+  column, the value is just ignored). `decideQuotaRequest` deny now
+  `.select('id')`s and maps UPDATE 0 (already decided / finance / other venue)
+  to one generic 45003 MutationError instead of `{ ok: true }`. Stale AAL2 /
+  "table-wide UPDATE" comments fixed (`actions.ts`, `push_outbox.test.sql`).
+  `quota_requests_column_grant.test.sql` 29 → 37 (B13 now via `req_state`
+  incl. `venue_id`; F1–F5 approve-after-deny + definer/search_path/ACL/lock;
+  G1–G3 server-stamped `decided_at`). pgTAP again CI-only here.
+- **Verification nits:** stale AAL2 comments corrected repo-wide (quotas,
+  venues, audit, contacts, po hooks/mutations, mfa-gate, three pgTAP headers +
+  the J7 label). Comment/label text only, no `plan()` change. Dead
+  `QuotaRequestsInbox.tsx` deleted (it had no importers). An approve that loses
+  the race (45003) is mapped by code to `t.quotaRequests.alreadyHandled`, so the
+  RPC's Dutch message never reaches the UI (applied migration untouched). Two
+  unit tests. `NOT_DECIDABLE` now sits below the imports and reads catalogue copy.
+
+## 2026-09-25 — Fase 17 N6: door variant follows touch or width (decision 14)
+
+Branch `claude/n6-door-variant`. Which Door-tab variant mounts, nothing else —
+the outbox (`src/features/door`) and the cockpit are unchanged.
+
+- New `src/components/po/use-door-variant.ts`: `useDoorVariant()` =
+  `'cockpit'` only for `(pointer: fine)` at ≥1024px, `'outbox'` otherwise (no
+  `matchMedia` ⇒ outbox, via `hasFinePointer()`). `useSyncExternalStore`, so
+  the `ssr:false` `/app` shell reads the real answer on its first render; the
+  server snapshot is `null` (placeholder, neither variant mounted).
+  `useLatchedDoorVariant()` keeps `'outbox'` for the caller's lifetime once
+  chosen — a pointer toggle or resize never unmounts a live `DoorProvider`;
+  leaving the tab re-evaluates.
+- `door-branch.tsx`: `PoDoorBranch` picks via the latched hook (the `isMobile`
+  prop is gone). `app.tsx`: chrome still keys on `useViewport` (1024 unchanged);
+  the T6 cockpit auto-open now gates on the cockpit variant.
+- `DoorRoute.tsx` (`/door/[id]`): same latched hook; SSR HTML is the spinner,
+  so the outbox mounts once, client-side, on the real answer. The page no longer
+  reads the UA (`serverHint` dropped; the SW PII guard's prop set tightened to
+  `eventId` only). Root now pads `ROOT_SAFE_AREA` (top/sides) like the po shell.
+- **Review round 1 (blocking): `ResponsiveShell` remounted the door.** The
+  shell returned two different trees for the two chromes, so `children` (the
+  Deur tab) sat at a different element path in each and every flip at 1024px
+  remounted `DoorProvider` — a UA-misseeded first load (iPad portrait with the
+  iPadOS `Macintosh` UA, a narrow laptop window: 2 mounts vs. 1 on base), an
+  iPad rotated across 1024 mid-shift, a laptop window widened past 1024. The
+  remount also reset the latch (component state), so widening swapped a live
+  outbox for the cockpit. Fix (scope extension authorized by the orchestrator):
+  `shell-responsive.tsx` now renders ONE tree, `div > main > div > children`
+  in both chromes, with the sidebar and tab bar as conditional siblings and
+  only the wrapper classes switching; visuals unchanged. `use-viewport.ts`, the
+  door internals and `app.tsx`'s reads are untouched.
+- Behaviour change to know: a laptop whose window was <1024px when it opened
+  the door keeps the outbox door after widening, until it leaves the Deur tab.
+  Narrowing from the cockpit below 1024 switches to the outbox (safe direction).
+- `src/app/door/[eventId]/page.tsx` is outside N6's file list but required:
+  `DoorRoute` no longer takes `serverHint`, so the page stops reading the UA.
+- Tests: `use-door-variant.test.tsx` (24 — matrix × hook/branch/route incl.
+  touch at exactly 1024 → outbox, no remount on pointer/width change, SSR
+  placeholder); new `shell-door-mount.test.tsx` (10 — the real shell around the
+  real branch: 1 mount on UA-misseeded first loads incl. 768px, iPad rotation
+  both ways across 1024, laptop widen keeps the outbox, narrow switches to it,
+  leaving the tab resets the latch; 8 of 10 fail against the old shell);
+  `app.auto-open.test.tsx` now stubs a fine pointer. Not run here: pgTAP, e2e
+  (no Supabase/Docker) — CI.
+
 ---
+## 2026-09-25 — Fase 17 S2: Icons, splash, store listing drafts (86ey6bft8)
 
-## 2026-09-26 — Fase 17 S1a review round: release preconditions (86ey6bfpy)
+Golf 3 of Fase 17, depends on N3 (merged). Draft PR `feat(native): app icons, splash, store listing drafts (86ey6bft8)`. No migration.
 
-Fixes the adversarial review on PR #346 (all three findings). No migration, no app code.
-
-- **Runbook:** hard precondition at the top and before step 6/every rollout — `https://app.plus-one.io`
-  live on Vercel project `plus-one` (M5, done 2026-09-25); verify by opening
-  `https://app.plus-one.io/login`. The first-release name is `<versionCode> (1.0.0)`, not `1 (1.0.0)`.
-- **Workflow:** synced `server.url` must be exactly `https://app.plus-one.io` (literal, not only
-  `PROD_SERVER_URL`); first script fails unless `HEAD` is an ancestor of `origin/main`
-  (unshallows first); versionCode = `max(Play internal latest + 1, BUILD_NUMBER)` via
-  `google-play get-latest-build-number --tracks internal` (nothing uploaded yet ⇒ 0).
-- **Guard test** extended for all three.
-
----
+- **Source constraint:** the repo has no vector/larger-than-512px brand source — `public/icon-maskable-512x512.png` is the largest master. Flagged for Max: a real 1024×1024+ (ideally SVG) master is needed before App Store submission; everything generated here is upscaled from 512px and will not be crisp at the full-size App Store icon slot.
+- **Generation:** `@capacitor/assets@3.0.5` from `assets/icon.png` (a checked-in copy of the maskable 512 source) via Custom-mode `--ios --android` generation, `--iconBackgroundColor/--iconBackgroundColorDark '#B5A6FF'` (matches the existing baked-in icon background — the icon tile itself has always been lavender, only the shell/splash is near-black), `--splashBackgroundColor/--splashBackgroundColorDark '#0B0B0D'` (design-system near-black, matches `SHELL_BACKGROUND` in `capacitor.config.ts` and `plusone_colors.xml` — no separate light/dark theme, both variants render identically on purpose, no white flash).
+- **Could not run `@capacitor/assets` via `pnpm dlx` in this container:** its pinned `sharp@0.32.6` failed to load a prebuilt binary through `pnpm dlx`'s install path. Fell back to the documented escape hatch: installed `sharp@0.32.6` + `@capacitor/assets@3.0.5` with plain `npm install` in a throwaway directory *outside* the repo (not committed, doesn't touch `package.json`/the lockfile), then ran the CLI binary from there against the repo. `package.json`/`pnpm-lock.yaml` are untouched.
+- **Android:** full adaptive-icon set (`ic_launcher_foreground`/`_background` per density incl. a generated `ldpi` bucket, `mipmap-anydpi-v26/ic_launcher*.xml`) + legacy square/round launcher icons + light/night splash drawables (both identical — single dark theme). The generator also reformatted `AndroidManifest.xml` whitespace (attribute values unchanged) as part of its normal write path.
+- **iOS:** single-size `AppIcon-512@2x.png` (1024×1024, RGB, no alpha — App Store requires opaque) in the modern one-entry `AppIcon.appiconset`; `Splash.imageset` regenerated as `Default@{1,2,3}x~universal~anyany[-dark].png`. Removed the three now-orphaned N3-scaffold placeholder splash PNGs (`splash-2732x2732*.png`) that the new `Contents.json` no longer references.
+- **Store metadata** (`docs/store/`): Play + App Store listing drafts in Dutch (primary) + English — short/full descriptions, subtitle, promotional text, keywords, data-safety/privacy-nutrition-label notes, export compliance (HTTPS-only, exempt), review notes for the 4.2 defense, and a `screenshots.md` shot-list (iPhone 6.7" + iPad 13" + Android phone) blocked on T1 (tablet layouts) landing first. Content matches shipped features only — no ticketing, no outbound invites, no native billing UI (decisions #36/#32).
+- **Open items for Max:** a proper ≥1024×1024 icon master (SVG preferred); screenshots after T1; final category/age-rating choice in each console; App Store review-login credentials once S3 lands.
 
 ## 2026-09-25 — Fase 17 S1a: Codemagic Android release → Play internal (86ey6bfpy)
 
@@ -233,7 +463,6 @@ Golf 3 of Fase 17. No migration, no app code. Draft PR `ci(native): Codemagic An
   The YAML was parsed (PyYAML) and checked key-by-key against the Codemagic docs cited in its
   header. The first real run is Max's (runbook step 6).
 
----
 ## 2026-09-25 — Fase 17 N4: door cold-start spike, go/no-go (86ey6bfe8)
 
 Wave 3 of Fase 17, decision task, no production code. Draft PR `docs(native): N4 door
@@ -268,6 +497,7 @@ cold-start spike — go/no-go`, branch `claude/n4-door-cold-start-spike`. Delive
   `chrome://inspect` during the device test; ITP 7-day storage cap in WKWebView (unanswered by
   Apple; single-origin shell with constant interaction makes it unlikely). Device script (12
   steps, two rounds) is in the doc for Max's N3 Android build.
+
 ## 2026-09-25 — Fase 17 golf 2: exit passed on a real Android device (epic 86exxuvye)
 
 N3 (#340) is merged. Max's Android debug build (Samsung SM-S721B, Android Studio on Windows) passed A1–A5: e-mail-code login, server-action writes, door offline (queue, then drain on reconnect, plus the stale-resume overlay), external links in the in-app browser sheet, and the hardware back button retracing the stack and minimizing on Home.
@@ -327,6 +557,52 @@ external link in the in-app browser tab, back button that only minimizes on the
 
 
 
+
+
+
+
+---
+
+## 2026-09-25 — Fase 17 N1 leftovers: kit copy/external-link helpers in auth + onboarding
+
+Closes the three leftovers the 86ey6bfam N1 task fenced out (see that entry
+below). No migration, no dependency change.
+
+- **`MfaEnrollCard.tsx`**: the TOTP-secret copy button used a bare
+  `navigator.clipboard.writeText` wrapped in its own try/catch + local
+  `useTransientValue` state. Switched to the kit's `useCopyText` +
+  `copyStateLabel`, so a blocked clipboard (some webviews, insecure contexts)
+  now shows the shared "Couldn't copy" label instead of silently staying on
+  "Copy" forever. The secret stays visible/selectable either way (unchanged
+  fallback). `MfaEnrollCard.test.tsx`'s clipboard-unavailable case now asserts
+  the failure label instead of "no crash, stays on Copy".
+- **`ConsentScreen.tsx`** and **`VenueStep.tsx`**: terms/privacy links were
+  bare `<a target="_blank" rel="noreferrer">`, same trap `screens/onboarding.tsx`
+  already fixed in N1 (`ExternalLink` — Capacitor's remote-URL webview loads
+  `_blank` INSIDE itself with no way back). Both links sit inside the `<label>`
+  wrapping the consent checkbox; `ExternalLink`'s `preventDefault()` on a plain
+  click already stops the label's own toggle action, so no extra handling was
+  needed — verified with a dedicated test per screen (link has no `target`
+  attribute, and clicking it leaves the checkbox unchecked).
+- Repo-wide grep for `target="_blank"` / `window.open(` / `navigator.clipboard`
+  outside `kit.tsx` turned up nothing else in `/app`, `/consent`, `/mfa`,
+  `/login` or onboarding — `screens/settings/venue.tsx` was already on
+  `ExternalLink` (the "known leftover" note under N1 below was stale).
+  `landing-frame.tsx` (public `/e`/`/r` footer, browser-only surface — app
+  links never claim `/e/*`, plan decision 11) is left as-is, same as N1.
+- Tests: `MfaEnrollCard.test.tsx` (updated), new `ConsentScreen.test.tsx` and
+  `steps/VenueStep.test.tsx` (2 cases each, pattern from `kit.webview.test.tsx`).
+- **Round 2 (Max's hands-on test):** the po Profile "Turn on two-factor" sheet
+  is a *different* component (`PoMfaSheet` in `mfa-gate.tsx`, shared with the
+  `useMfaGate` step-up) — the round-1 fix only touched the `/mfa/enroll`
+  route's `MfaEnrollCard`, so the secret there still had no copy button. Added
+  a `CopyableField` primitive to `kit.tsx` (value + trailing copy button on
+  `useCopyText`/`copyStateLabel`, 44px real tap height) and used it for the
+  secret in `mfa-gate.tsx`; new `t.shared.kit.copyLabel`/`copyDone` +
+  `t.shared.mfaGate.copySecretAria` strings. Test:
+  `mfa-gate.copy-secret.test.tsx` (copy success + clipboard-failure labels).
+
+---
 
 
 ## 2026-09-25 — Fase 17 N3: Capacitor scaffold + Android shell (86ey6bfdm)

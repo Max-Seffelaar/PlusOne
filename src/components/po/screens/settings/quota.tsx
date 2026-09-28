@@ -18,7 +18,7 @@ import { col, FormError } from './_shared';
 // ── GEBRUIKERS & TOELAGES (pushed) — S6 default-quota, live ───────────────────
 // Per-member DEFAULT quota (quotas.default_count, falling back to the venue
 // default). Per-event overrides (event_quotas) live on the "Toelage per event"
-// screen — out of scope here. Editing is admin-only + AAL2 (setDefaultQuota).
+// screen — out of scope here. Editing is admin-only, role-only (setDefaultQuota).
 export function Rollen(): JSX.Element {
   const nav = useNav();
   const { roles } = usePoIdentity();

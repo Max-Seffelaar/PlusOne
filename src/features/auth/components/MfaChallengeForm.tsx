@@ -7,7 +7,7 @@ import { totpSchema } from '@/features/auth/schemas';
 import { PendingOutboxError, signOutDevice } from '@/features/auth/sign-out-device';
 
 // Step-up challenge: a user with a verified TOTP factor on an AAL1 session
-// proves the second factor to reach AAL2 (required for sensitive routes).
+// proves the second factor to reach AAL2 (voluntary — MFA is optional, no route or action requires it).
 export function MfaChallengeForm({ nextPath }: { nextPath: string }): JSX.Element {
   const supabase = createClient();
   const [factorId, setFactorId] = useState<string | null>(null);

@@ -5,7 +5,7 @@
 //   node scripts/seed-demo-venue.mjs            # local stack (.env.local)
 //   node scripts/seed-demo-venue.mjs --prod     # required for any non-local URL
 //   … --reset-members                            # remove stray demo-venue members
-//   … --end-review                               # ONLY revoke every demo session, seed nothing
+//   … --end-review                               # ONLY revoke every demo session + MFA factor, seed nothing
 //
 // Creds come from .env.local or process.env, like scripts/invite-link.mjs:
 // NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY. For prod, run it from
@@ -13,14 +13,17 @@
 //
 // IDEMPOTENT: fixed ids, insert-if-missing. A second run changes nothing except
 // that the two demo events are moved forward again (starts_at/ends_at only), so
-// the door always has upcoming events at submission time. Data a reviewer
+// the door always has upcoming events at submission time, and the venue's name,
+// settings.onboarding.completed = true and the demo membership's roles are
+// restored. Data a reviewer
 // created or changed is left alone; reviewer-caused drift that would weaken the
 // isolation (a membership outside the demo venue, the platform-admin flag) makes
 // the script STOP instead of papering over it.
 //
 // It also RESETS the demo account's MFA: every TOTP factor is deleted, because a
 // factor enrolled on the shared account would strand the next reviewer on the
-// AAL2 wall (the route refuses such a session anyway).
+// AAL2 wall (the route refuses such a session anyway). --end-review runs the
+// same sweep (sweepDemoFactors), so ending a review also clears a rogue factor.
 //
 // Why admin.createUser and not inviteUserByEmail (CLAUDE.md, invite mail rule):
 // the demo address is on demo.plus-one.io, which has no MX record. An invite
@@ -152,10 +155,22 @@ async function findUser(email) {
   return users.find((u) => (u.email ?? '').toLowerCase() === email) ?? null;
 }
 
+// Delete every MFA factor on the demo account (admin API). The ONE sweep, used
+// by the full seed and by --end-review: a factor enrolled on the shared account
+// makes review-login refuse the next reviewer (reason mfa_enrolled).
+async function sweepDemoFactors(userId) {
+  const factors = await must('listFactors', db.auth.admin.mfa.listFactors({ userId }));
+  for (const factor of factors.factors ?? []) {
+    await must('deleteFactor', db.auth.admin.mfa.deleteFactor({ userId, id: factor.id }));
+    console.log('[seed-demo-venue] removed an MFA factor from the demo user');
+  }
+}
+
 let user = await findUser(DEMO_REVIEW_EMAIL);
 
-// --end-review: when a submission closes, revoke EVERY demo session (scope
-// 'global', the probe's own included) and stop. The app already ends a demo
+// --end-review: when a submission closes, delete every demo MFA factor (so a
+// factor a reviewer enrolled cannot lock the next one out) and revoke EVERY
+// demo session (scope 'global', the probe's own included), then stop. The app already ends a demo
 // session on its next request once the window is closed (middleware + /app
 // layout); this also covers a client that only talks to the API directly.
 if (END_REVIEW) {
@@ -165,10 +180,11 @@ if (END_REVIEW) {
   }
   if (user.id !== DEMO_USER_ID) fail(`--end-review: ${DEMO_REVIEW_EMAIL} has id ${user.id}, not ${DEMO_USER_ID}; investigate by hand.`);
   if (!anonKey) fail('--end-review needs NEXT_PUBLIC_SUPABASE_ANON_KEY (the revoke runs as the demo user).');
+  await sweepDemoFactors(user.id);
   const { probe } = await demoProbe();
   const { error } = await probe.auth.signOut({ scope: 'global' });
   if (error) fail(`--end-review: global sign-out failed: ${error.message}`);
-  console.log('[seed-demo-venue] --end-review: every demo session revoked (scope: global). Nothing else was changed.');
+  console.log('[seed-demo-venue] --end-review: every demo MFA factor removed and every demo session revoked (scope: global). Nothing else was changed.');
   process.exit(0);
 }
 if (!user) {
@@ -199,11 +215,7 @@ if (!user) {
 }
 const userId = user.id;
 
-const factors = await must('listFactors', db.auth.admin.mfa.listFactors({ userId }));
-for (const factor of factors.factors ?? []) {
-  await must('deleteFactor', db.auth.admin.mfa.deleteFactor({ userId, id: factor.id }));
-  console.log('[seed-demo-venue] removed an MFA factor from the demo user');
-}
+await sweepDemoFactors(userId);
 
 await must(
   'user_profiles upsert',
@@ -233,10 +245,27 @@ await insertMissing('venues', [
     settings: { venue_type: 'club', onboarding: { completed: true, created_by: userId } },
   },
 ]);
-const venue = await must('venue read', db.from('venues').select('name').eq('id', VENUE_ID).single());
+const venue = await must('venue read', db.from('venues').select('name, settings').eq('id', VENUE_ID).single());
 if (venue.name !== DEMO_VENUE_NAME) {
   console.warn(`[seed-demo-venue] demo venue was renamed; restoring "${DEMO_VENUE_NAME}"`);
   await must('venue rename', db.from('venues').update({ name: DEMO_VENUE_NAME }).eq('id', VENUE_ID));
+}
+// The demo account is admin here, so it can PATCH settings.onboarding.completed
+// back to false; getOnboardingState would then count the venue as unfinished
+// and the wizard's venue/invite steps (both refused for it) would be the next
+// screen. The /app layout never redirects the demo account there, but restore
+// the flag on every run anyway, keeping every other settings key as it is.
+const settings = venue.settings && typeof venue.settings === 'object' && !Array.isArray(venue.settings) ? venue.settings : {};
+const onboarding = settings.onboarding && typeof settings.onboarding === 'object' && !Array.isArray(settings.onboarding) ? settings.onboarding : {};
+if (onboarding.completed !== true) {
+  console.warn('[seed-demo-venue] demo venue onboarding was reopened; marking it completed again');
+  await must(
+    'venue onboarding',
+    db
+      .from('venues')
+      .update({ settings: { ...settings, onboarding: { ...onboarding, completed: true, created_by: onboarding.created_by ?? userId } } })
+      .eq('id', VENUE_ID),
+  );
 }
 
 const existingSub = await must('subscription read', db.from('subscriptions').select('status').eq('venue_id', VENUE_ID).maybeSingle());
@@ -259,6 +288,16 @@ if (elsewhere.length > 0) {
     `The demo user is a member of other venue(s): ${elsewhere.join(', ')}. ` +
       'Investigate (a reviewer created a venue, or someone invited the demo address) and remove those memberships by hand. ' +
       'review-login refuses to sign in until the demo venue is the only one.',
+  );
+}
+// Crew seats: the seed creates none, and the DB refuses every organizer row for
+// the demo user (20260925150000, round 10). A row here predates that guard or
+// came through a path nobody thought of: stop, like a foreign membership.
+const crewSeats = await must('crew seats read', db.from('event_organizers').select('event_id').eq('user_id', userId));
+if (crewSeats.length > 0) {
+  fail(
+    `The demo user is crew on ${crewSeats.length} event(s): ${crewSeats.map((c) => c.event_id).join(', ')}. ` +
+      'Investigate and remove those event_organizers rows by hand. review-login refuses to sign in until there are none.',
   );
 }
 // Tripwire: anything the demo user ever did OUTSIDE the demo venue. The DB
