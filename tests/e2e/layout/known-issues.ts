@@ -31,7 +31,7 @@ const FIELD =
 const FIELD_SCREENS = [
   'aanvragen', 'aanvragen.quota', 'checkin.door', 'contacten', 'eventedit', 'eventedit.new',
   'guests.admin', 'guests.door', 'home.admin', 'home.door', 'lijst', 'platform', 'platformaudit',
-  'platformvenues', 'profile', 'quickadd', 'templateedit.new', 'venuecreate', 'venuesettings',
+  'platformvenues', 'profile', 'quickadd', 'templateedit', 'templateedit.new', 'venuecreate', 'venuesettings',
 ] as const;
 
 export const KNOWN_ISSUES: readonly KnownIssue[] = [
@@ -44,6 +44,7 @@ export const KNOWN_ISSUES: readonly KnownIssue[] = [
   { screen: 'tasks.door', check: 'tap-targets', reason: 'door segment pills 39.5px, tier filter chips 34–35px, cockpit status tabs 36px' },
   { screen: 'crew', check: 'tap-targets', reason: 'crew quota stepper is 32×32 and "Remove" is 26px tall' },
   { screen: 'eventedit', check: 'tap-targets', reason: '"Copy sign-up link" chip is 35px tall' },
+  { screen: 'eventedit.new', check: 'tap-targets', reason: 'template-picker chips ("Blank event" / a template) are 35px tall' },
   { screen: 'events.admin', check: 'tap-targets', reason: 'Upcoming/Past segment is 38px tall' },
   { screen: 'events.door', check: 'tap-targets', reason: 'Upcoming/Past segment is 38px tall' },
   { screen: 'gebruikers', check: 'tap-targets', reason: 'pending-invite "Resend" action is 26px tall' },
