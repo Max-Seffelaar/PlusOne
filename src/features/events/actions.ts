@@ -6,6 +6,7 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { alreadyRegistered, sendInviteEmail } from '@/features/auth/invite-mail';
 import { getAuthContext } from '@/lib/auth/context';
 import { isDemoReviewUser } from '@/features/auth/review-window';
+import { DEMO_USER_ID } from '@/features/auth/demo-account';
 import { t } from '@/lib/i18n';
 import { mapMutationError, unauthorized, invalidInput, notFound, type MutationError } from '@/lib/db-errors';
 import { assertVenueBillingActive } from '@/features/billing/gate';
@@ -64,7 +65,7 @@ import {
 
 // Every action follows the CLAUDE.md security checklist: verify the session
 // server-side, validate input with Zod, then mutate through the USER-scoped
-// client so RLS (membership/role/AAL2, #23/#24) and the fase-6 status trigger
+// client so RLS (membership/role, #23/#24) and the fase-6 status trigger
 // (SQLSTATE 45004) are the real boundary — never the service client, except the
 // documented organizer-invite account provisioning. Invalid status moves surface
 // as 45004 → src/lib/db-errors.ts.
@@ -415,6 +416,13 @@ export async function assignOrganizer(input: AssignOrganizerInput): Promise<Acti
   const supabase = await createClient();
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
+  // The store-review demo account adds no crew (86ey6bfug): the real stop is
+  // the event_organizers trigger (20260925150000), this only gives the UI a
+  // clear message.
+  if (isDemoReviewUser(ctx.user)) return { ok: false, code: '42501', message: t.auth.demoNoInvites };
+  // Nor is the demo account ever added as crew, by anyone (round 10: the
+  // trigger refuses organizer rows for the demo user too).
+  if (userId === DEMO_USER_ID) return { ok: false, code: '42501', message: t.auth.demoCannotJoin };
 
   const { error } = await supabase
     .from('event_organizers')

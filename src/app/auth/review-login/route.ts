@@ -225,22 +225,31 @@ async function demoAccountRefusal(
 ): Promise<string | null> {
   if (!isExactDemoAccount(user)) return 'account';
 
+  // The reads are independent, so they run in parallel; the checks below then
+  // evaluate them in a FIXED order, so the first failing check wins exactly as
+  // if they had run one by one (route.test.ts pins that precedence).
+  const nowIso = new Date().toISOString();
+  const [factorsRes, adminRes, ownRes, crewRes, membersRes, venueInvites, addressedInvites] = await Promise.all([
+    probe.auth.mfa.listFactors(),
+    probe.rpc('is_platform_admin'),
+    // User isolation, by id (a venue admin can rename a venue, not re-key it).
+    probe.from('venue_memberships').select('venue_id, roles').eq('user_id', user.id),
+    probe.from('event_organizers').select('event_id').eq('user_id', user.id),
+    probe.from('venue_memberships').select('user_id').eq('venue_id', DEMO_VENUE_ID),
+    probe.from('invites').select('id').eq('venue_id', DEMO_VENUE_ID).is('accepted_at', null).gt('expires_at', nowIso),
+    probe.from('invites').select('id').ilike('email', DEMO_REVIEW_EMAIL).is('accepted_at', null).gt('expires_at', nowIso),
+  ]);
+
   // A verified TOTP factor would strand the reviewer on the AAL2 wall, and
   // would mean someone enrolled their own authenticator on the shared account.
-  const { data: factors, error: factorError } = await probe.auth.mfa.listFactors();
-  if (factorError) return 'factors_unreadable';
-  if ((factors?.totp ?? []).some((f) => f.status === 'verified')) return 'mfa_enrolled';
+  if (factorsRes.error) return 'factors_unreadable';
+  if ((factorsRes.data?.totp ?? []).some((f) => f.status === 'verified')) return 'mfa_enrolled';
 
-  const { data: isAdmin, error: adminError } = await probe.rpc('is_platform_admin');
-  if (adminError) return 'platform_flag_unreadable';
-  if (isAdmin !== false) return 'platform_admin';
+  if (adminRes.error) return 'platform_flag_unreadable';
+  if (adminRes.data !== false) return 'platform_admin';
 
-  // User isolation, by id (a venue admin can rename a venue, not re-key it).
-  const { data: own, error: ownError } = await probe
-    .from('venue_memberships')
-    .select('venue_id, roles')
-    .eq('user_id', user.id);
-  if (ownError || !own) return 'memberships_unreadable';
+  const own = ownRes.data;
+  if (ownRes.error || !own) return 'memberships_unreadable';
   if (own.length !== 1) return 'membership_count';
   if (own[0]?.venue_id !== DEMO_VENUE_ID) return 'membership_venue';
   // Exactly the seeded roles, BEFORE the counts below are trusted: those reads
@@ -249,25 +258,28 @@ async function demoAccountRefusal(
   // rewrite its own row. A demoted row would make the counts look clean.
   if (!sameRoles(own[0]?.roles, DEMO_ROLES)) return 'roles_changed';
 
+  // No crew seat anywhere: the seed creates none, and a crew row on another
+  // venue's event is event-scoped access outside the demo venue. The DB
+  // refuses every event_organizers row for the demo user (refuse_demo_venue_new_crew,
+  // 20260925150000); this read is defence in depth. RLS always lets a user read
+  // its own organizer rows (event_organizers_select: user_id = auth.uid()).
+  if (crewRes.error || !crewRes.data) return 'crew_unreadable';
+  if (crewRes.data.length > 0) return 'crew_elsewhere';
+
   // Venue isolation: nobody else in the demo venue (a code holder, as admin,
   // could invite a real address that outlives every window), and no open
   // invite into the demo venue or addressed to the demo e-mail (consent would
   // accept that one AFTER this check). As admin of the venue (checked just
   // above) the demo user can read all of this under RLS: every membership of
   // its venue, its venue's invites, and invites to its own address
-  // (invites_select, via the JWT e-mail).
-  const { data: members, error: membersError } = await probe
-    .from('venue_memberships')
-    .select('user_id')
-    .eq('venue_id', DEMO_VENUE_ID);
-  if (membersError || !members) return 'venue_members_unreadable';
+  // (invites_select, via the JWT e-mail). Since 20260925150000 the DB refuses
+  // both kinds of invite outright (refuse_demo_venue_invite keys on the venue
+  // AND the address); the reads stay as defence in depth, for an invite written
+  // before that migration or through a path nobody thought of.
+  const members = membersRes.data;
+  if (membersRes.error || !members) return 'venue_members_unreadable';
   if (members.length !== 1 || members[0]?.user_id !== user.id) return 'venue_not_isolated';
 
-  const nowIso = new Date().toISOString();
-  const [venueInvites, addressedInvites] = await Promise.all([
-    probe.from('invites').select('id').eq('venue_id', DEMO_VENUE_ID).is('accepted_at', null).gt('expires_at', nowIso),
-    probe.from('invites').select('id').ilike('email', DEMO_REVIEW_EMAIL).is('accepted_at', null).gt('expires_at', nowIso),
-  ]);
   if (venueInvites.error || addressedInvites.error) return 'invites_unreadable';
   if ((venueInvites.data?.length ?? 0) > 0 || (addressedInvites.data?.length ?? 0) > 0) return 'venue_not_isolated';
 

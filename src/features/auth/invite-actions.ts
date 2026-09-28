@@ -34,8 +34,8 @@ async function callerRolesAt(venueId: string, userId: string): Promise<VenueRole
 
 /**
  * Invite a user to a venue with a set of roles (decision #20/#24). Security
- * checklist applied: session verified server-side, AAL2 enforced (role grant
- * is sensitive), caller's venue role + escalation guard checked in the app AND
+ * checklist applied: session verified server-side (role-only — no AAL2
+ * requirement, MFA is optional), caller's venue role + escalation guard checked in the app AND
  * again by RLS on the invite insert, all input through Zod.
  *
  * The invite row — written through the user-scoped client so RLS re-validates —

@@ -36,6 +36,7 @@ import { parentPathFor } from './nav-map';
 import { useDoorOverride, type DoorOverrideState } from './use-door-override';
 import type { TabKey } from './shell';
 import { useViewport } from './use-viewport';
+import { useDoorVariant } from './use-door-variant';
 import type { DoorOverlay } from './screens/door';
 
 // Tracks whether a real, poppable history entry has been pushed yet THIS
@@ -84,9 +85,11 @@ function useShellMountProbe(): void {
 export function PlusOneApp(): JSX.Element {
   useShellMountProbe();
   const { serverHint } = useAppShellData();
-  // Same breakpoint/source as ResponsiveShell — picks the door branch's variant
-  // (≥1024px = Event-dag cockpit, <1024px = the outbox-backed door tab).
+  // Same breakpoint/source as ResponsiveShell — the chrome only. The door's
+  // variant is its own question (decision 14: touch OR <1024px → outbox), picked
+  // inside `PoDoorBranch`; read here only to gate the cockpit's auto-open.
   const isMobile = useViewport(serverHint);
+  const doorVariant = useDoorVariant();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -303,7 +306,6 @@ export function PlusOneApp(): JSX.Element {
       >
         {isDoorTab ? (
           <PoDoorBranch
-            isMobile={isMobile}
             doorState={doorState}
             doorEventIdFromUrl={doorEventIdFromUrl}
             doorNav={doorNav}
@@ -316,7 +318,7 @@ export function PlusOneApp(): JSX.Element {
       {/* Reads `usePoDoorCandidates` while the user is NOT on the door tab, which
           is the one thing that used to force that query into the shell root.
           Renders nothing. */}
-      {!isMobile && showDoor && (
+      {doorVariant === 'cockpit' && showDoor && (
         <DesktopDoorAutoOpen
           userId={userId}
           isStartTab={target.kind === 'tab' && target.tab === 'start'}
