@@ -10,7 +10,7 @@ import { groupPoSessions } from '@/features/po/adapters';
 import { PoMfaSheet } from '../../mfa-gate';
 import { useNav } from '../../context';
 import { Icon, type IconName } from '../../icon';
-import { Avatar, Btn, Empty, Field, Label, Loading, MiniChip, Note, RefusedAction, Scroll, Top, press } from '../../kit';
+import { Avatar, Btn, Empty, Field, Label, Loading, MiniChip, Note, RefusedAction, Scroll, Top, hitRingY13, press } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
 import { CountrySelect, PhoneInput, phoneCountryOf, type CountryCode } from '../../phone-lazy';
 import { useIsDemoAccount } from '../../app-shell-data';
@@ -94,7 +94,15 @@ function MfaCard({ recommended, demo = false }: { recommended: boolean; demo?: b
           <button
             type="button"
             onClick={() => (on ? setConfirmDisable(true) : setEnroll(true))}
-            className={cn('mt-[7px] font-body text-[12.5px] font-bold', press, on ? 'text-faint' : 'text-acc')}
+            // 19px text button: an invisible 13px ring (kit `hitRingY13`) → 45px
+            // tap area, inside the row's own 14px bottom padding; min-w keeps the
+            // short "Turn on" label 44 wide (T1, touch).
+            className={cn(
+              'mt-[7px] min-w-[44px] text-left font-body text-[12.5px] font-bold',
+              hitRingY13,
+              press,
+              on ? 'text-faint' : 'text-acc',
+            )}
           >
             {on ? t.settings.profile.mfaDisable : t.settings.profile.mfaEnable}
           </button>

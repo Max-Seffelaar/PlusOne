@@ -13,7 +13,7 @@ export type QuotaRequestInput = z.input<typeof quotaRequestSchema>;
 /**
  * Admin sets a member's DEFAULT quota at a venue (#4, role matrix §2). Per-user,
  * not per-role. Written through the venue dashboard; RLS (quotas_*_admin)
- * requires admin + AAL2. 0 means "no personal slots" (the quota engine treats a
+ * requires admin (role-only, no AAL2). 0 means "no personal slots" (the quota engine treats a
  * missing row as 0 too).
  */
 export const defaultQuotaSchema = z.object({

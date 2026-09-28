@@ -211,7 +211,7 @@ function isDemoMembership(venueId: string, userId: string): boolean {
 }
 
 /**
- * Change a member's roles (AAL2 — role grant is sensitive). Mirrors RLS
+ * Change a member's roles (role grant is sensitive; role-only, no AAL2). Mirrors RLS
  * venue_memberships_update: manager authority + the escalation guard on BOTH
  * the member's current roles (USING) and the new roles (WITH CHECK). Adds an
  * app-only last-admin guard so a venue can never be left without an admin.

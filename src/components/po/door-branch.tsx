@@ -38,6 +38,7 @@ import { EventDaySkeleton } from '@/features/po/eventday/EventDaySkeleton';
 import { DoorEventPicker, PoDoorTab, type DoorOverlay } from './screens/door';
 import { doorPath, type DoorSeg } from './routes';
 import type { DoorOverrideState } from './use-door-override';
+import { useLatchedDoorVariant } from './use-door-variant';
 import { Top } from './kit';
 import { t } from '@/lib/i18n';
 
@@ -127,15 +128,15 @@ const DoorTree = memo(function DoorTree({
 });
 
 /**
- * Door branch, mobile: mount the real DoorProvider (offline outbox + realtime)
+ * Door branch, outbox variant (touch or <1024px): mount the real DoorProvider (offline outbox + realtime)
  * for the venue's current event and render the shared door components. Kept
  * mounted across Deur↔Taken (both are door tabs) so realtime/cache survive the
  * switch; unmounts when leaving for another tab. No event resolvable → empty state.
  *
- * Only ever rendered on mobile and only on a door URL, so the `isMobile` /
- * `isDoorTab` guards that used to wrap the pin effect in `app.tsx` are now
- * structural: the effect cannot run off the door tab because the component
- * carrying it is not mounted there.
+ * Only ever rendered for the outbox variant and only on a door URL, so the
+ * `isMobile` / `isDoorTab` guards that used to wrap the pin effect in `app.tsx`
+ * are now structural: the effect cannot run off the door tab because the
+ * component carrying it is not mounted there.
  */
 function MobileDoorBranch({ doorState, doorNav }: { doorState: DoorOverrideState; doorNav: DoorNav }): JSX.Element {
   const doorCandidatesQuery = usePoDoorCandidates();
@@ -276,7 +277,7 @@ function MobileDoorBranch({ doorState, doorNav }: { doorState: DoorOverrideState
 }
 
 /**
- * Door branch, desktop (≥1024px): the Event-dag cockpit (T9 fold — this was the
+ * Door branch, desktop (fine pointer at ≥1024px): the Event-dag cockpit (T9 fold — this was the
  * standalone /eventday route until it lost the app menu; now it lives inside the
  * shell). Online-only by design (no outbox): reads via React Query + realtime,
  * check-in through the door gateway — exactly as /eventday worked. The event
@@ -304,26 +305,40 @@ function DesktopCockpitBranch({
   );
 }
 
+/**
+ * Picks the Door-tab variant (decision 14, N6): the outbox door for a coarse
+ * pointer OR a viewport under 1024px, the cockpit only for a fine pointer at
+ * ≥1024px — so an iPad in landscape gets the sidebar chrome AND the outbox.
+ *
+ * Latched (`useLatchedDoorVariant`): once this mount has shown the outbox it
+ * keeps it until the user leaves the door tab, so a pointer change or a resize
+ * mid-shift can never unmount a live `DoorProvider`. The shell mounts
+ * `ssr: false`, so the first render already reads the real media queries; the
+ * `null` branch is only a safety net and mounts neither variant.
+ */
 export function PoDoorBranch({
-  isMobile,
   doorState,
   doorEventIdFromUrl,
   doorNav,
   onChooseCockpitEvent,
 }: {
-  isMobile: boolean;
   doorState: DoorOverrideState;
   doorEventIdFromUrl: string | null;
   doorNav: DoorNav;
   onChooseCockpitEvent: (eventId: string | null) => void;
 }): ReactNode {
-  if (!isMobile) return <DesktopCockpitBranch chosenId={doorEventIdFromUrl} onChoose={onChooseCockpitEvent} />;
+  const variant = useLatchedDoorVariant();
+  if (variant === null) return <DoorTabState title={t.door.checkinTitle} text={t.common.loading} />;
+  if (variant === 'cockpit') {
+    return <DesktopCockpitBranch chosenId={doorEventIdFromUrl} onChoose={onChooseCockpitEvent} />;
+  }
   return <MobileDoorBranch doorState={doorState} doorNav={doorNav} />;
 }
 
 /**
  * T6 auto-open (decided 1/7): on the FIRST visit of this browser session (per
- * user), when the desktop shell (≥1024px) has exactly ONE event inside its door
+ * user), when the cockpit variant applies (fine pointer at ≥1024px, decision
+ * 14) and there is exactly ONE event inside its door
  * window (start − 1h through event end) AND the user landed on the bare Start
  * tab, replace it with the Door tab — the Event-day cockpit. Two or more
  * simultaneous nights → no guessing, land normally. It runs ONCE per session
@@ -336,7 +351,8 @@ export function PoDoorBranch({
  * Renders nothing. It lives in its own component (86eykm76k) precisely because
  * it needs `usePoDoorCandidates` while the user is NOT on the door tab — the one
  * reason the shell root used to read that query. Mounted only when the desktop
- * door applies, so its `isMobile`/`showDoor` guards are structural too.
+ * door applies (the cockpit variant), so its variant/`showDoor` guards are
+ * structural too.
  */
 export function DesktopDoorAutoOpen({
   userId,

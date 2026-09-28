@@ -142,6 +142,320 @@ event-crew invite still opened. Draft PR `fix(auth): demo refusals on every entr
 
 ---
 
+## 2026-09-25 — quota_requests: column-level UPDATE grant, deny-only client decision
+
+Branch `claude/quota-requests-column-grant`. Found in the N2 push-backend review
+(PR #336); mirrors `20260919150000` (guest_requests, L5).
+
+- **Bug:** `authenticated` held a table-wide UPDATE on `quota_requests` and
+  `quota_requests_decide_admin` pinned only the old row (pending, admin) and the
+  actor. An admin could therefore (a) rewrite `user_id`/`event_id`/`venue_id`/
+  `requested_extra`/`motivation`/`created_at` in the same PATCH as a deny, and
+  (b) approve by a direct write — `status = 'approved'` with no `event_quotas`
+  override, because `approve_quota_request` never ran (the requester is told
+  "approved", incl. the N2 push, for slots they don't have).
+- `20260925140000_quota_requests_column_update_grant.sql` — WITH CHECK now
+  requires `status = 'denied'` (client transition = pending → denied only;
+  approval = the RPC), and `revoke update` → `grant update (status, decided_by,
+  decided_at, decision_reason)`: exactly what `decideQuotaRequest`'s deny branch
+  writes. That is the only client UPDATE path (no staff cancel/withdraw exists).
+  INSERT/SELECT untouched; `set_event_scope` still assigns `venue_id` (triggers
+  aren't subject to column grants); `approve_quota_request` is SECURITY DEFINER.
+- Tests: new `quota_requests_column_grant.test.sql` (29: grant catalog, admin
+  A / staff / admin B-only / anon, legit deny + audit, RPC approve + override).
+  `audit.test.sql` I2 now approves via the RPC and `rls.test.sql` J7 now denies
+  — both used a direct approve write that is refused by design now. Unit guard
+  `src/features/quotas/actions.test.ts` pins the deny body to the four columns.
+  `grant_matrix.test.sql` unchanged (no UPDATE allowlist there);
+  `database.types.ts` unchanged (grants don't change types).
+- Not runnable in the building session (no Docker/Supabase CLI): pgTAP is gated
+  by CI `lint-and-test`.
+- **Review round (independent `/code-review` + `/security-review`):** merged
+  `origin/main` (changelog-only conflict, all entries kept). Every finding fixed
+  in-PR: `20260925140100_approve_quota_request_row_lock.sql` — the RPC now reads
+  the request `for update` and flips only `status = 'pending'` (rowcount check →
+  45003), so an approve can no longer overwrite a concurrent deny; nothing else
+  in the function changed. `20260925140200_quota_requests_stamp_decided_at.sql` —
+  BEFORE UPDATE OF status trigger sets `decided_at = now()` on every decision, so
+  a client can't backdate a deny (grant kept: the deployed app still sends the
+  column, the value is just ignored). `decideQuotaRequest` deny now
+  `.select('id')`s and maps UPDATE 0 (already decided / finance / other venue)
+  to one generic 45003 MutationError instead of `{ ok: true }`. Stale AAL2 /
+  "table-wide UPDATE" comments fixed (`actions.ts`, `push_outbox.test.sql`).
+  `quota_requests_column_grant.test.sql` 29 → 37 (B13 now via `req_state`
+  incl. `venue_id`; F1–F5 approve-after-deny + definer/search_path/ACL/lock;
+  G1–G3 server-stamped `decided_at`). pgTAP again CI-only here.
+- **Verification nits:** stale AAL2 comments corrected repo-wide (quotas,
+  venues, audit, contacts, po hooks/mutations, mfa-gate, three pgTAP headers +
+  the J7 label). Comment/label text only, no `plan()` change. Dead
+  `QuotaRequestsInbox.tsx` deleted (it had no importers). An approve that loses
+  the race (45003) is mapped by code to `t.quotaRequests.alreadyHandled`, so the
+  RPC's Dutch message never reaches the UI (applied migration untouched). Two
+  unit tests. `NOT_DECIDABLE` now sits below the imports and reads catalogue copy.
+
+---
+
+## 2026-09-25 — Fase 17 N6: door variant follows touch or width (decision 14)
+
+Branch `claude/n6-door-variant`. Which Door-tab variant mounts, nothing else —
+the outbox (`src/features/door`) and the cockpit are unchanged.
+
+- New `src/components/po/use-door-variant.ts`: `useDoorVariant()` =
+  `'cockpit'` only for `(pointer: fine)` at ≥1024px, `'outbox'` otherwise (no
+  `matchMedia` ⇒ outbox, via `hasFinePointer()`). `useSyncExternalStore`, so
+  the `ssr:false` `/app` shell reads the real answer on its first render; the
+  server snapshot is `null` (placeholder, neither variant mounted).
+  `useLatchedDoorVariant()` keeps `'outbox'` for the caller's lifetime once
+  chosen — a pointer toggle or resize never unmounts a live `DoorProvider`;
+  leaving the tab re-evaluates.
+- `door-branch.tsx`: `PoDoorBranch` picks via the latched hook (the `isMobile`
+  prop is gone). `app.tsx`: chrome still keys on `useViewport` (1024 unchanged);
+  the T6 cockpit auto-open now gates on the cockpit variant.
+- `DoorRoute.tsx` (`/door/[id]`): same latched hook; SSR HTML is the spinner,
+  so the outbox mounts once, client-side, on the real answer. The page no longer
+  reads the UA (`serverHint` dropped; the SW PII guard's prop set tightened to
+  `eventId` only). Root now pads `ROOT_SAFE_AREA` (top/sides) like the po shell.
+- **Review round 1 (blocking): `ResponsiveShell` remounted the door.** The
+  shell returned two different trees for the two chromes, so `children` (the
+  Deur tab) sat at a different element path in each and every flip at 1024px
+  remounted `DoorProvider` — a UA-misseeded first load (iPad portrait with the
+  iPadOS `Macintosh` UA, a narrow laptop window: 2 mounts vs. 1 on base), an
+  iPad rotated across 1024 mid-shift, a laptop window widened past 1024. The
+  remount also reset the latch (component state), so widening swapped a live
+  outbox for the cockpit. Fix (scope extension authorized by the orchestrator):
+  `shell-responsive.tsx` now renders ONE tree, `div > main > div > children`
+  in both chromes, with the sidebar and tab bar as conditional siblings and
+  only the wrapper classes switching; visuals unchanged. `use-viewport.ts`, the
+  door internals and `app.tsx`'s reads are untouched.
+- Behaviour change to know: a laptop whose window was <1024px when it opened
+  the door keeps the outbox door after widening, until it leaves the Deur tab.
+  Narrowing from the cockpit below 1024 switches to the outbox (safe direction).
+- `src/app/door/[eventId]/page.tsx` is outside N6's file list but required:
+  `DoorRoute` no longer takes `serverHint`, so the page stops reading the UA.
+- Tests: `use-door-variant.test.tsx` (24 — matrix × hook/branch/route incl.
+  touch at exactly 1024 → outbox, no remount on pointer/width change, SSR
+  placeholder); new `shell-door-mount.test.tsx` (10 — the real shell around the
+  real branch: 1 mount on UA-misseeded first loads incl. 768px, iPad rotation
+  both ways across 1024, laptop widen keeps the outbox, narrow switches to it,
+  leaving the tab resets the latch; 8 of 10 fail against the old shell);
+  `app.auto-open.test.tsx` now stubs a fine pointer. Not run here: pgTAP, e2e
+  (no Supabase/Docker) — CI.
+
+---
+
+## 2026-09-25 — Fase 17 T1 session 2: tablet pass over the remaining screens (z8uq9m0fzj)
+
+Branch `claude/z8uq9m0fzj-tablet-layouts-2`, follows PR #335. Frontend only: no
+migrations, no dependencies, none of the fenced files (`app.tsx`, `app-chrome.tsx`,
+`door-branch.tsx`, `screens/door.tsx`, `src/features/door|auth|onboarding/**`).
+
+- **Method.** Playwright against `pnpm dev:fake` (fixture Supabase), a touch context
+  (`pointer: coarse` confirmed in-page) at 744/768/820/834/1024/1180/1366 for 31
+  screens: horizontal overflow, controls past the right edge, and every control's
+  effective tap box (its `::before` hit ring and wrapping `<label>` counted).
+  Result: **no overflow and nothing off-screen at any width**; the only width-dependent
+  finding was the InfoTip. The sub-44px controls it found were the same at every
+  width, i.e. phone bugs too, and are fixed below.
+- **N1-fenced items (N1 has landed).** Kit `InfoTip`: the popover, its 36px close button
+  and the backdrop switch now key on `lg:[@media(pointer:fine)]:`, so an iPad in
+  landscape gets the bottom sheet (capped at 560px like the kit `Sheet`, no tab-bar
+  padding in the sidebar chrome). `kit.tsx` left `KNOWN_DEBT` in
+  `touch-density.test.ts`, which is now empty. Promotion `roster.tsx`/`event-links.tsx`
+  grids moved `lg:` → `md:`.
+- **New guard** `tests/unit/tablet-content-breakpoint.test.ts`: no screen under
+  `src/components/po/screens` may carry a width-only `lg:` class (only the pointer gate).
+- **Tap areas (invisible hit rings, no visual change):** kit `Seg` (40px), cockpit status
+  segments (36px) and tier chips (35px), event edit Copy link (35px), new-event template
+  chips (35px), Promotion range segments (36px) and "links on this event" (19px),
+  Profile MFA Turn on/off (19px), per-event links Copy link (39px), Import source/tier
+  pills (37–40px). Wrapped chip rows got a larger row gap so neighbouring rings meet
+  without overlapping; the Import source scroller got `py-1` so `overflow` does not clip
+  the ring. `design-system.md` records the hit-ring rule.
+- **Cockpit at 1024 touch:** no overlap; only the filter chips needed rings. Behaviour
+  unchanged. It stays online-only on an iPad in landscape until N6.
+- **Review round (adversarial review on #343).** Merged `main` (N3 #340 and later).
+  - The five 42–43px near-misses now reach ≥44: kit `Btn sm` carries a 2px y-ring (43 →
+    45; covers venue-switch "Manage", event edit "Cancel event" and every other small
+    button), Roles steppers a 2px ring on all sides (42 → 44), template-edit check-out
+    segments a 2px y-ring (42.8 → 44.8), Quick-add "Add tier" a 4px y-ring (41.5 → 47.5).
+  - Re-measured every ring in Chromium (border counted, `::before` box read from
+    `getComputedStyle`). Several first-round rings fell short: kit `Seg` 41.5, template
+    chips / cockpit tier chips / event edit Copy link 42.8, Promotion range segments
+    43.5, Import tier pills 42.8, the MFA "Turn on" label 43.7 wide. All were raised to
+    ≥44 (`Seg` y4, chips y6, range y5, tier pills y5, "Turn on" `min-w-[44px]`). Wrapped
+    rows keep their gaps; the rings still meet without overlapping.
+  - The hit-ring strings are now exported kit constants (`hitRing2`, `hitRingY2/4/5/6/13`
+    next to `hitArea44`). Every call site in this PR imports them. The tap-target ratchet
+    resolves them, and a new table pins the size each ring was picked for.
+  - The cockpit comment now points to plan decision 14 for which door variant a device
+    gets, so it stays true whether or not #344 lands first.
+  - InfoTip pointer switch (popover for a hover-capable pointer, sheet for touch) signed
+    off by the orchestrator as an interaction-mode choice. It is CSS-only, and a new
+    no-DOM server-render test plus a hydration test (fine and coarse pointer) prove it
+    is SSR-safe.
+  - Copy: "1 link on this event" (singular key `convLinksOne`).
+- **Known, not fixed here:** onboarding role toggles 42px (onboarding is fenced). The
+  desktop sidebar nav items measure 43.8px at ≥1024 (shell chrome, outside this PR's
+  fence). The InfoTip sheet at ≥1024 touch is positioned inside the content column (a
+  transformed ancestor is its containing block), so the sidebar is not dimmed; a tap
+  outside still closes it.
+- **Not checked visually:** Platform venues (the fixture manager is not a platform admin,
+  so the screen shows the no-access state), billing in the native shell (read-only rules
+  untouched), onboarding beyond the Team step.
+- Tests: `pnpm type-check` clean; `pnpm lint` only the 2 pre-existing combobox warnings;
+  vitest 180 files / 1926 tests green. Not run here: pgTAP, e2e, real iPad hardware.
+
+---
+
+## 2026-09-26 — Fase 17 S1a review round: release preconditions (86ey6bfpy)
+
+Fixes the adversarial review on PR #346 (all three findings). No migration, no app code.
+
+- **Runbook:** hard precondition at the top and before step 6/every rollout — `https://app.plus-one.io`
+  live on Vercel project `plus-one` (M5, done 2026-09-25); verify by opening
+  `https://app.plus-one.io/login`. The first-release name is `<versionCode> (1.0.0)`, not `1 (1.0.0)`.
+- **Workflow:** synced `server.url` must be exactly `https://app.plus-one.io` (literal, not only
+  `PROD_SERVER_URL`); first script fails unless `HEAD` is an ancestor of `origin/main`
+  (unshallows first); versionCode = `max(Play internal latest + 1, BUILD_NUMBER)` via
+  `google-play get-latest-build-number --tracks internal` (nothing uploaded yet ⇒ 0).
+- **Guard test** extended for all three.
+
+---
+
+## 2026-09-25 — Fase 17 S1a: Codemagic Android release → Play internal (86ey6bfpy)
+
+Golf 3 of Fase 17. No migration, no app code. Draft PR `ci(native): Codemagic Android release → Play internal track (86ey6bfpy)`.
+
+- **`codemagic.yaml`** (new, repo root), workflow `android-release`: `mac_mini_m2` (the only
+  free-plan machine), Node 22, JDK 21, pnpm via corepack (`packageManager`),
+  `pnpm install --frozen-lockfile`, `npx cap sync android`, `./gradlew bundleRelease`, signed
+  AAB → Play **internal** track with `submit_as_draft: true` (a human rolls out).
+  Triggers: manual + `android-v*` tags only — no push/PR events.
+- **Guards in the workflow:** fails if `CAP_SERVER_URL` is set at all (even empty), and
+  re-reads the synced `capacitor.config.json` (appId, `server.url === https://app.plus-one.io`,
+  no cleartext); refuses to build without the Codemagic keystore vars or the Play credential;
+  after the build `jarsigner -verify` + compares the AAB signer's SHA-256 to the upload key.
+- **Versioning:** versionCode = Codemagic `BUILD_NUMBER` (per workflow — never rename the
+  workflow key); versionName = `APP_VERSION_NAME` in `codemagic.yaml`, the single source (not
+  `package.json`, which N5 owns this wave and which sits at `0.1.0` for the web app).
+- **`android/app/build.gradle`:** reads `PLUSONE_VERSION_CODE` (validated 1..2100000000) /
+  `PLUSONE_VERSION_NAME` with local defaults `1` / `0.0.0-dev`; the release `signingConfig`
+  exists only when Codemagic's `CM_KEYSTORE_PATH` points at a file. Debug builds unchanged.
+- **`google-services.json`:** missing ⇒ warn and continue (no push) until N5 merges; then flip
+  `REQUIRE_GOOGLE_SERVICES` to `"true"` so a build without it fails.
+- **Runbook `docs/native/android-release.md`:** Play app creation (NL default), upload key
+  (keytool, password manager + Codemagic), service account with no GCP roles and only
+  "Release apps to testing tracks" on this app, Codemagic setup, the first manual AAB upload
+  (Codemagic: the first version must be uploaded by hand), Play App Signing, internal +
+  closed testing, the app-signing-key SHA-256 for S4. Policy check: the closed-test rule is
+  now **12** testers / 14 days (it was 20) and only applies to personal accounts created after
+  2023-11-13 — the org account (M2) is exempt.
+- **Guard:** `tests/unit/codemagic-android-release.test.ts` (trigger set, CAP_SERVER_URL guard,
+  keystore reference + env-group credential, internal track, BUILD_NUMBER wiring, no keystore
+  or service-account JSON tracked in git).
+- **iOS:** commented-out `ios-release` placeholder for S1b; not built.
+- **Not run here:** Codemagic itself, Gradle (no Android SDK in this container), any upload.
+  The YAML was parsed (PyYAML) and checked key-by-key against the Codemagic docs cited in its
+  header. The first real run is Max's (runbook step 6).
+
+---
+## 2026-09-25 — Fase 17 N4: door cold-start spike, go/no-go (86ey6bfe8)
+
+Wave 3 of Fase 17, decision task, no production code. Draft PR `docs(native): N4 door
+cold-start spike — go/no-go`, branch `claude/n4-door-cold-start-spike`. Deliverable:
+`docs/native/door-cold-start-spike.md`.
+
+- **Finding that reframes the question:** the native shell cold-starts at the origin → `/app`,
+  i.e. the Deur tab. That tab cannot cold-boot offline anywhere today (web included): the SW is
+  registered only on the standalone `/door/<id>` route (unreachable from the shell — no link, no
+  URL bar), and `MobileDoorBranch` mounts `DoorProvider` only after `usePoDoorCandidates` (network,
+  `po` QueryClient, not persisted) confirms the event id. The IndexedDB snapshot and outbox are
+  never reached. Warm resume (process not killed) works and is unchanged by the shell model.
+- **Decision:** Android v1 = remote-URL + SW (go). iOS v1 = App-Bound Domains
+  (`WKAppBoundDomains = [app.plus-one.io, localhost]` + `ios.limitsNavigationsToAppBoundDomains`),
+  staged in S1b as a second TestFlight build after a baseline build without the keys; keep only if
+  the bridge checks pass. Bundling the door locally = no-go for v1 (second build, second session
+  store with a token handoff, second copy of guest PII per origin, door updates via store review;
+  4–6 sessions). Reconciled with N3's "not in v1, N4 decides" (PR #340).
+- **Minimal next step (proposed N7, Opus, 1 session, needed by every variant):** register the SW
+  under `/app` too (seed `/`), and remember the last pinned door event in the door IDB store so
+  `MobileDoorBranch` can mount `DoorTree` when the candidate query is paused/errored and a snapshot
+  exists. Android `server.errorPath` offline page → S1a. Optional: launch at `/app` instead of `/`
+  (verify on device first).
+- **Platform facts verified (sources with URLs in the doc):** Android WebView has SW support
+  (`ServiceWorkerController`, API 24); Capacitor 8 injects the bridge via
+  `addDocumentStartJavaScript` scoped to the origin, so an SW-served page keeps the bridge on
+  WebViews with `DOCUMENT_START_SCRIPT` (older ones fall back to the intercept injector that SW
+  responses bypass — device check in the script); WKWebView needs App-Bound Domains for SW
+  (iOS 14+), restrictions apply to top-level navigation only, Supabase fetch/WebSocket unaffected;
+  `server.errorPath` is Android-only; Next `output: 'export'` cannot build `/door/[eventId]`.
+- **Not verifiable here:** prod `Cache-Control` on `/app` (egress proxy 502) — confirm via
+  `chrome://inspect` during the device test; ITP 7-day storage cap in WKWebView (unanswered by
+  Apple; single-origin shell with constant interaction makes it unlikely). Device script (12
+  steps, two rounds) is in the doc for Max's N3 Android build.
+## 2026-09-25 — Fase 17 golf 2: exit passed on a real Android device (epic 86exxuvye)
+
+N3 (#340) is merged. Max's Android debug build (Samsung SM-S721B, Android Studio on Windows) passed A1–A5: e-mail-code login, server-action writes, door offline (queue, then drain on reconnect, plus the stale-resume overlay), external links in the in-app browser sheet, and the hardware back button retracing the stack and minimizing on Home.
+
+- **Root cause of the first blank screen:** the Vercel project `plus-one` only had `plus-one-phi.vercel.app`, so `server.url` (`https://app.plus-one.io`) pointed at a domain that didn't exist yet. Max attached `app.plus-one.io` to the project, set `NEXT_PUBLIC_APP_URL`, and set the Supabase Auth Site URL. It's now plan item M5 and a hard precondition for S1a/S1b.
+- **Supabase Redirect URLs:** narrowed by Max to `https://app.plus-one.io/**`. The earlier `plus-*-one-the-operators.vercel.app` wildcards matched any Vercel project a third party could name that way. The auth e-mail templates only use `{{ .SiteURL }}`, and the app never passes `redirectTo`, so nothing depended on them.
+- **N4 (#342):** decision 15 is in the plan. N7 (door cold-boot offline in the shell) is proposed and waiting for Max's go-ahead.
+
+## 2026-09-25 — Fase 17 golf 1: orchestrator report (epic 86exxuvye)
+
+Golf 1 ran N1, N2, S3, T1 and L1 in parallel from one orchestrator session, with
+workers spawned per task and every PR reviewed adversarially before it reached Max.
+
+**Merged, all on 2026-09-25:**
+- N1 #331: webview-prep kit helpers.
+- #338: root cause of the `pgtap-plan-run-gate` "slow reader" flake. Node's
+  `flushStdio` resumes a paused stdio stream that has no `'readable'` listener
+  when the child exits, so the test harness threw away the gate's diagnostic.
+  The harness was at fault, not the gate.
+- T1 #335: tablet layouts.
+- N2 #336: push backend, live but asleep.
+- S3 #332: store-review login; seven review/fix rounds.
+
+Their five migrations (`20260925120000`–`130100`) were pushed to prod the same day.
+
+**Legal:** #333/#334 (v0.2 texts) and Plus-One.io#6 (`plus-one.io/legal`) wait for
+the lawyer's check.
+
+**What the rounds caught (all fixed in the same PR, standing rule "fix now"):**
+- S3: `inviteExternalCrew` minted an auth account through the service role, which
+  the invites trigger never sees. A review-code holder could have made their own
+  mailbox crew on a demo event and created a real tenant. Now refused before any
+  side effect. Also: explicit demo-refusal copy (a generic error reads as a bug
+  under App Review 2.1); refusals shown before a form opens, not after submit;
+  the demo venue is named "PlusOne Demo" (brand written PlusOne, spec #38); the
+  seed's audit tripwire also catches rows with `venue_id is null`; the seed
+  mirror tests are CRLF-safe.
+- N2: a single-use per-kick invocation token instead of a static secret,
+  because pg_net's request queue is readable by app roles on Supabase.
+  Possession of the device token wins the row handover.
+
+**Process lessons.**
+- Test plans must use the role a screen actually needs: `manager@` is a user
+  manager, not an admin.
+- Hand the non-UI checks (curl/SQL/seed-script) to Max's local Claude session
+  instead of asking Max to run them by hand.
+- Workers run tests in the foreground and never end a turn before their push.
+- The ClickUp MCP daily limit (100 calls) is shared by all sessions, so workers
+  put their ClickUp text in the PR body when it's exhausted.
+
+**Golf 2 started 2026-09-25** once N1 merged: N3 (Capacitor scaffold + Android,
+86ey6bfdm) and a small N1-leftovers PR (MfaEnrollCard clipboard,
+Consent/VenueStep external links). Golf 2's exit is N3 merged **and** Max's Android
+debug build passing the five checks (OTP login, a server action, offline door,
+external link in the in-app browser tab, back button that only minimizes on the
+`/app` root).
+
+
+
+
+
+
+
 ## 2026-09-25 — Fase 17 N3: Capacitor scaffold + Android shell (86ey6bfdm)
 
 Golf 2 of Fase 17. No migration. Draft PR `feat(native): Capacitor scaffold + Android shell (86ey6bfdm)`.
