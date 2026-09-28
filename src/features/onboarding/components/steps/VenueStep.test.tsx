@@ -16,6 +16,10 @@ vi.mock('@/features/venues/actions', () => ({
   createVenueAction: vi.fn(async () => ({ ok: true, venueId: '018f3a2e-0000-7000-8000-00000000000e' })),
 }));
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), back: vi.fn(), prefetch: vi.fn() }),
+}));
+
 const { VenueStep } = await import('./VenueStep');
 
 describe('VenueStep — external links (N1 leftover)', () => {
