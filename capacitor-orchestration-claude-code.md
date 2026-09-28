@@ -142,6 +142,9 @@ S2  86ey6bft8  Icons/splash/store-metadata       Sonnet  branch claude/86ey6bft8
 S4  86ey6bfxa  App links (alleen /auth/*)        Opus    branch claude/86ey6bfxa-app-links
     Raakt: route handlers voor /.well-known/apple-app-site-association + assetlinks.json, appUrlOpen-listener.
     Verboden: /e/* claimen (beslissing 11), auth-routes zelf wijzigen.
+N6  z8uq9m0y1x  Deurvariant op touch óf <1024px  Opus  branch claude/<taskid>-door-variant
+    Wacht ook op T1 gemerged. Raakt: door-branch.tsx, DoorRoute.tsx, app.tsx (alleen de variant-afleiding), tests.
+    Verboden: DoorProvider/outbox-internals (src/features/door), use-viewport-chrome-breakpoint.
 S1a 86ey6bfpy  Android-build + Codemagic         Opus + Max  branch claude/86ey6bfpy-codemagic-android
     Raakt: codemagic.yaml, docs (release-runbook). Secrets alleen in Codemagic, nooit in de repo.
 
@@ -175,6 +178,10 @@ Regels die hier extra tellen:
 - Deze container heeft geen Supabase-stack: db:test/db reset/e2e draaien hier niet. Schrijf de pgTAP/migraties, laat CI ze draaien, en zeg in de PR-body precies wat je NIET lokaal kon draaien.
 - Verzwak nooit een guard, test of config om iets groen te krijgen. De weigering is het signaal.
 - Geen model-namen in commits/PR. Conventional commits, kleine commits per logische stap.
+- Token-discipline (les golf 3, 2026-09-28):
+  - Plan zelf GEEN check-ins of wake-ups (geen send_later/trigger), abonneer je niet zelf op PR-activiteit en blijf niet "CI-eigenaar" na je laatste push. De orchestrator bewaakt alle PR's. Zelfgeplande uurlijkse check-ins hebben in golf 3 dagenlang tokens verbrand, omdat elke wake de volle sessiecontext herlaadt.
+  - Draai de volledige `pnpm test` precies één keer, vlak voor je laatste push, en wacht die af. Tussendoor alleen gerichte tests. CI is de gate.
+  - Lees alleen de bestanden die je nodig hebt, geen hele mappen.
 - High-risk surface (RLS/triggers/SECURITY DEFINER/service_role/auth-route)? Dan schrijf je ongevraagd de security-research-prompt in de PR-body: threat model, de relevante code inline, concrete aanvalsvragen voor precies wat jij veranderde.
 
 Definition of done voor deze worker:
@@ -193,7 +200,7 @@ Lees CLAUDE.md (security-checklist, review gates, grant matrix, non-negotiables)
 1. /code-review high op de PR.
 2. /security-review op de branch.
 3. De aanvalsvragen uit de PR-body één voor één, met de code erbij: kan een authenticated user zonder membership iets lezen/schrijven? Kan een gerevoceerde sessie nog pushen of ontvangen? Is de route echt 404 zonder env-secret, ook bij een lege string? Wat gebeurt er bij replay/dubbel-insert? Waar zit service_role en waarom?
-Alle bevindingen als review-comments op de PR met de Claude Code-footer; blokkerend = "Request changes". Geen bevindingen = één approve-comment met wat je concreet geprobeerd hebt. Geen fixes pushen; de bouwer of de orchestrator handelt ze af.
+Eén volledige §6-review per PR. Een her-review na fixes is gescoped tot de fix-diff; nit-only rondes krijgen geen nieuwe §6-sessie, die checkt de orchestrator zelf. Alle bevindingen als review-comments op de PR met de Claude Code-footer; blokkerend = "Request changes". Geen bevindingen = één approve-comment met wat je concreet geprobeerd hebt. Geen fixes pushen; de bouwer of de orchestrator handelt ze af.
 ```
 
 ## 7. Wat Max doet, per golf
