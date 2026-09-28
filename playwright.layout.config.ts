@@ -19,8 +19,12 @@ export default defineConfig({
   testDir: './tests/e2e/layout',
   testIgnore: [],
   globalSetup: './tests/e2e/layout/global-setup.ts',
+  globalTeardown: './tests/e2e/layout/global-teardown.ts',
   fullyParallel: true,
   workers: process.env.CI ? 3 : undefined,
+  // A measurement is deterministic; a retry only doubles the cost of a real
+  // finding. Load flakes surface as a failed load, which is itself a finding.
+  retries: 0,
   // The first test in each worker pays the dev server's first compile of /app.
   timeout: 180_000,
   reporter: process.env.CI ? [['github'], ['list']] : 'list',

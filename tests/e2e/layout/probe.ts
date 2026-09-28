@@ -1,7 +1,7 @@
 import type { Browser, BrowserContext, Page, TestInfo } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SEED, USERS, type LayoutUser } from './screens';
+import { SEED, USERS, type LayoutScreen, type LayoutUser } from './screens';
 
 /**
  * Load-once-measure-once plumbing for the layout suite: one browser context per
@@ -13,6 +13,16 @@ import { SEED, USERS, type LayoutUser } from './screens';
 
 /** Where the full-page screenshots land (uploaded as a CI artifact). */
 export const SCREENSHOT_DIR = join(process.cwd(), 'layout-screenshots');
+
+/**
+ * One JSON snapshot per screen × project. Two jobs: (1) when a check fails,
+ * Playwright restarts the worker and re-runs `beforeAll`; reading the snapshot
+ * back instead of reloading the screen keeps the run's cost at ONE load per
+ * screen × project; (2) `global-teardown.ts` folds them into the findings
+ * digest. Lives under Playwright's outputDir, which is wiped at the start of
+ * every run, so a snapshot never outlives its run.
+ */
+export const SNAPSHOT_DIR = join(process.cwd(), 'test-results', 'layout-snapshots');
 
 /** Minimum pointer hit box, CLAUDE.md "Tablet (T1)" + design-system.md density axis. */
 export const MIN_HIT = 44;
@@ -50,12 +60,19 @@ export interface SmallTarget {
 }
 
 export interface LayoutSnapshot {
+  screenId: string;
+  project: string;
   finalPath: string;
   innerWidth: number;
   docScrollWidth: number;
   overflow: OverflowOffender[];
+  /** Buttons, links, [role=button], [role=tab]. */
   smallTargets: SmallTarget[];
   measuredTargets: number;
+  /** Form fields (input, select): split out so a kit-wide field issue can be
+   *  tracked on its own without hiding a control regression on that screen. */
+  smallFields: SmallTarget[];
+  measuredFields: number;
   sidebar: { present: boolean; width: number; left: number };
   tabBar: { present: boolean; bottomGap: number };
   pointerCoarse: boolean;
@@ -148,7 +165,9 @@ async function settle(page: Page): Promise<void> {
  * The in-page measurement pass. Runs in the browser, so it must be
  * self-contained (no closures over Node values beyond its argument).
  */
-export async function measure(page: Page): Promise<Omit<LayoutSnapshot, 'consoleErrors' | 'failedRequests' | 'screenshot'>> {
+type Measured = Omit<LayoutSnapshot, 'screenId' | 'project' | 'consoleErrors' | 'failedRequests' | 'screenshot'>;
+
+export async function measure(page: Page): Promise<Measured> {
   return page.evaluate((minHit) => {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
@@ -256,8 +275,11 @@ export async function measure(page: Page): Promise<Omit<LayoutSnapshot, 'console
 
     const TARGETS = 'button, a[href], [role="button"], input:not([type="hidden"]), select, [role="tab"]';
     const smallTargets: { what: string; w: number; h: number }[] = [];
+    const smallFields: { what: string; w: number; h: number }[] = [];
     let measuredTargets = 0;
+    let measuredFields = 0;
     for (const el of Array.from(document.querySelectorAll(TARGETS))) {
+      const isField = el.matches('input, select') && !el.matches('[role="button"], [role="tab"]');
       const r = el.getBoundingClientRect();
       // A sr-only <input> behind a visible <label> is measured through the label.
       const lbl = labelBox(el);
@@ -268,10 +290,15 @@ export async function measure(page: Page): Promise<Omit<LayoutSnapshot, 'console
         if (pb) hit = union(hit, pb);
       }
       if (lbl) hit = union(hit, lbl);
-      measuredTargets++;
+      if (isField) measuredFields++;
+      else measuredTargets++;
       // 0.05px absorbs float noise in sub-pixel layout, nothing more.
       if (hit.width >= minHit - 0.05 && hit.height >= minHit - 0.05) continue;
-      smallTargets.push({ what: describe(el), w: Math.round(hit.width * 10) / 10, h: Math.round(hit.height * 10) / 10 });
+      (isField ? smallFields : smallTargets).push({
+        what: describe(el),
+        w: Math.round(hit.width * 10) / 10,
+        h: Math.round(hit.height * 10) / 10,
+      });
     }
 
     // ── 3. chrome ───────────────────────────────────────────────────────────
@@ -297,6 +324,8 @@ export async function measure(page: Page): Promise<Omit<LayoutSnapshot, 'console
       overflow,
       smallTargets,
       measuredTargets,
+      smallFields,
+      measuredFields,
       sidebar: { present: !!aside, width: ar ? Math.round(ar.width) : 0, left: ar ? Math.round(ar.left) : 0 },
       tabBar: { present: !!bar, bottomGap: br ? Math.round(vh - br.bottom) : -1 },
       pointerCoarse: matchMedia('(pointer: coarse)').matches,
@@ -333,4 +362,38 @@ export async function fullScreenshot(page: Page, project: string, screenId: stri
   await page.screenshot({ path: file, fullPage: true, animations: 'disabled' });
   if (vp) await page.setViewportSize(vp);
   return file;
+}
+
+/**
+ * The snapshot for one screen × project: from this run's cache when a worker
+ * restart already produced it, otherwise by loading and measuring the screen.
+ */
+export async function loadSnapshot(browser: Browser, testInfo: TestInfo, screen: LayoutScreen): Promise<LayoutSnapshot> {
+  const project = testInfo.project.name;
+  const file = join(SNAPSHOT_DIR, project, `${screen.id}.json`);
+  if (existsSync(file)) return JSON.parse(readFileSync(file, 'utf8')) as LayoutSnapshot;
+
+  const context = await newProjectContext(browser, testInfo);
+  try {
+    const page = await context.newPage();
+    const failures = recordFailures(page);
+    await openScreen(page, screen.user, screen.path);
+    const measured = await measure(page);
+    // Failures are copied AFTER the screenshot, so anything the resize for the
+    // full-page capture triggers counts too.
+    const screenshot = await fullScreenshot(page, project, screen.id);
+    const snap: LayoutSnapshot = {
+      screenId: screen.id,
+      project,
+      ...measured,
+      consoleErrors: [...failures.consoleErrors],
+      failedRequests: [...failures.failedRequests],
+      screenshot,
+    };
+    mkdirSync(join(SNAPSHOT_DIR, project), { recursive: true });
+    writeFileSync(file, JSON.stringify(snap, null, 2));
+    return snap;
+  } finally {
+    await context.close();
+  }
 }

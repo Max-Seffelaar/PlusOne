@@ -1,24 +1,17 @@
-import { test, expect, type BrowserContext } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { CHROME_BREAKPOINT, deviceFor } from './matrix';
 import { LAYOUT_SCREENS } from './screens';
 import { knownIssue, type LayoutCheck } from './known-issues';
-import {
-  fullScreenshot,
-  measure,
-  MIN_HIT,
-  newProjectContext,
-  openScreen,
-  recordFailures,
-  type LayoutSnapshot,
-} from './probe';
+import { loadSnapshot, MIN_HIT, type LayoutSnapshot } from './probe';
 
 /**
  * QA-1: the machine-checkable half of a UI handoff, for every `po` screen in
  * every project of the device matrix (`matrix.ts`). Per screen × project the
- * screen is loaded ONCE (beforeAll) and four independent checks read that
- * snapshot:
+ * screen is loaded ONCE (beforeAll, cached per run — see `loadSnapshot`) and
+ * five independent checks read that snapshot:
  *   overflow         nothing reaches past the right edge of the viewport
- *   tap-targets      touch projects: every visible control hits ≥44×44
+ *   tap-targets      touch projects: every visible button/link/tab hits ≥44×44
+ *   field-targets    touch projects: every visible input/select hits ≥44×44
  *   chrome           bottom tabs <1024px, sidebar ≥1024px (use-viewport.ts)
  *   console-network  no console errors, no failed requests (allowlists in probe.ts)
  * plus a full-page screenshot per screen × project for human review.
@@ -37,23 +30,10 @@ for (const screen of LAYOUT_SCREENS) {
     // `serial`): one failing check must not skip the others.
     test.describe.configure({ mode: 'default' });
 
-    let context: BrowserContext | undefined;
     let snap: LayoutSnapshot;
 
     test.beforeAll(async ({ browser }, testInfo) => {
-      context = await newProjectContext(browser, testInfo);
-      const page = await context.newPage();
-      const failures = recordFailures(page);
-      await openScreen(page, screen.user, screen.path);
-      const measured = await measure(page);
-      // Failures are read AFTER the screenshot, so anything the resize for the
-      // full-page capture triggers counts too.
-      const screenshot = await fullScreenshot(page, testInfo.project.name, screen.id);
-      snap = { ...measured, ...failures, screenshot };
-    });
-
-    test.afterAll(async () => {
-      await context?.close();
+      snap = await loadSnapshot(browser, testInfo, screen);
     });
 
     test('no horizontal overflow', async () => {
@@ -76,6 +56,17 @@ for (const screen of LAYOUT_SCREENS) {
       expect(
         snap.smallTargets,
         `controls with a hit box under ${MIN_HIT}×${MIN_HIT}:${list(snap.smallTargets.map((s) => `${s.what} ${s.w}×${s.h}`))}`,
+      ).toEqual([]);
+    });
+
+    test('form fields are at least 44×44 on touch', async () => {
+      const testInfo = test.info();
+      const device = deviceFor(testInfo.project.name);
+      test.skip(!device.touch, 'density is pointer-keyed: sub-44 is allowed behind (pointer: fine)');
+      fixmeIfKnown(screen.id, 'field-targets', testInfo.project.name);
+      expect(
+        snap.smallFields,
+        `fields with a hit box under ${MIN_HIT}×${MIN_HIT}:${list(snap.smallFields.map((s) => `${s.what} ${s.w}×${s.h}`))}`,
       ).toEqual([]);
     });
 
