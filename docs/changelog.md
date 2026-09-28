@@ -8,6 +8,17 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-28 — Fase 17 S2: store-listing domain URLs re-fixed to www (86ey6bft8)
+
+`main` moved CLAUDE.md's domain decision back to `www.plus-one.io` canonical (apex
+redirects to it, decided 2026-09-25 — the same-day 2026-09-18 apex-canonical text this
+PR's earlier review round had built the N1 fix on) partway through this PR's repeated
+merge-conflict rounds against a fast-moving `main`. `docs/store/play-store-listing.md`
+and `docs/store/app-store-listing.md` Support/Privacy URLs re-fixed from
+`https://plus-one.io` back to `https://www.plus-one.io`; `src/lib/legal.ts` untouched
+(out of scope — no `src/**` changes in this PR; the apex→www redirect already covers it
+either way). No other findings open.
+
 ## 2026-09-28 — Fase 17 S2: icon + splash rebuilt from a vector master after the device test (86ey6bft8)
 
 Max's device test of PR #347 failed: the icon did not show the "+1" properly, the splash showed it off-centre. Fixed in the same PR.
@@ -28,7 +39,7 @@ Fresh-session adversarial review round on PR `feat(native): app icons, splash, s
 
 - **B2 (blocking): the data-safety (Play) and App Privacy (Apple) drafts under-declared what the app processes.** Cross-checked every data type against `docs/legal/privacy-policy.md` v0.2 and `docs/legal/subprocessors.md` (both drafts, read from their PR branches) plus the code (`src/lib/database.types.ts` for `guests`/`contacts` phone/email/note columns, `src/sentry.client.init.ts` + `sentry.server.config.ts`/`sentry.edge.config.ts` + `src/lib/observability/scrub.ts` for crash/diagnostics and IP handling). Both `docs/store/play-store-listing.md` and `docs/store/app-store-listing.md` now carry a full per-data-type table: guest name/phone/e-mail/notes, account name/e-mail/phone, device push token, crash/diagnostics (Sentry), and IP address — each with collected/shared, purpose, optional, encrypted-in-transit and deletion columns. IP address is not collected/stored by PlusOne's Sentry integration (`sendDefaultPii: false`, `event.request` deleted in `beforeSend`) or by application code; only Vercel's hosting logs process it transiently.
 - **B1/push claim: kept, gated.** Per the orchestrator's triage, the push notification claim stays in both listings and the App Store review notes (4.2 defense) — pushed end-to-end (N5, #349) is already a precondition in the release checklist. Every push mention (marketing copy, the tone/intro line, the data-safety/App-Privacy push-token row, the 4.2 defense) now carries `<!-- valid only once N5 (#349) is merged and verified on device -->` so nobody submits the listing before N5 ships.
-- **N1: privacy/support URL scheme.** The drafts used `www.plus-one.io`; `src/lib/legal.ts` and CLAUDE.md's domain decision (2026-09-18) both name the bare apex as canonical. Fixed the drafts to `https://plus-one.io`, not `legal.ts`.
+- **N1: privacy/support URL scheme.** The drafts used `www.plus-one.io`; at the time, CLAUDE.md's domain decision (2026-09-18) named the bare apex as canonical, so the drafts were fixed to `https://plus-one.io`. CLAUDE.md's decision was revised the same day (2026-09-25 — see below) to make `www.plus-one.io` canonical again; that revision landed on `main` mid-session here and the drafts were re-fixed to `www.plus-one.io` in the same PR once the branch merged it in.
 - **N2: dropped `assets/icon.png`** — a byte-identical, out-of-scope-directory copy of `public/icon-maskable-512x512.png`. A future `@capacitor/assets` regeneration points at `public/` directly.
 - **N3:** removed the stray `plus one` keyword (App Store keyword fields, NL + EN) — it was the only non-"PlusOne" brand rendering in the listing text and wasted keyword-field characters Apple already indexes via the app name.
 - **N4:** the Dutch copy named a UI tab ("Aanvragen-tab") that doesn't exist — the app is English-only and the tab is "Requests"; both Dutch descriptions now say `'Requests'-tab`.
@@ -108,6 +119,57 @@ migrations, no dependencies, none of the fenced files (`app.tsx`, `app-chrome.ts
   untouched), onboarding beyond the Team step.
 - Tests: `pnpm type-check` clean; `pnpm lint` only the 2 pre-existing combobox warnings;
   vitest 180 files / 1926 tests green. Not run here: pgTAP, e2e, real iPad hardware.
+
+## 2026-09-25 — quota_requests: column-level UPDATE grant, deny-only client decision
+
+Branch `claude/quota-requests-column-grant`. Found in the N2 push-backend review
+(PR #336); mirrors `20260919150000` (guest_requests, L5).
+
+- **Bug:** `authenticated` held a table-wide UPDATE on `quota_requests` and
+  `quota_requests_decide_admin` pinned only the old row (pending, admin) and the
+  actor. An admin could therefore (a) rewrite `user_id`/`event_id`/`venue_id`/
+  `requested_extra`/`motivation`/`created_at` in the same PATCH as a deny, and
+  (b) approve by a direct write — `status = 'approved'` with no `event_quotas`
+  override, because `approve_quota_request` never ran (the requester is told
+  "approved", incl. the N2 push, for slots they don't have).
+- `20260925140000_quota_requests_column_update_grant.sql` — WITH CHECK now
+  requires `status = 'denied'` (client transition = pending → denied only;
+  approval = the RPC), and `revoke update` → `grant update (status, decided_by,
+  decided_at, decision_reason)`: exactly what `decideQuotaRequest`'s deny branch
+  writes. That is the only client UPDATE path (no staff cancel/withdraw exists).
+  INSERT/SELECT untouched; `set_event_scope` still assigns `venue_id` (triggers
+  aren't subject to column grants); `approve_quota_request` is SECURITY DEFINER.
+- Tests: new `quota_requests_column_grant.test.sql` (29: grant catalog, admin
+  A / staff / admin B-only / anon, legit deny + audit, RPC approve + override).
+  `audit.test.sql` I2 now approves via the RPC and `rls.test.sql` J7 now denies
+  — both used a direct approve write that is refused by design now. Unit guard
+  `src/features/quotas/actions.test.ts` pins the deny body to the four columns.
+  `grant_matrix.test.sql` unchanged (no UPDATE allowlist there);
+  `database.types.ts` unchanged (grants don't change types).
+- Not runnable in the building session (no Docker/Supabase CLI): pgTAP is gated
+  by CI `lint-and-test`.
+- **Review round (independent `/code-review` + `/security-review`):** merged
+  `origin/main` (changelog-only conflict, all entries kept). Every finding fixed
+  in-PR: `20260925140100_approve_quota_request_row_lock.sql` — the RPC now reads
+  the request `for update` and flips only `status = 'pending'` (rowcount check →
+  45003), so an approve can no longer overwrite a concurrent deny; nothing else
+  in the function changed. `20260925140200_quota_requests_stamp_decided_at.sql` —
+  BEFORE UPDATE OF status trigger sets `decided_at = now()` on every decision, so
+  a client can't backdate a deny (grant kept: the deployed app still sends the
+  column, the value is just ignored). `decideQuotaRequest` deny now
+  `.select('id')`s and maps UPDATE 0 (already decided / finance / other venue)
+  to one generic 45003 MutationError instead of `{ ok: true }`. Stale AAL2 /
+  "table-wide UPDATE" comments fixed (`actions.ts`, `push_outbox.test.sql`).
+  `quota_requests_column_grant.test.sql` 29 → 37 (B13 now via `req_state`
+  incl. `venue_id`; F1–F5 approve-after-deny + definer/search_path/ACL/lock;
+  G1–G3 server-stamped `decided_at`). pgTAP again CI-only here.
+- **Verification nits:** stale AAL2 comments corrected repo-wide (quotas,
+  venues, audit, contacts, po hooks/mutations, mfa-gate, three pgTAP headers +
+  the J7 label). Comment/label text only, no `plan()` change. Dead
+  `QuotaRequestsInbox.tsx` deleted (it had no importers). An approve that loses
+  the race (45003) is mapped by code to `t.quotaRequests.alreadyHandled`, so the
+  RPC's Dutch message never reaches the UI (applied migration untouched). Two
+  unit tests. `NOT_DECIDABLE` now sits below the imports and reads catalogue copy.
 
 ## 2026-09-25 — Fase 17 N6: door variant follows touch or width (decision 14)
 

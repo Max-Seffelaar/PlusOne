@@ -6,12 +6,11 @@
  *     for every role, no AAL2 requirement anywhere (#20 refinement 2026-07-02,
  *     migration 20260702120000_mfa_fully_optional). There is no gate to satisfy
  *     here; the sheet exists purely because the user asked to turn MFA on.
- *  2. `useMfaGate` step-up — a handful of specific sensitive DB writes (venue
- *     membership role/removal grants) still carry a narrow, RLS-level AAL2
- *     check independent of this refinement; a caller at AAL1 gets a generic
- *     "no access, or MFA required" error, and `guard`/`start` open this sheet
- *     to resolve it instead of dead-ending. This is NOT a blanket AAL2 gate —
- *     don't reintroduce one elsewhere without an explicit decision.
+ *  2. `useMfaGate` step-up — plumbing only. No DB write requires AAL2 any more
+ *     (the last RLS-level AAL2 checks, incl. membership role/removal, were
+ *     dropped in 20260702120000); `guard`/`start` still open this sheet if an
+ *     action ever reports the "MFA required" error, instead of dead-ending.
+ *     Don't reintroduce an AAL2 gate without an explicit decision.
  * Either way: it challenges an existing verified factor, or — if none exists —
  * asks first ("Set up now") before enrolling one (QR + code); enroll() never
  * fires just from the sheet opening. On success the cookie-based browser
