@@ -8,7 +8,7 @@ import { type JSX, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
-import { Field, Label, Btn, RefusedAction, press } from '@/components/po/kit';
+import { ExternalLink, Field, Label, Btn, RefusedAction, press } from '@/components/po/kit';
 import { createVenueAction } from '@/features/venues/actions';
 import { VENUE_TYPES, type VenueType } from '@/features/venues/schemas';
 import { TERMS_URL, PRIVACY_URL } from '@/lib/legal';
@@ -166,13 +166,13 @@ export function VenueStep({
         />
         <span className="text-[13px] leading-[1.5] text-text">
           I agree to the{' '}
-          <a href={TERMS_URL} target="_blank" rel="noreferrer" className="font-semibold text-acc underline">
+          <ExternalLink href={TERMS_URL} className="font-semibold text-acc underline">
             Terms
-          </a>{' '}
+          </ExternalLink>{' '}
           and{' '}
-          <a href={PRIVACY_URL} target="_blank" rel="noreferrer" className="font-semibold text-acc underline">
+          <ExternalLink href={PRIVACY_URL} className="font-semibold text-acc underline">
             Privacy Policy
-          </a>
+          </ExternalLink>
           .
         </span>
       </label>
