@@ -32,6 +32,7 @@ Max's device test of PR #347 failed: the icon did not show the "+1" properly, th
 - **Guard:** `tests/unit/native-icon-splash.test.ts` — the launch theme sets `windowSplashScreenAnimatedIcon` + the lavender icon background; the adaptive icons reference a separate foreground and background (+ monochrome); no `splash.png` bitmaps.
 - **Preview:** `docs/store/preview/icon-splash-before-after.png`.
 - Resolves the earlier open item "a real ≥1024px (SVG) icon master".
+- **Favicon (follow-up, 2026-09-28):** the web app had no tab icon (no `favicon.ico`, no `icon.*`, no `<link rel="icon">`). `scripts/native-icons.mjs` now also writes `src/app/favicon.ico` (PNG-in-ICO, 16/32/48) and `src/app/icon.svg`, picked up by Next's file-based metadata convention. The apple-touch-icon stays the single explicit `<link>` in `src/app/layout.tsx` (no `src/app/apple-icon.*`). Favicon geometry is the one exception to the 36% rule: a 60% mark on a rounded lavender tile, so the "+1" stays legible at 16px on light and dark tab strips (`docs/store/preview/favicon-preview.png`). Middleware matcher already skips `favicon.ico` and `*.svg`; the service worker routes both to the PII-free shell cache as static assets, so neither needed a change. Guarded in `tests/unit/native-icon-splash.test.ts` (files non-empty, ICO entries 16/32/48, no duplicate icon declaration).
 
 ## 2026-09-26 — Fase 17 S2: review round — data-safety/App Privacy fixed, push claim gated (86ey6bft8)
 

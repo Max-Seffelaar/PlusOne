@@ -17,6 +17,9 @@
  *  - iOS      AppIcon.appiconset (every size, opaque), Splash.imageset (the
  *             lavender circle the LaunchScreen storyboard centres)
  *  - public/  icon-*.png, icon-maskable-*.png, apple-touch-icon.png
+ *  - src/app/ favicon.ico (16/32/48) + icon.svg: the browser-tab icon via the
+ *             Next file-based metadata convention (apple-touch-icon stays the
+ *             explicit <link> in src/app/layout.tsx; no src/app/apple-icon.*)
  */
 import { mkdirSync, readFileSync, rmSync, writeFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -36,21 +39,21 @@ const [, vbW, vbH] = markSvg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/).map(Number
 const pathD = markSvg.match(/<path[^>]*\sd="([^"]+)"/)[1];
 const ink = markSvg.match(/<path[^>]*fill="(#[0-9A-Fa-f]{6})"/)[1];
 
-/** Transform placing the mark centred in a `box` square, height = MARK_HEIGHT * visible. */
-function place(box, visible = box) {
+/** Transform placing the mark centred in a `box` square, height = `height` * visible. */
+function place(box, visible = box, height = MARK_HEIGHT) {
   const r = (n) => Math.round(n * 1e6) / 1e6;
-  const s = r((MARK_HEIGHT * visible) / vbH);
+  const s = r((height * visible) / vbH);
   return { s, x: r((box - vbW * s) / 2), y: r((box - vbH * s) / 2) };
 }
 
-/** Square SVG: optional tile (full / circle), the mark centred on top. */
-function svg(size, { tile = null, circle = false, visible = size } = {}) {
-  const { s, x, y } = place(size, visible);
+/** Square SVG: optional tile (full / rounded / circle), the mark centred on top. */
+function svg(size, { tile = null, circle = false, radius = 0, height = MARK_HEIGHT, visible = size } = {}) {
+  const { s, x, y } = place(size, visible, height);
   const bg = !tile
     ? ''
     : circle
       ? `<circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="${tile}"/>`
-      : `<rect width="${size}" height="${size}" fill="${tile}"/>`;
+      : `<rect width="${size}" height="${size}"${radius ? ` rx="${radius * size}"` : ''} fill="${tile}"/>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">${bg}<path transform="translate(${x} ${y}) scale(${s})" fill="${ink}" d="${pathD}"/></svg>`;
 }
 
@@ -212,5 +215,70 @@ for (const px of [192, 512]) {
   await png(`public/icon-maskable-${px}x${px}.png`, px, { tile: LAVENDER }, { opaque: true });
 }
 await png('public/apple-touch-icon.png', 180, { tile: LAVENDER }, { opaque: true });
+
+// --- Favicon -----------------------------------------------------------------
+// The one exception to MARK_HEIGHT: at 16px a 36% glyph is ~6px of ink and the
+// "1" turns to mush, so the tab icon uses a bigger mark on a rounded lavender
+// tile. The tile is what keeps it visible on both light and dark tab strips
+// (the #16132B ink alone vanishes on a dark strip).
+const FAVICON = { tile: LAVENDER, radius: 0.22, height: 0.6 };
+const FAVICON_SIZES = [16, 32, 48];
+write(
+  'src/app/icon.svg',
+  svg(1024, FAVICON).replace('<svg ', `<!-- ${GENERATED} -->\n<svg `) + '\n',
+);
+const faviconPngs = await Promise.all(
+  FAVICON_SIZES.map((px) =>
+    sharp(Buffer.from(svg(1024, FAVICON)), { density: 72 }).resize(px, px).png({ compressionLevel: 9 }).toBuffer(),
+  ),
+);
+// ICO container with PNG payloads (supported by every current browser):
+// 6-byte ICONDIR, one 16-byte ICONDIRENTRY per size, then the PNG bytes.
+const icoHeader = Buffer.alloc(6 + 16 * faviconPngs.length);
+icoHeader.writeUInt16LE(0, 0); // reserved
+icoHeader.writeUInt16LE(1, 2); // type: icon
+icoHeader.writeUInt16LE(faviconPngs.length, 4);
+let icoOffset = icoHeader.length;
+faviconPngs.forEach((buf, i) => {
+  const e = 6 + 16 * i;
+  icoHeader.writeUInt8(FAVICON_SIZES[i] % 256, e); // width (0 = 256)
+  icoHeader.writeUInt8(FAVICON_SIZES[i] % 256, e + 1); // height
+  icoHeader.writeUInt8(0, e + 2); // palette colours
+  icoHeader.writeUInt8(0, e + 3); // reserved
+  icoHeader.writeUInt16LE(1, e + 4); // colour planes
+  icoHeader.writeUInt16LE(32, e + 6); // bits per pixel
+  icoHeader.writeUInt32LE(buf.length, e + 8);
+  icoHeader.writeUInt32LE(icoOffset, e + 12);
+  icoOffset += buf.length;
+});
+writeFileSync(at('src/app/favicon.ico'), Buffer.concat([icoHeader, ...faviconPngs]));
+
+// Legibility preview: 16px and 32px, each next to a 64px nearest-neighbour zoom,
+// on a light and a dark tab strip.
+{
+  const strips = [
+    { bg: '#F1F3F4', y: 0 },
+    { bg: '#202124', y: 96 },
+  ];
+  const layers = [];
+  for (const { y } of strips) {
+    let x = 24;
+    for (const [i, px] of [16, 32].entries()) {
+      const buf = faviconPngs[FAVICON_SIZES.indexOf(px)];
+      layers.push({ input: buf, left: x, top: y + (96 - px) / 2 });
+      x += px + 24;
+      const zoom = await sharp(buf).resize(64, 64, { kernel: 'nearest' }).png().toBuffer();
+      layers.push({ input: zoom, left: x, top: y + 16 });
+      x += 64 + (i === 0 ? 40 : 24);
+    }
+  }
+  const W = 24 + 16 + 24 + 64 + 40 + 32 + 24 + 64 + 24;
+  const strip = (bg, y) => `<rect x="0" y="${y}" width="${W}" height="96" fill="${bg}"/>`;
+  mkdirSync(at('docs/store/preview'), { recursive: true });
+  await sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="192">${strips.map((t) => strip(t.bg, t.y)).join('')}</svg>`))
+    .composite(layers)
+    .png({ compressionLevel: 9 })
+    .toFile(at('docs/store/preview/favicon-preview.png'));
+}
 
 console.log('native-icons: regenerated from native/icon/plusone-mark.svg');
