@@ -8,6 +8,38 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-28 — Fase 17 S4: universal links / App Links for `/auth/*`
+
+Invite / magic-link / e-mail-change mails can now open the native app instead of the
+browser. Claim = exactly `https://app.plus-one.io/auth/confirm` + `/auth/callback`
+(plan decision 11: never `/e/*`). Runbook: `docs/native/app-links.md`.
+
+- **Single source** `src/lib/native/app-links.ts`: Apple Team ID `52ZZ6F5V5Y`, app id,
+  host, paths, the AASA/assetlinks builders, the Zod fingerprint schema and the
+  `appLinkTarget()` URL filter.
+- **`/.well-known/apple-app-site-association`**: static JSON, `appIDs` =
+  `52ZZ6F5V5Y.app.plusone.guestlist`, components exclude `/e/*` first, include the two
+  exact paths, exclude `*` last. No `webcredentials` (the plan does not ask for it).
+- **`/.well-known/assetlinks.json`**: built per request from server env
+  `ANDROID_APP_LINK_SHA256` (comma-separated, each 32 `AA:BB:…` bytes). Unset, empty or
+  ANY malformed entry → 404 (no partial, empty or wildcard statement).
+- **Middleware matcher** skips `\.well-known/` (a 307 to /login reads as "no association").
+- **Android**: one `autoVerify` intent-filter, `https` + `app.plus-one.io` + exact
+  `android:path` for both routes (exact rather than `pathPrefix`: `/auth/confirmX` is not
+  an auth link). **iOS**: `ios/App/App/App.entitlements` with
+  `applinks:app.plus-one.io`, wired via `CODE_SIGN_ENTITLEMENTS` in Debug + Release.
+- **`NativeAppLinks`** (`src/components/native-app-links.tsx`, root layout, native-only,
+  lazy `@capacitor/app`): `appUrlOpen` + `getLaunchUrl()` → `appLinkTarget()` →
+  `window.location.assign(relative path)`; the handler's `safeNextPath` still decides the
+  landing. Handled URLs remembered in `sessionStorage` so a single-use token is never
+  replayed by the reload the navigation causes (iOS delivers a cold-start link both as a
+  retained event and as the launch URL — verified in the @capacitor/app 8.1.1 sources).
+- Tests: `tests/unit/app-links.test.ts` (routes, filter allow/deny incl. lookalike hosts,
+  `http:`, `/e/slug`, traversal, encoded paths; matcher; manifests pinned to the
+  constants) + `src/components/native-app-links.test.tsx`.
+- **Waits for Max**: `ANDROID_APP_LINK_SHA256` in Vercel Production after Play App Signing;
+  Associated Domains capability on the App ID before the first S1b signing; device checks.
+
 ## 2026-09-28 — Fase 17 S2: store-listing domain URLs re-fixed to www (86ey6bft8)
 
 `main` moved CLAUDE.md's domain decision back to `www.plus-one.io` canonical (apex
