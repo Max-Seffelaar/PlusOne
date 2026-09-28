@@ -2,8 +2,8 @@
 
 App name: **PlusOne**
 Category: **Business** (Events isn't a Play category; Business is the closest fit for a venue-staff tool)
-Support URL: `https://plus-one.io`
-Privacy policy URL: `https://plus-one.io/legal#privacy`
+Support URL: `https://www.plus-one.io`
+Privacy policy URL: `https://www.plus-one.io/legal#privacy`
 
 Tone: `tone-of-voice.md` — confident, nightlife-native, no filler. Content matches what the app does today: guest lists, quotas, approvals, offline door check-in, push for approvals. <!-- valid only once N5 (#349) is merged and verified on device --> No ticketing, no outbound invites (CLAUDE.md decision #36) — never claim either.
 

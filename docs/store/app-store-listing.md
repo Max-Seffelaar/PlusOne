@@ -2,8 +2,8 @@
 
 App name: **PlusOne**
 Category: **Business** (primary) — no "nightlife" category exists; Business is the closest fit for a venue-staff tool. Consider Utilities as a secondary if Apple requires one.
-Support URL: `https://plus-one.io`
-Privacy policy URL: `https://plus-one.io/legal#privacy`
+Support URL: `https://www.plus-one.io`
+Privacy policy URL: `https://www.plus-one.io/legal#privacy`
 Age rating: 17+ recommended (nightclub/alcohol-venue context — set from the standard questionnaire in App Store Connect, not decided here).
 
 Tone: `tone-of-voice.md`. Content matches what the app does today: guest lists, quotas, approvals, offline door check-in, push for approvals. <!-- valid only once N5 (#349) is merged and verified on device --> No ticketing, no outbound invites (CLAUDE.md decision #36), no in-app billing/checkout (Apple IAP restriction, `src/lib/platform.ts` `isNativeShell()`) — never claim any of these.
