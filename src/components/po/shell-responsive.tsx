@@ -153,11 +153,16 @@ export function ResponsiveShell({
                 {it.section === 'more' && navItems[i - 1]?.section !== 'more' && (
                   <div className="mx-3 my-2 h-px bg-line2" />
                 )}
+                {/* min-h: 11px padding + the 14.5px label's line box land at
+                    43.8px, a hair under the 44px touch floor, and iPad
+                    landscape gets this sidebar with a finger (T1). Not a hit
+                    ring: rows sit 3px apart inside a scroller, so a ring would
+                    overlap the neighbour and clip at the ends. */}
                 <button
                   type="button"
                   onClick={it.onClick}
                   className={cn(
-                    'flex w-full flex-none items-center gap-3 rounded-[12px] px-3 py-[11px] text-left font-display text-[14.5px] font-bold transition-[filter] hover:brightness-[1.1]',
+                    'flex min-h-[44px] w-full flex-none items-center gap-3 rounded-[12px] px-3 py-[11px] text-left font-display text-[14.5px] font-bold transition-[filter] hover:brightness-[1.1]',
                     it.active ? 'bg-acc-dim text-acc' : 'text-dim'
                   )}
                 >

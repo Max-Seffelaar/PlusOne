@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { describeAuthError } from '@/features/auth/errors';
 import { totpSchema } from '@/features/auth/schemas';
 import { snoozeMfaAction } from '@/features/auth/mfa-actions';
-import { useTransientValue } from '@/lib/use-transient-value';
+import { copyStateLabel, useCopyText } from '@/components/po/kit';
 
 // TOTP enrollment (spec §5, decision #20 — OPTIONAL since 2026-07-02). Shown as
 // a skippable, ask-first RECOMMENDATION (UX/IA 9/7, 2026-07-09): step 1 is the
@@ -27,8 +27,7 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
   // step 1 (explanation only) to step 2 (QR + verification).
   const [enrolling, setEnrolling] = useState(false);
   const [snoozing, setSnoozing] = useState<'week' | 'never' | null>(null);
-  const [copiedFlag, triggerCopied] = useTransientValue<true>(1800);
-  const copied = copiedFlag === true;
+  const [copyState, copySecretText] = useCopyText();
   // Guards against a double-click on "Set up now" or a "Try again" click while
   // a prior attempt is still in flight firing two concurrent enroll() calls —
   // a state check alone can't catch same-tick clicks, a ref can.
@@ -40,18 +39,6 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
   useEffect(() => {
     if (enrolling) step2Ref.current?.focus();
   }, [enrolling]);
-
-  async function copySecret(): Promise<void> {
-    if (!secret) return;
-    try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        await navigator.clipboard.writeText(secret);
-        triggerCopied(true);
-      }
-    } catch {
-      // Clipboard blocked (rare in webviews) — the secret is still visible/selectable.
-    }
-  }
 
   async function skip(choice: 'week' | 'never'): Promise<void> {
     if (busy || snoozing) return;
@@ -178,10 +165,10 @@ export function MfaEnrollCard({ nextPath }: { nextPath: string }): JSX.Element {
                   </code>{' '}
                   <button
                     type="button"
-                    onClick={() => void copySecret()}
+                    onClick={() => void copySecretText(secret)}
                     className="text-dim hover:text-text underline"
                   >
-                    {copied ? 'Copied!' : 'Copy'}
+                    {copyStateLabel(copyState, 'Copy', 'Copied!')}
                   </button>
                 </p>
               )}

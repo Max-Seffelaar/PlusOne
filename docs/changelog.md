@@ -40,6 +40,55 @@ browser. Claim = exactly `https://app.plus-one.io/auth/confirm` + `/auth/callbac
 - **Waits for Max**: `ANDROID_APP_LINK_SHA256` in Vercel Production after Play App Signing;
   Associated Domains capability on the App ID before the first S1b signing; device checks.
 
+## 2026-09-28 — QA-1: automated layout/visual suite
+
+Milestone: Now. No migration. Draft PR `test(e2e): QA-1 automated layout/visual suite`.
+The goal is to shrink Max's per-UI-PR handoff from ~15 manual questions to the few
+only a human or a real device can judge.
+
+- **`pnpm e2e:layout`** (`playwright.layout.config.ts`, specs in `tests/e2e/layout/`)
+  reuses the base config's env loader, dev server and dev-login. It runs a 5-project
+  device matrix (390/768/1024/1366 touch, 1280 mouse); `matrix-sanity.spec.ts` asserts
+  each project really emulates its width and `(pointer: coarse|fine)`. Screens are built
+  with `screenPath`/`tabPath`/`doorPath` (48 screens, admin@ or door@). Global setup
+  upserts one event template: an empty Templates list jumps straight to "New".
+- **Per screen × device:** one load, one measurement pass, five independent checks:
+  horizontal overflow, ≥44px hit box on touch for controls, and separately for form
+  fields (the hit box includes the kit's `::before` hit-ring and a field's `<label>`),
+  the 1024 chrome switch, and console/network errors. `door-variant.spec.ts` checks plan
+  decision 14: coarse pointer OR <1024px gets the offline-outbox door, only a fine pointer
+  at ≥1024px gets the cockpit. The touch-at-≥1024 case runs since #344 (N6) merged.
+- **Cost control:** retries 0. Snapshots are cached per run, so a failing check (which
+  restarts the worker) never reloads its screen. 3 workers. About 7 min for the suite,
+  about 10 min for the job.
+- **Screenshots:** full-page per screen × device (the inner scroller is unrolled first),
+  uploaded as the `layout-screenshots` artifact (14 days) together with `findings.md`, a
+  digest grouped by finding. The job summary links both. Visual-regression baselines
+  are out of scope.
+- **CI:** separate `layout-suite` job, not required. It installs through
+  `scripts/session-setup.mjs` and runs `pnpm dev:mfa` on its own fresh stack (admin@
+  TOTP + platform flag). `e2e:layout` was added to `STACK_SUITES`.
+- **Fixed on main (CSS-only, one class each):** sidebar nav rows 43.8→44px (`min-h`, not
+  a hit ring: the rows sit 3px apart in a scroller); guests table guest column
+  `1fr`→`minmax(0,1fr)` (it clipped "Added" at 768/1024); requests segment tabs
+  41.5→44. The kit small `Btn`, the template tri-state and quick-add "Add tier" were
+  already fixed by #343 (T1 tablet pass) with the kit's invisible hit rings; this PR took
+  #343's version in the merge.
+- **Found, not fixed** (`tests/e2e/layout/known-issues.ts`, one fixme per check):
+  - kit `Field`/`Select` and inline search boxes: a 21–26px input inside a padded
+    non-label `div` (20 screens);
+  - chips, segments and pills at 34–40px (door, guests, events, home);
+  - 26px inline actions (crew Remove, invite Resend, session Log out);
+  - the crew quota stepper at 32px;
+  - Declined toggle at 30px;
+  - inline Terms/Privacy links at 17px, which needs a decision on an inline-link
+    exemption.
+  - After the main merge, #343's hit rings covered the import, promotion (hub tabs,
+    range pills, "N links"), link-copy, event-edit copy, template-picker, MFA toggle
+    and roles-stepper entries. Those were removed from `known-issues.ts` so their
+    checks run again. The door entries dropped their cockpit parts: since N6, touch at
+    ≥1024 gets the outbox door, so the cockpit is never measured on touch.
+
 ## 2026-09-28 — Fase 17 S2: store-listing domain URLs re-fixed to www (86ey6bft8)
 
 `main` moved CLAUDE.md's domain decision back to `www.plus-one.io` canonical (apex
@@ -525,6 +574,52 @@ external link in the in-app browser tab, back button that only minimizes on the
 
 
 
+
+
+
+
+---
+
+## 2026-09-25 — Fase 17 N1 leftovers: kit copy/external-link helpers in auth + onboarding
+
+Closes the three leftovers the 86ey6bfam N1 task fenced out (see that entry
+below). No migration, no dependency change.
+
+- **`MfaEnrollCard.tsx`**: the TOTP-secret copy button used a bare
+  `navigator.clipboard.writeText` wrapped in its own try/catch + local
+  `useTransientValue` state. Switched to the kit's `useCopyText` +
+  `copyStateLabel`, so a blocked clipboard (some webviews, insecure contexts)
+  now shows the shared "Couldn't copy" label instead of silently staying on
+  "Copy" forever. The secret stays visible/selectable either way (unchanged
+  fallback). `MfaEnrollCard.test.tsx`'s clipboard-unavailable case now asserts
+  the failure label instead of "no crash, stays on Copy".
+- **`ConsentScreen.tsx`** and **`VenueStep.tsx`**: terms/privacy links were
+  bare `<a target="_blank" rel="noreferrer">`, same trap `screens/onboarding.tsx`
+  already fixed in N1 (`ExternalLink` — Capacitor's remote-URL webview loads
+  `_blank` INSIDE itself with no way back). Both links sit inside the `<label>`
+  wrapping the consent checkbox; `ExternalLink`'s `preventDefault()` on a plain
+  click already stops the label's own toggle action, so no extra handling was
+  needed — verified with a dedicated test per screen (link has no `target`
+  attribute, and clicking it leaves the checkbox unchecked).
+- Repo-wide grep for `target="_blank"` / `window.open(` / `navigator.clipboard`
+  outside `kit.tsx` turned up nothing else in `/app`, `/consent`, `/mfa`,
+  `/login` or onboarding — `screens/settings/venue.tsx` was already on
+  `ExternalLink` (the "known leftover" note under N1 below was stale).
+  `landing-frame.tsx` (public `/e`/`/r` footer, browser-only surface — app
+  links never claim `/e/*`, plan decision 11) is left as-is, same as N1.
+- Tests: `MfaEnrollCard.test.tsx` (updated), new `ConsentScreen.test.tsx` and
+  `steps/VenueStep.test.tsx` (2 cases each, pattern from `kit.webview.test.tsx`).
+- **Round 2 (Max's hands-on test):** the po Profile "Turn on two-factor" sheet
+  is a *different* component (`PoMfaSheet` in `mfa-gate.tsx`, shared with the
+  `useMfaGate` step-up) — the round-1 fix only touched the `/mfa/enroll`
+  route's `MfaEnrollCard`, so the secret there still had no copy button. Added
+  a `CopyableField` primitive to `kit.tsx` (value + trailing copy button on
+  `useCopyText`/`copyStateLabel`, 44px real tap height) and used it for the
+  secret in `mfa-gate.tsx`; new `t.shared.kit.copyLabel`/`copyDone` +
+  `t.shared.mfaGate.copySecretAria` strings. Test:
+  `mfa-gate.copy-secret.test.tsx` (copy success + clipboard-failure labels).
+
+---
 
 
 ## 2026-09-25 — Fase 17 N3: Capacitor scaffold + Android shell (86ey6bfdm)
