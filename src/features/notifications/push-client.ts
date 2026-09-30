@@ -2,7 +2,8 @@
 
 // Push lifecycle on this device (Fase 17 N5, 86ey6bfkb): what the app does with the
 // provider's tokens. Transport details stay in the provider; this file owns
-// `push_tokens` and the device-local push preferences.
+// `push_tokens`, the device-local push preferences and the person's account-level
+// choice (see "account choice" below).
 //
 // Token storage: a plain upsert on (transport, token) through the USER-SCOPED
 // browser client. The body never carries `user_id`, `session_id` or
@@ -44,6 +45,8 @@ const STATE_KEY = 'po:push';
 const SNOOZE_KEY = 'po:push-ask-snooze';
 /** The `push_tokens.id` this device last stored — a uuid, what "off" deletes by. */
 const ROW_KEY = 'po:push-row';
+/** The account choice this device last confirmed ('on' | 'off'): see below. */
+const ACCOUNT_MIRROR_KEY = 'po:push-account';
 
 type PushState = 'on' | 'declined' | 'off' | 'off-pending';
 
@@ -92,6 +95,84 @@ export function clearPushPrefs(): void {
   writePref(STATE_KEY, null);
   writePref(SNOOZE_KEY, null);
   writePref(ROW_KEY, null);
+  writePref(ACCOUNT_MIRROR_KEY, null);
+}
+
+// ── account choice (86ey6bfkb, Max's device test 2026-09-30) ─────────────────
+// The device prefs above are wiped on sign-out (a shared door tablet must not
+// carry one person's state to the next), so on their own the ask card came back
+// after every login. The person's yes/no therefore also lives on their ACCOUNT:
+// Supabase Auth `user_metadata.push_opt_in` (true | false | absent = undecided),
+// written with the user's own session through `auth.updateUser`. It is the
+// user's own, non-sensitive preference, so user-writable is exactly right — and
+// it must never be a privilege gate: nothing server-side reads it (RLS, dispatch
+// and every role check ignore user_metadata; it only decides whether this client
+// asks). Read with `getUser()` (fresh from GoTrue, so a change made on another
+// device counts), falling back to the local session's copy offline.
+//
+// Only an explicit choice is recorded: "Turn on" (card or Profile) → true,
+// Profile "off" → false. "Not now" and an OS denial stay device-level.
+//
+// `po:push-account` mirrors what this device last confirmed on the account. A
+// write is owed whenever the device's decisive state ('on' / 'off' /
+// 'off-pending') differs from that mirror — so a failed write (offline) is
+// simply retried on the next start, and an install that decided before this
+// existed backfills its account once. Writes are serialised and always send the
+// state as it is when they run, so the last local choice wins.
+const ACCOUNT_META_KEY = 'push_opt_in';
+
+type AccountChoice = 'on' | 'off';
+
+/** The account choice the device state implies right now, or null (nothing to record). */
+function owedAccountChoice(): AccountChoice | null {
+  const s = pushState();
+  if (s === 'on') return 'on';
+  if (s === 'off' || s === 'off-pending') return 'off';
+  return null;
+}
+
+function metaChoice(meta: unknown): boolean | null {
+  const v = (meta as Record<string, unknown> | null | undefined)?.[ACCOUNT_META_KEY];
+  return typeof v === 'boolean' ? v : null;
+}
+
+/** The person's recorded push choice: true / false / null (undecided or unreadable). */
+export async function readAccountPushChoice(supabase: Client): Promise<boolean | null> {
+  try {
+    const { data, error } = await supabase.auth.getUser();
+    if (!error && data.user) return metaChoice(data.user.user_metadata);
+  } catch {
+    /* offline: fall back to the session's copy below */
+  }
+  try {
+    const { data } = await supabase.auth.getSession();
+    return metaChoice(data.session?.user?.user_metadata);
+  } catch {
+    return null;
+  }
+}
+
+let accountSync: Promise<boolean> = Promise.resolve(true);
+
+/**
+ * Record the device's current decisive choice on the account, if one is owed.
+ * Never throws; resolves false when the write failed (the next start retries).
+ */
+export function syncAccountPushChoice(supabase: Client): Promise<boolean> {
+  const run = accountSync.then(async () => {
+    const want = owedAccountChoice();
+    if (want === null || readPref(ACCOUNT_MIRROR_KEY) === want) return true;
+    try {
+      const { error } = await supabase.auth.updateUser({ data: { [ACCOUNT_META_KEY]: want === 'on' } });
+      if (error) return false;
+    } catch {
+      return false;
+    }
+    writePref(ACCOUNT_MIRROR_KEY, want);
+    return true;
+  });
+  accountSync = run;
+  return run;
 }
 
 // ── push_tokens ──────────────────────────────────────────────────────────────
@@ -211,21 +292,60 @@ async function finishPendingOff(supabase: Client): Promise<void> {
   await getNotificationProvider().unregister();
 }
 
+/** What the chrome may ask after its delay: the explain-first card, the OS
+ *  prompt directly (the account already said yes, this device has no grant
+ *  yet), or nothing. */
+export type PushAskKind = 'card' | 'os-prompt' | null;
+
+export interface ResumeResult {
+  perm: PushPermission;
+  ask: PushAskKind;
+}
+
 /**
- * App start. Registers again only when the person turned push on here AND the OS
- * allows it (refreshes the row). Never prompts, and never registers a device on
- * the OS grant alone: Android 12 and below report `granted` from install, so the
- * explain-first card is the consent step on every Android version. A pending
- * "off" is finished here.
+ * App start (and login — the device prefs are empty then). Never prompts.
+ *
+ * - An owed account write (a failed one, or a pre-account install) is retried.
+ * - Nothing decided on this device: the ACCOUNT decides. Opted out → the device
+ *   records 'off' (no card; Profile reads off). Opted in with the OS grant → the
+ *   device records 'on' and registers silently. Opted in, OS still `default` (a
+ *   new device) → `ask: 'os-prompt'`. Undecided → `ask: 'card'`, as before.
+ * - Registers only when push is on here AND the OS allows it (refreshes the
+ *   row). Never on the OS grant alone: Android 12 and below report `granted`
+ *   from install, so the card — or an earlier yes on the account — is the
+ *   consent step on every Android version.
+ * - A pending "off" is finished here.
  */
-export async function resumePush(supabase: Client): Promise<PushPermission> {
+export async function resumePush(supabase: Client): Promise<ResumeResult> {
   const provider = getNotificationProvider();
-  if (!provider.isSupported()) return 'unsupported';
+  if (!provider.isSupported()) return { perm: 'unsupported', ask: null };
   const perm = await provider.checkPermission();
-  const state = pushState();
+  await syncAccountPushChoice(supabase);
+  let state = pushState();
+  let ask: PushAskKind = null;
+  if (state === null) {
+    const account = await readAccountPushChoice(supabase);
+    if (account !== null) writePref(ACCOUNT_MIRROR_KEY, account ? 'on' : 'off');
+    // Re-read: the person may have chosen on this device while the read was out.
+    state = pushState();
+    if (state === null) {
+      if (account === false) {
+        writePref(STATE_KEY, 'off');
+        state = 'off';
+      } else if (account === true && perm === 'granted') {
+        writePref(STATE_KEY, 'on');
+        state = 'on';
+      } else if (account === true) {
+        // `default` → the OS prompt once, no explain card; `denied` → Profile explains.
+        ask = perm === 'default' ? 'os-prompt' : null;
+      } else if (perm === 'default' || perm === 'granted') {
+        ask = 'card';
+      }
+    }
+  }
   if (state === 'off-pending') await finishPendingOff(supabase);
   else if (state === 'on' && perm === 'granted') await registerPush(supabase);
-  return perm;
+  return { perm, ask };
 }
 
 export interface EnableResult {
@@ -235,29 +355,37 @@ export interface EnableResult {
   registered: boolean;
 }
 
-/** An explicit "turn on" (ask card or Profile). Shows the OS prompt if needed. A
- *  result without a grant is remembered, so the ask card does not come back. */
+/** An explicit "turn on" (ask card, Profile, or the direct OS prompt for an
+ *  account that already opted in). Shows the OS prompt if needed. A grant is
+ *  recorded on the account too — a failed account write never blocks enabling
+ *  here, the next start retries it. A result without a grant is remembered on
+ *  this device only, so the ask does not come back here. */
 export async function enablePush(supabase: Client): Promise<EnableResult> {
   const perm = await getNotificationProvider().requestPermission();
   if (perm === 'granted') {
     writePref(STATE_KEY, 'on');
-    return { perm, registered: (await registerPush(supabase)) !== null };
+    const [reg] = await Promise.all([registerPush(supabase), syncAccountPushChoice(supabase)]);
+    return { perm, registered: reg !== null };
   }
   if (perm !== 'unsupported' && !isPushOptedOut()) writePref(STATE_KEY, 'declined');
   return { perm, registered: false };
 }
 
 /**
- * Profile "off": stop delivering to this device, and remember the choice. The
- * intent is written first (no late token can recreate the row from here on);
- * the row delete must actually succeed, otherwise this throws so Profile shows
- * the error — and the next start retries the delete (`off-pending`).
+ * Profile "off": stop delivering to this device, and remember the choice — here
+ * and on the account (a failed account write is retried on the next start; it
+ * never decides whether "off" succeeded). The intent is written first (no late
+ * token can recreate the row from here on); the row delete must actually
+ * succeed, otherwise this throws so Profile shows the error — and the next start
+ * retries the delete (`off-pending`).
  */
 export async function disablePush(supabase: Client): Promise<void> {
   writePref(STATE_KEY, 'off-pending');
   // Whatever happens below, a later "turn on" in this run must reach the server.
   saving = null;
+  const account = syncAccountPushChoice(supabase);
   const ok = await deleteThisDevicePushTokens(supabase);
+  await account;
   await getNotificationProvider().unregister();
   if (!ok) throw new Error('push-off-incomplete');
   writePref(STATE_KEY, 'off');
@@ -316,4 +444,5 @@ export async function invalidatePushTransportForSignOut(): Promise<void> {
 /** Tests only: a fresh app run (module state, as on a real app start). */
 export function __resetPushClientForTests(): void {
   saving = null;
+  accountSync = Promise.resolve(true);
 }

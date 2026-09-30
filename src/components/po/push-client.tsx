@@ -7,17 +7,20 @@
  * on the web — every path starts at `provider.isSupported()`.
  *
  * - Registration: on mount, if the person turned push on for this device (ask
- *   card or Profile) and the OS allows it, register again — this refreshes the
- *   `push_tokens` row. Every later token refresh is stored too (while still on).
+ *   card or Profile) — or, on a fresh login, their ACCOUNT says they opted in —
+ *   and the OS allows it, register again (silently; this refreshes the
+ *   `push_tokens` row). Every later token refresh is stored too (while still on).
  *   The OS grant alone never registers: Android 12 and below grant from install,
- *   so the card is the consent step on every Android version.
+ *   so the card (or an earlier yes on the account) is the consent step.
  * - Asking: never on launch. After ASK_DELAY_MS, and only for a role that can
- *   receive something (the caller decides), off the Deur tab (the chrome only
- *   renders `PushAskCard` outside it), when nothing was decided on this device
- *   yet, and not while snoozed: a card that explains the value first. The OS
- *   prompt only appears after "Turn on". A denial is respected — `enablePush`
- *   records it (Android 13+ still reports a first denial as askable), so the
- *   card does not come back; Profile is the way back in.
+ *   receive something (the caller decides), off the Deur tab, and only when
+ *   nothing was decided on this device yet. The account decides what: opted out
+ *   → nothing; opted in but this device has no OS grant yet → the OS prompt
+ *   directly, once (no explain card — they already said yes); undecided → a card
+ *   that explains the value first (not while snoozed), and the OS prompt only
+ *   appears after "Turn on". A denial is respected — `enablePush` records it on
+ *   the device (Android 13+ still reports a first denial as askable), so the ask
+ *   does not come back here; Profile is the way back in.
  * - Taps: kind + ids → a real /app URL (`push-routes.ts`). A notification for
  *   another venue goes through the chrome's own `switchToVenue` (one venue-switch
  *   path: its "Switching…", its refusal/failure toasts, its reload), landing on
@@ -38,6 +41,7 @@ import {
   resumePush,
   savePushToken,
   snoozePushPrompt,
+  type PushAskKind,
 } from '@/features/notifications/push-client';
 import { Btn, GuideCard } from './kit';
 import { pushTargetPath } from './push-routes';
@@ -62,19 +66,23 @@ export interface PushAsk {
 
 export function usePushClient({
   canReceive,
+  onDoor,
   activeVenueId,
   switchToVenue,
   onToast,
 }: {
   /** The user holds a role that push v1 delivers to (approvers + staff). */
   canReceive: boolean;
+  /** The Deur tab is open: nothing is asked there (the card is not rendered, the
+   *  direct OS prompt waits until the person leaves it). */
+  onDoor: boolean;
   activeVenueId: string | null;
   /** The chrome's venue switch (context `switchToVenue`), landing on `landing`. */
   switchToVenue: (venueId: string, landing: string) => void;
   onToast: (text: string) => void;
 }): PushAsk {
   const router = useRouter();
-  const [askable, setAskable] = useState(false);
+  const [ask, setAsk] = useState<PushAskKind>(null);
   const [busy, setBusy] = useState(false);
 
   // Listeners are registered once; they read the latest props through a ref.
@@ -110,12 +118,12 @@ export function usePushClient({
     let timer: ReturnType<typeof setTimeout> | undefined;
     let cancelled = false;
     void resumePush(supabase)
-      .then((perm) => {
-        // `granted` counts too: Android 12 and below grant from install, and
-        // the card is the consent step there as well.
-        const askable = perm === 'default' || perm === 'granted';
-        if (cancelled || !askable || !isPushUndecided() || isPushPromptSnoozed()) return;
-        timer = setTimeout(() => setAskable(true), ASK_DELAY_MS);
+      .then(({ ask: kind }) => {
+        // `kind` already folds in the OS state (`granted` counts for the card
+        // too: Android 12 and below grant from install) and the account choice.
+        if (cancelled || kind === null || !isPushUndecided()) return;
+        if (kind === 'card' && isPushPromptSnoozed()) return;
+        timer = setTimeout(() => setAsk(kind), ASK_DELAY_MS);
       })
       .catch(() => undefined);
 
@@ -132,7 +140,7 @@ export function usePushClient({
       .catch(() => ({ perm: 'denied' as const, registered: false }))
       .then(({ perm, registered }) => {
         setBusy(false);
-        setAskable(false);
+        setAsk(null);
         if (perm !== 'granted') {
           // enablePush already recorded the refusal; the snooze also covers a
           // throw on the way, so the card cannot come straight back either way.
@@ -147,10 +155,18 @@ export function usePushClient({
   }, []);
   const later = useCallback((): void => {
     snoozePushPrompt();
-    setAskable(false);
+    setAsk(null);
   }, []);
 
-  return { show: askable && canReceive, busy, turnOn, later };
+  // The account already opted in and this device has never been asked: the OS
+  // prompt itself, once, off the Deur tab and only for a role push reaches.
+  useEffect(() => {
+    if (ask !== 'os-prompt' || !canReceive || onDoor) return;
+    setAsk(null);
+    turnOn();
+  }, [ask, canReceive, onDoor, turnOn]);
+
+  return { show: ask === 'card' && canReceive, busy, turnOn, later };
 }
 
 /** The explain-first card. Rendered by the chrome where the Toast goes (content

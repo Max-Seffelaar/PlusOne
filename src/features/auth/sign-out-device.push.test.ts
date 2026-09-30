@@ -60,7 +60,11 @@ vi.mock('@/lib/supabase/client', () => {
     createClient: () => ({
       from,
       auth: {
-        getUser: async () => ({ data: { user: { id: 'A' } } }),
+        getUser: async () => ({ data: { user: { id: 'A', user_metadata: {} } }, error: null }),
+        updateUser: async () => {
+          log.push('account-write');
+          return { data: { user: null }, error: null };
+        },
         getSession: async () => ({ data: { session: state.signedIn ? { access_token: ACCESS } : null } }),
         signOut: async ({ scope }: { scope: string }) => {
           log.push(`signOut:${scope}`);
@@ -131,8 +135,11 @@ describe('signOutDevice — push unregister ordering (N5)', () => {
     prefs.set('po:push', 'on');
     prefs.set('po:push-row', '0190f0b2-7c1a-7cc3-9a61-2b3c4d5e6f99');
     prefs.set('po:push-ask-snooze', '9999999999999');
+    prefs.set('po:push-account', 'on');
     await signOutDevice('local');
     expect(prefs.size).toBe(0);
+    // The account choice is not touched by signing out: only the device forgets.
+    expect(log).not.toContain('account-write');
   });
 
   it('a web build sends no push delete at all', async () => {
