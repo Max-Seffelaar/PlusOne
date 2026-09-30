@@ -30,7 +30,7 @@ import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { localInputToIso, isoToLocalInput } from '@/features/events/datetime';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Scroll, TierPicker, Toggle, ToggleRow, Top, copyStateLabel, hitArea44, press, cardPress, useCopyText } from '../../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Scroll, TierPicker, Toggle, ToggleRow, Top, copyStateLabel, hitArea44, hitRingY4, hitRingY6, press, cardPress, useCopyText } from '../../kit';
 import { Sheet } from '../../shell';
 import { CreateLinkFlow } from './create-link-flow';
 import { EventPicker, soonestUpcoming } from './shared';
@@ -128,8 +128,11 @@ function LinkCard({
           onClick={() => void copy()}
           aria-label={t.links.copyAria}
           className={cn(
+            // 38.8px chip + an invisible 4px ring above and below (kit
+            // `hitRingY4`) = a 44.8px tap area (T1, touch). `hitArea44`
+            // (QA-1) still only reached 42.8px — under the floor.
             'flex shrink-0 items-center gap-1.5 rounded-[10px] border px-3 py-[9px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.2]',
-            hitArea44,
+            hitRingY4,
             copied ? 'border-acc/40 bg-acc-dim text-acc' : 'border-line text-dim',
           )}
         >
@@ -615,7 +618,10 @@ function QrSheet({ link, onClose }: { link: PoRequestLink; onClose: () => void }
           onClick={() => void copy()}
           aria-label={t.links.copyAria}
           className={cn(
+            // 34.8px bordered button + an invisible 6px ring (kit
+            // `hitRingY6`) = a 44.8px tap area (T1, touch).
             'flex shrink-0 items-center gap-1.5 rounded-[10px] border px-3 py-[7px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.2]',
+            hitRingY6,
             copied ? 'border-acc/40 bg-acc-dim text-acc' : 'border-line text-dim',
           )}
         >
