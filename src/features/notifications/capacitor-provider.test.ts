@@ -15,6 +15,33 @@ import {
 
 type Listener = (e: unknown) => void;
 
+/**
+ * Wraps a fake the way `registerPlugin` does (@capacitor/core): a Proxy whose
+ * `get` hands out a callable for every property the plugin does not special-case
+ * — `then` included — and that callable never invokes the callbacks it is given
+ * (the real one makes a native call to a nonexistent method). Any plugin that
+ * becomes a promise's resolution value therefore never settles, which is what
+ * hung the provider on device (86ey6bfkb). Every fake below goes through this.
+ */
+function capacitorProxy<T extends object>(target: T): T {
+  return new Proxy(target, {
+    get(t, prop) {
+      if (prop === '$$typeof') return undefined;
+      if (prop in t) return Reflect.get(t, prop);
+      return () => new Promise<never>(() => undefined);
+    },
+  });
+}
+
+/** Rejects with 'hung' when `p` does not settle within `ms` real milliseconds. */
+function settles<T>(p: Promise<T>, ms = 500): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const hung = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('hung: promise never settled')), ms);
+  });
+  return Promise.race([p, hung]).finally(() => clearTimeout(timer));
+}
+
 function fakePush() {
   const listeners = new Map<string, Listener[]>();
   const perm = { receive: 'prompt' };
@@ -53,12 +80,14 @@ let platform: string;
 function deps(): CapacitorPushDeps {
   return {
     platform: () => platform,
-    loadPush: async () => push as never,
+    loadPush: async () => ({ plugin: capacitorProxy(push) as never }),
     loadConfig: async () => ({
-      isConfigured: async () => {
-        if (configured === 'reject') throw new Error('"PlusOnePushConfig" plugin is not implemented on android');
-        return { configured };
-      },
+      plugin: capacitorProxy({
+        isConfigured: async () => {
+          if (configured === 'reject') throw new Error('"PlusOnePushConfig" plugin is not implemented on android');
+          return { configured };
+        },
+      }),
     }),
   };
 }
@@ -201,7 +230,7 @@ describe('a transient plugin-load failure is not memoized', () => {
           left -= 1;
           throw new Error('ChunkLoadError');
         }
-        return push as never;
+        return { plugin: capacitorProxy(push) as never };
       },
     };
   }
@@ -247,5 +276,52 @@ describe('registration platform', () => {
     platform = 'ios';
     push.emit('registration', { value: 't' });
     expect(regs).toEqual([{ token: 't', transport: 'fcm', platform: 'ios' }]);
+  });
+});
+
+describe('thenable trap: a Capacitor plugin proxy must never resolve a promise (86ey6bfkb)', () => {
+  it('the fake really is thenable, like the real plugin', () => {
+    expect(typeof (capacitorProxy(push) as unknown as { then?: unknown }).then).toBe('function');
+  });
+
+  it('checkPermission() settles ({receive: prompt} → default)', async () => {
+    await expect(settles(new CapacitorPushProvider(deps()).checkPermission())).resolves.toBe('default');
+  });
+
+  it('requestPermission() settles', async () => {
+    push.receive = 'granted';
+    await expect(settles(new CapacitorPushProvider(deps()).requestPermission())).resolves.toBe('granted');
+  });
+
+  it('register() settles with the FCM token', async () => {
+    push.receive = 'granted';
+    push.register.mockImplementation(async () => {
+      setTimeout(() => push.emit('registration', { value: 'tok' }), 0);
+    });
+    await expect(settles(new CapacitorPushProvider(deps()).register())).resolves.toEqual({ token: 'tok', transport: 'fcm', platform: 'android' });
+  });
+
+  it('unregister() settles and reaches the plugin', async () => {
+    await expect(settles(new CapacitorPushProvider(deps()).unregister())).resolves.toBeUndefined();
+    expect(push.unregister).toHaveBeenCalledTimes(1);
+  });
+
+  it('the listener paths attach', async () => {
+    const p = new CapacitorPushProvider(deps());
+    const taps: unknown[] = [];
+    const fg: unknown[] = [];
+    const regs: unknown[] = [];
+    p.onTap((m) => taps.push(m.data));
+    p.onForeground((m) => fg.push(m.data));
+    p.onRegistration((r) => regs.push(r.token));
+    await settles(
+      (async () => {
+        while ((push.addListener.mock.calls.length as number) < 3) await flush();
+      })(),
+    );
+    push.emit('pushNotificationActionPerformed', { notification: { data: { kind: 'a' } } });
+    push.emit('pushNotificationReceived', { data: { kind: 'b' } });
+    push.emit('registration', { value: 'c' });
+    expect([taps, fg, regs]).toEqual([[{ kind: 'a' }], [{ kind: 'b' }], ['c']]);
   });
 });
