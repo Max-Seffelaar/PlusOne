@@ -19,6 +19,21 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- App Links (Fase 17 S4, plan decision 11): ONLY the two auth
+                 handlers, exact paths. Never /e/* (guest landing stays in the
+                 browser). Verified against https://app.plus-one.io/.well-known/assetlinks.json;
+                 host + paths are pinned to src/lib/native/app-links.ts by
+                 tests/unit/app-links.test.ts. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="app.plus-one.io" />
+                <data android:path="/auth/confirm" />
+                <data android:path="/auth/callback" />
+            </intent-filter>
         </activity>
 
         <provider

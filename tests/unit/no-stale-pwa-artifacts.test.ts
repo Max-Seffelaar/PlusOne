@@ -13,20 +13,10 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
+import { middlewareMatcher } from './helpers/middleware-matcher';
 
 const root = process.cwd();
 const read = (p: string): string => readFileSync(resolve(root, p), 'utf8');
-
-/** The live matcher from src/middleware.ts, compiled the way Next compiles it.
- *  Asserting on the behaviour of the real pattern rather than on a substring:
- *  `toContain('sw.js')` was satisfied by the explanatory COMMENT above the
- *  matcher, so deleting the exclusion itself would have kept CI green. */
-function middlewareMatcher(): RegExp {
-  const src = read('src/middleware.ts');
-  const line = /matcher:\s*\[\s*'([^']+)'/.exec(src);
-  if (!line) throw new Error('middleware matcher not found');
-  return new RegExp(`^${line[1]}$`);
-}
 
 describe('retired next-pwa artefacts stay retired', () => {
   const sw = read('public/sw.js');

@@ -182,9 +182,34 @@ App integrity → App signing*):
   S4 needs: it signs the APKs Play installs on phones.
 - **Upload key certificate → SHA-256** — add it too only if you want app links to work on
   a sideloaded Codemagic build.
-- The same page offers a ready-made **Digital Asset Links JSON** snippet.
+- The same page offers a ready-made **Digital Asset Links JSON** snippet. You do **not**
+  paste it anywhere: the app builds the file itself from one env var.
 
 Only exists after step 7 (Google generates the app signing key on the first upload).
+
+**Wire it up (S4, `/.well-known/assetlinks.json`):**
+
+1. Vercel → project **`plus-one`** → Settings → Environment Variables → add
+   `ANDROID_APP_LINK_SHA256` for **Production** (server-only, never `NEXT_PUBLIC_`). Value:
+   the fingerprints comma-separated, app signing key first, e.g.
+   `AB:CD:…:EF,12:34:…:56` — each is 32 colon-separated hex bytes exactly as Play prints
+   them. Not a secret (anyone can read the published file), but it is config, so it lives
+   in env, not in the repo.
+2. Redeploy production.
+3. `curl -si https://app.plus-one.io/.well-known/assetlinks.json` → `200`,
+   `content-type: application/json`, package `app.plusone.guestlist`, your fingerprints.
+4. Google's checker:
+   `https://digitalassetlinks.googleapis.com/v1/statements:list?source.web.site=https://app.plus-one.io&relation=delegate_permission/common.handle_all_urls`.
+
+Until the variable is set the route answers **404** on purpose — never an empty or
+wildcard statement. If ANY entry is malformed it also answers 404 (and logs
+`[assetlinks] … malformed` in the Vercel function log): a partial list would silently drop
+a signing key. The Android intent-filter (`android/app/src/main/AndroidManifest.xml`,
+`autoVerify`) claims only `https://app.plus-one.io/auth/confirm` and `/auth/callback`;
+Android 12+ re-verifies on install, so after changing the variable reinstall the app (or
+`adb shell pm verify-app-links --re-verify app.plusone.guestlist`) and check with
+`adb shell pm get-app-links app.plusone.guestlist` → `app.plus-one.io: verified`.
+Full picture (both platforms): `docs/native/app-links.md`.
 
 ## Releasing after setup
 
