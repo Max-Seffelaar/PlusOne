@@ -78,6 +78,9 @@ vi.mock('@/features/door/DoorProvider', () => ({
     }, []);
     return <div data-testid="door-provider">{children}</div>;
   },
+  // DoorLeaveGuard (rendered inside DoorRoute) reads only the public
+  // per-event pending count; no unsynced writes in this suite.
+  useDoor: () => ({ pendingCount: 0 }),
 }));
 vi.mock('@/components/po/screens/door', () => ({
   PoDoorTab: () => <div data-testid="door-tab" />,
