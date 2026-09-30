@@ -165,4 +165,13 @@ export const door = {
   resumeStuckSub: "The last attempt didn't finish. Try again, or continue on the last list you have.",
   resumeTryAgain: 'Try again',
   resumeContinueAnyway: 'Continue anyway',
+
+  // ── Leave with unsynced work (native back on /door/<id>, 86ey6bfdm) ──────
+  // Back would unload the door, and with it the sync loop; the queue itself
+  // stays in this device's storage and goes up next time the door opens.
+  leaveUnsyncedTitle: 'Leave the door?',
+  leaveUnsyncedBodyOne: "1 check-in hasn't synced yet. Leave anyway? It syncs next time you open the door.",
+  leaveUnsyncedBody: "{n} check-ins haven't synced yet. Leave anyway? They sync next time you open the door.",
+  leaveUnsyncedStay: 'Stay',
+  leaveUnsyncedLeave: 'Leave',
 } as const;

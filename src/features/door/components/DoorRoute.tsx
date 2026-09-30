@@ -35,11 +35,13 @@
 import { type JSX, useEffect, useState } from 'react';
 import { PoDoorTab, type DoorOverlay } from '@/components/po/screens/door';
 import { Spinner } from '@/components/po/kit';
+import { useNativeBackIntercept } from '@/components/po/native-back-intercept';
 import { t } from '@/lib/i18n';
 import { doorPath } from '@/components/po/routes';
 import { useLatchedDoorVariant } from '@/components/po/use-door-variant';
 import { ROOT_SAFE_AREA } from '@/components/po/shell-responsive';
 import { DoorProvider } from '../DoorProvider';
+import { DoorLeaveGuard } from './DoorLeaveGuard';
 
 export function DoorRoute({ eventId }: { eventId: string }): JSX.Element {
   const variant = useLatchedDoorVariant();
@@ -52,6 +54,9 @@ export function DoorRoute({ eventId }: { eventId: string }): JSX.Element {
 
   const openGuest = (id: string): void => setOverlay({ kind: 'guest', id });
   const openAdd = (): void => setOverlay({ kind: 'add' });
+  // Native back closes the open sheet before leaving for the picker; leaving
+  // with unsynced writes asks first (DoorLeaveGuard) (86ey6bfdm).
+  useNativeBackIntercept(overlay ? () => setOverlay(null) : null);
   const closeOverlay = (): void => setOverlay(null);
 
   if (variant !== 'outbox') {
@@ -75,6 +80,7 @@ export function DoorRoute({ eventId }: { eventId: string }): JSX.Element {
           closeOverlay={closeOverlay}
         />
       </div>
+      <DoorLeaveGuard />
     </DoorProvider>
   );
 }
