@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Fase 17 N5. Keep the channel id in sync with PUSH_CHANNEL_ID in
+         src/features/notifications/capacitor-provider.ts (guarded by
+         tests/unit/capacitor-native-shell.test.ts). -->
+    <string name="plusone_push_channel_id" translatable="false">approvals</string>
+    <!-- design-system.md lavender accent: tints the notification icon. -->
+    <color name="plusone_push_accent">#B5A6FF</color>
+</resources>
