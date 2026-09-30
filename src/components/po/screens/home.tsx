@@ -14,7 +14,9 @@
  * on-list/inside headcounts) + usePoGuestRequests + usePoQuotaRequests (venue-wide,
  * grouped by event here). Search/filter/pagination are client-side over that set.
  * The shell (sidebar / bottom-tabs) is the ResponsiveShell; this screen renders
- * only the content column. English copy via the i18n catalogus; lg: = 1024px.
+ * only the content column. English copy via the i18n catalogus. Content layout
+ * switches at md: (768px) — an iPad portrait column is as wide as desktop's at
+ * 1024px (T1, design-system.md "Breakpoints & tablet").
  */
 import { type JSX, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -95,7 +97,7 @@ function SearchFilter({
     ['upcoming', t.home.filterUpcoming],
   ];
   return (
-    <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+    <div className="flex flex-col gap-3 md:flex-row md:items-center">
       <div className="flex flex-1 items-center gap-[11px] rounded-[14px] border border-line bg-elev px-[15px] py-[11px]">
         <Icon name="search" size={19} className="shrink-0 text-faint" />
         <input
@@ -194,7 +196,7 @@ function Skeleton(): JSX.Element {
         <div className="h-[18px] w-[45%] animate-pulse rounded-[7px] bg-elev2" />
         <div className="mt-3 h-3 w-[62%] animate-pulse rounded-md bg-elev2" />
       </div>
-      <div className="flex gap-2 max-lg:hidden">
+      <div className="flex gap-2 max-md:hidden">
         {[0, 1, 2].map((i) => (
           <div key={i} className="h-11 w-11 animate-pulse rounded-[12px] bg-elev2" />
         ))}
@@ -390,7 +392,7 @@ export function Home(): JSX.Element {
   return (
     <div className="flex h-full flex-col">
       <Scroll pad={0} bottom={28} className="po-screen-anim">
-        <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-[22px] px-4 pb-2 pt-[18px] lg:px-[38px] lg:pt-[30px]">
+        <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-[22px] px-4 pb-2 pt-[18px] md:px-[38px] md:pt-[30px]">
           <PendingInvitesBanner />
 
           {/* greeting */}
@@ -399,9 +401,9 @@ export function Home(): JSX.Element {
               <BackBtn onClick={nav.back} />
             </div>
           )}
-          <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end lg:gap-4">
-            <div className="min-w-0 lg:flex-1">
-              <h1 className="font-display text-[27px] font-extrabold leading-[1.02] tracking-[-0.025em] text-text lg:text-[33px]">
+          <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end md:gap-4">
+            <div className="min-w-0 md:flex-1">
+              <h1 className="font-display text-[27px] font-extrabold leading-[1.02] tracking-[-0.025em] text-text md:text-[33px]">
                 {greetingFor(amsterdamHour(), firstName)}
               </h1>
               <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[13.5px] text-faint">
@@ -452,7 +454,7 @@ export function Home(): JSX.Element {
           {/* pulse strip — Requests / Quota tiles deep-link into the inbox. Role-hide
               (M3/M9, K-7/K-8): doorhost/user_manager have no request surface at
               all, so both tiles disappear; staff sees only its own quota status. */}
-          <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-3">
+          <div className="grid grid-cols-2 gap-[14px] md:grid-cols-3">
             {seeRequestInbox && (
               <PulseTile
                 icon="inbox"
@@ -484,7 +486,7 @@ export function Home(): JSX.Element {
               label={t.home.pulseLive}
               value={pulse.live}
               onClick={() => nav.setTab('events')}
-              className={!showRequestTiles ? 'col-span-2 lg:col-span-3' : seeRequestInbox ? 'max-lg:col-span-2' : undefined}
+              className={!showRequestTiles ? 'col-span-2 md:col-span-3' : seeRequestInbox ? 'max-md:col-span-2' : undefined}
             />
           </div>
 

@@ -333,13 +333,22 @@ export function usePoDoorCandidates() {
     // effect dep), `isSuccess` (the T6 auto-open effect's load-state guard —
     // review round 2, Blocker 2), and calls `.refetch()` imperatively — a
     // stable method reference, not gated by this list.
-    notifyOnChangeProps: ['data', 'isLoading', 'isFetching', 'isSuccess'],
+    // `fetchStatus` + `isError` (N7): the Deur tab's offline fallback mounts
+    // the last pinned door event when this list cannot load — paused offline
+    // (`fetchStatus === 'paused'`) or failed — and must re-render on exactly
+    // those transitions.
+    notifyOnChangeProps: ['data', 'isLoading', 'isFetching', 'isSuccess', 'fetchStatus', 'isError'],
     queryFn: async () => {
       if (!venueId) return [];
       return doorCandidates(await fetchEvents(createClient(), venueId), Date.now());
     },
   });
-  return { ...query, data: query.data ?? EMPTY_DOOR_CANDIDATES };
+  // `hasData` (N7 §6 review): whether a list has EVER loaded into this query,
+  // which the `?? EMPTY_DOOR_CANDIDATES` default hides. Not `isSuccess`: a
+  // refetch that fails on a warm list flips `status` to 'error' and KEEPS the
+  // data, and the Deur tab must treat that list as loaded (never mount the
+  // offline pin over it). Tracked through 'data' in notifyOnChangeProps.
+  return { ...query, data: query.data ?? EMPTY_DOOR_CANDIDATES, hasData: query.data !== undefined };
 }
 
 /** A single event by id, read from the venue's events list (no extra round-trip). */
@@ -1230,8 +1239,8 @@ export function usePoSessions() {
 
 /**
  * A team member's active sessions for the admin remote-logout screen (#20 §5).
- * Admin-at-a-shared-venue + AAL2 are enforced in the RPC; the caller passes
- * `enabled` (isAdmin && AAL2 && a selected member) so we never fire the
+ * Admin-at-a-shared-venue (role-only) is enforced in the RPC; the caller passes
+ * `enabled` (isAdmin && a selected member) so we never fire the
  * guaranteed-empty query. Never reports "current" — it is someone else's session.
  */
 export function usePoUserSessions(targetUserId: string | null, options?: { enabled?: boolean }) {
@@ -1313,8 +1322,8 @@ export function useBillingBlocked(): { blocked: boolean; reason: 'canceled' | 't
 
 /**
  * The active venue's audit feed (S10), filtered + capped in the database. Gated
- * to admin/finance + AAL2 by RLS; the caller passes `enabled` (canAudit && AAL2)
- * so we never fire the guaranteed-empty AAL1 query.
+ * to admin/finance by RLS (role-only); the caller passes `enabled` (canAudit)
+ * so we never fire a guaranteed-empty query.
  */
 export function usePoAuditFeed(
   filters: Omit<PoAuditFilters, 'venueId'>,

@@ -1,6 +1,7 @@
 import type { JSX, ReactNode } from 'react';
 import { DoorQueryProvider } from '@/features/door/DoorQueryProvider';
-import { RegisterServiceWorker } from './register-sw';
+import { NativeBackButton } from '@/components/po/native-back-button';
+import { RegisterServiceWorker } from '@/components/register-sw';
 
 // Full-bleed door shell — deliberately NOT the (app) dashboard chrome. The route
 // is still protected by middleware (a session is required; doorhost has no MFA
@@ -9,6 +10,8 @@ export default function DoorLayout({ children }: { children: ReactNode }): JSX.E
   return (
     <DoorQueryProvider>
       <RegisterServiceWorker />
+      {/* Native shell back button (N3): /door/<id> → picker, picker → minimize. */}
+      <NativeBackButton />
       {children}
     </DoorQueryProvider>
   );

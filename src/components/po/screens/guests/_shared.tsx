@@ -8,7 +8,7 @@ import { TIER_ALIASES_UI } from '@/features/guests/tiers';
 import { t } from '@/lib/i18n';
 import { DEFAULT_TIER_COLOR, allColorsUsed, nextAvailableColor, tierInk } from '@/lib/po/tier-colors';
 import { Icon } from '../../icon';
-import { Btn, ColorSwatches, Field, Label, press, cardPress } from '../../kit';
+import { Btn, ColorSwatches, Field, Label, hitRingY4, press, cardPress } from '../../kit';
 
 // FE-4: press/cardPress now live in kit.tsx — re-exported here so the many
 // guests/* screens importing them from './_shared' don't need to change.
@@ -223,7 +223,10 @@ export function AddTierInline({ eventId, className }: { eventId: string; classNa
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
+          // 42px dashed row + an invisible 4px ring above and below (kit
+          // `hitRingY4`) = a 47px tap area, inside its 12px top margin (T1, touch).
           'flex w-full items-center justify-center gap-[7px] rounded-[13px] border border-dashed border-line bg-transparent px-[13px] py-[10px] font-display text-[13px] font-bold text-faint transition-[filter] hover:brightness-[1.3]',
+          hitRingY4,
           className,
         )}
       >

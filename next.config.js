@@ -2,7 +2,8 @@
 const { withSentryConfig } = require('@sentry/nextjs');
 
 // NO next-pwa — do not wire it in. Fase 9 shipped a hand-written service worker
-// instead (public/service-worker.js, registered from /door only). Its generated
+// instead (public/service-worker.js, registered from /door and — since N7 — from
+// the /app layout, see src/components/register-sw.tsx). Its generated
 // Workbox SW cached cross-origin GETs — Supabase REST bodies with guest PII — in
 // an origin-scoped cache that outlived sign-out on shared door tablets, and its
 // leftover output at public/sw.js kept running on real browsers for months
@@ -22,6 +23,18 @@ const connectSrc = isDev
 const scriptSrc = isDev
   ? "'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'"
   : "'self' 'unsafe-inline' 'wasm-unsafe-eval'";
+
+// ── Capacitor wrap notes (Fase 17 N1, decision #37) — documentation only ─────
+// The native shells load this app by remote URL, so this CSP governs the
+// webview too. Android injects the Capacitor bridge JS into every page, and it
+// is script-src that would have to admit it. Today that is moot: script-src
+// above already carries 'unsafe-inline' (Next's inline bootstrap needs it
+// until a nonce migration), so do NOT change anything here pre-emptively.
+// Only if the N3 native spike (86ey6bfdm) shows a real CSP violation for the
+// bridge: admit it by hash or nonce — never by adding/relying on
+// 'unsafe-inline' as the fix, and never by widening script-src to a scheme or
+// wildcard. frame-ancestors 'none' is unaffected (the webview is a top-level
+// browsing context, not a frame).
 
 // The strict, global baseline — no Cloudflare entries here, and no frame-src
 // override (falls back to default-src 'self', i.e. no third-party frames

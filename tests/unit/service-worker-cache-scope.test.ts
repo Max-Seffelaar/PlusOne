@@ -138,7 +138,7 @@ type OnlineFn = (input: string) => FakeResponse | Promise<FakeResponse> | null;
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
 function loadSw(
-  options: { hostname?: string; online?: FakeResponse | null | OnlineFn } = {},
+  options: { hostname?: string; search?: string; online?: FakeResponse | null | OnlineFn } = {},
   source: string = SW_SOURCE,
 ) {
   const listeners = new Map<string, Listener>();
@@ -149,7 +149,7 @@ function loadSw(
   let unregistered = false;
 
   const self = {
-    location: { hostname: options.hostname ?? 'app.plusone.test', origin: ORIGIN },
+    location: { hostname: options.hostname ?? 'app.plusone.test', origin: ORIGIN, search: options.search ?? '' },
     addEventListener: (type: string, fn: Listener) => listeners.set(type, fn),
     skipWaiting: async () => undefined,
     registration: {
@@ -177,7 +177,10 @@ function loadSw(
     return await resolved; // an OnlineFn may return a pending promise (race tests)
   };
 
-  const ResponseStub = { error: () => makeResponse('network-error', { status: 0, type: 'error' }) };
+  const ResponseStub = {
+    error: () => makeResponse('network-error', { status: 0, type: 'error' }),
+    redirect: (url: string, status = 302) => makeResponse(`redirect:${url}`, { status }),
+  };
 
   new Function('self', 'caches', 'fetch', 'Response', 'URL', source)(
     self,
@@ -466,6 +469,147 @@ describe('door service worker — seeding the persistent shell', () => {
   });
 });
 
+describe('N7 — /app seeding + offline start (decision 15)', () => {
+  const CHUNK = `${ORIGIN}/_next/static/chunks/app-door-3f2a.js`;
+
+  it('seeds the bare /app into the SESSION bucket only, with credentials', async () => {
+    const sw = await bootedSw();
+    await sw.message({ type: 'seed-session', paths: ['/app'] });
+
+    expect(sw.cacheStorage.bucketsHolding(`${ORIGIN}/app`)).toEqual([SESSION]);
+    expect(sw.cacheStorage.countIn(SHELL)).toBe(0);
+    expect(sw.fetchCalls).toEqual([{ url: `${ORIGIN}/app`, credentials: 'same-origin' }]);
+  });
+
+  it('refuses to seed anything but the bare /app into the session bucket', async () => {
+    const sw = await bootedSw();
+    await sw.message({ type: 'seed-session', paths: ['/app/guests', '/door', '/login', '/', 'https://evil.test/app'] });
+
+    expect(sw.fetched).toEqual([]);
+    expect(sw.cacheStorage.buckets.size).toBe(0);
+  });
+
+  it('does not store a signed-out /app seed (followed redirect to /login)', async () => {
+    const sw = await bootedSw({ online: () => makeResponse('login', { redirected: true }) });
+    await sw.message({ type: 'seed-session', paths: ['/app'] });
+
+    expect(sw.cacheStorage.countIn(SESSION)).toBe(0);
+  });
+
+  it('drops an /app seed whose sign-out landed while it was in flight', async () => {
+    let release: (r: FakeResponse) => void = () => undefined;
+    const sw = await bootedSw({
+      online: () => new Promise<FakeResponse>((r) => (release = r)),
+    });
+    const seeding = sw.message({ type: 'seed-session', paths: ['/app'] });
+    await tick();
+    await sw.message({ type: 'session-wipe' });
+    release(makeResponse('app-html'));
+    await seeding;
+
+    expect(sw.cacheStorage.countIn(SESSION)).toBe(0);
+  });
+
+  it('caches already-loaded build chunks into the shell, anonymously', async () => {
+    const sw = await bootedSw();
+    await sw.message({ type: 'seed-assets', urls: [CHUNK, '/_next/static/css/app.css'] });
+
+    expect(sw.cacheStorage.bucketsHolding(CHUNK)).toEqual([SHELL]);
+    expect(sw.cacheStorage.bucketsHolding(`${ORIGIN}/_next/static/css/app.css`)).toEqual([SHELL]);
+    expect(sw.fetchCalls.every((c) => c.credentials === 'omit')).toBe(true);
+  });
+
+  it('refuses every seed-assets URL that is not same-origin /_next/static/', async () => {
+    const sw = await bootedSw();
+    await sw.message({
+      type: 'seed-assets',
+      urls: [
+        '/app',
+        '/door/evt-1',
+        '/_next/image?url=x',
+        '/icons/icon-192.png',
+        'https://evil.test/_next/static/chunks/x.js',
+        'https://tolxwgqhppdcvnogdpel.supabase.co/rest/v1/guests',
+        42,
+        null,
+      ],
+    });
+
+    expect(sw.fetched).toEqual([]);
+    expect(sw.cacheStorage.countIn(SHELL)).toBe(0);
+    expect(sw.cacheStorage.countIn(SESSION)).toBe(0);
+  });
+
+  it('does not re-fetch a chunk that is already cached', async () => {
+    const sw = await bootedSw();
+    await sw.message({ type: 'seed-assets', urls: [CHUNK] });
+    await sw.message({ type: 'seed-assets', urls: [CHUNK] });
+
+    expect(sw.fetched.filter((u) => u === CHUNK)).toHaveLength(1);
+  });
+
+  it('bounds one seed-assets message', async () => {
+    const sw = await bootedSw();
+    const urls = Array.from({ length: 1000 }, (_, i) => `/_next/static/chunks/${i}.js`);
+    await sw.message({ type: 'seed-assets', urls });
+
+    expect(sw.fetched.length).toBeLessThan(urls.length);
+    // One batch never exceeds the shell cap, or trimShell would evict the
+    // batch's own first chunks right after fetching them (§6 review).
+    expect(sw.fetched.length).toBeLessThanOrEqual(SHELL_MAX);
+    expect(sw.cacheStorage.countIn(SHELL)).toBeLessThanOrEqual(SHELL_MAX);
+    expect(sw.cacheStorage.countIn(SHELL)).toBe(sw.fetched.length);
+  });
+
+  it('holds a whole /app chunk set: the shell cap is not the old 60', () => {
+    expect(SHELL_MAX).toBeGreaterThanOrEqual(150);
+  });
+
+  it('offline cold start at / with a signed-in /app shell → redirects to the Deur tab', async () => {
+    const warm = await bootedSw();
+    await warm.navigate('/');
+    await warm.message({ type: 'seed-session', paths: ['/app'] });
+    const offline = await bootedSw({ online: null });
+    for (const [name, bucket] of warm.cacheStorage.buckets) offline.cacheStorage.buckets.set(name, bucket);
+
+    expect((await offline.navigate('/'))?.tag).toBe(`redirect:${ORIGIN}/app/door`);
+    // ...and the Deur tab URL itself boots from the cached /app shell.
+    expect((await offline.navigate('/app/door'))?.tag).toBe('network');
+  });
+
+  it('offline at / after sign-out (session bucket wiped) → the public landing, never /app', async () => {
+    const warm = await bootedSw();
+    await warm.navigate('/');
+    await warm.message({ type: 'seed-session', paths: ['/app'] });
+    await warm.message({ type: 'session-wipe' });
+    const offline = await bootedSw({ online: null });
+    for (const [name, bucket] of warm.cacheStorage.buckets) offline.cacheStorage.buckets.set(name, bucket);
+
+    expect((await offline.navigate('/'))?.tag).toBe('network'); // the cached landing
+    expect((await offline.navigate('/app/door'))?.tag).toBe('network-error');
+  });
+
+  it('online, / is still whatever the network says (no redirect from the worker)', async () => {
+    const sw = await bootedSw();
+    await sw.message({ type: 'seed-session', paths: ['/app'] });
+    expect((await sw.navigate('/'))?.tag).toBe('network');
+  });
+
+  it('the e2e opt-in (?dev-cache=1) re-enables the worker on localhost only', async () => {
+    const dev = loadSw({ hostname: 'localhost', search: '?dev-cache=1' });
+    await dev.fire('install');
+    await dev.fire('activate');
+    expect(dev.wasUnregistered()).toBe(false);
+    await dev.navigate('/app');
+    expect(dev.cacheStorage.bucketsHolding(`${ORIGIN}/app`)).toEqual([SESSION]);
+
+    const plainDev = loadSw({ hostname: 'localhost', search: '?dev-cache=0' });
+    await plainDev.fire('install');
+    await plainDev.fire('activate');
+    expect(plainDev.wasUnregistered()).toBe(true);
+  });
+});
+
 describe('door service worker — session-cache lifetime', () => {
   it('drops a write whose sign-out landed while the response was in flight', async () => {
     // The Cache Storage counterpart of idbEpoch(): a sibling tab's in-flight
@@ -620,7 +764,9 @@ describe('persistent-shell PII contract', () => {
 
     expect(returned.startsWith('<DoorRoute')).toBe(true);
     const props = [...returned.matchAll(/(\w+)=\{/g)].map((m) => m[1]);
-    expect(new Set(props)).toEqual(new Set(['eventId', 'serverHint']));
+    // N6 dropped the UA `serverHint` (the door variant keys on the pointer,
+    // decided client-side) — the page now hands down the id and nothing else.
+    expect(new Set(props)).toEqual(new Set(['eventId']));
     expect(src).not.toMatch(/\.from\(['"]guests['"]\)/);
   });
 

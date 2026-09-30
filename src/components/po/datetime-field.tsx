@@ -9,7 +9,7 @@
  * (dd-mm-yyyy and friends); on touch viewports the input is readOnly so the tap
  * opens the calendar without popping the keyboard.
  *
- * TimeField — mobile keeps the native OS wheel (good on touch); desktop is a
+ * TimeField — touch keeps the native OS wheel (good on touch); desktop is a
  * typeable HH:mm input plus a kit-styled dropdown of half-hour suggestions (the
  * native <select> popup rendered as an unstylable white sliver — retest Q5).
  *
@@ -35,12 +35,19 @@ const PoDayPicker = dynamic(() => import('./daypicker').then((m) => m.PoDayPicke
   ),
 });
 
-/** ≥1024px — matches the responsive shell's sidebar breakpoint. */
+/** Desktop INPUT mode: ≥1024px (the shell's sidebar breakpoint) AND a precise
+ *  pointer. The width alone put iPad landscape (1024–1366px, touch) on the
+ *  typeable date input + half-hour dropdown, whose tap targets are sized for a
+ *  mouse; a touch device of any width keeps the centered calendar and the
+ *  native time wheel (T1 — design-system.md "Breakpoints & tablet"). Exported
+ *  for the test only. */
+export const DESKTOP_INPUT_QUERY = '(min-width: 1024px) and (pointer: fine)';
+
 function useIsDesktop(): boolean {
   const [desktop, setDesktop] = useState(false);
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
-    const mq = window.matchMedia('(min-width: 1024px)');
+    const mq = window.matchMedia(DESKTOP_INPUT_QUERY);
     const update = (): void => setDesktop(mq.matches);
     update();
     // window resize as a fallback: emulated viewports (DevTools device mode,

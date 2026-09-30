@@ -31,6 +31,15 @@
 import { memo, useEffect, useRef, useState, type JSX, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { usePoDoorCandidates } from '@/features/po/hooks';
+import { usePoIdentity } from '@/features/po/PoLiveProvider';
+import {
+  loadLastDoorEvent,
+  offlineDoorPin,
+  saveLastDoorEvent,
+  useBrowserOffline,
+  type LastDoorEvent,
+} from '@/features/door/offline/last-door';
+import { seedLoadedAssets } from '@/components/register-sw';
 import { autoOpenDoorEvent } from '@/features/po/door-event';
 import { DoorProvider } from '@/features/door/DoorProvider';
 import { DoorQueryProvider } from '@/features/door/DoorQueryProvider';
@@ -38,6 +47,7 @@ import { EventDaySkeleton } from '@/features/po/eventday/EventDaySkeleton';
 import { DoorEventPicker, PoDoorTab, type DoorOverlay } from './screens/door';
 import { doorPath, type DoorSeg } from './routes';
 import type { DoorOverrideState } from './use-door-override';
+import { useLatchedDoorVariant } from './use-door-variant';
 import { Top } from './kit';
 import { t } from '@/lib/i18n';
 
@@ -127,19 +137,58 @@ const DoorTree = memo(function DoorTree({
 });
 
 /**
- * Door branch, mobile: mount the real DoorProvider (offline outbox + realtime)
+ * Door branch, outbox variant (touch or <1024px): mount the real DoorProvider (offline outbox + realtime)
  * for the venue's current event and render the shared door components. Kept
  * mounted across Deur↔Taken (both are door tabs) so realtime/cache survive the
  * switch; unmounts when leaving for another tab. No event resolvable → empty state.
  *
- * Only ever rendered on mobile and only on a door URL, so the `isMobile` /
- * `isDoorTab` guards that used to wrap the pin effect in `app.tsx` are now
- * structural: the effect cannot run off the door tab because the component
- * carrying it is not mounted there.
+ * Only ever rendered for the outbox variant and only on a door URL, so the
+ * `isMobile` / `isDoorTab` guards that used to wrap the pin effect in `app.tsx`
+ * are now structural: the effect cannot run off the door tab because the
+ * component carrying it is not mounted there.
  */
 function MobileDoorBranch({ doorState, doorNav }: { doorState: DoorOverrideState; doorNav: DoorNav }): JSX.Element {
   const doorCandidatesQuery = usePoDoorCandidates();
   const doorCandidates = doorCandidatesQuery.data;
+  const { venueId, userId } = usePoIdentity();
+
+  // Offline cold start (N7, decision 15). The candidate list is a network read;
+  // offline it never loads, and the tab used to stop at "no event" with the
+  // event's snapshot + outbox unread in IndexedDB. `lastDoor` is the event this
+  // device last worked (door IDB, wiped on sign-out); it is mounted ONLY while
+  // the list could not load — never over a loaded one (`offlineDoorPin`).
+  // `undefined` = not read yet. Read lazily, only once the list turns out to be
+  // unreachable, so an online door pays no extra render for it (the render
+  // isolation guard counts them).
+  //
+  // "Loaded" means the query HOLDS a list (§6 review), not `isSuccess`: one
+  // failed refetch on a warm door flips React Query v5 to `status: 'error'`
+  // while keeping the data, and the pin must never replace a list the doorhost
+  // is looking at (a picker with no pick, or an empty "no event" list).
+  const browserOffline = useBrowserOffline();
+  const candidatesLoaded = doorCandidatesQuery.isSuccess || doorCandidatesQuery.hasData === true;
+  const candidatesUnreachable =
+    !candidatesLoaded &&
+    (browserOffline || doorCandidatesQuery.fetchStatus === 'paused' || doorCandidatesQuery.isError);
+  const [lastDoor, setLastDoor] = useState<LastDoorEvent | null | undefined>(undefined);
+  useEffect(() => {
+    if (!candidatesUnreachable || lastDoor !== undefined) return;
+    let live = true;
+    void loadLastDoorEvent().then((pin) => {
+      if (live) setLastDoor(pin);
+    });
+    return () => {
+      live = false;
+    };
+  }, [candidatesUnreachable, lastDoor]);
+  const offlinePin = offlineDoorPin({
+    pin: lastDoor ?? null,
+    venueId,
+    userId,
+    requestedEventId: doorState.eventId,
+    candidatesLoaded,
+    candidatesUnreachable,
+  });
 
   // Selection-first (S1.3): an explicit pick (the `?event=` on the door URL, set
   // by "Check-in" from an event card) wins; with exactly one candidate we use it;
@@ -154,11 +203,31 @@ function MobileDoorBranch({ doorState, doorNav }: { doorState: DoorOverrideState
   // an id alone can't be told apart from a foreign one without checking. Skip
   // the check while candidates are still loading so an explicit id from the
   // URL doesn't flash "no event" before the list arrives.
-  const resolvedDoorId =
+  const listedDoorId =
     requestedDoorId && (doorCandidatesQuery.isLoading || doorCandidates.some((e) => e.id === requestedDoorId))
       ? requestedDoorId
       : null;
-  const resolvedDoorName = doorCandidates.find((e) => e.id === resolvedDoorId)?.name ?? '';
+  const resolvedDoorId = listedDoorId ?? offlinePin?.eventId ?? null;
+  const resolvedDoorName =
+    doorCandidates.find((e) => e.id === resolvedDoorId)?.name ?? (offlinePin ? offlinePin.name : '');
+
+  // Remember the event once the LOADED list has confirmed it (N7): never from a
+  // bare URL id, never from the pin itself. Also re-seed the build chunks now
+  // that the lazy door chunk is loaded, so an offline cold start has it.
+  const confirmedDoor =
+    doorCandidatesQuery.isSuccess && venueId && userId && listedDoorId
+      ? doorCandidates.find((e) => e.id === listedDoorId)
+      : undefined;
+  // A ref, not state: remembering must not re-render the door.
+  const savedDoorRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!confirmedDoor || !venueId || !userId) return;
+    const key = `${userId}|${venueId}|${confirmedDoor.id}|${confirmedDoor.name}`;
+    if (savedDoorRef.current === key) return;
+    savedDoorRef.current = key;
+    void saveLastDoorEvent({ userId, venueId, eventId: confirmedDoor.id, name: confirmedDoor.name });
+    void seedLoadedAssets();
+  }, [confirmedDoor, venueId, userId]);
 
   // If a requested id isn't in the loaded candidate list, the list itself
   // might just be stale rather than the id being genuinely foreign — e.g.
@@ -186,6 +255,10 @@ function MobileDoorBranch({ doorState, doorNav }: { doorState: DoorOverrideState
   const [rejectedDoorId, setRejectedDoorId] = useState<string | null>(null);
   useEffect(() => {
     if (!requestedDoorId || doorCandidatesQuery.isLoading || doorCandidatesQuery.isFetching) return;
+    // No verdict from a list we could not load (N7): offline, "absent from the
+    // empty list" says nothing about the id, and a rejection here would unpin
+    // the event the offline door is running.
+    if (candidatesUnreachable) return;
     if (doorCandidates.some((e) => e.id === requestedDoorId)) {
       // Present after all (or back again) — clear any standing rejection, and
       // release the spent retry with it (86ey9uc87), so an id that went
@@ -204,7 +277,7 @@ function MobileDoorBranch({ doorState, doorNav }: { doorState: DoorOverrideState
     staleDoorRefetchRef.current = requestedDoorId;
     void doorCandidatesQuery.refetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- doorCandidatesQuery itself (incl. .refetch) is intentionally omitted: it's a new object each render, and including it would refire this every render instead of only when the inputs actually change
-  }, [requestedDoorId, doorCandidatesQuery.isLoading, doorCandidatesQuery.isFetching, doorCandidates]);
+  }, [requestedDoorId, doorCandidatesQuery.isLoading, doorCandidatesQuery.isFetching, doorCandidates, candidatesUnreachable]);
 
   // Pin the implicit single-candidate door choice (86eykm7qp). `requestedDoorId`
   // above only DERIVES it from `doorCandidates.length === 1` and never writes it
@@ -266,7 +339,12 @@ function MobileDoorBranch({ doorState, doorNav }: { doorState: DoorOverrideState
       />
     );
   }
-  if (doorCandidatesQuery.isLoading) return <DoorTabState title={doorTitle} text={t.common.loading} />;
+  // Still reading the pin while the list is unreachable: loading, not "no event".
+  if (candidatesUnreachable && lastDoor === undefined) return <DoorTabState title={doorTitle} text={t.common.loading} />;
+  if (candidatesUnreachable) return <DoorTabState title={doorTitle} text={t.door.noEventOffline} />;
+  if (doorCandidatesQuery.isLoading) {
+    return <DoorTabState title={doorTitle} text={t.common.loading} />;
+  }
   if (hasMultipleDoorCandidates) {
     // Several live/open events and nothing picked yet → choose first (S1.3). The
     // /app shell keeps the bottom-tab menu visible around this picker.
@@ -276,7 +354,7 @@ function MobileDoorBranch({ doorState, doorNav }: { doorState: DoorOverrideState
 }
 
 /**
- * Door branch, desktop (≥1024px): the Event-dag cockpit (T9 fold — this was the
+ * Door branch, desktop (fine pointer at ≥1024px): the Event-dag cockpit (T9 fold — this was the
  * standalone /eventday route until it lost the app menu; now it lives inside the
  * shell). Online-only by design (no outbox): reads via React Query + realtime,
  * check-in through the door gateway — exactly as /eventday worked. The event
@@ -304,26 +382,40 @@ function DesktopCockpitBranch({
   );
 }
 
+/**
+ * Picks the Door-tab variant (decision 14, N6): the outbox door for a coarse
+ * pointer OR a viewport under 1024px, the cockpit only for a fine pointer at
+ * ≥1024px — so an iPad in landscape gets the sidebar chrome AND the outbox.
+ *
+ * Latched (`useLatchedDoorVariant`): once this mount has shown the outbox it
+ * keeps it until the user leaves the door tab, so a pointer change or a resize
+ * mid-shift can never unmount a live `DoorProvider`. The shell mounts
+ * `ssr: false`, so the first render already reads the real media queries; the
+ * `null` branch is only a safety net and mounts neither variant.
+ */
 export function PoDoorBranch({
-  isMobile,
   doorState,
   doorEventIdFromUrl,
   doorNav,
   onChooseCockpitEvent,
 }: {
-  isMobile: boolean;
   doorState: DoorOverrideState;
   doorEventIdFromUrl: string | null;
   doorNav: DoorNav;
   onChooseCockpitEvent: (eventId: string | null) => void;
 }): ReactNode {
-  if (!isMobile) return <DesktopCockpitBranch chosenId={doorEventIdFromUrl} onChoose={onChooseCockpitEvent} />;
+  const variant = useLatchedDoorVariant();
+  if (variant === null) return <DoorTabState title={t.door.checkinTitle} text={t.common.loading} />;
+  if (variant === 'cockpit') {
+    return <DesktopCockpitBranch chosenId={doorEventIdFromUrl} onChoose={onChooseCockpitEvent} />;
+  }
   return <MobileDoorBranch doorState={doorState} doorNav={doorNav} />;
 }
 
 /**
  * T6 auto-open (decided 1/7): on the FIRST visit of this browser session (per
- * user), when the desktop shell (≥1024px) has exactly ONE event inside its door
+ * user), when the cockpit variant applies (fine pointer at ≥1024px, decision
+ * 14) and there is exactly ONE event inside its door
  * window (start − 1h through event end) AND the user landed on the bare Start
  * tab, replace it with the Door tab — the Event-day cockpit. Two or more
  * simultaneous nights → no guessing, land normally. It runs ONCE per session
@@ -336,7 +428,8 @@ export function PoDoorBranch({
  * Renders nothing. It lives in its own component (86eykm76k) precisely because
  * it needs `usePoDoorCandidates` while the user is NOT on the door tab — the one
  * reason the shell root used to read that query. Mounted only when the desktop
- * door applies, so its `isMobile`/`showDoor` guards are structural too.
+ * door applies (the cockpit variant), so its variant/`showDoor` guards are
+ * structural too.
  */
 export function DesktopDoorAutoOpen({
   userId,

@@ -4,15 +4,19 @@ import { type JSX, useCallback, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
 import { createClient } from '@/lib/supabase/client';
-import { usePoProfile, usePoSessions } from '@/features/po/hooks';
+import { usePoCanManageTemplates, usePoProfile, usePoSessions } from '@/features/po/hooks';
 import { usePoUpdateProfile, usePoUpdateEmail, usePoRevokeOwnSession } from '@/features/po/mutations';
 import { groupPoSessions } from '@/features/po/adapters';
 import { PoMfaSheet } from '../../mfa-gate';
 import { useNav } from '../../context';
 import { Icon, type IconName } from '../../icon';
-import { Avatar, Btn, Empty, Field, Label, Loading, MiniChip, Note, Scroll, Top, press } from '../../kit';
+import { Avatar, Btn, Empty, Field, Label, Loading, MiniChip, Note, RefusedAction, Scroll, Top, hitRingY13, press } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
 import { CountrySelect, PhoneInput, phoneCountryOf, type CountryCode } from '../../phone-lazy';
+import { useIsDemoAccount } from '../../app-shell-data';
+import { PushSettingsRow } from '../../push-settings-card';
+import { canReceivePush } from '../../push-client';
+import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { col, FormError, PendingOutboxError, PendingOutboxSheet, signOutDevice } from './_shared';
 
 // MFA row in the profile's security card (S4.3). MFA is OPTIONAL for every role
@@ -20,7 +24,7 @@ import { col, FormError, PendingOutboxError, PendingOutboxSheet, signOutDevice }
 // mfa-gate: QR + 6-digit code) and disable it again. For admin/finance we still
 // RECOMMEND it (`recommended`, was `mandatory`) — copy + chip only, never a gate.
 // The verified factor is read client-side from GoTrue (Capacitor-safe, #37).
-function MfaCard({ recommended }: { recommended: boolean }): JSX.Element {
+function MfaCard({ recommended, demo = false }: { recommended: boolean; demo?: boolean }): JSX.Element {
   const [hasMfa, setHasMfa] = useState<boolean | null>(null); // null = still loading
   const [enroll, setEnroll] = useState(false);
   const [confirmDisable, setConfirmDisable] = useState(false);
@@ -85,11 +89,23 @@ function MfaCard({ recommended }: { recommended: boolean }): JSX.Element {
       <div className="flex-1">
         <div className="text-[14.5px] font-semibold text-text">{t.settings.profile.mfaTitle}</div>
         <div className="mt-0.5 text-[12px] leading-[1.4] text-faint">{sub}</div>
-        {hasMfa !== null && (
+        {demo ? (
+          // The store-review demo account (86ey6bfug): a factor on the shared
+          // account locks the next reviewer out, so the entry is refused upfront.
+          <RefusedAction className="mt-[7px]" icon="shield" label={t.settings.profile.mfaEnable} reason={t.auth.demoNoMfa} />
+        ) : hasMfa !== null && (
           <button
             type="button"
             onClick={() => (on ? setConfirmDisable(true) : setEnroll(true))}
-            className={cn('mt-[7px] font-body text-[12.5px] font-bold', press, on ? 'text-faint' : 'text-acc')}
+            // 19px text button: an invisible 13px ring (kit `hitRingY13`) → 45px
+            // tap area, inside the row's own 14px bottom padding; min-w keeps the
+            // short "Turn on" label 44 wide (T1, touch).
+            className={cn(
+              'mt-[7px] min-w-[44px] text-left font-body text-[12.5px] font-bold',
+              hitRingY13,
+              press,
+              on ? 'text-faint' : 'text-acc',
+            )}
           >
             {on ? t.settings.profile.mfaDisable : t.settings.profile.mfaEnable}
           </button>
@@ -136,10 +152,15 @@ function MfaCard({ recommended }: { recommended: boolean }): JSX.Element {
 export function Profile(): JSX.Element {
   const nav = useNav();
   const profileQ = usePoProfile();
+  const { roles } = usePoIdentity();
+  const organizesHere = usePoCanManageTemplates();
   const sessionsQ = usePoSessions();
   const updateProfile = usePoUpdateProfile();
   const updateEmail = usePoUpdateEmail();
   const revokeSession = usePoRevokeOwnSession();
+  // Store-review demo account (86ey6bfug): the e-mail is shown read-only with the
+  // refusal upfront. UX only — updateEmailAction still refuses the demo account.
+  const demo = useIsDemoAccount();
 
   const p = profileQ.data ?? null;
   const [firstName, setFirstName] = useState('');
@@ -230,11 +251,20 @@ export function Profile(): JSX.Element {
         )}
 
         <Label className="mb-2 mt-[18px]">{t.settings.profile.emailLabel}</Label>
-        <Field icon="mail" value={email} onChange={setEmail} inputMode="email" className="mb-1.5" />
-        <div className="pl-0.5 text-[12px] leading-[1.4] text-faint">
-          {t.settings.profile.emailNote}
-        </div>
-        {emailChanged && (
+        {demo ? (
+          <>
+            <Field icon="mail" value={p.email} className="mb-2.5" />
+            <Note icon="shield">{t.auth.demoNoEmailChange}</Note>
+          </>
+        ) : (
+          <>
+            <Field icon="mail" value={email} onChange={setEmail} inputMode="email" className="mb-1.5" />
+            <div className="pl-0.5 text-[12px] leading-[1.4] text-faint">
+              {t.settings.profile.emailNote}
+            </div>
+          </>
+        )}
+        {emailChanged && !demo && (
           <Btn kind="dark" full icon="mail" className="mt-3" disabled={updateEmail.isPending} onClick={() => updateEmail.mutate(email.trim())}>
             {updateEmail.isPending ? t.settings.profile.sending : t.settings.profile.changeEmail}
           </Btn>
@@ -246,7 +276,8 @@ export function Profile(): JSX.Element {
 
         <Label className="mb-[10px] mt-[18px]">{t.settings.profile.securityLabel}</Label>
         <div className="mb-[18px] rounded-[18px] border border-line bg-elev px-4 py-1">
-          <MfaCard recommended={p.mfaRequired} />
+          <MfaCard recommended={p.mfaRequired} demo={demo} />
+          <PushSettingsRow canReceive={canReceivePush(roles, organizesHere)} />
           <div className="flex items-center gap-[12px] py-[14px]">
             <span className="text-faint">
               <Icon name="mail" size={19} />

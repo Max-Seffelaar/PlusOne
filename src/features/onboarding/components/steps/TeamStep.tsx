@@ -3,12 +3,14 @@
 /** Onboarding step 3: invite the team (optional, #40), so the step is
  *  prominently skippable. Inviting is role-only; MFA is optional for every role
  *  (#20, 2026-07-01), so nothing here waits on two-factor.
- *  Finishing (send or skip) marks onboarding complete and moves to the app. */
+ *  Finishing (send or skip) marks onboarding complete and moves to the app.
+ *  The store-review demo account (86ey6bfug) gets the invite refusal instead of
+ *  the form, and only the skip (which completes onboarding on its own venue). */
 import { type JSX, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
-import { Field, Label, Btn, press } from '@/components/po/kit';
+import { Field, Label, Btn, RefusedAction, press } from '@/components/po/kit';
 import { inviteUserAction } from '@/features/auth/invite-actions';
 import { completeOnboardingAction } from '@/features/billing/actions';
 import { WizardShell, WizardPanel } from '../WizardShell';
@@ -23,7 +25,7 @@ interface Row {
 const c = t.onboarding.teamStep;
 const ROLE_LABEL: Record<Role, string> = { user_manager: c.roleManager, staff: c.roleHost };
 
-export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
+export function TeamStep({ venueId, demoAccount = false }: { venueId: string; demoAccount?: boolean }): JSX.Element {
   const router = useRouter();
   const [rows, setRows] = useState<Row[]>([{ id: 0, email: '', role: 'staff' }]);
   const [nextId, setNextId] = useState(1);
@@ -44,7 +46,11 @@ export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
   }
 
   async function finish(): Promise<void> {
-    await completeOnboardingAction({ venueId });
+    const res = await completeOnboardingAction({ venueId });
+    if (!res.ok) {
+      setError(res.message ?? c.finishError);
+      return;
+    }
     // Land on Home (Max, 3/7 test round): a fresh owner should arrive at the
     // dashboard and orient first — not be pushed straight into event creation.
     router.push('/app');
@@ -74,16 +80,35 @@ export function TeamStep({ venueId }: { venueId: string }): JSX.Element {
     });
   }
 
+  const panel = (
+    <WizardPanel title={c.panelTitle} sub={c.panelSub} bullets={[c.panelBullet1, c.panelBullet2, c.panelBullet3]} />
+  );
+
+  if (demoAccount) {
+    return (
+      <WizardShell
+        current={3}
+        panel={panel}
+        heading={c.heading}
+        sub={c.sub}
+        footer={
+          <>
+            {error && <div className="mb-3 text-[13.5px] text-[#ff9b9b]">{error}</div>}
+            <Btn kind="dark" full onClick={skip} disabled={pending}>
+              {c.skip}
+            </Btn>
+          </>
+        }
+      >
+        <RefusedAction label={c.send} reason={t.auth.demoNoInvites} />
+      </WizardShell>
+    );
+  }
+
   return (
     <WizardShell
       current={3}
-      panel={
-        <WizardPanel
-          title={c.panelTitle}
-          sub={c.panelSub}
-          bullets={[c.panelBullet1, c.panelBullet2, c.panelBullet3]}
-        />
-      }
+      panel={panel}
       heading={c.heading}
       sub={c.sub}
       footer={

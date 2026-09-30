@@ -11,8 +11,13 @@ import type { TabKey } from './shell';
 import type { ScreenName, ScreenProps } from './context';
 
 /** Data-dense screens that opt into the full 1080px desktop column. Forms and
- *  detail-entry screens stay at the narrow reading column (640px). Mobile is
- *  full-bleed regardless. (S3.3) */
+ *  detail-entry screens stay at the narrow reading column (640px). (S3.3)
+ *
+ *  Despite the name this is the content-column map for EVERY width (T1): the
+ *  tablet bottom-tab chrome (641–1023px) centers the same column, so a form
+ *  reads at 640px on an iPad portrait exactly as it does on a laptop. A phone
+ *  (≤640px) is full-bleed because the viewport is narrower than any column.
+ *  The name stays — CLAUDE.md and the tests refer to it. */
 export const WIDE_DESKTOP = new Set([
   'start', 'events', 'guests', 'lijst', 'stats', 'audit', 'gebruikers',
   'event', 'pastevent', 'aanvragen', 'deur', 'platform', 'platformvenues', 'platformaudit',

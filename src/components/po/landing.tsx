@@ -11,12 +11,11 @@ import { type JSX, useEffect, useRef, useState, useTransition } from 'react';
 import Script from 'next/script';
 import { cn } from '@/lib/utils';
 import { t, fmt } from '@/lib/i18n';
-import { useTransientValue } from '@/lib/use-transient-value';
 import type { SubmitGuestRequestInput } from '@/features/requests/schemas';
 import { isValidEmail } from '@/features/requests/validation';
 import { CountrySelect, PhoneInput, isPhoneValid, type CountryCode } from './phone-lazy';
 import { Icon, type IconName } from './icon';
-import { fieldErrorBorder, fieldErrorText } from './kit';
+import { copyStateLabel, fieldErrorBorder, fieldErrorText, useCopyText } from './kit';
 import { LandingFooter as Footer, LandingWrap as Wrap } from './landing-frame';
 
 const press = 'transition-[filter,transform] hover:brightness-[1.07] active:scale-[0.985]';
@@ -189,19 +188,15 @@ function LField({
 }
 
 /** "Save your status link" block on the confirmation: the bearer /r/[token]
- *  URL the requester can bookmark. Clipboard is guarded (Capacitor webview /
- *  older browsers fall back to a selectable input). */
+ *  URL the requester can bookmark. Copy goes through the kit's webview-safe
+ *  `copyText`; if it fails the button says so and the input stays selectable. */
 function StatusLinkBlock({ token }: { token: string }): JSX.Element {
-  const [copiedFlag, triggerCopied] = useTransientValue<true>(2000);
-  const copied = copiedFlag === true;
+  const [copyState, copyUrl] = useCopyText(2000);
   const url =
     typeof window !== 'undefined' ? `${window.location.origin}/r/${token}` : `/r/${token}`;
 
   function copy(): void {
-    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
-    void navigator.clipboard.writeText(url).then(() => {
-      triggerCopied(true);
-    });
+    void copyUrl(url);
   }
 
   return (
@@ -224,7 +219,7 @@ function StatusLinkBlock({ token }: { token: string }): JSX.Element {
           onClick={copy}
           className={cn('shrink-0 cursor-pointer rounded-[10px] border-none bg-acc px-3 py-2 font-display text-[12.5px] font-bold text-on-acc', press)}
         >
-          {copied ? t.landing.statusCopied : t.landing.statusCopy}
+          {copyStateLabel(copyState, t.landing.statusCopy, t.landing.statusCopied)}
         </button>
       </div>
     </div>

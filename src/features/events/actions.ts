@@ -5,6 +5,9 @@ import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { alreadyRegistered, sendInviteEmail } from '@/features/auth/invite-mail';
 import { getAuthContext } from '@/lib/auth/context';
+import { isDemoReviewUser } from '@/features/auth/review-window';
+import { DEMO_USER_ID } from '@/features/auth/demo-account';
+import { t } from '@/lib/i18n';
 import { mapMutationError, unauthorized, invalidInput, notFound, type MutationError } from '@/lib/db-errors';
 import { assertVenueBillingActive } from '@/features/billing/gate';
 import { buildEventSlug } from './slug';
@@ -62,7 +65,7 @@ import {
 
 // Every action follows the CLAUDE.md security checklist: verify the session
 // server-side, validate input with Zod, then mutate through the USER-scoped
-// client so RLS (membership/role/AAL2, #23/#24) and the fase-6 status trigger
+// client so RLS (membership/role, #23/#24) and the fase-6 status trigger
 // (SQLSTATE 45004) are the real boundary — never the service client, except the
 // documented organizer-invite account provisioning. Invalid status moves surface
 // as 45004 → src/lib/db-errors.ts.
@@ -413,6 +416,13 @@ export async function assignOrganizer(input: AssignOrganizerInput): Promise<Acti
   const supabase = await createClient();
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
+  // The store-review demo account adds no crew (86ey6bfug): the real stop is
+  // the event_organizers trigger (20260925150000), this only gives the UI a
+  // clear message.
+  if (isDemoReviewUser(ctx.user)) return { ok: false, code: '42501', message: t.auth.demoNoInvites };
+  // Nor is the demo account ever added as crew, by anyone (round 10: the
+  // trigger refuses organizer rows for the demo user too).
+  if (userId === DEMO_USER_ID) return { ok: false, code: '42501', message: t.auth.demoCannotJoin };
 
   const { error } = await supabase
     .from('event_organizers')
@@ -447,6 +457,14 @@ export async function inviteExternalCrew(input: InviteExternalCrewInput): Promis
 
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
+
+  // The store-review demo account never invites (86ey6bfug). Unlike an invite
+  // row, this path mints a real account through the service role, which the
+  // invites trigger never sees: without this stop a code holder could make
+  // their own mailbox crew on a demo event, log in by OTP and create a venue as
+  // that account (a permanent tenant on invite-only prod). So here the app check
+  // IS the boundary for the demo account; it runs before any side effect.
+  if (isDemoReviewUser(ctx.user)) return { ok: false, code: '42501', message: t.auth.demoNoInvites };
 
   // C1 (security review 7/7): authorize BEFORE any service-role side effect.
   // Provisioning an auth account + sending the invite mail must never run for a
@@ -590,6 +608,8 @@ export async function resendCrewInvite(input: ResendCrewInviteInput): Promise<Ac
   const supabase = await createClient();
   const ctx = await getAuthContext();
   if (!ctx) return unauthorized();
+  // Same demo refusal as inviteExternalCrew (86ey6bfug): no invite mail from the demo account.
+  if (isDemoReviewUser(ctx.user)) return { ok: false, code: '42501', message: t.auth.demoNoInvites };
 
   const { data: membership } = await supabase
     .from('venue_memberships')

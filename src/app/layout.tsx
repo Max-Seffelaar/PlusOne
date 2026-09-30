@@ -2,6 +2,7 @@ import type { JSX } from 'react';
 import type { Metadata, Viewport } from 'next';
 import { Bricolage_Grotesque, Hanken_Grotesk } from 'next/font/google';
 import './globals.css';
+import { NativeAppLinks } from '@/components/native-app-links';
 
 // Display: Bricolage Grotesque (600/700/800), body/UI: Hanken Grotesk (400–700).
 // Exposed as CSS variables consumed by the Tailwind `font-display` / `font-body` utilities.
@@ -33,6 +34,10 @@ export const viewport: Viewport = {
   userScalable: false,
   colorScheme: 'dark',
   themeColor: '#0B0B0D',
+  // Edge-to-edge under the notch/home indicator (Capacitor wrap, #37): without
+  // `cover` iOS reports env(safe-area-inset-*) as 0, so the insets shell.tsx
+  // already pads with would never apply.
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({
@@ -52,6 +57,8 @@ export default function RootLayout({
           attributes onto <body> before React hydrates; without this their
           attribute mismatch aborts hydration and can leave a blank screen. */}
       <body className="bg-bg text-text font-body antialiased" suppressHydrationWarning>
+        {/* Native shell only (no-op on the web): universal links / App Links for /auth/* (S4). */}
+        <NativeAppLinks />
         {children}
       </body>
     </html>

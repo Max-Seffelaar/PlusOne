@@ -43,7 +43,7 @@ const CORE_SUITES = [
 // CI suites that need the local Supabase stack (docker) or a built app.
 // `check` never runs these; it names them instead, so "check is green" is
 // never mistaken for "CI is green".
-const STACK_SUITES = ['db:test', 'db:test:concurrency', 'e2e:smoke'];
+const STACK_SUITES = ['db:test', 'db:test:concurrency', 'e2e:smoke', 'e2e:layout'];
 
 function readManifest() {
   return JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));

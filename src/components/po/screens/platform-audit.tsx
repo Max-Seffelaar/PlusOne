@@ -158,12 +158,12 @@ function AuditConsole({ initialVenueId }: { initialVenueId?: string }): JSX.Elem
           <Empty text={t.platform.auditEmpty} />
         ) : (
           <>
-            <ul className="flex flex-col gap-1.5 lg:hidden">
+            <ul className="flex flex-col gap-1.5 md:hidden">
               {entries.map((e) => (
                 <AuditRow key={e.id} entry={e} />
               ))}
             </ul>
-            <div className="hidden overflow-hidden rounded-[16px] border border-line bg-elev lg:block">
+            <div className="hidden overflow-hidden rounded-[16px] border border-line bg-elev md:block">
               <table className="w-full border-collapse text-left">
                 <thead>
                   <tr className="bg-elev2 [&>th]:px-3 [&>th]:py-[11px] [&>th]:font-body [&>th]:text-[11px] [&>th]:font-bold [&>th]:uppercase [&>th]:tracking-[0.04em] [&>th]:text-faint">

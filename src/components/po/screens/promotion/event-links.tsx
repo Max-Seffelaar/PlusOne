@@ -22,7 +22,6 @@
 import { type JSX, useEffect, useState, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
-import { useTransientValue } from '@/lib/use-transient-value';
 import type { Tier } from '@/lib/po/types';
 import type { PoInfluencer, PoRequestLink } from '@/features/po/queries';
 import { usePoEventForEdit, usePoEvents, usePoInfluencers, usePoRequestLinks, usePoTiers } from '@/features/po/hooks';
@@ -31,7 +30,7 @@ import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { localInputToIso, isoToLocalInput } from '@/features/events/datetime';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Scroll, TierPicker, Toggle, ToggleRow, Top, hitArea44, press, cardPress } from '../../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Scroll, TierPicker, Toggle, ToggleRow, Top, copyStateLabel, hitArea44, hitRingY4, hitRingY6, press, cardPress, useCopyText } from '../../kit';
 import { Sheet } from '../../shell';
 import { CreateLinkFlow } from './create-link-flow';
 import { EventPicker, soonestUpcoming } from './shared';
@@ -74,20 +73,13 @@ function LinkCard({
   onToggle: (active: boolean) => void;
   toggling: boolean;
 }): JSX.Element {
-  const [copiedFlag, triggerCopied] = useTransientValue<true>(1800);
-  const copied = copiedFlag === true;
+  const [copyState, copyUrl] = useCopyText();
+  const copied = copyState === 'copied';
   const expired = link.expiresAt != null && Date.parse(link.expiresAt) < Date.now();
   const full = link.maxHeadcount != null && link.approvedHeads >= link.maxHeadcount;
 
   const copy = async (): Promise<void> => {
-    try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        await navigator.clipboard.writeText(linkUrl(link.slug));
-        triggerCopied(true);
-      }
-    } catch {
-      // Clipboard blocked (rare in webviews) — silently ignore; the URL is visible in the sheet.
-    }
+    await copyUrl(linkUrl(link.slug));
   };
 
   const stats =
@@ -136,12 +128,16 @@ function LinkCard({
           onClick={() => void copy()}
           aria-label={t.links.copyAria}
           className={cn(
+            // 38.8px chip + an invisible 4px ring above and below (kit
+            // `hitRingY4`) = a 44.8px tap area (T1, touch). `hitArea44`
+            // (QA-1) still only reached 42.8px — under the floor.
             'flex shrink-0 items-center gap-1.5 rounded-[10px] border px-3 py-[9px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.2]',
+            hitRingY4,
             copied ? 'border-acc/40 bg-acc-dim text-acc' : 'border-line text-dim',
           )}
         >
           <Icon name={copied ? 'check' : 'link'} size={15} />
-          {copied ? t.events.copyLinkDone : t.events.copyLinkLabel}
+          {copyStateLabel(copyState, t.events.copyLinkLabel, t.events.copyLinkDone)}
         </button>
         <button
           type="button"
@@ -219,7 +215,7 @@ export function EventLinks({ eventId, embedded }: { eventId?: string; embedded?:
       ) : links.length === 0 ? (
         <Empty text={canManage ? t.links.empty : t.links.noAccess} />
       ) : (
-        <div className="flex flex-col gap-[11px] lg:grid lg:grid-cols-2 lg:items-start">
+        <div className="flex flex-col gap-[11px] md:grid md:grid-cols-2 md:items-start">
           {links.map((link) => (
             <LinkCard
               key={link.id}
@@ -577,8 +573,8 @@ function QrSheet({ link, onClose }: { link: PoRequestLink; onClose: () => void }
   const url = linkUrl(link.slug);
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  const [copiedFlag, triggerCopied] = useTransientValue<true>(1800);
-  const copied = copiedFlag === true;
+  const [copyState, copyUrl] = useCopyText();
+  const copied = copyState === 'copied';
 
   useEffect(() => {
     let cancelled = false;
@@ -596,14 +592,7 @@ function QrSheet({ link, onClose }: { link: PoRequestLink; onClose: () => void }
   }, [url]);
 
   const copy = async (): Promise<void> => {
-    try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        await navigator.clipboard.writeText(url);
-        triggerCopied(true);
-      }
-    } catch {
-      // Clipboard blocked — the URL is visible below the code.
-    }
+    await copyUrl(url);
   };
 
   return (
@@ -629,12 +618,15 @@ function QrSheet({ link, onClose }: { link: PoRequestLink; onClose: () => void }
           onClick={() => void copy()}
           aria-label={t.links.copyAria}
           className={cn(
+            // 34.8px bordered button + an invisible 6px ring (kit
+            // `hitRingY6`) = a 44.8px tap area (T1, touch).
             'flex shrink-0 items-center gap-1.5 rounded-[10px] border px-3 py-[7px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.2]',
+            hitRingY6,
             copied ? 'border-acc/40 bg-acc-dim text-acc' : 'border-line text-dim',
           )}
         >
           <Icon name={copied ? 'check' : 'link'} size={15} />
-          {copied ? t.links.qrCopied : t.links.qrCopy}
+          {copyStateLabel(copyState, t.links.qrCopy, t.links.qrCopied)}
         </button>
       </div>
       {dataUrl && (

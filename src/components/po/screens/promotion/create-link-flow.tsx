@@ -19,7 +19,7 @@ import { usePoCreateInfluencer, usePoCreateLink } from '@/features/po/mutations'
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { localInputToIso } from '@/features/events/datetime';
 import { Icon } from '../../icon';
-import { Btn, Field, Label, TierPicker, ToggleRow, press } from '../../kit';
+import { Btn, Field, Label, TierPicker, ToggleRow, copyStateLabel, press, useCopyText } from '../../kit';
 import { Sheet } from '../../shell';
 import { EventPicker, Kicker } from './shared';
 
@@ -89,7 +89,8 @@ export function CreateLinkFlow({
   const [err, setErr] = useState<string | null>(null);
   const [doneUrl, setDoneUrl] = useState('');
   const [doneName, setDoneName] = useState('');
-  const [copied, setCopied] = useState(false);
+  const [copyState, copyUrl, clearCopied] = useCopyText();
+  const copied = copyState === 'copied';
 
   const tiers = tiersQ.data ?? [];
   const influencers = influencersQ.data ?? [];
@@ -184,7 +185,7 @@ export function CreateLinkFlow({
       const origin = typeof window !== 'undefined' ? window.location.origin : '';
       setDoneUrl(`${origin}/e/${created.slug ?? ''}`);
       setDoneName(labelVal ?? infName);
-      setCopied(false);
+      clearCopied();
       setStep('done');
       if (created.id) onCreated?.(created.id);
     } catch (e) {
@@ -193,14 +194,7 @@ export function CreateLinkFlow({
   };
 
   const copy = async (): Promise<void> => {
-    try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        await navigator.clipboard.writeText(doneUrl);
-        setCopied(true);
-      }
-    } catch {
-      // Clipboard blocked (rare in webviews) — the URL stays visible/selectable.
-    }
+    await copyUrl(doneUrl);
   };
 
   if (step === 'done') {
@@ -235,7 +229,7 @@ export function CreateLinkFlow({
               )}
             >
               <Icon name={copied ? 'check' : 'copy'} size={13} sw={2.3} />
-              {copied ? t.promo.copied : t.promo.copy}
+              {copyStateLabel(copyState, t.promo.copy, t.promo.copied)}
             </button>
           </div>
           <div className="flex gap-[10px]">

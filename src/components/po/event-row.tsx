@@ -146,8 +146,8 @@ function Count({
   onClick?: () => void;
 }): JSX.Element {
   const cls = cn(
-    'min-w-0 max-lg:flex-1 max-lg:rounded-[12px] max-lg:border max-lg:border-line2 max-lg:bg-bg max-lg:p-[9px_11px] lg:text-center',
-    onClick && cn(press, 'cursor-pointer max-lg:hover:border-ghost')
+    'min-w-0 max-md:flex-1 max-md:rounded-[12px] max-md:border max-md:border-line2 max-md:bg-bg max-md:p-[9px_11px] md:text-center',
+    onClick && cn(press, 'cursor-pointer max-md:hover:border-ghost')
   );
   const inner = (
     <>
@@ -177,7 +177,7 @@ function Count({
           e.stopPropagation();
           onClick();
         }}
-        className={cn(cls, 'text-left lg:text-center')}
+        className={cn(cls, 'text-left md:text-center')}
       >
         {inner}
       </button>
@@ -252,7 +252,7 @@ export function EventRow({
   onLock?: () => void;
 }): JSX.Element {
   const counts = (
-    <div className="ev-counts flex shrink-0 flex-wrap gap-2 lg:items-center lg:gap-[26px]">
+    <div className="ev-counts flex shrink-0 flex-wrap gap-2 md:items-center md:gap-[26px]">
       <Count value={guestCountsVisible ? kfmt(e.onList) : '—'} label={t.home.cOnList} />
       <Count value={e.requests} label={t.home.cRequests} action={e.requests > 0} onClick={onReq && (() => onReq('landing'))} />
       <Count value={e.quota} label={t.home.cQuota} action={e.quota > 0} onClick={onReq && (() => onReq('quota'))} />
@@ -260,8 +260,8 @@ export function EventRow({
     </div>
   );
   const actions = (
-    <div className="flex shrink-0 items-center gap-2 max-lg:w-full">
-      <Btn sm kind="primary" icon="arrowR" onClick={onOpen} className="max-lg:flex-1" style={{ flexDirection: 'row-reverse' }}>
+    <div className="flex shrink-0 items-center gap-2 max-md:w-full">
+      <Btn sm kind="primary" icon="arrowR" onClick={onOpen} className="max-md:flex-1" style={{ flexDirection: 'row-reverse' }}>
         {t.home.aOpen}
       </Btn>
       {showDoor && <ActionBtn icon="door" title={t.home.aDoor} onClick={onDoor} />}
@@ -299,7 +299,7 @@ export function EventRow({
     <div
       onClick={onOpen}
       className={cn(
-        'evcard cursor-pointer rounded-[20px] border p-4 transition-[border-color] active:scale-[0.995] lg:flex lg:items-center lg:gap-[22px] lg:p-[18px_22px]',
+        'evcard cursor-pointer rounded-[20px] border p-4 transition-[border-color] active:scale-[0.995] md:flex md:items-center md:gap-[22px] md:p-[18px_22px]',
         e.live ? 'border-[rgba(181,166,255,0.28)]' : 'border-line bg-elev hover:border-ghost'
       )}
       style={
@@ -308,18 +308,18 @@ export function EventRow({
           : undefined
       }
     >
-      <div className="min-w-0 flex-1 max-lg:mb-[14px]">
-        <div className="flex items-start gap-2.5 lg:items-center">
-          <span className="min-w-0 font-display text-[19px] font-extrabold leading-[1.1] tracking-[-0.02em] text-text lg:text-[21px]">
+      <div className="min-w-0 flex-1 max-md:mb-[14px]">
+        <div className="flex items-start gap-2.5 md:items-center">
+          <span className="min-w-0 font-display text-[19px] font-extrabold leading-[1.1] tracking-[-0.02em] text-text md:text-[21px]">
             {e.name}
           </span>
-          <span className="ml-auto lg:ml-2">
+          <span className="ml-auto md:ml-2">
             <StatusChip e={e} />
           </span>
         </div>
         {meta}
       </div>
-      <div className="max-lg:mb-[14px]">{counts}</div>
+      <div className="max-md:mb-[14px]">{counts}</div>
       {actions}
     </div>
   );

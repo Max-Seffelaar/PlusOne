@@ -87,3 +87,11 @@ file_size_limit = "50MiB"
 
 [analytics]
 enabled = false
+
+# push-dispatch Edge Function (Fase 17 N2). verify_jwt = false on purpose: the
+# only caller is pg_net, which holds no user JWT, and a gateway JWT check would
+# be satisfied by the public anon key anyway. The real gate is the single-use
+# token each pg_net kick carries, consumed in claim_push_outbox() (20260925120100). This
+# section only configures the function; it starts no service in `supabase start`.
+[functions.push-dispatch]
+verify_jwt = false

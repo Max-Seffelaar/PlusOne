@@ -241,7 +241,7 @@ export function GuestsTab({ pinnedEventId }: { pinnedEventId?: string } = {}): J
           onToggleRegulars={() => setRegularsOnly((v) => !v)}
         />
       )}
-      <div className="flex-none px-4 lg:flex lg:items-center lg:gap-3 lg:pb-3">
+      <div className="flex-none px-4 md:flex md:items-center md:gap-3 md:pb-3">
         {hasSelection ? (
           <GuestBulkBar
             count={selected.size}
@@ -254,10 +254,10 @@ export function GuestsTab({ pinnedEventId }: { pinnedEventId?: string } = {}): J
           />
         ) : (
           <>
-            <div className="pb-[10px] lg:max-w-[300px] lg:flex-1 lg:pb-0">
+            <div className="pb-[10px] md:max-w-[300px] md:flex-1 md:pb-0">
               <Field icon="search" placeholder={t.guests.list.searchPlaceholder} value={q} onChange={setQ} />
             </div>
-            <div className="flex flex-wrap gap-2 pb-3 lg:ml-auto lg:flex-nowrap lg:pb-0">
+            <div className="flex flex-wrap gap-2 pb-3 md:ml-auto md:flex-nowrap md:pb-0">
               <Btn sm kind="primary" icon="plus" onClick={addGuestClick}>
                 {t.guests.list.addGuest}
               </Btn>

@@ -61,7 +61,7 @@ export function EventStatsPanel({
     // Desktop: two balanced columns (KPIs + arrivals · tier + per-member).
     // Mobile: the two column wrappers are plain blocks, so the original
     // single-column order (KPIs → arrivals → tier → per-member) is preserved.
-    <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-4">
+    <div className="md:grid md:grid-cols-2 md:items-start md:gap-x-4">
       <div>
         <div className="mb-4 grid grid-cols-2 gap-[10px]">
           <div className={cn('rounded-[18px] border border-line bg-elev px-4 py-[14px]', !absent && 'col-span-2')}>

@@ -24,10 +24,20 @@ export function landingIpSalt(): string {
   return DEV_SALT;
 }
 
-async function rawClientIp(): Promise<string> {
-  const h = await headers();
+/**
+ * The client IP from request headers: the first `x-forwarded-for` hop, else
+ * `x-real-ip`, else ''. On Vercel the platform overwrites `x-forwarded-for`,
+ * so the first hop is not client-spoofable there; behind any other proxy it
+ * would be. The ONE place this precedence lives (the landing throttle and the
+ * store-review login both use it), so the two can never drift apart.
+ */
+export function clientIpFromHeaders(h: Pick<Headers, 'get'>): string {
   const forwarded = h.get('x-forwarded-for');
   return (forwarded ? forwarded.split(',')[0] : h.get('x-real-ip') ?? '').trim();
+}
+
+async function rawClientIp(): Promise<string> {
+  return clientIpFromHeaders(await headers());
 }
 
 /**

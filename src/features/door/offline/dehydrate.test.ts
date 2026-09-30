@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Query } from '@tanstack/react-query';
-import { isDoorQueryKey, isStaleDoorQuery, shouldDehydrateDoorQuery } from './dehydrate';
+import type { PersistedClient } from '@tanstack/react-query-persist-client';
+import { isDoorQueryKey, isStaleDoorQuery, shouldDehydrateDoorQuery, withoutQueryErrors } from './dehydrate';
 
 const WEEK = 1000 * 60 * 60 * 24 * 7;
 const NOW = 1_760_000_000_000;
@@ -11,10 +12,14 @@ function q(over: {
   status?: 'success' | 'pending' | 'error';
   updatedAt?: number;
   observers?: number;
+  /** Defaults to data present for `success`, absent otherwise. */
+  data?: unknown;
 }): Query {
+  const status = over.status ?? 'success';
+  const data = 'data' in over ? over.data : status === 'success' ? { guests: [] } : undefined;
   return {
     queryKey: over.key ?? ['door', 'ev1'],
-    state: { status: over.status ?? 'success', dataUpdatedAt: over.updatedAt ?? NOW },
+    state: { status, data, dataUpdatedAt: data === undefined ? 0 : (over.updatedAt ?? NOW) },
     getObserversCount: () => over.observers ?? 0,
   } as unknown as Query;
 }
@@ -49,9 +54,19 @@ describe('shouldDehydrateDoorQuery (P-IDB1)', () => {
     expect(shouldDehydrateDoorQuery(q({ key: ['guests', 'ev1'] }), NOW, WEEK)).toBe(false);
   });
 
-  it('never persists a non-success query (no error/pending garbage in the blob)', () => {
+  it('never persists a query without data (no error/pending garbage in the blob)', () => {
     expect(shouldDehydrateDoorQuery(q({ status: 'error' }), NOW, WEEK)).toBe(false);
     expect(shouldDehydrateDoorQuery(q({ status: 'pending' }), NOW, WEEK)).toBe(false);
+  });
+
+  it('KEEPS a snapshot whose offline refetch failed — error status, data retained (N7)', () => {
+    // Dropping it here overwrote the IndexedDB snapshot without the guest list,
+    // so the second offline reload booted an empty door.
+    expect(shouldDehydrateDoorQuery(q({ status: 'error', data: { guests: [] } }), NOW, WEEK)).toBe(true);
+    // ...still subject to the recency gate on the age of that data.
+    expect(
+      shouldDehydrateDoorQuery(q({ status: 'error', data: { guests: [] }, updatedAt: NOW - WEEK * 12 }), NOW, WEEK),
+    ).toBe(false);
   });
 });
 
@@ -67,5 +82,33 @@ describe('isStaleDoorQuery (boot sweep)', () => {
   it('never sweeps a fresh query, and never a non-door query', () => {
     expect(isStaleDoorQuery(q({ updatedAt: NOW }), NOW, WEEK)).toBe(false);
     expect(isStaleDoorQuery(q({ key: ['guests', 'ev1'], updatedAt: NOW - WEEK * 12 }), NOW, WEEK)).toBe(false);
+  });
+});
+
+describe('withoutQueryErrors (§6 review)', () => {
+  const persisted = (state: Record<string, unknown>): PersistedClient =>
+    ({
+      buster: 'b',
+      timestamp: 1,
+      clientState: { mutations: [], queries: [{ queryKey: ['door', 'ev1'], queryHash: 'h', state }] },
+    }) as unknown as PersistedClient;
+
+  it('drops the error of a query that kept its data — data, timestamp and status stay', () => {
+    const error = new Error('Failed to fetch');
+    const out = withoutQueryErrors(
+      persisted({ status: 'error', data: { guests: [] }, dataUpdatedAt: 7, error, fetchFailureReason: error }),
+    );
+    expect(out.clientState.queries[0].state).toMatchObject({
+      status: 'error',
+      data: { guests: [] },
+      dataUpdatedAt: 7,
+      error: null,
+      fetchFailureReason: null,
+    });
+  });
+
+  it('leaves an error-free query untouched (same object)', () => {
+    const client = persisted({ status: 'success', data: { guests: [] }, dataUpdatedAt: 7, error: null });
+    expect(withoutQueryErrors(client).clientState.queries[0]).toBe(client.clientState.queries[0]);
   });
 });

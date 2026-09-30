@@ -12,6 +12,11 @@
  * range is deliberately narrow (last year through three years out) — an event
  * calendar never needs 1970. `month`/`onMonthChange` are controlled by the field
  * so typing a date moves the visible month with the keystroke.
+ *
+ * Density: touch sizes (44px arrows/caption) by default; the compact desktop
+ * sizes apply only at ≥1024px AND a fine pointer (`lg:[@media(pointer:fine)]:`),
+ * so an iPad in landscape — desktop width, finger input — keeps 44px targets
+ * (T1, design-system.md "Breakpoints & tablet").
  */
 import type { JSX } from 'react';
 import { DayPicker } from 'react-day-picker';
@@ -53,16 +58,16 @@ export function PoDayPicker({
         month: 'w-full',
         nav: 'absolute right-0 top-0 flex items-center gap-1.5',
         button_previous:
-          'flex h-[44px] w-[44px] cursor-pointer items-center justify-center rounded-[9px] border border-line bg-elev2 text-dim transition-[filter] hover:brightness-[1.25] disabled:pointer-events-none disabled:opacity-40 lg:h-[30px] lg:w-[30px]',
+          'flex h-[44px] w-[44px] cursor-pointer items-center justify-center rounded-[9px] border border-line bg-elev2 text-dim transition-[filter] hover:brightness-[1.25] disabled:pointer-events-none disabled:opacity-40 lg:[@media(pointer:fine)]:h-[30px] lg:[@media(pointer:fine)]:w-[30px]',
         button_next:
-          'flex h-[44px] w-[44px] cursor-pointer items-center justify-center rounded-[9px] border border-line bg-elev2 text-dim transition-[filter] hover:brightness-[1.25] disabled:pointer-events-none disabled:opacity-40 lg:h-[30px] lg:w-[30px]',
+          'flex h-[44px] w-[44px] cursor-pointer items-center justify-center rounded-[9px] border border-line bg-elev2 text-dim transition-[filter] hover:brightness-[1.25] disabled:pointer-events-none disabled:opacity-40 lg:[@media(pointer:fine)]:h-[30px] lg:[@media(pointer:fine)]:w-[30px]',
         chevron: 'h-4 w-4 fill-current',
         // Caption: the dropdowns sit left, the prev/next arrows stay top-right.
-        month_caption: 'flex h-[44px] items-center lg:h-[30px]',
+        month_caption: 'flex h-[44px] items-center lg:[@media(pointer:fine)]:h-[30px]',
         dropdowns: 'flex items-center gap-1.5',
         // The real <select> covers its label so the native picker opens on tap
         // (acceptable on touch, per the plan); the styled label is what you see.
-        dropdown_root: 'relative inline-flex h-[44px] items-center lg:h-[30px]',
+        dropdown_root: 'relative inline-flex h-[44px] items-center lg:[@media(pointer:fine)]:h-[30px]',
         dropdown:
           'absolute inset-0 z-10 h-full w-full cursor-pointer appearance-none opacity-0 [&>option]:bg-elev2 [&>option]:text-text',
         caption_label:
@@ -71,7 +76,7 @@ export function PoDayPicker({
         weekday: 'pb-1.5 text-center font-body text-[11px] font-bold uppercase tracking-[0.04em] text-faint',
         day: 'p-[2px] text-center',
         day_button:
-          'flex h-[40px] w-[40px] cursor-pointer items-center justify-center rounded-[10px] font-body text-[14px] text-text transition-colors hover:bg-white/[0.07] lg:h-[34px] lg:w-[34px] lg:text-[13.5px]',
+          'flex h-[40px] w-[40px] cursor-pointer items-center justify-center rounded-[10px] font-body text-[14px] text-text transition-colors hover:bg-white/[0.07] lg:[@media(pointer:fine)]:h-[34px] lg:[@media(pointer:fine)]:w-[34px] lg:[@media(pointer:fine)]:text-[13.5px]',
         today: '[&>button]:font-bold [&>button]:text-acc',
         selected: '[&>button]:bg-acc [&>button]:font-bold [&>button]:text-bg [&>button]:hover:bg-acc',
         outside: 'opacity-35',

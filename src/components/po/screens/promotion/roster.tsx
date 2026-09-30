@@ -10,7 +10,6 @@
 import { type JSX, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { fmt, t } from '@/lib/i18n';
-import { useTransientValue } from '@/lib/use-transient-value';
 import type { PoInfluencer } from '@/features/po/queries';
 import { usePoInfluencers } from '@/features/po/hooks';
 import {
@@ -21,7 +20,7 @@ import {
 } from '@/features/po/mutations';
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, Note, press, cardPress } from '../../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, Note, copyStateLabel, hitRingY6, press, cardPress, useCopyText } from '../../kit';
 import { Sheet } from '../../shell';
 
 function ErrLine({ msg }: { msg: string }): JSX.Element {
@@ -55,7 +54,7 @@ export function PromotionRoster(): JSX.Element {
       ) : list.length === 0 ? (
         <Empty text={t.links.influencersEmpty} />
       ) : (
-        <div className="flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px] lg:items-start">
+        <div className="flex flex-col gap-[9px] md:grid md:grid-cols-2 md:gap-[10px] md:items-start">
           {list.map((inf) => (
             <button
               key={inf.id}
@@ -100,8 +99,8 @@ function StatsLinkBlock({ influencer }: { influencer: PoInfluencer }): JSX.Eleme
   // The prop is a snapshot — track token presence locally after rotate/revoke.
   const [hasToken, setHasToken] = useState(influencer.hasStatsToken);
   const [freshUrl, setFreshUrl] = useState<string | null>(null);
-  const [copiedFlag, triggerCopied, clearCopied] = useTransientValue<true>(1800);
-  const copied = copiedFlag === true;
+  const [copyState, copyUrl, clearCopied] = useCopyText();
+  const copied = copyState === 'copied';
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [revoked, setRevoked] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -136,14 +135,7 @@ function StatsLinkBlock({ influencer }: { influencer: PoInfluencer }): JSX.Eleme
 
   const copy = async (): Promise<void> => {
     if (!freshUrl) return;
-    try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        await navigator.clipboard.writeText(freshUrl);
-        triggerCopied(true);
-      }
-    } catch {
-      // Clipboard blocked — the URL stays visible/selectable in the row.
-    }
+    await copyUrl(freshUrl);
   };
 
   return (
@@ -162,12 +154,15 @@ function StatsLinkBlock({ influencer }: { influencer: PoInfluencer }): JSX.Eleme
                 onClick={() => void copy()}
                 aria-label={t.links.copyAria}
                 className={cn(
+                  // 34.8px bordered button + an invisible 6px ring (kit
+                  // `hitRingY6`) = a 44.8px tap area (T1, touch).
                   'flex shrink-0 items-center gap-1.5 rounded-[10px] border px-3 py-[7px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.2]',
+                  hitRingY6,
                   copied ? 'border-acc/40 bg-acc-dim text-acc' : 'border-line text-dim',
                 )}
               >
                 <Icon name={copied ? 'check' : 'link'} size={15} />
-                {copied ? t.links.statsLinkCopied : t.links.statsLinkCopy}
+                {copyStateLabel(copyState, t.links.statsLinkCopy, t.links.statsLinkCopied)}
               </button>
             </div>
             <div className="mb-3 flex items-center gap-1.5 text-[12px] font-semibold text-acc-soft">

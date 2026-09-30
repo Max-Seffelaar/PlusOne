@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PlusOne "+1" mark: vector master for every app/PWA icon and splash.
+  Glyph outlines of "+" and "1" from Bricolage Grotesque ExtraBold (800)
+  (@fontsource/bricolage-grotesque 5.3.0, 1000 upm, no kerning pair),
+  converted to paths once at design time; no font ships with the app.
+  The viewBox is the tight ink bounding box, so "centred" always means
+  optically centred on the ink. Ink colour #16132B.
+  Regenerate every raster/vector target: node scripts/native-icons.mjs
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 768 660" width="768" height="660">
+  <path fill="#16132B" d="M274 541L145 541L145 391L0 391L0 269L145 269L145 120L274 120L274 269L420 269L420 391L274 391L274 541ZM768 660L605 660L605 226L507 226L507 85Q556 85 586 67.5Q616 50 625 0L768 0Z"/>
+</svg>

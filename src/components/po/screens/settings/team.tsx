@@ -20,8 +20,10 @@ import type { PoTeamMember } from '@/features/po/adapters';
 import { useMfaGate, isAal2Error } from '../../mfa-gate';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, Scroll, Top, press, cardPress } from '../../kit';
+import { Avatar, Btn, Empty, Field, IconBtn, Label, Loading, MiniChip, Note, RefusedAction, Scroll, Top, press, cardPress } from '../../kit';
 import { BottomBar, Sheet } from '../../shell';
+import { useIsDemoVenue } from '../../app-shell-data';
+import { DEMO_USER_ID } from '@/features/auth/demo-account';
 import { col, FormError, RolePicker } from './_shared';
 
 // ── GEBRUIKERS (pushed) — S6 Team-beheer, live ───────────────────────────────
@@ -41,6 +43,10 @@ export function Gebruikers(): JSX.Element {
   const resendInvite = usePoResendInvite();
   const resendCrew = usePoResendCrewInvite();
   const mfa = useMfaGate();
+  // Store-review demo account / demo venue (86ey6bfug): invite + resend stay
+  // visible but inert, with the refusal upfront. UX only — the invite actions
+  // and the DB guards (no invite, no new member in the demo venue) still refuse.
+  const demo = useIsDemoVenue();
 
   const [invite, setInvite] = useState(false);
   // Invite fork (86ey21vre): 'choose' = pick Team vs External crew (admins only),
@@ -63,6 +69,7 @@ export function Gebruikers(): JSX.Element {
   const billingLock = useBillingBlocked();
   // Admins choose Team vs External crew; a user_manager can only invite Team.
   const startInvite = (): void => {
+    if (demo) return;
     resetInviteForm();
     setInviteKind(callerIsAdmin ? 'choose' : 'team');
     setInvite(true);
@@ -94,7 +101,7 @@ export function Gebruikers(): JSX.Element {
   }
 
   // ── Invite sub-form (fork: choose → team | crew, 86ey21vre) ──
-  if (invite) {
+  if (invite && !demo) {
     // Step 1 — admin chooser: Venue user (Team) vs External crew.
     if (inviteKind === 'choose') {
       const chooseCard = cn('mb-3 flex w-full items-center gap-[14px] rounded-[18px] border border-line bg-elev p-4 text-left', cardPress);
@@ -283,7 +290,7 @@ export function Gebruikers(): JSX.Element {
         onBack={nav.back}
         title={t.settings.team.title}
         sub={fmt(teamCount === 1 ? t.settings.team.subOne : t.settings.team.subMany, { count: teamCount, open: openInviteCount })}
-        right={caps.manageTeam && !billingLock.blocked ? <IconBtn name="plus" onClick={startInvite} /> : undefined}
+        right={caps.manageTeam && !billingLock.blocked ? <IconBtn name="plus" disabled={demo} onClick={startInvite} /> : undefined}
       />
       <Scroll bottom={24}>
         {caps.manageTeam && billingLock.blocked && (
@@ -301,14 +308,17 @@ export function Gebruikers(): JSX.Element {
           </Note>
         )}
         {(caps.manageTeam || caps.viewQuota) && (
-          <div className="lg:mb-[18px] lg:flex lg:gap-3">
-            {caps.manageTeam && !billingLock.blocked && (
-              <Btn kind="dark" full icon="plus" className="mb-3 lg:mb-0 lg:w-auto" onClick={startInvite}>
+          <div className="md:mb-[18px] md:flex md:gap-3">
+            {caps.manageTeam && !billingLock.blocked && demo && (
+              <RefusedAction className="mb-3 md:mb-0 md:flex-1" label={t.settings.team.inviteCta} reason={t.auth.demoNoInvites} />
+            )}
+            {caps.manageTeam && !billingLock.blocked && !demo && (
+              <Btn kind="dark" full icon="plus" className="mb-3 md:mb-0 md:w-auto" onClick={startInvite}>
                 {t.settings.team.inviteCta}
               </Btn>
             )}
             {caps.viewQuota && (
-              <Btn kind="ghost" full icon="ticket" className="mb-[18px] lg:mb-0 lg:w-auto" onClick={() => nav.push('rollen')}>
+              <Btn kind="ghost" full icon="ticket" className="mb-[18px] md:mb-0 md:w-auto" onClick={() => nav.push('rollen')}>
                 {t.settings.team.quotaPerMember}
               </Btn>
             )}
@@ -322,7 +332,7 @@ export function Gebruikers(): JSX.Element {
         ) : teamCount === 0 ? (
           <Empty text={t.settings.team.teamEmpty} />
         ) : (
-          <div className="mb-5 flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px]">
+          <div className="mb-5 flex flex-col gap-[9px] md:grid md:grid-cols-2 md:gap-[10px]">
             {(team.data ?? []).map((tm) => {
               const rowInner = (
                 <>
@@ -369,7 +379,7 @@ export function Gebruikers(): JSX.Element {
         ) : crewCount === 0 ? (
           <Empty text={t.settings.team.crewEmpty} />
         ) : (
-          <div className="mb-5 flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px]">
+          <div className="mb-5 flex flex-col gap-[9px] md:grid md:grid-cols-2 md:gap-[10px]">
             {(crewQ.data ?? []).map((cm) => {
               const busy = resendCrew.isPending && resendCrew.variables === cm.userId;
               const sent = resendCrew.isSuccess && resendCrew.variables === cm.userId;
@@ -386,7 +396,7 @@ export function Gebruikers(): JSX.Element {
                     )}
                   </div>
                   {!cm.hasAccepted && callerIsAdmin && (
-                    <MiniChip onClick={() => resendCrew.mutate(cm.userId)}>
+                    <MiniChip disabled={demo} onClick={() => resendCrew.mutate(cm.userId)}>
                       {busy ? t.settings.team.resending : sent ? t.settings.team.resent : t.settings.team.resend}
                     </MiniChip>
                   )}
@@ -403,7 +413,7 @@ export function Gebruikers(): JSX.Element {
         ) : inviteCount === 0 ? (
           <Empty text={t.settings.team.invitesEmpty} />
         ) : (
-          <div className="flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px]">
+          <div className="flex flex-col gap-[9px] md:grid md:grid-cols-2 md:gap-[10px]">
             {(invitesQ.data ?? []).map((iv) => {
               const accepted = iv.status === 'accepted';
               const resendBusy = resendInvite.isPending && resendInvite.variables === iv.id;
@@ -430,7 +440,7 @@ export function Gebruikers(): JSX.Element {
                   ) : (
                     caps.manageTeam && (
                       <div className="flex shrink-0 items-center gap-[6px]">
-                        <MiniChip onClick={() => resendInvite.mutate(iv.id)}>
+                        <MiniChip disabled={demo} onClick={() => resendInvite.mutate(iv.id)}>
                           {resendBusy ? t.settings.team.resending : resendDone ? t.settings.team.resent : t.settings.team.resend}
                         </MiniChip>
                         <MiniChip
@@ -461,7 +471,7 @@ export function Gebruikers(): JSX.Element {
 }
 
 // Member action sheet: edit roles or revoke venue access. Both writes go through
-// the AAL2 + escalation + last-admin guarded venues actions; the sheet only
+// the role + escalation + last-admin guarded venues actions; the sheet only
 // offers controls the caller may use and surfaces the action's copy on refusal.
 function MemberSheet({
   member,
@@ -502,7 +512,11 @@ function MemberSheet({
         </div>
       </div>
 
-      {!canManageThis ? (
+      {member.userId === DEMO_USER_ID ? (
+        // The demo membership (86ey6bfug): the DB refuses every change to it but
+        // the seed's (a demoted or removed demo admin locks the next reviewer out).
+        <Note icon="shield">{t.auth.demoNoOwnMembership}</Note>
+      ) : !canManageThis ? (
         <Note icon="shield">{t.settings.team.sheetNoRights}</Note>
       ) : confirmRemove ? (
         <>

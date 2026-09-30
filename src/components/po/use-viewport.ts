@@ -7,6 +7,12 @@ import { useEffect, useState } from 'react';
 // Matches the breakpoint in `src/lib/ua.ts` and the S0 design (resp-app.jsx uses
 // `matchMedia('(max-width:1023px)')`).
 //
+// Tablet (T1, design-system.md "Breakpoints & tablet"): deliberately still ONE
+// breakpoint. iPad portrait (744–834px) stays in the bottom-tab chrome — and,
+// because the door branch reads this same value, on the offline-outbox door
+// (#25). iPad landscape (≥1024px) gets the sidebar. What varies inside the
+// tablet range is content layout (`md:`) and the column cap, never the chrome.
+//
 // Seed with the server's UA hint (isMobileUA) so the first paint matches, then
 // let matchMedia take over — it is the real breakpoint and corrects iPad/desktop
 // misclassification on the client. Capacitor-safe: matchMedia works in a webview.

@@ -9,11 +9,13 @@ import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { usePoVenueSettings } from '@/features/po/hooks';
 import { usePoUpdateVenueSettings } from '@/features/po/mutations';
 import { COUNTRIES } from '@/lib/countries';
+import { normalizeWebsite } from '@/features/venues/website';
 import { useNav, usePo } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, Field, IconBtn, Label, MiniChip, Note, Scroll, ToggleRow, Top, press } from '../../kit';
+import { Avatar, Btn, Empty, ExternalLink, Field, IconBtn, Label, MiniChip, Note, RefusedAction, Scroll, ToggleRow, Top, press } from '../../kit';
 import { SearchSelect, type SearchSelectOption } from '../../search-select';
 import { BottomBar } from '../../shell';
+import { useIsDemoAccount } from '../../app-shell-data';
 import { col, FormError } from './_shared';
 
 // 34px quota stepper; the ring reaches 5px past its 1px border (44x44). Minus and
@@ -28,10 +30,13 @@ const COUNTRY_OPTIONS: readonly SearchSelectOption[] = COUNTRIES.map((c) => ({ v
 export function VenueSwitch(): JSX.Element {
   const nav = useNav();
   const { myVenues, activeVenueId, switchToVenue } = usePo();
+  // Store-review demo account (86ey6bfug): "New venue" stays visible but inert,
+  // with the refusal upfront. UX only — createVenueAction + the DB guard still refuse.
+  const demo = useIsDemoAccount();
   const activeName = myVenues.find((v) => v.venueId === activeVenueId)?.venueName ?? t.settings.venueSwitch.thisVenueFallback;
   return (
     <div className={col}>
-      <Top onBack={nav.back} title={t.settings.venueSwitch.title} sub={t.settings.venueSwitch.sub} right={<IconBtn name="plus" onClick={() => nav.push('venuecreate')} />} />
+      <Top onBack={nav.back} title={t.settings.venueSwitch.title} sub={t.settings.venueSwitch.sub} right={<IconBtn name="plus" disabled={demo} onClick={() => nav.push('venuecreate')} />} />
       <Scroll bottom={24}>
         <Note icon="building">
           {t.settings.venueSwitch.notePre}
@@ -84,9 +89,13 @@ export function VenueSwitch(): JSX.Element {
             })}
           </div>
         )}
-        <Btn kind="dark" full icon="plus" className="mt-[14px]" onClick={() => nav.push('venuecreate')}>
-          {t.settings.venueSwitch.addVenue}
-        </Btn>
+        {demo ? (
+          <RefusedAction className="mt-[14px]" label={t.settings.venueSwitch.addVenue} reason={t.auth.demoNoVenues} />
+        ) : (
+          <Btn kind="dark" full icon="plus" className="mt-[14px]" onClick={() => nav.push('venuecreate')}>
+            {t.settings.venueSwitch.addVenue}
+          </Btn>
+        )}
       </Scroll>
     </div>
   );
@@ -103,10 +112,8 @@ function WebsiteField({ value, saved, onChange }: { value: string; saved: string
   const link = saved !== '' && isLinkable(saved) ? saved : null;
   if (!onChange) {
     return link ? (
-      <a
+      <ExternalLink
         href={link}
-        target="_blank"
-        rel="noopener noreferrer"
         className={cn('mb-[18px] flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]', press)}
       >
         <span className="text-faint">
@@ -114,24 +121,33 @@ function WebsiteField({ value, saved, onChange }: { value: string; saved: string
         </span>
         <span className="min-w-0 flex-1 truncate font-body text-[16px] text-acc">{link}</span>
         <Icon name="arrowR" size={17} className="text-faint" />
-      </a>
+      </ExternalLink>
     ) : (
       <Field icon="link" value="" placeholder={t.settings.venue.websiteEmpty} className="mb-[18px]" />
     );
   }
   return (
     <div className="mb-[18px]">
-      <Field icon="link" type="url" value={value} onChange={onChange} placeholder={t.settings.venue.websitePlaceholder} />
+      <Field
+        icon="link"
+        type="url"
+        value={value}
+        onChange={onChange}
+        // Show what will be saved: 'nu.nl' becomes 'https://nu.nl' (same helper as the schema).
+        onBlur={() => {
+          const normalized = normalizeWebsite(value);
+          if (normalized !== value) onChange(normalized);
+        }}
+        placeholder={t.settings.venue.websitePlaceholder}
+      />
       {link && (
-        <a
+        <ExternalLink
           href={link}
-          target="_blank"
-          rel="noopener noreferrer"
           className="mt-1 inline-flex min-h-[44px] items-center gap-[6px] font-display text-[13.5px] font-bold text-acc"
         >
           {t.settings.venue.websiteOpen}
           <Icon name="arrowR" size={15} />
-        </a>
+        </ExternalLink>
       )}
     </div>
   );
@@ -145,6 +161,7 @@ export function VenueSettings(): JSX.Element {
   const nav = useNav();
   const { roles, venueName } = usePoIdentity();
   const caps = venueCapabilities(roles);
+  const demo = useIsDemoAccount(); // UX only (86ey6bfug), see VenueSwitch
   const settingsQ = usePoVenueSettings();
   const save = usePoUpdateVenueSettings();
 
@@ -360,9 +377,13 @@ export function VenueSettings(): JSX.Element {
         {/* With one venue the venue card lands here instead of the switcher
             (z8uq9m0hw2), so "Add a new venue" has to live here too. */}
         <Label className="mb-[10px] mt-[22px]">{t.settings.venueSwitch.title}</Label>
-        <Btn kind="dark" full icon="plus" onClick={() => nav.push('venuecreate')}>
-          {t.settings.venueSwitch.addVenue}
-        </Btn>
+        {demo ? (
+          <RefusedAction label={t.settings.venueSwitch.addVenue} reason={t.auth.demoNoVenues} />
+        ) : (
+          <Btn kind="dark" full icon="plus" onClick={() => nav.push('venuecreate')}>
+            {t.settings.venueSwitch.addVenue}
+          </Btn>
+        )}
       </Scroll>
       {canEdit && (
         <BottomBar>
@@ -372,7 +393,11 @@ export function VenueSettings(): JSX.Element {
             icon="check"
             disabled={!canSave}
             className={canSave ? '' : 'opacity-[0.45]'}
-            onClick={() => save.mutate(form)}
+            onClick={() => {
+              const next = { ...form, website: normalizeWebsite(form.website) };
+              setForm(next);
+              save.mutate(next);
+            }}
           >
             {save.isPending ? t.settings.venue.saving : t.settings.venue.save}
           </Btn>

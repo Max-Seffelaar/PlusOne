@@ -10,8 +10,9 @@ import { usePoAssignCrew, usePoInviteExternalCrew, usePoSetCrewQuota, usePoRemov
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, Field, Label, MiniChip, Note, Scroll, Top, press } from '../../kit';
+import { Avatar, Btn, Empty, Field, Label, MiniChip, Note, RefusedAction, Scroll, Top, press } from '../../kit';
 import { Sheet } from '../../shell';
+import { useIsDemoVenue } from '../../app-shell-data';
 import { col } from './shared';
 
 // ── EXTERNAL CREW (pushed) — event_organizers + per-event quota (#6/#24, 86ey21vre) ──
@@ -126,6 +127,11 @@ export function Crew({ eventId }: { eventId?: string }): JSX.Element {
   const edit = usePoEventForEdit(id);
   const defaultQuota = edit.data?.defaultMemberQuota ?? 0;
   const invite = usePoInviteExternalCrew();
+  // Store-review demo account / demo venue (86ey6bfug): both ways to add crew
+  // are refused (e-mail invite: inviteExternalCrew + the invites trigger;
+  // returning crew: the event_organizers trigger, 20260925150000), so "Add
+  // crew" is inert with the refusal upfront and the sheet never opens. UX only.
+  const demo = useIsDemoVenue();
 
   const [addOpen, setAddOpen] = useState(false);
   const [email, setEmail] = useState('');
@@ -177,7 +183,7 @@ export function Crew({ eventId }: { eventId?: string }): JSX.Element {
         ) : crew.length === 0 ? (
           <Empty text={t.events.crew.empty} />
         ) : (
-          <div className="mb-5 flex flex-col gap-[9px] lg:grid lg:grid-cols-2 lg:gap-[10px]">
+          <div className="mb-5 flex flex-col gap-[9px] md:grid md:grid-cols-2 md:gap-[10px]">
             {crew.map((m) => (
               <CrewMemberRow key={m.userId} eventId={id} member={m} canManage={isAdmin} />
             ))}
@@ -186,6 +192,8 @@ export function Crew({ eventId }: { eventId?: string }): JSX.Element {
 
         {!isAdmin ? (
           <Note icon="shield">{t.events.crew.adminOnly}</Note>
+        ) : demo ? (
+          <RefusedAction className="mt-[18px]" label={t.events.crew.addHeading} reason={t.auth.demoNoInvites} />
         ) : (
           <Btn
             kind="primary"
@@ -211,7 +219,7 @@ export function Crew({ eventId }: { eventId?: string }): JSX.Element {
       </Scroll>
 
       {/* Add flow in a sheet (keeps the screen to "list + one button", S6 feedback). */}
-      {addOpen && isAdmin && (
+      {addOpen && isAdmin && !demo && (
         <Sheet onClose={() => setAddOpen(false)} center={false}>
           <div className="mb-1 font-display text-[17px] font-bold text-text">{t.events.crew.addHeading}</div>
           <p className="mb-4 text-[12.5px] leading-[1.45] text-faint">{t.events.crew.addExplainer}</p>

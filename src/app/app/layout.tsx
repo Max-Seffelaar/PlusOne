@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { PoLiveProvider, type PoIdentity } from '@/features/po/PoLiveProvider';
 import { AppShellDataProvider } from '@/components/po/app-shell-data';
 import { PlusOneAppClient } from '@/components/po/app-client';
+import { RegisterServiceWorker } from '@/components/register-sw';
 import { getOnboardingState } from '@/lib/auth/onboarding';
 import { recommendMfaIfDue } from '@/lib/auth/guards';
 import { acceptedCurrentTerms } from '@/lib/auth/consent';
@@ -19,6 +20,7 @@ import { createClient } from '@/lib/supabase/server';
 import { ROLE_LABELS, VENUE_ROLES } from '@/features/auth/roles';
 import { REQUEST_PATH_HEADER, appGateNextPath } from '@/features/auth/next-path';
 import { isMobileUA } from '@/lib/ua';
+import { REVIEW_SESSION_END_PATH, demoSessionMustEnd, isDemoReviewUser } from '@/features/auth/review-window';
 
 /**
  * Session/identity/venue resolution for the whole `/app` surface, run ONCE per
@@ -63,10 +65,22 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
   const user = await getSessionUser();
   if (!user) redirect(`/login?next=${encodeURIComponent(gateNext)}`);
 
+  // Store-review demo account (86ey6bfug): its sessions live only while the
+  // review window is open. A pure id/e-mail compare + env read, no query, so every
+  // other user pays nothing here. The route handler does the sign-out, because
+  // a Server Component cannot clear cookies.
+  if (demoSessionMustEnd(user)) redirect(REVIEW_SESSION_END_PATH);
+
   // Venue-less users go through onboarding first (#40); the wizard is responsive,
-  // so it serves mobile web too.
-  const state = await getOnboardingState();
-  if (state.step !== 'done') redirect('/onboarding');
+  // so it serves mobile web too. Never the demo account (86ey6bfug): the wizard
+  // only creates venues and sends invites, both refused for it, and it can reach
+  // an unfinished state on its own (it is admin of the demo venue, so it can
+  // PATCH settings.onboarding.completed back to false). The seed restores that
+  // flag; this keeps the reviewer in the app until it does.
+  if (!isDemoReviewUser(user)) {
+    const state = await getOnboardingState();
+    if (state.step !== 'done') redirect('/onboarding');
+  }
 
   // Best-effort: the caller's reporting venues (admin/finance) gate the
   // Statistieken entry in "Meer". Non-admin or no access → empty → hidden.
@@ -166,6 +180,8 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
           liveVenueName: active?.venueName ?? undefined,
           liveUserName: userName,
           liveUserSub: userSub,
+          // UX only (86ey6bfug): refused demo actions show their note upfront.
+          demoAccount: isDemoReviewUser(user),
         }}
       >
         {/*
@@ -188,6 +204,10 @@ export default async function AppLayout({ children }: { children: ReactNode }): 
           `tests/unit/app-shell-no-ssr-suspense.test.ts`.
         */}
         <PlusOneAppClient />
+        {/* Offline shell (N7, decision 15): the native shell cold-starts at `/app`,
+            so the worker must register here too, not only on `/door`. Renders
+            null and reads no query — a sibling of the shell, never its parent. */}
+        <RegisterServiceWorker />
         {/* Always null today (`page.tsx` renders nothing) — kept so the route
             slot stays honest and a future nested /app page still has a home. */}
         {children}

@@ -244,21 +244,29 @@ function runGate(
       child.stderr.resume();
     };
     if (pauseStderrMs > 0) {
-      // A reader that is briefly busy — a log collector, a CI runner. The pipe
-      // fills at 64 KB; anything past that is queued in the writer.
-      child.stderr.pause();
-      setTimeout(attachStderr, pauseStderrMs);
+      // A reader that is briefly busy — a log collector, a CI runner. Once the
+      // pipe's buffer is full, anything past that is queued in the writer.
+      //
+      // The reader is held with a no-op 'readable' listener, NOT a bare pause():
+      // when the child exits, node's child_process (flushStdio) resume()s every
+      // stdio stream that has no 'readable' listener, which pours a paused,
+      // listener-less stream's data into the void. Whenever the gate finished
+      // before the timer fired, that discarded its entire diagnostic and the test
+      // saw stderr === '' — a harness race, not a gate bug. A held stream keeps
+      // the bytes until the reader comes back, whichever of the two happens first.
+      const hold = () => {};
+      child.stderr.on('readable', hold);
+      setTimeout(() => {
+        child.stderr.off('readable', hold);
+        attachStderr();
+      }, pauseStderrMs);
     } else {
       attachStderr();
     }
 
-    let settled = false;
-    const done = (code: number | null) => {
-      if (settled) return;
-      settled = true;
-      resolve({ code, stdout, stderr });
-    };
-    child.on('close', (code) => setTimeout(() => done(code), 200));
+    // 'close' fires only after the process exited AND both pipes ended, and a
+    // stream emits every 'data' chunk before 'end' — so everything is in hand.
+    child.on('close', (code) => resolve({ code, stdout, stderr }));
   });
 }
 

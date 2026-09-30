@@ -9,6 +9,8 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties, JSX, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { isNativeShell } from '@/lib/platform';
+import { useTransientValue } from '@/lib/use-transient-value';
 import { t, fmt } from '@/lib/i18n';
 import type { Tier } from '@/lib/po/types';
 import { TIER_COLORS, tierInk, tintTier } from '@/lib/po/tier-colors';
@@ -242,7 +244,9 @@ export function Btn({
         desktop ? 'rounded-[12px]' : 'rounded-btn',
         desktop ? pressDesktop : press,
         'disabled:pointer-events-none',
-        sm ? 'px-4 py-[10px] text-[14px]' : 'px-5 py-[15px] text-[16px]',
+        // sm renders 43px (10 + 21 line + 10 + 2 border): a 2px ring above and
+        // below makes the tap area 45 without changing the look.
+        sm ? cn('px-4 py-[10px] text-[14px]', hitRingY2) : 'px-5 py-[15px] text-[16px]',
         full ? 'w-full' : 'w-auto',
         BTN_KINDS[kind],
         className,
@@ -284,7 +288,10 @@ export function Seg<T extends string>({
           type="button"
           onClick={() => onChange(k)}
           className={cn(
+            // 39.5px bordered pill + an invisible 4px ring above and below = a
+            // 45.5px tap area on touch, without changing the look.
             'flex-1 cursor-pointer rounded-full border py-[9px] font-display text-[13px] font-bold transition-[filter] hover:brightness-[1.07]',
+            hitRingY4,
             value === k ? 'border-transparent bg-text text-bg' : 'border-line bg-transparent text-dim',
           )}
         >
@@ -420,6 +427,7 @@ export function Field({
   className,
   ariaLabel,
   onKeyDown,
+  onBlur,
 }: {
   icon?: IconName;
   placeholder?: string;
@@ -433,6 +441,7 @@ export function Field({
   /** Accessible name for an input with no visible label (e.g. an inline search). */
   ariaLabel?: string;
   onKeyDown?: (e: ReactKeyboardEvent<HTMLInputElement>) => void;
+  onBlur?: () => void;
 }): JSX.Element {
   return (
     <div className={cn('flex items-center gap-[11px] rounded-field border border-line bg-elev px-[15px] py-[13px]', className)}>
@@ -452,6 +461,7 @@ export function Field({
           maxLength={maxLength}
           aria-label={ariaLabel}
           onKeyDown={onKeyDown}
+          onBlur={onBlur}
           className="min-w-0 flex-1 border-none bg-transparent font-body text-[16px] text-text outline-none placeholder:text-faint"
         />
       ) : (
@@ -583,6 +593,26 @@ export function Row({
  */
 export const hitArea44 = "relative before:absolute before:-inset-[3px] before:content-['']";
 
+/**
+ * Hit rings for controls whose visible box sits a few px under 44. Same
+ * technique as `hitArea44`; the number is the inset in px, so the tap area is
+ * the padding box + 2x that. Pick the smallest one that reaches 44:
+ * (44 - visible) / 2 + border width, rounded up. Tailwind only sees literal
+ * class strings, so each size is spelled out here once and imported, never
+ * copied into a screen.
+ *
+ * `hitRingY*` grows only along y (`inset-x-0`), for pills and segments that sit
+ * side by side and must not steal taps from their horizontal neighbours; the
+ * row gap above and below has to be at least the inset. `hitRing2` grows on
+ * every side.
+ */
+export const hitRingY2 = "relative before:absolute before:-inset-y-[2px] before:inset-x-0 before:content-['']";
+export const hitRingY4 = "relative before:absolute before:-inset-y-[4px] before:inset-x-0 before:content-['']";
+export const hitRingY5 = "relative before:absolute before:-inset-y-[5px] before:inset-x-0 before:content-['']";
+export const hitRingY6 = "relative before:absolute before:-inset-y-[6px] before:inset-x-0 before:content-['']";
+export const hitRingY13 = "relative before:absolute before:-inset-y-[13px] before:inset-x-0 before:content-['']";
+export const hitRing2 = "relative before:absolute before:-inset-[2px] before:content-['']";
+
 /** The header back chip (`Top`'s `onBack`, and Home's back when it was pushed). */
 export function BackBtn({ onClick }: { onClick?: () => void }): JSX.Element {
   return (
@@ -641,9 +671,12 @@ export function IconBtn({
   onClick,
   ariaLabel,
   className,
+  disabled,
 }: {
   name: IconName;
   onClick?: () => void;
+  /** Visible but inert (e.g. an action refused for this account — pair it with a `Note` saying why). */
+  disabled?: boolean;
   /** Accessible name (also shown as a hover tooltip) for icon-only buttons with no visible label. */
   ariaLabel?: string;
   /** Size/tone overrides, e.g. `h-[44px] w-[44px]` for an in-list trigger. */
@@ -653,9 +686,10 @@ export function IconBtn({
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-label={ariaLabel}
       title={ariaLabel}
-      className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text', press, hitArea44, className)}
+      className={cn('flex h-[40px] w-[40px] items-center justify-center rounded-[12px] border border-line bg-elev text-text', press, hitArea44, 'disabled:pointer-events-none disabled:opacity-[0.45]', className)}
     >
       <Icon name={name} size={19} />
     </button>
@@ -754,6 +788,35 @@ export function Note({ children, icon = 'shield' }: { children: ReactNode; icon?
         <Icon name={icon} size={17} />
       </span>
       <div className="text-[12.5px] leading-[1.45] text-text">{children}</div>
+    </div>
+  );
+}
+
+// ── RefusedAction ────────────────────────────────────────────────────────────
+/**
+ * An action this viewer can see but may not use, with the reason shown upfront
+ * (86ey6bfug: the store-review demo account). The entry stays visible — a
+ * reviewer sees the feature exists — but is a disabled button with the refusal
+ * as a `Note` right under it, instead of opening a form that only fails on
+ * submit. Presentation only: the server action / DB guard stays the boundary.
+ */
+export function RefusedAction({
+  label,
+  reason,
+  icon = 'plus',
+  className,
+}: {
+  label: ReactNode;
+  reason: ReactNode;
+  icon?: IconName;
+  className?: string;
+}): JSX.Element {
+  return (
+    <div className={className} data-refused-action="">
+      <Btn kind="dark" full icon={icon} disabled className="mb-2.5 opacity-[0.45]">
+        {label}
+      </Btn>
+      <Note icon="shield">{reason}</Note>
     </div>
   );
 }
@@ -884,9 +947,11 @@ export function GuideCard({
 // ── InfoTip ──────────────────────────────────────────────────────────────────
 /**
  * A 44x44 "i" button that explains the control beside it (ADE UX round, item D).
- * One DOM node for both densities: an anchored popover from `lg:` up, a bottom
- * sheet with a dimmed backdrop below it — no media-query JS, so it behaves the
- * same in a Capacitor webview (#37). Closes on Escape, on an outside tap and on
+ * One DOM node for both densities: an anchored popover for a fine pointer from
+ * `lg:` up, a bottom sheet with a dimmed backdrop everywhere else — including an
+ * iPad in landscape, which has desktop width but a finger (T1, design-system.md
+ * "Breakpoints & tablet"). No media-query JS, so it behaves the same in a
+ * Capacitor webview (#37). Closes on Escape, on an outside tap and on
  * its own close button; the panel is wired to the button via `aria-describedby`.
  * All copy comes from the caller's i18n surface — the kit ships no strings.
  */
@@ -950,16 +1015,18 @@ export function InfoTip({
       {open && (
         <>
           {/* Touch only: the sheet gets a backdrop; the desktop popover doesn't. */}
-          <span className="fixed inset-0 z-40 bg-[rgba(6,6,8,0.6)] backdrop-blur-[2px] lg:hidden" />
+          <span className="fixed inset-0 z-40 bg-[rgba(6,6,8,0.6)] backdrop-blur-[2px] lg:[@media(pointer:fine)]:hidden" />
           <span
             id={panelId}
             role="dialog"
             aria-label={title}
             className={cn(
               // The extra bottom padding keeps the sheet's content clear of the
-              // mobile tab bar (which sits in normal flow under this overlay).
-              'fixed inset-x-0 bottom-0 z-50 block rounded-t-[22px] border border-line bg-elev p-[18px] pb-[calc(80px+env(safe-area-inset-bottom))] text-left shadow-[0_-16px_40px_rgba(0,0,0,0.55)]',
-              'lg:absolute lg:inset-x-auto lg:bottom-auto lg:left-0 lg:top-[calc(100%+6px)] lg:w-[300px] lg:rounded-[16px] lg:p-4 lg:shadow-[0_16px_40px_rgba(0,0,0,0.55)]',
+              // mobile tab bar (which sits in normal flow under this overlay);
+              // the sidebar chrome (lg) has no tab bar. Capped at the kit
+              // Sheet's 560px so a tablet doesn't get an edge-to-edge sheet.
+              'fixed inset-x-0 bottom-0 z-50 mx-auto block max-w-[560px] rounded-t-[22px] border border-line bg-elev p-[18px] pb-[calc(80px+env(safe-area-inset-bottom))] text-left shadow-[0_-16px_40px_rgba(0,0,0,0.55)] lg:pb-[calc(18px+env(safe-area-inset-bottom))]',
+              'lg:[@media(pointer:fine)]:absolute lg:[@media(pointer:fine)]:inset-x-auto lg:[@media(pointer:fine)]:bottom-auto lg:[@media(pointer:fine)]:left-0 lg:[@media(pointer:fine)]:top-[calc(100%+6px)] lg:[@media(pointer:fine)]:mx-0 lg:[@media(pointer:fine)]:w-[300px] lg:[@media(pointer:fine)]:rounded-[16px] lg:[@media(pointer:fine)]:p-4 lg:[@media(pointer:fine)]:shadow-[0_16px_40px_rgba(0,0,0,0.55)]',
             )}
           >
             <span className="block font-display text-[15.5px] font-extrabold tracking-[-0.01em] text-text">{title}</span>
@@ -968,7 +1035,7 @@ export function InfoTip({
               type="button"
               onClick={() => setOpen(false)}
               className={cn(
-                'mt-3 flex h-[44px] w-full cursor-pointer items-center justify-center rounded-[12px] border border-line font-display text-[13px] font-bold text-dim lg:h-[36px]',
+                'mt-3 flex h-[44px] w-full cursor-pointer items-center justify-center rounded-[12px] border border-line font-display text-[13px] font-bold text-dim lg:[@media(pointer:fine)]:h-[36px]',
                 press,
               )}
             >
@@ -1005,19 +1072,56 @@ export function Loading({ text = t.shared.kit.loading, className }: { text?: str
   );
 }
 
-export function MiniChip({ children, className, onClick }: { children: ReactNode; className?: string; onClick?: () => void }): JSX.Element {
+export function MiniChip({
+  children,
+  className,
+  onClick,
+  disabled,
+}: {
+  children: ReactNode;
+  className?: string;
+  onClick?: () => void;
+  /** Visible but inert: rendered as a disabled button (pair with a `Note` saying why). */
+  disabled?: boolean;
+}): JSX.Element {
   const cls = cn(
     'inline-flex items-center gap-[5px] whitespace-nowrap rounded-[7px] border border-line bg-transparent px-[9px] py-[4px] font-body text-[10.5px] font-bold tracking-[0.03em] text-dim',
     className,
   );
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} className={cn(cls, 'cursor-pointer', press)}>
+      <button type="button" onClick={onClick} disabled={disabled} className={cn(cls, 'cursor-pointer', press, 'disabled:pointer-events-none disabled:opacity-[0.45]')}>
         {children}
       </button>
     );
   }
   return <span className={cls}>{children}</span>;
+}
+
+// ── OfflineChip ──────────────────────────────────────────────────────────────
+/**
+ * The quiet "Offline" pill the shell shows at the top of the content column
+ * after a few seconds without a connection (N7 follow-up, `offline-indicator.tsx`
+ * owns when). Tapping it opens the explanation. 30px visible + 1px border, so
+ * an 8px ring above and below makes the tap area 44; the row it sits in pads
+ * 8px on top for that ring.
+ */
+export function OfflineChip({ onClick }: { onClick: () => void }): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={t.shared.offline.chipAria}
+      className={cn(
+        'po-anim-offline inline-flex h-[30px] items-center gap-[7px] rounded-full border border-line bg-elev2 px-[12px] font-body text-[12px] font-bold text-dim',
+        "relative before:absolute before:-inset-y-[8px] before:-inset-x-[2px] before:content-['']",
+        press,
+      )}
+    >
+      <SyncDot status="stale" />
+      {t.shared.offline.chip}
+    </button>
+  );
 }
 
 // ── ActionItem ───────────────────────────────────────────────────────────────
@@ -1067,5 +1171,162 @@ export function ActionItem({
         {sub && <span className="mt-px block truncate font-body text-[12px] text-faint">{sub}</span>}
       </span>
     </button>
+  );
+}
+
+// ── Webview-safe platform helpers (Fase 17 N1, decision #37) ──────────────────
+// The po surface is wrapped by Capacitor (remote-URL model). Two browser habits
+// break there: a bare `navigator.clipboard` (absent/blocked in some webviews and
+// insecure contexts) and `target="_blank"` (Capacitor loads it INSIDE the same
+// webview, with no back button on iOS). Every po screen goes through these two.
+
+/**
+ * Copy `text` to the clipboard. Never throws; resolves `true` only when the
+ * copy actually happened, so the caller can show "Copied" vs "Couldn't copy".
+ * Order: async Clipboard API → legacy `execCommand('copy')` on a detached
+ * textarea (older Android WebViews, non-secure contexts) → `false`.
+ */
+export async function copyText(text: string): Promise<boolean> {
+  if (typeof navigator !== 'undefined' && typeof navigator.clipboard?.writeText === 'function') {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Permission denied / not focused — fall through to the legacy path.
+    }
+  }
+  if (typeof document === 'undefined' || typeof document.execCommand !== 'function') return false;
+  const ta = document.createElement('textarea');
+  try {
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '0';
+    ta.style.left = '0';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    ta.remove();
+  }
+}
+
+export type CopyState = 'copied' | 'failed';
+
+/**
+ * `copyText` + the visible feedback every copy button shows: the returned state
+ * is `'copied'` or `'failed'` for `ttlMs`, then `null`. Render it on the button
+ * itself (`copyStateLabel`) — the same transient-label pattern the copy buttons
+ * already used, now with a failure state instead of a silent no-op.
+ */
+export function useCopyText(ttlMs = 1800): [CopyState | null, (text: string) => Promise<boolean>, () => void] {
+  const [state, trigger, clear] = useTransientValue<CopyState>(ttlMs);
+  const copy = async (text: string): Promise<boolean> => {
+    const ok = await copyText(text);
+    trigger(ok ? 'copied' : 'failed');
+    return ok;
+  };
+  return [state, copy, clear];
+}
+
+/** Button label for a copy state: `failed` always reads "Couldn't copy". */
+export function copyStateLabel(state: CopyState | null, idle: string, done: string): string {
+  if (state === 'copied') return done;
+  if (state === 'failed') return t.shared.kit.copyFailed;
+  return idle;
+}
+
+/**
+ * A read-only value with a trailing copy button — the MFA secret key, an
+ * invite token, anything meant to be typed or pasted elsewhere. The value
+ * stays selectable so it works even if the copy fails; the button carries a
+ * real 44px tap target (CLAUDE.md floor) via its own height rather than the
+ * `hitArea44` ring, since its width is driven by the label and never fixed.
+ */
+export function CopyableField({
+  value,
+  ariaLabel,
+  copyLabel = t.shared.kit.copyLabel,
+  copyDoneLabel = t.shared.kit.copyDone,
+  className,
+}: {
+  value: string;
+  ariaLabel: string;
+  copyLabel?: string;
+  copyDoneLabel?: string;
+  className?: string;
+}): JSX.Element {
+  const [copyState, copy] = useCopyText();
+  const copied = copyState === 'copied';
+  return (
+    <div className={cn('flex items-center gap-2 rounded-[12px] border border-line bg-elev2 py-2 pl-3 pr-2', className)}>
+      <span className="min-w-0 flex-1 select-all break-all font-mono text-[12px] text-dim">{value}</span>
+      <button
+        type="button"
+        onClick={() => void copy(value)}
+        aria-label={ariaLabel}
+        className={cn(
+          'flex h-[44px] shrink-0 items-center gap-1.5 rounded-[10px] border px-3 font-display text-[12px] font-bold',
+          press,
+          copied ? 'border-acc/40 bg-acc-dim text-acc' : 'border-line text-dim',
+        )}
+      >
+        <Icon name={copied ? 'check' : 'copy'} size={14} />
+        {copyStateLabel(copyState, copyLabel, copyDoneLabel)}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Open an external URL outside the app. Browser/PWA: a new tab
+ * (`noopener,noreferrer`). Native shell: `@capacitor/browser` — Custom Tabs on
+ * Android, SFSafariViewController on iOS — which has its own close button;
+ * `_blank` would replace the webview with no way back (decision 12).
+ *
+ * The plugin is imported lazily so the web bundle never loads it. Never
+ * throws: if the plugin is missing (an older native build) or refuses, it
+ * falls back to `window.open`. Anything but an http(s) URL is ignored.
+ */
+export function openExternal(url: string): void {
+  if (typeof window === 'undefined') return;
+  // http(s) only: Android's Browser plugin dispatches any scheme as an implicit
+  // ACTION_VIEW (`intent:`, `javascript:`…), and iOS's refusal would fall back
+  // to window.open inside the webview. Every caller today passes http(s).
+  if (!/^https?:\/\//i.test(url)) return;
+  if (isNativeShell()) {
+    const fallback = (): void => {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    };
+    void import('@capacitor/browser').then(({ Browser }) => Browser.open({ url })).catch(fallback);
+    return;
+  }
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+/**
+ * An anchor to an external URL that opens via `openExternal` — never
+ * `target="_blank"` in the po surface. `href` stays on the element so the link
+ * reads as a link (a11y, hover preview, long-press menu); the click itself is
+ * taken over so the native shell can route it to the in-app browser.
+ */
+export function ExternalLink({ href, className, children }: { href: string; className?: string; children: ReactNode }): JSX.Element {
+  return (
+    <a
+      href={href}
+      rel="noopener noreferrer"
+      className={className}
+      onClick={(e) => {
+        // Modified clicks (cmd/ctrl/shift/middle) keep the browser's own behaviour.
+        if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        openExternal(href);
+      }}
+    >
+      {children}
+    </a>
   );
 }
