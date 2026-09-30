@@ -33,6 +33,7 @@ import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
 import { useAppShellData } from './app-shell-data';
 import { NativeBackButton } from './native-back-button';
 import { PushAskCard, canReceivePush, usePushClient } from './push-client';
+import { OfflineIndicator } from './offline-indicator';
 import { appGateNextPath } from '@/features/auth/next-path';
 import { t } from '@/lib/i18n';
 
@@ -321,6 +322,11 @@ export function AppShellChrome({
         userSub={liveUserSub ?? ''}
         mainMaxClass={mainMax}
       >
+        {/* Quiet offline chip + hint (N7 follow-up). A sibling of the screen
+            slot, before it, reading no query: its offline state re-renders it
+            alone, never the door (86eykm76k). Outside the door/not-door switch
+            so a tab change keeps the offline episode instead of restarting it. */}
+        <OfflineIndicator surface={isDoorTab ? 'door' : 'app'} />
         {isDoorTab ? (
           children
         ) : (
