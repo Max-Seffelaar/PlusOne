@@ -16,7 +16,7 @@ import { isOpenGuestRequest } from '@/features/po/adapters';
 import { eventPhase } from '@/features/po/event-phase';
 import { TZ, formatTime, formatWeekdayDate } from '@/features/po/format';
 import { Icon, type IconName } from './icon';
-import { Btn, press } from './kit';
+import { Btn, hitRingY4, press } from './kit';
 
 // FE-2: these three used to hand-roll their own Intl.DateTimeFormat + TZ const
 // (drifted from adapters.ts's/door's equivalents) — now thin aliases over the
@@ -147,7 +147,11 @@ function Count({
 }): JSX.Element {
   const cls = cn(
     'min-w-0 max-md:flex-1 max-md:rounded-[12px] max-md:border max-md:border-line2 max-md:bg-bg max-md:p-[9px_11px] md:text-center',
-    onClick && cn(press, 'cursor-pointer max-md:hover:border-ghost')
+    // At >=768px this loses the mobile box and is just two text lines (~37px):
+    // an invisible 4px ring (kit `hitRingY4`) keeps the tap area >=44px on a
+    // touch tablet (1024 touch project), clear of the 8px gap to its neighbour
+    // (T1, touch). Harmless extra headroom on the already-boxed mobile layout.
+    onClick && cn(press, hitRingY4, 'cursor-pointer max-md:hover:border-ghost')
   );
   const inner = (
     <>

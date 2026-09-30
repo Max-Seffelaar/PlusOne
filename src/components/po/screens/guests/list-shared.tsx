@@ -8,7 +8,7 @@ import { DEFAULT_TIER_COLOR, tierInk, tintTier } from '@/lib/po/tier-colors';
 import { guestSourceLabel } from '@/features/po/format';
 import { t, fmt } from '@/lib/i18n';
 import { Icon } from '../../icon';
-import { Avatar, Btn, PayChip, StatusDot } from '../../kit';
+import { Avatar, Btn, PayChip, StatusDot, hitRingY6 } from '../../kit';
 import { Sheet } from '../../shell';
 import { press, cardPress, TierPill } from './_shared';
 
@@ -35,7 +35,10 @@ export function ScopeChip({
       onClick={onClick}
       aria-expanded={ariaExpanded}
       className={cn(
+        // 35px bordered chip + an invisible 6px ring (kit `hitRingY6`) = a 45px
+        // tap area on touch, without changing the look (T1, touch).
         'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-[7px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.07]',
+        hitRingY6,
         on ? 'border-transparent bg-text text-bg' : 'border-line bg-transparent text-dim',
       )}
     >

@@ -31,7 +31,7 @@ import { t, fmt } from '@/lib/i18n';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { hasFinePointer } from '@/lib/platform';
 import { Icon } from '@/components/po/icon';
-import { Avatar, Label, StatusDot, Top, Seg, cardPress } from '@/components/po/kit';
+import { Avatar, Label, StatusDot, Top, Seg, cardPress, hitRingY6 } from '@/components/po/kit';
 import { useDoor, useDoorFilters } from '../DoorProvider';
 import type { DoorGuest } from '../model';
 import { flattenCheckInItems, partsLeft, type CheckInItem, type Filter } from './checkin-items';
@@ -75,7 +75,10 @@ function TierFilterBar({
             type="button"
             onClick={() => onToggle(tier.id)}
             className={cn(
+              // 34.8px bordered chip + an invisible 6px ring (kit `hitRingY6`) = a
+              // 44.8px tap area on touch, without changing the look (T1, touch).
               'rounded-full border border-transparent px-3 py-[7px] font-display text-[12px] font-bold transition-[filter] hover:brightness-[1.07]',
+              hitRingY6,
               on && 'ring-2 ring-acc',
             )}
             style={{ background: color, color: onTier(color) }}

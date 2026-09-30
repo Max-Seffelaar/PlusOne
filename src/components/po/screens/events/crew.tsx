@@ -10,7 +10,7 @@ import { usePoAssignCrew, usePoInviteExternalCrew, usePoSetCrewQuota, usePoRemov
 import { usePoIdentity } from '@/features/po/PoLiveProvider';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Btn, Empty, Field, Label, MiniChip, Note, RefusedAction, Scroll, Top, press } from '../../kit';
+import { Avatar, Btn, Empty, Field, Label, MiniChip, Note, RefusedAction, Scroll, Top, hitRing7, press } from '../../kit';
 import { Sheet } from '../../shell';
 import { useIsDemoVenue } from '../../app-shell-data';
 import { col } from './shared';
@@ -20,7 +20,9 @@ import { col } from './shared';
 // every event already, so they're not shown here. Each crew member has a guest
 // quota (event_quotas). Add/remove/quota is admin-only (RLS, role-only since the
 // #20 2026-06-24 refinement); non-admins see a read-only list.
-const crewStep = cn('flex h-[32px] w-[32px] items-center justify-center rounded-[9px] border border-line bg-elev2 text-text', press);
+// 32x32 stepper + an invisible 7px ring (kit `hitRing7`) = a 44x44 tap area,
+// inside the strip's 8px padding and the 6px gap to the count (T1, touch).
+const crewStep = cn('flex h-[32px] w-[32px] items-center justify-center rounded-[9px] border border-line bg-elev2 text-text', press, hitRing7);
 
 /** Tiny inline error under a crew sub-form action. */
 export function CrewError({ show, text }: { show: boolean; text: string }): JSX.Element | null {
