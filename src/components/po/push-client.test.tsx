@@ -8,9 +8,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { PushMessage } from '@/features/notifications/provider';
 
-const nav = vi.hoisted(() => ({ push: vi.fn() }));
+const nav = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
 vi.mock('next/navigation', () => {
-  const router = { push: nav.push };
+  const router = { push: nav.push, replace: nav.replace };
   return { useRouter: () => router };
 });
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({}) }));
@@ -20,6 +20,8 @@ const p = vi.hoisted(() => ({
   supported: true,
   tap: null as null | ((m: PushMessage) => void),
   fg: null as null | ((m: PushMessage) => void),
+  /** What the cold-start launch read answers (default: no launch tap). */
+  launch: (async () => null) as () => Promise<PushMessage | null>,
 }));
 vi.mock('@/features/notifications/provider', () => ({
   getNotificationProvider: () => ({
@@ -27,6 +29,7 @@ vi.mock('@/features/notifications/provider', () => ({
     onRegistration: () => () => {},
     onTap: (cb: (m: PushMessage) => void) => ((p.tap = cb), () => (p.tap = null)),
     onForeground: (cb: (m: PushMessage) => void) => ((p.fg = cb), () => (p.fg = null)),
+    takeLaunchTap: () => p.launch(),
   }),
 }));
 const pc = vi.hoisted(() => ({
@@ -48,7 +51,17 @@ vi.mock('@/features/notifications/push-client', () => ({
   savePushToken: vi.fn(async () => true),
 }));
 
-import { ASK_DELAY_MS, PushAskCard, canReceivePush, usePushClient } from './push-client';
+import {
+  ASK_DELAY_MS,
+  LAUNCH_GATE_MS,
+  PUSH_NOTICE_MS,
+  PushAskCard,
+  PushNoticeToast,
+  PushOpening,
+  __resetPushLaunchForTests,
+  canReceivePush,
+  usePushClient,
+} from './push-client';
 import { t } from '@/lib/i18n';
 
 const V = '0190f0b2-7c1a-7cc3-9a61-2b3c4d5e6f70';
@@ -56,9 +69,16 @@ const V2 = '0190f0b2-7c1a-7cc3-9a61-2b3c4d5e6f7a';
 const E = '0190f0b2-7c1a-7cc3-9a61-2b3c4d5e6f71';
 
 const toast = vi.fn();
-function Harness({ canReceive = true }: { canReceive?: boolean }) {
-  const ask = usePushClient({ canReceive, activeVenueId: V, switchToVenue: venue.switch, onToast: toast });
-  return <PushAskCard ask={ask} />;
+const HOME = 'Home screen';
+/** Mirrors the chrome: the screen slot (gated by `opening`), then notice → ask card. */
+function Harness({ canReceive = true, locationKey = '/app?' }: { canReceive?: boolean; locationKey?: string }) {
+  const push = usePushClient({ canReceive, activeVenueId: V, switchToVenue: venue.switch, onToast: toast, locationKey });
+  return (
+    <>
+      {push.opening ? <PushOpening /> : <div>{HOME}</div>}
+      {push.notice ? <PushNoticeToast notice={push.notice} /> : <PushAskCard ask={push.ask} />}
+    </>
+  );
 }
 
 async function mountAndWait(props: { canReceive?: boolean } = {}, ms = ASK_DELAY_MS + 1) {
@@ -70,7 +90,10 @@ async function mountAndWait(props: { canReceive?: boolean } = {}, ms = ASK_DELAY
 
 beforeEach(() => {
   vi.useFakeTimers();
+  __resetPushLaunchForTests();
+  window.history.replaceState(null, '', '/app');
   p.supported = true;
+  p.launch = async () => null;
   pc.perm = 'default';
   pc.undecided = true;
   pc.snoozed = false;
@@ -171,10 +194,11 @@ describe('the ask', () => {
 });
 
 describe('taps and foreground receipts', () => {
-  it('a tap opens the event\'s quota queue in the active venue', async () => {
+  it('a tap opens the event\'s quota queue in the active venue — replace, so Back does not return to a screen never chosen', async () => {
     await mountAndWait({}, 0);
     act(() => p.tap!({ data: { kind: 'quota_request_created', venue_id: V, event_id: E } }));
-    expect(nav.push).toHaveBeenCalledWith(`/app/requests/quota?event=${E}`);
+    expect(nav.replace).toHaveBeenCalledWith(`/app/requests/quota?event=${E}`);
+    expect(nav.push).not.toHaveBeenCalled();
     expect(venue.switch).not.toHaveBeenCalled();
   });
 
@@ -186,18 +210,178 @@ describe('taps and foreground receipts', () => {
     expect(venue.switch).toHaveBeenCalledWith(V2, `/app/requests?event=${E}`);
     // No navigation of its own: a refused switch must stay put (switchToVenue toasts).
     expect(nav.push).not.toHaveBeenCalled();
+    expect(nav.replace).not.toHaveBeenCalled();
   });
 
   it('a malformed tap payload navigates nowhere', async () => {
     await mountAndWait({}, 0);
     act(() => p.tap!({ data: { kind: 'guest_request_created', venue_id: V, event_id: '../platform' } }));
     expect(nav.push).not.toHaveBeenCalled();
+    expect(nav.replace).not.toHaveBeenCalled();
   });
 
-  it('a foreground push becomes an in-app toast from our own copy', async () => {
+  it('a foreground push becomes an in-app notice from our own copy', async () => {
     await mountAndWait({}, 0);
     act(() => p.fg!({ data: { kind: 'quota_request_decided', venue_id: V, event_id: E, status: 'approved' } }));
-    expect(toast).toHaveBeenCalledWith(t.push.foreground.quota_request_decided);
+    expect(screen.getByText(t.push.foreground.quota_request_decided)).toBeTruthy();
+  });
+});
+
+describe('the foreground notice (Bug 6)', () => {
+  const fg = (venueId = V) => act(() => p.fg!({ data: { kind: 'quota_request_created', venue_id: venueId, event_id: E } }));
+
+  it('tapping the message opens the target and closes the notice', async () => {
+    await mountAndWait({}, 0);
+    fg();
+    fireEvent.click(screen.getByText(t.push.foreground.quota_request_created));
+    expect(nav.replace).toHaveBeenCalledWith(`/app/requests/quota?event=${E}`);
+    expect(screen.queryByText(t.push.foreground.quota_request_created)).toBeNull();
+  });
+
+  it('"View" opens the target too', async () => {
+    await mountAndWait({}, 0);
+    fg();
+    fireEvent.click(screen.getByText(t.push.foregroundView));
+    expect(nav.replace).toHaveBeenCalledWith(`/app/requests/quota?event=${E}`);
+  });
+
+  it('for another venue it goes through the venue switch, like a tap', async () => {
+    await mountAndWait({}, 0);
+    fg(V2);
+    fireEvent.click(screen.getByText(t.push.foregroundView));
+    expect(venue.switch).toHaveBeenCalledWith(V2, `/app/requests/quota?event=${E}`);
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it('× dismisses it without navigating', async () => {
+    await mountAndWait({}, 0);
+    fg();
+    fireEvent.click(screen.getByRole('button', { name: t.shared.kit.dismiss }));
+    expect(screen.queryByText(t.push.foreground.quota_request_created)).toBeNull();
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it('hides by itself after PUSH_NOTICE_MS', async () => {
+    await mountAndWait({}, 0);
+    fg();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(PUSH_NOTICE_MS - 100);
+    });
+    expect(screen.getByText(t.push.foreground.quota_request_created)).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    expect(screen.queryByText(t.push.foreground.quota_request_created)).toBeNull();
+  });
+
+  it('every control is a ≥44px target', async () => {
+    await mountAndWait({}, 0);
+    fg();
+    const buttons = screen.getAllByRole('button');
+    expect(buttons).toHaveLength(3); // message, View, ×
+    for (const b of buttons) expect(b.className).toMatch(/min-h-\[44px\]|h-\[44px\]/);
+  });
+
+  it('a malformed foreground payload shows nothing', async () => {
+    await mountAndWait({}, 0);
+    act(() => p.fg!({ data: { kind: 'quota_request_created', venue_id: V, event_id: 'nope' } }));
+    expect(screen.queryByText(t.push.foregroundView)).toBeNull();
+  });
+});
+
+describe('cold-start tap (Bug 5): straight to the target, never Home first', () => {
+  const launchTap: PushMessage = { id: 'm-1', data: { kind: 'quota_request_created', venue_id: V, event_id: E } };
+  const TARGET = `/app/requests/quota?event=${E}`;
+
+  it('shows "Opening…" — not Home — while the launch read is pending, and replaces to the exact target', async () => {
+    let answer!: (m: PushMessage | null) => void;
+    p.launch = () => new Promise((r) => (answer = r));
+    const { rerender } = render(<Harness />);
+    expect(screen.getByText(t.push.opening)).toBeTruthy();
+    expect(screen.queryByText(HOME)).toBeNull();
+    await act(async () => answer(launchTap));
+    expect(nav.replace).toHaveBeenCalledWith(TARGET);
+    expect(nav.push).not.toHaveBeenCalled();
+    // Still gated until the navigation lands…
+    expect(screen.queryByText(HOME)).toBeNull();
+    // …then the slot opens (in the real app on the target screen).
+    rerender(<Harness locationKey={`/app/requests/quota?event=${E}`} />);
+    expect(screen.queryByText(t.push.opening)).toBeNull();
+    expect(screen.getByText(HOME)).toBeTruthy();
+  });
+
+  it('no launch tap → the screen renders right away', async () => {
+    render(<Harness />);
+    await act(async () => {});
+    expect(screen.queryByText(t.push.opening)).toBeNull();
+    expect(screen.getByText(HOME)).toBeTruthy();
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it('the cap releases: a launch read that never answers cannot hang the app', async () => {
+    p.launch = () => new Promise(() => undefined);
+    render(<Harness />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LAUNCH_GATE_MS - 50);
+    });
+    expect(screen.getByText(t.push.opening)).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(screen.queryByText(t.push.opening)).toBeNull();
+    expect(screen.getByText(HOME)).toBeTruthy();
+  });
+
+  it('the cap also releases a tap whose navigation never lands', async () => {
+    p.launch = async () => launchTap;
+    render(<Harness />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LAUNCH_GATE_MS + 1);
+    });
+    expect(nav.replace).toHaveBeenCalledWith(TARGET);
+    expect(screen.getByText(HOME)).toBeTruthy();
+  });
+
+  it('a launch tap for another venue goes through switchToVenue, landing on the target', async () => {
+    p.launch = async () => ({ id: 'm-2', data: { kind: 'guest_request_created', venue_id: V2, event_id: E } });
+    render(<Harness />);
+    await act(async () => {});
+    expect(venue.switch).toHaveBeenCalledWith(V2, `/app/requests?event=${E}`);
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it('a malformed launch payload navigates nowhere and releases at once', async () => {
+    p.launch = async () => ({ id: 'm-3', data: { kind: 'quota_request_created', venue_id: V, event_id: '../platform' } });
+    render(<Harness />);
+    await act(async () => {});
+    expect(nav.replace).not.toHaveBeenCalled();
+    expect(venue.switch).not.toHaveBeenCalled();
+    expect(screen.getByText(HOME)).toBeTruthy();
+  });
+
+  it('the same tap arriving again as the retained plugin event is opened once', async () => {
+    p.launch = async () => launchTap;
+    render(<Harness />);
+    await act(async () => {});
+    act(() => p.tap!(launchTap));
+    expect(nav.replace).toHaveBeenCalledTimes(1);
+  });
+
+  it('only the first chrome of a page load is gated', async () => {
+    render(<Harness />);
+    await act(async () => {});
+    cleanup();
+    p.launch = () => new Promise(() => undefined);
+    render(<Harness />);
+    expect(screen.queryByText(t.push.opening)).toBeNull();
+    expect(screen.getByText(HOME)).toBeTruthy();
+  });
+
+  it('never gated on the web', () => {
+    p.supported = false;
+    render(<Harness />);
+    expect(screen.queryByText(t.push.opening)).toBeNull();
+    expect(screen.getByText(HOME)).toBeTruthy();
   });
 });
 

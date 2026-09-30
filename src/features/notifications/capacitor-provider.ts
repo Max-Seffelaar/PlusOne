@@ -24,12 +24,18 @@ import { PUSH_TRANSPORT, type PushDevicePlatform } from './transport';
 export const PUSH_CHANNEL_ID = 'approvals';
 /** FCM usually answers in well under a second; past this the registration counts as failed. */
 export const REGISTER_TIMEOUT_MS = 15_000;
+/** The launch-tap read is one bridge round trip; an older shell without it may
+ *  never answer, so it counts as "no launch tap" past this. */
+export const LAUNCH_TAP_TIMEOUT_MS = 1_000;
 /** A listener whose plugin load failed (a transient chunk fetch) tries again this often. */
 export const LISTEN_RETRY_MS = 2_000;
 export const LISTEN_RETRIES = 3;
 
 interface PushConfigPlugin {
   isConfigured(): Promise<{ configured: boolean }>;
+  /** Added for 86ey6bfkb (Bug 5): the FCM extras of the launch Intent, once per
+   *  tap. `{}` when there is none. Missing on shells built before it. */
+  getLaunchTarget(): Promise<{ id?: string; data?: Record<string, unknown> }>;
 }
 
 // THE THENABLE TRAP — do not "simplify" these wrappers away. A Capacitor plugin
@@ -70,8 +76,11 @@ function toPermission(status: PermissionStatus): PushPermission {
 }
 
 function toMessage(raw: unknown): PushMessage {
-  const data = (raw as { data?: unknown } | null)?.data;
-  return { data: data && typeof data === 'object' ? (data as Record<string, unknown>) : {} };
+  const r = raw as { id?: unknown; data?: unknown } | null;
+  const data = r?.data;
+  const msg: PushMessage = { data: data && typeof data === 'object' ? (data as Record<string, unknown>) : {} };
+  if (typeof r?.id === 'string' && r.id) msg.id = r.id;
+  return msg;
 }
 
 export class CapacitorPushProvider implements NotificationProvider {
@@ -223,5 +232,27 @@ export class CapacitorPushProvider implements NotificationProvider {
 
   onForeground(cb: (msg: PushMessage) => void): Unsubscribe {
     return this.listen('pushNotificationReceived', (raw) => cb(toMessage(raw)));
+  }
+
+  /** Asks the local config plugin only — not `ready()`: no push plugin load, no
+   *  channel, no Firebase. That is what makes it early enough to route before the
+   *  first screen paints (86ey6bfkb). The retained `pushNotificationActionPerformed`
+   *  for the same tap still arrives later; the caller dedupes on `id`. */
+  async takeLaunchTap(): Promise<PushMessage | null> {
+    if (!this.isSupported()) return null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), LAUNCH_TAP_TIMEOUT_MS);
+    });
+    const read = (async (): Promise<PushMessage | null> => {
+      const { plugin: config } = await this.deps.loadConfig();
+      const raw = await config.getLaunchTarget();
+      return raw && raw.data && typeof raw.data === 'object' ? toMessage(raw) : null;
+    })().catch(() => null);
+    try {
+      return await Promise.race([read, timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }

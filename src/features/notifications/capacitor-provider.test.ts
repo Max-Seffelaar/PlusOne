@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CapacitorPushProvider,
+  LAUNCH_TAP_TIMEOUT_MS,
   LISTEN_RETRY_MS,
   PUSH_CHANNEL_ID,
   REGISTER_TIMEOUT_MS,
@@ -76,19 +77,30 @@ function fakePush() {
 let push: ReturnType<typeof fakePush>;
 let configured: boolean | 'reject';
 let platform: string;
+/** What the config plugin's getLaunchTarget answers; 'missing' = an older shell (the proxy never settles). */
+let launch: { id?: string; data?: Record<string, unknown> } | 'missing' | 'reject';
+const loadConfigCalls = vi.fn();
 
 function deps(): CapacitorPushDeps {
   return {
     platform: () => platform,
     loadPush: async () => ({ plugin: capacitorProxy(push) as never }),
-    loadConfig: async () => ({
-      plugin: capacitorProxy({
+    loadConfig: async () => {
+      loadConfigCalls();
+      const methods: Record<string, unknown> = {
         isConfigured: async () => {
           if (configured === 'reject') throw new Error('"PlusOnePushConfig" plugin is not implemented on android');
           return { configured };
         },
-      }),
-    }),
+      };
+      if (launch !== 'missing') {
+        methods.getLaunchTarget = async () => {
+          if (launch === 'reject') throw new Error('"getLaunchTarget" is not implemented on android');
+          return launch;
+        };
+      }
+      return { plugin: capacitorProxy(methods) as never };
+    },
   };
 }
 
@@ -98,6 +110,8 @@ beforeEach(() => {
   push = fakePush();
   configured = true;
   platform = 'android';
+  launch = {};
+  loadConfigCalls.mockClear();
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -323,5 +337,51 @@ describe('thenable trap: a Capacitor plugin proxy must never resolve a promise (
     push.emit('pushNotificationReceived', { data: { kind: 'b' } });
     push.emit('registration', { value: 'c' });
     expect([taps, fg, regs]).toEqual([[{ kind: 'a' }], [{ kind: 'b' }], ['c']]);
+  });
+});
+
+describe('takeLaunchTap: the cold-start tap, read before the first screen (86ey6bfkb)', () => {
+  const E = '0190f0b2-7c1a-7cc3-9a61-2b3c4d5e6f71';
+
+  it('returns the launch tap with its message id, without loading the push plugin', async () => {
+    launch = { id: 'm-1', data: { kind: 'quota_request_created', venue_id: 'v', event_id: E } };
+    let loadedPush = false;
+    const p = new CapacitorPushProvider({ ...deps(), loadPush: async () => ((loadedPush = true), { plugin: capacitorProxy(push) as never }) });
+    await expect(settles(p.takeLaunchTap())).resolves.toEqual({ id: 'm-1', data: { kind: 'quota_request_created', venue_id: 'v', event_id: E } });
+    expect(loadedPush).toBe(false);
+    expect(push.createChannel).not.toHaveBeenCalled();
+  });
+
+  it('no launch tap → null', async () => {
+    await expect(settles(new CapacitorPushProvider(deps()).takeLaunchTap())).resolves.toBeNull();
+  });
+
+  it('a shell without getLaunchTarget that rejects → null', async () => {
+    launch = 'reject';
+    await expect(settles(new CapacitorPushProvider(deps()).takeLaunchTap())).resolves.toBeNull();
+  });
+
+  it('a shell whose call never answers → null after the timeout, never a hang', async () => {
+    vi.useFakeTimers();
+    launch = 'missing';
+    const read = new CapacitorPushProvider(deps()).takeLaunchTap();
+    await vi.advanceTimersByTimeAsync(LAUNCH_TAP_TIMEOUT_MS + 1);
+    await expect(read).resolves.toBeNull();
+  });
+
+  it('iOS / web → null without asking the shell', async () => {
+    platform = 'ios';
+    await expect(new CapacitorPushProvider(deps()).takeLaunchTap()).resolves.toBeNull();
+    expect(loadConfigCalls).not.toHaveBeenCalled();
+  });
+
+  it('a tap event carries the FCM message id through, for dedupe', async () => {
+    const p = new CapacitorPushProvider(deps());
+    const got: unknown[] = [];
+    p.onTap((m) => got.push(m));
+    await flush();
+    await flush();
+    push.emit('pushNotificationActionPerformed', { notification: { id: 'm-1', data: { kind: 'a' } } });
+    expect(got).toEqual([{ id: 'm-1', data: { kind: 'a' } }]);
   });
 });
