@@ -28,6 +28,9 @@ export interface PushRegistration {
 
 /** A received push. `data` is the FCM data map: ids + kind only, all strings (N2 payload). */
 export interface PushMessage {
+  /** The transport's message id (FCM `google.message_id`) when it gave one — lets
+   *  the app open one tap once when it arrives by two paths (launch + retained event). */
+  id?: string;
   data: Record<string, unknown>;
 }
 
@@ -50,6 +53,11 @@ export interface NotificationProvider {
   onTap(cb: (msg: PushMessage) => void): Unsubscribe;
   /** A push arrived while the app is in the foreground (no system notification is shown). */
   onForeground(cb: (msg: PushMessage) => void): Unsubscribe;
+  /** The notification tap that cold-started this app run, read once, straight from
+   *  the launch (no plugin/Firebase load on the way) so the shell can route before
+   *  it paints a screen. Null when there is none, when it was already taken this
+   *  run, or when this build cannot say. Never throws, never hangs. */
+  takeLaunchTap(): Promise<PushMessage | null>;
 }
 
 const noop: Unsubscribe = () => {};
@@ -77,6 +85,9 @@ export class NoopNotificationProvider implements NotificationProvider {
   }
   onForeground() {
     return noop;
+  }
+  async takeLaunchTap() {
+    return null;
   }
 }
 

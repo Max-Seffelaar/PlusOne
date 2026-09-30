@@ -17,22 +17,37 @@
  *   nothing was decided on this device yet. The account decides what: opted out
  *   → nothing; opted in but this device has no OS grant yet → the OS prompt
  *   directly, once (no explain card — they already said yes); undecided → a card
- *   that explains the value first (not while snoozed), and the OS prompt only
- *   appears after "Turn on". A denial is respected — `enablePush` records it on
- *   the device (Android 13+ still reports a first denial as askable), so the ask
- *   does not come back here; Profile is the way back in.
- * - Taps: kind + ids → a real /app URL (`push-routes.ts`). A notification for
- *   another venue goes through the chrome's own `switchToVenue` (one venue-switch
- *   path: its "Switching…", its refusal/failure toasts, its reload), landing on
- *   the target; a refused switch stays where it is.
- * - Foreground: an in-app toast from our own copy, never a system notification
- *   and never the text that travelled through FCM.
+ *   that explains the value first (not while snoozed; the chrome only renders
+ *   `PushAskCard` off the Deur tab), and the OS prompt only appears after "Turn
+ *   on". A denial is respected — `enablePush` records it on the device (Android
+ *   13+ still reports a first denial as askable), so the ask does not come back
+ *   here; Profile is the way back in.
+ * - Taps: kind + ids → a real /app URL (`push-routes.ts`), opened with
+ *   `router.replace` — Back must not return to a screen the person never chose.
+ *   A notification for another venue goes through the chrome's own
+ *   `switchToVenue` (one venue-switch path: its "Switching…", its
+ *   refusal/failure toasts, its reload), landing on the target; a refused switch
+ *   stays where it is. One tap is opened once, even when it arrives twice (the
+ *   launch read below + the push plugin's retained event): deduped on its id.
+ * - Cold start (Bug 5): the push plugin's retained tap only reaches the web app
+ *   after its lazy chunk, the Firebase check and the channel — Home had long
+ *   painted by then. So on the first chrome mount of a native page load the
+ *   screen slot shows a neutral "Opening…" while `takeLaunchTap()` (one bridge
+ *   call to the local config plugin, no Firebase) answers. No launch tap → the
+ *   screen renders at once; a tap → replace to the target, and the slot opens on
+ *   the URL change. Hard cap LAUNCH_GATE_MS either way, so it can never hang. Off
+ *   the Deur tab only (the chrome decides), and never on the web.
+ * - Foreground: an actionable in-app notice from our own copy (never a system
+ *   notification, never the text that travelled through FCM): tap it or "View"
+ *   to open the target (same rule as a tap), × to dismiss, gone by itself after
+ *   PUSH_NOTICE_MS. Rendered where the toasts go, so never on the Deur tab.
  */
-import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { t } from '@/lib/i18n';
-import { getNotificationProvider } from '@/features/notifications/provider';
+import { useTransientValue } from '@/lib/use-transient-value';
+import { getNotificationProvider, type PushMessage } from '@/features/notifications/provider';
 import { parsePushPayload, type PushPayload } from '@/features/notifications/payload';
 import {
   enablePush,
@@ -43,17 +58,49 @@ import {
   snoozePushPrompt,
   type PushAskKind,
 } from '@/features/notifications/push-client';
-import { Btn, GuideCard } from './kit';
+import { Btn, GuideCard, Loading } from './kit';
+import { Toast } from './shell';
 import { pushTargetPath } from './push-routes';
 
 /** Long enough that the card never competes with the first paint or the MFA/consent nudges. */
 export const ASK_DELAY_MS = 8000;
+/** The longest the screen slot waits on a cold-start tap before it renders anyway. */
+export const LAUNCH_GATE_MS = 1500;
+/** Foreground notice lifetime: long enough to read and reach for it. */
+export const PUSH_NOTICE_MS = 8000;
+
+// Once per page load, not per mount: a remounted chrome never gates again, and
+// React's dev double-mount shares the one native read instead of consuming it twice.
+let launchRead: Promise<PushMessage | null> | null = null;
+// Tap ids already opened this page load (launch read + retained event = one tap).
+const openedTapIds = new Set<string>();
+
+/** Tests only. */
+export function __resetPushLaunchForTests(): void {
+  launchRead = null;
+  openedTapIds.clear();
+}
 
 /** Push v1 delivers to admins + event organizers (new requests) and to the
  *  requester (decisions, i.e. staff). One gate for the ask card and the Profile
  *  row, so nobody registers a token nothing will ever target. */
 export function canReceivePush(roles: readonly string[], organizesHere: boolean): boolean {
   return roles.includes('admin') || roles.includes('staff') || organizesHere;
+}
+
+/** The actionable foreground notice (Bug 6). */
+export interface PushNotice {
+  text: string;
+  open: () => void;
+  dismiss: () => void;
+}
+
+export interface PushClient {
+  ask: PushAsk;
+  /** Foreground push waiting to be tapped, or null. */
+  notice: PushNotice | null;
+  /** A cold-start tap may still be on its way: show "Opening…", not a screen. */
+  opening: boolean;
 }
 
 export interface PushAsk {
@@ -70,6 +117,7 @@ export function usePushClient({
   activeVenueId,
   switchToVenue,
   onToast,
+  locationKey,
 }: {
   /** The user holds a role that push v1 delivers to (approvers + staff). */
   canReceive: boolean;
@@ -80,43 +128,89 @@ export function usePushClient({
   /** The chrome's venue switch (context `switchToVenue`), landing on `landing`. */
   switchToVenue: (venueId: string, landing: string) => void;
   onToast: (text: string) => void;
-}): PushAsk {
+  /** Changes on every URL change (pathname + query): ends "Opening…" once the
+   *  cold-start tap's navigation has landed. */
+  locationKey: string;
+}): PushClient {
   const router = useRouter();
   const [ask, setAsk] = useState<PushAskKind>(null);
   const [busy, setBusy] = useState(false);
+  // Decided at mount: only the first chrome of a native page load can be gated.
+  const [opening, setOpening] = useState(() => launchRead === null && getNotificationProvider().isSupported());
+  const [notice, showNotice, clearNotice] = useTransientValue<PushPayload>(PUSH_NOTICE_MS);
+  // The URL at the moment a gated tap navigated; the slot opens once it changes.
+  const gatedFrom = useRef<string | null>(null);
 
   // Listeners are registered once; they read the latest props through a ref.
-  const live = useRef({ activeVenueId, switchToVenue, onToast, router });
+  const live = useRef({ activeVenueId, switchToVenue, onToast, router, locationKey, opening });
   useEffect(() => {
-    live.current = { activeVenueId, switchToVenue, onToast, router };
-  }, [activeVenueId, switchToVenue, onToast, router]);
+    live.current = { activeVenueId, switchToVenue, onToast, router, locationKey, opening };
+  }, [activeVenueId, switchToVenue, onToast, router, locationKey, opening]);
+
+  const open = useCallback((p: PushPayload): void => {
+    const path = pushTargetPath(p);
+    const { activeVenueId: current, router: r, switchToVenue: switchVenue, locationKey: here, opening: gated } = live.current;
+    if (!current || p.venueId === current) {
+      if (gated) {
+        // Already there (same URL): nothing will change, so open the slot now.
+        if (`${window.location.pathname}${window.location.search}` === path) setOpening(false);
+        else gatedFrom.current = here;
+      }
+      r.replace(path);
+    } else {
+      switchVenue(p.venueId, path);
+    }
+  }, []);
+
+  // The gated tap's navigation landed → show the target.
+  useEffect(() => {
+    if (opening && gatedFrom.current !== null && locationKey !== gatedFrom.current) setOpening(false);
+  }, [opening, locationKey]);
 
   useEffect(() => {
     const provider = getNotificationProvider();
     if (!provider.isSupported()) return;
     const supabase = createClient();
+    let cancelled = false;
 
-    const open = (p: PushPayload): void => {
-      const path = pushTargetPath(p);
-      const { activeVenueId: current, router: r, switchToVenue: switchVenue } = live.current;
-      if (!current || p.venueId === current) r.push(path);
-      else switchVenue(p.venueId, path);
+    /** true when the message was a valid tap (opened now or already). */
+    const tap = (msg: PushMessage): boolean => {
+      const p = parsePushPayload(msg.data);
+      if (!p) return false;
+      if (msg.id) {
+        if (openedTapIds.has(msg.id)) return true;
+        openedTapIds.add(msg.id);
+      }
+      open(p);
+      return true;
     };
 
     const offs = [
       provider.onRegistration((reg) => void savePushToken(supabase, reg).catch(() => undefined)),
-      provider.onTap((msg) => {
-        const p = parsePushPayload(msg.data);
-        if (p) open(p);
-      }),
+      provider.onTap((msg) => void tap(msg)),
       provider.onForeground((msg) => {
         const p = parsePushPayload(msg.data);
-        if (p) live.current.onToast(t.push.foreground[p.kind]);
+        if (p) showNotice(p);
       }),
     ];
 
+    // Cold start: the gate is up (initial state); settle it from the launch read.
+    let gateTimer: ReturnType<typeof setTimeout> | undefined;
+    if (live.current.opening) {
+      const release = (): void => {
+        if (!cancelled) setOpening(false);
+      };
+      gateTimer = setTimeout(release, LAUNCH_GATE_MS);
+      launchRead ??= provider.takeLaunchTap().catch(() => null);
+      void launchRead.then((msg) => {
+        if (cancelled) return;
+        // No tap (or a malformed one): render the screen now. A tap keeps the
+        // gate until its navigation lands, or the cap.
+        if (!msg || !tap(msg)) release();
+      });
+    }
+
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let cancelled = false;
     void resumePush(supabase)
       .then(({ ask: kind }) => {
         // `kind` already folds in the OS state (`granted` counts for the card
@@ -130,9 +224,10 @@ export function usePushClient({
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      clearTimeout(gateTimer);
       for (const off of offs) off();
     };
-  }, []);
+  }, [open, showNotice]);
 
   const turnOn = useCallback((): void => {
     setBusy(true);
@@ -158,6 +253,18 @@ export function usePushClient({
     setAsk(null);
   }, []);
 
+  const pushNotice = useMemo((): PushNotice | null => {
+    if (!notice) return null;
+    return {
+      text: t.push.foreground[notice.kind],
+      open: () => {
+        clearNotice();
+        open(notice);
+      },
+      dismiss: clearNotice,
+    };
+  }, [notice, clearNotice, open]);
+
   // The account already opted in and this device has never been asked: the OS
   // prompt itself, once, off the Deur tab and only for a role push reaches.
   useEffect(() => {
@@ -166,7 +273,21 @@ export function usePushClient({
     turnOn();
   }, [ask, canReceive, onDoor, turnOn]);
 
-  return { show: ask === 'card' && canReceive, busy, turnOn, later };
+  return { ask: { show: ask === 'card' && canReceive, busy, turnOn, later }, notice: pushNotice, opening };
+}
+
+/** The foreground notice: the kit Toast with its action + dismiss slots. */
+export function PushNoticeToast({ notice }: { notice: PushNotice }): JSX.Element {
+  return (
+    <Toast action={{ label: t.push.foregroundView, onClick: notice.open }} onDismiss={notice.dismiss}>
+      {notice.text}
+    </Toast>
+  );
+}
+
+/** What the screen slot shows while a cold-start tap is resolved: neutral, never Home. */
+export function PushOpening(): JSX.Element {
+  return <Loading text={t.push.opening} className="flex-1" />;
 }
 
 /** The explain-first card. Rendered by the chrome where the Toast goes (content

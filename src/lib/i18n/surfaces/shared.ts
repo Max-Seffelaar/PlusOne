@@ -36,6 +36,8 @@ export const shared = {
     back: 'Back',
     loadingAria: 'Loading',
     loading: 'Loading…',
+    /** Toast × (accessible name). */
+    dismiss: 'Dismiss',
     /** Copy-button label when the clipboard refused (copyText → false). */
     copyFailed: "Couldn't copy",
     /** Generic copy-button idle/success labels for `CopyableField` (kit.tsx). */

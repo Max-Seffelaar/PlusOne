@@ -208,12 +208,25 @@ Decision #51 in `gastenlijst-app-spec.md`.
   delete until it goes through; a late token can never recreate the row while
   off.
 - **Tap.** Payload `kind` + ids → `/app/requests/quota?event=…` (quota created /
-  decided) or `/app/requests?event=…` (guest request). Cold start works: the
-  plugin retains the tap until the web app's listener attaches. A notification
-  for another venue goes through the chrome's venue switch, landing on the
-  target; a refused switch stays where it is and says so.
+  decided) or `/app/requests?event=…` (guest request), opened with
+  `router.replace` (Back never returns to a screen the person did not choose).
+  A notification for another venue goes through the chrome's venue switch,
+  landing on the target; a refused switch stays where it is and says so. One
+  tap is opened once (deduped on the FCM message id).
+- **Cold start (86ey6bfkb).** The push plugin retains the tap, but hands it over
+  only after its lazy chunk, the Firebase check and the channel — Home had
+  painted by then. So `PlusOnePushConfig.getLaunchTarget()` reads the launch
+  Intent's FCM extras (kind + ids + message id only, once per message per
+  process) in one bridge call, and on the first chrome mount of a native page
+  load the screen slot shows a neutral "Opening…" until it answers: no tap →
+  the screen renders; a tap → replace to the target, and the slot opens when the
+  URL changes. Hard cap 1.5 s; the read itself times out at 1 s (an older shell
+  without the method never answers). Off the Deur tab only.
 - **Foreground.** No system banner (`presentationOptions: []` in
-  `capacitor.config.ts`); the app shows its own toast.
+  `capacitor.config.ts`); the app shows its own actionable notice (kit `Toast`
+  with `action` + `onDismiss`): tap it or "View" to open the target (same rule
+  as a tap), × to dismiss, auto-hides after 8 s. Never on the Deur tab (the
+  chrome renders toasts outside it only).
 - **Android bits.** Channel `approvals` (created by the app, named as FCM's
   default in the manifest), small icon `@drawable/ic_stat_plusone` (placeholder
   plus glyph until S2), accent tint `#B5A6FF`.

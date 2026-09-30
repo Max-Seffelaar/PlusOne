@@ -32,7 +32,7 @@ import { Toast, type TabKey } from './shell';
 import { ResponsiveShell, type ShellNavItem } from './shell-responsive';
 import { useAppShellData } from './app-shell-data';
 import { NativeBackButton } from './native-back-button';
-import { PushAskCard, canReceivePush, usePushClient } from './push-client';
+import { PushAskCard, PushNoticeToast, PushOpening, canReceivePush, usePushClient } from './push-client';
 import { OfflineIndicator } from './offline-indicator';
 import { appGateNextPath } from '@/features/auth/next-path';
 import { t } from '@/lib/i18n';
@@ -235,12 +235,13 @@ export function AppShellChrome({
   // ask. No query — `canManageTemplates` above is the organizer signal. Push v1
   // delivers to admins + event organizers (new requests) and to the requester
   // (decisions, i.e. staff); nobody else is asked.
-  const pushAsk = usePushClient({
+  const push = usePushClient({
     canReceive: canReceivePush(roles, canManageTemplates),
     onDoor: isDoorTab,
     activeVenueId,
     switchToVenue,
     onToast: showTransientToast,
+    locationKey: entranceKey,
   });
 
   const navItems: ShellNavItem[] = useMemo(
@@ -333,11 +334,20 @@ export function AppShellChrome({
         ) : (
           <>
             <div key={entranceKey} className="po-screen-anim flex min-h-0 flex-1 flex-col">
-              {children}
+              {/* A cold-start notification tap opens its target, not Home first
+                  (86ey6bfkb): a capped neutral state while it resolves. */}
+              {push.opening ? <PushOpening /> : children}
             </div>
             {/* A self-clearing toast wins over a sticky one: the only overlap is a
-                venue switch, where the error REPLACES "Switching…". */}
-            {(transientToast ?? toast) ? <Toast>{transientToast ?? toast}</Toast> : <PushAskCard ask={pushAsk} />}
+                venue switch, where the error REPLACES "Switching…". A foreground
+                push notice beats the ask card. */}
+            {(transientToast ?? toast) ? (
+              <Toast>{transientToast ?? toast}</Toast>
+            ) : push.notice ? (
+              <PushNoticeToast notice={push.notice} />
+            ) : (
+              <PushAskCard ask={push.ask} />
+            )}
           </>
         )}
       </ResponsiveShell>

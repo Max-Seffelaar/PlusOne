@@ -16,6 +16,7 @@ describe('NoopNotificationProvider (web / SSR)', () => {
     await expect(p.requestPermission()).resolves.toBe('unsupported');
     await expect(p.register()).resolves.toBeNull();
     await expect(p.unregister()).resolves.toBeUndefined();
+    await expect(p.takeLaunchTap()).resolves.toBeNull();
   });
 
   it('listener registration is a harmless no-op', () => {
