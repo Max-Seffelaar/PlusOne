@@ -31,6 +31,8 @@ vi.mock('@/features/notifications/provider', () => ({
 }));
 const pc = vi.hoisted(() => ({
   perm: 'default' as string,
+  /** The account choice resumePush read (user_metadata.push_opt_in). */
+  account: null as null | boolean,
   undecided: true,
   snoozed: false,
   enableResult: 'granted' as string,
@@ -56,27 +58,36 @@ const V2 = '0190f0b2-7c1a-7cc3-9a61-2b3c4d5e6f7a';
 const E = '0190f0b2-7c1a-7cc3-9a61-2b3c4d5e6f71';
 
 const toast = vi.fn();
-function Harness({ canReceive = true }: { canReceive?: boolean }) {
-  const ask = usePushClient({ canReceive, activeVenueId: V, switchToVenue: venue.switch, onToast: toast });
+function Harness({ canReceive = true, onDoor = false }: { canReceive?: boolean; onDoor?: boolean }) {
+  const ask = usePushClient({ canReceive, onDoor, activeVenueId: V, switchToVenue: venue.switch, onToast: toast });
   return <PushAskCard ask={ask} />;
 }
 
-async function mountAndWait(props: { canReceive?: boolean } = {}, ms = ASK_DELAY_MS + 1) {
-  render(<Harness {...props} />);
+/** The ask resumePush derives (mirrors the real one; its own unit tests pin it). */
+function resumeAsk(): string | null {
+  if (!pc.undecided || pc.account === false) return null;
+  if (pc.account === true) return pc.perm === 'default' ? 'os-prompt' : null;
+  return pc.perm === 'default' || pc.perm === 'granted' ? 'card' : null;
+}
+
+async function mountAndWait(props: { canReceive?: boolean; onDoor?: boolean } = {}, ms = ASK_DELAY_MS + 1) {
+  const view = render(<Harness {...props} />);
   await act(async () => {
     await vi.advanceTimersByTimeAsync(ms);
   });
+  return view;
 }
 
 beforeEach(() => {
   vi.useFakeTimers();
   p.supported = true;
   pc.perm = 'default';
+  pc.account = null;
   pc.undecided = true;
   pc.snoozed = false;
   pc.enableResult = 'granted';
   pc.registered = true;
-  pc.resume.mockImplementation(async () => pc.perm);
+  pc.resume.mockImplementation(async () => ({ perm: pc.perm, ask: resumeAsk() }));
   pc.enable.mockImplementation(async () => ({ perm: pc.enableResult, registered: pc.enableResult === 'granted' && pc.registered }));
 });
 afterEach(() => {
@@ -167,6 +178,71 @@ describe('the ask', () => {
     pc.snoozed = true;
     await mountAndWait();
     expect(screen.queryByText(t.push.askTitle)).toBeNull();
+  });
+});
+
+describe('the account choice (86ey6bfkb): remembered across logins', () => {
+  it('opted in + OS granted → registered silently by resumePush: no card, no prompt', async () => {
+    pc.account = true;
+    pc.perm = 'granted';
+    await mountAndWait({}, ASK_DELAY_MS * 3);
+    expect(pc.resume).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(t.push.askTitle)).toBeNull();
+    expect(pc.enable).not.toHaveBeenCalled();
+  });
+
+  it('opted in + OS prompt (a new device) → the OS prompt once after the delay, no explain card', async () => {
+    pc.account = true;
+    pc.perm = 'default';
+    await mountAndWait({}, ASK_DELAY_MS - 100);
+    expect(pc.enable).not.toHaveBeenCalled(); // never at launch
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    expect(pc.enable).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(t.push.askTitle)).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ASK_DELAY_MS * 3);
+    });
+    expect(pc.enable).toHaveBeenCalledTimes(1); // once
+  });
+
+  it('opted in + OS prompt waits while the Deur tab is open, then asks once the person leaves it', async () => {
+    pc.account = true;
+    const view = await mountAndWait({ onDoor: true }, ASK_DELAY_MS * 2);
+    expect(pc.enable).not.toHaveBeenCalled();
+    await act(async () => {
+      view.rerender(<Harness onDoor={false} />);
+    });
+    expect(pc.enable).toHaveBeenCalledTimes(1);
+  });
+
+  it('opted in + OS prompt is never shown to a role push v1 does not deliver to', async () => {
+    pc.account = true;
+    await mountAndWait({ canReceive: false });
+    expect(pc.enable).not.toHaveBeenCalled();
+  });
+
+  it('opted in + OS prompt denied → the usual denial handling (toast to Profile), no card', async () => {
+    pc.account = true;
+    pc.enableResult = 'denied';
+    await mountAndWait();
+    expect(pc.enable).toHaveBeenCalledTimes(1);
+    expect(toast).toHaveBeenCalledWith(t.push.deniedToast);
+    expect(screen.queryByText(t.push.askTitle)).toBeNull();
+  });
+
+  it('opted out → never the card, never a prompt', async () => {
+    pc.account = false;
+    await mountAndWait({}, ASK_DELAY_MS * 3);
+    expect(screen.queryByText(t.push.askTitle)).toBeNull();
+    expect(pc.enable).not.toHaveBeenCalled();
+  });
+
+  it('undecided account → the explain-first card, as before', async () => {
+    await mountAndWait();
+    expect(screen.getByText(t.push.askTitle)).toBeTruthy();
+    expect(pc.enable).not.toHaveBeenCalled();
   });
 });
 

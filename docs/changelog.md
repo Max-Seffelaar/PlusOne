@@ -8,6 +8,28 @@ records (repo root), and `engineering-review-2026-07.md`.
 
 ---
 
+## 2026-09-30 — N5 follow-up: push opt-in remembered per account (86ey6bfkb)
+
+Branch `claude/86ey6bfkb-push-optin-account`, milestone Now. From Max's Android device test
+(2026-09-30): after sign-out → sign-in the "Know when a request comes in" card asked again
+every time, because `po:push` = `on` was the only record of the choice and `signOutDevice`
+wipes every `po:push*` key (which must stay: shared door tablet).
+
+- The explicit choice now also lives on the account: Supabase Auth
+  `user_metadata.push_opt_in` via `auth.updateUser` (no migration, no RLS/grant change;
+  never an authorization input). "Turn on" → true, Profile off → false; "Not now" and a
+  denial stay device-level.
+- `resumePush` returns `{ perm, ask }`: on an empty device the account decides (opted in +
+  granted → silent register; opted in + `default` → `ask: 'os-prompt'`; opted out → device
+  `off`; undecided → `ask: 'card'`). `usePushClient` takes `onDoor` and fires the direct OS
+  prompt once, after `ASK_DELAY_MS`, off the Deur tab, role-gated like the card.
+- `po:push-account` mirrors the last confirmed account value; a decisive device state that
+  differs from it is an owed write, retried on every start (offline turn-on/off, and a
+  one-time backfill for installs that chose before this existed). Writes are serialised.
+- Web-only change: no native rebuild.
+
+---
+
 ## 2026-09-30 — N7 follow-up: "Continue without internet" + quiet offline chip
 
 Branch `claude/n7-offline-ux-followup`, milestone Now. From Max's Android device test

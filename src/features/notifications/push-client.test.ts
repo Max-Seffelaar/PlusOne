@@ -58,11 +58,20 @@ type Call =
 
 const ROW_ID = '0190f0b2-7c1a-7cc3-9a61-2b3c4d5e6f99';
 
+/** The signed-in person's GoTrue `user_metadata` (what `auth.updateUser` writes
+ *  and every later client — the next login included — reads back). */
+const account = { meta: {} as Record<string, unknown> };
+
 /** A recording PostgREST stub. `hang`: deletes never answer (but honour an abort
  *  signal, like fetch). `fail`: deletes answer `{ error }`, as PostgREST does
- *  offline/on a 5xx — never a throw. `late`: deletes wait for `release()`. */
-function client(opts: { hang?: boolean; fail?: boolean; late?: boolean; session?: boolean } = {}) {
+ *  offline/on a 5xx — never a throw; offline the auth calls fail too (getUser
+ *  errors, the session's cached user still answers). `authFail`: only the auth
+ *  write/read fails. `late`: deletes wait for `release()`. Account writes are
+ *  recorded apart from `calls` (`accountWrites`). */
+function client(opts: { hang?: boolean; fail?: boolean; late?: boolean; session?: boolean; authFail?: boolean } = {}) {
   const calls: Call[] = [];
+  const accountWrites: Record<string, unknown>[] = [];
+  const authDown = opts.fail || opts.authFail;
   const pending: (() => void)[] = [];
   const from = (table: string) => {
     const filters: string[] = [];
@@ -98,15 +107,32 @@ function client(opts: { hang?: boolean; fail?: boolean; late?: boolean; session?
     };
     return b;
   };
+  // The session's copy of the user as it was when this client "logged in".
+  const cachedMeta = { ...account.meta };
   const supabase = {
     from,
     auth: {
       getSession: async () => ({
-        data: { session: opts.session === false ? null : { access_token: jwt({ sub: 'u1', session_id: SID }) } },
+        data: {
+          session:
+            opts.session === false
+              ? null
+              : { access_token: jwt({ sub: 'u1', session_id: SID }), user: { id: 'u1', user_metadata: cachedMeta } },
+        },
       }),
+      getUser: async () =>
+        authDown
+          ? { data: { user: null }, error: { message: 'fetch failed' } }
+          : { data: { user: { id: 'u1', user_metadata: { ...account.meta } } }, error: null },
+      updateUser: async ({ data }: { data: Record<string, unknown> }) => {
+        accountWrites.push(data);
+        if (authDown) return { data: { user: null }, error: { message: 'fetch failed' } };
+        account.meta = { ...account.meta, ...data };
+        return { data: { user: { id: 'u1', user_metadata: account.meta } }, error: null };
+      },
     },
   };
-  return { supabase: supabase as never, calls, release: () => pending.splice(0).forEach((f) => f()) };
+  return { supabase: supabase as never, calls, accountWrites, release: () => pending.splice(0).forEach((f) => f()) };
 }
 
 const reg = (token: string) => ({ token, transport: 'fcm' as const, platform: 'android' as const });
@@ -114,6 +140,7 @@ const reg = (token: string) => ({ token, transport: 'fcm' as const, platform: 'a
 const store = new Map<string, string>();
 beforeEach(() => {
   store.clear();
+  account.meta = {};
   __resetPushClientForTests();
   vi.stubGlobal('window', {
     localStorage: {
@@ -237,7 +264,7 @@ describe('enable / resume / denial', () => {
   it('an OS grant alone never registers (Android ≤12 grants from install): the card is the consent step', async () => {
     fake.perm = 'granted';
     const { supabase, calls } = client();
-    await expect(resumePush(supabase)).resolves.toBe('granted');
+    await expect(resumePush(supabase)).resolves.toEqual({ perm: 'granted', ask: 'card' });
     expect(fake.register).not.toHaveBeenCalled();
     expect(calls).toEqual([]);
     expect(isPushUndecided()).toBe(true);
@@ -252,7 +279,7 @@ describe('enable / resume / denial', () => {
   it('a web build (unsupported) does nothing', async () => {
     fake.supported = false;
     const { supabase, calls } = client();
-    await expect(resumePush(supabase)).resolves.toBe('unsupported');
+    await expect(resumePush(supabase)).resolves.toEqual({ perm: 'unsupported', ask: null });
     await unregisterPushForSignOut(supabase);
     await invalidatePushTransportForSignOut();
     expect(calls).toEqual([]);
@@ -267,8 +294,169 @@ describe('enable / resume / denial', () => {
     expect(isPushPromptSnoozed(now + PROMPT_SNOOZE_MS + 1)).toBe(false);
     store.set('po:push', 'on');
     store.set('po:push-row', ROW_ID);
+    store.set('po:push-account', 'on');
     clearPushPrefs();
     expect(store.size).toBe(0);
+  });
+});
+
+describe('the account choice (86ey6bfkb): user_metadata.push_opt_in', () => {
+  const upserts = (calls: Call[]) => calls.filter((c) => c.op === 'upsert').length;
+
+  it('opted in + OS granted on a fresh login → registered silently: no card, no prompt, no write', async () => {
+    account.meta = { push_opt_in: true };
+    fake.perm = 'granted';
+    const { supabase, calls, accountWrites } = client();
+    await expect(resumePush(supabase)).resolves.toEqual({ perm: 'granted', ask: null });
+    expect(upserts(calls)).toBe(1);
+    expect(isPushOnHere()).toBe(true);
+    expect(fake.requestPermission).not.toHaveBeenCalled();
+    expect(accountWrites).toEqual([]);
+  });
+
+  it('opted in + OS prompt (a new device) → ask the OS directly; nothing registered or prompted by resume itself', async () => {
+    account.meta = { push_opt_in: true };
+    fake.perm = 'default';
+    const { supabase, calls, accountWrites } = client();
+    await expect(resumePush(supabase)).resolves.toEqual({ perm: 'default', ask: 'os-prompt' });
+    expect(calls).toEqual([]);
+    expect(fake.requestPermission).not.toHaveBeenCalled();
+    expect(isPushUndecided()).toBe(true);
+    // The chrome's direct prompt → granted: registered, and no redundant account write.
+    await expect(enablePush(supabase)).resolves.toEqual({ perm: 'granted', registered: true });
+    expect(accountWrites).toEqual([]);
+  });
+
+  it('opted in + the direct OS prompt denied → remembered on the device only; the account keeps its yes', async () => {
+    account.meta = { push_opt_in: true };
+    fake.requestResult = 'denied';
+    const { supabase, accountWrites } = client();
+    await resumePush(supabase);
+    await enablePush(supabase);
+    expect(isPushUndecided()).toBe(false);
+    expect(accountWrites).toEqual([]);
+    expect(account.meta).toEqual({ push_opt_in: true });
+    // Next start: decided here, so nothing is asked again.
+    await expect(resumePush(client().supabase)).resolves.toEqual({ perm: 'default', ask: null });
+  });
+
+  it('opted in + OS denied → nothing asked (Profile explains the OS setting)', async () => {
+    account.meta = { push_opt_in: true };
+    fake.perm = 'denied';
+    await expect(resumePush(client().supabase)).resolves.toEqual({ perm: 'denied', ask: null });
+  });
+
+  it.each(['default', 'granted'])('opted out (OS %s) → no card, never registered, the device reads off (Profile shows off)', async (perm) => {
+    account.meta = { push_opt_in: false };
+    fake.perm = perm;
+    const { supabase, calls, accountWrites } = client();
+    await expect(resumePush(supabase)).resolves.toEqual({ perm, ask: null });
+    expect(calls).toEqual([]);
+    expect(fake.register).not.toHaveBeenCalled();
+    expect(isPushOptedOut()).toBe(true);
+    expect(isPushOnHere()).toBe(false);
+    expect(accountWrites).toEqual([]); // off was read, not re-written
+  });
+
+  it('undecided account → the card, as before; nothing written anywhere', async () => {
+    const { supabase, calls, accountWrites } = client();
+    await expect(resumePush(supabase)).resolves.toEqual({ perm: 'default', ask: 'card' });
+    expect(calls).toEqual([]);
+    expect(accountWrites).toEqual([]);
+    expect(isPushUndecided()).toBe(true);
+  });
+
+  it('offline at login: the session\'s copy of the account decides', async () => {
+    account.meta = { push_opt_in: true };
+    fake.perm = 'granted';
+    const { supabase } = client({ authFail: true });
+    await resumePush(supabase);
+    expect(isPushOnHere()).toBe(true);
+  });
+
+  it('"Turn on" records opted-in on the account; Profile "off" records opted-out', async () => {
+    fake.perm = 'granted';
+    const on = client();
+    await enablePush(on.supabase);
+    expect(on.accountWrites).toEqual([{ push_opt_in: true }]);
+    expect(account.meta).toEqual({ push_opt_in: true });
+    const off = client();
+    await disablePush(off.supabase);
+    expect(off.accountWrites).toEqual([{ push_opt_in: false }]);
+    expect(account.meta).toEqual({ push_opt_in: false });
+  });
+
+  it('"Not now" is device-level: the account stays undecided', async () => {
+    const { supabase, accountWrites } = client();
+    await resumePush(supabase);
+    snoozePushPrompt();
+    await resumePush(supabase);
+    expect(accountWrites).toEqual([]);
+    expect(account.meta).toEqual({});
+  });
+
+  it('a failed account write never breaks turning on here; the next start retries it, once', async () => {
+    fake.perm = 'granted';
+    const offline = client({ authFail: true });
+    await expect(enablePush(offline.supabase)).resolves.toEqual({ perm: 'granted', registered: true });
+    expect(isPushOnHere()).toBe(true);
+    expect(account.meta).toEqual({});
+
+    const next = client();
+    await resumePush(next.supabase);
+    expect(next.accountWrites).toEqual([{ push_opt_in: true }]);
+    expect(account.meta).toEqual({ push_opt_in: true });
+
+    const later = client();
+    await resumePush(later.supabase);
+    expect(later.accountWrites).toEqual([]);
+  });
+
+  it('a failed account write never fails Profile "off" (the rows are gone); the next start retries it', async () => {
+    store.set('po:push', 'on');
+    store.set('po:push-account', 'on');
+    account.meta = { push_opt_in: true };
+    await expect(disablePush(client({ authFail: true }).supabase)).resolves.toBeUndefined();
+    expect(store.get('po:push')).toBe('off');
+    expect(account.meta).toEqual({ push_opt_in: true });
+    const next = client();
+    await resumePush(next.supabase);
+    expect(next.accountWrites).toEqual([{ push_opt_in: false }]);
+    expect(account.meta).toEqual({ push_opt_in: false });
+  });
+
+  it('an install that decided before the account choice existed backfills it once', async () => {
+    store.set('po:push', 'on');
+    fake.perm = 'granted';
+    const first = client();
+    await resumePush(first.supabase);
+    expect(first.accountWrites).toEqual([{ push_opt_in: true }]);
+    const second = client();
+    await resumePush(second.supabase);
+    expect(second.accountWrites).toEqual([]);
+  });
+
+  it('sign-out wipes the device keys; the next person on the device is decided by THEIR account', async () => {
+    fake.perm = 'granted';
+    await enablePush(client().supabase); // person A: on, recorded on A's account
+    expect(store.get('po:push-account')).toBe('on');
+    clearPushPrefs(); // signOutDevice's wipe
+    expect([...store.keys()].filter((k) => k.startsWith('po:push'))).toEqual([]);
+
+    // Person B, undecided: the card, not A's yes.
+    account.meta = {};
+    fake.register.mockClear();
+    const b = client();
+    await expect(resumePush(b.supabase)).resolves.toEqual({ perm: 'granted', ask: 'card' });
+    expect(fake.register).not.toHaveBeenCalled();
+    expect(isPushOnHere()).toBe(false);
+
+    // Person C, opted out elsewhere: off here too.
+    clearPushPrefs();
+    account.meta = { push_opt_in: false };
+    await resumePush(client().supabase);
+    expect(isPushOptedOut()).toBe(true);
+    expect(fake.register).not.toHaveBeenCalled();
   });
 });
 

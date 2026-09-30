@@ -7,11 +7,13 @@
  * S1b), so the Profile screen needs no platform checks of its own.
  *
  * - On: shows the OS prompt when the permission was never asked; registers.
- *   "On" means the person turned it on here — an OS grant alone (Android ≤12
- *   grants from install) still reads Off until they do.
+ *   "On" means the person turned it on here (or, after a login, their account
+ *   says they did) — an OS grant alone (Android ≤12 grants from install) still
+ *   reads Off until they do. The choice is recorded on the account too.
  * - Off: deletes this device's `push_tokens` rows, invalidates the FCM token,
- *   and remembers the choice on this device. When the delete cannot reach the
- *   server the row says so; the next start online finishes it.
+ *   and remembers the choice on this device and on the account, so the next
+ *   login does not ask again. When the delete cannot reach the server the row
+ *   says so; the next start online finishes it (and any owed account write).
  * - Blocked at OS level (Android denied twice): Android will not prompt again,
  *   so the row explains where to allow it instead of a toggle that does nothing.
  */
