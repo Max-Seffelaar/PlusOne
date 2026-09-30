@@ -77,6 +77,14 @@ WebView sat on Chromium's dead error page until the app was killed.
   says "Server trouble" when the probe gets through but `/app` keeps failing (and accepts
   an IPv6 debug origin), and the e2e spec's three fixed sleeps are polls on the real
   condition (failed candidate read + retry, empty outbox on disk).
+- **CI: layout-suite red on phone-390 home.door (2026-09-30).** The snapshot was the `+1`
+  boot screen (0 measured targets, no errors). The run's first load hits a cold dev server, and the
+  QA-1 gate `waitForSelector('aside, button')` passed on Next's dev-tools indicator, a `<button>` in an
+  open shadow root that Playwright pierces. So the suite measured the page before the `ssr:false` shell
+  chunk had mounted. It was not the door pin: every screen gets a fresh context, and Home doesn't mount
+  the door branch. Fix: the boot screen carries `data-po-boot`, and `openScreen` waits for
+  `shellMounted` (`tests/e2e/layout/shell-ready.ts`, light DOM only, boot screen gone, 120 s).
+  Regression: `tests/unit/layout-shell-ready.test.ts`.
 
 ## 2026-09-28 — QA-1: automated layout/visual suite
 
