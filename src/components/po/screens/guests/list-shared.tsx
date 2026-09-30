@@ -35,7 +35,7 @@ export function ScopeChip({
       onClick={onClick}
       aria-expanded={ariaExpanded}
       className={cn(
-        // 35px bordered chip + an invisible 6px ring (kit `hitRingY6`) = a 45px
+        // 34.8px bordered chip + an invisible 6px ring (kit `hitRingY6`) = a 44.8px
         // tap area on touch, without changing the look (T1, touch).
         'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-[7px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.07]',
         hitRingY6,
@@ -87,7 +87,11 @@ export function GuestScopeChips({
   const pastShown = allPast ? past : past.slice(0, PAST_CHIPS_CAP);
 
   return (
-    <div className="flex-none overflow-x-auto px-4 pb-3">
+    // A horizontal scroller clips on both axes, so the chips' 6px rings (kit
+    // `hitRingY6`) need room above them: 6px of top padding, taken back by a
+    // -6px margin (the look is unchanged; the strip only overlaps the empty
+    // bottom padding of `Top`). The 12px bottom padding already covers it.
+    <div className="-mt-[6px] flex-none overflow-x-auto px-4 pb-3 pt-[6px]">
       <div className="flex w-max items-center gap-1.5">
         <ScopeChip on={scope === null} onClick={() => onScope(null)}>
           {t.guests.list.allScope}
@@ -115,7 +119,9 @@ export function GuestScopeChips({
                 type="button"
                 onClick={() => setAllPast(true)}
                 className={cn(
+                  // 32.8px borderless chip + a 6px ring (kit `hitRingY6`) = 44.8px.
                   'shrink-0 whitespace-nowrap rounded-full px-3 py-[7px] font-display text-[12.5px] font-bold text-acc',
+                  hitRingY6,
                   press,
                 )}
               >
@@ -130,7 +136,9 @@ export function GuestScopeChips({
           onClick={onToggleRegulars}
           aria-pressed={regularsOnly}
           className={cn(
+            // Same 34.8px bordered chip as `ScopeChip`, same 6px ring = 44.8px (T1, touch).
             'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-[7px] font-display text-[12.5px] font-bold transition-[filter] hover:brightness-[1.07]',
+            hitRingY6,
             regularsOnly ? 'border-transparent bg-acc-dim text-acc' : 'border-line bg-transparent text-dim',
           )}
         >

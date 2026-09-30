@@ -608,9 +608,10 @@ export const hitRingY4 = "relative before:absolute before:-inset-y-[4px] before:
 export const hitRingY5 = "relative before:absolute before:-inset-y-[5px] before:inset-x-0 before:content-['']";
 export const hitRingY6 = "relative before:absolute before:-inset-y-[6px] before:inset-x-0 before:content-['']";
 export const hitRingY7 = "relative before:absolute before:-inset-y-[7px] before:inset-x-0 before:content-['']";
-export const hitRingY10 = "relative before:absolute before:-inset-y-[10px] before:inset-x-0 before:content-['']";
+export const hitRingY11 = "relative before:absolute before:-inset-y-[11px] before:inset-x-0 before:content-['']";
 export const hitRingY13 = "relative before:absolute before:-inset-y-[13px] before:inset-x-0 before:content-['']";
 export const hitRing2 = "relative before:absolute before:-inset-[2px] before:content-['']";
+export const hitRing4 = "relative before:absolute before:-inset-[4px] before:content-['']";
 export const hitRing7 = "relative before:absolute before:-inset-[7px] before:content-['']";
 
 /** The header back chip (`Top`'s `onBack`, and Home's back when it was pushed). */
@@ -1098,9 +1099,10 @@ export function MiniChip({
           cls,
           'cursor-pointer',
           press,
-          // 26px chip + an invisible 10px ring (kit `hitRingY10`) = a 44px tap
-          // area on touch, without changing the look (T1, touch).
-          hitRingY10,
+          // 25.8px bordered chip (measured in Chromium) + an invisible 11px ring
+          // (kit `hitRingY11`, 10px past the 1px border) = a 45.8px tap area on
+          // touch, without changing the look (T1, touch).
+          hitRingY11,
           'disabled:pointer-events-none disabled:opacity-[0.45]',
         )}
       >

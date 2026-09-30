@@ -112,8 +112,10 @@ describe('kit hit rings reach 44 on the controls that use them', () => {
     ['events Upcoming/Past segment (QA-1)', 'h-[38px] border', kitExports.hitRingY4, 44],
     ['guests/door-checkin tier & scope chip (QA-1)', 'h-[35px] border', kitExports.hitRingY6, 45],
     ['home Alle/Vandaag/Aankomend segment (QA-1)', 'h-[40px]', kitExports.hitRingY2, 44],
-    ['MiniChip (QA-1)', 'h-[26px] border', kitExports.hitRingY10, 44],
-    ['home board card Count, desktop text (QA-1)', 'h-[36.6px]', kitExports.hitRingY4, 44.6],
+    // QA-1 CI: MiniChip is 25.8px (not 26) and hit 43.8 with a 10px ring.
+    ['MiniChip (QA-1)', 'h-[25.8px] border', kitExports.hitRingY11, 45.8],
+    ['guests Regulars / show-all scope chips (QA-1)', 'h-[34.8px] border', kitExports.hitRingY6, 44.8],
+    ['home board card Count, desktop text (QA-1)', 'h-[39.8px]', kitExports.hitRing4, 47.8],
   ];
   it.each(cases)('%s', (_name, box, ring, expected) => {
     const hit = hitBox(`w-[100px] ${box} ${ring}`);
@@ -123,6 +125,12 @@ describe('kit hit rings reach 44 on the controls that use them', () => {
 
   it('the Roles stepper ring grows both axes to 44', () => {
     expect(hitBox(`h-[42px] w-[42px] border ${kitExports.hitRing2}`)).toEqual({ w: 44, h: 44 });
+  });
+
+  it('the home board card Count grows both axes: one-digit "Quota" is 40.6px wide at md+ (QA-1)', () => {
+    const hit = hitBox(`h-[39.8px] w-[40.6px] ${kitExports.hitRing4}`);
+    expect(hit?.w).toBeCloseTo(48.6, 5);
+    expect(hit?.h).toBeCloseTo(47.8, 5);
   });
 
   it('the crew quota stepper ring grows both axes to 44 (QA-1)', () => {
