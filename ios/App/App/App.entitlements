@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Universal links (Fase 17 S4): the app claims app.plus-one.io, and the
+	     AASA file served there limits the claim to /auth/confirm + /auth/callback.
+	     Requires the Associated Domains capability on the App ID
+	     (docs/native/app-links.md). -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:app.plus-one.io</string>
+	</array>
+</dict>
+</plist>

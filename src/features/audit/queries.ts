@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { describeAuditEntry, type AuditLine } from './translate';
 
 // Server-side audit-feed reads. Everything goes through the USER-scoped client,
-// so the audit_feed view's RLS (admin/finance + AAL2, inherited from audit_log)
+// so the audit_feed view's RLS (admin/finance, role-only, inherited from audit_log)
 // decides what is visible — staff and other venues get nothing (#15/#17).
 // Filtering and the row cap run in the database, never client-side over the
 // whole log.

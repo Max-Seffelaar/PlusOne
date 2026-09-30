@@ -26,13 +26,13 @@ export interface VenueCapabilities {
   editSettings: boolean;
   /** May see the member list + invites — admin/user_manager/finance. */
   viewTeam: boolean;
-  /** May invite, change roles, remove members — admin/user_manager (+ AAL2). */
+  /** May invite, change roles, remove members — admin/user_manager (role-only). */
   manageTeam: boolean;
   /** May see other users' default quota — admin + finance (RLS quotas_select). */
   viewQuota: boolean;
-  /** May set default quota — admin only (RLS quotas_*_admin, + AAL2). */
+  /** May set default quota — admin only (RLS quotas_*_admin, role-only). */
   editQuota: boolean;
-  /** May read the immutable audit log — admin + finance (RLS audit_log_select_aal2, + AAL2). */
+  /** May read the immutable audit log — admin + finance (RLS audit_log_select_aal2 — role-only despite the name). */
   viewAudit: boolean;
   /** May erase a contact on request ("forget me", AVG art. 17) — admin only (RPC forget_contact). */
   forgetContact: boolean;

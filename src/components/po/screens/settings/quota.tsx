@@ -10,7 +10,7 @@ import { usePoSetDefaultQuota, usePoSetAllowance } from '@/features/po/mutations
 import { useMfaGate, isAal2Error } from '../../mfa-gate';
 import { useNav } from '../../context';
 import { Icon } from '../../icon';
-import { Avatar, Empty, IconBtn, Label, MiniChip, Note, Scroll, Top, press } from '../../kit';
+import { Avatar, Empty, IconBtn, Label, MiniChip, Note, Scroll, Top, hitRing2, press } from '../../kit';
 import { Sheet } from '../../shell';
 import type { PoTeamMember } from '@/features/po/adapters';
 import { col, FormError } from './_shared';
@@ -18,7 +18,7 @@ import { col, FormError } from './_shared';
 // ── GEBRUIKERS & TOELAGES (pushed) — S6 default-quota, live ───────────────────
 // Per-member DEFAULT quota (quotas.default_count, falling back to the venue
 // default). Per-event overrides (event_quotas) live on the "Toelage per event"
-// screen — out of scope here. Editing is admin-only + AAL2 (setDefaultQuota).
+// screen — out of scope here. Editing is admin-only, role-only (setDefaultQuota).
 export function Rollen(): JSX.Element {
   const nav = useNav();
   const { roles } = usePoIdentity();
@@ -75,7 +75,9 @@ function MemberQuotaRow({ member, canEdit }: { member: PoTeamMember; canEdit: bo
   const changed = value !== member.quota;
   const save = (): void =>
     setQuota.mutate({ userId: member.userId, defaultCount: value }, { onError: (e) => mfa.guard(e, save) });
-  const stepBtn = cn('flex h-[42px] w-[42px] items-center justify-center rounded-[13px] border border-line bg-elev2 text-text', press);
+  // 42px stepper + an invisible 2px ring (kit `hitRing2`) = a 44px tap area,
+  // inside the strip's 9px padding and the 14px gap to the count (T1, touch).
+  const stepBtn = cn('flex h-[42px] w-[42px] items-center justify-center rounded-[13px] border border-line bg-elev2 text-text', press, hitRing2);
 
   return (
     <div className="rounded-[16px] border border-line bg-elev p-[14px]">
