@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import capConfig from '../../capacitor.config';
+import { middlewareMatcher } from './helpers/middleware-matcher';
 import {
   APP_LINK_HOST,
   APP_LINK_PATHS,
@@ -209,13 +210,7 @@ describe('appLinkTarget (appUrlOpen filter)', () => {
 });
 
 describe('middleware matcher', () => {
-  // The live matcher, compiled the way Next compiles it (see no-stale-pwa-artifacts).
-  function matcher(): RegExp {
-    const line = /matcher:\s*\[\s*'([^']+)'/.exec(read('src/middleware.ts'));
-    if (!line) throw new Error('middleware matcher not found');
-    // Unescape the JS string literal (`\\.` in source is `\.` at runtime).
-    return new RegExp(`^${line[1].replace(/\\\\/g, '\\')}$`);
-  }
+  const matcher = middlewareMatcher;
 
   it('lets /.well-known/* through without the auth gate', () => {
     const m = matcher();
